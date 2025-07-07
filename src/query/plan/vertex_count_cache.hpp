@@ -149,8 +149,8 @@ class VertexCountCache {
 
   bool EdgeTypeIndexReady(storage::EdgeTypeId edge_type) { return db_->EdgeTypeIndexReady(edge_type); }
 
-  bool EdgeTypePropertyIndexExists(storage::EdgeTypeId edge_type, storage::PropertyId property) {
-    return db_->EdgeTypePropertyIndexExists(edge_type, property);
+  bool EdgeTypePropertyIndexReady(storage::EdgeTypeId edge_type, storage::PropertyId property) {
+    return db_->EdgeTypePropertyIndexReady(edge_type, property);
   }
 
   bool EdgePropertyIndexExists(storage::PropertyId property) { return db_->EdgePropertyIndexExists(property); }

@@ -93,8 +93,8 @@ bool InMemoryEdgeTypeIndex::CreateIndexOnePass(EdgeTypeId edge_type, utils::Skip
 
 auto InMemoryEdgeTypeIndex::PopulateIndex(EdgeTypeId edge_type, utils::SkipList<Vertex>::Accessor vertices,
                                           std::optional<SnapshotObserverInfo> const &snapshot_info,
-                                          Transaction const *tx, CheckCancelFunction cancel_check)
-    -> utils::BasicResult<IndexPopulateError> {
+                                          Transaction const *tx,
+                                          CheckCancelFunction cancel_check) -> utils::BasicResult<IndexPopulateError> {
   auto index = GetIndividualIndex(edge_type);
   if (!index) {
     MG_ASSERT(false, "It should not be possible to remove the index before populating it.");

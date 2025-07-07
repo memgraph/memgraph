@@ -138,8 +138,8 @@ inline void TryInsertLabelIndex(Vertex &vertex, LabelId label, auto &&index_acce
 auto InMemoryLabelIndex::PopulateIndex(
     LabelId label, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-    std::optional<SnapshotObserverInfo> const &snapshot_info, Transaction const *tx, CheckCancelFunction cancel_check)
-    -> utils::BasicResult<IndexPopulateError> {
+    std::optional<SnapshotObserverInfo> const &snapshot_info, Transaction const *tx,
+    CheckCancelFunction cancel_check) -> utils::BasicResult<IndexPopulateError> {
   auto index = GetIndividualIndex(label);
   if (!index) {
     MG_ASSERT(false, "It should not be possible to remove the index before populating it.");

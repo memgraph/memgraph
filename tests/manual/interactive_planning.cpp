@@ -356,8 +356,9 @@ class InteractiveDbAccessor {
 
   bool EdgeTypeIndexReady(memgraph::storage::EdgeTypeId edge_type_id) { return true; }
 
-  bool EdgeTypePropertyIndexExists(memgraph::storage::EdgeTypeId edge_type_id,
-                                   memgraph::storage::PropertyId property_id) {
+  bool EdgeTypePropertyIndexReady(memgraph::storage::EdgeTypeId edge_type_id,
+                                  memgraph::storage::PropertyId property_id) {
+    // TODO (ivan): what is this
     auto edge_type = dba_->EdgeTypeToName(edge_type_id);
     auto property = dba_->PropertyToName(property_id);
     auto key = std::make_pair(edge_type, property);

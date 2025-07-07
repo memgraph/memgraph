@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "edge_type_property_index.hpp"
+#include <cstdint>
 
 #include "utils/exceptions.hpp"
 
@@ -20,45 +21,47 @@ bool DiskEdgeTypePropertyIndex::DropIndex(EdgeTypeId /*edge_type*/, PropertyId /
   return true;
 }
 
-bool DiskEdgeTypePropertyIndex::IndexExists(EdgeTypeId /*edge_type*/, PropertyId /*property*/) const {
+bool DiskEdgeTypePropertyIndex::ActiveIndices::IndexReady(EdgeTypeId /*edge_type*/, PropertyId /*property*/) const {
   spdlog::warn("Edge-type index related operations are not yet supported using on-disk storage mode.");
   return false;
 }
 
-std::vector<std::pair<EdgeTypeId, PropertyId>> DiskEdgeTypePropertyIndex::ListIndices() const {
+std::vector<std::pair<EdgeTypeId, PropertyId>> DiskEdgeTypePropertyIndex::ActiveIndices::ListIndices(
+    uint64_t start_timestamp) const {
   spdlog::warn("Edge-type index related operations are not yet supported using on-disk storage mode.");
   return {};
 }
 
-void DiskEdgeTypePropertyIndex::UpdateOnSetProperty(Vertex * /*from_vertex*/, Vertex * /*to_vertex*/, Edge * /*edge*/,
-                                                    EdgeTypeId /*edge_type*/, PropertyId /*property*/,
-                                                    PropertyValue /*value*/, uint64_t /*timestamp*/) {
+void DiskEdgeTypePropertyIndex::ActiveIndices::UpdateOnSetProperty(Vertex * /*from_vertex*/, Vertex * /*to_vertex*/,
+                                                                   Edge * /*edge*/, EdgeTypeId /*edge_type*/,
+                                                                   PropertyId /*property*/, PropertyValue /*value*/,
+                                                                   uint64_t /*timestamp*/) {
   spdlog::warn("Edge-type index related operations are not yet supported using on-disk storage mode.");
 }
 
-uint64_t DiskEdgeTypePropertyIndex::ApproximateEdgeCount(EdgeTypeId /*edge_type*/, PropertyId /*property*/) const {
+uint64_t DiskEdgeTypePropertyIndex::ActiveIndices::ApproximateEdgeCount(EdgeTypeId /*edge_type*/,
+                                                                        PropertyId /*property*/) const {
   spdlog::warn("Edge-type index related operations are not yet supported using on-disk storage mode.");
   return 0U;
 }
 
-uint64_t DiskEdgeTypePropertyIndex::ApproximateEdgeCount(EdgeTypeId /*edge_type*/, PropertyId /*property*/,
-                                                         const PropertyValue & /*value*/) const {
+uint64_t DiskEdgeTypePropertyIndex::ActiveIndices::ApproximateEdgeCount(EdgeTypeId /*edge_type*/,
+                                                                        PropertyId /*property*/,
+                                                                        const PropertyValue & /*value*/) const {
   spdlog::warn("Edge-type index related operations are not yet supported using on-disk storage mode.");
   return 0U;
 };
 
-uint64_t DiskEdgeTypePropertyIndex::ApproximateEdgeCount(
+uint64_t DiskEdgeTypePropertyIndex::ActiveIndices::ApproximateEdgeCount(
     EdgeTypeId /*edge_type*/, PropertyId /*property*/, const std::optional<utils::Bound<PropertyValue>> & /*lower*/,
     const std::optional<utils::Bound<PropertyValue>> & /*upper*/) const {
   spdlog::warn("Edge-type index related operations are not yet supported using on-disk storage mode.");
   return 0U;
 };
 
-void DiskEdgeTypePropertyIndex::UpdateOnEdgeModification(Vertex * /*old_from*/, Vertex * /*old_to*/,
-                                                         Vertex * /*new_from*/, Vertex * /*new_to*/,
-                                                         EdgeRef /*edge_ref*/, EdgeTypeId /*edge_type*/,
-                                                         PropertyId /*property*/, const PropertyValue & /*value*/,
-                                                         const Transaction & /*tx*/) {
+void DiskEdgeTypePropertyIndex::ActiveIndices::UpdateOnEdgeModification(
+    Vertex * /*old_from*/, Vertex * /*old_to*/, Vertex * /*new_from*/, Vertex * /*new_to*/, EdgeRef /*edge_ref*/,
+    EdgeTypeId /*edge_type*/, PropertyId /*property*/, const PropertyValue & /*value*/, const Transaction & /*tx*/) {
   spdlog::warn("Edge-type index related operations are not yet supported using on-disk storage mode.");
 }
 

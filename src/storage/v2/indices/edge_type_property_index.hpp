@@ -32,6 +32,37 @@ class EdgeTypePropertyIndex {
     std::map<PropertyId, std::vector<EdgeTypeId>> p2et;
   };
 
+  struct ActiveIndices {
+    virtual ~ActiveIndices() = default;
+
+    virtual void UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex, Edge *edge, EdgeTypeId edge_type,
+                                     PropertyId property, PropertyValue value, uint64_t timestamp) = 0;
+    // TODO (ivan): why is this missing?
+    // virtual void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
+    //                                   const Transaction &tx) = 0;
+
+    virtual void UpdateOnEdgeModification(Vertex *old_from, Vertex *old_to, Vertex *new_from, Vertex *new_to,
+                                          EdgeRef edge_ref, EdgeTypeId edge_type, PropertyId property,
+                                          const PropertyValue &value, const Transaction &tx) = 0;
+
+    virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property) const = 0;
+
+    virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property,
+                                          const PropertyValue &value) const = 0;
+
+    virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property,
+                                          const std::optional<utils::Bound<PropertyValue>> &lower,
+                                          const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
+
+    virtual bool IndexReady(EdgeTypeId edge_type, PropertyId property) const = 0;
+
+    virtual auto ListIndices(uint64_t start_timestamp) const -> std::vector<std::pair<EdgeTypeId, PropertyId>> = 0;
+  };
+
+  virtual auto GetActiveIndices() const -> std::unique_ptr<ActiveIndices> = 0;
+
+  // TODO (ivan): why no AbortProcessor here?
+
   EdgeTypePropertyIndex() = default;
 
   EdgeTypePropertyIndex(const EdgeTypePropertyIndex &) = delete;
@@ -42,26 +73,6 @@ class EdgeTypePropertyIndex {
   virtual ~EdgeTypePropertyIndex() = default;
 
   virtual bool DropIndex(EdgeTypeId edge_type, PropertyId property) = 0;
-
-  virtual bool IndexExists(EdgeTypeId edge_type, PropertyId property) const = 0;
-
-  virtual std::vector<std::pair<EdgeTypeId, PropertyId>> ListIndices() const = 0;
-
-  virtual void UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex, Edge *edge, EdgeTypeId edge_type,
-                                   PropertyId property, PropertyValue value, uint64_t timestamp) = 0;
-
-  virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property) const = 0;
-
-  virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property,
-                                        const PropertyValue &value) const = 0;
-
-  virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property,
-                                        const std::optional<utils::Bound<PropertyValue>> &lower,
-                                        const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
-
-  virtual void UpdateOnEdgeModification(Vertex *old_from, Vertex *old_to, Vertex *new_from, Vertex *new_to,
-                                        EdgeRef edge_ref, EdgeTypeId edge_type, PropertyId property,
-                                        const PropertyValue &value, const Transaction &tx) = 0;
 
   virtual void DropGraphClearIndices() = 0;
 };

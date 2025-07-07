@@ -119,6 +119,7 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "WalFilesRpc_us_90p", "type": "HighAvailability", "metric type": "Histogram"},
         {"name": "WalFilesRpc_us_99p", "type": "HighAvailability", "metric type": "Histogram"},
         {"name": "ActiveEdgeTypeIndices", "type": "Index", "metric type": "Counter"},
+        {"name": "ActiveEdgeTypePropertyIndices", "type": "Index", "metric type": "Counter"},
         {"name": "ActiveLabelIndices", "type": "Index", "metric type": "Counter"},
         {"name": "ActiveLabelPropertyIndices", "type": "Index", "metric type": "Counter"},
         {"name": "ActivePointIndices", "type": "Index", "metric type": "Counter"},

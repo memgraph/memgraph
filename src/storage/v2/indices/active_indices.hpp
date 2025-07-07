@@ -11,11 +11,13 @@
 
 #pragma once
 
-#include "storage/v2/indices/label_index.hpp"
 #include "storage/v2/indices/edge_type_index.hpp"
+#include "storage/v2/indices/edge_type_property_index.hpp"
+#include "storage/v2/indices/label_index.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
 
 #include <memory>
+#include <vector>
 
 namespace memgraph::storage {
 
@@ -23,7 +25,7 @@ struct IndicesCollection {
   std::vector<storage::LabelId> label_;
   std::vector<std::pair<storage::LabelId, std::vector<storage::PropertyPath>>> label_properties_;
   std::vector<storage::EdgeTypeId> edge_type_;
-  // TODO: edge_type + properties
+  std::vector<std::pair<storage::EdgeTypeId, storage::PropertyId>> edge_type_properties_;
   // TODO: edge properties
 };
 
@@ -31,8 +33,12 @@ struct ActiveIndices {
   ActiveIndices() = delete;  // to avoid nullptr
   explicit ActiveIndices(std::unique_ptr<LabelIndex::ActiveIndices> label,
                          std::unique_ptr<LabelPropertyIndex::ActiveIndices> label_properties,
-                         std::unique_ptr<EdgeTypeIndex::ActiveIndices> edge_type)
-      : label_{std::move(label)}, label_properties_{std::move(label_properties)}, edge_type_{std::move(edge_type)} {}
+                         std::unique_ptr<EdgeTypeIndex::ActiveIndices> edge_type,
+                         std::unique_ptr<EdgeTypePropertyIndex::ActiveIndices> edge_type_properties)
+      : label_{std::move(label)},
+        label_properties_{std::move(label_properties)},
+        edge_type_{std::move(edge_type)},
+        edge_type_properties_(std::move(edge_type_properties)) {}
 
   bool CheckIndicesAreReady(IndicesCollection const &required_indices) const {
     // label
@@ -50,11 +56,17 @@ struct ActiveIndices {
       if (!edge_type_->IndexReady(edge_type)) return false;
     }
 
+    // edge type + property
+    for (auto const &[edge_type, property] : required_indices.edge_type_properties_) {
+      if (!edge_type_properties_->IndexReady(edge_type, property)) return false;
+    }
+
     return true;
   }
 
   std::unique_ptr<LabelIndex::ActiveIndices> label_;
   std::unique_ptr<LabelPropertyIndex::ActiveIndices> label_properties_;
   std::unique_ptr<EdgeTypeIndex::ActiveIndices> edge_type_;
+  std::unique_ptr<EdgeTypePropertyIndex::ActiveIndices> edge_type_properties_;
 };
 }  // namespace memgraph::storage

@@ -51,7 +51,7 @@ struct Indices {
   /// TODO: unused in disk indices
   void AbortEntries(std::pair<EdgeTypeId, PropertyId> edge_type_property,
                     std::span<std::tuple<Vertex *const, Vertex *const, Edge *const, PropertyValue> const> edges,
-                    uint64_t exact_start_timestamp) const;
+                    uint64_t exact_start_timestamp, Transaction *tx) const;
 
   void DropGraphClearIndices();
 

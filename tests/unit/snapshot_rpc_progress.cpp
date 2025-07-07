@@ -437,7 +437,7 @@ TEST_F(SnapshotRpcProgressTest, TestEdgeTypePropertyIndexSingleThreadedNoVertice
   snapshot_info.emplace(mocked_observer, 3);
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
-  ASSERT_TRUE(etype_idx.CreateIndex(etype, prop, vertices.access(), snapshot_info));
+  ASSERT_TRUE(etype_idx.CreateIndexOnePass(etype, prop, vertices.access(), snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestEdgeTypePropertyIndexSingleThreadedVerticesEdges) {
@@ -465,7 +465,7 @@ TEST_F(SnapshotRpcProgressTest, TestEdgeTypePropertyIndexSingleThreadedVerticesE
   snapshot_info.emplace(mocked_observer, 3);
 
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
-  ASSERT_TRUE(etype_idx.CreateIndex(etype, prop, vertices.access(), snapshot_info));
+  ASSERT_TRUE(etype_idx.CreateIndexOnePass(etype, prop, vertices.access(), snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestPointIndexSingleThreadedNoVertices) {

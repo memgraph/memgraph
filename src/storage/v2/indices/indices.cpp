@@ -23,13 +23,14 @@
 #include "storage/v2/inmemory/label_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/transaction.hpp"
 
 namespace memgraph::storage {
 
 void Indices::AbortEntries(std::pair<EdgeTypeId, PropertyId> edge_type_property,
                            std::span<std::tuple<Vertex *const, Vertex *const, Edge *const, PropertyValue> const> edges,
-                           uint64_t exact_start_timestamp) const {
-  static_cast<InMemoryEdgeTypePropertyIndex *>(edge_type_property_index_.get())
+                           uint64_t exact_start_timestamp, Transaction *tx) const {
+  static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(tx->active_indices_.edge_type_properties_.get())
       ->AbortEntries(edge_type_property, edges, exact_start_timestamp);
   static_cast<InMemoryEdgePropertyIndex *>(edge_property_index_.get())
       ->AbortEntries(edge_type_property, edges, exact_start_timestamp);
@@ -86,8 +87,8 @@ void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &valu
 
 void Indices::UpdateOnSetProperty(EdgeTypeId edge_type, PropertyId property, const PropertyValue &value,
                                   Vertex *from_vertex, Vertex *to_vertex, Edge *edge, const Transaction &tx) const {
-  edge_type_property_index_->UpdateOnSetProperty(from_vertex, to_vertex, edge, edge_type, property, value,
-                                                 tx.start_timestamp);
+  tx.active_indices_.edge_type_properties_->UpdateOnSetProperty(from_vertex, to_vertex, edge, edge_type, property,
+                                                                value, tx.start_timestamp);
   edge_property_index_->UpdateOnSetProperty(from_vertex, to_vertex, edge, edge_type, property, value,
                                             tx.start_timestamp);
   vector_edge_index_.UpdateOnSetProperty(from_vertex, to_vertex, edge, edge_type, property, value);

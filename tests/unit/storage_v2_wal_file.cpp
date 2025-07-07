@@ -51,6 +51,7 @@ class DeltaGenerator final {
                            std::make_unique<memgraph::storage::InMemoryLabelIndex::ActiveIndices>(),
                            std::make_unique<memgraph::storage::InMemoryLabelPropertyIndex::ActiveIndices>(),
                            std::make_unique<memgraph::storage::InMemoryEdgeTypeIndex::ActiveIndices>(),
+                           std::make_unique<memgraph::storage::InMemoryEdgeTypePropertyIndex::ActiveIndices>(),
                        }) {}
 
    public:

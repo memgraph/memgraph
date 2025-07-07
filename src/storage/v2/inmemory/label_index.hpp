@@ -112,7 +112,7 @@ class InMemoryLabelIndex : public LabelIndex {
     void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) override;
 
     // Not used for in-memory
-    void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) override{};
+    void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) override {};
 
     bool IndexRegistered(LabelId label) const override;
 
@@ -142,8 +142,8 @@ class InMemoryLabelIndex : public LabelIndex {
   auto PopulateIndex(LabelId label, utils::SkipList<Vertex>::Accessor vertices,
                      const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
-                     Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
-      -> utils::BasicResult<IndexPopulateError>;
+                     Transaction const *tx = nullptr,
+                     CheckCancelFunction cancel_check = neverCancel) -> utils::BasicResult<IndexPopulateError>;
   bool PublishIndex(LabelId label, uint64_t commit_timestamp);
 
   void RunGC();

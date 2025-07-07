@@ -314,8 +314,8 @@ class DbAccessor final {
                      plan::PointDistanceCondition condition) -> PointIterable;
 
   auto PointVertices(storage::LabelId label, storage::PropertyId property, storage::CoordinateReferenceSystem crs,
-                     TypedValue const &bottom_left, TypedValue const &top_right, plan::WithinBBoxCondition condition)
-      -> PointIterable;
+                     TypedValue const &bottom_left, TypedValue const &top_right,
+                     plan::WithinBBoxCondition condition) -> PointIterable;
 
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type) {
     return EdgesIterable(accessor_->Edges(edge_type, view));
@@ -503,8 +503,8 @@ class DbAccessor final {
 
   bool EdgeTypeIndexReady(storage::EdgeTypeId edge_type) const { return accessor_->EdgeTypeIndexReady(edge_type); }
 
-  bool EdgeTypePropertyIndexExists(storage::EdgeTypeId edge_type, storage::PropertyId property) const {
-    return accessor_->EdgeTypePropertyIndexExists(edge_type, property);
+  bool EdgeTypePropertyIndexReady(storage::EdgeTypeId edge_type, storage::PropertyId property) const {
+    return accessor_->EdgeTypePropertyIndexReady(edge_type, property);
   }
 
   bool EdgePropertyIndexExists(storage::PropertyId property) const {
@@ -664,8 +664,9 @@ class DbAccessor final {
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(
       storage::EdgeTypeId edge_type, storage::PropertyId property,
+      storage::CheckCancelFunction cancel_check = storage::neverCancel,
       storage::PublishIndexWrapper wrapper = storage::publish_no_wrap) {
-    return accessor_->CreateIndex(edge_type, property, std::move(wrapper));
+    return accessor_->CreateIndex(edge_type, property, std::move(cancel_check), std::move(wrapper));
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateGlobalEdgeIndex(
@@ -768,8 +769,8 @@ class DbAccessor final {
 
   auto ShowEnums() { return accessor_->ShowEnums(); }
 
-  auto GetEnumValue(std::string_view name, std::string_view value) const
-      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+  auto GetEnumValue(std::string_view name,
+                    std::string_view value) const -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
     return accessor_->GetEnumValue(name, value);
   }
   auto GetEnumValue(std::string_view enum_str) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
@@ -780,13 +781,13 @@ class DbAccessor final {
     return accessor_->GetEnumStoreShared().ToString(value);
   }
 
-  auto EnumAlterAdd(std::string_view name, std::string_view value)
-      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+  auto EnumAlterAdd(std::string_view name,
+                    std::string_view value) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
     return accessor_->EnumAlterAdd(name, value);
   }
 
-  auto EnumAlterUpdate(std::string_view name, std::string_view old_value, std::string_view new_value)
-      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+  auto EnumAlterUpdate(std::string_view name, std::string_view old_value,
+                       std::string_view new_value) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
     return accessor_->EnumAlterUpdate(name, old_value, new_value);
   }
 

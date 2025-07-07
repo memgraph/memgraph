@@ -25,6 +25,7 @@
 #include "flags/general.hpp"
 #include "memory/global_memory_control.hpp"
 #include "spdlog/spdlog.h"
+#include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
@@ -110,8 +111,8 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action action) -> durabil
 #undef add_case
 }
 
-auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex, VertexAccessor *to_vertex)
-    -> Result<EdgesVertexAccessorResult> {
+auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex,
+               VertexAccessor *to_vertex) -> Result<EdgesVertexAccessorResult> {
   auto use_out_edges = [](Vertex const *from_vertex, Vertex const *to_vertex) {
     // Obtain the locks by `gid` order to avoid lock cycles.
     auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
@@ -1349,7 +1350,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     }
     // TODO: abort processor
     for (auto const &[edge_type_property, edge] : edge_type_property_cleanup) {
-      storage_->indices_.AbortEntries(edge_type_property, edge, transaction_.start_timestamp);
+      storage_->indices_.AbortEntries(edge_type_property, edge, transaction_.start_timestamp, &transaction_);
     }
     // TODO: missing Global edge property aborts
     for (auto const &[label_prop, vertices] : vector_label_property_cleanup) {
@@ -1500,23 +1501,31 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
-    EdgeTypeId edge_type, PropertyId property, PublishIndexWrapper wrapper) {
-  MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
-  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
-  auto *mem_edge_type_property_index =
-      static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
+    EdgeTypeId edge_type, PropertyId property, CheckCancelFunction cancel_check, PublishIndexWrapper wrapper) {
+  MG_ASSERT(type() == UNIQUE || type() == READ_ONLY, "Create index requires a unique access to the storage!");
 
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   if (!in_memory->config_.salient.items.properties_on_edges) {
     // Not possible to create the index, no properties on edges
     return StorageIndexDefinitionError{IndexDefinitionConfigError{}};
   }
-
-  if (!mem_edge_type_property_index->CreateIndex(edge_type, property, in_memory->vertices_.access())) {
+  auto *mem_edge_type_property_index =
+      static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
+  if (!mem_edge_type_property_index->RegisterIndex(edge_type, property)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  // TODO: concurrent index creation need to publish
-  auto publish_index_callback = wrapper(always_invalidate_plan_cache);
-  publish_index_callback(0);  // ensures plan cache is cleared
+  DowngradeToReadIfValid();
+  if (mem_edge_type_property_index
+          ->PopulateIndex(edge_type, property, in_memory->vertices_.access(), std::nullopt, &transaction_,
+                          std::move(cancel_check))
+          .HasError()) {
+    return StorageIndexDefinitionError{IndexDefinitionCancelationError{}};
+  }
+  // Wrapper will make sure plan cache is cleared
+  auto publisher = wrapper([=](uint64_t commit_timestamp) {
+    return mem_edge_type_property_index->PublishIndex(edge_type, property, commit_timestamp);
+  });
+  transaction_.commit_callbacks_.Add(std::move(publisher));
 
   transaction_.md_deltas.emplace_back(MetadataDelta::edge_property_index_create, edge_type, property);
   return {};
@@ -1600,16 +1609,21 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
     EdgeTypeId edge_type, PropertyId property, DropIndexWrapper wrapper) {
-  MG_ASSERT(type() == UNIQUE, "Drop index requires a unique access to the storage!");
+  // Because of replication we still use UNIQUE ATM
+  MG_ASSERT(type() == UNIQUE || type() == READ,
+            "Dropping edge-type property index requires a unique or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
-  auto *mem_edge_type_property_index =
+  if (!in_memory->config_.salient.items.properties_on_edges) {
+    // Not possible to drop the index, no properties on edges
+    return StorageIndexDefinitionError{IndexDefinitionConfigError{}};
+  }
+  auto *mem_edge_type_index =
       static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
-  if (!mem_edge_type_property_index->DropIndex(edge_type, property)) {
+  // Done inside the wrapper to ensure plan cache invalidation is safe
+  auto drop_index_callback = wrapper([&]() { return mem_edge_type_index->DropIndex(edge_type, property); });
+  if (!drop_index_callback()) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  // TODO: concurrent index drop
-  auto drop_index_callback = wrapper(always_invalidate_plan_cache);
-  drop_index_callback();
   transaction_.md_deltas.emplace_back(MetadataDelta::edge_property_index_drop, edge_type, property);
   return {};
 }
@@ -1827,29 +1841,28 @@ EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, Vie
 }
 
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, PropertyId property, View view) {
-  auto *mem_edge_type_property_index =
-      static_cast<InMemoryEdgeTypePropertyIndex *>(storage_->indices_.edge_type_property_index_.get());
-  return EdgesIterable(mem_edge_type_property_index->Edges(edge_type, property, std::nullopt, std::nullopt, view,
-                                                           storage_, &transaction_));
+  auto *active_indices = static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(
+      transaction_.active_indices_.edge_type_properties_.get());
+  return EdgesIterable(
+      active_indices->Edges(edge_type, property, std::nullopt, std::nullopt, view, storage_, &transaction_));
 }
 
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, PropertyId property,
                                                        const PropertyValue &value, View view) {
-  auto *mem_edge_type_property_index =
-      static_cast<InMemoryEdgeTypePropertyIndex *>(storage_->indices_.edge_type_property_index_.get());
-  return EdgesIterable(mem_edge_type_property_index->Edges(edge_type, property, utils::MakeBoundInclusive(value),
-                                                           utils::MakeBoundInclusive(value), view, storage_,
-                                                           &transaction_));
+  auto *active_indices = static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(
+      transaction_.active_indices_.edge_type_properties_.get());
+  return EdgesIterable(active_indices->Edges(edge_type, property, utils::MakeBoundInclusive(value),
+                                             utils::MakeBoundInclusive(value), view, storage_, &transaction_));
 }
 
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(EdgeTypeId edge_type, PropertyId property,
                                                        const std::optional<utils::Bound<PropertyValue>> &lower_bound,
                                                        const std::optional<utils::Bound<PropertyValue>> &upper_bound,
                                                        View view) {
-  auto *mem_edge_type_property_index =
-      static_cast<InMemoryEdgeTypePropertyIndex *>(storage_->indices_.edge_type_property_index_.get());
-  return EdgesIterable(mem_edge_type_property_index->Edges(edge_type, property, lower_bound, upper_bound, view,
-                                                           storage_, &transaction_));
+  auto *active_indices = static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(
+      transaction_.active_indices_.edge_type_properties_.get());
+  return EdgesIterable(
+      active_indices->Edges(edge_type, property, lower_bound, upper_bound, view, storage_, &transaction_));
 }
 
 EdgesIterable InMemoryStorage::InMemoryAccessor::Edges(PropertyId property, View view) {
@@ -3168,16 +3181,13 @@ bool InMemoryStorage::InMemoryAccessor::PointIndexExists(LabelId label, Property
 
 IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
-  auto *mem_edge_type_property_index =
-      static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
   auto *mem_edge_property_index =
       static_cast<InMemoryEdgePropertyIndex *>(in_memory->indices_.edge_property_index_.get());
 
-  // TODO: add status populating/ready?
   return {transaction_.active_indices_.label_->ListIndices(transaction_.start_timestamp),
           transaction_.active_indices_.label_properties_->ListIndices(transaction_.start_timestamp),
           transaction_.active_indices_.edge_type_->ListIndices(transaction_.start_timestamp),
-          mem_edge_type_property_index->ListIndices(),
+          transaction_.active_indices_.edge_type_properties_->ListIndices(transaction_.start_timestamp),
           mem_edge_property_index->ListIndices(),
           storage_->indices_.text_index_.ListIndices(),
           storage_->indices_.point_index_.ListIndices(),
