@@ -10,13 +10,13 @@ if(NPROC EQUAL 0)
 endif()
 
 find_package(Boost 1.78 REQUIRED CONFIG)
-find_package(BZip2 1.0.6 REQUIRED)
+find_package(BZip2 REQUIRED)
 find_package(Threads REQUIRED)
 set(GFLAGS_NOTHREADS OFF)
 
 # NOTE: config/generate.py depends on the gflags help XML format.
 find_package(gflags REQUIRED)
-find_package(fmt 8.0.1 REQUIRED)
+find_package(fmt REQUIRED)
 find_package(ZLIB REQUIRED)
 
 set(LIB_DIR ${CMAKE_CURRENT_SOURCE_DIR})

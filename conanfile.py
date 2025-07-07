@@ -33,9 +33,10 @@ class Memgraph(ConanFile):
         self.tool_requires("ninja/1.11.1")
 
     def requirements(self):
-        # self.requires("boost/1.78.0")
         self.requires("bzip2/1.0.8")  # MG currently uses 1.0.6
         self.requires("zlib/1.2.11")
+        self.requires("fmt/8.0.1")
+        # self.requires("boost/1.78.0")
         # self.requires("antlr4/4.13.1")
         # self.requires("antlr4-cppruntime/4.13.2")
 
