@@ -33,8 +33,8 @@ class VertexCountCache {
   auto NameToLabel(const std::string &name) { return db_->NameToLabel(name); }
   auto NameToProperty(const std::string &name) { return db_->NameToProperty(name); }
   auto NameToEdgeType(const std::string &name) { return db_->NameToEdgeType(name); }
-  auto GetEnumValue(std::string_view name,
-                    std::string_view value) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+  auto GetEnumValue(std::string_view name, std::string_view value)
+      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
     return db_->GetEnumValue(name, value);
   }
 
@@ -153,7 +153,7 @@ class VertexCountCache {
     return db_->EdgeTypePropertyIndexReady(edge_type, property);
   }
 
-  bool EdgePropertyIndexExists(storage::PropertyId property) { return db_->EdgePropertyIndexExists(property); }
+  bool EdgePropertyIndexReady(storage::PropertyId property) { return db_->EdgePropertyIndexReady(property); }
 
   bool PointIndexExists(storage::LabelId label, storage::PropertyId prop) const {
     return db_->PointIndexExists(label, prop);

@@ -348,7 +348,7 @@ class Storage {
 
     virtual bool EdgeTypePropertyIndexReady(EdgeTypeId edge_type, PropertyId property) const = 0;
 
-    virtual bool EdgePropertyIndexExists(PropertyId property) const = 0;
+    virtual bool EdgePropertyIndexReady(PropertyId property) const = 0;
 
     bool TextIndexExists(const std::string &index_name) const {
       return storage_->indices_.text_index_.IndexExists(index_name);

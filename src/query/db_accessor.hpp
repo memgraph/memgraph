@@ -507,8 +507,8 @@ class DbAccessor final {
     return accessor_->EdgeTypePropertyIndexReady(edge_type, property);
   }
 
-  bool EdgePropertyIndexExists(storage::PropertyId property) const {
-    return accessor_->EdgePropertyIndexExists(property);
+  bool EdgePropertyIndexReady(storage::PropertyId property) const {
+    return accessor_->EdgePropertyIndexReady(property);
   }
 
   bool TextIndexExists(const std::string &index_name) const { return accessor_->TextIndexExists(index_name); }

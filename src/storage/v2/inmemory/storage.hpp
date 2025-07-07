@@ -318,7 +318,7 @@ class InMemoryStorage final : public Storage {
       return transaction_.active_indices_.edge_type_properties_->IndexReady(edge_type, property);
     }
 
-    bool EdgePropertyIndexExists(PropertyId property) const override {
+    bool EdgePropertyIndexReady(PropertyId property) const override {
       return static_cast<InMemoryStorage *>(storage_)->indices_.edge_property_index_->IndexExists(property);
     }
 

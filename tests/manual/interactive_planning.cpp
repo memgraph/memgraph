@@ -369,7 +369,7 @@ class InteractiveDbAccessor {
     return edge_type_property_index_.at(key);
   }
 
-  bool EdgePropertyIndexExists(memgraph::storage::PropertyId property_id) { return false; }
+  bool EdgePropertyIndexReady(memgraph::storage::PropertyId property_id) { return false; }
 
   std::optional<memgraph::storage::LabelIndexStats> GetIndexStats(const memgraph::storage::LabelId label) const {
     return dba_->GetIndexStats(label);

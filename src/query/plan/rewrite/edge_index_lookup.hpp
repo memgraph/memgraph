@@ -726,7 +726,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
       }
 
       const auto &property = filter.property_filter->property_ids_.path[0];
-      if (!db_->EdgePropertyIndexExists(GetProperty(property))) {
+      if (!db_->EdgePropertyIndexReady(GetProperty(property))) {
         continue;
       }
       candidate_indices.push_back({.property = property, .filter = filter});

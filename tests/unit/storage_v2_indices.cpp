@@ -2940,7 +2940,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexCreate) {
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->EdgePropertyIndexExists(this->edge_prop_id1));
+    EXPECT_FALSE(acc->EdgePropertyIndexReady(this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_type_property.size(), 0);
     EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_prop_id1), 0);
   }
@@ -3104,7 +3104,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexDrop) {
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->EdgePropertyIndexExists(this->edge_prop_id1));
+    EXPECT_FALSE(acc->EdgePropertyIndexReady(this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_property.size(), 0);
   }
 
@@ -3141,7 +3141,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexDrop) {
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->EdgePropertyIndexExists(this->edge_prop_id1));
+    EXPECT_FALSE(acc->EdgePropertyIndexReady(this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_property.size(), 0);
   }
 
@@ -3152,7 +3152,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexDrop) {
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->EdgePropertyIndexExists(this->edge_prop_id1));
+    EXPECT_FALSE(acc->EdgePropertyIndexReady(this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_property.size(), 0);
   }
 
@@ -3175,7 +3175,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexDrop) {
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_TRUE(acc->EdgePropertyIndexExists(this->edge_prop_id1));
+    EXPECT_TRUE(acc->EdgePropertyIndexReady(this->edge_prop_id1));
     EXPECT_THAT(acc->ListAllIndices().edge_property, UnorderedElementsAre(this->edge_prop_id1));
   }
 

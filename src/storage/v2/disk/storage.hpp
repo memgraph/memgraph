@@ -204,7 +204,7 @@ class DiskStorage final : public Storage {
 
     bool EdgeTypePropertyIndexReady(EdgeTypeId edge_type, PropertyId proeprty) const override;
 
-    bool EdgePropertyIndexExists(PropertyId proeprty) const override;
+    bool EdgePropertyIndexReady(PropertyId proeprty) const override;
 
     bool PointIndexExists(LabelId label, PropertyId property) const override;
 

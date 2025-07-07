@@ -2390,7 +2390,7 @@ bool DiskStorage::DiskAccessor::EdgeTypePropertyIndexReady(EdgeTypeId /*edge_typ
   return false;
 }
 
-bool DiskStorage::DiskAccessor::EdgePropertyIndexExists(PropertyId /*property*/) const {
+bool DiskStorage::DiskAccessor::EdgePropertyIndexReady(PropertyId /*property*/) const {
   spdlog::info("Edge index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
   return false;
 }
