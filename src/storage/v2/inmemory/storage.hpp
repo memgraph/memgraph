@@ -393,7 +393,8 @@ class InMemoryStorage final : public Storage {
     /// * `IndexDefinitionError`: the index already exists.
     /// @throw std::bad_alloc
     utils::BasicResult<StorageIndexDefinitionError, void> CreateGlobalEdgeIndex(
-        PropertyId property, PublishIndexWrapper wrapper = publish_no_wrap) override;
+        PropertyId property, CheckCancelFunction cancel_check = neverCancel,
+        PublishIndexWrapper wrapper = publish_no_wrap) override;
 
     /// Drop an existing index.
     /// Returns void if the index has been dropped.

@@ -670,8 +670,9 @@ class DbAccessor final {
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateGlobalEdgeIndex(
-      storage::PropertyId property, storage::PublishIndexWrapper wrapper = storage::publish_no_wrap) {
-    return accessor_->CreateGlobalEdgeIndex(property, std::move(wrapper));
+      storage::PropertyId property, storage::CheckCancelFunction cancel_check = storage::neverCancel,
+      storage::PublishIndexWrapper wrapper = storage::publish_no_wrap) {
+    return accessor_->CreateGlobalEdgeIndex(property, std::move(cancel_check), std::move(wrapper));
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(

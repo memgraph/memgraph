@@ -3452,12 +3452,13 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
         MG_ASSERT(properties.size() <= 1U);
 
         const utils::BasicResult<storage::StorageIndexDefinitionError, void> maybe_index_error = std::invoke([&] {
+          auto cancel_check = make_create_index_cancel_callback(stopping_context);
           if (global_index) {
             if (properties.empty()) throw utils::BasicException("Missing property for global edge index.");
-            return dba->CreateGlobalEdgeIndex(properties[0], std::move(plan_invalidator_builder));
+            return dba->CreateGlobalEdgeIndex(properties[0], std::move(cancel_check),
+                                              std::move(plan_invalidator_builder));
           } else if (properties.empty()) {
-            return dba->CreateIndex(edge_type, make_create_index_cancel_callback(stopping_context),
-                                    std::move(plan_invalidator_builder));
+            return dba->CreateIndex(edge_type, std::move(cancel_check), std::move(plan_invalidator_builder));
           }
           return dba->CreateIndex(edge_type, properties[0], make_create_index_cancel_callback(stopping_context),
                                   std::move(plan_invalidator_builder));

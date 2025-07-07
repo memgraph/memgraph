@@ -437,7 +437,8 @@ class Storage {
         PublishIndexWrapper wrapper = publish_no_wrap) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateGlobalEdgeIndex(
-        PropertyId property, PublishIndexWrapper wrapper = publish_no_wrap) = 0;
+        PropertyId property, CheckCancelFunction cancel_check = neverCancel,
+        PublishIndexWrapper wrapper = publish_no_wrap) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
         LabelId label, DropIndexWrapper wrapper = drop_no_wrap) = 0;

@@ -243,7 +243,8 @@ class DiskStorage final : public Storage {
         PublishIndexWrapper wrapper = publish_no_wrap) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> CreateGlobalEdgeIndex(
-        PropertyId property, PublishIndexWrapper wrapper = publish_no_wrap) override;
+        PropertyId property, CheckCancelFunction cancel_check = neverCancel,
+        PublishIndexWrapper wrapper = publish_no_wrap) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label,
                                                                     DropIndexWrapper wrapper = drop_no_wrap) override;

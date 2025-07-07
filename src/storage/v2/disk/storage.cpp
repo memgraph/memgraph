@@ -2107,7 +2107,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateGlobalEdgeIndex(
-    PropertyId /*property*/, PublishIndexWrapper /*wrapper*/) {
+    PropertyId /*property*/, CheckCancelFunction /*cancel_check*/, PublishIndexWrapper /*wrapper*/) {
   throw utils::NotYetImplemented(
       "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
