@@ -13,14 +13,12 @@
 
 #include "common_function_signatures.hpp"
 #include "mg_procedure.h"
-#include "storage/v2/commit_log.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/database_access.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edges_iterable.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/indices.hpp"
-#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/replication_client.hpp"
@@ -41,6 +39,7 @@ extern const Event ActiveEdgeTypeIndices;
 extern const Event ActivePointIndices;
 extern const Event ActiveTextIndices;
 extern const Event ActiveVectorIndices;
+extern const Event ActiveVectorEdgeIndices;
 }  // namespace memgraph::metrics
 
 namespace memgraph::storage {
@@ -82,6 +81,7 @@ struct IndicesInfo {
   std::vector<std::pair<std::string, LabelId>> text_indices;
   std::vector<std::pair<LabelId, PropertyId>> point_label_property;
   std::vector<VectorIndexSpec> vector_indices_spec;
+  std::vector<VectorEdgeIndexSpec> vector_edge_indices_spec;
 };
 
 struct ConstraintsInfo {
@@ -102,6 +102,7 @@ struct StorageInfo {
   uint64_t label_property_indices;
   uint64_t text_indices;
   uint64_t vector_indices;
+  uint64_t vector_edge_indices;
   uint64_t existence_constraints;
   uint64_t unique_constraints;
   StorageMode storage_mode;
@@ -132,6 +133,7 @@ static inline nlohmann::json ToJson(const StorageInfo &info) {
   res["label_prop_indices"] = info.label_property_indices;
   res["text_indices"] = info.text_indices;
   res["vector_indices"] = info.vector_indices;
+  res["vector_edge_indices"] = info.vector_edge_indices;
   res["existence_constraints"] = info.existence_constraints;
   res["unique_constraints"] = info.unique_constraints;
   res["storage_mode"] = storage::StorageModeToString(info.storage_mode);
@@ -308,6 +310,8 @@ class Storage {
 
     virtual std::optional<uint64_t> ApproximateVerticesVectorCount(LabelId label, PropertyId property) const = 0;
 
+    virtual std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const = 0;
+
     virtual auto GetIndexStats(const storage::LabelId &label) const -> std::optional<storage::LabelIndexStats> = 0;
 
     virtual auto GetIndexStats(const storage::LabelId &label, std::span<storage::PropertyPath const> properties) const
@@ -464,7 +468,8 @@ class Storage {
     virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> DropVectorIndex(
         std::string_view index_name) = 0;
 
-    void TryInsertVertexIntoVectorIndex(const VertexAccessor &vertex);
+    virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorEdgeIndex(
+        VectorEdgeIndexSpec spec) = 0;
 
     virtual utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
         LabelId label, PropertyId property) = 0;
@@ -540,10 +545,15 @@ class Storage {
                                PropertyValue const &bottom_left, PropertyValue const &top_right,
                                WithinBBoxCondition condition) -> PointIterable = 0;
 
-    virtual std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearch(
+    virtual std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearchOnNodes(
+        const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) = 0;
+
+    virtual std::vector<std::tuple<EdgeAccessor, double, double>> VectorIndexSearchOnEdges(
         const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) = 0;
 
     virtual std::vector<VectorIndexInfo> ListAllVectorIndices() const = 0;
+
+    virtual std::vector<VectorEdgeIndexInfo> ListAllVectorEdgeIndices() const = 0;
 
     auto GetNameIdMapper() const -> NameIdMapper * { return storage_->name_id_mapper_.get(); }
 

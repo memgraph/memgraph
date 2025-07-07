@@ -49,6 +49,7 @@ void Indices::RemoveObsoleteEdgeEntries(uint64_t oldest_active_start_timestamp, 
       ->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
   static_cast<InMemoryEdgePropertyIndex *>(edge_property_index_.get())
       ->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
+  vector_edge_index_.RemoveObsoleteEntries(token);
 }
 
 void Indices::DropGraphClearIndices() {
@@ -59,6 +60,7 @@ void Indices::DropGraphClearIndices() {
   static_cast<InMemoryEdgePropertyIndex *>(edge_property_index_.get())->DropGraphClearIndices();
   point_index_.Clear();
   vector_index_.Clear();
+  vector_edge_index_.Clear();
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     text_index_.Clear();
   }
@@ -88,6 +90,7 @@ void Indices::UpdateOnSetProperty(EdgeTypeId edge_type, PropertyId property, con
                                                  tx.start_timestamp);
   edge_property_index_->UpdateOnSetProperty(from_vertex, to_vertex, edge, edge_type, property, value,
                                             tx.start_timestamp);
+  vector_edge_index_.UpdateOnSetProperty(from_vertex, to_vertex, edge, edge_type, property, value);
 }
 
 void Indices::UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
@@ -119,7 +122,8 @@ Indices::AbortProcessor Indices::GetAbortProcessor(ActiveIndices const &active_i
           active_indices.edge_type_->GetAbortProcessor(),
           static_cast<InMemoryEdgeTypePropertyIndex *>(edge_type_property_index_.get())->Analysis(),
           static_cast<InMemoryEdgePropertyIndex *>(edge_property_index_.get())->Analysis(),
-          vector_index_.Analysis()};
+          vector_index_.Analysis(),
+          vector_edge_index_.Analysis()};
 }
 
 void Indices::AbortProcessor::CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex,

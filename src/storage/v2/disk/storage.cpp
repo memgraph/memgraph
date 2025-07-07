@@ -1811,6 +1811,7 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
         case MetadataDelta::Action::POINT_INDEX_DROP:
           throw utils::NotYetImplemented("Point index is not implemented for DiskStorage. {}", kErrorMessage);
         case MetadataDelta::Action::VECTOR_INDEX_CREATE:
+        case MetadataDelta::Action::VECTOR_EDGE_INDEX_CREATE:
         case MetadataDelta::Action::VECTOR_INDEX_DROP:
           throw utils::NotYetImplemented("Vector index is not implemented for DiskStorage. {}", kErrorMessage);
       }
@@ -2201,6 +2202,12 @@ utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::Disk
                                  kErrorMessage);
 }
 
+utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateVectorEdgeIndex(
+    VectorEdgeIndexSpec /*spec*/) {
+  throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
+                                 kErrorMessage);
+}
+
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void>
 DiskStorage::DiskAccessor::CreateExistenceConstraint(LabelId label, PropertyId property) {
   MG_ASSERT(type() == UNIQUE, "Create existence constraint requires a unique access to the storage!");
@@ -2284,12 +2291,21 @@ auto DiskStorage::DiskAccessor::PointVertices(LabelId /*label*/, PropertyId /*pr
   throw utils::NotYetImplemented("Point Vertices is not yet implemented for on-disk storage. {}", kErrorMessage);
 }
 
-std::vector<std::tuple<VertexAccessor, double, double>> DiskStorage::DiskAccessor::VectorIndexSearch(
+std::vector<std::tuple<VertexAccessor, double, double>> DiskStorage::DiskAccessor::VectorIndexSearchOnNodes(
+    const std::string & /*index_name*/, uint64_t /*number_of_results*/, const std::vector<float> & /*vector*/) {
+  throw utils::NotYetImplemented("Vector index is not yet implemented for on-disk storage. {}", kErrorMessage);
+}
+
+std::vector<std::tuple<EdgeAccessor, double, double>> DiskStorage::DiskAccessor::VectorIndexSearchOnEdges(
     const std::string & /*index_name*/, uint64_t /*number_of_results*/, const std::vector<float> & /*vector*/) {
   throw utils::NotYetImplemented("Vector index is not yet implemented for on-disk storage. {}", kErrorMessage);
 }
 
 std::vector<VectorIndexInfo> DiskStorage::DiskAccessor::ListAllVectorIndices() const {
+  throw utils::NotYetImplemented("Vector index is not yet implemented for on-disk storage. {}", kErrorMessage);
+};
+
+std::vector<VectorEdgeIndexInfo> DiskStorage::DiskAccessor::ListAllVectorEdgeIndices() const {
   throw utils::NotYetImplemented("Vector index is not yet implemented for on-disk storage. {}", kErrorMessage);
 };
 

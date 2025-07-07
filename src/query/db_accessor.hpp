@@ -23,6 +23,7 @@
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/point_index.hpp"
+#include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
@@ -532,13 +533,21 @@ class DbAccessor final {
     return accessor_->PointIndexExists(label, prop);
   }
 
-  std::vector<std::tuple<storage::VertexAccessor, double, double>> VectorIndexSearch(const std::string &index_name,
-                                                                                     uint64_t number_of_results,
-                                                                                     const std::vector<float> &vector) {
-    return accessor_->VectorIndexSearch(index_name, number_of_results, vector);
+  std::vector<std::tuple<storage::VertexAccessor, double, double>> VectorIndexSearchOnNodes(
+      const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) {
+    return accessor_->VectorIndexSearchOnNodes(index_name, number_of_results, vector);
+  }
+
+  std::vector<std::tuple<storage::EdgeAccessor, double, double>> VectorIndexSearchOnEdges(
+      const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) {
+    return accessor_->VectorIndexSearchOnEdges(index_name, number_of_results, vector);
   }
 
   std::vector<storage::VectorIndexInfo> ListAllVectorIndices() const { return accessor_->ListAllVectorIndices(); }
+
+  std::vector<storage::VectorEdgeIndexInfo> ListAllVectorEdgeIndices() const {
+    return accessor_->ListAllVectorEdgeIndices();
+  }
 
   std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const {
     return accessor_->GetIndexStats(label);
@@ -713,6 +722,11 @@ class DbAccessor final {
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> DropVectorIndex(std::string_view index_name) {
     return accessor_->DropVectorIndex(index_name);
+  }
+
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorEdgeIndex(
+      storage::VectorEdgeIndexSpec spec) {
+    return accessor_->CreateVectorEdgeIndex(std::move(spec));
   }
 
   utils::BasicResult<storage::StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(

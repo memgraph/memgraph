@@ -19,7 +19,6 @@
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 #include "storage/v2/constraints/existence_constraints.hpp"
 #include "storage/v2/constraints/type_constraints.hpp"
-#include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
