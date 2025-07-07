@@ -64,7 +64,9 @@ struct VectorIndex::Impl {
 };
 
 VectorIndex::VectorIndex() : pimpl(std::make_unique<Impl>()) {}
-VectorIndex::~VectorIndex() {}
+VectorIndex::~VectorIndex() = default;
+VectorIndex::VectorIndex(VectorIndex &&) noexcept = default;
+VectorIndex &VectorIndex::operator=(VectorIndex &&) noexcept = default;
 
 bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
                               std::optional<SnapshotObserverInfo> const &snapshot_info) {

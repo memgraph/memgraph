@@ -120,7 +120,8 @@ TEST_F(VectorEdgeIndexTest, SearchWithMultipleEdges) {
 
 TEST_F(VectorEdgeIndexTest, ConcurrencyTest) {
   this->CreateEdgeIndex(2, 10);
-  const auto index_size = std::thread::hardware_concurrency();  // default value for the number of threads in the pool
+  const auto hardware_concurrency = std::thread::hardware_concurrency();
+  const auto index_size = hardware_concurrency > 0 ? hardware_concurrency : 1;
   std::vector<std::thread> threads;
   threads.reserve(index_size);
   for (int i = 0; i < index_size; i++) {

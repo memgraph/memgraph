@@ -81,10 +81,8 @@ class VectorEdgeIndex {
 
   using VectorSearchEdgeResults = std::vector<std::tuple<EdgeIndexEntry, double, double>>;
 
-  explicit VectorEdgeIndex();
+  VectorEdgeIndex();
   ~VectorEdgeIndex();
-  VectorEdgeIndex(const VectorEdgeIndex &) = delete;
-  VectorEdgeIndex &operator=(const VectorEdgeIndex &) = delete;
   VectorEdgeIndex(VectorEdgeIndex &&) noexcept;
   VectorEdgeIndex &operator=(VectorEdgeIndex &&) noexcept;
 

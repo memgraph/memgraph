@@ -3780,9 +3780,8 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
 
         // We only need to check for the existence of the vector index name -> we can't have two vector indices with the
         // same name
-        if (std::ranges::any_of(indices_constraints.indices.vector_indices, [&index_name](const auto &vector_index) {
-              return vector_index.index_name == index_name;
-            })) {
+        if (r::any_of(indices_constraints.indices.vector_indices,
+                      [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; })) {
           throw RecoveryFailure("The vector index already exists!");
         }
 
@@ -4364,9 +4363,8 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
 
         // We only need to check for the existence of the vector index name -> we can't have two vector indices with the
         // same name
-        if (std::ranges::any_of(indices_constraints.indices.vector_indices, [&index_name](const auto &vector_index) {
-              return vector_index.index_name == index_name;
-            })) {
+        if (r::any_of(indices_constraints.indices.vector_indices,
+                      [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; })) {
           throw RecoveryFailure("The vector index already exists!");
         }
 
@@ -4739,10 +4737,7 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
                                                         batch.offset, batch.count, items, snapshot_has_edges,
                                                         get_edge_type_from_id, name_id_mapper, snapshot_info);
             edge_count->fetch_add(result.edge_count);
-            auto known_highest_edge_gid = highest_edge_gid.load();
-            while (known_highest_edge_gid < result.highest_edge_id) {
-              highest_edge_gid.compare_exchange_weak(known_highest_edge_gid, result.highest_edge_id);
-            }
+            atomic_fetch_max_explicit(&highest_edge_gid, result.highest_edge_id, std::memory_order_acq_rel);
             recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
           },
           vertex_batches);
@@ -4946,9 +4941,8 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
 
         // We only need to check for the existence of the vector index name -> we can't have two vector indices with the
         // same name
-        if (std::ranges::any_of(indices_constraints.indices.vector_indices, [&index_name](const auto &vector_index) {
-              return vector_index.index_name == index_name;
-            })) {
+        if (r::any_of(indices_constraints.indices.vector_indices,
+                      [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; })) {
           throw RecoveryFailure("The vector index already exists!");
         }
 
@@ -5321,10 +5315,7 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
                                                         batch.offset, batch.count, items, snapshot_has_edges,
                                                         get_edge_type_from_id, name_id_mapper, snapshot_info);
             edge_count->fetch_add(result.edge_count);
-            auto known_highest_edge_gid = highest_edge_gid.load();
-            while (known_highest_edge_gid < result.highest_edge_id) {
-              highest_edge_gid.compare_exchange_weak(known_highest_edge_gid, result.highest_edge_id);
-            }
+            atomic_fetch_max_explicit(&highest_edge_gid, result.highest_edge_id, std::memory_order_acq_rel);
             recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
           },
           vertex_batches);
@@ -5528,9 +5519,8 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
 
         // We only need to check for the existence of the vector index name -> we can't have two vector indices with the
         // same name
-        if (std::ranges::any_of(indices_constraints.indices.vector_indices, [&index_name](const auto &vector_index) {
-              return vector_index.index_name == index_name;
-            })) {
+        if (r::any_of(indices_constraints.indices.vector_indices,
+                      [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; })) {
           throw RecoveryFailure("The vector index already exists!");
         }
 
@@ -5906,10 +5896,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
                                                         batch.offset, batch.count, items, snapshot_has_edges,
                                                         get_edge_type_from_id, name_id_mapper, snapshot_info);
             edge_count->fetch_add(result.edge_count);
-            auto known_highest_edge_gid = highest_edge_gid.load();
-            while (known_highest_edge_gid < result.highest_edge_id) {
-              highest_edge_gid.compare_exchange_weak(known_highest_edge_gid, result.highest_edge_id);
-            }
+            atomic_fetch_max_explicit(&highest_edge_gid, result.highest_edge_id, std::memory_order_acq_rel);
             recovery_info.vertex_batches[batch_index].first = result.first_vertex_gid;
           },
           vertex_batches);
@@ -6113,12 +6100,10 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
 
         // We only need to check for the existence of the vector index name -> we can't have two vector indices with the
         // same name
-        if (std::ranges::any_of(
-                indices_constraints.indices.vector_indices,
-                [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; }) ||
-            std::ranges::any_of(
-                indices_constraints.indices.vector_edge_indices,
-                [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; })) {
+        if (r::any_of(indices_constraints.indices.vector_indices,
+                      [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; }) ||
+            r::any_of(indices_constraints.indices.vector_edge_indices,
+                      [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; })) {
           throw RecoveryFailure("The vector index with the same name already exists!");
         }
 
@@ -6160,12 +6145,10 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
 
         // We only need to check for the existence of the vector index name -> we can't have two vector indices with the
         // same name
-        if (std::ranges::any_of(
-                indices_constraints.indices.vector_indices,
-                [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; }) ||
-            std::ranges::any_of(
-                indices_constraints.indices.vector_edge_indices,
-                [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; })) {
+        if (r::any_of(indices_constraints.indices.vector_indices,
+                      [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; }) ||
+            r::any_of(indices_constraints.indices.vector_edge_indices,
+                      [&index_name](const auto &vector_index) { return vector_index.index_name == index_name; })) {
           throw RecoveryFailure("The vector index with the same name already exists!");
         }
 

@@ -74,10 +74,8 @@ class VectorIndex {
 
   using VectorSearchNodeResults = std::vector<std::tuple<Vertex *, double, double>>;
 
-  explicit VectorIndex();
+  VectorIndex();
   ~VectorIndex();
-  VectorIndex(const VectorIndex &) = delete;
-  VectorIndex &operator=(const VectorIndex &) = delete;
   VectorIndex(VectorIndex &&) noexcept;
   VectorIndex &operator=(VectorIndex &&) noexcept;
 
