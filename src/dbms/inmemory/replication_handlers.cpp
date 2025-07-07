@@ -416,7 +416,7 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
   rpc::SendFinalResponse(res, res_builder);
 }
 
-void InMemoryReplicationHandlers::AbortPrevTxnIfNeeded(storage::InMemoryStorage *storage) {
+void InMemoryReplicationHandlers::AbortPrevTxnIfNeeded(storage::InMemoryStorage *const storage) {
   if (cached_commit_accessor_) {
     cached_commit_accessor_->AbortAndResetCommitTs();
     cached_commit_accessor_.reset();
