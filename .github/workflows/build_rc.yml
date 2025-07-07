@@ -28,6 +28,7 @@ env:
 
 jobs:
   PrepareReleaseBranch:
+    name: Prepare Release Branch
     runs-on: ubuntu-24.04
     outputs:
       branch_name: ${{ steps.check_branch.outputs.branch_name }}
@@ -101,6 +102,7 @@ jobs:
     secrets: inherit
 
   PackageArtifact:
+    name: Package Artifact
     needs: PrepareReleaseBranch
     strategy:
       fail-fast: false
@@ -150,6 +152,7 @@ jobs:
     secrets: inherit
 
   DockerArtifact:
+    name: Docker Artifact
     needs: PrepareReleaseBranch
     strategy:
       fail-fast: false
@@ -173,6 +176,7 @@ jobs:
     secrets: inherit
 
   TriggerMAGEBuild:
+    name: Trigger MAGE Build
     needs: [PrepareReleaseBranch, PackageArtifact]
     runs-on: ubuntu-24.04
     steps:
