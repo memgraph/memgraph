@@ -134,12 +134,24 @@ void Indices::AbortProcessor::CollectOnPropertyChange(PropertyId propId, Vertex 
 
 void Indices::AbortProcessor::CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property, Vertex *from_vertex,
                                                       Vertex *to_vertex, Edge *edge) {
-  edge_property_.CollectOnPropertyChange(property, from_vertex, to_vertex, edge, edge_type);
-  edge_type_property_.CollectOnPropertyChange(edge_type, property, from_vertex, to_vertex, edge);
+  auto const etp_interesting = edge_type_property_.IsInteresting(edge_type, property);
+  auto const ep_interesting = edge_property_.IsInteresting(property);
+  if (etp_interesting || ep_interesting) {
+    // extract
+    auto value = edge->properties.GetProperty(property);
+    if (value.IsNull()) return;
+
+    if (etp_interesting) {
+      edge_type_property_.CollectOnPropertyChange(edge_type, property, from_vertex, to_vertex, edge, value);
+    }
+    if (ep_interesting) {
+      edge_property_.CollectOnPropertyChange(edge_type, property, from_vertex, to_vertex, edge, std::move(value));
+    }
+  }
 }
 
 bool Indices::AbortProcessor::IsInterestingEdgeProperty(PropertyId property) {
-  return edge_type_property_.interesting_properties_.contains(property);
+  return edge_type_property_.IsInteresting(property) || edge_property_.IsInteresting(property);
 }
 
 void Indices::AbortProcessor::Process(Indices &indices, ActiveIndices &active_indices, uint64_t start_timestamp) {

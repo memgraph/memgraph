@@ -121,8 +121,10 @@ bool InMemoryEdgeTypePropertyIndex::Entry::operator==(const PropertyValue &rhs) 
 
 bool InMemoryEdgeTypePropertyIndex::RegisterIndex(EdgeTypeId edge_type, PropertyId property) {
   return index_.WithLock([&](std::shared_ptr<IndexContainer const> &index_container) {
-    auto it = index_container->find({edge_type, property});
-    if (it != index_container->end()) return false;
+    {
+      auto it = index_container->find({edge_type, property});
+      if (it != index_container->end()) return false;
+    }
 
     auto new_container = std::make_shared<IndexContainer>(*index_container);
     auto [new_it, _] = new_container->emplace(std::make_pair(edge_type, property), std::make_shared<IndividualIndex>());
@@ -132,7 +134,7 @@ bool InMemoryEdgeTypePropertyIndex::RegisterIndex(EdgeTypeId edge_type, Property
     all_indices_.WithLock([&](auto &all_indices) {
       auto new_all_indices = *all_indices;
       // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
-      new_all_indices.emplace_back(it->second, property);
+      new_all_indices.emplace_back(new_it->second, property);
       all_indices = std::make_shared<std::vector<AllIndicesEntry>>(std::move(new_all_indices));
     });
     index_container = std::move(new_container);

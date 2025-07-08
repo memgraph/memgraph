@@ -163,18 +163,6 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
 
   void DropGraphClearIndices() override;
 
-  // TODO (ivan): what is this used for
-  IndexStats Analysis() const {
-    IndexStats stats;
-    index_.WithReadLock([&](auto const &index_accessor) {
-      for (const auto &[key, index] : *index_accessor) {
-        stats.et2p[key.first].push_back(key.second);
-        stats.p2et[key.second].push_back(key.first);
-      }
-    });
-    return stats;
-  }
-
   auto GetActiveIndices() const -> std::unique_ptr<EdgeTypePropertyIndex::ActiveIndices> override;
 
   auto RegisterIndex(EdgeTypeId edge_type, PropertyId property) -> bool;
@@ -191,9 +179,9 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
   auto GetIndividualIndex(EdgeTypeId edge_type, PropertyId property) const -> std::shared_ptr<IndividualIndex>;
 
   utils::Synchronized<std::shared_ptr<IndexContainer const>, utils::WritePrioritizedRWLock> index_{
-      std::make_shared<IndexContainer>()};
+      std::make_shared<IndexContainer const>()};
   utils::Synchronized<std::shared_ptr<std::vector<AllIndicesEntry> const>, utils::WritePrioritizedRWLock> all_indices_{
-      std::make_shared<std::vector<AllIndicesEntry>>()};
+      std::make_shared<std::vector<AllIndicesEntry> const>()};
 };
 
 }  // namespace memgraph::storage

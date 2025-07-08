@@ -164,13 +164,13 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
   auto GetIndividualIndex(EdgeTypeId edge_type) const -> std::shared_ptr<IndividualIndex>;
 
   utils::Synchronized<std::shared_ptr<IndicesContainer const>, utils::WritePrioritizedRWLock> index_{
-      std::make_shared<IndicesContainer>()};
+      std::make_shared<IndicesContainer const>()};
 
   // For correct GC we need a copy of all indexes, even if dropped, this is so we can ensure dangling ptr are removed
   // even for dropped indices
   using AllIndicesEntry = std::shared_ptr<IndividualIndex>;
-  utils::Synchronized<std::shared_ptr<std::vector<AllIndicesEntry> const>, utils::WritePrioritizedRWLock>
-      all_indexes_{};
+  utils::Synchronized<std::shared_ptr<std::vector<AllIndicesEntry> const>, utils::WritePrioritizedRWLock> all_indices_{
+      std::make_shared<std::vector<AllIndicesEntry> const>()};
 };
 
 }  // namespace memgraph::storage

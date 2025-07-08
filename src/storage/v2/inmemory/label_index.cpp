@@ -21,17 +21,21 @@ namespace memgraph::storage {
 
 bool InMemoryLabelIndex::RegisterIndex(LabelId label) {
   return index_.WithLock([&](std::shared_ptr<const IndexContainer> &index) {
-    auto new_index = std::make_shared<IndexContainer>(*index);
-    auto [it, inserted] = new_index->try_emplace(label, std::make_shared<IndividualIndex>());
-    if (!inserted) {
-      return false;
+    auto const &indices = *index;
+    {
+      auto it = index->find(label);
+      if (it != indices.end()) return false;  // already exists
     }
+
+    auto new_index = std::make_shared<IndexContainer>(indices);
+    auto [new_it, _] = new_index->try_emplace(label, std::make_shared<IndividualIndex>());
+
     utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
 
     all_indices_.WithLock([&](auto &all_indices) {
       auto new_all_indices = *all_indices;
       // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
-      new_all_indices.emplace_back(it->second, label);
+      new_all_indices.emplace_back(new_it->second, label);
       all_indices = std::make_shared<std::vector<AllIndicesEntry>>(std::move(new_all_indices));
     });
 

@@ -130,8 +130,10 @@ auto InMemoryEdgeTypeIndex::PopulateIndex(EdgeTypeId edge_type, utils::SkipList<
 bool InMemoryEdgeTypeIndex::RegisterIndex(EdgeTypeId edge_type) {
   return index_.WithLock([&](std::shared_ptr<IndicesContainer const> &indices_container) {
     auto const &indices = indices_container->indices_;
-    auto it = indices.find(edge_type);
-    if (it != indices.end()) return false;  // already exists
+    {
+      auto it = indices.find(edge_type);
+      if (it != indices.end()) return false;  // already exists
+    }
 
     // Register
     auto new_container = std::make_shared<IndicesContainer>(*indices_container);
@@ -139,10 +141,10 @@ bool InMemoryEdgeTypeIndex::RegisterIndex(EdgeTypeId edge_type) {
 
     utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
     // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
-    all_indexes_.WithLock([&](auto &all_indices) {
+    all_indices_.WithLock([&](auto &all_indices) {
       auto new_all_indices = *all_indices;
       // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
-      new_all_indices.emplace_back(it->second);
+      new_all_indices.emplace_back(new_it->second);
       all_indices = std::make_shared<std::vector<AllIndicesEntry>>(std::move(new_all_indices));
     });
     indices_container = new_container;
@@ -213,7 +215,7 @@ void InMemoryEdgeTypeIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_t
 
   CleanupAllIndices();
 
-  auto cpy = all_indexes_.WithReadLock(std::identity{});
+  auto cpy = all_indices_.WithReadLock(std::identity{});
   for (auto &et_index : *cpy) {
     if (token.stop_requested()) return;
 
@@ -279,18 +281,6 @@ void InMemoryEdgeTypeIndex::ActiveIndices::UpdateOnEdgeCreation(Vertex *from, Ve
   acc.insert(Entry{from, to, edge_ref.ptr, tx.start_timestamp});
 }
 
-void InMemoryEdgeTypeIndex::ActiveIndices::UpdateOnEdgeModification(Vertex *old_from, Vertex *old_to, Vertex *new_from,
-                                                                    Vertex *new_to, EdgeRef edge_ref,
-                                                                    EdgeTypeId edge_type, const Transaction &tx) {
-  auto it = index_container_->indices_.find(edge_type);
-  if (it == index_container_->indices_.end()) {
-    return;
-  }
-
-  auto acc = it->second->skip_list_.access();
-  acc.insert(Entry{new_from, new_to, edge_ref.ptr, tx.start_timestamp});
-}
-
 void InMemoryEdgeTypeIndex::DropGraphClearIndices() {
   index_.WithLock([](std::shared_ptr<IndicesContainer const> &index) { index = std::make_shared<IndicesContainer>(); });
   CleanupAllIndices();
@@ -353,7 +343,7 @@ void InMemoryEdgeTypeIndex::RunGC() {
   CleanupAllIndices();
 
   // For each skip_list remaining, run GC
-  auto cpy = all_indexes_.WithReadLock(std::identity{});
+  auto cpy = all_indices_.WithReadLock(std::identity{});
   for (auto &index : *cpy) {
     index->skip_list_.run_gc();
   }
@@ -395,7 +385,7 @@ auto InMemoryEdgeTypeIndex::GetIndividualIndex(EdgeTypeId edge_type) const -> st
 }
 
 void InMemoryEdgeTypeIndex::CleanupAllIndices() {
-  all_indexes_.WithLock([](std::shared_ptr<std::vector<AllIndicesEntry> const> &indices) {
+  all_indices_.WithLock([](std::shared_ptr<std::vector<AllIndicesEntry> const> &indices) {
     auto keep_condition = [](AllIndicesEntry const &entry) { return entry.use_count() != 1; };
     if (!r::all_of(*indices, keep_condition)) {
       indices = std::make_shared<std::vector<AllIndicesEntry>>(*indices | rv::filter(keep_condition) | r::to_vector);

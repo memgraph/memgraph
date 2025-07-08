@@ -15,12 +15,13 @@
 
 namespace memgraph::storage {
 void EdgeTypePropertyIndex::AbortProcessor::CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property,
-                                                                    Vertex *from_vertex, Vertex *to_vertex,
-                                                                    Edge *edge) {
+                                                                    Vertex *from_vertex, Vertex *to_vertex, Edge *edge,
+                                                                    PropertyValue value) {
   auto it = cleanup_collection_.find({edge_type, property});
-  if (it == cleanup_collection_.end()) return;
-  auto value = edge->properties.GetProperty(property);
-  if (value.IsNull()) return;
+  if (it == cleanup_collection_.end()) {
+    DMG_ASSERT(false, "Should not be possible");
+    return;
+  }
   it->second.emplace_back(from_vertex, to_vertex, edge, std::move(value));
 }
 
@@ -29,5 +30,13 @@ EdgeTypePropertyIndex::AbortProcessor::AbortProcessor(std::span<std::pair<EdgeTy
     cleanup_collection_.insert({key, {}});
     interesting_properties_.insert(key.second);
   }
+}
+
+bool EdgeTypePropertyIndex::AbortProcessor::IsInteresting(PropertyId id) {
+  return interesting_properties_.contains(id);
+}
+
+bool EdgeTypePropertyIndex::AbortProcessor::IsInteresting(EdgeTypeId edge_type, PropertyId property) {
+  return cleanup_collection_.contains({edge_type, property});
 }
 }  // namespace memgraph::storage

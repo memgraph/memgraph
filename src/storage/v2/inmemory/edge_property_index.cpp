@@ -60,8 +60,65 @@ inline void TryInsertEdgePropertyIndex(Vertex &from_vertex, PropertyId property,
 inline void TryInsertEdgePropertyIndex(Vertex &from_vertex, PropertyId property, auto &&index_accessor,
                                        std::optional<SnapshotObserverInfo> const &snapshot_info,
                                        Transaction const &tx) {
-  // TODO
-  TryInsertEdgePropertyIndex(from_vertex, property, std::move(index_accessor), snapshot_info);
+  bool exists = true;
+  bool deleted = false;
+  Delta *delta = nullptr;
+  utils::small_vector<Vertex::EdgeTriple> edges;
+
+  {
+    auto guard = std::shared_lock{from_vertex.lock};
+    deleted = from_vertex.deleted;
+    delta = from_vertex.delta;
+    edges = from_vertex.out_edges;
+  }
+
+  // Create and drop index will always use snapshot isolation
+  if (delta) {
+    ApplyDeltasForRead(&tx, delta, View::OLD, [&](const Delta &delta) {
+      // clang-format off
+      DeltaDispatch(delta, utils::ChainedOverloaded{
+        Exists_ActionMethod(exists),
+        Deleted_ActionMethod(deleted),
+        Edges_ActionMethod<EdgeDirection::OUT>(edges),
+      });
+      // clang-format on
+    });
+  }
+  if (!exists || deleted || edges.empty()) {
+    return;
+  }
+
+  for (auto const &[edge_type, to_vertex, edge_ref] : edges) {
+    PropertyValue property_value;
+    {
+      auto guard = std::shared_lock{edge_ref.ptr->lock};
+      exists = true;
+      deleted = false;
+      delta = edge_ref.ptr->delta;
+      property_value = edge_ref.ptr->properties.GetProperty(property);
+    }
+    if (delta) {
+      // Edge type is immutable so we don't need to check it
+      ApplyDeltasForRead(&tx, delta, View::OLD, [&](const Delta &delta) {
+        // clang-format off
+        DeltaDispatch(delta, utils::ChainedOverloaded{
+          Exists_ActionMethod(exists),
+          Deleted_ActionMethod(deleted),
+          PropertyValue_ActionMethod(property_value, property),
+        });
+        // clang-format on
+      });
+    }
+
+    if (!exists || deleted || property_value.IsNull()) {
+      continue;
+    }
+
+    index_accessor.insert({property_value, &from_vertex, to_vertex, edge_ref.ptr, edge_type, tx.start_timestamp});
+    if (snapshot_info) {
+      snapshot_info->Update(UpdateType::EDGES);
+    }
+  }
 }
 }  // namespace
 
@@ -79,17 +136,21 @@ bool InMemoryEdgePropertyIndex::CreateIndexOnePass(PropertyId property, utils::S
 bool InMemoryEdgePropertyIndex::RegisterIndex(PropertyId property) {
   return index_.WithLock([&](std::shared_ptr<IndicesContainer const> &indices_container) {
     auto const &indices = indices_container->indices_;
-    auto it = indices.find(property);
-    if (it != indices.end()) return false;  // already exists
+    {
+      auto it = indices.find(property);
+      if (it != indices.end()) return false;  // already exists
+    }
 
     utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
     // Register
     auto new_container = std::make_shared<IndicesContainer>(*indices_container);
     auto [new_it, _] = new_container->indices_.emplace(property, std::make_shared<IndividualIndex>());
     // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
-    all_indexes_.WithLock([&](auto &all_indexes) {
-      // TODO: shared_ptr, build a new one
-      all_indexes.emplace(property, new_it->second);
+    all_indices_.WithLock([&](auto &all_indices) {
+      auto new_all_indices = *all_indices;
+      // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
+      new_all_indices.emplace_back(property, new_it->second);
+      all_indices = std::make_shared<std::vector<AllIndicesEntry>>(std::move(new_all_indices));
     });
     indices_container = new_container;
     return true;
@@ -169,7 +230,7 @@ bool InMemoryEdgePropertyIndex::DropIndex(PropertyId property) {
 }
 
 bool InMemoryEdgePropertyIndex::ActiveIndices::IndexReady(PropertyId property) const {
-  auto const &indices = ptr_->indices_;
+  auto const &indices = index_container_->indices_;
   auto it = indices.find(property);
   if (it == indices.end()) return false;
   return it->second->status_.IsReady();
@@ -177,8 +238,8 @@ bool InMemoryEdgePropertyIndex::ActiveIndices::IndexReady(PropertyId property) c
 
 std::vector<PropertyId> InMemoryEdgePropertyIndex::ActiveIndices::ListIndices(uint64_t start_timestamp) const {
   auto ret = std::vector<PropertyId>{};
-  ret.reserve(ptr_->indices_.size());
-  for (auto const &[property, index] : ptr_->indices_) {
+  ret.reserve(index_container_->indices_.size());
+  for (auto const &[property, index] : index_container_->indices_) {
     if (index->status_.IsVisible(start_timestamp)) {
       ret.emplace_back(property);
     }
@@ -191,9 +252,9 @@ void InMemoryEdgePropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_sta
 
   CleanupAllIndicies();
 
-  auto cpy = all_indexes_.WithReadLock(std::identity{});
+  auto cpy = all_indices_.WithReadLock(std::identity{});
 
-  for (auto &[property_id, index] : cpy) {
+  for (auto &[property_id, index] : *cpy) {
     if (token.stop_requested()) return;
 
     auto edges_acc = index->skip_list_.access();
@@ -236,15 +297,15 @@ void InMemoryEdgePropertyIndex::ActiveIndices::UpdateOnSetProperty(Vertex *from_
     return;
   }
 
-  auto it = ptr_->indices_.find(property);
-  if (it == ptr_->indices_.end()) return;
+  auto it = index_container_->indices_.find(property);
+  if (it == index_container_->indices_.end()) return;
 
   auto acc = it->second->skip_list_.access();
   acc.insert({value, from_vertex, to_vertex, edge, edge_type, timestamp});
 }
 
 uint64_t InMemoryEdgePropertyIndex::ActiveIndices::ApproximateEdgeCount(PropertyId property) const {
-  if (auto it = ptr_->indices_.find(property); it != ptr_->indices_.end()) {
+  if (auto it = index_container_->indices_.find(property); it != index_container_->indices_.end()) {
     return it->second->skip_list_.size();
   }
 
@@ -253,8 +314,8 @@ uint64_t InMemoryEdgePropertyIndex::ActiveIndices::ApproximateEdgeCount(Property
 
 uint64_t InMemoryEdgePropertyIndex::ActiveIndices::ApproximateEdgeCount(PropertyId property,
                                                                         const PropertyValue &value) const {
-  auto it = ptr_->indices_.find(property);
-  MG_ASSERT(it != ptr_->indices_.end(), "Index for edge property {} doesn't exist", property.AsUint());
+  auto it = index_container_->indices_.find(property);
+  MG_ASSERT(it != index_container_->indices_.end(), "Index for edge property {} doesn't exist", property.AsUint());
   auto acc = it->second->skip_list_.access();
   if (!value.IsNull()) {
     // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
@@ -273,8 +334,8 @@ uint64_t InMemoryEdgePropertyIndex::ActiveIndices::ApproximateEdgeCount(Property
 uint64_t InMemoryEdgePropertyIndex::ActiveIndices::ApproximateEdgeCount(
     PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower,
     const std::optional<utils::Bound<PropertyValue>> &upper) const {
-  auto it = ptr_->indices_.find(property);
-  MG_ASSERT(it != ptr_->indices_.end(), "Index for edge property {} doesn't exist", property.AsUint());
+  auto it = index_container_->indices_.find(property);
+  MG_ASSERT(it != index_container_->indices_.end(), "Index for edge property {} doesn't exist", property.AsUint());
   auto acc = it->second->skip_list_.access();
   // NOLINTNEXTLINE(bugprone-narrowing-conversions,cppcoreguidelines-narrowing-conversions)
   return acc.estimate_range_count(lower, upper, utils::SkipListLayerForCountEstimation(acc.size()));
@@ -386,8 +447,8 @@ void InMemoryEdgePropertyIndex::RunGC() {
   CleanupAllIndicies();
 
   // For each skip_list remaining, run GC
-  auto cpy = all_indexes_.WithReadLock(std::identity{});
-  for (auto &[_, index] : cpy) {
+  auto cpy = all_indices_.WithReadLock(std::identity{});
+  for (auto &[_, index] : *cpy) {
     index->skip_list_.run_gc();
   }
 }
@@ -396,8 +457,8 @@ InMemoryEdgePropertyIndex::Iterable InMemoryEdgePropertyIndex::ActiveIndices::Ed
     PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
     const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
     Transaction *transaction) {
-  auto it = ptr_->indices_.find(property);
-  MG_ASSERT(it != ptr_->indices_.end(), "Index for edge property {} doesn't exist", property.AsUint());
+  auto it = index_container_->indices_.find(property);
+  MG_ASSERT(it != index_container_->indices_.end(), "Index for edge property {} doesn't exist", property.AsUint());
   auto vertex_acc = static_cast<InMemoryStorage const *>(storage)->vertices_.access();
   auto edge_acc = static_cast<InMemoryStorage const *>(storage)->edges_.access();
   return {it->second->skip_list_.access(),
@@ -412,15 +473,15 @@ InMemoryEdgePropertyIndex::Iterable InMemoryEdgePropertyIndex::ActiveIndices::Ed
 }
 
 EdgePropertyIndex::AbortProcessor InMemoryEdgePropertyIndex::ActiveIndices::GetAbortProcessor() const {
-  auto property_ids_filter = ptr_->indices_ | std::views::keys | ranges::to_vector;
+  auto property_ids_filter = index_container_->indices_ | std::views::keys | ranges::to_vector;
   return AbortProcessor{property_ids_filter};
 }
 
 void InMemoryEdgePropertyIndex::ActiveIndices::AbortEntries(EdgePropertyIndex::AbortableInfo const &info,
                                                             uint64_t start_timestamp) {
   for (auto const &[property, edges] : info) {
-    auto const it = ptr_->indices_.find(property);
-    DMG_ASSERT(it != ptr_->indices_.end());
+    auto const it = index_container_->indices_.find(property);
+    DMG_ASSERT(it != index_container_->indices_.end());
 
     auto &index_storage = it->second;
     auto acc = index_storage->skip_list_.access();
@@ -445,11 +506,11 @@ auto InMemoryEdgePropertyIndex::GetIndividualIndex(PropertyId property) const ->
 }
 
 void InMemoryEdgePropertyIndex::CleanupAllIndicies() {
-  all_indexes_.WithLock([](std::map<PropertyId, std::shared_ptr<IndividualIndex>> &indices) {
-    // TODO:
-    //    std::erase_if(indices, [](std::shared_ptr<IndividualIndex> const &individualIndex) {
-    //      return individualIndex.use_count() == 1;
-    //    });
+  all_indices_.WithLock([](std::shared_ptr<std::vector<AllIndicesEntry> const> &indices) {
+    auto keep_condition = [](AllIndicesEntry const &entry) { return entry.second.use_count() != 1; };
+    if (!r::all_of(*indices, keep_condition)) {
+      indices = std::make_shared<std::vector<AllIndicesEntry>>(*indices | rv::filter(keep_condition) | r::to_vector);
+    }
   });
 }
 

@@ -55,9 +55,6 @@ class InMemoryLabelIndex : public LabelIndex {
 
   using IndexContainer = std::map<LabelId, std::shared_ptr<IndividualIndex>>;
 
-  InMemoryLabelIndex()
-      : index_(std::make_shared<IndexContainer>()), all_indices_(std::make_shared<std::vector<AllIndicesEntry>>()) {}
-
   /// @throw std::bad_alloc
   bool CreateIndexOnePass(LabelId label, utils::SkipList<Vertex>::Accessor vertices,
                           const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
@@ -162,8 +159,10 @@ class InMemoryLabelIndex : public LabelIndex {
   auto CleanupAllIndices() -> void;
   auto GetIndividualIndex(LabelId label) const -> std::shared_ptr<IndividualIndex>;
 
-  utils::Synchronized<std::shared_ptr<IndexContainer const>, utils::WritePrioritizedRWLock> index_;
-  utils::Synchronized<std::shared_ptr<std::vector<AllIndicesEntry> const>, utils::WritePrioritizedRWLock> all_indices_;
+  utils::Synchronized<std::shared_ptr<IndexContainer const>, utils::WritePrioritizedRWLock> index_{
+      std::make_shared<IndexContainer const>()};
+  utils::Synchronized<std::shared_ptr<std::vector<AllIndicesEntry> const>, utils::WritePrioritizedRWLock> all_indices_{
+      std::make_shared<std::vector<AllIndicesEntry> const>()};
   utils::Synchronized<std::map<LabelId, storage::LabelIndexStats>, utils::ReadPrioritizedRWLock> stats_;
 };
 

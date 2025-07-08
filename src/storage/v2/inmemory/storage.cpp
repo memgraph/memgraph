@@ -1034,51 +1034,35 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 DMG_ASSERT(mem_storage->config_.salient.items.properties_on_edges, "Invalid database state!");
 
                 auto prop_id = current->property.key;
+                auto from_vertex = current->property.out_vertex;
+
+                // TODO: MVCC collect out_edges (including ones deleted this txn)
+                //       from_vertex->out_edges would be missing any edge that was deleted during this transaction
+                //       ATM we don't handle that corner case. Setting a property on an edge that would then be removed
 
                 if (index_abort_processor.IsInterestingEdgeProperty(prop_id)) {
-                  auto from_vertex = current->property.out_vertex;
                   for (auto const &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
                     if (edge_ref.ptr != edge) continue;
                     index_abort_processor.CollectOnPropertyChange(edge_type, prop_id, from_vertex, to_vertex, edge);
                   }
                 }
 
-                //TODO:
-                // Edge property collect
-                if (index_abort_processor.edge_property_.cleanup_collection_.contains(current->property.key)) {
-                  auto *from_vertex = current->property.out_vertex;
-                  for (const auto &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
-                    index_abort_processor.CollectOnPropertyChange(current->property.key, from_vertex, to_vertex,
-                                                                      edge_ref.ptr, edge_type);
-                  }
-                }
-
-
                 // Collect edge vector
-                const auto &vector_indexed_edge_types =
-                    index_abort_processor.vector_edge_.p2et.find(current->property.key);
-                auto has_vector_indexed_edge_types =
-                    vector_indexed_edge_types != index_abort_processor.vector_edge_.p2et.end();
-                if (has_vector_indexed_edge_types) {
-                  auto *from_vertex = current->property.out_vertex;
+                const auto &vector_indexed_edge_types = index_abort_processor.vector_edge_.p2et.find(prop_id);
+                if (vector_indexed_edge_types != index_abort_processor.vector_edge_.p2et.end()) {
                   // TODO: Fix out_edges will be missing the edge if it was deleted during this transaction
-                  auto matching_edge =
-                      r::find_if(from_vertex->out_edges, [&](const std::tuple<EdgeTypeId, Vertex *, EdgeRef> &tuple) {
-                        const auto &[edge_type, target_vertex, edge_ref] = tuple;
-                        return edge_ref.ptr == edge;
-                      });
-                  if (matching_edge != from_vertex->out_edges.end()) {
-                    auto [edge_type, target_vertex, edge_ref] = *matching_edge;
+                  for (auto const &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
+                    if (edge_ref.ptr != edge) continue;
                     // handle vector index -> we need to check if the edge type is indexed in the vector index
-                    if (has_vector_indexed_edge_types && r::find(vector_indexed_edge_types->second, edge_type) !=
-                                                             vector_indexed_edge_types->second.end()) {
+                    if (r::find(vector_indexed_edge_types->second, edge_type) !=
+                        vector_indexed_edge_types->second.end()) {
                       // this edge type is indexed in the vector index
-                      vector_edge_type_property_restore[EdgeTypePropKey{edge_type, current->property.key}].emplace_back(
-                          *current->property.value, std::make_tuple(from_vertex, target_vertex, edge_ref.ptr));
+                      vector_edge_type_property_restore[EdgeTypePropKey{edge_type, prop_id}].emplace_back(
+                          *current->property.value, std::make_tuple(from_vertex, to_vertex, edge));
                     }
                   }
                 }
-                edge->properties.SetProperty(current->property.key, *current->property.value);
+                edge->properties.SetProperty(prop_id, *current->property.value);
 
                 break;
               }

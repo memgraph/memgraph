@@ -227,6 +227,38 @@ inline auto Edges_ActionMethod(utils::small_vector<std::tuple<EdgeTypeId, Vertex
 }
 
 template <EdgeDirection dir>
+inline auto Edges_ActionMethod(utils::small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> &edges) {
+  // clang-format off
+  using enum Delta::Action;
+  return utils::Overloaded{
+      ActionMethod <(dir == EdgeDirection::IN) ? ADD_IN_EDGE : ADD_OUT_EDGE> (
+          [&](Delta const &delta) {
+              // Add the edge because we don't see the removal.
+              auto link = std::tuple{delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge};
+              /// NOTE: For in_memory_storage, link should never exist but for on_disk storage it is possible that
+              /// after edge deletion, in the same txn, user requests loading from disk. Then edge will already exist
+              /// in out_edges struct.
+              auto link_exists = std::find(edges.begin(), edges.end(), link) != edges.end();
+              if (!link_exists) {
+                edges.push_back(link);
+              }
+          }
+      ),
+      ActionMethod <(dir == EdgeDirection::IN) ? REMOVE_IN_EDGE : REMOVE_OUT_EDGE> (
+          [&](Delta const &delta) {
+              // Remove the label because we don't see the addition.
+              auto it = std::find(edges.begin(), edges.end(),
+                            std::tuple{delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge});
+              DMG_ASSERT(it != edges.end(), "Invalid database state!");
+              *it = edges.back();
+              edges.pop_back();
+          }
+      )
+  };
+  // clang-format on
+}
+
+template <EdgeDirection dir>
 inline auto Degree_ActionMethod(size_t &degree) {
   using enum Delta::Action;
   // clang-format off

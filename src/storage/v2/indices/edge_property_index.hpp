@@ -32,10 +32,11 @@ class EdgePropertyIndex {
   struct AbortProcessor {
     explicit AbortProcessor(std::span<PropertyId const> properties);
 
-    void CollectOnPropertyChange(PropertyId property, Vertex *from_vertex, Vertex *to_vertex, Edge *edge,
-                                 EdgeTypeId edge_type);
+    void CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property, Vertex *from_vertex, Vertex *to_vertex,
+                                 Edge *edge, PropertyValue value);
 
     AbortableInfo cleanup_collection_;
+    bool IsInteresting(PropertyId property);
   };
 
   struct ActiveIndices {

@@ -121,7 +121,7 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
 
   struct ActiveIndices : EdgePropertyIndex::ActiveIndices {
     explicit ActiveIndices(std::shared_ptr<IndicesContainer const> indices = std::make_shared<IndicesContainer>())
-        : ptr_{std::move(indices)} {}
+        : index_container_{std::move(indices)} {}
 
     void UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex, Edge *edge, EdgeTypeId edge_type,
                              PropertyId property, PropertyValue value, uint64_t timestamp) override;
@@ -145,7 +145,7 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
     void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) override;
 
    private:
-    std::shared_ptr<IndicesContainer const> ptr_;
+    std::shared_ptr<IndicesContainer const> index_container_;
   };
 
   InMemoryEdgePropertyIndex() = default;
@@ -177,12 +177,13 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
   void CleanupAllIndicies();
 
   utils::Synchronized<std::shared_ptr<IndicesContainer const>, utils::WritePrioritizedRWLock> index_{
-      std::make_shared<IndicesContainer>()};
+      std::make_shared<IndicesContainer const>()};
 
   // For correct GC we need a copy of all indexes, even if dropped, this is so we can ensure dangling ptr are removed
   // even for dropped indices
-  utils::Synchronized<std::map<PropertyId, std::shared_ptr<IndividualIndex>>, utils::WritePrioritizedRWLock>
-      all_indexes_{};
+  using AllIndicesEntry = std::pair<PropertyId, std::shared_ptr<IndividualIndex>>;
+  utils::Synchronized<std::shared_ptr<std::vector<AllIndicesEntry> const>, utils::WritePrioritizedRWLock> all_indices_{
+      std::make_shared<std::vector<AllIndicesEntry> const>()};
 };
 
 }  // namespace memgraph::storage

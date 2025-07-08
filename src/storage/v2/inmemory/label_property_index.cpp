@@ -293,7 +293,7 @@ bool InMemoryLabelPropertyIndex::RegisterIndex(LabelId label, PropertiesPaths co
     }
     auto helper = PropertiesPermutationHelper{properties};
     auto [it3, _2] = properties_map.emplace(properties, std::make_shared<IndividualIndex>(std::move(helper)));
-    all_indexes_.WithLock([&](auto &all_indexes) {
+    all_indices_.WithLock([&](auto &all_indexes) {
       auto new_all_indexes = *all_indexes;
       new_all_indexes.emplace_back(it3->second, label, properties);
       all_indexes = std::make_shared<std::vector<AllIndicesEntry>>(std::move(new_all_indexes));
@@ -633,7 +633,7 @@ void InMemoryLabelPropertyIndex::RemoveObsoleteEntries(uint64_t oldest_active_st
 
   CleanupAllIndices();
 
-  auto cpy = all_indexes_.WithReadLock(std::identity{});
+  auto cpy = all_indices_.WithReadLock(std::identity{});
 
   for (auto &[index, label_id, property_paths] : *cpy) {
     // before starting index, check if stop_requested
@@ -1047,7 +1047,7 @@ void InMemoryLabelPropertyIndex::RunGC() {
   // Remove indices that are not used by any txn
   CleanupAllIndices();
 
-  auto cpy = all_indexes_.WithReadLock(std::identity{});
+  auto cpy = all_indices_.WithReadLock(std::identity{});
   for (auto &[index, _1, _2] : *cpy) {
     index->skiplist.run_gc();
   }
@@ -1148,7 +1148,7 @@ void InMemoryLabelPropertyIndex::ActiveIndices::AbortEntries(AbortableInfo const
 void InMemoryLabelPropertyIndex::CleanupAllIndices() {
   // By cleanup, we mean just cleanup of the all_indexes_
   // If all_indexes_ is the only thing holding onto an IndividualIndex, we remove it
-  all_indexes_.WithLock([](std::shared_ptr<std::vector<AllIndicesEntry> const> &indices) {
+  all_indices_.WithLock([](std::shared_ptr<std::vector<AllIndicesEntry> const> &indices) {
     auto keep_condition = [](AllIndicesEntry const &entry) { return entry.index_.use_count() != 1; };
     if (!r::all_of(*indices, keep_condition)) {
       indices = std::make_shared<std::vector<AllIndicesEntry>>(*indices | rv::filter(keep_condition) | r::to_vector);
