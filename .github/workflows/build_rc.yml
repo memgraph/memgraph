@@ -1,7 +1,7 @@
 name: Build Release Candidate
-# concurrency:
-#   group: Build-Release-Candidate-${{ github.workflow }}-${{ github.ref_name }}
-#   cancel-in-progress: true
+concurrency:
+  group: Build-Release-Candidate-${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
 
 on:
   push:
@@ -91,7 +91,6 @@ jobs:
   PrepareReleaseBranchPush:
     if: ${{ github.event_name == 'push' }}
     name: Prepare Release Branch Push
-    needs: PrepareReleaseBranch
     runs-on: ubuntu-24.04
     outputs:
       branch_name: ${{ steps.check_branch.outputs.branch_name }}
