@@ -124,6 +124,24 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
 #endif
   }
 
+  // 1.
+  // inst1 = MAIN, inst2 i inst3 = REPLICA
+
+  // 2. inst1 = DOWN, inst2 = REPL, inst3 = MAIN (nova epoha)
+
+  // 3. inst1 = MAIN, inst2 = REPL, inst3 = REPL
+
+  // coord1 -> inst1, coord1 -> inst2 (BROKEN) (2877)
+  // coord1 <=> inst3 (UP) -> aplicirala snapshot, ali ne i WAL-ove (2823)
+
+  // if STRICT_SYNC cluster, compare timestamps.
+
+  // Cluster s 2 instance
+  // 1. STRICT_SYNC, ASYNC
+
+  // Cluster s 3 instance
+  //
+
   std::optional<uint64_t> branching_point;
   // different epoch id, replica was main
   // In case there is no epoch transfer, and MAIN doesn't hold all the epochs as it could have been down and miss it

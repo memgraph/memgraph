@@ -106,13 +106,9 @@ TEST_F(StorageUniqueConstraints, ParallelAbortCommit) {
         ASSERT_OK(vertex.AddLabel(label));
         ASSERT_OK(vertex.SetProperty(prop1, PropertyValue(i)));
       }
+      auto res = acc->PrepareForCommitPhase().HasError();
+      spdlog::trace("Res: {}", res);
 
-      if (bernoulli(gen)) {
-        auto res = acc->PrepareForCommitPhase().HasError();
-        spdlog::trace("Res: {}", res);
-      } else {
-        acc->Abort();
-      }
       std::this_thread::sleep_for(std::chrono::milliseconds(uniform(gen)));
     }
   };

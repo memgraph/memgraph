@@ -484,6 +484,7 @@ std::optional<ConstraintViolation> InMemoryUniqueConstraints::Validate(const Ver
         return res;
       });
 
+      std::this_thread::sleep_for(std::chrono::seconds(10));
       for (auto const *v : possible_conflicting) {
         if (LastCommittedVersionHasLabelProperty(*v, label, properties, *value_array, tx, commit_timestamp)) {
           return ConstraintViolation{ConstraintViolation::Type::UNIQUE, label, properties};

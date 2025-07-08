@@ -36,7 +36,7 @@ enum class RegisterReplicaStatus : uint8_t { NAME_EXISTS, ENDPOINT_EXISTS, COULD
 
 struct RoleMainData {
   RoleMainData() = default;
-  explicit RoleMainData(ReplicationEpoch e, bool writing_enabled, utils::UUID uuid)
+  explicit RoleMainData(ReplicationEpoch e, bool const writing_enabled, utils::UUID const uuid)
       : epoch_(std::move(e)), uuid_(uuid), writing_enabled_(writing_enabled) {}
   ~RoleMainData() = default;
 

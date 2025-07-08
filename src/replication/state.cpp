@@ -272,7 +272,7 @@ bool ReplicationState::TryPersistRegisteredReplica(const ReplicationClientConfig
 }
 
 bool ReplicationState::SetReplicationRoleMain(const utils::UUID &main_uuid) {
-  auto new_epoch = utils::GenerateUUID();
+  auto const new_epoch = utils::GenerateUUID();
 
   if (!TryPersistRoleMain(new_epoch, main_uuid)) {
     return false;
