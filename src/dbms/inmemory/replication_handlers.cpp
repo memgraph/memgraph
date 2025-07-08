@@ -416,6 +416,18 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
   rpc::SendFinalResponse(res, res_builder);
 }
 
+void InMemoryReplicationHandlers::AbortPrevTxnIfNeeded(storage::InMemoryStorage *const storage) {
+  if (cached_commit_accessor_) {
+    cached_commit_accessor_->AbortAndResetCommitTs();
+    cached_commit_accessor_.reset();
+  }
+
+  if (storage->wal_file_) {
+    storage->wal_file_->FinalizeWal();
+    storage->wal_file_.reset();
+  }
+}
+
 // The semantic of snapshot handler is the following: Either handling snapshot request passes or it doesn't. If it
 // passes we return the current commit timestamp of the replica. If it doesn't pass, we return optional which will
 // signal to the caller that it shouldn't update the commit timestamp value.
@@ -438,6 +450,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
   }
 
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
+  AbortPrevTxnIfNeeded(storage);
 
   // Backup dir
   auto const current_snapshot_dir = storage->recovery_.snapshot_directory_;
@@ -576,6 +589,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
   }
 
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
+  AbortPrevTxnIfNeeded(storage);
 
   auto const current_snapshot_dir = storage->recovery_.snapshot_directory_;
   auto const current_wal_directory = storage->recovery_.wal_directory_;
@@ -671,6 +685,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
   }
 
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
+  AbortPrevTxnIfNeeded(storage);
 
   auto const current_snapshot_dir = storage->recovery_.snapshot_directory_;
   auto const current_wal_directory = storage->recovery_.wal_directory_;
