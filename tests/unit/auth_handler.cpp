@@ -742,13 +742,17 @@ TEST_F(AuthQueryHandlerFixture,
   memgraph::auth::Permissions role1_perms{};
   role1_perms.Grant(memgraph::auth::Permission::MATCH);
   memgraph::auth::Role role1 = memgraph::auth::Role{"role1", role1_perms};
+#ifdef MG_ENTERPRISE
   role1.db_access().Grant("db1");
+#endif
   auth->SaveRole(role1);
 
   memgraph::auth::Permissions role2_perms{};
   role2_perms.Grant(memgraph::auth::Permission::CREATE);
   memgraph::auth::Role role2 = memgraph::auth::Role{"role2", role2_perms};
+#ifdef MG_ENTERPRISE
   role2.db_access().Grant("db2");
+#endif
   auth->SaveRole(role2);
 
   // Create user with both roles
@@ -786,7 +790,9 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWithRoleWhenFilteringByDatabaseWithNoAc
   memgraph::auth::Permissions role_perms{};
   role_perms.Grant(memgraph::auth::Permission::MATCH);
   memgraph::auth::Role role = memgraph::auth::Role{"test_role", role_perms};
+#ifdef MG_ENTERPRISE
   role.db_access().Grant("db1");
+#endif
   auth->SaveRole(role);
 
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms};
@@ -831,8 +837,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWithRoleWhenFilteringByDatabaseWithDeni
   memgraph::auth::Permissions role_perms{};
   role_perms.Grant(memgraph::auth::Permission::MATCH);
   memgraph::auth::Role role = memgraph::auth::Role{"test_role", role_perms};
+#ifdef MG_ENTERPRISE
   role.db_access().Grant("db1");
   role.db_access().Deny("db2");
+#endif
   auth->SaveRole(role);
 
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms};
@@ -853,8 +861,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWithRoleWhenFilteringByDatabaseWithAllo
   role_perms.Grant(memgraph::auth::Permission::MATCH);
   role_perms.Deny(memgraph::auth::Permission::DELETE);
   memgraph::auth::Role role = memgraph::auth::Role{"test_role", role_perms};
+#ifdef MG_ENTERPRISE
   role.db_access().Grant("db1");
   role.db_access().Grant("db3");
+#endif
   auth->SaveRole(role);
 
   memgraph::auth::Permissions user_perms{};
@@ -862,9 +872,11 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWithRoleWhenFilteringByDatabaseWithAllo
   user_perms.Deny(memgraph::auth::Permission::MATCH);
   user_perms.Grant(memgraph::auth::Permission::AUTH);
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, user_perms};
+#ifdef MG_ENTERPRISE
   user.db_access().GrantAll();
   user.db_access().Deny("db3");
   user.db_access().Deny("db4");
+#endif
   user.AddRole(role);
   auth->SaveUser(user);
 

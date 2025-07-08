@@ -82,7 +82,11 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowUserPrivileges(
 
   const auto &permissions = user->GetPermissions(db_name);
   memgraph::auth::Permissions user_level_permissions =
+#ifdef MG_ENTERPRISE
       user->has_access(db_name) ? user->permissions() : memgraph::auth::Permissions{};
+#else
+      user->permissions();
+#endif
   const auto &roles_permissions = user->roles().GetPermissions(db_name);
 
   for (const auto &privilege : memgraph::query::kPrivilegesAll) {

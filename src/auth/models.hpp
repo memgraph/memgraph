@@ -496,6 +496,7 @@ class Roles {
 
   // Get roles filtered by database access
   std::unordered_set<Role> GetFilteredRoles(std::optional<std::string_view> db_name = std::nullopt) const {
+#ifdef MG_ENTERPRISE
     if (!db_name) return roles_;
 
     std::unordered_set<Role> filtered_roles;
@@ -505,6 +506,9 @@ class Roles {
       }
     }
     return filtered_roles;
+#else
+    return roles_;
+#endif
   }
 
   // Read-only API that combines permissions from all roles
@@ -520,10 +524,15 @@ class Roles {
   Permissions GetPermissions(std::optional<std::string_view> db_name = std::nullopt) const {
     Permissions permissions;
     for (const auto &role : roles_) {
+#ifdef MG_ENTERPRISE
       if (!db_name || role.HasAccess(*db_name)) {
         permissions = Permissions{permissions.grants() | role.permissions().grants(),
                                   permissions.denies() | role.permissions().denies()};
       }
+#else
+      permissions = Permissions{permissions.grants() | role.permissions().grants(),
+                                permissions.denies() | role.permissions().denies()};
+#endif
     }
     return permissions;
   }
