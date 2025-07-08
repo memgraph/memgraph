@@ -7,4 +7,5 @@ CREATE (a:Student {name: 'Ana'}),
        (a)-[:FRIEND]->(c),
        (b)-[:COLLEAGUE]->(d),
        (c)-[:FRIEND]->(e),
-       (d)-[:FRIEND]->(e);
+       (d)-[:FRIEND]->(e)
+;
