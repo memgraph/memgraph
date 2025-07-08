@@ -4,6 +4,7 @@ concurrency:
   cancel-in-progress: true
 
 on:
+  push:
   workflow_dispatch:
     inputs:
       version:
@@ -18,6 +19,10 @@ on:
         type: boolean
         description: "Overwrite the existing tag if it exists."
         default: false
+      build_mage:
+        type: boolean
+        description: "Build MAGE."
+        default: true
 
 env:
     OS: ubuntu-24.04
@@ -28,11 +33,13 @@ env:
 
 jobs:
   PrepareReleaseBranch:
+    # NOTE: remove before merging
+    if: ${{ github.event_name != 'push' }}
     name: Prepare Release Branch
     runs-on: ubuntu-24.04
     outputs:
       branch_name: ${{ steps.check_branch.outputs.branch_name }}
-      tag_name: ${{ steps.check_branch.outputs.tag_name }}
+      tag_name: ${{ steps.check_tag.outputs.tag_name }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -88,9 +95,72 @@ jobs:
           git tag "${{ steps.check_tag.outputs.tag_name }}"
           git push origin "${{ steps.check_tag.outputs.tag_name }}"
 
+  PrepareReleaseBranchPush:
+    if: ${{ github.event_name == 'push' }}
+    name: Prepare Release Branch Push
+    needs: PrepareReleaseBranch
+    runs-on: ubuntu-24.04
+    outputs:
+      branch_name: ${{ steps.check_branch.outputs.branch_name }}
+      tag_name: ${{ steps.check_tag.outputs.tag_name }}
+    steps:
+    - name: Checkout code
+      uses: actions/checkout@v4
+      with:
+        fetch-depth: 0
+
+    - name: Set up Git user
+      run: |
+        git config user.name github-actions
+        git config user.email actions@github.com
+
+    - name: Check if release branch exists and checkout
+      id: check_branch
+      run: |
+        branch_name="release/v0.0.0"
+        if git ls-remote --exit-code --heads origin "$branch_name"; then
+          echo "Branch $branch_name exists. Checking out."
+          git checkout "$branch_name"
+        else
+          echo "Branch $branch_name does not exist. Creating a new branch."
+          git checkout -b "$branch_name"
+        fi
+        echo "branch_name=$branch_name" >> $GITHUB_OUTPUT
+
+    - name: Set Memgraph Override Version
+      run: |
+        sed -i "s/set(MEMGRAPH_OVERRIDE_VERSION \"\")/set(MEMGRAPH_OVERRIDE_VERSION \"0.0.0-rc1\")/" CMakeLists.txt
+        git add CMakeLists.txt
+        git commit -m "Update CMakeLists.txt with new memgraph override version [skip tests] [skip build]"
+
+    - name: Check if tag exists
+      id: check_tag
+      run: |
+        tag_name="v0.0.0-rc1"
+        if git ls-remote --exit-code --tags origin "$tag_name"; then
+          echo "Tag $tag_name exists."
+          if [ "true" == "true" ]; then
+            echo "Overwriting existing tag."
+            git tag -d "$tag_name"
+            git push origin ":refs/tags/$tag_name"
+          else
+            echo "Skipping tag creation as it already exists."
+            exit 1
+          fi
+        else
+          echo "Tag $tag_name does not exist. Proceeding to create a new tag."
+        fi
+        echo "tag_name=$tag_name" >> $GITHUB_OUTPUT
+
+    - name: Create and push tag
+      run: |
+        git push --set-upstream origin "${{ steps.check_branch.outputs.branch_name }}"
+        git tag "${{ steps.check_tag.outputs.tag_name }}"
+        git push origin "${{ steps.check_tag.outputs.tag_name }}"
+
   TestRC:
     name: Test Release Candidate
-    needs: PrepareReleaseBranch
+    needs: PrepareReleaseBranchPush
     uses: ./.github/workflows/reusable_release_tests.yaml
     with:
       os: "${{ env.OS }}"
@@ -98,12 +168,12 @@ jobs:
       arch: "${{ env.ARCH }}"
       threads: "${{ env.THREADS }}"
       build_type: ${{ env.BUILD_TYPE }}
-      ref: ${{ needs.PrepareReleaseBranch.outputs.branch_name }}
+      ref: ${{ needs.PrepareReleaseBranchPush.outputs.branch_name }}
     secrets: inherit
 
   PackageArtifact:
     name: Package Artifact
-    needs: PrepareReleaseBranch
+    needs: PrepareReleaseBranchPush
     strategy:
       fail-fast: false
       matrix:
@@ -148,7 +218,7 @@ jobs:
       s3_region: eu-west-1
       s3_dest_dir: "memgraph/${{ github.ref_name }}"
       additional_build_args: ${{ matrix.additional_build_args }}
-      ref: ${{ needs.PrepareReleaseBranch.outputs.branch_name }}
+      ref: ${{ needs.PrepareReleaseBranchPush.outputs.branch_name }}
     secrets: inherit
 
   DockerArtifact:
@@ -178,6 +248,7 @@ jobs:
   TriggerMAGEBuild:
     name: Trigger MAGE Build
     needs: [PrepareReleaseBranch, PackageArtifact]
+    if: ${{ inputs.build_mage || github.event_name == 'push' }}
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
