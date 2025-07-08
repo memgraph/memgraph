@@ -3,6 +3,7 @@ set(test_prefix memgraph__property_based__)
 add_custom_target(memgraph__property_based)
 
 find_package(GTest REQUIRED)
+find_package(rapidcheck REQUIRED)
 
 function(add_property_based_test test_cpp)
     get_filename_component(exec_name ${test_cpp} NAME_WE)
@@ -10,13 +11,12 @@ function(add_property_based_test test_cpp)
     add_executable(${target_name} ${test_cpp})
     set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
 
-    # find_package(rapidcheck REQUIRED)
 
     target_link_libraries(${target_name}
-        gtest::gtest
-	# gtest::gtest_main
-	# rapidcheck::rapidcheck
-	# rapidcheck_gtest
+        gtest:
+	gtest_main
+	rapidcheck::rapidcheck
+	rapidcheck_gtest
     )
 
     add_test(${target_name} ${exec_name})
