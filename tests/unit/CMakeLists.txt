@@ -3,6 +3,11 @@ set(test_prefix memgraph__unit__)
 find_package(fmt REQUIRED)
 find_package(gflags REQUIRED)
 find_package(Threads REQUIRED)
+find_package(antlr4-runtime REQUIRED)
+find_package(antlr4 REQUIRED)
+
+
+include_directories(${antlr4-runtime_INCLUDE_DIR})
 
 add_custom_target(memgraph__unit)
 

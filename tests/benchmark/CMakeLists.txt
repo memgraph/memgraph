@@ -1,8 +1,13 @@
 set(test_prefix memgraph__benchmark__)
 
 find_package(gflags REQUIRED)
+find_package(antlr4-runtime REQUIRED)
+find_package(antlr4 REQUIRED)
+
+include_directories(${antlr4-runtime_INCLUDE_DIR})
 
 add_custom_target(memgraph__benchmark)
+
 
 function(add_benchmark test_cpp)
   # get exec name (remove extension from the abs path)

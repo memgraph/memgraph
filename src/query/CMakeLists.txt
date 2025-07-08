@@ -22,6 +22,9 @@ set_target_properties(mg-module-support  PROPERTIES
     OUTPUT_NAME "memgraph_module_support"
 )
 
+find_package(antlr4-runtime REQUIRED)
+find_package(antlr4 REQUIRED)
+
 add_library(mg-query STATIC)
 target_sources(mg-query
     PRIVATE
@@ -152,21 +155,14 @@ set(antlr_opencypher_generated_include
     ${opencypher_generated}/MemgraphCypherBaseVisitor.h
     ${opencypher_generated}/MemgraphCypherVisitor.h
 )
+include_directories(${antlr4-runtime_INCLUDE_DIR})
+set(ANTLR4_GENERATOR_PATH "${antlr4_PACKAGE_FOLDER_RELWITHDEBINFO}/res/antlr-complete.jar")
 
-set(ANTLR_GENERATOR_PATH "${CMAKE_SOURCE_DIR}/libs/antlr-4.13.2-complete.jar")
-if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
-  if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
-      set(ANTLR_GENERATOR_PATH "${MG_TOOLCHAIN_ROOT}/bin/antlr-4.13.2-complete.jar")
-  endif()
-endif()
 add_custom_command(
     OUTPUT ${antlr_opencypher_generated_src} ${antlr_opencypher_generated_include}
     COMMAND ${CMAKE_COMMAND} -E make_directory ${opencypher_generated}
     COMMAND
-    java -jar ${ANTLR_GENERATOR_PATH}
-    -Dlanguage=Cpp -visitor -package antlropencypher
-    -o ${opencypher_generated}
-    ${opencypher_lexer_grammar} ${opencypher_parser_grammar}
+    java -jar ${ANTLR4_GENERATOR_PATH} -Dlanguage=Cpp -visitor -package antlropencypher -o ${opencypher_generated} ${opencypher_lexer_grammar} ${opencypher_parser_grammar}
     WORKING_DIRECTORY "${CMAKE_BINARY_DIR}"
     DEPENDS
     ${opencypher_lexer_grammar} ${opencypher_parser_grammar}
@@ -178,6 +174,6 @@ add_custom_target(generate_opencypher_parser
 
 add_library(antlr_opencypher_parser_lib STATIC ${antlr_opencypher_generated_src})
 add_dependencies(antlr_opencypher_parser_lib generate_opencypher_parser)
-target_link_libraries(antlr_opencypher_parser_lib antlr4)
+target_link_libraries(antlr_opencypher_parser_lib antlr4-runtime)
 
 target_link_libraries(mg-query PUBLIC antlr_opencypher_parser_lib)

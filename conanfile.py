@@ -42,8 +42,8 @@ class Memgraph(ConanFile):
         self.requires("spdlog/1.15.3")
         self.requires("strong_type/v15")
         # self.requires("boost/1.78.0")
-        # self.requires("antlr4/4.13.1")
-        # self.requires("antlr4-cppruntime/4.13.2")
+        self.requires("antlr4-cppruntime/4.13.1")
+        self.requires("antlr4/4.13.1")
 
     def package(self):
         cmake = CMake(self)

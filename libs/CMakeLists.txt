@@ -200,26 +200,6 @@ macro(mg_create_linkable_if_no_cmake lib_name lib_type lib_path include_path)
   endif()
 endmacro()
 
-macro(build_antlr4)
-  import_external_library(antlr4 STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/antlr4/runtime/Cpp/lib/libantlr4-runtime.a
-    ${CMAKE_CURRENT_SOURCE_DIR}/antlr4/runtime/Cpp/include/antlr4-runtime
-    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/antlr4/runtime/Cpp
-    CMAKE_ARGS # http://stackoverflow.com/questions/37096062/get-a-basic-c-program-to-compile-using-clang-on-ubuntu-16/38385967#38385967
-    -DWITH_LIBCXX=OFF # because of debian bug
-    -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true
-    -DCMAKE_CXX_STANDARD=20
-    -DANTLR_BUILD_CPP_TESTS=OFF
-    -DANTLR_BUILD_SHARED=OFF
-    BUILD_COMMAND $(MAKE) antlr4_static
-    INSTALL_COMMAND $(MAKE) install)
-endmacro()
-mg_build_if_needed(build_antlr4 "antlr4")
-mg_create_linkable_if_no_cmake(antlr4 STATIC
-  "${MG_TOOLCHAIN_ROOT}/lib/libantlr4-runtime.a"
-  "${MG_TOOLCHAIN_ROOT}/include/antlr4-runtime"
-)
-
 # setup rapidcheck (it cannot be external, since it doesn't have install
 # target)
 set(RC_ENABLE_GTEST ON CACHE BOOL "Build Google Test integration" FORCE)

@@ -425,7 +425,6 @@ if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
         generate_opencypher_parser
         mgcxx-proj
         librdkafka-proj
-        antlr4-proj
         librdtsc-proj
         pulsar-proj
     )
@@ -435,7 +434,6 @@ else()
       generate_opencypher_parser
       mgcxx-proj
       librdkafka-proj
-      antlr4-proj
       librdtsc-proj
       pulsar-proj
   )
