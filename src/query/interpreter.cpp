@@ -3425,7 +3425,7 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
   }
 
   if (properties.size() > 1) {
-    // TODO(composite_index): extend to also apply for edge type indicies
+    // TODO(composite_index): extend to also apply for edge type indices
     throw utils::NotYetImplemented("composite indices");
   }
 
@@ -3452,14 +3452,16 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
         MG_ASSERT(properties.size() <= 1U);
 
         const utils::BasicResult<storage::StorageIndexDefinitionError, void> maybe_index_error = std::invoke([&] {
+          auto cancel_check = make_create_index_cancel_callback(stopping_context);
           if (global_index) {
             if (properties.empty()) throw utils::BasicException("Missing property for global edge index.");
-            return dba->CreateGlobalEdgeIndex(properties[0], std::move(plan_invalidator_builder));
+            return dba->CreateGlobalEdgeIndex(properties[0], std::move(cancel_check),
+                                              std::move(plan_invalidator_builder));
           } else if (properties.empty()) {
-            return dba->CreateIndex(edge_type, make_create_index_cancel_callback(stopping_context),
-                                    std::move(plan_invalidator_builder));
+            return dba->CreateIndex(edge_type, std::move(cancel_check), std::move(plan_invalidator_builder));
           }
-          return dba->CreateIndex(edge_type, properties[0], std::move(plan_invalidator_builder));
+          return dba->CreateIndex(edge_type, properties[0], std::move(cancel_check),
+                                  std::move(plan_invalidator_builder));
         });
 
         if (maybe_index_error.HasError()) {
@@ -6406,18 +6408,11 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
     if (is_in_memory_transactional_) {
       // Concurrent population of index requires snapshot isolation
       isolation_level_override_ = storage::IsolationLevel::SNAPSHOT_ISOLATION;
-      if (edge_index_query.properties_.empty()) {
-        // edge type index
-        if (edge_index_query.action_ == EdgeIndexQuery::Action::CREATE) {
-          // Need writers to leave so we can make populate a consistent index
-          accessor_type_ = storage::Storage::Accessor::Type::READ_ONLY;
-        } else {
-          accessor_type_ = storage::Storage::Accessor::Type::READ;
-        }
+      if (edge_index_query.action_ == EdgeIndexQuery::Action::CREATE) {
+        // Need writers to leave so we can make populate a consistent index
+        accessor_type_ = storage::Storage::Accessor::Type::READ_ONLY;
       } else {
-        // edge type + properties
-        // edge global property
-        accessor_type_ = storage::Storage::Accessor::Type::UNIQUE;  // TODO: READ_ONLY
+        accessor_type_ = storage::Storage::Accessor::Type::READ;
       }
     } else {
       // IN_MEMORY_ANALYTICAL and ON_DISK_TRANSACTIONAL require unique access

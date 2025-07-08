@@ -15,29 +15,32 @@
 
 namespace memgraph::storage {
 
-class DiskEdgePropertyIndex : public storage::EdgePropertyIndex {
+class DiskEdgePropertyIndex : public EdgePropertyIndex {
  public:
   bool DropIndex(PropertyId property) override;
 
-  bool IndexExists(PropertyId property) const override;
+  struct ActiveIndices : EdgePropertyIndex::ActiveIndices {
+    void UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex, Edge *edge, EdgeTypeId edge_type,
+                             PropertyId property, PropertyValue value, uint64_t timestamp) override;
 
-  std::vector<PropertyId> ListIndices() const override;
+    uint64_t ApproximateEdgeCount(PropertyId property) const override;
 
-  void UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex, Edge *edge, EdgeTypeId edge_type,
-                           PropertyId property, PropertyValue value, uint64_t timestamp) override;
+    uint64_t ApproximateEdgeCount(PropertyId property, const PropertyValue &value) const override;
 
-  uint64_t ApproximateEdgeCount(PropertyId property) const override;
+    uint64_t ApproximateEdgeCount(PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower,
+                                  const std::optional<utils::Bound<PropertyValue>> &upper) const override;
 
-  uint64_t ApproximateEdgeCount(PropertyId property, const PropertyValue &value) const override;
+    bool IndexReady(PropertyId property) const override;
 
-  uint64_t ApproximateEdgeCount(PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower,
-                                const std::optional<utils::Bound<PropertyValue>> &upper) const override;
+    std::vector<PropertyId> ListIndices(uint64_t start_timestamp) const override;
 
-  void UpdateOnEdgeModification(Vertex *old_from, Vertex *old_to, Vertex *new_from, Vertex *new_to, EdgeRef edge_ref,
-                                EdgeTypeId edge_type, PropertyId property, const PropertyValue &value,
-                                const Transaction &tx) override;
+    auto GetAbortProcessor() const -> AbortProcessor override;
+    void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) override;
+  };
 
   void DropGraphClearIndices() override;
+
+  auto GetActiveIndices() const -> std::unique_ptr<EdgePropertyIndex::ActiveIndices> override;
 };
 
 }  // namespace memgraph::storage
