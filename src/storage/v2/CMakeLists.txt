@@ -98,6 +98,7 @@ find_package(gflags REQUIRED)
 find_package(Threads REQUIRED)
 find_package(strong_type REQUIRED)
 find_package(absl REQUIRED)
+find_package(range-v3 REQUIRED)
 
 target_include_directories(mg-storage-v2 PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(mg-storage-v2
@@ -112,12 +113,11 @@ target_link_libraries(mg-storage-v2
     mg-slk
     mg-events
     mg-memory
-    lib::rangev3
+    range-v3::range-v3
     mgcxx_text_search
     tantivy_text_search
     usearch
     rollbear::strong_type
-    rangev3
 )
 
 add_subdirectory(fuzz EXCLUDE_FROM_ALL)

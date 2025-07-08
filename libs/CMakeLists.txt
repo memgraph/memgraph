@@ -390,8 +390,6 @@ if(DEFINED MG_TOOLCHAIN_VERSION)
   endif()
 endif()
 
-import_header_library(rangev3 ${CMAKE_CURRENT_SOURCE_DIR}/rangev3/include)
-
 macro(build_nuraft)
   import_external_library(nuraft STATIC
     ${CMAKE_CURRENT_SOURCE_DIR}/nuraft/lib/libnuraft.a

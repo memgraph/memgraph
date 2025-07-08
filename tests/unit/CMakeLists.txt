@@ -324,8 +324,10 @@ target_link_libraries(${test_prefix}lru_cache mg-utils)
 add_unit_test(utils_static_vector.cpp)
 target_link_libraries(${test_prefix}utils_static_vector mg::utils)
 
+find_package(range-v3 REQUIRED)
+
 add_unit_test(exponential_backoff exponential_backoff.cpp)
-target_link_libraries(${test_prefix}exponential_backoff mg-utils lib::rangev3)
+target_link_libraries(${test_prefix}exponential_backoff mg-utils range-v3::range-v3)
 
 add_unit_test(utils_compressor.cpp)
 target_link_libraries(${test_prefix}utils_compressor mg-utils)

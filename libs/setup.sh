@@ -145,7 +145,6 @@ declare -A primary_urls=(
   ["pulsar"]="http://$local_cache_host/git/pulsar.git"
   ["librdtsc"]="http://$local_cache_host/git/librdtsc.git"
   ["jemalloc"]="http://$local_cache_host/git/jemalloc.git"
-  ["range-v3"]="http://$local_cache_host/git/range-v3.git"
   ["nuraft"]="http://$local_cache_host/git/NuRaft.git"
   ["asio"]="http://$local_cache_host/git/asio.git"
   ["mgcxx"]="http://$local_cache_host/git/mgcxx.git"
@@ -167,7 +166,6 @@ declare -A secondary_urls=(
   ["pulsar"]="https://github.com/apache/pulsar.git"
   ["librdtsc"]="https://github.com/gabrieleara/librdtsc.git"
   ["jemalloc"]="https://github.com/jemalloc/jemalloc.git"
-  ["range-v3"]="https://github.com/ericniebler/range-v3.git"
   ["nuraft"]="https://github.com/eBay/NuRaft.git"
   ["asio"]="https://github.com/chriskohlhoff/asio.git"
   ["mgcxx"]="https://github.com/memgraph/mgcxx.git"
@@ -281,10 +279,6 @@ if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
 else
   echo "Skipping jmalloc download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
 fi
-
-#range-v3 release-0.12.0
-range_v3_ref="release-0.12.0"
-repo_clone_try_double "${primary_urls[range-v3]}" "${secondary_urls[range-v3]}" "rangev3" "$range_v3_ref"
 
 # Asio
 if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
