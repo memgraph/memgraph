@@ -1036,32 +1036,40 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 auto prop_id = current->property.key;
                 auto from_vertex = current->property.out_vertex;
 
-                // TODO: MVCC collect out_edges (including ones deleted this txn)
-                //       from_vertex->out_edges would be missing any edge that was deleted during this transaction
-                //       ATM we don't handle that corner case. Setting a property on an edge that would then be removed
-
-                if (index_abort_processor.IsInterestingEdgeProperty(prop_id)) {
-                  for (auto const &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
-                    if (edge_ref.ptr != edge) continue;
-                    index_abort_processor.CollectOnPropertyChange(edge_type, prop_id, from_vertex, to_vertex, edge);
-                  }
-                }
-
-                // Collect edge vector
                 const auto &vector_indexed_edge_types = index_abort_processor.vector_edge_.p2et.find(prop_id);
-                if (vector_indexed_edge_types != index_abort_processor.vector_edge_.p2et.end()) {
-                  // TODO: Fix out_edges will be missing the edge if it was deleted during this transaction
-                  for (auto const &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
-                    if (edge_ref.ptr != edge) continue;
-                    // handle vector index -> we need to check if the edge type is indexed in the vector index
-                    if (r::find(vector_indexed_edge_types->second, edge_type) !=
-                        vector_indexed_edge_types->second.end()) {
-                      // this edge type is indexed in the vector index
-                      vector_edge_type_property_restore[EdgeTypePropKey{edge_type, prop_id}].emplace_back(
-                          *current->property.value, std::make_tuple(from_vertex, to_vertex, edge));
+                auto vec_prop_is_interesting =
+                    vector_indexed_edge_types != index_abort_processor.vector_edge_.p2et.end();
+
+                auto processor_prop_is_interesting = index_abort_processor.IsInterestingEdgeProperty(prop_id);
+                if (processor_prop_is_interesting || vec_prop_is_interesting) {
+                  // TODO: MVCC collect out_edges (including ones deleted this txn)
+                  //       from_vertex->out_edges would be missing any edge that was deleted during this transaction
+                  //       ATM we don't handle that corner case. Setting a property on an edge that would then be
+                  //       removed
+
+                  if (processor_prop_is_interesting) {
+                    for (auto const &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
+                      if (edge_ref.ptr != edge) continue;
+                      index_abort_processor.CollectOnPropertyChange(edge_type, prop_id, from_vertex, to_vertex, edge);
+                    }
+                  }
+
+                  // Collect edge vector
+                  if (vec_prop_is_interesting) {
+                    // TODO: Fix out_edges will be missing the edge if it was deleted during this transaction
+                    for (auto const &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
+                      if (edge_ref.ptr != edge) continue;
+                      // handle vector index -> we need to check if the edge type is indexed in the vector index
+                      if (r::find(vector_indexed_edge_types->second, edge_type) !=
+                          vector_indexed_edge_types->second.end()) {
+                        // this edge type is indexed in the vector index
+                        vector_edge_type_property_restore[EdgeTypePropKey{edge_type, prop_id}].emplace_back(
+                            *current->property.value, std::make_tuple(from_vertex, to_vertex, edge));
+                      }
                     }
                   }
                 }
+
                 edge->properties.SetProperty(prop_id, *current->property.value);
 
                 break;
