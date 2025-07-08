@@ -123,7 +123,8 @@ jobs:
       run: |
         sed -i "s/set(MEMGRAPH_OVERRIDE_VERSION \"\")/set(MEMGRAPH_OVERRIDE_VERSION \"0.0.0\")/" CMakeLists.txt
         git add CMakeLists.txt
-        git commit -m "Update CMakeLists.txt with new memgraph override version [skip tests] [skip build]"
+        # this will return an error status if the file is already up to date
+        git commit -m "Update CMakeLists.txt with new memgraph override version [skip tests] [skip build]" || true
 
     - name: Check if tag exists
       id: check_tag
