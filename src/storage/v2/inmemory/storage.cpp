@@ -1611,7 +1611,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropGlobalEdgeIndex(
     PropertyId property, DropIndexWrapper wrapper) {
-  MG_ASSERT(type() == UNIQUE || type() == READ_ONLY, "Drop index requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE || type() == READ, "Drop index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   if (!in_memory->config_.salient.items.properties_on_edges) {
     // Not possible to create the index, no properties on edges
