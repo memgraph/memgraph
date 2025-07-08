@@ -1,18 +1,24 @@
 query: >
   MATCH p = (a:Student {name: 'Ana'})-[*]->(e:Student {name: 'Eve'})
   WITH collect(p) AS paths
-  CALL convert.to_tree(paths) YIELD value
-  RETURN value
+  RETURN convert.to_tree(paths) AS value
 
 output:
   - value:
       name: Ana
+      _type: Student
+      _id: 0
       FRIEND:
         - name: Bob
-          COLLEAGUE:
-            - name: Dave
-              FRIEND:
-                - name: Eve
+          _type: Student
+          _id: 1
+        - name: Eve
+          _type: Student
+          _id: 4
         - name: Carol
-          FRIEND:
-            - name: Eve
+          _type: Student
+          _id: 2
+      COLLEAGUE:
+        - name: Dave
+          _type: Student
+          _id: 3
