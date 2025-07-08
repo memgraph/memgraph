@@ -128,11 +128,11 @@ struct HeartbeatRes {
   static void Load(HeartbeatRes *self, memgraph::slk::Reader *reader);
   static void Save(const HeartbeatRes &self, memgraph::slk::Builder *builder);
   HeartbeatRes() = default;
-  HeartbeatRes(bool success, uint64_t current_commit_timestamp, std::string epoch_id)
-      : success(success), current_commit_timestamp(current_commit_timestamp), epoch_id(std::move(epoch_id)) {}
+  HeartbeatRes(bool success, uint64_t const last_durable_timestamp, std::string epoch_id)
+      : success(success), last_durable_timestamp(last_durable_timestamp), epoch_id(std::move(epoch_id)) {}
 
   bool success;
-  uint64_t current_commit_timestamp;
+  uint64_t last_durable_timestamp;
   std::string epoch_id;
 };
 
