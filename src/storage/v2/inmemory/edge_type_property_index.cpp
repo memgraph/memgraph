@@ -142,7 +142,7 @@ inline void TryInsertEdgeTypePropertyIndex(Vertex &from_vertex, EdgeTypeId edge_
       exists = true;
       deleted = false;
       delta = edge_ref.ptr->delta;
-      PropertyValue property_value = edge_ref.ptr->properties.GetProperty(property);
+      property_value = edge_ref.ptr->properties.GetProperty(property);
     }
     if (delta) {
       // Edge type is immutable so we don't need to check it
