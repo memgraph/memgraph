@@ -36,6 +36,7 @@ target_sources(mg-storage-v2
         indices/point_index_change_collector.cpp
         indices/text_index.cpp
         indices/vector_index.cpp
+        indices/vector_edge_index.cpp
         inmemory/edge_property_index.cpp
         inmemory/edge_type_index.cpp
         inmemory/edge_type_property_index.cpp
@@ -84,6 +85,8 @@ target_sources(mg-storage-v2
         indices/point_index_expensive_header.hpp
         indices/point_iterator.hpp
         indices/vector_index.hpp
+        indices/vector_index_utils.hpp
+        indices/vector_edge_index.hpp
         inmemory/indices_mvcc.hpp
         inmemory/storage.hpp
         mvcc.hpp

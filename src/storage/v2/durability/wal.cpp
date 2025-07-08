@@ -26,7 +26,9 @@
 #include "storage/v2/edge.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/property_path.hpp"
+#include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
+#include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
@@ -130,6 +132,7 @@ constexpr Marker OperationToMarker(StorageMetadataOperation operation) {
     add_case(POINT_INDEX_CREATE);
     add_case(POINT_INDEX_DROP);
     add_case(VECTOR_INDEX_CREATE);
+    add_case(VECTOR_EDGE_INDEX_CREATE);
     add_case(VECTOR_INDEX_DROP);
   }
 #undef add_case
@@ -212,6 +215,7 @@ constexpr bool IsMarkerImplicitTransactionEndVersion15(Marker marker) {
     case DELTA_TYPE_CONSTRAINT_CREATE:
     case DELTA_TYPE_CONSTRAINT_DROP:
     case DELTA_VECTOR_INDEX_CREATE:
+    case DELTA_VECTOR_EDGE_INDEX_CREATE:
     case DELTA_VECTOR_INDEX_DROP:
       return true;
 
@@ -508,6 +512,7 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     read_skip(ENUM_ALTER_ADD, WalEnumAlterAdd);
     read_skip(ENUM_ALTER_UPDATE, WalEnumAlterUpdate);
     read_skip(VECTOR_INDEX_CREATE, WalVectorIndexCreate);
+    read_skip(VECTOR_EDGE_INDEX_CREATE, WalVectorEdgeIndexCreate);
     read_skip(VECTOR_INDEX_DROP, WalVectorIndexDrop);
 
     // Other markers are not actions
@@ -1150,18 +1155,36 @@ std::optional<RecoveryInfo> LoadWal(
       },
       [&](WalVectorIndexCreate const &data) {
         if (r::any_of(indices_constraints->indices.vector_indices,
+                      [&](const auto &index) { return index.index_name == data.index_name; }) ||
+            r::any_of(indices_constraints->indices.vector_edge_indices,
                       [&](const auto &index) { return index.index_name == data.index_name; })) {
           throw RecoveryFailure("The vector index already exists!");
         }
 
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
-        const auto unum_metric_kind = VectorIndex::MetricFromName(data.metric_kind);
+        const auto unum_metric_kind = MetricFromName(data.metric_kind);
         auto scalar_kind = data.scalar_kind ? static_cast<unum::usearch::scalar_kind_t>(*data.scalar_kind)
                                             : unum::usearch::scalar_kind_t::f32_k;
         indices_constraints->indices.vector_indices.emplace_back(data.index_name, label_id, property_id,
                                                                  unum_metric_kind, data.dimension,
                                                                  data.resize_coefficient, data.capacity, scalar_kind);
+      },
+      [&](WalVectorEdgeIndexCreate const &data) {
+        if (r::any_of(indices_constraints->indices.vector_indices,
+                      [&](const auto &index) { return index.index_name == data.index_name; }) ||
+            r::any_of(indices_constraints->indices.vector_edge_indices,
+                      [&](const auto &index) { return index.index_name == data.index_name; })) {
+          throw RecoveryFailure("The vector edge index already exists!");
+        }
+
+        auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));
+        auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
+        const auto unum_metric_kind = MetricFromName(data.metric_kind);
+        auto scalar_kind = static_cast<unum::usearch::scalar_kind_t>(data.scalar_kind);
+        indices_constraints->indices.vector_edge_indices.emplace_back(
+            data.index_name, edge_type_id, property_id, unum_metric_kind, data.dimension, data.resize_coefficient,
+            data.capacity, scalar_kind);
       },
       [&](WalVectorIndexDrop const &data) {
         std::erase_if(indices_constraints->indices.vector_indices,
@@ -1419,9 +1442,21 @@ void EncodeTextIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, std::st
 
 void EncodeVectorIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const VectorIndexSpec &index_spec) {
   encoder.WriteString(index_spec.index_name);
-  encoder.WriteString(name_id_mapper.IdToName(index_spec.label.AsUint()));
+  encoder.WriteString(name_id_mapper.IdToName(index_spec.label_id.AsUint()));
   encoder.WriteString(name_id_mapper.IdToName(index_spec.property.AsUint()));
-  encoder.WriteString(VectorIndex::NameFromMetric(index_spec.metric_kind));
+  encoder.WriteString(NameFromMetric(index_spec.metric_kind));
+  encoder.WriteUint(index_spec.dimension);
+  encoder.WriteUint(index_spec.resize_coefficient);
+  encoder.WriteUint(index_spec.capacity);
+  encoder.WriteUint(static_cast<uint64_t>(index_spec.scalar_kind));
+}
+
+void EncodeVectorEdgeIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper,
+                               const VectorEdgeIndexSpec &index_spec) {
+  encoder.WriteString(index_spec.index_name);
+  encoder.WriteString(name_id_mapper.IdToName(index_spec.edge_type_id.AsUint()));
+  encoder.WriteString(name_id_mapper.IdToName(index_spec.property.AsUint()));
+  encoder.WriteString(NameFromMetric(index_spec.metric_kind));
   encoder.WriteUint(index_spec.dimension);
   encoder.WriteUint(index_spec.resize_coefficient);
   encoder.WriteUint(index_spec.capacity);

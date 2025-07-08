@@ -590,6 +590,7 @@ std::optional<ExternalPropertyValue> Decoder::ReadExternalPropertyValue() {
     case Marker::DELTA_POINT_INDEX_CREATE:
     case Marker::DELTA_POINT_INDEX_DROP:
     case Marker::DELTA_VECTOR_INDEX_CREATE:
+    case Marker::DELTA_VECTOR_EDGE_INDEX_CREATE:
     case Marker::DELTA_VECTOR_INDEX_DROP:
     case Marker::DELTA_TYPE_CONSTRAINT_CREATE:
     case Marker::DELTA_TYPE_CONSTRAINT_DROP:
@@ -724,6 +725,7 @@ bool Decoder::SkipExternalPropertyValue() {
     case Marker::DELTA_POINT_INDEX_CREATE:
     case Marker::DELTA_POINT_INDEX_DROP:
     case Marker::DELTA_VECTOR_INDEX_CREATE:
+    case Marker::DELTA_VECTOR_EDGE_INDEX_CREATE:
     case Marker::DELTA_VECTOR_INDEX_DROP:
     case Marker::DELTA_TYPE_CONSTRAINT_CREATE:
     case Marker::DELTA_TYPE_CONSTRAINT_DROP:

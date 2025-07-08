@@ -52,6 +52,10 @@ struct Vertex {
   Delta *delta;
 };
 
+static constexpr std::size_t kEdgeTypeIdPos = 0U;
+static constexpr std::size_t kVertexPos = 1U;
+static constexpr std::size_t kEdgeRefPos = 2U;
+
 static_assert(alignof(Vertex) >= 8, "The Vertex should be aligned to at least 8!");
 static_assert(sizeof(Vertex) == 88, "If this changes documentation needs changing");
 
