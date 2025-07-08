@@ -136,7 +136,6 @@ repo_clone_try_double () {
 
 declare -A primary_urls=(
   ["cppitertools"]="http://$local_cache_host/git/cppitertools.git"
-  ["rapidcheck"]="http://$local_cache_host/git/rapidcheck.git"
   ["libbcrypt"]="http://$local_cache_host/git/libbcrypt.git"
   ["mgclient"]="http://$local_cache_host/git/mgclient.git"
   ["mgconsole"]="http://$local_cache_host/git/mgconsole.git"
@@ -163,7 +162,6 @@ declare -A primary_urls=(
 # should fail.
 declare -A secondary_urls=(
   ["cppitertools"]="https://github.com/ryanhaining/cppitertools.git"
-  ["rapidcheck"]="https://github.com/emil-e/rapidcheck.git"
   ["libbcrypt"]="https://github.com/rg3/libbcrypt"
   ["mgclient"]="https://github.com/memgraph/mgclient.git"
   ["mgconsole"]="https://github.com/memgraph/mgconsole.git"
@@ -200,10 +198,6 @@ skip_if_under_toolchain () {
 
 cppitertools_ref="v2.1" # 2021-01-15
 repo_clone_try_double "${primary_urls[cppitertools]}" "${secondary_urls[cppitertools]}" "cppitertools" "$cppitertools_ref"
-
-# rapidcheck
-rapidcheck_tag="ff6af6fc683159deb51c543b065eba14dfcf329b" # (2023-12-14)
-repo_clone_try_double "${primary_urls[rapidcheck]}" "${secondary_urls[rapidcheck]}" "rapidcheck" "$rapidcheck_tag"
 
 libbcrypt_tag="8aa32ad94ebe06b76853b0767c910c9fbf7ccef4" # custom version (Dec 16, 2016)
 skip_if_under_toolchain "libbcrypt" repo_clone_try_double "${primary_urls[libbcrypt]}" "${secondary_urls[libbcrypt]}" "libbcrypt" "$libbcrypt_tag"
