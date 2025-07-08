@@ -33,7 +33,7 @@ def main():
 
     headers = {
         "Accept": "application/vnd.github.v3+json",
-        "Authorization: token": f"Bearer {os.getenv('GITHUB_TOKEN')}",
+        "Authorization": f"Bearer {os.getenv('GITHUB_TOKEN')}",
     }
 
     response = requests.post(url="https://api.github.com/repos/memgraph/mage/dispatches", json=payload, headers=headers)
