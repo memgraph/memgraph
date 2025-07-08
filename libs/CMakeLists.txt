@@ -374,9 +374,6 @@ endmacro()
 mg_build_if_needed(build_librdtsc "librdtsc")
 mg_create_linkable_if_no_cmake(librdtsc STATIC "${MG_TOOLCHAIN_ROOT}/lib/librdtsc.a" "${MG_TOOLCHAIN_ROOT}/include")
 
-# setup ctre
-import_header_library(ctre ${CMAKE_CURRENT_SOURCE_DIR})
-
 # setup absl (cmake sub_directory tolerant)
 set(ABSL_PROPAGATE_CXX_STD ON)
 add_subdirectory(absl EXCLUDE_FROM_ALL)

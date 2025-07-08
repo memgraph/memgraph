@@ -144,7 +144,6 @@ declare -A primary_urls=(
   ["protobuf"]="http://$local_cache_host/git/protobuf.git"
   ["pulsar"]="http://$local_cache_host/git/pulsar.git"
   ["librdtsc"]="http://$local_cache_host/git/librdtsc.git"
-  ["ctre"]="http://$local_cache_host/file/hanickadot/compile-time-regular-expressions/v3.7.2/single-header/ctre.hpp"
   ["absl"]="http://$local_cache_host/git/abseil-cpp.git"
   ["jemalloc"]="http://$local_cache_host/git/jemalloc.git"
   ["range-v3"]="http://$local_cache_host/git/range-v3.git"
@@ -169,7 +168,6 @@ declare -A secondary_urls=(
   ["protobuf"]="https://github.com/protocolbuffers/protobuf.git"
   ["pulsar"]="https://github.com/apache/pulsar.git"
   ["librdtsc"]="https://github.com/gabrieleara/librdtsc.git"
-  ["ctre"]="https://raw.githubusercontent.com/hanickadot/compile-time-regular-expressions/v3.7.2/single-header/ctre.hpp"
   ["absl"]="https://github.com/abseil/abseil-cpp.git"
   ["jemalloc"]="https://github.com/jemalloc/jemalloc.git"
   ["range-v3"]="https://github.com/ericniebler/range-v3.git"
@@ -268,12 +266,6 @@ if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
 else
   echo "Skipping librdtsc download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
 fi
-
-#ctre
-mkdir -p ctre
-cd ctre
-file_get_try_double "${primary_urls[ctre]}" "${secondary_urls[ctre]}"
-cd ..
 
 # abseil 20240116.2
 absl_ref="20240116.2"
