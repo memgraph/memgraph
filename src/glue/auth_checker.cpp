@@ -190,14 +190,17 @@ bool AuthChecker::IsUserOrRoleAuthorized(const memgraph::auth::UserOrRole &user_
 }
 
 #ifdef MG_ENTERPRISE
-bool AuthChecker::CanImpersonate(const memgraph::auth::User &user, const memgraph::auth::User &target) {
-  return user.CanImpersonate(target);
+bool AuthChecker::CanImpersonate(const memgraph::auth::User &user, const memgraph::auth::User &target,
+                                 std::optional<std::string_view> db_name) {
+  return user.CanImpersonate(target, db_name);
 }
-bool AuthChecker::CanImpersonate(const memgraph::auth::Role &role, const memgraph::auth::User &target) {
-  return role.CanImpersonate(target);
+bool AuthChecker::CanImpersonate(const memgraph::auth::Role &role, const memgraph::auth::User &target,
+                                 std::optional<std::string_view> db_name) {
+  return role.CanImpersonate(target, db_name);
 }
-bool AuthChecker::CanImpersonate(const memgraph::auth::Roles &roles, const memgraph::auth::User &target) {
-  return roles.CanImpersonate(target);
+bool AuthChecker::CanImpersonate(const memgraph::auth::Roles &roles, const memgraph::auth::User &target,
+                                 std::optional<std::string_view> db_name) {
+  return roles.CanImpersonate(target, db_name);
 }
 #endif
 

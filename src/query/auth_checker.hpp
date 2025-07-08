@@ -108,7 +108,10 @@ class AllowEverythingAuthChecker final : public AuthChecker {
       return true;
     }
 #ifdef MG_ENTERPRISE
-    bool CanImpersonate(const std::string & /*target*/, query::UserPolicy * /*policy*/) const override { return true; }
+    bool CanImpersonate(const std::string & /*target*/, query::UserPolicy * /*policy*/,
+                        std::optional<std::string_view> /*db_name*/ = std::nullopt) const override {
+      return true;
+    }
     std::string GetDefaultDB() const override { return std::string{dbms::kDefaultDB}; }
 #endif
   };

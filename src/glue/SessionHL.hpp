@@ -19,6 +19,8 @@
 #include "query/interpreter.hpp"
 
 namespace memgraph::glue {
+using bolt_value_t = memgraph::communication::bolt::Value;
+using bolt_map_t = memgraph::communication::bolt::map_t;
 
 struct ParseRes {
   query::Interpreter::ParseRes parsed_query;
@@ -34,18 +36,15 @@ class RunTimeConfig {
         get_default_(std::forward<decltype(get_default)>(get_default)),
         update_(std::forward<decltype(update)>(update)) {}
 
-  void Configure(auto run_time_info, bool in_explicit_tx);
+  void Configure(const bolt_map_t &run_time_info, bool in_explicit_tx);
 
   bool explicit_ = false;
   std::optional<std::string> implicit_config_{};
   std::string key_;
   std::function<std::string()> get_current_;
   std::function<std::optional<std::string>()> get_default_;
-  std::function<void(std::optional<std::string>, bool)> update_;
+  std::function<void(std::optional<std::string>, bool, const bolt_map_t &)> update_;
 };
-
-using bolt_value_t = memgraph::communication::bolt::Value;
-using bolt_map_t = memgraph::communication::bolt::map_t;
 
 class SessionHL final : public memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                                       memgraph::communication::v2::OutputStream> {

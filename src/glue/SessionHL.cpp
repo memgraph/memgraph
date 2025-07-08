@@ -105,7 +105,8 @@ void MultiDatabaseAuth(memgraph::query::QueryUserOrRole *user, std::string_view 
   }
 }
 
-void ImpersonateUserAuth(memgraph::query::QueryUserOrRole *user_or_role, const std::string &impersonated_user) {
+void ImpersonateUserAuth(memgraph::query::QueryUserOrRole *user_or_role, const std::string &impersonated_user,
+                         std::optional<std::string_view> target_db = std::nullopt) {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     throw memgraph::communication::bolt::ClientError(memgraph::license::LicenseCheckErrorToString(
         memgraph::license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "impersonate user"));
@@ -114,10 +115,11 @@ void ImpersonateUserAuth(memgraph::query::QueryUserOrRole *user_or_role, const s
     throw memgraph::communication::bolt::ClientError(
         "No session user. You must be logged-in in order to use the impersonate-user feature.");
   }
-  if (!user_or_role->CanImpersonate(impersonated_user, &memgraph::query::session_long_policy)) {
+  if (!user_or_role->CanImpersonate(impersonated_user, &memgraph::query::session_long_policy, target_db)) {
     throw memgraph::communication::bolt::ClientError(
-        "Failed to impersonate user '{}'. Make sure you have the right privileges and that the user exists.",
-        impersonated_user);
+        "Failed to impersonate user '{}' on database '{}'. Make sure you have the right privileges and that the user "
+        "exists.",
+        impersonated_user, target_db.value_or("default"));
   }
 }
 #endif
@@ -468,38 +470,60 @@ SessionHL::SessionHL(Context context, memgraph::communication::v2::InputStream *
       interpreter_(interpreter_context_),
 #ifdef MG_ENTERPRISE
       audit_log_(context.audit_log),
-      runtime_db_{"db", [this]() { return GetCurrentDB(); }, [this]() { return GetDefaultDB(); },
-                  [this](std::optional<std::string> defined_db, bool user_defined) {
-                    if (defined_db) {  // Db connection
-                      MultiDatabaseAuth(interpreter_.user_or_role_.get(), *defined_db);
-                      interpreter_.SetCurrentDB(*defined_db, user_defined);
-                    } else {  // Non-db connection
-                      interpreter_.ResetDB();
-                    }
-                  }},
-      runtime_user_{"imp_user", [this]() { return GetCurrentUser(); },
-                    []() {
-                      // Only one possible default
-                      return std::nullopt;
-                    },
-                    [this](std::optional<std::string> defined_user, bool impersonate_user) {
-                      if (impersonate_user) {
-                        if (!defined_user) {
-                          throw memgraph::communication::bolt::ClientError("Trying to impersonate an undefined user.");
-                        }
-                        spdlog::trace("Trying to impersonate user '{}'...", *defined_user);
-                        ImpersonateUserAuth(session_user_or_role_.get(), *defined_user);
-                        const auto &imp_usr = auth_->ReadLock()->GetUser(*defined_user);
-                        if (!imp_usr) throw auth::AuthException("Trying to impersonate a user that doesn't exist.");
-                        interpreter_.SetUser(AuthChecker::GenQueryUser(auth_, imp_usr));
-                        TryDefaultDB();
-                      } else {
-                        spdlog::trace("Done impersonating users.");
-                        // Set our default user/role
-                        interpreter_.SetUser(session_user_or_role_);
-                        TryDefaultDB();
-                      }
-                    }},
+      runtime_db_{
+          "db", [this]() { return GetCurrentDB(); }, [this]() { return GetDefaultDB(); },
+          [this](std::optional<std::string> defined_db, bool user_defined, const bolt_map_t & /*run_time_info*/) {
+            if (defined_db) {  // Db connection
+              MultiDatabaseAuth(interpreter_.user_or_role_.get(), *defined_db);
+              interpreter_.SetCurrentDB(*defined_db, user_defined);
+            } else {  // Non-db connection
+              interpreter_.ResetDB();
+            }
+          }},
+      runtime_user_{
+          "imp_user", [this]() { return GetCurrentUser(); },
+          []() {
+            // Only one possible default
+            return std::nullopt;
+          },
+          [this](std::optional<std::string> defined_user, bool impersonate_user, const bolt_map_t &run_time_info) {
+            if (impersonate_user) {
+              if (!defined_user) {
+                throw memgraph::communication::bolt::ClientError("Trying to impersonate an undefined user.");
+              }
+              const auto &imp_usr = auth_->ReadLock()->GetUser(*defined_user);
+              if (!imp_usr) throw auth::AuthException("Trying to impersonate a user that doesn't exist.");
+
+              // Determine target database for impersonation
+              std::optional<std::string> target_db;
+
+              // 1. Check if database is specified in run_time_info
+              if (run_time_info.contains("db")) {
+                const auto &db_info = run_time_info.at("db");
+                if (db_info.IsString()) {
+                  target_db = db_info.ValueString();
+                }
+              }
+
+              // 2. If no database in run_time_info, use target user's main database
+              if (!target_db) {
+                target_db = imp_usr->GetMain();  // Could throw if user lost access to the main database
+              }
+
+              spdlog::trace("Trying to impersonate user '{}' on database '{}'...", *defined_user, *target_db);
+
+              // Use database-specific impersonation check if target_db is available
+              ImpersonateUserAuth(session_user_or_role_.get(), *defined_user, target_db);
+
+              interpreter_.SetUser(AuthChecker::GenQueryUser(auth_, imp_usr));
+              TryDefaultDB();
+            } else {
+              spdlog::trace("Done impersonating users.");
+              // Set our default user/role
+              interpreter_.SetUser(session_user_or_role_);
+              TryDefaultDB();
+            }
+          }},
 #endif
       auth_(context.auth),
       endpoint_(std::move(context.endpoint)) {
@@ -546,7 +570,7 @@ bolt_map_t SessionHL::DecodeSummary(const std::map<std::string, memgraph::query:
   return decoded_summary;
 }
 
-void RunTimeConfig::Configure(auto run_time_info, bool in_explicit_tx) {
+void RunTimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_tx) {
   std::optional<std::string> defined_config{};
   bool update = false;
 
@@ -577,7 +601,7 @@ void RunTimeConfig::Configure(auto run_time_info, bool in_explicit_tx) {
 
   // Check if the underlying config needs updating
   if (update) {
-    update_(defined_config, explicit_);
+    update_(defined_config, explicit_, run_time_info);
   }
 }
 }  // namespace memgraph::glue

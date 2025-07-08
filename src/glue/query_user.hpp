@@ -24,7 +24,8 @@ struct QueryUserOrRole : public query::QueryUserOrRole {
                     query::UserPolicy *policy) const override;
 
 #ifdef MG_ENTERPRISE
-  bool CanImpersonate(const std::string &target, query::UserPolicy *policy) const override;
+  bool CanImpersonate(const std::string &target, query::UserPolicy *policy,
+                      std::optional<std::string_view> db_name = std::nullopt) const override;
   std::string GetDefaultDB() const override;
 #endif
 

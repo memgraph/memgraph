@@ -48,9 +48,12 @@ class AuthChecker : public query::AuthChecker {
                                                    std::string_view db_name = "");
 
 #ifdef MG_ENTERPRISE
-  [[nodiscard]] static bool CanImpersonate(const auth::User &user, const auth::User &target);
-  [[nodiscard]] static bool CanImpersonate(const auth::Role &role, const auth::User &target);
-  [[nodiscard]] static bool CanImpersonate(const auth::Roles &roles, const auth::User &target);
+  [[nodiscard]] static bool CanImpersonate(const auth::User &user, const auth::User &target,
+                                           std::optional<std::string_view> db_name = std::nullopt);
+  [[nodiscard]] static bool CanImpersonate(const auth::Role &role, const auth::User &target,
+                                           std::optional<std::string_view> db_name = std::nullopt);
+  [[nodiscard]] static bool CanImpersonate(const auth::Roles &roles, const auth::User &target,
+                                           std::optional<std::string_view> db_name = std::nullopt);
 #endif
 
  private:
