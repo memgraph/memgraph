@@ -90,7 +90,7 @@ jobs:
           git push origin "${{ steps.check_tag.outputs.tag_name }}"
 
   PrepareReleaseBranchPush:
-    if: ${{ github.event_name != 'push' }}
+    if: ${{ github.event_name == 'push' }}
     name: Prepare Release Branch Push
     runs-on: ubuntu-24.04
     outputs:
