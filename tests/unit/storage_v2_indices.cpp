@@ -62,9 +62,7 @@ using KVPair = std::tuple<PropertyId, PropertyValue>;
 /** Creates a map from a (possibly nested) list of `KVPair`s.
  */
 template <typename... Ts>
-auto MakeMap(Ts &&...values) -> PropertyValue
-  requires(std::is_same_v<std::decay_t<Ts>, KVPair> && ...)
-{
+auto MakeMap(Ts &&...values) -> PropertyValue requires(std::is_same_v<std::decay_t<Ts>, KVPair> &&...) {
   return PropertyValue{PropertyValue::map_t{
       {std::get<0>(values),
        std::forward<std::tuple_element_t<1, std::decay_t<Ts>>>(std::get<1>(std::forward<Ts>(values)))}...}};
@@ -2494,11 +2492,11 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
     auto acc = this->CreateIndexAccessor();
     EXPECT_FALSE(acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
     ASSERT_NO_ERROR(acc->Commit());
-    EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1, this->edge_prop_id1), 5);
   }
 
   {
     auto acc = this->storage->Access();
+    EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1, this->edge_prop_id1), 5);
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::OLD), View::OLD),
                 UnorderedElementsAre(1, 3, 5, 7, 9));
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),

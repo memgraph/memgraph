@@ -174,10 +174,11 @@ auto InMemoryEdgeTypePropertyIndex::GetActiveIndices() const -> std::unique_ptr<
   return std::make_unique<ActiveIndices>(index_.WithReadLock(std::identity{}));
 }
 
-auto InMemoryEdgeTypePropertyIndex::PopulateIndex(
-    EdgeTypeId edge_type, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
-    std::optional<SnapshotObserverInfo> const &snapshot_info, Transaction const *tx,
-    CheckCancelFunction cancel_check) -> utils::BasicResult<IndexPopulateError> {
+auto InMemoryEdgeTypePropertyIndex::PopulateIndex(EdgeTypeId edge_type, PropertyId property,
+                                                  utils::SkipList<Vertex>::Accessor vertices,
+                                                  std::optional<SnapshotObserverInfo> const &snapshot_info,
+                                                  Transaction const *tx, CheckCancelFunction cancel_check)
+    -> utils::BasicResult<IndexPopulateError> {
   auto index = GetIndividualIndex(edge_type, property);
   if (!index) {
     MG_ASSERT(false, "It should not be possible to remove the index before populating it.");
@@ -501,7 +502,7 @@ auto InMemoryEdgeTypePropertyIndex::RemoveIndividualIndex(EdgeTypeId edge_type, 
     }
 
     auto new_container = std::make_shared<IndexContainer>(*index_container);
-    new_container->erase(it);
+    new_container->erase({edge_type, property});
     index_container = std::move(new_container);
     return true;
   });
@@ -509,8 +510,8 @@ auto InMemoryEdgeTypePropertyIndex::RemoveIndividualIndex(EdgeTypeId edge_type, 
   return result;
 }
 
-auto InMemoryEdgeTypePropertyIndex::GetIndividualIndex(EdgeTypeId edge_type,
-                                                       PropertyId property) const -> std::shared_ptr<IndividualIndex> {
+auto InMemoryEdgeTypePropertyIndex::GetIndividualIndex(EdgeTypeId edge_type, PropertyId property) const
+    -> std::shared_ptr<IndividualIndex> {
   return index_.WithReadLock(
       [&](std::shared_ptr<IndexContainer const> const &index) -> std::shared_ptr<IndividualIndex> {
         auto it = index->find({edge_type, property});
