@@ -155,7 +155,7 @@ jobs:
         git push origin "${{ steps.check_tag.outputs.tag_name }}"
 
   TestRC:
-    if: ${{ github.event_name == 'push' }}
+    if: ${{ github.event_name != 'push' }}
     name: Test Release Candidate
     needs: PrepareReleaseBranchPush
     uses: ./.github/workflows/reusable_release_tests.yaml
