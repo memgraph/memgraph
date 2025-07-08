@@ -40,7 +40,8 @@ bool QueryUserOrRole::IsAuthorized(const std::vector<query::AuthQuery::Privilege
 }
 
 #ifdef MG_ENTERPRISE
-bool QueryUserOrRole::CanImpersonate(const std::string &target, query::UserPolicy *policy) const {
+bool QueryUserOrRole::CanImpersonate(const std::string &target, query::UserPolicy *policy,
+                                     std::optional<std::string_view> db_name) const {
   auto locked_auth = auth_->Lock();
   // Check policy and update if behind (and policy permits it)
   if (policy->DoUpdate() && !locked_auth->UpToDate(auth_epoch_)) {
@@ -62,8 +63,8 @@ bool QueryUserOrRole::CanImpersonate(const std::string &target, query::UserPolic
     return false;
   }
 
-  if (user_) return AuthChecker::CanImpersonate(*user_, *user_to_impersonate);
-  if (roles_) return AuthChecker::CanImpersonate(*roles_, *user_to_impersonate);
+  if (user_) return AuthChecker::CanImpersonate(*user_, *user_to_impersonate, db_name);
+  if (roles_) return AuthChecker::CanImpersonate(*roles_, *user_to_impersonate, db_name);
   return false;
 }
 

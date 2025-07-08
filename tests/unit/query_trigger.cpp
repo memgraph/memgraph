@@ -61,7 +61,8 @@ class MockQueryUser : public memgraph::query::QueryUserOrRole {
                                         std::string_view db_name, memgraph::query::UserPolicy *policy));
 
 #ifdef MG_ENTERPRISE
-  MOCK_CONST_METHOD2(CanImpersonate, bool(const std::string &target, memgraph::query::UserPolicy *policy));
+  MOCK_CONST_METHOD3(CanImpersonate, bool(const std::string &target, memgraph::query::UserPolicy *policy,
+                                          std::optional<std::string_view> db_name));
   MOCK_CONST_METHOD0(GetDefaultDB, std::string());
 #endif
 };

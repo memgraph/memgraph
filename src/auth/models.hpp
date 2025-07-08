@@ -418,13 +418,27 @@ class Role {
 #endif
 
 #ifdef MG_ENTERPRISE
-  bool CanImpersonate(const User &user) const {
+  bool CanImpersonate(const User &user, std::optional<std::string_view> db_name = std::nullopt) const {
+    // Check if we have access to the database if specified
+    if (db_name && !HasAccess(*db_name)) {
+      return false;
+    }
     return user_impersonation_ && permissions_.Has(Permission::IMPERSONATE_USER) == PermissionLevel::GRANT &&
            user_impersonation_->CanImpersonate(user);
   }
 
-  bool UserImpIsGranted(const User &user) const { return user_impersonation_ && user_impersonation_->IsGranted(user); }
-  bool UserImpIsDenied(const User &user) const { return user_impersonation_ && user_impersonation_->IsDenied(user); }
+  bool UserImpIsGranted(const User &user, std::optional<std::string_view> db_name = std::nullopt) const {
+    if (db_name && !HasAccess(*db_name)) {
+      return false;
+    }
+    return user_impersonation_ && user_impersonation_->IsGranted(user);
+  }
+  bool UserImpIsDenied(const User &user, std::optional<std::string_view> db_name = std::nullopt) const {
+    if (db_name && !HasAccess(*db_name)) {
+      return false;
+    }
+    return user_impersonation_ && user_impersonation_->IsDenied(user);
+  }
 
   void RevokeUserImp() { user_impersonation_.reset(); }
   void GrantUserImp() {
@@ -501,7 +515,7 @@ class Roles {
 
     std::unordered_set<Role> filtered_roles;
     for (const auto &role : roles_) {
-      if (role.GrantsDB(*db_name)) {
+      if (role.HasAccess(*db_name)) {
         filtered_roles.insert(role);
       }
     }
@@ -586,16 +600,19 @@ class Roles {
 
   bool HasAccess(std::string_view db_name) const { return !DeniesDB(db_name) && GrantsDB(db_name); }
 
-  bool UserImpIsGranted(const User &user) const {
-    return std::ranges::any_of(roles_, [&user](const auto &role) { return role.UserImpIsGranted(user); });
+  bool UserImpIsGranted(const User &user, std::optional<std::string_view> db_name = std::nullopt) const {
+    return std::ranges::any_of(roles_,
+                               [&user, &db_name](const auto &role) { return role.UserImpIsGranted(user, db_name); });
   }
 
-  bool UserImpIsDenied(const User &user) const {
-    return std::ranges::any_of(roles_, [&user](const auto &role) { return role.UserImpIsDenied(user); });
+  bool UserImpIsDenied(const User &user, std::optional<std::string_view> db_name = std::nullopt) const {
+    return std::ranges::any_of(roles_,
+                               [&user, &db_name](const auto &role) { return role.UserImpIsDenied(user, db_name); });
   }
 
-  // TODO Make multi-db compatible
-  bool CanImpersonate(const User &user) const { return !UserImpIsDenied(user) && UserImpIsGranted(user); }
+  bool CanImpersonate(const User &user, std::optional<std::string_view> db_name = std::nullopt) const {
+    return !UserImpIsDenied(user, db_name) && UserImpIsGranted(user, db_name);
+  }
 #endif
 
   // Iteration support
@@ -731,15 +748,11 @@ class User final {
 #ifdef MG_ENTERPRISE
   bool CanImpersonate(const User &user, std::optional<std::string_view> db_name = std::nullopt) const {
     if (GetPermissions(db_name).Has(Permission::IMPERSONATE_USER) != PermissionLevel::GRANT) return false;
-    bool role_grants = false;
-    bool role_denies = false;
-    for (const auto &role : roles_) {
-      // If db_name is provided, only include roles that grant access to that database
-      if (!db_name || role.GrantsDB(*db_name)) {
-        role_denies |= role.UserImpIsDenied(user);
-        role_grants |= role.UserImpIsGranted(user);
-      }
-    }
+
+    // Use the Roles class methods that now support database filtering
+    bool role_grants = roles_.UserImpIsGranted(user, db_name);
+    bool role_denies = roles_.UserImpIsDenied(user, db_name);
+
     if (!user_impersonation_) return !role_denies && role_grants;
     bool user_grants = role_grants || user_impersonation_->IsGranted(user);
     bool user_denies = role_denies || user_impersonation_->IsDenied(user);
