@@ -101,7 +101,6 @@ inline void TryInsertEdgeTypePropertyIndex(Vertex &from_vertex, EdgeTypeId edge_
   }
 }
 
-// TODO (ivan): Is this function correct?
 inline void TryInsertEdgeTypePropertyIndex(Vertex &from_vertex, EdgeTypeId edge_type, PropertyId property,
                                            auto &&index_accessor,
                                            std::optional<SnapshotObserverInfo> const &snapshot_info,
@@ -148,11 +147,11 @@ inline void TryInsertEdgeTypePropertyIndex(Vertex &from_vertex, EdgeTypeId edge_
       // Edge type is immutable so we don't need to check it
       ApplyDeltasForRead(&tx, delta, View::OLD, [&](const Delta &delta) {
         // clang-format off
-      DeltaDispatch(delta, utils::ChainedOverloaded{
-        Exists_ActionMethod(exists),
-        Deleted_ActionMethod(deleted),
-        PropertyValue_ActionMethod(property_value, property),
-      });
+        DeltaDispatch(delta, utils::ChainedOverloaded{
+          Exists_ActionMethod(exists),
+          Deleted_ActionMethod(deleted),
+          PropertyValue_ActionMethod(property_value, property),
+        });
         // clang-format on
       });
     }

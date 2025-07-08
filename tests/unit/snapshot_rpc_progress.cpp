@@ -458,6 +458,7 @@ TEST_F(SnapshotRpcProgressTest, TestEdgeTypePropertyIndexSingleThreadedVerticesE
       auto [it, ver_inserted] = acc.insert(std::move(vertex));
       ASSERT_TRUE(ver_inserted);
       it->out_edges.emplace_back(etype, &*it, edge_ref);
+      edge->properties.SetProperty(prop, PropertyValue{1});
     }
   }
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
