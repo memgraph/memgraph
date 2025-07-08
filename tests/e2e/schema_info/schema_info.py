@@ -107,7 +107,7 @@ def test_spec(connect):
         else:
             assert index["edge_type"] == ["IS_FAMILY"]
             assert index["properties"] == ["since"]
-            assert index["count"] == 5
+            assert index["count"] == 4
     enums = schema_json["enums"]
     assert len(enums) == 1
     assert enums[0]["name"] == "Status"

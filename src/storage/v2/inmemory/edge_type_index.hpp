@@ -112,7 +112,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
  public:
   struct ActiveIndices : storage::EdgeTypeIndex::ActiveIndices {
     explicit ActiveIndices(std::shared_ptr<IndicesContainer const> indices = std::make_shared<IndicesContainer>())
-        : ptr_{std::move(indices)} {}
+        : index_container_{std::move(indices)} {}
 
     bool IndexReady(EdgeTypeId edge_type) const override;
 
@@ -125,15 +125,13 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
     void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
                               const Transaction &tx) override;
 
-    void UpdateOnEdgeModification(Vertex *old_from, Vertex *old_to, Vertex *new_from, Vertex *new_to, EdgeRef edge_ref,
-                                  EdgeTypeId edge_type, const Transaction &tx) override;
     void AbortEntries(AbortableInfo const &info, uint64_t exact_start_timestamp) override;
     auto GetAbortProcessor() const -> AbortProcessor override;
 
     Iterable Edges(EdgeTypeId edge_type, View view, Storage *storage, Transaction *transaction);
 
    private:
-    std::shared_ptr<IndicesContainer const> ptr_;
+    std::shared_ptr<IndicesContainer const> index_container_;
   };
 
   InMemoryEdgeTypeIndex() = default;
@@ -162,15 +160,17 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
   auto GetActiveIndices() const -> std::unique_ptr<EdgeTypeIndex::ActiveIndices> override;
 
  private:
-  void CleanupAllIndicies();
+  void CleanupAllIndices();
   auto GetIndividualIndex(EdgeTypeId edge_type) const -> std::shared_ptr<IndividualIndex>;
 
   utils::Synchronized<std::shared_ptr<IndicesContainer const>, utils::WritePrioritizedRWLock> index_{
-      std::make_shared<IndicesContainer>()};
+      std::make_shared<IndicesContainer const>()};
 
   // For correct GC we need a copy of all indexes, even if dropped, this is so we can ensure dangling ptr are removed
   // even for dropped indices
-  utils::Synchronized<std::vector<std::shared_ptr<IndividualIndex>>, utils::WritePrioritizedRWLock> all_indexes_{};
+  using AllIndicesEntry = std::shared_ptr<IndividualIndex>;
+  utils::Synchronized<std::shared_ptr<std::vector<AllIndicesEntry> const>, utils::WritePrioritizedRWLock> all_indices_{
+      std::make_shared<std::vector<AllIndicesEntry> const>()};
 };
 
 }  // namespace memgraph::storage

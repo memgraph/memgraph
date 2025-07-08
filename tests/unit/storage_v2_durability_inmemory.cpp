@@ -149,9 +149,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     }
     {
       // Create label index.
-      auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateIndex(label_unindexed).HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      auto acc = store->ReadOnlyAccess();
+      ASSERT_FALSE(acc->CreateIndex(label_unindexed).HasError());
+      ASSERT_FALSE(acc->Commit().HasError());
     }
     {
       // Create label index statistics.
@@ -455,9 +455,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
                                memgraph::storage::PropertyId prop) {
     {
       // Create edge-type index.
-      auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateIndex(edge_type, prop).HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      auto acc = store->ReadOnlyAccess();
+      ASSERT_FALSE(acc->CreateIndex(edge_type, prop).HasError());
+      ASSERT_FALSE(acc->Commit().HasError());
     }
   }
 
