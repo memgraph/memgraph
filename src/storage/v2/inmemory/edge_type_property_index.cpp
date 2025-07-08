@@ -40,7 +40,7 @@ inline void TryInsertEdgeTypePropertyIndex(Vertex &from_vertex, EdgeTypeId edge_
       continue;
     }
 
-    index_accessor.insert({property_value, &from_vertex, to_vertex, edge_ref.ptr, 0});
+    index_accessor.insert({std::move(property_value), &from_vertex, to_vertex, edge_ref.ptr, 0});
     if (snapshot_info) {
       snapshot_info->Update(UpdateType::EDGES);
     }
@@ -106,7 +106,7 @@ inline void TryInsertEdgeTypePropertyIndex(Vertex &from_vertex, EdgeTypeId edge_
       continue;
     }
 
-    index_accessor.insert({property_value, &from_vertex, to_vertex, edge_ref.ptr, tx.start_timestamp});
+    index_accessor.insert({std::move(property_value), &from_vertex, to_vertex, edge_ref.ptr, tx.start_timestamp});
     if (snapshot_info) {
       snapshot_info->Update(UpdateType::EDGES);
     }

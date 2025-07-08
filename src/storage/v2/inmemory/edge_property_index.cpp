@@ -49,8 +49,11 @@ inline void TryInsertEdgePropertyIndex(Vertex &from_vertex, PropertyId property,
     if (to_vertex->deleted) {
       continue;
     }
-    index_accessor.insert(
-        {edge_ref.ptr->properties.GetProperty(property), &from_vertex, to_vertex, edge_ref.ptr, edge_type, 0});
+    auto value = edge_ref.ptr->properties.GetProperty(property);
+    if (value.IsNull()) {
+      continue;
+    }
+    index_accessor.insert({std::move(value), &from_vertex, to_vertex, edge_ref.ptr, edge_type, 0});
     if (snapshot_info) {
       snapshot_info->Update(UpdateType::EDGES);
     }
