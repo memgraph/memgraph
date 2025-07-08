@@ -134,8 +134,8 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
   });
 
   if (is_strict_sync_cluster) {
-    // There is a possibility that the replica is behind MAIN but there is also a possibility that replica (old MAIN)
-    // has a larger timestamp. This is because our STRICT_SYNC mode guarantees data-loss free failover for all
+    // There is a possibility that the replica is behind MAIN but there is also a possibility that replica (now old
+    // MAIN) has a larger timestamp. This is because our STRICT_SYNC mode guarantees data-loss free failover for all
     // transactions except the last one. This could happen when both replicas' communication channel with MAIN went down
     // after agreeing with MAIN to commit and before receiving FinalizeCommitRpc and when there is a specific network
     // partition in which the leader coordinator can communicate with replicas but not with the current MAIN. Extremely
