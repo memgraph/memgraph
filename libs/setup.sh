@@ -150,7 +150,6 @@ declare -A primary_urls=(
   ["asio"]="http://$local_cache_host/git/asio.git"
   ["mgcxx"]="http://$local_cache_host/git/mgcxx.git"
   ["usearch"]="http://$local_cache_host/git/usearch.git"
-  ["croncpp"]="http://$local_cache_host/git/croncpp.git"
 )
 
 # The goal of secondary urls is to have links to the "source of truth" of
@@ -173,7 +172,6 @@ declare -A secondary_urls=(
   ["asio"]="https://github.com/chriskohlhoff/asio.git"
   ["mgcxx"]="https://github.com/memgraph/mgcxx.git"
   ["usearch"]="https://github.com/unum-cloud/usearch.git"
-  ["croncpp"]="https://github.com/mariusbancila/croncpp.git"
 )
 
 # Skip download if we are under the latest toolchains (>= 6).
@@ -319,7 +317,3 @@ repo_clone_try_double "${primary_urls[usearch]}" "${secondary_urls[usearch]}" "u
 pushd usearch
 git submodule update --init --recursive
 popd
-
-# croncpp
-croncpp_ref="v2023.03.30"
-repo_clone_try_double "${primary_urls[croncpp]}" "${secondary_urls[croncpp]}" "croncpp" "$croncpp_ref"

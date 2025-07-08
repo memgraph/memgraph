@@ -47,6 +47,7 @@ class Memgraph(ConanFile):
         self.requires("cppitertools/2.2")
         self.requires("ctre/3.9.0")
         self.requires("abseil/20250127.0")
+        self.requires("croncpp/2023.03.30")
 
     def package(self):
         cmake = CMake(self)

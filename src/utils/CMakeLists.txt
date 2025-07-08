@@ -53,6 +53,7 @@ find_package(gflags REQUIRED)
 find_package(Threads REQUIRED)
 find_package(ZLIB REQUIRED)
 find_package(spdlog REQUIRED)
+find_package(croncpp REQUIRED)
 
 target_link_libraries(mg-utils PUBLIC Boost::headers fmt::fmt spdlog::spdlog nlohmann_json::nlohmann_json ZLIB::ZLIB croncpp::croncpp)
 target_link_libraries(mg-utils PRIVATE librdtsc stdc++fs Threads::Threads gflags uuid rt mg-flags)
