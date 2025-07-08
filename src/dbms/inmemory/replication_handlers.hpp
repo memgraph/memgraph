@@ -49,6 +49,11 @@ class InMemoryReplicationHandlers {
   static std::pair<bool, uint32_t> LoadWal(storage::InMemoryStorage *storage, storage::replication::Decoder *decoder,
                                            slk::Builder *res_builder, uint32_t start_batch_counter = 0);
 
+  // If the connection between MAIN and REPLICA dies just after sending PrepareCommitRes and receiving
+  // FinalizeCommitReq, then there is the possibility that the cached_commit_accessor_ will stay alive for too long
+  // preventing therefore processing of CurrentWalRpc.
+  static void AbortPrevTxnIfNeeded(storage::InMemoryStorage *storage);
+
   static std::optional<storage::SingleTxnDeltasProcessingResult> ReadAndApplyDeltasSingleTxn(
       storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder, uint64_t version, slk::Builder *,
       bool commit_txn_immediately, bool loading_wal, uint32_t start_batch_counter = 0);

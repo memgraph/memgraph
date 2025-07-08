@@ -353,7 +353,8 @@ std::optional<ConstraintViolation> InMemoryUniqueConstraints::DoValidate(
   return std::nullopt;
 }
 
-void InMemoryUniqueConstraints::AbortEntries(std::span<Vertex const *const> vertices, uint64_t exact_start_timestamp) {
+void InMemoryUniqueConstraints::AbortEntries(std::span<Vertex const *const> const vertices,
+                                             uint64_t const exact_start_timestamp) {
   for (const auto &vertex : vertices) {
     for (const auto &label : vertex->labels) {
       const auto &constraint = constraints_by_label_.find(label);
@@ -462,23 +463,26 @@ std::optional<ConstraintViolation> InMemoryUniqueConstraints::Validate(const Ver
         continue;
       }
 
-      std::unordered_set<Vertex const *> possible_conflicting;
-      // NOLINTNEXTLINE(clang-analyzer-core.NullDereference)
-      auto acc = storage->access();
-      auto it = acc.find_equal_or_greater(*value_array);
-      for (; it != acc.end(); ++it) {
-        if (*value_array != it->values) {
-          break;
-        }
+      auto possible_conflicting = std::invoke([&] {
+        // NOLINTNEXTLINE(clang-analyzer-core.NullDereference)
+        auto acc = storage->access();
+        auto it = acc.find_equal_or_greater(*value_array);
+        std::unordered_set<Vertex const *> res;
+        for (; it != acc.end(); ++it) {
+          if (*value_array != it->values) {
+            break;
+          }
 
-        // The `vertex` that is going to be committed violates a unique constraint
-        // if it's different than a vertex indexed in the list of constraints and
-        // has the same label and property value as the last committed version of
-        // the vertex from the list.
-        if (&vertex != it->vertex) {
-          possible_conflicting.insert(it->vertex);
+          // The `vertex` that is going to be committed violates a unique constraint
+          // if it's different than a vertex indexed in the list of constraints and
+          // has the same label and property value as the last committed version of
+          // the vertex from the list.
+          if (&vertex != it->vertex) {
+            res.insert(it->vertex);
+          }
         }
-      }
+        return res;
+      });
 
       for (auto const *v : possible_conflicting) {
         if (LastCommittedVersionHasLabelProperty(*v, label, properties, *value_array, tx, commit_timestamp)) {
@@ -500,7 +504,8 @@ std::vector<std::pair<LabelId, std::set<PropertyId>>> InMemoryUniqueConstraints:
   return ret;
 }
 
-void InMemoryUniqueConstraints::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
+void InMemoryUniqueConstraints::RemoveObsoleteEntries(uint64_t const oldest_active_start_timestamp,
+                                                      std::stop_token token) {
   auto maybe_stop = utils::ResettableCounter(2048);
 
   for (auto &[label_props, storage] : constraints_) {
@@ -515,6 +520,7 @@ void InMemoryUniqueConstraints::RemoveObsoleteEntries(uint64_t oldest_active_sta
       auto next_it = it;
       ++next_it;
 
+      // Cannot delete it yet
       if (it->timestamp >= oldest_active_start_timestamp) {
         it = next_it;
         continue;

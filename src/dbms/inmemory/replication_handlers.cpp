@@ -399,9 +399,12 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
   auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
 
   if (req.decision) {
+    spdlog::trace("Trying to finalize on replica");
     cached_commit_accessor_->FinalizeCommitPhase(req.durability_commit_timestamp);
+    spdlog::trace("Finalized on replica");
   } else {
     cached_commit_accessor_->AbortAndResetCommitTs();
+    spdlog::trace("Aborted storage on replica");
   }
 
   cached_commit_accessor_.reset();
@@ -411,6 +414,18 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
 
   storage::replication::FinalizeCommitRes const res(true);
   rpc::SendFinalResponse(res, res_builder);
+}
+
+void InMemoryReplicationHandlers::AbortPrevTxnIfNeeded(storage::InMemoryStorage *const storage) {
+  if (cached_commit_accessor_) {
+    cached_commit_accessor_->AbortAndResetCommitTs();
+    cached_commit_accessor_.reset();
+  }
+
+  if (storage->wal_file_) {
+    storage->wal_file_->FinalizeWal();
+    storage->wal_file_.reset();
+  }
 }
 
 // The semantic of snapshot handler is the following: Either handling snapshot request passes or it doesn't. If it
@@ -435,6 +450,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
   }
 
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
+  AbortPrevTxnIfNeeded(storage);
 
   // Backup dir
   auto const current_snapshot_dir = storage->recovery_.snapshot_directory_;
@@ -573,6 +589,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
   }
 
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
+  AbortPrevTxnIfNeeded(storage);
 
   auto const current_snapshot_dir = storage->recovery_.snapshot_directory_;
   auto const current_wal_directory = storage->recovery_.wal_directory_;
@@ -668,6 +685,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
   }
 
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
+  AbortPrevTxnIfNeeded(storage);
 
   auto const current_snapshot_dir = storage->recovery_.snapshot_directory_;
   auto const current_wal_directory = storage->recovery_.wal_directory_;
