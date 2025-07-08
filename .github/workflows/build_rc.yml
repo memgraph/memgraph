@@ -90,7 +90,7 @@ jobs:
           git push origin "${{ steps.check_tag.outputs.tag_name }}"
 
   PrepareReleaseBranchPush:
-    if: ${{ github.event_name == 'push' }}
+    if: ${{ github.event_name != 'push' }}
     name: Prepare Release Branch Push
     runs-on: ubuntu-24.04
     outputs:
@@ -155,6 +155,7 @@ jobs:
         git push origin "${{ steps.check_tag.outputs.tag_name }}"
 
   TestRC:
+    if: ${{ github.event_name == 'push' }}
     name: Test Release Candidate
     needs: PrepareReleaseBranchPush
     uses: ./.github/workflows/reusable_release_tests.yaml
@@ -168,6 +169,7 @@ jobs:
     secrets: inherit
 
   PackageArtifact:
+    if: ${{ github.event_name != 'push' }}
     name: Package Artifact
     needs: PrepareReleaseBranchPush
     strategy:
@@ -218,6 +220,7 @@ jobs:
     secrets: inherit
 
   DockerArtifact:
+    if: ${{ github.event_name != 'push' }}
     name: Docker Artifact
     needs: PrepareReleaseBranchPush
     strategy:
@@ -243,7 +246,7 @@ jobs:
 
   TriggerMAGEBuild:
     name: Trigger MAGE Build
-    needs: [PrepareReleaseBranchPush, PackageArtifact]
+    needs: [PrepareReleaseBranchPush]
     if: ${{ inputs.build_mage || github.event_name == 'push' }}
     runs-on: ubuntu-24.04
     steps:
