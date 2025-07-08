@@ -4,7 +4,6 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  push:
   workflow_dispatch:
     inputs:
       version:
@@ -26,8 +25,6 @@ on:
 
 jobs:
   PrepareReleaseBranch:
-    # NOTE: remove before merging
-    if: ${{ github.event_name != 'push' }}
     name: Prepare Release Branch
     runs-on: ubuntu-24.04
     outputs:
@@ -89,75 +86,9 @@ jobs:
           git tag "${{ steps.check_tag.outputs.tag_name }}"
           git push origin "${{ steps.check_tag.outputs.tag_name }}"
 
-  PrepareReleaseBranchPush:
-    if: ${{ github.event_name == 'push' }}
-    name: Prepare Release Branch Push
-    runs-on: ubuntu-24.04
-    outputs:
-      branch_name: ${{ steps.check_branch.outputs.branch_name }}
-      tag_name: ${{ steps.check_tag.outputs.tag_name }}
-    steps:
-    - name: Checkout code
-      uses: actions/checkout@v4
-      with:
-        fetch-depth: 0
-        fetch-tags: true
-
-
-    - name: Set up Git user
-      run: |
-        git config user.name github-actions
-        git config user.email actions@github.com
-
-    - name: Check if release branch exists and checkout
-      id: check_branch
-      run: |
-        branch_name="release/v0.0.0"
-        if git ls-remote --exit-code --heads origin "$branch_name"; then
-          echo "Branch $branch_name exists. Checking out."
-          git checkout "$branch_name"
-        else
-          echo "Branch $branch_name does not exist. Creating a new branch."
-          git checkout -b "$branch_name"
-        fi
-        echo "branch_name=$branch_name" >> $GITHUB_OUTPUT
-
-    - name: Set Memgraph Override Version
-      run: |
-        sed -i "s/set(MEMGRAPH_OVERRIDE_VERSION \"\")/set(MEMGRAPH_OVERRIDE_VERSION \"0.0.0\")/" CMakeLists.txt
-        git add CMakeLists.txt
-        # this will return an error status if the file is already up to date
-        git commit -m "Update CMakeLists.txt with new memgraph override version [skip tests] [skip build]" || true
-
-    - name: Check if tag exists
-      id: check_tag
-      run: |
-        tag_name="v0.0.0-rc1"
-        if git ls-remote --exit-code --tags origin "$tag_name"; then
-          echo "Tag $tag_name exists."
-          if [ "true" == "true" ]; then
-            echo "Overwriting existing tag."
-            git tag -d "$tag_name"
-            git push origin ":refs/tags/$tag_name"
-          else
-            echo "Skipping tag creation as it already exists."
-            exit 1
-          fi
-        else
-          echo "Tag $tag_name does not exist. Proceeding to create a new tag."
-        fi
-        echo "tag_name=$tag_name" >> $GITHUB_OUTPUT
-
-    - name: Create and push tag
-      run: |
-        git push --set-upstream origin "${{ steps.check_branch.outputs.branch_name }}"
-        git tag "${{ steps.check_tag.outputs.tag_name }}"
-        git push origin "${{ steps.check_tag.outputs.tag_name }}"
-
   TestRC:
-    if: ${{ github.event_name != 'push' }}
     name: Test Release Candidate
-    needs: PrepareReleaseBranchPush
+    needs: PrepareReleaseBranch
     uses: ./.github/workflows/reusable_release_tests.yaml
     with:
       os: ubuntu-24.04
@@ -165,13 +96,26 @@ jobs:
       arch: amd
       threads: 24
       build_type: Release
-      ref: ${{ needs.PrepareReleaseBranchPush.outputs.branch_name }}
+      ref: ${{ needs.PrepareReleaseBranch.outputs.branch_name }}
+    secrets: inherit
+
+  StressTestLarge:
+    name: Stress Test Large
+    needs: PrepareReleaseBranch
+    uses: ./.github/workflows/reusable_release_tests.yaml
+    with:
+      os: ubuntu-24.04
+      toolchain: v6
+      arch: "amd"
+      threads: 24
+      build_type: Release
+      run_stress_large: 'true'
+      run_release_tests: 'false'
     secrets: inherit
 
   PackageArtifact:
-    if: ${{ github.event_name != 'push' }}
     name: Package Artifact
-    needs: PrepareReleaseBranchPush
+    needs: PrepareReleaseBranch
     strategy:
       fail-fast: false
       matrix:
@@ -216,13 +160,12 @@ jobs:
       s3_region: eu-west-1
       s3_dest_dir: "memgraph/${{ github.ref_name }}"
       additional_build_args: ${{ matrix.additional_build_args }}
-      ref: ${{ needs.PrepareReleaseBranchPush.outputs.branch_name }}
+      ref: ${{ needs.PrepareReleaseBranch.outputs.branch_name }}
     secrets: inherit
 
   DockerArtifact:
-    if: ${{ github.event_name != 'push' }}
     name: Docker Artifact
-    needs: PrepareReleaseBranchPush
+    needs: PrepareReleaseBranch
     strategy:
       fail-fast: false
       matrix:
@@ -241,20 +184,20 @@ jobs:
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: "memgraph/${{ github.ref_name }}"
-      ref: ${{ needs.PrepareReleaseBranchPush.outputs.branch_name }}
+      ref: ${{ needs.PrepareReleaseBranch.outputs.branch_name }}
     secrets: inherit
 
   TriggerMAGEBuild:
     name: Trigger MAGE Build
-    needs: [PrepareReleaseBranchPush]
-    if: ${{ inputs.build_mage || github.event_name == 'push' }}
+    needs: [PrepareReleaseBranch, PackageArtifact]
+    if: ${{ inputs.build_mage }}
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ needs.PrepareReleaseBranchPush.outputs.branch_name }}
+          ref: ${{ needs.PrepareReleaseBranch.outputs.branch_name }}
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -272,11 +215,7 @@ jobs:
         run: |
           echo "Triggering MAGE build for release candidate ${GITHUB_REF_NAME}."
           python3 tools/trigger_mage_rc_build.py \
-            --version "0.0.0" \
-            --rc_number "rc1" \
-            --branch_name "${{ needs.PrepareReleaseBranchPush.outputs.branch_name }}" \
-            --tag_name "${{ needs.PrepareReleaseBranchPush.outputs.tag_name }}"
-
-
-# --version "${{ inputs.version }}" \
-# --rc_number "${{ inputs.rc_number }}" \
+            --version "${{ inputs.version }}" \
+            --rc_number "${{ inputs.rc_number }}" \
+            --branch_name "${{ needs.PrepareReleaseBranch.outputs.branch_name }}" \
+            --tag_name "${{ needs.PrepareReleaseBranch.outputs.tag_name }}"
