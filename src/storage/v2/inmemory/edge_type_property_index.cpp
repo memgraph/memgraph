@@ -174,9 +174,11 @@ bool InMemoryEdgeTypePropertyIndex::CreateIndexOnePass(EdgeTypeId edge_type, Pro
 
 bool InMemoryEdgeTypePropertyIndex::DropIndex(EdgeTypeId edge_type, PropertyId property) {
   auto result = index_.WithLock([&](std::shared_ptr<IndexContainer const> &index_container) {
-    auto it = index_container->find({edge_type, property});
-    if (it == index_container->end()) [[unlikely]] {
-      return false;
+    {
+      auto it = index_container->find({edge_type, property});
+      if (it == index_container->end()) [[unlikely]] {
+        return false;
+      }
     }
 
     auto new_container = std::make_shared<IndexContainer>(*index_container);

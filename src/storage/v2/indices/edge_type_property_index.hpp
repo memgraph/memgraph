@@ -37,10 +37,12 @@ class EdgeTypePropertyIndex {
     void CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property, Vertex *from_vertex, Vertex *to_vertex,
                                  Edge *edge, PropertyValue value);
 
+    bool IsInteresting(PropertyId id);
+
+    bool IsInteresting(EdgeTypeId edge_type, PropertyId property);
+
     std::set<PropertyId> interesting_properties_;
     AbortableInfo cleanup_collection_;
-    bool IsInteresting(PropertyId id);
-    bool IsInteresting(EdgeTypeId edge_type, PropertyId property);
   };
 
   struct IndexStats {
@@ -73,8 +75,6 @@ class EdgeTypePropertyIndex {
   };
 
   virtual auto GetActiveIndices() const -> std::unique_ptr<ActiveIndices> = 0;
-
-  // TODO (ivan): why no AbortProcessor here?
 
   EdgeTypePropertyIndex() = default;
 

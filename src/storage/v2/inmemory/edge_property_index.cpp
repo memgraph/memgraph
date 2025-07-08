@@ -213,8 +213,10 @@ InMemoryEdgePropertyIndex::IndividualIndex::~IndividualIndex() {
 
 bool InMemoryEdgePropertyIndex::DropIndex(PropertyId property) {
   auto const result = index_.WithLock([&](std::shared_ptr<IndicesContainer const> &indices_container) {
-    auto const it = indices_container->indices_.find(property);
-    if (it == indices_container->indices_.cend()) return false;
+    {
+      auto const it = indices_container->indices_.find(property);
+      if (it == indices_container->indices_.cend()) return false;
+    }
 
     auto new_container = std::make_shared<IndicesContainer>();
     for (auto const &[existing_property, index] : indices_container->indices_) {

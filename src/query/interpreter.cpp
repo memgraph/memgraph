@@ -3460,7 +3460,7 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
           } else if (properties.empty()) {
             return dba->CreateIndex(edge_type, std::move(cancel_check), std::move(plan_invalidator_builder));
           }
-          return dba->CreateIndex(edge_type, properties[0], make_create_index_cancel_callback(stopping_context),
+          return dba->CreateIndex(edge_type, properties[0], std::move(cancel_check),
                                   std::move(plan_invalidator_builder));
         });
 

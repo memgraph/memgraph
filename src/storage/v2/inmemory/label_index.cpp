@@ -192,9 +192,11 @@ void InMemoryLabelIndex::ActiveIndices::UpdateOnAddLabel(LabelId added_label, Ve
 
 bool InMemoryLabelIndex::DropIndex(LabelId label) {
   auto result = index_.WithLock([&](std::shared_ptr<IndexContainer const> &index) -> bool {
-    auto it = index->find(label);
-    if (it == index->end()) [[unlikely]] {
-      return false;
+    {
+      auto it = index->find(label);
+      if (it == index->end()) [[unlikely]] {
+        return false;
+      }
     }
     auto new_index = std::make_shared<IndexContainer>(*index);
     new_index->erase(label);

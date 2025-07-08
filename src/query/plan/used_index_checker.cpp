@@ -58,12 +58,23 @@ bool UsedIndexChecker::PreVisit(ScanAllByEdgePropertyRange &op) {
   return true;
 }
 
+bool UsedIndexChecker::PreVisit(ScanAllByEdgeTypeProperty &op) {
+  required_indices_.edge_type_properties_.emplace_back(op.common_.edge_types[0], op.property_);
+  return true;
+}
+
+bool UsedIndexChecker::PreVisit(ScanAllByEdgeTypePropertyValue &op) {
+  required_indices_.edge_type_properties_.emplace_back(op.common_.edge_types[0], op.property_);
+  return true;
+}
+
+bool UsedIndexChecker::PreVisit(ScanAllByEdgeTypePropertyRange &op) {
+  required_indices_.edge_type_properties_.emplace_back(op.common_.edge_types[0], op.property_);
+  return true;
+}
+
 PRE_VISIT(ScanAllById)
 PRE_VISIT(ScanAllByEdge)
-
-PRE_VISIT(ScanAllByEdgeTypeProperty)       // TODO: gather for concurrent index check
-PRE_VISIT(ScanAllByEdgeTypePropertyValue)  // TODO: gather for concurrent index check
-PRE_VISIT(ScanAllByEdgeTypePropertyRange)  // TODO: gather for concurrent index check
 
 PRE_VISIT(ScanAllByEdgeId)
 

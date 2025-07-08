@@ -172,8 +172,10 @@ InMemoryEdgeTypeIndex::IndividualIndex::~IndividualIndex() {
 
 bool InMemoryEdgeTypeIndex::DropIndex(EdgeTypeId edge_type) {
   auto const result = index_.WithLock([&](std::shared_ptr<IndicesContainer const> &indices_container) {
-    auto const it = indices_container->indices_.find(edge_type);
-    if (it == indices_container->indices_.cend()) return false;
+    {
+      auto const it = indices_container->indices_.find(edge_type);
+      if (it == indices_container->indices_.cend()) return false;
+    }
 
     auto new_container = std::make_shared<IndicesContainer>();
     for (auto const &[existing_edge_type, index] : indices_container->indices_) {
