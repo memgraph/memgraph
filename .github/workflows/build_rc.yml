@@ -25,11 +25,11 @@ on:
         default: true
 
 env:
-    OS: ubuntu-24.04
-    TOOLCHAIN: v6
-    ARCH: amd
-    THREADS: 24
-    BUILD_TYPE: Release
+  OS: ubuntu-24.04
+  TOOLCHAIN: v6
+  ARCH: amd
+  THREADS: 24
+  BUILD_TYPE: Release
 
 jobs:
   PrepareReleaseBranch:
@@ -163,11 +163,11 @@ jobs:
     needs: PrepareReleaseBranchPush
     uses: ./.github/workflows/reusable_release_tests.yaml
     with:
-      os: "${{ env.OS }}"
-      toolchain: "${{ env.TOOLCHAIN }}"
-      arch: "${{ env.ARCH }}"
-      threads: "${{ env.THREADS }}"
-      build_type: ${{ env.BUILD_TYPE }}
+      os: $OS
+      toolchain: $TOOLCHAIN
+      arch: $env.ARCH
+      threads: $THREADS
+      build_type: $BUILD_TYPE
       ref: ${{ needs.PrepareReleaseBranchPush.outputs.branch_name }}
     secrets: inherit
 
@@ -211,7 +211,7 @@ jobs:
       os: ${{ matrix.os }}
       arch: ${{ matrix.arch }}
       build_type: ${{ matrix.build_type }}
-      toolchain: "${{ env.TOOLCHAIN }}"
+      toolchain: $TOOLCHAIN
       push_to_github: 'false'
       push_to_s3: 'true'
       s3_bucket: deps.memgraph.io
@@ -223,7 +223,7 @@ jobs:
 
   DockerArtifact:
     name: Docker Artifact
-    needs: PrepareReleaseBranch
+    needs: PrepareReleaseBranchPush
     strategy:
       fail-fast: false
       matrix:
@@ -235,19 +235,19 @@ jobs:
       os: ${{ matrix.os }}
       arch: ${{ matrix.arch }}
       build_type: ${{ matrix.build_type }}
-      toolchain: "${{ env.TOOLCHAIN }}"
+      toolchain: $TOOLCHAIN
       additional_build_args: '--for-docker'
       push_to_github: 'false'
       push_to_s3: 'true'
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: "memgraph/${{ github.ref_name }}"
-      ref: ${{ needs.PrepareReleaseBranch.outputs.branch_name }}
+      ref: ${{ needs.PrepareReleaseBranchPush.outputs.branch_name }}
     secrets: inherit
 
   TriggerMAGEBuild:
     name: Trigger MAGE Build
-    needs: [PrepareReleaseBranch, PackageArtifact]
+    needs: [PrepareReleaseBranchPush, PackageArtifact]
     if: ${{ inputs.build_mage || github.event_name == 'push' }}
     runs-on: ubuntu-24.04
     steps:
@@ -255,7 +255,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ needs.PrepareReleaseBranch.outputs.branch_name }}
+          ref: ${{ needs.PrepareReleaseBranchPush.outputs.branch_name }}
 
       - name: Set up Python
         uses: actions/setup-python@v4
@@ -273,7 +273,11 @@ jobs:
         run: |
           echo "Triggering MAGE build for release candidate ${GITHUB_REF_NAME}."
           python3 tools/trigger_mage_rc_build.py \
-            --version "${{ inputs.version }}" \
-            --rc_number "${{ inputs.rc_number }}" \
-            --branch_name "${{ needs.PrepareReleaseBranch.outputs.branch_name }}" \
-            --tag_name "${{ needs.PrepareReleaseBranch.outputs.tag_name }}"
+            --version "0.0.0" \
+            --rc_number "rc1" \
+            --branch_name "${{ needs.PrepareReleaseBranchPush.outputs.branch_name }}" \
+            --tag_name "${{ needs.PrepareReleaseBranchPush.outputs.tag_name }}"
+
+
+# --version "${{ inputs.version }}" \
+# --rc_number "${{ inputs.rc_number }}" \
