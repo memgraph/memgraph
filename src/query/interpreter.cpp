@@ -885,14 +885,21 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         // If the license is not valid we create users with admin access
         if (!valid_enterprise_license) {
           spdlog::warn("Granting all the privileges to {}.", username);
-          auth->GrantPrivilege(username, kPrivilegesAll
+          auth->GrantPrivilege(
+              username, kPrivilegesAll
 #ifdef MG_ENTERPRISE
-                               ,
-                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
-                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}}
+              ,
+              {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
+              {
+                {
+                  {
+                    AuthQuery::FineGrainedPrivilege::CREATE_DELETE, { query::kAsterisk }
+                  }
+                }
+              }
 #endif
-                               ,
-                               &*interpreter->system_transaction_);
+              ,
+              &*interpreter->system_transaction_);
         }
 
         return std::vector<std::vector<TypedValue>>();
@@ -2467,8 +2474,8 @@ auto DetermineTxTimeout(std::optional<int64_t> tx_timeout_ms, InterpreterConfig 
   return TxTimeout{};
 }
 
-auto CreateTimeoutTimer(QueryExtras const &extras,
-                        InterpreterConfig const &config) -> std::shared_ptr<utils::AsyncTimer> {
+auto CreateTimeoutTimer(QueryExtras const &extras, InterpreterConfig const &config)
+    -> std::shared_ptr<utils::AsyncTimer> {
   if (auto const timeout = DetermineTxTimeout(extras.tx_timeout, config)) {
     return std::make_shared<utils::AsyncTimer>(timeout.ValueUnsafe().count());
   }
@@ -3135,11 +3142,11 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
   std::vector<std::vector<TypedValue>> results;
   results.reserve(label_results.size() + label_prop_results.size());
 
-  std::transform(label_results.begin(), label_results.end(), std::back_inserter(results),
-                 [execution_db_accessor](const auto &label_index) {
-                   return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)),
-                                                  TypedValue("")};
-                 });
+  std::transform(
+      label_results.begin(), label_results.end(), std::back_inserter(results),
+      [execution_db_accessor](const auto &label_index) {
+        return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)), TypedValue("")};
+      });
 
   auto const prop_path_to_name = [&](storage::PropertyPath const &property_path) {
     return TypedValue{PropertyPathToName(execution_db_accessor, property_path)};
@@ -3231,7 +3238,7 @@ struct DoNothing {
 // We need to atomically invalidate the plan when publishing new index
 auto make_create_index_plan_invalidator_builder(memgraph::dbms::DatabaseAccess db_acc) {
   // capture DatabaseAccess in builder
-  return [db_acc = std::move(db_acc)]<InvocableWithUInt64 Func = DoNothing>(Func &&publish_func = Func{}) {
+  return [db_acc = std::move(db_acc)]<InvocableWithUInt64 Func = DoNothing>(Func && publish_func = Func{}) {
     // build plan invalidator wrapper
     return [db_acc = std::move(db_acc),
             publish_func = std::forward<Func>(publish_func)](uint64_t commit_timestamp) mutable {
@@ -3246,7 +3253,7 @@ auto make_create_index_plan_invalidator_builder(memgraph::dbms::DatabaseAccess d
 
 auto make_drop_index_plan_invalidator_builder(memgraph::dbms::DatabaseAccess db_acc) {
   // capture DatabaseAccess in builder
-  return [db_acc = std::move(db_acc)]<std::invocable Func = DoNothing>(Func &&publish_func = Func{}) {
+  return [db_acc = std::move(db_acc)]<std::invocable Func = DoNothing>(Func && publish_func = Func{}) {
     // build plan invalidator wrapper
     return [db_acc = std::move(db_acc), publish_func = std::forward<Func>(publish_func)]() mutable {
       return db_acc->plan_cache()->WithLock([&](auto &cache) {
@@ -3418,7 +3425,7 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
   }
 
   if (properties.size() > 1) {
-    // TODO(composite_index): extend to also apply for edge type indicies
+    // TODO(composite_index): extend to also apply for edge type indices
     throw utils::NotYetImplemented("composite indices");
   }
 
@@ -6340,11 +6347,14 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   void Visit(IsolationLevelQuery &) override {}
   void Visit(StorageModeQuery &) override {}
   void Visit(CreateSnapshotQuery &)
-      override { /*CreateSnapshot is also used in a periodic way so internally will arrange its own access*/ }
+      override { /*CreateSnapshot is also used in a periodic way so internally will arrange its own access*/
+  }
   void Visit(ShowSnapshotsQuery &) override {}
   void Visit(EdgeImportModeQuery &) override {}
-  void Visit(AlterEnumRemoveValueQuery &) override { /* Not implemented yet */ }
-  void Visit(DropEnumQuery &) override { /* Not implemented yet */ }
+  void Visit(AlterEnumRemoveValueQuery &) override { /* Not implemented yet */
+  }
+  void Visit(DropEnumQuery &) override { /* Not implemented yet */
+  }
   void Visit(SessionTraceQuery &) override {}
 
   // Some queries require an active transaction in order to be prepared.

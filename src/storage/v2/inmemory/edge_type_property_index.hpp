@@ -115,16 +115,13 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
     PropertyId property_;
     // edge type can't be changed so not needed here
   };
+
   struct ActiveIndices : storage::EdgeTypePropertyIndex::ActiveIndices {
     explicit ActiveIndices(std::shared_ptr<IndexContainer const> indices = std::make_shared<IndexContainer>())
         : index_container_{std::move(indices)} {}
 
     void UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex, Edge *edge, EdgeTypeId edge_type,
                              PropertyId property, PropertyValue value, uint64_t timestamp) override;
-
-    void UpdateOnEdgeModification(Vertex *old_from, Vertex *old_to, Vertex *new_from, Vertex *new_to, EdgeRef edge_ref,
-                                  EdgeTypeId edge_type, PropertyId property, const PropertyValue &value,
-                                  const Transaction &tx) override;
 
     uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property) const override;
 
@@ -181,8 +178,8 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
   auto RegisterIndex(EdgeTypeId edge_type, PropertyId property) -> bool;
   auto PopulateIndex(EdgeTypeId edge_type, PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
-                     Transaction const *tx = nullptr,
-                     CheckCancelFunction cancel_check = neverCancel) -> utils::BasicResult<IndexPopulateError>;
+                     Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
+      -> utils::BasicResult<IndexPopulateError>;
   bool PublishIndex(EdgeTypeId edge_type, PropertyId property, uint64_t commit_timestamp);
 
   void RunGC();
@@ -190,11 +187,10 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
  private:
   auto CleanupAllIndices() -> void;
   auto GetIndividualIndex(EdgeTypeId edge_type, PropertyId property) const -> std::shared_ptr<IndividualIndex>;
-  auto RemoveIndividualIndex(EdgeTypeId edge_type, PropertyId property) -> bool;
 
   utils::Synchronized<std::shared_ptr<IndexContainer const>, utils::WritePrioritizedRWLock> index_{
       std::make_shared<IndexContainer>()};
-  utils::Synchronized<std::shared_ptr<std::vector<AllIndicesEntry>>, utils::WritePrioritizedRWLock> all_indices_{
+  utils::Synchronized<std::shared_ptr<std::vector<AllIndicesEntry> const>, utils::WritePrioritizedRWLock> all_indices_{
       std::make_shared<std::vector<AllIndicesEntry>>()};
 };
 

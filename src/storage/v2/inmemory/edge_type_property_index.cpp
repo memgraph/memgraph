@@ -25,60 +25,6 @@ namespace r = ranges;
 namespace rv = r::views;
 namespace memgraph::storage {
 
-bool InMemoryEdgeTypePropertyIndex::Entry::operator<(const PropertyValue &rhs) const { return value < rhs; }
-
-bool InMemoryEdgeTypePropertyIndex::Entry::operator==(const PropertyValue &rhs) const { return value == rhs; }
-
-bool InMemoryEdgeTypePropertyIndex::RegisterIndex(EdgeTypeId edge_type, PropertyId property) {
-  return index_.WithLock([&](std::shared_ptr<IndexContainer const> &index_container) {
-    auto it = index_container->find({edge_type, property});
-    if (it != index_container->end()) return false;
-
-    auto new_container = std::make_shared<IndexContainer>(*index_container);
-    auto [new_it, _] = new_container->emplace(std::make_pair(edge_type, property), std::make_shared<IndividualIndex>());
-
-    utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
-    // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
-    all_indices_.WithLock([&](auto &all_indices) { all_indices->emplace_back(new_it->second, property); });
-    index_container = std::move(new_container);
-    return true;
-  });
-}
-
-bool InMemoryEdgeTypePropertyIndex::PublishIndex(EdgeTypeId edge_type, PropertyId property, uint64_t commit_timestamp) {
-  auto index = GetIndividualIndex(edge_type, property);
-  if (!index) return false;
-  index->Publish(commit_timestamp);
-  return true;
-}
-
-void InMemoryEdgeTypePropertyIndex::IndividualIndex::Publish(uint64_t commit_timestamp) {
-  status.Commit(commit_timestamp);
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveEdgeTypePropertyIndices);
-}
-
-InMemoryEdgeTypePropertyIndex::IndividualIndex::~IndividualIndex() {
-  if (status.IsReady()) {
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveEdgeTypePropertyIndices);
-  }
-}
-
-bool InMemoryEdgeTypePropertyIndex::CreateIndexOnePass(EdgeTypeId edge_type, PropertyId property,
-                                                       utils::SkipList<Vertex>::Accessor vertices,
-                                                       std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  auto res = RegisterIndex(edge_type, property);
-  if (!res) return false;
-  auto res2 = PopulateIndex(edge_type, property, std::move(vertices), snapshot_info);
-  if (res2.HasError()) {
-    MG_ASSERT(false, "Index population can't fail, there was no cancellation callback.");
-  }
-  return PublishIndex(edge_type, property, 0);
-}
-
-bool InMemoryEdgeTypePropertyIndex::DropIndex(EdgeTypeId edge_type, PropertyId property) {
-  return RemoveIndividualIndex(edge_type, property);
-}
-
 namespace {
 inline void TryInsertEdgeTypePropertyIndex(Vertex &from_vertex, EdgeTypeId edge_type, PropertyId property,
                                            auto &&index_accessor,
@@ -169,6 +115,77 @@ inline void TryInsertEdgeTypePropertyIndex(Vertex &from_vertex, EdgeTypeId edge_
 
 }  // namespace
 
+bool InMemoryEdgeTypePropertyIndex::Entry::operator<(const PropertyValue &rhs) const { return value < rhs; }
+
+bool InMemoryEdgeTypePropertyIndex::Entry::operator==(const PropertyValue &rhs) const { return value == rhs; }
+
+bool InMemoryEdgeTypePropertyIndex::RegisterIndex(EdgeTypeId edge_type, PropertyId property) {
+  return index_.WithLock([&](std::shared_ptr<IndexContainer const> &index_container) {
+    auto it = index_container->find({edge_type, property});
+    if (it != index_container->end()) return false;
+
+    auto new_container = std::make_shared<IndexContainer>(*index_container);
+    auto [new_it, _] = new_container->emplace(std::make_pair(edge_type, property), std::make_shared<IndividualIndex>());
+
+    utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
+    // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
+    all_indices_.WithLock([&](auto &all_indices) {
+      auto new_all_indices = *all_indices;
+      // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
+      new_all_indices.emplace_back(it->second, property);
+      all_indices = std::make_shared<std::vector<AllIndicesEntry>>(std::move(new_all_indices));
+    });
+    index_container = std::move(new_container);
+    return true;
+  });
+}
+
+bool InMemoryEdgeTypePropertyIndex::PublishIndex(EdgeTypeId edge_type, PropertyId property, uint64_t commit_timestamp) {
+  auto index = GetIndividualIndex(edge_type, property);
+  if (!index) return false;
+  index->Publish(commit_timestamp);
+  return true;
+}
+
+void InMemoryEdgeTypePropertyIndex::IndividualIndex::Publish(uint64_t commit_timestamp) {
+  status.Commit(commit_timestamp);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveEdgeTypePropertyIndices);
+}
+
+InMemoryEdgeTypePropertyIndex::IndividualIndex::~IndividualIndex() {
+  if (status.IsReady()) {
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveEdgeTypePropertyIndices);
+  }
+}
+
+bool InMemoryEdgeTypePropertyIndex::CreateIndexOnePass(EdgeTypeId edge_type, PropertyId property,
+                                                       utils::SkipList<Vertex>::Accessor vertices,
+                                                       std::optional<SnapshotObserverInfo> const &snapshot_info) {
+  auto res = RegisterIndex(edge_type, property);
+  if (!res) return false;
+  auto res2 = PopulateIndex(edge_type, property, std::move(vertices), snapshot_info);
+  if (res2.HasError()) {
+    MG_ASSERT(false, "Index population can't fail, there was no cancellation callback.");
+  }
+  return PublishIndex(edge_type, property, 0);
+}
+
+bool InMemoryEdgeTypePropertyIndex::DropIndex(EdgeTypeId edge_type, PropertyId property) {
+  auto result = index_.WithLock([&](std::shared_ptr<IndexContainer const> &index_container) {
+    auto it = index_container->find({edge_type, property});
+    if (it == index_container->end()) [[unlikely]] {
+      return false;
+    }
+
+    auto new_container = std::make_shared<IndexContainer>(*index_container);
+    new_container->erase({edge_type, property});
+    index_container = std::move(new_container);
+    return true;
+  });
+  CleanupAllIndices();
+  return result;
+}
+
 auto InMemoryEdgeTypePropertyIndex::GetActiveIndices() const -> std::unique_ptr<EdgeTypePropertyIndex::ActiveIndices> {
   return std::make_unique<ActiveIndices>(index_.WithReadLock(std::identity{}));
 }
@@ -201,10 +218,10 @@ auto InMemoryEdgeTypePropertyIndex::PopulateIndex(EdgeTypeId edge_type, Property
                             {} /*TODO: parallel*/);
     }
   } catch (const PopulateCancel &) {
-    RemoveIndividualIndex(edge_type, property);
+    DropIndex(edge_type, property);
     return IndexPopulateError::Cancellation;
   } catch (const utils::OutOfMemoryException &) {
-    RemoveIndividualIndex(edge_type, property);
+    DropIndex(edge_type, property);
     throw;
   }
   return {};
@@ -340,18 +357,6 @@ uint64_t InMemoryEdgeTypePropertyIndex::ActiveIndices::ApproximateEdgeCount(
   return acc.estimate_range_count(lower, upper, utils::SkipListLayerForCountEstimation(acc.size()));
 }
 
-void InMemoryEdgeTypePropertyIndex::ActiveIndices::UpdateOnEdgeModification(
-    Vertex *old_from, Vertex *old_to, Vertex *new_from, Vertex *new_to, EdgeRef edge_ref, EdgeTypeId edge_type,
-    PropertyId property, const PropertyValue &value, const Transaction &tx) {
-  auto it = index_container_->find({edge_type, property});
-  if (it == index_container_->end()) [[unlikely]] {
-    return;
-  }
-
-  auto acc = it->second->skiplist.access();
-  acc.insert(Entry{value, new_from, new_to, edge_ref.ptr, tx.start_timestamp});
-}
-
 void InMemoryEdgeTypePropertyIndex::DropGraphClearIndices() {
   index_.WithLock([](std::shared_ptr<IndexContainer const> &index) { index = std::make_shared<IndexContainer>(); });
   CleanupAllIndices();
@@ -462,7 +467,7 @@ void InMemoryEdgeTypePropertyIndex::Iterable::Iterator::AdvanceUntilValid() {
 }
 
 void InMemoryEdgeTypePropertyIndex::RunGC() {
-  // Remove indicies that are not used by any txn
+  // Remove indices that are not used by any txn
   CleanupAllIndices();
 
   // For each skip_list remaining, run GC
@@ -493,22 +498,6 @@ InMemoryEdgeTypePropertyIndex::Iterable InMemoryEdgeTypePropertyIndex::ActiveInd
           transaction};
 }
 
-auto InMemoryEdgeTypePropertyIndex::RemoveIndividualIndex(EdgeTypeId edge_type, PropertyId property) -> bool {
-  auto result = index_.WithLock([&](std::shared_ptr<IndexContainer const> &index_container) {
-    auto it = index_container->find({edge_type, property});
-    if (it == index_container->end()) [[unlikely]] {
-      return false;
-    }
-
-    auto new_container = std::make_shared<IndexContainer>(*index_container);
-    new_container->erase({edge_type, property});
-    index_container = std::move(new_container);
-    return true;
-  });
-  CleanupAllIndices();
-  return result;
-}
-
 auto InMemoryEdgeTypePropertyIndex::GetIndividualIndex(EdgeTypeId edge_type, PropertyId property) const
     -> std::shared_ptr<IndividualIndex> {
   return index_.WithReadLock(
@@ -521,9 +510,11 @@ auto InMemoryEdgeTypePropertyIndex::GetIndividualIndex(EdgeTypeId edge_type, Pro
 }
 
 void InMemoryEdgeTypePropertyIndex::CleanupAllIndices() {
-  all_indices_.WithLock([](std::shared_ptr<std::vector<AllIndicesEntry>> &indices) {
-    std::erase_if(*indices,
-                  [](AllIndicesEntry const &individual_index) { return individual_index.index_.use_count() == 1; });
+  all_indices_.WithLock([](std::shared_ptr<std::vector<AllIndicesEntry> const> &indices) {
+    auto keep_condition = [](AllIndicesEntry const &entry) { return entry.index_.use_count() != 1; };
+    if (!r::all_of(*indices, keep_condition)) {
+      indices = std::make_shared<std::vector<AllIndicesEntry>>(*indices | rv::filter(keep_condition) | r::to_vector);
+    }
   });
 }
 

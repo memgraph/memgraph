@@ -93,8 +93,8 @@ bool InMemoryEdgeTypeIndex::CreateIndexOnePass(EdgeTypeId edge_type, utils::Skip
 
 auto InMemoryEdgeTypeIndex::PopulateIndex(EdgeTypeId edge_type, utils::SkipList<Vertex>::Accessor vertices,
                                           std::optional<SnapshotObserverInfo> const &snapshot_info,
-                                          Transaction const *tx,
-                                          CheckCancelFunction cancel_check) -> utils::BasicResult<IndexPopulateError> {
+                                          Transaction const *tx, CheckCancelFunction cancel_check)
+    -> utils::BasicResult<IndexPopulateError> {
   auto index = GetIndividualIndex(edge_type);
   if (!index) {
     MG_ASSERT(false, "It should not be possible to remove the index before populating it.");
@@ -139,7 +139,12 @@ bool InMemoryEdgeTypeIndex::RegisterIndex(EdgeTypeId edge_type) {
 
     utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
     // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
-    all_indexes_.WithLock([&](auto &all_indexes) { all_indexes.emplace_back(new_it->second); });
+    all_indexes_.WithLock([&](auto &all_indices) {
+      auto new_all_indices = *all_indices;
+      // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
+      new_all_indices.emplace_back(it->second);
+      all_indices = std::make_shared<std::vector<AllIndicesEntry>>(std::move(new_all_indices));
+    });
     indices_container = new_container;
     return true;
   });
@@ -177,7 +182,7 @@ bool InMemoryEdgeTypeIndex::DropIndex(EdgeTypeId edge_type) {
     indices_container = new_container;
     return true;
   });
-  CleanupAllIndicies();
+  CleanupAllIndices();
   return result;
 }
 
@@ -206,10 +211,10 @@ std::vector<EdgeTypeId> InMemoryEdgeTypeIndex::ActiveIndices::ListIndices(uint64
 void InMemoryEdgeTypeIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
   auto maybe_stop = utils::ResettableCounter(2048);
 
-  CleanupAllIndicies();
+  CleanupAllIndices();
 
   auto cpy = all_indexes_.WithReadLock(std::identity{});
-  for (auto &et_index : cpy) {
+  for (auto &et_index : *cpy) {
     if (token.stop_requested()) return;
 
     auto edges_acc = et_index->skip_list_.access();
@@ -288,7 +293,7 @@ void InMemoryEdgeTypeIndex::ActiveIndices::UpdateOnEdgeModification(Vertex *old_
 
 void InMemoryEdgeTypeIndex::DropGraphClearIndices() {
   index_.WithLock([](std::shared_ptr<IndicesContainer const> &index) { index = std::make_shared<IndicesContainer>(); });
-  CleanupAllIndicies();
+  CleanupAllIndices();
 }
 
 InMemoryEdgeTypeIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor,
@@ -344,12 +349,12 @@ void InMemoryEdgeTypeIndex::Iterable::Iterator::AdvanceUntilValid() {
 }
 
 void InMemoryEdgeTypeIndex::RunGC() {
-  // Remove indicies that are not used by any txn
-  CleanupAllIndicies();
+  // Remove indices that are not used by any txn
+  CleanupAllIndices();
 
   // For each skip_list remaining, run GC
   auto cpy = all_indexes_.WithReadLock(std::identity{});
-  for (auto &index : cpy) {
+  for (auto &index : *cpy) {
     index->skip_list_.run_gc();
   }
 }
@@ -389,11 +394,12 @@ auto InMemoryEdgeTypeIndex::GetIndividualIndex(EdgeTypeId edge_type) const -> st
       });
 }
 
-void InMemoryEdgeTypeIndex::CleanupAllIndicies() {
-  all_indexes_.WithLock([](std::vector<std::shared_ptr<IndividualIndex>> &indices) {
-    std::erase_if(indices, [](std::shared_ptr<IndividualIndex> const &individualIndex) {
-      return individualIndex.use_count() == 1;
-    });
+void InMemoryEdgeTypeIndex::CleanupAllIndices() {
+  all_indexes_.WithLock([](std::shared_ptr<std::vector<AllIndicesEntry> const> &indices) {
+    auto keep_condition = [](AllIndicesEntry const &entry) { return entry.use_count() != 1; };
+    if (!r::all_of(*indices, keep_condition)) {
+      indices = std::make_shared<std::vector<AllIndicesEntry>>(*indices | rv::filter(keep_condition) | r::to_vector);
+    }
   });
 }
 

@@ -256,7 +256,7 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
   std::set<DatabaseState::OrderedLabelPropertiesItem> label_properties_indices;
   std::set<DatabaseState::TextItem> text_indices;
   std::set<DatabaseState::PointItem> point_indices;
-  // TODO: where are the edge types indicies?
+  // TODO: where are the edge types indices?
 
   {
     auto info = dba->ListAllIndices();

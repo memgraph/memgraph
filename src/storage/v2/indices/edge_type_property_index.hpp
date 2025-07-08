@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -37,13 +37,6 @@ class EdgeTypePropertyIndex {
 
     virtual void UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex, Edge *edge, EdgeTypeId edge_type,
                                      PropertyId property, PropertyValue value, uint64_t timestamp) = 0;
-    // TODO (ivan): why is this missing?
-    // virtual void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
-    //                                   const Transaction &tx) = 0;
-
-    virtual void UpdateOnEdgeModification(Vertex *old_from, Vertex *old_to, Vertex *new_from, Vertex *new_to,
-                                          EdgeRef edge_ref, EdgeTypeId edge_type, PropertyId property,
-                                          const PropertyValue &value, const Transaction &tx) = 0;
 
     virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property) const = 0;
 

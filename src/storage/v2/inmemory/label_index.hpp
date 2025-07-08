@@ -112,7 +112,7 @@ class InMemoryLabelIndex : public LabelIndex {
     void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) override;
 
     // Not used for in-memory
-    void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) override {};
+    void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) override{};
 
     bool IndexRegistered(LabelId label) const override;
 
@@ -142,8 +142,8 @@ class InMemoryLabelIndex : public LabelIndex {
   auto PopulateIndex(LabelId label, utils::SkipList<Vertex>::Accessor vertices,
                      const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
-                     Transaction const *tx = nullptr,
-                     CheckCancelFunction cancel_check = neverCancel) -> utils::BasicResult<IndexPopulateError>;
+                     Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
+      -> utils::BasicResult<IndexPopulateError>;
   bool PublishIndex(LabelId label, uint64_t commit_timestamp);
 
   void RunGC();
@@ -161,10 +161,9 @@ class InMemoryLabelIndex : public LabelIndex {
  private:
   auto CleanupAllIndices() -> void;
   auto GetIndividualIndex(LabelId label) const -> std::shared_ptr<IndividualIndex>;
-  auto RemoveIndividualIndex(LabelId label) -> bool;
 
   utils::Synchronized<std::shared_ptr<IndexContainer const>, utils::WritePrioritizedRWLock> index_;
-  utils::Synchronized<std::shared_ptr<std::vector<AllIndicesEntry>>, utils::WritePrioritizedRWLock> all_indices_;
+  utils::Synchronized<std::shared_ptr<std::vector<AllIndicesEntry> const>, utils::WritePrioritizedRWLock> all_indices_;
   utils::Synchronized<std::map<LabelId, storage::LabelIndexStats>, utils::ReadPrioritizedRWLock> stats_;
 };
 
