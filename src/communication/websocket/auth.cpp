@@ -56,7 +56,12 @@ bool SafeAuth::HasPermission(const auth::Permission permission) const {
     return std::visit(utils::Overloaded{[&](auto &user_or_role) {
                         // Main could be deleted, so we will connect without a db; this is only used by websocket on
                         // connect, so not critical (we will not be able to access any db)
-                        const auto &db_name = user_or_role.GetMain();
+                        const auto &db_name =
+#ifdef MG_ENTERPRISE
+                            user_or_role.GetMain();
+#else
+                            dbms::kDefaultDB;
+#endif
                         return user_or_role.GetPermissions(db_name).Has(permission) == auth::PermissionLevel::GRANT;
                       }},
                       *user_or_role_);

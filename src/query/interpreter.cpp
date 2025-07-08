@@ -4129,18 +4129,18 @@ TriggerEventType ToTriggerEventType(const TriggerQuery::EventType event_type) {
 
 Callback CreateTrigger(TriggerQuery *trigger_query, const storage::ExternalPropertyValue::map_t &user_parameters,
                        TriggerStore *trigger_store, InterpreterContext *interpreter_context, DbAccessor *dba,
-                       std::shared_ptr<QueryUserOrRole> user_or_role) {
+                       std::shared_ptr<QueryUserOrRole> user_or_role, const std::string &db_name) {
   // Make a copy of the user and pass it to the subsystem
   auto owner = interpreter_context->auth_checker->GenQueryUser(user_or_role->username(), user_or_role->rolenames());
   return {{},
           [trigger_name = std::move(trigger_query->trigger_name_),
            trigger_statement = std::move(trigger_query->statement_), event_type = trigger_query->event_type_,
            before_commit = trigger_query->before_commit_, trigger_store, interpreter_context, dba, user_parameters,
-           owner = std::move(owner)]() mutable -> std::vector<std::vector<TypedValue>> {
+           owner = std::move(owner), db_name]() mutable -> std::vector<std::vector<TypedValue>> {
             trigger_store->AddTrigger(
                 std::move(trigger_name), trigger_statement, user_parameters, ToTriggerEventType(event_type),
                 before_commit ? TriggerPhase::BEFORE_COMMIT : TriggerPhase::AFTER_COMMIT,
-                &interpreter_context->ast_cache, dba, interpreter_context->config.query, std::move(owner));
+                &interpreter_context->ast_cache, dba, interpreter_context->config.query, std::move(owner), db_name);
             memgraph::metrics::IncrementCounter(memgraph::metrics::TriggersCreated);
             return {};
           }};
@@ -4198,12 +4198,13 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
   auto callback = std::invoke([trigger_query, trigger_store, interpreter_context, dba,
                                user_parameters = parsed_query.user_parameters, owner = std::move(user_or_role),
-                               &trigger_notification]() mutable {
+                               &trigger_notification, db_name = current_db.db_acc_->get()->name()]() mutable {
     switch (trigger_query->action_) {
       case TriggerQuery::Action::CREATE_TRIGGER:
         trigger_notification.emplace(SeverityLevel::INFO, NotificationCode::CREATE_TRIGGER,
                                      fmt::format("Created trigger {}.", trigger_query->trigger_name_));
-        return CreateTrigger(trigger_query, user_parameters, trigger_store, interpreter_context, dba, std::move(owner));
+        return CreateTrigger(trigger_query, user_parameters, trigger_store, interpreter_context, dba, std::move(owner),
+                             db_name);
       case TriggerQuery::Action::DROP_TRIGGER:
         trigger_notification.emplace(SeverityLevel::INFO, NotificationCode::DROP_TRIGGER,
                                      fmt::format("Dropped trigger {}.", trigger_query->trigger_name_));

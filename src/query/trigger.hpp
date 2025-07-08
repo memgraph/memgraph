@@ -36,7 +36,8 @@ enum class TransactionStatus;
 struct Trigger {
   explicit Trigger(std::string name, const std::string &query, const UserParameters &user_parameters,
                    TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
-                   const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> owner);
+                   const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> owner,
+                   std::string_view db_name);
 
   void Execute(DbAccessor *dba, DatabaseAccessProtector db_acc, utils::MemoryResource *execution_memory,
                double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
@@ -63,7 +64,7 @@ struct Trigger {
     PlanWrapper cached_plan;
     std::vector<IdentifierInfo> identifiers;
   };
-  std::shared_ptr<TriggerPlan> GetPlan(DbAccessor *db_accessor) const;
+  std::shared_ptr<TriggerPlan> GetPlan(DbAccessor *db_accessor, std::string_view db_name) const;
 
   std::string name_;
   ParsedQuery parsed_statements_;
@@ -86,7 +87,7 @@ struct TriggerStore {
   void AddTrigger(std::string name, const std::string &query, const UserParameters &user_parameters,
                   TriggerEventType event_type, TriggerPhase phase, utils::SkipList<QueryCacheEntry> *query_cache,
                   DbAccessor *db_accessor, const InterpreterConfig::Query &query_config,
-                  std::shared_ptr<QueryUserOrRole> owner);
+                  std::shared_ptr<QueryUserOrRole> owner, std::string_view db_name);
 
   void DropTrigger(const std::string &name);
   void DropAll();

@@ -47,12 +47,6 @@ def authenticate(scheme: str, response: str):
     if response == "multi_role_user":
         return_dict = {"authenticated": True, "username": "regular_user", "roles": ["user"]}
 
-    if response == "multi_role_readonly":
-        return_dict = {"authenticated": True, "username": "readonly_user", "roles": ["readonly"]}
-
-    if response == "multi_role_limited":
-        return_dict = {"authenticated": True, "username": "limited_user", "roles": ["limited"]}
-
     if response == "multi_role_no_main":
         return_dict = {"authenticated": True, "username": "no_main_user", "roles": ["user", "architect"]}
 
