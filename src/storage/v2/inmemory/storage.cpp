@@ -111,8 +111,8 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action action) -> durabil
 #undef add_case
 }
 
-auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex,
-               VertexAccessor *to_vertex) -> Result<EdgesVertexAccessorResult> {
+auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex, VertexAccessor *to_vertex)
+    -> Result<EdgesVertexAccessorResult> {
   auto use_out_edges = [](Vertex const *from_vertex, Vertex const *to_vertex) {
     // Obtain the locks by `gid` order to avoid lock cycles.
     auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
@@ -1006,10 +1006,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     std::vector<Gid> my_deleted_vertices;
     std::vector<Gid> my_deleted_edges;
 
-    std::map<std::pair<EdgeTypeId, PropertyId>,
-             std::vector<std::tuple<Vertex *const, Vertex *const, Edge *const, PropertyValue>>>
-        edge_type_property_cleanup;  // Covers both edge type-property and global edge property indices
-
     std::map<LabelPropKey, std::vector<Vertex *>> vector_label_property_cleanup;
     std::map<LabelPropKey, std::vector<std::pair<PropertyValue, Vertex *>>> vector_label_property_restore;
     std::map<EdgeTypePropKey,
@@ -1037,24 +1033,23 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
               case Delta::Action::SET_PROPERTY: {
                 DMG_ASSERT(mem_storage->config_.salient.items.properties_on_edges, "Invalid database state!");
 
-                const auto &indexed_edge_types =
-                    index_abort_processor.property_edge_type_.p2et.find(current->property.key);
-                const auto &indexed_edge_prop_indices = index_abort_processor.property_edge_.ep;
+                auto prop_id = current->property.key;
+
+                if (index_abort_processor.IsInterestingEdgeProperty(prop_id)) {
+                  auto from_vertex = current->property.out_vertex;
+                  for (auto const &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
+                    if (edge_ref.ptr != edge) continue;
+                    index_abort_processor.CollectOnPropertyChange(edge_type, prop_id, from_vertex, to_vertex, edge);
+                  }
+                }
+
+                // Collect edge vector
                 const auto &vector_indexed_edge_types =
                     index_abort_processor.vector_edge_.p2et.find(current->property.key);
-                auto has_indexed_edge_types =
-                    indexed_edge_types != index_abort_processor.property_edge_type_.p2et.end();
-                auto has_indexed_edge_prop_indices =
-                    std::find(indexed_edge_prop_indices.begin(), indexed_edge_prop_indices.end(),
-                              current->property.key) != indexed_edge_prop_indices.end();
                 auto has_vector_indexed_edge_types =
                     vector_indexed_edge_types != index_abort_processor.vector_edge_.p2et.end();
-
-                if (has_indexed_edge_types || has_indexed_edge_prop_indices || has_vector_indexed_edge_types) {
-                  // we have to restore the old value
-                  auto old_value = edge->properties.GetProperty(current->property.key);
+                if (has_vector_indexed_edge_types) {
                   auto *from_vertex = current->property.out_vertex;
-
                   // TODO: Fix out_edges will be missing the edge if it was deleted during this transaction
                   auto matching_edge =
                       r::find_if(from_vertex->out_edges, [&](const std::tuple<EdgeTypeId, Vertex *, EdgeRef> &tuple) {
@@ -1069,11 +1064,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                       // this edge type is indexed in the vector index
                       vector_edge_type_property_restore[EdgeTypePropKey{edge_type, current->property.key}].emplace_back(
                           *current->property.value, std::make_tuple(from_vertex, target_vertex, edge_ref.ptr));
-                    }
-                    // handle edge type-property index
-                    if (!old_value.IsNull()) {
-                      edge_type_property_cleanup[{edge_type, current->property.key}].emplace_back(
-                          from_vertex, target_vertex, edge_ref.ptr, std::move(old_value));
                     }
                   }
                 }
@@ -1348,11 +1338,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
       storage_->indices_.text_index_.Rollback();
     }
-    // TODO: abort processor
-    for (auto const &[edge_type_property, edge] : edge_type_property_cleanup) {
-      storage_->indices_.AbortEntries(edge_type_property, edge, transaction_.start_timestamp, &transaction_);
-    }
-    // TODO: missing Global edge property aborts
     for (auto const &[label_prop, vertices] : vector_label_property_cleanup) {
       storage_->indices_.vector_index_.AbortEntries(label_prop, vertices);
     }

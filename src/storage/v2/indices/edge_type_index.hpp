@@ -28,8 +28,6 @@ class EdgeTypeIndex {
  public:
   using AbortableInfo = std::map<EdgeTypeId, std::vector<std::tuple<Vertex *, Vertex *, Edge *>>>;
 
-  struct ActiveIndices;
-
   struct AbortProcessor {
     explicit AbortProcessor(std::span<EdgeTypeId const> edge_types);
 

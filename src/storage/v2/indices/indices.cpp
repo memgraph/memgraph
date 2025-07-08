@@ -27,15 +27,6 @@
 
 namespace memgraph::storage {
 
-void Indices::AbortEntries(std::pair<EdgeTypeId, PropertyId> edge_type_property,
-                           std::span<std::tuple<Vertex *const, Vertex *const, Edge *const, PropertyValue> const> edges,
-                           uint64_t exact_start_timestamp, Transaction *tx) const {
-  static_cast<InMemoryEdgeTypePropertyIndex::ActiveIndices *>(tx->active_indices_.edge_type_properties_.get())
-      ->AbortEntries(edge_type_property, edges, exact_start_timestamp);
-  static_cast<InMemoryEdgePropertyIndex *>(edge_property_index_.get())
-      ->AbortEntries(edge_type_property, edges, exact_start_timestamp);
-}
-
 void Indices::RemoveObsoleteVertexEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) const {
   static_cast<InMemoryLabelIndex *>(label_index_.get())->RemoveObsoleteEntries(oldest_active_start_timestamp, token);
   static_cast<InMemoryLabelPropertyIndex *>(label_property_index_.get())
@@ -121,7 +112,7 @@ Indices::AbortProcessor Indices::GetAbortProcessor(ActiveIndices const &active_i
   return {active_indices.label_->GetAbortProcessor(),
           active_indices.label_properties_->GetAbortProcessor(),
           active_indices.edge_type_->GetAbortProcessor(),
-          static_cast<InMemoryEdgeTypePropertyIndex *>(edge_type_property_index_.get())->Analysis(),
+          active_indices.edge_type_properties_->GetAbortProcessor(),
           static_cast<InMemoryEdgePropertyIndex *>(edge_property_index_.get())->Analysis(),
           vector_index_.Analysis(),
           vector_edge_index_.Analysis()};
@@ -141,10 +132,19 @@ void Indices::AbortProcessor::CollectOnPropertyChange(PropertyId propId, Vertex 
   label_properties_.CollectOnPropertyChange(propId, vertex);
 }
 
+void Indices::AbortProcessor::CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property, Vertex *from_vertex,
+                                                      Vertex *to_vertex, Edge *edge) {
+  edge_type_property_.CollectOnPropertyChange(edge_type, property, from_vertex, to_vertex, edge);
+}
+
+bool Indices::AbortProcessor::IsInterestingEdgeProperty(PropertyId property) {
+  return edge_type_property_.interesting_properties_.contains(property);
+}
+
 void Indices::AbortProcessor::Process(Indices &indices, ActiveIndices &active_indices, uint64_t start_timestamp) {
   active_indices.label_->AbortEntries(label_.cleanup_collection_, start_timestamp);
   active_indices.label_properties_->AbortEntries(label_properties_.cleanup_collection, start_timestamp);
   active_indices.edge_type_->AbortEntries(edge_type_.cleanup_collection_, start_timestamp);
-  // TODO: edge type properties
+  active_indices.edge_type_properties_->AbortEntries(edge_type_property_.cleanup_collection_, start_timestamp);
 }
 }  // namespace memgraph::storage

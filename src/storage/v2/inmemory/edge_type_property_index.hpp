@@ -100,9 +100,9 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
   };
 
   struct IndividualIndex {
-    IndividualIndex() {}
     ~IndividualIndex();
     void Publish(uint64_t commit_timestamp);
+
     utils::SkipList<Entry> skiplist{};
     IndexStatus status{};
   };
@@ -143,6 +143,8 @@ class InMemoryEdgeTypePropertyIndex : public storage::EdgeTypePropertyIndex {
     void AbortEntries(std::pair<EdgeTypeId, PropertyId> edge_type_property,
                       std::span<std::tuple<Vertex *const, Vertex *const, Edge *const, PropertyValue> const> edges,
                       uint64_t exact_start_timestamp);
+    auto GetAbortProcessor() const -> AbortProcessor override;
+    void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) override;
 
    private:
     std::shared_ptr<IndexContainer const> index_container_;

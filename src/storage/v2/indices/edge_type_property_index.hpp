@@ -12,6 +12,7 @@
 #pragma once
 
 #include <map>
+#include <set>
 #include <vector>
 
 #include "storage/v2/edge_ref.hpp"
@@ -27,6 +28,19 @@ struct Edge;
 
 class EdgeTypePropertyIndex {
  public:
+  using AbortableInfo =
+      std::map<std::pair<EdgeTypeId, PropertyId>, std::vector<std::tuple<Vertex *, Vertex *, Edge *, PropertyValue>>>;
+
+  struct AbortProcessor {
+    explicit AbortProcessor(std::span<std::pair<EdgeTypeId, PropertyId> const> keys);
+
+    void CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property, Vertex *from_vertex, Vertex *to_vertex,
+                                 Edge *edge);
+
+    std::set<PropertyId> interesting_properties_;
+    AbortableInfo cleanup_collection_;
+  };
+
   struct IndexStats {
     std::map<EdgeTypeId, std::vector<PropertyId>> et2p;
     std::map<PropertyId, std::vector<EdgeTypeId>> p2et;
@@ -50,6 +64,10 @@ class EdgeTypePropertyIndex {
     virtual bool IndexReady(EdgeTypeId edge_type, PropertyId property) const = 0;
 
     virtual auto ListIndices(uint64_t start_timestamp) const -> std::vector<std::pair<EdgeTypeId, PropertyId>> = 0;
+
+    virtual auto GetAbortProcessor() const -> AbortProcessor = 0;
+
+    virtual void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) = 0;
   };
 
   virtual auto GetActiveIndices() const -> std::unique_ptr<ActiveIndices> = 0;

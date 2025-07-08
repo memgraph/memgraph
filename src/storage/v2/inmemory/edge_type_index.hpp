@@ -112,7 +112,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
  public:
   struct ActiveIndices : storage::EdgeTypeIndex::ActiveIndices {
     explicit ActiveIndices(std::shared_ptr<IndicesContainer const> indices = std::make_shared<IndicesContainer>())
-        : ptr_{std::move(indices)} {}
+        : index_container_{std::move(indices)} {}
 
     bool IndexReady(EdgeTypeId edge_type) const override;
 
@@ -133,7 +133,7 @@ class InMemoryEdgeTypeIndex : public storage::EdgeTypeIndex {
     Iterable Edges(EdgeTypeId edge_type, View view, Storage *storage, Transaction *transaction);
 
    private:
-    std::shared_ptr<IndicesContainer const> ptr_;
+    std::shared_ptr<IndicesContainer const> index_container_;
   };
 
   InMemoryEdgeTypeIndex() = default;

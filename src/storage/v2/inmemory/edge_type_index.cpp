@@ -187,20 +187,20 @@ bool InMemoryEdgeTypeIndex::DropIndex(EdgeTypeId edge_type) {
 }
 
 bool InMemoryEdgeTypeIndex::ActiveIndices::IndexReady(memgraph::storage::EdgeTypeId edge_type) const {
-  auto const &indices = ptr_->indices_;
+  auto const &indices = index_container_->indices_;
   auto it = indices.find(edge_type);
   if (it == indices.end()) return false;
   return it->second->status_.IsReady();
 }
 
 bool InMemoryEdgeTypeIndex::ActiveIndices::IndexRegistered(EdgeTypeId edge_type) const {
-  return ptr_->indices_.find(edge_type) != ptr_->indices_.end();
+  return index_container_->indices_.find(edge_type) != index_container_->indices_.end();
 }
 
 std::vector<EdgeTypeId> InMemoryEdgeTypeIndex::ActiveIndices::ListIndices(uint64_t start_timestamp) const {
   auto ret = std::vector<EdgeTypeId>{};
-  ret.reserve(ptr_->indices_.size());
-  for (auto const &[edge_type, index] : ptr_->indices_) {
+  ret.reserve(index_container_->indices_.size());
+  for (auto const &[edge_type, index] : index_container_->indices_) {
     if (index->status_.IsVisible(start_timestamp)) {
       ret.emplace_back(edge_type);
     }
@@ -249,7 +249,7 @@ void InMemoryEdgeTypeIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_t
 }
 
 uint64_t InMemoryEdgeTypeIndex::ActiveIndices::ApproximateEdgeCount(EdgeTypeId edge_type) const {
-  if (auto it = ptr_->indices_.find(edge_type); it != ptr_->indices_.end()) {
+  if (auto it = index_container_->indices_.find(edge_type); it != index_container_->indices_.end()) {
     return it->second->skip_list_.size();
   }
   return 0;
@@ -258,8 +258,8 @@ uint64_t InMemoryEdgeTypeIndex::ActiveIndices::ApproximateEdgeCount(EdgeTypeId e
 void InMemoryEdgeTypeIndex::ActiveIndices::AbortEntries(EdgeTypeIndex::AbortableInfo const &info,
                                                         uint64_t exact_start_timestamp) {
   for (auto const &[edge_type, edges] : info) {
-    auto const it = ptr_->indices_.find(edge_type);
-    DMG_ASSERT(it != ptr_->indices_.end());
+    auto const it = index_container_->indices_.find(edge_type);
+    DMG_ASSERT(it != index_container_->indices_.end());
 
     auto &index_storage = it->second;
     auto acc = index_storage->skip_list_.access();
@@ -271,8 +271,8 @@ void InMemoryEdgeTypeIndex::ActiveIndices::AbortEntries(EdgeTypeIndex::Abortable
 
 void InMemoryEdgeTypeIndex::ActiveIndices::UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref,
                                                                 EdgeTypeId edge_type, const Transaction &tx) {
-  auto it = ptr_->indices_.find(edge_type);
-  if (it == ptr_->indices_.end()) {
+  auto it = index_container_->indices_.find(edge_type);
+  if (it == index_container_->indices_.end()) {
     return;
   }
   auto acc = it->second->skip_list_.access();
@@ -282,8 +282,8 @@ void InMemoryEdgeTypeIndex::ActiveIndices::UpdateOnEdgeCreation(Vertex *from, Ve
 void InMemoryEdgeTypeIndex::ActiveIndices::UpdateOnEdgeModification(Vertex *old_from, Vertex *old_to, Vertex *new_from,
                                                                     Vertex *new_to, EdgeRef edge_ref,
                                                                     EdgeTypeId edge_type, const Transaction &tx) {
-  auto it = ptr_->indices_.find(edge_type);
-  if (it == ptr_->indices_.end()) {
+  auto it = index_container_->indices_.find(edge_type);
+  if (it == index_container_->indices_.end()) {
     return;
   }
 
@@ -362,8 +362,8 @@ void InMemoryEdgeTypeIndex::RunGC() {
 InMemoryEdgeTypeIndex::Iterable InMemoryEdgeTypeIndex::ActiveIndices::Edges(EdgeTypeId edge_type, View view,
                                                                             Storage *storage,
                                                                             Transaction *transaction) {
-  const auto it = ptr_->indices_.find(edge_type);
-  MG_ASSERT(it != ptr_->indices_.end(), "Index for edge-type {} doesn't exist", edge_type.AsUint());
+  const auto it = index_container_->indices_.find(edge_type);
+  MG_ASSERT(it != index_container_->indices_.end(), "Index for edge-type {} doesn't exist", edge_type.AsUint());
   auto vertex_acc = static_cast<InMemoryStorage const *>(storage)->vertices_.access();
   auto edge_acc = static_cast<InMemoryStorage const *>(storage)->edges_.access();
   return {it->second->skip_list_.access(),
@@ -376,7 +376,7 @@ InMemoryEdgeTypeIndex::Iterable InMemoryEdgeTypeIndex::ActiveIndices::Edges(Edge
 }
 
 EdgeTypeIndex::AbortProcessor InMemoryEdgeTypeIndex::ActiveIndices::GetAbortProcessor() const {
-  auto edge_type_filter = ptr_->indices_ | std::views::keys | ranges::to_vector;
+  auto edge_type_filter = index_container_->indices_ | std::views::keys | ranges::to_vector;
   return AbortProcessor{edge_type_filter};
 }
 

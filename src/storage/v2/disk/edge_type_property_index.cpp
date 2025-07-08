@@ -57,6 +57,15 @@ uint64_t DiskEdgeTypePropertyIndex::ActiveIndices::ApproximateEdgeCount(
     const std::optional<utils::Bound<PropertyValue>> & /*upper*/) const {
   spdlog::warn("Edge-type index related operations are not yet supported using on-disk storage mode.");
   return 0U;
+}
+
+EdgeTypePropertyIndex::AbortProcessor DiskEdgeTypePropertyIndex::ActiveIndices::GetAbortProcessor() const {
+  return AbortProcessor({});
+}
+
+void DiskEdgeTypePropertyIndex::ActiveIndices::AbortEntries(EdgeTypePropertyIndex::AbortableInfo const &info,
+                                                            uint64_t start_timestamp) {
+  spdlog::warn("Edge-type index related operations are not yet supported using on-disk storage mode.");
 };
 
 void DiskEdgeTypePropertyIndex::DropGraphClearIndices() {

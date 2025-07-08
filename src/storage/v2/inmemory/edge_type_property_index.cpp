@@ -498,6 +498,26 @@ InMemoryEdgeTypePropertyIndex::Iterable InMemoryEdgeTypePropertyIndex::ActiveInd
           transaction};
 }
 
+EdgeTypePropertyIndex::AbortProcessor InMemoryEdgeTypePropertyIndex::ActiveIndices::GetAbortProcessor() const {
+  auto edge_type_property_filter = *index_container_ | std::views::keys | ranges::to_vector;
+  return AbortProcessor{edge_type_property_filter};
+}
+
+void InMemoryEdgeTypePropertyIndex::ActiveIndices::AbortEntries(EdgeTypePropertyIndex::AbortableInfo const &info,
+                                                                uint64_t start_timestamp) {
+  for (auto const &[key, edges] : info) {
+    auto it = index_container_->find(key);
+    if (it == index_container_->end()) [[unlikely]] {
+      return;
+    }
+
+    auto acc = it->second->skiplist.access();
+    for (const auto &[from_vertex, to_vertex, edge, value] : edges) {
+      acc.remove(Entry{std::move(value), from_vertex, to_vertex, edge, start_timestamp});
+    }
+  }
+}
+
 auto InMemoryEdgeTypePropertyIndex::GetIndividualIndex(EdgeTypeId edge_type, PropertyId property) const
     -> std::shared_ptr<IndividualIndex> {
   return index_.WithReadLock(
