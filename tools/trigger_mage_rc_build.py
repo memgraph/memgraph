@@ -29,7 +29,6 @@ def main():
             "tag_name": args.tag_name,
         },
     }
-    print(payload)
 
     headers = {
         "Accept": "application/vnd.github.v3+json",
