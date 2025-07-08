@@ -144,7 +144,6 @@ declare -A primary_urls=(
   ["protobuf"]="http://$local_cache_host/git/protobuf.git"
   ["pulsar"]="http://$local_cache_host/git/pulsar.git"
   ["librdtsc"]="http://$local_cache_host/git/librdtsc.git"
-  ["absl"]="http://$local_cache_host/git/abseil-cpp.git"
   ["jemalloc"]="http://$local_cache_host/git/jemalloc.git"
   ["range-v3"]="http://$local_cache_host/git/range-v3.git"
   ["nuraft"]="http://$local_cache_host/git/NuRaft.git"
@@ -168,7 +167,6 @@ declare -A secondary_urls=(
   ["protobuf"]="https://github.com/protocolbuffers/protobuf.git"
   ["pulsar"]="https://github.com/apache/pulsar.git"
   ["librdtsc"]="https://github.com/gabrieleara/librdtsc.git"
-  ["absl"]="https://github.com/abseil/abseil-cpp.git"
   ["jemalloc"]="https://github.com/jemalloc/jemalloc.git"
   ["range-v3"]="https://github.com/ericniebler/range-v3.git"
   ["nuraft"]="https://github.com/eBay/NuRaft.git"
@@ -266,10 +264,6 @@ if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
 else
   echo "Skipping librdtsc download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
 fi
-
-# abseil 20240116.2
-absl_ref="20240116.2"
-repo_clone_try_double "${primary_urls[absl]}" "${secondary_urls[absl]}" "absl" "$absl_ref"
 
 if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
   # jemalloc ea6b3e973b477b8061e0076bb257dbd7f3faa756

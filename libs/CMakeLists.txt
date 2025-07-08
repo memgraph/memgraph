@@ -374,9 +374,7 @@ endmacro()
 mg_build_if_needed(build_librdtsc "librdtsc")
 mg_create_linkable_if_no_cmake(librdtsc STATIC "${MG_TOOLCHAIN_ROOT}/lib/librdtsc.a" "${MG_TOOLCHAIN_ROOT}/include")
 
-# setup absl (cmake sub_directory tolerant)
 set(ABSL_PROPAGATE_CXX_STD ON)
-add_subdirectory(absl EXCLUDE_FROM_ALL)
 
 macro(link_jmalloc)
   set_path_external_library(jemalloc STATIC

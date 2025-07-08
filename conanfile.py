@@ -46,6 +46,7 @@ class Memgraph(ConanFile):
         self.requires("antlr4/4.13.1")
         self.requires("cppitertools/2.2")
         self.requires("ctre/3.9.0")
+        self.requires("abseil/20250127.0")
 
     def package(self):
         cmake = CMake(self)

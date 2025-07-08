@@ -97,6 +97,7 @@ target_sources(mg-storage-v2
 find_package(gflags REQUIRED)
 find_package(Threads REQUIRED)
 find_package(strong_type REQUIRED)
+find_package(absl REQUIRED)
 
 target_include_directories(mg-storage-v2 PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(mg-storage-v2
@@ -106,7 +107,7 @@ target_link_libraries(mg-storage-v2
     mg-utils
     mg-flags
     gflags
-    absl::flat_hash_map
+    abseil::abseil
     mg-rpc
     mg-slk
     mg-events
