@@ -163,11 +163,11 @@ jobs:
     needs: PrepareReleaseBranchPush
     uses: ./.github/workflows/reusable_release_tests.yaml
     with:
-      os: $OS
-      toolchain: $TOOLCHAIN
-      arch: $env.ARCH
-      threads: $THREADS
-      build_type: $BUILD_TYPE
+      os: ${{ env.OS }}
+      toolchain: ${{ env.TOOLCHAIN }}
+      arch: ${{ env.ARCH }}
+      threads: ${{ env.THREADS }}
+      build_type: ${{ env.BUILD_TYPE }}
       ref: ${{ needs.PrepareReleaseBranchPush.outputs.branch_name }}
     secrets: inherit
 
@@ -211,7 +211,7 @@ jobs:
       os: ${{ matrix.os }}
       arch: ${{ matrix.arch }}
       build_type: ${{ matrix.build_type }}
-      toolchain: $TOOLCHAIN
+      toolchain: ${{ env.TOOLCHAIN }}
       push_to_github: 'false'
       push_to_s3: 'true'
       s3_bucket: deps.memgraph.io
@@ -235,7 +235,7 @@ jobs:
       os: ${{ matrix.os }}
       arch: ${{ matrix.arch }}
       build_type: ${{ matrix.build_type }}
-      toolchain: $TOOLCHAIN
+      toolchain: ${{ env.TOOLCHAIN }}
       additional_build_args: '--for-docker'
       push_to_github: 'false'
       push_to_s3: 'true'
