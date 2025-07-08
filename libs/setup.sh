@@ -146,7 +146,6 @@ declare -A primary_urls=(
   ["librdtsc"]="http://$local_cache_host/git/librdtsc.git"
   ["jemalloc"]="http://$local_cache_host/git/jemalloc.git"
   ["nuraft"]="http://$local_cache_host/git/NuRaft.git"
-  ["asio"]="http://$local_cache_host/git/asio.git"
   ["mgcxx"]="http://$local_cache_host/git/mgcxx.git"
   ["usearch"]="http://$local_cache_host/git/usearch.git"
 )
@@ -167,7 +166,6 @@ declare -A secondary_urls=(
   ["librdtsc"]="https://github.com/gabrieleara/librdtsc.git"
   ["jemalloc"]="https://github.com/jemalloc/jemalloc.git"
   ["nuraft"]="https://github.com/eBay/NuRaft.git"
-  ["asio"]="https://github.com/chriskohlhoff/asio.git"
   ["mgcxx"]="https://github.com/memgraph/mgcxx.git"
   ["usearch"]="https://github.com/unum-cloud/usearch.git"
 )
@@ -278,27 +276,6 @@ if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
   popd
 else
   echo "Skipping jmalloc download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
-fi
-
-# Asio
-if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
-  # TODO(gitbuda): ASIO under libs/setup.sh.
-  #   * Shouldn't ASIO be part of the boost under toolchain?
-  #   * ./prepare.sh under NuRaft is downloading ASIO?
-  asio_tag="asio-1-24-0"
-  repo_clone_try_double "${primary_urls[asio]}" "${secondary_urls[asio]}" "asio" "$asio_tag" true
-  # NuRaft
-  NURAFT_COMMIT_HASH="4b148a7e76291898c838a7457eeda2b16f7317ea"
-  NURAFT_TAG="master"
-  repo_clone_try_double "${primary_urls[nuraft]}" "${secondary_urls[nuraft]}" "nuraft" "$NURAFT_TAG" false
-  pushd nuraft
-  mv ../asio .
-  git checkout $NURAFT_COMMIT_HASH
-  git apply ../nuraft.patch
-  ./prepare.sh
-  popd
-else
-  echo "Skipping asio and nuraft download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
 fi
 
 # mgcxx (text search)
