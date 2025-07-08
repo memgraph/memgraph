@@ -207,9 +207,6 @@ set(RC_ENABLE_GMOCK ON CACHE BOOL "Build Google Mock integration" FORCE)
 mark_as_advanced(RC_ENABLE_GTEST RC_ENABLE_GMOCK)
 add_subdirectory(rapidcheck EXCLUDE_FROM_ALL)
 
-# Setup cppitertools
-import_header_library(cppitertools ${CMAKE_CURRENT_SOURCE_DIR})
-
 # Setup json
 FetchContent_Declare(
     nlohmann_json

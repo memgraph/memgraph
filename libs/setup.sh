@@ -135,12 +135,10 @@ repo_clone_try_double () {
 # Download from primary_urls might fail because the cache is not installed.
 
 declare -A primary_urls=(
-  ["cppitertools"]="http://$local_cache_host/git/cppitertools.git"
   ["rapidcheck"]="http://$local_cache_host/git/rapidcheck.git"
   ["libbcrypt"]="http://$local_cache_host/git/libbcrypt.git"
   ["mgclient"]="http://$local_cache_host/git/mgclient.git"
   ["mgconsole"]="http://$local_cache_host/git/mgconsole.git"
-  ["spdlog"]="http://$local_cache_host/git/spdlog"
   ["neo4j"]="http://$local_cache_host/file/neo4j-community-5.6.0-unix.tar.gz"
   ["librdkafka"]="http://$local_cache_host/git/librdkafka.git"
   ["protobuf"]="http://$local_cache_host/git/protobuf.git"
@@ -162,12 +160,10 @@ declare -A primary_urls=(
 # at all, should never fail. In other words, if it fails, the whole build
 # should fail.
 declare -A secondary_urls=(
-  ["cppitertools"]="https://github.com/ryanhaining/cppitertools.git"
   ["rapidcheck"]="https://github.com/emil-e/rapidcheck.git"
   ["libbcrypt"]="https://github.com/rg3/libbcrypt"
   ["mgclient"]="https://github.com/memgraph/mgclient.git"
   ["mgconsole"]="https://github.com/memgraph/mgconsole.git"
-  ["spdlog"]="https://github.com/gabime/spdlog"
   ["neo4j"]="https://dist.neo4j.org/neo4j-community-5.6.0-unix.tar.gz"
   ["librdkafka"]="https://github.com/edenhill/librdkafka.git"
   ["protobuf"]="https://github.com/protocolbuffers/protobuf.git"
@@ -197,9 +193,6 @@ skip_if_under_toolchain () {
   fi
 }
 
-
-cppitertools_ref="v2.1" # 2021-01-15
-repo_clone_try_double "${primary_urls[cppitertools]}" "${secondary_urls[cppitertools]}" "cppitertools" "$cppitertools_ref"
 
 # rapidcheck
 rapidcheck_tag="ff6af6fc683159deb51c543b065eba14dfcf329b" # (2023-12-14)
@@ -241,9 +234,6 @@ sed -i 's/\${CMAKE_INSTALL_LIBDIR}/lib/' mgclient/src/CMakeLists.txt
 # mgconsole
 mgconsole_tag="v1.4.0" # (2023-05-21)
 skip_if_under_toolchain "mgconsole" repo_clone_try_double "${primary_urls[mgconsole]}" "${secondary_urls[mgconsole]}" "mgconsole" "$mgconsole_tag" true
-
-spdlog_tag="v1.15.3" # (2022-11-02)
-repo_clone_try_double "${primary_urls[spdlog]}" "${secondary_urls[spdlog]}" "spdlog" "$spdlog_tag" true
 
 # librdkafka
 librdkafka_tag="v2.6.1" # (2024-12-05)

@@ -44,6 +44,7 @@ class Memgraph(ConanFile):
         self.requires("boost/1.88.0")
         self.requires("antlr4-cppruntime/4.13.1")
         self.requires("antlr4/4.13.1")
+        self.requires("cppitertools/2.2")
 
     def package(self):
         cmake = CMake(self)
