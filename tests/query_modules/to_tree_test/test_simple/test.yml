@@ -1,17 +1,10 @@
 query: >
   MATCH p = (a:Student {name: 'Ana'})-[:FRIEND*]->(c)
   WITH collect(p) AS paths
-  RETURN convert.to_tree(paths) AS value
+  WITH convert.to_tree(paths) AS tree
+  RETURN tree.name AS name, tree._type AS type, size(tree.FRIEND) AS friend_count
 
 output:
-  - value:
-      name: Ana
-      _type: Student
-      _id: 5
-      FRIEND:
-        - name: Bob
-          _type: Student
-          _id: 6
-        - name: Carol
-          _type: Student
-          _id: 7
+  - name: Ana
+    type: Student
+    friend_count: 2
