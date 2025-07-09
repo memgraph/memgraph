@@ -1,7 +1,7 @@
 drop_graph_cluster: &drop_graph_cluster
   cluster:
     main:
-      args: ["--bolt-port", "7687", "--log-level=TRACE", "--experimental-enabled=text-search"]
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
       log_file: "drop_graph.log"
       setup_queries: []
       validation_queries: []

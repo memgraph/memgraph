@@ -25,8 +25,7 @@
 
 // Bolt server flags.
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_string(experimental_enabled, "",
-                        "Experimental features to be used, comma-separated. Options [text-search]",
+DEFINE_VALIDATED_string(experimental_enabled, "", "Experimental features to be used, comma-separated. Options []",
                         { return memgraph::flags::ValidExperimentalFlag(value); });
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
