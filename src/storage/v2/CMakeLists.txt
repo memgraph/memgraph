@@ -12,9 +12,9 @@ target_sources(mg-storage-v2
         constraints/type_constraints_validator.cpp
         disk/durable_metadata.cpp
         disk/edge_import_mode_cache.cpp
+        disk/edge_property_index.cpp
         disk/edge_type_index.cpp
         disk/edge_type_property_index.cpp
-        disk/edge_property_index.cpp
         disk/label_index.cpp
         disk/label_property_index.cpp
         disk/rocksdb_storage.cpp
@@ -26,7 +26,9 @@ target_sources(mg-storage-v2
         durability/wal.cpp
         edge_accessor.cpp
         edges_iterable.cpp
+        indices/edge_property_index.cpp
         indices/edge_type_index.cpp
+        indices/edge_type_property_index.cpp
         indices/indices.cpp
         indices/indices_utils.hpp
         indices/label_index_stats.cpp
@@ -52,13 +54,13 @@ target_sources(mg-storage-v2
         replication/rpc.cpp
         replication/serialization.cpp
         replication/slk.cpp
+        schema_info.cpp
         storage.cpp
         storage_mode.cpp
         temporal.cpp
         vertex_accessor.cpp
         vertex_info_cache.cpp
         vertices_iterable.cpp
-        schema_info.cpp
         edge_ref.cpp
         indices/point_iterator.cpp
         property_value_utils.cpp

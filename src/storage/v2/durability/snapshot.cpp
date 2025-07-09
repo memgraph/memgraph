@@ -6937,7 +6937,7 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
 
     // Write edge-type + property indices.
     {
-      auto edge_type = storage->indices_.edge_type_property_index_->ListIndices();
+      auto edge_type = transaction->active_indices_.edge_type_properties_->ListIndices(transaction->start_timestamp);
       snapshot.WriteUint(edge_type.size());
       for (const auto &item : edge_type) {
         write_mapping(item.first);
@@ -6950,7 +6950,7 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
 
     // Write global edge property indices.
     {
-      auto indices = storage->indices_.edge_property_index_->ListIndices();
+      auto indices = transaction->active_indices_.edge_property_->ListIndices(transaction->start_timestamp);
       snapshot.WriteUint(indices.size());
       for (const auto &property : indices) {
         write_mapping(property);

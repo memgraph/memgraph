@@ -21,17 +21,21 @@ namespace memgraph::storage {
 
 bool InMemoryLabelIndex::RegisterIndex(LabelId label) {
   return index_.WithLock([&](std::shared_ptr<const IndexContainer> &index) {
-    auto new_index = std::make_shared<IndexContainer>(*index);
-    auto [it, inserted] = new_index->try_emplace(label, std::make_shared<IndividualIndex>());
-    if (!inserted) {
-      return false;
+    auto const &indices = *index;
+    {
+      auto it = index->find(label);
+      if (it != indices.end()) return false;  // already exists
     }
+
+    auto new_index = std::make_shared<IndexContainer>(indices);
+    auto [new_it, _] = new_index->try_emplace(label, std::make_shared<IndividualIndex>());
+
     utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
 
     all_indices_.WithLock([&](auto &all_indices) {
       auto new_all_indices = *all_indices;
       // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
-      new_all_indices.emplace_back(it->second, label);
+      new_all_indices.emplace_back(new_it->second, label);
       all_indices = std::make_shared<std::vector<AllIndicesEntry>>(std::move(new_all_indices));
     });
 
@@ -66,21 +70,6 @@ InMemoryLabelIndex::IndividualIndex::~IndividualIndex() {
   if (status.IsReady()) {
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelIndices);
   }
-}
-
-auto InMemoryLabelIndex::RemoveIndividualIndex(LabelId label) -> bool {
-  auto result = index_.WithLock([&](std::shared_ptr<IndexContainer const> &index) -> bool {
-    auto it = index->find(label);
-    if (it == index->end()) [[unlikely]] {
-      return false;
-    }
-    auto new_index = std::make_shared<IndexContainer>(*index);
-    new_index->erase(label);
-    index = std::move(new_index);
-    return true;
-  });
-  CleanupAllIndices();
-  return result;
 }
 
 inline void TryInsertLabelPropertiesIndex(Vertex &vertex, LabelId label, auto &&index_accessor,
@@ -166,10 +155,10 @@ auto InMemoryLabelIndex::PopulateIndex(
                             parallel_exec_info);
     }
   } catch (const PopulateCancel &) {
-    RemoveIndividualIndex(label);
+    DropIndex(label);
     return IndexPopulateError::Cancellation;
   } catch (const utils::OutOfMemoryException &) {
-    RemoveIndividualIndex(label);
+    DropIndex(label);
     throw;
   }
 
@@ -201,7 +190,22 @@ void InMemoryLabelIndex::ActiveIndices::UpdateOnAddLabel(LabelId added_label, Ve
   acc.insert(Entry{vertex_after_update, tx.start_timestamp});
 }
 
-bool InMemoryLabelIndex::DropIndex(LabelId label) { return RemoveIndividualIndex(label); }
+bool InMemoryLabelIndex::DropIndex(LabelId label) {
+  auto result = index_.WithLock([&](std::shared_ptr<IndexContainer const> &index) -> bool {
+    {
+      auto it = index->find(label);
+      if (it == index->end()) [[unlikely]] {
+        return false;
+      }
+    }
+    auto new_index = std::make_shared<IndexContainer>(*index);
+    new_index->erase(label);
+    index = std::move(new_index);
+    return true;
+  });
+  CleanupAllIndices();
+  return result;
+}
 
 bool InMemoryLabelIndex::ActiveIndices::IndexRegistered(LabelId label) const {
   return index_container_->find(label) != index_container_->end();
@@ -398,7 +402,7 @@ void InMemoryLabelIndex::DropGraphClearIndices() {
 void InMemoryLabelIndex::CleanupAllIndices() {
   // By cleanup, we mean just cleanup of the all_indexes_
   // If all_indexes_ is the only thing holding onto an IndividualIndex, we remove it
-  all_indices_.WithLock([](std::shared_ptr<std::vector<AllIndicesEntry>> &indices) {
+  all_indices_.WithLock([](std::shared_ptr<std::vector<AllIndicesEntry> const> &indices) {
     auto keep_condition = [](AllIndicesEntry const &entry) { return entry.index_.use_count() != 1; };
     if (!ranges::all_of(*indices, keep_condition)) {
       indices = std::make_shared<std::vector<AllIndicesEntry>>(*indices | rv::filter(keep_condition) | r::to_vector);
