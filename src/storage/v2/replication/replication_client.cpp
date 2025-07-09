@@ -128,9 +128,16 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
   // ReplicationTransaction takes read lock also on replication_storage_clients_ so this shouldn't block anything.
   auto const is_strict_sync_cluster = std::invoke([&repl_storage_state]() {
     auto const locked_clients = repl_storage_state.replication_storage_clients_.ReadLock();
-    return std::ranges::any_of(*locked_clients, [](auto const &client) {
+    bool const res = std::ranges::any_of(*locked_clients, [](auto const &client) {
       return client->Mode() == replication_coordination_glue::ReplicationMode::STRICT_SYNC;
     });
+    if (!res) {
+      spdlog::trace("Not strict sync cluster, the number of clients is: {}", locked_clients->size());
+      for (auto const &client : *locked_clients) {
+        spdlog::trace("Client mode: {}", static_cast<uint8_t>(client->Mode()));
+      }
+    }
+    return res;
   });
 
   if (is_strict_sync_cluster) {
