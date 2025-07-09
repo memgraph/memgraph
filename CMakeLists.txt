@@ -424,6 +424,7 @@ if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
     add_custom_target(generated_code DEPENDS
         generate_opencypher_parser
         mgcxx-proj
+        librdkafka-proj
         librdtsc-proj
         pulsar-proj
     )
@@ -432,6 +433,7 @@ else()
   add_custom_target(generated_code DEPENDS
       generate_opencypher_parser
       mgcxx-proj
+      librdkafka-proj
       librdtsc-proj
       pulsar-proj
   )
