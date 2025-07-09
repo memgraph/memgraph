@@ -142,7 +142,6 @@ declare -A primary_urls=(
   ["librdkafka"]="http://$local_cache_host/git/librdkafka.git"
   ["protobuf"]="http://$local_cache_host/git/protobuf.git"
   ["pulsar"]="http://$local_cache_host/git/pulsar.git"
-  ["librdtsc"]="http://$local_cache_host/git/librdtsc.git"
   ["jemalloc"]="http://$local_cache_host/git/jemalloc.git"
   ["nuraft"]="http://$local_cache_host/git/NuRaft.git"
   ["mgcxx"]="http://$local_cache_host/git/mgcxx.git"
@@ -161,7 +160,6 @@ declare -A secondary_urls=(
   ["librdkafka"]="https://github.com/edenhill/librdkafka.git"
   ["protobuf"]="https://github.com/protocolbuffers/protobuf.git"
   ["pulsar"]="https://github.com/apache/pulsar.git"
-  ["librdtsc"]="https://github.com/gabrieleara/librdtsc.git"
   ["jemalloc"]="https://github.com/jemalloc/jemalloc.git"
   ["nuraft"]="https://github.com/eBay/NuRaft.git"
   ["mgcxx"]="https://github.com/memgraph/mgcxx.git"
@@ -241,16 +239,6 @@ if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
   popd
 else
   echo "Skipping pulsar download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
-fi
-
-if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
-  librdtsc_tag="v0.3"
-  repo_clone_try_double "${primary_urls[librdtsc]}" "${secondary_urls[librdtsc]}" "librdtsc" "$librdtsc_tag" true
-  pushd librdtsc
-  git apply ../librdtsc.patch
-  popd
-else
-  echo "Skipping librdtsc download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
 fi
 
 if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
