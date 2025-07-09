@@ -279,9 +279,17 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
   }
   // Move db acc
   auto const *storage = db_acc->get()->storage();
-  const storage::replication::HeartbeatRes res{
-      true, storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire),
-      std::string{storage->repl_storage_state_.epoch_.id()}};
+  auto const ldt = storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
+
+  auto const last_epoch_with_commit = std::invoke([storage, ldt]() -> std::string {
+    if (auto &history = storage->repl_storage_state_.history; !history.empty()) {
+      auto [history_epoch, history_ldt] = history.back();
+      return history_ldt != ldt ? std::string{storage->repl_storage_state_.epoch_.id()} : history_epoch;
+    }
+    return std::string{storage->repl_storage_state_.epoch_.id()};
+  });
+
+  const storage::replication::HeartbeatRes res{true, ldt, last_epoch_with_commit};
   rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
 }
 

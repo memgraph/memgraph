@@ -50,8 +50,15 @@ void ReplicationStorageState::TrackLatestHistory() {
   history.emplace_back(epoch_.id(), new_ldt);
 }
 
+// TODO: (andi) Can this method be the same as TrackLatestHistory
+// Called when Deltas are obtained and when loading WAL
 void ReplicationStorageState::AddEpochToHistoryForce(std::string prev_epoch) {
-  history.emplace_back(std::move(prev_epoch), last_durable_timestamp_.load(std::memory_order_acquire));
+  auto const new_ldt = last_durable_timestamp_.load(std::memory_order_acquire);
+  if (!history.empty() && history.back().second == new_ldt) {
+    return;
+  }
+
+  history.emplace_back(std::move(prev_epoch), new_ldt);
 }
 
 }  // namespace memgraph::storage
