@@ -36,13 +36,18 @@ void ReplicationStorageState::Reset() {
   replication_storage_clients_.WithLock([](auto &clients) { clients.clear(); });
 }
 
+// Don't save epochs for which ldt wasn't changed
 void ReplicationStorageState::TrackLatestHistory() {
-  constexpr uint16_t kEpochHistoryRetention = 1000;
+  auto const new_ldt = last_durable_timestamp_.load(std::memory_order_acquire);
+  if (!history.empty() && history.back().second == new_ldt) {
+    return;
+  }
+
   // Generate new epoch id and save the last one to the history.
-  if (history.size() == kEpochHistoryRetention) {
+  if (constexpr uint16_t kEpochHistoryRetention = 1000; history.size() == kEpochHistoryRetention) {
     history.pop_front();
   }
-  history.emplace_back(epoch_.id(), last_durable_timestamp_.load(std::memory_order_acquire));
+  history.emplace_back(epoch_.id(), new_ldt);
 }
 
 void ReplicationStorageState::AddEpochToHistoryForce(std::string prev_epoch) {
