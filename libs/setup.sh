@@ -137,7 +137,6 @@ repo_clone_try_double () {
 declare -A primary_urls=(
   ["rapidcheck"]="http://$local_cache_host/git/rapidcheck.git"
   ["libbcrypt"]="http://$local_cache_host/git/libbcrypt.git"
-  ["mgclient"]="http://$local_cache_host/git/mgclient.git"
   ["mgconsole"]="http://$local_cache_host/git/mgconsole.git"
   ["neo4j"]="http://$local_cache_host/file/neo4j-community-5.6.0-unix.tar.gz"
   ["protobuf"]="http://$local_cache_host/git/protobuf.git"
@@ -156,7 +155,6 @@ declare -A primary_urls=(
 declare -A secondary_urls=(
   ["rapidcheck"]="https://github.com/emil-e/rapidcheck.git"
   ["libbcrypt"]="https://github.com/rg3/libbcrypt"
-  ["mgclient"]="https://github.com/memgraph/mgclient.git"
   ["mgconsole"]="https://github.com/memgraph/mgconsole.git"
   ["neo4j"]="https://dist.neo4j.org/neo4j-community-5.6.0-unix.tar.gz"
   ["protobuf"]="https://github.com/protocolbuffers/protobuf.git"
@@ -214,10 +212,6 @@ rm neo4j-community-5.6.0-unix.tar.gz
 # pushd rocksdb
 # git apply ../rocksdb8.1.1.patch
 # popd
-
-mgclient_tag="v1.4.0" # (2022-06-14)
-repo_clone_try_double "${primary_urls[mgclient]}" "${secondary_urls[mgclient]}" "mgclient" "$mgclient_tag"
-sed -i 's/\${CMAKE_INSTALL_LIBDIR}/lib/' mgclient/src/CMakeLists.txt
 
 # mgconsole
 mgconsole_tag="v1.4.0" # (2023-05-21)
