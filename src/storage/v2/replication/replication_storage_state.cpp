@@ -36,7 +36,7 @@ void ReplicationStorageState::Reset() {
   replication_storage_clients_.WithLock([](auto &clients) { clients.clear(); });
 }
 
-// Don't save epochs for which ldt wasn't changed
+// Don't save epochs in history for which ldt wasn't changed
 void ReplicationStorageState::TrackLatestHistory() {
   auto const new_ldt = last_durable_timestamp_.load(std::memory_order_acquire);
   if (!history.empty() && history.back().second == new_ldt) {
