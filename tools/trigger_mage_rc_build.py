@@ -11,6 +11,7 @@ This script triggers a MAGE build after a Memgraph release candidate (RC) is cre
 def parse_args():
     parser = argparse.ArgumentParser(description="Trigger MAGE build for Memgraph RC.")
     parser.add_argument("--version", required=True, help="Version of the release candidate.")
+    parser.add_argument("--short_version", required=True, help="Short version of the release candidate.")
     parser.add_argument("--rc_number", required=True, help="Release candidate number.")
     parser.add_argument("--branch_name", required=True, help="Branch name for the release candidate.")
     parser.add_argument("--tag_name", required=True, help="Tag name for the release candidate.")
@@ -24,6 +25,7 @@ def main():
         "event_type": "trigger_rc_build",
         "client_payload": {
             "version": args.version,
+            "short_version": args.short_version,
             "rc_number": args.rc_number,
             "branch_name": args.branch_name,
             "tag_name": args.tag_name,

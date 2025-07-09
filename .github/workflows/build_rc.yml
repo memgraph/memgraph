@@ -30,6 +30,7 @@ jobs:
     outputs:
       branch_name: ${{ steps.check_branch.outputs.branch_name }}
       tag_name: ${{ steps.check_tag.outputs.tag_name }}
+      short_version: ${{ steps.create_short_version.outputs.short_version }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
@@ -42,10 +43,16 @@ jobs:
           git config user.name github-actions
           git config user.email actions@github.com
 
+      - name: Create Short Version
+        id: create_short_version
+        run: |
+          short_version=$(echo "${{ inputs.version }}" | sed -E 's/^([0-9]+\.[0-9]+)\.0$/\1/')
+          echo "short_version=$short_version" >> $GITHUB_OUTPUT
+
       - name: Check if release branch exists and checkout
         id: check_branch
         run: |
-          branch_name="release/v${{ inputs.version }}"
+          branch_name="release/${{ steps.create_short_version.outputs.short_version }}"
           if git ls-remote --exit-code --heads origin "$branch_name"; then
             echo "Branch $branch_name exists. Checking out."
             git checkout "$branch_name"
@@ -217,6 +224,7 @@ jobs:
           echo "Triggering MAGE build for release candidate ${GITHUB_REF_NAME}."
           python3 tools/trigger_mage_rc_build.py \
             --version "${{ inputs.version }}" \
+            --short_version "${{ needs.PrepareReleaseBranch.outputs.short_version }}" \
             --rc_number "${{ inputs.rc_number }}" \
             --branch_name "${{ needs.PrepareReleaseBranch.outputs.branch_name }}" \
             --tag_name "${{ needs.PrepareReleaseBranch.outputs.tag_name }}"
