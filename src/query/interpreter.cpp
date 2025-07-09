@@ -3775,36 +3775,44 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
   MG_ASSERT(current_db.db_transactional_accessor_, "Text index query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
 
-  // Creating an index influences computed plan costs.
+  // Creating an index influences computed plan costs. // TODO: is this needed for indices that don't utilize planner?
   auto invalidate_plan_cache = [plan_cache = db_acc->plan_cache()] {
     plan_cache->WithLock([&](auto &cache) { cache.reset(); });
   };
 
   auto *storage = db_acc->storage();
-  auto label = storage->NameToLabel(text_index_query->label_.name);
+  auto label_name = text_index_query->label_.name;
+  auto label = storage->NameToLabel(label_name);
   auto &index_name = text_index_query->index_name_;
 
   Notification index_notification(SeverityLevel::INFO);
   switch (text_index_query->action_) {
     case TextIndexQuery::Action::CREATE: {
       index_notification.code = NotificationCode::CREATE_INDEX;
-      index_notification.title = fmt::format("Created text index on label {}.", text_index_query->label_.name);
-      // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
-      handler = [dba, label, index_name,
-                 invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
-        dba->CreateTextIndex(index_name, label);
+      index_notification.title = fmt::format("Created text index on label {}.", label_name);
+      handler = [dba, label, index_name, invalidate_plan_cache = std::move(invalidate_plan_cache),
+                 label_name = std::move(label_name)](Notification &index_notification) {
+        auto maybe_error = dba->CreateTextIndex(index_name, label);
         utils::OnScopeExit invalidator(invalidate_plan_cache);
+        if (maybe_error.HasError()) {
+          index_notification.code = NotificationCode::EXISTENT_INDEX;
+          index_notification.title =
+              fmt::format("Text index on label {} with name {} already exists.", label_name, index_name);
+        }
       };
       break;
     }
     case TextIndexQuery::Action::DROP: {
       index_notification.code = NotificationCode::DROP_INDEX;
-      index_notification.title = fmt::format("Dropped text index on label {}.", text_index_query->label_.name);
-      // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
+      index_notification.title = fmt::format("Dropped text index {}.", index_name);
       handler = [dba, index_name,
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
-        dba->DropTextIndex(index_name);
+        auto maybe_error = dba->DropTextIndex(index_name);
         utils::OnScopeExit invalidator(invalidate_plan_cache);
+        if (maybe_error.HasError()) {
+          index_notification.code = NotificationCode::NONEXISTENT_INDEX;
+          index_notification.title = fmt::format("Text index with name {} doesn't exist.", index_name);
+        }
       };
       break;
     }
@@ -3817,7 +3825,7 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
           AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
         handler(index_notification);
         notifications->push_back(index_notification);
-        return QueryHandlerResult::COMMIT;  // TODO: Will need to become COMMIT when we fix replication
+        return QueryHandlerResult::COMMIT;
       },
       RWType::W};
 }
