@@ -1889,9 +1889,7 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
   transaction_.disk_transaction_ = nullptr;
 
   spdlog::trace("rocksdb: Commit successful");
-  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    disk_storage->indices_.text_index_.Commit();
-  }
+  disk_storage->indices_.text_index_.Commit();
   disk_storage->durable_metadata_.UpdateMetaData(disk_storage->timestamp_, disk_storage->vertex_count_,
                                                  disk_storage->edge_count_);
   is_transaction_active_ = false;
@@ -2017,9 +2015,8 @@ void DiskStorage::DiskAccessor::Abort() {
   // query_plan_accumulate_aggregate.cpp
   transaction_.disk_transaction_->Rollback();
   transaction_.disk_transaction_->ClearSnapshot();
-  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    storage_->indices_.text_index_.Rollback();
-  }
+  storage_->indices_.text_index_.Rollback();
+
   delete transaction_.disk_transaction_;
   transaction_.disk_transaction_ = nullptr;
   is_transaction_active_ = false;

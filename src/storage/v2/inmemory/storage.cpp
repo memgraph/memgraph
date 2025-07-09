@@ -849,10 +849,7 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       commit_timestamp_.reset();
       return StorageManipulationError{*unique_constraint_violation};
     }
-
-    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-      mem_storage->indices_.text_index_.Commit();
-    }
+    mem_storage->indices_.text_index_.Commit();
   }
 
   is_transaction_active_ = false;
@@ -1343,10 +1340,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
 
     // Cleanup INDICES
     index_abort_processor.Process(storage_->indices_, transaction_.active_indices_, transaction_.start_timestamp);
+    storage_->indices_.text_index_.Rollback();
 
-    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-      storage_->indices_.text_index_.Rollback();
-    }
     // TODO: abort processor
     for (auto const &[edge_type_property, edge] : edge_type_property_cleanup) {
       storage_->indices_.AbortEntries(edge_type_property, edge, transaction_.start_timestamp);

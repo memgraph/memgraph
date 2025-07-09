@@ -3790,9 +3790,6 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
       handler = [dba, label, index_name,
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
-        if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-          throw TextSearchDisabledException();
-        }
         dba->CreateTextIndex(index_name, label);
         utils::OnScopeExit invalidator(invalidate_plan_cache);
       };
@@ -3804,9 +3801,6 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
       handler = [dba, index_name,
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
-        if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-          throw TextSearchDisabledException();
-        }
         dba->DropTextIndex(index_name);
         utils::OnScopeExit invalidator(invalidate_plan_cache);
       };

@@ -61,9 +61,7 @@ void Indices::DropGraphClearIndices() {
   point_index_.Clear();
   vector_index_.Clear();
   vector_edge_index_.Clear();
-  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    text_index_.Clear();
-  }
+  text_index_.Clear();
 }
 
 void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) const {

@@ -32,10 +32,6 @@ inline std::string TextIndex::MakeIndexPath(const std::string &index_name) {
 }
 
 void TextIndex::CreateEmptyIndex(const std::string &index_name, LabelId label) {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    throw query::TextSearchDisabledException();
-  }
-
   if (index_.contains(index_name)) {
     throw query::TextSearchException("Text index \"{}\" already exists.", index_name);
   }
@@ -118,10 +114,6 @@ std::string TextIndex::StringifyProperties(const std::map<PropertyId, PropertyVa
 
 std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(
     std::span<storage::LabelId const> labels) {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    throw query::TextSearchDisabledException();
-  }
-
   std::vector<mgcxx::text_search::Context *> applicable_text_indices;
   for (const auto &label : labels) {
     if (label_to_index_.contains(label)) {
@@ -175,10 +167,6 @@ void TextIndex::CommitLoadedNodes(mgcxx::text_search::Context &index_context) {
 void TextIndex::AddNode(
     Vertex *vertex_after_update, NameIdMapper *name_id_mapper,
     const std::optional<std::vector<mgcxx::text_search::Context *>> &maybe_applicable_text_indices) {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    throw query::TextSearchDisabledException();
-  }
-
   auto applicable_text_indices =
       maybe_applicable_text_indices.value_or(GetApplicableTextIndices(vertex_after_update->labels));
   if (applicable_text_indices.empty()) {
@@ -192,10 +180,6 @@ void TextIndex::AddNode(
 
 void TextIndex::UpdateNode(Vertex *vertex_after_update, NameIdMapper *name_id_mapper,
                            const std::vector<LabelId> &removed_labels) {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    throw query::TextSearchDisabledException();
-  }
-
   if (!removed_labels.empty()) {
     auto indexes_to_remove_node_from = GetApplicableTextIndices(removed_labels);
     RemoveNode(vertex_after_update, indexes_to_remove_node_from);
@@ -210,10 +194,6 @@ void TextIndex::UpdateNode(Vertex *vertex_after_update, NameIdMapper *name_id_ma
 void TextIndex::RemoveNode(
     Vertex *vertex_after_update,
     const std::optional<std::vector<mgcxx::text_search::Context *>> &maybe_applicable_text_indices) {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    throw query::TextSearchDisabledException();
-  }
-
   auto search_node_to_be_deleted =
       mgcxx::text_search::SearchInput{.search_query = fmt::format("metadata.gid:{}", vertex_after_update->gid.AsInt())};
 
@@ -229,10 +209,6 @@ void TextIndex::RemoveNode(
 
 void TextIndex::CreateIndex(std::string const &index_name, LabelId label, storage::VerticesIterable vertices,
                             NameIdMapper *nameIdMapper) {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    throw query::TextSearchDisabledException();
-  }
-
   CreateEmptyIndex(index_name, label);
 
   for (const auto &v : vertices) {
@@ -251,10 +227,6 @@ void TextIndex::CreateIndex(std::string const &index_name, LabelId label, storag
 void TextIndex::RecoverIndex(const std::string &index_name, LabelId label,
                              memgraph::utils::SkipList<Vertex>::Accessor vertices, NameIdMapper *name_id_mapper,
                              std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    throw query::TextSearchDisabledException();
-  }
-
   // Clear Tantivy-internal files if they exist from previous sessions
   std::filesystem::remove_all(text_index_storage_dir_ / index_name);
 
@@ -278,10 +250,6 @@ void TextIndex::RecoverIndex(const std::string &index_name, LabelId label,
 }
 
 LabelId TextIndex::DropIndex(const std::string &index_name) {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    throw query::TextSearchDisabledException();
-  }
-
   if (!index_.contains(index_name)) {
     throw query::TextSearchException("Text index \"{}\" doesn’t exist.", index_name);
   }
@@ -344,10 +312,6 @@ mgcxx::text_search::SearchOutput TextIndex::SearchAllProperties(const std::strin
 
 std::vector<Gid> TextIndex::Search(const std::string &index_name, const std::string &search_query,
                                    text_search_mode search_mode) {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    throw query::TextSearchDisabledException();
-  }
-
   if (!index_.contains(index_name)) {
     throw query::TextSearchException("Text index \"{}\" doesn’t exist.", index_name);
   }
@@ -383,10 +347,6 @@ std::vector<Gid> TextIndex::Search(const std::string &index_name, const std::str
 
 std::string TextIndex::Aggregate(const std::string &index_name, const std::string &search_query,
                                  const std::string &aggregation_query) {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    throw query::TextSearchDisabledException();
-  }
-
   if (!index_.contains(index_name)) {
     throw query::TextSearchException("Text index \"{}\" doesn’t exist.", index_name);
   }
@@ -409,20 +369,12 @@ std::string TextIndex::Aggregate(const std::string &index_name, const std::strin
 }
 
 void TextIndex::Commit() {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    throw query::TextSearchDisabledException();
-  }
-
   for (auto &[_, index_data] : index_) {
     mgcxx::text_search::commit(index_data.context_);
   }
 }
 
 void TextIndex::Rollback() {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    throw query::TextSearchDisabledException();
-  }
-
   for (auto &[_, index_data] : index_) {
     mgcxx::text_search::rollback(index_data.context_);
   }

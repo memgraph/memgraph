@@ -375,11 +375,8 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
   if (maybe_deleted_vertices.HasError()) {
     return maybe_deleted_vertices.GetError();
   }
-
-  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    for (auto *node : nodes_to_delete) {
-      storage_->indices_.text_index_.RemoveNode(node);
-    }
+  for (auto *node : nodes_to_delete) {
+    storage_->indices_.text_index_.RemoveNode(node);
   }
 
   auto deleted_vertices = maybe_deleted_vertices.GetValue();

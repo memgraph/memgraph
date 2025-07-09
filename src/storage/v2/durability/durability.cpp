@@ -309,8 +309,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   spdlog::info("Global edge property indices are recreated.");
 
   // Text idx
-  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    // Recover text indices.
+  {
     spdlog::info("Recreating {} text indices from metadata.", indices_metadata.text_indices.size());
     auto &mem_text_index = indices->text_index_;
     for (const auto &[index_name, label] : indices_metadata.text_indices) {
@@ -452,9 +451,7 @@ void RecoverIndicesStatsAndConstraints(utils::SkipList<Vertex> *vertices, NameId
                                        bool properties_on_edges,
                                        std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto storage_dir = std::optional<std::filesystem::path>{};
-  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    storage_dir = config.durability.storage_directory;
-  }
+  storage_dir = config.durability.storage_directory;
 
   RecoverIndicesAndStats(indices_constraints.indices, indices, vertices, name_id_mapper, properties_on_edges,
                          GetParallelExecInfo(recovery_info, config), storage_dir, snapshot_info);

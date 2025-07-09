@@ -2369,7 +2369,7 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
     }
 
     // Recover text indices.
-    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    {
       auto size = snapshot.ReadUint();
       if (!size) throw RecoveryFailure("Couldn't recover the number of text indices!");
       spdlog::info("Recovering metadata of {} text indices.", *size);
@@ -2813,7 +2813,7 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
     }
 
     // Recover text indices.
-    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    {
       auto size = snapshot.ReadUint();
       if (!size) throw RecoveryFailure("Couldn't recover the number of text indices!");
       spdlog::info("Recovering metadata of {} text indices.", *size);
@@ -3277,7 +3277,7 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
     // Recover text indices.
     // NOTE: while this is experimental and hence optional
     //       it must be last in the SECTION_INDICES
-    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    {
       auto size = snapshot.ReadUint();
       if (!size) throw RecoveryFailure("Couldn't recover the number of text indices!");
       spdlog::info("Recovering metadata of {} text indices.", *size);
@@ -3813,7 +3813,7 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
     // Recover text indices.
     // NOTE: while this is experimental and hence optional
     //       it must be last in the SECTION_INDICES
-    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    {
       auto size = snapshot.ReadUint();
       if (!size) throw RecoveryFailure("Couldn't recover the number of text indices!");
       spdlog::info("Recovering metadata of {} text indices.", *size);
@@ -4396,7 +4396,7 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
     // Recover text indices.
     // NOTE: while this is experimental and hence optional
     //       it must be last in the SECTION_INDICES
-    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    {
       auto size = snapshot.ReadUint();
       if (!size) throw RecoveryFailure("Couldn't recover the number of text indices!");
       spdlog::info("Recovering metadata of {} text indices.", *size);
@@ -4974,7 +4974,7 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
     // Recover text indices.
     // NOTE: while this is experimental and hence optional
     //       it must be last in the SECTION_INDICES
-    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    {
       auto size = snapshot.ReadUint();
       if (!size) throw RecoveryFailure("Couldn't recover the number of text indices!");
       spdlog::info("Recovering metadata of {} text indices.", *size);
@@ -5554,7 +5554,7 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
     // Recover text indices.
     // NOTE: while this is experimental and hence optional
     //       it must be last in the SECTION_INDICES
-    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    {
       auto size = snapshot.ReadUint();
       if (!size) throw RecoveryFailure("Couldn't recover the number of text indices!");
       spdlog::info("Recovering metadata of {} text indices.", *size);
@@ -6182,7 +6182,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
     // Recover text indices.
     // NOTE: while this is experimental and hence optional
     //       it must be last in the SECTION_INDICES
-    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    {
       auto size = snapshot.ReadUint();
       if (!size) throw RecoveryFailure("Couldn't recover the number of text indices!");
       spdlog::info("Recovering metadata of {} text indices.", *size);
@@ -7011,7 +7011,7 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     }
 
     // Write text indices.
-    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    {
       auto text_indices = storage->indices_.text_index_.ListIndices();
       snapshot.WriteUint(text_indices.size());
       for (const auto &[index_name, label] : text_indices) {
