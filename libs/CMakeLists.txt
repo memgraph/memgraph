@@ -273,31 +273,6 @@ mg_build_if_needed(build_mgconsole "mgconsole")
 # Setup spdlog
 set(SPDLOG_FMT_EXTERNAL ON)
 
-macro(build_kafka)
-    import_external_library(librdkafka STATIC
-      ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/lib/librdkafka.a
-      ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/include
-      CMAKE_ARGS -DRDKAFKA_BUILD_STATIC=ON
-      -DRDKAFKA_BUILD_EXAMPLES=OFF
-      -DRDKAFKA_BUILD_TESTS=OFF
-      -DWITH_ZSTD=OFF
-      -DENABLE_LZ4_EXT=OFF
-      -DCMAKE_INSTALL_LIBDIR=lib
-      -DWITH_SSL=ON
-      -DWITH_SASL=ON)
-    target_link_libraries(librdkafka INTERFACE ${OPENSSL_LIBRARIES} ZLIB::ZLIB sasl2)
-    import_library(librdkafka++ STATIC
-      ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/lib/librdkafka++.a
-      ${CMAKE_CURRENT_SOURCE_DIR}/librdkafka/include
-    )
-    target_link_libraries(librdkafka++ INTERFACE librdkafka)
-endmacro()
-mg_build_if_needed(build_kafka "librdkafka")
-mg_create_linkable_if_no_cmake(librdkafka STATIC "${MG_TOOLCHAIN_ROOT}/lib/librdkafka.a" "${MG_TOOLCHAIN_ROOT}/include")
-target_link_libraries(librdkafka INTERFACE ${OPENSSL_LIBRARIES} ZLIB::ZLIB sasl2)
-mg_create_linkable_if_no_cmake(librdkafka++ STATIC "${MG_TOOLCHAIN_ROOT}/lib/librdkafka++.a" "${MG_TOOLCHAIN_ROOT}/include")
-target_link_libraries(librdkafka++ INTERFACE librdkafka)
-
 macro(build_protobuf)
     set(PROTOBUF_ROOT ${CMAKE_CURRENT_SOURCE_DIR}/protobuf/lib)
     import_external_library(protobuf STATIC

@@ -50,6 +50,7 @@ class Memgraph(ConanFile):
         self.requires("croncpp/2023.03.30")
         self.requires("range-v3/0.12.0")
         self.requires("asio/1.34.2")
+        self.requires("librdkafka/2.6.1", options={"ssl": True, "sasl": False})
 
     def package(self):
         cmake = CMake(self)
