@@ -113,7 +113,9 @@ Storage::Accessor::Accessor(SharedAccess /* tag */, Storage *storage, IsolationL
       unique_guard_(storage_->main_lock_, std::defer_lock),
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),
-      creation_storage_mode_(storage_mode) {}
+      creation_storage_mode_(storage_mode) {
+  storage_->RegisterTransaction(transaction_.transaction_id);
+}
 
 Storage::Accessor::Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
                             StorageMode storage_mode, const std::optional<std::chrono::milliseconds> timeout)
@@ -125,7 +127,9 @@ Storage::Accessor::Accessor(UniqueAccess /* tag */, Storage *storage, IsolationL
       unique_guard_(CreateUniqueGuard(storage, timeout)),
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),
-      creation_storage_mode_(storage_mode) {}
+      creation_storage_mode_(storage_mode) {
+  storage_->RegisterTransaction(transaction_.transaction_id);
+}
 
 Storage::Accessor::Accessor(ReadOnlyAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
                             StorageMode storage_mode, const std::optional<std::chrono::milliseconds> timeout)
@@ -137,7 +141,9 @@ Storage::Accessor::Accessor(ReadOnlyAccess /* tag */, Storage *storage, Isolatio
       unique_guard_(storage_->main_lock_, std::defer_lock),
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),
-      creation_storage_mode_(storage_mode) {}
+      creation_storage_mode_(storage_mode) {
+  storage_->RegisterTransaction(transaction_.transaction_id);
+}
 
 Storage::Accessor::Accessor(Accessor &&other) noexcept
     : storage_(other.storage_),
@@ -147,10 +153,14 @@ Storage::Accessor::Accessor(Accessor &&other) noexcept
       commit_timestamp_(other.commit_timestamp_),
       is_transaction_active_(other.is_transaction_active_),
       creation_storage_mode_(other.creation_storage_mode_) {
+  storage_->RegisterTransaction(transaction_.transaction_id);
+
   // Don't allow the other accessor to abort our transaction in destructor.
   other.is_transaction_active_ = false;
   other.commit_timestamp_.reset();
 }
+
+Storage::Accessor::~Accessor() { storage_->UnregisterTransaction(transaction_.transaction_id); }
 
 StorageMode Storage::GetStorageMode() const noexcept { return storage_mode_; }
 
@@ -191,6 +201,23 @@ utils::BasicResult<Storage::SetIsolationLevelError> Storage::SetIsolationLevel(I
   std::unique_lock main_guard{main_lock_};
   isolation_level_ = isolation_level;
   return {};
+}
+
+void Storage::RegisterTransaction(uint64_t transaction_id) {
+  {
+    std::unique_lock guard{active_transactions_mutex_};
+    active_transactions_.emplace(transaction_id, ActiveTransactionInfo{transaction_id});
+  }
+
+  std::cout << "RegisterTransaction " << transaction_id << "\n";
+}
+
+void Storage::UnregisterTransaction(uint64_t transaction_id) {
+  {
+    std::unique_lock guard{active_transactions_mutex_};
+    active_transactions_.erase(transaction_id);
+  }
+  std::cout << "UnregisterTransaction " << transaction_id << "\n";
 }
 
 StorageMode Storage::Accessor::GetCreationStorageMode() const noexcept { return creation_storage_mode_; }

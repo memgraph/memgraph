@@ -230,7 +230,7 @@ class Storage {
 
     Accessor(Accessor &&other) noexcept;
 
-    virtual ~Accessor() = default;
+    virtual ~Accessor();
 
     Type type() const {
       if (unique_guard_.owns_lock()) {
@@ -682,6 +682,11 @@ class Storage {
     };
   }
 
+ protected:
+  void RegisterTransaction(uint64_t transaction_id);
+  void UnregisterTransaction(uint64_t transaction_id);
+
+ public:
   // TODO: make non-public
   ReplicationStorageState repl_storage_state_;
 
@@ -732,6 +737,13 @@ class Storage {
   EnumStore enum_store_;
 
   SchemaInfo schema_info_;
+
+  struct ActiveTransactionInfo {
+    uint64_t transaction_id;
+  };
+
+  std::mutex active_transactions_mutex_;
+  std::unordered_map<uint64_t, ActiveTransactionInfo> active_transactions_;
 };
 
 inline std::ostream &operator<<(std::ostream &os, Storage::Accessor::Type type) {
