@@ -346,19 +346,6 @@ if(TARGET pulsar)
   )
 endif()
 
-macro(build_librdtsc)
-  if(${MG_ARCH} STREQUAL "ARM64")
-    set(MG_LIBRDTSC_CMAKE_ARGS -DLIBRDTSC_ARCH_x86=OFF -DLIBRDTSC_ARCH_ARM64=ON)
-  endif()
-  import_external_library(librdtsc STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/librdtsc/lib/librdtsc.a
-    ${CMAKE_CURRENT_SOURCE_DIR}/librdtsc/include
-    CMAKE_ARGS ${MG_LIBRDTSC_CMAKE_ARGS}
-    BUILD_COMMAND $(MAKE) rdtsc)
-endmacro()
-mg_build_if_needed(build_librdtsc "librdtsc")
-mg_create_linkable_if_no_cmake(librdtsc STATIC "${MG_TOOLCHAIN_ROOT}/lib/librdtsc.a" "${MG_TOOLCHAIN_ROOT}/include")
-
 set(ABSL_PROPAGATE_CXX_STD ON)
 
 macro(link_jmalloc)
