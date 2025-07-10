@@ -644,16 +644,17 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
     }
     ++num_deltas;
     if (is_end_of_transaction) {
-      if (info.num_deltas == 0) {
-        info.from_timestamp = timestamp;
-        info.to_timestamp = timestamp;
-        spdlog::trace("Num deltas is 0, setting from_timestamp and to_timestamp to {}", timestamp);
-      }
+      // Just interested when this happens but this should be a bug
       if (timestamp < info.from_timestamp || timestamp < info.to_timestamp) {
         spdlog::warn("Txn end found. Timestamp: {}, From timestamp: {}, To timestamp: {}", timestamp,
                      info.from_timestamp, info.to_timestamp);
-        break;
       }
+
+      if (info.num_deltas == 0) {
+        info.from_timestamp = timestamp;
+        spdlog::trace("Num deltas is 0, setting from_timestamp to {}", timestamp);
+      }
+
       info.to_timestamp = timestamp;
       info.num_deltas += num_deltas;
       current_timestamp = std::nullopt;
