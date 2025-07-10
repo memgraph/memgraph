@@ -40,6 +40,7 @@ extern const Event ActiveBoltSessions;
 
 namespace {
 
+#ifdef MG_ENTERPRISE
 // Helper function to compare bolt_map_t objects
 inline bool operator==(const memgraph::glue::bolt_map_t &lhs, const memgraph::glue::bolt_map_t &rhs) {
   if (lhs.size() != rhs.size()) return false;
@@ -55,6 +56,7 @@ inline bool operator==(const memgraph::glue::bolt_map_t &lhs, const memgraph::gl
     return false;  // For other types, consider them different to be safe
   });
 }
+#endif
 
 auto ToQueryExtras(const memgraph::glue::bolt_value_t &extra) -> memgraph::query::QueryExtras {
   auto metadata_pv = memgraph::storage::ExternalPropertyValue::map_t{};

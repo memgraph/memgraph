@@ -53,6 +53,8 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
                        system::Transaction *system_tx) override;
 
   void DeleteDatabase(std::string_view db_name, system::Transaction *system_tx) override;
+
+  std::optional<std::string> GetMainDatabase(const std::string &user_or_role) override;
 #endif
 
   bool CreateRole(const std::string &rolename, system::Transaction *system_tx) override;

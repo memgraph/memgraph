@@ -493,7 +493,7 @@ listOfColonSymbolicNames : colonSymbolicName ( ',' colonSymbolicName )* ;
 
 colonSymbolicName : COLON symbolicName ;
 
-showPrivileges : SHOW PRIVILEGES FOR userOrRole=userOrRoleName ;
+showPrivileges : SHOW PRIVILEGES FOR userOrRole=userOrRoleName ( ON ( MAIN | CURRENT | DATABASE db=symbolicName ) )?;
 
 showRoleForUser : SHOW ROLE FOR user=userOrRoleName ;
 

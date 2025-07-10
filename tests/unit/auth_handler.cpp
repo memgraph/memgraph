@@ -323,7 +323,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedPrivilegeOnLabelThenIsDispla
   ASSERT_EQ(result[1].ValueString(), "READ");
 
   ASSERT_TRUE(result[2].IsString());
-  ASSERT_EQ(result[2].ValueString(), "LABEL PERMISSION GRANTED TO USER FOR DATABASE memgraph");
+  ASSERT_EQ(result[2].ValueString(), "LABEL PERMISSION GRANTED TO USER");
 }
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedMultiplePrivilegesOnLabelThenTopOneIsDisplayed) {
@@ -352,7 +352,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedMultiplePrivilegesOnLabelThe
   ASSERT_EQ(result[1].ValueString(), "UPDATE");
 
   ASSERT_TRUE(result[2].IsString());
-  ASSERT_EQ(result[2].ValueString(), "LABEL PERMISSION GRANTED TO USER FOR DATABASE memgraph");
+  ASSERT_EQ(result[2].ValueString(), "LABEL PERMISSION GRANTED TO USER");
 }
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAllPrivilegesOnLabelThenTopOneIsDisplayed) {
@@ -382,7 +382,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAllPrivilegesOnLabelThenTopO
   ASSERT_EQ(result[1].ValueString(), "CREATE_DELETE");
 
   ASSERT_TRUE(result[2].IsString());
-  ASSERT_EQ(result[2].ValueString(), "LABEL PERMISSION GRANTED TO USER FOR DATABASE memgraph");
+  ASSERT_EQ(result[2].ValueString(), "LABEL PERMISSION GRANTED TO USER");
 }
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalPrivilegeOnLabelThenIsDisplayed) {
@@ -410,7 +410,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalPrivilegeOnLabelThenIs
   ASSERT_EQ(result[1].ValueString(), "READ");
 
   ASSERT_TRUE(result[2].IsString());
-  ASSERT_EQ(result[2].ValueString(), "GLOBAL LABEL PERMISSION GRANTED TO USER FOR DATABASE memgraph");
+  ASSERT_EQ(result[2].ValueString(), "GLOBAL LABEL PERMISSION GRANTED TO USER");
 }
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalMultiplePrivilegesOnLabelThenTopOneIsDisplayed) {
@@ -439,7 +439,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalMultiplePrivilegesOnLa
   ASSERT_EQ(result[1].ValueString(), "UPDATE");
 
   ASSERT_TRUE(result[2].IsString());
-  ASSERT_EQ(result[2].ValueString(), "GLOBAL LABEL PERMISSION GRANTED TO USER FOR DATABASE memgraph");
+  ASSERT_EQ(result[2].ValueString(), "GLOBAL LABEL PERMISSION GRANTED TO USER");
 }
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnLabelThenTopOneIsDisplayed) {
@@ -469,7 +469,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnLabelTh
   ASSERT_EQ(result[1].ValueString(), "CREATE_DELETE");
 
   ASSERT_TRUE(result[2].IsString());
-  ASSERT_EQ(result[2].ValueString(), "GLOBAL LABEL PERMISSION GRANTED TO USER FOR DATABASE memgraph");
+  ASSERT_EQ(result[2].ValueString(), "GLOBAL LABEL PERMISSION GRANTED TO USER");
 }
 
 // EDGE_TYPES
@@ -498,7 +498,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedPrivilegeOnEdgeTypeThenIsDis
   ASSERT_EQ(result[1].ValueString(), "READ");
 
   ASSERT_TRUE(result[2].IsString());
-  ASSERT_EQ(result[2].ValueString(), "EDGE_TYPE PERMISSION GRANTED TO USER FOR DATABASE memgraph");
+  ASSERT_EQ(result[2].ValueString(), "EDGE_TYPE PERMISSION GRANTED TO USER");
 }
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedMultiplePrivilegesOnEdgeTypeThenTopOneIsDisplayed) {
@@ -527,7 +527,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedMultiplePrivilegesOnEdgeType
   ASSERT_EQ(result[1].ValueString(), "UPDATE");
 
   ASSERT_TRUE(result[2].IsString());
-  ASSERT_EQ(result[2].ValueString(), "EDGE_TYPE PERMISSION GRANTED TO USER FOR DATABASE memgraph");
+  ASSERT_EQ(result[2].ValueString(), "EDGE_TYPE PERMISSION GRANTED TO USER");
 }
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAllPrivilegesOnEdgeTypeThenTopOneIsDisplayed) {
@@ -557,7 +557,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAllPrivilegesOnEdgeTypeThenT
   ASSERT_EQ(result[1].ValueString(), "CREATE_DELETE");
 
   ASSERT_TRUE(result[2].IsString());
-  ASSERT_EQ(result[2].ValueString(), "EDGE_TYPE PERMISSION GRANTED TO USER FOR DATABASE memgraph");
+  ASSERT_EQ(result[2].ValueString(), "EDGE_TYPE PERMISSION GRANTED TO USER");
 }
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalPrivilegeOnEdgeTypeThenIsDisplayed) {
@@ -585,7 +585,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalPrivilegeOnEdgeTypeThe
   ASSERT_EQ(result[1].ValueString(), "READ");
 
   ASSERT_TRUE(result[2].IsString());
-  ASSERT_EQ(result[2].ValueString(), "GLOBAL EDGE_TYPE PERMISSION GRANTED TO USER FOR DATABASE memgraph");
+  ASSERT_EQ(result[2].ValueString(), "GLOBAL EDGE_TYPE PERMISSION GRANTED TO USER");
 }
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalMultiplePrivilegesOnEdgeTypeThenTopOneIsDisplayed) {
@@ -615,7 +615,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalMultiplePrivilegesOnEd
   ASSERT_EQ(result[1].ValueString(), "UPDATE");
 
   ASSERT_TRUE(result[2].IsString());
-  ASSERT_EQ(result[2].ValueString(), "GLOBAL EDGE_TYPE PERMISSION GRANTED TO USER FOR DATABASE memgraph");
+  ASSERT_EQ(result[2].ValueString(), "GLOBAL EDGE_TYPE PERMISSION GRANTED TO USER");
 }
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnEdgeTypeThenTopOneIsDisplayed) {
@@ -645,7 +645,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnEdgeTyp
   ASSERT_EQ(result[1].ValueString(), "CREATE_DELETE");
 
   ASSERT_TRUE(result[2].IsString());
-  ASSERT_EQ(result[2].ValueString(), "GLOBAL EDGE_TYPE PERMISSION GRANTED TO USER FOR DATABASE memgraph");
+  ASSERT_EQ(result[2].ValueString(), "GLOBAL EDGE_TYPE PERMISSION GRANTED TO USER");
 }
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnLabelThenNoPermission) {
@@ -674,7 +674,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnLabelThenNoPermis
   ASSERT_EQ(result[1].ValueString(), "NOTHING");
 
   ASSERT_TRUE(result[2].IsString());
-  ASSERT_EQ(result[2].ValueString(), "LABEL PERMISSION DENIED TO USER FOR DATABASE memgraph");
+  ASSERT_EQ(result[2].ValueString(), "LABEL PERMISSION DENIED TO USER");
 }
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnEdgeTypeThenNoPermission) {
@@ -703,7 +703,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnEdgeTypeThenNoPer
   ASSERT_EQ(result[1].ValueString(), "NOTHING");
 
   ASSERT_TRUE(result[2].IsString());
-  ASSERT_EQ(result[2].ValueString(), "EDGE_TYPE PERMISSION DENIED TO USER FOR DATABASE memgraph");
+  ASSERT_EQ(result[2].ValueString(), "EDGE_TYPE PERMISSION DENIED TO USER");
 }
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedReadAndDeniedUpdateThenOneIsDisplayed) {
@@ -732,7 +732,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedReadAndDeniedUpdateThenOneIs
   ASSERT_EQ(result[1].ValueString(), "READ");
 
   ASSERT_TRUE(result[2].IsString());
-  ASSERT_EQ(result[2].ValueString(), "EDGE_TYPE PERMISSION GRANTED TO USER FOR DATABASE memgraph");
+  ASSERT_EQ(result[2].ValueString(), "EDGE_TYPE PERMISSION GRANTED TO USER");
 }
 #endif
 
@@ -1117,15 +1117,15 @@ TEST_F(AuthQueryHandlerFixture,
     if (privilege_name == "LABEL :Person") {
       found_label_person = true;
       ASSERT_EQ(privilege[1].ValueString(), "CREATE_DELETE");
-      ASSERT_EQ(privilege[2].ValueString(), "LABEL PERMISSION GRANTED TO ROLE FOR DATABASE db1");
+      ASSERT_EQ(privilege[2].ValueString(), "LABEL PERMISSION GRANTED TO ROLE");
     } else if (privilege_name == "LABEL :Company") {
       found_label_company = true;
       ASSERT_EQ(privilege[1].ValueString(), "READ");
-      ASSERT_EQ(privilege[2].ValueString(), "LABEL PERMISSION GRANTED TO ROLE FOR DATABASE db1");
+      ASSERT_EQ(privilege[2].ValueString(), "LABEL PERMISSION GRANTED TO ROLE");
     } else if (privilege_name == "EDGE_TYPE :WORKS_FOR") {
       found_edge_works_for = true;
       ASSERT_EQ(privilege[1].ValueString(), "UPDATE");
-      ASSERT_EQ(privilege[2].ValueString(), "EDGE_TYPE PERMISSION GRANTED TO ROLE FOR DATABASE db1");
+      ASSERT_EQ(privilege[2].ValueString(), "EDGE_TYPE PERMISSION GRANTED TO ROLE");
     }
   }
 

@@ -1108,8 +1108,48 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
     }
     case AuthQuery::Action::SHOW_PRIVILEGES:
       callback.header = {"privilege", "effective", "description"};
-      callback.fn = [auth, user_or_role, db_acc = std::move(db_acc)] {
-        return auth->GetPrivileges(user_or_role, db_acc ? db_acc.value()->name() : "");
+      callback.fn = [auth, user_or_role, database_specification = auth_query->database_specification_
+#ifdef MG_ENTERPRISE
+                     ,
+                     db_acc = std::move(db_acc), database_name = auth_query->database_
+#endif
+      ] {
+#ifdef MG_ENTERPRISE
+        if (!license::global_license_checker.IsEnterpriseValidFast()) {
+          if (database_specification != AuthQuery::DatabaseSpecification::NONE) {
+            throw QueryRuntimeException("Multi-database queries are only available in enterprise edition");
+          }
+          return auth->GetPrivileges(user_or_role);
+        }
+        std::string target_db;
+        switch (database_specification) {
+          case AuthQuery::DatabaseSpecification::NONE:
+            throw QueryRuntimeException(
+                "SHOW PRIVILEGES query requires database specification. Use ON MAIN, ON CURRENT or ON DATABASE.");
+          case AuthQuery::DatabaseSpecification::MAIN: {
+            auto main_db = auth->GetMainDatabase(user_or_role);
+            if (!main_db) {
+              throw QueryRuntimeException("No user found for SHOW PRIVILEGES ON MAIN");
+            }
+            target_db = main_db.value();
+          } break;
+          case AuthQuery::DatabaseSpecification::CURRENT:
+            if (!db_acc) {
+              throw QueryRuntimeException("No current database for SHOW PRIVILEGES ON CURRENT");
+            }
+            target_db = db_acc.value()->name();
+            break;
+          case AuthQuery::DatabaseSpecification::DATABASE:
+            target_db = database_name;
+            break;
+        }
+        return auth->GetPrivileges(user_or_role, target_db);
+#else
+        if (database_specification != AuthQuery::DatabaseSpecification::NONE) {
+          throw QueryRuntimeException("Multi-database queries are only available in enterprise edition");
+        }
+        return auth->GetPrivileges(user_or_role);
+#endif
       };
       return callback;
     case AuthQuery::Action::SHOW_ROLE_FOR_USER:

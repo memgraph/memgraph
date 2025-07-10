@@ -73,7 +73,7 @@ QUERIES = [
     ("GRANT ALL PRIVILEGES TO test_user", ("AUTH",)),
     ("DENY ALL PRIVILEGES TO test_user", ("AUTH",)),
     ("REVOKE ALL PRIVILEGES FROM test_user", ("AUTH",)),
-    ("SHOW PRIVILEGES FOR test_user", ("AUTH",)),
+    ("SHOW PRIVILEGES FOR test_user ON MAIN", ("AUTH",)),
     ("SHOW ROLE FOR test_user", ("AUTH",)),
     ("SHOW USERS FOR test_role", ("AUTH",)),
 ]

@@ -185,7 +185,7 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowDatabasePrivileges(
 
 std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionForPrivilegeForUserOrRole(
     const memgraph::auth::FineGrainedAccessPermissions &permissions, const std::string &permission_type,
-    const std::string &user_or_role, std::optional<std::string_view> db_name = std::nullopt) {
+    const std::string &user_or_role) {
   std::vector<FineGrainedPermissionForPrivilegeResult> fine_grained_permissions;
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return fine_grained_permissions;
@@ -199,14 +199,8 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
     const auto &permission_level_representation =
         permission_level == memgraph::auth::FineGrainedPermission::NOTHING ? "DENIED" : "GRANTED";
 
-    std::string permission_description;
-    if (db_name) {
-      permission_description = fmt::format("GLOBAL {0} PERMISSION {1} TO {2} FOR DATABASE {3}", permission_type,
-                                           permission_level_representation, user_or_role, *db_name);
-    } else {
-      permission_description = fmt::format("GLOBAL {0} PERMISSION {1} TO {2}", permission_type,
-                                           permission_level_representation, user_or_role);
-    }
+    std::string permission_description =
+        fmt::format("GLOBAL {0} PERMISSION {1} TO {2}", permission_type, permission_level_representation, user_or_role);
 
     fine_grained_permissions.push_back(FineGrainedPermissionForPrivilegeResult{
         permission_representation.str(), permission_level, permission_description});
@@ -221,14 +215,8 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
     const auto &permission_level_representation =
         permission_level == memgraph::auth::FineGrainedPermission::NOTHING ? "DENIED" : "GRANTED";
 
-    std::string permission_description;
-    if (db_name) {
-      permission_description = fmt::format("{0} PERMISSION {1} TO {2} FOR DATABASE {3}", permission_type,
-                                           permission_level_representation, user_or_role, *db_name);
-    } else {
-      permission_description =
-          fmt::format("{0} PERMISSION {1} TO {2}", permission_type, permission_level_representation, user_or_role);
-    }
+    std::string permission_description =
+        fmt::format("{0} PERMISSION {1} TO {2}", permission_type, permission_level_representation, user_or_role);
 
     fine_grained_permissions.push_back(FineGrainedPermissionForPrivilegeResult{
         permission_representation.str(), permission_level, permission_description});
@@ -261,17 +249,17 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowFineGrainedUserPrivile
   }
 
   auto all_fine_grained_permissions = GetFineGrainedPermissionForPrivilegeForUserOrRole(
-      user->GetUserFineGrainedAccessLabelPermissions(db_name), "LABEL", "USER", db_name);
+      user->GetUserFineGrainedAccessLabelPermissions(db_name), "LABEL", "USER");
   auto all_role_fine_grained_permissions = GetFineGrainedPermissionForPrivilegeForUserOrRole(
-      user->GetRoleFineGrainedAccessLabelPermissions(db_name), "LABEL", "ROLE", db_name);
+      user->GetRoleFineGrainedAccessLabelPermissions(db_name), "LABEL", "ROLE");
   all_fine_grained_permissions.insert(all_fine_grained_permissions.end(),
                                       std::make_move_iterator(all_role_fine_grained_permissions.begin()),
                                       std::make_move_iterator(all_role_fine_grained_permissions.end()));
 
   auto edge_type_fine_grained_permissions = GetFineGrainedPermissionForPrivilegeForUserOrRole(
-      user->GetUserFineGrainedAccessEdgeTypePermissions(db_name), "EDGE_TYPE", "USER", db_name);
+      user->GetUserFineGrainedAccessEdgeTypePermissions(db_name), "EDGE_TYPE", "USER");
   auto role_edge_type_fine_grained_permissions = GetFineGrainedPermissionForPrivilegeForUserOrRole(
-      user->GetRoleFineGrainedAccessEdgeTypePermissions(db_name), "EDGE_TYPE", "ROLE", db_name);
+      user->GetRoleFineGrainedAccessEdgeTypePermissions(db_name), "EDGE_TYPE", "ROLE");
   all_fine_grained_permissions.insert(all_fine_grained_permissions.end(),
                                       std::make_move_iterator(edge_type_fine_grained_permissions.begin()),
                                       std::make_move_iterator(edge_type_fine_grained_permissions.end()));
@@ -291,9 +279,9 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowFineGrainedRolePrivile
   const auto &edge_type_permissions = role->GetFineGrainedAccessEdgeTypePermissions(db_name);
 
   auto all_fine_grained_permissions =
-      GetFineGrainedPermissionForPrivilegeForUserOrRole(label_permissions, "LABEL", "ROLE", db_name);
+      GetFineGrainedPermissionForPrivilegeForUserOrRole(label_permissions, "LABEL", "ROLE");
   auto edge_type_fine_grained_permissions =
-      GetFineGrainedPermissionForPrivilegeForUserOrRole(edge_type_permissions, "EDGE_TYPE", "ROLE", db_name);
+      GetFineGrainedPermissionForPrivilegeForUserOrRole(edge_type_permissions, "EDGE_TYPE", "ROLE");
 
   all_fine_grained_permissions.insert(all_fine_grained_permissions.end(), edge_type_fine_grained_permissions.begin(),
                                       edge_type_fine_grained_permissions.end());
@@ -489,6 +477,34 @@ void AuthQueryHandler::SetMainDatabase(std::string_view db_name, const std::stri
 void AuthQueryHandler::DeleteDatabase(std::string_view db_name, system::Transaction *system_tx) {
   try {
     auth_->Lock()->DeleteDatabase(std::string(db_name), system_tx);
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
+}
+
+std::optional<std::string> AuthQueryHandler::GetMainDatabase(const std::string &user_or_role) {
+  try {
+    auto locked_auth = auth_->ReadLock();
+    auto user = locked_auth->GetUser(user_or_role);
+    auto role = locked_auth->GetRole(user_or_role);
+
+    if (!user && !role) {
+      return std::nullopt;  // User or role doesn't exist
+    }
+
+    if (user) {
+      try {
+        return user->GetMain();
+      } catch (const memgraph::auth::AuthException &) {
+        return std::nullopt;  // User has no main database set
+      }
+    } else {
+      try {
+        return role->GetMain();
+      } catch (const memgraph::auth::AuthException &) {
+        return std::nullopt;  // Role has no main database set
+      }
+    }
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }

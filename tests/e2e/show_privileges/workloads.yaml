@@ -1,0 +1,23 @@
+show_privileges_cluster: &show_privileges_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "show_privileges.log"
+      setup_queries: [
+        "CREATE USER admin;",
+        "GRANT ALL PRIVILEGES TO admin",
+        "GRANT DATABASE * TO admin",
+        "CREATE ROLE admin_role;",
+        "GRANT ALL PRIVILEGES TO admin_role",
+        "GRANT DATABASE * TO admin_role",
+        "CREATE DATABASE test_db;",
+        "CREATE DATABASE `test-db`;"
+      ]
+      validation_queries: []
+
+
+workloads:
+  - name: "Show privileges"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["show_privileges/show_privileges.py"]
+    <<: *show_privileges_cluster

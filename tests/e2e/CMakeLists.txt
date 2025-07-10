@@ -107,6 +107,7 @@ add_subdirectory(show_license_info)
 add_subdirectory(enterprise_query_modules)
 add_subdirectory(dynamic_variable_creation)
 add_subdirectory(graphql)
+add_subdirectory(show_privileges)
 
 copy_e2e_python_files(pytest_runner pytest_runner.sh "")
 copy_e2e_python_files(x x.sh "")

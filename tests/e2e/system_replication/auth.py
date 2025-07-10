@@ -85,7 +85,7 @@ def show_role_for_user_func(cursor, username):
 
 def show_privileges_func(cursor, user_or_role):
     def func():
-        return set(execute_and_fetch_all(cursor, f"SHOW PRIVILEGES FOR {user_or_role};"))
+        return set(execute_and_fetch_all(cursor, f"SHOW PRIVILEGES FOR {user_or_role} ON MAIN;"))
 
     return func
 
@@ -144,7 +144,7 @@ def main_and_repl_queries(cursor):
     try_and_count(cursor, f"SHOW ROLES")
     try_and_count(cursor, f"SHOW USERS FOR ROLE role_name")
     try_and_count(cursor, f"SHOW ROLE FOR user_name")
-    try_and_count(cursor, f"SHOW PRIVILEGES FOR role_name")
+    try_and_count(cursor, f"SHOW PRIVILEGES FOR role_name ON MAIN")
     try_and_count(cursor, f"SHOW DATABASE PRIVILEGES FOR user_name")
 
     return n_exceptions
