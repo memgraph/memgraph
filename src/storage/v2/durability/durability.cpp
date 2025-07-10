@@ -515,7 +515,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     indices_constraints = std::move(recovered_snapshot->indices_constraints);
     snapshot_timestamp = recovered_snapshot->snapshot_info.durable_timestamp;
     spdlog::trace("Recovered epoch {} for db {}", recovered_snapshot->snapshot_info.epoch_id, db_name);
-    repl_storage_state..SetEpoch(std::move(recovered_snapshot->snapshot_info.epoch_id));
+    repl_storage_state.epoch_.SetEpoch(std::move(recovered_snapshot->snapshot_info.epoch_id));
     recovery_info.last_durable_timestamp = snapshot_timestamp;
   } else {
     // UUID couldn't be recovered from the snapshot; recovering it from WALs
