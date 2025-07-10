@@ -400,12 +400,23 @@ class Role {
   const std::string &rolename() const;
   const Permissions &permissions() const;
   Permissions &permissions();
-  Permissions GetPermissions() const { return permissions_; }
+  Permissions GetPermissions(std::optional<std::string_view> db_name = std::nullopt) const {
+#ifdef MG_ENTERPRISE
+    if (!db_name || HasAccess(*db_name)) {
+      return permissions_;
+    }
+    return Permissions{};  // Return empty permissions if no access to the database
+#else
+    return permissions_;
+#endif
+  }
 #ifdef MG_ENTERPRISE
   const FineGrainedAccessHandler &fine_grained_access_handler() const;
   FineGrainedAccessHandler &fine_grained_access_handler();
-  const FineGrainedAccessPermissions &GetFineGrainedAccessLabelPermissions() const;
-  const FineGrainedAccessPermissions &GetFineGrainedAccessEdgeTypePermissions() const;
+  const FineGrainedAccessPermissions &GetFineGrainedAccessLabelPermissions(
+      std::optional<std::string_view> db_name = std::nullopt) const;
+  const FineGrainedAccessPermissions &GetFineGrainedAccessEdgeTypePermissions(
+      std::optional<std::string_view> db_name = std::nullopt) const;
 #endif
 
 #ifdef MG_ENTERPRISE
@@ -695,8 +706,10 @@ class User final {
       std::optional<std::string_view> db_name = std::nullopt) const;
   FineGrainedAccessPermissions GetFineGrainedAccessEdgeTypePermissions(
       std::optional<std::string_view> db_name = std::nullopt) const;
-  FineGrainedAccessPermissions GetUserFineGrainedAccessLabelPermissions() const;
-  FineGrainedAccessPermissions GetUserFineGrainedAccessEdgeTypePermissions() const;
+  FineGrainedAccessPermissions GetUserFineGrainedAccessLabelPermissions(
+      std::optional<std::string_view> db_name = std::nullopt) const;
+  FineGrainedAccessPermissions GetUserFineGrainedAccessEdgeTypePermissions(
+      std::optional<std::string_view> db_name = std::nullopt) const;
   FineGrainedAccessPermissions GetRoleFineGrainedAccessLabelPermissions(
       std::optional<std::string_view> db_name = std::nullopt) const;
   FineGrainedAccessPermissions GetRoleFineGrainedAccessEdgeTypePermissions(

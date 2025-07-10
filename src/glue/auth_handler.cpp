@@ -113,9 +113,13 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowUserPrivileges(
 }
 
 std::vector<std::vector<memgraph::query::TypedValue>> ShowRolePrivileges(
-    const std::optional<memgraph::auth::Role> &role) {
+    const std::optional<memgraph::auth::Role> &role, std::optional<std::string_view> db_name = std::nullopt) {
   std::vector<PermissionForPrivilegeResult> privilege_results;
+#ifdef MG_ENTERPRISE
+  const auto &permissions = role->GetPermissions(db_name);
+#else
   const auto &permissions = role->permissions();
+#endif
   for (const auto &privilege : memgraph::query::kPrivilegesAll) {
     auto role_permission_result = GetPermissionForPrivilegeForUserOrRole(permissions, privilege, "ROLE");
     if (role_permission_result.permission_level != memgraph::auth::PermissionLevel::NEUTRAL) {
@@ -179,10 +183,9 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowDatabasePrivileges(
   return {res};
 }
 
-// TODO Filter by db name
 std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionForPrivilegeForUserOrRole(
     const memgraph::auth::FineGrainedAccessPermissions &permissions, const std::string &permission_type,
-    const std::string &user_or_role) {
+    const std::string &user_or_role, std::optional<std::string_view> db_name = std::nullopt) {
   std::vector<FineGrainedPermissionForPrivilegeResult> fine_grained_permissions;
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return fine_grained_permissions;
@@ -196,8 +199,14 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
     const auto &permission_level_representation =
         permission_level == memgraph::auth::FineGrainedPermission::NOTHING ? "DENIED" : "GRANTED";
 
-    const auto permission_description =
-        fmt::format("GLOBAL {0} PERMISSION {1} TO {2}", permission_type, permission_level_representation, user_or_role);
+    std::string permission_description;
+    if (db_name) {
+      permission_description = fmt::format("GLOBAL {0} PERMISSION {1} TO {2} FOR DATABASE {3}", permission_type,
+                                           permission_level_representation, user_or_role, *db_name);
+    } else {
+      permission_description = fmt::format("GLOBAL {0} PERMISSION {1} TO {2}", permission_type,
+                                           permission_level_representation, user_or_role);
+    }
 
     fine_grained_permissions.push_back(FineGrainedPermissionForPrivilegeResult{
         permission_representation.str(), permission_level, permission_description});
@@ -212,8 +221,14 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
     const auto &permission_level_representation =
         permission_level == memgraph::auth::FineGrainedPermission::NOTHING ? "DENIED" : "GRANTED";
 
-    const auto permission_description =
-        fmt::format("{0} PERMISSION {1} TO {2}", permission_type, permission_level_representation, user_or_role);
+    std::string permission_description;
+    if (db_name) {
+      permission_description = fmt::format("{0} PERMISSION {1} TO {2} FOR DATABASE {3}", permission_type,
+                                           permission_level_representation, user_or_role, *db_name);
+    } else {
+      permission_description =
+          fmt::format("{0} PERMISSION {1} TO {2}", permission_type, permission_level_representation, user_or_role);
+    }
 
     fine_grained_permissions.push_back(FineGrainedPermissionForPrivilegeResult{
         permission_representation.str(), permission_level, permission_description});
@@ -240,23 +255,23 @@ std::vector<std::vector<memgraph::query::TypedValue>> ConstructFineGrainedPrivil
 }
 
 std::vector<std::vector<memgraph::query::TypedValue>> ShowFineGrainedUserPrivileges(
-    const std::optional<memgraph::auth::User> &user) {
+    const std::optional<memgraph::auth::User> &user, std::optional<std::string_view> db_name = std::nullopt) {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return {};
   }
 
   auto all_fine_grained_permissions = GetFineGrainedPermissionForPrivilegeForUserOrRole(
-      user->GetUserFineGrainedAccessLabelPermissions(), "LABEL", "USER");
+      user->GetUserFineGrainedAccessLabelPermissions(db_name), "LABEL", "USER", db_name);
   auto all_role_fine_grained_permissions = GetFineGrainedPermissionForPrivilegeForUserOrRole(
-      user->GetRoleFineGrainedAccessLabelPermissions(), "LABEL", "ROLE");
+      user->GetRoleFineGrainedAccessLabelPermissions(db_name), "LABEL", "ROLE", db_name);
   all_fine_grained_permissions.insert(all_fine_grained_permissions.end(),
                                       std::make_move_iterator(all_role_fine_grained_permissions.begin()),
                                       std::make_move_iterator(all_role_fine_grained_permissions.end()));
 
   auto edge_type_fine_grained_permissions = GetFineGrainedPermissionForPrivilegeForUserOrRole(
-      user->GetUserFineGrainedAccessEdgeTypePermissions(), "EDGE_TYPE", "USER");
+      user->GetUserFineGrainedAccessEdgeTypePermissions(db_name), "EDGE_TYPE", "USER", db_name);
   auto role_edge_type_fine_grained_permissions = GetFineGrainedPermissionForPrivilegeForUserOrRole(
-      user->GetRoleFineGrainedAccessEdgeTypePermissions(), "EDGE_TYPE", "ROLE");
+      user->GetRoleFineGrainedAccessEdgeTypePermissions(db_name), "EDGE_TYPE", "ROLE", db_name);
   all_fine_grained_permissions.insert(all_fine_grained_permissions.end(),
                                       std::make_move_iterator(edge_type_fine_grained_permissions.begin()),
                                       std::make_move_iterator(edge_type_fine_grained_permissions.end()));
@@ -268,17 +283,17 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowFineGrainedUserPrivile
 }
 
 std::vector<std::vector<memgraph::query::TypedValue>> ShowFineGrainedRolePrivileges(
-    const std::optional<memgraph::auth::Role> &role) {
+    const std::optional<memgraph::auth::Role> &role, std::optional<std::string_view> db_name = std::nullopt) {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return {};
   }
-  const auto &label_permissions = role->GetFineGrainedAccessLabelPermissions();
-  const auto &edge_type_permissions = role->GetFineGrainedAccessEdgeTypePermissions();
+  const auto &label_permissions = role->GetFineGrainedAccessLabelPermissions(db_name);
+  const auto &edge_type_permissions = role->GetFineGrainedAccessEdgeTypePermissions(db_name);
 
   auto all_fine_grained_permissions =
-      GetFineGrainedPermissionForPrivilegeForUserOrRole(label_permissions, "LABEL", "ROLE");
+      GetFineGrainedPermissionForPrivilegeForUserOrRole(label_permissions, "LABEL", "ROLE", db_name);
   auto edge_type_fine_grained_permissions =
-      GetFineGrainedPermissionForPrivilegeForUserOrRole(edge_type_permissions, "EDGE_TYPE", "ROLE");
+      GetFineGrainedPermissionForPrivilegeForUserOrRole(edge_type_permissions, "EDGE_TYPE", "ROLE", db_name);
 
   all_fine_grained_permissions.insert(all_fine_grained_permissions.end(), edge_type_fine_grained_permissions.begin(),
                                       edge_type_fine_grained_permissions.end());
@@ -653,14 +668,14 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetPrivi
       grants = ShowUserPrivileges(user, db_name);
 #ifdef MG_ENTERPRISE
       if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-        fine_grained_grants = ShowFineGrainedUserPrivileges(user);
+        fine_grained_grants = ShowFineGrainedUserPrivileges(user, db_name);
       }
 #endif
     } else {
-      grants = ShowRolePrivileges(role);
+      grants = ShowRolePrivileges(role, db_name);
 #ifdef MG_ENTERPRISE
       if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-        fine_grained_grants = ShowFineGrainedRolePrivileges(role);
+        fine_grained_grants = ShowFineGrainedRolePrivileges(role, db_name);
       }
 #endif
     }
