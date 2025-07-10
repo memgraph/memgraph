@@ -494,11 +494,35 @@ Permissions &Role::permissions() { return permissions_; }
 const FineGrainedAccessHandler &Role::fine_grained_access_handler() const { return fine_grained_access_handler_; }
 FineGrainedAccessHandler &Role::fine_grained_access_handler() { return fine_grained_access_handler_; }
 
-const FineGrainedAccessPermissions &Role::GetFineGrainedAccessLabelPermissions() const {
+const FineGrainedAccessPermissions &Role::GetFineGrainedAccessLabelPermissions(
+    std::optional<std::string_view> db_name) const {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    static FineGrainedAccessPermissions empty_permissions;
+    return empty_permissions;
+  }
+
+  // If db_name is provided, check if the role has access to that database
+  if (db_name && !HasAccess(*db_name)) {
+    static FineGrainedAccessPermissions empty_permissions;
+    return empty_permissions;
+  }
+
   return fine_grained_access_handler_.label_permissions();
 }
 
-const FineGrainedAccessPermissions &Role::GetFineGrainedAccessEdgeTypePermissions() const {
+const FineGrainedAccessPermissions &Role::GetFineGrainedAccessEdgeTypePermissions(
+    std::optional<std::string_view> db_name) const {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    static FineGrainedAccessPermissions empty_permissions;
+    return empty_permissions;
+  }
+
+  // If db_name is provided, check if the role has access to that database
+  if (db_name && !HasAccess(*db_name)) {
+    static FineGrainedAccessPermissions empty_permissions;
+    return empty_permissions;
+  }
+
   return fine_grained_access_handler_.edge_type_permissions();
 }
 #endif
@@ -730,19 +754,23 @@ FineGrainedAccessPermissions User::GetFineGrainedAccessEdgeTypePermissions(
   return Merge(GetUserFineGrainedAccessEdgeTypePermissions(), GetRoleFineGrainedAccessEdgeTypePermissions(db_name));
 }
 
-FineGrainedAccessPermissions User::GetUserFineGrainedAccessEdgeTypePermissions() const {
+FineGrainedAccessPermissions User::GetUserFineGrainedAccessEdgeTypePermissions(
+    std::optional<std::string_view> db_name) const {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return FineGrainedAccessPermissions{};
   }
 
+  if (db_name && !HasAccess(*db_name)) return FineGrainedAccessPermissions{};
   return fine_grained_access_handler_.edge_type_permissions();
 }
 
-FineGrainedAccessPermissions User::GetUserFineGrainedAccessLabelPermissions() const {
+FineGrainedAccessPermissions User::GetUserFineGrainedAccessLabelPermissions(
+    std::optional<std::string_view> db_name) const {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return FineGrainedAccessPermissions{};
   }
 
+  if (db_name && !HasAccess(*db_name)) return FineGrainedAccessPermissions{};
   return fine_grained_access_handler_.label_permissions();
 }
 
@@ -755,7 +783,7 @@ FineGrainedAccessPermissions User::GetRoleFineGrainedAccessEdgeTypePermissions(
   FineGrainedAccessPermissions combined_permissions{};
   for (const auto &role : roles_) {
     // If db_name is provided, only include roles that grant access to that database
-    if (!db_name || role.GrantsDB(*db_name)) {
+    if (!db_name || role.HasAccess(*db_name)) {
       combined_permissions = Merge(combined_permissions, role.fine_grained_access_handler().edge_type_permissions());
     }
   }
@@ -771,7 +799,7 @@ FineGrainedAccessPermissions User::GetRoleFineGrainedAccessLabelPermissions(
   FineGrainedAccessPermissions combined_permissions{};
   for (const auto &role : roles_) {
     // If db_name is provided, only include roles that grant access to that database
-    if (!db_name || role.GrantsDB(*db_name)) {
+    if (!db_name || role.HasAccess(*db_name)) {
       combined_permissions = Merge(combined_permissions, role.fine_grained_access_handler().label_permissions());
     }
   }
