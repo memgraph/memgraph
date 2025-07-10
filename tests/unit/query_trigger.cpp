@@ -958,7 +958,7 @@ TYPED_TEST(TriggerStoreTest, Restore) {
   const auto reset_store = [&] {
     store.emplace(this->testing_directory);
     store->RestoreTriggers(&this->ast_cache, &*this->dba, memgraph::query::InterpreterConfig::Query{},
-                           &this->auth_checker);
+                           &this->auth_checker, "memgraph");
   };
 
   reset_store();
@@ -1266,21 +1266,24 @@ TYPED_TEST(TriggerStoreTest, AuthCheckerUsage) {
   ::testing::InSequence s;
 
   // TODO Userless
-  EXPECT_CALL(mock_user, IsAuthorized(ElementsAre(Privilege::CREATE), "", &memgraph::query::up_to_date_policy))
+  EXPECT_CALL(mock_user, IsAuthorized(ElementsAre(Privilege::CREATE), memgraph::dbms::kDefaultDB,
+                                      &memgraph::query::up_to_date_policy))
       .WillOnce(Return(true));
   ASSERT_NO_THROW(store->AddTrigger(
       "successfull_trigger_1", "CREATE (n:VERTEX) RETURN n", {}, memgraph::query::TriggerEventType::EDGE_UPDATE,
       memgraph::query::TriggerPhase::AFTER_COMMIT, &this->ast_cache, &*this->dba,
       memgraph::query::InterpreterConfig::Query{}, mock_user_ptr, memgraph::dbms::kDefaultDB));
 
-  EXPECT_CALL(mock_userless, IsAuthorized(ElementsAre(Privilege::CREATE), "", &memgraph::query::up_to_date_policy))
+  EXPECT_CALL(mock_userless, IsAuthorized(ElementsAre(Privilege::CREATE), memgraph::dbms::kDefaultDB,
+                                          &memgraph::query::up_to_date_policy))
       .WillOnce(Return(true));
   ASSERT_NO_THROW(store->AddTrigger(
       "successfull_trigger_2", "CREATE (n:VERTEX) RETURN n", {}, memgraph::query::TriggerEventType::EDGE_UPDATE,
       memgraph::query::TriggerPhase::AFTER_COMMIT, &this->ast_cache, &*this->dba,
       memgraph::query::InterpreterConfig::Query{}, mock_userless_ptr, memgraph::dbms::kDefaultDB));
 
-  EXPECT_CALL(mock_user, IsAuthorized(ElementsAre(Privilege::MATCH), "", &memgraph::query::up_to_date_policy))
+  EXPECT_CALL(mock_user, IsAuthorized(ElementsAre(Privilege::MATCH), memgraph::dbms::kDefaultDB,
+                                      &memgraph::query::up_to_date_policy))
       .WillOnce(Return(false));
   ASSERT_THROW(
       store->AddTrigger("unprivileged_trigger", "MATCH (n:VERTEX) RETURN n", {},
@@ -1295,14 +1298,16 @@ TYPED_TEST(TriggerStoreTest, AuthCheckerUsage) {
   std::optional<std::string> nopt{};
   std::vector<std::string> novec{};
   EXPECT_CALL(mock_checker, GenQueryUser(owner, novec)).WillOnce(Return(mock_user_ptr));
-  EXPECT_CALL(mock_user, IsAuthorized(ElementsAre(Privilege::CREATE), "", &memgraph::query::up_to_date_policy))
+  EXPECT_CALL(mock_user, IsAuthorized(ElementsAre(Privilege::CREATE), memgraph::dbms::kDefaultDB,
+                                      &memgraph::query::up_to_date_policy))
       .WillOnce(Return(true));
   EXPECT_CALL(mock_checker, GenQueryUser(nopt, novec)).WillOnce(Return(mock_userless_ptr));
-  EXPECT_CALL(mock_userless, IsAuthorized(ElementsAre(Privilege::CREATE), "", &memgraph::query::up_to_date_policy))
+  EXPECT_CALL(mock_userless, IsAuthorized(ElementsAre(Privilege::CREATE), memgraph::dbms::kDefaultDB,
+                                          &memgraph::query::up_to_date_policy))
       .WillOnce(Return(false));
 
   ASSERT_NO_THROW(store->RestoreTriggers(&this->ast_cache, &*this->dba, memgraph::query::InterpreterConfig::Query{},
-                                         &mock_checker));
+                                         &mock_checker, memgraph::dbms::kDefaultDB));
 
   const auto triggers = store->GetTriggerInfo();
   ASSERT_EQ(triggers.size(), 1);

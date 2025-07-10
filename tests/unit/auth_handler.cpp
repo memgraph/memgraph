@@ -16,6 +16,7 @@
 #include "auth/auth.hpp"
 #include "auth/models.hpp"
 #include "dbms/constants.hpp"
+#include "exceptions.hpp"
 #include "glue/auth_global.hpp"
 #include "glue/auth_handler.hpp"
 #include "query/typed_value.hpp"
@@ -736,23 +737,20 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedReadAndDeniedUpdateThenOneIs
 #endif
 
 // Multi-tenant tests for database filtering
+#ifdef MG_ENTERPRISE
 TEST_F(AuthQueryHandlerFixture,
        GivenUserWithMultipleRolesWhenFilteringByDatabaseThenOnlyRelevantPrivilegesAreReturned) {
   // Create roles with different database access
   memgraph::auth::Permissions role1_perms{};
   role1_perms.Grant(memgraph::auth::Permission::MATCH);
   memgraph::auth::Role role1 = memgraph::auth::Role{"role1", role1_perms};
-#ifdef MG_ENTERPRISE
   role1.db_access().Grant("db1");
-#endif
   auth->SaveRole(role1);
 
   memgraph::auth::Permissions role2_perms{};
   role2_perms.Grant(memgraph::auth::Permission::CREATE);
   memgraph::auth::Role role2 = memgraph::auth::Role{"role2", role2_perms};
-#ifdef MG_ENTERPRISE
   role2.db_access().Grant("db2");
-#endif
   auth->SaveRole(role2);
 
   // Create user with both roles
@@ -790,9 +788,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWithRoleWhenFilteringByDatabaseWithNoAc
   memgraph::auth::Permissions role_perms{};
   role_perms.Grant(memgraph::auth::Permission::MATCH);
   memgraph::auth::Role role = memgraph::auth::Role{"test_role", role_perms};
-#ifdef MG_ENTERPRISE
   role.db_access().Grant("db1");
-#endif
   auth->SaveRole(role);
 
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms};
@@ -837,10 +833,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWithRoleWhenFilteringByDatabaseWithDeni
   memgraph::auth::Permissions role_perms{};
   role_perms.Grant(memgraph::auth::Permission::MATCH);
   memgraph::auth::Role role = memgraph::auth::Role{"test_role", role_perms};
-#ifdef MG_ENTERPRISE
   role.db_access().Grant("db1");
   role.db_access().Deny("db2");
-#endif
   auth->SaveRole(role);
 
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, perms};
@@ -861,10 +855,8 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWithRoleWhenFilteringByDatabaseWithAllo
   role_perms.Grant(memgraph::auth::Permission::MATCH);
   role_perms.Deny(memgraph::auth::Permission::DELETE);
   memgraph::auth::Role role = memgraph::auth::Role{"test_role", role_perms};
-#ifdef MG_ENTERPRISE
   role.db_access().Grant("db1");
   role.db_access().Grant("db3");
-#endif
   auth->SaveRole(role);
 
   memgraph::auth::Permissions user_perms{};
@@ -872,11 +864,9 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWithRoleWhenFilteringByDatabaseWithAllo
   user_perms.Deny(memgraph::auth::Permission::MATCH);
   user_perms.Grant(memgraph::auth::Permission::AUTH);
   memgraph::auth::User user = memgraph::auth::User{user_name, std::nullopt, user_perms};
-#ifdef MG_ENTERPRISE
   user.db_access().GrantAll();
   user.db_access().Deny("db3");
   user.db_access().Deny("db4");
-#endif
   user.AddRole(role);
   auth->SaveUser(user);
 
@@ -961,4 +951,88 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWithRoleWhenFilteringByDatabaseWithAllo
     auto privileges = auth_handler.GetPrivileges(user_name, "db4");
     EXPECT_EQ(privileges.size(), 0);
   }
+}
+#endif
+
+TEST_F(AuthQueryHandlerFixture, SetRole_MultipleRoles_Success) {
+  // Create roles
+  auto role1 = auth->AddRole("role1");
+  auto role2 = auth->AddRole("role2");
+  auto role3 = auth->AddRole("role3");
+  ASSERT_TRUE(role1);
+  ASSERT_TRUE(role2);
+  ASSERT_TRUE(role3);
+
+  // Create user
+  auto user = auth->AddUser("multiuser");
+  ASSERT_TRUE(user);
+
+  // Set multiple roles
+  std::vector<std::string> roles = {"role1", "role2", "role3"};
+  ASSERT_NO_THROW(auth_handler.SetRole("multiuser", roles, nullptr));
+
+  // Check user roles
+  auto updated_user = auth->GetUser("multiuser");
+  ASSERT_TRUE(updated_user);
+  std::vector<std::string> assigned_roles;
+  for (const auto &role : updated_user->roles()) {
+    assigned_roles.push_back(role.rolename());
+  }
+  std::sort(assigned_roles.begin(), assigned_roles.end());
+  std::vector<std::string> expected_roles = {"role1", "role2", "role3"};
+  std::sort(expected_roles.begin(), expected_roles.end());
+  ASSERT_EQ(assigned_roles, expected_roles);
+}
+
+TEST_F(AuthQueryHandlerFixture, SetRole_EmptyRoles_ClearsRoles) {
+  // Create role and user
+  auto role = auth->AddRole("role1");
+  ASSERT_TRUE(role);
+  auto user = auth->AddUser("user1");
+  ASSERT_TRUE(user);
+  user->AddRole(*role);
+  auth->SaveUser(*user);
+
+  // Clear roles by setting empty vector
+  std::vector<std::string> roles = {};
+  ASSERT_NO_THROW(auth_handler.SetRole("user1", roles, nullptr));
+  auto updated_user = auth->GetUser("user1");
+  ASSERT_TRUE(updated_user);
+  ASSERT_TRUE(updated_user->roles().empty());
+}
+
+TEST_F(AuthQueryHandlerFixture, SetRole_NonExistentRole_Throws) {
+  // Create user
+  auto user = auth->AddUser("user2");
+  ASSERT_TRUE(user);
+  // Try to set a non-existent role
+  std::vector<std::string> roles = {"doesnotexist"};
+  ASSERT_THROW(auth_handler.SetRole("user2", roles, nullptr), memgraph::query::QueryRuntimeException);
+}
+
+TEST_F(AuthQueryHandlerFixture, SetRole_UserDoesNotExist_Throws) {
+  std::vector<std::string> roles = {"role1"};
+  ASSERT_THROW(auth_handler.SetRole("no_such_user", roles, nullptr), memgraph::query::QueryRuntimeException);
+}
+
+TEST_F(AuthQueryHandlerFixture, SetRole_DuplicateRoles_NoDuplicatesInResult) {
+  // Create roles and user
+  auto role1 = auth->AddRole("role1");
+  auto role2 = auth->AddRole("role2");
+  ASSERT_TRUE(role1);
+  ASSERT_TRUE(role2);
+  auto user = auth->AddUser("user3");
+  ASSERT_TRUE(user);
+  // Set duplicate roles
+  std::vector<std::string> roles = {"role1", "role2", "role1", "role2"};
+  ASSERT_NO_THROW(auth_handler.SetRole("user3", roles, nullptr));
+  auto updated_user = auth->GetUser("user3");
+  ASSERT_TRUE(updated_user);
+  std::set<std::string> unique_roles;
+  for (const auto &role : updated_user->roles()) {
+    unique_roles.insert(role.rolename());
+  }
+  ASSERT_EQ(unique_roles.size(), 2);
+  ASSERT_TRUE(unique_roles.count("role1"));
+  ASSERT_TRUE(unique_roles.count("role2"));
 }

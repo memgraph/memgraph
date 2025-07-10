@@ -715,31 +715,10 @@ class User final {
 
   const std::string &GetMain() const { return database_access_.GetMain(); }
 
-  bool DeniesDB(std::string_view db_name) const {
-    bool denies = database_access_.Denies(db_name);
-    for (const auto &role : roles_) {
-      denies |= role.DeniesDB(db_name);
-    }
-    return denies;
-  }
-  bool GrantsDB(std::string_view db_name) const {
-    bool grants = database_access_.Grants(db_name);
-    for (const auto &role : roles_) {
-      grants |= role.GrantsDB(db_name);
-    }
-    return grants;
-  }
+  bool DeniesDB(std::string_view db_name) const { return database_access_.Denies(db_name) || roles_.DeniesDB(db_name); }
+  bool GrantsDB(std::string_view db_name) const { return database_access_.Grants(db_name) || roles_.GrantsDB(db_name); }
 
-  bool HasAccess(std::string_view db_name) const {
-    auto denies = DeniesDB(db_name);
-    auto grants = GrantsDB(db_name);
-    for (const auto &role : roles_) {
-      denies |= role.DeniesDB(db_name);
-      grants |= role.GrantsDB(db_name);
-    }
-    return !denies && grants;
-  }
-
+  bool HasAccess(std::string_view db_name) const { return !DeniesDB(db_name) && GrantsDB(db_name); }
   bool has_access(std::string_view db_name) const {
     return !database_access_.Denies(db_name) && database_access_.Grants(db_name);
   }
@@ -787,7 +766,9 @@ class User final {
     }
     return roles_permissions;
 #else
-    return permissions_;
+    const auto roles_permissions = roles_.GetPermissions();
+    return Permissions{permissions_.grants() | roles_permissions.grants(),
+                       permissions_.denies() | roles_permissions.denies()};
 #endif
   }
 

@@ -90,13 +90,14 @@ class AuthQueryHandler {
   virtual std::vector<memgraph::query::TypedValue> GetRolenames() = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::optional<std::string> GetRolenameForUser(const std::string &username) = 0;
+  virtual std::vector<std::string> GetRolenameForUser(const std::string &username) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual std::vector<memgraph::query::TypedValue> GetUsernamesForRole(const std::string &rolename) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void SetRole(const std::string &username, const std::string &rolename, system::Transaction *system_tx) = 0;
+  virtual void SetRole(const std::string &username, const std::vector<std::string> &roles,
+                       system::Transaction *system_tx) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void RemoveRole(const std::string &username, const std::string &rolename, system::Transaction *system_tx) = 0;

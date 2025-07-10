@@ -88,7 +88,7 @@ class AuthQuery : public memgraph::query::Query {
 
   memgraph::query::AuthQuery::Action action_;
   std::string user_;
-  std::string role_;
+  std::vector<std::string> roles_;
   std::string user_or_role_;
   memgraph::query::Expression *old_password_{nullptr};
   memgraph::query::Expression *new_password_{nullptr};
@@ -106,7 +106,7 @@ class AuthQuery : public memgraph::query::Query {
     auto *object = storage->Create<AuthQuery>();
     object->action_ = action_;
     object->user_ = user_;
-    object->role_ = role_;
+    object->roles_ = roles_;
     object->user_or_role_ = user_or_role_;
     object->old_password_ = old_password_;
     object->new_password_ = new_password_;
@@ -121,22 +121,22 @@ class AuthQuery : public memgraph::query::Query {
   }
 
  protected:
-  AuthQuery(Action action, std::string user, std::string role, std::string user_or_role, bool if_not_exists,
-            Expression *password, std::string database, std::vector<Privilege> privileges,
+  AuthQuery(Action action, std::string user, std::vector<std::string> roles, std::string user_or_role,
+            bool if_not_exists, Expression *password, std::string database, std::vector<Privilege> privileges,
             std::vector<std::unordered_map<FineGrainedPrivilege, std::vector<std::string>>> label_privileges,
             std::vector<std::unordered_map<FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges,
             std::vector<std::string> impersonation_targets)
       : action_(action),
-        user_(user),
-        role_(role),
-        user_or_role_(user_or_role),
+        user_(std::move(user)),
+        roles_(std::move(roles)),
+        user_or_role_(std::move(user_or_role)),
         if_not_exists_(if_not_exists),
         password_(password),
-        database_(database),
-        privileges_(privileges),
-        label_privileges_(label_privileges),
-        edge_type_privileges_(edge_type_privileges),
-        impersonation_targets_(impersonation_targets) {}
+        database_(std::move(database)),
+        privileges_(std::move(privileges)),
+        label_privileges_(std::move(label_privileges)),
+        edge_type_privileges_(std::move(edge_type_privileges)),
+        impersonation_targets_(std::move(impersonation_targets)) {}
 
  private:
   friend class AstStorage;
