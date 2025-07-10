@@ -1033,23 +1033,23 @@ def test_privileges_per_role_and_database(multi_tenant_setup):
     with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:
         with client.session() as session:
             # Check admin privileges - should have full access to all databases
-            admin_privileges = list(session.run("SHOW PRIVILEGES FOR admin;"))
+            admin_privileges = list(session.run("SHOW PRIVILEGES FOR admin ON MAIN;"))
             assert len(admin_privileges) > 0, "Admin should have privileges"
 
             # Check architect privileges - should have access to architect_db only
-            architect_privileges = list(session.run("SHOW PRIVILEGES FOR architect;"))
+            architect_privileges = list(session.run("SHOW PRIVILEGES FOR architect ON MAIN;"))
             assert len(architect_privileges) > 0, "Architect should have privileges"
 
             # Check user privileges - should have access to user_db only
-            user_privileges = list(session.run("SHOW PRIVILEGES FOR user;"))
+            user_privileges = list(session.run("SHOW PRIVILEGES FOR user ON MAIN;"))
             assert len(user_privileges) > 0, "User should have privileges"
 
             # Check readonly privileges - should have access to readonly_db only
-            readonly_privileges = list(session.run("SHOW PRIVILEGES FOR readonly;"))
+            readonly_privileges = list(session.run("SHOW PRIVILEGES FOR readonly ON MAIN;"))
             assert len(readonly_privileges) > 0, "Readonly should have privileges"
 
             # Check limited privileges - should have access to limited_db only
-            limited_privileges = list(session.run("SHOW PRIVILEGES FOR limited;"))
+            limited_privileges = list(session.run("SHOW PRIVILEGES FOR limited ON MAIN;"))
             assert len(limited_privileges) > 0, "Limited should have privileges"
 
 

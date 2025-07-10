@@ -2789,6 +2789,46 @@ TEST_P(CypherMainVisitorTest, ShowPrivileges) {
   ASSERT_THROW(ast_generator.ParseQuery("SHOW PRIVILEGES FOR user1, user2"), SyntaxException);
 }
 
+#ifdef MG_ENTERPRISE
+TEST_P(CypherMainVisitorTest, ShowPrivilegesOnMain) {
+  auto &ast_generator = *GetParam();
+  auto *auth = dynamic_cast<AuthQuery *>(ast_generator.ParseQuery("SHOW PRIVILEGES FOR user ON MAIN"));
+  ASSERT_TRUE(auth);
+  EXPECT_EQ(auth->action_, AuthQuery::Action::SHOW_PRIVILEGES);
+  EXPECT_EQ(auth->user_or_role_, "user");
+  EXPECT_EQ(auth->database_specification_, AuthQuery::DatabaseSpecification::MAIN);
+}
+
+TEST_P(CypherMainVisitorTest, ShowPrivilegesOnCurrent) {
+  auto &ast_generator = *GetParam();
+  auto *auth = dynamic_cast<AuthQuery *>(ast_generator.ParseQuery("SHOW PRIVILEGES FOR user ON CURRENT"));
+  ASSERT_TRUE(auth);
+  EXPECT_EQ(auth->action_, AuthQuery::Action::SHOW_PRIVILEGES);
+  EXPECT_EQ(auth->user_or_role_, "user");
+  EXPECT_EQ(auth->database_specification_, AuthQuery::DatabaseSpecification::CURRENT);
+}
+
+TEST_P(CypherMainVisitorTest, ShowPrivilegesOnDatabase) {
+  auto &ast_generator = *GetParam();
+  auto *auth = dynamic_cast<AuthQuery *>(ast_generator.ParseQuery("SHOW PRIVILEGES FOR user ON DATABASE testdb"));
+  ASSERT_TRUE(auth);
+  EXPECT_EQ(auth->action_, AuthQuery::Action::SHOW_PRIVILEGES);
+  EXPECT_EQ(auth->user_or_role_, "user");
+  EXPECT_EQ(auth->database_specification_, AuthQuery::DatabaseSpecification::DATABASE);
+  EXPECT_EQ(auth->database_, "testdb");
+}
+
+TEST_P(CypherMainVisitorTest, ShowPrivilegesOnDatabaseWithSpecialChars) {
+  auto &ast_generator = *GetParam();
+  auto *auth = dynamic_cast<AuthQuery *>(ast_generator.ParseQuery("SHOW PRIVILEGES FOR user ON DATABASE `test-db`"));
+  ASSERT_TRUE(auth);
+  EXPECT_EQ(auth->action_, AuthQuery::Action::SHOW_PRIVILEGES);
+  EXPECT_EQ(auth->user_or_role_, "user");
+  EXPECT_EQ(auth->database_specification_, AuthQuery::DatabaseSpecification::DATABASE);
+  EXPECT_EQ(auth->database_, "test-db");
+}
+#endif
+
 TEST_P(CypherMainVisitorTest, ShowRoleForUser) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("SHOW ROLE FOR "), SyntaxException);
