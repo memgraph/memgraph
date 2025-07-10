@@ -12,6 +12,7 @@
 #pragma once
 
 #include "kvstore/kvstore.hpp"
+#include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/disk/durable_metadata.hpp"
 #include "storage/v2/disk/edge_import_mode_cache.hpp"
@@ -201,9 +202,9 @@ class DiskStorage final : public Storage {
 
     bool EdgeTypeIndexReady(EdgeTypeId edge_type) const override;
 
-    bool EdgeTypePropertyIndexExists(EdgeTypeId edge_type, PropertyId proeprty) const override;
+    bool EdgeTypePropertyIndexReady(EdgeTypeId edge_type, PropertyId proeprty) const override;
 
-    bool EdgePropertyIndexExists(PropertyId proeprty) const override;
+    bool EdgePropertyIndexReady(PropertyId proeprty) const override;
 
     bool PointIndexExists(LabelId label, PropertyId property) const override;
 
@@ -238,10 +239,12 @@ class DiskStorage final : public Storage {
         PublishIndexWrapper wrapper = publish_no_wrap) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        EdgeTypeId edge_type, PropertyId property, PublishIndexWrapper wrapper = publish_no_wrap) override;
+        EdgeTypeId edge_type, PropertyId property, CheckCancelFunction cancel_check = neverCancel,
+        PublishIndexWrapper wrapper = publish_no_wrap) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> CreateGlobalEdgeIndex(
-        PropertyId property, PublishIndexWrapper wrapper = publish_no_wrap) override;
+        PropertyId property, CheckCancelFunction cancel_check = neverCancel,
+        PublishIndexWrapper wrapper = publish_no_wrap) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label,
                                                                     DropIndexWrapper wrapper = drop_no_wrap) override;
@@ -298,8 +301,8 @@ class DiskStorage final : public Storage {
                        PointDistanceCondition condition) -> PointIterable override;
 
     auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
-                       PropertyValue const &bottom_left, PropertyValue const &top_right, WithinBBoxCondition condition)
-        -> PointIterable override;
+                       PropertyValue const &bottom_left, PropertyValue const &top_right,
+                       WithinBBoxCondition condition) -> PointIterable override;
 
     std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearchOnNodes(
         const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) override;

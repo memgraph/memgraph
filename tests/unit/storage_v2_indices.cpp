@@ -2470,7 +2470,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->EdgeTypePropertyIndexExists(this->edge_type_id1, this->edge_prop_id1));
+    EXPECT_FALSE(acc->EdgeTypePropertyIndexReady(this->edge_type_id1, this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_type_property.size(), 0);
     EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1, this->edge_prop_id1), 0);
   }
@@ -2489,14 +2489,14 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
-    EXPECT_EQ(unique_acc->ApproximateEdgeCount(this->edge_type_id1, this->edge_prop_id1), 5);
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->Commit());
   }
 
   {
     auto acc = this->storage->Access();
+    EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1, this->edge_prop_id1), 5);
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::OLD), View::OLD),
                 UnorderedElementsAre(1, 3, 5, 7, 9));
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
@@ -2634,7 +2634,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexDrop) {
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->EdgeTypePropertyIndexExists(this->edge_type_id1, this->edge_prop_id1));
+    EXPECT_FALSE(acc->EdgeTypePropertyIndexReady(this->edge_type_id1, this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_type_property.size(), 0);
   }
 
@@ -2651,9 +2651,9 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexDrop) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->Commit());
   }
 
   {
@@ -2665,24 +2665,24 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexDrop) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->DropIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->DropIndexAccessor();
+    EXPECT_FALSE(acc->DropIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->Commit());
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->EdgeTypePropertyIndexExists(this->edge_type_id1, this->edge_prop_id1));
+    EXPECT_FALSE(acc->EdgeTypePropertyIndexReady(this->edge_type_id1, this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_type_property.size(), 0);
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_TRUE(unique_acc->DropIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->DropIndexAccessor();
+    EXPECT_TRUE(acc->DropIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->Commit());
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->EdgeTypePropertyIndexExists(this->edge_type_id1, this->edge_prop_id1));
+    EXPECT_FALSE(acc->EdgeTypePropertyIndexReady(this->edge_type_id1, this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_type_property.size(), 0);
   }
 
@@ -2699,13 +2699,13 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexDrop) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->Commit());
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_TRUE(acc->EdgeTypePropertyIndexExists(this->edge_type_id1, this->edge_prop_id1));
+    EXPECT_TRUE(acc->EdgeTypePropertyIndexReady(this->edge_type_id1, this->edge_prop_id1));
     EXPECT_THAT(acc->ListAllIndices().edge_type_property,
                 UnorderedElementsAre(std::make_pair(this->edge_type_id1, this->edge_prop_id1)));
   }
@@ -2738,14 +2738,14 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexBasic) {
     return;
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->Commit());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id2, this->edge_prop_id2).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->edge_type_id2, this->edge_prop_id2).HasError());
+    ASSERT_NO_ERROR(acc->Commit());
   }
 
   auto acc = this->storage->Access();
@@ -2821,14 +2821,14 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexTransactionalIsolation) {
   }
   // Check that transactions only see entries they are supposed to see.
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->Commit());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id2, this->edge_prop_id2).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->edge_type_id2, this->edge_prop_id2).HasError());
+    ASSERT_NO_ERROR(acc->Commit());
   }
 
   auto acc_before = this->storage->Access();
@@ -2871,14 +2871,14 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCountEstimate) {
     return;
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->Commit());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id2, this->edge_prop_id2).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->edge_type_id2, this->edge_prop_id2).HasError());
+    ASSERT_NO_ERROR(acc->Commit());
   }
 
   auto acc = this->storage->Access();
@@ -2904,9 +2904,9 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexRepeatingEdgeTypesBetweenSameVertices
     return;
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->Commit());
   }
 
   auto acc = this->storage->Access();
@@ -2940,7 +2940,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexCreate) {
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->EdgePropertyIndexExists(this->edge_prop_id1));
+    EXPECT_FALSE(acc->EdgePropertyIndexReady(this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_type_property.size(), 0);
     EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_prop_id1), 0);
   }
@@ -2959,14 +2959,14 @@ TYPED_TEST(IndexTest, EdgePropertyIndexCreate) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
-    EXPECT_EQ(unique_acc->ApproximateEdgeCount(this->edge_prop_id1), 10);
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->Commit());
   }
 
   {
     auto acc = this->storage->Access();
+    EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_prop_id1), 10);
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_prop_id1, View::OLD), View::OLD),
                 UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9));
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_prop_id1, View::NEW), View::NEW),
@@ -3104,7 +3104,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexDrop) {
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->EdgePropertyIndexExists(this->edge_prop_id1));
+    EXPECT_FALSE(acc->EdgePropertyIndexReady(this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_property.size(), 0);
   }
 
@@ -3121,9 +3121,9 @@ TYPED_TEST(IndexTest, EdgePropertyIndexDrop) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->Commit());
   }
 
   {
@@ -3135,24 +3135,24 @@ TYPED_TEST(IndexTest, EdgePropertyIndexDrop) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->DropGlobalEdgeIndex(this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->DropIndexAccessor();
+    EXPECT_FALSE(acc->DropGlobalEdgeIndex(this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->Commit());
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->EdgePropertyIndexExists(this->edge_prop_id1));
+    EXPECT_FALSE(acc->EdgePropertyIndexReady(this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_property.size(), 0);
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_TRUE(unique_acc->DropGlobalEdgeIndex(this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->DropIndexAccessor();
+    EXPECT_TRUE(acc->DropGlobalEdgeIndex(this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->Commit());
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->EdgePropertyIndexExists(this->edge_prop_id1));
+    EXPECT_FALSE(acc->EdgePropertyIndexReady(this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_property.size(), 0);
   }
 
@@ -3169,13 +3169,13 @@ TYPED_TEST(IndexTest, EdgePropertyIndexDrop) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->Commit());
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_TRUE(acc->EdgePropertyIndexExists(this->edge_prop_id1));
+    EXPECT_TRUE(acc->EdgePropertyIndexReady(this->edge_prop_id1));
     EXPECT_THAT(acc->ListAllIndices().edge_property, UnorderedElementsAre(this->edge_prop_id1));
   }
 
@@ -3207,14 +3207,14 @@ TYPED_TEST(IndexTest, EdgePropertyIndexBasic) {
     return;
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->Commit());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateGlobalEdgeIndex(this->edge_prop_id2).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id2).HasError());
+    ASSERT_NO_ERROR(acc->Commit());
   }
 
   auto acc = this->storage->Access();
@@ -3277,14 +3277,14 @@ TYPED_TEST(IndexTest, EdgePropertyIndexTransactionalIsolation) {
   }
   // Check that transactions only see entries they are supposed to see.
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->Commit());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateGlobalEdgeIndex(this->edge_prop_id2).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id2).HasError());
+    ASSERT_NO_ERROR(acc->Commit());
   }
 
   auto acc_before = this->storage->Access();
@@ -3322,14 +3322,14 @@ TYPED_TEST(IndexTest, EdgePropertyIndexCountEstimate) {
     return;
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->Commit());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateGlobalEdgeIndex(this->edge_prop_id2).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id2).HasError());
+    ASSERT_NO_ERROR(acc->Commit());
   }
 
   auto acc = this->storage->Access();
@@ -3355,9 +3355,9 @@ TYPED_TEST(IndexTest, EdgePropertyIndexRepeatingEdgeTypesBetweenSameVertices) {
     return;
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->Commit());
   }
 
   auto acc = this->storage->Access();
