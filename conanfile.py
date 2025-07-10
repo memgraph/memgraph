@@ -51,7 +51,6 @@ class Memgraph(ConanFile):
         self.requires("range-v3/0.12.0")
         self.requires("asio/1.34.2")
         self.requires("openssl/3.5.1")
-        self.requires("mgclient/1.4.3", options={"with_cpp": True})
 
     def package(self):
         cmake = CMake(self)

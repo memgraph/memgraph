@@ -137,7 +137,6 @@ repo_clone_try_double () {
 declare -A primary_urls=(
   ["rapidcheck"]="http://$local_cache_host/git/rapidcheck.git"
   ["libbcrypt"]="http://$local_cache_host/git/libbcrypt.git"
-  ["mgconsole"]="http://$local_cache_host/git/mgconsole.git"
   ["neo4j"]="http://$local_cache_host/file/neo4j-community-5.6.0-unix.tar.gz"
   ["librdkafka"]="http://$local_cache_host/git/librdkafka.git"
   ["protobuf"]="http://$local_cache_host/git/protobuf.git"
@@ -156,7 +155,6 @@ declare -A primary_urls=(
 declare -A secondary_urls=(
   ["rapidcheck"]="https://github.com/emil-e/rapidcheck.git"
   ["libbcrypt"]="https://github.com/rg3/libbcrypt"
-  ["mgconsole"]="https://github.com/memgraph/mgconsole.git"
   ["neo4j"]="https://dist.neo4j.org/neo4j-community-5.6.0-unix.tar.gz"
   ["librdkafka"]="https://github.com/edenhill/librdkafka.git"
   ["protobuf"]="https://github.com/protocolbuffers/protobuf.git"
@@ -214,10 +212,6 @@ rm neo4j-community-5.6.0-unix.tar.gz
 # pushd rocksdb
 # git apply ../rocksdb8.1.1.patch
 # popd
-
-# mgconsole
-mgconsole_tag="v1.4.0" # (2023-05-21)
-skip_if_under_toolchain "mgconsole" repo_clone_try_double "${primary_urls[mgconsole]}" "${secondary_urls[mgconsole]}" "mgconsole" "$mgconsole_tag" true
 
 # librdkafka
 librdkafka_tag="v2.6.1" # (2024-12-05)
