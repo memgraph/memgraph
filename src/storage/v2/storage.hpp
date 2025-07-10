@@ -224,7 +224,7 @@ class Storage {
 
     Accessor(Accessor &&other) noexcept;
 
-    virtual ~Accessor() = default;
+    virtual ~Accessor();
 
     StorageAccessType original_access_type() const { return original_access_type_; }
 
@@ -709,6 +709,11 @@ class Storage {
     ttl_.Shutdown();
   }
 
+ protected:
+  void RegisterTransaction(uint64_t transaction_id);
+  void UnregisterTransaction(uint64_t transaction_id);
+
+ public:
   // TODO: make non-public
   ReplicationStorageState repl_storage_state_;
 
@@ -779,6 +784,12 @@ class Storage {
   auto get_database_protector_factory() const -> std::function<std::unique_ptr<DatabaseProtector>()> {
     return database_protector_factory_;
   }
+  struct ActiveTransactionInfo {
+    uint64_t transaction_id;
+  };
+
+  std::mutex active_transactions_mutex_;
+  std::unordered_map<uint64_t, ActiveTransactionInfo> active_transactions_;
 };
 
 inline std::ostream &operator<<(std::ostream &os, StorageAccessType type) {
