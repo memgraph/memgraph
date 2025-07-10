@@ -17,7 +17,7 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/memgraph/memgraph">
+  <a href="https://memgraph.github.io/daily-builds/">
      <img src="https://img.shields.io/github/actions/workflow/status/memgraph/memgraph/daily_build.yml?branch=master&label=build%20and%20test&logo=github"/>
   </a>
   <a href="https://memgraph.com/docs/" alt="Documentation">
