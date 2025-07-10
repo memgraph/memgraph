@@ -1786,7 +1786,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateRole(MemgraphCypher::CreateRoleConte
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::CREATE_ROLE;
   auth->if_not_exists_ = !!ctx->ifNotExists();
-  auth->role_ = std::any_cast<std::string>(ctx->role->accept(this));
+  auth->roles_ = {std::any_cast<std::string>(ctx->role->accept(this))};
   return auth;
 }
 
@@ -1796,7 +1796,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateRole(MemgraphCypher::CreateRoleConte
 antlrcpp::Any CypherMainVisitor::visitDropRole(MemgraphCypher::DropRoleContext *ctx) {
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::DROP_ROLE;
-  auth->role_ = std::any_cast<std::string>(ctx->role->accept(this));
+  auth->roles_ = {std::any_cast<std::string>(ctx->role->accept(this))};
   return auth;
 }
 
@@ -1892,7 +1892,7 @@ antlrcpp::Any CypherMainVisitor::visitSetRole(MemgraphCypher::SetRoleContext *ct
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::SET_ROLE;
   auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
-  auth->role_ = std::any_cast<std::string>(ctx->role->accept(this));
+  auth->roles_ = std::any_cast<std::vector<std::string>>(ctx->roles->accept(this));
   return auth;
 }
 
@@ -2193,7 +2193,7 @@ antlrcpp::Any CypherMainVisitor::visitShowRoleForUser(MemgraphCypher::ShowRoleFo
 antlrcpp::Any CypherMainVisitor::visitShowUsersForRole(MemgraphCypher::ShowUsersForRoleContext *ctx) {
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::SHOW_USERS_FOR_ROLE;
-  auth->role_ = std::any_cast<std::string>(ctx->role->accept(this));
+  auth->roles_ = {std::any_cast<std::string>(ctx->role->accept(this))};
   return auth;
 }
 

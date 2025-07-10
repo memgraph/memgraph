@@ -410,7 +410,7 @@ showCurrentUser : SHOW CURRENT USER ;
 
 showUsers : SHOW USERS ;
 
-setRole : SET ROLE FOR user=userOrRoleName TO role=userOrRoleName;
+setRole : SET ROLE FOR user=userOrRoleName TO roles=listOfSymbolicNames;
 
 clearRole : CLEAR ROLE FOR user=userOrRoleName ;
 

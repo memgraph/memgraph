@@ -392,8 +392,10 @@ def test_manual_roles_recovery(connection, test_name):
             "data_directory": f"{get_data_path(file, test_name)}/replica2",
             "setup_queries": [
                 "CREATE ROLE role4;",
+                "CREATE ROLE role5;",
                 "CREATE USER user4;",
                 "SET ROLE FOR user4 TO role4;",
+                "SET ROLE FOR user4 TO role4, role5;",
                 f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};",
             ],
         },
@@ -408,8 +410,10 @@ def test_manual_roles_recovery(connection, test_name):
             "setup_queries": [
                 "CREATE ROLE role1;",
                 "CREATE ROLE role2;",
+                "CREATE ROLE role3;",
                 "CREATE USER user2;",
                 "SET ROLE FOR user2 TO role2;",
+                "SET ROLE FOR user2 TO role2, role3;",
                 f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';",
                 f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';",
             ],
@@ -430,12 +434,12 @@ def test_manual_roles_recovery(connection, test_name):
     mg_sleep_and_assert(expected_data, show_users_func(cursor_replica_2))
 
     # 2/
-    expected_data = {("role2",), ("role1",)}
+    expected_data = {("role1",), ("role2",), ("role3",)}
     mg_sleep_and_assert(expected_data, show_roles_func(cursor_replica_1))
     mg_sleep_and_assert(expected_data, show_roles_func(cursor_replica_2))
 
     # 3/
-    expected_data = {("role2",)}
+    expected_data = {("role2",), ("role3",)}
     mg_sleep_and_assert(
         expected_data,
         show_role_for_user_func(cursor_replica_1, "user2"),
@@ -684,6 +688,33 @@ def test_auth_replication(connection, test_name):
         },
     )
 
+    # Test multiple roles
+    execute_and_fetch_all(cursor_main, "CREATE ROLE role4")
+    execute_and_fetch_all(cursor_main, "CREATE ROLE role5")
+    execute_and_fetch_all(cursor_main, "CREATE USER user5")
+    execute_and_fetch_all(cursor_main, "SET ROLE FOR user5 TO role3, role4, role5")
+    check(partial(show_role_for_user_func, username="user5"), {("role3",), ("role4",), ("role5",)})
+    check(
+        partial(show_users_for_role_func, rolename="role3"),
+        {
+            ("user3",),
+            ("user3b",),
+            ("user5",),
+        },
+    )
+    check(
+        partial(show_users_for_role_func, rolename="role4"),
+        {
+            ("user5",),
+        },
+    )
+    check(
+        partial(show_users_for_role_func, rolename="role5"),
+        {
+            ("user5",),
+        },
+    )
+
     # CLEAR ROLE
     execute_and_fetch_all(cursor_main, "CLEAR ROLE FOR user3")
     check(partial(show_role_for_user_func, username="user3"), {("null",)})
@@ -691,6 +722,7 @@ def test_auth_replication(connection, test_name):
         partial(show_users_for_role_func, rolename="role3"),
         {
             ("user3b",),
+            ("user5",),
         },
     )
 

@@ -82,7 +82,8 @@ struct TriggerStore {
   explicit TriggerStore(std::filesystem::path directory);
 
   void RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
-                       const InterpreterConfig::Query &query_config, const query::AuthChecker *auth_checker);
+                       const InterpreterConfig::Query &query_config, const query::AuthChecker *auth_checker,
+                       std::string_view db_name);
 
   void AddTrigger(std::string name, const std::string &query, const UserParameters &user_parameters,
                   TriggerEventType event_type, TriggerPhase phase, utils::SkipList<QueryCacheEntry> *query_cache,
@@ -111,7 +112,7 @@ struct TriggerStore {
  private:
   void RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                       const InterpreterConfig::Query &query_config, const query::AuthChecker *auth_checker,
-                      std::string_view trigger_name, std::string_view trigger_data);
+                      std::string_view trigger_name, std::string_view trigger_data, std::string_view db_name);
 
   utils::SpinLock store_lock_;
   kvstore::KVStore storage_;

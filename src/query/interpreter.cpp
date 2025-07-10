@@ -39,6 +39,7 @@
 #include "coordination/constants.hpp"
 #include "coordination/coordinator_ops_status.hpp"
 #include "coordination/coordinator_state.hpp"
+#include "dbms/constants.hpp"
 #include "dbms/coordinator_handler.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/global.hpp"
@@ -800,7 +801,6 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
 
   std::string username = auth_query->user_;
-  std::string rolename = auth_query->role_;
   std::string user_or_role = auth_query->user_or_role_;
   const bool if_not_exists = auth_query->if_not_exists_;
   std::string database = auth_query->database_;
@@ -956,10 +956,15 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       return callback;
     case AuthQuery::Action::CREATE_ROLE:
       forbid_on_replica();
-      callback.fn = [auth, rolename, if_not_exists, interpreter = &interpreter] {
+      callback.fn = [auth, roles = std::move(auth_query->roles_), if_not_exists, interpreter = &interpreter] {
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
+
+        if (roles.empty()) {
+          throw QueryRuntimeException("No role name provided for CREATE ROLE");
+        }
+        const std::string &rolename = roles[0];
 
         if (!auth->CreateRole(rolename, &*interpreter->system_transaction_)) {
           if (!if_not_exists) {
@@ -975,10 +980,15 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       return callback;
     case AuthQuery::Action::DROP_ROLE:
       forbid_on_replica();
-      callback.fn = [auth, rolename, interpreter = &interpreter] {
+      callback.fn = [auth, roles = std::move(auth_query->roles_), interpreter = &interpreter] {
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
+
+        if (roles.empty()) {
+          throw QueryRuntimeException("No role name provided for DROP ROLE");
+        }
+        const std::string &rolename = roles[0];
 
         if (!auth->DropRole(rolename, &*interpreter->system_transaction_)) {
           throw QueryRuntimeException("Role '{}' doesn't exist.", rolename);
@@ -1020,12 +1030,12 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       return callback;
     case AuthQuery::Action::SET_ROLE:
       forbid_on_replica();
-      callback.fn = [auth, username, rolename, interpreter = &interpreter] {
+      callback.fn = [auth, username, roles = std::move(auth_query->roles_), interpreter = &interpreter] {
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
 
-        auth->SetRole(username, rolename, &*interpreter->system_transaction_);
+        auth->SetRole(username, roles, &*interpreter->system_transaction_);
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
@@ -1105,14 +1115,26 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
     case AuthQuery::Action::SHOW_ROLE_FOR_USER:
       callback.header = {"role"};
       callback.fn = [auth, username] {
-        auto maybe_rolename = auth->GetRolenameForUser(username);
-        return std::vector<std::vector<TypedValue>>{
-            std::vector<TypedValue>{TypedValue(maybe_rolename ? *maybe_rolename : "null")}};
+        auto rolenames = auth->GetRolenameForUser(username);
+        if (rolenames.empty()) {
+          return std::vector<std::vector<TypedValue>>{std::vector<TypedValue>{TypedValue("null")}};
+        }
+        std::vector<std::vector<TypedValue>> rows;
+        rows.reserve(rolenames.size());
+        for (auto &&rolename : rolenames) {
+          rows.emplace_back(std::vector<TypedValue>{TypedValue{rolename}});
+        }
+        return rows;
       };
       return callback;
     case AuthQuery::Action::SHOW_USERS_FOR_ROLE:
       callback.header = {"users"};
-      callback.fn = [auth, rolename] {
+      callback.fn = [auth, roles = std::move(auth_query->roles_)] {
+        if (roles.empty()) {
+          throw QueryRuntimeException("No role name provided for SHOW USERS FOR ROLE");
+        }
+        const std::string &rolename = roles[0];
+
         std::vector<std::vector<TypedValue>> rows;
         auto usernames = auth->GetUsernamesForRole(rolename);
         rows.reserve(usernames.size());
@@ -3967,6 +3989,12 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
 
   auto *auth_query = utils::Downcast<AuthQuery>(parsed_query.query);
 
+  // Special case for SHOW CURRENT USER
+  auto target_db = std::string{dbms::kSystemDB};
+  if (auth_query->action_ == AuthQuery::Action::SHOW_CURRENT_USER) {
+    target_db = db_acc ? db_acc->get()->name() : "";
+  }
+
   auto callback =
       HandleAuthQuery(auth_query, interpreter_context, parsed_query.parameters, interpreter, std::move(db_acc));
 
@@ -3985,7 +4013,7 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
         }
         return std::nullopt;
       },
-      RWType::NONE};
+      RWType::NONE, target_db};
 }
 
 PreparedQuery PrepareReplicationQuery(
@@ -4021,7 +4049,7 @@ PreparedQuery PrepareReplicationQuery(
                          }
                          return std::nullopt;
                        },
-                       RWType::NONE};
+                       RWType::NONE, std::string(dbms::kSystemDB)};
   // False positive report for the std::make_shared above
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
 }
@@ -5655,8 +5683,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
             return std::nullopt;
           },
           RWType::W,
-          ""  // No target DB possible
-      };
+          std::string(dbms::kSystemDB)};
     }
     case MultiDatabaseQuery::Action::DROP: {
       if (is_replica) {
@@ -5781,26 +5808,23 @@ PreparedQuery PrepareShowDatabaseQuery(ParsedQuery parsed_query, CurrentDB &curr
         "INFO.");
   }
 
-  return PreparedQuery{
-      {"Current"},
-      std::move(parsed_query.required_privileges),
-      [db_acc = current_db.db_acc_, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
-          AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-        if (!pull_plan) {
-          std::vector<std::vector<TypedValue>> results;
-          auto db_name = db_acc ? TypedValue{db_acc->get()->storage()->name()} : TypedValue{};
-          results.push_back({std::move(db_name)});
-          pull_plan = std::make_shared<PullPlanVector>(std::move(results));
-        }
+  return PreparedQuery{{"Current"},
+                       std::move(parsed_query.required_privileges),
+                       [db_acc = current_db.db_acc_, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+                         if (!pull_plan) {
+                           std::vector<std::vector<TypedValue>> results;
+                           auto db_name = db_acc ? TypedValue{db_acc->get()->storage()->name()} : TypedValue{};
+                           results.push_back({std::move(db_name)});
+                           pull_plan = std::make_shared<PullPlanVector>(std::move(results));
+                         }
 
-        if (pull_plan->Pull(stream, n)) {
-          return QueryHandlerResult::NOTHING;
-        }
-        return std::nullopt;
-      },
-      RWType::NONE,
-      ""  // No target DB
-  };
+                         if (pull_plan->Pull(stream, n)) {
+                           return QueryHandlerResult::NOTHING;
+                         }
+                         return std::nullopt;
+                       },
+                       RWType::NONE};
 #else
   // here to satisfy clang-tidy
   (void)parsed_query;
@@ -5850,7 +5874,8 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
       gen_status(db_handler->All(), std::vector<TypedValue>{});
     } else {
       // User has a subset of accessible dbs; this is synched with the SessionContextHandler
-      const auto &db_priv = auth->GetDatabasePrivileges(user_or_role->key());
+      const auto &db_priv =
+          auth->GetDatabasePrivileges(user_or_role->key());  // TODO support multi-roles; + reuse existing user/role
       const auto &allowed = db_priv[0][0];
       const auto &denied = db_priv[0][1].ValueList();
       if (allowed.IsString() && allowed.ValueString() == auth::kAllDatabases) {
@@ -5864,23 +5889,20 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
     return status;
   };
 
-  return PreparedQuery{
-      std::move(callback.header), std::move(parsed_query.required_privileges),
-      [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
-          AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-        if (!pull_plan) {
-          auto results = handler();
-          pull_plan = std::make_shared<PullPlanVector>(std::move(results));
-        }
+  return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
+                       [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+                         if (!pull_plan) {
+                           auto results = handler();
+                           pull_plan = std::make_shared<PullPlanVector>(std::move(results));
+                         }
 
-        if (pull_plan->Pull(stream, n)) {
-          return QueryHandlerResult::NOTHING;
-        }
-        return std::nullopt;
-      },
-      RWType::NONE,
-      ""  // No target DB
-  };
+                         if (pull_plan->Pull(stream, n)) {
+                           return QueryHandlerResult::NOTHING;
+                         }
+                         return std::nullopt;
+                       },
+                       RWType::NONE, std::string(dbms::kSystemDB)};
 #else
   throw EnterpriseOnlyException();
 #endif
@@ -5915,25 +5937,24 @@ PreparedQuery PrepareCreateEnumQuery(ParsedQuery parsed_query, CurrentDB &curren
 }
 
 PreparedQuery PrepareShowEnumsQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
-  return PreparedQuery{
-      {"Enum Name", "Enum Values"},
-      std::move(parsed_query.required_privileges),
-      [dba = *current_db.execution_db_accessor_, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
-          AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-        if (!pull_plan) {
-          auto enums = dba.ShowEnums();
-          auto to_row = [](auto &&p) { return std::vector{TypedValue{p.first}, TypedValue{p.second}}; };
-          pull_plan = std::make_shared<PullPlanVector>(enums | rv::transform(to_row) | r::to_vector);
-        }
+  return PreparedQuery{{"Enum Name", "Enum Values"},
+                       std::move(parsed_query.required_privileges),
+                       [dba = *current_db.execution_db_accessor_, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+                         if (!pull_plan) {
+                           auto enums = dba.ShowEnums();
+                           auto to_row = [](auto &&p) {
+                             return std::vector{TypedValue{p.first}, TypedValue{p.second}};
+                           };
+                           pull_plan = std::make_shared<PullPlanVector>(enums | rv::transform(to_row) | r::to_vector);
+                         }
 
-        if (pull_plan->Pull(stream, n)) {
-          return QueryHandlerResult::COMMIT;
-        }
-        return std::nullopt;
-      },
-      RWType::NONE,
-      ""  // No target DB
-  };
+                         if (pull_plan->Pull(stream, n)) {
+                           return QueryHandlerResult::COMMIT;
+                         }
+                         return std::nullopt;
+                       },
+                       RWType::NONE};
 }
 
 PreparedQuery PrepareEnumAlterAddQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
@@ -6210,7 +6231,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
                          }
                          return std::nullopt;
                        },
-                       RWType::R, current_db.db_acc_->get()->name()};
+                       RWType::R};
 }
 
 std::optional<uint64_t> Interpreter::GetTransactionId() const { return current_transaction_; }
@@ -7228,7 +7249,7 @@ void Interpreter::SetSessionIsolationLevel(const storage::IsolationLevel isolati
 void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) {
   user_or_role_ = std::move(user_or_role);
   if (query_logger_) {
-    query_logger_->SetUser(user_or_role_->key());
+    query_logger_->SetUser(user_or_role_->key());  // TODO support multi-roles
   }
 }
 

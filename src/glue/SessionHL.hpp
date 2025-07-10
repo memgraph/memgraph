@@ -22,29 +22,30 @@ namespace memgraph::glue {
 using bolt_value_t = memgraph::communication::bolt::Value;
 using bolt_map_t = memgraph::communication::bolt::map_t;
 
+// Forward declaration
+class SessionHL;
+
 struct ParseRes {
   query::Interpreter::ParseRes parsed_query;
   query::UserParameters_fn get_params_pv;
   query::QueryExtras extra;
 };
 
-class RunTimeConfig {
+#ifdef MG_ENTERPRISE
+class RuntimeConfig {
  public:
-  RunTimeConfig(std::string key, auto &&get_current, auto &&get_default, auto &&update)
-      : key_(std::move(key)),
-        get_current_(std::forward<decltype(get_current)>(get_current)),
-        get_default_(std::forward<decltype(get_default)>(get_default)),
-        update_(std::forward<decltype(update)>(update)) {}
+  explicit RuntimeConfig(SessionHL *session) : session_(session) {}
 
   void Configure(const bolt_map_t &run_time_info, bool in_explicit_tx);
 
-  bool explicit_ = false;
-  std::optional<std::string> implicit_config_{};
-  std::string key_;
-  std::function<std::string()> get_current_;
-  std::function<std::optional<std::string>()> get_default_;
-  std::function<void(std::optional<std::string>, bool, const bolt_map_t &)> update_;
+  bool db_explicit_ = false;
+  bool user_explicit_ = false;
+
+ private:
+  SessionHL *session_;
+  std::optional<bolt_map_t> previous_run_time_info_;
 };
+#endif
 
 class SessionHL final : public memgraph::communication::bolt::Session<memgraph::communication::v2::InputStream,
                                                                       memgraph::communication::v2::OutputStream> {
@@ -58,6 +59,11 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   SessionHL &operator=(const SessionHL &) = delete;
   SessionHL(SessionHL &&) = delete;
   SessionHL &operator=(SessionHL &&) = delete;
+
+#ifdef MG_ENTERPRISE
+  // Friend classes to allow access to private members
+  friend class RuntimeConfig;
+#endif
 
   /// BOLT level API ///
 
@@ -125,8 +131,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   std::shared_ptr<query::QueryUserOrRole> session_user_or_role_;  // Connected user/role
 #ifdef MG_ENTERPRISE
   memgraph::audit::Log *audit_log_;
-  RunTimeConfig runtime_db_;    // Run-time configurable database tarted used by the interpreter
-  RunTimeConfig runtime_user_;  // Run-time configurable user (impersonation)
+  RuntimeConfig runtime_config_;  // Run-time configurable database started used by the interpreter
 #endif
   memgraph::auth::SynchedAuth *auth_;
   memgraph::communication::v2::ServerEndpoint endpoint_;

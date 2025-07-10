@@ -186,7 +186,7 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor, 
 
     trigger_plan_ = std::make_shared<TriggerPlan>(std::move(logical_plan), std::move(identifiers));
   }
-  if (!owner_->IsAuthorized(parsed_statements_.required_privileges, db_name, &up_to_date_policy)) {
+  if (owner_ && !owner_->IsAuthorized(parsed_statements_.required_privileges, db_name, &up_to_date_policy)) {
     throw utils::BasicException("The owner of trigger '{}' is not authorized to execute the query!", name_);
   }
   return trigger_plan_;
@@ -246,7 +246,8 @@ TriggerStore::TriggerStore(std::filesystem::path directory) : storage_{std::move
 
 void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                                   const InterpreterConfig::Query &query_config, const query::AuthChecker *auth_checker,
-                                  std::string_view trigger_name, std::string_view trigger_data) {
+                                  std::string_view trigger_name, std::string_view trigger_data,
+                                  std::string_view db_name) {
   const auto get_failed_message = [&trigger_name = trigger_name](const std::string_view message) {
     return fmt::format("Failed to load trigger '{}'. {}", trigger_name, message);
   };
@@ -321,7 +322,7 @@ void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache,
   std::optional<Trigger> trigger;
   try {
     trigger.emplace(std::string{trigger_name}, statement, user_parameters, event_type, query_cache, db_accessor,
-                    query_config, std::move(user), "");
+                    query_config, std::move(user), std::string{db_name});
   } catch (const utils::BasicException &e) {
     spdlog::warn("Failed to create trigger '{}' because: {}", trigger_name, e.what());
     return;
@@ -335,14 +336,14 @@ void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache,
 }
 
 void TriggerStore::RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
-                                   const InterpreterConfig::Query &query_config,
-                                   const query::AuthChecker *auth_checker) {
+                                   const InterpreterConfig::Query &query_config, const query::AuthChecker *auth_checker,
+                                   std::string_view db_name) {
   MG_ASSERT(before_commit_triggers_.size() == 0 && after_commit_triggers_.size() == 0,
             "Cannot restore trigger when some triggers already exist!");
   spdlog::info("Loading triggers...");
 
   for (const auto &[trigger_name, trigger_data] : storage_) {
-    RestoreTrigger(query_cache, db_accessor, query_config, auth_checker, trigger_name, trigger_data);
+    RestoreTrigger(query_cache, db_accessor, query_config, auth_checker, trigger_name, trigger_data, db_name);
   }
 }
 

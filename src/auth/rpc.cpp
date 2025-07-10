@@ -62,7 +62,7 @@ void Load(auth::User *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&roles, reader);
   self->ClearRole();
   for (const auto &role : roles) {
-    self->SetRole(role);
+    self->AddRole(role);
   }
 }
 

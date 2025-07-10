@@ -525,7 +525,7 @@ std::vector<memgraph::query::TypedValue> AuthQueryHandler::GetRolenames() {
   }
 }
 
-std::optional<std::string> AuthQueryHandler::GetRolenameForUser(const std::string &username) {
+std::vector<std::string> AuthQueryHandler::GetRolenameForUser(const std::string &username) {
   try {
     auto locked_auth = auth_->ReadLock();
     auto user = locked_auth->GetUser(username);
@@ -533,14 +533,14 @@ std::optional<std::string> AuthQueryHandler::GetRolenameForUser(const std::strin
       throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
     }
 
+    std::vector<std::string> rolenames;
     if (const auto &roles = user->roles(); !roles.empty()) {
-      std::string res;
+      rolenames.reserve(roles.size());
       for (const auto &role : roles) {
-        res += role.rolename() + ",";
+        rolenames.emplace_back(role.rolename());
       }
-      return res.substr(0, res.size() - 1);
     }
-    return std::nullopt;
+    return rolenames;
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
@@ -565,7 +565,7 @@ std::vector<memgraph::query::TypedValue> AuthQueryHandler::GetUsernamesForRole(c
   }
 }
 
-void AuthQueryHandler::SetRole(const std::string &username, const std::string &rolename,
+void AuthQueryHandler::SetRole(const std::string &username, const std::vector<std::string> &roles,
                                system::Transaction *system_tx) {
   try {
     auto locked_auth = auth_->Lock();
@@ -573,17 +573,19 @@ void AuthQueryHandler::SetRole(const std::string &username, const std::string &r
     if (!user) {
       throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", username);
     }
-    auto role = locked_auth->GetRole(rolename);
-    if (!role) {
-      throw memgraph::query::QueryRuntimeException("Role '{}' doesn't exist.", rolename);
-    }
-    // Check if user already has this role
-    for (const auto &existing_role : user->roles()) {
-      if (existing_role.rolename() == rolename) {
-        throw memgraph::query::QueryRuntimeException("User '{}' is already a member of role '{}'.", username, rolename);
+
+    // Clear existing roles first
+    user->ClearRole();
+
+    // Add each role
+    for (const auto &rolename : roles) {
+      auto role = locked_auth->GetRole(rolename);
+      if (!role) {
+        throw memgraph::query::QueryRuntimeException("Role '{}' doesn't exist.", rolename);
       }
+      user->AddRole(*role);
     }
-    user->AddRole(*role);
+
     locked_auth->SaveUser(*user, system_tx);
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
