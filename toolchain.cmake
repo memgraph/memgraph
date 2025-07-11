@@ -6,6 +6,9 @@ execute_process(
 )
 set(CMAKE_SYSTEM_PROCESSOR "${uname_result}")
 
+set(CMAKE_CXX_STANDARD 20)
+set(CMAKE_CXX_STANDARD_REQUIRED ON)
+
 set(tools "/opt/toolchain-v7")
 
 # Optional: paths for find_package(), find_library(), etc.
