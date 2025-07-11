@@ -5828,7 +5828,7 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
                          }
                          return std::nullopt;
                        },
-                       RWType::NONE, std::string(dbms::kSystemDB)};
+                       RWType::NONE};
 #else
   throw EnterpriseOnlyException();
 #endif
