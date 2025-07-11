@@ -230,6 +230,9 @@ constexpr utils::TypeInfo query::TextIndexQuery::kType{utils::TypeId::AST_TEXT_I
 constexpr utils::TypeInfo query::VectorIndexQuery::kType{utils::TypeId::AST_VECTOR_INDEX_QUERY, "VectorIndexQuery",
                                                          &query::Query::kType};
 
+constexpr utils::TypeInfo query::CreateVectorEdgeIndexQuery::kType{utils::TypeId::AST_VECTOR_EDGE_INDEX_QUERY,
+                                                                   "CreateVectorEdgeIndexQuery", &query::Query::kType};
+
 constexpr utils::TypeInfo query::Create::kType{utils::TypeId::AST_CREATE, "Create", &query::Clause::kType};
 
 constexpr utils::TypeInfo query::CallProcedure::kType{utils::TypeId::AST_CALL_PROCEDURE, "CallProcedure",

@@ -82,9 +82,13 @@
                                                                                                                        \
   M(ActiveLabelIndices, Index, "Number of active label indices in the system.")                                        \
   M(ActiveLabelPropertyIndices, Index, "Number of active label property indices in the system.")                       \
+  M(ActiveEdgeTypeIndices, Index, "Number of active edge type indices in the system.")                                 \
+  M(ActiveEdgeTypePropertyIndices, Index, "Number of active edge type property indices in the system.")                \
+  M(ActiveEdgePropertyIndices, Index, "Number of active edge property indices in the system.")                         \
   M(ActivePointIndices, Index, "Number of active point indices in the system.")                                        \
   M(ActiveTextIndices, Index, "Number of active text indices in the system.")                                          \
   M(ActiveVectorIndices, Index, "Number of active vector indices in the system.")                                      \
+  M(ActiveVectorEdgeIndices, Index, "Number of active vector edge indices in the system.")                             \
                                                                                                                        \
   M(StreamsCreated, Stream, "Number of Streams created.")                                                              \
   M(MessagesConsumed, Stream, "Number of consumed streamed messages.")                                                 \
@@ -123,6 +127,9 @@
   M(DemoteInstance, HighAvailability, "Number of times the user called \"DEMOTE INSTANCE ...\" query.")                \
   M(UnregisterReplInstance, HighAvailability, "Number of times the user called \"UNREGISTER INSTANCE ...\" query.")    \
   M(RemoveCoordInstance, HighAvailability, "Number of times the user called \"REMOVE COORDINATOR ...\" query.")        \
+  M(ReplicaRecoverySuccess, HighAvailability, "Number of times the replica recovery finished successfully")            \
+  M(ReplicaRecoveryFail, HighAvailability, "Number of times the replica recovery finished unsuccessfully")             \
+  M(ReplicaRecoverySkip, HighAvailability, "Number of times the replica recovery task was skipped")                    \
   GenerateHARpcCounters(StateCheckRpc)                                                                                 \
   GenerateHARpcCounters(UnregisterReplicaRpc)                                                                          \
   GenerateHARpcCounters(EnableWritingOnMainRpc)                                                                        \

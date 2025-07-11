@@ -133,6 +133,13 @@ struct MinMemgraph {
 #endif
         ) {
   }
+
+  auto CreateIndexAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> { return db.ReadOnlyAccess(); }
+
+  auto DropIndexAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> {
+    return db.Access(memgraph::storage::Storage::Accessor::Type::READ);
+  }
+
   memgraph::auth::SynchedAuth auth;
   memgraph::system::System system_;
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state;
@@ -317,14 +324,14 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_FALSE(unique_acc->PrepareForCommitPhase({}, main.db_acc).HasError());
   }
   {
-    auto unique_acc = main.db.UniqueAccess();
+    auto unique_acc = main.CreateIndexAccessor();
     ASSERT_FALSE(
         unique_acc->CreateIndex(main.db.storage()->NameToLabel(label), {main.db.storage()->NameToProperty(property)})
             .HasError());
     ASSERT_FALSE(unique_acc->PrepareForCommitPhase({}, main.db_acc).HasError());
   }
   {
-    auto unique_acc = main.db.UniqueAccess();
+    auto unique_acc = main.CreateIndexAccessor();
     ASSERT_FALSE(
         unique_acc
             ->CreateIndex(main.db.storage()->NameToLabel(label), {main.db.storage()->NameToProperty(property),
@@ -350,7 +357,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   }
   {
     // Create nested index
-    auto unique_acc = main.db.UniqueAccess();
+    auto unique_acc = main.CreateIndexAccessor();
     memgraph::storage::PropertyPath property_path{main.db.storage()->NameToProperty(nested_property1),
                                                   main.db.storage()->NameToProperty(nested_property2),
                                                   main.db.storage()->NameToProperty(nested_property3)};
@@ -471,7 +478,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_FALSE(unique_acc->PrepareForCommitPhase({}, main.db_acc).HasError());
   }
   {
-    auto unique_acc = main.db.UniqueAccess();
+    auto unique_acc = main.DropIndexAccessor();
     ASSERT_FALSE(
         unique_acc->DropIndex(main.db.storage()->NameToLabel(label), {main.db.storage()->NameToProperty(property)})
             .HasError());
@@ -479,7 +486,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
   }
   {
     // Drop nested index
-    auto unique_acc = main.db.UniqueAccess();
+    auto unique_acc = main.DropIndexAccessor();
     memgraph::storage::PropertyPath property_path{main.db.storage()->NameToProperty(nested_property1),
                                                   main.db.storage()->NameToProperty(nested_property2),
                                                   main.db.storage()->NameToProperty(nested_property3)};
@@ -493,7 +500,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
     ASSERT_FALSE(unique_acc->PrepareForCommitPhase({}, main.db_acc).HasError());
   }
   {
-    auto unique_acc = main.db.UniqueAccess();
+    auto unique_acc = main.DropIndexAccessor();
     ASSERT_FALSE(
         unique_acc
             ->DropIndex(main.db.storage()->NameToLabel(label), {main.db.storage()->NameToProperty(property),

@@ -205,6 +205,7 @@ query : cypherQuery
       | pointIndexQuery
       | textIndexQuery
       | vectorIndexQuery
+      | createVectorEdgeIndex
       | explainQuery
       | profileQuery
       | databaseInfoQuery
@@ -691,6 +692,8 @@ dropPointIndex : DROP POINT INDEX ON ':' labelName '(' propertyKeyName ')' ;
 pointIndexQuery : createPointIndex | dropPointIndex ;
 
 createVectorIndex : CREATE VECTOR INDEX indexName ON ':' labelName ( '(' propertyKeyName ')' )? WITH CONFIG configsMap=configMap ;
+
+createVectorEdgeIndex: CREATE VECTOR EDGE INDEX indexName ON ':' labelName ( '(' propertyKeyName ')' )? WITH CONFIG configsMap=configMap ;
 
 dropVectorIndex : DROP VECTOR INDEX indexName ;
 

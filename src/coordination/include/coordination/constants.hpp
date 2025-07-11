@@ -57,8 +57,8 @@ constexpr auto kSyncFailoverOnly = "sync_failover_only"sv;
 // cluster state
 constexpr int MAX_SNAPSHOTS = 3;
 constexpr auto kUuid = "uuid"sv;
-constexpr auto kDataInstances =
-    "cluster_state"sv;  // called "cluster_state" because at the beginning data instances were considered cluster state
+constexpr std::string_view kDataInstances = "data_instances";
+constexpr std::string_view kClusterState = "cluster_state";
 constexpr std::string_view kCoordinatorInstances = "coordinator_instances";
 constexpr std::string_view kMainUUID = "current_main_uuid";
 constexpr std::string_view kConfig{"config"};

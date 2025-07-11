@@ -27,11 +27,9 @@
 
 #include <algorithm>
 #include <atomic>
+#include "utils/compile_time.hpp"
 
 namespace {
-template <typename>
-[[maybe_unused]] inline constexpr bool always_false_v = false;
-
 constexpr auto kHeartbeatRpcTimeout = std::chrono::milliseconds(5000);
 constexpr auto kCommitRpcTimeout = std::chrono::milliseconds(50);
 
@@ -62,6 +60,9 @@ extern const Event PrepareCommitRpc_us;
 extern const Event ReplicaStream_us;
 extern const Event StartTxnReplication_us;
 extern const Event FinalizeTxnReplication_us;
+extern const Event ReplicaRecoverySuccess;
+extern const Event ReplicaRecoveryFail;
+extern const Event ReplicaRecoverySkip;
 }  // namespace memgraph::metrics
 
 namespace memgraph::storage {
@@ -547,6 +548,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
   if (*replica_state_.Lock() != ReplicaState::RECOVERY) {
     spdlog::info("Replica {} is not in RECOVERY state anymore for db {}, ending the recovery task.", client_.name_,
                  main_db_name);
+    metrics::IncrementCounter(metrics::ReplicaRecoverySkip);
     return;
   }
 
@@ -670,13 +672,14 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                   spdlog::debug("Cannot recover using current wal file {} for db {}.", client_.name_, main_db_name);
                 }
               },
-              []<typename T>(T const &) { static_assert(always_false_v<T>, "Missing type from variant visitor"); },
+              []<typename T>(T const &) { static_assert(utils::always_false<T>, "Missing type from variant visitor"); },
           },
           recovery_step);
     } catch (const rpc::RpcFailedException &) {
       last_known_ts_.store(replica_last_commit_ts, std::memory_order_release);
       replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
       LogRpcFailure();
+      metrics::IncrementCounter(metrics::ReplicaRecoveryFail);
       return;
     }
     // If recovery failed, set the state to MAYBE_BEHIND because replica for sure didn't recover completely
@@ -684,9 +687,14 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
       spdlog::debug("One of recovery steps failed, setting replica state to MAYBE_BEHIND");
       last_known_ts_.store(replica_last_commit_ts, std::memory_order_release);
       replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
+      metrics::IncrementCounter(metrics::ReplicaRecoveryFail);
       return;
     }
   }
+
+  // Success here means that the recovery finished. Doesn't matter if there are some commits which happened during
+  // the recovery, the important thing here is that it finished.
+  metrics::IncrementCounter(metrics::ReplicaRecoverySuccess);
 
   // Protect the exit from the recovery. Otherwise, FinalizeTransactionReplication()
   // could check that the replica state isn't replicating, this recovery sets the

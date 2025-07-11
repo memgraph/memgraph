@@ -199,7 +199,7 @@ class CachedAstGenerator : public Base {
     context_.is_query_cached = true;
     StrippedQuery stripped(query_string);
     parameters_ = stripped.literals();
-    ::frontend::opencypher::Parser parser(stripped.query());
+    ::frontend::opencypher::Parser parser(stripped.stripped_query().str());
     Parameters parameters;
     AstStorage tmp_storage;
     CypherMainVisitor visitor(context_, &tmp_storage, &parameters);
@@ -259,9 +259,9 @@ class MockModule : public procedure::Module {
   std::map<std::string, mgp_func, std::less<>> functions{};
 };
 
-void DummyProcCallback(mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result * /*result*/, mgp_memory * /*memory*/){};
+void DummyProcCallback(mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result * /*result*/, mgp_memory * /*memory*/) {};
 void DummyFuncCallback(mgp_list * /*args*/, mgp_func_context * /*func_ctx*/, mgp_func_result * /*result*/,
-                       mgp_memory * /*memory*/){};
+                       mgp_memory * /*memory*/) {};
 
 enum class ProcedureType { WRITE, READ };
 

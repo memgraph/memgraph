@@ -210,9 +210,11 @@ void Trigger::Execute(DbAccessor *dba, DatabaseAccessProtector db_acc, utils::Me
   ctx.evaluation_context.parameters = parsed_statements_.parameters;
   ctx.evaluation_context.properties = NamesToProperties(plan.ast_storage().properties_, dba);
   ctx.evaluation_context.labels = NamesToLabels(plan.ast_storage().labels_, dba);
-  ctx.timer = (max_execution_time_sec > 0.0) ? std::make_shared<utils::AsyncTimer>(max_execution_time_sec) : nullptr;
-  ctx.is_shutting_down = is_shutting_down;
-  ctx.transaction_status = transaction_status;
+  ctx.stopping_context = {
+      .transaction_status = transaction_status,
+      .is_shutting_down = is_shutting_down,
+      .timer = (max_execution_time_sec > 0.0) ? std::make_shared<utils::AsyncTimer>(max_execution_time_sec) : nullptr,
+  };
   ctx.is_profile_query = false;
   ctx.evaluation_context.memory = execution_memory;
   ctx.db_acc = std::move(db_acc);

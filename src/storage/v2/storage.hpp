@@ -11,15 +11,14 @@
 
 #pragma once
 
+#include "common_function_signatures.hpp"
 #include "mg_procedure.h"
-#include "storage/v2/commit_log.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/database_access.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edges_iterable.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/indices.hpp"
-#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/replication_client.hpp"
@@ -36,9 +35,13 @@ extern const Event SnapshotCreationLatency_us;
 
 extern const Event ActiveLabelIndices;
 extern const Event ActiveLabelPropertyIndices;
+extern const Event ActiveEdgeTypeIndices;
+extern const Event ActiveEdgeTypePropertyIndices;
+extern const Event ActiveEdgePropertyIndices;
 extern const Event ActivePointIndices;
 extern const Event ActiveTextIndices;
 extern const Event ActiveVectorIndices;
+extern const Event ActiveVectorEdgeIndices;
 }  // namespace memgraph::metrics
 
 namespace memgraph::storage {
@@ -70,6 +73,7 @@ class ReadOnlyAccessTimeout : public utils::BasicException {
 struct Transaction;
 class EdgeAccessor;
 
+// TODO: list status Populating/Ready
 struct IndicesInfo {
   std::vector<LabelId> label;
   std::vector<std::pair<LabelId, std::vector<PropertyPath>>> label_properties;
@@ -79,6 +83,7 @@ struct IndicesInfo {
   std::vector<std::pair<std::string, LabelId>> text_indices;
   std::vector<std::pair<LabelId, PropertyId>> point_label_property;
   std::vector<VectorIndexSpec> vector_indices_spec;
+  std::vector<VectorEdgeIndexSpec> vector_edge_indices_spec;
 };
 
 struct ConstraintsInfo {
@@ -99,6 +104,7 @@ struct StorageInfo {
   uint64_t label_property_indices;
   uint64_t text_indices;
   uint64_t vector_indices;
+  uint64_t vector_edge_indices;
   uint64_t existence_constraints;
   uint64_t unique_constraints;
   StorageMode storage_mode;
@@ -129,6 +135,7 @@ static inline nlohmann::json ToJson(const StorageInfo &info) {
   res["label_prop_indices"] = info.label_property_indices;
   res["text_indices"] = info.text_indices;
   res["vector_indices"] = info.vector_indices;
+  res["vector_edge_indices"] = info.vector_edge_indices;
   res["existence_constraints"] = info.existence_constraints;
   res["unique_constraints"] = info.unique_constraints;
   res["storage_mode"] = storage::StorageModeToString(info.storage_mode);
@@ -186,7 +193,13 @@ class Storage {
     static constexpr struct ReadOnlyAccess {
     } read_only_access;
 
-    enum Type { NO_ACCESS, UNIQUE, WRITE, READ, READ_ONLY };
+    enum Type {
+      NO_ACCESS,  // Modifies nothing in the storage
+      UNIQUE,     // An operation that requires mutral exclusive access to the storage
+      WRITE,      // Writes to the data of storage
+      READ,       // Either reads the data of storage, or a metadata operation that doesn't require unique access
+      READ_ONLY,  // Ensures writers have gone
+    };
 
     Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
              Type rw_type = Type::WRITE, std::optional<std::chrono::milliseconds> timeout = std::nullopt);
@@ -298,6 +311,8 @@ class Storage {
 
     virtual std::optional<uint64_t> ApproximateVerticesVectorCount(LabelId label, PropertyId property) const = 0;
 
+    virtual std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const = 0;
+
     virtual auto GetIndexStats(const storage::LabelId &label) const -> std::optional<storage::LabelIndexStats> = 0;
 
     virtual auto GetIndexStats(const storage::LabelId &label, std::span<storage::PropertyPath const> properties) const
@@ -320,21 +335,20 @@ class Storage {
 
     virtual auto DeleteEdge(EdgeAccessor *edge) -> Result<std::optional<EdgeAccessor>>;
 
-    virtual bool LabelIndexExists(LabelId label) const = 0;
+    virtual bool LabelIndexReady(LabelId label) const = 0;
 
-    virtual bool LabelPropertyIndexExists(LabelId label, std::span<PropertyPath const> properties) const = 0;
+    virtual bool LabelPropertyIndexReady(LabelId label, std::span<PropertyPath const> properties) const = 0;
 
-    auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
-                                            std::span<PropertyPath const> properties) const
-        -> std::vector<LabelPropertiesIndicesInfo> {
-      return storage_->indices_.label_property_index_->RelevantLabelPropertiesIndicesInfo(labels, properties);
+    auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels, std::span<PropertyPath const> properties)
+        const -> std::vector<LabelPropertiesIndicesInfo> {
+      return transaction_.active_indices_.label_properties_->RelevantLabelPropertiesIndicesInfo(labels, properties);
     };
 
-    virtual bool EdgeTypeIndexExists(EdgeTypeId edge_type) const = 0;
+    virtual bool EdgeTypeIndexReady(EdgeTypeId edge_type) const = 0;
 
-    virtual bool EdgeTypePropertyIndexExists(EdgeTypeId edge_type, PropertyId property) const = 0;
+    virtual bool EdgeTypePropertyIndexReady(EdgeTypeId edge_type, PropertyId property) const = 0;
 
-    virtual bool EdgePropertyIndexExists(PropertyId property) const = 0;
+    virtual bool EdgePropertyIndexReady(PropertyId property) const = 0;
 
     bool TextIndexExists(const std::string &index_name) const {
       return storage_->indices_.text_index_.IndexExists(index_name);
@@ -406,31 +420,40 @@ class Storage {
 
     std::vector<EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label,
-                                                                              bool unique_access_needed = true) = 0;
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+        LabelId label, bool check_access = true, CheckCancelFunction cancel_check = neverCancel,
+        PublishIndexWrapper wrapper = publish_no_wrap) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        LabelId label, std::vector<storage::PropertyPath> properties) = 0;
+        LabelId label, PropertiesPaths properties, CheckCancelFunction cancel_check = neverCancel,
+        PublishIndexWrapper wrapper = publish_no_wrap) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
-                                                                              bool unique_access_needed = true) = 0;
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+        EdgeTypeId edge_type, bool unique_access_needed = true, CheckCancelFunction cancel_check = neverCancel,
+        PublishIndexWrapper wrapper = publish_no_wrap) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
-                                                                              PropertyId property) = 0;
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+        EdgeTypeId edge_type, PropertyId property, CheckCancelFunction cancel_check = neverCancel,
+        PublishIndexWrapper wrapper = publish_no_wrap) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateGlobalEdgeIndex(PropertyId property) = 0;
-
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) = 0;
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateGlobalEdgeIndex(
+        PropertyId property, CheckCancelFunction cancel_check = neverCancel,
+        PublishIndexWrapper wrapper = publish_no_wrap) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
-        LabelId label, std::vector<storage::PropertyPath> &&properties) = 0;
+        LabelId label, DropIndexWrapper wrapper = drop_no_wrap) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type) = 0;
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
+        LabelId label, std::vector<storage::PropertyPath> &&properties, DropIndexWrapper wrapper = drop_no_wrap) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type,
-                                                                            PropertyId property) = 0;
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
+        EdgeTypeId edge_type, DropIndexWrapper wrapper = drop_no_wrap) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropGlobalEdgeIndex(PropertyId property) = 0;
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
+        EdgeTypeId edge_type, PropertyId property, DropIndexWrapper wrapper = drop_no_wrap) = 0;
+
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropGlobalEdgeIndex(
+        PropertyId property, DropIndexWrapper wrapper = drop_no_wrap) = 0;
 
     virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> CreatePointIndex(
         storage::LabelId label, storage::PropertyId property) = 0;
@@ -447,7 +470,8 @@ class Storage {
     virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> DropVectorIndex(
         std::string_view index_name) = 0;
 
-    void TryInsertVertexIntoVectorIndex(const VertexAccessor &vertex);
+    virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorEdgeIndex(
+        VectorEdgeIndexSpec spec) = 0;
 
     virtual utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
         LabelId label, PropertyId property) = 0;
@@ -477,8 +501,8 @@ class Storage {
     }
     auto GetEnumStoreShared() const -> EnumStore const & { return storage_->enum_store_; }
 
-    auto CreateEnum(std::string_view name, std::span<std::string const> values)
-        -> memgraph::utils::BasicResult<EnumStorageError, EnumTypeId> {
+    auto CreateEnum(std::string_view name,
+                    std::span<std::string const> values) -> memgraph::utils::BasicResult<EnumStorageError, EnumTypeId> {
       auto res = storage_->enum_store_.RegisterEnum(name, values);
       if (res.HasValue()) {
         transaction_.md_deltas.emplace_back(MetadataDelta::enum_create, res.GetValue());
@@ -486,8 +510,8 @@ class Storage {
       return res;
     }
 
-    auto EnumAlterAdd(std::string_view name, std::string_view value)
-        -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+    auto EnumAlterAdd(std::string_view name,
+                      std::string_view value) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
       auto res = storage_->enum_store_.AddValue(name, value);
       if (res.HasValue()) {
         transaction_.md_deltas.emplace_back(MetadataDelta::enum_alter_add, res.GetValue());
@@ -495,8 +519,8 @@ class Storage {
       return res;
     }
 
-    auto EnumAlterUpdate(std::string_view name, std::string_view old_value, std::string_view new_value)
-        -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+    auto EnumAlterUpdate(std::string_view name, std::string_view old_value,
+                         std::string_view new_value) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
       auto res = storage_->enum_store_.UpdateValue(name, old_value, new_value);
       if (res.HasValue()) {
         transaction_.md_deltas.emplace_back(MetadataDelta::enum_alter_update, res.GetValue(), std::string{old_value});
@@ -506,8 +530,8 @@ class Storage {
 
     auto ShowEnums() { return storage_->enum_store_.AllRegistered(); }
 
-    auto GetEnumValue(std::string_view name, std::string_view value) const
-        -> utils::BasicResult<EnumStorageError, Enum> {
+    auto GetEnumValue(std::string_view name,
+                      std::string_view value) const -> utils::BasicResult<EnumStorageError, Enum> {
       return storage_->enum_store_.ToEnum(name, value);
     }
 
@@ -523,12 +547,21 @@ class Storage {
                                PropertyValue const &bottom_left, PropertyValue const &top_right,
                                WithinBBoxCondition condition) -> PointIterable = 0;
 
-    virtual std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearch(
+    virtual std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearchOnNodes(
+        const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) = 0;
+
+    virtual std::vector<std::tuple<EdgeAccessor, double, double>> VectorIndexSearchOnEdges(
         const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) = 0;
 
     virtual std::vector<VectorIndexInfo> ListAllVectorIndices() const = 0;
 
+    virtual std::vector<VectorEdgeIndexInfo> ListAllVectorEdgeIndices() const = 0;
+
     auto GetNameIdMapper() const -> NameIdMapper * { return storage_->name_id_mapper_.get(); }
+
+    bool CheckIndicesAreReady(IndicesCollection const &required_indices) const {
+      return transaction_.active_indices_.CheckIndicesAreReady(required_indices);
+    }
 
    protected:
     Storage *storage_;
@@ -636,6 +669,16 @@ class Storage {
 
   auto GetReplicaState(std::string_view name) const -> std::optional<replication::ReplicaState> {
     return repl_storage_state_.GetReplicaState(name);
+  }
+
+  auto GetActiveIndices() const -> ActiveIndices {
+    return ActiveIndices{
+        indices_.label_index_->GetActiveIndices(),
+        indices_.label_property_index_->GetActiveIndices(),
+        indices_.edge_type_index_->GetActiveIndices(),
+        indices_.edge_type_property_index_->GetActiveIndices(),
+        indices_.edge_property_index_->GetActiveIndices(),
+    };
   }
 
   // TODO: make non-public

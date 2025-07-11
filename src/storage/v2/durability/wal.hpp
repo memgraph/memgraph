@@ -26,6 +26,8 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
+#include "storage/v2/indices/vector_edge_index.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
@@ -266,6 +268,19 @@ struct WalVectorIndexCreate {
   std::size_t capacity;
   std::optional<std::uint8_t> scalar_kind;  //!< Optional scalar kind, if not set, scalar is not used
 };
+struct WalVectorEdgeIndexCreate {
+  friend bool operator==(const WalVectorEdgeIndexCreate &, const WalVectorEdgeIndexCreate &) = default;
+  using ctr_types = std::tuple<std::string, std::string, std::string, std::string, std::uint16_t, std::uint16_t,
+                               std::size_t, uint8_t>;
+  std::string index_name;
+  std::string edge_type;
+  std::string property;
+  std::string metric_kind;
+  std::uint16_t dimension;
+  std::uint16_t resize_coefficient;
+  std::size_t capacity;
+  std::uint8_t scalar_kind;
+};
 struct WalVectorIndexDrop {
   friend bool operator==(const WalVectorIndexDrop &, const WalVectorIndexDrop &) = default;
   using ctr_types = std::tuple<std::string>;
@@ -284,15 +299,15 @@ struct WalDeltaData {
   }
 
   std::variant<WalVertexCreate, WalVertexDelete, WalVertexAddLabel, WalVertexRemoveLabel, WalVertexSetProperty,
-               WalEdgeSetProperty, WalEdgeCreate, WalEdgeDelete, WalTransactionStart, WalTransactionEnd,
-               WalLabelIndexCreate, WalLabelIndexDrop, WalLabelIndexStatsClear, WalLabelPropertyIndexStatsClear,
-               WalEdgeTypeIndexCreate, WalEdgeTypeIndexDrop, WalEdgePropertyIndexCreate, WalEdgePropertyIndexDrop,
-               WalLabelIndexStatsSet, WalLabelPropertyIndexCreate, WalLabelPropertyIndexDrop, WalPointIndexCreate,
-               WalPointIndexDrop, WalExistenceConstraintCreate, WalExistenceConstraintDrop,
-               WalLabelPropertyIndexStatsSet, WalEdgeTypePropertyIndexCreate, WalEdgeTypePropertyIndexDrop,
-               WalUniqueConstraintCreate, WalUniqueConstraintDrop, WalTypeConstraintCreate, WalTypeConstraintDrop,
-               WalTextIndexCreate, WalTextIndexDrop, WalEnumCreate, WalEnumAlterAdd, WalEnumAlterUpdate,
-               WalVectorIndexCreate, WalVectorIndexDrop>
+               WalEdgeSetProperty, WalEdgeCreate, WalEdgeDelete, WalTransactionStart, WalTransactionEnd, WalLabelIndexCreate,
+               WalLabelIndexDrop, WalLabelIndexStatsClear, WalLabelPropertyIndexStatsClear, WalEdgeTypeIndexCreate,
+               WalEdgeTypeIndexDrop, WalEdgePropertyIndexCreate, WalEdgePropertyIndexDrop, WalLabelIndexStatsSet,
+               WalLabelPropertyIndexCreate, WalLabelPropertyIndexDrop, WalPointIndexCreate, WalPointIndexDrop,
+               WalExistenceConstraintCreate, WalExistenceConstraintDrop, WalLabelPropertyIndexStatsSet,
+               WalEdgeTypePropertyIndexCreate, WalEdgeTypePropertyIndexDrop, WalUniqueConstraintCreate,
+               WalUniqueConstraintDrop, WalTypeConstraintCreate, WalTypeConstraintDrop, WalTextIndexCreate,
+               WalTextIndexDrop, WalEnumCreate, WalEnumAlterAdd, WalEnumAlterUpdate, WalVectorIndexCreate,
+               WalVectorIndexDrop, WalVectorEdgeIndexCreate>
       data_ = WalTransactionEnd{};
 };
 
@@ -344,6 +359,7 @@ constexpr bool IsWalDeltaDataImplicitTransactionEndVersion15(const WalDeltaData 
                         [](WalTypeConstraintCreate const &) { return true; },
                         [](WalTypeConstraintDrop const &) { return true; },
                         [](WalVectorIndexCreate const &) { return true; },
+                        [](WalVectorEdgeIndexCreate const &) { return true; },
                         [](WalVectorIndexDrop const &) { return true; },
                     },
                     delta.data_);
@@ -417,6 +433,7 @@ void EncodeLabelStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelI
 void EncodeTextIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, std::string_view text_index_name,
                      LabelId label);
 void EncodeVectorIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const VectorIndexSpec &spec);
+void EncodeVectorEdgeIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const VectorEdgeIndexSpec &spec);
 void EncodeVectorIndexName(BaseEncoder &encoder, std::string_view index_name);
 
 void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, uint64_t timestamp);

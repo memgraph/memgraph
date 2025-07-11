@@ -15,25 +15,30 @@
 
 namespace memgraph::storage {
 
-class DiskEdgeTypeIndex : public storage::EdgeTypeIndex {
+class DiskEdgeTypeIndex : public EdgeTypeIndex {
  public:
+  struct ActiveIndices : EdgeTypeIndex::ActiveIndices {
+    bool IndexReady(EdgeTypeId edge_type) const override;
+
+    bool IndexRegistered(EdgeTypeId edge_type) const override;
+
+    auto ListIndices(uint64_t start_timestamp) const -> std::vector<EdgeTypeId> override;
+
+    auto ApproximateEdgeCount(EdgeTypeId edge_type) const -> uint64_t override;
+
+    void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
+                              const Transaction &tx) override;
+
+    void AbortEntries(AbortableInfo const &info, uint64_t exact_start_timestamp) override {}
+
+    auto GetAbortProcessor() const -> AbortProcessor override;
+  };
+
   bool DropIndex(EdgeTypeId edge_type) override;
-
-  bool IndexExists(EdgeTypeId edge_type) const override;
-
-  std::vector<EdgeTypeId> ListIndices() const override;
-
-  uint64_t ApproximateEdgeCount(EdgeTypeId edge_type) const override;
-
-  void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
-                            const Transaction &tx) override;
-
-  void UpdateOnEdgeModification(Vertex *old_from, Vertex *old_to, Vertex *new_from, Vertex *new_to, EdgeRef edge_ref,
-                                EdgeTypeId edge_type, const Transaction &tx) override;
 
   void DropGraphClearIndices() override;
 
-  void AbortEntries(AbortableInfo const &info, uint64_t exact_start_timestamp) override {}
+  auto GetActiveIndices() const -> std::unique_ptr<EdgeTypeIndex::ActiveIndices> override;
 };
 
 }  // namespace memgraph::storage

@@ -216,7 +216,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   {
     spdlog::info("Recreating {} label indices from metadata.", indices_metadata.label.size());
     for (const auto &item : indices_metadata.label) {
-      if (!mem_label_index->CreateIndex(item, vertices->access(), parallel_exec_info, snapshot_info)) {
+      if (!mem_label_index->CreateIndexOnePass(item, vertices->access(), parallel_exec_info, snapshot_info)) {
         throw RecoveryFailure("The label index must be created here!");
       }
       spdlog::info("Index on :{} is recreated from metadata", name_id_mapper->IdToName(item.AsUint()));
@@ -239,8 +239,8 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   {
     spdlog::info("Recreating {} label+property indices from metadata.", indices_metadata.label_properties.size());
     for (auto const &[label, properties] : indices_metadata.label_properties) {
-      if (!mem_label_property_index->CreateIndex(label, properties, vertices->access(), parallel_exec_info,
-                                                 snapshot_info))
+      if (!mem_label_property_index->CreateIndexOnePass(label, properties, vertices->access(), parallel_exec_info,
+                                                        snapshot_info))
         throw RecoveryFailure("The label+property index must be created here!");
       spdlog::info("Index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(label.AsUint()),
                    PropertyPathFormatter{properties, name_id_mapper});
@@ -270,7 +270,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
 
     for (const auto &item : indices_metadata.edge) {
       // TODO: parallel execution
-      if (!mem_edge_type_index->CreateIndex(item, vertices->access(), snapshot_info)) {
+      if (!mem_edge_type_index->CreateIndexOnePass(item, vertices->access(), snapshot_info)) {
         throw RecoveryFailure("The edge-type index must be created here!");
       }
       spdlog::info("Index on :{} is recreated from metadata", name_id_mapper->IdToName(item.AsUint()));
@@ -286,7 +286,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
       static_cast<InMemoryEdgeTypePropertyIndex *>(indices->edge_type_property_index_.get());
   for (const auto &item : indices_metadata.edge_type_property) {
     // TODO: parallel execution
-    if (!mem_edge_type_property_index->CreateIndex(item.first, item.second, vertices->access(), snapshot_info)) {
+    if (!mem_edge_type_property_index->CreateIndexOnePass(item.first, item.second, vertices->access(), snapshot_info)) {
       throw RecoveryFailure("The edge-type property index must be created here!");
     }
     spdlog::info("Index on :{} + {} is recreated from metadata", name_id_mapper->IdToName(item.first.AsUint()),
@@ -301,7 +301,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   auto *mem_edge_property_index = static_cast<InMemoryEdgePropertyIndex *>(indices->edge_property_index_.get());
   for (const auto &property : indices_metadata.edge_property) {
     // TODO: parallel execution
-    if (!mem_edge_property_index->CreateIndex(property, vertices->access(), snapshot_info)) {
+    if (!mem_edge_property_index->CreateIndexOnePass(property, vertices->access(), snapshot_info)) {
       throw RecoveryFailure("The global edge property index must be created here!");
     }
     spdlog::info("Edge index on property {} is recreated from metadata", name_id_mapper->IdToName(property.AsUint()));
@@ -342,7 +342,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
     }
     spdlog::info("Point indices are recreated.");
   }
-  // Vector idx
+  // Vector idx on nodes
   {
     spdlog::info("Recreating {} vector indices from metadata.", indices_metadata.vector_indices.size());
     auto vertices_acc = vertices->access();
@@ -350,10 +350,24 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
       if (!indices->vector_index_.CreateIndex(spec, vertices_acc, snapshot_info)) {
         throw RecoveryFailure("The vector index must be created here!");
       }
-      spdlog::info("Vector index on :{}({}) is recreated from metadata", name_id_mapper->IdToName(spec.label.AsUint()),
-                   name_id_mapper->IdToName(spec.property.AsUint()));
+      spdlog::info("Vector index on :{}({}) is recreated from metadata",
+                   name_id_mapper->IdToName(spec.label_id.AsUint()), name_id_mapper->IdToName(spec.property.AsUint()));
     }
     spdlog::info("Vector indices are recreated.");
+  }
+  // Vector idx on edges
+  {
+    spdlog::info("Recreating {} vector edge indices from metadata.", indices_metadata.vector_edge_indices.size());
+    auto vertices_acc = vertices->access();
+    for (const auto &spec : indices_metadata.vector_edge_indices) {
+      if (!indices->vector_edge_index_.CreateIndex(spec, vertices_acc, snapshot_info)) {
+        throw RecoveryFailure("The vector edge index must be created here!");
+      }
+      spdlog::info("Vector edge index on :{}({}) is recreated from metadata",
+                   name_id_mapper->IdToName(spec.edge_type_id.AsUint()),
+                   name_id_mapper->IdToName(spec.property.AsUint()));
+    }
+    spdlog::info("Vector edge indices are recreated.");
   }
 
   spdlog::info("Indices are recreated.");
