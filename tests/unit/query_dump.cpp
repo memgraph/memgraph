@@ -1000,7 +1000,7 @@ TYPED_TEST(DumpTest, VectorEdgeIndices) {
     auto u = CreateVertex(dba.get(), {}, {}, false);
     auto v = CreateVertex(dba.get(), {}, {}, false);
     CreateEdge(dba.get(), &u, &v, "EdgeType", {{vector_property_id, property_value}}, false);
-    ASSERT_FALSE(dba->Commit().HasError());
+    ASSERT_FALSE(dba->PrepareForCommitPhase().HasError());
   }
 
   {
@@ -1014,7 +1014,7 @@ TYPED_TEST(DumpTest, VectorEdgeIndices) {
                                                              scalar_kind};
     auto unique_acc = this->db->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateVectorEdgeIndex(spec).HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
   }
 
   {
