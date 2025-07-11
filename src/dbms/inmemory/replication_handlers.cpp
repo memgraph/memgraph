@@ -313,8 +313,6 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
     return;
   }
 
-  spdlog::info("Preparing for commit for db {}", db_acc->get()->name());
-
   // Read at the beginning so that SLK stream gets cleared even when the request is invalid
   storage::replication::Decoder decoder(req_reader);
   auto maybe_epoch_id = decoder.ReadString();
@@ -329,7 +327,6 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
   auto &repl_storage_state = storage->repl_storage_state_;
   if (*maybe_epoch_id != repl_storage_state.epoch_.id()) {
     auto prev_epoch = repl_storage_state.epoch_.SetEpoch(*maybe_epoch_id);
-    spdlog::trace("Set epoch to {} for db {}", *maybe_epoch_id, storage->name());
     repl_storage_state.AddEpochToHistoryForce(prev_epoch);
   }
 
@@ -341,7 +338,6 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
     if (*maybe_epoch_id != repl_storage_state.epoch_.id()) {
       storage->wal_file_->FinalizeWal();
       storage->wal_file_.reset();
-      spdlog::trace("Current WAL file finalized successfully for db {}.", storage->name());
     }
   }
 
@@ -350,7 +346,6 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
     // Empty the stream
     bool transaction_complete{false};
     while (!transaction_complete) {
-      spdlog::info("Skipping delta");
       const auto [_, delta] = ReadDelta(&decoder, storage::durability::kVersion);
       transaction_complete = IsWalDeltaDataTransactionEnd(delta, storage::durability::kVersion);
     }

@@ -2750,7 +2750,6 @@ TEST_P(DurabilityTest, WalMissingSecond) {
     auto wals = GetWalsList();
     ASSERT_GT(wals.size(), unrelated_wals + 2);
     const auto &wal_file = wals[wals.size() - unrelated_wals - 2];
-    spdlog::info("Deleting WAL file {}", wal_file);
     ASSERT_TRUE(std::filesystem::remove(wal_file));
   }
 

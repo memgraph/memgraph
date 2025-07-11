@@ -642,8 +642,6 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
         } else if (epoch_history->back().second < *last_loaded_timestamp) {
           // existing epoch, update with newer timestamp
           epoch_history->back().second = *last_loaded_timestamp;
-          spdlog::trace("Updating existing epoch {} with newer timestamp {}", epoch_history->back().second,
-                        *last_loaded_timestamp);
         }
 
       } catch (const RecoveryFailure &e) {
