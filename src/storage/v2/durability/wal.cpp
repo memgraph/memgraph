@@ -615,37 +615,30 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
       auto timestamp = ReadWalDeltaHeader(&wal);
       auto is_transaction_end = SkipWalDeltaData(&wal, version);
       return {{timestamp, is_transaction_end}};
-    } catch (const RecoveryFailure &) {
-      return std::nullopt;
+    } catch (const RecoveryFailure &e) {
+      LOG_FATAL("Error occurred while reading WAL info: {}", e.what());
     }
   };
   auto size = wal.GetSize();
-  // Here we read the whole file and determine the number of valid deltas. A
-  // delta is valid only if all of its data can be successfully read. This
-  // allows us to recover data from WAL files that are corrupt at the end (eg.
-  // because of power loss) but are still valid at the beginning. While reading
-  // the deltas we only count deltas which are a part of a fully valid
-  // transaction (indicated by a TRANSACTION_END delta or any other
-  // non-transactional operation).
   std::optional<uint64_t> current_timestamp;
-  uint64_t num_deltas = 0;
+  uint64_t num_deltas_in_txn = 0;
   while (wal.GetPosition() != size) {
     auto ret = validate_delta();
     if (!ret) break;
     auto [timestamp, is_end_of_transaction] = *ret;
     if (!current_timestamp) current_timestamp = timestamp;
     if (*current_timestamp != timestamp) break;
-    ++num_deltas;
+    ++num_deltas_in_txn;
     if (is_end_of_transaction) {
+      // Update from_timestamp only the 1st time
       if (info.num_deltas == 0) {
         info.from_timestamp = timestamp;
-        info.to_timestamp = timestamp;
       }
-      if (timestamp < info.from_timestamp || timestamp < info.to_timestamp) break;
+
       info.to_timestamp = timestamp;
-      info.num_deltas += num_deltas;
+      info.num_deltas += num_deltas_in_txn;
       current_timestamp = std::nullopt;
-      num_deltas = 0;
+      num_deltas_in_txn = 0;
     }
   }
 
