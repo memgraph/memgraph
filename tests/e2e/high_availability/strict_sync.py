@@ -214,7 +214,6 @@ def test_uc_replication(test_name):
 
 # The test tests that STRICT_SYNC replicas cannot be used together with SYNC replicas
 @pytest.mark.parametrize("first_suffix, second_suffix", [("AS STRICT_SYNC", ""), ("", "AS STRICT_SYNC")])
-# @pytest.mark.skip(reason="works")
 def test_strict_sync_and_sync_forbidden(test_name, first_suffix, second_suffix):
     inner_instances_description = get_instances_description_no_setup(test_name=test_name)
     interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
@@ -273,7 +272,6 @@ def run_until_success(cursor, query):
 # We test the behavior in which replica was 1st down: during that time, commits don't pass on MAIN
 # Replica comes up, main should be able to commit
 # Replica and main both go down, main restarts first => it should see a txn committed
-# @pytest.mark.skip(reason="Works")
 def test_replica_down_up_works(test_name):
     inner_instances_description = setup_cluster(test_name, get_default_setup_queries())
 
@@ -302,7 +300,6 @@ def test_replica_down_up_works(test_name):
 
 # Tests that when all replicas are UP, 2PC should work
 # After instances restart, they should still see the same data as upon committing
-# @pytest.mark.skip(reason="works")
 def test_commit_works(test_name):
     inner_instances_description = setup_cluster(test_name, get_default_setup_queries())
     # Create data on MAIN
@@ -322,7 +319,6 @@ def test_commit_works(test_name):
     check_if_data_preserved_after_restart(inner_instances_description, "instance_3", 7689)
 
 
-# @pytest.mark.skip(reason="works")
 def test_async_commit_works(test_name):
     inner_instances_description = setup_cluster(test_name, get_mixed_setup_queries())
     # Create data on MAIN
@@ -352,7 +348,6 @@ def test_async_commit_works(test_name):
 
 
 # One replica is down before commit starts on MAIN, hence in-memory state should be preserved and commit should fail
-# @pytest.mark.skip(reason="works")
 def test_replica_down_before_commit(test_name):
     inner_instances_description = setup_cluster(test_name, get_default_setup_queries())
 
@@ -383,7 +378,6 @@ def test_replica_down_before_commit(test_name):
 # One of replicas was down during the commit hence the txn will get aborted
 # Test that the other replica which was alive all the time and which receive PrepareRpc
 # won't contain any data after the restart.
-# @pytest.mark.skip(reason="works")
 def test_replica_after_restart_no_committed_data(test_name):
     inner_instances_description = setup_cluster(test_name, get_default_setup_queries())
 
@@ -418,7 +412,6 @@ def task(db):
         execute_and_fetch_all(main_cursor, get_query(i))
 
 
-# @pytest.mark.skip(reason="works")
 def test_mt_strict_sync_commit(test_name):
     setup_cluster(test_name, get_default_setup_queries())
 

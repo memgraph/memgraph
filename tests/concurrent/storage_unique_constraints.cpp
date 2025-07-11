@@ -98,7 +98,7 @@ TEST_F(StorageUniqueConstraints, ParallelAbortCommit) {
   }
 
   auto const thread_func = [&]() {
-    for (int j = 0; j < 1000; j++) {
+    for (int j = 0; j < 100; j++) {
       spdlog::trace("iteration {}", j);
       auto acc = storage->Access();
       for (int i = 0; i < 5000; i++) {

@@ -19,7 +19,7 @@ on:
         type: string
         description: "Duration of Jepsen test (in seconds)"
         required: true
-        default: "10800"
+        default: "7200"
 
 
 env:

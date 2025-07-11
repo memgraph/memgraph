@@ -147,23 +147,6 @@ class InMemoryStorage final : public Storage {
 
     void CheckForFastDiscardOfDeltas();
 
-    template <class T, class TMutex = std::mutex>
-    void CreateAutoIndices(utils::Synchronized<T, TMutex> &indices) {
-      indices.WithLock([&](auto &label_indices) {
-        for (auto &label : label_indices) {
-          --label.second;
-          // If there are multiple transactions that would like to create an
-          // auto-created index on a specific label, we only build the index
-          // when the last one commits.
-          if (label.second == 0) {
-            // NOLINTNEXTLINE
-            CreateIndex(label.first, false);
-            label_indices.erase(label.first);
-          }
-        }
-      });
-    }
-
     [[nodiscard]] bool HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
                                                     DatabaseAccessProtector db_acc,
                                                     TransactionReplication &replicating_txn,
@@ -542,8 +525,8 @@ class InMemoryStorage final : public Storage {
     /// View is not needed because a new rtree gets created for each transaction and it is always
     /// using the latest version
     auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
-                       PropertyValue const &bottom_left, PropertyValue const &top_right,
-                       WithinBBoxCondition condition) -> PointIterable override;
+                       PropertyValue const &bottom_left, PropertyValue const &top_right, WithinBBoxCondition condition)
+        -> PointIterable override;
 
     std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearchOnNodes(
         const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) override;
