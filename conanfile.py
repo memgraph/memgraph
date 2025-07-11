@@ -31,6 +31,7 @@ class Memgraph(ConanFile):
     def build_requirements(self):
         self.tool_requires("cmake/4.0.3")
         self.tool_requires("ninja/1.11.1")
+        self.tool_requires("mgconsole/1.4.0")
 
     def requirements(self):
         self.requires("bzip2/1.0.8")  # MG currently uses 1.0.6
@@ -51,7 +52,6 @@ class Memgraph(ConanFile):
         self.requires("range-v3/0.12.0")
         self.requires("asio/1.34.2")
         self.requires("openssl/3.5.1")
-        self.requires("mgclient/1.4.3", options={"with_cpp": True})
 
     def package(self):
         cmake = CMake(self)
