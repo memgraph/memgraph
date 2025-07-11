@@ -193,7 +193,6 @@ class DeltaGenerator final {
   void ResetTransactionIds() {
     transaction_id_ = memgraph::storage::kTransactionInitialId;
     timestamp_ = memgraph::storage::kTimestampInitialId;
-    valid_ = false;
   }
 
   void AppendOperation(memgraph::storage::durability::StorageMetadataOperation operation, const std::string &label,

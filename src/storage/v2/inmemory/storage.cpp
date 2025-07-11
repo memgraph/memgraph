@@ -753,51 +753,47 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       return StorageManipulationError{*maybe_violation};
     }
 
-    // Save these so we can mark them used in the commit log.
-    uint64_t start_timestamp = transaction_.start_timestamp;
+    auto engine_guard = std::unique_lock{storage_->engine_lock_};
 
-    {
-      auto engine_guard = std::unique_lock{storage_->engine_lock_};
-
-      // LabelIndex auto-creation block.
-      if (!transaction_.introduced_new_label_index_.empty()) {
-        storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) {
-          for (auto label : transaction_.introduced_new_label_index_) {
-            auto it = label_indices.find(label);
-            auto &[_, count] = *it;
-            --count;
-            // If there are multiple transactions that would like to create an
-            // auto-created index on a specific label, we only build the index
-            // when the last one commits.
-            if (count == 0) {
-              // TODO: (andi) Handle auto-creation issue
-              // NOLINTNEXTLINE(clang-diagnostic-unused-result)
-              CreateIndex(label, false);
-              label_indices.erase(it);
-            }
+    // LabelIndex auto-creation block.
+    if (!transaction_.introduced_new_label_index_.empty()) {
+      storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) {
+        for (auto label : transaction_.introduced_new_label_index_) {
+          auto it = label_indices.find(label);
+          auto &[_, count] = *it;
+          --count;
+          // If there are multiple transactions that would like to create an
+          // auto-created index on a specific label, we only build the index
+          // when the last one commits.
+          if (count == 0) {
+            // TODO: (andi) Handle auto-creation issue
+            // NOLINTNEXTLINE(clang-diagnostic-unused-result)
+            CreateIndex(label, false);
+            label_indices.erase(it);
           }
-        });
-      }
+        }
+      });
+    }
 
-      // EdgeIndex auto-creation block.
-      if (!transaction_.introduced_new_edge_type_index_.empty()) {
-        storage_->edge_types_to_auto_index_.WithLock([&](auto &edge_type_indices) {
-          for (auto edge_type : transaction_.introduced_new_edge_type_index_) {
-            auto it = edge_type_indices.find(edge_type);
-            auto &[_, count] = *it;
-            --count;
-            // If there are multiple transactions that would like to create an
-            // auto-created index on a specific edge-type, we only build the index
-            // when the last one commits.
-            if (count == 0) {
-              // TODO: (andi) Handle silent failure
-              // NOLINTNEXTLINE(clang-diagnostic-unused-result)
-              CreateIndex(edge_type, false);
-              edge_type_indices.erase(it);
-            }
+    // EdgeIndex auto-creation block.
+    if (!transaction_.introduced_new_edge_type_index_.empty()) {
+      storage_->edge_types_to_auto_index_.WithLock([&](auto &edge_type_indices) {
+        for (auto edge_type : transaction_.introduced_new_edge_type_index_) {
+          auto it = edge_type_indices.find(edge_type);
+          auto &[_, count] = *it;
+          --count;
+          // If there are multiple transactions that would like to create an
+          // auto-created index on a specific edge-type, we only build the index
+          // when the last one commits.
+          if (count == 0) {
+            // TODO: (andi) Handle silent failure
+            // NOLINTNEXTLINE(clang-diagnostic-unused-result)
+            CreateIndex(edge_type, false);
+            edge_type_indices.erase(it);
           }
-        });
-      }
+        }
+      });
+    }
 
     commit_timestamp_.emplace(mem_storage->GetCommitTimestamp());
 
@@ -943,7 +939,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   // Install the new point index, if needed
   mem_storage->indices_.point_index_.InstallNewPointIndex(transaction_.point_index_change_collector_,
                                                           transaction_.point_index_ctx_);
-  
+
   // Call other callbacks that publish/install upon commit
   transaction_.commit_callbacks_.RunAll(*commit_timestamp_);
 
@@ -2629,7 +2625,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       }
       case MetadataDelta::Action::VECTOR_EDGE_INDEX_CREATE: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeVectorEdgeIndexSpec(encoder, *name_id_mapper_, md_delta.vector_edge_index_spec);
+          EncodeVectorEdgeIndexSpec(encoder, *mem_storage->name_id_mapper_, md_delta.vector_edge_index_spec);
         });
         break;
       }

@@ -43,9 +43,6 @@
 
 namespace memgraph::storage {
 
-constexpr uint64_t kTimestampInitialId = 0;
-constexpr uint64_t kTransactionInitialId = 1ULL << 63U;
-
 struct CommitCallbacks {
   using func_t = std::function<void(uint64_t)>;
   void Add(func_t callback) { callbacks_.emplace_back(std::move(callback)); }
@@ -58,7 +55,6 @@ struct CommitCallbacks {
 
   std::vector<std::function<void(uint64_t)>> callbacks_;
 };
-
 
 struct Transaction {
   Transaction(uint64_t transaction_id, uint64_t start_timestamp, IsolationLevel isolation_level,

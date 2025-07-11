@@ -621,7 +621,8 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
       auto is_transaction_end = SkipWalDeltaData(&wal, version);
       return {{timestamp, is_transaction_end}};
     } catch (const RecoveryFailure &e) {
-      LOG_FATAL("Error occurred while reading WAL info: {}", e.what());
+      spdlog::error("Error occurred while reading WAL info: {}", e.what());
+      return std::nullopt;
     }
   };
   auto size = wal.GetSize();
