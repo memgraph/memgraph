@@ -24,6 +24,7 @@
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
 #include "storage/v2/storage_error.hpp"
+#include "storage/v2/transaction_dependencies.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/vertices_iterable.hpp"
 #include "utils/event_counter.hpp"
@@ -680,11 +681,6 @@ class Storage {
     };
   }
 
- protected:
-  void RegisterTransaction(uint64_t transaction_id);
-  void UnregisterTransaction(uint64_t transaction_id);
-
- public:
   // TODO: make non-public
   ReplicationStorageState repl_storage_state_;
 
@@ -746,12 +742,7 @@ class Storage {
 
   SchemaInfo schema_info_;
 
-  struct ActiveTransactionInfo {
-    uint64_t transaction_id;
-  };
-
-  std::mutex active_transactions_mutex_;
-  std::unordered_map<uint64_t, ActiveTransactionInfo> active_transactions_;
+  TransactionDependencies transaction_dependencies_;
 };
 
 inline std::ostream &operator<<(std::ostream &os, Storage::Accessor::Type type) {
