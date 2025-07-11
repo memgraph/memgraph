@@ -158,8 +158,9 @@ Storage::Accessor::Accessor(ReadOnlyAccess /* tag */, Storage *storage, Isolatio
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),
       original_access_type_(StorageAccessType::READ_ONLY),
-      creation_storage_mode_(storage_mode) {}
-creation_storage_mode_(storage_mode) { storage_->RegisterTransaction(transaction_.transaction_id); }
+      creation_storage_mode_(storage_mode) {
+  storage_->RegisterTransaction(transaction_.transaction_id);
+}
 
 Storage::Accessor::Accessor(Accessor &&other) noexcept
     : storage_(other.storage_),

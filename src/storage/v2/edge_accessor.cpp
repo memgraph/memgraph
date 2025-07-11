@@ -155,7 +155,8 @@ Result<storage::PropertyValue> EdgeAccessor::SetProperty(PropertyId property, co
 
   auto guard = std::unique_lock{edge_.ptr->lock};
 
-  if (!PrepareForWrite(transaction_, edge_.ptr)) return std::unexpected{Error::SERIALIZATION_ERROR};
+  if (!PrepareForWriteWithRetry(transaction_, edge_.ptr, storage_->transaction_dependencies_))
+    return std::unexpected{Error::SERIALIZATION_ERROR};
 
   if (edge_.ptr->deleted) return std::unexpected{Error::DELETED_OBJECT};
   using ReturnType = decltype(edge_.ptr->properties.GetProperty(property));
@@ -208,7 +209,8 @@ Result<bool> EdgeAccessor::InitProperties(std::map<storage::PropertyId, storage:
 
   auto guard = std::unique_lock{edge_.ptr->lock};
 
-  if (!PrepareForWrite(transaction_, edge_.ptr)) return std::unexpected{Error::SERIALIZATION_ERROR};
+  if (!PrepareForWriteWithRetry(transaction_, edge_.ptr, storage_->transaction_dependencies_))
+    return std::unexpected{Error::SERIALIZATION_ERROR};
 
   if (edge_.ptr->deleted) return std::unexpected{Error::DELETED_OBJECT};
 
@@ -249,7 +251,8 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> EdgeAc
 
   auto guard = std::unique_lock{edge_.ptr->lock};
 
-  if (!PrepareForWrite(transaction_, edge_.ptr)) return std::unexpected{Error::SERIALIZATION_ERROR};
+  if (!PrepareForWriteWithRetry(transaction_, edge_.ptr, storage_->transaction_dependencies_))
+    return std::unexpected{Error::SERIALIZATION_ERROR};
 
   if (edge_.ptr->deleted) return std::unexpected{Error::DELETED_OBJECT};
 
@@ -293,7 +296,8 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::ClearProperties() {
 
   auto guard = std::unique_lock{edge_.ptr->lock};
 
-  if (!PrepareForWrite(transaction_, edge_.ptr)) return std::unexpected{Error::SERIALIZATION_ERROR};
+  if (!PrepareForWriteWithRetry(transaction_, edge_.ptr, storage_->transaction_dependencies_))
+    return std::unexpected{Error::SERIALIZATION_ERROR};
 
   if (edge_.ptr->deleted) return std::unexpected{Error::DELETED_OBJECT};
 

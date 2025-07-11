@@ -70,6 +70,7 @@ target_sources(mg-storage-v2
         storage_mode.cpp
         temporal.cpp
         transaction.cpp
+        transaction_dependencies.cpp
         vertex_accessor.cpp
         vertex_info_cache.cpp
         vertices_iterable.cpp
@@ -130,6 +131,7 @@ target_sources(mg-storage-v2
         storage.hpp
         transaction.hpp
         transaction_constants.hpp
+        transaction_dependencies.hpp
         ttl.hpp
         vertex_info_cache.hpp
         vertex_info_cache_fwd.hpp
