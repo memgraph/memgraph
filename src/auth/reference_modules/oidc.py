@@ -6,7 +6,6 @@ import os
 import time
 
 import jwt
-
 import requests
 
 
@@ -68,13 +67,16 @@ def _load_role_mappings(raw_role_mappings: str) -> dict:
         role_mapping = {}
         raw_role_mappings = raw_role_mappings.strip().split(";")
         for mapping in raw_role_mappings:
-            mapping_list = mapping.split(":")
-            if len(mapping_list) == 0:
+            if not mapping.strip():
                 continue
+            mapping_list = mapping.split(":")
             if len(mapping_list) != 2:
                 raise ValueError(f"Invalid role mapping: {mapping}")
-            idp_role, mg_role = mapping_list
-            role_mapping[idp_role.strip()] = mg_role.strip()
+            idp_role, mg_roles = mapping_list
+            roles = [role.strip() for role in mg_roles.split(",") if role.strip()]
+            if not roles:
+                raise ValueError(f"No valid roles specified for: {idp_role}")
+            role_mapping[idp_role.strip()] = roles
         return role_mapping
 
     raise ValueError("Missing role mappings")
@@ -86,6 +88,7 @@ def _load_config_from_env(scheme: str):
     if scheme == "oidc-entra-id":
         config["client_id"] = os.environ.get("MEMGRAPH_SSO_ENTRA_ID_OIDC_CLIENT_ID", "")
         config["tenant_id"] = os.environ.get("MEMGRAPH_SSO_ENTRA_ID_OIDC_TENANT_ID", "")
+        config["role_field"] = os.environ.get("MEMGRAPH_SSO_ENTRA_ID_OIDC_ROLE_FIELD", "roles")
         config["username"] = os.environ.get("MEMGRAPH_SSO_ENTRA_ID_OIDC_USERNAME", "id:sub")
         config["role_mapping"] = _load_role_mappings(os.environ.get("MEMGRAPH_SSO_ENTRA_ID_OIDC_ROLE_MAPPING", {}))
 
@@ -93,6 +96,7 @@ def _load_config_from_env(scheme: str):
         config["client_id"] = os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_CLIENT_ID", "")
         config["id_issuer"] = os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_ISSUER", "")
         config["authorization_server"] = os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_AUTHORIZATION_SERVER", "")
+        config["role_field"] = os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_ROLE_FIELD", "groups")
         config["username"] = os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_USERNAME", "id:sub")
         config["role_mapping"] = _load_role_mappings(os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_ROLE_MAPPING", {}))
 
@@ -124,14 +128,7 @@ def process_tokens(tokens: tuple, config: dict, scheme: str):
 
     access_token = access_token["token"]
     id_token = id_token["token"]
-
-    roles_field = ""
-    if scheme == "oidc-entra-id":
-        roles_field = "roles"
-    elif scheme == "oidc-okta":
-        roles_field = "groups"
-    elif scheme == "oidc-custom":
-        roles_field = config["role_field"]
+    roles_field = config["role_field"]
 
     if roles_field not in access_token:
         return {
@@ -139,24 +136,22 @@ def process_tokens(tokens: tuple, config: dict, scheme: str):
             "errors": f"Missing roles field named {roles_field}, roles are probably not correctly configured on the token issuer",
         }
 
-    role = access_token[roles_field]
-
-    if isinstance(role, list):
-        # if multiple roles map to same memgraph role, thats ok
-        matching_roles = {config["role_mapping"][r] for r in role if r in config["role_mapping"]}
-
-        if len(matching_roles) == 0:
-            return {"authenticated": False, "errors": f"Cannot map any of the roles {sorted(role)} to Memgraph roles"}
-        if len(matching_roles) > 1:
-            return {
-                "authenticated": False,
-                "errors": f"Multiple roles {sorted(matching_roles)} can mapped to Memgraph roles. Only one matching role must exist",
-            }
-        role = next(iter(matching_roles))
-    elif isinstance(role, str):
-        if role not in config["role_mapping"]:
-            return {"authenticated": False, "errors": f"Cannot map role {role} to Memgraph role"}
-        role = config["role_mapping"][role]
+    roles = []
+    idp_roles = access_token[roles_field]
+    if isinstance(idp_roles, list):
+        matching_roles = set()
+        
+        for idp_role in idp_roles:
+            if idp_role in config["role_mapping"]:
+                matching_roles.update(config["role_mapping"][idp_role])
+        
+        if not matching_roles:
+            return {"authenticated": False, "errors": f"Cannot map any of the roles {sorted(idp_roles)} to Memgraph roles"}
+        roles = list(matching_roles)
+    elif isinstance(idp_roles, str):
+        if idp_roles not in config["role_mapping"]:
+            return {"authenticated": False, "errors": f"Cannot map role {idp_roles} to Memgraph role"}
+        roles = config["role_mapping"][idp_roles]
 
     token_type, field = config["username"].split(":")
     if (token_type == "id" and field not in id_token) or (token_type == "access" and field not in access_token):
@@ -164,7 +159,7 @@ def process_tokens(tokens: tuple, config: dict, scheme: str):
 
     return {
         "authenticated": True,
-        "role": role,
+        "roles": roles,
         "username": id_token[field] if token_type == "id" else access_token[field],
     }
 
