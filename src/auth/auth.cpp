@@ -84,8 +84,7 @@ struct UpdateAuthData : memgraph::system::ISystemAction {
   explicit UpdateAuthData(User user) : user_{std::move(user)}, role_{std::nullopt} {}
   explicit UpdateAuthData(Role role) : user_{std::nullopt}, role_{std::move(role)} {}
 
-  void DoDurability() override { /* Done during Auth execution */
-  }
+  void DoDurability() override { /* Done during Auth execution */ }
 
   bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
                      replication::ReplicationEpoch const &epoch,
@@ -118,8 +117,7 @@ struct DropAuthData : memgraph::system::ISystemAction {
 
   explicit DropAuthData(AuthDataType type, std::string_view name) : type_{type}, name_{name} {}
 
-  void DoDurability() override { /* Done during Auth execution */
-  }
+  void DoDurability() override { /* Done during Auth execution */ }
 
   bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
                      replication::ReplicationEpoch const &epoch,
