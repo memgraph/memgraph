@@ -25,7 +25,6 @@
 #include "utils/observer.hpp"
 
 #include <spdlog/spdlog.h>
-#include <cstdint>
 #include <optional>
 #include <range/v3/view/filter.hpp>
 #include <range/v3/view/transform.hpp>
@@ -204,7 +203,7 @@ void LogWrongMain(const std::optional<utils::UUID> &current_main_uuid, const uti
 }
 }  // namespace
 
-std::unique_ptr<storage::ReplicationAccessor> InMemoryReplicationHandlers::cached_commit_accessor_;
+TwoPCCache InMemoryReplicationHandlers::two_pc_cache_;
 
 void InMemoryReplicationHandlers::Register(dbms::DbmsHandler *dbms_handler, replication::RoleReplicaData &data) {
   auto &server = *data.server;
@@ -361,7 +360,8 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
 
   storage::replication::PrepareCommitRes res{false};
   if (deltas_res.has_value()) {
-    cached_commit_accessor_ = std::move(deltas_res->commit_acc);
+    two_pc_cache_.commit_accessor_ = std::move(deltas_res->commit_acc);
+    two_pc_cache_.durability_commit_timestamp_ = req.durability_commit_timestamp;
     res.success = true;
   }
   rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
@@ -392,8 +392,16 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
   // If cached accessor is nullptr, and we should abort (e.g. exception was thrown while processing deltas), we can
   // safely return here OK because it means that the abort already happened while destructing accessor during
   // ReadAndApplyDeltasSingleTxn
-  if (!cached_commit_accessor_) {
+  if (!two_pc_cache_.commit_accessor_) {
     spdlog::warn("Cached commit accessor became invalid between two phases");
+    storage::replication::FinalizeCommitRes const res(true);
+    rpc::SendFinalResponse(res, res_builder);
+    return;
+  }
+
+  if (req.durability_commit_timestamp != two_pc_cache_.durability_commit_timestamp_) {
+    spdlog::warn("Trying to finalize txn with ldt {} but the last prepared txn is with ldt {}",
+                 req.durability_commit_timestamp, two_pc_cache_.durability_commit_timestamp_);
     storage::replication::FinalizeCommitRes const res(true);
     rpc::SendFinalResponse(res, res_builder);
     return;
@@ -403,14 +411,14 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
 
   if (req.decision) {
     spdlog::trace("Trying to finalize on replica");
-    cached_commit_accessor_->FinalizeCommitPhase(req.durability_commit_timestamp);
+    two_pc_cache_.commit_accessor_->FinalizeCommitPhase(req.durability_commit_timestamp);
     spdlog::trace("Finalized on replica");
   } else {
-    cached_commit_accessor_->AbortAndResetCommitTs();
+    two_pc_cache_.commit_accessor_->AbortAndResetCommitTs();
     spdlog::trace("Aborted storage on replica");
   }
 
-  cached_commit_accessor_.reset();
+  two_pc_cache_.commit_accessor_.reset();
   if (mem_storage->wal_file_) {
     mem_storage->FinalizeWalFile();
   }
@@ -420,9 +428,9 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
 }
 
 void InMemoryReplicationHandlers::AbortPrevTxnIfNeeded(storage::InMemoryStorage *const storage) {
-  if (cached_commit_accessor_) {
-    cached_commit_accessor_->AbortAndResetCommitTs();
-    cached_commit_accessor_.reset();
+  if (two_pc_cache_.commit_accessor_) {
+    two_pc_cache_.commit_accessor_->AbortAndResetCommitTs();
+    two_pc_cache_.commit_accessor_.reset();
   }
 
   if (storage->wal_file_) {

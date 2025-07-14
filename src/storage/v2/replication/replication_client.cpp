@@ -286,9 +286,9 @@ void ReplicationStorageClient::TryCheckReplicaStateSync(Storage *main_storage, D
 // If replica is DIVERGED_FROM_MAIN, skip
 // If replica is READY, set it to replicating and create optional stream
 //    If creating stream fails, set the state to MAYBE_BEHIND. RPC lock is taken.
-auto ReplicationStorageClient::StartTransactionReplication(const uint64_t current_wal_seq_num, Storage *storage,
-                                                           DatabaseAccessProtector db_acc,
-                                                           bool const commit_immediately)
+auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, DatabaseAccessProtector db_acc,
+                                                           bool const commit_immediately,
+                                                           uint64_t const durability_commit_timestamp)
     -> std::optional<ReplicaStream> {
   utils::MetricsTimer const timer{metrics::StartTxnReplication_us};
   auto locked_state = replica_state_.Lock();
@@ -328,13 +328,13 @@ auto ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
         if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
           maybe_stream_handler = client_.rpc_client_.TryStream<replication::PrepareCommitRpc>(
               std::optional{kCommitRpcTimeout}, main_uuid_, storage->uuid(),
-              storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire), current_wal_seq_num,
-              commit_immediately);
+              storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire), commit_immediately,
+              durability_commit_timestamp);
         } else {  // Block for SYNC and STRICT_SYNC replica
           maybe_stream_handler.emplace(client_.rpc_client_.Stream<replication::PrepareCommitRpc>(
               main_uuid_, storage->uuid(),
-              storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire), current_wal_seq_num,
-              commit_immediately));
+              storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire), commit_immediately,
+              durability_commit_timestamp));
         }
 
         if (!maybe_stream_handler.has_value()) {

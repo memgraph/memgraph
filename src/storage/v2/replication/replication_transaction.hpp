@@ -26,7 +26,8 @@ class TransactionReplication {
  public:
   // The contract of the constructor is the following: If streams are empty, it means starting txn failed and we cannot
   // proceed with the Commit.
-  TransactionReplication(uint64_t const seq_num, Storage *storage, DatabaseAccessProtector db_acc, auto &clients)
+  TransactionReplication(uint64_t const durability_commit_timestamp, Storage *storage, DatabaseAccessProtector db_acc,
+                         auto &clients)
       : locked_clients{clients.ReadLock()} {
     spdlog::trace("Successfully locked clients");
     streams.reserve(locked_clients->size());
@@ -34,7 +35,8 @@ class TransactionReplication {
       // SYNC and ASYNC replicas should commit immediately when receiving deltas
       bool const should_commit_immediately =
           client->Mode() != replication_coordination_glue::ReplicationMode::STRICT_SYNC;
-      streams.emplace_back(client->StartTransactionReplication(seq_num, storage, db_acc, should_commit_immediately));
+      streams.emplace_back(
+          client->StartTransactionReplication(storage, db_acc, should_commit_immediately, durability_commit_timestamp));
     }
   }
 

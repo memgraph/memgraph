@@ -39,7 +39,7 @@ using EpochHistory = std::deque<std::pair<std::string, uint64_t>>;
 
 struct ReplicationStorageState {
   // Only MAIN can send
-  auto StartPrepareCommitPhase(uint64_t seq_num, Storage *storage, DatabaseAccessProtector db_acc)
+  auto StartPrepareCommitPhase(uint64_t durability_commit_timestamp, Storage *storage, DatabaseAccessProtector db_acc)
       -> TransactionReplication;
 
   // Getters
