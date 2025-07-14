@@ -816,6 +816,12 @@ std::optional<RecoveryInfo> LoadWal(
 
   RecoveryInfo ret;
 
+  if (last_applied_delta_timestamp.has_value()) {
+    spdlog::trace("Last applied delta ts is {}", *last_applied_delta_timestamp);
+  } else {
+    spdlog::trace("Last applied delta ts is nullopt");
+  }
+
   // Recover deltas
   wal.SetPosition(info.offset_deltas);
   uint64_t deltas_applied = 0;
@@ -1221,6 +1227,8 @@ std::optional<RecoveryInfo> LoadWal(
       // We should always check if the delta is WalTransactionStart to update should_commit
       if (auto *txn_start = std::get_if<WalTransactionStart>(&delta.data_)) {
         should_commit = txn_start->commit;
+        ++deltas_applied;
+        continue;
       }
 
       if (should_commit) {
