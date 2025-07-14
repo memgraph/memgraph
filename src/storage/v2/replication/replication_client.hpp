@@ -168,9 +168,11 @@ class ReplicationStorageClient {
     } catch (const rpc::RpcFailedException &) {
       // We don't need to reset replica stream here, as it is destroyed when object goes out of scope
       // in FinalizeTransactionReplication function
-      replica_state_.WithLock([](auto &state) { state = replication::ReplicaState::MAYBE_BEHIND; });
+      replica_state_.WithLock([&replica_stream](auto &state) {
+        replica_stream.reset();
+        state = replication::ReplicaState::MAYBE_BEHIND;
+      });
       LogRpcFailure();
-      return;
     }
   }
 
