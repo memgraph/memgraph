@@ -628,10 +628,10 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
           recovery_info.next_edge_id = std::max(recovery_info.next_edge_id, info->next_edge_id);
           recovery_info.next_timestamp = std::max(recovery_info.next_timestamp, info->next_timestamp);
           recovery_info.last_durable_timestamp = info->last_durable_timestamp;
-          if (info->last_durable_timestamp) {
-            last_loaded_timestamp.emplace(*info->last_durable_timestamp);
-            spdlog::trace("Set ldt to {} after loading from WAL", *info->last_durable_timestamp);
-          }
+          MG_ASSERT(info->last_durable_timestamp.has_value(),
+                    "RecoveryInfo has value but ldt not after loading from WAL");
+          last_loaded_timestamp.emplace(*info->last_durable_timestamp);
+          spdlog::trace("Set ldt to {} after loading from WAL", *info->last_durable_timestamp);
         }
 
         if (epoch_history->empty() || epoch_history->back().first != wal_file.epoch_id) {

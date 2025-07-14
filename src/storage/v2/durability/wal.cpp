@@ -814,7 +814,7 @@ std::optional<RecoveryInfo> LoadWal(
     return std::nullopt;
   }
 
-  RecoveryInfo ret;
+  std::optional<RecoveryInfo> ret;
 
   if (last_applied_delta_timestamp.has_value()) {
     spdlog::trace("Last applied delta ts is {}", *last_applied_delta_timestamp);
@@ -836,7 +836,7 @@ std::optional<RecoveryInfo> LoadWal(
       [&](WalVertexCreate const &data) {
         auto [vertex, inserted] = vertex_acc.insert(Vertex{data.gid, nullptr});
         if (!inserted) throw RecoveryFailure("The vertex must be inserted here!");
-        ret.next_vertex_id = std::max(ret.next_vertex_id, data.gid.AsUint() + 1);
+        ret->next_vertex_id = std::max(ret->next_vertex_id, data.gid.AsUint() + 1);
         if (schema_info) schema_info->AddVertex(&*vertex);
       },
       [&](WalVertexDelete const &data) {
@@ -903,7 +903,7 @@ std::optional<RecoveryInfo> LoadWal(
         if (r::contains(to_vertex->in_edges, in_link)) throw RecoveryFailure("The to vertex already has this edge!");
         to_vertex->in_edges.push_back(in_link);
 
-        ret.next_edge_id = std::max(ret.next_edge_id, data.gid.AsUint() + 1);
+        ret->next_edge_id = std::max(ret->next_edge_id, data.gid.AsUint() + 1);
 
         // Increment edge count.
         edge_count->fetch_add(1, std::memory_order_acq_rel);
@@ -1232,10 +1232,16 @@ std::optional<RecoveryInfo> LoadWal(
       }
 
       if (should_commit) {
+        // First delta which is not WalTransactionStart -> allocate RecoveryInfo
+        if (!ret.has_value()) {
+          ret.emplace(RecoveryInfo{.next_timestamp = timestamp + 1, .last_durable_timestamp = timestamp});
+        } else {
+          ret->next_timestamp = std::max(ret->next_timestamp, timestamp + 1);
+          ret->last_durable_timestamp = timestamp;
+        }
+
         std::visit(delta_apply, delta.data_);
         ++deltas_applied;
-        ret.next_timestamp = std::max(ret.next_timestamp, timestamp + 1);
-        ret.last_durable_timestamp = timestamp;
       }
 
     } else {
