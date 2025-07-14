@@ -414,7 +414,11 @@ DEFINE_VISITABLE(Exists, ExpressionVisitor<TypedValue *>);
 DEFINE_VISITABLE(Exists, ExpressionVisitor<void>);
 bool Exists::Accept(HierarchicalTreeVisitor &visitor) {
   if (visitor.PreVisit(*this)) {
-    pattern_->Accept(visitor);
+    if (HasPattern()) {
+      GetPattern()->Accept(visitor);
+    } else if (HasSubquery()) {
+      GetSubquery()->Accept(visitor);
+    }
   }
   return visitor.PostVisit(*this);
 }
