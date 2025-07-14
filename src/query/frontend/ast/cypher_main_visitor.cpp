@@ -3148,9 +3148,8 @@ antlrcpp::Any CypherMainVisitor::visitExistsExpression(MemgraphCypher::ExistsExp
   auto *exists = storage_->Create<Exists>();
   // Pattern form: ( ... ) or { ... } with forcePatternPart
   if (ctx->forcePatternPart()) {
-    exists->pattern_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
-    exists->subquery_ = nullptr;
-    if (exists->pattern_->identifier_) {
+    exists->content_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
+    if (exists->GetPattern()->identifier_) {
       throw SyntaxException("Identifiers are not supported in exists(...).");
     }
   } else {
@@ -3158,9 +3157,12 @@ antlrcpp::Any CypherMainVisitor::visitExistsExpression(MemgraphCypher::ExistsExp
   }
 
   // Ensure only one of pattern_ or subquery_ is set
-  if ((exists->pattern_ != nullptr && exists->subquery_ != nullptr) ||
-      (exists->pattern_ == nullptr && exists->subquery_ == nullptr)) {
-    throw SyntaxException("EXISTS must have exactly one of pattern or subquery set.");
+  const bool has_pattern = exists->HasPattern();
+  const bool has_subquery = exists->HasSubquery();
+  if ((has_pattern && has_subquery) || (!has_pattern && !has_subquery)) {
+    throw SyntaxException(
+        "EXISTS must have exactly one of pattern or subquery set. Please contact Memgraph support as this scenario "
+        "should not happen!");
   }
 
   return static_cast<Expression *>(exists);
@@ -3170,9 +3172,8 @@ antlrcpp::Any CypherMainVisitor::visitExistsSubquery(MemgraphCypher::ExistsSubqu
   auto *exists = storage_->Create<Exists>();
   // Pattern form: ( ... ) or { ... } with forcePatternPart
   if (ctx->forcePatternPart()) {
-    exists->pattern_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
-    exists->subquery_ = nullptr;
-    if (exists->pattern_->identifier_) {
+    exists->content_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
+    if (exists->GetPattern()->identifier_) {
       throw SyntaxException("Identifiers are not supported in exists(...).");
     }
   } else if (ctx->cypherQuery()) {
@@ -3182,8 +3183,7 @@ antlrcpp::Any CypherMainVisitor::visitExistsSubquery(MemgraphCypher::ExistsSubqu
     parsing_exists_subquery_ = true;
     auto *cypher_query = std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
     parsing_exists_subquery_ = old_flag;
-    exists->pattern_ = nullptr;
-    exists->subquery_ = cypher_query;
+    exists->content_ = cypher_query;
 
     // 1. There must be at least one clause
     auto *single_query = cypher_query->single_query_;
@@ -3209,9 +3209,12 @@ antlrcpp::Any CypherMainVisitor::visitExistsSubquery(MemgraphCypher::ExistsSubqu
   }
 
   // Ensure only one of pattern_ or subquery_ is set
-  if ((exists->pattern_ != nullptr && exists->subquery_ != nullptr) ||
-      (exists->pattern_ == nullptr && exists->subquery_ == nullptr)) {
-    throw SyntaxException("EXISTS must have exactly one of pattern or subquery set.");
+  const bool has_pattern = exists->HasPattern();
+  const bool has_subquery = exists->HasSubquery();
+  if ((has_pattern && has_subquery) || (!has_pattern && !has_subquery)) {
+    throw SyntaxException(
+        "EXISTS must have exactly one of pattern or subquery set! Please contact Memgraph support as this scenario "
+        "should not happen!");
   }
 
   return static_cast<Expression *>(exists);

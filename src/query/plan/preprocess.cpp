@@ -1098,14 +1098,18 @@ void PatternVisitor::Visit(Exists &op) {
 
   if (op.HasPattern()) {
     std::vector<Pattern *> patterns;
-    patterns.push_back(op.pattern_);
+    patterns.push_back(op.GetPattern());
     AddMatching(patterns, nullptr, symbol_table_, storage_, filter_matching);
     filter_matching.type = PatternFilterType::EXISTS_PATTERN;
   } else if (op.HasSubquery()) {
     // For subqueries, collect the full QueryParts and store in filter_matching
     filter_matching.type = PatternFilterType::EXISTS_SUBQUERY;
     filter_matching.subquery =
-        std::make_shared<QueryParts>(CollectQueryParts(symbol_table_, storage_, op.subquery_, true));
+        std::make_shared<QueryParts>(CollectQueryParts(symbol_table_, storage_, op.GetSubquery(), true));
+  } else {
+    throw SemanticException(
+        "EXISTS semantic is neither of type pattern, or subquery! Please contact Memgraph support as this scenario "
+        "should not happen!");
   }
 
   filter_matchings_.push_back(std::move(filter_matching));

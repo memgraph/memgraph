@@ -95,12 +95,12 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
 
     if (exists.HasPattern()) {
       // We do not visit pattern identifier since we're in exists filter pattern
-      for (auto &atom : exists.pattern_->atoms_) {
+      for (auto &atom : exists.GetPattern()->atoms_) {
         atom->Accept(*this);
       }
     } else if (exists.HasSubquery()) {
       // For subqueries, we need to collect symbols from the subquery
-      auto *single_query = exists.subquery_->single_query_;
+      auto *single_query = exists.GetSubquery()->single_query_;
       if (single_query) {
         for (auto *clause : single_query->clauses_) {
           if (auto *match = utils::Downcast<Match>(clause)) {
@@ -112,6 +112,10 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
           }
         }
       }
+    } else {
+      throw SemanticException(
+          "EXISTS semantic is neither of type pattern, or subquery! Please contact Memgraph support as this scenario "
+          "should not happen!");
     }
 
     return false;

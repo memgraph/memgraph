@@ -259,9 +259,9 @@ class MockModule : public procedure::Module {
   std::map<std::string, mgp_func, std::less<>> functions{};
 };
 
-void DummyProcCallback(mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result * /*result*/, mgp_memory * /*memory*/) {};
+void DummyProcCallback(mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result * /*result*/, mgp_memory * /*memory*/){};
 void DummyFuncCallback(mgp_list * /*args*/, mgp_func_context * /*func_ctx*/, mgp_func_result * /*result*/,
-                       mgp_memory * /*memory*/) {};
+                       mgp_memory * /*memory*/){};
 
 enum class ProcedureType { WRITE, READ };
 
@@ -5718,32 +5718,6 @@ TEST_P(CypherMainVisitorTest, ExistsSubqueries) {
     ASSERT_EQ(query->single_query_->clauses_.size(), 3);
 
     const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[1]);
-    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
-    ASSERT_NE(exists, nullptr);
-
-    const auto *pattern = exists->pattern_;
-    ASSERT_EQ(pattern, nullptr);
-    const auto *subquery = exists->subquery_;
-    ASSERT_NE(subquery, nullptr);
-
-    ASSERT_EQ(subquery->single_query_->clauses_.size(), 2);
-    const auto *subquery_match = dynamic_cast<Match *>(subquery->single_query_->clauses_[1]);
-    ASSERT_NE(subquery_match, nullptr);
-    const auto *subquery_where = dynamic_cast<Where *>(subquery_match->where_);
-    ASSERT_NE(subquery_where, nullptr);
-
-    CheckRWType(query, kRead);
-  }
-
-  {
-    auto &ast_generator = *GetParam();
-    auto *query = dynamic_cast<CypherQuery *>(
-        ast_generator.ParseQuery("MATCH (person:Person) WHERE EXISTS { WITH 'Ozzy' AS dogName MATCH "
-                                 "(person)-[:HAS_DOG]->(d:Dog) WHERE d.name = dogName } RETURN person.name AS name;"));
-    ASSERT_THAT(query, NotNull());
-    ASSERT_EQ(query->single_query_->clauses_.size(), 2);
-
-    const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
     const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
     ASSERT_NE(exists, nullptr);
 

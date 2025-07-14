@@ -21,6 +21,7 @@
 #include <unordered_set>
 #include <variant>
 
+#include "exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "utils/algorithm.hpp"
@@ -557,6 +558,12 @@ bool SymbolGenerator::PostVisit(ListComprehension & /*list_comprehension*/) {
 bool SymbolGenerator::PreVisit(Exists &exists) {
   auto &scope = scopes_.back();
 
+  if (!exists.HasPattern() && !exists.HasSubquery()) {
+    throw SemanticException(
+        "EXISTS semantic hold neither pattern or subquery part! Please contact Memgraph support as this scenario "
+        "should not happen!");
+  }
+
   if (!scope.in_where) {
     throw utils::NotYetImplemented("Exists can only be used inside the WHERE clause!");
   }
@@ -584,11 +591,11 @@ bool SymbolGenerator::PreVisit(Exists &exists) {
   const auto &symbol = CreateAnonymousSymbol();
   exists.MapTo(symbol);
 
-  if (exists.pattern_) {
+  if (exists.HasPattern()) {
     scope.in_exists_pattern = true;
   }
 
-  if (exists.subquery_) {
+  if (exists.HasSubquery()) {
     scopes_.emplace_back(Scope{.in_exists_subquery = true});  // NOLINT(hicpp-use-emplace,modernize-use-emplace)
   }
 
@@ -596,10 +603,10 @@ bool SymbolGenerator::PreVisit(Exists &exists) {
 }
 
 bool SymbolGenerator::PostVisit(Exists &exists) {
-  if (exists.pattern_) {
+  if (exists.HasPattern()) {
     auto &scope = scopes_.back();
     scope.in_exists_pattern = false;
-  } else if (exists.subquery_) {
+  } else if (exists.HasSubquery()) {
     scopes_.pop_back();
   }
 

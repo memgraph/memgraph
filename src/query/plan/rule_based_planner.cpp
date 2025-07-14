@@ -15,6 +15,7 @@
 #include <functional>
 #include <limits>
 #include <memory>
+#include <ranges>
 #include <stack>
 #include <unordered_set>
 
@@ -616,16 +617,14 @@ bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols, cons
   // if it's pattern exists syntax, or non exist syntax, we require currently that all of the symbols are present that
   // are named by user
   if (!is_exists_subquery) {
-    return std::ranges::all_of(
-        filter.used_symbols.begin(), filter.used_symbols.end(),
-        [&bound_symbols](const auto &symbol) { return bound_symbols.find(symbol) != bound_symbols.end(); });
+    return std::ranges::all_of(filter.used_symbols,
+                               [&bound_symbols](const auto &symbol) { return bound_symbols.contains(symbol); });
   }
 
   // for subquery exists, we want to capture any of the symbols so we can tie it to the logic of filtering and erase the
   // filter
-  return std::ranges::any_of(
-      filter.used_symbols.begin(), filter.used_symbols.end(),
-      [&bound_symbols](const auto &symbol) { return bound_symbols.find(symbol) != bound_symbols.end(); });
+  return std::ranges::any_of(filter.used_symbols,
+                             [&bound_symbols](const auto &symbol) { return bound_symbols.contains(symbol); });
 }
 
 Expression *ExtractFilters(const std::unordered_set<Symbol> &bound_symbols, Filters &filters, AstStorage &storage) {
@@ -738,11 +737,11 @@ std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOper
       new_bound_symbols.insert(symbol);
     }
     // Preserve outer scope variables that were bound before this WITH
-    for (const auto &symbol : bound_symbols) {
-      if (symbol.type_ == Symbol::Type::VERTEX || symbol.type_ == Symbol::Type::EDGE) {
-        new_bound_symbols.insert(symbol);
-      }
-    }
+    std::ranges::copy_if(bound_symbols, std::inserter(new_bound_symbols, new_bound_symbols.end()),
+                         [](const Symbol &symbol) {
+                           return symbol.type_ == Symbol::Type::VERTEX || symbol.type_ == Symbol::Type::EDGE;
+                         });
+
     bound_symbols = std::move(new_bound_symbols);
   } else {
     // For regular queries, reset bound symbols to only those in WITH
