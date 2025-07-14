@@ -15,9 +15,9 @@
 
 namespace memgraph::storage {
 
-auto ReplicationStorageState::StartPrepareCommitPhase(uint64_t seq_num, Storage *storage,
+auto ReplicationStorageState::StartPrepareCommitPhase(uint64_t const durability_commit_timestamp, Storage *storage,
                                                       DatabaseAccessProtector db_acc) -> TransactionReplication {
-  return {seq_num, storage, db_acc, replication_storage_clients_};
+  return {durability_commit_timestamp, storage, db_acc, replication_storage_clients_};
 }
 
 std::optional<replication::ReplicaState> ReplicationStorageState::GetReplicaState(std::string_view const name) const {
