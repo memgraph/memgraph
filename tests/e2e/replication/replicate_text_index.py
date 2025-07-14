@@ -144,7 +144,7 @@ def test_text_index_replication(connection, test_name):
         cursor,
         "DROP TEXT INDEX test_index;",
     )
-    wait_for_replication_change(cursor, 3)
+    wait_for_replication_change(cursor, 4)
 
     # 4/
     expected_result = []
