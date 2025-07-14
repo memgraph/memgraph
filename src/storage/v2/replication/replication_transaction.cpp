@@ -65,7 +65,7 @@ auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUI
       const bool commit_res = client->SendFinalizeCommitRpc(decision, storage_uuid, db_acc, durability_commit_timestamp,
                                                             std::move(replica_stream));
       strict_sync_replicas_succ &= commit_res;
-    } else if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
+    } else if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC && decision) {
       client->FinalizeTransactionReplication(db_acc, std::move(replica_stream), durability_commit_timestamp);
     }
   }
