@@ -1021,7 +1021,7 @@ std::optional<RecoveryInfo> LoadWal(
       [&](WalTransactionEnd const &) { /*Nothing to apply*/ },
       [&](WalLabelIndexCreate const &data) {
         const auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        AddRecoveredIndexConstraint(&indices_constraints->indices.label, label_id, "The label index already exists!"));
+        AddRecoveredIndexConstraint(&indices_constraints->indices.label, label_id, "The label index already exists!");
       },
       [&](WalLabelIndexDrop const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
