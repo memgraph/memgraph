@@ -572,7 +572,7 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
 
 auto GetExistsSubquery(AstStorage &storage, CypherQuery *subquery) {
   auto *exists_subquery = storage.Create<query::Exists>();
-  exists_subquery->subquery_ = std::move(subquery);
+  exists_subquery->content_ = std::move(subquery);
 
   return exists_subquery;
 }

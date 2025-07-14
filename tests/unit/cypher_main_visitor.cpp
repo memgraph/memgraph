@@ -4955,7 +4955,7 @@ TEST_P(CypherMainVisitorTest, Exists) {
 
     ASSERT_TRUE(exists);
 
-    const auto pattern = exists->pattern_;
+    const auto pattern = exists->GetPattern();
     ASSERT_TRUE(pattern->atoms_.size() == 3);
 
     const auto *node1 = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
@@ -4977,7 +4977,7 @@ TEST_P(CypherMainVisitorTest, Exists) {
 
     ASSERT_TRUE(exists);
 
-    const auto pattern = exists->pattern_;
+    const auto pattern = exists->GetPattern();
     ASSERT_TRUE(pattern->atoms_.size() == 5);
 
     const auto *node1 = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
@@ -5664,12 +5664,12 @@ TEST_P(CypherMainVisitorTest, ExistsSubqueries) {
     const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
     ASSERT_NE(exists, nullptr);
 
-    const auto *pattern = exists->pattern_;
+    const auto *pattern = exists->GetPattern();
     ASSERT_NE(pattern, nullptr);
-    const auto *subquery = exists->subquery_;
+    const auto *subquery = exists->GetSubquery();
     ASSERT_EQ(subquery, nullptr);
 
-    const auto *exists_pattern = exists->pattern_;
+    const auto *exists_pattern = exists->GetPattern();
     ASSERT_TRUE(exists_pattern->atoms_.size() == 3);
 
     const auto *node1 = dynamic_cast<NodeAtom *>(exists_pattern->atoms_[0]);
@@ -5695,9 +5695,9 @@ TEST_P(CypherMainVisitorTest, ExistsSubqueries) {
     const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
     ASSERT_NE(exists, nullptr);
 
-    const auto *pattern = exists->pattern_;
+    const auto *pattern = exists->GetPattern();
     ASSERT_EQ(pattern, nullptr);
-    const auto *subquery = exists->subquery_;
+    const auto *subquery = exists->GetSubquery();
     ASSERT_NE(subquery, nullptr);
 
     ASSERT_EQ(subquery->single_query_->clauses_.size(), 1);
@@ -5721,9 +5721,9 @@ TEST_P(CypherMainVisitorTest, ExistsSubqueries) {
     const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
     ASSERT_NE(exists, nullptr);
 
-    const auto *pattern = exists->pattern_;
+    const auto *pattern = exists->GetPattern();
     ASSERT_EQ(pattern, nullptr);
-    const auto *subquery = exists->subquery_;
+    const auto *subquery = exists->GetSubquery();
     ASSERT_NE(subquery, nullptr);
 
     ASSERT_EQ(subquery->single_query_->clauses_.size(), 2);
@@ -5747,9 +5747,9 @@ TEST_P(CypherMainVisitorTest, ExistsSubqueries) {
     const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
     ASSERT_NE(exists, nullptr);
 
-    const auto *pattern = exists->pattern_;
+    const auto *pattern = exists->GetPattern();
     ASSERT_EQ(pattern, nullptr);
-    const auto *subquery = exists->subquery_;
+    const auto *subquery = exists->GetSubquery();
     ASSERT_NE(subquery, nullptr);
 
     ASSERT_EQ(subquery->single_query_->clauses_.size(), 2);
@@ -5773,9 +5773,9 @@ TEST_P(CypherMainVisitorTest, ExistsSubqueries) {
     const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
     ASSERT_NE(exists, nullptr);
 
-    const auto *pattern = exists->pattern_;
+    const auto *pattern = exists->GetPattern();
     ASSERT_EQ(pattern, nullptr);
-    const auto *subquery = exists->subquery_;
+    const auto *subquery = exists->GetSubquery();
     ASSERT_NE(subquery, nullptr);
 
     ASSERT_EQ(subquery->single_query_->clauses_.size(), 2);
@@ -5799,9 +5799,9 @@ TEST_P(CypherMainVisitorTest, ExistsSubqueries) {
     const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
     ASSERT_NE(exists, nullptr);
 
-    const auto *pattern = exists->pattern_;
+    const auto *pattern = exists->GetPattern();
     ASSERT_EQ(pattern, nullptr);
-    const auto *subquery = exists->subquery_;
+    const auto *subquery = exists->GetSubquery();
     ASSERT_NE(subquery, nullptr);
 
     ASSERT_EQ(subquery->single_query_->clauses_.size(), 2);
@@ -5825,9 +5825,9 @@ TEST_P(CypherMainVisitorTest, ExistsSubqueries) {
     const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
     ASSERT_NE(exists, nullptr);
 
-    const auto *pattern = exists->pattern_;
+    const auto *pattern = exists->GetPattern();
     ASSERT_EQ(pattern, nullptr);
-    const auto *subquery = exists->subquery_;
+    const auto *subquery = exists->GetSubquery();
     ASSERT_NE(subquery, nullptr);
 
     ASSERT_EQ(subquery->single_query_->clauses_.size(), 1);
@@ -5839,9 +5839,9 @@ TEST_P(CypherMainVisitorTest, ExistsSubqueries) {
     const auto *subquery_exists = dynamic_cast<Exists *>(subquery_where->expression_);
     ASSERT_NE(subquery_exists, nullptr);
 
-    const auto *nested_pattern = subquery_exists->pattern_;
+    const auto *nested_pattern = subquery_exists->GetPattern();
     ASSERT_EQ(nested_pattern, nullptr);
-    const auto *nested_subquery = subquery_exists->subquery_;
+    const auto *nested_subquery = subquery_exists->GetSubquery();
     ASSERT_NE(nested_subquery, nullptr);
 
     ASSERT_EQ(nested_subquery->single_query_->clauses_.size(), 1);
@@ -5865,9 +5865,9 @@ TEST_P(CypherMainVisitorTest, ExistsSubqueries) {
     const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
     ASSERT_NE(exists, nullptr);
 
-    const auto *pattern = exists->pattern_;
+    const auto *pattern = exists->GetPattern();
     ASSERT_EQ(pattern, nullptr);
-    const auto *subquery = exists->subquery_;
+    const auto *subquery = exists->GetSubquery();
     ASSERT_NE(subquery, nullptr);
 
     ASSERT_EQ(subquery->single_query_->clauses_.size(), 1);
