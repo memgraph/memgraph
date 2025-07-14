@@ -54,7 +54,8 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Da
 }
 
 // RPC locks will get released at the end of this function for all STRICT_SYNC and ASYNC replicas
-// We shouldn't execute this code for SYNC replicas
+// We shouldn't execute this code for SYNC replicas, this is only executed if these replicas are part of STRICT_SYNC
+// cluster
 auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUID const &storage_uuid,
                                                  DatabaseAccessProtector db_acc,
                                                  uint64_t const durability_commit_timestamp) -> bool {
@@ -65,7 +66,8 @@ auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUI
       const bool commit_res = client->SendFinalizeCommitRpc(decision, storage_uuid, db_acc, durability_commit_timestamp,
                                                             std::move(replica_stream));
       strict_sync_replicas_succ &= commit_res;
-    } else if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
+    } else if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC && decision) {
+      // Ship deltas only if decision is true, we don't need to explicitly send abort to ASYNC replica
       client->FinalizeTransactionReplication(db_acc, std::move(replica_stream), durability_commit_timestamp);
     }
   }
