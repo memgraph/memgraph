@@ -410,9 +410,9 @@ showCurrentUser : SHOW CURRENT USER ;
 
 showUsers : SHOW USERS ;
 
-setRole : SET ROLE FOR user=userOrRoleName TO roles=listOfSymbolicNames;
+setRole : SET ( ROLE | ROLES ) FOR user=userOrRoleName TO roles=listOfSymbolicNames ( ON db=listOfSymbolicNames )? ;
 
-clearRole : CLEAR ROLE FOR user=userOrRoleName ;
+clearRole : CLEAR ( ROLE | ROLES ) FOR user=userOrRoleName ( ON db=listOfSymbolicNames )? ;
 
 grantPrivilege : GRANT ( ALL PRIVILEGES | privileges=grantPrivilegesList ) TO userOrRole=userOrRoleName ;
 
@@ -493,9 +493,9 @@ listOfColonSymbolicNames : colonSymbolicName ( ',' colonSymbolicName )* ;
 
 colonSymbolicName : COLON symbolicName ;
 
-showPrivileges : SHOW PRIVILEGES FOR userOrRole=userOrRoleName ( ON ( MAIN | CURRENT | DATABASE db=symbolicName ) )?;
+showPrivileges : SHOW PRIVILEGES FOR userOrRole=userOrRoleName ( ON ( MAIN | CURRENT | DATABASE db=symbolicName ) )? ;
 
-showRoleForUser : SHOW ROLE FOR user=userOrRoleName ;
+showRoleForUser : SHOW ( ROLE | ROLES ) FOR user=userOrRoleName ( ON ( MAIN | CURRENT | DATABASE db=symbolicName ) )? ;
 
 showUsersForRole : SHOW USERS FOR role=userOrRoleName ;
 

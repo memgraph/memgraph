@@ -68,13 +68,27 @@ QUERIES = [
     ("DROP USER test_user", ("AUTH",)),
     ("SHOW USERS", ("AUTH",)),
     ("SET ROLE FOR test_user TO test_role", ("AUTH",)),
+    ("SET ROLES FOR test_user TO test_role", ("AUTH",)),
     ("SET ROLE FOR test_user TO role1, role2, role3", ("AUTH",)),
+    ("SET ROLES FOR test_user TO role1, role2, role3", ("AUTH",)),
+    ("SET ROLE FOR test_user TO role1 ON db1", ("AUTH",)),
+    ("SET ROLES FOR test_user TO role1, role2 ON db1, db2", ("AUTH",)),
     ("CLEAR ROLE FOR test_user", ("AUTH",)),
+    ("CLEAR ROLES FOR test_user", ("AUTH",)),
+    ("CLEAR ROLE FOR test_user ON db1", ("AUTH",)),
+    ("CLEAR ROLES FOR test_user ON db1, db2", ("AUTH",)),
     ("GRANT ALL PRIVILEGES TO test_user", ("AUTH",)),
     ("DENY ALL PRIVILEGES TO test_user", ("AUTH",)),
     ("REVOKE ALL PRIVILEGES FROM test_user", ("AUTH",)),
     ("SHOW PRIVILEGES FOR test_user ON MAIN", ("AUTH",)),
     ("SHOW ROLE FOR test_user", ("AUTH",)),
+    ("SHOW ROLES FOR test_user", ("AUTH",)),
+    ("SHOW ROLE FOR test_user ON MAIN", ("AUTH",)),
+    ("SHOW ROLES FOR test_user ON MAIN", ("AUTH",)),
+    ("SHOW ROLE FOR test_user ON CURRENT", ("AUTH",)),
+    ("SHOW ROLES FOR test_user ON CURRENT", ("AUTH",)),
+    ("SHOW ROLE FOR test_user ON DATABASE db1", ("AUTH",)),
+    ("SHOW ROLES FOR test_user ON DATABASE db1", ("AUTH",)),
     ("SHOW USERS FOR test_role", ("AUTH",)),
 ]
 
@@ -266,8 +280,12 @@ def execute_test(memgraph_binary, tester_binary, checker_binary):
                     )
                     if mapped:
                         execute_admin_queries(["SET ROLE FOR USER TO roLE"])
+                        # Also test SET ROLES variation
+                        execute_admin_queries(["SET ROLES FOR USER TO roLE"])
                     else:
                         execute_admin_queries(["CLEAR ROLE FOR user"])
+                        # Also test CLEAR ROLES variation
+                        execute_admin_queries(["CLEAR ROLES FOR user"])
                     user_prep = "FROM" if user_perm == "REVOKE" else "TO"
                     role_prep = "FROM" if role_perm == "REVOKE" else "TO"
                     execute_admin_queries(
@@ -312,6 +330,8 @@ def execute_test(memgraph_binary, tester_binary, checker_binary):
                     )
                     # Set user to have multiple roles
                     execute_admin_queries(["SET ROLE FOR USER TO roLe, role2"])
+                    # Also test SET ROLES variation
+                    execute_admin_queries(["SET ROLES FOR USER TO roLe, role2"])
 
                     user_prep = "FROM" if user_perm == "REVOKE" else "TO"
                     role1_prep = "FROM" if role1_perm == "REVOKE" else "TO"
@@ -362,8 +382,9 @@ def execute_test(memgraph_binary, tester_binary, checker_binary):
     )
 
     # Test setting multiple roles
-    print("\033[1;34m~~ Testing SET ROLE with multiple roles ~~\033[0m")
+    print("\033[1;34m~~ Testing SET ROLE/ROLES with multiple roles ~~\033[0m")
     execute_admin_queries(["SET ROLE FOR multi_user TO role1, role2, role3"])
+    execute_admin_queries(["SET ROLES FOR multi_user TO role1, role2, role3"])
 
     # Test permissions from multiple roles
     print("\033[1;34m~~ Testing permissions from multiple roles ~~\033[0m")
@@ -399,8 +420,9 @@ def execute_test(memgraph_binary, tester_binary, checker_binary):
     )  # No longer has role1
 
     # Test clearing all roles
-    print("\033[1;34m~~ Testing CLEAR ROLE ~~\033[0m")
+    print("\033[1;34m~~ Testing CLEAR ROLE/ROLES ~~\033[0m")
     execute_admin_queries(["CLEAR ROLE FOR multi_user"])
+    execute_admin_queries(["CLEAR ROLES FOR multi_user"])
     execute_user_queries(
         ["MATCH (n) RETURN n"], should_fail=True, failure_message=UNAUTHORIZED_ERROR, username="multi_user"
     )
@@ -415,7 +437,7 @@ def execute_test(memgraph_binary, tester_binary, checker_binary):
     execute_user_queries(["CREATE (n)", "MATCH (n) RETURN n"], should_fail=False, username="multi_user")
 
     # Remove one role and test that permissions are updated
-    execute_admin_queries(["SET ROLE FOR multi_user TO role1, role3"])  # Remove role2
+    execute_admin_queries(["SET ROLES FOR multi_user TO role1, role3"])  # Remove role2 with ROLES
     execute_user_queries(["CREATE (n)"], should_fail=False, username="multi_user")  # Still has role1
     execute_user_queries(
         ["MATCH (n) RETURN n"], should_fail=True, failure_message=UNAUTHORIZED_ERROR, username="multi_user"
@@ -430,6 +452,15 @@ def execute_test(memgraph_binary, tester_binary, checker_binary):
             "GRANT DATABASE db2 TO role2",
             "GRANT MATCH, MULTI_DATABASE_USE TO role2",
             "SET ROLE FOR multi_user TO role1, role2",
+        ]
+    )
+    execute_admin_queries(
+        [
+            "GRANT DATABASE db1 TO role1",
+            "GRANT MATCH, MULTI_DATABASE_USE TO role1",
+            "GRANT DATABASE db2 TO role2",
+            "GRANT MATCH, MULTI_DATABASE_USE TO role2",
+            "SET ROLES FOR multi_user TO role1, role2",
         ]
     )
 
@@ -456,6 +487,54 @@ def execute_test(memgraph_binary, tester_binary, checker_binary):
     execute_admin_queries(["SET ROLE FOR multi_user TO role1, nonexistent_role"], should_fail=True)
 
     print("\033[1;36m~~ Finished multiple roles test ~~\033[0m\n")
+
+    # Test database-specific role functionality
+    print("\033[1;36m~~ Starting database-specific role test ~~\033[0m")
+    execute_admin_queries(
+        [
+            "CREATE ROLE db_role1",
+            "CREATE ROLE db_role2",
+            "CREATE USER db_user IDENTIFIED BY 'user'",
+            "GRANT DATABASE db1 TO db_user",
+            "GRANT DATABASE db2 TO db_user",
+            "GRANT DATABASE db1 TO db_role1",
+            "GRANT DATABASE db2 TO db_role1",
+            "GRANT DATABASE * TO db_role2",
+        ]
+    )
+
+    # Test SET ROLE/ROLES with database-specific clauses
+    print("\033[1;34m~~ Testing database-specific SET ROLE/ROLES ~~\033[0m")
+    execute_admin_queries(["SET ROLE FOR db_user TO db_role1 ON db1"])
+    execute_admin_queries(["SET ROLES FOR db_user TO db_role1, db_role2 ON db2"])
+    execute_admin_queries(["SET ROLE FOR db_user TO db_role2 ON db1, db2"])
+
+    # Test CLEAR ROLE/ROLES with database-specific clauses
+    print("\033[1;34m~~ Testing database-specific CLEAR ROLE/ROLES ~~\033[0m")
+    execute_admin_queries(["CLEAR ROLE FOR db_user ON db1"])
+    execute_admin_queries(["CLEAR ROLES FOR db_user ON db2"])
+
+    # Test SHOW ROLE/ROLES with database-specific clauses
+    print("\033[1;34m~~ Testing database-specific SHOW ROLE/ROLES ~~\033[0m")
+    execute_admin_queries(["SET ROLE FOR db_user TO db_role1 ON db1"])
+    execute_admin_queries(["SET ROLE FOR db_user TO db_role2 ON db2"])
+
+    # Test all variations of SHOW ROLE/ROLES
+    show_queries = [
+        "SHOW ROLE FOR db_user ON MAIN",
+        "SHOW ROLES FOR db_user ON MAIN",
+        "SHOW ROLE FOR db_user ON CURRENT",
+        "SHOW ROLES FOR db_user ON CURRENT",
+        "SHOW ROLE FOR db_user ON DATABASE db1",
+        "SHOW ROLES FOR db_user ON DATABASE db1",
+        "SHOW ROLE FOR db_user ON DATABASE db2",
+        "SHOW ROLES FOR db_user ON DATABASE db2",
+    ]
+
+    for query in show_queries:
+        execute_admin_queries([query])
+
+    print("\033[1;36m~~ Finished database-specific role test ~~\033[0m\n")
 
     # Check database access
     # user has access to every db (with global privileges) <- tested above

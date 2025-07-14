@@ -1717,3 +1717,441 @@ TEST_F(V1Auth, MigrationTest) {
 }
 
 #endif
+
+#ifdef MG_ENTERPRISE
+TEST_F(AuthWithStorage, MultiTenantRoleManagement) {
+  // Create roles with database access
+  ASSERT_TRUE(auth->AddRole("role1"));
+  ASSERT_TRUE(auth->AddRole("role2"));
+
+  auto role1 = auth->GetRole("role1");
+  auto role2 = auth->GetRole("role2");
+  ASSERT_NE(role1, std::nullopt);
+  ASSERT_NE(role2, std::nullopt);
+
+  role1->db_access().Grant("db1");
+  role1->db_access().Grant("db2");
+  role2->db_access().Grant("db2");
+  role2->db_access().Grant("db3");
+
+  auth->SaveRole(*role1);
+  auth->SaveRole(*role2);
+
+  // Create a user
+  ASSERT_TRUE(auth->AddUser("test_user"));
+  auto user = auth->GetUser("test_user");
+  ASSERT_NE(user, std::nullopt);
+
+  // Set multi-tenant roles
+  user->AddMultiTenantRole(*role1, "db1");
+  user->AddMultiTenantRole(*role1, "db2");
+  user->AddMultiTenantRole(*role2, "db2");
+  auth->SaveUser(*user);
+
+  // Verify roles are set correctly
+  {
+    auto roles_db1 = user->GetMultiTenantRoles("db1");
+    ASSERT_EQ(roles_db1.size(), 1);
+    ASSERT_EQ(roles_db1.begin()->rolename(), "role1");
+
+    auto roles_db2 = user->GetMultiTenantRoles("db2");
+    ASSERT_EQ(roles_db2.size(), 2);  // Both role1 and role2 have access to db2
+    std::set<std::string> role_names;
+    for (const auto &role : roles_db2) {
+      role_names.insert(role.rolename());
+    }
+    ASSERT_EQ(role_names.size(), 2);
+    ASSERT_TRUE(role_names.count("role1"));
+    ASSERT_TRUE(role_names.count("role2"));
+
+    auto roles_db3 = user->GetMultiTenantRoles("db3");
+    ASSERT_EQ(roles_db3.size(), 0);
+
+    // Trying to add a role that doesn't have access to the database should throw
+    ASSERT_THROW(user->AddMultiTenantRole(*role1, "db3"), AuthException);
+  }
+
+  // Verify durability
+  {
+    auto updated_user = auth->GetUser("test_user");
+    ASSERT_NE(updated_user, std::nullopt);
+
+    auto roles_db1 = updated_user->GetMultiTenantRoles("db1");
+    ASSERT_EQ(roles_db1.size(), 1);
+    ASSERT_EQ(roles_db1.begin()->rolename(), "role1");
+
+    auto roles_db2 = updated_user->GetMultiTenantRoles("db2");
+    ASSERT_EQ(roles_db2.size(), 2);  // Both role1 and role2 have access to db2
+    std::set<std::string> role_names;
+    for (const auto &role : roles_db2) {
+      role_names.insert(role.rolename());
+    }
+    ASSERT_EQ(role_names.size(), 2);
+    ASSERT_TRUE(role_names.count("role1"));
+    ASSERT_TRUE(role_names.count("role2"));
+
+    auto roles_db3 = updated_user->GetMultiTenantRoles("db3");
+    ASSERT_EQ(roles_db3.size(), 0);
+
+    // Trying to add a role that doesn't have access to the database should throw
+    ASSERT_THROW(updated_user->AddMultiTenantRole(*role1, "db3"), AuthException);
+  }
+}
+
+TEST_F(AuthWithStorage, MultiTenantRoleClearRole) {
+  // Create a role with database access
+  ASSERT_TRUE(auth->AddRole("test_role"));
+  auto role = auth->GetRole("test_role");
+  ASSERT_NE(role, std::nullopt);
+
+  role->db_access().Grant("db1");
+  role->db_access().Grant("db2");
+  auth->SaveRole(*role);
+
+  // Create a user and set multi-tenant roles
+  ASSERT_TRUE(auth->AddUser("test_user"));
+  auto user = auth->GetUser("test_user");
+  ASSERT_NE(user, std::nullopt);
+
+  user->AddMultiTenantRole(*role, "db1");
+  user->AddMultiTenantRole(*role, "db2");
+  auth->SaveUser(*user);
+
+  // Verify roles are set
+  auto updated_user = auth->GetUser("test_user");
+  ASSERT_NE(updated_user, std::nullopt);
+  ASSERT_EQ(updated_user->GetMultiTenantRoles("db1").size(), 1);
+  ASSERT_EQ(updated_user->GetMultiTenantRoles("db2").size(), 1);
+
+  // Clear all roles (should clear multi-tenant roles too)
+  updated_user->ClearRole();
+  auth->SaveUser(*updated_user);
+
+  // Verify all roles are cleared
+  auto final_user = auth->GetUser("test_user");
+  ASSERT_NE(final_user, std::nullopt);
+  ASSERT_EQ(final_user->GetMultiTenantRoles("db1").size(), 0);
+  ASSERT_EQ(final_user->GetMultiTenantRoles("db2").size(), 0);
+  ASSERT_TRUE(final_user->roles().empty());
+}
+
+TEST_F(AuthWithStorage, MultiTenantRoleRemoveUser) {
+  // Create a role with database access
+  ASSERT_TRUE(auth->AddRole("test_role"));
+  auto role = auth->GetRole("test_role");
+  ASSERT_NE(role, std::nullopt);
+
+  role->db_access().Grant("db1");
+  auth->SaveRole(*role);
+
+  // Create a user and set multi-tenant role
+  ASSERT_TRUE(auth->AddUser("test_user"));
+  auto user = auth->GetUser("test_user");
+  ASSERT_NE(user, std::nullopt);
+
+  user->AddMultiTenantRole(*role, "db1");
+  auth->SaveUser(*user);
+
+  // Verify user exists with multi-tenant role
+  auto existing_user = auth->GetUser("test_user");
+  ASSERT_NE(existing_user, std::nullopt);
+  ASSERT_EQ(existing_user->GetMultiTenantRoles("db1").size(), 1);
+
+  // Remove the user
+  ASSERT_TRUE(auth->RemoveUser("test_user", nullptr));
+
+  // Verify user is removed
+  auto removed_user = auth->GetUser("test_user");
+  ASSERT_EQ(removed_user, std::nullopt);
+}
+
+TEST_F(AuthWithStorage, MultiTenantRoleWithGlobalRoles) {
+  // Create roles
+  ASSERT_TRUE(auth->AddRole("global_role"));
+  ASSERT_TRUE(auth->AddRole("mt_role"));
+
+  auto global_role = auth->GetRole("global_role");
+  auto mt_role = auth->GetRole("mt_role");
+  ASSERT_NE(global_role, std::nullopt);
+  ASSERT_NE(mt_role, std::nullopt);
+
+  global_role->db_access().Grant("db1");
+  global_role->db_access().Grant("db2");
+  mt_role->db_access().Grant("db1");
+
+  auth->SaveRole(*global_role);
+  auth->SaveRole(*mt_role);
+
+  // Create a user
+  ASSERT_TRUE(auth->AddUser("test_user"));
+  auto user = auth->GetUser("test_user");
+  ASSERT_NE(user, std::nullopt);
+
+  // Set global role
+  user->SetRole(*global_role);
+  auth->SaveUser(*user);
+
+  // Try to set the same role as multi-tenant role (should fail)
+  ASSERT_THROW(user->AddMultiTenantRole(*global_role, "db1"), AuthException);
+
+  // Try to set different role as multi-tenant role (should succeed)
+  ASSERT_NO_THROW(user->AddMultiTenantRole(*mt_role, "db1"));
+  auth->SaveUser(*user);
+
+  // Verify both roles are present
+  auto updated_user = auth->GetUser("test_user");
+  ASSERT_NE(updated_user, std::nullopt);
+  ASSERT_EQ(updated_user->roles().size(), 2);  // global_role + mt_role
+  ASSERT_EQ(updated_user->GetMultiTenantRoles("db1").size(), 1);
+  ASSERT_EQ(updated_user->GetMultiTenantRoles("db1").begin()->rolename(), "mt_role");
+
+  // Clear global roles
+  updated_user->ClearRole();
+  auth->SaveUser(*updated_user);
+
+  // Now should be able to set global_role as multi-tenant role
+  ASSERT_NO_THROW(updated_user->AddMultiTenantRole(*global_role, "db1"));
+  auth->SaveUser(*updated_user);
+
+  auto final_user = auth->GetUser("test_user");
+  ASSERT_NE(final_user, std::nullopt);
+  ASSERT_EQ(final_user->GetMultiTenantRoles("db1").size(), 1);
+  ASSERT_EQ(final_user->GetMultiTenantRoles("db1").begin()->rolename(), "global_role");
+}
+
+TEST_F(AuthWithStorage, MultiTenantRoleEdgeCases) {
+  // Create a user without any multi-tenant roles
+  ASSERT_TRUE(auth->AddUser("test_user"));
+  auto user = auth->GetUser("test_user");
+  ASSERT_NE(user, std::nullopt);
+
+  // Test getting roles for non-existent database
+  auto roles = user->GetMultiTenantRoles("non_existent_db");
+  ASSERT_EQ(roles.size(), 0);
+
+  // Test clearing roles for non-existent database
+  ASSERT_NO_THROW(user->ClearMultiTenantRoles("non_existent_db"));
+
+  // Test with role that has access to multiple databases
+  ASSERT_TRUE(auth->AddRole("test_role"));
+  auto role = auth->GetRole("test_role");
+  ASSERT_NE(role, std::nullopt);
+
+  role->db_access().Grant("db1");
+  role->db_access().Grant("db2");
+  auth->SaveRole(*role);
+
+  user->AddMultiTenantRole(*role, "db1");
+  auth->SaveUser(*user);
+
+  // Verify role is set for db1 but not db2
+  auto updated_user = auth->GetUser("test_user");
+  ASSERT_NE(updated_user, std::nullopt);
+  ASSERT_EQ(updated_user->GetMultiTenantRoles("db1").size(), 1);
+  ASSERT_EQ(updated_user->GetMultiTenantRoles("db2").size(), 0);
+
+  // Test setting role for db2 as well
+  updated_user->AddMultiTenantRole(*role, "db2");
+  auth->SaveUser(*updated_user);
+
+  auto final_user = auth->GetUser("test_user");
+  ASSERT_NE(final_user, std::nullopt);
+  ASSERT_EQ(final_user->GetMultiTenantRoles("db1").size(), 1);
+  ASSERT_EQ(final_user->GetMultiTenantRoles("db2").size(), 1);
+
+  // Test clearing one database
+  final_user->ClearMultiTenantRoles("db1");
+  auth->SaveUser(*final_user);
+
+  auto cleared_user = auth->GetUser("test_user");
+  ASSERT_NE(cleared_user, std::nullopt);
+  ASSERT_EQ(cleared_user->GetMultiTenantRoles("db1").size(), 0);
+  ASSERT_EQ(cleared_user->GetMultiTenantRoles("db2").size(), 1);
+}
+
+TEST_F(AuthWithStorage, MultiTenantRoleRemoveRole) {
+  // Create a role with database access
+  ASSERT_TRUE(auth->AddRole("test_role"));
+  auto role = auth->GetRole("test_role");
+  ASSERT_NE(role, std::nullopt);
+
+  role->db_access().Grant("db1");
+  auth->SaveRole(*role);
+
+  // Create a user and set multi-tenant role
+  ASSERT_TRUE(auth->AddUser("test_user"));
+  auto user = auth->GetUser("test_user");
+  ASSERT_NE(user, std::nullopt);
+
+  user->AddMultiTenantRole(*role, "db1");
+  auth->SaveUser(*user);
+
+  // Verify user is updated
+  {
+    auto updated_user = auth->GetUser("test_user");
+    ASSERT_NE(updated_user, std::nullopt);
+    ASSERT_EQ(updated_user->GetMultiTenantRoles("db1").size(), 1);
+    ASSERT_EQ(updated_user->roles().size(), 1);
+  }
+
+  // Remove the role
+  ASSERT_TRUE(auth->RemoveRole("test_role"));
+
+  // Verify role is removed
+  auto removed_role = auth->GetRole("test_role");
+  ASSERT_EQ(removed_role, std::nullopt);
+
+  // Verify user is updated
+  {
+    auto updated_user = auth->GetUser("test_user");
+    ASSERT_NE(updated_user, std::nullopt);
+    ASSERT_EQ(updated_user->GetMultiTenantRoles("db1").size(), 0);
+    ASSERT_EQ(updated_user->roles().size(), 0);
+  }
+
+  // Re-add the role
+  ASSERT_TRUE(auth->AddRole("test_role"));
+  role = auth->GetRole("test_role");
+  ASSERT_NE(role, std::nullopt);
+
+  role->db_access().Grant("db1");
+  auth->SaveRole(*role);
+
+  // Verify user still does not have the role
+  {
+    auto updated_user = auth->GetUser("test_user");
+    ASSERT_NE(updated_user, std::nullopt);
+    ASSERT_EQ(updated_user->GetMultiTenantRoles("db1").size(), 0);
+    ASSERT_EQ(updated_user->roles().size(), 0);
+  }
+
+  user = auth->GetUser("test_user");
+  ASSERT_NE(user, std::nullopt);
+  user->AddMultiTenantRole(*role, "db1");
+  auth->SaveUser(*user);
+
+  // Verify user is updated
+  {
+    auto updated_user = auth->GetUser("test_user");
+    ASSERT_NE(updated_user, std::nullopt);
+    ASSERT_EQ(updated_user->GetMultiTenantRoles("db1").size(), 1);
+    ASSERT_EQ(updated_user->roles().size(), 1);
+  }
+}
+
+TEST_F(AuthWithStorage, MultiTenantRoleAtDifferentDBs) {
+  // Create a role with database access
+  ASSERT_TRUE(auth->AddRole("test_role"));
+  auto role = auth->GetRole("test_role");
+  ASSERT_NE(role, std::nullopt);
+
+  role->db_access().Grant("db1");
+  role->db_access().Grant("db2");
+  auth->SaveRole(*role);
+
+  // Create a user
+  ASSERT_TRUE(auth->AddUser("test_user"));
+  auto user = auth->GetUser("test_user");
+  ASSERT_NE(user, std::nullopt);
+
+  // Verify user has no access to db1 or db2
+  ASSERT_FALSE(user->HasAccess("db1"));
+  ASSERT_FALSE(user->HasAccess("db2"));
+
+  // Set multi-tenant role
+  user->AddMultiTenantRole(*role, "db1");
+  auth->SaveUser(*user);
+
+  // Verify user has access to db1 but not db2
+  ASSERT_TRUE(user->HasAccess("db1"));
+  ASSERT_FALSE(user->HasAccess("db2"));
+
+  // Verify user is updated
+  {
+    auto updated_user = auth->GetUser("test_user");
+    ASSERT_NE(updated_user, std::nullopt);
+    ASSERT_EQ(updated_user->GetMultiTenantRoles("db1").size(), 1);
+    ASSERT_EQ(updated_user->GetMultiTenantRoles("db2").size(), 0);
+  }
+
+  // Add role to db2
+  user->AddMultiTenantRole(*role, "db2");
+  auth->SaveUser(*user);
+
+  // Verify user has access to db1 and db2
+  ASSERT_TRUE(user->HasAccess("db1"));
+  ASSERT_TRUE(user->HasAccess("db2"));
+
+  // Verify user is updated
+  {
+    auto updated_user = auth->GetUser("test_user");
+    ASSERT_NE(updated_user, std::nullopt);
+    ASSERT_EQ(updated_user->GetMultiTenantRoles("db1").size(), 1);
+    ASSERT_EQ(updated_user->GetMultiTenantRoles("db2").size(), 1);
+  }
+
+  // Remove role from db1
+  user->ClearMultiTenantRoles("db1");
+  auth->SaveUser(*user);
+
+  // Verify user has no access to db1 or db2
+  ASSERT_FALSE(user->HasAccess("db1"));
+  ASSERT_TRUE(user->HasAccess("db2"));
+
+  // Verify user is updated
+  {
+    auto updated_user = auth->GetUser("test_user");
+    ASSERT_NE(updated_user, std::nullopt);
+    ASSERT_EQ(updated_user->GetMultiTenantRoles("db1").size(), 0);
+    ASSERT_EQ(updated_user->GetMultiTenantRoles("db2").size(), 1);
+  }
+
+  // Remove role from db2
+  user->ClearMultiTenantRoles("db2");
+  auth->SaveUser(*user);
+
+  // Verify user has no access
+  ASSERT_FALSE(user->HasAccess("db1"));
+  ASSERT_FALSE(user->HasAccess("db2"));
+
+  // Verify user is updated
+  {
+    auto updated_user = auth->GetUser("test_user");
+    ASSERT_NE(updated_user, std::nullopt);
+    ASSERT_EQ(updated_user->GetMultiTenantRoles("db1").size(), 0);
+    ASSERT_EQ(updated_user->GetMultiTenantRoles("db2").size(), 0);
+  }
+
+  // Re-add role to db1
+  user->AddMultiTenantRole(*role, "db1");
+  auth->SaveUser(*user);
+
+  // Verify user has access to db1 but not db2
+  ASSERT_TRUE(user->HasAccess("db1"));
+  ASSERT_FALSE(user->HasAccess("db2"));
+
+  // Verify user is updated
+  {
+    auto updated_user = auth->GetUser("test_user");
+    ASSERT_NE(updated_user, std::nullopt);
+    ASSERT_EQ(updated_user->GetMultiTenantRoles("db1").size(), 1);
+    ASSERT_EQ(updated_user->GetMultiTenantRoles("db2").size(), 0);
+  }
+
+  // Re-add role to db2
+  user->AddMultiTenantRole(*role, "db2");
+  auth->SaveUser(*user);
+
+  // Verify user is updated
+  {
+    auto updated_user = auth->GetUser("test_user");
+    ASSERT_NE(updated_user, std::nullopt);
+    ASSERT_EQ(updated_user->GetMultiTenantRoles("db1").size(), 1);
+    ASSERT_EQ(updated_user->GetMultiTenantRoles("db2").size(), 1);
+  }
+
+  // Verify user has access to both databases
+  ASSERT_TRUE(user->HasAccess("db1"));
+  ASSERT_TRUE(user->HasAccess("db2"));
+}
+#endif

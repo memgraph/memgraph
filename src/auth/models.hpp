@@ -518,6 +518,13 @@ class Roles {
 
   // Get all roles
   const std::unordered_set<Role> &GetRoles() const { return roles_; }
+  std::optional<Role> GetRole(const std::string &rolename) const {
+    auto it = roles_.find(Role(rolename));
+    if (it == roles_.end()) {
+      return std::nullopt;
+    }
+    return *it;
+  }
 
   // Get roles filtered by database access
   std::unordered_set<Role> GetFilteredRoles(std::optional<std::string_view> db_name = std::nullopt) const {
@@ -627,6 +634,8 @@ class Roles {
 #endif
 
   // Iteration support
+  auto begin() { return roles_.begin(); }
+  auto end() { return roles_.end(); }
   auto begin() const { return roles_.begin(); }
   auto end() const { return roles_.end(); }
   auto cbegin() const { return roles_.cbegin(); }
@@ -691,15 +700,20 @@ class User final {
 
   void UpdateHash(HashedPassword hashed_password);
 
-  void SetRole(const Role &role);
+  void SetRole(const Role &role);  // Deprecated
 
   void ClearRole();
 
-  // New methods for multiple roles
-  void AddRole(const Role &role) { roles_.AddRole(role); }
+  void AddRole(const Role &role);
   void RemoveRole(const std::string &rolename) { roles_.RemoveRole(rolename); }
   const Roles &roles() const { return roles_; }
   Roles &roles() { return roles_; }
+
+// Multi-tenant role support
+#ifdef MG_ENTERPRISE
+  void AddMultiTenantRole(Role role, const std::string &db_name);
+  void ClearMultiTenantRoles(const std::string &db_name);
+#endif
 
 #ifdef MG_ENTERPRISE
   FineGrainedAccessPermissions GetFineGrainedAccessLabelPermissions(
@@ -790,7 +804,26 @@ class User final {
     return roles_.GetFilteredRoles(db_name);
   }
 
-  // TODO Insert user db to role mapping (see PR #2832)
+  std::unordered_set<Role> GetMultiTenantRoles(const std::string &db_name) const {
+    std::unordered_set<Role> roles;
+    try {
+      for (const auto &role : db_role_map_.at(db_name)) {
+        if (const auto &role_obj = roles_.GetRole(role); role_obj) {
+          DMG_ASSERT(role_obj.value().HasAccess(db_name), "Role {} does not have access to database {}", role, db_name);
+          roles.insert(role_obj.value());
+        }
+      }
+    } catch (const std::out_of_range &e) {
+      return {};
+    }
+    return roles;
+  }
+
+  // Get multi-tenant role mappings for storage
+  const std::unordered_map<std::string, std::unordered_set<std::string>> &GetMultiTenantRoleMappings() const {
+    return db_role_map_;
+  }
+
 #endif
 
   const utils::UUID &uuid() const { return uuid_; }
@@ -810,6 +843,8 @@ class User final {
   FineGrainedAccessHandler fine_grained_access_handler_;
   Databases database_access_{};
   std::optional<UserImpersonation> user_impersonation_{};
+  std::unordered_map<std::string, std::unordered_set<std::string>> db_role_map_{};  // Map of database name to role name
+  std::unordered_map<std::string, std::unordered_set<std::string>> role_db_map_{};  // Map of role name to database name
 #endif
   Roles roles_;
   utils::UUID uuid_{};  // To uniquely identify a user

@@ -51,6 +51,9 @@ void Save(const auth::User &self, memgraph::slk::Builder *builder) {
     roles.emplace_back(role);
   }
   memgraph::slk::Save(roles, builder);
+#ifdef MG_ENTERPRISE
+  memgraph::slk::Save(self.GetMultiTenantRoleMappings(), builder);
+#endif
 }
 // Deserialize code for auth::User
 void Load(auth::User *self, memgraph::slk::Reader *reader) {
@@ -61,8 +64,30 @@ void Load(auth::User *self, memgraph::slk::Reader *reader) {
   std::vector<auth::Role> roles;
   memgraph::slk::Load(&roles, reader);
   self->ClearRole();
+
+#ifdef MG_ENTERPRISE
+  // Handle multi-tenant roles (has to be done before adding all roles)
+  std::unordered_map<std::string, std::unordered_set<std::string>> db_role_map;
+  memgraph::slk::Load(&db_role_map, reader);
+  for (const auto &[db, role_names] : db_role_map) {
+    for (const auto &role : role_names) {
+      if (auto role_it =
+              std::find_if(roles.begin(), roles.end(), [&role](const auto &r) { return r.rolename() == role; });
+          role_it != roles.end()) {
+        self->AddMultiTenantRole(*role_it, db);
+      }
+    }
+  }
+#endif
+
+  // Handle global roles
   for (const auto &role : roles) {
-    self->AddRole(role);
+    try {
+      self->AddRole(role);
+    } catch (const auth::AuthException &e) {
+      // Absorb the exception and continue with the next role (role already set as multi-tenant role)
+      continue;
+    }
   }
 }
 

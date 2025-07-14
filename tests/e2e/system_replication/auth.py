@@ -366,6 +366,7 @@ def test_manual_roles_recovery(connection, test_name):
     # 1/ Check that both MAIN and REPLICA have user1 and user2
     # 2/ Check that role1 and role2 are replicated
     # 3/ Check that user1 has role1
+    # 4/ Test multiple roles and role syntax compatibility
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
@@ -379,6 +380,9 @@ def test_manual_roles_recovery(connection, test_name):
             "data_directory": f"{get_data_path(file, test_name)}/replica1",
             "setup_queries": [
                 "CREATE ROLE role3;",
+                "CREATE ROLE role6;",
+                "CREATE USER user3;",
+                "SET ROLES FOR user3 TO role3, role6;",
                 f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};",
             ],
         },
@@ -393,9 +397,11 @@ def test_manual_roles_recovery(connection, test_name):
             "setup_queries": [
                 "CREATE ROLE role4;",
                 "CREATE ROLE role5;",
+                "CREATE ROLE role7;",
                 "CREATE USER user4;",
                 "SET ROLE FOR user4 TO role4;",
                 "SET ROLE FOR user4 TO role4, role5;",
+                "SET ROLES FOR user4 TO role4, role5, role7;",
                 f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};",
             ],
         },
@@ -411,9 +417,11 @@ def test_manual_roles_recovery(connection, test_name):
                 "CREATE ROLE role1;",
                 "CREATE ROLE role2;",
                 "CREATE ROLE role3;",
+                "CREATE ROLE role8;",
                 "CREATE USER user2;",
                 "SET ROLE FOR user2 TO role2;",
                 "SET ROLE FOR user2 TO role2, role3;",
+                "SET ROLES FOR user2 TO role2, role3, role8;",
                 f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';",
                 f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';",
             ],
@@ -434,12 +442,12 @@ def test_manual_roles_recovery(connection, test_name):
     mg_sleep_and_assert(expected_data, show_users_func(cursor_replica_2))
 
     # 2/
-    expected_data = {("role1",), ("role2",), ("role3",)}
+    expected_data = {("role1",), ("role2",), ("role3",), ("role8",)}
     mg_sleep_and_assert(expected_data, show_roles_func(cursor_replica_1))
     mg_sleep_and_assert(expected_data, show_roles_func(cursor_replica_2))
 
     # 3/
-    expected_data = {("role2",), ("role3",)}
+    expected_data = {("role2",), ("role3",), ("role8",)}
     mg_sleep_and_assert(
         expected_data,
         show_role_for_user_func(cursor_replica_1, "user2"),
@@ -448,6 +456,40 @@ def test_manual_roles_recovery(connection, test_name):
         expected_data,
         show_role_for_user_func(cursor_replica_2, "user2"),
     )
+
+    # 4/ Test multiple roles and role syntax compatibility
+    # Test that both SET ROLE and SET ROLES work the same
+    cursor_main = connection(BOLT_PORTS["main"], "main", "user2").cursor()
+
+    # Test SET ROLE vs SET ROLES
+    execute_and_fetch_all(cursor_main, "CREATE USER test_user")
+    execute_and_fetch_all(cursor_main, "CREATE ROLE test_role1")
+    execute_and_fetch_all(cursor_main, "CREATE ROLE test_role2")
+
+    # Test SET ROLE
+    execute_and_fetch_all(cursor_main, "SET ROLE FOR test_user TO test_role1, test_role2")
+    results1 = execute_and_fetch_all(cursor_main, "SHOW ROLE FOR test_user")
+    role_set1 = {row[0] for row in results1 if row[0] != "null"}
+
+    # Test SET ROLES
+    execute_and_fetch_all(cursor_main, "CLEAR ROLE FOR test_user")
+    execute_and_fetch_all(cursor_main, "SET ROLES FOR test_user TO test_role1, test_role2")
+    results2 = execute_and_fetch_all(cursor_main, "SHOW ROLES FOR test_user")
+    role_set2 = {row[0] for row in results2 if row[0] != "null"}
+
+    # Both should show the same roles
+    assert role_set1 == role_set2
+    assert role_set1 == {"test_role1", "test_role2"}
+
+    # Test CLEAR ROLE vs CLEAR ROLES
+    execute_and_fetch_all(cursor_main, "CLEAR ROLE FOR test_user")
+    results3 = execute_and_fetch_all(cursor_main, "SHOW ROLE FOR test_user")
+    assert len(results3) == 1 and results3[0][0] == "null"
+
+    execute_and_fetch_all(cursor_main, "SET ROLES FOR test_user TO test_role1, test_role2")
+    execute_and_fetch_all(cursor_main, "CLEAR ROLES FOR test_user")
+    results4 = execute_and_fetch_all(cursor_main, "SHOW ROLES FOR test_user")
+    assert len(results4) == 1 and results4[0][0] == "null"
 
 
 def test_auth_config_recovery(connection, test_name):
@@ -590,7 +632,7 @@ def test_auth_replication(connection, test_name):
 
     # 0/
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, keep_directories=False)
-    cursor_main = connection(BOLT_PORTS["main"], "main", "user1").cursor()
+    cursor_main = connection(BOLT_PORTS["main"], "main").cursor()
     cursor_replica1 = connection(BOLT_PORTS["replica_1"], "replica").cursor()
     cursor_replica2 = connection(BOLT_PORTS["replica_2"], "replica").cursor()
 
@@ -852,6 +894,103 @@ def test_auth_replication(connection, test_name):
         execute_and_fetch_all(connection(BOLT_PORTS["replica_2"], "replica", "user4").cursor(), "SHOW DATABASE")[0][0]
         == "auth_test"
     )
+
+    # Test multi-tenant role functionality
+    execute_and_fetch_all(cursor_main, "CREATE USER mt_user")
+    execute_and_fetch_all(cursor_main, "CREATE ROLE mt_role1")
+    execute_and_fetch_all(cursor_main, "CREATE ROLE mt_role2")
+    execute_and_fetch_all(cursor_main, "CREATE DATABASE mt_db1")
+    execute_and_fetch_all(cursor_main, "CREATE DATABASE mt_db2")
+
+    # Grant database access to roles
+    execute_and_fetch_all(cursor_main, "GRANT DATABASE mt_db1 TO mt_role1")
+    execute_and_fetch_all(cursor_main, "GRANT DATABASE mt_db2 TO mt_role2")
+
+    # Test setting multi-tenant roles
+    execute_and_fetch_all(cursor_main, "SET ROLE FOR mt_user TO mt_role1 ON mt_db1")
+    execute_and_fetch_all(cursor_main, "SET ROLE FOR mt_user TO mt_role2 ON mt_db2")
+
+    # Test SHOW ROLE/ROLES ON DATABASE
+    def get_mt_roles(cursor, username, database):
+        def func():
+            results = execute_and_fetch_all(cursor, f"SHOW ROLE FOR {username} ON DATABASE {database}")
+            print(f"SHOW ROLE FOR {username} ON DATABASE {database}")
+            print(results)
+            role_set = set()
+            for row in results:
+                if row[0] != "null":
+                    role_set.add(row[0])
+            return role_set
+
+        return func
+
+    # Check roles are replicated
+    check(partial(get_mt_roles, username="mt_user", database="mt_db1"), {"mt_role1"})
+    check(partial(get_mt_roles, username="mt_user", database="mt_db2"), {"mt_role2"})
+
+    # Update description with username
+    execute_and_fetch_all(cursor_main, "CREATE USER superadmin")
+    execute_and_fetch_all(cursor_main, "GRANT ALL PRIVILEGES TO superadmin")
+    execute_and_fetch_all(cursor_main, "GRANT DATABASE * TO superadmin")
+    MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL["main"]["username"] = "superadmin"
+    MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL["main"]["setup_queries"].clear()
+    MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL["replica_1"]["username"] = "superadmin"
+    MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL["replica_1"]["setup_queries"].clear()
+    MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL["replica_2"]["username"] = "superadmin"
+    MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL["replica_2"]["setup_queries"].clear()
+
+    # Test restart
+    interactive_mg_runner.stop_all(keep_directories=True)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, keep_directories=True)
+    cursor_main = connection(BOLT_PORTS["main"], "main", "superadmin").cursor()
+    cursor_replica1 = connection(BOLT_PORTS["replica_1"], "replica", "superadmin").cursor()
+    cursor_replica2 = connection(BOLT_PORTS["replica_2"], "replica", "superadmin").cursor()
+    assert get_mt_roles(cursor_main, username="mt_user", database="mt_db1")() == {"mt_role1"}
+    assert get_mt_roles(cursor_main, username="mt_user", database="mt_db2")() == {"mt_role2"}
+    check(partial(get_mt_roles, username="mt_user", database="mt_db1"), {"mt_role1"})
+    check(partial(get_mt_roles, username="mt_user", database="mt_db2"), {"mt_role2"})
+
+    # Test clearing multi-tenant roles
+    execute_and_fetch_all(cursor_main, "CLEAR ROLE FOR mt_user ON mt_db1")
+    check(partial(get_mt_roles, username="mt_user", database="mt_db1"), set())
+    check(partial(get_mt_roles, username="mt_user", database="mt_db2"), {"mt_role2"})
+
+    # Test restart
+    interactive_mg_runner.stop_all(keep_directories=True)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, keep_directories=True)
+    cursor_main = connection(BOLT_PORTS["main"], "main", "superadmin").cursor()
+    cursor_replica1 = connection(BOLT_PORTS["replica_1"], "replica", "superadmin").cursor()
+    cursor_replica2 = connection(BOLT_PORTS["replica_2"], "replica", "superadmin").cursor()
+    assert get_mt_roles(cursor_main, username="mt_user", database="mt_db1")() == set()
+    assert get_mt_roles(cursor_main, username="mt_user", database="mt_db2")() == {"mt_role2"}
+    check(partial(get_mt_roles, username="mt_user", database="mt_db1"), set())
+    check(partial(get_mt_roles, username="mt_user", database="mt_db2"), {"mt_role2"})
+
+    # Test role syntax compatibility with multi-tenant roles
+    execute_and_fetch_all(cursor_main, "CLEAR ROLE FOR mt_user ON mt_db1")
+    execute_and_fetch_all(cursor_main, "GRANT DATABASE * TO mt_role2")
+    execute_and_fetch_all(cursor_main, "SET ROLES FOR mt_user TO mt_role1, mt_role2 ON mt_db1")
+    check(partial(get_mt_roles, username="mt_user", database="mt_db1"), {"mt_role1", "mt_role2"})
+    check(partial(get_mt_roles, username="mt_user", database="mt_db2"), {"mt_role2"})
+
+    # Remove role
+    execute_and_fetch_all(cursor_main, "DROP ROLE mt_role2")
+    check(partial(get_mt_roles, username="mt_user", database="mt_db1"), {"mt_role1"})
+    check(partial(get_mt_roles, username="mt_user", database="mt_db2"), set())
+
+    # Test CLEAR ROLES (plural form)
+    execute_and_fetch_all(cursor_main, "CLEAR ROLES FOR mt_user ON mt_db1")
+    check(partial(get_mt_roles, username="mt_user", database="mt_db1"), set())
+
+    # Test error handling for role without database access
+    try:
+        execute_and_fetch_all(cursor_main, "SET ROLE FOR mt_user TO mt_role1 ON mt_db2")
+        assert False, "Expected exception when setting role without database access"
+    except mgclient.DatabaseError:
+        pass  # Expected
+
+    # Clean up
+    interactive_mg_runner.stop_all(keep_directories=False)
 
 
 if __name__ == "__main__":

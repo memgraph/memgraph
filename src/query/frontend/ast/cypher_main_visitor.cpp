@@ -1893,6 +1893,12 @@ antlrcpp::Any CypherMainVisitor::visitSetRole(MemgraphCypher::SetRoleContext *ct
   auth->action_ = AuthQuery::Action::SET_ROLE;
   auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
   auth->roles_ = std::any_cast<std::vector<std::string>>(ctx->roles->accept(this));
+  // Optionally limit the role to specific databases
+  if (ctx->db) {
+    auto db_names = std::any_cast<std::vector<std::string>>(ctx->db->accept(this));
+    auth->role_databases_ = std::unordered_set<std::string>(std::make_move_iterator(db_names.begin()),
+                                                            std::make_move_iterator(db_names.end()));
+  }
   return auth;
 }
 
@@ -1903,6 +1909,12 @@ antlrcpp::Any CypherMainVisitor::visitClearRole(MemgraphCypher::ClearRoleContext
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::CLEAR_ROLE;
   auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
+  // Optionally limit the role to specific databases
+  if (ctx->db) {
+    auto db_names = std::any_cast<std::vector<std::string>>(ctx->db->accept(this));
+    auth->role_databases_ = std::unordered_set<std::string>(std::make_move_iterator(db_names.begin()),
+                                                            std::make_move_iterator(db_names.end()));
+  }
   return auth;
 }
 
@@ -2199,6 +2211,18 @@ antlrcpp::Any CypherMainVisitor::visitShowRoleForUser(MemgraphCypher::ShowRoleFo
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::SHOW_ROLE_FOR_USER;
   auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
+
+  if (ctx->ON()) {
+    if (ctx->MAIN()) {
+      auth->database_specification_ = AuthQuery::DatabaseSpecification::MAIN;
+    } else if (ctx->CURRENT()) {
+      auth->database_specification_ = AuthQuery::DatabaseSpecification::CURRENT;
+    } else if (ctx->DATABASE()) {
+      auth->database_specification_ = AuthQuery::DatabaseSpecification::DATABASE;
+      auth->database_ = std::any_cast<std::string>(ctx->db->accept(this));
+    }
+  }
+
   return auth;
 }
 

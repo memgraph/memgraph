@@ -1190,6 +1190,346 @@ TEST_F(AuthQueryHandlerFixture, GivenRoleWithNoPermissionsWhenFilteringByDatabas
 }
 #endif
 
+#ifdef MG_ENTERPRISE
+TEST_F(AuthQueryHandlerFixture, SetMultiTenantRole_Success) {
+  // Create a role with database access
+  memgraph::auth::Role role("test_role");
+  role.db_access().Grant("db1");
+  role.db_access().Grant("db2");
+  auth->SaveRole(role);
+
+  // Create a user
+  memgraph::auth::User user("test_user");
+  auth->SaveUser(user);
+
+  // Set multi-tenant role for specific database
+  user.AddMultiTenantRole(role, "db1");
+  auth->SaveUser(user);
+
+  // Verify the role is assigned to the user for db1
+  auto updated_user = auth->GetUser("test_user");
+  ASSERT_TRUE(updated_user);
+
+  auto multi_tenant_roles = updated_user->GetMultiTenantRoles("db1");
+  ASSERT_EQ(multi_tenant_roles.size(), 1);
+  ASSERT_EQ(multi_tenant_roles.begin()->rolename(), "test_role");
+}
+
+TEST_F(AuthQueryHandlerFixture, SetMultiTenantRole_MultipleDatabases) {
+  // Create a role with access to multiple databases
+  memgraph::auth::Role role("test_role");
+  role.db_access().Grant("db1");
+  role.db_access().Grant("db2");
+  auth->SaveRole(role);
+
+  // Create a user
+  memgraph::auth::User user("test_user");
+  auth->SaveUser(user);
+
+  // Set multi-tenant role for multiple databases
+  user.AddMultiTenantRole(role, "db1");
+  user.AddMultiTenantRole(role, "db2");
+  auth->SaveUser(user);
+
+  // Verify the role is assigned to the user for both databases
+  auto updated_user = auth->GetUser("test_user");
+  ASSERT_TRUE(updated_user);
+
+  auto roles_db1 = updated_user->GetMultiTenantRoles("db1");
+  ASSERT_EQ(roles_db1.size(), 1);
+  ASSERT_EQ(roles_db1.begin()->rolename(), "test_role");
+
+  auto roles_db2 = updated_user->GetMultiTenantRoles("db2");
+  ASSERT_EQ(roles_db2.size(), 1);
+  ASSERT_EQ(roles_db2.begin()->rolename(), "test_role");
+}
+
+TEST_F(AuthQueryHandlerFixture, SetMultiTenantRole_RoleWithoutDatabaseAccess_Throws) {
+  // Create a role without database access
+  memgraph::auth::Role role("test_role");
+  auth->SaveRole(role);
+
+  // Create a user
+  memgraph::auth::User user("test_user");
+  auth->SaveUser(user);
+
+  // Try to set multi-tenant role for a database the role doesn't have access to
+  ASSERT_THROW(user.AddMultiTenantRole(role, "db1"), memgraph::auth::AuthException);
+}
+
+TEST_F(AuthQueryHandlerFixture, SetMultiTenantRole_GlobalRoleAlreadySet_Throws) {
+  // Create a role
+  memgraph::auth::Role role("test_role");
+  role.db_access().Grant("db1");
+  auth->SaveRole(role);
+
+  // Create a user and set the role globally
+  memgraph::auth::User user("test_user");
+  user.SetRole(role);
+  auth->SaveUser(user);
+
+  // Try to set the same role as multi-tenant role
+  ASSERT_THROW(user.AddMultiTenantRole(role, "db1"), memgraph::auth::AuthException);
+}
+
+TEST_F(AuthQueryHandlerFixture, ClearMultiTenantRoles_Success) {
+  // Create a role with access to multiple databases
+  memgraph::auth::Role role("test_role");
+  role.db_access().Grant("db1");
+  role.db_access().Grant("db2");
+  auth->SaveRole(role);
+
+  // Create a user and set multi-tenant roles
+  memgraph::auth::User user("test_user");
+  user.AddMultiTenantRole(role, "db1");
+  user.AddMultiTenantRole(role, "db2");
+  auth->SaveUser(user);
+
+  // Clear multi-tenant roles for db1
+  user.ClearMultiTenantRoles("db1");
+  auth->SaveUser(user);
+
+  // Verify roles are cleared for db1 but remain for db2
+  auto updated_user = auth->GetUser("test_user");
+  ASSERT_TRUE(updated_user);
+
+  auto roles_db1 = updated_user->GetMultiTenantRoles("db1");
+  ASSERT_EQ(roles_db1.size(), 0);
+
+  auto roles_db2 = updated_user->GetMultiTenantRoles("db2");
+  ASSERT_EQ(roles_db2.size(), 1);
+  ASSERT_EQ(roles_db2.begin()->rolename(), "test_role");
+}
+
+TEST_F(AuthQueryHandlerFixture, ClearMultiTenantRoles_NonExistentDatabase) {
+  // Create a user
+  memgraph::auth::User user("test_user");
+  auth->SaveUser(user);
+
+  // Clear multi-tenant roles for non-existent database (should not throw)
+  ASSERT_NO_THROW(user.ClearMultiTenantRoles("non_existent_db"));
+}
+
+TEST_F(AuthQueryHandlerFixture, GetMultiTenantRoles_Empty) {
+  // Create a user without any multi-tenant roles
+  memgraph::auth::User user("test_user");
+  auth->SaveUser(user);
+
+  auto updated_user = auth->GetUser("test_user");
+  ASSERT_TRUE(updated_user);
+
+  auto roles = updated_user->GetMultiTenantRoles("db1");
+  ASSERT_EQ(roles.size(), 0);
+}
+
+TEST_F(AuthQueryHandlerFixture, SetRole_WithDatabaseSpecification_Success) {
+  // Create roles with database access
+  memgraph::auth::Role role1("role1");
+  role1.db_access().Grant("db1");
+  auth->SaveRole(role1);
+
+  memgraph::auth::Role role2("role2");
+  role2.db_access().Grant("db2");
+  auth->SaveRole(role2);
+
+  // Create a user
+  memgraph::auth::User user("test_user");
+  auth->SaveUser(user);
+
+  // Set roles with database specification
+  {
+    std::vector<std::string> roles = {"role1", "role2"};
+    std::unordered_set<std::string> databases = {"db1", "db2"};
+    ASSERT_THROW(auth_handler.SetRole("test_user", roles, databases, nullptr), memgraph::query::QueryRuntimeException);
+  }
+
+  // Update roles to have access to both databases
+  role1.db_access().Grant("db2");
+  auth->SaveRole(role1);
+  role2.db_access().Grant("db1");
+  auth->SaveRole(role2);
+  auth->SaveUser(user);
+
+  // Set roles with database specification
+  {
+    std::vector<std::string> roles = {"role1", "role2"};
+    std::unordered_set<std::string> databases = {"db1", "db2"};
+    ASSERT_NO_THROW(auth_handler.SetRole("test_user", roles, databases, nullptr));
+  }
+
+  // Verify the roles are set as multi-tenant roles
+  auto updated_user = auth->GetUser("test_user");
+  ASSERT_TRUE(updated_user);
+
+  auto roles_db1 = updated_user->GetMultiTenantRoles("db1");
+  ASSERT_EQ(roles_db1.size(), 2);
+  ASSERT_TRUE(std::find_if(roles_db1.begin(), roles_db1.end(),
+                           [](const auto &role) { return role.rolename() == "role1"; }) != roles_db1.end());
+  ASSERT_TRUE(std::find_if(roles_db1.begin(), roles_db1.end(),
+                           [](const auto &role) { return role.rolename() == "role2"; }) != roles_db1.end());
+
+  auto roles_db2 = updated_user->GetMultiTenantRoles("db2");
+  ASSERT_EQ(roles_db2.size(), 2);
+  ASSERT_TRUE(std::find_if(roles_db2.begin(), roles_db2.end(),
+                           [](const auto &role) { return role.rolename() == "role1"; }) != roles_db2.end());
+  ASSERT_TRUE(std::find_if(roles_db2.begin(), roles_db2.end(),
+                           [](const auto &role) { return role.rolename() == "role2"; }) != roles_db2.end());
+}
+
+TEST_F(AuthQueryHandlerFixture, ClearRole_WithDatabaseSpecification_Success) {
+  // Create a role with database access
+  memgraph::auth::Role role("test_role");
+  role.db_access().Grant("db1");
+  role.db_access().Grant("db2");
+  auth->SaveRole(role);
+
+  // Create a user and set multi-tenant roles
+  memgraph::auth::User user("test_user");
+  user.AddMultiTenantRole(role, "db1");
+  user.AddMultiTenantRole(role, "db2");
+  auth->SaveUser(user);
+
+  // Clear roles for specific database
+  std::unordered_set<std::string> databases = {"db1"};
+  ASSERT_NO_THROW(auth_handler.ClearRole("test_user", databases, nullptr));
+
+  // Verify roles are cleared for db1 but remain for db2
+  auto updated_user = auth->GetUser("test_user");
+  ASSERT_TRUE(updated_user);
+
+  auto roles_db1 = updated_user->GetMultiTenantRoles("db1");
+  ASSERT_EQ(roles_db1.size(), 0);
+
+  auto roles_db2 = updated_user->GetMultiTenantRoles("db2");
+  ASSERT_EQ(roles_db2.size(), 1);
+  ASSERT_EQ(roles_db2.begin()->rolename(), "test_role");
+}
+
+TEST_F(AuthQueryHandlerFixture, GetRolenameForUser_WithDatabaseSpecification) {
+  // Create a role with database access
+  memgraph::auth::Role role("test_role");
+  role.db_access().Grant("db1");
+  auth->SaveRole(role);
+
+  // Create a user and set multi-tenant role
+  memgraph::auth::User user("test_user");
+  user.AddMultiTenantRole(role, "db1");
+  auth->SaveUser(user);
+
+  // Get roles for specific database
+  auto rolenames = auth_handler.GetRolenameForUser("test_user", "db1");
+  ASSERT_EQ(rolenames.size(), 1);
+  ASSERT_EQ(rolenames[0], "test_role");
+
+  // Get roles for different database (should be empty)
+  auto rolenames_db2 = auth_handler.GetRolenameForUser("test_user", "db2");
+  ASSERT_EQ(rolenames_db2.size(), 0);
+}
+
+TEST_F(AuthQueryHandlerFixture, LinkUser_MultiTenantLinks) {
+  // Create a role with database access
+  memgraph::auth::Role role("test_role");
+  role.db_access().Grant("db1");
+  auth->SaveRole(role);
+
+  // Create a user
+  memgraph::auth::User user("test_user");
+  auth->SaveUser(user);
+
+  // Manually add multi-tenant link to storage
+  nlohmann::json mt_link_data = nlohmann::json::array();
+  mt_link_data.push_back({{"rolename", "test_role"}});
+
+  // This would normally be done through the storage interface
+  // For testing, we'll simulate the storage update
+  user.AddMultiTenantRole(role, "db1");
+  auth->SaveUser(user);
+
+  // Verify the user has the role linked
+  auto updated_user = auth->GetUser("test_user");
+  ASSERT_TRUE(updated_user);
+
+  auto roles = updated_user->GetMultiTenantRoles("db1");
+  ASSERT_EQ(roles.size(), 1);
+  ASSERT_EQ(roles.begin()->rolename(), "test_role");
+}
+
+TEST_F(AuthQueryHandlerFixture, RemoveUser_ClearsMultiTenantLinks) {
+  // Create a role with database access
+  memgraph::auth::Role role("test_role");
+  role.db_access().Grant("db1");
+  auth->SaveRole(role);
+
+  // Create a user and set multi-tenant role
+  memgraph::auth::User user("test_user");
+  user.AddMultiTenantRole(role, "db1");
+  auth->SaveUser(user);
+
+  // Verify user exists with multi-tenant role
+  auto existing_user = auth->GetUser("test_user");
+  ASSERT_TRUE(existing_user);
+  ASSERT_EQ(existing_user->GetMultiTenantRoles("db1").size(), 1);
+
+  // Remove the user
+  ASSERT_TRUE(auth->RemoveUser("test_user", nullptr));
+
+  // Verify user is removed
+  auto removed_user = auth->GetUser("test_user");
+  ASSERT_FALSE(removed_user);
+}
+
+TEST_F(AuthQueryHandlerFixture, SetMultiTenantRole_AlreadySet_NoChange) {
+  // Create a role with database access
+  memgraph::auth::Role role("test_role");
+  role.db_access().Grant("db1");
+  auth->SaveRole(role);
+
+  // Create a user
+  memgraph::auth::User user("test_user");
+  auth->SaveUser(user);
+
+  // Set multi-tenant role
+  user.AddMultiTenantRole(role, "db1");
+  auth->SaveUser(user);
+
+  // Set the same role again (should not change anything)
+  ASSERT_NO_THROW(user.AddMultiTenantRole(role, "db1"));
+  auth->SaveUser(user);
+
+  // Verify the role is still set correctly
+  auto updated_user = auth->GetUser("test_user");
+  ASSERT_TRUE(updated_user);
+
+  auto roles = updated_user->GetMultiTenantRoles("db1");
+  ASSERT_EQ(roles.size(), 1);
+  ASSERT_EQ(roles.begin()->rolename(), "test_role");
+}
+
+TEST_F(AuthQueryHandlerFixture, ClearRole_ClearsMultiTenantRoles) {
+  // Create a role with database access
+  memgraph::auth::Role role("test_role");
+  role.db_access().Grant("db1");
+  auth->SaveRole(role);
+
+  // Create a user and set multi-tenant role
+  memgraph::auth::User user("test_user");
+  user.AddMultiTenantRole(role, "db1");
+  auth->SaveUser(user);
+
+  // Clear all roles (should clear multi-tenant roles too)
+  user.ClearRole();
+  auth->SaveUser(user);
+
+  // Verify all roles are cleared
+  auto updated_user = auth->GetUser("test_user");
+  ASSERT_TRUE(updated_user);
+
+  auto roles = updated_user->GetMultiTenantRoles("db1");
+  ASSERT_EQ(roles.size(), 0);
+  ASSERT_TRUE(updated_user->roles().empty());
+}
+#endif
+
 TEST_F(AuthQueryHandlerFixture, SetRole_MultipleRoles_Success) {
   // Create roles
   auto role1 = auth->AddRole("role1");
@@ -1205,7 +1545,7 @@ TEST_F(AuthQueryHandlerFixture, SetRole_MultipleRoles_Success) {
 
   // Set multiple roles
   std::vector<std::string> roles = {"role1", "role2", "role3"};
-  ASSERT_NO_THROW(auth_handler.SetRole("multiuser", roles, nullptr));
+  ASSERT_NO_THROW(auth_handler.SetRole("multiuser", roles, std::unordered_set<std::string>{}, nullptr));
 
   // Check user roles
   auto updated_user = auth->GetUser("multiuser");
@@ -1231,7 +1571,7 @@ TEST_F(AuthQueryHandlerFixture, SetRole_EmptyRoles_ClearsRoles) {
 
   // Clear roles by setting empty vector
   std::vector<std::string> roles = {};
-  ASSERT_NO_THROW(auth_handler.SetRole("user1", roles, nullptr));
+  ASSERT_NO_THROW(auth_handler.SetRole("user1", roles, std::unordered_set<std::string>{}, nullptr));
   auto updated_user = auth->GetUser("user1");
   ASSERT_TRUE(updated_user);
   ASSERT_TRUE(updated_user->roles().empty());
@@ -1243,12 +1583,14 @@ TEST_F(AuthQueryHandlerFixture, SetRole_NonExistentRole_Throws) {
   ASSERT_TRUE(user);
   // Try to set a non-existent role
   std::vector<std::string> roles = {"doesnotexist"};
-  ASSERT_THROW(auth_handler.SetRole("user2", roles, nullptr), memgraph::query::QueryRuntimeException);
+  ASSERT_THROW(auth_handler.SetRole("user2", roles, std::unordered_set<std::string>{}, nullptr),
+               memgraph::query::QueryRuntimeException);
 }
 
 TEST_F(AuthQueryHandlerFixture, SetRole_UserDoesNotExist_Throws) {
   std::vector<std::string> roles = {"role1"};
-  ASSERT_THROW(auth_handler.SetRole("no_such_user", roles, nullptr), memgraph::query::QueryRuntimeException);
+  ASSERT_THROW(auth_handler.SetRole("no_such_user", roles, std::unordered_set<std::string>{}, nullptr),
+               memgraph::query::QueryRuntimeException);
 }
 
 TEST_F(AuthQueryHandlerFixture, SetRole_DuplicateRoles_NoDuplicatesInResult) {
@@ -1261,7 +1603,7 @@ TEST_F(AuthQueryHandlerFixture, SetRole_DuplicateRoles_NoDuplicatesInResult) {
   ASSERT_TRUE(user);
   // Set duplicate roles
   std::vector<std::string> roles = {"role1", "role2", "role1", "role2"};
-  ASSERT_NO_THROW(auth_handler.SetRole("user3", roles, nullptr));
+  ASSERT_NO_THROW(auth_handler.SetRole("user3", roles, std::unordered_set<std::string>{}, nullptr));
   auto updated_user = auth->GetUser("user3");
   ASSERT_TRUE(updated_user);
   std::set<std::string> unique_roles;

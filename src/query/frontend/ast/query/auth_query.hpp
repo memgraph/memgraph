@@ -15,6 +15,7 @@
 #include "query/frontend/ast/query/query.hpp"
 
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
 
 namespace memgraph::query {
@@ -97,6 +98,7 @@ class AuthQuery : public memgraph::query::Query {
   std::string user_;
   std::vector<std::string> roles_;
   std::string user_or_role_;
+  std::unordered_set<std::string> role_databases_;
   memgraph::query::Expression *old_password_{nullptr};
   memgraph::query::Expression *new_password_{nullptr};
   bool if_not_exists_;
@@ -110,7 +112,7 @@ class AuthQuery : public memgraph::query::Query {
   std::vector<std::string> impersonation_targets_;
 
   // Database specification for SHOW PRIVILEGES query
-  DatabaseSpecification database_specification_ = DatabaseSpecification::NONE;
+  DatabaseSpecification database_specification_{DatabaseSpecification::NONE};
 
   AuthQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<AuthQuery>();
@@ -118,6 +120,7 @@ class AuthQuery : public memgraph::query::Query {
     object->user_ = user_;
     object->roles_ = roles_;
     object->user_or_role_ = user_or_role_;
+    object->role_databases_ = role_databases_;
     object->old_password_ = old_password_;
     object->new_password_ = new_password_;
     object->if_not_exists_ = if_not_exists_;
@@ -137,11 +140,13 @@ class AuthQuery : public memgraph::query::Query {
             std::vector<std::unordered_map<FineGrainedPrivilege, std::vector<std::string>>> label_privileges,
             std::vector<std::unordered_map<FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges,
             std::vector<std::string> impersonation_targets,
-            DatabaseSpecification database_specification = DatabaseSpecification::NONE)
+            DatabaseSpecification database_specification = DatabaseSpecification::NONE,
+            std::unordered_set<std::string> role_databases = {})
       : action_(action),
         user_(std::move(user)),
         roles_(std::move(roles)),
         user_or_role_(std::move(user_or_role)),
+        role_databases_(std::move(role_databases)),
         if_not_exists_(if_not_exists),
         password_(password),
         database_(std::move(database)),

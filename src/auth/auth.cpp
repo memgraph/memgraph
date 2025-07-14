@@ -151,6 +151,7 @@ struct DropAuthData : memgraph::system::ISystemAction {
 const std::string kUserPrefix = "user:";
 const std::string kRolePrefix = "role:";
 const std::string kLinkPrefix = "link:";
+const std::string kMtLinkPrefix = "mtlink:";
 const std::string kVersion = "version";
 
 static constexpr auto kVersionV1 = "V1";
@@ -482,6 +483,47 @@ std::optional<UserOrRole> Auth::SSOAuthenticate(const std::string &scheme,
 }
 
 void Auth::LinkUser(User &user) const {
+  // User set roles on particular databases
+  // NOTE Has to be done in this order, otherwise the global roles will overwrite the multi-tenant roles
+#ifdef MG_ENTERPRISE
+  auto mt_link = storage_.Get(kMtLinkPrefix + user.username());
+  if (mt_link) {
+    try {
+      auto json_data = ParseJson(*mt_link);
+      if (!json_data.is_object()) {
+        spdlog::warn("Found invalid JSON in mtlink format for user '{}'", user.username());
+        return;
+      }
+      for (const auto &[db, roles_array] : json_data.items()) {
+        if (!roles_array.is_array()) {
+          spdlog::warn("Invalid mtlink entry for user '{}': expected array of rolenames for db '{}'", user.username(),
+                       db);
+          continue;
+        }
+        for (const auto &rolename_json : roles_array) {
+          if (!rolename_json.is_string()) {
+            spdlog::warn("Invalid mtlink entry for user '{}': expected string rolename for db '{}'", user.username(),
+                         db);
+            continue;
+          }
+          const auto &rolename = rolename_json.get<std::string>();
+          auto role = GetRole(rolename);
+          if (!role) {
+            spdlog::warn("Role '{}' doesn't exist for user '{}'", rolename, user.username());
+            continue;
+          }
+          user.AddMultiTenantRole(*role, db);
+        }
+      }
+    } catch (const nlohmann::detail::exception &) {
+      // This shouldn't happen after V2 migration, but handle gracefully
+      spdlog::warn("Found invalid JSON in mtlink format for user '{}'", user.username());
+      return;
+    }
+  }
+#endif
+
+  // User set these roles on all databases
   auto link = storage_.Get(kLinkPrefix + user.username());
   if (link) {
     try {
@@ -495,7 +537,8 @@ void Auth::LinkUser(User &user) const {
       for (const auto &role_name : json_data) {
         if (role_name.is_string()) {
           auto role = GetRole(role_name.get<std::string>());
-          if (role) {
+          // Check that the role exists and is not already added (via the multi-tenant role)
+          if (role && !user.roles().GetRole(role_name.get<std::string>())) {
             user.AddRole(*role);
           }
         }
@@ -504,6 +547,7 @@ void Auth::LinkUser(User &user) const {
     } catch (const nlohmann::detail::exception &) {
       // This shouldn't happen after V2 migration, but handle gracefully
       spdlog::warn("Found invalid JSON in link format for user '{}'", user.username());
+      return;
     }
   }
 }
@@ -520,18 +564,43 @@ std::optional<User> Auth::GetUser(const std::string &username_orig) const {
 
 void Auth::SaveUser(const User &user, system::Transaction *system_tx) {
   bool success = false;
+  std::map<std::string, std::string> puts;
+  std::vector<std::string> deletes;
+
+  // Always store the user data
+  puts.emplace(kUserPrefix + user.username(), user.Serialize().dump());
+
+  // Store regular roles
   if (!user.roles().empty()) {
     // Store all roles as a JSON array
     nlohmann::json roles_array = nlohmann::json::array();
     for (const auto &role : user.roles()) {
       roles_array.push_back(role.rolename());
     }
-    success = storage_.PutMultiple({{kUserPrefix + user.username(), user.Serialize().dump()},
-                                    {kLinkPrefix + user.username(), roles_array.dump()}});
+    puts.emplace(kLinkPrefix + user.username(), roles_array.dump());
   } else {
-    success = storage_.PutAndDeleteMultiple({{kUserPrefix + user.username(), user.Serialize().dump()}},
-                                            {kLinkPrefix + user.username()});
+    deletes.push_back(kLinkPrefix + user.username());
   }
+
+#ifdef MG_ENTERPRISE
+  // Store multi-tenant roles
+  const auto &mt_mappings = user.GetMultiTenantRoleMappings();
+  if (!mt_mappings.empty()) {
+    nlohmann::json mt_links;
+    for (const auto &[db_name, role_names] : mt_mappings) {
+      mt_links[db_name] = nlohmann::json::array();
+      for (const auto &role_name : role_names) {
+        mt_links[db_name].push_back(role_name);
+      }
+    }
+    puts.emplace(kMtLinkPrefix + user.username(), mt_links.dump());
+  } else {
+    deletes.push_back(kMtLinkPrefix + user.username());
+  }
+#endif
+
+  // Perform the storage operations
+  success = storage_.PutAndDeleteMultiple(puts, deletes);
   if (!success) {
     throw AuthException("Couldn't save user '{}'!", user.username());
   }
@@ -608,7 +677,7 @@ std::optional<User> Auth::AddUser(const std::string &username, const std::option
 bool Auth::RemoveUser(const std::string &username_orig, system::Transaction *system_tx) {
   auto username = utils::ToLowerCase(username_orig);
   if (!storage_.Get(kUserPrefix + username)) return false;
-  std::vector<std::string> keys({kLinkPrefix + username, kUserPrefix + username});
+  std::vector<std::string> keys({kMtLinkPrefix + username, kLinkPrefix + username, kUserPrefix + username});
   if (!storage_.DeleteMultiple(keys)) {
     throw AuthException("Couldn't remove user '{}'!", username);
   }
@@ -738,6 +807,32 @@ bool Auth::RemoveRole(const std::string &rolename_orig, system::Transaction *sys
       } else {
         // Update with the remaining roles
         storage_.Put(it->first, updated_roles.dump());
+      }
+    }
+  }
+
+  for (auto it = storage_.begin(kMtLinkPrefix); it != storage_.end(kMtLinkPrefix); ++it) {
+    auto username = it->first.substr(kMtLinkPrefix.size());
+    if (username != utils::ToLowerCase(username)) continue;
+    auto json_data = ParseJson(it->second);
+    bool update = false;
+    for (auto &[db_name, role_names] : json_data.items()) {
+      if (role_names.is_array()) {
+        // Find and remove the role by index
+        for (size_t i = 0; i < role_names.size(); ++i) {
+          if (role_names[i].is_string() && utils::ToLowerCase(role_names[i].get<std::string>()) == rolename) {
+            role_names.erase(i);
+            update = true;
+            break;  // Remove only the first occurrence
+          }
+        }
+      }
+    }
+    if (update) {
+      if (json_data.empty()) {
+        storage_.Delete(it->first);
+      } else {
+        storage_.Put(it->first, json_data.dump());
       }
     }
   }
