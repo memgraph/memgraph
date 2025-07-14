@@ -1555,7 +1555,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
     }
   }
   bool is_standalone_call_procedure = has_call_procedure && single_query->clauses_.size() == 1U;
-  if (!has_update && !has_return && !is_standalone_call_procedure) {
+  if (!has_update && !has_return && !is_standalone_call_procedure && !parsing_exists_subquery_) {
     throw SemanticException("Query should either create or update something, or return results!");
   }
 
@@ -3002,6 +3002,8 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
     return static_cast<Expression *>(storage_->Create<Identifier>(variable));
   } else if (ctx->existsExpression()) {
     return std::any_cast<Expression *>(ctx->existsExpression()->accept(this));
+  } else if (ctx->existsSubquery()) {
+    return std::any_cast<Expression *>(ctx->existsSubquery()->accept(this));
   } else if (ctx->functionInvocation()) {
     return std::any_cast<Expression *>(ctx->functionInvocation()->accept(this));
   } else if (ctx->COALESCE()) {
@@ -3144,13 +3146,75 @@ antlrcpp::Any CypherMainVisitor::visitLiteral(MemgraphCypher::LiteralContext *ct
 
 antlrcpp::Any CypherMainVisitor::visitExistsExpression(MemgraphCypher::ExistsExpressionContext *ctx) {
   auto *exists = storage_->Create<Exists>();
+  // Pattern form: ( ... ) or { ... } with forcePatternPart
   if (ctx->forcePatternPart()) {
-    exists->pattern_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
-    if (exists->pattern_->identifier_) {
+    exists->content_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
+    if (exists->GetPattern()->identifier_) {
       throw SyntaxException("Identifiers are not supported in exists(...).");
     }
   } else {
-    throw SyntaxException("EXISTS supports only a single relation as its input.");
+    throw SyntaxException("EXISTS supports only a single relation or a subquery as its input.");
+  }
+
+  // Ensure only one of pattern_ or subquery_ is set
+  const bool has_pattern = exists->HasPattern();
+  const bool has_subquery = exists->HasSubquery();
+  if ((has_pattern && has_subquery) || (!has_pattern && !has_subquery)) {
+    throw SyntaxException(
+        "EXISTS must have exactly one of pattern or subquery set. Please contact Memgraph support as this scenario "
+        "should not happen!");
+  }
+
+  return static_cast<Expression *>(exists);
+}
+
+antlrcpp::Any CypherMainVisitor::visitExistsSubquery(MemgraphCypher::ExistsSubqueryContext *ctx) {
+  auto *exists = storage_->Create<Exists>();
+  // Pattern form: ( ... ) or { ... } with forcePatternPart
+  if (ctx->forcePatternPart()) {
+    exists->content_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
+    if (exists->GetPattern()->identifier_) {
+      throw SyntaxException("Identifiers are not supported in exists(...).");
+    }
+  } else if (ctx->cypherQuery()) {
+    // Curly-brace subquery form: { cypherQuery }
+    // Set the flag to indicate we are parsing an EXISTS subquery
+    auto old_flag = parsing_exists_subquery_;
+    parsing_exists_subquery_ = true;
+    auto *cypher_query = std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
+    parsing_exists_subquery_ = old_flag;
+    exists->content_ = cypher_query;
+
+    // 1. There must be at least one clause
+    auto *single_query = cypher_query->single_query_;
+    if (!single_query || single_query->clauses_.empty()) {
+      throw SyntaxException("EXISTS subquery must contain at least one clause.");
+    }
+
+    // 2. Only MATCH, WHERE, WITH, RETURN allowed
+    for (const auto *clause : single_query->clauses_) {
+      const auto &type = clause->GetTypeInfo();
+      if (!(utils::IsSubtype(type, Match::kType) || utils::IsSubtype(type, Where::kType) ||
+            utils::IsSubtype(type, With::kType) || utils::IsSubtype(type, Return::kType))) {
+        throw SyntaxException("Only MATCH, WHERE, WITH, and RETURN clauses are allowed in EXISTS subqueries.");
+      }
+    }
+
+    // 3. No query memory limit
+    if (cypher_query->memory_limit_ != nullptr) {
+      throw SyntaxException("EXISTS subqueries cannot have a query memory limit.");
+    }
+  } else {
+    throw SyntaxException("EXISTS supports only a single relation or a subquery as its input.");
+  }
+
+  // Ensure only one of pattern_ or subquery_ is set
+  const bool has_pattern = exists->HasPattern();
+  const bool has_subquery = exists->HasSubquery();
+  if ((has_pattern && has_subquery) || (!has_pattern && !has_subquery)) {
+    throw SyntaxException(
+        "EXISTS must have exactly one of pattern or subquery set! Please contact Memgraph support as this scenario "
+        "should not happen!");
   }
 
   return static_cast<Expression *>(exists);
