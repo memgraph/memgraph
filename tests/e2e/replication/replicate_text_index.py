@@ -133,7 +133,7 @@ def test_text_index_replication(connection, test_name):
     def get_replica_cursor(name):
         return connection(BOLT_PORTS[name], "replica").cursor()
 
-    expected_result = [("text", "Node", "Null", "Null")]
+    expected_result = [("text (name: test_index)", "Node", None, None)]
     replica_1_enums = get_show_index_info(get_replica_cursor("replica_1"))
     assert replica_1_enums == expected_result
     replica_2_enums = get_show_index_info(get_replica_cursor("replica_2"))

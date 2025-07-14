@@ -1185,7 +1185,7 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           spdlog::trace("   Delta {}. Create text search index {} on {}.", current_delta_idx, data.index_name,
                         data.label);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          auto ret = transaction->CreateTextIndex(data.label, storage->NameToLabel(data.index_name));
+          auto ret = transaction->CreateTextIndex(data.index_name, storage->NameToLabel(data.label));
           if (ret.HasError()) {
             throw utils::BasicException("Failed to create text search index {} on {}.", data.index_name, data.label);
           }
