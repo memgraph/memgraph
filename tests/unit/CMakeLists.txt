@@ -5,6 +5,7 @@ find_package(gflags REQUIRED)
 find_package(Threads REQUIRED)
 find_package(antlr4-runtime REQUIRED)
 find_package(antlr4 REQUIRED)
+find_package(RdKafka REQUIRED)
 
 
 include_directories(${antlr4-runtime_INCLUDE_DIR})
@@ -64,7 +65,7 @@ find_package(OpenSSL REQUIRED)
 
 # Test integrations-kafka
 add_library(kafka-mock STATIC kafka_mock.cpp)
-target_link_libraries(kafka-mock mg-utils librdkafka++ librdkafka Threads::Threads gtest)
+target_link_libraries(kafka-mock mg-utils RdKafka::rdkafka++ librdkafka Threads::Threads gtest)
 
 # Include directories are intentionally not set, because kafka-mock isn't meant to be used apart from unit tests
 add_unit_test(integrations_kafka_consumer.cpp kafka_mock.cpp)

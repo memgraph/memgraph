@@ -52,6 +52,7 @@ class Memgraph(ConanFile):
         self.requires("asio/1.34.2")
         self.requires("openssl/3.5.1")
         self.requires("mgclient/1.4.3", options={"with_cpp": True})
+        self.requires("librdkafka/2.6.1", options={"ssl": True, "sasl": False})
 
     def package(self):
         cmake = CMake(self)
