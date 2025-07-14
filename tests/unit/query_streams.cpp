@@ -44,6 +44,7 @@ struct FakeUser : memgraph::query::QueryUserOrRole {
                     memgraph::query::UserPolicy *policy) const {
     return true;
   }
+  std::vector<std::string> GetRolenames(std::optional<std::string> db_name) const override { return {}; }
 #ifdef MG_ENTERPRISE
   virtual bool CanImpersonate(const std::string &target, memgraph::query::UserPolicy *policy,
                               std::optional<std::string_view> db_name = std::nullopt) const {

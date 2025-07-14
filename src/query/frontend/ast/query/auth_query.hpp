@@ -33,6 +33,7 @@ class AuthQuery : public memgraph::query::Query {
     CHANGE_PASSWORD,
     DROP_USER,
     SHOW_CURRENT_USER,
+    SHOW_CURRENT_ROLE,
     SHOW_USERS,
     SET_ROLE,
     CLEAR_ROLE,

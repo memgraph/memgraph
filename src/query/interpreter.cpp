@@ -1003,6 +1003,35 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
             {username.has_value() ? TypedValue(username.value()) : TypedValue()}};
       };
       return callback;
+    case AuthQuery::Action::SHOW_CURRENT_ROLE:
+      callback.header = {"role"};
+      callback.fn = [&interpreter
+#ifdef MG_ENTERPRISE
+                     ,
+                     db_acc = std::move(db_acc)
+#endif
+      ] {
+#ifdef MG_ENTERPRISE
+        if (db_acc && db_acc.value()->name() != dbms::kDefaultDB &&
+            !license::global_license_checker.IsEnterpriseValidFast()) {
+          throw QueryRuntimeException("Multi-database queries are only available in enterprise edition");
+        }
+        const auto &rolenames =
+            interpreter.user_or_role_->GetRolenames(db_acc ? std::make_optional(db_acc.value()->name()) : std::nullopt);
+#else
+        const auto &rolenames = interpreter.user_or_role_->GetRolenames(std::nullopt);
+#endif
+        if (rolenames.empty()) {
+          return std::vector<std::vector<TypedValue>>{{TypedValue()}};
+        }
+        std::vector<std::vector<TypedValue>> rows;
+        rows.reserve(rolenames.size());
+        for (const auto &rolename : rolenames) {
+          rows.emplace_back(std::vector<TypedValue>{TypedValue{rolename}});
+        }
+        return rows;
+      };
+      return callback;
     case AuthQuery::Action::SHOW_USERS:
       callback.header = {"user"};
       callback.fn = [auth] {
@@ -4093,9 +4122,10 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
 
   auto *auth_query = utils::Downcast<AuthQuery>(parsed_query.query);
 
-  // Special case for SHOW CURRENT USER
+  // Special case for SHOW CURRENT USER and SHOW CURRENT ROLE
   auto target_db = std::string{dbms::kSystemDB};
-  if (auth_query->action_ == AuthQuery::Action::SHOW_CURRENT_USER) {
+  if (auth_query->action_ == AuthQuery::Action::SHOW_CURRENT_USER ||
+      auth_query->action_ == AuthQuery::Action::SHOW_CURRENT_ROLE) {
     target_db = db_acc ? db_acc->get()->name() : "";
   }
 

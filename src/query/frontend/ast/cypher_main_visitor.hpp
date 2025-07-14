@@ -633,6 +633,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return AuthQuery*
    */
+  antlrcpp::Any visitShowCurrentRole(MemgraphCypher::ShowCurrentRoleContext *ctx) override;
+
+  /**
+   * @return AuthQuery*
+   */
   antlrcpp::Any visitShowUsers(MemgraphCypher::ShowUsersContext *ctx) override;
 
   /**

@@ -41,6 +41,8 @@ struct QueryUserOrRole {
   virtual bool IsAuthorized(const std::vector<AuthQuery::Privilege> &privileges, std::string_view db_name,
                             UserPolicy *policy) const = 0;
 
+  virtual std::vector<std::string> GetRolenames(std::optional<std::string> db_name) const = 0;
+
 #ifdef MG_ENTERPRISE
   virtual bool CanImpersonate(const std::string &target, UserPolicy *policy,
                               std::optional<std::string_view> db_name = std::nullopt) const = 0;

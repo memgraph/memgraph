@@ -828,6 +828,9 @@ class User final {
 
   const utils::UUID &uuid() const { return uuid_; }
 
+  // Read-only API that combines rolenames from all roles
+  std::vector<std::string> rolenames() const { return roles_.rolenames(); }
+
   nlohmann::json Serialize() const;
 
   /// @throw AuthException if unable to deserialize.

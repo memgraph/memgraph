@@ -2531,6 +2531,15 @@ TEST_P(CypherMainVisitorTest, ShowCurrentUser) {
                    {});
 }
 
+TEST_P(CypherMainVisitorTest, ShowCurrentRole) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("SHOW CURRENT ROLENAME"), SyntaxException);
+  check_auth_query(&ast_generator, "SHOW CURRENT ROLE", AuthQuery::Action::SHOW_CURRENT_ROLE, "", {}, "", {}, {}, {},
+                   {});
+  check_auth_query(&ast_generator, "SHOW CURRENT ROLES", AuthQuery::Action::SHOW_CURRENT_ROLE, "", {}, "", {}, {}, {},
+                   {});
+}
+
 TEST_P(CypherMainVisitorTest, ShowUsers) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("SHOW USERS ROLES"), SyntaxException);

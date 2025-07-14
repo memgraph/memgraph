@@ -23,6 +23,8 @@ struct QueryUserOrRole : public query::QueryUserOrRole {
   bool IsAuthorized(const std::vector<query::AuthQuery::Privilege> &privileges, std::string_view db_name,
                     query::UserPolicy *policy) const override;
 
+  std::vector<std::string> GetRolenames(std::optional<std::string> db_name) const override;
+
 #ifdef MG_ENTERPRISE
   bool CanImpersonate(const std::string &target, query::UserPolicy *policy,
                       std::optional<std::string_view> db_name = std::nullopt) const override;

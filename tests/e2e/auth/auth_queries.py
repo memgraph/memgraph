@@ -42,6 +42,169 @@ def test_show_current_user(provide_user):
     assert len(results) == 1 and "user" in results[0] and results[0]["user"] == USERNAME
 
 
+def test_show_current_role_if_no_roles(memgraph):
+    results = list(memgraph.execute_and_fetch("SHOW CURRENT ROLE;"))
+    assert len(results) == 1 and "role" in results[0] and results[0]["role"] == None
+
+
+def test_show_current_roles_if_no_roles(memgraph):
+    results = list(memgraph.execute_and_fetch("SHOW CURRENT ROLES;"))
+    assert len(results) == 1 and "role" in results[0] and results[0]["role"] == None
+
+
+def test_show_current_role_with_user(provide_user):
+    USERNAME = "anthony"
+    memgraph_with_user = Memgraph(username=USERNAME, password="password")
+    results = list(memgraph_with_user.execute_and_fetch("SHOW CURRENT ROLE;"))
+    assert len(results) == 1 and "role" in results[0] and results[0]["role"] == None
+
+
+def test_show_current_roles_with_user(provide_user):
+    USERNAME = "anthony"
+    memgraph_with_user = Memgraph(username=USERNAME, password="password")
+    results = list(memgraph_with_user.execute_and_fetch("SHOW CURRENT ROLES;"))
+    assert len(results) == 1 and "role" in results[0] and results[0]["role"] == None
+
+
+def test_show_current_role_with_user_has_roles(memgraph):
+    # Create a user and roles
+    memgraph.execute("CREATE USER test_user;")
+    memgraph.execute("CREATE ROLE admin_role;")
+    memgraph.execute("CREATE ROLE user_role;")
+    memgraph.execute("SET ROLE FOR test_user TO admin_role, user_role;")
+
+    # Connect as the user and check current roles
+    memgraph_with_user = Memgraph(username="test_user", password="")
+    results = list(memgraph_with_user.execute_and_fetch("SHOW CURRENT ROLE;"))
+    assert len(results) == 2  # Should return both roles
+    role_names = [row["role"] for row in results]
+    assert "admin_role" in role_names
+    assert "user_role" in role_names
+
+    # Clean up
+    memgraph.execute("DROP USER test_user;")
+    memgraph.execute("DROP ROLE admin_role;")
+    memgraph.execute("DROP ROLE user_role;")
+
+
+def test_show_current_roles_with_user_has_roles(memgraph):
+    # Create a user and roles
+    memgraph.execute("CREATE USER test_user;")
+    memgraph.execute("CREATE ROLE admin_role;")
+    memgraph.execute("CREATE ROLE user_role;")
+    memgraph.execute("SET ROLE FOR test_user TO admin_role, user_role;")
+
+    # Connect as the user and check current roles
+    memgraph_with_user = Memgraph(username="test_user", password="")
+    results = list(memgraph_with_user.execute_and_fetch("SHOW CURRENT ROLES;"))
+    assert len(results) == 2  # Should return both roles
+    role_names = [row["role"] for row in results]
+    assert "admin_role" in role_names
+    assert "user_role" in role_names
+
+    # Clean up
+    memgraph.execute("DROP USER test_user;")
+    memgraph.execute("DROP ROLE admin_role;")
+    memgraph.execute("DROP ROLE user_role;")
+
+
+def test_show_current_role_single_role(memgraph):
+    # Create a user and single role
+    memgraph.execute("CREATE USER test_user;")
+    memgraph.execute("CREATE ROLE single_role;")
+    memgraph.execute("SET ROLE FOR test_user TO single_role;")
+
+    # Connect as the user and check current role
+    memgraph_with_user = Memgraph(username="test_user", password="")
+    results = list(memgraph_with_user.execute_and_fetch("SHOW CURRENT ROLE;"))
+    assert len(results) == 1
+    assert results[0]["role"] == "single_role"
+
+    # Clean up
+    memgraph.execute("DROP USER test_user;")
+    memgraph.execute("DROP ROLE single_role;")
+
+
+def test_show_current_roles_single_role(memgraph):
+    # Create a user and single role
+    memgraph.execute("CREATE USER test_user;")
+    memgraph.execute("CREATE ROLE single_role;")
+    memgraph.execute("SET ROLE FOR test_user TO single_role;")
+
+    # Connect as the user and check current roles
+    memgraph_with_user = Memgraph(username="test_user", password="")
+    results = list(memgraph_with_user.execute_and_fetch("SHOW CURRENT ROLES;"))
+    assert len(results) == 1
+    assert results[0]["role"] == "single_role"
+
+    # Clean up
+    memgraph.execute("DROP USER test_user;")
+    memgraph.execute("DROP ROLE single_role;")
+
+
+def test_show_current_roles_multi_tenant(memgraph):
+    # NOTE used client is not capable of multi-tenant queries
+    # Create a user and roles
+    memgraph.execute("CREATE USER test_user;")
+    memgraph.execute("CREATE ROLE admin_role;")
+    memgraph.execute("CREATE ROLE user_role;")
+    memgraph.execute("CREATE DATABASE db1;")
+    memgraph.execute("CREATE DATABASE db2;")
+    memgraph.execute("GRANT DATABASE * TO admin_role;")
+    memgraph.execute("GRANT DATABASE * TO user_role;")
+    memgraph.execute("SET ROLE FOR test_user TO admin_role, user_role ON db1;")
+    memgraph.execute("SET ROLE FOR test_user TO user_role ON db2;")
+
+    # Connect as the user and check current roles
+    memgraph_with_user = Memgraph(username="test_user", password="")
+
+    # memgraph
+    memgraph_with_user.execute_and_fetch("USE DATABASE memgraph;")
+    results = list(memgraph_with_user.execute_and_fetch("SHOW CURRENT ROLES;"))
+    assert len(results) == 1 and "role" in results[0] and results[0]["role"] == None
+
+    memgraph_with_user = Memgraph(username="test_user", password="")
+    memgraph.execute("SET ROLE FOR test_user TO admin_role ON memgraph;")
+    results = list(memgraph_with_user.execute_and_fetch("SHOW CURRENT ROLES;"))
+    assert len(results) == 1 and "role" in results[0] and results[0]["role"] == "admin_role"
+
+    memgraph_with_user = Memgraph(username="test_user", password="")
+    memgraph.execute("SET ROLE FOR test_user TO user_role ON memgraph;")
+    results = list(memgraph_with_user.execute_and_fetch("SHOW CURRENT ROLES;"))
+    assert len(results) == 1 and "role" in results[0] and results[0]["role"] == "user_role"
+
+    memgraph_with_user = Memgraph(username="test_user", password="")
+    memgraph.execute("SET ROLE FOR test_user TO admin_role, user_role ON memgraph;")
+    results = list(memgraph_with_user.execute_and_fetch("SHOW CURRENT ROLES;"))
+    assert len(results) == 2 and "role" in results[0] and "role" in results[1]
+    assert "admin_role" == results[0]["role"] or "admin_role" == results[1]["role"]
+    assert "user_role" == results[0]["role"] or "user_role" == results[1]["role"]
+
+    # # db1
+    # memgraph_with_user.execute_and_fetch("USE DATABASE db1;", connection=connection)
+    # results = list(memgraph_with_user.execute_and_fetch("SHOW CURRENT ROLES;", connection=connection))
+    # assert len(results) == 1
+    # role_names = [row["role"] for row in results]
+    # assert len(role_names) == 2
+    # assert "admin_role" in role_names
+    # assert "user_role" in role_names
+
+    # # db2
+    # memgraph_with_user.execute_and_fetch("USE DATABASE db2;", connection=connection)
+    # results = list(memgraph_with_user.execute_and_fetch("SHOW CURRENT ROLES;", connection=connection))
+    # assert len(results) == 1
+    # role_names = [row["role"] for row in results]
+    # assert len(role_names) == 1
+    # assert "user_role" in role_names
+
+    # Clean up
+    memgraph.execute("DROP USER test_user;")
+    memgraph.execute("DROP ROLE admin_role;")
+    memgraph.execute("DROP ROLE user_role;")
+    memgraph.execute("DROP DATABASE db1;")
+    memgraph.execute("DROP DATABASE db2;")
+
+
 def test_add_user_w_sha256(memgraph):
     memgraph.execute(
         "CREATE USER sha256 IDENTIFIED BY 'sha256:5e884898da28047151d0e56f8dc6292773603d0d6aabbdd62a11ef721d1542d8';"

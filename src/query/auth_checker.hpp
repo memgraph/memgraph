@@ -107,6 +107,7 @@ class AllowEverythingAuthChecker final : public AuthChecker {
                       UserPolicy * /*policy*/) const override {
       return true;
     }
+    std::vector<std::string> GetRolenames(std::optional<std::string> /*db_name*/) const override { return {}; }
 #ifdef MG_ENTERPRISE
     bool CanImpersonate(const std::string & /*target*/, query::UserPolicy * /*policy*/,
                         std::optional<std::string_view> /*db_name*/ = std::nullopt) const override {

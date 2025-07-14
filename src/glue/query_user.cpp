@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "glue/query_user.hpp"
+#include <unordered_set>
 
 #include "glue/auth_checker.hpp"
 
@@ -37,6 +38,25 @@ bool QueryUserOrRole::IsAuthorized(const std::vector<query::AuthQuery::Privilege
   if (roles_) return AuthChecker::IsRoleAuthorized(*roles_, privileges, db_name);
 
   return !policy->DoUpdate() || !locked_auth->AccessControlled();
+}
+
+std::vector<std::string> QueryUserOrRole::GetRolenames(std::optional<std::string> db_name) const {
+#ifdef MG_ENTERPRISE
+  std::unordered_set<auth::Role> roles;
+  if (user_) roles = user_->GetRoles(db_name);
+  if (roles_) roles = roles_->GetFilteredRoles(db_name);
+
+  std::vector<std::string> rolenames;
+  rolenames.reserve(roles.size());
+  for (const auto &role : roles) {
+    rolenames.push_back(role.rolename());
+  }
+  return rolenames;
+#else
+  if (user_) return user_->rolenames();
+  if (roles_) return roles_->rolenames();
+  return {};
+#endif
 }
 
 #ifdef MG_ENTERPRISE

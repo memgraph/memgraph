@@ -232,6 +232,46 @@ def test_admin_full_privileges(multi_tenant_setup):
             session.run("MATCH (admin:Admin)-[r:ADMIN_ACCESS]->(c:Company) DELETE r").consume()
 
 
+def test_sso_show_current_role_with_multi_role(multi_tenant_setup):
+    response = base64.b64encode(b"multi_role_admin").decode("utf-8")
+    MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")
+
+    with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:
+        with client.session(database="admin_db") as session:
+            session.run("MATCH (n) RETURN n;").consume()
+            # The user should have the architect role that was created in the fixture
+            current_roles_result = list(session.run("SHOW CURRENT ROLE;"))
+            assert len(current_roles_result) == 1
+            assert "admin" in [row["role"] for row in current_roles_result]
+            current_roles_result = list(session.run("SHOW CURRENT ROLES;"))
+            assert len(current_roles_result) == 1
+            assert "admin" in [row["role"] for row in current_roles_result]
+
+        with client.session(database="architect_db") as session:
+            session.run("MATCH (n) RETURN n;").consume()
+            # The user should have the architect role that was created in the fixture
+            current_roles_result = list(session.run("SHOW CURRENT ROLE;"))
+            assert len(current_roles_result) == 2
+            assert "admin" in [row["role"] for row in current_roles_result]
+            assert "architect" in [row["role"] for row in current_roles_result]
+            current_roles_result = list(session.run("SHOW CURRENT ROLES;"))
+            assert len(current_roles_result) == 2
+            assert "admin" in [row["role"] for row in current_roles_result]
+            assert "architect" in [row["role"] for row in current_roles_result]
+
+        with client.session(database="user_db") as session:
+            session.run("MATCH (n) RETURN n;").consume()
+            # The user should have the architect role that was created in the fixture
+            current_roles_result = list(session.run("SHOW CURRENT ROLE;"))
+            assert len(current_roles_result) == 2
+            assert "admin" in [row["role"] for row in current_roles_result]
+            assert "user" in [row["role"] for row in current_roles_result]
+            current_roles_result = list(session.run("SHOW CURRENT ROLES;"))
+            assert len(current_roles_result) == 2
+            assert "admin" in [row["role"] for row in current_roles_result]
+            assert "user" in [row["role"] for row in current_roles_result]
+
+
 def test_architect_privileges(multi_tenant_setup):
     """Test architect user with architect and user privileges."""
 

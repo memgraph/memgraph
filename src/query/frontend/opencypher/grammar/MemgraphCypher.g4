@@ -256,6 +256,7 @@ authQuery : createRole
           | changePassword
           | dropUser
           | showCurrentUser
+          | showCurrentRole
           | showUsers
           | setRole
           | clearRole
@@ -407,6 +408,8 @@ changePassword : SET PASSWORD TO newPassword=literal REPLACE oldPassword=literal
 dropUser : DROP USER user=userOrRoleName ;
 
 showCurrentUser : SHOW CURRENT USER ;
+
+showCurrentRole : SHOW CURRENT ( ROLE | ROLES ) ;
 
 showUsers : SHOW USERS ;
 

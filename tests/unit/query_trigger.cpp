@@ -59,6 +59,7 @@ class MockQueryUser : public memgraph::query::QueryUserOrRole {
   MockQueryUser(std::optional<std::string> name) : memgraph::query::QueryUserOrRole(std::move(name), {}) {}
   MOCK_CONST_METHOD3(IsAuthorized, bool(const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
                                         std::string_view db_name, memgraph::query::UserPolicy *policy));
+  MOCK_CONST_METHOD1(GetRolenames, std::vector<std::string>(std::optional<std::string> db_name));
 
 #ifdef MG_ENTERPRISE
   MOCK_CONST_METHOD3(CanImpersonate, bool(const std::string &target, memgraph::query::UserPolicy *policy,
