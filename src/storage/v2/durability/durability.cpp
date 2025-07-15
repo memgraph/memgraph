@@ -491,7 +491,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
 
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
-  std::optional<uint64_t> snapshot_timestamp;
+  std::optional<uint64_t> snapshot_durable_timestamp;
   if (!snapshot_files.empty()) {
     spdlog::info("Try recovering from snapshot directory {}.", wal_directory_);
 
@@ -524,10 +524,10 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
               "and restart the database.");
     recovery_info = recovered_snapshot->recovery_info;
     indices_constraints = std::move(recovered_snapshot->indices_constraints);
-    snapshot_timestamp = recovered_snapshot->snapshot_info.durable_timestamp;
+    snapshot_durable_timestamp = recovered_snapshot->snapshot_info.durable_timestamp;
     spdlog::trace("Recovered epoch {} for db {}", recovered_snapshot->snapshot_info.epoch_id, db_name);
     repl_storage_state.epoch_.SetEpoch(std::move(recovered_snapshot->snapshot_info.epoch_id));
-    recovery_info.last_durable_timestamp = snapshot_timestamp;
+    recovery_info.last_durable_timestamp = snapshot_durable_timestamp;
   } else {
     // UUID couldn't be recovered from the snapshot; recovering it from WALs
     spdlog::info("No snapshot file was found, collecting information from WAL directory {}.", wal_directory_);
@@ -592,14 +592,14 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
       if (first_wal.seq_num != 0) {
         spdlog::trace("1st wal file {} has sequence number {} which is != 0.", first_wal.path, first_wal.seq_num);
         // We don't have all WAL files. We need to see whether we need them all.
-        if (!snapshot_timestamp) {
+        if (!snapshot_durable_timestamp) {
           // We didn't recover from a snapshot, and we must have all WAL files
           // starting from the first one (seq_num == 0) to be able to recover
           // data from them.
           LOG_FATAL(
               "There are missing prefix WAL files and data can't be "
               "recovered without them!");
-        } else if (first_wal.from_timestamp > *snapshot_timestamp) {
+        } else if (first_wal.from_timestamp > *snapshot_durable_timestamp) {
           // We recovered from a snapshot and we must have at least one WAL file
           // that has at least one delta that was created before the snapshot in order to
           // verify that nothing is missing from the beginning of the WAL chain.
@@ -610,7 +610,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
       }
     }
     std::optional<uint64_t> previous_seq_num;
-    auto last_loaded_timestamp = snapshot_timestamp;
+    auto last_loaded_timestamp = snapshot_durable_timestamp;
     spdlog::info("Trying to load WAL files.");
 
     if (last_loaded_timestamp) {
