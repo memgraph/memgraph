@@ -179,7 +179,6 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
       }
     } catch (const RecoveryFailure &e) {
       spdlog::warn("Failed to read WAL file {}.", item.path());
-      continue;
     }
   }
   MG_ASSERT(!error_code, "Couldn't recover data because an error occurred: {}!", error_code.message());
@@ -517,7 +516,6 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
         break;
       } catch (const RecoveryFailure &e) {
         spdlog::warn("Couldn't recover snapshot from {} because of: {}.", path, e.what());
-        continue;
       }
     }
     MG_ASSERT(recovered_snapshot,
