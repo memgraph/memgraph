@@ -816,12 +816,6 @@ std::optional<RecoveryInfo> LoadWal(
 
   std::optional<RecoveryInfo> ret;
 
-  if (last_applied_delta_timestamp.has_value()) {
-    spdlog::trace("Last applied delta ts is {}", *last_applied_delta_timestamp);
-  } else {
-    spdlog::trace("Last applied delta ts is nullopt");
-  }
-
   // Recover deltas
   wal.SetPosition(info.offset_deltas);
   uint64_t deltas_applied = 0;
