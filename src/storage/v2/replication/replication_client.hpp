@@ -113,6 +113,7 @@ class ReplicationStorageClient {
   auto Mode() const -> replication_coordination_glue::ReplicationMode { return client_.mode_; }
   auto Name() const -> std::string const & { return client_.name_; }
   auto Endpoint() const -> io::network::Endpoint const & { return client_.rpc_client_.Endpoint(); }
+  void AbortRpcClient() const { client_.rpc_client_.Abort(); }
 
   void SetMaybeBehind() {
     replica_state_.WithLock([](auto &val) { val = replication::ReplicaState::MAYBE_BEHIND; });
