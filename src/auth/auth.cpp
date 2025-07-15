@@ -84,8 +84,7 @@ struct UpdateAuthData : memgraph::system::ISystemAction {
   explicit UpdateAuthData(User user) : user_{std::move(user)}, role_{std::nullopt} {}
   explicit UpdateAuthData(Role role) : user_{std::nullopt}, role_{std::move(role)} {}
 
-  void DoDurability() override { /* Done during Auth execution */
-  }
+  void DoDurability() override { /* Done during Auth execution */ }
 
   bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
                      replication::ReplicationEpoch const &epoch,
@@ -118,8 +117,7 @@ struct DropAuthData : memgraph::system::ISystemAction {
 
   explicit DropAuthData(AuthDataType type, std::string_view name) : type_{type}, name_{name} {}
 
-  void DoDurability() override { /* Done during Auth execution */
-  }
+  void DoDurability() override { /* Done during Auth execution */ }
 
   bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
                      replication::ReplicationEpoch const &epoch,
@@ -259,6 +257,7 @@ Auth::Auth(std::string storage_directory, Config config)
 
 std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, const nlohmann::json &module_params,
                                                    std::optional<std::string> provided_username) {
+  spdlog::trace("Calling external auth module for scheme '{}'.", scheme);
   auto ret = modules_.at(scheme).Call(module_params, FLAGS_auth_module_timeout_ms);
 
   auto get_errors = [&ret]() -> std::string {
@@ -318,7 +317,12 @@ std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, co
   }
 
   const auto rolename = get_string_field("role");
-  if (!rolename) return std::nullopt;
+  if (!rolename) {
+    spdlog::warn(utils::MessageWithLink(
+        "Couldn't authenticate external user because the role was not returned by the auth module.",
+        "https://memgr.ph/auth"));
+    return std::nullopt;
+  }
 
   auto role = GetRole(*rolename);
   if (!role) {
@@ -328,7 +332,12 @@ std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, co
   }
 
   auto username = provided_username.has_value() ? provided_username : get_string_field("username");
-  if (!username) return std::nullopt;
+  if (!username) {
+    spdlog::warn(utils::MessageWithLink(
+        "Couldn't authenticate external user because the username was not returned by the auth module.",
+        "https://memgr.ph/auth"));
+    return std::nullopt;
+  }
 
   auto already_existing_user = GetUser(*username);
   if (already_existing_user) {
@@ -338,6 +347,7 @@ std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, co
     return std::nullopt;
   }
 
+  spdlog::trace("Authenticated user '{}' with role '{}'.", *username, role->rolename());
   return UserOrRole(auth::RoleWUsername{*username, *role});
 }
 
