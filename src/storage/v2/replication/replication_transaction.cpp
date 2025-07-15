@@ -67,7 +67,6 @@ auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUI
                                                             std::move(replica_stream));
       strict_sync_replicas_succ &= commit_res;
     } else if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC && decision) {
-      // Ship deltas only if decision is true, we don't need to explicitly send abort to ASYNC replica
       client->FinalizeTransactionReplication(db_acc, std::move(replica_stream), durability_commit_timestamp);
     }
   }
