@@ -263,7 +263,8 @@ class Client {
 
       // Check the response ID.
       if (res_id != res_type.id && res_id != utils::TypeId::UNKNOWN) {
-        spdlog::error("Message response was of unexpected type");
+        spdlog::error("Message response was of unexpected type. Received ID {} and expected {}",
+                      static_cast<uint64_t>(res_id), static_cast<uint64_t>(res_type.id));
         // Logically invalid state, connection is still up, defunct stream and release
         defunct_ = true;
         guard_.unlock();
