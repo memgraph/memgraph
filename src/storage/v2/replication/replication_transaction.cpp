@@ -54,7 +54,8 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Da
 }
 
 // RPC locks will get released at the end of this function for all STRICT_SYNC and ASYNC replicas
-// We shouldn't execute this code for SYNC replicas
+// We shouldn't execute this code for SYNC replicas, this is only executed if these replicas are part of STRICT_SYNC
+// cluster
 auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUID const &storage_uuid,
                                                  DatabaseAccessProtector db_acc,
                                                  uint64_t const durability_commit_timestamp) -> bool {
