@@ -18,6 +18,11 @@
 
 namespace memgraph::dbms {
 
+struct TwoPCCache {
+  std::unique_ptr<storage::ReplicationAccessor> commit_accessor_;
+  uint64_t durability_commit_timestamp_;
+};
+
 class InMemoryReplicationHandlers {
  public:
   static void Register(dbms::DbmsHandler *dbms_handler, replication::RoleReplicaData &data);
@@ -58,7 +63,7 @@ class InMemoryReplicationHandlers {
       storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder, uint64_t version, slk::Builder *,
       bool commit_txn_immediately, bool loading_wal, uint32_t start_batch_counter = 0);
 
-  static std::unique_ptr<storage::ReplicationAccessor> cached_commit_accessor_;
+  static TwoPCCache two_pc_cache_;
 };
 
 }  // namespace memgraph::dbms
