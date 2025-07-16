@@ -6427,10 +6427,8 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
   std::sort(wal_files.begin(), wal_files.end());
   MG_ASSERT(transaction->last_durable_ts_.has_value(), "Txn doesn't have ldt");
   uint64_t snapshot_durable_timestamp = *transaction->last_durable_ts_;
-  spdlog::trace("Snapshot durable ts is: {}", snapshot_durable_timestamp);
   if (!old_snapshot_files.empty()) {
     snapshot_durable_timestamp = old_snapshot_files.front().first;
-    spdlog::trace("Snapshot durable ts is: {}", snapshot_durable_timestamp);
   }
   std::optional<uint64_t> pos = 0;
   for (uint64_t i = 0; i < wal_files.size(); ++i) {
@@ -6449,7 +6447,6 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
     // is being appended to.
     for (uint64_t i = 0; i < *pos; ++i) {
       const auto &[seq_num, from_timestamp, to_timestamp, wal_path] = wal_files[i];
-      spdlog::trace("Deleting WAL file {} when cleaning durable data", wal_path);
       file_retainer->DeleteFile(wal_path);
     }
   }
@@ -6486,7 +6483,6 @@ auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_di
   const uint32_t num_to_erase = old_snapshot_files.size() - (storage->config_.durability.snapshot_retention_count - 1);
   for (size_t i = 0; i < num_to_erase; ++i) {
     const auto &[_, snapshot_path] = old_snapshot_files[i];
-    spdlog::trace("Deleted snapshot file: {}", snapshot_path);
     file_retainer->DeleteFile(snapshot_path);
   }
   old_snapshot_files.erase(old_snapshot_files.begin(), old_snapshot_files.begin() + num_to_erase);
