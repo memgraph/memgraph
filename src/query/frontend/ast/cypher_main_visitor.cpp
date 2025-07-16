@@ -631,9 +631,11 @@ antlrcpp::Any CypherMainVisitor::visitRegisterReplica(MemgraphCypher::RegisterRe
   replication_query->action_ = ReplicationQuery::Action::REGISTER_REPLICA;
   replication_query->instance_name_ = std::any_cast<std::string>(ctx->instanceName()->symbolicName()->accept(this));
   if (ctx->SYNC()) {
-    replication_query->sync_mode_ = memgraph::query::ReplicationQuery::SyncMode::SYNC;
+    replication_query->sync_mode_ = ReplicationQuery::SyncMode::SYNC;
   } else if (ctx->ASYNC()) {
-    replication_query->sync_mode_ = memgraph::query::ReplicationQuery::SyncMode::ASYNC;
+    replication_query->sync_mode_ = ReplicationQuery::SyncMode::ASYNC;
+  } else if (ctx->STRICT_SYNC()) {
+    replication_query->sync_mode_ = ReplicationQuery::SyncMode::STRICT_SYNC;
   }
 
   if (!ctx->socketAddress()->literal()->StringLiteral()) {
@@ -655,6 +657,9 @@ antlrcpp::Any CypherMainVisitor::visitRegisterInstanceOnCoordinator(
   coordinator_query->sync_mode_ = [ctx]() {
     if (ctx->ASYNC()) {
       return CoordinatorQuery::SyncMode::ASYNC;
+    }
+    if (ctx->STRICT_SYNC()) {
+      return CoordinatorQuery::SyncMode::STRICT_SYNC;
     }
     return CoordinatorQuery::SyncMode::SYNC;
   }();

@@ -68,7 +68,7 @@ class ExpansionBenchFixture : public benchmark::Fixture {
         auto dest = dba->CreateVertex();
         MG_ASSERT(dba->CreateEdge(&start, &dest, edge_type).HasValue());
       }
-      MG_ASSERT(!dba->Commit().HasError());
+      MG_ASSERT(!dba->PrepareForCommitPhase().HasError());
     }
 
     {

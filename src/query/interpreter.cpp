@@ -315,7 +315,8 @@ std::optional<std::string> GetOptionalStringValue(query::Expression *expression,
   return {};
 };
 
-inline auto convertFromCoordinatorToReplicationMode(const CoordinatorQuery::SyncMode &sync_mode)
+#ifdef MG_ENTERPRISE
+constexpr auto convertFromCoordinatorToReplicationMode(const CoordinatorQuery::SyncMode &sync_mode)
     -> replication_coordination_glue::ReplicationMode {
   switch (sync_mode) {
     case CoordinatorQuery::SyncMode::ASYNC: {
@@ -324,12 +325,16 @@ inline auto convertFromCoordinatorToReplicationMode(const CoordinatorQuery::Sync
     case CoordinatorQuery::SyncMode::SYNC: {
       return replication_coordination_glue::ReplicationMode::SYNC;
     }
+    case CoordinatorQuery::SyncMode::STRICT_SYNC: {
+      return replication_coordination_glue::ReplicationMode::STRICT_SYNC;
+    }
   }
   // TODO: C++23 std::unreachable()
   return replication_coordination_glue::ReplicationMode::ASYNC;
 }
+#endif
 
-inline auto convertToReplicationMode(const ReplicationQuery::SyncMode &sync_mode)
+constexpr auto convertToReplicationMode(const ReplicationQuery::SyncMode &sync_mode)
     -> replication_coordination_glue::ReplicationMode {
   switch (sync_mode) {
     case ReplicationQuery::SyncMode::ASYNC: {
@@ -337,6 +342,9 @@ inline auto convertToReplicationMode(const ReplicationQuery::SyncMode &sync_mode
     }
     case ReplicationQuery::SyncMode::SYNC: {
       return replication_coordination_glue::ReplicationMode::SYNC;
+    }
+    case ReplicationQuery::SyncMode::STRICT_SYNC: {
+      return replication_coordination_glue::ReplicationMode::STRICT_SYNC;
     }
   }
   // TODO: C++23 std::unreachable()
@@ -633,6 +641,10 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
 
     switch (auto status = coordinator_handler_.RegisterReplicationInstance(coordinator_client_config)) {
       using enum coordination::RegisterInstanceCoordinatorStatus;
+      case STRICT_SYNC_AND_SYNC_FORBIDDEN:
+        throw QueryRuntimeException(
+            "Cluster cannot consists of both STRICT_SYNC and SYNC replicas. The valid cluster consists of either "
+            "STRICT_SYNC and ASYNC or SYNC and ASYNC replicas.");
       case NAME_EXISTS:
         throw QueryRuntimeException("Couldn't register replica instance since instance with such name already exists!");
       case MGMT_ENDPOINT_EXISTS:
@@ -1396,18 +1408,20 @@ Callback HandleReplicationInfoQuery(ReplicationInfoQuery *repl_query,
 
       callback.fn = [handler = ReplQueryHandler{replication_query_handler}, replica_nfields = callback.header.size(),
                      full_info] {
-        auto const sync_mode_to_tv = [](memgraph::replication_coordination_glue::ReplicationMode sync_mode) {
+        auto const sync_mode_to_tv = [](replication_coordination_glue::ReplicationMode sync_mode) {
           using namespace std::string_view_literals;
           switch (sync_mode) {
-            using enum memgraph::replication_coordination_glue::ReplicationMode;
+            using enum replication_coordination_glue::ReplicationMode;
             case SYNC:
               return TypedValue{"sync"sv};
             case ASYNC:
               return TypedValue{"async"sv};
+            case STRICT_SYNC:
+              return TypedValue{"strict_sync"sv};
           }
         };
 
-        auto const replica_sys_state_to_tv = [](memgraph::replication::ReplicationClient::State state) {
+        auto const replica_sys_state_to_tv = [](replication::ReplicationClient::State state) {
           using namespace std::string_view_literals;
           switch (state) {
             using enum memgraph::replication::ReplicationClient::State;
@@ -6920,9 +6934,15 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
       std::visit(
           [&trigger, &db_accessor]<typename T>(T &&arg) {
             using ErrorType = std::remove_cvref_t<T>;
-            if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
+            if constexpr (std::is_same_v<ErrorType, storage::SyncReplicationError>) {
               spdlog::warn("At least one SYNC replica has not confirmed execution of the trigger '{}'.",
                            trigger.Name());
+            } else if constexpr (std::is_same_v<ErrorType, storage::StrictSyncReplicationError>) {
+              spdlog::warn(
+                  "At least one STRICT_SYNC replica has not confirmed execution of the trigger '{}'. Transaction will "
+                  "be "
+                  "aborted. ",
+                  trigger.Name());
             } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
               const auto &constraint_violation = arg;
               switch (constraint_violation.type) {
@@ -6954,6 +6974,9 @@ void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *int
 
                   break;
                 }
+                default:
+                  LOG_FATAL("Unknown ConstraintViolation type");
+                  ;
               }
             } else if constexpr (std::is_same_v<ErrorType, storage::SerializationError>) {
               throw QueryException(MessageWithDocsLink(
@@ -7100,7 +7123,8 @@ void Interpreter::Commit() {
   };
   utils::OnScopeExit const reset_members(reset_necessary_members);
 
-  auto commit_confirmed_by_all_sync_replicas = true;
+  bool commit_confirmed_by_all_sync_replicas{true};
+  bool commit_confirmed_by_all_strict_sync_replicas{true};
 
   auto locked_repl_state = std::optional{interpreter_context_->repl_state.ReadLock()};
   bool const is_main = locked_repl_state.value()->IsMain();
@@ -7109,7 +7133,8 @@ void Interpreter::Commit() {
   if (!is_main && !curr_txn->deltas.empty()) {
     throw QueryException("Cannot commit because instance is not main anymore.");
   }
-  auto maybe_commit_error = current_db_.db_transactional_accessor_->Commit({.is_main = is_main}, current_db_.db_acc_);
+  auto maybe_commit_error =
+      current_db_.db_transactional_accessor_->PrepareForCommitPhase({.is_main = is_main}, current_db_.db_acc_);
   // Proactively unlock repl_state
   locked_repl_state.reset();
 
@@ -7117,11 +7142,13 @@ void Interpreter::Commit() {
     const auto &error = maybe_commit_error.GetError();
 
     std::visit(
-        [&execution_db_accessor = current_db_.execution_db_accessor_,
-         &commit_confirmed_by_all_sync_replicas]<typename T>(const T &arg) {
+        [&execution_db_accessor = current_db_.execution_db_accessor_, &commit_confirmed_by_all_sync_replicas,
+         &commit_confirmed_by_all_strict_sync_replicas]<typename T>(const T &arg) {
           using ErrorType = std::remove_cvref_t<T>;
-          if constexpr (std::is_same_v<ErrorType, storage::ReplicationError>) {
+          if constexpr (std::is_same_v<ErrorType, storage::SyncReplicationError>) {
             commit_confirmed_by_all_sync_replicas = false;
+          } else if constexpr (std::is_same_v<ErrorType, storage::StrictSyncReplicationError>) {
+            commit_confirmed_by_all_strict_sync_replicas = false;
           } else if constexpr (std::is_same_v<ErrorType, storage::ConstraintViolation>) {
             const auto &constraint_violation = arg;
             auto &label_name = execution_db_accessor->LabelToName(constraint_violation.label);
@@ -7178,6 +7205,12 @@ void Interpreter::Commit() {
   SPDLOG_DEBUG("Finished committing the transaction");
   if (!commit_confirmed_by_all_sync_replicas) {
     throw ReplicationException("At least one SYNC replica has not confirmed committing last transaction.");
+  }
+
+  if (!commit_confirmed_by_all_strict_sync_replicas) {
+    throw ReplicationException(
+        "At least one STRICT_SYNC replica has not confirmed committing last transaction. Transaction will be aborted "
+        "on all instances.");
   }
 
   if (IsQueryLoggingActive()) {

@@ -15,7 +15,6 @@
 #include <filesystem>
 #include <set>
 #include <string>
-#include <usearch/index_plugins.hpp>
 
 #include "storage/v2/config.hpp"
 #include "storage/v2/delta.hpp"
@@ -190,6 +189,13 @@ struct WalEdgeSetProperty {
 };
 struct WalEdgeCreate : EdgeOpInfo {};
 struct WalEdgeDelete : EdgeOpInfo {};
+
+struct WalTransactionStart {
+  friend bool operator==(const WalTransactionStart &lhs, const WalTransactionStart &rhs) = default;
+  using ctr_types = std::tuple<bool>;
+  bool commit;
+};
+
 struct WalTransactionEnd {
   friend bool operator==(const WalTransactionEnd &, const WalTransactionEnd &) = default;
   using ctr_types = std::tuple<>;
@@ -293,7 +299,7 @@ struct WalDeltaData {
   }
 
   std::variant<WalVertexCreate, WalVertexDelete, WalVertexAddLabel, WalVertexRemoveLabel, WalVertexSetProperty,
-               WalEdgeSetProperty, WalEdgeCreate, WalEdgeDelete, WalTransactionEnd, WalLabelIndexCreate,
+               WalEdgeSetProperty, WalEdgeCreate, WalEdgeDelete, WalTransactionStart, WalTransactionEnd, WalLabelIndexCreate,
                WalLabelIndexDrop, WalLabelIndexStatsClear, WalLabelPropertyIndexStatsClear, WalEdgeTypeIndexCreate,
                WalEdgeTypeIndexDrop, WalEdgePropertyIndexCreate, WalEdgePropertyIndexDrop, WalLabelIndexStatsSet,
                WalLabelPropertyIndexCreate, WalLabelPropertyIndexDrop, WalPointIndexCreate, WalPointIndexDrop,
@@ -317,6 +323,7 @@ constexpr bool IsWalDeltaDataImplicitTransactionEndVersion15(const WalDeltaData 
                         [](WalEdgeCreate const &) { return false; },
                         [](WalEdgeDelete const &) { return false; },
                         [](WalEdgeSetProperty const &) { return false; },
+                        [](WalTransactionStart const &) { return false; },
 
                         // This delta explicitly indicates that a transaction is done.
                         [](WalTransactionEnd const &) { return true; },
@@ -396,6 +403,10 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, SalientConf
 void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, const Delta &delta, const Edge &edge,
                  uint64_t timestamp);
 
+// Function used to encode the transaction start
+// Returns the position in the WAL where the flag 'commit' is about to be written
+uint64_t EncodeTransactionStart(Encoder<utils::OutputFile> *encoder, uint64_t timestamp, bool commit);
+
 /// Function used to encode the transaction end.
 void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp);
 
@@ -455,6 +466,15 @@ class WalFile {
 
   void AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t timestamp);
   void AppendDelta(const Delta &delta, const Edge &edge, uint64_t timestamp);
+
+  // True means storage should use deltas associated with this txn, false means skip until
+  // you find the next txn.
+  // Returns the position in the WAL where the flag 'commit' is about to be written
+  uint64_t AppendTransactionStart(uint64_t timestamp, bool commit);
+
+  // Updates the commit flag in the WAL file with the new decision whether deltas should be read or skipped upon the
+  // recovery
+  void UpdateCommitStatus(uint64_t flag_pos, bool new_decision);
 
   void AppendTransactionEnd(uint64_t timestamp);
 

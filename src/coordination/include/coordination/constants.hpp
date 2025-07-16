@@ -63,5 +63,18 @@ constexpr std::string_view kCoordinatorInstances = "coordinator_instances";
 constexpr std::string_view kMainUUID = "current_main_uuid";
 constexpr std::string_view kConfig{"config"};
 constexpr std::string_view kStatus{"status"};
+// CoordinatorInstanceConfig
+constexpr std::string_view kCoordinatorId{"coordinator_id"};
+constexpr std::string_view kCoordinatorServer{"coordinator_server"};
+constexpr std::string_view kBoltServer{"bolt_server"};
+constexpr std::string_view kManagementServer{"management_server"};
+constexpr std::string_view kCoordinatorHostname{"coordinator_hostname"};
+// ReplicationClientInfo
+constexpr std::string_view kInstanceName{"instance_name"};
+constexpr std::string_view kReplicationMode{"replication_mode"};
+constexpr std::string_view kReplicationServer{"replication_server"};
+// DataInstanceConfig
+constexpr std::string_view kMgtServer{"mgt_server"};
+constexpr std::string_view kReplicationClientInfo{"replication_client_info"};
 
 }  // namespace memgraph::coordination

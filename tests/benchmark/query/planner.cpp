@@ -110,7 +110,7 @@ static auto CreateIndexedVertices(int index_count, int vertex_count, memgraph::s
       MG_ASSERT(vertex.SetProperty(prop, memgraph::storage::PropertyValue(index)).HasValue());
     }
   }
-  MG_ASSERT(!dba->Commit().HasError());
+  MG_ASSERT(!dba->PrepareForCommitPhase().HasError());
   return std::make_pair("label", "prop");
 }
 

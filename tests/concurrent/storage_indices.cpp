@@ -53,7 +53,7 @@ TEST(Storage, LabelIndex) {
           auto ret = vertex.AddLabel(label);
           ASSERT_TRUE(ret.HasValue());
           ASSERT_TRUE(*ret);
-          ASSERT_FALSE(acc->Commit().HasError());
+          ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
         }
         {
           auto acc = store->Access();
@@ -90,14 +90,14 @@ TEST(Storage, LabelIndex) {
           auto ret = vertex.AddLabel(label);
           ASSERT_TRUE(ret.HasValue());
           ASSERT_TRUE(*ret);
-          ASSERT_FALSE(acc->Commit().HasError());
+          ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
         }
         for (uint64_t i = 0; i < kMutatorBatchSize; ++i) {
           auto acc = store->Access();
           auto vertex = acc->FindVertex(gids[i], memgraph::storage::View::OLD);
           ASSERT_TRUE(vertex);
           ASSERT_TRUE(acc->DeleteVertex(&*vertex).HasValue());
-          ASSERT_FALSE(acc->Commit().HasError());
+          ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
         }
       }
     });
@@ -145,7 +145,7 @@ TEST(Storage, LabelPropertyIndex) {
             ASSERT_TRUE(old_value.HasValue());
             ASSERT_TRUE(old_value->IsNull());
           }
-          ASSERT_FALSE(acc->Commit().HasError());
+          ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
         }
         {
           auto acc = store->Access();
@@ -190,14 +190,14 @@ TEST(Storage, LabelPropertyIndex) {
             ASSERT_TRUE(old_value.HasValue());
             ASSERT_TRUE(old_value->IsNull());
           }
-          ASSERT_FALSE(acc->Commit().HasError());
+          ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
         }
         for (uint64_t i = 0; i < kMutatorBatchSize; ++i) {
           auto acc = store->Access();
           auto vertex = acc->FindVertex(gids[i], memgraph::storage::View::OLD);
           ASSERT_TRUE(vertex);
           ASSERT_TRUE(acc->DeleteVertex(&*vertex).HasValue());
-          ASSERT_FALSE(acc->Commit().HasError());
+          ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
         }
       }
     });
