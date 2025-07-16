@@ -882,14 +882,17 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           mem_storage->FinalizeWalFile();
         }
 
-        // Release engine lock because we don't have to hold it anymore
-        engine_guard.unlock();
-        AbortAndResetCommitTs();
-
         // This is currently done as SYNC communication but in reality we don't need to wait for response by replicas
         // because their in-memory state shouldn't show that there is some data and also durability should be
         // automatically handled
+        // Aborting on replica before than on main should't be a problem. Even if MAIN goes down, by default it will
+        // not load the current txn. When commiting, the situation is different
         replicating_txn.FinalizeTransaction(false, mem_storage->uuid(), std::move(db_acc), durability_commit_timestamp);
+
+        // Release engine lock because we don't have to hold it anymore for abort
+        engine_guard.unlock();
+        AbortAndResetCommitTs();
+
         return StorageManipulationError{StrictSyncReplicationError{}};
       }
 
