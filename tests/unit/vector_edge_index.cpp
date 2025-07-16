@@ -47,7 +47,7 @@ class VectorEdgeIndexTest : public testing::Test {
     const auto spec = VectorEdgeIndexSpec{test_index.data(), edge_type,          property, metric,
                                           dimension,         resize_coefficient, capacity, scalar_kind};
     EXPECT_FALSE(unique_acc->CreateVectorEdgeIndex(spec).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase());
   }
 
   std::tuple<VertexAccessor, VertexAccessor, EdgeAccessor> CreateEdge(Storage::Accessor *accessor,
@@ -75,7 +75,7 @@ TEST_F(VectorEdgeIndexTest, SimpleAddEdgeTest) {
   this->CreateEdge(acc.get(), test_property, property_value, test_edge_type);
   this->CreateEdge(acc.get(), "wrong_property", property_value, test_edge_type);
   this->CreateEdge(acc.get(), test_property, property_value, "wrong_edge_type");
-  ASSERT_NO_ERROR(acc->Commit());
+  ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   const auto all_vector_indices = acc->ListAllVectorEdgeIndices();
   EXPECT_EQ(all_vector_indices.size(), 1);
 }
@@ -85,7 +85,7 @@ TEST_F(VectorEdgeIndexTest, SimpleSearchTest) {
   auto acc = this->storage->Access();
   PropertyValue property_value(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
   auto [from_vertex, to_vertex, edge] = this->CreateEdge(acc.get(), test_property, property_value, test_edge_type);
-  ASSERT_NO_ERROR(acc->Commit());
+  ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   const auto result = acc->VectorIndexSearchOnEdges(test_index.data(), 1, std::vector<float>{1.0, 1.0});
   EXPECT_EQ(result.size(), 1);
   EXPECT_EQ(std::get<0>(result[0]).Gid(), edge.Gid());
@@ -108,7 +108,7 @@ TEST_F(VectorEdgeIndexTest, SearchWithMultipleEdges) {
       this->CreateEdge(acc.get(), test_property, properties1, test_edge_type);
   PropertyValue properties2(std::vector<PropertyValue>{PropertyValue(10.0), PropertyValue(10.0)});
   auto [from_vertex2, to_vertex2, edge2] = this->CreateEdge(acc.get(), test_property, properties2, test_edge_type);
-  ASSERT_NO_ERROR(acc->Commit());
+  ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   EXPECT_EQ(acc->ListAllVectorEdgeIndices().size(), 1);
   std::vector<float> query = {10.0, 10.0};
   const auto result = acc->VectorIndexSearchOnEdges(test_index.data(), 1, query);
@@ -131,7 +131,7 @@ TEST_F(VectorEdgeIndexTest, ConcurrencyTest) {
           std::vector<PropertyValue>{PropertyValue(static_cast<double>(i)), PropertyValue(static_cast<double>(i + 1))});
       [[maybe_unused]] auto [from_vertex, to_vertex, edge] =
           this->CreateEdge(acc.get(), test_property, properties, test_edge_type);
-      ASSERT_NO_ERROR(acc->Commit());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
     }));
   }
   for (auto &thread : threads) {
@@ -149,14 +149,14 @@ TEST_F(VectorEdgeIndexTest, UpdatePropertyValueTest) {
     PropertyValue initial_value(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
     auto [from_vertex, to_vertex, edge] = this->CreateEdge(acc.get(), test_property, initial_value, test_edge_type);
     edge_gid = edge.Gid();
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
   {
     auto acc = this->storage->Access();
     auto edge = acc->FindEdge(edge_gid, View::OLD).value();
     PropertyValue updated_value(std::vector<PropertyValue>{PropertyValue(2.0), PropertyValue(2.0)});
     MG_ASSERT(!edge.SetProperty(acc->NameToProperty(test_property), updated_value).HasError());
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
     const auto search_result = acc->VectorIndexSearchOnEdges(test_index.data(), 1, std::vector<float>{2.0, 2.0});
     EXPECT_EQ(search_result.size(), 1);
     EXPECT_EQ(std::get<0>(search_result[0]).GetProperty(acc->NameToProperty(test_property), View::OLD).GetValue(),
@@ -171,7 +171,7 @@ TEST_F(VectorEdgeIndexTest, DeleteEdgeTest) {
   auto [from_vertex, to_vertex, edge] = this->CreateEdge(acc.get(), test_property, properties, test_edge_type);
   auto maybe_deleted_edge = acc->DeleteEdge(&edge);
   EXPECT_EQ(maybe_deleted_edge.HasValue(), true);
-  ASSERT_NO_ERROR(acc->Commit());
+  ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   std::vector<float> query = {1.0, 1.0};
   const auto result = acc->VectorIndexSearchOnEdges(test_index.data(), 1, query);
   EXPECT_EQ(result.size(), 0);
@@ -186,7 +186,7 @@ TEST_F(VectorEdgeIndexTest, MultipleAbortsAndUpdatesTest) {
     auto acc = this->storage->Access();
     auto [from_vertex, to_vertex, edge] = this->CreateEdge(acc.get(), test_property, properties, test_edge_type);
     edge_gid = edge.Gid();
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
     acc = this->storage->Access();
     edge = acc->FindEdge(edge_gid, View::OLD).value();
     MG_ASSERT(!edge.SetProperty(acc->NameToProperty(test_property), null_value).HasError());
@@ -197,7 +197,7 @@ TEST_F(VectorEdgeIndexTest, MultipleAbortsAndUpdatesTest) {
     auto acc = this->storage->Access();
     auto edge = acc->FindEdge(edge_gid, View::OLD).value();
     MG_ASSERT(!edge.SetProperty(acc->NameToProperty(test_property), null_value).HasError());
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
     EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 0);
   }
   {
@@ -221,7 +221,7 @@ TEST_F(VectorEdgeIndexTest, MultipleAbortsAndUpdatesTest) {
     // add new edge to the index
     [[maybe_unused]] auto [from_vertex, to_vertex, edge] =
         this->CreateEdge(acc.get(), test_property, properties, test_edge_type);
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
     edge_gid = edge.Gid();
     // check that the index is not empty
     EXPECT_EQ(acc->ListAllVectorEdgeIndices()[0].size, 1);
@@ -245,14 +245,14 @@ TEST_F(VectorEdgeIndexTest, RemoveObsoleteEntriesTest) {
     PropertyValue properties(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
     auto [from_vertex, to_vertex, edge] = this->CreateEdge(acc.get(), test_property, properties, test_edge_type);
     edge_gid = edge.Gid();
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
   {
     auto acc = this->storage->Access();
     auto edge = acc->FindEdge(edge_gid, View::OLD).value();
     auto maybe_deleted_edge = acc->DeleteEdge(&edge);
     EXPECT_EQ(maybe_deleted_edge.HasValue(), true);
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
   {
     auto acc = this->storage->Access();
@@ -275,7 +275,7 @@ TEST_F(VectorEdgeIndexTest, IndexResizeTest) {
     auto acc = this->storage->Access();
     [[maybe_unused]] auto [from_vertex, to_vertex, edge] =
         this->CreateEdge(acc.get(), test_property, properties, test_edge_type);
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
     size++;
   }
   auto acc = this->storage->Access();
@@ -292,12 +292,12 @@ TEST_F(VectorEdgeIndexTest, DropIndexTest) {
     PropertyValue properties(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
     [[maybe_unused]] auto [from_vertex, to_vertex, edge] =
         this->CreateEdge(acc.get(), test_property, properties, test_edge_type);
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
   {
     auto unique_acc = this->storage->UniqueAccess();
     EXPECT_FALSE(unique_acc->DropVectorIndex(test_index).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase());
   }
   {
     auto acc = this->storage->Access();
@@ -312,7 +312,7 @@ TEST_F(VectorEdgeIndexTest, ClearTest) {
     PropertyValue properties(std::vector<PropertyValue>{PropertyValue(1.0), PropertyValue(1.0)});
     [[maybe_unused]] auto [from_vertex, to_vertex, edge] =
         this->CreateEdge(acc.get(), test_property, properties, test_edge_type);
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
     auto *mem_storage = static_cast<InMemoryStorage *>(this->storage.get());
     mem_storage->indices_.DropGraphClearIndices();
   }
@@ -331,7 +331,7 @@ TEST_F(VectorEdgeIndexTest, CreateIndexWhenEdgesExistsAlreadyTest) {
         this->CreateEdge(acc.get(), test_property, properties, test_edge_type);
     [[maybe_unused]] auto [from_vertex2, to_vertex2, edge2] =
         this->CreateEdge(acc.get(), test_property, properties, test_edge_type_2);
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
   this->CreateEdgeIndex(2, 10);
   {

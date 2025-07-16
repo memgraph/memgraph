@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include "role.hpp"
 #include "rpc/messages.hpp"
 #include "slk/serialization.hpp"
 #include "utils/uuid.hpp"
@@ -34,10 +33,6 @@ struct FrequentHeartbeatRes {
   static void Load(FrequentHeartbeatRes *self, memgraph::slk::Reader *reader);
   static void Save(const FrequentHeartbeatRes &self, memgraph::slk::Builder *builder);
   FrequentHeartbeatRes() = default;
-
-  ReplicationRole repl_role;  // MAIN or REPLICA
-  utils::UUID uuid;           // MAIN's UUID or the UUID which REPLICA listens
-  bool is_writing_enabled;
 };
 
 using FrequentHeartbeatRpc = rpc::RequestResponse<FrequentHeartbeatReq, FrequentHeartbeatRes>;

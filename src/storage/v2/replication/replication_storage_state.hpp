@@ -24,6 +24,7 @@
 #include "replication/state.hpp"
 #include "storage/v2/database_access.hpp"
 #include "storage/v2/replication/enums.hpp"
+#include "storage/v2/replication/replication_transaction.hpp"
 #include "storage/v2/replication/serialization.hpp"
 #include "utils/synchronized.hpp"
 
@@ -33,13 +34,12 @@ class Storage;
 
 class ReplicationStorageClient;
 class ReplicaStream;
-class TransactionReplication;
 
 using EpochHistory = std::deque<std::pair<std::string, uint64_t>>;
 
 struct ReplicationStorageState {
   // Only MAIN can send
-  auto InitializeTransaction(uint64_t seq_num, Storage *storage, DatabaseAccessProtector db_acc)
+  auto StartPrepareCommitPhase(uint64_t durability_commit_timestamp, Storage *storage, DatabaseAccessProtector db_acc)
       -> TransactionReplication;
 
   // Getters
