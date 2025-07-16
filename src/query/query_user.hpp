@@ -49,10 +49,6 @@ struct QueryUserOrRole {
   virtual std::string GetDefaultDB() const = 0;
 #endif
 
-  std::string key() const {
-    // NOTE: Each role has an associated username, that's why we check it with higher priority
-    return !rolenames_.empty() ? rolenames_[0] : (username_ ? *username_ : "");
-  }
   const std::optional<std::string> &username() const { return username_; }
   const std::vector<std::string> &rolenames() const { return rolenames_; }
 

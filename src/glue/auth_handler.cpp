@@ -132,15 +132,32 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowRolePrivileges(
 
 #ifdef MG_ENTERPRISE
 std::vector<std::vector<memgraph::query::TypedValue>> ShowDatabasePrivileges(
-    const std::optional<memgraph::auth::Role> &role) {
-  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast() || !role) {
+    const std::optional<memgraph::auth::User> &user, const std::optional<memgraph::auth::Roles> &roles) {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast() || (!user && !roles)) {
     return {};
   }
 
-  const auto &db = role->db_access();
-  const auto &allows = db.GetAllowAll();
-  const auto &grants = db.GetGrants();
-  const auto &denies = db.GetDenies();
+  bool allows = false;
+  std::set<std::string> grants;
+  std::set<std::string> denies;
+
+  const memgraph::auth::Roles *roles_obj = roles ? &*roles : nullptr;
+
+  if (user) {
+    const auto &db = user->db_access();
+    allows |= db.GetAllowAll();
+    grants.insert(db.GetGrants().begin(), db.GetGrants().end());
+    denies.insert(db.GetDenies().begin(), db.GetDenies().end());
+    roles_obj = &user->roles();
+  }
+  if (roles_obj) {
+    for (const auto &role : *roles_obj) {
+      const auto &role_db = role.db_access();
+      allows |= role_db.GetAllowAll();
+      grants.insert(role_db.GetGrants().begin(), role_db.GetGrants().end());
+      denies.insert(role_db.GetDenies().begin(), role_db.GetDenies().end());
+    }
+  }
 
   std::vector<memgraph::query::TypedValue> res;  // First element is a list of granted databases, second of revoked ones
   if (allows) {
@@ -156,31 +173,12 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowDatabasePrivileges(
 
 std::vector<std::vector<memgraph::query::TypedValue>> ShowDatabasePrivileges(
     const std::optional<memgraph::auth::User> &user) {
-  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast() || !user) {
-    return {};
-  }
+  return ShowDatabasePrivileges(user, std::nullopt);
+}
 
-  const auto &db = user->db_access();
-  auto allows = db.GetAllowAll();
-  auto grants = db.GetGrants();
-  auto denies = db.GetDenies();
-  for (const auto &role : user->roles()) {
-    const auto &role_db = role.db_access();
-    allows |= role_db.GetAllowAll();
-    grants.insert(role_db.GetGrants().begin(), role_db.GetGrants().end());
-    denies.insert(role_db.GetDenies().begin(), role_db.GetDenies().end());
-  }
-
-  std::vector<memgraph::query::TypedValue> res;  // First element is a list of granted databases, second of revoked ones
-  if (allows) {
-    res.emplace_back("*");
-  } else {
-    std::vector<memgraph::query::TypedValue> grants_vec(grants.cbegin(), grants.cend());
-    res.emplace_back(std::move(grants_vec));
-  }
-  std::vector<memgraph::query::TypedValue> denies_vec(denies.cbegin(), denies.cend());
-  res.emplace_back(std::move(denies_vec));
-  return {res};
+std::vector<std::vector<memgraph::query::TypedValue>> ShowDatabasePrivileges(
+    const std::optional<memgraph::auth::Roles> &roles) {
+  return ShowDatabasePrivileges(std::nullopt, roles);
 }
 
 std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionForPrivilegeForUserOrRole(
@@ -442,16 +440,24 @@ void AuthQueryHandler::RevokeDatabase(const std::string &db_name, const std::str
 }
 
 std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetDatabasePrivileges(
-    const std::string &user_or_role) {
+    const std::string &user, const std::vector<std::string> &roles) {
   try {
     auto locked_auth = auth_->ReadLock();
-    if (auto user = locked_auth->GetUser(user_or_role)) {
-      return ShowDatabasePrivileges(user);
+    if (auto local_user = locked_auth->GetUser(user)) {
+      return ShowDatabasePrivileges(local_user);
     }
-    if (auto role = locked_auth->GetRole(user_or_role)) {
-      return ShowDatabasePrivileges(role);
+    // User doesn't exist, check if any of the roles exist (this can happen when auth module is used)
+    std::optional<memgraph::auth::Roles> roles_obj;
+    for (const auto &role : roles) {
+      if (auto role_obj = locked_auth->GetRole(role)) {
+        roles_obj.emplace();
+        roles_obj->AddRole(std::move(*role_obj));
+      }
     }
-    throw memgraph::query::QueryRuntimeException("Neither user nor role '{}' exist.", user_or_role);
+    if (roles_obj) {
+      return ShowDatabasePrivileges(roles_obj);
+    }
+    throw memgraph::query::QueryRuntimeException("Missing user '{}' or one of role: {}.", user, fmt::join(roles, ", "));
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
@@ -485,26 +491,23 @@ void AuthQueryHandler::DeleteDatabase(std::string_view db_name, system::Transact
 std::optional<std::string> AuthQueryHandler::GetMainDatabase(const std::string &user_or_role) {
   try {
     auto locked_auth = auth_->ReadLock();
-    auto user = locked_auth->GetUser(user_or_role);
-    auto role = locked_auth->GetRole(user_or_role);
-
-    if (!user && !role) {
-      return std::nullopt;  // User or role doesn't exist
-    }
-
-    if (user) {
+    if (auto user = locked_auth->GetUser(user_or_role)) {
       try {
         return user->GetMain();
       } catch (const memgraph::auth::AuthException &) {
         return std::nullopt;  // User has no main database set
       }
-    } else {
+    }
+
+    if (auto role = locked_auth->GetRole(user_or_role)) {
       try {
         return role->GetMain();
       } catch (const memgraph::auth::AuthException &) {
         return std::nullopt;  // Role has no main database set
       }
     }
+
+    return std::nullopt;  // User/role doesn't exist
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
@@ -556,8 +559,8 @@ std::vector<memgraph::query::TypedValue> AuthQueryHandler::GetRolenames() {
   }
 }
 
-std::vector<std::string> AuthQueryHandler::GetRolenameForUser(const std::string &username,
-                                                              std::optional<std::string> db_name) {
+std::vector<std::string> AuthQueryHandler::GetRolenamesForUser(const std::string &username,
+                                                               std::optional<std::string> db_name) {
   try {
     auto locked_auth = auth_->ReadLock();
     auto user = locked_auth->GetUser(username);
@@ -604,8 +607,8 @@ std::vector<memgraph::query::TypedValue> AuthQueryHandler::GetUsernamesForRole(c
   }
 }
 
-void AuthQueryHandler::SetRole(const std::string &username, const std::vector<std::string> &roles,
-                               const std::unordered_set<std::string> &role_databases, system::Transaction *system_tx) {
+void AuthQueryHandler::SetRoles(const std::string &username, const std::vector<std::string> &roles,
+                                const std::unordered_set<std::string> &role_databases, system::Transaction *system_tx) {
   try {
     auto locked_auth = auth_->Lock();
     auto user = locked_auth->GetUser(username);
@@ -632,7 +635,7 @@ void AuthQueryHandler::SetRole(const std::string &username, const std::vector<st
 #endif
 
     // Clear existing roles first
-    user->ClearRole();
+    user->ClearAllRoles();
 
     // Add each role
     for (const auto &rolename : roles) {
@@ -649,8 +652,8 @@ void AuthQueryHandler::SetRole(const std::string &username, const std::vector<st
   }
 }
 
-void AuthQueryHandler::ClearRole(const std::string &username, const std::unordered_set<std::string> &role_databases,
-                                 system::Transaction *system_tx) {
+void AuthQueryHandler::ClearRoles(const std::string &username, const std::unordered_set<std::string> &role_databases,
+                                  system::Transaction *system_tx) {
   try {
     auto locked_auth = auth_->Lock();
     auto user = locked_auth->GetUser(username);
@@ -670,7 +673,7 @@ void AuthQueryHandler::ClearRole(const std::string &username, const std::unorder
 #endif
 
     // Clear all roles (default behavior)
-    user->ClearRole();
+    user->ClearAllRoles();
     locked_auth->SaveUser(*user, system_tx);
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
@@ -714,27 +717,24 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetPrivi
 #ifdef MG_ENTERPRISE
     std::vector<std::vector<memgraph::query::TypedValue>> fine_grained_grants;
 #endif
-    auto user = locked_auth->GetUser(user_or_role);
-    auto role = locked_auth->GetRole(user_or_role);
-    if (!user && !role) {
-      throw memgraph::query::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);
-    }
-
-    if (user) {
+    if (auto user = locked_auth->GetUser(user_or_role)) {
       grants = ShowUserPrivileges(user, db_name);
 #ifdef MG_ENTERPRISE
       if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
         fine_grained_grants = ShowFineGrainedUserPrivileges(user, db_name);
       }
 #endif
-    } else {
+    } else if (auto role = locked_auth->GetRole(user_or_role)) {
       grants = ShowRolePrivileges(role, db_name);
 #ifdef MG_ENTERPRISE
       if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
         fine_grained_grants = ShowFineGrainedRolePrivileges(role, db_name);
       }
 #endif
+    } else {
+      throw memgraph::query::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);
     }
+
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
       grants.insert(grants.end(), fine_grained_grants.begin(), fine_grained_grants.end());
@@ -871,12 +871,8 @@ void AuthQueryHandler::EditPermissions(
       permissions.push_back(memgraph::glue::PrivilegeToPermission(privilege));
     }
     auto locked_auth = auth_->Lock();
-    auto user = locked_auth->GetUser(user_or_role);
-    auto role = locked_auth->GetRole(user_or_role);
-    if (!user && !role) {
-      throw memgraph::query::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);
-    }
-    if (user) {
+
+    if (auto user = locked_auth->GetUser(user_or_role)) {
       for (const auto &permission : permissions) {
         edit_permissions_fun(user->permissions(), permission);
       }
@@ -893,7 +889,7 @@ void AuthQueryHandler::EditPermissions(
       }
 #endif
       locked_auth->SaveUser(*user, system_tx);
-    } else {
+    } else if (auto role = locked_auth->GetRole(user_or_role)) {
       for (const auto &permission : permissions) {
         edit_permissions_fun(role->permissions(), permission);
       }
@@ -909,6 +905,8 @@ void AuthQueryHandler::EditPermissions(
       }
 #endif
       locked_auth->SaveRole(*role, system_tx);
+    } else {
+      throw memgraph::query::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);
     }
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
@@ -920,39 +918,37 @@ void AuthQueryHandler::GrantImpersonateUser(const std::string &user_or_role, con
                                             system::Transaction *system_tx) {
   try {
     auto locked_auth = auth_->Lock();
-    auto user = locked_auth->GetUser(user_or_role);
-    auto role = locked_auth->GetRole(user_or_role);
-    if (!user && !role) {
-      throw memgraph::query::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);
-    }
+
     const bool all = targets.size() == 1 && targets[0] == "*";
-    std::vector<auth::User> users;  // TODO User or UserId?
+    std::vector<auth::User> target_users;  // TODO User or UserId?
     if (!all) {
       for (const auto &target : targets) {
         auto user = locked_auth->GetUser(target);
         if (!user) {
           throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", target);
         }
-        users.emplace_back(std::move(*user));
+        target_users.emplace_back(std::move(*user));
       }
     }
-    if (user) {
+
+    if (auto user = locked_auth->GetUser(user_or_role)) {
       user->permissions().Grant(auth::Permission::IMPERSONATE_USER);
       if (all) {
         user->GrantUserImp();
       } else {
-        user->GrantUserImp(users);
+        user->GrantUserImp(target_users);
       }
       locked_auth->SaveUser(*user, system_tx);
-    }
-    if (role) {
+    } else if (auto role = locked_auth->GetRole(user_or_role)) {
       role->permissions().Grant(auth::Permission::IMPERSONATE_USER);
       if (all) {
         role->GrantUserImp();
       } else {
-        role->GrantUserImp(users);
+        role->GrantUserImp(target_users);
       }
       locked_auth->SaveRole(*role, system_tx);
+    } else {
+      throw memgraph::query::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);
     }
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
@@ -963,31 +959,29 @@ void AuthQueryHandler::DenyImpersonateUser(const std::string &user_or_role, cons
                                            system::Transaction *system_tx) {
   try {
     auto locked_auth = auth_->Lock();
-    auto user = locked_auth->GetUser(user_or_role);
-    auto role = locked_auth->GetRole(user_or_role);
-    if (!user && !role) {
-      throw memgraph::query::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);
-    }
+
     const bool all = targets.size() == 1 && targets[0] == "*";
     if (all) {
       throw memgraph::query::QueryRuntimeException(
           "Cannot deny all users. Instead try to revoke the IMPERSONATE_USER privilege.");
     }
-    std::vector<auth::User> users;  // TODO User or UserId?
+    std::vector<auth::User> target_users;  // TODO User or UserId?
     for (const auto &target : targets) {
       auto user = locked_auth->GetUser(target);
       if (!user) {
         throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", target);
       }
-      users.emplace_back(std::move(*user));
+      target_users.emplace_back(std::move(*user));
     }
-    if (user) {
-      user->DenyUserImp(users);
+
+    if (auto user = locked_auth->GetUser(user_or_role)) {
+      user->DenyUserImp(target_users);
       locked_auth->SaveUser(*user, system_tx);
-    }
-    if (role) {
-      role->DenyUserImp(users);
+    } else if (auto role = locked_auth->GetRole(user_or_role)) {
+      role->DenyUserImp(target_users);
       locked_auth->SaveRole(*role, system_tx);
+    } else {
+      throw memgraph::query::QueryRuntimeException("User or role '{}' doesn't exist.", user_or_role);
     }
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());

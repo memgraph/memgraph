@@ -34,14 +34,14 @@ DECLARE_string(password_encryption_algorithm);
 class AuthWithStorage : public ::testing::Test {
  protected:
   void SetUp() override {
-    memgraph::utils::EnsureDir(test_folder_);
+    memgraph::utils::EnsureDir(test_folder);
     memgraph::license::global_license_checker.EnableTesting();
-    auth.emplace(test_folder_ / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid()))), auth_config);
+    auth.emplace(test_folder / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid()))), auth_config);
   }
 
-  void TearDown() override { fs::remove_all(test_folder_); }
+  void TearDown() override { fs::remove_all(test_folder); }
 
-  fs::path test_folder_{fs::temp_directory_path() / "MG_tests_unit_auth"};
+  fs::path test_folder{fs::temp_directory_path() / "MG_tests_unit_auth"};
   Auth::Config auth_config{};
   std::optional<Auth> auth{};
 };
@@ -49,14 +49,14 @@ class AuthWithStorage : public ::testing::Test {
 class V1Auth : public ::testing::Test {
  protected:
   void SetUp() override {
-    memgraph::utils::EnsureDir(test_folder_);
+    memgraph::utils::EnsureDir(test_folder);
     memgraph::license::global_license_checker.EnableTesting();
-    auth.emplace(test_folder_, auth_config);
+    auth.emplace(test_folder, auth_config);
   }
 
   void TearDown() override {}
 
-  fs::path test_folder_{fs::path{boost::dll::program_location().parent_path().string()} / "auth_kvstore/v1"};
+  fs::path test_folder{fs::path{boost::dll::program_location().parent_path().string()} / "auth_kvstore/v1"};
   Auth::Config auth_config{};
   std::optional<Auth> auth{};
 };
@@ -615,6 +615,74 @@ TEST_F(AuthWithStorage, DatabaseSpecificAccess) {
     // But should fail for db1 due to deny
     ASSERT_FALSE(user->CanImpersonate(*target_user, "db1"));
   }
+
+  // Test 11: Test CanImpersonate with different permission levels
+  {
+    auto target_user = auth->GetUser("target_user");
+    ASSERT_TRUE(target_user);
+    // Create additional target users
+    auto neutral_target_user = auth->AddUser("neutral_target_user");
+    auto denied_target_user = auth->AddUser("denied_target_user");
+    auto ungranted_target_user = auth->AddUser("ungranted_target_user");
+    ASSERT_TRUE(neutral_target_user);
+    ASSERT_TRUE(denied_target_user);
+    ASSERT_TRUE(ungranted_target_user);
+
+    // Set up different permission levels for each role:
+    // role1: Grant impersonation permission and access to target_user
+    // role2: Neutral impersonation permission (no explicit grant/deny)
+    // role3: Deny impersonation permission for target_user
+    role1->permissions().Grant(Permission::IMPERSONATE_USER);
+    role1->GrantUserImp({*target_user});
+
+    // role2 has no impersonation permissions set (neutral)
+    role2->permissions().Revoke(Permission::IMPERSONATE_USER);
+    role2->GrantUserImp({*neutral_target_user});
+
+    role3->permissions().Deny(Permission::IMPERSONATE_USER);
+    role3->GrantUserImp({*denied_target_user});
+
+    // Update storage
+    auth->SaveRole(*role1);
+    auth->SaveRole(*role2);
+    auth->SaveRole(*role3);
+    auth->SaveUser(*user);
+    user = auth->GetUser("user");
+
+    // Test CanImpersonate with neutral permission - should fail
+    ASSERT_FALSE(user->CanImpersonate(*neutral_target_user, "db2"));
+
+    // Test CanImpersonate with denied permission - should fail
+    ASSERT_FALSE(user->CanImpersonate(*denied_target_user, "db3"));
+
+    // Test CanImpersonate with ungranted user - should fail
+    ASSERT_FALSE(user->CanImpersonate(*ungranted_target_user, "db1"));
+    ASSERT_FALSE(user->CanImpersonate(*ungranted_target_user, "db2"));
+    ASSERT_FALSE(user->CanImpersonate(*ungranted_target_user, "db3"));
+    ASSERT_FALSE(user->CanImpersonate(*ungranted_target_user));
+  }
+
+  // Test 12: Test CanImpersonate with role that changes from grant to neutral
+  {
+    auto target_user = auth->GetUser("target_user");
+    ASSERT_TRUE(target_user);
+    // Reset role1 to grant permission
+    role1->permissions().Grant(Permission::IMPERSONATE_USER);
+    role1->GrantUserImp({*target_user});
+    auth->SaveRole(*role1);
+    user = auth->GetUser("user");
+
+    // Should work initially
+    ASSERT_TRUE(user->CanImpersonate(*target_user, "db1"));
+
+    // Remove impersonation permission (neutral)
+    role1->permissions().Revoke(Permission::IMPERSONATE_USER);
+    auth->SaveRole(*role1);
+    user = auth->GetUser("user");
+
+    // Should now fail due to neutral permission
+    ASSERT_FALSE(user->CanImpersonate(*target_user, "db1"));
+  }
 }
 #endif
 
@@ -728,7 +796,7 @@ TEST_F(AuthWithStorage, UserRoleLinkUnlink) {
   {
     auto user = auth->GetUser("user");
     ASSERT_TRUE(user);
-    user->ClearRole();
+    user->ClearAllRoles();
     auth->SaveUser(*user);
   }
 
@@ -787,7 +855,7 @@ TEST_F(AuthWithStorage, PasswordStrength) {
 
   {
     auth.reset();
-    auth.emplace(test_folder_ / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid()))),
+    auth.emplace(test_folder / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid()))),
                  Auth::Config{std::string{memgraph::glue::kDefaultUserRoleRegex}, kWeakRegex, true});
     auto user = auth->AddUser("user1");
     ASSERT_TRUE(user);
@@ -799,7 +867,7 @@ TEST_F(AuthWithStorage, PasswordStrength) {
 
   {
     auth.reset();
-    auth.emplace(test_folder_ / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid()))),
+    auth.emplace(test_folder / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid()))),
                  Auth::Config{std::string{memgraph::glue::kDefaultUserRoleRegex}, kWeakRegex, false});
     ASSERT_THROW(auth->AddUser("user2", std::nullopt), AuthException);
     auto user = auth->AddUser("user2", kWeakPassword);
@@ -811,7 +879,7 @@ TEST_F(AuthWithStorage, PasswordStrength) {
 
   {
     auth.reset();
-    auth.emplace(test_folder_ / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid()))),
+    auth.emplace(test_folder / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid()))),
                  Auth::Config{std::string{memgraph::glue::kDefaultUserRoleRegex}, kStrongRegex, true});
     auto user = auth->AddUser("user3");
     ASSERT_TRUE(user);
@@ -823,7 +891,7 @@ TEST_F(AuthWithStorage, PasswordStrength) {
 
   {
     auth.reset();
-    auth.emplace(test_folder_ / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid()))),
+    auth.emplace(test_folder / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid()))),
                  Auth::Config{std::string{memgraph::glue::kDefaultUserRoleRegex}, kStrongRegex, false});
     ASSERT_THROW(auth->AddUser("user4", std::nullopt);, AuthException);
     ASSERT_THROW(auth->AddUser("user4", kWeakPassword);, AuthException);
@@ -1159,7 +1227,6 @@ TEST_F(AuthWithStorage, MultipleRoles) {
   ASSERT_TRUE(retrieved_user);
   ASSERT_EQ(retrieved_user->roles().size(), 3);
 
-  // Check that role() returns the first role for backward compatibility
   const auto &roles = retrieved_user->roles();
   ASSERT_EQ(roles.size(), 3);
   ASSERT_TRUE(std::find(roles.rolenames().begin(), roles.rolenames().end(), "role1") != roles.rolenames().end());
@@ -1175,13 +1242,9 @@ TEST_F(AuthWithStorage, MultipleRoles) {
   ASSERT_EQ(updated_user->roles().size(), 2);
 
   // Verify role2 was removed
-  bool has_role2 = false;
-  for (const auto &role : updated_user->roles()) {
-    if (role.rolename() == "role2") {
-      has_role2 = true;
-      break;
-    }
-  }
+  bool has_role2 = std::find_if(updated_user->roles().begin(), updated_user->roles().end(), [](const auto &role) {
+                     return role.rolename() == "role2";
+                   }) != updated_user->roles().end();
   ASSERT_FALSE(has_role2);
 
   // Test adding a duplicate role (should be ignored)
@@ -1189,50 +1252,12 @@ TEST_F(AuthWithStorage, MultipleRoles) {
   ASSERT_EQ(updated_user->roles().size(), 2);  // Should still be 2
 
   // Test clearing all roles
-  updated_user->ClearRole();
+  updated_user->ClearAllRoles();
   auth->SaveUser(*updated_user);
 
   auto cleared_user = auth->GetUser("user");
   ASSERT_TRUE(cleared_user);
   ASSERT_EQ(cleared_user->roles().size(), 0);
-}
-
-TEST_F(AuthWithStorage, StorageFormatBackwardCompatibility) {
-  // Test that the new storage format maintains backward compatibility
-
-  // Create a user with a single role (old format)
-  auto user = auth->AddUser("user");
-  ASSERT_TRUE(user);
-  auto role = auth->AddRole("role");
-  ASSERT_TRUE(role);
-  user->SetRole(*role);  // This uses the old single role format
-  auth->SaveUser(*user);
-
-  // Verify it loads correctly
-  auto retrieved_user = auth->GetUser("user");
-  ASSERT_TRUE(retrieved_user);
-  ASSERT_EQ(retrieved_user->roles().size(), 1);
-  ASSERT_EQ(retrieved_user->roles().rolenames().front(), "role");
-
-  // Now add another role to test the new format
-  auto role2 = auth->AddRole("role2");
-  ASSERT_TRUE(role2);
-  retrieved_user->AddRole(*role2);
-  auth->SaveUser(*retrieved_user);
-
-  // Verify it still loads correctly with multiple roles
-  auto multi_role_user = auth->GetUser("user");
-  ASSERT_TRUE(multi_role_user);
-  ASSERT_EQ(multi_role_user->roles().size(), 2);
-
-  // Test AllUsersForRole with both formats
-  auto users_with_role = auth->AllUsersForRole("role");
-  ASSERT_EQ(users_with_role.size(), 1);
-  ASSERT_EQ(users_with_role[0].username(), "user");
-
-  auto users_with_role2 = auth->AllUsersForRole("role2");
-  ASSERT_EQ(users_with_role2.size(), 1);
-  ASSERT_EQ(users_with_role2[0].username(), "user");
 }
 
 TEST(AuthWithoutStorage, CaseInsensitivity) {
@@ -1497,17 +1522,17 @@ TEST_F(AuthWithVariousEncryptionAlgorithms, SetEncryptionAlgorithmEmptyThrow) {
 class AuthWithStorageWithVariousEncryptionAlgorithms : public ::testing::Test {
  protected:
   void SetUp() override {
-    memgraph::utils::EnsureDir(test_folder_);
+    memgraph::utils::EnsureDir(test_folder);
     SetHashAlgorithm("bcrypt");
 
     memgraph::license::global_license_checker.EnableTesting();
   }
 
-  void TearDown() override { fs::remove_all(test_folder_); }
+  void TearDown() override { fs::remove_all(test_folder); }
 
-  fs::path test_folder_{fs::temp_directory_path() / "MG_tests_unit_auth"};
+  fs::path test_folder{fs::temp_directory_path() / "MG_tests_unit_auth"};
   Auth::Config auth_config{};
-  Auth auth{test_folder_ / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid()))), auth_config};
+  Auth auth{test_folder / ("unit_auth_test_" + std::to_string(static_cast<int>(getpid()))), auth_config};
 };
 
 TEST_F(AuthWithStorageWithVariousEncryptionAlgorithms, AddUserDefault) {
@@ -1824,7 +1849,7 @@ TEST_F(AuthWithStorage, MultiTenantRoleClearRole) {
   ASSERT_EQ(updated_user->GetMultiTenantRoles("db2").size(), 1);
 
   // Clear all roles (should clear multi-tenant roles too)
-  updated_user->ClearRole();
+  updated_user->ClearAllRoles();
   auth->SaveUser(*updated_user);
 
   // Verify all roles are cleared
@@ -1906,7 +1931,7 @@ TEST_F(AuthWithStorage, MultiTenantRoleWithGlobalRoles) {
   ASSERT_EQ(updated_user->GetMultiTenantRoles("db1").begin()->rolename(), "mt_role");
 
   // Clear global roles
-  updated_user->ClearRole();
+  updated_user->ClearAllRoles();
   auth->SaveUser(*updated_user);
 
   // Now should be able to set global_role as multi-tenant role

@@ -1340,7 +1340,7 @@ TEST_F(AuthQueryHandlerFixture, SetRole_WithDatabaseSpecification_Success) {
   {
     std::vector<std::string> roles = {"role1", "role2"};
     std::unordered_set<std::string> databases = {"db1", "db2"};
-    ASSERT_THROW(auth_handler.SetRole("test_user", roles, databases, nullptr), memgraph::query::QueryRuntimeException);
+    ASSERT_THROW(auth_handler.SetRoles("test_user", roles, databases, nullptr), memgraph::query::QueryRuntimeException);
   }
 
   // Update roles to have access to both databases
@@ -1354,7 +1354,7 @@ TEST_F(AuthQueryHandlerFixture, SetRole_WithDatabaseSpecification_Success) {
   {
     std::vector<std::string> roles = {"role1", "role2"};
     std::unordered_set<std::string> databases = {"db1", "db2"};
-    ASSERT_NO_THROW(auth_handler.SetRole("test_user", roles, databases, nullptr));
+    ASSERT_NO_THROW(auth_handler.SetRoles("test_user", roles, databases, nullptr));
   }
 
   // Verify the roles are set as multi-tenant roles
@@ -1391,7 +1391,7 @@ TEST_F(AuthQueryHandlerFixture, ClearRole_WithDatabaseSpecification_Success) {
 
   // Clear roles for specific database
   std::unordered_set<std::string> databases = {"db1"};
-  ASSERT_NO_THROW(auth_handler.ClearRole("test_user", databases, nullptr));
+  ASSERT_NO_THROW(auth_handler.ClearRoles("test_user", databases, nullptr));
 
   // Verify roles are cleared for db1 but remain for db2
   auto updated_user = auth->GetUser("test_user");
@@ -1417,12 +1417,12 @@ TEST_F(AuthQueryHandlerFixture, GetRolenameForUser_WithDatabaseSpecification) {
   auth->SaveUser(user);
 
   // Get roles for specific database
-  auto rolenames = auth_handler.GetRolenameForUser("test_user", "db1");
+  auto rolenames = auth_handler.GetRolenamesForUser("test_user", "db1");
   ASSERT_EQ(rolenames.size(), 1);
   ASSERT_EQ(rolenames[0], "test_role");
 
   // Get roles for different database (should be empty)
-  auto rolenames_db2 = auth_handler.GetRolenameForUser("test_user", "db2");
+  auto rolenames_db2 = auth_handler.GetRolenamesForUser("test_user", "db2");
   ASSERT_EQ(rolenames_db2.size(), 0);
 }
 
@@ -1517,7 +1517,7 @@ TEST_F(AuthQueryHandlerFixture, ClearRole_ClearsMultiTenantRoles) {
   auth->SaveUser(user);
 
   // Clear all roles (should clear multi-tenant roles too)
-  user.ClearRole();
+  user.ClearAllRoles();
   auth->SaveUser(user);
 
   // Verify all roles are cleared
@@ -1545,7 +1545,7 @@ TEST_F(AuthQueryHandlerFixture, SetRole_MultipleRoles_Success) {
 
   // Set multiple roles
   std::vector<std::string> roles = {"role1", "role2", "role3"};
-  ASSERT_NO_THROW(auth_handler.SetRole("multiuser", roles, std::unordered_set<std::string>{}, nullptr));
+  ASSERT_NO_THROW(auth_handler.SetRoles("multiuser", roles, std::unordered_set<std::string>{}, nullptr));
 
   // Check user roles
   auto updated_user = auth->GetUser("multiuser");
@@ -1571,7 +1571,7 @@ TEST_F(AuthQueryHandlerFixture, SetRole_EmptyRoles_ClearsRoles) {
 
   // Clear roles by setting empty vector
   std::vector<std::string> roles = {};
-  ASSERT_NO_THROW(auth_handler.SetRole("user1", roles, std::unordered_set<std::string>{}, nullptr));
+  ASSERT_NO_THROW(auth_handler.SetRoles("user1", roles, std::unordered_set<std::string>{}, nullptr));
   auto updated_user = auth->GetUser("user1");
   ASSERT_TRUE(updated_user);
   ASSERT_TRUE(updated_user->roles().empty());
@@ -1583,13 +1583,13 @@ TEST_F(AuthQueryHandlerFixture, SetRole_NonExistentRole_Throws) {
   ASSERT_TRUE(user);
   // Try to set a non-existent role
   std::vector<std::string> roles = {"doesnotexist"};
-  ASSERT_THROW(auth_handler.SetRole("user2", roles, std::unordered_set<std::string>{}, nullptr),
+  ASSERT_THROW(auth_handler.SetRoles("user2", roles, std::unordered_set<std::string>{}, nullptr),
                memgraph::query::QueryRuntimeException);
 }
 
 TEST_F(AuthQueryHandlerFixture, SetRole_UserDoesNotExist_Throws) {
   std::vector<std::string> roles = {"role1"};
-  ASSERT_THROW(auth_handler.SetRole("no_such_user", roles, std::unordered_set<std::string>{}, nullptr),
+  ASSERT_THROW(auth_handler.SetRoles("no_such_user", roles, std::unordered_set<std::string>{}, nullptr),
                memgraph::query::QueryRuntimeException);
 }
 
@@ -1603,7 +1603,7 @@ TEST_F(AuthQueryHandlerFixture, SetRole_DuplicateRoles_NoDuplicatesInResult) {
   ASSERT_TRUE(user);
   // Set duplicate roles
   std::vector<std::string> roles = {"role1", "role2", "role1", "role2"};
-  ASSERT_NO_THROW(auth_handler.SetRole("user3", roles, std::unordered_set<std::string>{}, nullptr));
+  ASSERT_NO_THROW(auth_handler.SetRoles("user3", roles, std::unordered_set<std::string>{}, nullptr));
   auto updated_user = auth->GetUser("user3");
   ASSERT_TRUE(updated_user);
   std::set<std::string> unique_roles;

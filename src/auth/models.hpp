@@ -514,12 +514,17 @@ class Roles {
   void AddRole(const Role &role) { roles_.insert(role); }
 
   // Remove a role by name
-  void RemoveRole(const std::string &rolename) { roles_.erase(Role(rolename)); }
+  void RemoveRole(const std::string &rolename) {
+    auto it = std::ranges::find(roles_, rolename, &Role::rolename);
+    if (it != roles_.end()) {
+      roles_.erase(it);
+    }
+  }
 
   // Get all roles
   const std::unordered_set<Role> &GetRoles() const { return roles_; }
   std::optional<Role> GetRole(const std::string &rolename) const {
-    auto it = roles_.find(Role(rolename));
+    auto it = std::ranges::find(roles_, rolename, &Role::rolename);
     if (it == roles_.end()) {
       return std::nullopt;
     }
@@ -571,36 +576,10 @@ class Roles {
 
 #ifdef MG_ENTERPRISE
   const FineGrainedAccessPermissions &GetFineGrainedAccessLabelPermissions(
-      std::optional<std::string_view> db_name = std::nullopt) const {
-    static FineGrainedAccessPermissions empty_permissions;
-    if (roles_.empty()) return empty_permissions;
-
-    FineGrainedAccessPermissions combined_permissions;
-    for (const auto &role : roles_) {
-      if (!db_name || role.HasAccess(*db_name)) {
-        combined_permissions = Merge(combined_permissions, role.fine_grained_access_handler().label_permissions());
-      }
-    }
-    static FineGrainedAccessPermissions result;
-    result = combined_permissions;
-    return result;
-  }
+      std::optional<std::string_view> db_name = std::nullopt) const;
 
   const FineGrainedAccessPermissions &GetFineGrainedAccessEdgeTypePermissions(
-      std::optional<std::string_view> db_name = std::nullopt) const {
-    static FineGrainedAccessPermissions empty_permissions;
-    if (roles_.empty()) return empty_permissions;
-
-    FineGrainedAccessPermissions combined_permissions;
-    for (const auto &role : roles_) {
-      if (!db_name || role.HasAccess(*db_name)) {
-        combined_permissions = Merge(combined_permissions, role.fine_grained_access_handler().edge_type_permissions());
-      }
-    }
-    static FineGrainedAccessPermissions result;
-    result = combined_permissions;
-    return result;
-  }
+      std::optional<std::string_view> db_name = std::nullopt) const;
 
   // No way to define a higher priority database, so we return the first one
   const std::string &GetMain() const {
@@ -645,17 +624,8 @@ class Roles {
   bool empty() const { return roles_.empty(); }
   size_t size() const { return roles_.size(); }
 
-  // Get pointer to first role (for backward compatibility)
-  const Role *first_role() const {
-    if (roles_.empty()) {
-      return nullptr;
-    }
-    return &(*roles_.begin());
-  }
-
   // Comparison operators
   friend bool operator==(const Roles &first, const Roles &second) { return first.roles_ == second.roles_; }
-
   friend bool operator!=(const Roles &first, const Roles &second) { return !(first == second); }
 
  private:
@@ -700,9 +670,9 @@ class User final {
 
   void UpdateHash(HashedPassword hashed_password);
 
-  void SetRole(const Role &role);  // Deprecated
+  [[deprecated("Use SetRoles instead")]] void SetRole(const Role &role);
 
-  void ClearRole();
+  void ClearAllRoles();
 
   void AddRole(const Role &role);
   void RemoveRole(const std::string &rolename) { roles_.RemoveRole(rolename); }

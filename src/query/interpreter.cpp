@@ -1064,12 +1064,12 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
           throw QueryException("Expected to be in a system transaction");
         }
 #ifdef MG_ENTERPRISE
-        auth->SetRole(username, roles, role_databases, &*interpreter->system_transaction_);
+        auth->SetRoles(username, roles, role_databases, &*interpreter->system_transaction_);
 #else
         if (!role_databases.empty()) {
           throw QueryException("Database specification is only available in the enterprise edition");
         }
-        auth->SetRole(username, roles, std::unordered_set<std::string>{}, &*interpreter->system_transaction_);
+        auth->SetRoles(username, roles, std::unordered_set<std::string>{}, &*interpreter->system_transaction_);
 #endif
         return std::vector<std::vector<TypedValue>>();
       };
@@ -1082,12 +1082,12 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         }
 
 #ifdef MG_ENTERPRISE
-        auth->ClearRole(username, role_databases, &*interpreter->system_transaction_);
+        auth->ClearRoles(username, role_databases, &*interpreter->system_transaction_);
 #else
         if (!role_databases.empty()) {
           throw QueryException("Database specification is only available in the enterprise edition");
         }
-        auth->ClearRole(username, std::unordered_set<std::string>{}, &*interpreter->system_transaction_);
+        auth->ClearRoles(username, std::unordered_set<std::string>{}, &*interpreter->system_transaction_);
 #endif
         return std::vector<std::vector<TypedValue>>();
       };
@@ -1239,12 +1239,12 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
             target_db = database_name;
             break;
         }
-        auto rolenames = auth->GetRolenameForUser(username, target_db);
+        auto rolenames = auth->GetRolenamesForUser(username, target_db);
 #else
         if (database_specification != AuthQuery::DatabaseSpecification::NONE) {
           throw QueryRuntimeException("Multi-database queries are only available in enterprise edition");
         }
-        auto rolenames = auth->GetRolenameForUser(username, std::nullopt);
+        auto rolenames = auth->GetRolenamesForUser(username, std::nullopt);
 #endif
         if (rolenames.empty()) {
           return std::vector<std::vector<TypedValue>>{std::vector<TypedValue>{TypedValue("null")}};
@@ -6007,8 +6007,7 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
       gen_status(db_handler->All(), std::vector<TypedValue>{});
     } else {
       // User has a subset of accessible dbs; this is synched with the SessionContextHandler
-      const auto &db_priv =
-          auth->GetDatabasePrivileges(user_or_role->key());  // TODO support multi-roles; + reuse existing user/role
+      const auto &db_priv = auth->GetDatabasePrivileges(user_or_role->username().value(), user_or_role->rolenames());
       const auto &allowed = db_priv[0][0];
       const auto &denied = db_priv[0][1].ValueList();
       if (allowed.IsString() && allowed.ValueString() == auth::kAllDatabases) {
@@ -7382,7 +7381,11 @@ void Interpreter::SetSessionIsolationLevel(const storage::IsolationLevel isolati
 void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) {
   user_or_role_ = std::move(user_or_role);
   if (query_logger_) {
-    query_logger_->SetUser(user_or_role_->key());  // TODO support multi-roles
+    std::string username;
+    if (user_or_role_ && user_or_role_->username()) {
+      username = user_or_role_->username().value();
+    }
+    query_logger_->SetUser(username);
   }
 }
 

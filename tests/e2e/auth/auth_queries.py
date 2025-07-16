@@ -462,5 +462,159 @@ def test_role_syntax_compatibility(memgraph):
     memgraph.execute("DROP ROLE role2;")
 
 
+def test_complex_role_privilege_flow(memgraph):
+    """Test complex role and privilege flow with multiple users, roles, and databases."""
+    # Create users
+    memgraph.execute("CREATE USER alice;")
+    memgraph.execute("CREATE USER bob;")
+    memgraph.execute("CREATE USER charlie;")
+
+    # Create roles
+    memgraph.execute("CREATE ROLE user;")
+    memgraph.execute("CREATE ROLE architect;")
+    memgraph.execute("CREATE ROLE moderator;")
+    memgraph.execute("CREATE ROLE admin;")
+    memgraph.execute("CREATE ROLE support;")
+
+    # Create databases
+    memgraph.execute("CREATE DATABASE db1;")
+    memgraph.execute("CREATE DATABASE db2;")
+    memgraph.execute("CREATE DATABASE db3;")
+
+    # Grant database access to roles
+    memgraph.execute("GRANT DATABASE db1 TO architect;")
+    memgraph.execute("GRANT DATABASE db1 TO moderator;")
+    memgraph.execute("GRANT DATABASE db2 TO support;")
+    memgraph.execute("GRANT DATABASE db2 TO admin;")
+
+    # Set main databases for roles
+    memgraph.execute("SET MAIN DATABASE db1 FOR architect;")
+    memgraph.execute("SET MAIN DATABASE db2 FOR support;")
+
+    # Set roles for charlie
+    memgraph.execute("SET ROLE FOR charlie TO user;")
+    memgraph.execute("SET ROLE FOR charlie TO architect, moderator ON db1;")
+    memgraph.execute("SET ROLE FOR charlie TO admin, support ON db2;")
+
+    # Check SHOW PRIVILEGES FOR charlie ON DATABASE db1 - should give empty result initially
+    results = list(memgraph.execute_and_fetch("SHOW PRIVILEGES FOR charlie ON DATABASE db1;"))
+    assert len(results) == 0, f"Expected empty privileges, got: {results}"
+
+    # Grant match privilege to architect role
+    memgraph.execute("GRANT match TO architect;")
+
+    # Check SHOW PRIVILEGES FOR charlie ON DATABASE db1 - should show match granted to role
+    results = list(memgraph.execute_and_fetch("SHOW PRIVILEGES FOR charlie ON DATABASE db1;"))
+    assert len(results) == 1, "Expected privileges after granting match to architect role"
+
+    # Check that match privilege is granted to architect role
+    for row in results:
+        # Check that the row contains privilege 'MATCH', effective 'GRANT', and description mentions 'GRANTED TO ROLE'
+        assert (
+            row.get("privilege", "").upper() == "MATCH"
+            and row.get("effective", "").upper() == "GRANT"
+            and "GRANTED TO ROLE" in row.get("description", "").upper()
+        ), f"Expected privilege row for MATCH GRANT to role, got: {row}"
+
+    # Deny match privilege to moderator role
+    memgraph.execute("DENY match TO moderator;")
+
+    # Check SHOW PRIVILEGES FOR charlie ON DATABASE db1 - should show deny denied to role
+    results = list(memgraph.execute_and_fetch("SHOW PRIVILEGES FOR charlie ON DATABASE db1;"))
+    assert len(results) == 1, "Expected privileges after denying match to moderator role"
+
+    # Check that match privilege is denied to moderator role
+    for row in results:
+        assert (
+            row.get("privilege", "").upper() == "MATCH"
+            and row.get("effective", "").upper() == "DENY"
+            and "DENIED TO ROLE" in row.get("description", "").upper()
+        ), f"Expected privilege row for MATCH DENY to role, got: {row}"
+
+    # Clean up
+    memgraph.execute("DROP USER alice;")
+    memgraph.execute("DROP USER bob;")
+    memgraph.execute("DROP USER charlie;")
+    memgraph.execute("DROP ROLE user;")
+    memgraph.execute("DROP ROLE architect;")
+    memgraph.execute("DROP ROLE moderator;")
+    memgraph.execute("DROP ROLE admin;")
+    memgraph.execute("DROP ROLE support;")
+    memgraph.execute("DROP DATABASE db1;")
+    memgraph.execute("DROP DATABASE db2;")
+    memgraph.execute("DROP DATABASE db3;")
+
+
+def test_show_databases_for_user_and_role(memgraph):
+    default_db = "memgraph"
+    """Test SHOW DATABASES FOR <user> and SHOW DATABASES FOR <role> with multiple roles and grants/denies."""
+    # Setup: create databases, users, and roles
+    memgraph.execute("CREATE DATABASE db1;")
+    memgraph.execute("CREATE DATABASE db2;")
+    memgraph.execute("CREATE DATABASE db3;")
+    memgraph.execute("CREATE USER alice;")
+    memgraph.execute("CREATE USER bob;")
+    memgraph.execute("CREATE ROLE architect;")
+    memgraph.execute("CREATE ROLE moderator;")
+    memgraph.execute("CREATE ROLE admin;")
+
+    # Grant/deny database access to roles
+    memgraph.execute("GRANT DATABASE db1 TO architect;")
+    memgraph.execute("GRANT DATABASE db2 TO architect;")
+    memgraph.execute("GRANT DATABASE db2 TO moderator;")
+    memgraph.execute("GRANT DATABASE db3 TO admin;")
+    memgraph.execute("DENY DATABASE db2 FROM architect;")  # architect: db1 only
+
+    # Assign roles to users
+    memgraph.execute("SET ROLE FOR alice TO architect, moderator;")
+    memgraph.execute("SET ROLE FOR bob TO admin, moderator;")
+
+    # As admin, check SHOW DATABASES FOR <role>
+    result = list(memgraph.execute_and_fetch("SHOW DATABASE PRIVILEGES FOR architect;"))
+    # architect: granted db1, denied db2, not granted db3
+    # The query returns columns "grants" and "denies", e.g. {"grants": "*", "denies": ["db1"]}
+    # We want to check that architect can access all except db1 (i.e., all except denied)
+    # For this test, since only db1 is denied, and grants is "*", the accessible dbs are all except db1.
+    # But for the test setup, only db1, db2, db3 exist, so accessible = db2, db3
+    for row in result:
+        grants = row.get("grants", [])
+        denies = row.get("denies", [])
+
+        assert grants == ["db1", default_db], f"architect should see only db1, got {grants}"
+        assert denies == ["db2"], f"architect should see only db2, got {denies}"
+
+    result = list(memgraph.execute_and_fetch("SHOW DATABASE PRIVILEGES FOR moderator;"))
+    for row in result:
+        grants = row.get("grants", [])
+        denies = row.get("denies", [])
+        assert grants == ["db2", default_db], f"moderator should see only db2, got {grants}"
+        assert denies == [], f"moderator should see no denies, got {denies}"
+
+    # As admin, check SHOW DATABASES FOR <user>
+    result = list(memgraph.execute_and_fetch("SHOW DATABASE PRIVILEGES FOR alice;"))
+    for row in result:
+        grants = row.get("grants", [])
+        denies = row.get("denies", [])
+        assert grants == "*", f"alice should see only db1, got {grants}"
+        assert denies == ["db2"], f"alice should see no denies, got {denies}"
+
+    result = list(memgraph.execute_and_fetch("SHOW DATABASE PRIVILEGES FOR bob;"))
+    for row in result:
+        grants = row.get("grants", [])
+        denies = row.get("denies", [])
+        assert grants == ["db2", "db3", default_db], f"bob should see only db2, db3, and memgraph, got {grants}"
+        assert denies == [], f"bob should see no denies, got {denies}"
+
+    # Clean up
+    memgraph.execute("DROP USER alice;")
+    memgraph.execute("DROP USER bob;")
+    memgraph.execute("DROP ROLE architect;")
+    memgraph.execute("DROP ROLE moderator;")
+    memgraph.execute("DROP ROLE admin;")
+    memgraph.execute("DROP DATABASE db1;")
+    memgraph.execute("DROP DATABASE db2;")
+    memgraph.execute("DROP DATABASE db3;")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

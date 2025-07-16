@@ -47,7 +47,8 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
   void RevokeDatabase(const std::string &db_name, const std::string &user_or_role,
                       system::Transaction *system_tx) override;
 
-  std::vector<std::vector<memgraph::query::TypedValue>> GetDatabasePrivileges(const std::string &user_or_role) override;
+  std::vector<std::vector<memgraph::query::TypedValue>> GetDatabasePrivileges(
+      const std::string &user, const std::vector<std::string> &roles) override;
 
   void SetMainDatabase(std::string_view db_name, const std::string &user_or_role,
                        system::Transaction *system_tx) override;
@@ -65,17 +66,18 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
 
   std::vector<memgraph::query::TypedValue> GetRolenames() override;
 
-  std::vector<std::string> GetRolenameForUser(const std::string &username, std::optional<std::string> db_name) override;
+  std::vector<std::string> GetRolenamesForUser(const std::string &username,
+                                               std::optional<std::string> db_name) override;
 
   std::vector<memgraph::query::TypedValue> GetUsernamesForRole(const std::string &rolename) override;
 
-  void SetRole(const std::string &username, const std::vector<std::string> &roles,
-               const std::unordered_set<std::string> &role_databases, system::Transaction *system_tx) override;
+  void SetRoles(const std::string &username, const std::vector<std::string> &roles,
+                const std::unordered_set<std::string> &role_databases, system::Transaction *system_tx) override;
 
   void RemoveRole(const std::string &username, const std::string &rolename, system::Transaction *system_tx) override;
 
-  void ClearRole(const std::string &username, const std::unordered_set<std::string> &role_databases,
-                 system::Transaction *system_tx) override;
+  void ClearRoles(const std::string &username, const std::unordered_set<std::string> &role_databases,
+                  system::Transaction *system_tx) override;
 
   std::vector<std::vector<memgraph::query::TypedValue>> GetPrivileges(const std::string &user_or_role,
                                                                       std::string_view = "") override;

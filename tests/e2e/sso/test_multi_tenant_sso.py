@@ -1143,5 +1143,113 @@ def test_database_access_per_role(multi_tenant_setup):
                     pass  # Expected to fail
 
 
+def test_show_databases_for_role_sso(multi_tenant_setup):
+    """Test SHOW DATABASE PRIVILEGES FOR <role> in SSO context with multiple roles and grants/denies."""
+
+    # Use admin user to test SHOW DATABASE PRIVILEGES FOR <role> functionality
+    response = base64.b64encode(b"multi_role_admin").decode("utf-8")
+    MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")
+
+    with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:
+        with client.session() as session:
+            # Test SHOW DATABASE PRIVILEGES FOR <role> for each role
+            # Admin role: should have access to all databases (*)
+            result = list(session.run("SHOW DATABASE PRIVILEGES FOR admin;"))
+            for row in result:
+                grants = row.get("grants", [])
+                denies = row.get("denies", [])
+                # Admin has GRANT DATABASE * TO admin, so should see all databases
+                assert grants == "*", f"admin should have access to all databases (*), got {grants}"
+                assert denies == [], f"admin should have no denied databases, got {denies}"
+
+            # Architect role: should have access to architect_db only
+            result = list(session.run("SHOW DATABASE PRIVILEGES FOR architect;"))
+            for row in result:
+                grants = row.get("grants", [])
+                denies = row.get("denies", [])
+                assert set(grants) == {
+                    "architect_db",
+                    "memgraph",
+                }, f"architect should see architect_db and memgraph, got {grants}"
+                assert denies == [], f"architect should have no denied databases, got {denies}"
+
+            # User role: should have access to user_db only
+            result = list(session.run("SHOW DATABASE PRIVILEGES FOR user;"))
+            for row in result:
+                grants = row.get("grants", [])
+                denies = row.get("denies", [])
+                assert set(grants) == {"user_db", "memgraph"}, f"user should see user_db and memgraph, got {grants}"
+                assert denies == [], f"user should have no denied databases, got {denies}"
+
+            # Readonly role: should have access to readonly_db only
+            result = list(session.run("SHOW DATABASE PRIVILEGES FOR readonly;"))
+            for row in result:
+                grants = row.get("grants", [])
+                denies = row.get("denies", [])
+                assert set(grants) == {
+                    "readonly_db",
+                    "memgraph",
+                }, f"readonly should see readonly_db and memgraph, got {grants}"
+                assert denies == [], f"readonly should have no denied databases, got {denies}"
+
+            # Limited role: should have access to limited_db only
+            result = list(session.run("SHOW DATABASE PRIVILEGES FOR limited;"))
+            for row in result:
+                grants = row.get("grants", [])
+                denies = row.get("denies", [])
+                assert set(grants) == {
+                    "limited_db",
+                    "memgraph",
+                }, f"limited should see limited_db and memgraph, got {grants}"
+                assert denies == [], f"limited should have no denied databases, got {denies}"
+
+            # Test with non-existent role - should return empty or throw error
+            try:
+                result = list(session.run("SHOW DATABASE PRIVILEGES FOR nonexistent_role;"))
+                # If it doesn't throw, it should return empty
+                assert len(result) == 0, f"non-existent role should return empty, got {result}"
+            except Exception:
+                pass  # Expected to fail for non-existent role
+
+            # Test that the results match what each role can actually access
+            # Verify architect can only access architect_db
+            response = base64.b64encode(b"multi_role_architect").decode("utf-8")
+            MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")
+
+        with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:
+            with client.session() as session:
+                # Should be able to access architect_db
+                session.run("USE DATABASE architect_db;").consume()
+                session.run("CREATE ({name: 'architect_test'})").consume()
+
+                # Should NOT be able to access other databases
+                for db_name in ["admin_db", "user_db", "readonly_db", "limited_db"]:
+                    try:
+                        session.run(f"USE DATABASE {db_name};").consume()
+                        session.run("CREATE ({name: 'test'})").consume()
+                        assert False, f"architect should not have access to {db_name}"
+                    except Exception:
+                        pass  # Expected to fail
+
+            # Verify user can only access user_db
+            response = base64.b64encode(b"multi_role_user").decode("utf-8")
+            MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")
+
+        with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:
+            with client.session() as session:
+                # Should be able to access user_db
+                session.run("USE DATABASE user_db;").consume()
+                session.run("CREATE ({name: 'user_test'})").consume()
+
+                # Should NOT be able to access other databases
+                for db_name in ["admin_db", "architect_db", "readonly_db", "limited_db"]:
+                    try:
+                        session.run(f"USE DATABASE {db_name};").consume()
+                        session.run("CREATE ({name: 'test'})").consume()
+                        assert False, f"user should not have access to {db_name}"
+                    except Exception:
+                        pass  # Expected to fail
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

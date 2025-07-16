@@ -85,6 +85,10 @@ const std::vector<Permission> kPermissionsAll = {
     Permission::IMPERSONATE_USER,
 };
 
+#ifdef MG_ENTERPRISE
+const FineGrainedAccessPermissions empty_permissions{};
+#endif
+
 }  // namespace
 
 #ifdef MG_ENTERPRISE
@@ -497,13 +501,11 @@ FineGrainedAccessHandler &Role::fine_grained_access_handler() { return fine_grai
 const FineGrainedAccessPermissions &Role::GetFineGrainedAccessLabelPermissions(
     std::optional<std::string_view> db_name) const {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    static FineGrainedAccessPermissions empty_permissions;
     return empty_permissions;
   }
 
   // If db_name is provided, check if the role has access to that database
   if (db_name && !HasAccess(*db_name)) {
-    static FineGrainedAccessPermissions empty_permissions;
     return empty_permissions;
   }
 
@@ -513,13 +515,11 @@ const FineGrainedAccessPermissions &Role::GetFineGrainedAccessLabelPermissions(
 const FineGrainedAccessPermissions &Role::GetFineGrainedAccessEdgeTypePermissions(
     std::optional<std::string_view> db_name) const {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    static FineGrainedAccessPermissions empty_permissions;
     return empty_permissions;
   }
 
   // If db_name is provided, check if the role has access to that database
   if (db_name && !HasAccess(*db_name)) {
-    static FineGrainedAccessPermissions empty_permissions;
     return empty_permissions;
   }
 
@@ -735,11 +735,11 @@ void User::UpdateHash(HashedPassword hashed_password) { password_hash_ = std::mo
 
 void User::SetRole(const Role &role) {
   // Clear all roles and add the new one
-  ClearRole();
+  ClearAllRoles();
   roles_.AddRole(role);
 }
 
-void User::ClearRole() {
+void User::ClearAllRoles() {
   // Clear all roles by creating a new empty Roles object
   roles_ = Roles{};
 #ifdef MG_ENTERPRISE
@@ -1190,6 +1190,35 @@ void from_json(const nlohmann::json &data, UserImpersonation &usr_imp) {
   }
 
   usr_imp = {std::move(granted), std::move(denied)};
+}
+
+const FineGrainedAccessPermissions &Roles::GetFineGrainedAccessLabelPermissions(
+    std::optional<std::string_view> db_name) const {
+  if (roles_.empty()) return empty_permissions;
+
+  FineGrainedAccessPermissions combined_permissions;
+  for (const auto &role : roles_) {
+    if (!db_name || role.HasAccess(*db_name)) {
+      combined_permissions = Merge(combined_permissions, role.fine_grained_access_handler().label_permissions());
+    }
+  }
+  static FineGrainedAccessPermissions result;
+  result = combined_permissions;
+  return result;
+}
+const FineGrainedAccessPermissions &Roles::GetFineGrainedAccessEdgeTypePermissions(
+    std::optional<std::string_view> db_name) const {
+  if (roles_.empty()) return empty_permissions;
+
+  FineGrainedAccessPermissions combined_permissions;
+  for (const auto &role : roles_) {
+    if (!db_name || role.HasAccess(*db_name)) {
+      combined_permissions = Merge(combined_permissions, role.fine_grained_access_handler().edge_type_permissions());
+    }
+  }
+  static FineGrainedAccessPermissions result;
+  result = combined_permissions;
+  return result;
 }
 #endif
 

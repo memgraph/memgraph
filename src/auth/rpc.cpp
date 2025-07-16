@@ -46,10 +46,7 @@ inline void Load<auth::Role>(std::optional<auth::Role> *obj, Reader *reader) {
 // Serialize code for auth::User
 void Save(const auth::User &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.Serialize().dump(), builder);
-  std::vector<auth::Role> roles;
-  for (const auto &role : self.roles()) {
-    roles.emplace_back(role);
-  }
+  std::vector<auth::Role> roles{self.roles().cbegin(), self.roles().cend()};
   memgraph::slk::Save(roles, builder);
 #ifdef MG_ENTERPRISE
   memgraph::slk::Save(self.GetMultiTenantRoleMappings(), builder);
@@ -63,7 +60,7 @@ void Load(auth::User *self, memgraph::slk::Reader *reader) {
   *self = memgraph::auth::User::Deserialize(json);
   std::vector<auth::Role> roles;
   memgraph::slk::Load(&roles, reader);
-  self->ClearRole();
+  self->ClearAllRoles();
 
 #ifdef MG_ENTERPRISE
   // Handle multi-tenant roles (has to be done before adding all roles)

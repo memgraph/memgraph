@@ -66,7 +66,10 @@ class AuthQueryHandler {
 
   /// Returns database access rights for the user
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual DatabasePrivileges GetDatabasePrivileges(const std::string &username) = 0;
+  virtual DatabasePrivileges GetDatabasePrivileges(const std::string &user, const std::vector<std::string> &roles) = 0;
+  DatabasePrivileges GetDatabasePrivileges(const std::string &user_or_role) {
+    return GetDatabasePrivileges(user_or_role, {user_or_role});
+  }
 
   /// Return true if main database set successfully
   /// @throw QueryRuntimeException if an error ocurred.
@@ -97,22 +100,22 @@ class AuthQueryHandler {
   virtual std::vector<memgraph::query::TypedValue> GetRolenames() = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::vector<std::string> GetRolenameForUser(const std::string &username,
-                                                      std::optional<std::string> db_name) = 0;
+  virtual std::vector<std::string> GetRolenamesForUser(const std::string &username,
+                                                       std::optional<std::string> db_name) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual std::vector<memgraph::query::TypedValue> GetUsernamesForRole(const std::string &rolename) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void SetRole(const std::string &username, const std::vector<std::string> &roles,
-                       const std::unordered_set<std::string> &role_databases, system::Transaction *system_tx) = 0;
+  virtual void SetRoles(const std::string &username, const std::vector<std::string> &roles,
+                        const std::unordered_set<std::string> &role_databases, system::Transaction *system_tx) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void RemoveRole(const std::string &username, const std::string &rolename, system::Transaction *system_tx) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void ClearRole(const std::string &username, const std::unordered_set<std::string> &role_databases,
-                         system::Transaction *system_tx) = 0;
+  virtual void ClearRoles(const std::string &username, const std::unordered_set<std::string> &role_databases,
+                          system::Transaction *system_tx) = 0;
 
   virtual std::vector<std::vector<memgraph::query::TypedValue>> GetPrivileges(const std::string &user_or_role,
                                                                               std::string_view = "") = 0;

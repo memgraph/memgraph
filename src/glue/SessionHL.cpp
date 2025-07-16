@@ -562,8 +562,6 @@ void RuntimeConfig::Configure(const bolt_map_t &run_time_info, bool in_explicit_
       throw memgraph::communication::bolt::ClientError("Malformed config input.");
     }
     defined_db = info.ValueString();
-    // TODO ?
-    // session_->interpreter_context_->dbms_handler->Get(defined_db.value());
   }
 
   // Step 3: Determine final target database
