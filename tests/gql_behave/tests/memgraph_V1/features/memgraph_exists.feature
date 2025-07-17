@@ -637,6 +637,25 @@ Feature: WHERE exists
           | name   |
           | 'John' |
 
+  Scenario: Test not EXISTS subquery with multiple patterns
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'John'})-[:HAS_DOG]->(:Dog {name: 'Rex'})-[:HAS_TOY]->(:Toy {name: 'Ball'})
+          CREATE (:Person {name: 'Alice'})-[:HAS_DOG]->(:Dog {name: 'Max'})
+          """
+      When executing query:
+          """
+          MATCH (person:Person)
+          WHERE NOT EXISTS {
+            MATCH (person)-[:HAS_DOG]->(dog:Dog)-[:HAS_TOY]->(:Toy)
+          }
+          RETURN person.name AS name;
+          """
+      Then the result should be:
+          | name    |
+          | 'Alice' |
+
   Scenario: Test EXISTS subquery with variable from outer scope
       Given an empty graph
       And having executed:

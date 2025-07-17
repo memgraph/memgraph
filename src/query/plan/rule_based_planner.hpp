@@ -549,7 +549,9 @@ class RuleBasedPlanner {
       match_context.new_symbols.emplace_back(named_path.first);
     }
     if (!filters.empty()) {
-      throw QueryException("Expected to generate all filters");
+      throw QueryException(
+          "Expected to generate all filters! Please contact Memgraph support as this scenario should not happen and is "
+          "very likely a bug in the query engine!");
     }
     return last_op;
   }
