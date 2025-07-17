@@ -1791,7 +1791,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateRole(MemgraphCypher::CreateRoleConte
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::CREATE_ROLE;
   auth->if_not_exists_ = !!ctx->ifNotExists();
-  auth->role_ = std::any_cast<std::string>(ctx->role->accept(this));
+  auth->roles_ = {std::any_cast<std::string>(ctx->role->accept(this))};
   return auth;
 }
 
@@ -1801,7 +1801,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateRole(MemgraphCypher::CreateRoleConte
 antlrcpp::Any CypherMainVisitor::visitDropRole(MemgraphCypher::DropRoleContext *ctx) {
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::DROP_ROLE;
-  auth->role_ = std::any_cast<std::string>(ctx->role->accept(this));
+  auth->roles_ = {std::any_cast<std::string>(ctx->role->accept(this))};
   return auth;
 }
 
@@ -1884,6 +1884,15 @@ antlrcpp::Any CypherMainVisitor::visitShowCurrentUser(MemgraphCypher::ShowCurren
 /**
  * @return AuthQuery*
  */
+antlrcpp::Any CypherMainVisitor::visitShowCurrentRole(MemgraphCypher::ShowCurrentRoleContext * /*ctx*/) {
+  auto *auth = storage_->Create<AuthQuery>();
+  auth->action_ = AuthQuery::Action::SHOW_CURRENT_ROLE;
+  return auth;
+}
+
+/**
+ * @return AuthQuery*
+ */
 antlrcpp::Any CypherMainVisitor::visitShowUsers(MemgraphCypher::ShowUsersContext *ctx) {
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::SHOW_USERS;
@@ -1897,7 +1906,13 @@ antlrcpp::Any CypherMainVisitor::visitSetRole(MemgraphCypher::SetRoleContext *ct
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::SET_ROLE;
   auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
-  auth->role_ = std::any_cast<std::string>(ctx->role->accept(this));
+  auth->roles_ = std::any_cast<std::vector<std::string>>(ctx->roles->accept(this));
+  // Optionally limit the role to specific databases
+  if (ctx->db) {
+    auto db_names = std::any_cast<std::vector<std::string>>(ctx->db->accept(this));
+    auth->role_databases_ = std::unordered_set<std::string>(std::make_move_iterator(db_names.begin()),
+                                                            std::make_move_iterator(db_names.end()));
+  }
   return auth;
 }
 
@@ -1908,6 +1923,12 @@ antlrcpp::Any CypherMainVisitor::visitClearRole(MemgraphCypher::ClearRoleContext
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::CLEAR_ROLE;
   auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
+  // Optionally limit the role to specific databases
+  if (ctx->db) {
+    auto db_names = std::any_cast<std::vector<std::string>>(ctx->db->accept(this));
+    auth->role_databases_ = std::unordered_set<std::string>(std::make_move_iterator(db_names.begin()),
+                                                            std::make_move_iterator(db_names.end()));
+  }
   return auth;
 }
 
@@ -2179,6 +2200,21 @@ antlrcpp::Any CypherMainVisitor::visitShowPrivileges(MemgraphCypher::ShowPrivile
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::SHOW_PRIVILEGES;
   auth->user_or_role_ = std::any_cast<std::string>(ctx->userOrRole->accept(this));
+
+  // Handle optional ON clause
+  if (ctx->ON()) {
+    if (ctx->DATABASE()) {
+      auth->database_specification_ = AuthQuery::DatabaseSpecification::DATABASE;
+      auth->database_ = std::any_cast<std::string>(ctx->db->accept(this));
+    } else if (ctx->MAIN()) {
+      auth->database_specification_ = AuthQuery::DatabaseSpecification::MAIN;
+    } else if (ctx->CURRENT()) {
+      auth->database_specification_ = AuthQuery::DatabaseSpecification::CURRENT;
+    }
+  } else {
+    auth->database_specification_ = AuthQuery::DatabaseSpecification::NONE;
+  }
+
   return auth;
 }
 
@@ -2189,6 +2225,19 @@ antlrcpp::Any CypherMainVisitor::visitShowRoleForUser(MemgraphCypher::ShowRoleFo
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::SHOW_ROLE_FOR_USER;
   auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
+
+  // Handle optional ON clause
+  if (ctx->ON()) {
+    if (ctx->DATABASE()) {
+      auth->database_specification_ = AuthQuery::DatabaseSpecification::DATABASE;
+      auth->database_ = std::any_cast<std::string>(ctx->db->accept(this));
+    } else if (ctx->MAIN()) {
+      auth->database_specification_ = AuthQuery::DatabaseSpecification::MAIN;
+    } else if (ctx->CURRENT()) {
+      auth->database_specification_ = AuthQuery::DatabaseSpecification::CURRENT;
+    }
+  }
+
   return auth;
 }
 
@@ -2198,7 +2247,7 @@ antlrcpp::Any CypherMainVisitor::visitShowRoleForUser(MemgraphCypher::ShowRoleFo
 antlrcpp::Any CypherMainVisitor::visitShowUsersForRole(MemgraphCypher::ShowUsersForRoleContext *ctx) {
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::SHOW_USERS_FOR_ROLE;
-  auth->role_ = std::any_cast<std::string>(ctx->role->accept(this));
+  auth->roles_ = {std::any_cast<std::string>(ctx->role->accept(this))};
   return auth;
 }
 

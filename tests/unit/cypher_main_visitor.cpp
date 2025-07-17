@@ -2436,7 +2436,7 @@ TEST_P(CypherMainVisitorTest, UnionAll) {
 }
 
 void check_auth_query(
-    Base *ast_generator, std::string input, AuthQuery::Action action, std::string user, std::string role,
+    Base *ast_generator, std::string input, AuthQuery::Action action, std::string user, std::vector<std::string> roles,
     std::string user_or_role, std::optional<TypedValue> password, std::vector<AuthQuery::Privilege> privileges,
     std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> label_privileges,
     std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges) {
@@ -2444,7 +2444,7 @@ void check_auth_query(
   ASSERT_TRUE(auth_query);
   EXPECT_EQ(auth_query->action_, action);
   EXPECT_EQ(auth_query->user_, user);
-  EXPECT_EQ(auth_query->role_, role);
+  EXPECT_EQ(auth_query->roles_, roles);
   EXPECT_EQ(auth_query->user_or_role_, user_or_role);
   ASSERT_EQ(static_cast<bool>(auth_query->password_), static_cast<bool>(password));
   if (password) {
@@ -2457,48 +2457,49 @@ void check_auth_query(
 
 TEST_P(CypherMainVisitorTest, UserOrRoleName) {
   auto &ast_generator = *GetParam();
-  check_auth_query(&ast_generator, "CREATE ROLE `user`", AuthQuery::Action::CREATE_ROLE, "", "user", "", {}, {}, {},
+  check_auth_query(&ast_generator, "CREATE ROLE `user`", AuthQuery::Action::CREATE_ROLE, "", {"user"}, "", {}, {}, {},
                    {});
-  check_auth_query(&ast_generator, "CREATE ROLE us___er", AuthQuery::Action::CREATE_ROLE, "", "us___er", "", {}, {}, {},
+  check_auth_query(&ast_generator, "CREATE ROLE us___er", AuthQuery::Action::CREATE_ROLE, "", {"us___er"}, "", {}, {},
+                   {}, {});
+  check_auth_query(&ast_generator, "CREATE ROLE `us+er`", AuthQuery::Action::CREATE_ROLE, "", {"us+er"}, "", {}, {}, {},
                    {});
-  check_auth_query(&ast_generator, "CREATE ROLE `us+er`", AuthQuery::Action::CREATE_ROLE, "", "us+er", "", {}, {}, {},
+  check_auth_query(&ast_generator, "CREATE ROLE `us|er`", AuthQuery::Action::CREATE_ROLE, "", {"us|er"}, "", {}, {}, {},
                    {});
-  check_auth_query(&ast_generator, "CREATE ROLE `us|er`", AuthQuery::Action::CREATE_ROLE, "", "us|er", "", {}, {}, {},
-                   {});
-  check_auth_query(&ast_generator, "CREATE ROLE `us er`", AuthQuery::Action::CREATE_ROLE, "", "us er", "", {}, {}, {},
+  check_auth_query(&ast_generator, "CREATE ROLE `us er`", AuthQuery::Action::CREATE_ROLE, "", {"us er"}, "", {}, {}, {},
                    {});
 }
 
 TEST_P(CypherMainVisitorTest, CreateRole) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("CREATE ROLE"), SyntaxException);
-  check_auth_query(&ast_generator, "CREATE ROLE rola", AuthQuery::Action::CREATE_ROLE, "", "rola", "", {}, {}, {}, {});
+  check_auth_query(&ast_generator, "CREATE ROLE rola", AuthQuery::Action::CREATE_ROLE, "", {"rola"}, "", {}, {}, {},
+                   {});
   ASSERT_THROW(ast_generator.ParseQuery("CREATE ROLE lagano rolamo"), SyntaxException);
 }
 
 TEST_P(CypherMainVisitorTest, DropRole) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("DROP ROLE"), SyntaxException);
-  check_auth_query(&ast_generator, "DROP ROLE rola", AuthQuery::Action::DROP_ROLE, "", "rola", "", {}, {}, {}, {});
+  check_auth_query(&ast_generator, "DROP ROLE rola", AuthQuery::Action::DROP_ROLE, "", {"rola"}, "", {}, {}, {}, {});
   ASSERT_THROW(ast_generator.ParseQuery("DROP ROLE lagano rolamo"), SyntaxException);
 }
 
 TEST_P(CypherMainVisitorTest, ShowRoles) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("SHOW ROLES ROLES"), SyntaxException);
-  check_auth_query(&ast_generator, "SHOW ROLES", AuthQuery::Action::SHOW_ROLES, "", "", "", {}, {}, {}, {});
+  check_auth_query(&ast_generator, "SHOW ROLES", AuthQuery::Action::SHOW_ROLES, "", {}, "", {}, {}, {}, {});
 }
 
 TEST_P(CypherMainVisitorTest, CreateUser) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("CREATE USER"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("CREATE USER 123"), SyntaxException);
-  check_auth_query(&ast_generator, "CREATE USER user", AuthQuery::Action::CREATE_USER, "user", "", "", {}, {}, {}, {});
+  check_auth_query(&ast_generator, "CREATE USER user", AuthQuery::Action::CREATE_USER, "user", {}, "", {}, {}, {}, {});
   check_auth_query(&ast_generator, "CREATE USER user IDENTIFIED BY 'password'", AuthQuery::Action::CREATE_USER, "user",
-                   "", "", TypedValue("password"), {}, {}, {});
-  check_auth_query(&ast_generator, "CREATE USER user IDENTIFIED BY ''", AuthQuery::Action::CREATE_USER, "user", "", "",
+                   {}, "", TypedValue("password"), {}, {}, {});
+  check_auth_query(&ast_generator, "CREATE USER user IDENTIFIED BY ''", AuthQuery::Action::CREATE_USER, "user", {}, "",
                    TypedValue(""), {}, {}, {});
-  check_auth_query(&ast_generator, "CREATE USER user IDENTIFIED BY null", AuthQuery::Action::CREATE_USER, "user", "",
+  check_auth_query(&ast_generator, "CREATE USER user IDENTIFIED BY null", AuthQuery::Action::CREATE_USER, "user", {},
                    "", TypedValue(), {}, {}, {});
   ASSERT_THROW(ast_generator.ParseQuery("CRATE USER user IDENTIFIED BY password"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("CREATE USER user IDENTIFIED BY 5"), SyntaxException);
@@ -2509,9 +2510,9 @@ TEST_P(CypherMainVisitorTest, SetPassword) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("SET PASSWORD FOR"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("SET PASSWORD FOR user "), SyntaxException);
-  check_auth_query(&ast_generator, "SET PASSWORD FOR user TO null", AuthQuery::Action::SET_PASSWORD, "user", "", "",
+  check_auth_query(&ast_generator, "SET PASSWORD FOR user TO null", AuthQuery::Action::SET_PASSWORD, "user", {}, "",
                    TypedValue(), {}, {}, {});
-  check_auth_query(&ast_generator, "SET PASSWORD FOR user TO 'password'", AuthQuery::Action::SET_PASSWORD, "user", "",
+  check_auth_query(&ast_generator, "SET PASSWORD FOR user TO 'password'", AuthQuery::Action::SET_PASSWORD, "user", {},
                    "", TypedValue("password"), {}, {}, {});
   ASSERT_THROW(ast_generator.ParseQuery("SET PASSWORD FOR user To 5"), SyntaxException);
 }
@@ -2519,21 +2520,30 @@ TEST_P(CypherMainVisitorTest, SetPassword) {
 TEST_P(CypherMainVisitorTest, DropUser) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("DROP USER"), SyntaxException);
-  check_auth_query(&ast_generator, "DROP USER user", AuthQuery::Action::DROP_USER, "user", "", "", {}, {}, {}, {});
+  check_auth_query(&ast_generator, "DROP USER user", AuthQuery::Action::DROP_USER, "user", {}, "", {}, {}, {}, {});
   ASSERT_THROW(ast_generator.ParseQuery("DROP USER lagano rolamo"), SyntaxException);
 }
 
 TEST_P(CypherMainVisitorTest, ShowCurrentUser) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("SHOW CURRENT USERNAME"), SyntaxException);
-  check_auth_query(&ast_generator, "SHOW CURRENT USER", AuthQuery::Action::SHOW_CURRENT_USER, "", "", "", {}, {}, {},
+  check_auth_query(&ast_generator, "SHOW CURRENT USER", AuthQuery::Action::SHOW_CURRENT_USER, "", {}, "", {}, {}, {},
+                   {});
+}
+
+TEST_P(CypherMainVisitorTest, ShowCurrentRole) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("SHOW CURRENT ROLENAME"), SyntaxException);
+  check_auth_query(&ast_generator, "SHOW CURRENT ROLE", AuthQuery::Action::SHOW_CURRENT_ROLE, "", {}, "", {}, {}, {},
+                   {});
+  check_auth_query(&ast_generator, "SHOW CURRENT ROLES", AuthQuery::Action::SHOW_CURRENT_ROLE, "", {}, "", {}, {}, {},
                    {});
 }
 
 TEST_P(CypherMainVisitorTest, ShowUsers) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("SHOW USERS ROLES"), SyntaxException);
-  check_auth_query(&ast_generator, "SHOW USERS", AuthQuery::Action::SHOW_USERS, "", "", "", {}, {}, {}, {});
+  check_auth_query(&ast_generator, "SHOW USERS", AuthQuery::Action::SHOW_USERS, "", {}, "", {}, {}, {}, {});
 }
 
 TEST_P(CypherMainVisitorTest, SetRole) {
@@ -2542,10 +2552,28 @@ TEST_P(CypherMainVisitorTest, SetRole) {
   ASSERT_THROW(ast_generator.ParseQuery("SET ROLE user"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("SET ROLE FOR user"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("SET ROLE FOR user TO"), SyntaxException);
-  check_auth_query(&ast_generator, "SET ROLE FOR user TO role", AuthQuery::Action::SET_ROLE, "user", "role", "", {}, {},
-                   {}, {});
-  check_auth_query(&ast_generator, "SET ROLE FOR user TO null", AuthQuery::Action::SET_ROLE, "user", "null", "", {}, {},
-                   {}, {});
+
+  // Single role tests (backward compatibility)
+  check_auth_query(&ast_generator, "SET ROLE FOR user TO role", AuthQuery::Action::SET_ROLE, "user", {"role"}, "", {},
+                   {}, {}, {});
+  check_auth_query(&ast_generator, "SET ROLE FOR user TO null", AuthQuery::Action::SET_ROLE, "user", {"null"}, "", {},
+                   {}, {}, {});
+
+  // Multiple roles tests
+  check_auth_query(&ast_generator, "SET ROLE FOR user TO role1, role2", AuthQuery::Action::SET_ROLE, "user",
+                   {"role1", "role2"}, "", {}, {}, {}, {});
+  check_auth_query(&ast_generator, "SET ROLE FOR user TO admin, moderator, reader", AuthQuery::Action::SET_ROLE, "user",
+                   {"admin", "moderator", "reader"}, "", {}, {}, {}, {});
+  check_auth_query(&ast_generator, "SET ROLE FOR user TO role1, role2, role3, role4", AuthQuery::Action::SET_ROLE,
+                   "user", {"role1", "role2", "role3", "role4"}, "", {}, {}, {}, {});
+
+  // Edge cases with special characters in role names
+  check_auth_query(&ast_generator, "SET ROLE FOR user TO `role-with-dash`, `role_with_underscore`",
+                   AuthQuery::Action::SET_ROLE, "user", {"role-with-dash", "role_with_underscore"}, "", {}, {}, {}, {});
+
+  // Test with quoted role names
+  check_auth_query(&ast_generator, "SET ROLE FOR user TO `admin role`, `moderator role`", AuthQuery::Action::SET_ROLE,
+                   "user", {"admin role", "moderator role"}, "", {}, {}, {}, {});
 }
 
 TEST_P(CypherMainVisitorTest, ClearRole) {
@@ -2553,7 +2581,7 @@ TEST_P(CypherMainVisitorTest, ClearRole) {
   ASSERT_THROW(ast_generator.ParseQuery("CLEAR ROLE"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("CLEAR ROLE user"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("CLEAR ROLE FOR user TO"), SyntaxException);
-  check_auth_query(&ast_generator, "CLEAR ROLE FOR user", AuthQuery::Action::CLEAR_ROLE, "user", "", "", {}, {}, {},
+  check_auth_query(&ast_generator, "CLEAR ROLE FOR user", AuthQuery::Action::CLEAR_ROLE, "user", {}, "", {}, {}, {},
                    {});
 }
 
@@ -2564,96 +2592,96 @@ TEST_P(CypherMainVisitorTest, GrantPrivilege) {
   ASSERT_THROW(ast_generator.ParseQuery("GRANT BLABLA TO user"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("GRANT MATCH, TO user"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("GRANT MATCH, BLABLA TO user"), SyntaxException);
-  check_auth_query(&ast_generator, "GRANT MATCH TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT MATCH TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::MATCH}, {}, {});
-  check_auth_query(&ast_generator, "GRANT MATCH, AUTH TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT MATCH, AUTH TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::MATCH, AuthQuery::Privilege::AUTH}, {}, {});
   // Verify that all privileges are correctly visited.
-  check_auth_query(&ast_generator, "GRANT CREATE TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT CREATE TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::CREATE}, {}, {});
-  check_auth_query(&ast_generator, "GRANT DELETE TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT DELETE TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::DELETE}, {}, {});
-  check_auth_query(&ast_generator, "GRANT MERGE TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT MERGE TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::MERGE}, {}, {});
-  check_auth_query(&ast_generator, "GRANT SET TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT SET TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::SET}, {}, {});
-  check_auth_query(&ast_generator, "GRANT REMOVE TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT REMOVE TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::REMOVE}, {}, {});
-  check_auth_query(&ast_generator, "GRANT INDEX TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT INDEX TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::INDEX}, {}, {});
-  check_auth_query(&ast_generator, "GRANT STATS TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT STATS TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::STATS}, {}, {});
-  check_auth_query(&ast_generator, "GRANT AUTH TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT AUTH TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::AUTH}, {}, {});
-  check_auth_query(&ast_generator, "GRANT CONSTRAINT TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT CONSTRAINT TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::CONSTRAINT}, {}, {});
-  check_auth_query(&ast_generator, "GRANT DUMP TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT DUMP TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::DUMP}, {}, {});
-  check_auth_query(&ast_generator, "GRANT REPLICATION TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT REPLICATION TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::REPLICATION}, {}, {});
-  check_auth_query(&ast_generator, "GRANT DURABILITY TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT DURABILITY TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::DURABILITY}, {}, {});
-  check_auth_query(&ast_generator, "GRANT READ_FILE TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT READ_FILE TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::READ_FILE}, {}, {});
-  check_auth_query(&ast_generator, "GRANT FREE_MEMORY TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT FREE_MEMORY TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::FREE_MEMORY}, {}, {});
-  check_auth_query(&ast_generator, "GRANT TRIGGER TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT TRIGGER TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::TRIGGER}, {}, {});
-  check_auth_query(&ast_generator, "GRANT CONFIG TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT CONFIG TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::CONFIG}, {}, {});
-  check_auth_query(&ast_generator, "GRANT STREAM TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT STREAM TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::STREAM}, {}, {});
-  check_auth_query(&ast_generator, "GRANT WEBSOCKET TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT WEBSOCKET TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::WEBSOCKET}, {}, {});
-  check_auth_query(&ast_generator, "GRANT MODULE_READ TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT MODULE_READ TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::MODULE_READ}, {}, {});
-  check_auth_query(&ast_generator, "GRANT MODULE_WRITE TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT MODULE_WRITE TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::MODULE_WRITE}, {}, {});
 
   std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> label_privileges{};
   std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges{};
 
   label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"*"}}}});
-  check_auth_query(&ast_generator, "GRANT READ ON LABELS * TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user",
+  check_auth_query(&ast_generator, "GRANT READ ON LABELS * TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user",
                    {}, {}, label_privileges, {});
   label_privileges.clear();
 
   label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::UPDATE}, {{"*"}}}});
-  check_auth_query(&ast_generator, "GRANT UPDATE ON LABELS * TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "",
+  check_auth_query(&ast_generator, "GRANT UPDATE ON LABELS * TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {},
                    "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
   label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE}, {{"*"}}}});
   check_auth_query(&ast_generator, "GRANT CREATE_DELETE ON LABELS * TO user", AuthQuery::Action::GRANT_PRIVILEGE, "",
-                   "", "user", {}, {}, label_privileges, {});
+                   {}, "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
   label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"Label1"}, {"Label2"}}}});
   check_auth_query(&ast_generator, "GRANT READ ON LABELS :Label1, :Label2 TO user", AuthQuery::Action::GRANT_PRIVILEGE,
-                   "", "", "user", {}, {}, label_privileges, {});
+                   "", {}, "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
   label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::UPDATE}, {{"Label1"}, {"Label2"}}}});
   check_auth_query(&ast_generator, "GRANT UPDATE ON LABELS :Label1, :Label2 TO user",
-                   AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {}, {}, label_privileges, {});
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
   label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE}, {{"Label1"}, {"Label2"}}}});
   check_auth_query(&ast_generator, "GRANT CREATE_DELETE ON LABELS :Label1, :Label2 TO user",
-                   AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {}, {}, label_privileges, {});
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
   label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"Label1"}, {"Label2"}}},
                               {{AuthQuery::FineGrainedPrivilege::UPDATE}, {{"Label3"}}}});
   check_auth_query(&ast_generator, "GRANT READ ON LABELS :Label1, :Label2, UPDATE ON LABELS :Label3 TO user",
-                   AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {}, {}, label_privileges, {});
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
   label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"Label1"}, {"Label2"}}}});
   edge_type_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"Edge1"}, {"Edge2"}, {"Edge3"}}}});
   check_auth_query(&ast_generator,
                    "GRANT READ ON LABELS :Label1, :Label2, READ ON EDGE_TYPES :Edge1, :Edge2, :Edge3 TO user",
-                   AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {}, {}, label_privileges, edge_type_privileges);
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, edge_type_privileges);
   label_privileges.clear();
   edge_type_privileges.clear();
 }
@@ -2665,36 +2693,36 @@ TEST_P(CypherMainVisitorTest, DenyPrivilege) {
   ASSERT_THROW(ast_generator.ParseQuery("DENY BLABLA TO user"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("DENY MATCH, TO user"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("DENY MATCH, BLABLA TO user"), SyntaxException);
-  check_auth_query(&ast_generator, "DENY MATCH TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "DENY MATCH TO user", AuthQuery::Action::DENY_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::MATCH}, {}, {});
-  check_auth_query(&ast_generator, "DENY MATCH, AUTH TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "DENY MATCH, AUTH TO user", AuthQuery::Action::DENY_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::MATCH, AuthQuery::Privilege::AUTH}, {}, {});
   // Verify that all privileges are correctly visited.
-  check_auth_query(&ast_generator, "DENY CREATE TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "DENY CREATE TO user", AuthQuery::Action::DENY_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::CREATE}, {}, {});
-  check_auth_query(&ast_generator, "DENY DELETE TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "DENY DELETE TO user", AuthQuery::Action::DENY_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::DELETE}, {}, {});
-  check_auth_query(&ast_generator, "DENY MERGE TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "DENY MERGE TO user", AuthQuery::Action::DENY_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::MERGE}, {}, {});
-  check_auth_query(&ast_generator, "DENY SET TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "DENY SET TO user", AuthQuery::Action::DENY_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::SET}, {}, {});
-  check_auth_query(&ast_generator, "DENY REMOVE TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "DENY REMOVE TO user", AuthQuery::Action::DENY_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::REMOVE}, {}, {});
-  check_auth_query(&ast_generator, "DENY INDEX TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "DENY INDEX TO user", AuthQuery::Action::DENY_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::INDEX}, {}, {});
-  check_auth_query(&ast_generator, "DENY STATS TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "DENY STATS TO user", AuthQuery::Action::DENY_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::STATS}, {}, {});
-  check_auth_query(&ast_generator, "DENY AUTH TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "DENY AUTH TO user", AuthQuery::Action::DENY_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::AUTH}, {}, {});
-  check_auth_query(&ast_generator, "DENY CONSTRAINT TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "DENY CONSTRAINT TO user", AuthQuery::Action::DENY_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::CONSTRAINT}, {}, {});
-  check_auth_query(&ast_generator, "DENY DUMP TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "DENY DUMP TO user", AuthQuery::Action::DENY_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::DUMP}, {}, {});
-  check_auth_query(&ast_generator, "DENY WEBSOCKET TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "DENY WEBSOCKET TO user", AuthQuery::Action::DENY_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::WEBSOCKET}, {}, {});
-  check_auth_query(&ast_generator, "DENY MODULE_READ TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "DENY MODULE_READ TO user", AuthQuery::Action::DENY_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::MODULE_READ}, {}, {});
-  check_auth_query(&ast_generator, "DENY MODULE_WRITE TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "DENY MODULE_WRITE TO user", AuthQuery::Action::DENY_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::MODULE_WRITE}, {}, {});
 }
 
@@ -2705,58 +2733,58 @@ TEST_P(CypherMainVisitorTest, RevokePrivilege) {
   ASSERT_THROW(ast_generator.ParseQuery("REVOKE BLABLA FROM user"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("REVOKE MATCH, FROM user"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("REVOKE MATCH, BLABLA FROM user"), SyntaxException);
-  check_auth_query(&ast_generator, "REVOKE MATCH FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "REVOKE MATCH FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::MATCH}, {}, {});
-  check_auth_query(&ast_generator, "REVOKE MATCH, AUTH FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user",
+  check_auth_query(&ast_generator, "REVOKE MATCH, AUTH FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user",
                    {}, {AuthQuery::Privilege::MATCH, AuthQuery::Privilege::AUTH}, {}, {});
-  check_auth_query(&ast_generator, "REVOKE ALL PRIVILEGES FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "",
+  check_auth_query(&ast_generator, "REVOKE ALL PRIVILEGES FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", {},
                    "user", {}, kPrivilegesAll, {}, {});
   // Verify that all privileges are correctly visited.
-  check_auth_query(&ast_generator, "REVOKE CREATE FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "REVOKE CREATE FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::CREATE}, {}, {});
-  check_auth_query(&ast_generator, "REVOKE DELETE FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "REVOKE DELETE FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::DELETE}, {}, {});
-  check_auth_query(&ast_generator, "REVOKE MERGE FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "REVOKE MERGE FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::MERGE}, {}, {});
-  check_auth_query(&ast_generator, "REVOKE SET FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "REVOKE SET FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::SET}, {}, {});
-  check_auth_query(&ast_generator, "REVOKE REMOVE FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "REVOKE REMOVE FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::REMOVE}, {}, {});
-  check_auth_query(&ast_generator, "REVOKE INDEX FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "REVOKE INDEX FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::INDEX}, {}, {});
-  check_auth_query(&ast_generator, "REVOKE STATS FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "REVOKE STATS FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::STATS}, {}, {});
-  check_auth_query(&ast_generator, "REVOKE AUTH FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "REVOKE AUTH FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::AUTH}, {}, {});
-  check_auth_query(&ast_generator, "REVOKE CONSTRAINT FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user",
+  check_auth_query(&ast_generator, "REVOKE CONSTRAINT FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user",
                    {}, {AuthQuery::Privilege::CONSTRAINT}, {}, {});
-  check_auth_query(&ast_generator, "REVOKE DUMP FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "REVOKE DUMP FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::DUMP}, {}, {});
-  check_auth_query(&ast_generator, "REVOKE WEBSOCKET FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user",
+  check_auth_query(&ast_generator, "REVOKE WEBSOCKET FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user",
                    {}, {AuthQuery::Privilege::WEBSOCKET}, {}, {});
-  check_auth_query(&ast_generator, "REVOKE MODULE_READ FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user",
+  check_auth_query(&ast_generator, "REVOKE MODULE_READ FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user",
                    {}, {AuthQuery::Privilege::MODULE_READ}, {}, {});
-  check_auth_query(&ast_generator, "REVOKE MODULE_WRITE FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user",
+  check_auth_query(&ast_generator, "REVOKE MODULE_WRITE FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user",
                    {}, {AuthQuery::Privilege::MODULE_WRITE}, {}, {});
 
   std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> label_privileges{};
   std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges{};
 
   label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE}, {{"*"}}}});
-  check_auth_query(&ast_generator, "REVOKE LABELS * FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "REVOKE LABELS * FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {},
                    {}, label_privileges, {});
   label_privileges.clear();
 
   label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE}, {{"Label1"}, {"Label2"}}}});
   check_auth_query(&ast_generator, "REVOKE LABELS :Label1, :Label2 FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "",
-                   "", "user", {}, {}, label_privileges, {});
+                   {}, "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
   label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE}, {{"Label1"}, {"Label2"}}}});
   edge_type_privileges.push_back(
       {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE}, {{"Edge1"}, {"Edge2"}, {"Edge3"}}}});
   check_auth_query(&ast_generator, "REVOKE LABELS :Label1, :Label2, EDGE_TYPES :Edge1, :Edge2, :Edge3 FROM user",
-                   AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {}, {}, label_privileges, edge_type_privileges);
+                   AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, edge_type_privileges);
 
   label_privileges.clear();
   edge_type_privileges.clear();
@@ -2765,15 +2793,75 @@ TEST_P(CypherMainVisitorTest, RevokePrivilege) {
 TEST_P(CypherMainVisitorTest, ShowPrivileges) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("SHOW PRIVILEGES FOR"), SyntaxException);
-  check_auth_query(&ast_generator, "SHOW PRIVILEGES FOR user", AuthQuery::Action::SHOW_PRIVILEGES, "", "", "user", {},
+  check_auth_query(&ast_generator, "SHOW PRIVILEGES FOR user", AuthQuery::Action::SHOW_PRIVILEGES, "", {}, "user", {},
                    {}, {}, {});
   ASSERT_THROW(ast_generator.ParseQuery("SHOW PRIVILEGES FOR user1, user2"), SyntaxException);
 }
 
+#ifdef MG_ENTERPRISE
+TEST_P(CypherMainVisitorTest, ShowPrivilegesOnMain) {
+  auto &ast_generator = *GetParam();
+  auto *auth = dynamic_cast<AuthQuery *>(ast_generator.ParseQuery("SHOW PRIVILEGES FOR user ON MAIN"));
+  ASSERT_TRUE(auth);
+  EXPECT_EQ(auth->action_, AuthQuery::Action::SHOW_PRIVILEGES);
+  EXPECT_EQ(auth->user_or_role_, "user");
+  EXPECT_EQ(auth->database_specification_, AuthQuery::DatabaseSpecification::MAIN);
+}
+
+TEST_P(CypherMainVisitorTest, ShowPrivilegesOnCurrent) {
+  auto &ast_generator = *GetParam();
+  auto *auth = dynamic_cast<AuthQuery *>(ast_generator.ParseQuery("SHOW PRIVILEGES FOR user ON CURRENT"));
+  ASSERT_TRUE(auth);
+  EXPECT_EQ(auth->action_, AuthQuery::Action::SHOW_PRIVILEGES);
+  EXPECT_EQ(auth->user_or_role_, "user");
+  EXPECT_EQ(auth->database_specification_, AuthQuery::DatabaseSpecification::CURRENT);
+}
+
+TEST_P(CypherMainVisitorTest, ShowPrivilegesOnDatabase) {
+  auto &ast_generator = *GetParam();
+  auto *auth = dynamic_cast<AuthQuery *>(ast_generator.ParseQuery("SHOW PRIVILEGES FOR user ON DATABASE testdb"));
+  ASSERT_TRUE(auth);
+  EXPECT_EQ(auth->action_, AuthQuery::Action::SHOW_PRIVILEGES);
+  EXPECT_EQ(auth->user_or_role_, "user");
+  EXPECT_EQ(auth->database_specification_, AuthQuery::DatabaseSpecification::DATABASE);
+  EXPECT_EQ(auth->database_, "testdb");
+}
+
+TEST_P(CypherMainVisitorTest, ShowPrivilegesOnDatabaseWithSpecialChars) {
+  auto &ast_generator = *GetParam();
+  auto *auth = dynamic_cast<AuthQuery *>(ast_generator.ParseQuery("SHOW PRIVILEGES FOR user ON DATABASE `test-db`"));
+  ASSERT_TRUE(auth);
+  EXPECT_EQ(auth->action_, AuthQuery::Action::SHOW_PRIVILEGES);
+  EXPECT_EQ(auth->user_or_role_, "user");
+  EXPECT_EQ(auth->database_specification_, AuthQuery::DatabaseSpecification::DATABASE);
+  EXPECT_EQ(auth->database_, "test-db");
+}
+
+TEST_P(CypherMainVisitorTest, ShowPrivilegesOnDatabaseMain) {
+  auto &ast_generator = *GetParam();
+  auto *auth = dynamic_cast<AuthQuery *>(ast_generator.ParseQuery("SHOW PRIVILEGES FOR user ON DATABASE MAIN"));
+  ASSERT_TRUE(auth);
+  EXPECT_EQ(auth->action_, AuthQuery::Action::SHOW_PRIVILEGES);
+  EXPECT_EQ(auth->user_or_role_, "user");
+  EXPECT_EQ(auth->database_specification_, AuthQuery::DatabaseSpecification::DATABASE);
+  EXPECT_EQ(auth->database_, "MAIN");
+}
+
+TEST_P(CypherMainVisitorTest, ShowPrivilegesOnDatabaseCurrent) {
+  auto &ast_generator = *GetParam();
+  auto *auth = dynamic_cast<AuthQuery *>(ast_generator.ParseQuery("SHOW PRIVILEGES FOR user ON DATABASE CURRENT"));
+  ASSERT_TRUE(auth);
+  EXPECT_EQ(auth->action_, AuthQuery::Action::SHOW_PRIVILEGES);
+  EXPECT_EQ(auth->user_or_role_, "user");
+  EXPECT_EQ(auth->database_specification_, AuthQuery::DatabaseSpecification::DATABASE);
+  EXPECT_EQ(auth->database_, "CURRENT");
+}
+#endif
+
 TEST_P(CypherMainVisitorTest, ShowRoleForUser) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("SHOW ROLE FOR "), SyntaxException);
-  check_auth_query(&ast_generator, "SHOW ROLE FOR user", AuthQuery::Action::SHOW_ROLE_FOR_USER, "user", "", "", {}, {},
+  check_auth_query(&ast_generator, "SHOW ROLE FOR user", AuthQuery::Action::SHOW_ROLE_FOR_USER, "user", {}, "", {}, {},
                    {}, {});
   ASSERT_THROW(ast_generator.ParseQuery("SHOW ROLE FOR user1, user2"), SyntaxException);
 }
@@ -2781,7 +2869,7 @@ TEST_P(CypherMainVisitorTest, ShowRoleForUser) {
 TEST_P(CypherMainVisitorTest, ShowUsersForRole) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("SHOW USERS FOR "), SyntaxException);
-  check_auth_query(&ast_generator, "SHOW USERS FOR role", AuthQuery::Action::SHOW_USERS_FOR_ROLE, "", "role", "", {},
+  check_auth_query(&ast_generator, "SHOW USERS FOR role", AuthQuery::Action::SHOW_USERS_FOR_ROLE, "", {"role"}, "", {},
                    {}, {}, {});
   ASSERT_THROW(ast_generator.ParseQuery("SHOW USERS FOR role1, role2"), SyntaxException);
 }
@@ -3368,7 +3456,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithDotsInName) {
   ASSERT_EQ(single_query->clauses_.size(), 1U);
   auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
   ASSERT_TRUE(call_proc);
-  ASSERT_EQ(call_proc->procedure_name_, "mock_module.with.dots.in.name.proc");
+  EXPECT_EQ(call_proc->procedure_name_, "mock_module.with.dots.in.name.proc");
   ASSERT_TRUE(call_proc->arguments_.empty());
   std::vector<std::string> identifier_names;
   identifier_names.reserve(call_proc->result_identifiers_.size());
@@ -3394,7 +3482,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithDashesInName) {
   ASSERT_EQ(single_query->clauses_.size(), 1U);
   auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
   ASSERT_TRUE(call_proc);
-  ASSERT_EQ(call_proc->procedure_name_, "mock_module.proc-with-dashes");
+  EXPECT_EQ(call_proc->procedure_name_, "mock_module.proc-with-dashes");
   ASSERT_TRUE(call_proc->arguments_.empty());
   std::vector<std::string> identifier_names;
   identifier_names.reserve(call_proc->result_identifiers_.size());

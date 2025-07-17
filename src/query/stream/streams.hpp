@@ -68,7 +68,7 @@ struct StreamStatus {
   bool is_running;
   StreamInfoType<T> info;
   std::optional<std::string> owner;
-  std::optional<std::string> owner_role;
+  std::vector<std::string> owner_roles;
 };
 
 using TransformationResult = std::vector<std::vector<TypedValue>>;
@@ -187,7 +187,7 @@ class Streams final {
   struct StreamData {
     std::string transformation_name;
     std::optional<std::string> owner;
-    std::optional<std::string> owner_role;
+    std::vector<std::string> owner_roles;
     std::unique_ptr<SynchronizedStreamSource<TStream>> stream_source;
   };
 

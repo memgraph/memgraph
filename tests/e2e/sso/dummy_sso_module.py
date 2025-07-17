@@ -20,6 +20,7 @@ def authenticate(scheme: str, response: str):
             "rooole": 2345,
         }
 
+    # Default single role response
     return_dict = {
         "authenticated": True,
         "role": "architect",
@@ -35,6 +36,35 @@ def authenticate(scheme: str, response: str):
 
     if response == "skip_username":
         return_dict.pop("username")
+
+    # New multi-role interface - roles is just a list of role names
+    if response == "multi_role_admin":
+        return_dict = {"authenticated": True, "username": "admin_user", "roles": ["admin", "architect", "user"]}
+
+    if response == "multi_role_architect":
+        return_dict = {"authenticated": True, "username": "architect_user", "roles": ["architect", "user"]}
+
+    if response == "multi_role_user":
+        return_dict = {"authenticated": True, "username": "regular_user", "roles": ["user"]}
+
+    if response == "multi_role_readonly":
+        return_dict = {"authenticated": True, "username": "readonly_user", "roles": ["readonly"]}
+
+    if response == "multi_role_limited":
+        return_dict = {"authenticated": True, "username": "limited_user", "roles": ["limited"]}
+
+    if response == "multi_role_no_main":
+        return_dict = {"authenticated": True, "username": "no_main_user", "roles": ["user", "architect"]}
+
+    if response == "multi_role_invalid_db":
+        return_dict = {"authenticated": True, "username": "invalid_db_user", "roles": ["user"]}
+
+    if response == "multi_role_wrong_types":
+        return_dict = {
+            "authenticated": True,
+            "username": "wrong_types_user",
+            "roles": [1234, 5678],  # Wrong types for role names
+        }
 
     return return_dict
 

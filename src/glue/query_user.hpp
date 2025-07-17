@@ -23,18 +23,21 @@ struct QueryUserOrRole : public query::QueryUserOrRole {
   bool IsAuthorized(const std::vector<query::AuthQuery::Privilege> &privileges, std::string_view db_name,
                     query::UserPolicy *policy) const override;
 
+  std::vector<std::string> GetRolenames(std::optional<std::string> db_name) const override;
+
 #ifdef MG_ENTERPRISE
-  bool CanImpersonate(const std::string &target, query::UserPolicy *policy) const override;
+  bool CanImpersonate(const std::string &target, query::UserPolicy *policy,
+                      std::optional<std::string_view> db_name = std::nullopt) const override;
   std::string GetDefaultDB() const override;
 #endif
 
-  explicit QueryUserOrRole(auth::SynchedAuth *auth) : query::QueryUserOrRole{std::nullopt, std::nullopt}, auth_{auth} {}
+  explicit QueryUserOrRole(auth::SynchedAuth *auth) : query::QueryUserOrRole{{}, {}}, auth_{auth} {}
 
   QueryUserOrRole(auth::SynchedAuth *auth, auth::UserOrRole user_or_role);
 
   std::optional<auth::UserOrRole> GenAuthUserOrRole() const {
     if (user_) return {*user_};
-    if (role_) return auth::RoleWUsername{*username_, *role_};
+    if (roles_) return auth::RoleWUsername{*username_, *roles_};
     return {};
   }
 
@@ -42,7 +45,7 @@ struct QueryUserOrRole : public query::QueryUserOrRole {
   friend class AuthChecker;
   auth::SynchedAuth *auth_;
   mutable std::optional<auth::User> user_{};
-  mutable std::optional<auth::Role> role_{};
+  mutable std::optional<auth::Roles> roles_{};
   mutable auth::Auth::Epoch auth_epoch_{auth::Auth::kStartEpoch};
 };
 

@@ -84,6 +84,21 @@ def test_sso_successful():
             assert len(current_user_result) == 1 and current_user_result[0]["user"] == USERNAME
 
 
+def test_sso_show_current_role_with_architect_role():
+    response = base64.b64encode(b"dummy_value").decode("utf-8")
+    MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")
+
+    with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:
+        client.verify_connectivity()
+        with client.session() as session:
+            session.run("MATCH (n) RETURN n;").consume()
+            # The user should have the architect role that was created in the fixture
+            current_role_result = list(session.run("SHOW CURRENT ROLE;"))
+            assert len(current_role_result) == 1 and current_role_result[0]["role"] == "architect"
+            current_roles_result = list(session.run("SHOW CURRENT ROLES;"))
+            assert len(current_roles_result) == 1 and current_roles_result[0]["role"] == "architect"
+
+
 def test_sso_create_owned():
     # Triggers and streams are owned by the user who made them
     # 1. Create an owned object (trigger) while logged in via SSO
