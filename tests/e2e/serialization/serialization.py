@@ -26,6 +26,8 @@ def test_wait_on_creating_edges(connect, make_connection):
 
     barrier = Barrier(2)
 
+    # TODO maybe make these global modifier functions, as they will be reused
+    # throughout the tests
     def add_edge_with_barrier(edge_label, precommit_duration):
         nonlocal has_error
         try:
@@ -53,6 +55,51 @@ def test_wait_on_creating_edges(connect, make_connection):
 
     t1 = Thread(target=add_edge_with_barrier, args=("ALFA", 3))
     t2 = Thread(target=add_edge, args=("BRAVO",))
+    t1.start()
+    barrier.wait()
+    t2.start()
+    t1.join()
+    t2.join()
+
+    assert not has_error
+
+
+def test_wait_on_updating_props(connect, make_connection):
+    c = connect.cursor()
+    execute_and_fetch_all(c, "CREATE (:L1)")
+    connect.commit()
+
+    has_error = False
+
+    barrier = Barrier(2)
+
+    def set_prop_with_barrier(prop_value, precommit_duration):
+        nonlocal has_error
+        try:
+            connection = make_connection()
+            cursor = connection.cursor()
+            cursor.execute("MATCH (m:L1) SET m.prop_value = $prop_value", {"prop_value": prop_value})
+            barrier.wait()
+            if precommit_duration:
+                time.sleep(precommit_duration)
+            connection.commit()
+        except Exception as e:
+            print(str(e))
+            has_error = True
+
+    def set_prop(prop_value):
+        nonlocal has_error
+        try:
+            connection = make_connection()
+            cursor = connection.cursor()
+            cursor.execute("MATCH (m:L1) SET m.prop_value = $prop_value", {"prop_value": prop_value})
+            connection.commit()
+        except Exception as e:
+            print(str(e))
+            has_error = True
+
+    t1 = Thread(target=set_prop_with_barrier, args=("ALFA", 3))
+    t2 = Thread(target=set_prop, args=("BRAVO",))
     t1.start()
     barrier.wait()
     t2.start()
