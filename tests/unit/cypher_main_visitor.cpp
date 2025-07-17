@@ -2836,6 +2836,26 @@ TEST_P(CypherMainVisitorTest, ShowPrivilegesOnDatabaseWithSpecialChars) {
   EXPECT_EQ(auth->database_specification_, AuthQuery::DatabaseSpecification::DATABASE);
   EXPECT_EQ(auth->database_, "test-db");
 }
+
+TEST_P(CypherMainVisitorTest, ShowPrivilegesOnDatabaseMain) {
+  auto &ast_generator = *GetParam();
+  auto *auth = dynamic_cast<AuthQuery *>(ast_generator.ParseQuery("SHOW PRIVILEGES FOR user ON DATABASE MAIN"));
+  ASSERT_TRUE(auth);
+  EXPECT_EQ(auth->action_, AuthQuery::Action::SHOW_PRIVILEGES);
+  EXPECT_EQ(auth->user_or_role_, "user");
+  EXPECT_EQ(auth->database_specification_, AuthQuery::DatabaseSpecification::DATABASE);
+  EXPECT_EQ(auth->database_, "MAIN");
+}
+
+TEST_P(CypherMainVisitorTest, ShowPrivilegesOnDatabaseCurrent) {
+  auto &ast_generator = *GetParam();
+  auto *auth = dynamic_cast<AuthQuery *>(ast_generator.ParseQuery("SHOW PRIVILEGES FOR user ON DATABASE CURRENT"));
+  ASSERT_TRUE(auth);
+  EXPECT_EQ(auth->action_, AuthQuery::Action::SHOW_PRIVILEGES);
+  EXPECT_EQ(auth->user_or_role_, "user");
+  EXPECT_EQ(auth->database_specification_, AuthQuery::DatabaseSpecification::DATABASE);
+  EXPECT_EQ(auth->database_, "CURRENT");
+}
 #endif
 
 TEST_P(CypherMainVisitorTest, ShowRoleForUser) {

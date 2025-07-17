@@ -2198,13 +2198,13 @@ antlrcpp::Any CypherMainVisitor::visitShowPrivileges(MemgraphCypher::ShowPrivile
 
   // Handle optional ON clause
   if (ctx->ON()) {
-    if (ctx->MAIN()) {
+    if (ctx->DATABASE()) {
+      auth->database_specification_ = AuthQuery::DatabaseSpecification::DATABASE;
+      auth->database_ = std::any_cast<std::string>(ctx->db->accept(this));
+    } else if (ctx->MAIN()) {
       auth->database_specification_ = AuthQuery::DatabaseSpecification::MAIN;
     } else if (ctx->CURRENT()) {
       auth->database_specification_ = AuthQuery::DatabaseSpecification::CURRENT;
-    } else if (ctx->DATABASE()) {
-      auth->database_specification_ = AuthQuery::DatabaseSpecification::DATABASE;
-      auth->database_ = std::any_cast<std::string>(ctx->db->accept(this));
     }
   } else {
     auth->database_specification_ = AuthQuery::DatabaseSpecification::NONE;
@@ -2221,14 +2221,15 @@ antlrcpp::Any CypherMainVisitor::visitShowRoleForUser(MemgraphCypher::ShowRoleFo
   auth->action_ = AuthQuery::Action::SHOW_ROLE_FOR_USER;
   auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
 
+  // Handle optional ON clause
   if (ctx->ON()) {
-    if (ctx->MAIN()) {
+    if (ctx->DATABASE()) {
+      auth->database_specification_ = AuthQuery::DatabaseSpecification::DATABASE;
+      auth->database_ = std::any_cast<std::string>(ctx->db->accept(this));
+    } else if (ctx->MAIN()) {
       auth->database_specification_ = AuthQuery::DatabaseSpecification::MAIN;
     } else if (ctx->CURRENT()) {
       auth->database_specification_ = AuthQuery::DatabaseSpecification::CURRENT;
-    } else if (ctx->DATABASE()) {
-      auth->database_specification_ = AuthQuery::DatabaseSpecification::DATABASE;
-      auth->database_ = std::any_cast<std::string>(ctx->db->accept(this));
     }
   }
 

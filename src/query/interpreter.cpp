@@ -1190,6 +1190,11 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
             target_db = database_name;
             break;
         }
+        std::optional<dbms::DatabaseAccess> target_db_acc;
+        if (!target_db.empty()) {
+          // Check that the db exists
+          target_db_acc = db_handler->Get(target_db);
+        }
         return auth->GetPrivileges(user_or_role, target_db);
 #else
         if (database_specification != AuthQuery::DatabaseSpecification::NONE) {
@@ -1238,6 +1243,11 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
           case AuthQuery::DatabaseSpecification::DATABASE:
             target_db = database_name;
             break;
+        }
+        std::optional<dbms::DatabaseAccess> target_db_acc;
+        if (target_db) {
+          // Check that the db exists
+          target_db_acc = db_handler->Get(target_db.value());
         }
         auto rolenames = auth->GetRolenamesForUser(username, target_db);
 #else

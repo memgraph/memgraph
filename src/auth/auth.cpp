@@ -477,6 +477,7 @@ void Auth::LinkUser(User &user) const {
   // User set roles on particular databases
   // NOTE Has to be done in this order, otherwise the global roles will overwrite the multi-tenant roles
 #ifdef MG_ENTERPRISE
+  std::unordered_set<std::string> failed_mt_roles;
   auto mt_link = storage_.Get(kMtLinkPrefix + user.username());
   if (mt_link) {
     try {
@@ -503,7 +504,13 @@ void Auth::LinkUser(User &user) const {
             spdlog::warn("Role '{}' doesn't exist for user '{}'", rolename, user.username());
             continue;
           }
-          user.AddMultiTenantRole(*role, db);
+          try {
+            user.AddMultiTenantRole(*role, db);
+          } catch (const AuthException &e) {
+            spdlog::warn("Couldn't add multi-tenant role '{}' to user '{}' on database '{}': {}", rolename,
+                         user.username(), db, e.what());
+            failed_mt_roles.insert(rolename);
+          }
         }
       }
     } catch (const nlohmann::detail::exception &) {
@@ -527,8 +534,9 @@ void Auth::LinkUser(User &user) const {
       // V2 format: array of role names
       for (const auto &role_name : json_data) {
         if (role_name.is_string()) {
-          // Check that the role is not already added (via the multi-tenant role)
-          if (user.roles().GetRole(role_name.get<std::string>())) {
+          // Check that the role is not already added (via the multi-tenant role) or failed to add
+          if (failed_mt_roles.contains(role_name.get<std::string>()) ||
+              user.roles().GetRole(role_name.get<std::string>())) {
             continue;
           }
           auto role = GetRole(role_name.get<std::string>());
