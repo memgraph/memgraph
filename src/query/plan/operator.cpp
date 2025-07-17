@@ -70,6 +70,7 @@
 #include "utils/readable_size.hpp"
 #include "utils/tag.hpp"
 #include "utils/temporal.hpp"
+#include "vertex_accessor.hpp"
 
 namespace r = ranges;
 namespace rv = r::views;
@@ -2936,6 +2937,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
   ExpandAllShortestPathsCursor(const ExpandVariable &self, utils::MemoryResource *mem)
       : self_(self),
         input_cursor_(self_.input_->MakeCursor(mem)),
+        cheapest_cost_(mem),
         visited_cost_(mem),
         total_cost_(mem),
         next_edges_(mem),
@@ -2962,6 +2964,10 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
                                                     const TypedValue &total_weight, int64_t depth) {
       auto const &next_vertex = direction == EdgeAtom::Direction::IN ? edge.From() : edge.To();
 
+      spdlog::debug(
+          "Expanding vertex {} with edge {} and weight {} at depth {}", next_vertex.Gid().AsInt(), edge.Gid().AsInt(),
+          total_weight.IsNull() ? 0 : (total_weight.IsDouble() ? total_weight.ValueDouble() : total_weight.ValueInt()),
+          depth);
       // Evaluate current weight
       frame[self_.weight_lambda_->inner_edge_symbol] = edge;
       frame[self_.weight_lambda_->inner_node_symbol] = next_vertex;
@@ -2991,17 +2997,33 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       auto found_it = visited_cost_.find(next_vertex);
       // Check if the vertex has already been processed.
       if (found_it != visited_cost_.end()) {
-        auto weight = found_it->second;
-
-        if (weight.IsNull() || (next_weight <= weight).ValueBool()) {
-          // Has been visited, but now found a shorter path
-          visited_cost_[next_vertex] = next_weight;
-        } else {
-          // Continue and do not expand if current weight is larger
-          return;
+        auto weights = found_it->second;
+        bool insert = true;  // todo(ivan): rangify
+        for (auto [old_weight, old_depth] : weights) {
+          // if there is a shorter path with shorter hop count, do not insert
+          if (old_depth <= depth && (old_weight <= next_weight).ValueBool()) {
+            insert = false;
+            break;
+          }
         }
+
+        if (!insert) return;
+        auto &costs = visited_cost_[next_vertex];
+        std::erase_if(costs, [&next_weight, depth](const std::pair<TypedValue, int64_t> &p) {
+          return (p.first >= next_weight).ValueBool() && p.second <= depth;
+        });
+        costs.emplace_back(next_weight, depth);
+
       } else {
-        visited_cost_[next_vertex] = next_weight;
+        visited_cost_[next_vertex] = {
+            std::make_pair(next_weight, depth)};  // TODO (ivan): will this use correct allocator? is depth correct?
+      }
+
+      // update cheapeast cost to get to the vertex
+      auto best_cost = cheapest_cost_.find(next_vertex);
+      if (best_cost == cheapest_cost_.end() || best_cost->second.IsNull() ||
+          (next_weight < best_cost->second).ValueBool()) {
+        cheapest_cost_[next_vertex] = next_weight;
       }
 
       DirectedEdge directed_edge = {edge, direction, next_weight};
@@ -3090,7 +3112,8 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         traversal_stack_.emplace_back(std::move(empty));
       }
 
-      if ((current_weight > visited_cost_.at(next_vertex)).ValueBool()) return false;
+      // TODO correct?
+      if ((current_weight > cheapest_cost_.at(next_vertex)).ValueBool()) return false;
 
       // Place destination node on the frame, handle existence flag
       if (self_.common_.existing_node) {
@@ -3177,6 +3200,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         if (vertex_value.IsNull()) continue;
 
         start_vertex = vertex_value.ValueVertex();
+        spdlog::debug("Pulling vertex {} for expansion", start_vertex->Gid().AsInt());
         if (self_.common_.existing_node) {
           const auto &node = frame[self_.common_.node_symbol];
           // Due to optional matching the existing node could be null.
@@ -3186,6 +3210,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
         // Clear existing data structures.
         visited_cost_.clear();
+        cheapest_cost_.clear();
         next_edges_.clear();
         traversal_stack_.clear();
         total_cost_.clear();
@@ -3201,7 +3226,9 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
             CalculateNextWeight(self_.weight_lambda_, /* total_weight */ TypedValue(), evaluator);
 
         expand_from_vertex(*start_vertex, current_weight, 0);
-        visited_cost_.emplace(*start_vertex, 0);
+        cheapest_cost_[*start_vertex] = 0;
+        visited_cost_.emplace(*start_vertex,
+                              std::vector<std::pair<TypedValue, int64_t>>{std::make_pair(TypedValue(0, memory), 0)});
         frame[self_.common_.edge_symbol] = TypedValue::TVector(memory);
       }
 
@@ -3221,6 +3248,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
   void Reset() override {
     input_cursor_->Reset();
     visited_cost_.clear();
+    cheapest_cost_.clear();
     next_edges_.clear();
     traversal_stack_.clear();
     total_cost_.clear();
@@ -3243,8 +3271,10 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
   using DirectedEdge = std::tuple<EdgeAccessor, EdgeAtom::Direction, TypedValue>;
   using NextEdgesState = std::pair<VertexAccessor, int64_t>;
+  using VertexState = std::pair<VertexAccessor, int64_t>;
   // Maps vertices to minimum weights they got in expansion.
-  utils::pmr::unordered_map<VertexAccessor, TypedValue> visited_cost_;
+  utils::pmr::unordered_map<VertexAccessor, TypedValue> cheapest_cost_;
+  utils::pmr::unordered_map<VertexAccessor, std::vector<std::pair<TypedValue, int64_t>>> visited_cost_;
   // Maps vertices to weights they got in expansion.
   utils::pmr::unordered_map<NextEdgesState, TypedValue, AspStateHash> total_cost_;
   // Maps the vertex with the potential expansion edge.
@@ -4045,13 +4075,15 @@ SetProperties::SetPropertiesCursor::SetPropertiesCursor(const SetProperties &sel
 namespace {
 
 template <typename T>
-concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
-                                          storage::PropertyValue property_value,
-                                          std::map<storage::PropertyId, storage::PropertyValue> properties) {
-  { value.ClearProperties() } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
-  {value.SetProperty(property_id, property_value)};
-  {value.UpdateProperties(properties)};
-};
+concept AccessorWithProperties =
+    requires(T value, storage::PropertyId property_id, storage::PropertyValue property_value,
+             std::map<storage::PropertyId, storage::PropertyValue> properties) {
+      {
+        value.ClearProperties()
+      } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
+      { value.SetProperty(property_id, property_value) };
+      { value.UpdateProperties(properties) };
+    };
 
 /// Helper function that sets the given values on either a Vertex or an Edge.
 ///
@@ -5105,7 +5137,7 @@ class AggregateCursor : public Cursor {
           value_it->ValueMap().emplace(key.ValueString(), std::move(input_value));
           break;
       }  // end switch over Aggregation::Op enum
-    }    // end loop over all aggregations
+    }  // end loop over all aggregations
   }
 
   /** Project a subgraph from lists of nodes and lists of edges. Any nulls in these lists are ignored.
@@ -5387,9 +5419,8 @@ class OrderByCursor : public Cursor {
       // sorting with range zip
       // we compare on just the projection of the 1st range (order_by)
       // this will also permute the 2nd range (output)
-      ranges::sort(
-          rv::zip(order_by, output), self_.compare_.lex_cmp(),
-          [](auto const &value) -> auto const & { return std::get<0>(value); });
+      ranges::sort(rv::zip(order_by, output), self_.compare_.lex_cmp(),
+                   [](auto const &value) -> auto const & { return std::get<0>(value); });
 
       // no longer need the order_by terms
       order_by.clear();
