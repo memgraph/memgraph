@@ -27,7 +27,6 @@ def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}
 class SerializationFixture:
     def __init__(self):
         self.error = None
-        self.barrier = Barrier(2)
         self.primary_connection = mgclient.connect(host="localhost", port=7687)
         self.primary_connection.autocommit = True
 
@@ -41,25 +40,23 @@ class SerializationFixture:
         execute_and_fetch_all(cursor, query)
         self.primary_connection.commit()
 
-    def run(self, transactions):
-        threads_with_wait = []
-        threads_without_wait = []
+    def run(self, phase1_txs, phase2_txs):
+        threads = []
 
-        for tx in transactions:
-            if "wait" in tx:
-                thread = Thread(target=partial(self._execute_and_wait, tx["query"], tx.get("args", {}), tx["wait"]))
-                threads_with_wait.append(thread)
-            else:
-                thread = Thread(target=partial(self._execute, tx["query"], tx.get("args", {})))
-                threads_without_wait.append(thread)
+        for tx in phase1_txs:
+            thread = Thread(target=partial(self._execute_phase_1, tx["query"], tx.get("args", {}), tx.get("delay")))
+            threads.append(thread)
 
-        for thread in threads_with_wait:
-            thread.start()
-        self.barrier.wait()
-        for thread in threads_without_wait:
+        for tx in phase2_txs:
+            thread = Thread(target=partial(self._execute_phase_2, tx["query"], tx.get("args", {})))
+            threads.append(thread)
+
+        self.barrier = Barrier(len(threads))
+
+        for thread in threads:
             thread.start()
 
-        for thread in chain(threads_with_wait, threads_without_wait):
+        for thread in threads:
             thread.join()
 
         if self.error:
@@ -71,20 +68,25 @@ class SerializationFixture:
         connection.autocommit = True
         return connection
 
-    def _execute_and_wait(self, query, args, wait):
+    def _execute_phase_1(self, query, args, sleep_duration):
+        """Phase 1 transactions execute the query, hit a barrier, and then
+        sleep for `wait` seconds
+        """
         try:
             connection = self._make_connection()
             cursor = connection.cursor()
             cursor.execute(query, args)
             self.barrier.wait()
-            if wait:
-                time.sleep(wait)
+            if sleep_duration:
+                time.sleep(sleep_duration)
             connection.commit()
         except Exception as e:
             self.error = e
 
-    def _execute(self, query, args):
+    def _execute_phase_2(self, query, args):
+        """Phase 2 transactions hit the barrier, and the execute the query"""
         try:
+            self.barrier.wait()
             connection = self._make_connection()
             cursor = connection.cursor()
             cursor.execute(query, args)

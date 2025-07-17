@@ -1,4 +1,4 @@
-# Copyright 2023 Memgraph Ltd.
+# Copyright 2025 Memgraph Ltd.
 #
 # Use of this software is governed by the Business Source License
 # included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,8 +10,6 @@
 # licenses/APL.txt.
 
 import sys
-import time
-from threading import Barrier, Thread
 
 import pytest
 from common import serialization
@@ -21,10 +19,8 @@ def test_serialization_on_creating_edges(serialization):
     serialization.setup("CREATE (:L1), (:L2)")
 
     serialization.run(
-        [
-            {"query": "MATCH (m:L1), (n:L2) CREATE (m)-[:$edge_label]->(n)", "args": {"edge_label": "alfa"}, "wait": 3},
-            {"query": "MATCH (m:L1), (n:L2) CREATE (m)-[:$edge_label]->(n)", "args": {"edge_label": "bravo"}},
-        ]
+        [{"query": "MATCH (m:L1), (n:L2) CREATE (m)-[:$edge_label]->(n)", "args": {"edge_label": "alfa"}, "delay": 3}],
+        [{"query": "MATCH (m:L1), (n:L2) CREATE (m)-[:$edge_label]->(n)", "args": {"edge_label": "bravo"}}],
     )
 
 
@@ -32,10 +28,26 @@ def test_serialization_on_updating_props(serialization):
     serialization.setup("CREATE (:L1)")
 
     serialization.run(
+        [{"query": "MATCH (m:L1) SET m.prop = $prop", "args": {"prop": "first"}, "delay": 3}],
+        [{"query": "MATCH (m:L1) SET m.prop = $prop", "args": {"prop": "second"}}],
+    )
+
+
+def test_serialization_chain_on_updating_props(serialization):
+    serialization.setup("CREATE (:A), (:B), (:C)")
+
+    serialization.run(
+        [{"query": "MATCH (c:C) SET c.prop = $prop", "args": {"prop": "C1"}, "delay": 3}],
         [
-            {"query": "MATCH (m:L1) SET m.prop_value = $prop_value", "args": {"prop_value": "first"}, "wait": 3},
-            {"query": "MATCH (m:L1) SET m.prop_value = $prop_value", "args": {"prop_value": "second"}},
-        ]
+            {
+                "query": "MATCH (b:B), (c:C) SET b.prop = $prop_b SET c.prop = $prop_c",
+                "args": {"prop_b": "B1", "prop_c": "C2"},
+            },
+            {
+                "query": "MATCH (a:A), (b:B) SET a.prop = $prop_a SET b.prop = $prop_b",
+                "args": {"prop_a": "A1", "prop_b": "B2"},
+            },
+        ],
     )
 
 
