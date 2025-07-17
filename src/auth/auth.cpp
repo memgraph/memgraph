@@ -476,8 +476,8 @@ std::optional<UserOrRole> Auth::SSOAuthenticate(const std::string &scheme,
 void Auth::LinkUser(User &user) const {
   // User set roles on particular databases
   // NOTE Has to be done in this order, otherwise the global roles will overwrite the multi-tenant roles
+  [[maybe_unused]] std::unordered_set<std::string> failed_mt_roles;
 #ifdef MG_ENTERPRISE
-  std::unordered_set<std::string> failed_mt_roles;
   auto mt_link = storage_.Get(kMtLinkPrefix + user.username());
   if (mt_link) {
     try {
