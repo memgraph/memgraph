@@ -24,6 +24,7 @@
 #include <string_view>
 #include <type_traits>
 #include <unordered_map>
+#include <unordered_set>
 #include <utility>
 #include <vector>
 
@@ -67,6 +68,11 @@ template <typename T>
 void Save(const std::vector<T> &obj, Builder *builder);
 template <typename T>
 void Load(std::vector<T> *obj, Reader *reader);
+
+template <typename T>
+void Save(const std::unordered_set<T> &obj, Builder *builder);
+template <typename T>
+void Load(std::unordered_set<T> *obj, Reader *reader);
 
 template <typename T, size_t N>
 void Save(const std::array<T, N> &obj, Builder *builder);
@@ -216,6 +222,27 @@ inline void Load(std::vector<T> *obj, Reader *reader) {
   obj->resize(size);
   for (uint64_t i = 0; i < size; ++i) {
     Load(&(*obj)[i], reader);
+  }
+}
+
+template <typename T>
+inline void Save(const std::unordered_set<T> &obj, Builder *builder) {
+  uint64_t size = obj.size();
+  Save(size, builder);
+  for (const auto &item : obj) {
+    Save(item, builder);
+  }
+}
+
+template <typename T>
+inline void Load(std::unordered_set<T> *obj, Reader *reader) {
+  uint64_t size = 0;
+  Load(&size, reader);
+  obj->reserve(size);
+  for (uint64_t i = 0; i < size; ++i) {
+    T item;
+    Load(&item, reader);
+    obj->insert(std::move(item));
   }
 }
 

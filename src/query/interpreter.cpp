@@ -39,6 +39,7 @@
 #include "coordination/constants.hpp"
 #include "coordination/coordinator_ops_status.hpp"
 #include "coordination/coordinator_state.hpp"
+#include "dbms/constants.hpp"
 #include "dbms/coordinator_handler.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "dbms/global.hpp"
@@ -799,7 +800,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
 /// @throw QueryRuntimeException if an error occurred.
 
 Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_context, const Parameters &parameters,
-                         Interpreter &interpreter) {
+                         Interpreter &interpreter, std::optional<dbms::DatabaseAccess> db_acc) {
   AuthQueryHandler *auth = interpreter_context->auth;
 #ifdef MG_ENTERPRISE
   auto *db_handler = interpreter_context->dbms_handler;
@@ -812,16 +813,14 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
 
   std::string username = auth_query->user_;
-  std::string rolename = auth_query->role_;
   std::string user_or_role = auth_query->user_or_role_;
   const bool if_not_exists = auth_query->if_not_exists_;
   std::string database = auth_query->database_;
   std::vector<AuthQuery::Privilege> privileges = auth_query->privileges_;
+  auto role_databases = auth_query->role_databases_;
 #ifdef MG_ENTERPRISE
-  std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> label_privileges =
-      auth_query->label_privileges_;
-  std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges =
-      auth_query->edge_type_privileges_;
+  auto label_privileges = auth_query->label_privileges_;
+  auto edge_type_privileges = auth_query->edge_type_privileges_;
   auto impersonation_targets = auth_query->impersonation_targets_;
 #endif
   auto password = EvaluateOptionalExpression(auth_query->password_, evaluator);
@@ -968,10 +967,15 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       return callback;
     case AuthQuery::Action::CREATE_ROLE:
       forbid_on_replica();
-      callback.fn = [auth, rolename, if_not_exists, interpreter = &interpreter] {
+      callback.fn = [auth, roles = std::move(auth_query->roles_), if_not_exists, interpreter = &interpreter] {
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
+
+        if (roles.empty()) {
+          throw QueryRuntimeException("No role name provided for CREATE ROLE");
+        }
+        const std::string &rolename = roles[0];
 
         if (!auth->CreateRole(rolename, &*interpreter->system_transaction_)) {
           if (!if_not_exists) {
@@ -987,10 +991,15 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       return callback;
     case AuthQuery::Action::DROP_ROLE:
       forbid_on_replica();
-      callback.fn = [auth, rolename, interpreter = &interpreter] {
+      callback.fn = [auth, roles = std::move(auth_query->roles_), interpreter = &interpreter] {
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
+
+        if (roles.empty()) {
+          throw QueryRuntimeException("No role name provided for DROP ROLE");
+        }
+        const std::string &rolename = roles[0];
 
         if (!auth->DropRole(rolename, &*interpreter->system_transaction_)) {
           throw QueryRuntimeException("Role '{}' doesn't exist.", rolename);
@@ -1004,6 +1013,35 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         const auto &username = interpreter.user_or_role_->username();
         return std::vector<std::vector<TypedValue>>{
             {username.has_value() ? TypedValue(username.value()) : TypedValue()}};
+      };
+      return callback;
+    case AuthQuery::Action::SHOW_CURRENT_ROLE:
+      callback.header = {"role"};
+      callback.fn = [&interpreter
+#ifdef MG_ENTERPRISE
+                     ,
+                     db_acc = std::move(db_acc)
+#endif
+      ] {
+#ifdef MG_ENTERPRISE
+        if (db_acc && db_acc.value()->name() != dbms::kDefaultDB &&
+            !license::global_license_checker.IsEnterpriseValidFast()) {
+          throw QueryRuntimeException("Multi-database queries are only available in enterprise edition");
+        }
+        const auto &rolenames =
+            interpreter.user_or_role_->GetRolenames(db_acc ? std::make_optional(db_acc.value()->name()) : std::nullopt);
+#else
+        const auto &rolenames = interpreter.user_or_role_->GetRolenames(std::nullopt);
+#endif
+        if (rolenames.empty()) {
+          return std::vector<std::vector<TypedValue>>{{TypedValue()}};
+        }
+        std::vector<std::vector<TypedValue>> rows;
+        rows.reserve(rolenames.size());
+        for (const auto &rolename : rolenames) {
+          rows.emplace_back(std::vector<TypedValue>{TypedValue{rolename}});
+        }
+        return rows;
       };
       return callback;
     case AuthQuery::Action::SHOW_USERS:
@@ -1032,23 +1070,37 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
       return callback;
     case AuthQuery::Action::SET_ROLE:
       forbid_on_replica();
-      callback.fn = [auth, username, rolename, interpreter = &interpreter] {
+      callback.fn = [auth, username, roles = std::move(auth_query->roles_), interpreter = &interpreter,
+                     role_databases = std::move(role_databases)] {
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
-
-        auth->SetRole(username, rolename, &*interpreter->system_transaction_);
+#ifdef MG_ENTERPRISE
+        auth->SetRoles(username, roles, role_databases, &*interpreter->system_transaction_);
+#else
+        if (!role_databases.empty()) {
+          throw QueryException("Database specification is only available in the enterprise edition");
+        }
+        auth->SetRoles(username, roles, std::unordered_set<std::string>{}, &*interpreter->system_transaction_);
+#endif
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
     case AuthQuery::Action::CLEAR_ROLE:
       forbid_on_replica();
-      callback.fn = [auth, username, interpreter = &interpreter] {
+      callback.fn = [auth, username, interpreter = &interpreter, role_databases = std::move(role_databases)] {
         if (!interpreter->system_transaction_) {
           throw QueryException("Expected to be in a system transaction");
         }
 
-        auth->ClearRole(username, &*interpreter->system_transaction_);
+#ifdef MG_ENTERPRISE
+        auth->ClearRoles(username, role_databases, &*interpreter->system_transaction_);
+#else
+        if (!role_databases.empty()) {
+          throw QueryException("Database specification is only available in the enterprise edition");
+        }
+        auth->ClearRoles(username, std::unordered_set<std::string>{}, &*interpreter->system_transaction_);
+#endif
         return std::vector<std::vector<TypedValue>>();
       };
       return callback;
@@ -1110,19 +1162,131 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
     }
     case AuthQuery::Action::SHOW_PRIVILEGES:
       callback.header = {"privilege", "effective", "description"};
-      callback.fn = [auth, user_or_role] { return auth->GetPrivileges(user_or_role); };
+      callback.fn = [auth, user_or_role, database_specification = auth_query->database_specification_
+#ifdef MG_ENTERPRISE
+                     ,
+                     db_acc = std::move(db_acc), database_name = auth_query->database_, db_handler
+#endif
+      ] {
+#ifdef MG_ENTERPRISE
+        if (!license::global_license_checker.IsEnterpriseValidFast()) {
+          if (database_specification != AuthQuery::DatabaseSpecification::NONE) {
+            throw QueryRuntimeException("Multi-database queries are only available in enterprise edition");
+          }
+          return auth->GetPrivileges(user_or_role);
+        }
+        std::string target_db;
+        switch (database_specification) {
+          case AuthQuery::DatabaseSpecification::NONE:
+            // Allow only if there are no other databases
+            if (db_handler->Count() > 1) {
+              throw QueryRuntimeException(
+                  "In a multi-tenant environment, SHOW PRIVILEGES query requires database specification. Use ON MAIN, "
+                  "ON CURRENT or ON DATABASE.");
+            }
+            break;
+          case AuthQuery::DatabaseSpecification::MAIN: {
+            auto main_db = auth->GetMainDatabase(user_or_role);
+            if (!main_db) {
+              throw QueryRuntimeException("No user found for SHOW PRIVILEGES ON MAIN");
+            }
+            target_db = main_db.value();
+          } break;
+          case AuthQuery::DatabaseSpecification::CURRENT:
+            if (!db_acc) {
+              throw QueryRuntimeException("No current database for SHOW PRIVILEGES ON CURRENT");
+            }
+            target_db = db_acc.value()->name();
+            break;
+          case AuthQuery::DatabaseSpecification::DATABASE:
+            target_db = database_name;
+            break;
+        }
+        std::optional<dbms::DatabaseAccess> target_db_acc;
+        if (!target_db.empty()) {
+          // Check that the db exists
+          target_db_acc = db_handler->Get(target_db);
+        }
+        return auth->GetPrivileges(user_or_role, target_db);
+#else
+        if (database_specification != AuthQuery::DatabaseSpecification::NONE) {
+          throw QueryRuntimeException("Multi-database queries are only available in enterprise edition");
+        }
+        return auth->GetPrivileges(user_or_role);
+#endif
+      };
       return callback;
     case AuthQuery::Action::SHOW_ROLE_FOR_USER:
-      callback.header = {"role"};
-      callback.fn = [auth, username] {
-        auto maybe_rolename = auth->GetRolenameForUser(username);
-        return std::vector<std::vector<TypedValue>>{
-            std::vector<TypedValue>{TypedValue(maybe_rolename ? *maybe_rolename : "null")}};
+      callback.header = std::vector<std::string>{"role"};
+      callback.fn = [auth, username, database_specification = auth_query->database_specification_
+#ifdef MG_ENTERPRISE
+                     ,
+                     db_acc = std::move(db_acc), database_name = auth_query->database_, db_handler
+#endif
+      ] {
+#ifdef MG_ENTERPRISE
+        if (database_specification != AuthQuery::DatabaseSpecification::NONE &&
+            !license::global_license_checker.IsEnterpriseValidFast()) {
+          throw QueryRuntimeException("Multi-database queries are only available in enterprise edition");
+        }
+        std::optional<std::string> target_db;
+        switch (database_specification) {
+          case AuthQuery::DatabaseSpecification::NONE:
+            // Allow only if there are no other databases
+            if (db_handler->Count() > 1) {
+              throw QueryRuntimeException(
+                  "In a multi-tenant environment, SHOW ROLE FOR USER query requires database specification. Use ON "
+                  "MAIN, ON CURRENT or ON DATABASE.");
+            }
+            break;
+          case AuthQuery::DatabaseSpecification::MAIN: {
+            auto main_db = auth->GetMainDatabase(username);
+            if (!main_db) {
+              throw QueryRuntimeException("No user found!");
+            }
+            target_db = main_db.value();
+          } break;
+          case AuthQuery::DatabaseSpecification::CURRENT:
+            if (!db_acc) {
+              throw QueryRuntimeException("No current database!");
+            }
+            target_db = db_acc.value()->name();
+            break;
+          case AuthQuery::DatabaseSpecification::DATABASE:
+            target_db = database_name;
+            break;
+        }
+        std::optional<dbms::DatabaseAccess> target_db_acc;
+        if (target_db) {
+          // Check that the db exists
+          target_db_acc = db_handler->Get(target_db.value());
+        }
+        auto rolenames = auth->GetRolenamesForUser(username, target_db);
+#else
+        if (database_specification != AuthQuery::DatabaseSpecification::NONE) {
+          throw QueryRuntimeException("Multi-database queries are only available in enterprise edition");
+        }
+        auto rolenames = auth->GetRolenamesForUser(username, std::nullopt);
+#endif
+        if (rolenames.empty()) {
+          return std::vector<std::vector<TypedValue>>{std::vector<TypedValue>{TypedValue("null")}};
+        }
+        std::vector<std::vector<TypedValue>> rows;
+        rows.reserve(rolenames.size());
+        for (auto &&rolename : rolenames) {
+          rows.emplace_back(std::vector<TypedValue>{TypedValue{rolename}});
+        }
+        return rows;
       };
       return callback;
     case AuthQuery::Action::SHOW_USERS_FOR_ROLE:
       callback.header = {"users"};
-      callback.fn = [auth, rolename] {
+      callback.fn = [auth, roles = std::move(auth_query->roles_)] {
+        if (roles.empty()) {
+          throw QueryRuntimeException("No role name provided for SHOW USERS FOR ROLE");
+        }
+        const std::string &rolename = roles[0];
+
         std::vector<std::vector<TypedValue>> rows;
         auto usernames = auth->GetUsernamesForRole(rolename);
         rows.reserve(usernames.size());
@@ -1146,7 +1310,8 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
           if (database != memgraph::auth::kAllDatabases) {
             db = db_handler->Get(database);  // Will throw if databases doesn't exist and protect it during pull
           }
-          auth->GrantDatabase(database, username, &*interpreter->system_transaction_);  // Can throws query exception
+          auth->GrantDatabase(database, username,
+                              &*interpreter->system_transaction_);  // Can throws query exception
         } catch (memgraph::dbms::UnknownDatabaseException &e) {
           throw QueryRuntimeException(e.what());
         }
@@ -1194,7 +1359,8 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
           if (database != memgraph::auth::kAllDatabases) {
             db = db_handler->Get(database);  // Will throw if databases doesn't exist and protect it during pull
           }
-          auth->RevokeDatabase(database, username, &*interpreter->system_transaction_);  // Can throws query exception
+          auth->RevokeDatabase(database, username,
+                               &*interpreter->system_transaction_);  // Can throws query exception
         } catch (memgraph::dbms::UnknownDatabaseException &e) {
           throw QueryRuntimeException(e.what());
         }
@@ -1227,7 +1393,8 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         try {
           const auto db =
               db_handler->Get(database);  // Will throw if databases doesn't exist and protect it during pull
-          auth->SetMainDatabase(database, username, &*interpreter->system_transaction_);  // Can throws query exception
+          auth->SetMainDatabase(database, username,
+                                &*interpreter->system_transaction_);  // Can throws query exception
         } catch (memgraph::dbms::UnknownDatabaseException &e) {
           throw QueryRuntimeException(e.what());
         }
@@ -1915,7 +2082,7 @@ Callback::CallbackFunction GetKafkaCreateCallback(StreamQuery *stream_query, Exp
   memgraph::metrics::IncrementCounter(memgraph::metrics::StreamsCreated);
 
   // Make a copy of the user and pass it to the subsystem
-  auto owner = interpreter_context->auth_checker->GenQueryUser(user_or_role->username(), user_or_role->rolename());
+  auto owner = interpreter_context->auth_checker->GenQueryUser(user_or_role->username(), user_or_role->rolenames());
 
   return [db_acc = std::move(db_acc), interpreter_context, stream_name = stream_query->stream_name_,
           topic_names = EvaluateTopicNames(evaluator, stream_query->topic_names_),
@@ -1951,7 +2118,7 @@ Callback::CallbackFunction GetPulsarCreateCallback(StreamQuery *stream_query, Ex
   memgraph::metrics::IncrementCounter(memgraph::metrics::StreamsCreated);
 
   // Make a copy of the user and pass it to the subsystem
-  auto owner = interpreter_context->auth_checker->GenQueryUser(user_or_role->username(), user_or_role->rolename());
+  auto owner = interpreter_context->auth_checker->GenQueryUser(user_or_role->username(), user_or_role->rolenames());
 
   return [db = std::move(db), interpreter_context, stream_name = stream_query->stream_name_,
           topic_names = EvaluateTopicNames(evaluator, stream_query->topic_names_),
@@ -3971,14 +4138,23 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
 #endif
 
 PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                               InterpreterContext *interpreter_context, Interpreter &interpreter) {
+                               InterpreterContext *interpreter_context, Interpreter &interpreter,
+                               std::optional<memgraph::dbms::DatabaseAccess> db_acc) {
   if (in_explicit_transaction) {
     throw UserModificationInMulticommandTxException();
   }
 
   auto *auth_query = utils::Downcast<AuthQuery>(parsed_query.query);
 
-  auto callback = HandleAuthQuery(auth_query, interpreter_context, parsed_query.parameters, interpreter);
+  // Special case for SHOW CURRENT USER and SHOW CURRENT ROLE
+  auto target_db = std::string{dbms::kSystemDB};
+  if (auth_query->action_ == AuthQuery::Action::SHOW_CURRENT_USER ||
+      auth_query->action_ == AuthQuery::Action::SHOW_CURRENT_ROLE) {
+    target_db = db_acc ? db_acc->get()->name() : "";
+  }
+
+  auto callback =
+      HandleAuthQuery(auth_query, interpreter_context, parsed_query.parameters, interpreter, std::move(db_acc));
 
   return PreparedQuery{
       std::move(callback.header), std::move(parsed_query.required_privileges),
@@ -3995,7 +4171,7 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
         }
         return std::nullopt;
       },
-      RWType::NONE};
+      RWType::NONE, target_db};
 }
 
 PreparedQuery PrepareReplicationQuery(
@@ -4031,7 +4207,7 @@ PreparedQuery PrepareReplicationQuery(
                          }
                          return std::nullopt;
                        },
-                       RWType::NONE};
+                       RWType::NONE, std::string(dbms::kSystemDB)};
   // False positive report for the std::make_shared above
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
 }
@@ -4232,18 +4408,18 @@ TriggerEventType ToTriggerEventType(const TriggerQuery::EventType event_type) {
 
 Callback CreateTrigger(TriggerQuery *trigger_query, const storage::ExternalPropertyValue::map_t &user_parameters,
                        TriggerStore *trigger_store, InterpreterContext *interpreter_context, DbAccessor *dba,
-                       std::shared_ptr<QueryUserOrRole> user_or_role) {
+                       std::shared_ptr<QueryUserOrRole> user_or_role, const std::string &db_name) {
   // Make a copy of the user and pass it to the subsystem
-  auto owner = interpreter_context->auth_checker->GenQueryUser(user_or_role->username(), user_or_role->rolename());
+  auto owner = interpreter_context->auth_checker->GenQueryUser(user_or_role->username(), user_or_role->rolenames());
   return {{},
           [trigger_name = std::move(trigger_query->trigger_name_),
            trigger_statement = std::move(trigger_query->statement_), event_type = trigger_query->event_type_,
            before_commit = trigger_query->before_commit_, trigger_store, interpreter_context, dba, user_parameters,
-           owner = std::move(owner)]() mutable -> std::vector<std::vector<TypedValue>> {
+           owner = std::move(owner), db_name]() mutable -> std::vector<std::vector<TypedValue>> {
             trigger_store->AddTrigger(
                 std::move(trigger_name), trigger_statement, user_parameters, ToTriggerEventType(event_type),
                 before_commit ? TriggerPhase::BEFORE_COMMIT : TriggerPhase::AFTER_COMMIT,
-                &interpreter_context->ast_cache, dba, interpreter_context->config.query, std::move(owner));
+                &interpreter_context->ast_cache, dba, interpreter_context->config.query, std::move(owner), db_name);
             memgraph::metrics::IncrementCounter(memgraph::metrics::TriggersCreated);
             return {};
           }};
@@ -4301,12 +4477,13 @@ PreparedQuery PrepareTriggerQuery(ParsedQuery parsed_query, bool in_explicit_tra
 
   auto callback = std::invoke([trigger_query, trigger_store, interpreter_context, dba,
                                user_parameters = parsed_query.user_parameters, owner = std::move(user_or_role),
-                               &trigger_notification]() mutable {
+                               &trigger_notification, db_name = current_db.db_acc_->get()->name()]() mutable {
     switch (trigger_query->action_) {
       case TriggerQuery::Action::CREATE_TRIGGER:
         trigger_notification.emplace(SeverityLevel::INFO, NotificationCode::CREATE_TRIGGER,
                                      fmt::format("Created trigger {}.", trigger_query->trigger_name_));
-        return CreateTrigger(trigger_query, user_parameters, trigger_store, interpreter_context, dba, std::move(owner));
+        return CreateTrigger(trigger_query, user_parameters, trigger_store, interpreter_context, dba, std::move(owner),
+                             db_name);
       case TriggerQuery::Action::DROP_TRIGGER:
         trigger_notification.emplace(SeverityLevel::INFO, NotificationCode::DROP_TRIGGER,
                                      fmt::format("Dropped trigger {}.", trigger_query->trigger_name_));
@@ -5646,8 +5823,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
                 case dbms::NewError::DEFUNCT:
                   throw QueryRuntimeException(
                       "{} is defunct and in an unknown state. Try to delete it again or clean up storage and restart "
-                      "Memgraph.",
-                      db_name);
+                      "Memgraph.");
                 case dbms::NewError::GENERIC:
                   throw QueryRuntimeException("Failed while creating {}", db_name);
                 case dbms::NewError::NO_CONFIGS:
@@ -5664,8 +5840,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
             return std::nullopt;
           },
           RWType::W,
-          ""  // No target DB possible
-      };
+          std::string(dbms::kSystemDB)};
     }
     case MultiDatabaseQuery::Action::DROP: {
       if (is_replica) {
@@ -5790,26 +5965,23 @@ PreparedQuery PrepareShowDatabaseQuery(ParsedQuery parsed_query, CurrentDB &curr
         "INFO.");
   }
 
-  return PreparedQuery{
-      {"Current"},
-      std::move(parsed_query.required_privileges),
-      [db_acc = current_db.db_acc_, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
-          AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-        if (!pull_plan) {
-          std::vector<std::vector<TypedValue>> results;
-          auto db_name = db_acc ? TypedValue{db_acc->get()->storage()->name()} : TypedValue{};
-          results.push_back({std::move(db_name)});
-          pull_plan = std::make_shared<PullPlanVector>(std::move(results));
-        }
+  return PreparedQuery{{"Current"},
+                       std::move(parsed_query.required_privileges),
+                       [db_acc = current_db.db_acc_, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+                         if (!pull_plan) {
+                           std::vector<std::vector<TypedValue>> results;
+                           auto db_name = db_acc ? TypedValue{db_acc->get()->storage()->name()} : TypedValue{};
+                           results.push_back({std::move(db_name)});
+                           pull_plan = std::make_shared<PullPlanVector>(std::move(results));
+                         }
 
-        if (pull_plan->Pull(stream, n)) {
-          return QueryHandlerResult::NOTHING;
-        }
-        return std::nullopt;
-      },
-      RWType::NONE,
-      ""  // No target DB
-  };
+                         if (pull_plan->Pull(stream, n)) {
+                           return QueryHandlerResult::NOTHING;
+                         }
+                         return std::nullopt;
+                       },
+                       RWType::NONE};
 #else
   // here to satisfy clang-tidy
   (void)parsed_query;
@@ -5859,7 +6031,7 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
       gen_status(db_handler->All(), std::vector<TypedValue>{});
     } else {
       // User has a subset of accessible dbs; this is synched with the SessionContextHandler
-      const auto &db_priv = auth->GetDatabasePrivileges(user_or_role->key());
+      const auto &db_priv = auth->GetDatabasePrivileges(user_or_role->username().value(), user_or_role->rolenames());
       const auto &allowed = db_priv[0][0];
       const auto &denied = db_priv[0][1].ValueList();
       if (allowed.IsString() && allowed.ValueString() == auth::kAllDatabases) {
@@ -5873,23 +6045,20 @@ PreparedQuery PrepareShowDatabasesQuery(ParsedQuery parsed_query, InterpreterCon
     return status;
   };
 
-  return PreparedQuery{
-      std::move(callback.header), std::move(parsed_query.required_privileges),
-      [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
-          AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-        if (!pull_plan) {
-          auto results = handler();
-          pull_plan = std::make_shared<PullPlanVector>(std::move(results));
-        }
+  return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
+                       [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+                         if (!pull_plan) {
+                           auto results = handler();
+                           pull_plan = std::make_shared<PullPlanVector>(std::move(results));
+                         }
 
-        if (pull_plan->Pull(stream, n)) {
-          return QueryHandlerResult::NOTHING;
-        }
-        return std::nullopt;
-      },
-      RWType::NONE,
-      ""  // No target DB
-  };
+                         if (pull_plan->Pull(stream, n)) {
+                           return QueryHandlerResult::NOTHING;
+                         }
+                         return std::nullopt;
+                       },
+                       RWType::NONE};
 #else
   throw EnterpriseOnlyException();
 #endif
@@ -5924,25 +6093,24 @@ PreparedQuery PrepareCreateEnumQuery(ParsedQuery parsed_query, CurrentDB &curren
 }
 
 PreparedQuery PrepareShowEnumsQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
-  return PreparedQuery{
-      {"Enum Name", "Enum Values"},
-      std::move(parsed_query.required_privileges),
-      [dba = *current_db.execution_db_accessor_, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
-          AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-        if (!pull_plan) {
-          auto enums = dba.ShowEnums();
-          auto to_row = [](auto &&p) { return std::vector{TypedValue{p.first}, TypedValue{p.second}}; };
-          pull_plan = std::make_shared<PullPlanVector>(enums | rv::transform(to_row) | r::to_vector);
-        }
+  return PreparedQuery{{"Enum Name", "Enum Values"},
+                       std::move(parsed_query.required_privileges),
+                       [dba = *current_db.execution_db_accessor_, pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+                         if (!pull_plan) {
+                           auto enums = dba.ShowEnums();
+                           auto to_row = [](auto &&p) {
+                             return std::vector{TypedValue{p.first}, TypedValue{p.second}};
+                           };
+                           pull_plan = std::make_shared<PullPlanVector>(enums | rv::transform(to_row) | r::to_vector);
+                         }
 
-        if (pull_plan->Pull(stream, n)) {
-          return QueryHandlerResult::COMMIT;
-        }
-        return std::nullopt;
-      },
-      RWType::NONE,
-      ""  // No target DB
-  };
+                         if (pull_plan->Pull(stream, n)) {
+                           return QueryHandlerResult::COMMIT;
+                         }
+                         return std::nullopt;
+                       },
+                       RWType::NONE};
 }
 
 PreparedQuery PrepareEnumAlterAddQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
@@ -6219,7 +6387,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
                          }
                          return std::nullopt;
                        },
-                       RWType::R, current_db.db_acc_->get()->name()};
+                       RWType::R};
 }
 
 std::optional<uint64_t> Interpreter::GetTransactionId() const { return current_transaction_; }
@@ -6619,7 +6787,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       prepared_query = PrepareAnalyzeGraphQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<AuthQuery>(parsed_query.query)) {
       /// SYSTEM (Replication) PURE
-      prepared_query = PrepareAuthQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_, *this);
+      prepared_query = PrepareAuthQuery(std::move(parsed_query), in_explicit_transaction_, interpreter_context_, *this,
+                                        current_db_.db_acc_);
     } else if (utils::Downcast<DatabaseInfoQuery>(parsed_query.query)) {
       prepared_query = PrepareDatabaseInfoQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<SystemInfoQuery>(parsed_query.query)) {
@@ -6814,7 +6983,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 }
 
 void Interpreter::CheckAuthorized(std::vector<AuthQuery::Privilege> const &privileges, std::optional<std::string> db) {
-  const std::string db_name = db ? *db : "";
+  const std::string db_name = db.value_or("");
   if (user_or_role_ && !user_or_role_->IsAuthorized(privileges, db_name, &query::session_long_policy)) {
     Abort();
     if (db_name.empty()) {
@@ -7104,7 +7273,7 @@ void Interpreter::Commit() {
       QueryAllocator execution_memory{};
       AdvanceCommand();
       try {
-        trigger.Execute(&*current_db_.execution_db_accessor_, current_db_.db_acc_, execution_memory.resource(),
+        trigger.Execute(&*current_db_.execution_db_accessor_, *current_db_.db_acc_, execution_memory.resource(),
                         flags::run_time::GetExecutionTimeout(), &interpreter_context_->is_shutting_down,
                         &transaction_status_, *trigger_context);
       } catch (const utils::BasicException &e) {
@@ -7255,7 +7424,11 @@ void Interpreter::SetSessionIsolationLevel(const storage::IsolationLevel isolati
 void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role) {
   user_or_role_ = std::move(user_or_role);
   if (query_logger_) {
-    query_logger_->SetUser(user_or_role_->key());
+    std::string username;
+    if (user_or_role_ && user_or_role_->username()) {
+      username = user_or_role_->username().value();
+    }
+    query_logger_->SetUser(username);
   }
 }
 

@@ -34,31 +34,30 @@ extern struct UpToDatePolicy : UserPolicy {
 } up_to_date_policy;
 
 struct QueryUserOrRole {
-  QueryUserOrRole(std::optional<std::string> username, std::optional<std::string> rolename)
-      : username_{std::move(username)}, rolename_{std::move(rolename)} {}
+  QueryUserOrRole(std::optional<std::string> username, std::vector<std::string> rolenames)
+      : username_{std::move(username)}, rolenames_{std::move(rolenames)} {}
   virtual ~QueryUserOrRole() = default;
 
   virtual bool IsAuthorized(const std::vector<AuthQuery::Privilege> &privileges, std::string_view db_name,
                             UserPolicy *policy) const = 0;
 
+  virtual std::vector<std::string> GetRolenames(std::optional<std::string> db_name) const = 0;
+
 #ifdef MG_ENTERPRISE
-  virtual bool CanImpersonate(const std::string &target, UserPolicy *policy) const = 0;
+  virtual bool CanImpersonate(const std::string &target, UserPolicy *policy,
+                              std::optional<std::string_view> db_name = std::nullopt) const = 0;
   virtual std::string GetDefaultDB() const = 0;
 #endif
 
-  std::string key() const {
-    // NOTE: Each role has an associated username, that's why we check it with higher priority
-    return rolename_ ? *rolename_ : (username_ ? *username_ : "");
-  }
   const std::optional<std::string> &username() const { return username_; }
-  const std::optional<std::string> &rolename() const { return rolename_; }
+  const std::vector<std::string> &rolenames() const { return rolenames_; }
 
   bool operator==(const QueryUserOrRole &other) const = default;
   operator bool() const { return username_.has_value(); }
 
  protected:
   std::optional<std::string> username_;
-  std::optional<std::string> rolename_;
+  std::vector<std::string> rolenames_;
 };
 
 }  // namespace memgraph::query
