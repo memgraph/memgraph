@@ -19,3 +19,9 @@ def withouttz() -> mgp.Nullable[str]:
 @mgp.function
 def hello() -> mgp.Nullable[str]:
     return "hello, world"
+
+
+@mgp.function
+def taketz(val):
+    print(val)
+    return str(val)
