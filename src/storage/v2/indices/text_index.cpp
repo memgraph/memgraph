@@ -187,7 +187,7 @@ void TextIndex::UpdateNode(Vertex *vertex_after_update, NameIdMapper *name_id_ma
 
   auto applicable_text_indices = GetApplicableTextIndices(vertex_after_update->labels);
   if (applicable_text_indices.empty()) return;
-  RemoveNode(vertex_after_update, applicable_text_indices);
+  RemoveNode(vertex_after_update, applicable_text_indices);  // TODO: is this needed?
   AddNode(vertex_after_update, name_id_mapper, applicable_text_indices);
 }
 
