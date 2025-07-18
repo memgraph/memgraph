@@ -112,6 +112,10 @@ inline mgp_value *value_make_local_date_time(mgp_local_date_time *val) {
   return MgInvoke<mgp_value *>(mgp_value_make_local_date_time, val);
 }
 
+inline mgp_value *value_make_zoned_date_time(mgp_zoned_date_time *val) {
+  return MgInvoke<mgp_value *>(mgp_value_make_zoned_date_time, val);
+}
+
 inline mgp_value *value_make_duration(mgp_duration *val) { return MgInvoke<mgp_value *>(mgp_value_make_duration, val); }
 
 // Copy value
@@ -708,6 +712,10 @@ inline mgp_local_date_time *local_date_time_copy(mgp_local_date_time *local_date
 
 inline void local_date_time_destroy(mgp_local_date_time *local_date_time) {
   mgp_local_date_time_destroy(local_date_time);
+}
+
+inline void zoned_date_time_destroy(mgp_zoned_date_time *zoned_date_time) {
+  mgp_zoned_date_time_destroy(zoned_date_time);
 }
 
 inline bool local_date_time_equal(mgp_local_date_time *first, mgp_local_date_time *second) {
