@@ -3005,13 +3005,8 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
             PyDateTime_DATE_GET_MICROSECOND(o) %  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
             1000};
 
-    // TimeZone is None if this is a local datetime, and set to a `tzinfo`
-    // if this is a zoned datetime
-    // @TODO is this auto decrement correct?
-    py::Object tzinfo{PyDateTime_DATE_GET_TZINFO(o)};
-
-    if (!Py_IsNone(tzinfo.Ptr())) {
-      py::Object offset{PyObject_CallMethod(tzinfo.Ptr(), const_cast<char *>("utcoffset"), const_cast<char *>("O"), o)};
+    if (PyObject *tzinfo = PyDateTime_DATE_GET_TZINFO(o); !Py_IsNone(tzinfo)) {
+      py::Object offset{PyObject_CallMethod(tzinfo, const_cast<char *>("utcoffset"), const_cast<char *>("O"), o)};
       if (!offset) {
         throw std::runtime_error{"Cannot read timezone offset"};
       }
