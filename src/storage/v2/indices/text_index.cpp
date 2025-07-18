@@ -211,7 +211,7 @@ void TextIndex::UpdateOnRemoveLabel(LabelId label, Vertex *vertex) {
 void TextIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
                                     NameIdMapper *name_id_mapper) {
   // TODO: This will get extended to handle specific properties in the future.
-  AddNode(vertex, name_id_mapper);
+  UpdateNode(vertex, name_id_mapper);
 }
 
 void TextIndex::RemoveNode(
