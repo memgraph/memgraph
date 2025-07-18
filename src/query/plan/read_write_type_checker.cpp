@@ -25,6 +25,7 @@ PRE_VISIT(CreateExpand, RWType::RW, false)
 PRE_VISIT(Delete, RWType::W, true)
 
 PRE_VISIT(SetProperty, RWType::W, true)
+PRE_VISIT(SetNestedProperty, RWType::W, true)
 PRE_VISIT(SetProperties, RWType::W, true)
 PRE_VISIT(SetLabels, RWType::W, true)
 

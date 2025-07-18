@@ -252,6 +252,9 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
 
   bool PostVisit(PeriodicSubquery & /*op*/) override { return true; }
 
+  bool PreVisit(SetNestedProperty & /*unused*/) override { return true; }
+  bool PostVisit(SetNestedProperty & /*op*/) override { return true; }
+
  private:
   const SymbolTable &symbol_table_;
   std::vector<std::string> hints_;
