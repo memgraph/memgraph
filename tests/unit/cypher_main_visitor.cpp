@@ -6016,3 +6016,20 @@ TEST_P(CypherMainVisitorTest, ExistsSubqueries) {
     ASSERT_EQ(union_single_query->clauses_.size(), 1);
   }
 }
+
+TEST_P(CypherMainVisitorTest, UseUniqueLock) {
+  auto &ast_generator = *GetParam();
+  {
+    const auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) MATCH (m) CREATE (n)-[:TYPE]->(m);"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_FALSE(query->pre_query_directives_.use_unique_lock_);
+  }
+
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("USING UNIQUE LOCK MATCH (n) MATCH (m) CREATE (n)-[:TYPE]->(m);"));
+    ASSERT_NE(query, nullptr);
+    ASSERT_TRUE(query->pre_query_directives_.use_unique_lock_);
+  }
+}
