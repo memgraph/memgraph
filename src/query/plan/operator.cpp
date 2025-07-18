@@ -2964,10 +2964,6 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
                                                     const TypedValue &total_weight, int64_t depth) {
       auto const &next_vertex = direction == EdgeAtom::Direction::IN ? edge.From() : edge.To();
 
-      spdlog::debug(
-          "Expanding vertex {} with edge {} and weight {} at depth {}", next_vertex.Gid().AsInt(), edge.Gid().AsInt(),
-          total_weight.IsNull() ? 0 : (total_weight.IsDouble() ? total_weight.ValueDouble() : total_weight.ValueInt()),
-          depth);
       // Evaluate current weight
       frame[self_.weight_lambda_->inner_edge_symbol] = edge;
       frame[self_.weight_lambda_->inner_node_symbol] = next_vertex;
@@ -3200,7 +3196,6 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         if (vertex_value.IsNull()) continue;
 
         start_vertex = vertex_value.ValueVertex();
-        spdlog::debug("Pulling vertex {} for expansion", start_vertex->Gid().AsInt());
         if (self_.common_.existing_node) {
           const auto &node = frame[self_.common_.node_symbol];
           // Due to optional matching the existing node could be null.
