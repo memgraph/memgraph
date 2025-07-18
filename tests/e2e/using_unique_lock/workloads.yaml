@@ -1,0 +1,14 @@
+using_unique_lock_cluster: &using_unique_lock_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--storage-access-timeout-sec=60"]
+      log_file: "using_unique_lock.log"
+      setup_queries: []
+      validation_queries: []
+
+
+workloads:
+  - name: "Using unique lock"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["using_unique_lock/using_unique_lock.py"]
+    <<: *using_unique_lock_cluster

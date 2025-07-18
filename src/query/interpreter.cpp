@@ -2620,7 +2620,8 @@ bool IsQueryWrite(const query::plan::ReadWriteTypeChecker::RWType query_type) {
 void AccessorCompliance(PlanWrapper &plan, DbAccessor &dba) {
   const auto rw_type = plan.rw_type();
   if (rw_type == RWType::W || rw_type == RWType::RW) {
-    if (dba.type() != storage::Storage::Accessor::Type::WRITE) {
+    if (dba.type() != storage::Storage::Accessor::Type::WRITE &&
+        dba.type() != storage::Storage::Accessor::Type::UNIQUE) {
       throw QueryRuntimeException("Accessor type {} and query type {} are misaligned!", dba.type(), rw_type);
     }
   }
@@ -6568,11 +6569,21 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   void Visit(ShowSchemaInfoQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::READ; }
 
   // Write access required
-  void Visit(CypherQuery &) override {
+  void Visit(CypherQuery &cypher_query) override {
     could_commit_ = true;
-    accessor_type_ = cypher_access_type();
+    if (cypher_query.pre_query_directives_.use_unique_lock_) {
+      accessor_type_ = storage::Storage::Accessor::Type::UNIQUE;
+    } else {
+      accessor_type_ = cypher_access_type();
+    }
   }
-  void Visit(ProfileQuery &) override { accessor_type_ = cypher_access_type(); }
+  void Visit(ProfileQuery &profile_query) override {
+    if (profile_query.cypher_query_->pre_query_directives_.use_unique_lock_) {
+      accessor_type_ = storage::Storage::Accessor::Type::UNIQUE;
+    } else {
+      accessor_type_ = cypher_access_type();
+    }
+  }
   void Visit(TriggerQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::WRITE; }
 
   // Complex access logic

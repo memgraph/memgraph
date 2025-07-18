@@ -1878,6 +1878,8 @@ struct PreQueryDirectives {
   /// Commit frequency
   memgraph::query::Expression *commit_frequency_{nullptr};
 
+  bool use_unique_lock_{false};
+
   PreQueryDirectives Clone(AstStorage *storage) const {
     PreQueryDirectives object;
     object.index_hints_.resize(index_hints_.size());
@@ -1886,6 +1888,7 @@ struct PreQueryDirectives {
     }
     object.hops_limit_ = hops_limit_ ? hops_limit_->Clone(storage) : nullptr;
     object.commit_frequency_ = commit_frequency_ ? commit_frequency_->Clone(storage) : nullptr;
+    object.use_unique_lock_ = use_unique_lock_;
     return object;
   }
 };

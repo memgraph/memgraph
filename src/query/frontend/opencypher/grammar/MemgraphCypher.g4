@@ -331,7 +331,7 @@ foreach :  FOREACH '(' variable IN expression '|' updateClause+  ')' ;
 
 preQueryDirectives: USING preQueryDirective ( ',' preQueryDirective )* ;
 
-preQueryDirective: hopsLimit | indexHints  | periodicCommit ;
+preQueryDirective: hopsLimit | indexHints  | periodicCommit | useUniqueLock ;
 
 hopsLimit: HOPS LIMIT literal ;
 
@@ -340,6 +340,8 @@ indexHints: INDEX indexHint ( ',' indexHint )* ;
 indexHint: ':' labelName ( '(' nestedPropertyKeyNames ( ',' nestedPropertyKeyNames )*  ')' )? ;
 
 periodicCommit : PERIODIC COMMIT periodicCommitNumber=literal ;
+
+useUniqueLock : UNIQUE LOCK ;
 
 periodicSubquery : IN TRANSACTIONS OF_TOKEN periodicCommitNumber=literal ROWS ;
 
