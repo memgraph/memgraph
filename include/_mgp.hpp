@@ -170,6 +170,10 @@ inline mgp_local_date_time *value_get_local_date_time(mgp_value *val) {
   return MgInvoke<mgp_local_date_time *>(mgp_value_get_local_date_time, val);
 }
 
+inline mgp_zoned_date_time *value_get_zoned_date_time(mgp_value *val) {
+  return MgInvoke<mgp_zoned_date_time *>(mgp_value_get_zoned_date_time, val);
+}
+
 inline mgp_duration *value_get_duration(mgp_value *val) {
   return MgInvoke<mgp_duration *>(mgp_value_get_duration, val);
 }
@@ -814,6 +818,12 @@ inline mgp_duration *duration_add(mgp_duration *first, mgp_duration *second, mgp
 
 inline mgp_duration *duration_sub(mgp_duration *first, mgp_duration *second, mgp_memory *memory) {
   return MgInvoke<mgp_duration *>(mgp_duration_sub, first, second, memory);
+}
+
+// mgp_zoned_date_time
+
+inline bool zoned_date_time_equal(mgp_zoned_date_time *first, mgp_zoned_date_time *second) {
+  return MgInvoke<int>(mgp_zoned_date_time_equal, first, second);
 }
 
 // Procedure
