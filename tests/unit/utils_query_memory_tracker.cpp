@@ -27,6 +27,8 @@ TEST(MemoryTrackerTest, ExceptionEnabler) {
     vi.reserve(1);
   }
 
+  memgraph::memory::StopTrackingCurrentThread();
+
   // Nothing should happend :)
   // Previously we would deadlock
 #endif

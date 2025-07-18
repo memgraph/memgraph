@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,7 +25,7 @@
 #include "mgp.hpp"
 #include "utils/on_scope_exit.hpp"
 
-enum mgp_error Alloc(mgp_memory *memory, void *ptr) {
+enum mgp_error Alloc(mgp_memory *memory, void *&ptr) {
   const size_t mb_size_512 = 1 << 29;
 
   return mgp_alloc(memory, mb_size_512, (void **)(&ptr));
@@ -33,7 +33,7 @@ enum mgp_error Alloc(mgp_memory *memory, void *ptr) {
 
 // change communication between threads with feature and promise
 std::atomic<int> num_allocations{0};
-void *ptr_;
+void *ptr_ = nullptr;
 
 void AllocFunc(mgp_memory *memory, mgp_graph *graph) {
   try {

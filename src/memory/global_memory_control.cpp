@@ -9,11 +9,9 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <atomic>
 #include <cstdint>
 
 #include "global_memory_control.hpp"
-#include "query_memory_control.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 
@@ -62,10 +60,6 @@ void *my_alloc(extent_hooks_t *extent_hooks, void *new_addr, size_t size, size_t
                unsigned arena_ind) {
   // This needs to be before, to throw exception in case of too big alloc
   if (*commit) [[likely]] {
-    if (IsThreadTracked()) [[unlikely]] {
-      const bool ok = TrackAllocOnCurrentThread(size);
-      if (!ok) return nullptr;
-    }
     // This needs to be here so it doesn't get incremented in case the first TrackAlloc throws an exception
     const bool ok = memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(size));
     if (!ok) return nullptr;
@@ -75,9 +69,6 @@ void *my_alloc(extent_hooks_t *extent_hooks, void *new_addr, size_t size, size_t
   if (ptr == nullptr) [[unlikely]] {
     if (*commit) {
       memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
-      if (IsThreadTracked()) [[unlikely]] {
-        TrackFreeOnCurrentThread(size);
-      }
     }
     return ptr;
   }
@@ -94,10 +85,6 @@ static bool my_dalloc(extent_hooks_t *extent_hooks, void *addr, size_t size, boo
 
   if (committed) [[likely]] {
     memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
-
-    if (IsThreadTracked()) [[unlikely]] {
-      TrackFreeOnCurrentThread(size);
-    }
   }
 
   return false;
@@ -106,9 +93,6 @@ static bool my_dalloc(extent_hooks_t *extent_hooks, void *addr, size_t size, boo
 static void my_destroy(extent_hooks_t *extent_hooks, void *addr, size_t size, bool committed, unsigned arena_ind) {
   if (committed) [[likely]] {
     memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
-    if (IsThreadTracked()) [[unlikely]] {
-      TrackFreeOnCurrentThread(size);
-    }
   }
 
   old_hooks->destroy(extent_hooks, addr, size, committed, arena_ind);
@@ -123,14 +107,8 @@ static bool my_commit(extent_hooks_t *extent_hooks, void *addr, size_t size, siz
   }
 
   [[maybe_unused]] auto blocker = memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker{};
-  if (IsThreadTracked()) [[unlikely]] {
-    [[maybe_unused]] const bool ok = TrackAllocOnCurrentThread(length);
-    DMG_ASSERT(ok);
-  }
-
   [[maybe_unused]] const auto ok = memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(length));
   DMG_ASSERT(ok);
-
   return false;
 }
 
@@ -144,10 +122,6 @@ static bool my_decommit(extent_hooks_t *extent_hooks, void *addr, size_t size, s
   }
 
   memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(length));
-  if (IsThreadTracked()) [[unlikely]] {
-    TrackFreeOnCurrentThread(size);
-  }
-
   return false;
 }
 
@@ -160,11 +134,6 @@ static bool my_purge_forced(extent_hooks_t *extent_hooks, void *addr, size_t siz
     return err;
   }
   memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(length));
-
-  if (IsThreadTracked()) [[unlikely]] {
-    TrackFreeOnCurrentThread(size);
-  }
-
   return false;
 }
 
@@ -178,7 +147,7 @@ void SetHooks() {
 
   sz = sizeof(unsigned);
   unsigned n_arenas{0};
-  int err = mallctl("opt.narenas", (void *)&n_arenas, &sz, nullptr, 0);
+  int err = je_mallctl("opt.narenas", (void *)&n_arenas, &sz, nullptr, 0);
 
   if (err) {
     return;
@@ -193,7 +162,7 @@ void SetHooks() {
 
     size_t hooks_len = sizeof(old_hooks);
 
-    int err = mallctl(func_name.c_str(), &old_hooks, &hooks_len, nullptr, 0);
+    int err = je_mallctl(func_name.c_str(), &old_hooks, &hooks_len, nullptr, 0);
 
     if (err) {
       LOG_FATAL("Error getting hooks for jemalloc arena {}", i);
@@ -202,7 +171,7 @@ void SetHooks() {
     // Due to the way jemalloc works, we need first to set their hooks
     // which will trigger creating arena, then we can set our custom hook wrappers
 
-    err = mallctl(func_name.c_str(), nullptr, nullptr, &old_hooks, sizeof(old_hooks));
+    err = je_mallctl(func_name.c_str(), nullptr, nullptr, &old_hooks, sizeof(old_hooks));
 
     MG_ASSERT(old_hooks);
     MG_ASSERT(old_hooks->alloc);
@@ -223,7 +192,7 @@ void SetHooks() {
       LOG_FATAL("Error setting jemalloc hooks for jemalloc arena {}", i);
     }
 
-    err = mallctl(func_name.c_str(), nullptr, nullptr, &new_hooks, sizeof(new_hooks));
+    err = je_mallctl(func_name.c_str(), nullptr, nullptr, &new_hooks, sizeof(new_hooks));
 
     if (err) {
       LOG_FATAL("Error setting custom hooks for jemalloc arena {}", i);
@@ -241,7 +210,7 @@ void UnsetHooks() {
 
   sz = sizeof(unsigned);
   unsigned n_arenas{0};
-  int err = mallctl("opt.narenas", (void *)&n_arenas, &sz, nullptr, 0);
+  int err = je_mallctl("opt.narenas", (void *)&n_arenas, &sz, nullptr, 0);
 
   if (err) {
     LOG_FATAL("Error setting default hooks for jemalloc arenas");
@@ -261,7 +230,7 @@ void UnsetHooks() {
     MG_ASSERT(old_hooks->split);
     MG_ASSERT(old_hooks->merge);
 
-    err = mallctl(func_name.c_str(), nullptr, nullptr, &old_hooks, sizeof(old_hooks));
+    err = je_mallctl(func_name.c_str(), nullptr, nullptr, &old_hooks, sizeof(old_hooks));
 
     if (err) {
       LOG_FATAL("Error setting default hooks for jemalloc arena {}", i);
@@ -273,7 +242,7 @@ void UnsetHooks() {
 
 void PurgeUnusedMemory() {
 #if USE_JEMALLOC
-  mallctl("arena." STRINGIFY(MALLCTL_ARENAS_ALL) ".purge", nullptr, nullptr, nullptr, 0);
+  je_mallctl("arena." STRINGIFY(MALLCTL_ARENAS_ALL) ".purge", nullptr, nullptr, nullptr, 0);
 #else
   malloc_trim(0);
 #endif

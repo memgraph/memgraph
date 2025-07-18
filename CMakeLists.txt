@@ -213,14 +213,6 @@ add_compile_options(
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
     "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -fno-omit-frame-pointer")
 
-# Statically link libgcc and libstdc++, the GCC allows this according to:
-# https://gcc.gnu.org/onlinedocs/gcc-10.2.0/libstdc++/manual/manual/license.html
-# https://www.gnu.org/licenses/gcc-exception-faq.html
-# Last checked for gcc-10.2 which we are using on the build machines.
-# ** If we change versions, recheck this! **
-# ** Static linking is allowed only for executables! **
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")
-
 # Use lld linker to speedup build and use less memory.
 add_link_options(-fuse-ld=lld)
 if (DEFINED ENV{LD_LIBRARY_PATH})

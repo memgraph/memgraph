@@ -411,17 +411,17 @@ import_header_library(ctre ${CMAKE_CURRENT_SOURCE_DIR})
 set(ABSL_PROPAGATE_CXX_STD ON)
 add_subdirectory(absl EXCLUDE_FROM_ALL)
 
-macro(link_jmalloc)
-  set_path_external_library(jemalloc STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/jemalloc/lib/libjemalloc.a
-    ${CMAKE_CURRENT_SOURCE_DIR}/jemalloc/include/)
-endmacro()
-mg_build_if_needed(link_jmalloc "jemalloc")
-if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
-  if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
-    set_path_external_library(jemalloc STATIC "${MG_TOOLCHAIN_ROOT}/lib/libjemalloc.a" "${MG_TOOLCHAIN_ROOT}/include")
-  endif()
-endif()
+# macro(link_jmalloc)
+set_path_external_library(jemalloc STATIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/jemalloc/lib/libjemalloc.a
+  ${CMAKE_CURRENT_SOURCE_DIR}/jemalloc/include/)
+# endmacro()
+# mg_build_if_needed(link_jmalloc "jemalloc")
+# if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
+#   if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
+#     set_path_external_library(jemalloc STATIC "${MG_TOOLCHAIN_ROOT}/lib/libjemalloc.a" "${MG_TOOLCHAIN_ROOT}/include")
+#   endif()
+# endif()
 
 import_header_library(rangev3 ${CMAKE_CURRENT_SOURCE_DIR}/rangev3/include)
 
