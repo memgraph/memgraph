@@ -682,9 +682,8 @@ void Storage::Accessor::MarkEdgeAsDeleted(Edge *edge) {
 utils::BasicResult<storage::StorageIndexDefinitionError, void> Storage::Accessor::CreateTextIndex(
     const std::string &index_name, LabelId label) {
   MG_ASSERT(type() == UNIQUE, "Creating a text index requires unique access to storage!");
-  auto *mapper = storage_->name_id_mapper_.get();
   try {
-    storage_->indices_.text_index_.CreateIndex(index_name, label, Vertices(View::NEW), mapper);
+    storage_->indices_.text_index_.CreateIndex(index_name, label, Vertices(View::NEW), storage_->name_id_mapper_.get());
     transaction_.md_deltas.emplace_back(MetadataDelta::text_index_create, index_name, label);
     memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextIndices);
   } catch (const query::TextSearchException &e) {

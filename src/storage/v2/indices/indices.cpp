@@ -56,22 +56,26 @@ void Indices::DropGraphClearIndices() {
   text_index_.Clear();
 }
 
-void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) const {
+void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx,
+                               NameIdMapper *name_id_mapper) const {
   tx.active_indices_.label_->UpdateOnAddLabel(label, vertex, tx);
   tx.active_indices_.label_properties_->UpdateOnAddLabel(label, vertex, tx);
   vector_index_.UpdateOnAddLabel(label, vertex);
+  text_index_.UpdateOnAddLabel(label, vertex, name_id_mapper);
 }
 
 void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Transaction &tx) const {
   tx.active_indices_.label_->UpdateOnRemoveLabel(label, vertex, tx);
   tx.active_indices_.label_properties_->UpdateOnRemoveLabel(label, vertex, tx);
   vector_index_.UpdateOnRemoveLabel(label, vertex);
+  text_index_.UpdateOnRemoveLabel(label, vertex);
 }
 
 void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                                  const Transaction &tx) const {
+                                  const Transaction &tx, NameIdMapper *name_id_mapper) const {
   tx.active_indices_.label_properties_->UpdateOnSetProperty(property, value, vertex, tx);
   vector_index_.UpdateOnSetProperty(property, value, vertex);
+  text_index_.UpdateOnSetProperty(property, value, vertex, name_id_mapper);
 }
 
 void Indices::UpdateOnSetProperty(EdgeTypeId edge_type, PropertyId property, const PropertyValue &value,

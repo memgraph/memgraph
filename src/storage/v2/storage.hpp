@@ -355,14 +355,6 @@ class Storage {
       return storage_->indices_.text_index_.IndexExists(index_name);
     }
 
-    void TextIndexAddVertex(const VertexAccessor &vertex) {
-      storage_->indices_.text_index_.AddNode(vertex.vertex_, storage_->name_id_mapper_.get());
-    }
-
-    void TextIndexUpdateVertex(const VertexAccessor &vertex, const std::vector<LabelId> &removed_labels = {}) {
-      storage_->indices_.text_index_.UpdateNode(vertex.vertex_, storage_->name_id_mapper_.get(), removed_labels);
-    }
-
     std::vector<Gid> TextIndexSearch(const std::string &index_name, const std::string &search_query,
                                      text_search_mode search_mode) const {
       return storage_->indices_.text_index_.Search(index_name, search_query, search_mode);

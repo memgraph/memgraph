@@ -11,7 +11,6 @@
 
 #include "storage/v2/indices/text_index.hpp"
 
-#include "flags/experimental.hpp"
 #include "mgcxx_text_search.hpp"
 #include "query/exceptions.hpp"  // TODO: remove from storage
 #include "storage/v2/id_types.hpp"
@@ -191,6 +190,30 @@ void TextIndex::UpdateNode(Vertex *vertex_after_update, NameIdMapper *name_id_ma
   AddNode(vertex_after_update, name_id_mapper, applicable_text_indices);
 }
 
+void TextIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper) {
+  if (!label_to_index_.contains(label)) return;
+
+  auto applicable_text_indices = GetApplicableTextIndices(std::array{label});
+  if (applicable_text_indices.empty()) return;
+
+  AddNode(vertex, name_id_mapper, applicable_text_indices);
+}
+
+void TextIndex::UpdateOnRemoveLabel(LabelId label, Vertex *vertex) {
+  if (!label_to_index_.contains(label)) return;
+
+  auto applicable_text_indices = GetApplicableTextIndices(std::array{label});
+  if (applicable_text_indices.empty()) return;
+
+  RemoveNode(vertex, applicable_text_indices);
+}
+
+void TextIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
+                                    NameIdMapper *name_id_mapper) {
+  // TODO: This will get extended to handle specific properties in the future.
+  AddNode(vertex, name_id_mapper);
+}
+
 void TextIndex::RemoveNode(
     Vertex *vertex_after_update,
     const std::optional<std::vector<mgcxx::text_search::Context *>> &maybe_applicable_text_indices) {
@@ -208,7 +231,7 @@ void TextIndex::RemoveNode(
 }
 
 void TextIndex::CreateIndex(std::string const &index_name, LabelId label, storage::VerticesIterable vertices,
-                            NameIdMapper *nameIdMapper) {
+                            NameIdMapper *name_id_mapper) {
   CreateEmptyIndex(index_name, label);
 
   for (const auto &v : vertices) {
@@ -217,7 +240,7 @@ void TextIndex::CreateIndex(std::string const &index_name, LabelId label, storag
     }
 
     auto vertex_properties = v.Properties(View::NEW).GetValue();
-    LoadNodeToTextIndices(v.Gid().AsInt(), SerializeProperties(vertex_properties, nameIdMapper),
+    LoadNodeToTextIndices(v.Gid().AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
                           StringifyProperties(vertex_properties), {&index_.at(index_name).context_});
   }
 
