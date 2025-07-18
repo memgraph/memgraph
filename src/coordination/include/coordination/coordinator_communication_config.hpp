@@ -17,7 +17,6 @@
 #include "io/network/endpoint.hpp"
 #include "kvstore/kvstore.hpp"
 #include "replication_coordination_glue/mode.hpp"
-#include "utils/string.hpp"
 #include "utils/uuid.hpp"
 
 #include <chrono>

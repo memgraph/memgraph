@@ -92,12 +92,12 @@ TYPED_TEST(InfoTest, InfoCheck) {
     {
       auto unique_acc = this->storage->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateExistenceConstraint(lbl, prop).HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
     }
     {
       auto unique_acc = this->storage->UniqueAccess();
       ASSERT_FALSE(unique_acc->DropExistenceConstraint(lbl, prop).HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
     }
 
     auto acc = this->storage->Access();
@@ -116,67 +116,67 @@ TYPED_TEST(InfoTest, InfoCheck) {
     ASSERT_FALSE(acc->CreateEdge(&v1, &v2, et).HasError());
     ASSERT_FALSE(acc->CreateEdge(&v4, &v3, et).HasError());
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
   }
 
   {
     auto acc = this->CreateIndexAccessor();
     ASSERT_FALSE(acc->CreateIndex(lbl).HasError());
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
   }
   {
     auto acc = this->CreateIndexAccessor();
     ASSERT_FALSE(acc->CreateIndex(lbl, {prop}).HasError());
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
   }
   {
     auto acc = this->CreateIndexAccessor();
     ASSERT_FALSE(acc->CreateIndex(lbl, {prop2}).HasError());
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
   }
   if constexpr (!is_using_disk_storage) {
     {
       auto acc = this->CreateIndexAccessor();
       ASSERT_FALSE(acc->CreateIndex(lbl, {prop, prop2}).HasError());
-      ASSERT_FALSE(acc->Commit().HasError());
+      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
     }
     {
       auto acc = this->CreateIndexAccessor();
       ASSERT_FALSE(acc->CreateIndex(lbl, {prop2, prop}).HasError());
-      ASSERT_FALSE(acc->Commit().HasError());
+      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
     }
   }
   {
     auto acc = this->DropIndexAccessor();
     ASSERT_FALSE(acc->DropIndex(lbl, {prop}).HasError());
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
   }
   if constexpr (!is_using_disk_storage) {
     auto acc = this->DropIndexAccessor();
     ASSERT_FALSE(acc->DropIndex(lbl, {prop, prop2}).HasError());
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
   }
 
   {
     auto unique_acc = this->storage->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateUniqueConstraint(lbl, {prop2}).HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
   }
   {
     auto unique_acc = this->storage->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateUniqueConstraint(lbl2, {prop}).HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
   }
   {
     auto unique_acc = this->storage->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateUniqueConstraint(lbl3, {prop}).HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
   }
   {
     auto unique_acc = this->storage->UniqueAccess();
     ASSERT_EQ(unique_acc->DropUniqueConstraint(lbl, {prop2}),
               memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS);
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
   }
 
   StorageInfo info = this->storage->GetInfo();

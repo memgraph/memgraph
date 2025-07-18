@@ -631,9 +631,11 @@ antlrcpp::Any CypherMainVisitor::visitRegisterReplica(MemgraphCypher::RegisterRe
   replication_query->action_ = ReplicationQuery::Action::REGISTER_REPLICA;
   replication_query->instance_name_ = std::any_cast<std::string>(ctx->instanceName()->symbolicName()->accept(this));
   if (ctx->SYNC()) {
-    replication_query->sync_mode_ = memgraph::query::ReplicationQuery::SyncMode::SYNC;
+    replication_query->sync_mode_ = ReplicationQuery::SyncMode::SYNC;
   } else if (ctx->ASYNC()) {
-    replication_query->sync_mode_ = memgraph::query::ReplicationQuery::SyncMode::ASYNC;
+    replication_query->sync_mode_ = ReplicationQuery::SyncMode::ASYNC;
+  } else if (ctx->STRICT_SYNC()) {
+    replication_query->sync_mode_ = ReplicationQuery::SyncMode::STRICT_SYNC;
   }
 
   if (!ctx->socketAddress()->literal()->StringLiteral()) {
@@ -655,6 +657,9 @@ antlrcpp::Any CypherMainVisitor::visitRegisterInstanceOnCoordinator(
   coordinator_query->sync_mode_ = [ctx]() {
     if (ctx->ASYNC()) {
       return CoordinatorQuery::SyncMode::ASYNC;
+    }
+    if (ctx->STRICT_SYNC()) {
+      return CoordinatorQuery::SyncMode::STRICT_SYNC;
     }
     return CoordinatorQuery::SyncMode::SYNC;
   }();
@@ -1555,7 +1560,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
     }
   }
   bool is_standalone_call_procedure = has_call_procedure && single_query->clauses_.size() == 1U;
-  if (!has_update && !has_return && !is_standalone_call_procedure) {
+  if (!has_update && !has_return && !is_standalone_call_procedure && !parsing_exists_subquery_) {
     throw SemanticException("Query should either create or update something, or return results!");
   }
 
@@ -1786,7 +1791,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateRole(MemgraphCypher::CreateRoleConte
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::CREATE_ROLE;
   auth->if_not_exists_ = !!ctx->ifNotExists();
-  auth->role_ = std::any_cast<std::string>(ctx->role->accept(this));
+  auth->roles_ = {std::any_cast<std::string>(ctx->role->accept(this))};
   return auth;
 }
 
@@ -1796,7 +1801,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateRole(MemgraphCypher::CreateRoleConte
 antlrcpp::Any CypherMainVisitor::visitDropRole(MemgraphCypher::DropRoleContext *ctx) {
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::DROP_ROLE;
-  auth->role_ = std::any_cast<std::string>(ctx->role->accept(this));
+  auth->roles_ = {std::any_cast<std::string>(ctx->role->accept(this))};
   return auth;
 }
 
@@ -1879,6 +1884,15 @@ antlrcpp::Any CypherMainVisitor::visitShowCurrentUser(MemgraphCypher::ShowCurren
 /**
  * @return AuthQuery*
  */
+antlrcpp::Any CypherMainVisitor::visitShowCurrentRole(MemgraphCypher::ShowCurrentRoleContext * /*ctx*/) {
+  auto *auth = storage_->Create<AuthQuery>();
+  auth->action_ = AuthQuery::Action::SHOW_CURRENT_ROLE;
+  return auth;
+}
+
+/**
+ * @return AuthQuery*
+ */
 antlrcpp::Any CypherMainVisitor::visitShowUsers(MemgraphCypher::ShowUsersContext *ctx) {
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::SHOW_USERS;
@@ -1892,7 +1906,13 @@ antlrcpp::Any CypherMainVisitor::visitSetRole(MemgraphCypher::SetRoleContext *ct
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::SET_ROLE;
   auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
-  auth->role_ = std::any_cast<std::string>(ctx->role->accept(this));
+  auth->roles_ = std::any_cast<std::vector<std::string>>(ctx->roles->accept(this));
+  // Optionally limit the role to specific databases
+  if (ctx->db) {
+    auto db_names = std::any_cast<std::vector<std::string>>(ctx->db->accept(this));
+    auth->role_databases_ = std::unordered_set<std::string>(std::make_move_iterator(db_names.begin()),
+                                                            std::make_move_iterator(db_names.end()));
+  }
   return auth;
 }
 
@@ -1903,6 +1923,12 @@ antlrcpp::Any CypherMainVisitor::visitClearRole(MemgraphCypher::ClearRoleContext
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::CLEAR_ROLE;
   auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
+  // Optionally limit the role to specific databases
+  if (ctx->db) {
+    auto db_names = std::any_cast<std::vector<std::string>>(ctx->db->accept(this));
+    auth->role_databases_ = std::unordered_set<std::string>(std::make_move_iterator(db_names.begin()),
+                                                            std::make_move_iterator(db_names.end()));
+  }
   return auth;
 }
 
@@ -2174,6 +2200,21 @@ antlrcpp::Any CypherMainVisitor::visitShowPrivileges(MemgraphCypher::ShowPrivile
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::SHOW_PRIVILEGES;
   auth->user_or_role_ = std::any_cast<std::string>(ctx->userOrRole->accept(this));
+
+  // Handle optional ON clause
+  if (ctx->ON()) {
+    if (ctx->DATABASE()) {
+      auth->database_specification_ = AuthQuery::DatabaseSpecification::DATABASE;
+      auth->database_ = std::any_cast<std::string>(ctx->db->accept(this));
+    } else if (ctx->MAIN()) {
+      auth->database_specification_ = AuthQuery::DatabaseSpecification::MAIN;
+    } else if (ctx->CURRENT()) {
+      auth->database_specification_ = AuthQuery::DatabaseSpecification::CURRENT;
+    }
+  } else {
+    auth->database_specification_ = AuthQuery::DatabaseSpecification::NONE;
+  }
+
   return auth;
 }
 
@@ -2184,6 +2225,19 @@ antlrcpp::Any CypherMainVisitor::visitShowRoleForUser(MemgraphCypher::ShowRoleFo
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::SHOW_ROLE_FOR_USER;
   auth->user_ = std::any_cast<std::string>(ctx->user->accept(this));
+
+  // Handle optional ON clause
+  if (ctx->ON()) {
+    if (ctx->DATABASE()) {
+      auth->database_specification_ = AuthQuery::DatabaseSpecification::DATABASE;
+      auth->database_ = std::any_cast<std::string>(ctx->db->accept(this));
+    } else if (ctx->MAIN()) {
+      auth->database_specification_ = AuthQuery::DatabaseSpecification::MAIN;
+    } else if (ctx->CURRENT()) {
+      auth->database_specification_ = AuthQuery::DatabaseSpecification::CURRENT;
+    }
+  }
+
   return auth;
 }
 
@@ -2193,7 +2247,7 @@ antlrcpp::Any CypherMainVisitor::visitShowRoleForUser(MemgraphCypher::ShowRoleFo
 antlrcpp::Any CypherMainVisitor::visitShowUsersForRole(MemgraphCypher::ShowUsersForRoleContext *ctx) {
   auto *auth = storage_->Create<AuthQuery>();
   auth->action_ = AuthQuery::Action::SHOW_USERS_FOR_ROLE;
-  auth->role_ = std::any_cast<std::string>(ctx->role->accept(this));
+  auth->roles_ = {std::any_cast<std::string>(ctx->role->accept(this))};
   return auth;
 }
 
@@ -3002,6 +3056,8 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
     return static_cast<Expression *>(storage_->Create<Identifier>(variable));
   } else if (ctx->existsExpression()) {
     return std::any_cast<Expression *>(ctx->existsExpression()->accept(this));
+  } else if (ctx->existsSubquery()) {
+    return std::any_cast<Expression *>(ctx->existsSubquery()->accept(this));
   } else if (ctx->functionInvocation()) {
     return std::any_cast<Expression *>(ctx->functionInvocation()->accept(this));
   } else if (ctx->COALESCE()) {
@@ -3144,13 +3200,75 @@ antlrcpp::Any CypherMainVisitor::visitLiteral(MemgraphCypher::LiteralContext *ct
 
 antlrcpp::Any CypherMainVisitor::visitExistsExpression(MemgraphCypher::ExistsExpressionContext *ctx) {
   auto *exists = storage_->Create<Exists>();
+  // Pattern form: ( ... ) or { ... } with forcePatternPart
   if (ctx->forcePatternPart()) {
-    exists->pattern_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
-    if (exists->pattern_->identifier_) {
+    exists->content_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
+    if (exists->GetPattern()->identifier_) {
       throw SyntaxException("Identifiers are not supported in exists(...).");
     }
   } else {
-    throw SyntaxException("EXISTS supports only a single relation as its input.");
+    throw SyntaxException("EXISTS supports only a single relation or a subquery as its input.");
+  }
+
+  // Ensure only one of pattern_ or subquery_ is set
+  const bool has_pattern = exists->HasPattern();
+  const bool has_subquery = exists->HasSubquery();
+  if ((has_pattern && has_subquery) || (!has_pattern && !has_subquery)) {
+    throw SyntaxException(
+        "EXISTS must have exactly one of pattern or subquery set. Please contact Memgraph support as this scenario "
+        "should not happen!");
+  }
+
+  return static_cast<Expression *>(exists);
+}
+
+antlrcpp::Any CypherMainVisitor::visitExistsSubquery(MemgraphCypher::ExistsSubqueryContext *ctx) {
+  auto *exists = storage_->Create<Exists>();
+  // Pattern form: ( ... ) or { ... } with forcePatternPart
+  if (ctx->forcePatternPart()) {
+    exists->content_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
+    if (exists->GetPattern()->identifier_) {
+      throw SyntaxException("Identifiers are not supported in exists(...).");
+    }
+  } else if (ctx->cypherQuery()) {
+    // Curly-brace subquery form: { cypherQuery }
+    // Set the flag to indicate we are parsing an EXISTS subquery
+    auto old_flag = parsing_exists_subquery_;
+    parsing_exists_subquery_ = true;
+    auto *cypher_query = std::any_cast<CypherQuery *>(ctx->cypherQuery()->accept(this));
+    parsing_exists_subquery_ = old_flag;
+    exists->content_ = cypher_query;
+
+    // 1. There must be at least one clause
+    auto *single_query = cypher_query->single_query_;
+    if (!single_query || single_query->clauses_.empty()) {
+      throw SyntaxException("EXISTS subquery must contain at least one clause.");
+    }
+
+    // 2. Only MATCH, WHERE, WITH, RETURN allowed
+    for (const auto *clause : single_query->clauses_) {
+      const auto &type = clause->GetTypeInfo();
+      if (!(utils::IsSubtype(type, Match::kType) || utils::IsSubtype(type, Where::kType) ||
+            utils::IsSubtype(type, With::kType) || utils::IsSubtype(type, Return::kType))) {
+        throw SyntaxException("Only MATCH, WHERE, WITH, and RETURN clauses are allowed in EXISTS subqueries.");
+      }
+    }
+
+    // 3. No query memory limit
+    if (cypher_query->memory_limit_ != nullptr) {
+      throw SyntaxException("EXISTS subqueries cannot have a query memory limit.");
+    }
+  } else {
+    throw SyntaxException("EXISTS supports only a single relation or a subquery as its input.");
+  }
+
+  // Ensure only one of pattern_ or subquery_ is set
+  const bool has_pattern = exists->HasPattern();
+  const bool has_subquery = exists->HasSubquery();
+  if ((has_pattern && has_subquery) || (!has_pattern && !has_subquery)) {
+    throw SyntaxException(
+        "EXISTS must have exactly one of pattern or subquery set! Please contact Memgraph support as this scenario "
+        "should not happen!");
   }
 
   return static_cast<Expression *>(exists);

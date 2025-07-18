@@ -156,13 +156,12 @@ struct EdgeInfoForDeletion {
   std::unordered_set<Vertex *> partial_dest_vertices{};
 };
 
-struct CommitReplArgs {
-  // REPLICA on recipt of Deltas will have a desired commit timestamp
-  std::optional<uint64_t> desired_commit_timestamp = std::nullopt;
-
-  bool is_main = true;
-
-  bool IsMain() const { return is_main; }
+struct CommitReplicationArgs {
+  // REPLICA on receipt of Deltas will have a desired commit timestamp
+  std::optional<uint64_t> desired_commit_timestamp{std::nullopt};
+  bool is_main{true};
+  // nullopt if main, true for SYNC/ASYNC replica, false for STRICT_SYNC replica
+  std::optional<bool> commit_immediately{std::nullopt};
 };
 
 class Storage {
@@ -381,11 +380,11 @@ class Storage {
     virtual ConstraintsInfo ListAllConstraints() const = 0;
 
     // NOLINTNEXTLINE(google-default-arguments)
-    virtual utils::BasicResult<StorageManipulationError, void> Commit(CommitReplArgs reparg = {},
-                                                                      DatabaseAccessProtector db_acc = {}) = 0;
+    virtual utils::BasicResult<StorageManipulationError, void> PrepareForCommitPhase(
+        CommitReplicationArgs reparg = {}, DatabaseAccessProtector db_acc = {}) = 0;
 
     // NOLINTNEXTLINE(google-default-arguments)
-    virtual utils::BasicResult<StorageManipulationError, void> PeriodicCommit(CommitReplArgs reparg = {},
+    virtual utils::BasicResult<StorageManipulationError, void> PeriodicCommit(CommitReplicationArgs reparg = {},
                                                                               DatabaseAccessProtector db_acc = {}) = 0;
 
     virtual void Abort() = 0;

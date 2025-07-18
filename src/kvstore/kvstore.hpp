@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -42,7 +42,7 @@ class KVStore final {
    * NOTE: Don't instantiate more instances of a KVStore with the same
    *       storage directory because that will lead to undefined behaviour.
    */
-  explicit KVStore(std::filesystem::path const &storage);
+  explicit KVStore(std::filesystem::path storage);
 
   KVStore(const KVStore &other) = delete;
   KVStore(KVStore &&other);

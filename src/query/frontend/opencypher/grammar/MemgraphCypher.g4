@@ -162,6 +162,7 @@ memgraphCypherKeyword : cypherKeyword
                       | STORAGE_MODE
                       | STREAM
                       | STREAMS
+                      | STRICT_SYNC
                       | STRING
                       | SYNC
                       | TERMINATE
@@ -256,6 +257,7 @@ authQuery : createRole
           | changePassword
           | dropUser
           | showCurrentUser
+          | showCurrentRole
           | showUsers
           | setRole
           | clearRole
@@ -408,11 +410,13 @@ dropUser : DROP USER user=userOrRoleName ;
 
 showCurrentUser : SHOW CURRENT USER ;
 
+showCurrentRole : SHOW CURRENT ( ROLE | ROLES ) ;
+
 showUsers : SHOW USERS ;
 
-setRole : SET ROLE FOR user=userOrRoleName TO role=userOrRoleName;
+setRole : SET ( ROLE | ROLES ) FOR user=userOrRoleName TO roles=listOfSymbolicNames ( ON db=listOfSymbolicNames )? ;
 
-clearRole : CLEAR ROLE FOR user=userOrRoleName ;
+clearRole : CLEAR ( ROLE | ROLES ) FOR user=userOrRoleName ( ON db=listOfSymbolicNames )? ;
 
 grantPrivilege : GRANT ( ALL PRIVILEGES | privileges=grantPrivilegesList ) TO userOrRole=userOrRoleName ;
 
@@ -493,9 +497,9 @@ listOfColonSymbolicNames : colonSymbolicName ( ',' colonSymbolicName )* ;
 
 colonSymbolicName : COLON symbolicName ;
 
-showPrivileges : SHOW PRIVILEGES FOR userOrRole=userOrRoleName ;
+showPrivileges : SHOW PRIVILEGES FOR userOrRole=userOrRoleName ( ON ( MAIN | CURRENT | DATABASE db=symbolicName ) )? ;
 
-showRoleForUser : SHOW ROLE FOR user=userOrRoleName ;
+showRoleForUser : SHOW ( ROLE | ROLES ) FOR user=userOrRoleName ( ON ( MAIN | CURRENT | DATABASE db=symbolicName ) )? ;
 
 showUsersForRole : SHOW USERS FOR role=userOrRoleName ;
 
@@ -515,14 +519,14 @@ instanceName : symbolicName ;
 
 socketAddress : literal ;
 
-registerReplica : REGISTER REPLICA instanceName ( SYNC | ASYNC )
+registerReplica : REGISTER REPLICA instanceName ( SYNC | ASYNC | STRICT_SYNC )
                 TO socketAddress ;
 
 configKeyValuePair : literal ':' literal ;
 
 configMap : '{' ( configKeyValuePair ( ',' configKeyValuePair )* )? '}' ;
 
-registerInstanceOnCoordinator : REGISTER INSTANCE instanceName ( AS ASYNC ) ? WITH CONFIG configsMap=configMap ;
+registerInstanceOnCoordinator : REGISTER INSTANCE instanceName ( AS ASYNC | AS STRICT_SYNC ) ? WITH CONFIG configsMap=configMap ;
 
 unregisterInstanceOnCoordinator : UNREGISTER INSTANCE instanceName ;
 

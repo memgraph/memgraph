@@ -41,7 +41,8 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(AuthQuery &query) override {
     // Special cases
-    if (query.action_ == AuthQuery::Action::SHOW_CURRENT_USER) return;
+    if (query.action_ == AuthQuery::Action::SHOW_CURRENT_USER || query.action_ == AuthQuery::Action::SHOW_CURRENT_ROLE)
+      return;
     // Default to AUTH
     AddPrivilege(AuthQuery::Privilege::AUTH);
   }
