@@ -5,6 +5,7 @@ import mgp
 
 
 # zdt.py
+# TODO(colinbarry) Temp QM for use whilst developing support for ZonedDateTime.
 @mgp.function
 def withtz() -> mgp.Nullable[str]:
     return datetime.now().astimezone()
@@ -13,3 +14,8 @@ def withtz() -> mgp.Nullable[str]:
 @mgp.function
 def withouttz() -> mgp.Nullable[str]:
     return datetime.now()
+
+
+@mgp.function
+def hello() -> mgp.Nullable[str]:
+    return "hello, world"

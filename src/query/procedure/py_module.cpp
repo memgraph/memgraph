@@ -2742,6 +2742,15 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
                                              duration.microseconds % kMicrosecondsInSecond));
       return py_duration;
     }
+    case MGP_VALUE_TYPE_ZONED_DATE_TIME: {
+      return py::Object(PyLong_FromLongLong(23));  // @TODO implement this
+      // const auto &local_time = value.local_date_time_v->local_date_time.local_time();
+      // const auto &date = value.local_date_time_v->local_date_time.date();
+      // py::Object py_local_date_time(PyDateTime_FromDateAndTime(
+      //     date.year, date.month, date.day, local_time.hour, local_time.minute, local_time.second,
+      //     local_time.millisecond * kMicrosecondsInMillisecond + local_time.microsecond));
+      // return py_local_date_time;
+    }
   }
 }
 
@@ -3001,7 +3010,7 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
     // @TODO is this auto decrement correct?
     py::Object tzinfo{PyDateTime_DATE_GET_TZINFO(o)};
 
-    if (tzinfo) {
+    if (!Py_IsNone(tzinfo.Ptr())) {
       py::Object offset{PyObject_CallMethod(tzinfo.Ptr(), const_cast<char *>("utcoffset"), const_cast<char *>("O"), o)};
       if (!offset) {
         throw std::runtime_error{"Cannot read timezone offset"};
@@ -3017,7 +3026,7 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
           err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
         throw std::bad_alloc{};
       } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
-        throw std::runtime_error{"Unexpected error while creating mgp_local_date_time"};
+        throw std::runtime_error{"Unexpected error while creating mgp_zoned_date_time"};
       }
       if (const auto err = mgp_value_make_zoned_date_time(zoned_date_time.get(), &mgp_v);
           err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {

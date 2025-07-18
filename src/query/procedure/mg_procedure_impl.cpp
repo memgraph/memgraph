@@ -336,7 +336,7 @@ mgp_value_type FromTypedValueType(memgraph::query::TypedValue::Type type) {
     case memgraph::query::TypedValue::Type::LocalDateTime:
       return MGP_VALUE_TYPE_LOCAL_DATE_TIME;
     case memgraph::query::TypedValue::Type::ZonedDateTime:
-      throw std::logic_error{"mgp_value for TypedValue::Type::ZonedDateTime doesn't exist."};
+      return MGP_VALUE_TYPE_ZONED_DATE_TIME;
     case memgraph::query::TypedValue::Type::Duration:
       return MGP_VALUE_TYPE_DURATION;
     case memgraph::query::TypedValue::Type::Enum:
@@ -381,6 +381,7 @@ bool ContainsDeleted(const mgp_value *val) {
     case MGP_VALUE_TYPE_DATE:
     case MGP_VALUE_TYPE_LOCAL_TIME:
     case MGP_VALUE_TYPE_LOCAL_DATE_TIME:
+    case MGP_VALUE_TYPE_ZONED_DATE_TIME:
     case MGP_VALUE_TYPE_DURATION:
       return false;
     // Reference types
@@ -455,6 +456,8 @@ memgraph::query::TypedValue ToTypedValue(const mgp_value &val, memgraph::utils::
       return memgraph::query::TypedValue(val.local_date_time_v->local_date_time, alloc);
     case MGP_VALUE_TYPE_DURATION:
       return memgraph::query::TypedValue(val.duration_v->duration, alloc);
+    case MGP_VALUE_TYPE_ZONED_DATE_TIME:
+      return memgraph::query::TypedValue(val.zoned_date_time_v->zoned_date_time, alloc);
   }
 }
 
@@ -513,6 +516,12 @@ mgp_value::mgp_value(mgp_local_time *val, allocator_type alloc) noexcept
 
 mgp_value::mgp_value(mgp_local_date_time *val, allocator_type alloc) noexcept
     : type(MGP_VALUE_TYPE_LOCAL_DATE_TIME), alloc(alloc), local_date_time_v(val) {
+  MG_ASSERT(val->GetMemoryResource() == alloc.resource(),
+            "Unable to take ownership of a pointer with different allocator.");
+}
+
+mgp_value::mgp_value(mgp_zoned_date_time *val, allocator_type alloc) noexcept
+    : type(MGP_VALUE_TYPE_ZONED_DATE_TIME), alloc(alloc), zoned_date_time_v(val) {
   MG_ASSERT(val->GetMemoryResource() == alloc.resource(),
             "Unable to take ownership of a pointer with different allocator.");
 }
@@ -651,6 +660,11 @@ mgp_value::mgp_value(const memgraph::query::TypedValue &tv, mgp_graph *graph, al
       duration_v = allocator.new_object<mgp_duration>(tv.ValueDuration());
       break;
     }
+    case MGP_VALUE_TYPE_ZONED_DATE_TIME: {
+      memgraph::utils::Allocator<mgp_local_date_time> allocator(alloc);
+      zoned_date_time_v = allocator.new_object<mgp_zoned_date_time>(tv.ValueZonedDateTime());
+      break;
+    }
   }
 }
 
@@ -734,6 +748,7 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::stora
       }
       break;
     }
+    // @TODO ZonedTemporalData support for zoned date time?
     case memgraph::storage::PropertyValue::Type::ZonedTemporalData: {
       throw std::logic_error{"mgp_value for PropertyValue::Type::ZonedTemporalData doesn't exist."};
       break;
@@ -811,6 +826,10 @@ mgp_value::mgp_value(const mgp_value &other, allocator_type alloc) : type(other.
       duration_v = NewRawMgpObject<mgp_duration>(alloc, *other.duration_v);
       break;
     }
+    case MGP_VALUE_TYPE_ZONED_DATE_TIME: {
+      zoned_date_time_v = NewRawMgpObject<mgp_zoned_date_time>(alloc, *other.zoned_date_time_v);
+      break;
+    }
   }
 }
 
@@ -855,6 +874,9 @@ void DeleteValueMember(mgp_value *value) noexcept {
       return;
     case MGP_VALUE_TYPE_DURATION:
       allocator.delete_object(value->duration_v);
+      return;
+    case MGP_VALUE_TYPE_ZONED_DATE_TIME:
+      allocator.delete_object(value->zoned_date_time_v);
       return;
   }
 }
@@ -964,6 +986,16 @@ mgp_value::mgp_value(mgp_value &&other, allocator_type alloc) : type(other.type)
         duration_v = NewRawMgpObject<mgp_duration>(alloc.resource(), *other.duration_v);
       }
       break;
+    case MGP_VALUE_TYPE_ZONED_DATE_TIME:
+      static_assert(std::is_pointer_v<decltype(zoned_date_time_v)>,
+                    "Expected to move zoned_date_time_v by copying pointers.");
+      if (*other.GetMemoryResource() == *alloc.resource()) {
+        zoned_date_time_v = other.zoned_date_time_v;
+        other.type = MGP_VALUE_TYPE_NULL;
+      } else {
+        zoned_date_time_v = NewRawMgpObject<mgp_zoned_date_time>(alloc.resource(), *other.zoned_date_time_v);
+      }
+      break;
   }
   DeleteValueMember(&other);
   other.type = MGP_VALUE_TYPE_NULL;
@@ -1027,6 +1059,7 @@ DEFINE_MGP_VALUE_MAKE(path)
 DEFINE_MGP_VALUE_MAKE(date)
 DEFINE_MGP_VALUE_MAKE(local_time)
 DEFINE_MGP_VALUE_MAKE(local_date_time)
+DEFINE_MGP_VALUE_MAKE(zoned_date_time)
 DEFINE_MGP_VALUE_MAKE(duration)
 
 namespace {
@@ -1096,6 +1129,7 @@ DEFINE_MGP_VALUE_GET(date)
 DEFINE_MGP_VALUE_GET(local_time)
 DEFINE_MGP_VALUE_GET(local_date_time)
 DEFINE_MGP_VALUE_GET(duration)
+DEFINE_MGP_VALUE_GET(zoned_date_time)
 
 mgp_error mgp_list_make_empty(size_t capacity, mgp_memory *memory, mgp_list **result) {
   return WrapExceptions(
@@ -1655,6 +1689,10 @@ mgp_error mgp_zoned_date_time_from_parameters(mgp_zoned_date_time_parameters *pa
 
 void mgp_zoned_date_time_destroy(mgp_zoned_date_time *zoned_date_time) { DeleteRawMgpObject(zoned_date_time); }
 
+mgp_error mgp_zoned_date_time_equal(mgp_zoned_date_time *first, mgp_zoned_date_time *second, int *result) {
+  return WrapExceptions([first, second] { return first->zoned_date_time == second->zoned_date_time; }, result);
+}
+
 mgp_error mgp_duration_from_string(const char *string, mgp_memory *memory, mgp_duration **duration) {
   return WrapExceptions([memory, string] { return NewRawMgpObject<mgp_duration>(memory, string); }, duration);
 }
@@ -1921,6 +1959,8 @@ memgraph::storage::PropertyValue ToPropertyValue(const mgp_value &value,
     case MGP_VALUE_TYPE_DURATION:
       return memgraph::storage::PropertyValue{memgraph::storage::TemporalData{memgraph::storage::TemporalType::Duration,
                                                                               value.duration_v->duration.microseconds}};
+    case MGP_VALUE_TYPE_ZONED_DATE_TIME:
+      throw ValueConversionException{"Not yet implemented"};  // @TODO
     case MGP_VALUE_TYPE_VERTEX:
       throw ValueConversionException{"A vertex is not a valid property value!"};
     case MGP_VALUE_TYPE_EDGE:
@@ -1980,6 +2020,8 @@ memgraph::storage::ExternalPropertyValue ToExternalPropertyValue(const mgp_value
     case MGP_VALUE_TYPE_DURATION:
       return memgraph::storage::ExternalPropertyValue{memgraph::storage::TemporalData{
           memgraph::storage::TemporalType::Duration, value.duration_v->duration.microseconds}};
+    case MGP_VALUE_TYPE_ZONED_DATE_TIME:
+      throw ValueConversionException{"Not yet implemented"};  // @TODO
     case MGP_VALUE_TYPE_VERTEX:
       throw ValueConversionException{"A vertex is not a valid property value!"};
     case MGP_VALUE_TYPE_EDGE:
@@ -4224,6 +4266,7 @@ mgp_error MgpAddOptArg(TCall &callable, const std::string name, mgp_type &type, 
       case MGP_VALUE_TYPE_LOCAL_TIME:
       case MGP_VALUE_TYPE_LOCAL_DATE_TIME:
       case MGP_VALUE_TYPE_DURATION:
+      case MGP_VALUE_TYPE_ZONED_DATE_TIME:
         break;
     }
     // Default value must be of required `type`.

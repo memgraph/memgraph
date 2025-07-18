@@ -1155,6 +1155,77 @@ class Duration {
  private:
   mgp_duration *ptr_;
 };
+
+// @brief Wrapper class for @ref mgp_zoned_date_time.
+class ZonedDateTime {
+ private:
+  friend class Duration;
+  friend class Value;
+  friend class Record;
+  friend class Result;
+  friend class Parameter;
+
+ public:
+  /// @brief Creates a ZonedDateTime object from the copy of the given @ref mgp_zoned_date_time.
+  explicit ZonedDateTime(mgp_zoned_date_time *ptr);
+  /// @brief Creates a ZonedDateTime object from the copy of the given @ref mgp_zoned_date_time.
+  explicit ZonedDateTime(const mgp_zoned_date_time *const_ptr);
+
+  // @TODO impl these
+
+  // /// @brief Creates a LocalDateTime object from the given string representing a date in the ISO 8601 format
+  // /// (`YYYY-MM-DDThh:mm:ss`, `YYYY-MM-DDThh:mm`, `YYYYMMDDThhmmss`, `YYYYMMDDThhmm`, or `YYYYMMDDThh`).
+  // explicit LocalDateTime(std::string_view string);
+
+  // /// @brief Creates a LocalDateTime object with the given `year`, `month`, `day`, `hour`, `minute`, `second`,
+  // /// `millisecond`, and `microsecond` properties.
+  // LocalDateTime(int year, int month, int day, int hour, int minute, int second, int millisecond, int microsecond);
+
+  // LocalDateTime(const LocalDateTime &other);
+  // LocalDateTime(LocalDateTime &&other) noexcept;
+
+  ZonedDateTime &operator=(const ZonedDateTime &other);
+  ZonedDateTime &operator=(ZonedDateTime &&other) noexcept;
+
+  ~ZonedDateTime();
+
+  /// @brief Returns the current LocalDateTime.
+  static ZonedDateTime Now();
+
+  /// @brief Returns the object’s `year` property.
+  int Year() const;
+  /// @brief Returns the object’s `month` property.
+  int Month() const;
+  /// @brief Returns the object’s `day` property.
+  int Day() const;
+  /// @brief Returns the object’s `hour` property.
+  int Hour() const;
+  /// @brief Returns the object’s `minute` property.
+  int Minute() const;
+  /// @brief Returns the object’s `second` property.
+  int Second() const;
+  /// @brief Returns the object’s `millisecond` property.
+  int Millisecond() const;
+  /// @brief Returns the object’s `microsecond` property.
+  int Microsecond() const;
+
+  /// @brief Returns the object’s timestamp (microseconds from the Unix epoch).
+  int64_t Timestamp() const;
+
+  bool operator==(const ZonedDateTime &other) const;
+  ZonedDateTime operator+(const Duration &dur) const;
+  ZonedDateTime operator-(const Duration &dur) const;
+  Duration operator-(const ZonedDateTime &other) const;
+
+  bool operator<(const ZonedDateTime &other) const;
+
+  /// @brief returns the string representation
+  std::string ToString() const;
+
+ private:
+  mgp_zoned_date_time *ptr_;
+};
+
 /* #endregion */
 
 /* #endregion */
@@ -1175,7 +1246,8 @@ enum class Type : uint8_t {
   Date,
   LocalTime,
   LocalDateTime,
-  Duration
+  Duration,
+  ZonedDateTime
 };
 
 /// @brief Wrapper class for @ref mgp_value.
@@ -1325,6 +1397,9 @@ class Value {
   /// @pre Value type needs to be Type::Duration.
   Duration ValueDuration() const;
   Duration ValueDuration();
+  /// @pre Value type needs to be Type::ZonedDateTime.
+  ZonedDateTime ValueZonedDateTime() const;
+  ZonedDateTime ValueZonedDateTime();
 
   /// @brief Returns whether the value is null.
   bool IsNull() const;
@@ -1865,6 +1940,11 @@ inline bool DurationsEqual(mgp_duration *duration1, mgp_duration *duration2) {
   return mgp::duration_equal(duration1, duration2);
 }
 
+/// @brief Returns whether two MGP API zoned datetime objects are equal.
+inline bool ZonedDateTimesEqual(mgp_zoned_date_time *zoned_date_time1, mgp_zoned_date_time *zoned_date_time2) {
+  return mgp::zoned_date_time_equal(zoned_date_time1, zoned_date_time2);
+}
+
 /// @brief Returns whether two MGP API values are equal.
 inline bool ValuesEqual(mgp_value *value1, mgp_value *value2) {
   if (value1 == value2) {
@@ -1904,6 +1984,8 @@ inline bool ValuesEqual(mgp_value *value1, mgp_value *value2) {
       return util::LocalTimesEqual(mgp::value_get_local_time(value1), mgp::value_get_local_time(value2));
     case MGP_VALUE_TYPE_LOCAL_DATE_TIME:
       return util::LocalDateTimesEqual(mgp::value_get_local_date_time(value1), mgp::value_get_local_date_time(value2));
+    case MGP_VALUE_TYPE_ZONED_DATE_TIME:
+      return util::ZonedDateTimesEqual(mgp::value_get_zoned_date_time(value1), mgp::value_get_zoned_date_time(value2));
     case MGP_VALUE_TYPE_DURATION:
       return util::DurationsEqual(mgp::value_get_duration(value1), mgp::value_get_duration(value2));
   }
@@ -1976,6 +2058,7 @@ inline Type ToAPIType(mgp_value_type type) {
       return Type::LocalTime;
     case MGP_VALUE_TYPE_LOCAL_DATE_TIME:
       return Type::LocalDateTime;
+    // @TODO MGP_VALUE_TYPE_ZONED_DATE_TIME
     case MGP_VALUE_TYPE_DURATION:
       return Type::Duration;
     default:
@@ -3862,6 +3945,19 @@ inline Duration Value::ValueDuration() {
   return Duration(mgp::value_get_duration(this->ptr()));
 }
 
+inline ZonedDateTime Value::ValueZonedDateTime() const {
+  if (Type() != Type::ZonedDateTime) {
+    throw ValueException("Type of value is wrong: expected ZonedDateTime.");
+  }
+  return ZonedDateTime(mgp::value_get_zoned_date_time(this->ptr()));
+}
+inline ZonedDateTime Value::ValueZonedDateTime() {
+  if (Type() != Type::ZonedDateTime) {
+    throw ValueException("Type of value is wrong: expected ZonedDateTime.");
+  }
+  return ZonedDateTime(mgp::value_get_zoned_date_time(this->ptr()));
+}
+
 inline bool Value::IsNull() const { return mgp::value_is_null(this->ptr()); }
 
 inline bool Value::IsBool() const { return mgp::value_is_bool(this->ptr()); }
@@ -4734,6 +4830,12 @@ struct hash<mgp::Duration> {
   size_t operator()(const mgp::Duration &x) const { return hash<int64_t>()(x.Microseconds()); };
 };
 
+// @TODO is this correct? Do we need timestamp + offset?
+template <>
+struct hash<mgp::ZonedDateTime> {
+  size_t operator()(const mgp::ZonedDateTime &x) const { return hash<int64_t>()(x.Timestamp()); };
+};
+
 template <>
 struct hash<mgp::MapItem> {
   size_t operator()(const mgp::MapItem &x) const { return hash<std::string_view>()(x.key); };
@@ -4782,6 +4884,8 @@ struct hash<mgp::Value> {
         return std::hash<mgp::LocalDateTime>{}(x.ValueLocalDateTime());
       case mgp::Type::Duration:
         return std::hash<mgp::Duration>{}(x.ValueDuration());
+      case mgp::Type::ZonedDateTime:
+        return std::hash<mgp::ZonedDateTime>{}(x.ValueZonedDateTime());
     }
     throw mg_exception::InvalidArgumentException();
   }

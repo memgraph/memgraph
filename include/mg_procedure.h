@@ -201,6 +201,7 @@ enum mgp_value_type {
   MGP_VALUE_TYPE_LOCAL_TIME,
   MGP_VALUE_TYPE_LOCAL_DATE_TIME,
   MGP_VALUE_TYPE_DURATION,
+  MGP_VALUE_TYPE_ZONED_DATE_TIME
 };
 
 enum mgp_error mgp_value_copy(struct mgp_value *val, struct mgp_memory *memory, struct mgp_value **result);
@@ -439,6 +440,11 @@ enum mgp_error mgp_value_get_local_date_time(struct mgp_value *val, struct mgp_l
 /// Result is undefined if mgp_value does not contain the expected type.
 /// Current implementation always returns without errors.
 enum mgp_error mgp_value_get_duration(struct mgp_value *val, struct mgp_duration **result);
+
+/// Get the contained zoned date-time.
+/// Result is undefined if mgp_value does not contain the expected type.
+/// Current implementation always returns without errors.
+enum mgp_error mgp_value_get_zoned_date_time(struct mgp_value *val, struct mgp_zoned_date_time **result);
 
 /// Create an empty list with given capacity.
 /// You need to free the created instance with mgp_list_destroy.
@@ -1351,6 +1357,10 @@ enum mgp_error mgp_zoned_date_time_from_parameters(struct mgp_zoned_date_time_pa
 
 /// Free the memory used by a mgp_zoned_date_time.
 void mgp_zoned_date_time_destroy(struct mgp_zoned_date_time *zoned_date_time);
+
+/// Result is non-zero if given zoned date-times are equal, otherwise 0.
+enum mgp_error mgp_zoned_date_time_equal(struct mgp_zoned_date_time *first, struct mgp_zoned_date_time *second,
+                                         int *result);
 
 struct mgp_duration_parameters {
   double day;

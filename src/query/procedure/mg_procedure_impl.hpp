@@ -73,6 +73,7 @@ struct mgp_value {
   mgp_value(mgp_local_time *, allocator_type) noexcept;
   mgp_value(mgp_local_date_time *, allocator_type) noexcept;
   mgp_value(mgp_duration *, allocator_type) noexcept;
+  mgp_value(mgp_zoned_date_time *, allocator_type) noexcept;
 
   /// Construct by copying memgraph::query::TypedValue using memgraph::utils::MemoryResource.
   /// mgp_graph is needed to construct mgp_vertex and mgp_edge.
@@ -127,6 +128,7 @@ struct mgp_value {
     mgp_local_time *local_time_v;
     mgp_local_date_time *local_date_time_v;
     mgp_duration *duration_v;
+    mgp_zoned_date_time *zoned_date_time_v;
   };
 };
 
