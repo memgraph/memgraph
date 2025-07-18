@@ -539,6 +539,10 @@ struct ZonedDateTime {
     return zoned_time.get_time_zone().OffsetDuration(zoned_time.get_sys_time());
   }
 
+  std::chrono::seconds OffsetSeconds() const {
+    return zoned_time.get_time_zone().OffsetDuration(zoned_time.get_sys_time());
+  }
+
   Timezone GetTimezone() const { return zoned_time.get_time_zone(); }
 
   std::string_view TimezoneName() const { return zoned_time.get_time_zone().TimezoneName(); }
@@ -572,6 +576,21 @@ struct ZonedDateTime {
     const auto subseconds = LocalHMS().subseconds();
     return (subseconds - std::chrono::duration_cast<std::chrono::milliseconds>(subseconds)).count();
   }
+
+  // @TODO fix these return type names!
+  /**
+   * @brief Return calendar date (local/user timezone)
+   *
+   * @return Date
+   */
+  Date date() const;
+
+  /**
+   * @brief Return calendar time (local/user timezone)
+   *
+   * @return Date
+   */
+  LocalTime local_time() const;
 
   std::chrono::zoned_time<std::chrono::microseconds, Timezone> zoned_time;
 };

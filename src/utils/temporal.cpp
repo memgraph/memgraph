@@ -881,6 +881,15 @@ std::string ZonedDateTime::ToString() const {
   return std::format("{0:%Y}-{0:%m}-{0:%d}T{0:%H}:{0:%M}:{0:%S}{0:%Ez}", zoned_time);
 }
 
+Date ZonedDateTime::date() const { return Date{SysMicrosecondsSinceEpoch().count()}; }
+
+LocalTime ZonedDateTime::local_time() const {
+  auto local_datetime = std::chrono::microseconds(SysMicrosecondsSinceEpoch());
+  /* remove everything above hours */ GetAndSubtractDuration<std::chrono::days>(local_datetime);
+  if (local_datetime.count() < 0) local_datetime += std::chrono::hours(24);
+  return LocalTime{local_datetime.count()};
+}
+
 bool ZonedDateTime::operator==(const ZonedDateTime &other) const {
   return SysMicrosecondsSinceEpoch().count() == other.SysMicrosecondsSinceEpoch().count() &&
          OffsetDuration() == other.OffsetDuration() && TimezoneName() == other.TimezoneName();

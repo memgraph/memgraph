@@ -2743,13 +2743,23 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
       return py_duration;
     }
     case MGP_VALUE_TYPE_ZONED_DATE_TIME: {
-      return py::Object(PyLong_FromLongLong(23));  // @TODO implement this
-      // const auto &local_time = value.local_date_time_v->local_date_time.local_time();
-      // const auto &date = value.local_date_time_v->local_date_time.date();
-      // py::Object py_local_date_time(PyDateTime_FromDateAndTime(
-      //     date.year, date.month, date.day, local_time.hour, local_time.minute, local_time.second,
-      //     local_time.millisecond * kMicrosecondsInMillisecond + local_time.microsecond));
-      // return py_local_date_time;
+      const auto &local_time = value.zoned_date_time_v->zoned_date_time.local_time();
+      const auto &date = value.zoned_date_time_v->zoned_date_time.date();
+      auto const offset_seconds = value.zoned_date_time_v->zoned_date_time.OffsetSeconds().count();
+
+      py::Object datetime_module{PyImport_ImportModule("datetime")};
+      if (!datetime_module) return nullptr;
+      py::Object datetime_class{PyObject_GetAttrString(datetime_module.Ptr(), "datetime")};
+      if (!datetime_class) return nullptr;
+
+      py::Object offset_delta{PyDelta_FromDSU(0, offset_seconds, 0)};
+      py::Object tz{PyTimeZone_FromOffset(offset_delta.Ptr())};
+
+      py::Object py_zoned_date_time(PyObject_CallFunction(
+          datetime_class.Ptr(), "iiiiiiiO", date.year, date.month, date.day, local_time.hour, local_time.minute,
+          local_time.second, local_time.millisecond * kMicrosecondsInMillisecond + local_time.microsecond, tz.Ptr()));
+
+      return py_zoned_date_time;
     }
   }
 }
@@ -3049,7 +3059,6 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
       }
       static_cast<void>(local_date_time.release());
     }
-
   } else if (PyDelta_CheckExact(o)) {
     static constexpr int64_t microseconds_in_days =
         static_cast<std::chrono::microseconds>(std::chrono::days{1}).count();
