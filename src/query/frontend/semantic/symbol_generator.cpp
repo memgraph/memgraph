@@ -383,7 +383,16 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
   }
 
   Symbol symbol;
-  if (scope.in_pattern && !(scope.in_node_atom || scope.visiting_edge)) {
+  if (scope.in_exists_subquery && (scope.visiting_edge || scope.in_node_atom)) {
+    auto has_symbol = HasSymbol(ident.name_);
+    if (!has_symbol) {
+      ident.user_declared_ = false;
+      symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_,
+                                 scope.in_node_atom ? Symbol::Type::VERTEX : Symbol::Type::EDGE);
+    } else {
+      symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::ANY);
+    }
+  } else if (scope.in_pattern && !(scope.in_node_atom || scope.visiting_edge)) {
     // If we are in the pattern, and outside of a node or an edge, the
     // identifier is the pattern name.
     symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::PATH);
@@ -430,6 +439,7 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     }
     symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::ANY);
   }
+
   ident.MapTo(symbol);
   return true;
 }

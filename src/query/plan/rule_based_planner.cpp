@@ -612,18 +612,7 @@ std::unique_ptr<LogicalOperator> GenReturnBody(std::unique_ptr<LogicalOperator> 
 namespace impl {
 
 bool HasBoundFilterSymbols(const std::unordered_set<Symbol> &bound_symbols, const FilterInfo &filter) {
-  const bool is_exists_subquery = filter.type == FilterInfo::Type::Pattern && filter.matchings[0].subquery != nullptr;
-
-  // if it's pattern exists syntax, or non exist syntax, we require currently that all of the symbols are present that
-  // are named by user
-  if (!is_exists_subquery) {
-    return std::ranges::all_of(filter.used_symbols,
-                               [&bound_symbols](const auto &symbol) { return bound_symbols.contains(symbol); });
-  }
-
-  // for subquery exists, we want to capture any of the symbols so we can tie it to the logic of filtering and erase the
-  // filter
-  return std::ranges::any_of(filter.used_symbols,
+  return std::ranges::all_of(filter.used_symbols,
                              [&bound_symbols](const auto &symbol) { return bound_symbols.contains(symbol); });
 }
 
