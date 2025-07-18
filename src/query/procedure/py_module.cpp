@@ -2996,23 +2996,56 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
             PyDateTime_DATE_GET_MICROSECOND(o) %  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
             1000};
 
-    mgp_local_date_time_parameters parameters{&date_parameters, &local_time_parameters};
+    // TimeZone is None if this is a local datetime, and set to a `tzinfo`
+    // if this is a zoned datetime
+    // @TODO is this auto decrement correct?
+    py::Object tzinfo{PyDateTime_DATE_GET_TZINFO(o)};
 
-    MgpUniquePtr<mgp_local_date_time> local_date_time{nullptr, mgp_local_date_time_destroy};
+    if (tzinfo) {
+      py::Object offset{PyObject_CallMethod(tzinfo.Ptr(), const_cast<char *>("utcoffset"), const_cast<char *>("O"), o)};
+      if (!offset) {
+        throw std::runtime_error{"Cannot read timezone offset"};
+      }
 
-    if (const auto err = CreateMgpObject(local_date_time, mgp_local_date_time_from_parameters, &parameters, memory);
-        err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
-      throw std::bad_alloc{};
-    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
-      throw std::runtime_error{"Unexpected error while creating mgp_local_date_time"};
+      int32_t const offset_seconds = static_cast<int32_t>(PyDateTime_DELTA_GET_SECONDS(offset.Ptr()));
+
+      mgp_zoned_date_time_parameters parameters{&date_parameters, &local_time_parameters, offset_seconds};
+
+      MgpUniquePtr<mgp_zoned_date_time> zoned_date_time{nullptr, mgp_zoned_date_time_destroy};
+
+      if (const auto err = CreateMgpObject(zoned_date_time, mgp_zoned_date_time_from_parameters, &parameters, memory);
+          err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
+        throw std::bad_alloc{};
+      } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
+        throw std::runtime_error{"Unexpected error while creating mgp_local_date_time"};
+      }
+      if (const auto err = mgp_value_make_zoned_date_time(zoned_date_time.get(), &mgp_v);
+          err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
+        throw std::bad_alloc{};
+      } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
+        throw std::runtime_error{"Unexpected error while creating mgp_value"};
+      }
+      static_cast<void>(zoned_date_time.release());
+    } else {
+      mgp_local_date_time_parameters parameters{&date_parameters, &local_time_parameters};
+
+      MgpUniquePtr<mgp_local_date_time> local_date_time{nullptr, mgp_local_date_time_destroy};
+
+      if (const auto err = CreateMgpObject(local_date_time, mgp_local_date_time_from_parameters, &parameters, memory);
+          err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
+        throw std::bad_alloc{};
+      } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
+        throw std::runtime_error{"Unexpected error while creating mgp_local_date_time"};
+      }
+      if (const auto err = mgp_value_make_local_date_time(local_date_time.get(), &mgp_v);
+          err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
+        throw std::bad_alloc{};
+      } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
+        throw std::runtime_error{"Unexpected error while creating mgp_value"};
+      }
+      static_cast<void>(local_date_time.release());
     }
-    if (const auto err = mgp_value_make_local_date_time(local_date_time.get(), &mgp_v);
-        err == mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE) {
-      throw std::bad_alloc{};
-    } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
-      throw std::runtime_error{"Unexpected error while creating mgp_value"};
-    }
-    static_cast<void>(local_date_time.release());
+
   } else if (PyDelta_CheckExact(o)) {
     static constexpr int64_t microseconds_in_days =
         static_cast<std::chrono::microseconds>(std::chrono::days{1}).count();

@@ -1646,6 +1646,15 @@ mgp_error mgp_local_date_time_diff(mgp_local_date_time *first, mgp_local_date_ti
       result);
 }
 
+// @TODO which methods above do we need? Ensure they are in the same order as above
+mgp_error mgp_zoned_date_time_from_parameters(mgp_zoned_date_time_parameters *parameters, mgp_memory *memory,
+                                              mgp_zoned_date_time **zoned_date_time) {
+  return WrapExceptions([parameters, memory] { return NewRawMgpObject<mgp_zoned_date_time>(memory, parameters); },
+                        zoned_date_time);
+}
+
+void mgp_zoned_date_time_destroy(mgp_zoned_date_time *zoned_date_time) { DeleteRawMgpObject(zoned_date_time); }
+
 mgp_error mgp_duration_from_string(const char *string, mgp_memory *memory, mgp_duration **duration) {
   return WrapExceptions([memory, string] { return NewRawMgpObject<mgp_duration>(memory, string); }, duration);
 }

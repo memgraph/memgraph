@@ -178,6 +178,9 @@ struct mgp_local_time;
 /// Local date-time stored in Memgraph.
 struct mgp_local_date_time;
 
+/// Zoned date-time stored in Memgraph.
+struct mgp_zoned_date_time;
+
 /// Duration stored in Memgraph.
 struct mgp_duration;
 
@@ -294,6 +297,14 @@ enum mgp_error mgp_value_make_local_time(struct mgp_local_time *val, struct mgp_
 /// must not call mgp_local_date_time_destroy on the given local date-time.
 /// mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate a mgp_value.
 enum mgp_error mgp_value_make_local_date_time(struct mgp_local_date_time *val, struct mgp_value **result);
+
+/// Create a mgp_value storing a mgp_zoned_date_time.
+/// You need to free the instance through mgp_value_destroy. The ownership of
+/// the zoned date-time is transferred to the created mgp_value and destroying the mgp_value will
+/// destroy the mgp_zoned_date_time. Therefore, if a mgp_value is successfully created you
+/// must not call mgp_zoned_date_time_destroy on the given zoned date-time.
+/// mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate a mgp_value.
+enum mgp_error mgp_value_make_zoned_date_time(struct mgp_zoned_date_time *val, struct mgp_value **result);
 
 /// Create a mgp_value storing a mgp_duration.
 /// You need to free the instance through mgp_value_destroy. The ownership of
@@ -1242,6 +1253,12 @@ struct mgp_local_date_time_parameters {
   struct mgp_local_time_parameters *local_time_parameters;
 };
 
+struct mgp_zoned_date_time_parameters {
+  struct mgp_date_parameters *date_parameters;
+  struct mgp_local_time_parameters *local_time_parameters;
+  int32_t offset;
+};
+
 /// Create a local date-time from a string following the ISO 8601 format.
 /// Resulting local date-time must be freed with mgp_local_date_time_destroy.
 /// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if the string cannot be parsed correctly.
@@ -1321,6 +1338,19 @@ enum mgp_error mgp_local_date_time_sub_duration(struct mgp_local_date_time *loca
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_local_date_time.
 enum mgp_error mgp_local_date_time_diff(struct mgp_local_date_time *first, struct mgp_local_date_time *second,
                                         struct mgp_memory *memory, struct mgp_duration **result);
+
+/// @TODO which of the above methods are needed
+
+/// Create a zoned date-time from mgp_zoned_date_time_parameters.
+/// Resulting zoned date-time must be freed with mgp_zoned_date_time_destroy.
+/// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if the parameters cannot be parsed correctly.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_zobed_date_time.
+enum mgp_error mgp_zoned_date_time_from_parameters(struct mgp_zoned_date_time_parameters *parameters,
+                                                   struct mgp_memory *memory,
+                                                   struct mgp_zoned_date_time **zoned_date_time);
+
+/// Free the memory used by a mgp_zoned_date_time.
+void mgp_zoned_date_time_destroy(struct mgp_zoned_date_time *zoned_date_time);
 
 struct mgp_duration_parameters {
   double day;
