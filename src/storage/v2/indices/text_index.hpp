@@ -84,6 +84,13 @@ class TextIndex {
       Vertex *vertex,
       const std::optional<std::vector<mgcxx::text_search::Context *>> &maybe_applicable_text_indices = std::nullopt);
 
+  void UpdateOnAddLabel(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper);
+
+  void UpdateOnRemoveLabel(LabelId label, Vertex *vertex);
+
+  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
+                           NameIdMapper *name_id_mapper);
+
   void CreateIndex(std::string const &index_name, LabelId label, VerticesIterable vertices, NameIdMapper *nameIdMapper);
 
   void RecoverIndex(const std::string &index_name, LabelId label, utils::SkipList<Vertex>::Accessor vertices,

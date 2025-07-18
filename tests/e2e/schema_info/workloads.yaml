@@ -6,7 +6,6 @@ schema_setup: &schema_setup
           "--bolt-port",
           "7687",
           "--log-level=TRACE",
-          "--experimental-enabled=text-search",
           "--schema-info-enabled",
         ]
       log_file: "schema_info.log"

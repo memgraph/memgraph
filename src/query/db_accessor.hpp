@@ -314,8 +314,8 @@ class DbAccessor final {
                      plan::PointDistanceCondition condition) -> PointIterable;
 
   auto PointVertices(storage::LabelId label, storage::PropertyId property, storage::CoordinateReferenceSystem crs,
-                     TypedValue const &bottom_left, TypedValue const &top_right,
-                     plan::WithinBBoxCondition condition) -> PointIterable;
+                     TypedValue const &bottom_left, TypedValue const &top_right, plan::WithinBBoxCondition condition)
+      -> PointIterable;
 
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type) {
     return EdgesIterable(accessor_->Edges(edge_type, view));
@@ -513,12 +513,6 @@ class DbAccessor final {
 
   bool TextIndexExists(const std::string &index_name) const { return accessor_->TextIndexExists(index_name); }
 
-  void TextIndexAddVertex(const VertexAccessor &vertex) { accessor_->TextIndexAddVertex(vertex.impl_); }
-
-  void TextIndexUpdateVertex(const VertexAccessor &vertex, const std::vector<storage::LabelId> &removed_labels = {}) {
-    accessor_->TextIndexUpdateVertex(vertex.impl_, removed_labels);
-  }
-
   std::vector<storage::Gid> TextIndexSearch(const std::string &index_name, const std::string &search_query,
                                             text_search_mode search_mode) const {
     return accessor_->TextIndexSearch(index_name, search_query, search_mode);
@@ -712,11 +706,14 @@ class DbAccessor final {
     return accessor_->DropPointIndex(label, property);
   }
 
-  void CreateTextIndex(const std::string &index_name, storage::LabelId label) {
-    accessor_->CreateTextIndex(index_name, label);
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateTextIndex(const std::string &index_name,
+                                                                                 storage::LabelId label) {
+    return accessor_->CreateTextIndex(index_name, label);
   }
 
-  void DropTextIndex(const std::string &index_name) { accessor_->DropTextIndex(index_name); }
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropTextIndex(const std::string &index_name) {
+    return accessor_->DropTextIndex(index_name);
+  }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorIndex(storage::VectorIndexSpec spec) {
     return accessor_->CreateVectorIndex(std::move(spec));
@@ -770,8 +767,8 @@ class DbAccessor final {
 
   auto ShowEnums() { return accessor_->ShowEnums(); }
 
-  auto GetEnumValue(std::string_view name,
-                    std::string_view value) const -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+  auto GetEnumValue(std::string_view name, std::string_view value) const
+      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
     return accessor_->GetEnumValue(name, value);
   }
   auto GetEnumValue(std::string_view enum_str) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
@@ -782,13 +779,13 @@ class DbAccessor final {
     return accessor_->GetEnumStoreShared().ToString(value);
   }
 
-  auto EnumAlterAdd(std::string_view name,
-                    std::string_view value) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+  auto EnumAlterAdd(std::string_view name, std::string_view value)
+      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
     return accessor_->EnumAlterAdd(name, value);
   }
 
-  auto EnumAlterUpdate(std::string_view name, std::string_view old_value,
-                       std::string_view new_value) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+  auto EnumAlterUpdate(std::string_view name, std::string_view old_value, std::string_view new_value)
+      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
     return accessor_->EnumAlterUpdate(name, old_value, new_value);
   }
 
