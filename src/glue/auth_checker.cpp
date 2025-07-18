@@ -95,8 +95,8 @@ namespace memgraph::glue {
 AuthChecker::AuthChecker(memgraph::auth::SynchedAuth *auth) : auth_(auth) {}
 
 std::shared_ptr<query::QueryUserOrRole> AuthChecker::GenQueryUser(const std::optional<std::string> &username,
-                                                                  const std::optional<std::string> &rolename) const {
-  const auto user_or_role = auth_->ReadLock()->GetUserOrRole(username, rolename);
+                                                                  const std::vector<std::string> &rolenames) const {
+  const auto user_or_role = auth_->ReadLock()->GetUserOrRole(username, rolenames);
   if (user_or_role) {
     return std::make_shared<QueryUserOrRole>(auth_, *user_or_role);
   }
@@ -135,9 +135,9 @@ std::unique_ptr<memgraph::query::FineGrainedAuthChecker> AuthChecker::GetFineGra
     if (glue_user.user_) {
       return std::make_unique<glue::FineGrainedAuthChecker>(std::move(*glue_user.user_), dba);
     }
-    if (glue_user.role_) {
+    if (glue_user.roles_) {
       return std::make_unique<glue::FineGrainedAuthChecker>(
-          auth::RoleWUsername{*glue_user.username(), std::move(*glue_user.role_)}, dba);
+          auth::RoleWUsername{*glue_user.username(), std::move(*glue_user.roles_)}, dba);
     }
     DMG_ASSERT(false, "Glue user has neither user not role");
   } catch (std::bad_cast &e) {
@@ -157,24 +157,24 @@ bool AuthChecker::IsUserAuthorized(const memgraph::auth::User &user,
     return false;
   }
 #endif
-  const auto user_permissions = user.GetPermissions();
+  const auto user_permissions = user.GetPermissions(db_name);
   return std::all_of(privileges.begin(), privileges.end(), [&user_permissions](const auto privilege) {
     return user_permissions.Has(memgraph::glue::PrivilegeToPermission(privilege)) ==
            memgraph::auth::PermissionLevel::GRANT;
   });
 }
 
-bool AuthChecker::IsRoleAuthorized(const memgraph::auth::Role &role,
+bool AuthChecker::IsRoleAuthorized(const memgraph::auth::Roles &roles,
                                    const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
                                    std::string_view db_name) {  // NOLINT
 #ifdef MG_ENTERPRISE
-  if (!db_name.empty() && !role.HasAccess(db_name)) {
+  if (!db_name.empty() && !roles.HasAccess(db_name)) {
     return false;
   }
 #endif
-  const auto role_permissions = role.permissions();
-  return std::all_of(privileges.begin(), privileges.end(), [&role_permissions](const auto privilege) {
-    return role_permissions.Has(memgraph::glue::PrivilegeToPermission(privilege)) ==
+  const auto roles_permissions = roles.GetPermissions(db_name);
+  return std::all_of(privileges.begin(), privileges.end(), [&roles_permissions](const auto privilege) {
+    return roles_permissions.Has(memgraph::glue::PrivilegeToPermission(privilege)) ==
            memgraph::auth::PermissionLevel::GRANT;
   });
 }
@@ -185,16 +185,22 @@ bool AuthChecker::IsUserOrRoleAuthorized(const memgraph::auth::UserOrRole &user_
   return std::visit(
       utils::Overloaded{
           [&](const auth::User &user) -> bool { return AuthChecker::IsUserAuthorized(user, privileges, db_name); },
-          [&](const auth::Role &role) -> bool { return AuthChecker::IsRoleAuthorized(role, privileges, db_name); }},
+          [&](const auth::Roles &roles) -> bool { return AuthChecker::IsRoleAuthorized(roles, privileges, db_name); }},
       user_or_role);
 }
 
 #ifdef MG_ENTERPRISE
-bool AuthChecker::CanImpersonate(const memgraph::auth::User &user, const memgraph::auth::User &target) {
-  return user.CanImpersonate(target);
+bool AuthChecker::CanImpersonate(const memgraph::auth::User &user, const memgraph::auth::User &target,
+                                 std::optional<std::string_view> db_name) {
+  return user.CanImpersonate(target, db_name);
 }
-bool AuthChecker::CanImpersonate(const memgraph::auth::Role &role, const memgraph::auth::User &target) {
-  return role.CanImpersonate(target);
+bool AuthChecker::CanImpersonate(const memgraph::auth::Role &role, const memgraph::auth::User &target,
+                                 std::optional<std::string_view> db_name) {
+  return role.CanImpersonate(target, db_name);
+}
+bool AuthChecker::CanImpersonate(const memgraph::auth::Roles &roles, const memgraph::auth::User &target,
+                                 std::optional<std::string_view> db_name) {
+  return roles.CanImpersonate(target, db_name);
 }
 #endif
 

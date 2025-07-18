@@ -11,17 +11,14 @@
 
 #pragma once
 
-#include <chrono>
 #include <cstdint>
 #include <optional>
-#include <string>
 #include <variant>
 
 #include <nlohmann/json_fwd.hpp>
 
 #include "replication/config.hpp"
 #include "replication/epoch.hpp"
-#include "replication_coordination_glue/role.hpp"
 
 namespace memgraph::replication::durability {
 

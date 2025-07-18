@@ -68,7 +68,7 @@ class ExpansionBenchFixture : public benchmark::Fixture {
         auto dest = dba->CreateVertex();
         MG_ASSERT(dba->CreateEdge(&start, &dest, edge_type).HasValue());
       }
-      MG_ASSERT(!dba->Commit().HasError());
+      MG_ASSERT(!dba->PrepareForCommitPhase().HasError());
     }
 
     {
@@ -77,7 +77,7 @@ class ExpansionBenchFixture : public benchmark::Fixture {
     }
 
     interpreter.emplace(&*interpreter_context, std::move(db_acc));
-    interpreter->SetUser(auth_checker->GenQueryUser(std::nullopt, std::nullopt));
+    interpreter->SetUser(auth_checker->GenQueryUser(std::nullopt, {}));
   }
 
   void TearDown(const benchmark::State &) override {

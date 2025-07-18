@@ -2173,6 +2173,43 @@ class VectorIndexQuery : public memgraph::query::Query {
   friend class AstStorage;
 };
 
+class CreateVectorEdgeIndexQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  CreateVectorEdgeIndexQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  std::string index_name_;
+  memgraph::query::EdgeTypeIx edge_type_;
+  memgraph::query::PropertyIx property_;
+  std::unordered_map<memgraph::query::Expression *, memgraph::query::Expression *> configs_;
+
+  CreateVectorEdgeIndexQuery *Clone(AstStorage *storage) const override {
+    CreateVectorEdgeIndexQuery *object = storage->Create<CreateVectorEdgeIndexQuery>();
+    object->index_name_ = index_name_;
+    object->edge_type_ = storage->GetEdgeTypeIx(edge_type_.name);
+    object->property_ = storage->GetPropertyIx(property_.name);
+    for (const auto &[key, value] : configs_) {
+      object->configs_[key->Clone(storage)] = value->Clone(storage);
+    }
+    return object;
+  }
+
+ protected:
+  CreateVectorEdgeIndexQuery(std::string index_name, EdgeTypeIx edge_type, PropertyIx property,
+                             std::unordered_map<Expression *, Expression *> configs)
+      : index_name_(std::move(index_name)),
+        edge_type_(std::move(edge_type)),
+        property_(std::move(property)),
+        configs_(std::move(configs)) {}
+
+ private:
+  friend class AstStorage;
+};
+
 class Create : public memgraph::query::Clause {
  public:
   static const utils::TypeInfo kType;
@@ -2856,19 +2893,19 @@ class ReplicationQuery : public memgraph::query::Query {
 
   enum class ReplicationRole { MAIN, REPLICA };
 
-  enum class SyncMode { SYNC, ASYNC };
+  enum class SyncMode { SYNC, ASYNC, STRICT_SYNC };
 
   ReplicationQuery() = default;
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  memgraph::query::ReplicationQuery::Action action_;
-  memgraph::query::ReplicationQuery::ReplicationRole role_;
+  Action action_;
+  ReplicationRole role_;
   std::string instance_name_;
-  memgraph::query::Expression *socket_address_{nullptr};
-  memgraph::query::Expression *coordinator_socket_address_{nullptr};
-  memgraph::query::Expression *port_{nullptr};
-  memgraph::query::ReplicationQuery::SyncMode sync_mode_;
+  Expression *socket_address_{nullptr};
+  Expression *coordinator_socket_address_{nullptr};
+  Expression *port_{nullptr};
+  SyncMode sync_mode_;
 
   ReplicationQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<ReplicationQuery>();
@@ -2931,19 +2968,19 @@ class CoordinatorQuery : public memgraph::query::Query {
     SHOW_COORDINATOR_SETTINGS
   };
 
-  enum class SyncMode { SYNC, ASYNC };
+  enum class SyncMode { SYNC, ASYNC, STRICT_SYNC };
 
   CoordinatorQuery() = default;
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  memgraph::query::CoordinatorQuery::Action action_;
+  Action action_;
   std::string instance_name_{};
-  std::unordered_map<memgraph::query::Expression *, memgraph::query::Expression *> configs_;
-  memgraph::query::Expression *coordinator_id_{nullptr};
-  memgraph::query::CoordinatorQuery::SyncMode sync_mode_;
-  memgraph::query::Expression *setting_name_{nullptr};
-  memgraph::query::Expression *setting_value_{nullptr};
+  std::unordered_map<Expression *, Expression *> configs_;
+  Expression *coordinator_id_{nullptr};
+  SyncMode sync_mode_;
+  Expression *setting_name_{nullptr};
+  Expression *setting_value_{nullptr};
 
   CoordinatorQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<CoordinatorQuery>();

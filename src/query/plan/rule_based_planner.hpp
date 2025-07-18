@@ -68,6 +68,7 @@ struct PlanningContext {
   /// written information.
   std::unordered_set<Symbol> bound_symbols{};
   bool is_write_query{false};
+  bool in_exists_subquery{false};
 };
 
 template <class TDbAccessor>
@@ -162,12 +163,14 @@ std::unique_ptr<LogicalOperator> GenNamedPaths(std::unique_ptr<LogicalOperator> 
 std::unique_ptr<LogicalOperator> GenReturn(Return &ret, std::unique_ptr<LogicalOperator> input_op,
                                            SymbolTable &symbol_table, bool is_write,
                                            const std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
-                                           PatternComprehensionDataMap &pc_ops, Expression *commit_frequency);
+                                           PatternComprehensionDataMap &pc_ops, Expression *commit_frequency,
+                                           bool in_exists_subquery);
 
 std::unique_ptr<LogicalOperator> GenWith(With &with, std::unique_ptr<LogicalOperator> input_op,
                                          SymbolTable &symbol_table, bool is_write,
                                          std::unordered_set<Symbol> &bound_symbols, AstStorage &storage,
-                                         PatternComprehensionDataMap &pc_ops, Expression *commit_frequency);
+                                         PatternComprehensionDataMap &pc_ops, Expression *commit_frequency,
+                                         bool in_exists_subquery = false);
 
 std::unique_ptr<LogicalOperator> GenUnion(const CypherUnion &cypher_union, std::shared_ptr<LogicalOperator> left_op,
                                           std::shared_ptr<LogicalOperator> right_op, SymbolTable &symbol_table);
@@ -229,7 +232,7 @@ class RuleBasedPlanner {
           if (auto *ret = utils::Downcast<Return>(clause)) {
             input_op = impl::GenReturn(*ret, std::move(input_op), *context.symbol_table, context.is_write_query,
                                        context.bound_symbols, *context.ast_storage, pattern_comprehension_ops,
-                                       query_parts.commit_frequency);
+                                       query_parts.commit_frequency, context.in_exists_subquery);
           } else if (auto *merge = utils::Downcast<query::Merge>(clause)) {
             input_op = GenMerge(*merge, std::move(input_op), single_query_part.merge_matching[merge_id++]);
             // Treat MERGE clause as write, because we do not know if it will
@@ -237,7 +240,8 @@ class RuleBasedPlanner {
             context.is_write_query = true;
           } else if (auto *with = utils::Downcast<query::With>(clause)) {
             input_op = impl::GenWith(*with, std::move(input_op), *context.symbol_table, context.is_write_query,
-                                     context.bound_symbols, *context.ast_storage, pattern_comprehension_ops, nullptr);
+                                     context.bound_symbols, *context.ast_storage, pattern_comprehension_ops, nullptr,
+                                     context.in_exists_subquery);
             // WITH clause advances the command, so reset the flag.
             context.is_write_query = false;
           } else if (auto op = HandleWriteClause(clause, input_op, *context.symbol_table, context.bound_symbols)) {
@@ -280,7 +284,7 @@ class RuleBasedPlanner {
                                       call_sub->cypher_query_->pre_query_directives_.commit_frequency_);
             if (context.is_write_query && !has_periodic_commit) {
               input_op = std::make_unique<Accumulate>(std::move(input_op),
-                                                      input_op->ModifiedSymbols(*context.symbol_table), true);
+                                                      input_op->ModifiedSymbols(*context.symbol_table), is_root_query);
             }
           } else {
             throw utils::NotYetImplemented("clause '{}' conversion to operator(s)", clause->GetTypeInfo().name);
@@ -289,7 +293,7 @@ class RuleBasedPlanner {
       }
 
       // Is this the only situation that should be covered
-      if (input_op->OutputSymbols(*context.symbol_table).empty()) {
+      if (input_op->OutputSymbols(*context.symbol_table).empty() && !context.in_exists_subquery) {
         if (has_periodic_commit && is_root_query) {
           // this periodic commit is from USING PERIODIC COMMIT
           input_op = std::make_unique<PeriodicCommit>(std::move(input_op), query_parts.commit_frequency);
@@ -559,7 +563,9 @@ class RuleBasedPlanner {
       match_context.new_symbols.emplace_back(named_path.first);
     }
     if (!filters.empty()) {
-      throw QueryException("Expected to generate all filters");
+      throw QueryException(
+          "Expected to generate all filters! Please contact Memgraph support as this scenario should not happen and is "
+          "very likely a bug in the query engine!");
     }
     return last_op;
   }
@@ -1086,8 +1092,33 @@ class RuleBasedPlanner {
         }
 
         switch (matching.type) {
-          case PatternFilterType::EXISTS: {
+          case PatternFilterType::EXISTS_PATTERN: {
             operators.push_back(MakeExistsFilter(matching, symbol_table, storage, bound_symbols));
+            break;
+          }
+          case PatternFilterType::EXISTS_SUBQUERY: {
+            const bool old_context_exists_subquery = context_->in_exists_subquery;
+            context_->in_exists_subquery = true;
+            std::unordered_set<Symbol> outer_scope_bound_symbols;
+            outer_scope_bound_symbols.insert(std::make_move_iterator(context_->bound_symbols.begin()),
+                                             std::make_move_iterator(context_->bound_symbols.end()));
+
+            context_->bound_symbols = bound_symbols;
+
+            std::unique_ptr<LogicalOperator> last_op = Plan(*matching.subquery);
+            context_->in_exists_subquery = old_context_exists_subquery;
+
+            context_->bound_symbols.clear();
+            context_->bound_symbols.insert(std::make_move_iterator(outer_scope_bound_symbols.begin()),
+                                           std::make_move_iterator(outer_scope_bound_symbols.end()));
+
+            // Add a Limit operator to ensure we only need one result
+            last_op = std::make_unique<Limit>(std::move(last_op), storage.Create<PrimitiveLiteral>(1));
+
+            // Add the EvaluatePatternFilter operator to evaluate the exists condition
+            last_op = std::make_unique<EvaluatePatternFilter>(std::move(last_op), matching.symbol.value());
+
+            operators.push_back(std::move(last_op));
             break;
           }
         }

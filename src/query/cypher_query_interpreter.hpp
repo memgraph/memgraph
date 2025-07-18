@@ -66,7 +66,7 @@ class PlanWrapper {
  public:
   explicit PlanWrapper(std::unique_ptr<LogicalPlan> plan);
 
-  const auto &plan() const { return plan_->GetRoot(); }
+  auto plan() const -> plan::LogicalOperator const & { return plan_->GetRoot(); }
   double cost() const { return plan_->GetCost(); }
   const auto &symbol_table() const { return plan_->GetSymbolTable(); }
   const auto &ast_storage() const { return plan_->GetAstStorage(); }
@@ -132,8 +132,8 @@ class SingleNodeLogicalPlan final : public LogicalPlan {
   plan::ReadWriteTypeChecker::RWType rw_type_;
 };
 
-using PlanCacheLRU =
-    utils::Synchronized<utils::LRUCache<uint64_t, std::shared_ptr<query::PlanWrapper>>, utils::RWSpinLock>;
+using PlanCacheLRU = utils::Synchronized<utils::LRUCache<frontend::HashedString, std::shared_ptr<query::PlanWrapper>>,
+                                         utils::RWSpinLock>;
 
 std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters,
                                              DbAccessor *db_accessor,
@@ -147,9 +147,9 @@ std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery
  * If an identifier is contained there, we inject it at that place and remove it,
  * because a predefined identifier can be used only in one scope.
  */
-std::shared_ptr<PlanWrapper> CypherQueryToPlan(uint64_t hash, AstStorage ast_storage, CypherQuery *query,
-                                               const Parameters &parameters, PlanCacheLRU *plan_cache,
-                                               DbAccessor *db_accessor,
+std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &stripped_query, AstStorage ast_storage,
+                                               CypherQuery *query, const Parameters &parameters,
+                                               PlanCacheLRU *plan_cache, DbAccessor *db_accessor,
                                                const std::vector<Identifier *> &predefined_identifiers = {});
 
 }  // namespace memgraph::query

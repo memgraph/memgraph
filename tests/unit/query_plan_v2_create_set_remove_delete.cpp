@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -103,7 +103,7 @@ TYPED_TEST(QueryPlan, ScanAll) {
   {
     auto dba = this->db->Access();
     for (int i = 0; i < 42; ++i) dba->CreateVertex();
-    EXPECT_FALSE(dba->Commit().HasError());
+    EXPECT_FALSE(dba->PrepareForCommitPhase().HasError());
   }
   memgraph::query::AstStorage ast;
   memgraph::query::SymbolTable symbol_table;
@@ -124,7 +124,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabel) {
   {
     auto unique_acc = this->db->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateIndex(label).HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
   }
   {
     auto dba = this->db->Access();
@@ -135,7 +135,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabel) {
       auto v = dba->CreateVertex();
       ASSERT_TRUE(v.AddLabel(label).HasValue());
     }
-    EXPECT_FALSE(dba->Commit().HasError());
+    EXPECT_FALSE(dba->PrepareForCommitPhase().HasError());
   }
   auto dba = this->db->Access();
   memgraph::query::AstStorage ast;

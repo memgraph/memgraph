@@ -266,6 +266,7 @@ atom : listComprehension
      | ( NONE '(' filterExpression ')' )
      | ( SINGLE '(' filterExpression ')' )
      | ( EXISTS '(' existsExpression ')' )
+     | ( EXISTS '{' existsSubquery '}' )
      | relationshipsPattern
      | parenthesizedExpression
      | functionInvocation
@@ -308,6 +309,10 @@ reduceExpression : accumulator=variable '=' initial=expression ',' idInColl '|' 
 extractExpression : idInColl '|' expression ;
 
 existsExpression : forcePatternPart | .* ;
+
+existsSubquery : forcePatternPart
+               | cypherQuery
+               ;
 
 forcePatternPart : ( variable '=' relationshipsPattern )
                  | relationshipsPattern

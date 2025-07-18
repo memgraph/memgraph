@@ -27,11 +27,9 @@
 
 #include <algorithm>
 #include <atomic>
+#include "utils/compile_time.hpp"
 
 namespace {
-template <typename>
-[[maybe_unused]] inline constexpr bool always_false_v = false;
-
 constexpr auto kHeartbeatRpcTimeout = std::chrono::milliseconds(5000);
 constexpr auto kCommitRpcTimeout = std::chrono::milliseconds(50);
 
@@ -58,10 +56,13 @@ constexpr auto StateToString(ReplicaState const &replica_state) -> std::string_v
 
 namespace memgraph::metrics {
 extern const Event HeartbeatRpc_us;
-extern const Event AppendDeltasRpc_us;
+extern const Event PrepareCommitRpc_us;
 extern const Event ReplicaStream_us;
 extern const Event StartTxnReplication_us;
 extern const Event FinalizeTxnReplication_us;
+extern const Event ReplicaRecoverySuccess;
+extern const Event ReplicaRecoveryFail;
+extern const Event ReplicaRecoverySkip;
 }  // namespace memgraph::metrics
 
 namespace memgraph::storage {
@@ -78,29 +79,29 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
       std::invoke([&]() -> std::optional<replication::HeartbeatRes> {
         utils::MetricsTimer const timer{metrics::HeartbeatRpc_us};
 
-        // If SYNC replica, block while waiting for RPC lock
-        if (client_.mode_ == replication_coordination_glue::ReplicationMode::SYNC) {
-          auto hb_stream = client_.rpc_client_.Stream<replication::HeartbeatRpc>(
-              main_uuid_, main_storage->uuid(),
-              replStorageState.last_durable_timestamp_.load(std::memory_order_acquire),
-              std::string{replStorageState.epoch_.id()});
-          return hb_stream.SendAndWait();
-        }
         // if ASYNC replica, try lock for 10s and if the lock cannot be obtained, skip this task
         // frequent heartbeat should reschedule the next one and should be OK. By this skipping, we prevent deadlock
         // from happening when there are old tasks in the queue which need to UpdateReplicaState and the newer commit
         // task. The deadlock would've occurred because in the commit we hold RPC lock all the time but the task cannot
         // get scheduled since UpdateReplicaState tasks cannot finish due to impossibility to get RPC lock
-        auto hb_stream = client_.rpc_client_.TryStream<replication::HeartbeatRpc>(
-            std::optional{kHeartbeatRpcTimeout}, main_uuid_, main_storage->uuid(),
-            replStorageState.last_durable_timestamp_.load(std::memory_order_acquire),
-            std::string{replStorageState.epoch_.id()});
+        if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
+          auto hb_stream = client_.rpc_client_.TryStream<replication::HeartbeatRpc>(
+              std::optional{kHeartbeatRpcTimeout}, main_uuid_, main_storage->uuid(),
+              replStorageState.last_durable_timestamp_.load(std::memory_order_acquire),
+              std::string{replStorageState.epoch_.id()});
 
-        std::optional<replication::HeartbeatRes> res;
-        if (hb_stream.has_value()) {
-          res.emplace(hb_stream->SendAndWait());
+          std::optional<replication::HeartbeatRes> res;
+          if (hb_stream.has_value()) {
+            res.emplace(hb_stream->SendAndWait());
+          }
+          return res;
         }
-        return res;
+
+        // If SYNC or STRICT_SYNC replica, block while waiting for RPC lock
+        auto hb_stream = client_.rpc_client_.Stream<replication::HeartbeatRpc>(
+            main_uuid_, main_storage->uuid(), replStorageState.last_durable_timestamp_.load(std::memory_order_acquire),
+            std::string{replStorageState.epoch_.id()});
+        return hb_stream.SendAndWait();
       });
 
   if (!maybe_heartbeat_res.has_value()) {
@@ -162,6 +163,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
           client_.name_, main_db_name, epoch_info_iter->first, epoch_info_iter->second);
     }
   }
+
   if (branching_point) {
     auto log_error = [replica_name = client_.name_]() {
       spdlog::error(
@@ -204,6 +206,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
 #endif
     return;
   }
+
   // No branching point
   // Lock engine lock in order to read main_storage timestamp and synchronize with any active commits
   auto engine_lock = std::unique_lock{main_storage->engine_lock_};
@@ -283,8 +286,9 @@ void ReplicationStorageClient::TryCheckReplicaStateSync(Storage *main_storage, D
 // If replica is DIVERGED_FROM_MAIN, skip
 // If replica is READY, set it to replicating and create optional stream
 //    If creating stream fails, set the state to MAYBE_BEHIND. RPC lock is taken.
-auto ReplicationStorageClient::StartTransactionReplication(const uint64_t current_wal_seq_num, Storage *storage,
-                                                           DatabaseAccessProtector db_acc)
+auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, DatabaseAccessProtector db_acc,
+                                                           bool const commit_immediately,
+                                                           uint64_t const durability_commit_timestamp)
     -> std::optional<ReplicaStream> {
   utils::MetricsTimer const timer{metrics::StartTxnReplication_us};
   auto locked_state = replica_state_.Lock();
@@ -318,18 +322,19 @@ auto ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
     case READY: {
       try {
         utils::MetricsTimer const replica_stream_timer{metrics::ReplicaStream_us};
-        std::optional<rpc::Client::StreamHandler<replication::AppendDeltasRpc>> maybe_stream_handler;
+        std::optional<rpc::Client::StreamHandler<replication::PrepareCommitRpc>> maybe_stream_handler;
 
+        // Try to obtain RPC stream for ASYNC replica
         if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
-          maybe_stream_handler = client_.rpc_client_.TryStream<replication::AppendDeltasRpc>(
-              std::optional<std::chrono::milliseconds>{kCommitRpcTimeout}, main_uuid_, storage->uuid(),
-              storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire),
-              current_wal_seq_num);
-        } else {
-          maybe_stream_handler.emplace(client_.rpc_client_.Stream<replication::AppendDeltasRpc>(
+          maybe_stream_handler = client_.rpc_client_.TryStream<replication::PrepareCommitRpc>(
+              std::optional{kCommitRpcTimeout}, main_uuid_, storage->uuid(),
+              storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire), commit_immediately,
+              durability_commit_timestamp);
+        } else {  // Block for SYNC and STRICT_SYNC replica
+          maybe_stream_handler.emplace(client_.rpc_client_.Stream<replication::PrepareCommitRpc>(
               main_uuid_, storage->uuid(),
-              storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire),
-              current_wal_seq_num));
+              storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire), commit_immediately,
+              durability_commit_timestamp));
         }
 
         if (!maybe_stream_handler.has_value()) {
@@ -348,6 +353,96 @@ auto ReplicationStorageClient::StartTransactionReplication(const uint64_t curren
     }
     default:
       LOG_FATAL("Unknown replica state when starting transaction replication.");
+  }
+}
+
+// RPC lock released at the end of this function
+// ReSharper disable once CppMemberFunctionMayBeConst
+[[nodiscard]] bool ReplicationStorageClient::SendFinalizeCommitRpc(
+    bool const decision, utils::UUID const &storage_uuid, DatabaseAccessProtector db_acc,
+    uint64_t const durability_commit_timestamp, std::optional<ReplicaStream> &&replica_stream) noexcept {
+  // Just skip instance which was down before voting
+  if (!replica_stream.has_value()) {
+    return true;
+  }
+
+  try {
+    auto stream{client_.rpc_client_.UpgradeStream<replication::FinalizeCommitRpc>(
+        std::move(replica_stream->GetStreamHandler()), decision, main_uuid_, storage_uuid,
+        durability_commit_timestamp)};
+    return stream.SendAndWait().success;
+  } catch (const rpc::RpcFailedException &) {
+    // Frequent heartbeat should trigger the recovery. Until then, commits on MAIN won't be allowed
+    return false;
+  }
+}
+
+// Only STRICT_SYNC replicas can call this function
+bool ReplicationStorageClient::FinalizePrepareCommitPhase(DatabaseAccessProtector db_acc,
+                                                          std::optional<ReplicaStream> &replica_stream,
+                                                          uint64_t durability_commit_timestamp) const {
+  // We can only check the state because it guarantees to be only
+  // valid during a single transaction replication (if the assumption
+  // that this and other transaction replication functions can only be
+  // called from a one thread stands)
+  utils::MetricsTimer const timer{metrics::FinalizeTxnReplication_us};
+  auto const continue_finalize = replica_state_.WithLock([this, &replica_stream](auto &state) mutable {
+    spdlog::trace("Finalizing 1st phase on replica {} in state {}", client_.name_, StateToString(state));
+
+    if (state != ReplicaState::REPLICATING) {
+      // Recovery finished between the txn start and txn finish.
+      // Set the state to maybe behind and rely on heartbeat to check asynchronously the state
+      if (state == ReplicaState::READY) {
+        replica_stream.reset();
+        state = ReplicaState::MAYBE_BEHIND;
+      }
+      return false;
+    }
+    return true;
+  });
+
+  if (!continue_finalize) {
+    return false;
+  }
+
+  if (!replica_stream || replica_stream->IsDefunct()) {
+    replica_state_.WithLock([&replica_stream](auto &state) {
+      replica_stream.reset();
+      state = ReplicaState::MAYBE_BEHIND;
+    });
+    LogRpcFailure();
+    return false;
+  }
+
+  MG_ASSERT(replica_stream, "Missing stream for transaction deltas for replica {}", client_.name_);
+  try {
+    auto response = replica_stream->Finalize();
+    // NOLINTNEXTLINE
+    return replica_state_.WithLock(
+        [this, response, db_acc = std::move(db_acc), durability_commit_timestamp](auto &state) mutable {
+          // If we didn't receive successful response to PrepareCommit, or we got into MAYBE_BEHIND state since the
+          // moment we started committing as ASYNC replica, we cannot set the ready state. We could have got into
+          // MAYBE_BEHIND state if we missed next txn.
+          if (state != ReplicaState::REPLICATING) {
+            return false;
+          }
+
+          if (!response.success) {
+            state = ReplicaState::MAYBE_BEHIND;
+            return false;
+          }
+
+          last_known_ts_.store(durability_commit_timestamp, std::memory_order_release);
+          state = ReplicaState::READY;
+          return true;
+        });
+  } catch (const rpc::RpcFailedException &) {
+    replica_state_.WithLock([&replica_stream](auto &state) {
+      replica_stream.reset();
+      state = ReplicaState::MAYBE_BEHIND;
+    });
+    LogRpcFailure();
+    return false;
   }
 }
 
@@ -453,6 +548,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
   if (*replica_state_.Lock() != ReplicaState::RECOVERY) {
     spdlog::info("Replica {} is not in RECOVERY state anymore for db {}, ending the recovery task.", client_.name_,
                  main_db_name);
+    metrics::IncrementCounter(metrics::ReplicaRecoverySkip);
     return;
   }
 
@@ -576,13 +672,14 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                   spdlog::debug("Cannot recover using current wal file {} for db {}.", client_.name_, main_db_name);
                 }
               },
-              []<typename T>(T const &) { static_assert(always_false_v<T>, "Missing type from variant visitor"); },
+              []<typename T>(T const &) { static_assert(utils::always_false<T>, "Missing type from variant visitor"); },
           },
           recovery_step);
     } catch (const rpc::RpcFailedException &) {
       last_known_ts_.store(replica_last_commit_ts, std::memory_order_release);
       replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
       LogRpcFailure();
+      metrics::IncrementCounter(metrics::ReplicaRecoveryFail);
       return;
     }
     // If recovery failed, set the state to MAYBE_BEHIND because replica for sure didn't recover completely
@@ -590,9 +687,14 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
       spdlog::debug("One of recovery steps failed, setting replica state to MAYBE_BEHIND");
       last_known_ts_.store(replica_last_commit_ts, std::memory_order_release);
       replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
+      metrics::IncrementCounter(metrics::ReplicaRecoveryFail);
       return;
     }
   }
+
+  // Success here means that the recovery finished. Doesn't matter if there are some commits which happened during
+  // the recovery, the important thing here is that it finished.
+  metrics::IncrementCounter(metrics::ReplicaRecoverySuccess);
 
   // Protect the exit from the recovery. Otherwise, FinalizeTransactionReplication()
   // could check that the replica state isn't replicating, this recovery sets the
@@ -621,7 +723,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
 }
 
 ////// ReplicaStream //////
-ReplicaStream::ReplicaStream(Storage *storage, rpc::Client::StreamHandler<replication::AppendDeltasRpc> stream)
+ReplicaStream::ReplicaStream(Storage *storage, rpc::Client::StreamHandler<replication::PrepareCommitRpc> stream)
     : storage_{storage}, stream_(std::move(stream)) {
   replication::Encoder encoder{stream_.GetBuilder()};
   encoder.WriteString(storage->repl_storage_state_.epoch_.id());
@@ -643,8 +745,8 @@ void ReplicaStream::AppendTransactionEnd(uint64_t const final_commit_timestamp) 
   EncodeTransactionEnd(&encoder, final_commit_timestamp);
 }
 
-replication::AppendDeltasRes ReplicaStream::Finalize() {
-  utils::MetricsTimer const timer{metrics::AppendDeltasRpc_us};
+replication::PrepareCommitRes ReplicaStream::Finalize() {
+  utils::MetricsTimer const timer{metrics::PrepareCommitRpc_us};
   return stream_.SendAndWaitProgress();
 }
 }  // namespace memgraph::storage

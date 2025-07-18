@@ -12,6 +12,7 @@
 #pragma once
 
 #include "kvstore/kvstore.hpp"
+#include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/disk/durable_metadata.hpp"
 #include "storage/v2/disk/edge_import_mode_cache.hpp"
@@ -151,6 +152,11 @@ class DiskStorage final : public Storage {
       return std::nullopt;
     }
 
+    std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId /*label*/, PropertyId /*property*/) const override {
+      // Vector index does not exist for on disk
+      return std::nullopt;
+    }
+
     std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId & /*label*/) const override {
       return {};
     }
@@ -186,21 +192,19 @@ class DiskStorage final : public Storage {
     std::optional<EdgeAccessor> FindEdge(Gid gid, View view, EdgeTypeId edge_type, VertexAccessor *from_vertex,
                                          VertexAccessor *to_vertex) override;
 
-    bool LabelIndexExists(LabelId label) const override {
-      auto *disk_storage = static_cast<DiskStorage *>(storage_);
-      return disk_storage->indices_.label_index_->IndexExists(label);
+    bool LabelIndexReady(LabelId label) const override {
+      return transaction_.active_indices_.label_->IndexReady(label);
     }
 
-    bool LabelPropertyIndexExists(LabelId label, std::span<PropertyPath const> properties) const override {
-      auto *disk_storage = static_cast<DiskStorage *>(storage_);
-      return disk_storage->indices_.label_property_index_->IndexExists(label, properties);
+    bool LabelPropertyIndexReady(LabelId label, std::span<PropertyPath const> properties) const override {
+      return transaction_.active_indices_.label_properties_->IndexReady(label, properties);
     }
 
-    bool EdgeTypeIndexExists(EdgeTypeId edge_type) const override;
+    bool EdgeTypeIndexReady(EdgeTypeId edge_type) const override;
 
-    bool EdgeTypePropertyIndexExists(EdgeTypeId edge_type, PropertyId proeprty) const override;
+    bool EdgeTypePropertyIndexReady(EdgeTypeId edge_type, PropertyId proeprty) const override;
 
-    bool EdgePropertyIndexExists(PropertyId proeprty) const override;
+    bool EdgePropertyIndexReady(PropertyId proeprty) const override;
 
     bool PointIndexExists(LabelId label, PropertyId property) const override;
 
@@ -209,11 +213,11 @@ class DiskStorage final : public Storage {
     ConstraintsInfo ListAllConstraints() const override;
 
     // NOLINTNEXTLINE(google-default-arguments)
-    utils::BasicResult<StorageManipulationError, void> Commit(CommitReplArgs reparg = {},
-                                                              DatabaseAccessProtector db_acc = {}) override;
+    utils::BasicResult<StorageManipulationError, void> PrepareForCommitPhase(
+        CommitReplicationArgs reparg = {}, DatabaseAccessProtector db_acc = {}) override;
 
     // NOLINTNEXTLINE(google-default-arguments)
-    utils::BasicResult<StorageManipulationError, void> PeriodicCommit(CommitReplArgs reparg = {},
+    utils::BasicResult<StorageManipulationError, void> PeriodicCommit(CommitReplicationArgs reparg = {},
                                                                       DatabaseAccessProtector db_acc = {}) override;
 
     void UpdateObjectsCountOnAbort();
@@ -222,30 +226,41 @@ class DiskStorage final : public Storage {
 
     void FinalizeTransaction() override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label,
-                                                                      bool unique_access_needed = true) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+        LabelId label, bool check_access = true, CheckCancelFunction cancel_check = neverCancel,
+        PublishIndexWrapper wrapper = publish_no_wrap) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        LabelId label, std::vector<storage::PropertyPath> properties) override;
+        LabelId label, PropertiesPaths, CheckCancelFunction cancel_check = neverCancel,
+        PublishIndexWrapper wrapper = publish_no_wrap) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
-                                                                      bool unique_access_needed = true) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+        EdgeTypeId edge_type, bool unique_access_needed = true, CheckCancelFunction cancel_check = neverCancel,
+        PublishIndexWrapper wrapper = publish_no_wrap) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
-                                                                      PropertyId property) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+        EdgeTypeId edge_type, PropertyId property, CheckCancelFunction cancel_check = neverCancel,
+        PublishIndexWrapper wrapper = publish_no_wrap) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> CreateGlobalEdgeIndex(PropertyId property) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> CreateGlobalEdgeIndex(
+        PropertyId property, CheckCancelFunction cancel_check = neverCancel,
+        PublishIndexWrapper wrapper = publish_no_wrap) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label,
+                                                                    DropIndexWrapper wrapper = drop_no_wrap) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
-        LabelId label, std::vector<storage::PropertyPath> &&properties) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label,
+                                                                    std::vector<storage::PropertyPath> &&properties,
+                                                                    DropIndexWrapper wrapper = drop_no_wrap) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type,
+                                                                    DropIndexWrapper wrapper = drop_no_wrap) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type, PropertyId property) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type, PropertyId property,
+                                                                    DropIndexWrapper wrapper = drop_no_wrap) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> DropGlobalEdgeIndex(PropertyId property) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> DropGlobalEdgeIndex(
+        PropertyId property, DropIndexWrapper wrapper = drop_no_wrap) override;
 
     utils::BasicResult<storage::StorageIndexDefinitionError, void> CreatePointIndex(
         storage::LabelId label, storage::PropertyId property) override;
@@ -257,6 +272,9 @@ class DiskStorage final : public Storage {
 
     utils::BasicResult<storage::StorageIndexDefinitionError, void> DropVectorIndex(
         std::string_view index_name) override;
+
+    utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorEdgeIndex(
+        VectorEdgeIndexSpec spec) override;
 
     utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
         LabelId label, PropertyId property) override;
@@ -283,13 +301,18 @@ class DiskStorage final : public Storage {
                        PointDistanceCondition condition) -> PointIterable override;
 
     auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
-                       PropertyValue const &bottom_left, PropertyValue const &top_right, WithinBBoxCondition condition)
-        -> PointIterable override;
+                       PropertyValue const &bottom_left, PropertyValue const &top_right,
+                       WithinBBoxCondition condition) -> PointIterable override;
 
-    std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearch(
+    std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearchOnNodes(
+        const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) override;
+
+    std::vector<std::tuple<EdgeAccessor, double, double>> VectorIndexSearchOnEdges(
         const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) override;
 
     std::vector<VectorIndexInfo> ListAllVectorIndices() const override;
+
+    std::vector<VectorEdgeIndexInfo> ListAllVectorEdgeIndices() const override;
 
    private:
     VerticesIterable Vertices(LabelId label, PropertyId property, const PropertyValue &value, View view);
