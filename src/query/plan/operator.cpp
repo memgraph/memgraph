@@ -4068,7 +4068,7 @@ bool SetNestedProperty::SetNestedPropertyCursor::Pull(Frame &frame, ExecutionCon
       }
 #endif
 
-      TypedValue old_value = TypedValue(evaluator.GetProperty(lhs.ValueVertex(), self_.lhs_->property_),
+      TypedValue old_value = TypedValue(evaluator.GetProperty(lhs.ValueVertex(), self_.lhs_->GetBaseProperty()),
                                         evaluator.GetNameIdMapper(), context.evaluation_context.memory);
 
       if (!old_value.IsMap()) {
@@ -4136,7 +4136,7 @@ bool SetNestedProperty::SetNestedPropertyCursor::Pull(Frame &frame, ExecutionCon
       }
 #endif
 
-      TypedValue old_value = TypedValue(evaluator.GetProperty(lhs.ValueEdge(), self_.lhs_->property_),
+      TypedValue old_value = TypedValue(evaluator.GetProperty(lhs.ValueEdge(), self_.lhs_->GetBaseProperty()),
                                         evaluator.GetNameIdMapper(), context.evaluation_context.memory);
 
       if (!old_value.IsMap()) {

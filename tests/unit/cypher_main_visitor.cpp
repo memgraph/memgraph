@@ -375,7 +375,7 @@ TEST_P(CypherMainVisitorTest, PropertyLookup) {
   auto identifier = dynamic_cast<Identifier *>(property_lookup->expression_);
   ASSERT_TRUE(identifier);
   ASSERT_EQ(identifier->name_, "n");
-  ASSERT_EQ(property_lookup->property_, ast_generator.Prop("x"));
+  ASSERT_EQ(property_lookup->GetBaseProperty(), ast_generator.Prop("x"));
   CheckRWType(query, kRead);
 }
 
@@ -798,7 +798,7 @@ TEST_P(CypherMainVisitorTest, MemberOfListElement) {
   auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
   auto *property_lookup_op = dynamic_cast<PropertyLookup *>(return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(property_lookup_op);
-  EXPECT_EQ(property_lookup_op->property_, ast_generator.Prop("x"));
+  EXPECT_EQ(property_lookup_op->GetBaseProperty(), ast_generator.Prop("x"));
   auto *list_index_op = dynamic_cast<SubscriptOperator *>(property_lookup_op->expression_);
   ASSERT_TRUE(list_index_op);
   auto *list = dynamic_cast<ListLiteral *>(list_index_op->expression1_);
@@ -1667,7 +1667,7 @@ TEST_P(CypherMainVisitorTest, Set) {
     auto *identifier1 = dynamic_cast<Identifier *>(set_property->property_lookup_->expression_);
     ASSERT_TRUE(identifier1);
     ASSERT_EQ(identifier1->name_, "a");
-    ASSERT_EQ(set_property->property_lookup_->property_, ast_generator.Prop("x"));
+    ASSERT_EQ(set_property->property_lookup_->GetBaseProperty(), ast_generator.Prop("x"));
     auto *identifier2 = dynamic_cast<Identifier *>(set_property->expression_);
     ASSERT_EQ(identifier2->name_, "b");
   }
@@ -1716,7 +1716,7 @@ TEST_P(CypherMainVisitorTest, Remove) {
     auto *identifier1 = dynamic_cast<Identifier *>(remove_property->property_lookup_->expression_);
     ASSERT_TRUE(identifier1);
     ASSERT_EQ(identifier1->name_, "a");
-    ASSERT_EQ(remove_property->property_lookup_->property_, ast_generator.Prop("x"));
+    ASSERT_EQ(remove_property->property_lookup_->GetBaseProperty(), ast_generator.Prop("x"));
   }
   {
     auto *remove_labels = dynamic_cast<RemoveLabels *>(single_query->clauses_[1]);
