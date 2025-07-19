@@ -8,6 +8,7 @@ copy_query_modules_e2e_python_files(convert_test.py)
 copy_query_modules_e2e_python_files(edge_cases_test.py)
 copy_query_modules_e2e_python_files(mgps_test.py)
 copy_query_modules_e2e_python_files(schema_test.py)
+copy_query_modules_e2e_python_files(temporal_types_test.py)
 
 add_subdirectory(query_modules)
 
