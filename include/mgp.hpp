@@ -1985,9 +1985,10 @@ inline Type ToAPIType(mgp_value_type type) {
       return Type::LocalTime;
     case MGP_VALUE_TYPE_LOCAL_DATE_TIME:
       return Type::LocalDateTime;
-    // @TODO MGP_VALUE_TYPE_ZONED_DATE_TIME
     case MGP_VALUE_TYPE_DURATION:
       return Type::Duration;
+    case MGP_VALUE_TYPE_ZONED_DATE_TIME:
+    // TODO(zoneddatetime) Type not fully supported yet.
     default:
       break;
   }
@@ -4793,7 +4794,7 @@ struct hash<mgp::Value> {
       case mgp::Type::Duration:
         return std::hash<mgp::Duration>{}(x.ValueDuration());
       case mgp::Type::ZonedDateTime:
-        // TODO(colinbarry) ZonedDateTime is not properly supported in the API
+        // TODO(zoneddatetime) ZonedDateTime is not properly supported in the API
         // yet.
         return 0;
     }
