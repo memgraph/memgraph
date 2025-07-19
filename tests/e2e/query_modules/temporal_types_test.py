@@ -19,37 +19,41 @@ def test_pymodule_taking_zoneddatetime_with_named_timezone():
     cursor = connect().cursor()
     result = execute_and_fetch_all(
         cursor,
-        'RETURN temporal.zoneddatetime_to_string(datetime({year: 2024, month: 4, day: 21, hour: 14, minute: 15, timezone: "America/Los_Angeles"}))',
+        'RETURN temporal.zoneddatetime_to_string(datetime({year: 2024, month: 4, day: 21, hour: 14, minute: 15, second: 16, timezone: "America/Los_Angeles"}))',
     )[0][0]
-    assert result == "2024-04-21 14:15:00-07:00"
+    assert result == "2024-04-21 14:15:16-07:00"
 
 
 def test_pymodule_taking_zoneddatetime_with_UTC():
     cursor = connect().cursor()
     result = execute_and_fetch_all(
         cursor,
-        'RETURN temporal.zoneddatetime_to_string(datetime({year: 2024, month: 4, day: 21, hour: 14, minute: 15, timezone: "UTC"}))',
+        'RETURN temporal.zoneddatetime_to_string(datetime({year: 2024, month: 4, day: 21, hour: 14, minute: 15, second: 16, timezone: "UTC"}))',
     )[0][0]
-    assert result == "2024-04-21 14:15:00+00:00"
+    assert result == "2024-04-21 14:15:16+00:00"
 
 
 def test_pymodule_taking_zoneddatetime_with_positive_offset():
     cursor = connect().cursor()
     result = execute_and_fetch_all(
         cursor,
-        "RETURN temporal.zoneddatetime_to_string(datetime({year: 2024, month: 4, day: 21, hour: 14, minute: 15, timezone: 120}))",
+        "RETURN temporal.zoneddatetime_to_string(datetime({year: 2024, month: 4, day: 21, hour: 14, minute: 15, second: 16, timezone: 120}))",
     )[0][0]
-    assert result == "2024-04-21 14:15:00+02:00"
+    assert result == "2024-04-21 14:15:16+02:00"
 
 
 def test_pymodule_taking_zoneddatetime_with_negative_offset():
     cursor = connect().cursor()
     result = execute_and_fetch_all(
         cursor,
-        "RETURN temporal.zoneddatetime_to_string(datetime({year: 2024, month: 4, day: 21, hour: 14, minute: 15, timezone: -300}))",
+        "RETURN temporal.zoneddatetime_to_string(datetime({year: 2024, month: 4, day: 21, hour: 14, minute: 15, second: 16, timezone: -300}))",
     )[0][0]
-    assert result == "2024-04-21 14:15:00-05:00"
+    assert result == "2024-04-21 14:15:16-05:00"
 
+
+# TODO(zoneddatetime) Add tests using `temporal.zdt` to ensure we can retrieve
+# ZonedDateTimes. Also add tests to ensure that `datetime`s without a timezone
+# are treated as `LocalDateTime`s.
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
