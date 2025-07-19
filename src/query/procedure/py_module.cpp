@@ -2745,14 +2745,21 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
     case MGP_VALUE_TYPE_ZONED_DATE_TIME: {
       const auto &local_time = value.zoned_date_time_v->zoned_date_time.local_time();
       const auto &date = value.zoned_date_time_v->zoned_date_time.date();
-      auto const offset_seconds = value.zoned_date_time_v->zoned_date_time.OffsetSeconds().count();
+      int32_t offset_seconds = value.zoned_date_time_v->zoned_date_time.OffsetSeconds().count();
+
+      int32_t days = offset_seconds / 86400;
+      int32_t seconds = offset_seconds % 86400;
+      if (seconds < 0) {
+        seconds += 86400;
+        --days;
+      }
 
       py::Object datetime_module{PyImport_ImportModule("datetime")};
       if (!datetime_module) return nullptr;
       py::Object datetime_class{PyObject_GetAttrString(datetime_module.Ptr(), "datetime")};
       if (!datetime_class) return nullptr;
 
-      py::Object offset_delta{PyDelta_FromDSU(0, offset_seconds, 0)};
+      py::Object offset_delta{PyDelta_FromDSU(days, seconds, 0)};
       py::Object tz{PyTimeZone_FromOffset(offset_delta.Ptr())};
 
       py::Object py_zoned_date_time(PyObject_CallFunction(
@@ -3021,9 +3028,12 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
         throw std::runtime_error{"Cannot read timezone offset"};
       }
 
+      constexpr int SECONDS_PER_DAY = 86400;
+      int32_t const offset_days = static_cast<int32_t>(PyDateTime_DELTA_GET_DAYS(offset.Ptr()));
       int32_t const offset_seconds = static_cast<int32_t>(PyDateTime_DELTA_GET_SECONDS(offset.Ptr()));
 
-      mgp_zoned_date_time_parameters parameters{&date_parameters, &local_time_parameters, offset_seconds};
+      mgp_zoned_date_time_parameters parameters{&date_parameters, &local_time_parameters,
+                                                offset_days * SECONDS_PER_DAY + offset_seconds};
 
       MgpUniquePtr<mgp_zoned_date_time> zoned_date_time{nullptr, mgp_zoned_date_time_destroy};
 
