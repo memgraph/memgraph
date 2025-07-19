@@ -2743,10 +2743,12 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
       return py_duration;
     }
     case MGP_VALUE_TYPE_ZONED_DATE_TIME: {
-      const auto &local_time = value.zoned_date_time_v->zoned_date_time.local_time();
-      const auto &date = value.zoned_date_time_v->zoned_date_time.date();
+      auto const local_time = value.zoned_date_time_v->zoned_date_time.AsLocalTime();
+      auto const date = value.zoned_date_time_v->zoned_date_time.AsLocalDate();
       int32_t offset_seconds = value.zoned_date_time_v->zoned_date_time.OffsetSeconds().count();
 
+      // Python's `timedelta` cannot be constructed with -negative values,
+      // so convert a negative second offset to a positive one.
       int32_t days = offset_seconds / 86400;
       int32_t seconds = offset_seconds % 86400;
       if (seconds < 0) {

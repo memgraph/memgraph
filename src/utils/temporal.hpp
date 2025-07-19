@@ -345,7 +345,7 @@ struct LocalDateTime {
   /**
    * @brief Return calendar time (local/user timezone)
    *
-   * @return Date
+   * @return LocalTime
    */
   LocalTime local_time() const;
 
@@ -577,20 +577,19 @@ struct ZonedDateTime {
     return (subseconds - std::chrono::duration_cast<std::chrono::milliseconds>(subseconds)).count();
   }
 
-  // @TODO fix these return type names!
   /**
-   * @brief Return calendar date (local/user timezone)
+   * @brief Return local date (local to the `zoned_time` timezone)
    *
    * @return Date
    */
-  Date date() const;
+  Date AsLocalDate() const;
 
   /**
-   * @brief Return calendar time (local/user timezone)
+   * @brief Return calendar time (local to the `zoned_time` timezone)
    *
-   * @return Date
+   * @return LocalTime
    */
-  LocalTime local_time() const;
+  LocalTime AsLocalTime() const;
 
   std::chrono::zoned_time<std::chrono::microseconds, Timezone> zoned_time;
 };
