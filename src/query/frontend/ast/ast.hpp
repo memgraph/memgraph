@@ -985,7 +985,7 @@ class PropertyLookup : public memgraph::query::Expression {
 
   // Existing constructor for single property (fills property_path_)
   PropertyLookup(Expression *expression, PropertyIx property)
-      : expression_(expression), property_(std::move(property)), property_path_{property} {}
+      : expression_(expression), property_(std::move(property)), property_path_{property_} {}
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);

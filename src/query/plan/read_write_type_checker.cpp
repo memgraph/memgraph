@@ -30,6 +30,7 @@ PRE_VISIT(SetProperties, RWType::W, true)
 PRE_VISIT(SetLabels, RWType::W, true)
 
 PRE_VISIT(RemoveProperty, RWType::W, true)
+PRE_VISIT(RemoveNestedProperty, RWType::W, true)
 PRE_VISIT(RemoveLabels, RWType::W, true)
 
 PRE_VISIT(ScanAll, RWType::R, true)

@@ -529,8 +529,13 @@ class RuleBasedPlanner {
       const auto &input_symbol = symbol_table.at(*set->identifier_);
       return std::make_unique<plan::SetLabels>(std::move(input_op), input_symbol, GetLabelIds(set->labels_));
     } else if (auto *rem = utils::Downcast<query::RemoveProperty>(clause)) {
-      return std::make_unique<plan::RemoveProperty>(std::move(input_op), GetProperty(rem->property_lookup_->property_),
-                                                    rem->property_lookup_);
+      if (rem->property_lookup_->property_path_.size() == 1) {
+        return std::make_unique<plan::RemoveProperty>(
+            std::move(input_op), GetProperty(rem->property_lookup_->property_), rem->property_lookup_);
+      } else {
+        return std::make_unique<plan::RemoveNestedProperty>(
+            std::move(input_op), GetProperties(rem->property_lookup_->property_path_), rem->property_lookup_);
+      }
     } else if (auto *rem = utils::Downcast<query::RemoveLabels>(clause)) {
       const auto &input_symbol = symbol_table.at(*rem->identifier_);
       return std::make_unique<plan::RemoveLabels>(std::move(input_op), input_symbol, GetLabelIds(rem->labels_));

@@ -102,6 +102,7 @@ struct ReadWriteTypeChecker : public virtual HierarchicalLogicalOperatorVisitor 
   bool PreVisit(PeriodicSubquery &) override;
   bool PreVisit(PeriodicCommit &) override;
   bool PreVisit(SetNestedProperty &) override;
+  bool PreVisit(RemoveNestedProperty &) override;
 
   bool Visit(Once &) override;
 

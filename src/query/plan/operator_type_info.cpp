@@ -189,6 +189,9 @@ constexpr utils::TypeInfo query::plan::PeriodicSubquery::kType{utils::TypeId::PE
 constexpr utils::TypeInfo query::plan::SetNestedProperty::kType{utils::TypeId::SET_NESTED_PROPERTY, "SetNestedProperty",
                                                                 &query::plan::LogicalOperator::kType};
 
+constexpr utils::TypeInfo query::plan::RemoveNestedProperty::kType{
+    utils::TypeId::REMOVE_NESTED_PROPERTY, "RemoveNestedProperty", &query::plan::LogicalOperator::kType};
+
 constexpr utils::TypeInfo query::plan::ScanAllByPointDistance::kType{
     utils::TypeId::SCAN_ALL_BY_POINT_DISTANCE, "ScanAllByPointDistance", &query::plan::ScanAllByPointDistance::kType};
 

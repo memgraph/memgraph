@@ -152,6 +152,7 @@ extern const Event RollUpApplyOperator;
 extern const Event PeriodicCommitOperator;
 extern const Event PeriodicSubqueryOperator;
 extern const Event SetNestedPropertyOperator;
+extern const Event RemoveNestedPropertyOperator;
 }  // namespace memgraph::metrics
 
 namespace memgraph::query::plan {
@@ -4621,6 +4622,108 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
 void RemoveProperty::RemovePropertyCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void RemoveProperty::RemovePropertyCursor::Reset() { input_cursor_->Reset(); }
+
+RemoveNestedProperty::RemoveNestedProperty(const std::shared_ptr<LogicalOperator> &input,
+                                           std::vector<storage::PropertyId> property_path, PropertyLookup *lhs)
+    : input_(input), property_path_(std::move(property_path)), lhs_(lhs) {}
+
+ACCEPT_WITH_INPUT(RemoveNestedProperty)
+
+UniqueCursorPtr RemoveNestedProperty::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::RemoveNestedPropertyOperator);
+
+  return MakeUniqueCursorPtr<RemoveNestedPropertyCursor>(mem, *this, mem);
+}
+
+std::vector<Symbol> RemoveNestedProperty::ModifiedSymbols(const SymbolTable &table) const {
+  return input_->ModifiedSymbols(table);
+}
+
+std::unique_ptr<LogicalOperator> RemoveNestedProperty::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<RemoveNestedProperty>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->property_ = property_;
+  object->lhs_ = lhs_ ? lhs_->Clone(storage) : nullptr;
+  return object;
+}
+
+RemoveNestedProperty::RemoveNestedPropertyCursor::RemoveNestedPropertyCursor(const RemoveNestedProperty &self,
+                                                                             utils::MemoryResource *mem)
+    : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
+
+bool RemoveNestedProperty::RemoveNestedPropertyCursor::Pull(Frame &frame, ExecutionContext &context) {
+  OOMExceptionEnabler oom_exception;
+  SCOPED_PROFILE_OP("RemoveNesedProperty");
+
+  AbortCheck(context);
+
+  if (!input_cursor_->Pull(frame, context)) return false;
+
+  //   // Remove, just like Delete needs to see the latest changes.
+  //   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+  //                                 storage::View::NEW, nullptr, &context.number_of_hops);
+  //   TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
+
+  //   auto remove_prop = [property = self_.property_, &context](auto *record) {
+  //     auto maybe_old_value = record->RemoveProperty(property);
+  //     if (maybe_old_value.HasError()) {
+  //       switch (maybe_old_value.GetError()) {
+  //         case storage::Error::DELETED_OBJECT:
+  //           throw QueryRuntimeException("Trying to remove a property on a deleted graph element.");
+  //         case storage::Error::SERIALIZATION_ERROR:
+  //           throw TransactionSerializationException();
+  //         case storage::Error::PROPERTIES_DISABLED:
+  //           throw QueryRuntimeException(
+  //               "Can't remove property because properties on edges are "
+  //               "disabled.");
+  //         case storage::Error::VERTEX_HAS_EDGES:
+  //         case storage::Error::NONEXISTENT_OBJECT:
+  //           throw QueryRuntimeException("Unexpected error when removing property.");
+  //       }
+  //     }
+
+  //     if (context.trigger_context_collector) {
+  //       context.trigger_context_collector->RegisterRemovedObjectProperty(
+  //           *record, property,
+  //           TypedValue(std::move(*maybe_old_value), context.db_accessor->GetStorageAccessor()->GetNameIdMapper()));
+  //     }
+  //   };
+
+  //   switch (lhs.type()) {
+  //     case TypedValue::Type::Vertex:
+  // #ifdef MG_ENTERPRISE
+  //       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+  //           !context.auth_checker->Has(lhs.ValueVertex(), storage::View::NEW,
+  //                                      memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+  //         throw QueryRuntimeException("Vertex property not removed due to not having enough permission!");
+  //       }
+  // #endif
+  //       remove_prop(&lhs.ValueVertex());
+  //       if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+  //         context.db_accessor->TextIndexUpdateVertex(lhs.ValueVertex());
+  //       }
+  //       break;
+  //     case TypedValue::Type::Edge:
+  // #ifdef MG_ENTERPRISE
+  //       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+  //           !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+  //         throw QueryRuntimeException("Edge property not removed due to not having enough permission!");
+  //       }
+  // #endif
+  //       remove_prop(&lhs.ValueEdge());
+  //       break;
+  //     case TypedValue::Type::Null:
+  //       // Skip removing properties on Null (can occur in optional match).
+  //       break;
+  //     default:
+  //       throw QueryRuntimeException("Properties can only be removed from vertices and edges.");
+  //   }
+  return true;
+}
+
+void RemoveNestedProperty::RemoveNestedPropertyCursor::Shutdown() { input_cursor_->Shutdown(); }
+
+void RemoveNestedProperty::RemoveNestedPropertyCursor::Reset() { input_cursor_->Reset(); }
 
 RemoveLabels::RemoveLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
                            std::vector<StorageLabelType> labels)
