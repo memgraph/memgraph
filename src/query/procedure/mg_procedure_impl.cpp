@@ -748,7 +748,7 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::stora
       }
       break;
     }
-    // @TODO ZonedTemporalData support for zoned date time?
+    // TODO(zoneddatetime)
     case memgraph::storage::PropertyValue::Type::ZonedTemporalData: {
       throw std::logic_error{"mgp_value for PropertyValue::Type::ZonedTemporalData doesn't exist."};
       break;
@@ -1680,7 +1680,6 @@ mgp_error mgp_local_date_time_diff(mgp_local_date_time *first, mgp_local_date_ti
       result);
 }
 
-// @TODO which methods above do we need? Ensure they are in the same order as above
 mgp_error mgp_zoned_date_time_from_parameters(mgp_zoned_date_time_parameters *parameters, mgp_memory *memory,
                                               mgp_zoned_date_time **zoned_date_time) {
   return WrapExceptions([parameters, memory] { return NewRawMgpObject<mgp_zoned_date_time>(memory, parameters); },
@@ -1960,7 +1959,7 @@ memgraph::storage::PropertyValue ToPropertyValue(const mgp_value &value,
       return memgraph::storage::PropertyValue{memgraph::storage::TemporalData{memgraph::storage::TemporalType::Duration,
                                                                               value.duration_v->duration.microseconds}};
     case MGP_VALUE_TYPE_ZONED_DATE_TIME:
-      throw ValueConversionException{"Not yet implemented"};  // @TODO
+      throw ValueConversionException{"Not yet implemented"};  // TODO(zoneddatetime)
     case MGP_VALUE_TYPE_VERTEX:
       throw ValueConversionException{"A vertex is not a valid property value!"};
     case MGP_VALUE_TYPE_EDGE:

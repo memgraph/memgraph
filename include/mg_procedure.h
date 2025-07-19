@@ -1345,8 +1345,6 @@ enum mgp_error mgp_local_date_time_sub_duration(struct mgp_local_date_time *loca
 enum mgp_error mgp_local_date_time_diff(struct mgp_local_date_time *first, struct mgp_local_date_time *second,
                                         struct mgp_memory *memory, struct mgp_duration **result);
 
-/// @TODO which of the above methods are needed
-
 /// Create a zoned date-time from mgp_zoned_date_time_parameters.
 /// Resulting zoned date-time must be freed with mgp_zoned_date_time_destroy.
 /// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if the parameters cannot be parsed correctly.
