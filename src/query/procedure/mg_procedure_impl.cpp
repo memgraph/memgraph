@@ -1059,8 +1059,8 @@ DEFINE_MGP_VALUE_MAKE(path)
 DEFINE_MGP_VALUE_MAKE(date)
 DEFINE_MGP_VALUE_MAKE(local_time)
 DEFINE_MGP_VALUE_MAKE(local_date_time)
-DEFINE_MGP_VALUE_MAKE(zoned_date_time)
 DEFINE_MGP_VALUE_MAKE(duration)
+DEFINE_MGP_VALUE_MAKE(zoned_date_time)
 
 namespace {
 mgp_value_type MgpValueGetType(const mgp_value &val) noexcept { return val.type; }
@@ -2020,7 +2020,7 @@ memgraph::storage::ExternalPropertyValue ToExternalPropertyValue(const mgp_value
       return memgraph::storage::ExternalPropertyValue{memgraph::storage::TemporalData{
           memgraph::storage::TemporalType::Duration, value.duration_v->duration.microseconds}};
     case MGP_VALUE_TYPE_ZONED_DATE_TIME:
-      throw ValueConversionException{"Not yet implemented"};  // @TODO
+      throw ValueConversionException{"Not yet implemented"};  // TODO(zoneddatetime)
     case MGP_VALUE_TYPE_VERTEX:
       throw ValueConversionException{"A vertex is not a valid property value!"};
     case MGP_VALUE_TYPE_EDGE:

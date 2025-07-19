@@ -291,17 +291,11 @@ struct mgp_zoned_date_time {
   mgp_zoned_date_time(const memgraph::utils::ZonedDateTime &zoned_date_time, allocator_type alloc) noexcept
       : alloc(alloc), zoned_date_time(zoned_date_time) {}
 
-  // mgp_zoned_date_time(const std::string_view string, allocator_type alloc) noexcept
-  //     : alloc(alloc), zoned_date_time(CreateLocalDateTimeFromString(string)) {} // @TODO
-
   mgp_zoned_date_time(const mgp_zoned_date_time_parameters *parameters, allocator_type alloc)
       : alloc(alloc),
         zoned_date_time(memgraph::utils::ZonedDateTimeParameters{
             MapDateParameters(parameters->date_parameters), MapLocalTimeParameters(parameters->local_time_parameters),
             memgraph::utils::Timezone{std::chrono::minutes{parameters->offset / 60}}}) {}
-
-  // mgp_zoned_date_time(const int64_t microseconds, allocator_type alloc) noexcept
-  //     : alloc(alloc), zoned_date_time(microseconds) {}
 
   mgp_zoned_date_time(const mgp_zoned_date_time &other, allocator_type alloc) noexcept
       : alloc(alloc), zoned_date_time(other.zoned_date_time) {}
