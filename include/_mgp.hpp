@@ -112,6 +112,10 @@ inline mgp_value *value_make_local_date_time(mgp_local_date_time *val) {
   return MgInvoke<mgp_value *>(mgp_value_make_local_date_time, val);
 }
 
+inline mgp_value *value_make_zoned_date_time(mgp_zoned_date_time *val) {
+  return MgInvoke<mgp_value *>(mgp_value_make_zoned_date_time, val);
+}
+
 inline mgp_value *value_make_duration(mgp_duration *val) { return MgInvoke<mgp_value *>(mgp_value_make_duration, val); }
 
 // Copy value
@@ -164,6 +168,10 @@ inline mgp_local_time *value_get_local_time(mgp_value *val) {
 
 inline mgp_local_date_time *value_get_local_date_time(mgp_value *val) {
   return MgInvoke<mgp_local_date_time *>(mgp_value_get_local_date_time, val);
+}
+
+inline mgp_zoned_date_time *value_get_zoned_date_time(mgp_value *val) {
+  return MgInvoke<mgp_zoned_date_time *>(mgp_value_get_zoned_date_time, val);
 }
 
 inline mgp_duration *value_get_duration(mgp_value *val) {
@@ -710,6 +718,10 @@ inline void local_date_time_destroy(mgp_local_date_time *local_date_time) {
   mgp_local_date_time_destroy(local_date_time);
 }
 
+inline void zoned_date_time_destroy(mgp_zoned_date_time *zoned_date_time) {
+  mgp_zoned_date_time_destroy(zoned_date_time);
+}
+
 inline bool local_date_time_equal(mgp_local_date_time *first, mgp_local_date_time *second) {
   return MgInvoke<int>(mgp_local_date_time_equal, first, second);
 }
@@ -806,6 +818,12 @@ inline mgp_duration *duration_add(mgp_duration *first, mgp_duration *second, mgp
 
 inline mgp_duration *duration_sub(mgp_duration *first, mgp_duration *second, mgp_memory *memory) {
   return MgInvoke<mgp_duration *>(mgp_duration_sub, first, second, memory);
+}
+
+// mgp_zoned_date_time
+
+inline bool zoned_date_time_equal(mgp_zoned_date_time *first, mgp_zoned_date_time *second) {
+  return MgInvoke<int>(mgp_zoned_date_time_equal, first, second);
 }
 
 // Procedure

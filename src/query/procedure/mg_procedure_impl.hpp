@@ -73,6 +73,7 @@ struct mgp_value {
   mgp_value(mgp_local_time *, allocator_type) noexcept;
   mgp_value(mgp_local_date_time *, allocator_type) noexcept;
   mgp_value(mgp_duration *, allocator_type) noexcept;
+  mgp_value(mgp_zoned_date_time *, allocator_type) noexcept;
 
   /// Construct by copying memgraph::query::TypedValue using memgraph::utils::MemoryResource.
   /// mgp_graph is needed to construct mgp_vertex and mgp_edge.
@@ -127,6 +128,7 @@ struct mgp_value {
     mgp_local_time *local_time_v;
     mgp_local_date_time *local_date_time_v;
     mgp_duration *duration_v;
+    mgp_zoned_date_time *zoned_date_time_v;
   };
 };
 
@@ -274,6 +276,48 @@ struct mgp_local_date_time {
 
   allocator_type alloc;
   memgraph::utils::LocalDateTime local_date_time;
+};
+
+struct mgp_zoned_date_time {
+  /// Allocator type so that STL containers are aware that we need one.
+  /// We don't actually need this, but it simplifies the C API, because we store
+  /// the allocator which was used to allocate `this`.
+  using allocator_type = memgraph::utils::Allocator<mgp_zoned_date_time>;
+
+  // Hopefully memgraph::utils::ZonedDateTime copy constructor remains noexcept, so that we can
+  // have everything noexcept here.
+  static_assert(std::is_nothrow_copy_constructible_v<memgraph::utils::ZonedDateTime>);
+
+  mgp_zoned_date_time(const memgraph::utils::ZonedDateTime &zoned_date_time, allocator_type alloc) noexcept
+      : alloc(alloc), zoned_date_time(zoned_date_time) {}
+
+  mgp_zoned_date_time(const mgp_zoned_date_time_parameters *parameters, allocator_type alloc)
+      : alloc(alloc),
+        zoned_date_time(memgraph::utils::ZonedDateTimeParameters{
+            MapDateParameters(parameters->date_parameters), MapLocalTimeParameters(parameters->local_time_parameters),
+            memgraph::utils::Timezone{std::chrono::minutes{parameters->offset / 60}}}) {}
+
+  mgp_zoned_date_time(const mgp_zoned_date_time &other, allocator_type alloc) noexcept
+      : alloc(alloc), zoned_date_time(other.zoned_date_time) {}
+
+  mgp_zoned_date_time(mgp_zoned_date_time &&other, allocator_type alloc) noexcept
+      : alloc(alloc), zoned_date_time(other.zoned_date_time) {}
+
+  mgp_zoned_date_time(mgp_zoned_date_time &&other) noexcept
+      : alloc(other.alloc), zoned_date_time(other.zoned_date_time) {}
+
+  /// Copy construction without memgraph::utils::MemoryResource is not allowed.
+  mgp_zoned_date_time(const mgp_zoned_date_time &) = delete;
+
+  mgp_zoned_date_time &operator=(const mgp_zoned_date_time &) = delete;
+  mgp_zoned_date_time &operator=(mgp_zoned_date_time &&) = delete;
+
+  ~mgp_zoned_date_time() = default;
+
+  memgraph::utils::MemoryResource *GetMemoryResource() const noexcept { return alloc.resource(); }
+
+  allocator_type alloc;
+  memgraph::utils::ZonedDateTime zoned_date_time;
 };
 
 inline memgraph::utils::DurationParameters MapDurationParameters(const mgp_duration_parameters *parameters) {

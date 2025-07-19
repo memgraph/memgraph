@@ -881,6 +881,33 @@ std::string ZonedDateTime::ToString() const {
   return std::format("{0:%Y}-{0:%m}-{0:%d}T{0:%H}:{0:%M}:{0:%S}{0:%Ez}", zoned_time);
 }
 
+Date ZonedDateTime::AsLocalDate() const {
+  auto local_time = zoned_time.get_local_time();
+  auto days = std::chrono::floor<std::chrono::days>(local_time);
+  auto year_month_day = std::chrono::year_month_day{days};
+
+  return Date{DateParameters{static_cast<uint16_t>(static_cast<int>(year_month_day.year())),
+                             static_cast<uint8_t>(static_cast<unsigned>(year_month_day.month())),
+                             static_cast<uint8_t>(static_cast<unsigned>(year_month_day.day()))}};
+}
+
+LocalTime ZonedDateTime::AsLocalTime() const {
+  auto local_time = zoned_time.get_local_time();
+  auto days = std::chrono::floor<std::chrono::days>(local_time);
+  auto time_of_day = local_time - days;
+
+  return LocalTime{LocalTimeParameters{
+      static_cast<int64_t>(std::chrono::duration_cast<std::chrono::hours>(time_of_day).count()),
+      static_cast<int64_t>(
+          std::chrono::duration_cast<std::chrono::minutes>(time_of_day % std::chrono::hours{1}).count()),
+      static_cast<int64_t>(
+          std::chrono::duration_cast<std::chrono::seconds>(time_of_day % std::chrono::minutes{1}).count()),
+      static_cast<int64_t>(
+          std::chrono::duration_cast<std::chrono::milliseconds>(time_of_day % std::chrono::seconds{1}).count()),
+      static_cast<int64_t>(
+          std::chrono::duration_cast<std::chrono::microseconds>(time_of_day % std::chrono::milliseconds{1}).count())}};
+}
+
 bool ZonedDateTime::operator==(const ZonedDateTime &other) const {
   return SysMicrosecondsSinceEpoch().count() == other.SysMicrosecondsSinceEpoch().count() &&
          OffsetDuration() == other.OffsetDuration() && TimezoneName() == other.TimezoneName();

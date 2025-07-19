@@ -1146,6 +1146,7 @@ class Duration {
  private:
   mgp_duration *ptr_;
 };
+
 /* #endregion */
 
 /* #endregion */
@@ -1166,7 +1167,8 @@ enum class Type : uint8_t {
   Date,
   LocalTime,
   LocalDateTime,
-  Duration
+  Duration,
+  ZonedDateTime
 };
 
 /// @brief Wrapper class for @ref mgp_value.
@@ -1856,6 +1858,11 @@ inline bool DurationsEqual(mgp_duration *duration1, mgp_duration *duration2) {
   return mgp::duration_equal(duration1, duration2);
 }
 
+/// @brief Returns whether two MGP API zoned datetime objects are equal.
+inline bool ZonedDateTimesEqual(mgp_zoned_date_time *zoned_date_time1, mgp_zoned_date_time *zoned_date_time2) {
+  return mgp::zoned_date_time_equal(zoned_date_time1, zoned_date_time2);
+}
+
 /// @brief Returns whether two MGP API values are equal.
 inline bool ValuesEqual(mgp_value *value1, mgp_value *value2) {
   if (value1 == value2) {
@@ -1895,6 +1902,8 @@ inline bool ValuesEqual(mgp_value *value1, mgp_value *value2) {
       return util::LocalTimesEqual(mgp::value_get_local_time(value1), mgp::value_get_local_time(value2));
     case MGP_VALUE_TYPE_LOCAL_DATE_TIME:
       return util::LocalDateTimesEqual(mgp::value_get_local_date_time(value1), mgp::value_get_local_date_time(value2));
+    case MGP_VALUE_TYPE_ZONED_DATE_TIME:
+      return util::ZonedDateTimesEqual(mgp::value_get_zoned_date_time(value1), mgp::value_get_zoned_date_time(value2));
     case MGP_VALUE_TYPE_DURATION:
       return util::DurationsEqual(mgp::value_get_duration(value1), mgp::value_get_duration(value2));
   }
@@ -1969,6 +1978,8 @@ inline Type ToAPIType(mgp_value_type type) {
       return Type::LocalDateTime;
     case MGP_VALUE_TYPE_DURATION:
       return Type::Duration;
+    case MGP_VALUE_TYPE_ZONED_DATE_TIME:
+    // TODO(zoneddatetime) Type not fully supported yet.
     default:
       break;
   }
@@ -4773,6 +4784,10 @@ struct hash<mgp::Value> {
         return std::hash<mgp::LocalDateTime>{}(x.ValueLocalDateTime());
       case mgp::Type::Duration:
         return std::hash<mgp::Duration>{}(x.ValueDuration());
+      case mgp::Type::ZonedDateTime:
+        // TODO(zoneddatetime) ZonedDateTime is not properly supported in the API
+        // yet.
+        return 0;
     }
     throw mg_exception::InvalidArgumentException();
   }
