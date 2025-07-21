@@ -19,6 +19,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
+#include "tests/test_commit_args_helper.hpp"
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
@@ -49,7 +50,7 @@ class TextIndexTest : public testing::Test {
     const auto label = unique_acc->NameToLabel(test_label.data());
 
     EXPECT_FALSE(unique_acc->CreateTextIndex(TextIndexSpec{test_index.data(), label, {}}).HasError());
-    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase());
+    ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   static VertexAccessor CreateVertex(Storage::Accessor *accessor, std::string_view title, std::string_view content) {
@@ -99,6 +100,45 @@ TEST_F(TextIndexTest, SimpleAbortTest) {
   }
 }
 
+TEST_F(TextIndexTest, DeletePropertyTest) {
+  this->CreateIndex();
+  Gid vertex_gid;
+  PropertyValue null_value;
+
+  {
+    auto acc = this->storage->Access();
+    auto vertex = TextIndexTest_DeletePropertyTest_Test::CreateVertex(acc.get(), "Test Title", "Test content");
+    vertex_gid = vertex.Gid();
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Verify vertex is found before property deletion
+  {
+    auto acc = this->storage->Access();
+    auto result = acc->TextIndexSearch(test_index.data(), "data.title:Test", text_search_mode::SPECIFIED_PROPERTIES);
+    EXPECT_EQ(result.size(), 1);
+  }
+
+  // Remove title property and commit
+  {
+    auto acc = this->storage->Access();
+    auto vertex = acc->FindVertex(vertex_gid, View::OLD).value();
+    MG_ASSERT(!vertex.SetProperty(acc->NameToProperty("title"), null_value).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  // Expect the vertex to not be found when searching for title, as the property was removed
+  {
+    auto acc = this->storage->Access();
+    auto result = acc->TextIndexSearch(test_index.data(), "data.title:Test", text_search_mode::SPECIFIED_PROPERTIES);
+    EXPECT_EQ(result.size(), 0);
+
+    // But content should still be searchable
+    result = acc->TextIndexSearch(test_index.data(), "data.content:Test", text_search_mode::SPECIFIED_PROPERTIES);
+    EXPECT_EQ(result.size(), 1);
+  }
+}
+
 TEST_F(TextIndexTest, ConcurrencyTest) {
   this->CreateIndex();
 
@@ -111,7 +151,7 @@ TEST_F(TextIndexTest, ConcurrencyTest) {
         auto acc = this->storage->Access();
         [[maybe_unused]] const auto vertex = TextIndexTest_ConcurrencyTest_Test::CreateVertex(
             acc.get(), "Title" + std::to_string(i), "Content for document " + std::to_string(i));
-        ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
+        ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
       });
     }
   }
@@ -132,7 +172,7 @@ TEST_F(TextIndexTest, ConcurrentDeleteAddAbortTest) {
     auto vertex =
         TextIndexTest_ConcurrentDeleteAddAbortTest_Test::CreateVertex(acc.get(), "Initial Title", "Initial content");
     initial_vertex_gid = vertex.Gid();
-    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   // Verify initial node is in the index
@@ -156,7 +196,7 @@ TEST_F(TextIndexTest, ConcurrentDeleteAddAbortTest) {
         TextIndexTest_ConcurrentDeleteAddAbortTest_Test::CreateVertex(add_acc.get(), "New Title 1", "New content 1");
     [[maybe_unused]] auto vertex2 =
         TextIndexTest_ConcurrentDeleteAddAbortTest_Test::CreateVertex(add_acc.get(), "New Title 2", "New content 2");
-    ASSERT_NO_ERROR(add_acc->PrepareForCommitPhase());
+    ASSERT_NO_ERROR(add_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   // Step 3: Abort the delete transaction

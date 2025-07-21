@@ -45,7 +45,8 @@ void RestoreReplication(replication::RoleMainData &mainData, DatabaseAccess db_a
     spdlog::info("Replica {} restoration started for {}.", instance_client.name_, db_acc->name());
     auto client = std::make_unique<storage::ReplicationStorageClient>(instance_client, mainData.uuid_);
     auto *storage = db_acc->storage();
-    client->Start(storage, db_acc);
+    auto protector = dbms::DatabaseProtector{db_acc};
+    client->Start(storage, protector);
     // After start the storage <-> replica state should be READY or RECOVERING (if correctly started)
     // MAYBE_BEHIND isn't a statement of the current state, this is the default value
     // Failed to start due to branching of MAIN and REPLICA

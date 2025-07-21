@@ -163,7 +163,7 @@ void StartReplicaClient(replication::ReplicationClient &client, dbms::DbmsHandle
           db_acc->storage()->repl_storage_state_.WithClient(name, [&](storage::ReplicationStorageClient &client) {
             if (client.State() == storage::replication::ReplicaState::MAYBE_BEHIND) {
               // Database <-> replica might be behind, check and recover
-              client.TryCheckReplicaStateAsync(db_acc->storage(), db_acc);
+              client.TryCheckReplicaStateAsync(db_acc->storage(), dbms::DatabaseProtector{db_acc});
             }
           });
         });
@@ -201,6 +201,9 @@ bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig
     auto locked_repl_state = repl_state_.TryLock();
 
     dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
+      // Pause TTL
+      db_acc->ttl().Pause();
+      // Stop any snapshots
       auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
       storage->snapshot_runner_.Pause();
       storage->abort_snapshot_.store(true, std::memory_order_release);

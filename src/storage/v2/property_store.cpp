@@ -1862,11 +1862,11 @@ void FreeMemory(DecodedBuffer const &buffer_info) {
   }
 }
 
-void SetSizeData(uint8_t *buffer, uint32_t size, uint8_t *data) {
-  memcpy(buffer, &size, sizeof(size));
-  memcpy(buffer + sizeof(size), &data, sizeof(uint8_t *));
+void SetSizeData(std::array<uint8_t, 12> &buffer, uint32_t size, const uint8_t *data) {
+  memcpy(buffer.data(), &size, sizeof(size));
+  memcpy(buffer.data() + sizeof(size), static_cast<void const *>(&data), sizeof(uint8_t *));
 }
-DecodedBuffer SetupLocalBuffer(uint8_t (&buffer)[12]) {
+DecodedBuffer SetupLocalBuffer(std::array<uint8_t, 12> &buffer) {
   buffer[0] = kUseLocalBuffer;
   return DecodedBuffer{
       .view = std::span{&buffer[1], sizeof(buffer) - 1},
@@ -1882,7 +1882,7 @@ DecodedBuffer SetupExternalBuffer(uint32_t size) {
       .storage_mode = StorageMode::BUFFER,
   };
 }
-DecodedBuffer SetupBuffer(uint8_t (&buffer)[12], uint32_t size) {
+DecodedBuffer SetupBuffer(std::array<uint8_t, 12> &buffer, uint32_t size) {
   auto can_fit_in_local = size <= sizeof(buffer) - 1;
   return can_fit_in_local ? SetupLocalBuffer(buffer) : SetupExternalBuffer(size);
 }
@@ -1918,7 +1918,7 @@ std::optional<utils::DecompressedBuffer> DecompressBuffer(DecodedBufferConst con
   return decompressed_buffer;
 }
 
-void CompressBuffer(uint8_t (&buffer)[12], DecodedBuffer const &buffer_info) {
+void CompressBuffer(std::array<uint8_t, 12> &buffer, DecodedBuffer const &buffer_info) {
   if (buffer_info.storage_mode != StorageMode::BUFFER) {
     return;
   }
@@ -1960,11 +1960,11 @@ void CompressBuffer(uint8_t (&buffer)[12], DecodedBuffer const &buffer_info) {
 
 // Helper functions used to retrieve/store `size` and `data` from/into the
 // `buffer_`.
-auto GetDecodedBuffer(uint8_t (&buffer)[12]) -> DecodedBuffer {
+auto GetDecodedBuffer(std::array<uint8_t, 12> &buffer) -> DecodedBuffer {
   uint32_t size = 0;
   uint8_t *data = nullptr;
-  memcpy(&size, buffer, sizeof(uint32_t));
-  memcpy(&data, buffer + sizeof(uint32_t), sizeof(uint8_t *));
+  memcpy(static_cast<void *>(&size), buffer.data(), sizeof(uint32_t));
+  memcpy(static_cast<void *>(&data), buffer.data() + sizeof(uint32_t), sizeof(uint8_t *));
 
   if (size == 0) {
     return {std::span<uint8_t>{}, StorageMode::EMPTY};
@@ -1991,11 +1991,11 @@ auto GetDecodedBuffer(uint8_t (&buffer)[12]) -> DecodedBuffer {
   }
 }
 
-auto GetDecodedBuffer(uint8_t const (&buffer)[12]) -> DecodedBufferConst {
+auto GetDecodedBuffer(std::array<uint8_t, 12> const &buffer) -> DecodedBufferConst {
   uint32_t size = 0;
   uint8_t *data = nullptr;
-  memcpy(&size, buffer, sizeof(uint32_t));
-  memcpy(&data, buffer + sizeof(uint32_t), sizeof(uint8_t *));
+  memcpy(static_cast<void *>(&size), buffer.data(), sizeof(uint32_t));
+  memcpy(static_cast<void *>(&data), static_cast<const uint8_t *>(buffer.data() + sizeof(uint32_t)), sizeof(uint8_t *));
 
   if (size == 0) {
     return {std::span<uint8_t>{}, StorageMode::EMPTY};
@@ -2024,11 +2024,11 @@ auto GetDecodedBuffer(uint8_t const (&buffer)[12]) -> DecodedBufferConst {
 
 }  // namespace
 
-PropertyStore::PropertyStore() { memset(buffer_, 0, sizeof(buffer_)); }
+PropertyStore::PropertyStore() = default;
 
-PropertyStore::PropertyStore(PropertyStore &&other) noexcept {
-  memcpy(buffer_, other.buffer_, sizeof(buffer_));
-  memset(other.buffer_, 0, sizeof(other.buffer_));
+PropertyStore::PropertyStore(PropertyStore &&other) noexcept : buffer_(other.buffer_) {
+  // std::array assignment
+  other.buffer_ = {};  // Zero-initialize
 }
 
 PropertyStore &PropertyStore::operator=(PropertyStore &&other) noexcept {
@@ -2038,9 +2038,9 @@ PropertyStore &PropertyStore::operator=(PropertyStore &&other) noexcept {
   FreeMemory(buffer_info);
 
   // copy over the buffer
-  memcpy(buffer_, other.buffer_, sizeof(buffer_));
+  buffer_ = other.buffer_;  // std::array assignment
   // make other empty
-  memset(other.buffer_, 0, sizeof(other.buffer_));
+  other.buffer_ = {};  // Zero-initialize
 
   return *this;
 }

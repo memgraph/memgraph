@@ -358,9 +358,8 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
     return;
   }
 
-  auto deltas_res =
-      ReadAndApplyDeltasSingleTxn(storage, &decoder, storage::durability::kVersion, res_builder,
-                                  /*commit_txn_immediately*/ req.commit_immediately, /*loading_wal*/ false);
+  auto deltas_res = ReadAndApplyDeltasSingleTxn(storage, &decoder, storage::durability::kVersion, res_builder,
+                                                /*two_phase_commit*/ req.two_phase_commit, /*loading_wal*/ false);
 
   storage::replication::PrepareCommitRes res{false};
   if (deltas_res.has_value()) {
@@ -530,7 +529,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
           recovery_snapshot_path, &storage->vertices_, &storage->edges_, &storage->edges_metadata_,
           &storage->repl_storage_state_.history, storage->name_id_mapper_.get(), &storage->edge_count_,
           storage->config_, &storage->enum_store_,
-          storage->config_.salient.items.enable_schema_info ? &storage->schema_info_.Get() : nullptr,
+          storage->config_.salient.items.enable_schema_info ? &storage->schema_info_.Get() : nullptr, &storage->ttl_,
           snapshot_observer_info);
       // If this step is present it should always be the first step of
       // the recovery so we use the UUID we read from snapshot
@@ -856,7 +855,7 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
   for (size_t local_delta_idx = 0; local_delta_idx < wal_info.num_deltas;) {
     // commit_txn_immediately is set true because when loading WAL files, we should commit immediately
     auto const deltas_res =
-        ReadAndApplyDeltasSingleTxn(storage, &wal_decoder, *version, res_builder, /*commit_txn_immediately*/ true,
+        ReadAndApplyDeltasSingleTxn(storage, &wal_decoder, *version, res_builder, /*two_phase_commit*/ false,
                                     /*loading_wal*/ true, local_batch_counter);
     if (deltas_res.has_value()) {
       local_delta_idx += deltas_res->current_delta_idx;
@@ -875,7 +874,7 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
 // The number of applied deltas also includes skipped deltas.
 std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandlers::ReadAndApplyDeltasSingleTxn(
     storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder, const uint64_t version,
-    slk::Builder *res_builder, bool const commit_txn_immediately, bool const loading_wal,
+    slk::Builder *res_builder, bool const two_phase_commit, bool const loading_wal,
     uint32_t const start_batch_counter) {
   auto edge_acc = storage->edges_.access();
   auto vertex_acc = storage->vertices_.access();
@@ -1169,14 +1168,13 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           spdlog::trace("   Delta {}. Transaction end", current_delta_idx);
           if (!commit_accessor || commit_timestamp != delta_timestamp)
             throw utils::BasicException("Invalid commit data!");
-          auto const ret = commit_accessor->PrepareForCommitPhase({.desired_commit_timestamp = commit_timestamp,
-                                                                   .is_main = false,
-                                                                   .commit_immediately = commit_txn_immediately});
+          auto const ret = commit_accessor->PrepareForCommitPhase(
+              storage::CommitArgs::make_replica_write(commit_timestamp, two_phase_commit));
           if (ret.HasError()) {
             throw utils::BasicException("Committing failed while trying to prepare for commit on replica.");
           }
-          // If SYNC replica, reset the commit accessor immediately because the txn is considered committed
-          if (commit_txn_immediately) {
+          // If not STRICT SYNC replica, reset the commit accessor immediately because the txn is considered committed
+          if (!two_phase_commit) {
             commit_accessor.reset();
           }
           // Used to return info to MAIN about how many txns were committed
@@ -1518,6 +1516,32 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           if (res.HasError()) {
             throw utils::BasicException("Failed to drop vector index {}", data.index_name);
           }
+        },
+        [&](WalTtlOperation const &data) {
+#ifdef MG_ENTERPRISE
+          spdlog::trace("   Delta {}. TTL operation type {}", current_delta_idx, static_cast<int>(data.operation_type));
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          switch (data.operation_type) {
+            case storage::durability::TtlOperationType::ENABLE:
+              transaction->StartTtl({.is_main = false});
+              break;
+            case storage::durability::TtlOperationType::DISABLE:
+              transaction->DisableTtl({.is_main = false});
+              break;
+            case storage::durability::TtlOperationType::CONFIGURE:
+              transaction->ConfigureTtl(storage::ttl::TtlInfo{data.period, data.start_time, data.should_run_edge_ttl},
+                                        {.is_main = false});
+              // Configuration will leave it paused; replicas should not run ttl
+              break;
+            case storage::durability::TtlOperationType::STOP:
+              transaction->StopTtl();
+              break;
+            default:
+              throw utils::BasicException("Invalid TTL operation type: {}", static_cast<int>(data.operation_type));
+          }
+#else
+          spdlog::trace("TTL operation is not supported in community edition");
+#endif
         },
     };
 

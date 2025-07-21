@@ -9,37 +9,16 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
-
-#include <condition_variable>
-#include <mutex>
-#include <thread>
-#include <variant>
-#include "storage/v2/id_types.hpp"
-#include "utils/skip_list.hpp"
+#include "storage/v2/commit_args.hpp"
+#include "storage/v2/replication/replication_transaction.hpp"
 
 namespace memgraph::storage {
 
-class Storage;
-
-struct AutoIndexer {
-  AutoIndexer(std::stop_token stop_token, Storage *storage);
-
-  ~AutoIndexer();
-
-  void Enqueue(LabelId label);
-
-  void Enqueue(EdgeTypeId edge_type);
-
-  void RunGC();
-
-  void Clear();
-
- private:
-  utils::SkipList<std::variant<LabelId, EdgeTypeId>> request_queue_{};
-  std::mutex mutex_{};
-  std::condition_variable cv_{};
-  std::jthread index_creator_thread_{};
-};
-
+bool CommitArgs::two_phase_commit(TransactionReplication &replicating_txn) const {
+  auto const f = utils::Overloaded{
+      [&](Main const &) -> bool { return replicating_txn.ShouldRunTwoPC(); },
+      [](ReplicaWrite const &replica) -> bool { return replica.two_phase_commit_; },
+      [](ReplicaRead const &) -> bool { throw std::runtime_error("no durability should happen for ReplicaRead"); }};
+  return std::visit(f, data);
+}
 }  // namespace memgraph::storage

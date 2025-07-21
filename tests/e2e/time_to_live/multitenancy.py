@@ -14,7 +14,7 @@ from functools import partial
 
 import pytest
 from common import connect, execute_and_fetch_all
-from mg_utils import mg_assert_until, mg_sleep_and_assert
+from mg_utils import mg_sleep_and_assert
 
 
 def assert_db(cursor, db):
@@ -56,8 +56,8 @@ def test_ttl_on_default(connect):
     # 3/
     memgraph.execute("UNWIND RANGE(1,10) AS i CREATE (:TTL{ttl:0})")
     memgraph.execute("UNWIND RANGE(1,10) AS i CREATE ()-[:E{ttl:0}]->()")
-    mg_assert_until(10, partial(get_n, memgraph), 3)
-    mg_assert_until(10, partial(get_n_edges, memgraph), 3)
+    mg_sleep_and_assert(10, partial(get_n, memgraph))
+    mg_sleep_and_assert(10, partial(get_n_edges, memgraph), 3)
 
 
 def test_ttl_on_clean(connect):
@@ -88,8 +88,8 @@ def test_ttl_on_clean(connect):
     assert_db(memgraph, "memgraph")
     memgraph.execute("UNWIND RANGE(1,10) AS i CREATE (:TTL{ttl:0})")
     memgraph.execute("UNWIND RANGE(1,10) AS i CREATE ()-[:E{ttl:0}]->()")
-    mg_assert_until(10, partial(get_n, memgraph), 3)
-    mg_assert_until(10, partial(get_n_edges, memgraph), 3)
+    mg_sleep_and_assert(10, partial(get_n, memgraph), 3)
+    mg_sleep_and_assert(10, partial(get_n_edges, memgraph), 3)
 
 
 if __name__ == "__main__":

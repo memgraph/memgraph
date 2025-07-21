@@ -21,9 +21,19 @@ namespace memgraph::dbms {
 inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(
     storage::Config config,
     const utils::Synchronized<::memgraph::replication::ReplicationState, utils::RWSpinLock> &repl_state,
-    storage::PlanInvalidatorPtr invalidator = std::make_unique<storage::PlanInvalidatorDefault>()) {
+    storage::PlanInvalidatorPtr invalidator = std::make_unique<storage::PlanInvalidatorDefault>(),
+    std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr) {
   const auto name = config.salient.name;
-  auto storage = std::make_unique<storage::InMemoryStorage>(std::move(config), std::nullopt, std::move(invalidator));
+
+  // Use default safe factory from Storage constructor for basic usage
+  auto storage = std::make_unique<storage::InMemoryStorage>(std::move(config), std::nullopt, std::move(invalidator),
+                                                            std::move(database_protector_factory));
+
+  // Set the main instance check function on TTL based on replication state
+  storage->ttl_.SetUserCheck([&repl_state]() -> bool {
+    const auto locked_repl_state = repl_state.ReadLock();
+    return locked_repl_state->IsMainWriteable();
+  });
 
   // Connect replication state and storage
   storage->CreateSnapshotHandler(

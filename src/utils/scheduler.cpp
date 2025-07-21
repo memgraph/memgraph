@@ -34,7 +34,9 @@ namespace memgraph::utils {
  * @throw std::bad_alloc
  */
 void Scheduler::Run(const std::string &service_name, const std::function<void()> &f) {
-  DMG_ASSERT(!IsRunning(), "Thread already running.");
+  // stop any running thread
+  thread_.request_stop();
+
   // Thread setup
   thread_ = std::jthread([this, f = f, service_name = service_name](std::stop_token token) mutable {
     ThreadRun(std::move(service_name), std::move(f), token);
