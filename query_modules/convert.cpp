@@ -12,6 +12,7 @@
 #include <iostream>
 #include <mgp.hpp>
 #include <optional>
+#include <set>
 #include <string>
 #include <vector>
 
@@ -21,6 +22,138 @@
 mgp::Value ConvertToTreeImpl(const mgp::Value &value, const mgp::Map &config, mgp_memory *memory);
 std::optional<mgp::Value> ParseJsonToMgpValue(const nlohmann::json &json_obj, mgp_memory *memory);
 
+// Struct to encapsulate property filter logic for a label
+struct NodePropertyFilter {
+  enum class Mode { INCLUDE, EXCLUDE, WILDCARD, INVALID };
+  Mode mode = Mode::INVALID;
+  std::set<std::string> properties;
+
+  NodePropertyFilter() = default;
+  NodePropertyFilter(const mgp::List &props) {
+    if (props.Size() == 0) {
+      mode = Mode::INVALID;
+      return;
+    }
+    // All entries must be strings
+    for (size_t i = 0; i < props.Size(); ++i) {
+      if (!props[i].IsString()) {
+        mode = Mode::INVALID;
+        return;
+      }
+    }
+    std::string_view first = props[0].ValueString();
+    if (first == "*") {
+      mode = Mode::WILDCARD;
+      return;
+    }
+    if (!first.empty() && first[0] == '-') {
+      mode = Mode::EXCLUDE;
+      for (size_t i = 0; i < props.Size(); ++i) {
+        std::string_view val_sv = props[i].ValueString();
+        std::string val(val_sv);
+        if (!val.empty() && val[0] == '-') val = val.substr(1);
+        properties.insert(std::move(val));
+      }
+      return;
+    }
+    // Otherwise, inclusion mode
+    mode = Mode::INCLUDE;
+    for (size_t i = 0; i < props.Size(); ++i) {
+      std::string_view val_sv = props[i].ValueString();
+      properties.insert(std::string(val_sv));
+    }
+  }
+  bool ShouldInclude(const std::string_view &prop_name) const {
+    switch (mode) {
+      case Mode::WILDCARD:
+        return true;
+      case Mode::EXCLUDE:
+        return properties.count(std::string(prop_name)) == 0;
+      case Mode::INCLUDE:
+        return properties.count(std::string(prop_name)) > 0;
+      default:
+        return false;
+    }
+  }
+  bool IsValid() const { return mode != Mode::INVALID; }
+};
+
+// Struct to encapsulate property filter logic for a relationship type
+struct RelPropertyFilter {
+  enum class Mode { INCLUDE, EXCLUDE, WILDCARD, INVALID };
+  Mode mode = Mode::INVALID;
+  std::set<std::string> properties;
+
+  RelPropertyFilter() = default;
+  RelPropertyFilter(const mgp::List &props) {
+    if (props.Size() == 0) {
+      mode = Mode::INVALID;
+      return;
+    }
+    // All entries must be strings
+    for (size_t i = 0; i < props.Size(); ++i) {
+      if (!props[i].IsString()) {
+        mode = Mode::INVALID;
+        return;
+      }
+    }
+    std::string_view first = props[0].ValueString();
+    if (first == "*") {
+      mode = Mode::WILDCARD;
+      return;
+    }
+    if (!first.empty() && first[0] == '-') {
+      mode = Mode::EXCLUDE;
+      for (size_t i = 0; i < props.Size(); ++i) {
+        std::string_view val_sv = props[i].ValueString();
+        std::string val(val_sv);
+        if (!val.empty() && val[0] == '-') val = val.substr(1);
+        properties.insert(std::move(val));
+      }
+      return;
+    }
+    // Otherwise, inclusion mode
+    mode = Mode::INCLUDE;
+    for (size_t i = 0; i < props.Size(); ++i) {
+      std::string_view val_sv = props[i].ValueString();
+      properties.insert(std::string(val_sv));
+    }
+  }
+  bool ShouldInclude(const std::string_view &prop_name) const {
+    switch (mode) {
+      case Mode::WILDCARD:
+        return true;
+      case Mode::EXCLUDE:
+        return properties.count(std::string(prop_name)) == 0;
+      case Mode::INCLUDE:
+        return properties.count(std::string(prop_name)) > 0;
+      default:
+        return false;
+    }
+  }
+  bool IsValid() const { return mode != Mode::INVALID; }
+};
+
+// Config struct to hold all relationship property filters
+struct RelPropertyFilterConfig {
+  std::map<std::string, RelPropertyFilter> filters;
+  RelPropertyFilterConfig(const mgp::Map &rels) {
+    for (const auto &[key, value] : rels) {
+      if (!value.IsList()) continue;
+      filters.emplace(std::string(key), RelPropertyFilter(value.ValueList()));
+    }
+  }
+  // Returns the filter for a given rel_type, or a default wildcard filter if not present
+  const RelPropertyFilter &GetFilter(const std::string_view &rel_type) const {
+    static RelPropertyFilter wildcard_filter;
+    auto it = filters.find(std::string(rel_type));
+    if (it != filters.end()) return it->second;
+    // If not present, default to wildcard (include all)
+    static RelPropertyFilter default_wildcard(mgp::List({mgp::Value("*")}));
+    return default_wildcard;
+  }
+};
+
 // Helper function to check if a property should be included
 // Determines if a node property should be included in the output based on config filtering rules.
 bool ShouldIncludeProperty(std::string_view prop_name, const mgp::Map &config, const mgp::Labels &labels) {
@@ -28,58 +161,32 @@ bool ShouldIncludeProperty(std::string_view prop_name, const mgp::Map &config, c
     // No filtering config: include all properties
     return true;
   }
-
   auto nodes = config.At("nodes").ValueMap();
-  // Lambda to get a valid property list for a label, or nullopt if not valid
-  auto get_valid_props = [&](const mgp::Map &nodes, const mgp::Labels &labels, size_t l) -> std::optional<mgp::List> {
-    std::string_view label = labels[l];
-    if (!nodes.KeyExists(label)) return std::nullopt;
+  std::vector<NodePropertyFilter> filters;
+  for (size_t label_idx = 0; label_idx < labels.Size(); ++label_idx) {
+    std::string_view label = labels[label_idx];
+    if (!nodes.KeyExists(label)) continue;
     auto props = nodes.At(label).ValueList();
-    if (props.Size() == 0) return std::nullopt;
-    if (!props[0].IsString()) return std::nullopt;
-    return props;
-  };
-
-  std::vector<std::string_view> excluded_props;
-
-  // Collect excluded properties if exclusion mode is detected
-  for (size_t l = 0; l < labels.Size(); ++l) {
-    auto props_opt = get_valid_props(nodes, labels, l);
-    if (!props_opt) continue;
-    auto props = *props_opt;
-    auto first_prop = props[0].ValueString();
-    if (first_prop.size() > 0 && first_prop[0] == '-') {
-      if (first_prop.size() > 1) {
-        excluded_props.push_back(first_prop.substr(1));
-      }
-      for (size_t i = 1; i < props.Size(); ++i) {
-        auto excluded = props[i].ValueString();
-        if (excluded.size() > 0 && excluded[0] == '-') {
-          excluded = excluded.substr(1);
-        }
-        excluded_props.push_back(excluded);
-      }
+    NodePropertyFilter filter(props);
+    if (filter.IsValid()) filters.push_back(filter);
+  }
+  if (filters.empty()) return false;
+  // Exclusion mode takes precedence if any filter is exclusion
+  for (const auto &filter : filters) {
+    if (filter.mode == NodePropertyFilter::Mode::EXCLUDE) {
+      return filter.ShouldInclude(prop_name);
     }
   }
-
-  // Exclusion mode: skip if property is in excluded_props
-  if (!excluded_props.empty()) {
-    for (auto excluded : excluded_props) {
-      if (prop_name == excluded) {
-        return false;
-      }
+  // Wildcard mode if any filter is wildcard
+  for (const auto &filter : filters) {
+    if (filter.mode == NodePropertyFilter::Mode::WILDCARD) {
+      return true;
     }
-    return true;
   }
-
-  // Inclusion mode: check if property is explicitly included
-  for (size_t l = 0; l < labels.Size(); ++l) {
-    auto props_opt = get_valid_props(nodes, labels, l);
-    if (!props_opt) continue;
-    auto props = *props_opt;
-    if (props[0].ValueString() == "*") return true;
-    for (size_t i = 0; i < props.Size(); ++i) {
-      if (props[i].ValueString() == prop_name) return true;
+  // Otherwise, inclusion mode: include if any filter includes the property
+  for (const auto &filter : filters) {
+    if (filter.mode == NodePropertyFilter::Mode::INCLUDE && filter.ShouldInclude(prop_name)) {
+      return true;
     }
   }
   return false;
@@ -92,47 +199,10 @@ bool ShouldIncludeRelProperty(std::string_view prop_name, const mgp::Map &config
     // No filtering config: include all properties
     return true;
   }
-
   auto rels = config.At("rels").ValueMap();
-  if (!rels.KeyExists(rel_type)) {
-    // No config for this relationship type: include all properties
-    return true;
-  }
-
-  auto props = rels.At(rel_type).ValueList();
-  if (props.Size() == 0) {
-    // Empty config: include all properties
-    return true;
-  }
-
-  auto first_prop = props[0].ValueString();
-  if (first_prop.size() > 0 && first_prop[0] == '-') {
-    // Exclusion mode for relationships
-    std::vector<std::string_view> excluded_props;
-    if (first_prop.size() > 1) {
-      excluded_props.push_back(first_prop.substr(1));
-    }
-    for (size_t i = 1; i < props.Size(); ++i) {
-      auto excluded = props[i].ValueString();
-      if (excluded.size() > 0 && excluded[0] == '-') {
-        excluded = excluded.substr(1);
-      }
-      excluded_props.push_back(excluded);
-    }
-    for (auto excluded : excluded_props) {
-      if (prop_name == excluded) {
-        return false;
-      }
-    }
-    return true;
-  }
-
-  // Inclusion mode for relationships
-  if (first_prop == "*") return true;
-  for (size_t i = 0; i < props.Size(); ++i) {
-    if (props[i].ValueString() == prop_name) return true;
-  }
-  return false;
+  static RelPropertyFilterConfig rel_filter_config(rels);
+  const RelPropertyFilter &filter = rel_filter_config.GetFilter(rel_type);
+  return filter.ShouldInclude(prop_name);
 }
 
 // Main implementation function
