@@ -15,6 +15,7 @@
 #include <utility>
 
 #include "storage/v2/constraints/type_constraints.hpp"
+#include "storage/v2/durability/ttl_operation_type.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
@@ -58,6 +59,7 @@ struct MetadataDelta {
     VECTOR_INDEX_CREATE,
     VECTOR_INDEX_DROP,
     VECTOR_EDGE_INDEX_CREATE,
+    TTL_OPERATION,
   };
 
   static constexpr struct LabelIndexCreate {
@@ -120,6 +122,9 @@ struct MetadataDelta {
   } enum_alter_add;
   static constexpr struct EnumAlterUpdate {
   } enum_alter_update;
+
+  static constexpr struct TtlOperation {
+  } ttl_operation;
 
   MetadataDelta(LabelIndexCreate /*tag*/, LabelId label) : action(Action::LABEL_INDEX_CREATE), label(label) {}
 
@@ -206,6 +211,19 @@ struct MetadataDelta {
 
   MetadataDelta(EnumAlterUpdate /*tag*/, Enum value, std::string old_value)
       : action(Action::ENUM_ALTER_UPDATE), enum_alter_update_info{.value = value, .old_value = std::move(old_value)} {}
+
+  MetadataDelta(TtlOperation /*tag*/, durability::TtlOperationType operation_type)
+      : action(Action::TTL_OPERATION),
+        ttl_operation_info{.operation_type = operation_type, .should_run_edge_ttl = false} {}
+
+  MetadataDelta(TtlOperation /*tag*/, durability::TtlOperationType operation_type,
+                std::optional<std::chrono::microseconds> period,
+                std::optional<std::chrono::system_clock::time_point> start_time, bool should_run_edge_ttl)
+      : action(Action::TTL_OPERATION),
+        ttl_operation_info{.operation_type = operation_type,
+                           .period = period,
+                           .start_time = start_time,
+                           .should_run_edge_ttl = should_run_edge_ttl} {}
 
   MetadataDelta(const MetadataDelta &) = delete;
   MetadataDelta(MetadataDelta &&) = delete;
@@ -300,6 +318,10 @@ struct MetadataDelta {
         std::destroy_at(&index_name);
         break;
       }
+      case TTL_OPERATION: {
+        std::destroy_at(&ttl_operation_info);
+        break;
+      }
     }
   }
 
@@ -365,6 +387,13 @@ struct MetadataDelta {
     } enum_alter_update_info;
 
     TextIndexSpec text_index;
+    struct {
+      durability::TtlOperationType operation_type;
+      std::optional<std::chrono::microseconds> period;
+      std::optional<std::chrono::system_clock::time_point> start_time;
+      bool should_run_edge_ttl;
+    } ttl_operation_info;
+
     VectorIndexSpec vector_index_spec;
     VectorEdgeIndexSpec vector_edge_index_spec;
     std::string index_name;

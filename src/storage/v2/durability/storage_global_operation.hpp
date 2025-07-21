@@ -45,6 +45,7 @@ enum class StorageMetadataOperation {
   VECTOR_INDEX_CREATE,
   VECTOR_EDGE_INDEX_CREATE,
   VECTOR_INDEX_DROP,
+  TTL_OPERATION,
 };
 
 }  // namespace memgraph::storage::durability

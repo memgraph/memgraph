@@ -15,6 +15,7 @@
 
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "tests/test_commit_args_helper.hpp"
 
 using memgraph::replication_coordination_glue::ReplicationRole;
 
@@ -42,7 +43,7 @@ class StorageUniqueConstraints : public ::testing::Test {
       auto vertex = acc->CreateVertex();
       gids[i] = vertex.Gid();
     }
-    ASSERT_OK(acc->PrepareForCommitPhase());
+    ASSERT_OK(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   std::unique_ptr<memgraph::storage::Storage> storage{new memgraph::storage::InMemoryStorage()};
@@ -69,7 +70,7 @@ void SetProperties(memgraph::storage::Storage *storage, memgraph::storage::Gid g
   for (size_t i = 0; i < properties.size(); ++i) {
     ASSERT_OK(vertex->SetProperty(properties[i], values[i]));
   }
-  *commit_status = !acc->PrepareForCommitPhase().HasError();
+  *commit_status = !acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError();
 }
 
 void AddLabel(memgraph::storage::Storage *storage, memgraph::storage::Gid gid, LabelId label, bool *commit_status) {
@@ -81,7 +82,7 @@ void AddLabel(memgraph::storage::Storage *storage, memgraph::storage::Gid gid, L
     ASSERT_OK(vertex->RemoveLabel(label));
   }
   ASSERT_OK(vertex->AddLabel(label));
-  *commit_status = !acc->PrepareForCommitPhase().HasError();
+  *commit_status = !acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError();
 }
 
 TEST_F(StorageUniqueConstraints, ParallelAbortCommit) {
@@ -108,7 +109,7 @@ TEST_F(StorageUniqueConstraints, ParallelAbortCommit) {
       }
 
       if (bernoulli(gen)) {
-        auto res = acc->PrepareForCommitPhase().HasError();
+        auto res = acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError();
         spdlog::trace("Res: {}", res);
       } else {
         acc->Abort();
@@ -129,7 +130,7 @@ TEST_F(StorageUniqueConstraints, ChangeProperties) {
     auto res = unique_acc->CreateUniqueConstraint(label, {prop1, prop2, prop3});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
@@ -140,7 +141,7 @@ TEST_F(StorageUniqueConstraints, ChangeProperties) {
       ASSERT_TRUE(vertex);
       ASSERT_OK(vertex->AddLabel(label));
     }
-    ASSERT_OK(acc->PrepareForCommitPhase());
+    ASSERT_OK(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   std::vector<PropertyId> properties{prop1, prop2, prop3};
@@ -213,7 +214,7 @@ TEST_F(StorageUniqueConstraints, ChangeLabels) {
     auto res = unique_acc->CreateUniqueConstraint(label, {prop1, prop2, prop3});
     ASSERT_TRUE(res.HasValue());
     ASSERT_EQ(res.GetValue(), memgraph::storage::UniqueConstraints::CreationStatus::SUCCESS);
-    ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // In the first part of the test, each transaction tries to add the same label
@@ -231,7 +232,7 @@ TEST_F(StorageUniqueConstraints, ChangeLabels) {
       ASSERT_OK(vertex->SetProperty(prop2, PropertyValue(2)));
       ASSERT_OK(vertex->SetProperty(prop3, PropertyValue(3)));
     }
-    ASSERT_OK(acc->PrepareForCommitPhase());
+    ASSERT_OK(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   for (int iter = 0; iter < 20; ++iter) {
@@ -244,7 +245,7 @@ TEST_F(StorageUniqueConstraints, ChangeLabels) {
         ASSERT_TRUE(vertex);
         ASSERT_OK(vertex->RemoveLabel(label));
       }
-      ASSERT_OK(acc->PrepareForCommitPhase());
+      ASSERT_OK(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
 
     bool status[kNumThreads];
@@ -277,7 +278,7 @@ TEST_F(StorageUniqueConstraints, ChangeLabels) {
       ASSERT_OK(vertex->SetProperty(prop2, PropertyValue(3 * i + 1)));
       ASSERT_OK(vertex->SetProperty(prop3, PropertyValue(3 * i + 2)));
     }
-    ASSERT_OK(acc->PrepareForCommitPhase());
+    ASSERT_OK(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   for (int iter = 0; iter < 20; ++iter) {
@@ -290,7 +291,7 @@ TEST_F(StorageUniqueConstraints, ChangeLabels) {
         ASSERT_TRUE(vertex);
         ASSERT_OK(vertex->RemoveLabel(label));
       }
-      ASSERT_OK(acc->PrepareForCommitPhase());
+      ASSERT_OK(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
 
     bool status[kNumThreads];
