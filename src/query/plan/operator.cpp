@@ -2994,14 +2994,10 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       // Check if the vertex has already been processed.
       if (found_it != visited_cost_.end()) {
         auto weights = found_it->second;
-        bool insert = true;  // todo(ivan): rangify
-        for (auto [old_weight, old_depth] : weights) {
-          // if there is a shorter path with shorter hop count, do not insert
-          if (old_depth <= depth && (old_weight <= next_weight).ValueBool()) {
-            insert = false;
-            break;
-          }
-        }
+        bool insert = std::ranges::none_of(weights, [depth, next_weight](const auto &entry) {
+          auto [old_weight, old_depth] = entry;
+          return old_depth <= depth && (old_weight <= next_weight).ValueBool();
+        });
 
         if (!insert) return;
         auto &costs = visited_cost_[next_vertex];
@@ -3012,7 +3008,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
       } else {
         visited_cost_[next_vertex] = {
-            std::make_pair(next_weight, depth)};  // TODO (ivan): will this use correct allocator? is depth correct?
+            std::make_pair(next_weight, depth)};  // TODO (ivan): will this use correct allocator?
       }
 
       // update cheapeast cost to get to the vertex
