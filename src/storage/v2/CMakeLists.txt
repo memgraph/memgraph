@@ -54,6 +54,7 @@ target_sources(mg-storage-v2
         replication/rpc.cpp
         replication/serialization.cpp
         replication/slk.cpp
+        replication/replication_transaction.cpp
         schema_info.cpp
         storage.cpp
         storage_mode.cpp
@@ -91,6 +92,7 @@ target_sources(mg-storage-v2
         indices/vector_edge_index.hpp
         inmemory/indices_mvcc.hpp
         inmemory/storage.hpp
+        inmemory/storagefwd.hpp
         mvcc.hpp
         point.hpp
         point_functions.hpp
@@ -104,6 +106,7 @@ target_sources(mg-storage-v2
         transaction_constants.hpp
         vertex_info_cache.hpp
         vertex_info_cache_fwd.hpp
+        replication/replication_transaction.hpp
 )
 
 find_package(gflags REQUIRED)

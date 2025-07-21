@@ -480,7 +480,7 @@ void ProcessNodeRow(memgraph::storage::Storage *store, const std::vector<std::st
     if (!node_label.HasValue()) throw LoadException("Couldn't add label '{}' to the node", label);
     if (!*node_label) throw LoadException("The label '{}' already exists", label);
   }
-  if (acc->Commit().HasError()) throw LoadException("Couldn't store the node");
+  if (acc->PrepareForCommitPhase().HasError()) throw LoadException("Couldn't store the node");
 }
 
 void ProcessNodes(memgraph::storage::Storage *store, const std::string &nodes_path,
@@ -597,7 +597,7 @@ void ProcessRelationshipsRow(memgraph::storage::Storage *store, const std::vecto
     }
   }
 
-  if (acc->Commit().HasError()) throw LoadException("Couldn't store the relationship");
+  if (acc->PrepareForCommitPhase().HasError()) throw LoadException("Couldn't store the relationship");
 }
 
 void ProcessRelationships(memgraph::storage::Storage *store, const std::string &relationships_path,

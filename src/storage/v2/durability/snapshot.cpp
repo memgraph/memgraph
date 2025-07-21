@@ -6381,7 +6381,8 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
       return LoadSnapshotVersion26(snapshot, path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
                                    edge_count, config, enum_store, schema_info, snapshot_info);
     }
-    case 27U: {
+    case 27U:
+    case 28U: {
       return LoadCurrentVersionSnapshot(snapshot, path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
                                         edge_count, config, enum_store, schema_info, snapshot_info);
     }
@@ -6424,14 +6425,15 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
                                error_code.message(), "https://memgr.ph/snapshots"));
   }
   std::sort(wal_files.begin(), wal_files.end());
-  uint64_t snapshot_start_timestamp = transaction->start_timestamp;
+  MG_ASSERT(transaction->last_durable_ts_.has_value(), "Txn doesn't have ldt");
+  uint64_t snapshot_durable_timestamp = *transaction->last_durable_ts_;
   if (!old_snapshot_files.empty()) {
-    snapshot_start_timestamp = old_snapshot_files.front().first;
+    snapshot_durable_timestamp = old_snapshot_files.front().first;
   }
   std::optional<uint64_t> pos = 0;
   for (uint64_t i = 0; i < wal_files.size(); ++i) {
     const auto &[seq_num, from_timestamp, to_timestamp, wal_path] = wal_files[i];
-    if (from_timestamp <= snapshot_start_timestamp) {
+    if (from_timestamp <= snapshot_durable_timestamp) {
       pos = i;
     } else {
       break;
@@ -6451,8 +6453,8 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
 }
 
 auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_directory, const std::string &path,
-                                        const std::string &uuid, utils::FileRetainer *file_retainer,
-                                        Storage *storage) -> OldSnapshotFiles {
+                                        const std::string &uuid, utils::FileRetainer *file_retainer, Storage *storage)
+    -> OldSnapshotFiles {
   OldSnapshotFiles old_snapshot_files;
   std::error_code error_code;
   for (const auto &item : std::filesystem::directory_iterator(snapshot_directory, error_code)) {
@@ -6461,7 +6463,7 @@ auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_di
     try {
       auto info = ReadSnapshotInfo(item.path());
       if (info.uuid != uuid) continue;
-      old_snapshot_files.emplace_back(info.start_timestamp, item.path());
+      old_snapshot_files.emplace_back(info.durable_timestamp, item.path());
     } catch (const RecoveryFailure &e) {
       spdlog::warn("Found a corrupt snapshot file {} becuase of: {}. Corrupted snapshot file will be deleted.",
                    item.path(), e.what());
