@@ -24,6 +24,7 @@
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/ttl.hpp"
 #include "utils/result.hpp"
 #include "utils/rw_lock.hpp"
 
@@ -304,6 +305,8 @@ class DiskStorage final : public Storage {
     std::vector<VectorIndexInfo> ListAllVectorIndices() const override;
 
     std::vector<VectorEdgeIndexInfo> ListAllVectorEdgeIndices() const override;
+
+    ttl::TTL &ttl() override { return storage_->ttl_; }
 
    private:
     VerticesIterable Vertices(LabelId label, PropertyId property, const PropertyValue &value, View view);

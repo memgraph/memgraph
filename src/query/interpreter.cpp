@@ -78,7 +78,6 @@
 #include "query/stream.hpp"
 #include "query/stream/common.hpp"
 #include "query/stream/sources.hpp"
-#include "query/time_to_live/time_to_live.hpp"
 #include "query/trigger.hpp"
 #include "query/typed_value.hpp"
 #include "replication/config.hpp"
@@ -3993,7 +3992,7 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
         if (ttl_query->specific_time_) {
           start_time = ttl_query->specific_time_->Accept(evaluator).ValueString();
         }
-        auto ttl_info = ttl::TtlInfo{period, start_time};
+        auto ttl_info = storage::ttl::TtlInfo{period, start_time};
         if (interpreter_context->repl_state.ReadLock()->IsReplica()) {
           // Special case for REPLICA
           info = "TTL configured. Background job will not run, since instance is REPLICA.";
@@ -4009,7 +4008,7 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
         bool run_edge_ttl = db_acc->config().salient.items.properties_on_edges &&
                             db_acc->GetStorageMode() != storage::StorageMode::ON_DISK_TRANSACTIONAL;
 
-        handler = [db_acc = std::move(db_acc), dba, label, prop, ttl_info, interpreter_context, info = std::move(info),
+        handler = [db_acc = std::move(db_acc), dba, label, prop, ttl_info, info = std::move(info),
                    invalidate_plan_cache = std::move(invalidate_plan_cache),
                    run_edge_ttl](Notification &notification) mutable {
           auto &ttl = db_acc->ttl();
@@ -4025,12 +4024,15 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
             std::invoke(invalidate_plan_cache);
           }
           if (ttl_info) ttl.Configure(ttl_info);
-          ttl.Setup(std::move(db_acc), interpreter_context, run_edge_ttl);
+          // Start TTL background job using storage operations
+          const bool run_edge_ttl = db_acc->config().salient.items.properties_on_edges &&
+                                    db_acc->GetStorageMode() != storage::StorageMode::ON_DISK_TRANSACTIONAL;
+          ttl.Setup_(db_acc->storage(), run_edge_ttl);
 
           notification.code = NotificationCode::ENABLE_TTL;
           notification.title = info;
         };
-      } catch (const ttl::TtlException &e) {
+      } catch (const storage::ttl::TtlException &e) {
         throw utils::BasicException(e.what());
       }
       break;

@@ -69,6 +69,12 @@ target_sources(mg-storage-v2
         vertex_accessor.cpp
         vertex_info_cache.cpp
         vertices_iterable.cpp
+        edge_ref.cpp
+        indices/point_iterator.cpp
+        property_value_utils.cpp
+        config.cpp
+        id_types.cpp
+        ttl.cpp
 
         PUBLIC
         FILE_SET HEADERS
@@ -106,6 +112,7 @@ target_sources(mg-storage-v2
         replication/replication_transaction.hpp
         schema_info.hpp
         storage.hpp
+        ttl.hpp
         transaction.hpp
         transaction_constants.hpp
         vertex_info_cache.hpp
