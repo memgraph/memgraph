@@ -16,6 +16,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
+#include "utils/string.hpp"
 
 #include <span>
 #include <vector>
@@ -168,9 +169,7 @@ void TextIndex::AddNode(
     const std::optional<std::vector<mgcxx::text_search::Context *>> &maybe_applicable_text_indices) {
   auto applicable_text_indices =
       maybe_applicable_text_indices.value_or(GetApplicableTextIndices(vertex_after_update->labels));
-  if (applicable_text_indices.empty()) {
-    return;
-  }
+  if (applicable_text_indices.empty()) return;
 
   auto vertex_properties = vertex_after_update->properties.Properties();
   LoadNodeToTextIndices(vertex_after_update->gid.AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
@@ -336,13 +335,13 @@ std::vector<Gid> TextIndex::Search(const std::string &index_name, const std::str
   mgcxx::text_search::SearchOutput search_results;
   switch (search_mode) {
     case text_search_mode::SPECIFIED_PROPERTIES:
-      search_results = SearchGivenProperties(index_name, search_query);
+      search_results = SearchGivenProperties(index_name, utils::ToLowerCase(search_query));
       break;
     case text_search_mode::REGEX:
-      search_results = RegexSearch(index_name, search_query);
+      search_results = RegexSearch(index_name, utils::ToLowerCase(search_query));
       break;
     case text_search_mode::ALL_PROPERTIES:
-      search_results = SearchAllProperties(index_name, search_query);
+      search_results = SearchAllProperties(index_name, utils::ToLowerCase(search_query));
       break;
     default:
       throw query::TextSearchException(

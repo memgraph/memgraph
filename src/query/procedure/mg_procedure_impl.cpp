@@ -3690,16 +3690,25 @@ void WrapTextSearch(mgp_graph *graph, mgp_memory *memory, mgp_map **result,
     }
   }
 
+  // first find vertices by their GIDs because maybe not all vertices exist in the graph anymore
+  std::vector<mgp_vertex *> vertices;
+  vertices.reserve(vertex_ids.size());
+  for (const auto &vertex_id : vertex_ids) {
+    auto vertex_ptr = GetVertexByGid(graph, vertex_id, memory);
+    if (vertex_ptr) {
+      vertices.push_back(vertex_ptr);
+    }
+  }
+
   mgp_list *search_results{};
-  if (const auto err = mgp_list_make_empty(vertex_ids.size(), memory, &search_results);
+  if (const auto err = mgp_list_make_empty(vertices.size(), memory, &search_results);
       err != mgp_error::MGP_ERROR_NO_ERROR) {
     throw std::logic_error("Retrieving text search results failed during creation of a mgp_list");
   }
 
-  for (const auto &vertex_id : vertex_ids) {
-    mgp_value *vertex;
-    if (const auto err = mgp_value_make_vertex(GetVertexByGid(graph, vertex_id, memory), &vertex);
-        err != mgp_error::MGP_ERROR_NO_ERROR) {
+  for (auto *vertex_ptr : vertices) {
+    mgp_value *vertex = nullptr;
+    if (const auto err = mgp_value_make_vertex(vertex_ptr, &vertex); err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving text search results failed during creation of a vertex mgp_value");
     }
     if (const auto err = mgp_list_append(search_results, vertex); err != mgp_error::MGP_ERROR_NO_ERROR) {
