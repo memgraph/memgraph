@@ -14,6 +14,7 @@
 #include <algorithm>
 #include <cstdint>
 #include <limits>
+#include <memory>
 #include <optional>
 #include <queue>
 #include <string>
@@ -2932,6 +2933,14 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
   }
 };
 
+namespace {
+bool are_equal(const TypedValue &lhs, const TypedValue &rhs) {
+  double l = lhs.IsDouble() ? lhs.ValueDouble() : lhs.ValueInt();
+  double r = rhs.IsDouble() ? rhs.ValueDouble() : rhs.ValueInt();
+  return std::abs(l - r) < 1e-6;
+}
+}  // namespace
+
 class ExpandAllShortestPathsCursor : public query::plan::Cursor {
  public:
   ExpandAllShortestPathsCursor(const ExpandVariable &self, utils::MemoryResource *mem)
@@ -2969,6 +2978,12 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       frame[self_.weight_lambda_->inner_node_symbol] = next_vertex;
       TypedValue next_weight = CalculateNextWeight(self_.weight_lambda_, total_weight, evaluator);
 
+      if (next_vertex.Gid().AsInt() == 1) {
+        spdlog::debug("Expanding edge {} to vertex {} with weight {} at depth {}", edge.Gid().AsInt(),
+                      next_vertex.Gid().AsInt(),
+                      next_weight.IsDouble() ? next_weight.ValueDouble() : next_weight.ValueInt(), depth);
+      }
+
       // If filter expression exists, evaluate filter
       std::optional<Path> curr_acc_path = std::nullopt;
       if (self_.filter_lambda_.expression) {
@@ -2993,25 +3008,25 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       auto found_it = visited_cost_.find(next_vertex);
       // Check if the vertex has already been processed.
       if (found_it != visited_cost_.end()) {
-        auto weights = found_it->second;
+        auto &weights = found_it->second;
         bool insert = std::ranges::none_of(weights, [depth, next_weight](const auto &entry) {
           auto [old_weight, old_depth] = entry;
-          return old_depth <= depth && (old_weight <= next_weight).ValueBool();
+          return old_depth <= depth && (old_weight < next_weight).ValueBool() && !are_equal(old_weight, next_weight);
         });
 
         if (!insert) return;
-        auto &costs = visited_cost_[next_vertex];
-        std::erase_if(costs, [&next_weight, depth](const std::pair<TypedValue, int64_t> &p) {
-          return (p.first >= next_weight).ValueBool() && p.second <= depth;
+        std::erase_if(weights, [&next_weight, depth](const std::pair<TypedValue, int64_t> &p) {
+          return (p.first > next_weight).ValueBool() && p.second <= depth &&
+                 !are_equal(p.first, next_weight);  // allow same weight to allow multiple paths with same cost
         });
-        costs.emplace_back(next_weight, depth);
+        weights.emplace_back(next_weight, depth);
 
       } else {
         visited_cost_[next_vertex] = {
             std::make_pair(next_weight, depth)};  // TODO (ivan): will this use correct allocator?
       }
 
-      // update cheapeast cost to get to the vertex
+      // update cheapest cost to get to the vertex
       auto best_cost = cheapest_cost_.find(next_vertex);
       if (best_cost == cheapest_cost_.end() || best_cost->second.IsNull() ||
           (next_weight < best_cost->second).ValueBool()) {
@@ -3105,7 +3120,8 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       }
 
       // TODO correct?
-      if ((current_weight > cheapest_cost_.at(next_vertex)).ValueBool()) return false;
+      auto cheapest_cost = cheapest_cost_.find(next_vertex)->second;
+      if ((current_weight > cheapest_cost).ValueBool() && !are_equal(current_weight, cheapest_cost)) return false;
 
       // Place destination node on the frame, handle existence flag
       if (self_.common_.existing_node) {
@@ -3130,7 +3146,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
         auto position = total_cost_.find(current_state);
         if (position != total_cost_.end()) {
-          if ((position->second < current_weight).ValueBool()) continue;
+          if ((position->second < current_weight).ValueBool() && !are_equal(position->second, current_weight)) continue;
         } else {
           total_cost_.emplace(current_state, current_weight);
           if (current_depth < upper_bound_) {
