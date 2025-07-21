@@ -664,7 +664,7 @@ dropDatabase : DROP DATABASE databaseName ;
 
 useDatabase : USE DATABASE databaseName ;
 
-showDatabase : SHOW DATABASE ;
+showDatabase : SHOW ( CURRENT )? DATABASE ;
 
 showDatabases : SHOW DATABASES ;
 

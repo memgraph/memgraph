@@ -25,12 +25,14 @@ bool QueryUserOrRole::IsAuthorized(const std::vector<query::AuthQuery::Privilege
     if (roles_) {
       // For backward compatibility, update the first role
       auto rolenames = roles_->rolenames();
-      if (!rolenames.empty()) {
-        auto role = locked_auth->GetRole(rolenames[0]);
+      std::unordered_set<auth::Role> updated_roles;
+      for (const auto &rolename : rolenames) {
+        auto role = locked_auth->GetRole(rolename);
         if (role) {
-          roles_ = auth::Roles({*role});
+          updated_roles.insert(*role);
         }
       }
+      roles_ = auth::Roles(std::move(updated_roles));
     }
   }
 
@@ -69,12 +71,14 @@ bool QueryUserOrRole::CanImpersonate(const std::string &target, query::UserPolic
     if (roles_) {
       // For backward compatibility, update the first role
       auto rolenames = roles_->rolenames();
-      if (!rolenames.empty()) {
-        auto role = locked_auth->GetRole(rolenames[0]);
+      std::unordered_set<auth::Role> updated_roles;
+      for (const auto &rolename : rolenames) {
+        auto role = locked_auth->GetRole(rolename);
         if (role) {
-          roles_ = auth::Roles({*role});
+          updated_roles.insert(*role);
         }
       }
+      roles_ = auth::Roles(std::move(updated_roles));
     }
   }
 
