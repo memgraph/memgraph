@@ -112,8 +112,8 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action const action) -> d
 #undef add_case
 }
 
-auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex,
-               VertexAccessor *to_vertex) -> Result<EdgesVertexAccessorResult> {
+auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex, VertexAccessor *to_vertex)
+    -> Result<EdgesVertexAccessorResult> {
   auto use_out_edges = [](Vertex const *from_vertex, Vertex const *to_vertex) {
     // Obtain the locks by `gid` order to avoid lock cycles.
     auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
@@ -259,6 +259,11 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       vertices_.run_gc();
       edges_.run_gc();
 
+      // Auto-indexer also has a skiplist
+      if (auto_indexer_) {
+        auto_indexer_->RunGC();
+      }
+
       // AsyncTimer resources are global, not particularly storage related, more query related
       // At some point in the future this should be scheduled by something else
       utils::AsyncTimer::GCRun();
@@ -278,48 +283,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
 
   if (config_.salient.items.enable_edge_type_index_auto_creation ||
       config_.salient.items.enable_label_index_auto_creation) {
-    auto_index_thread_ = std::jthread([this]() {
-      while (!stop_source.stop_requested()) {
-        std::unique_lock<std::mutex> lock(auto_index_structure_.mutex_);
-
-        auto_index_structure_.index_auto_creation_cv_.wait(lock, [this] {
-          return auto_index_structure_.index_auto_creation_queue_.size() != 0 || stop_source.stop_requested();
-        });
-        if (stop_source.stop_requested()) {
-          return;
-        }
-
-        auto access = auto_index_structure_.index_auto_creation_queue_.access();
-        auto it_end = access.end();
-        auto cancel_check = [&]() { return stop_source.stop_requested(); };
-
-        for (auto it = access.begin(); it != it_end;) {
-          try {
-            // If we wait forever for the read only lock it will block new writes
-            auto db_read_only_acc = ReadOnlyAccess(IsolationLevel::SNAPSHOT_ISOLATION, std::chrono::milliseconds(500));
-
-            // Creating an index can only fail due to db shutdown or if the index manually got created
-            // so there is not need to handle errors
-            auto visitor = utils::Overloaded{
-                [&](LabelId label) {
-                  [[maybe_unused]] auto result = db_read_only_acc->CreateIndex(label, false, cancel_check);
-                },
-                [&](EdgeTypeId edge_type) {
-                  [[maybe_unused]] auto result = db_read_only_acc->CreateIndex(edge_type, false, cancel_check);
-                }};
-
-            std::visit(visitor, *it);
-            [[maybe_unused]] auto result = db_read_only_acc->PrepareForCommitPhase();
-
-            auto next_it = std::next(it);
-            access.remove(*it);
-            it = next_it;
-          } catch (ReadOnlyAccessTimeout &) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
-          }
-        }
-      }
-    });
+    auto_indexer_.emplace(stop_source.get_token(), this);
   }
 
   flags::run_time::SnapshotPeriodicAttach(snapshot_periodic_observer_);
@@ -329,7 +293,6 @@ InMemoryStorage::~InMemoryStorage() {
   flags::run_time::SnapshotPeriodicDetach(snapshot_periodic_observer_);
 
   stop_source.request_stop();
-  auto_index_structure_.index_auto_creation_cv_.notify_one();
 
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
     gc_runner_.Stop();
@@ -508,13 +471,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
     guard_from.lock();
   }
 
-  if (storage_->config_.salient.items.enable_edge_type_index_auto_creation &&
-      !transaction_.active_indices_.edge_type_->IndexRegistered(edge_type)) {
-    auto [_, inserted] = transaction_.introduced_new_edge_type_index_.insert(edge_type);
-    if (inserted) {
-      storage_->edge_types_to_auto_index_.WithLock([&](auto &edge_type_indices) { ++edge_type_indices[edge_type]; });
-    }
-  }
+  transaction_.auto_index_helper_.Track(edge_type);
 
   if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
   if (from_vertex->deleted) return Error::DELETED_OBJECT;
@@ -806,49 +763,6 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     }
 
     auto engine_guard = std::unique_lock{storage_->engine_lock_};
-
-    // LabelIndex auto-creation block.
-    if (!transaction_.introduced_new_label_index_.empty()) {
-      storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) {
-        for (auto label : transaction_.introduced_new_label_index_) {
-          auto it = label_indices.find(label);
-          auto &[_, count] = *it;
-          --count;
-          // If there are multiple transactions that would like to create an
-          // auto-created index on a specific label, we only build the index
-          // when the last one commits.
-          if (count == 0) {
-            // TODO: (andi) Handle auto-creation issue
-            // NOLINTNEXTLINE(clang-diagnostic-unused-result)
-            mem_storage->auto_index_structure_.index_auto_creation_queue_.access().insert(label);
-            mem_storage->auto_index_structure_.index_auto_creation_cv_.notify_one();
-            label_indices.erase(it);
-          }
-        }
-      });
-    }
-
-    // EdgeIndex auto-creation block.
-    if (!transaction_.introduced_new_edge_type_index_.empty()) {
-      storage_->edge_types_to_auto_index_.WithLock([&](auto &edge_type_indices) {
-        for (auto edge_type : transaction_.introduced_new_edge_type_index_) {
-          auto it = edge_type_indices.find(edge_type);
-          auto &[_, count] = *it;
-          --count;
-          // If there are multiple transactions that would like to create an
-          // auto-created index on a specific edge-type, we only build the index
-          // when the last one commits.
-          if (count == 0) {
-            // TODO: (andi) Handle silent failure
-            // NOLINTNEXTLINE(clang-diagnostic-unused-result)
-            mem_storage->auto_index_structure_.index_auto_creation_queue_.access().insert(edge_type);
-            mem_storage->auto_index_structure_.index_auto_creation_cv_.notify_one();
-            edge_type_indices.erase(it);
-          }
-        }
-      });
-    }
-
     commit_timestamp_.emplace(mem_storage->GetCommitTimestamp());
 
     // Unique constraints violated
@@ -989,6 +903,11 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
 
   // Call other callbacks that publish/install upon commit
   transaction_.commit_callbacks_.RunAll(*commit_timestamp_);
+
+  // Dispatch to another async work to create requested auto-indexes in their own transaction
+  if (mem_storage->auto_indexer_) {
+    transaction_.auto_index_helper_.DispatchRequests(*mem_storage->auto_indexer_);
+  }
 
   // TODO: can and should this be moved earlier?
   mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
@@ -1452,35 +1371,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     /// We MUST unlink (aka. remove) entries in indexes and constraints
     /// before we unlink (aka. remove) vertices from storage
     /// this is because they point into vertices skip_list
-
-    // auto index creation cleanup
-    if (storage_->config_.salient.items.enable_label_index_auto_creation &&
-        !transaction_.introduced_new_label_index_.empty()) {
-      storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) {
-        for (const auto label : transaction_.introduced_new_label_index_) {
-          auto it = label_indices.find(label);
-          auto &[_, count] = *it;
-          --count;
-          if (count == 0) {
-            label_indices.erase(it);
-          }
-        }
-      });
-    }
-
-    if (storage_->config_.salient.items.enable_edge_type_index_auto_creation &&
-        !transaction_.introduced_new_edge_type_index_.empty()) {
-      storage_->edge_types_to_auto_index_.WithLock([&](auto &edge_type_indices) {
-        for (const auto edge_type : transaction_.introduced_new_edge_type_index_) {
-          auto it = edge_type_indices.find(edge_type);
-          auto &[_, count] = *it;
-          --count;
-          if (count == 0) {
-            edge_type_indices.erase(it);
-          }
-        }
-      });
-    }
 
     // Cleanup INDICES
     index_abort_processor.Process(storage_->indices_, transaction_.active_indices_, transaction_.start_timestamp);
@@ -2053,6 +1943,9 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
     last_durable_ts = repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
     active_indices = GetActiveIndices();
   }
+
+  auto auto_index_helper = AutoIndexHelper{config_, *active_indices, start_timestamp};
+
   DMG_ASSERT(point_index_context.has_value(), "Expected a value, even if got 0 point indexes");
   return {transaction_id,
           start_timestamp,
@@ -2062,6 +1955,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
           !constraints_.empty(),
           *std::move(point_index_context),
           *std::move(active_indices),
+          std::move(auto_index_helper),
           last_durable_ts};
 }
 
@@ -3330,8 +3224,9 @@ void InMemoryStorage::Clear() {
   edges_metadata_.run_gc();
   stored_node_labels_.clear();
   stored_edge_types_.clear();
-  labels_to_auto_index_->clear();
-  edge_types_to_auto_index_->clear();
+  if (auto_indexer_) {
+    auto_indexer_->Clear();
+  }
 
   // Reset helper classes
   enum_store_.clear();
