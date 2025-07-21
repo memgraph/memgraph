@@ -6590,18 +6590,14 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
     }
   }
   void Visit(EdgeIndexQuery &edge_index_query) override {
+    using enum storage::Storage::Accessor::Type;
     if (is_in_memory_transactional_) {
       // Concurrent population of index requires snapshot isolation
       isolation_level_override_ = storage::IsolationLevel::SNAPSHOT_ISOLATION;
-      if (edge_index_query.action_ == EdgeIndexQuery::Action::CREATE) {
-        // Need writers to leave so we can make populate a consistent index
-        accessor_type_ = storage::Storage::Accessor::Type::READ_ONLY;
-      } else {
-        accessor_type_ = storage::Storage::Accessor::Type::READ;
-      }
+      accessor_type_ = (edge_index_query.action_ == EdgeIndexQuery::Action::CREATE) ? READ_ONLY : READ;
     } else {
       // IN_MEMORY_ANALYTICAL and ON_DISK_TRANSACTIONAL require unique access
-      accessor_type_ = storage::Storage::Accessor::Type::UNIQUE;
+      accessor_type_ = UNIQUE;
     }
   }
 

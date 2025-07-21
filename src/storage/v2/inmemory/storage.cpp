@@ -1562,15 +1562,22 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
     // Not possible to create the index, no properties on edges
     return StorageIndexDefinitionError{IndexDefinitionConfigError{}};
   }
-
   auto *mem_edge_property_index =
       static_cast<InMemoryEdgePropertyIndex *>(in_memory->indices_.edge_property_index_.get());
-  if (!mem_edge_property_index->CreateIndexOnePass(property, in_memory->vertices_.access())) {
+  if (!mem_edge_property_index->RegisterIndex(property)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  // TODO: concurrent index creation need to publish
-  auto publish_index_callback = wrapper(always_invalidate_plan_cache);
-  publish_index_callback(0);  // ensures plan cache is cleared
+  DowngradeToReadIfValid();
+  if (mem_edge_property_index
+          ->PopulateIndex(property, in_memory->vertices_.access(), std::nullopt, &transaction_, std::move(cancel_check))
+          .HasError()) {
+    return StorageIndexDefinitionError{IndexDefinitionCancelationError{}};
+  }
+  // Wrapper will make sure plan cache is cleared
+  auto publisher = wrapper(
+      [=](uint64_t commit_timestamp) { return mem_edge_property_index->PublishIndex(property, commit_timestamp); });
+  transaction_.commit_callbacks_.Add(std::move(publisher));
+
   transaction_.md_deltas.emplace_back(MetadataDelta::global_edge_property_index_create, property);
   return {};
 }
