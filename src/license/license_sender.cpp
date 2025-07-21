@@ -23,18 +23,31 @@
 
 #include <nlohmann/json.hpp>
 
+namespace {
+constexpr auto kFirstShotAfter = std::chrono::seconds{60};
+}  // namespace
+
 namespace memgraph::license {
 
 LicenseInfoSender::LicenseInfoSender(std::string url, std::string uuid, std::string machine_id, int64_t memory_limit,
                                      utils::Synchronized<std::optional<LicenseInfo>, utils::SpinLock> &license_info,
-                                     std::chrono::seconds request_frequency)
+                                     std::chrono::seconds request_interval)
     : url_{std::move(url)},
       uuid_{std::move(uuid)},
       machine_id_{std::move(machine_id)},
       memory_limit_{memory_limit},
       license_info_{license_info} {
-  scheduler_.SetInterval(request_frequency);
-  scheduler_.Run("LicenseCheck", [&] { SendData(); });
+  scheduler_.SetInterval(
+      std::min(kFirstShotAfter, request_interval));  // use user-defined interval if shorter than first shot
+  scheduler_.Run("Telemetry", [this, final_interval = request_interval,
+                               update_interval = kFirstShotAfter < request_interval]() mutable {
+    SendData();
+    // First run after 60s; all subsequent runs at the user-defined interval
+    if (update_interval) {
+      update_interval = false;
+      scheduler_.SetInterval(final_interval);
+    }
+  });
 }
 
 LicenseInfoSender::~LicenseInfoSender() { scheduler_.Stop(); }

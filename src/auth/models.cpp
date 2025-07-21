@@ -85,6 +85,10 @@ const std::vector<Permission> kPermissionsAll = {
     Permission::IMPERSONATE_USER,
 };
 
+#ifdef MG_ENTERPRISE
+const FineGrainedAccessPermissions empty_permissions{};
+#endif
+
 }  // namespace
 
 #ifdef MG_ENTERPRISE
@@ -494,11 +498,31 @@ Permissions &Role::permissions() { return permissions_; }
 const FineGrainedAccessHandler &Role::fine_grained_access_handler() const { return fine_grained_access_handler_; }
 FineGrainedAccessHandler &Role::fine_grained_access_handler() { return fine_grained_access_handler_; }
 
-const FineGrainedAccessPermissions &Role::GetFineGrainedAccessLabelPermissions() const {
+const FineGrainedAccessPermissions &Role::GetFineGrainedAccessLabelPermissions(
+    std::optional<std::string_view> db_name) const {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    return empty_permissions;
+  }
+
+  // If db_name is provided, check if the role has access to that database
+  if (db_name && !HasAccess(*db_name)) {
+    return empty_permissions;
+  }
+
   return fine_grained_access_handler_.label_permissions();
 }
 
-const FineGrainedAccessPermissions &Role::GetFineGrainedAccessEdgeTypePermissions() const {
+const FineGrainedAccessPermissions &Role::GetFineGrainedAccessEdgeTypePermissions(
+    std::optional<std::string_view> db_name) const {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    return empty_permissions;
+  }
+
+  // If db_name is provided, check if the role has access to that database
+  if (db_name && !HasAccess(*db_name)) {
+    return empty_permissions;
+  }
+
   return fine_grained_access_handler_.edge_type_permissions();
 }
 #endif
@@ -709,63 +733,163 @@ void User::UpdatePassword(const std::optional<std::string> &password,
 
 void User::UpdateHash(HashedPassword hashed_password) { password_hash_ = std::move(hashed_password); }
 
-void User::SetRole(const Role &role) { role_.emplace(role); }
+void User::SetRole(const Role &role) {
+  // Clear all roles and add the new one
+  ClearAllRoles();
+  roles_.AddRole(role);
+}
 
-void User::ClearRole() { role_ = std::nullopt; }
+void User::ClearAllRoles() {
+  // Clear all roles by creating a new empty Roles object
+  roles_ = Roles{};
+#ifdef MG_ENTERPRISE
+  // Clear all multi-tenant mappings
+  role_db_map_.clear();
+  db_role_map_.clear();
+#endif
+}
 
-Permissions User::GetPermissions() const {
-  if (role_) {
-    return Permissions{permissions_.grants() | role_->permissions().grants(),
-                       permissions_.denies() | role_->permissions().denies()};
+// New methods for multiple roles
+void User::AddRole(const Role &role) {
+  // If role is set to a specific database, convert it to a global role
+#ifdef MG_ENTERPRISE
+  if (role_db_map_.contains(role.rolename())) {
+    throw AuthException("Role '{}' is already specified as a multi-tenant role", role.rolename());
   }
-  return permissions_;
+#endif
+  roles_.AddRole(role);
 }
 
 #ifdef MG_ENTERPRISE
-FineGrainedAccessPermissions User::GetFineGrainedAccessLabelPermissions() const {
-  return Merge(GetUserFineGrainedAccessLabelPermissions(), GetRoleFineGrainedAccessLabelPermissions());
+void User::AddMultiTenantRole(Role role, const std::string &db_name) {
+  // Nothing to do if role is already in the map
+  if (db_role_map_.contains(db_name) && db_role_map_[db_name].contains(role.rolename())) {
+    return;
+  }
+
+  // Global roles are not allowed to be specified on a database
+  if (!role_db_map_.contains(role.rolename()) && roles_.GetRole(role.rolename())) {
+    throw AuthException("Role '{}' is already specified as a global role", role.rolename());
+  }
+
+  // Role has to have access to the database in question
+  if (!role.HasAccess(db_name)) {
+    throw AuthException("Roles need access to the database to be specified on it");
+  }
+
+  // Check if user already has this role
+  if (auto it = std::find_if(roles().begin(), roles().end(),
+                             [&role](const auto &in) { return role.rolename() == in.rolename(); });
+      it != roles().end()) {
+    // Role is already present (the original role has access to the database)
+    // Add access if the user's role does't already have access to the database
+    if (!it->HasAccess(db_name)) {
+      role = *it;
+      role.db_access().Grant(db_name);
+    }
+  } else {
+    // Specify role to the target database and add role to user
+    role.db_access().DenyAll();
+    role.db_access().Grant(db_name);
+    role.db_access().SetMain(db_name);
+  }
+
+  // Add role to map
+  role_db_map_[role.rolename()].insert(db_name);
+  db_role_map_[db_name].insert(role.rolename());
+  // Update role in roles_
+  roles_.RemoveRole(role.rolename());
+  roles_.AddRole(role);
 }
 
-FineGrainedAccessPermissions User::GetFineGrainedAccessEdgeTypePermissions() const {
-  return Merge(GetUserFineGrainedAccessEdgeTypePermissions(), GetRoleFineGrainedAccessEdgeTypePermissions());
+void User::ClearMultiTenantRoles(const std::string &db_name) {
+  // If role is specified on a database, that means it couldn't have been specified as a global role
+  // In turn this means that we need to:
+  // 1. Remove the role from the role_db_map_
+  // 2. Remove the role from the roles_, but only if it's not specified on any other database
+  auto it = db_role_map_.find(db_name);
+  if (it != db_role_map_.end()) {
+    for (const auto &role_name : it->second) {
+      // Remove from the reverse map
+      role_db_map_[role_name].erase(db_name);
+      // Remove from the roles_
+      auto role = roles_.GetRole(role_name);
+      if (!role) {
+        // This should never happen, but we'll just continue
+        continue;
+      }
+      roles_.RemoveRole(role_name);
+      // If user had role on other databases, we need to add it back
+      if (role->HasAccess(db_name) && role->db_access().GetGrants().size() > 1) {
+        role->db_access().Deny(db_name);
+        roles_.AddRole(*role);
+      }
+    }
+    db_role_map_.erase(it);
+  }
+}
+#endif
+
+#ifdef MG_ENTERPRISE
+FineGrainedAccessPermissions User::GetFineGrainedAccessLabelPermissions(std::optional<std::string_view> db_name) const {
+  return Merge(GetUserFineGrainedAccessLabelPermissions(), GetRoleFineGrainedAccessLabelPermissions(db_name));
 }
 
-FineGrainedAccessPermissions User::GetUserFineGrainedAccessEdgeTypePermissions() const {
+FineGrainedAccessPermissions User::GetFineGrainedAccessEdgeTypePermissions(
+    std::optional<std::string_view> db_name) const {
+  return Merge(GetUserFineGrainedAccessEdgeTypePermissions(), GetRoleFineGrainedAccessEdgeTypePermissions(db_name));
+}
+
+FineGrainedAccessPermissions User::GetUserFineGrainedAccessEdgeTypePermissions(
+    std::optional<std::string_view> db_name) const {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return FineGrainedAccessPermissions{};
   }
 
+  if (db_name && !HasAccess(*db_name)) return FineGrainedAccessPermissions{};
   return fine_grained_access_handler_.edge_type_permissions();
 }
 
-FineGrainedAccessPermissions User::GetUserFineGrainedAccessLabelPermissions() const {
+FineGrainedAccessPermissions User::GetUserFineGrainedAccessLabelPermissions(
+    std::optional<std::string_view> db_name) const {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return FineGrainedAccessPermissions{};
   }
 
+  if (db_name && !HasAccess(*db_name)) return FineGrainedAccessPermissions{};
   return fine_grained_access_handler_.label_permissions();
 }
 
-FineGrainedAccessPermissions User::GetRoleFineGrainedAccessEdgeTypePermissions() const {
+FineGrainedAccessPermissions User::GetRoleFineGrainedAccessEdgeTypePermissions(
+    std::optional<std::string_view> db_name) const {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return FineGrainedAccessPermissions{};
   }
 
-  if (role_) {
-    return role()->fine_grained_access_handler().edge_type_permissions();
+  FineGrainedAccessPermissions combined_permissions{};
+  for (const auto &role : roles_) {
+    // If db_name is provided, only include roles that grant access to that database
+    if (!db_name || role.HasAccess(*db_name)) {
+      combined_permissions = Merge(combined_permissions, role.fine_grained_access_handler().edge_type_permissions());
+    }
   }
-  return FineGrainedAccessPermissions{};
+  return combined_permissions;
 }
 
-FineGrainedAccessPermissions User::GetRoleFineGrainedAccessLabelPermissions() const {
+FineGrainedAccessPermissions User::GetRoleFineGrainedAccessLabelPermissions(
+    std::optional<std::string_view> db_name) const {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return FineGrainedAccessPermissions{};
   }
 
-  if (role_) {
-    return role()->fine_grained_access_handler().label_permissions();
+  FineGrainedAccessPermissions combined_permissions{};
+  for (const auto &role : roles_) {
+    // If db_name is provided, only include roles that grant access to that database
+    if (!db_name || role.HasAccess(*db_name)) {
+      combined_permissions = Merge(combined_permissions, role.fine_grained_access_handler().label_permissions());
+    }
   }
-  return FineGrainedAccessPermissions{};
+  return combined_permissions;
 }
 #endif
 
@@ -778,12 +902,6 @@ const FineGrainedAccessHandler &User::fine_grained_access_handler() const { retu
 
 FineGrainedAccessHandler &User::fine_grained_access_handler() { return fine_grained_access_handler_; }
 #endif
-const Role *User::role() const {
-  if (role_.has_value()) {
-    return &role_.value();
-  }
-  return nullptr;
-}
 
 nlohmann::json User::Serialize() const {
   nlohmann::json data = nlohmann::json::object();
@@ -881,12 +999,12 @@ bool operator==(const User &first, const User &second) {
 #ifdef MG_ENTERPRISE
   if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return first.username_ == second.username_ && first.password_hash_ == second.password_hash_ &&
-           first.permissions_ == second.permissions_ && first.role_ == second.role_ &&
+           first.permissions_ == second.permissions_ && first.roles_ == second.roles_ &&
            first.fine_grained_access_handler_ == second.fine_grained_access_handler_;
   }
 #endif
   return first.username_ == second.username_ && first.password_hash_ == second.password_hash_ &&
-         first.permissions_ == second.permissions_ && first.role_ == second.role_;
+         first.permissions_ == second.permissions_ && first.roles_ == second.roles_;
 }
 
 #ifdef MG_ENTERPRISE
@@ -1072,6 +1190,35 @@ void from_json(const nlohmann::json &data, UserImpersonation &usr_imp) {
   }
 
   usr_imp = {std::move(granted), std::move(denied)};
+}
+
+const FineGrainedAccessPermissions &Roles::GetFineGrainedAccessLabelPermissions(
+    std::optional<std::string_view> db_name) const {
+  if (roles_.empty()) return empty_permissions;
+
+  FineGrainedAccessPermissions combined_permissions;
+  for (const auto &role : roles_) {
+    if (!db_name || role.HasAccess(*db_name)) {
+      combined_permissions = Merge(combined_permissions, role.fine_grained_access_handler().label_permissions());
+    }
+  }
+  static FineGrainedAccessPermissions result;
+  result = combined_permissions;
+  return result;
+}
+const FineGrainedAccessPermissions &Roles::GetFineGrainedAccessEdgeTypePermissions(
+    std::optional<std::string_view> db_name) const {
+  if (roles_.empty()) return empty_permissions;
+
+  FineGrainedAccessPermissions combined_permissions;
+  for (const auto &role : roles_) {
+    if (!db_name || role.HasAccess(*db_name)) {
+      combined_permissions = Merge(combined_permissions, role.fine_grained_access_handler().edge_type_permissions());
+    }
+  }
+  static FineGrainedAccessPermissions result;
+  result = combined_permissions;
+  return result;
 }
 #endif
 

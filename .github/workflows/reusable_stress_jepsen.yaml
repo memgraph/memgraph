@@ -11,10 +11,15 @@ on:
         type: boolean
         description: "Run MT test"
         required: true
-      sync:
-        type: boolean
-        description: "Run synchronous cluster"
+      mode:
+        type: string
+        description: "Cluster mode (sync, sync_mixed, strict_sync, strict_sync_mixed)"
         required: true
+      time-limit:
+        type: string
+        description: "Duration of Jepsen test (in seconds)"
+        required: true
+        default: "7200"
 
 
 env:
@@ -45,11 +50,24 @@ jobs:
 
       - name: Set Cluster File
         run: |
-          if [[ "${{ inputs.sync }}" == "true" ]]; then
-            echo "CLUSTER=sync_cluster.edn" >> $GITHUB_ENV
-          else
-            echo "CLUSTER=async_cluster.edn" >> $GITHUB_ENV
-          fi
+            case "${{ inputs.mode }}" in
+              sync)
+                echo "CLUSTER=sync_cluster.edn" >> $GITHUB_ENV
+                ;;
+              sync_mixed)
+                echo "CLUSTER=sync_mixed_cluster.edn" >> $GITHUB_ENV
+                ;;
+              strict_sync)
+                echo "CLUSTER=strict_sync_cluster.edn" >> $GITHUB_ENV
+                ;;
+              strict_sync_mixed)
+              echo "CLUSTER=strict_sync_mixed_cluster.edn" >> $GITHUB_ENV
+              ;;
+              *)
+                echo "Unsupported mode: ${{ inputs.mode }}"
+                exit 1
+                ;;
+            esac
 
       - name: Refresh Jepsen Cluster
         run: |
@@ -86,9 +104,9 @@ jobs:
           trap "kill $CLEANUP_PID" EXIT
 
           if [[ "${{ inputs.mt }}" == "true" ]]; then
-            ARGS="--workload ha-mt --nodes-config resources/${{ env.CLUSTER }} --time-limit 10800 --concurrency $NODES_NO --num-tenants 3 --recovery-time 600 --nemesis-start-sleep 480"
+            ARGS="--workload ha-mt --nodes-config resources/${{ env.CLUSTER }} --time-limit ${{ inputs.time-limit }} --concurrency $NODES_NO --num-tenants 3 --recovery-time 600 --nemesis-start-sleep 480"
           else
-            ARGS="--workload hacreate --nodes-config resources/${{ env.CLUSTER }} --time-limit 25200 --concurrency $NODES_NO --recovery-time 600 --nemesis-start-sleep 25"
+            ARGS="--workload hacreate --nodes-config resources/${{ env.CLUSTER }} --time-limit ${{ inputs.time-limit }} --concurrency $NODES_NO --recovery-time 600 --nemesis-start-sleep 25"
           fi
 
           ./run.sh test \

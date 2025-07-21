@@ -8,6 +8,9 @@ add_custom_target(memgraph__unit)
 
 add_library(memgraph_unit_main OBJECT main.cpp)
 target_link_libraries(memgraph_unit_main mg-memory mg-utils gtest gmock Threads::Threads dl)
+target_precompile_headers(memgraph_unit_main PRIVATE
+    <gtest/gtest.h>
+)
 
 function(add_unit_test test_cpp)
   _add_unit_test(${test_cpp} FALSE ${ARGN})
@@ -431,10 +434,21 @@ target_include_directories(${test_prefix}cpp_api PRIVATE ${CMAKE_SOURCE_DIR}/inc
 add_unit_test(vector_index.cpp)
 target_link_libraries(${test_prefix}vector_index mg::storage)
 
+add_unit_test(vector_edge_index.cpp)
+target_link_libraries(${test_prefix}vector_edge_index mg::storage)
+
 # Test mg-auth
 if(MG_ENTERPRISE)
   add_unit_test(auth.cpp)
-  target_link_libraries(${test_prefix}auth mg-auth mg-license)
+  target_link_libraries(${test_prefix}auth mg-auth mg-license Boost::filesystem)
+
+  add_custom_target(memgraph__unit__auth_kvstore_dir ALL
+          COMMAND ${CMAKE_COMMAND} -E copy_directory
+          ${CMAKE_CURRENT_SOURCE_DIR}/auth_kvstore
+          ${CMAKE_CURRENT_BINARY_DIR}/auth_kvstore
+          DEPENDS ${CMAKE_CURRENT_SOURCE_DIR}/auth_kvstore)
+  add_dependencies(memgraph__unit memgraph__unit__auth_kvstore_dir)
+  add_dependencies(${test_prefix}auth memgraph__unit__auth_kvstore_dir)
 endif()
 
 # Test mg-slk
@@ -472,7 +486,7 @@ add_unit_test(snapshot_rpc_progress.cpp)
 target_link_libraries(${test_prefix}snapshot_rpc_progress mg-rpc)
 
 # Test websocket
-find_package(Boost REQUIRED CONFIG)
+find_package(Boost REQUIRED CONFIG COMPONENTS headers filesystem)
 
 add_unit_test(monitoring.cpp)
 target_link_libraries(${test_prefix}monitoring mg-communication Boost::headers)

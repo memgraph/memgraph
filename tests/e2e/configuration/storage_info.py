@@ -16,6 +16,7 @@ import pytest
 
 default_storage_info_dict = {
     "name": "memgraph",
+    "database_uuid": "abcd",
     "vertex_count": 0,
     "edge_count": 0,
     "average_degree": 0,
@@ -56,6 +57,7 @@ def test_does_default_config_match():
 
     # The default value of these is dependent on the given machine.
     machine_dependent_configurations = [
+        "database_uuid",
         "memory_res",
         "peak_memory_res",
         "disk_usage",

@@ -22,6 +22,7 @@
 #include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/indices/text_index.hpp"
+#include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/storage_mode.hpp"
 
@@ -46,28 +47,26 @@ struct Indices {
   /// TODO: unused in disk indices
   void RemoveObsoleteEdgeEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) const;
 
-  /// Surgical removal of entries that were inserted in this transaction
-  /// TODO: unused in disk indices
-  void AbortEntries(std::pair<EdgeTypeId, PropertyId> edge_type_property,
-                    std::span<std::tuple<Vertex *const, Vertex *const, Edge *const, PropertyValue> const> edges,
-                    uint64_t exact_start_timestamp) const;
-
   void DropGraphClearIndices();
 
   struct AbortProcessor {
     LabelIndex::AbortProcessor label_;
     LabelPropertyIndex::AbortProcessor label_properties_;
     EdgeTypeIndex::AbortProcessor edge_type_;
-
-    EdgeTypePropertyIndex::IndexStats property_edge_type_;
-    EdgePropertyIndex::IndexStats property_edge_;
+    EdgeTypePropertyIndex::AbortProcessor edge_type_property_;
+    EdgePropertyIndex::AbortProcessor edge_property_;
     // TODO: point? Nothing to abort, it gets build in Commit
     // TODO: text?
     VectorIndex::IndexStats vector_;
+    VectorEdgeIndex::IndexStats vector_edge_;
 
     void CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Edge *edge);
     void CollectOnLabelRemoval(LabelId labelId, Vertex *vertex);
     void CollectOnPropertyChange(PropertyId propId, Vertex *vertex);
+    void CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property, Vertex *from_vertex, Vertex *to_vertex,
+                                 Edge *edge);
+    bool IsInterestingEdgeProperty(PropertyId property);
+
     void Process(Indices &indices, ActiveIndices &active_indices, uint64_t start_timestamp);
   };
 
@@ -104,6 +103,7 @@ struct Indices {
   mutable TextIndex text_index_;
   PointIndexStorage point_index_;
   mutable VectorIndex vector_index_;
+  mutable VectorEdgeIndex vector_edge_index_;
 };
 
 }  // namespace memgraph::storage

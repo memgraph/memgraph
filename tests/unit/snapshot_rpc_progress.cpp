@@ -19,7 +19,6 @@
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 #include "storage/v2/constraints/existence_constraints.hpp"
 #include "storage/v2/constraints/type_constraints.hpp"
-#include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
@@ -438,7 +437,7 @@ TEST_F(SnapshotRpcProgressTest, TestEdgeTypePropertyIndexSingleThreadedNoVertice
   snapshot_info.emplace(mocked_observer, 3);
 
   EXPECT_CALL(*mocked_observer, Update()).Times(0);
-  ASSERT_TRUE(etype_idx.CreateIndex(etype, prop, vertices.access(), snapshot_info));
+  ASSERT_TRUE(etype_idx.CreateIndexOnePass(etype, prop, vertices.access(), snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestEdgeTypePropertyIndexSingleThreadedVerticesEdges) {
@@ -459,6 +458,7 @@ TEST_F(SnapshotRpcProgressTest, TestEdgeTypePropertyIndexSingleThreadedVerticesE
       auto [it, ver_inserted] = acc.insert(std::move(vertex));
       ASSERT_TRUE(ver_inserted);
       it->out_edges.emplace_back(etype, &*it, edge_ref);
+      edge->properties.SetProperty(prop, PropertyValue{1});
     }
   }
   auto mocked_observer = std::make_shared<MockedSnapshotObserver>();
@@ -466,7 +466,7 @@ TEST_F(SnapshotRpcProgressTest, TestEdgeTypePropertyIndexSingleThreadedVerticesE
   snapshot_info.emplace(mocked_observer, 3);
 
   EXPECT_CALL(*mocked_observer, Update()).Times(2);
-  ASSERT_TRUE(etype_idx.CreateIndex(etype, prop, vertices.access(), snapshot_info));
+  ASSERT_TRUE(etype_idx.CreateIndexOnePass(etype, prop, vertices.access(), snapshot_info));
 }
 
 TEST_F(SnapshotRpcProgressTest, TestPointIndexSingleThreadedNoVertices) {

@@ -466,5 +466,9 @@ set_property(TARGET usearch PROPERTY INTERFACE_INCLUDE_DIRECTORIES
   ${CMAKE_CURRENT_SOURCE_DIR}/usearch/fp16/include
   ${CMAKE_CURRENT_SOURCE_DIR}/usearch/stringzilla/include)
 
+# suppress usearch-specific #warnings like:
+# "It's recommended to use SimSIMD and fp16lib for half-precision numerics"
+target_compile_options(usearch INTERFACE -Wno-cpp)
+
 # setup croncpp
 add_subdirectory(croncpp EXCLUDE_FROM_ALL)

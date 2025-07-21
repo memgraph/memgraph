@@ -23,6 +23,7 @@
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/point_index.hpp"
+#include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
@@ -313,8 +314,8 @@ class DbAccessor final {
                      plan::PointDistanceCondition condition) -> PointIterable;
 
   auto PointVertices(storage::LabelId label, storage::PropertyId property, storage::CoordinateReferenceSystem crs,
-                     TypedValue const &bottom_left, TypedValue const &top_right, plan::WithinBBoxCondition condition)
-      -> PointIterable;
+                     TypedValue const &bottom_left, TypedValue const &top_right,
+                     plan::WithinBBoxCondition condition) -> PointIterable;
 
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type) {
     return EdgesIterable(accessor_->Edges(edge_type, view));
@@ -474,13 +475,13 @@ class DbAccessor final {
 
   void AdvanceCommand() { accessor_->AdvanceCommand(); }
 
-  utils::BasicResult<storage::StorageManipulationError, void> Commit(storage::CommitReplArgs reparg = {},
+  utils::BasicResult<storage::StorageManipulationError, void> Commit(storage::CommitReplicationArgs reparg = {},
                                                                      storage::DatabaseAccessProtector db_acc = {}) {
-    return accessor_->Commit(std::move(reparg), std::move(db_acc));
+    return accessor_->PrepareForCommitPhase(std::move(reparg), std::move(db_acc));
   }
 
   utils::BasicResult<storage::StorageManipulationError, void> PeriodicCommit(
-      storage::CommitReplArgs reparg = {}, storage::DatabaseAccessProtector db_acc = {}) {
+      storage::CommitReplicationArgs reparg = {}, storage::DatabaseAccessProtector db_acc = {}) {
     return accessor_->PeriodicCommit(std::move(reparg), std::move(db_acc));
   }
 
@@ -502,12 +503,12 @@ class DbAccessor final {
 
   bool EdgeTypeIndexReady(storage::EdgeTypeId edge_type) const { return accessor_->EdgeTypeIndexReady(edge_type); }
 
-  bool EdgeTypePropertyIndexExists(storage::EdgeTypeId edge_type, storage::PropertyId property) const {
-    return accessor_->EdgeTypePropertyIndexExists(edge_type, property);
+  bool EdgeTypePropertyIndexReady(storage::EdgeTypeId edge_type, storage::PropertyId property) const {
+    return accessor_->EdgeTypePropertyIndexReady(edge_type, property);
   }
 
-  bool EdgePropertyIndexExists(storage::PropertyId property) const {
-    return accessor_->EdgePropertyIndexExists(property);
+  bool EdgePropertyIndexReady(storage::PropertyId property) const {
+    return accessor_->EdgePropertyIndexReady(property);
   }
 
   bool TextIndexExists(const std::string &index_name) const { return accessor_->TextIndexExists(index_name); }
@@ -532,13 +533,21 @@ class DbAccessor final {
     return accessor_->PointIndexExists(label, prop);
   }
 
-  std::vector<std::tuple<storage::VertexAccessor, double, double>> VectorIndexSearch(const std::string &index_name,
-                                                                                     uint64_t number_of_results,
-                                                                                     const std::vector<float> &vector) {
-    return accessor_->VectorIndexSearch(index_name, number_of_results, vector);
+  std::vector<std::tuple<storage::VertexAccessor, double, double>> VectorIndexSearchOnNodes(
+      const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) {
+    return accessor_->VectorIndexSearchOnNodes(index_name, number_of_results, vector);
+  }
+
+  std::vector<std::tuple<storage::EdgeAccessor, double, double>> VectorIndexSearchOnEdges(
+      const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) {
+    return accessor_->VectorIndexSearchOnEdges(index_name, number_of_results, vector);
   }
 
   std::vector<storage::VectorIndexInfo> ListAllVectorIndices() const { return accessor_->ListAllVectorIndices(); }
+
+  std::vector<storage::VectorEdgeIndexInfo> ListAllVectorEdgeIndices() const {
+    return accessor_->ListAllVectorEdgeIndices();
+  }
 
   std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const {
     return accessor_->GetIndexStats(label);
@@ -655,13 +664,15 @@ class DbAccessor final {
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(
       storage::EdgeTypeId edge_type, storage::PropertyId property,
+      storage::CheckCancelFunction cancel_check = storage::neverCancel,
       storage::PublishIndexWrapper wrapper = storage::publish_no_wrap) {
-    return accessor_->CreateIndex(edge_type, property, std::move(wrapper));
+    return accessor_->CreateIndex(edge_type, property, std::move(cancel_check), std::move(wrapper));
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateGlobalEdgeIndex(
-      storage::PropertyId property, storage::PublishIndexWrapper wrapper = storage::publish_no_wrap) {
-    return accessor_->CreateGlobalEdgeIndex(property, std::move(wrapper));
+      storage::PropertyId property, storage::CheckCancelFunction cancel_check = storage::neverCancel,
+      storage::PublishIndexWrapper wrapper = storage::publish_no_wrap) {
+    return accessor_->CreateGlobalEdgeIndex(property, std::move(cancel_check), std::move(wrapper));
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(
@@ -715,6 +726,11 @@ class DbAccessor final {
     return accessor_->DropVectorIndex(index_name);
   }
 
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorEdgeIndex(
+      storage::VectorEdgeIndexSpec spec) {
+    return accessor_->CreateVectorEdgeIndex(std::move(spec));
+  }
+
   utils::BasicResult<storage::StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
       storage::LabelId label, storage::PropertyId property) {
     return accessor_->CreateExistenceConstraint(label, property);
@@ -754,8 +770,8 @@ class DbAccessor final {
 
   auto ShowEnums() { return accessor_->ShowEnums(); }
 
-  auto GetEnumValue(std::string_view name, std::string_view value) const
-      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+  auto GetEnumValue(std::string_view name,
+                    std::string_view value) const -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
     return accessor_->GetEnumValue(name, value);
   }
   auto GetEnumValue(std::string_view enum_str) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
@@ -766,13 +782,13 @@ class DbAccessor final {
     return accessor_->GetEnumStoreShared().ToString(value);
   }
 
-  auto EnumAlterAdd(std::string_view name, std::string_view value)
-      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+  auto EnumAlterAdd(std::string_view name,
+                    std::string_view value) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
     return accessor_->EnumAlterAdd(name, value);
   }
 
-  auto EnumAlterUpdate(std::string_view name, std::string_view old_value, std::string_view new_value)
-      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+  auto EnumAlterUpdate(std::string_view name, std::string_view old_value,
+                       std::string_view new_value) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
     return accessor_->EnumAlterUpdate(name, old_value, new_value);
   }
 

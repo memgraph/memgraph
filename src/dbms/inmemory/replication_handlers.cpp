@@ -25,7 +25,6 @@
 #include "utils/observer.hpp"
 
 #include <spdlog/spdlog.h>
-#include <cstdint>
 #include <optional>
 #include <range/v3/view/filter.hpp>
 #include <range/v3/view/transform.hpp>
@@ -168,7 +167,7 @@ std::pair<uint64_t, WalDeltaData> ReadDelta(storage::durability::BaseDecoder *de
   } catch (const storage::durability::RecoveryFailure &) {
     throw utils::BasicException("Invalid data!");
   }
-};
+}
 
 std::optional<DatabaseAccess> GetDatabaseAccessor(dbms::DbmsHandler *dbms_handler, const utils::UUID &uuid) {
   try {
@@ -204,15 +203,21 @@ void LogWrongMain(const std::optional<utils::UUID> &current_main_uuid, const uti
 }
 }  // namespace
 
+TwoPCCache InMemoryReplicationHandlers::two_pc_cache_;
+
 void InMemoryReplicationHandlers::Register(dbms::DbmsHandler *dbms_handler, replication::RoleReplicaData &data) {
   auto &server = *data.server;
   server.rpc_server_.Register<storage::replication::HeartbeatRpc>(
       [&data, dbms_handler](auto *req_reader, auto *res_builder) {
         InMemoryReplicationHandlers::HeartbeatHandler(dbms_handler, data.uuid_, req_reader, res_builder);
       });
-  server.rpc_server_.Register<storage::replication::AppendDeltasRpc>(
+  server.rpc_server_.Register<storage::replication::PrepareCommitRpc>(
       [&data, dbms_handler](auto *req_reader, auto *res_builder) {
-        InMemoryReplicationHandlers::AppendDeltasHandler(dbms_handler, data.uuid_, req_reader, res_builder);
+        InMemoryReplicationHandlers::PrepareCommitHandler(dbms_handler, data.uuid_, req_reader, res_builder);
+      });
+  server.rpc_server_.Register<storage::replication::FinalizeCommitRpc>(
+      [&data, dbms_handler](auto *req_reader, auto *res_builder) {
+        InMemoryReplicationHandlers::FinalizeCommitHandler(dbms_handler, data.uuid_, req_reader, res_builder);
       });
   server.rpc_server_.Register<storage::replication::SnapshotRpc>(
       [&data, dbms_handler](auto *req_reader, auto *res_builder) {
@@ -273,28 +278,36 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
   }
   // Move db acc
   auto const *storage = db_acc->get()->storage();
-  const storage::replication::HeartbeatRes res{
-      true, storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire),
-      std::string{storage->repl_storage_state_.epoch_.id()}};
+  auto const ldt = storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
+
+  auto const last_epoch_with_commit = std::invoke([storage, ldt]() -> std::string {
+    if (auto &history = storage->repl_storage_state_.history; !history.empty()) {
+      auto [history_epoch, history_ldt] = history.back();
+      return history_ldt != ldt ? std::string{storage->repl_storage_state_.epoch_.id()} : history_epoch;
+    }
+    return std::string{storage->repl_storage_state_.epoch_.id()};
+  });
+
+  const storage::replication::HeartbeatRes res{true, ldt, last_epoch_with_commit};
   rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
 }
 
-void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_handler,
-                                                      const std::optional<utils::UUID> &current_main_uuid,
-                                                      slk::Reader *req_reader, slk::Builder *res_builder) {
-  storage::replication::AppendDeltasReq req;
+void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_handler,
+                                                       const std::optional<utils::UUID> &current_main_uuid,
+                                                       slk::Reader *req_reader, slk::Builder *res_builder) {
+  storage::replication::PrepareCommitReq req;
   slk::Load(&req, req_reader);
 
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
-    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::AppendDeltasReq::kType.name);
-    const storage::replication::AppendDeltasRes res{false};
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::PrepareCommitReq::kType.name);
+    const storage::replication::PrepareCommitRes res{false};
     rpc::SendFinalResponse(res, res_builder);
     return;
   }
 
-  auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
+  auto db_acc = GetDatabaseAccessor(dbms_handler, req.storage_uuid);
   if (!db_acc) {
-    const storage::replication::AppendDeltasRes res{false};
+    const storage::replication::PrepareCommitRes res{false};
     rpc::SendFinalResponse(res, res_builder);
     return;
   }
@@ -304,7 +317,7 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
   auto maybe_epoch_id = decoder.ReadString();
   if (!maybe_epoch_id) {
     spdlog::error("Invalid replication message, couldn't read epoch id.");
-    const storage::replication::AppendDeltasRes res{false};
+    const storage::replication::PrepareCommitRes res{false};
     rpc::SendFinalResponse(res, res_builder);
     return;
   }
@@ -313,7 +326,6 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
   auto &repl_storage_state = storage->repl_storage_state_;
   if (*maybe_epoch_id != repl_storage_state.epoch_.id()) {
     auto prev_epoch = repl_storage_state.epoch_.SetEpoch(*maybe_epoch_id);
-    spdlog::trace("Set epoch to {} for db {}", *maybe_epoch_id, storage->name());
     repl_storage_state.AddEpochToHistoryForce(prev_epoch);
   }
 
@@ -325,40 +337,106 @@ void InMemoryReplicationHandlers::AppendDeltasHandler(dbms::DbmsHandler *dbms_ha
     if (*maybe_epoch_id != repl_storage_state.epoch_.id()) {
       storage->wal_file_->FinalizeWal();
       storage->wal_file_.reset();
-      spdlog::trace("Current WAL file finalized successfully for db {}.", storage->name());
     }
   }
 
   // last_durable_timestamp could be set by snapshot; so we cannot guarantee exactly what's the previous timestamp
-  // TODO: (andi) Not sure if emptying the stream is needed?
   if (req.previous_commit_timestamp > repl_storage_state.last_durable_timestamp_.load(std::memory_order_acquire)) {
     // Empty the stream
-    bool transaction_complete = false;
+    bool transaction_complete{false};
     while (!transaction_complete) {
-      spdlog::info("Skipping delta");
       const auto [_, delta] = ReadDelta(&decoder, storage::durability::kVersion);
       transaction_complete = IsWalDeltaDataTransactionEnd(delta, storage::durability::kVersion);
     }
 
-    const storage::replication::AppendDeltasRes res{false};
+    const storage::replication::PrepareCommitRes res{false};
     rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
     return;
   }
 
-  try {
-    ReadAndApplyDeltasSingleTxn(storage, &decoder, storage::durability::kVersion, res_builder);
-  } catch (const utils::BasicException &e) {
-    spdlog::error(
-        "Error occurred while trying to apply deltas because of {}. Replication recovery from append deltas finished "
-        "unsuccessfully.",
-        e.what());
-    const storage::replication::AppendDeltasRes res{false};
-    rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
-    return;
-  }
+  auto deltas_res =
+      ReadAndApplyDeltasSingleTxn(storage, &decoder, storage::durability::kVersion, res_builder,
+                                  /*commit_txn_immediately*/ req.commit_immediately, /*loading_wal*/ false);
 
-  const storage::replication::AppendDeltasRes res{true};
+  storage::replication::PrepareCommitRes res{false};
+  if (deltas_res.has_value()) {
+    two_pc_cache_.commit_accessor_ = std::move(deltas_res->commit_acc);
+    two_pc_cache_.durability_commit_timestamp_ = req.durability_commit_timestamp;
+    res.success = true;
+  }
   rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
+}
+
+void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_handler,
+                                                        const std::optional<utils::UUID> &current_main_uuid,
+                                                        slk::Reader *req_reader, slk::Builder *res_builder) {
+  storage::replication::FinalizeCommitReq req;
+  slk::Load(&req, req_reader);
+
+  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::FinalizeCommitReq::kType.name);
+    storage::replication::FinalizeCommitRes const res(false);
+    rpc::SendFinalResponse(res, res_builder);
+    return;
+  }
+
+  auto db_acc = GetDatabaseAccessor(dbms_handler, req.storage_uuid);
+  if (!db_acc) {
+    storage::replication::FinalizeCommitRes const res(false);
+    rpc::SendFinalResponse(res, res_builder);
+    return;
+  }
+
+  // In this handler, we can either commit or abort. If cached accessor is nullptr, it is impossible we should commit
+  // because replying to prepare happens after assignment to the accessor
+  // If cached accessor is nullptr, and we should abort (e.g. exception was thrown while processing deltas), we can
+  // safely return here OK because it means that the abort already happened while destructing accessor during
+  // ReadAndApplyDeltasSingleTxn
+  if (!two_pc_cache_.commit_accessor_) {
+    spdlog::warn("Cached commit accessor became invalid between two phases");
+    storage::replication::FinalizeCommitRes const res(true);
+    rpc::SendFinalResponse(res, res_builder);
+    return;
+  }
+
+  if (req.durability_commit_timestamp != two_pc_cache_.durability_commit_timestamp_) {
+    spdlog::warn("Trying to finalize txn with ldt {} but the last prepared txn is with ldt {}",
+                 req.durability_commit_timestamp, two_pc_cache_.durability_commit_timestamp_);
+    storage::replication::FinalizeCommitRes const res(true);
+    rpc::SendFinalResponse(res, res_builder);
+    return;
+  }
+
+  auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
+
+  if (req.decision) {
+    spdlog::trace("Trying to finalize on replica");
+    two_pc_cache_.commit_accessor_->FinalizeCommitPhase(req.durability_commit_timestamp);
+    spdlog::trace("Finalized on replica");
+  } else {
+    two_pc_cache_.commit_accessor_->AbortAndResetCommitTs();
+    spdlog::trace("Aborted storage on replica");
+  }
+
+  two_pc_cache_.commit_accessor_.reset();
+  if (mem_storage->wal_file_) {
+    mem_storage->FinalizeWalFile();
+  }
+
+  storage::replication::FinalizeCommitRes const res(true);
+  rpc::SendFinalResponse(res, res_builder);
+}
+
+void InMemoryReplicationHandlers::AbortPrevTxnIfNeeded(storage::InMemoryStorage *const storage) {
+  if (two_pc_cache_.commit_accessor_) {
+    two_pc_cache_.commit_accessor_->AbortAndResetCommitTs();
+    two_pc_cache_.commit_accessor_.reset();
+  }
+
+  if (storage->wal_file_) {
+    storage->wal_file_->FinalizeWal();
+    storage->wal_file_.reset();
+  }
 }
 
 // The semantic of snapshot handler is the following: Either handling snapshot request passes or it doesn't. If it
@@ -383,6 +461,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
   }
 
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
+  AbortPrevTxnIfNeeded(storage);
 
   // Backup dir
   auto const current_snapshot_dir = storage->recovery_.snapshot_directory_;
@@ -521,6 +600,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
   }
 
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
+  AbortPrevTxnIfNeeded(storage);
 
   auto const current_snapshot_dir = storage->recovery_.snapshot_directory_;
   auto const current_wal_directory = storage->recovery_.wal_directory_;
@@ -616,6 +696,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
   }
 
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
+  AbortPrevTxnIfNeeded(storage);
 
   auto const current_snapshot_dir = storage->recovery_.snapshot_directory_;
   auto const current_wal_directory = storage->recovery_.wal_directory_;
@@ -704,72 +785,83 @@ std::pair<bool, uint32_t> InMemoryReplicationHandlers::LoadWal(storage::InMemory
     return {false, 0};
   }
   spdlog::trace("Received WAL saved to {}", *maybe_wal_path);
+
+  std::optional<storage::durability::WalInfo> maybe_wal_info;
   try {
-    auto wal_info = storage::durability::ReadWalInfo(*maybe_wal_path);
-
-    // We have to check if this is our 1st wal, not what main is sending
-    if (storage->wal_seq_num_ == 0) {
-      storage->uuid().set(wal_info.uuid);
-    }
-
-    // If WAL file doesn't contain any changes that need to be applied, ignore it
-    if (wal_info.to_timestamp <= storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire)) {
-      spdlog::trace("WAL file won't be applied since all changes already exist.");
-      return {true, 0};
-    }
-    // We trust only WAL files which contain changes we are interested in (newer changes)
-    if (auto &replica_epoch = storage->repl_storage_state_.epoch_; wal_info.epoch_id != replica_epoch.id()) {
-      spdlog::trace("Set epoch to {} for db {}", wal_info.epoch_id, storage->name());
-      auto prev_epoch = replica_epoch.SetEpoch(wal_info.epoch_id);
-      storage->repl_storage_state_.AddEpochToHistoryForce(prev_epoch);
-    }
-
-    // We do not care about incoming sequence numbers, after a snapshot recovery, the sequence number is 0
-    // This is because the snapshots completely wipes the storage and durability
-    // It is also the first recovery step, so the WAL chain needs to restart from 0, otherwise the instance won't be
-    // able to recover from durable data
-    if (storage->wal_file_) {
-      storage->wal_file_->FinalizeWal();
-      storage->wal_file_.reset();
-      spdlog::trace("WAL file {} finalized successfully", *maybe_wal_path);
-    }
-    spdlog::trace("Loading WAL deltas from {}", *maybe_wal_path);
-    storage::durability::Decoder wal_decoder;
-    const auto version = wal_decoder.Initialize(*maybe_wal_path, storage::durability::kWalMagic);
-    spdlog::debug("WAL file {} loaded successfully", *maybe_wal_path);
-    if (!version) {
-      spdlog::error("Couldn't read WAL magic and/or version!");
-      return {false, 0};
-    }
-    if (!storage::durability::IsVersionSupported(*version)) {
-      spdlog::error("Invalid WAL version!");
-      return {false, 0};
-    }
-    wal_decoder.SetPosition(wal_info.offset_deltas);
-
-    uint32_t local_batch_counter = start_batch_counter;
-    for (size_t local_delta_idx = 0; local_delta_idx < wal_info.num_deltas;) {
-      auto const [current_delta_idx, current_batch_counter] =
-          ReadAndApplyDeltasSingleTxn(storage, &wal_decoder, *version, res_builder, local_batch_counter);
-      local_delta_idx += current_delta_idx;
-      local_batch_counter = current_batch_counter;
-    }
-
-    spdlog::trace("Replication from WAL file {} successful!", *maybe_wal_path);
-    return {true, local_batch_counter};
-  } catch (const storage::durability::RecoveryFailure &e) {
-    spdlog::error("Couldn't recover WAL deltas from {} because of: {}.", *maybe_wal_path, e.what());
-    return {false, 0};
+    maybe_wal_info.emplace(storage::durability::ReadWalInfo(*maybe_wal_path));
   } catch (const utils::BasicException &e) {
-    spdlog::error("Loading WAL from {} failed because of {}.", *maybe_wal_path, e.what());
+    spdlog::error("Loading WAL info from {} failed because of {}.", *maybe_wal_path, e.what());
     return {false, 0};
   }
+
+  auto const &wal_info = *maybe_wal_info;
+
+  // We have to check if this is our 1st wal, not what main is sending
+  if (storage->wal_seq_num_ == 0) {
+    storage->uuid().set(wal_info.uuid);
+  }
+
+  // If WAL file doesn't contain any changes that need to be applied, ignore it
+  if (wal_info.to_timestamp <= storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire)) {
+    spdlog::trace("WAL file won't be applied since all changes already exist.");
+    return {true, 0};
+  }
+
+  // We trust only WAL files which contain changes we are interested in (newer changes)
+  if (auto &replica_epoch = storage->repl_storage_state_.epoch_; wal_info.epoch_id != replica_epoch.id()) {
+    spdlog::trace("Set epoch to {} for db {}", wal_info.epoch_id, storage->name());
+    auto prev_epoch = replica_epoch.SetEpoch(wal_info.epoch_id);
+    storage->repl_storage_state_.AddEpochToHistoryForce(prev_epoch);
+  }
+
+  // We do not care about incoming sequence numbers, after a snapshot recovery, the sequence number is 0
+  // This is because the snapshots completely wipes the storage and durability
+  // It is also the first recovery step, so the WAL chain needs to restart from 0, otherwise the instance won't be
+  // able to recover from durable data
+  if (storage->wal_file_) {
+    storage->wal_file_->FinalizeWal();
+    storage->wal_file_.reset();
+    spdlog::trace("WAL file {} finalized successfully", *maybe_wal_path);
+  }
+
+  spdlog::trace("Loading WAL deltas from {}", *maybe_wal_path);
+  storage::durability::Decoder wal_decoder;
+  const auto version = wal_decoder.Initialize(*maybe_wal_path, storage::durability::kWalMagic);
+  spdlog::debug("WAL file {} loaded successfully", *maybe_wal_path);
+  if (!version) {
+    spdlog::error("Couldn't read WAL magic and/or version!");
+    return {false, 0};
+  }
+  if (!storage::durability::IsVersionSupported(*version)) {
+    spdlog::error("Invalid WAL version!");
+    return {false, 0};
+  }
+
+  wal_decoder.SetPosition(wal_info.offset_deltas);
+
+  uint32_t local_batch_counter = start_batch_counter;
+  for (size_t local_delta_idx = 0; local_delta_idx < wal_info.num_deltas;) {
+    // commit_txn_immediately is set true because when loading WAL files, we should commit immediately
+    auto const deltas_res =
+        ReadAndApplyDeltasSingleTxn(storage, &wal_decoder, *version, res_builder, /*commit_txn_immediately*/ true,
+                                    /*loading_wal*/ true, local_batch_counter);
+    if (deltas_res.has_value()) {
+      local_delta_idx += deltas_res->current_delta_idx;
+      local_batch_counter = deltas_res->current_batch_counter;
+    } else {
+      return {false, 0};
+    }
+  }
+
+  spdlog::trace("Replication from WAL file {} successful!", *maybe_wal_path);
+  return {true, local_batch_counter};
 }
 
 // The number of applied deltas also includes skipped deltas.
-std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSingleTxn(
+std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandlers::ReadAndApplyDeltasSingleTxn(
     storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder, const uint64_t version,
-    slk::Builder *res_builder, uint32_t const start_batch_counter) {
+    slk::Builder *res_builder, bool const commit_txn_immediately, bool const loading_wal,
+    uint32_t const start_batch_counter) {
   auto edge_acc = storage->edges_.access();
   auto vertex_acc = storage->vertices_.access();
 
@@ -778,12 +870,16 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
   // TODO: add when concurrent index creation can actually replicate using READ_ONLY
   // constexpr auto kReadOnlyAccess = storage::Storage::Accessor::Type::READ_ONLY;
 
-  std::optional<std::pair<uint64_t, storage::InMemoryStorage::ReplicationAccessor>> commit_timestamp_and_accessor;
-  auto const get_replication_accessor = [storage, &commit_timestamp_and_accessor](
-                                            uint64_t commit_timestamp,
+  uint64_t commit_timestamp{0};
+  std::unique_ptr<storage::ReplicationAccessor> commit_accessor;
+
+  bool should_commit{true};
+
+  auto const get_replication_accessor = [storage, &commit_timestamp, &commit_accessor](
+                                            uint64_t const local_commit_timestamp,
                                             storage::Storage::Accessor::Type acc_type =
-                                                kSharedAccess) -> storage::InMemoryStorage::ReplicationAccessor * {
-    if (!commit_timestamp_and_accessor) {
+                                                kSharedAccess) -> storage::ReplicationAccessor * {
+    if (!commit_accessor) {
       std::unique_ptr<storage::Storage::Accessor> acc = nullptr;
       switch (acc_type) {
         case storage::Storage::Accessor::Type::READ:
@@ -801,13 +897,13 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           throw utils::BasicException("Replica failed to gain storage access! Unknown accessor type.");
       }
 
-      auto const inmem_acc = std::unique_ptr<storage::InMemoryStorage::InMemoryAccessor>(
-          static_cast<storage::InMemoryStorage::InMemoryAccessor *>(acc.release()));
-      commit_timestamp_and_accessor.emplace(commit_timestamp, std::move(*inmem_acc));
-    } else if (commit_timestamp_and_accessor->first != commit_timestamp) {
+      commit_timestamp = local_commit_timestamp;
+      commit_accessor.reset(static_cast<storage::ReplicationAccessor *>(acc.release()));
+
+    } else if (commit_timestamp != local_commit_timestamp) {
       throw utils::BasicException("Received more than one transaction!");
     }
-    return &commit_timestamp_and_accessor->second;
+    return commit_accessor.get();
   };
 
   uint64_t current_delta_idx = 0;  // tracks over how many deltas we iterated, includes also skipped deltas.
@@ -822,12 +918,11 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
 
   for (bool transaction_complete = false; !transaction_complete; ++current_delta_idx, ++current_batch_counter) {
     if (current_batch_counter == kDeltasBatchProgressSize) {
-      spdlog::trace("Sending in progress msg");
       rpc::SendInProgressMsg(res_builder);
       current_batch_counter = 0;
     }
 
-    const auto [delta_timestamp, delta] = ReadDelta(decoder, version);
+    auto const [delta_timestamp, delta] = ReadDelta(decoder, version);
     if (delta_timestamp != prev_printed_timestamp) {
       spdlog::trace("Timestamp: {}", delta_timestamp);
       prev_printed_timestamp = delta_timestamp;
@@ -978,33 +1073,34 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           // don't allow direct access to the edges through the public API.
           {
             bool is_visible = true;
-            Delta *delta = nullptr;
+            Delta *local_delta = nullptr;
             {
               auto guard = std::shared_lock{edge->lock};
               is_visible = !edge->deleted;
-              delta = edge->delta;
+              local_delta = edge->delta;
             }
-            ApplyDeltasForRead(&transaction->GetTransaction(), delta, View::NEW, [&is_visible](const Delta &delta) {
-              switch (delta.action) {
-                case Delta::Action::ADD_LABEL:
-                case Delta::Action::REMOVE_LABEL:
-                case Delta::Action::SET_PROPERTY:
-                case Delta::Action::ADD_IN_EDGE:
-                case Delta::Action::ADD_OUT_EDGE:
-                case Delta::Action::REMOVE_IN_EDGE:
-                case Delta::Action::REMOVE_OUT_EDGE:
-                  break;
-                case Delta::Action::RECREATE_OBJECT: {
-                  is_visible = true;
-                  break;
-                }
-                case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-                case Delta::Action::DELETE_OBJECT: {
-                  is_visible = false;
-                  break;
-                }
-              }
-            });
+            ApplyDeltasForRead(&transaction->GetTransaction(), local_delta, View::NEW,
+                               [&is_visible](const Delta &delta) {
+                                 switch (delta.action) {
+                                   case Delta::Action::ADD_LABEL:
+                                   case Delta::Action::REMOVE_LABEL:
+                                   case Delta::Action::SET_PROPERTY:
+                                   case Delta::Action::ADD_IN_EDGE:
+                                   case Delta::Action::ADD_OUT_EDGE:
+                                   case Delta::Action::REMOVE_IN_EDGE:
+                                   case Delta::Action::REMOVE_OUT_EDGE:
+                                     break;
+                                   case Delta::Action::RECREATE_OBJECT: {
+                                     is_visible = true;
+                                     break;
+                                   }
+                                   case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+                                   case Delta::Action::DELETE_OBJECT: {
+                                     is_visible = false;
+                                     break;
+                                   }
+                                 }
+                               });
             if (!is_visible) {
               throw utils::BasicException("Edge {} isn't visible when setting property.", edge_gid);
             }
@@ -1036,8 +1132,11 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
             }
             // fallback if from_gid not available
             auto found_edge = storage->FindEdge(edge->gid);
-            if (!found_edge)
-              throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", __FILE__, __LINE__);
+            if (!found_edge) {
+              constexpr auto src_loc{std::source_location()};
+              throw utils::BasicException("Invalid transaction! Please raise an issue, {}:{}", src_loc.file_name(),
+                                          src_loc.line());
+            }
             const auto &[edge_ref, edge_type, vertex_from, vertex_to] = *found_edge;
             return std::tuple{edge_ref, edge_type, vertex_from, vertex_to};
           });
@@ -1048,14 +1147,24 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
             throw utils::BasicException("Setting property on edge {} failed.", edge_gid);
           }
         },
+        [&](WalTransactionStart const &data) {
+          spdlog::trace("   Delta {}. Transaction start. Commit txn? {}", current_delta_idx, data.commit);
+          should_commit = data.commit;
+        },
         [&](WalTransactionEnd const &) {
           spdlog::trace("   Delta {}. Transaction end", current_delta_idx);
-          if (!commit_timestamp_and_accessor || commit_timestamp_and_accessor->first != delta_timestamp)
+          if (!commit_accessor || commit_timestamp != delta_timestamp)
             throw utils::BasicException("Invalid commit data!");
-          auto ret = commit_timestamp_and_accessor->second.Commit(
-              {.desired_commit_timestamp = commit_timestamp_and_accessor->first, .is_main = false});
-          if (ret.HasError()) throw utils::BasicException("Committing failed on receiving transaction end delta.");
-          commit_timestamp_and_accessor = std::nullopt;
+          auto const ret = commit_accessor->PrepareForCommitPhase({.desired_commit_timestamp = commit_timestamp,
+                                                                   .is_main = false,
+                                                                   .commit_immediately = commit_txn_immediately});
+          if (ret.HasError()) {
+            throw utils::BasicException("Committing failed while trying to prepare for commit on replica.");
+          }
+          // If SYNC replica, reset the commit accessor immediately because the txn is considered committed
+          if (commit_txn_immediately) {
+            commit_accessor.reset();
+          }
         },
         [&](WalLabelIndexCreate const &data) {
           spdlog::trace("   Delta {}. Create label index on :{}", current_delta_idx, data.label);
@@ -1313,13 +1422,13 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto labelId = storage->NameToLabel(data.label);
           auto propId = storage->NameToProperty(data.property);
-          auto metric_kind = storage::VectorIndex::MetricFromName(data.metric_kind);
+          auto metric_kind = storage::MetricFromName(data.metric_kind);
           auto scalar_kind = data.scalar_kind ? static_cast<unum::usearch::scalar_kind_t>(*data.scalar_kind)
                                               : unum::usearch::scalar_kind_t::f32_k;
 
           auto res = transaction->CreateVectorIndex(storage::VectorIndexSpec{
               .index_name = data.index_name,
-              .label = labelId,
+              .label_id = labelId,
               .property = propId,
               .metric_kind = metric_kind,
               .dimension = data.dimension,
@@ -1329,6 +1438,28 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
           });
           if (res.HasError()) {
             throw utils::BasicException("Failed to create vector index on :{}({})", data.label, data.property);
+          }
+        },
+        [&](WalVectorEdgeIndexCreate const &data) {
+          spdlog::trace("   Delta {}. Create vector index on :{}({})", current_delta_idx, data.edge_type,
+                        data.property);
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          auto edgeType = storage->NameToEdgeType(data.edge_type);
+          auto propId = storage->NameToProperty(data.property);
+          auto metric_kind = storage::MetricFromName(data.metric_kind);
+
+          auto res = transaction->CreateVectorEdgeIndex(storage::VectorEdgeIndexSpec{
+              .index_name = data.index_name,
+              .edge_type_id = edgeType,
+              .property = propId,
+              .metric_kind = metric_kind,
+              .dimension = data.dimension,
+              .resize_coefficient = data.resize_coefficient,
+              .capacity = data.capacity,
+              .scalar_kind = static_cast<unum::usearch::scalar_kind_t>(data.scalar_kind),
+          });
+          if (res.HasError()) {
+            throw utils::BasicException("Failed to create vector index on :{}({})", data.edge_type, data.property);
           }
         },
         [&](WalVectorIndexDrop const &data) {
@@ -1341,13 +1472,23 @@ std::pair<uint64_t, uint32_t> InMemoryReplicationHandlers::ReadAndApplyDeltasSin
         },
     };
 
-    std::visit(delta_apply, delta.data_);
+    // If I received PrepareCommitRpc, deltas should be applied (loading_wal will be false)
+    // If loading WAL file, WalTransactionStart is decision-maker whether to load the txn from WAL or not
+    if (loading_wal && !should_commit) continue;
+
+    try {
+      std::visit(delta_apply, delta.data_);
+    } catch (const std::exception &e) {
+      spdlog::error("Applying deltas failed because of {}", e.what());
+      return std::nullopt;
+    }
     applied_deltas++;
   }
 
-  if (commit_timestamp_and_accessor) throw utils::BasicException("Did not finish the transaction!");
-
   spdlog::debug("Applied {} deltas", applied_deltas);
-  return {current_delta_idx, current_batch_counter};
+
+  return storage::SingleTxnDeltasProcessingResult{.commit_acc = std::move(commit_accessor),
+                                                  .current_delta_idx = current_delta_idx,
+                                                  .current_batch_counter = current_batch_counter};
 }
 }  // namespace memgraph::dbms

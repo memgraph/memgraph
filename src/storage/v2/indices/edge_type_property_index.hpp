@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,7 @@
 #pragma once
 
 #include <map>
+#include <set>
 #include <vector>
 
 #include "storage/v2/edge_ref.hpp"
@@ -27,10 +28,53 @@ struct Edge;
 
 class EdgeTypePropertyIndex {
  public:
+  using AbortableInfo =
+      std::map<std::pair<EdgeTypeId, PropertyId>, std::vector<std::tuple<Vertex *, Vertex *, Edge *, PropertyValue>>>;
+
+  struct AbortProcessor {
+    explicit AbortProcessor(std::span<std::pair<EdgeTypeId, PropertyId> const> keys);
+
+    void CollectOnPropertyChange(EdgeTypeId edge_type, PropertyId property, Vertex *from_vertex, Vertex *to_vertex,
+                                 Edge *edge, PropertyValue value);
+
+    bool IsInteresting(PropertyId id);
+
+    bool IsInteresting(EdgeTypeId edge_type, PropertyId property);
+
+    std::set<PropertyId> interesting_properties_;
+    AbortableInfo cleanup_collection_;
+  };
+
   struct IndexStats {
     std::map<EdgeTypeId, std::vector<PropertyId>> et2p;
     std::map<PropertyId, std::vector<EdgeTypeId>> p2et;
   };
+
+  struct ActiveIndices {
+    virtual ~ActiveIndices() = default;
+
+    virtual void UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex, Edge *edge, EdgeTypeId edge_type,
+                                     PropertyId property, PropertyValue value, uint64_t timestamp) = 0;
+
+    virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property) const = 0;
+
+    virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property,
+                                          const PropertyValue &value) const = 0;
+
+    virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property,
+                                          const std::optional<utils::Bound<PropertyValue>> &lower,
+                                          const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
+
+    virtual bool IndexReady(EdgeTypeId edge_type, PropertyId property) const = 0;
+
+    virtual auto ListIndices(uint64_t start_timestamp) const -> std::vector<std::pair<EdgeTypeId, PropertyId>> = 0;
+
+    virtual auto GetAbortProcessor() const -> AbortProcessor = 0;
+
+    virtual void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) = 0;
+  };
+
+  virtual auto GetActiveIndices() const -> std::unique_ptr<ActiveIndices> = 0;
 
   EdgeTypePropertyIndex() = default;
 
@@ -42,26 +86,6 @@ class EdgeTypePropertyIndex {
   virtual ~EdgeTypePropertyIndex() = default;
 
   virtual bool DropIndex(EdgeTypeId edge_type, PropertyId property) = 0;
-
-  virtual bool IndexExists(EdgeTypeId edge_type, PropertyId property) const = 0;
-
-  virtual std::vector<std::pair<EdgeTypeId, PropertyId>> ListIndices() const = 0;
-
-  virtual void UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex, Edge *edge, EdgeTypeId edge_type,
-                                   PropertyId property, PropertyValue value, uint64_t timestamp) = 0;
-
-  virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property) const = 0;
-
-  virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property,
-                                        const PropertyValue &value) const = 0;
-
-  virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type, PropertyId property,
-                                        const std::optional<utils::Bound<PropertyValue>> &lower,
-                                        const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
-
-  virtual void UpdateOnEdgeModification(Vertex *old_from, Vertex *old_to, Vertex *new_from, Vertex *new_to,
-                                        EdgeRef edge_ref, EdgeTypeId edge_type, PropertyId property,
-                                        const PropertyValue &value, const Transaction &tx) = 0;
 
   virtual void DropGraphClearIndices() = 0;
 };

@@ -12,9 +12,9 @@ target_sources(mg-storage-v2
         constraints/type_constraints_validator.cpp
         disk/durable_metadata.cpp
         disk/edge_import_mode_cache.cpp
+        disk/edge_property_index.cpp
         disk/edge_type_index.cpp
         disk/edge_type_property_index.cpp
-        disk/edge_property_index.cpp
         disk/label_index.cpp
         disk/label_property_index.cpp
         disk/rocksdb_storage.cpp
@@ -26,7 +26,9 @@ target_sources(mg-storage-v2
         durability/wal.cpp
         edge_accessor.cpp
         edges_iterable.cpp
+        indices/edge_property_index.cpp
         indices/edge_type_index.cpp
+        indices/edge_type_property_index.cpp
         indices/indices.cpp
         indices/indices_utils.hpp
         indices/label_index_stats.cpp
@@ -36,6 +38,7 @@ target_sources(mg-storage-v2
         indices/point_index_change_collector.cpp
         indices/text_index.cpp
         indices/vector_index.cpp
+        indices/vector_edge_index.cpp
         inmemory/edge_property_index.cpp
         inmemory/edge_type_index.cpp
         inmemory/edge_type_property_index.cpp
@@ -51,13 +54,14 @@ target_sources(mg-storage-v2
         replication/rpc.cpp
         replication/serialization.cpp
         replication/slk.cpp
+        replication/replication_transaction.cpp
+        schema_info.cpp
         storage.cpp
         storage_mode.cpp
         temporal.cpp
         vertex_accessor.cpp
         vertex_info_cache.cpp
         vertices_iterable.cpp
-        schema_info.cpp
         edge_ref.cpp
         indices/point_iterator.cpp
         property_value_utils.cpp
@@ -84,8 +88,11 @@ target_sources(mg-storage-v2
         indices/point_index_expensive_header.hpp
         indices/point_iterator.hpp
         indices/vector_index.hpp
+        indices/vector_index_utils.hpp
+        indices/vector_edge_index.hpp
         inmemory/indices_mvcc.hpp
         inmemory/storage.hpp
+        inmemory/storagefwd.hpp
         mvcc.hpp
         point.hpp
         point_functions.hpp
@@ -99,6 +106,7 @@ target_sources(mg-storage-v2
         transaction_constants.hpp
         vertex_info_cache.hpp
         vertex_info_cache_fwd.hpp
+        replication/replication_transaction.hpp
 )
 
 find_package(gflags REQUIRED)

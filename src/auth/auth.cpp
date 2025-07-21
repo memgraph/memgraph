@@ -153,9 +153,11 @@ struct DropAuthData : memgraph::system::ISystemAction {
 const std::string kUserPrefix = "user:";
 const std::string kRolePrefix = "role:";
 const std::string kLinkPrefix = "link:";
+const std::string kMtLinkPrefix = "mtlink:";
 const std::string kVersion = "version";
 
 static constexpr auto kVersionV1 = "V1";
+static constexpr auto kVersionV2 = "V2";
 }  // namespace
 
 /**
@@ -221,6 +223,40 @@ void MigrateVersions(kvstore::KVStore &store) {
     store.PutMultiple(puts);
     version_str = kVersionV1;
   }
+
+  // Migrate from V1 to V2: convert single role links to JSON arrays
+  if (version_str == kVersionV1) {
+    spdlog::info("Migrating auth storage from V1 to V2: converting single role links to JSON arrays");
+
+    auto puts = std::map<std::string, std::string>{{kVersion, kVersionV2}};
+    auto deletes = std::vector<std::string>{};
+
+    // Migrate all link entries from single role format to JSON array format
+    for (auto it = store.begin(kLinkPrefix); it != store.end(kLinkPrefix); ++it) {
+      auto const &[key, value] = *it;
+
+      // Convert old format (single role name) to new format (JSON array)
+      if (!value.empty()) {
+        nlohmann::json roles_array = nlohmann::json::array();
+        roles_array.push_back(value);
+        puts.emplace(key, roles_array.dump());
+      } else {
+        // Empty value, delete the link
+        deletes.push_back(key);
+      }
+    }
+
+    // Apply the migration
+    if (!puts.empty()) {
+      store.PutMultiple(puts);
+    }
+    if (!deletes.empty()) {
+      store.DeleteMultiple(deletes);
+    }
+    version_str = kVersionV2;
+
+    spdlog::info("Auth storage migration to V2 completed successfully");
+  }
 }
 
 std::unordered_map<std::string, auth::Module> PopulateModules(std::string_view module_mappings) {
@@ -254,11 +290,17 @@ auto ParseJson(std::string_view str) {
 Auth::Auth(std::string storage_directory, Config config)
     : storage_(std::move(storage_directory)), config_{std::move(config)} {
   modules_ = PopulateModules(FLAGS_auth_module_mappings);
-  MigrateVersions(storage_);
+  if (storage_.Size() > 0) {
+    MigrateVersions(storage_);
+  } else {
+    // Clean storage; put the version
+    storage_.Put(kVersion, kVersionV2);
+  }
 }
 
 std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, const nlohmann::json &module_params,
                                                    std::optional<std::string> provided_username) {
+  spdlog::trace("Calling external auth module for scheme '{}'.", scheme);
   auto ret = modules_.at(scheme).Call(module_params, FLAGS_auth_module_timeout_ms);
 
   auto get_errors = [&ret]() -> std::string {
@@ -317,18 +359,60 @@ std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, co
     return std::nullopt;
   }
 
-  const auto rolename = get_string_field("role");
-  if (!rolename) return std::nullopt;
+  // Handle both single role and multiple roles
+  std::vector<std::string> role_names;
 
-  auto role = GetRole(*rolename);
-  if (!role) {
-    spdlog::warn(utils::MessageWithLink("Couldn't authenticate external user because the role {} doesn't exist.",
-                                        rolename, "https://memgr.ph/auth"));
+  // Check for "roles" field first (multiple roles)
+  if (ret.find("roles") != ret.end()) {
+    const auto &roles_field = ret.at("roles");
+    if (roles_field.is_array()) {
+      for (const auto &role_name : roles_field) {
+        if (role_name.is_string()) {
+          role_names.push_back(role_name.get<std::string>());
+        }
+      }
+    } else if (roles_field.is_string()) {
+      role_names.push_back(roles_field.get<std::string>());
+    }
+  }
+
+  // Fall back to single "role" field for backward compatibility
+  if (role_names.empty()) {
+    const auto rolename = get_string_field("role");
+    if (!rolename) {
+      spdlog::warn(utils::MessageWithLink(
+          "Couldn't authenticate external user because the role was not returned by the auth module.",
+          "https://memgr.ph/auth"));
+      return std::nullopt;
+    }
+    role_names.push_back(*rolename);
+  }
+
+  if (role_names.empty()) {
+    spdlog::warn(utils::MessageWithLink(
+        "Couldn't authenticate user: no valid role(s) returned by the external auth module.", "https://memgr.ph/sso"));
     return std::nullopt;
   }
 
+  // Get all the roles
+  auth::Roles roles;
+  for (const auto &role_name : role_names) {
+    auto role = GetRole(role_name);
+    if (!role) {
+      spdlog::warn(utils::MessageWithLink("Couldn't authenticate external user because the role {} doesn't exist.",
+                                          role_name, "https://memgr.ph/auth"));
+      return std::nullopt;
+    }
+    roles.AddRole(*role);
+  }
+
   auto username = provided_username.has_value() ? provided_username : get_string_field("username");
-  if (!username) return std::nullopt;
+  if (!username) {
+    spdlog::warn(utils::MessageWithLink(
+        "Couldn't authenticate external user because the username was not returned by the auth module.",
+        "https://memgr.ph/auth"));
+    return std::nullopt;
+  }
 
   auto already_existing_user = GetUser(*username);
   if (already_existing_user) {
@@ -338,7 +422,8 @@ std::optional<UserOrRole> Auth::CallExternalModule(const std::string &scheme, co
     return std::nullopt;
   }
 
-  return UserOrRole(auth::RoleWUsername{*username, *role});
+  spdlog::trace("Authenticated user '{}' with roles: {}.", *username, fmt::join(roles.rolenames(), ", "));
+  return UserOrRole(auth::RoleWUsername{*username, roles});
 }
 
 std::optional<UserOrRole> Auth::Authenticate(const std::string &username, const std::string &password) {
@@ -389,11 +474,82 @@ std::optional<UserOrRole> Auth::SSOAuthenticate(const std::string &scheme,
 }
 
 void Auth::LinkUser(User &user) const {
+  // User set roles on particular databases
+  // NOTE Has to be done in this order, otherwise the global roles will overwrite the multi-tenant roles
+  [[maybe_unused]] std::unordered_set<std::string> failed_mt_roles;
+#ifdef MG_ENTERPRISE
+  auto mt_link = storage_.Get(kMtLinkPrefix + user.username());
+  if (mt_link) {
+    try {
+      auto json_data = ParseJson(*mt_link);
+      if (!json_data.is_object()) {
+        spdlog::warn("Found invalid JSON in mtlink format for user '{}'", user.username());
+        return;
+      }
+      for (const auto &[db, roles_array] : json_data.items()) {
+        if (!roles_array.is_array()) {
+          spdlog::warn("Invalid mtlink entry for user '{}': expected array of rolenames for db '{}'", user.username(),
+                       db);
+          continue;
+        }
+        for (const auto &rolename_json : roles_array) {
+          if (!rolename_json.is_string()) {
+            spdlog::warn("Invalid mtlink entry for user '{}': expected string rolename for db '{}'", user.username(),
+                         db);
+            continue;
+          }
+          const auto &rolename = rolename_json.get<std::string>();
+          auto role = GetRole(rolename);
+          if (!role) {
+            spdlog::warn("Role '{}' doesn't exist for user '{}'", rolename, user.username());
+            continue;
+          }
+          try {
+            user.AddMultiTenantRole(*role, db);
+          } catch (const AuthException &e) {
+            spdlog::warn("Couldn't add multi-tenant role '{}' to user '{}' on database '{}': {}", rolename,
+                         user.username(), db, e.what());
+            failed_mt_roles.insert(rolename);
+          }
+        }
+      }
+    } catch (const nlohmann::detail::exception &) {
+      // This shouldn't happen after V2 migration, but handle gracefully
+      spdlog::warn("Found invalid JSON in mtlink format for user '{}'", user.username());
+      return;
+    }
+  }
+#endif
+
+  // User set these roles on all databases
   auto link = storage_.Get(kLinkPrefix + user.username());
   if (link) {
-    auto role = GetRole(*link);
-    if (role) {
-      user.SetRole(*role);
+    try {
+      // Parse as JSON array (V2 format)
+      auto json_data = ParseJson(*link);
+      if (!json_data.is_array()) {
+        spdlog::warn("Found invalid JSON in link format for user '{}'", user.username());
+        return;
+      }
+      // V2 format: array of role names
+      for (const auto &role_name : json_data) {
+        if (role_name.is_string()) {
+          // Check that the role is not already added (via the multi-tenant role) or failed to add
+          if (failed_mt_roles.contains(role_name.get<std::string>()) ||
+              user.roles().GetRole(role_name.get<std::string>())) {
+            continue;
+          }
+          auto role = GetRole(role_name.get<std::string>());
+          if (role) {
+            user.AddRole(*role);
+          }
+        }
+      }
+
+    } catch (const nlohmann::detail::exception &) {
+      // This shouldn't happen after V2 migration, but handle gracefully
+      spdlog::warn("Found invalid JSON in link format for user '{}'", user.username());
+      return;
     }
   }
 }
@@ -410,13 +566,43 @@ std::optional<User> Auth::GetUser(const std::string &username_orig) const {
 
 void Auth::SaveUser(const User &user, system::Transaction *system_tx) {
   bool success = false;
-  if (const auto *role = user.role(); role != nullptr) {
-    success = storage_.PutMultiple(
-        {{kUserPrefix + user.username(), user.Serialize().dump()}, {kLinkPrefix + user.username(), role->rolename()}});
+  std::map<std::string, std::string> puts;
+  std::vector<std::string> deletes;
+
+  // Always store the user data
+  puts.emplace(kUserPrefix + user.username(), user.Serialize().dump());
+
+  // Store regular roles
+  if (!user.roles().empty()) {
+    // Store all roles as a JSON array
+    nlohmann::json roles_array = nlohmann::json::array();
+    for (const auto &role : user.roles()) {
+      roles_array.push_back(role.rolename());
+    }
+    puts.emplace(kLinkPrefix + user.username(), roles_array.dump());
   } else {
-    success = storage_.PutAndDeleteMultiple({{kUserPrefix + user.username(), user.Serialize().dump()}},
-                                            {kLinkPrefix + user.username()});
+    deletes.push_back(kLinkPrefix + user.username());
   }
+
+#ifdef MG_ENTERPRISE
+  // Store multi-tenant roles
+  const auto &mt_mappings = user.GetMultiTenantRoleMappings();
+  if (!mt_mappings.empty()) {
+    nlohmann::json mt_links;
+    for (const auto &[db_name, role_names] : mt_mappings) {
+      mt_links[db_name] = nlohmann::json::array();
+      for (const auto &role_name : role_names) {
+        mt_links[db_name].push_back(role_name);
+      }
+    }
+    puts.emplace(kMtLinkPrefix + user.username(), mt_links.dump());
+  } else {
+    deletes.push_back(kMtLinkPrefix + user.username());
+  }
+#endif
+
+  // Perform the storage operations
+  success = storage_.PutAndDeleteMultiple(puts, deletes);
   if (!success) {
     throw AuthException("Couldn't save user '{}'!", user.username());
   }
@@ -493,7 +679,7 @@ std::optional<User> Auth::AddUser(const std::string &username, const std::option
 bool Auth::RemoveUser(const std::string &username_orig, system::Transaction *system_tx) {
   auto username = utils::ToLowerCase(username_orig);
   if (!storage_.Get(kUserPrefix + username)) return false;
-  std::vector<std::string> keys({kLinkPrefix + username, kUserPrefix + username});
+  std::vector<std::string> keys({kMtLinkPrefix + username, kLinkPrefix + username, kUserPrefix + username});
   if (!storage_.DeleteMultiple(keys)) {
     throw AuthException("Couldn't remove user '{}'!", username);
   }
@@ -584,14 +770,77 @@ std::optional<Role> Auth::AddRole(const std::string &rolename, system::Transacti
 bool Auth::RemoveRole(const std::string &rolename_orig, system::Transaction *system_tx) {
   auto rolename = utils::ToLowerCase(rolename_orig);
   if (!storage_.Get(kRolePrefix + rolename)) return false;
-  std::vector<std::string> keys;
+
+  // First, remove the role from all users who have it
   for (auto it = storage_.begin(kLinkPrefix); it != storage_.end(kLinkPrefix); ++it) {
-    if (utils::ToLowerCase(it->second) == rolename) {
-      keys.push_back(it->first);
+    auto username = it->first.substr(kLinkPrefix.size());
+    bool needs_update = false;
+    nlohmann::json updated_roles;
+
+    try {
+      // Parse as JSON array (V2 format)
+      auto json_data = ParseJson(it->second);
+      if (!json_data.is_array()) {
+        spdlog::warn("Found invalid JSON in link format for user '{}'", username);
+        continue;
+      }
+      // V2 format: remove the role from the array
+      updated_roles = nlohmann::json::array();
+      for (const auto &role_name : json_data) {
+        if (role_name.is_string() && utils::ToLowerCase(role_name.get<std::string>()) != rolename) {
+          updated_roles.push_back(role_name);
+        } else if (role_name.is_string() && utils::ToLowerCase(role_name.get<std::string>()) == rolename) {
+          needs_update = true;
+        }
+      }
+    } catch (const nlohmann::detail::exception &) {
+      // This shouldn't happen after V2 migration, but handle gracefully
+      spdlog::warn("Found invalid JSON in link format for user '{}', treating as single role", username);
+      continue;
+    }
+
+    if (needs_update) {
+      if (updated_roles.is_null()) {
+        // Remove the link entirely (old format or empty array)
+        storage_.Delete(it->first);
+      } else if (updated_roles.empty()) {
+        // Remove the link entirely (empty array)
+        storage_.Delete(it->first);
+      } else {
+        // Update with the remaining roles
+        storage_.Put(it->first, updated_roles.dump());
+      }
     }
   }
-  keys.push_back(kRolePrefix + rolename);
-  if (!storage_.DeleteMultiple(keys)) {
+
+  for (auto it = storage_.begin(kMtLinkPrefix); it != storage_.end(kMtLinkPrefix); ++it) {
+    auto username = it->first.substr(kMtLinkPrefix.size());
+    if (username != utils::ToLowerCase(username)) continue;
+    auto json_data = ParseJson(it->second);
+    bool update = false;
+    for (auto &[db_name, role_names] : json_data.items()) {
+      if (role_names.is_array()) {
+        // Find and remove the role by index
+        for (size_t i = 0; i < role_names.size(); ++i) {
+          if (role_names[i].is_string() && utils::ToLowerCase(role_names[i].get<std::string>()) == rolename) {
+            role_names.erase(i);
+            update = true;
+            break;  // Remove only the first occurrence
+          }
+        }
+      }
+    }
+    if (update) {
+      if (json_data.empty()) {
+        storage_.Delete(it->first);
+      } else {
+        storage_.Put(it->first, json_data.dump());
+      }
+    }
+  }
+
+  // Then remove the role itself
+  if (!storage_.Delete(kRolePrefix + rolename)) {
     throw AuthException("Couldn't remove role '{}'!", rolename);
   }
 
@@ -640,8 +889,29 @@ std::vector<auth::User> Auth::AllUsersForRole(const std::string &rolename_orig) 
   for (auto it = storage_.begin(kLinkPrefix); it != storage_.end(kLinkPrefix); ++it) {
     auto username = it->first.substr(kLinkPrefix.size());
     if (username != utils::ToLowerCase(username)) continue;
-    if (it->second != utils::ToLowerCase(it->second)) continue;
-    if (it->second == rolename) {
+
+    bool has_role = false;
+    try {
+      // Parse as JSON array (V2 format)
+      auto json_data = ParseJson(it->second);
+      if (!json_data.is_array()) {
+        spdlog::warn("Found non-array link format for user '{}'", username);
+        continue;
+      }
+      // V2 format: check if role is in the array
+      for (const auto &role_name : json_data) {
+        if (role_name.is_string() && utils::ToLowerCase(role_name.get<std::string>()) == rolename) {
+          has_role = true;
+          break;
+        }
+      }
+    } catch (const nlohmann::detail::exception &) {
+      // This shouldn't happen after V2 migration, but handle gracefully
+      spdlog::warn("Found invalid JSON in link format for user '{}', treating as single role", username);
+      continue;
+    }
+
+    if (has_role) {
       if (auto user = GetUser(username)) {
         ret.push_back(std::move(*user));
       } else {

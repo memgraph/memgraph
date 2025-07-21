@@ -35,11 +35,14 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(VectorIndexQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
 
+  void Visit(CreateVectorEdgeIndexQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
+
   void Visit(AnalyzeGraphQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
 
   void Visit(AuthQuery &query) override {
     // Special cases
-    if (query.action_ == AuthQuery::Action::SHOW_CURRENT_USER) return;
+    if (query.action_ == AuthQuery::Action::SHOW_CURRENT_USER || query.action_ == AuthQuery::Action::SHOW_CURRENT_ROLE)
+      return;
     // Default to AUTH
     AddPrivilege(AuthQuery::Privilege::AUTH);
   }

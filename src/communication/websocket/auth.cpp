@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,10 +31,21 @@ bool SafeAuth::HasPermission(const auth::Permission permission) const {
                                    if (!tmp) success = false;
                                    user = std::move(*tmp);
                                  },
-                                 [&](auth::Role &role) {
-                                   auto tmp = locked_auth->GetRole(role.rolename());
-                                   if (!tmp) success = false;
-                                   role = std::move(*tmp);
+                                 [&](auth::Roles &roles) {
+                                   // Iterate through all roles and update each one
+                                   auth::Roles updated_roles;
+                                   for (const auto &role : roles) {
+                                     auto tmp = locked_auth->GetRole(role.rolename());
+                                     if (tmp) {
+                                       updated_roles.AddRole(*tmp);
+                                     } else {
+                                       success = false;
+                                       break;
+                                     }
+                                   }
+                                   if (success) {
+                                     roles = std::move(updated_roles);
+                                   }
                                  }},
                *user_or_role_);
     // Missing user/role; delete from cache
@@ -43,7 +54,15 @@ bool SafeAuth::HasPermission(const auth::Permission permission) const {
   // Check permissions
   if (user_or_role_) {
     return std::visit(utils::Overloaded{[&](auto &user_or_role) {
-                        return user_or_role.GetPermissions().Has(permission) == auth::PermissionLevel::GRANT;
+                        // Main could be deleted, so we will connect without a db; this is only used by websocket on
+                        // connect, so not critical (we will not be able to access any db)
+                        const auto &db_name =
+#ifdef MG_ENTERPRISE
+                            user_or_role.GetMain();
+#else
+                            dbms::kDefaultDB;
+#endif
+                        return user_or_role.GetPermissions(db_name).Has(permission) == auth::PermissionLevel::GRANT;
                       }},
                       *user_or_role_);
   }
