@@ -423,7 +423,7 @@ class Storage {
     std::vector<EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        LabelId label, bool check_access = true, CheckCancelFunction cancel_check = neverCancel,
+        LabelId label, CheckCancelFunction cancel_check = neverCancel,
         PublishIndexWrapper wrapper = publish_no_wrap) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
@@ -431,7 +431,7 @@ class Storage {
         PublishIndexWrapper wrapper = publish_no_wrap) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        EdgeTypeId edge_type, bool unique_access_needed = true, CheckCancelFunction cancel_check = neverCancel,
+        EdgeTypeId edge_type, CheckCancelFunction cancel_check = neverCancel,
         PublishIndexWrapper wrapper = publish_no_wrap) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(

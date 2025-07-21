@@ -39,13 +39,9 @@ AutoIndexer::AutoIndexer(std::stop_token stop_token, Storage *storage) {
           // Creating an index can only fail due to db shutdown or if the index manually got created
           // so there is not need to handle errors
           auto create_index = utils::Overloaded{
-              [&](LabelId label) {
-                // TODO: remove false?
-                [[maybe_unused]] auto result = storage_acc->CreateIndex(label, false, cancel_check);
-              },
+              [&](LabelId label) { [[maybe_unused]] auto result = storage_acc->CreateIndex(label, cancel_check); },
               [&](EdgeTypeId edge_type) {
-                // TODO: remove false?
-                [[maybe_unused]] auto result = storage_acc->CreateIndex(edge_type, false, cancel_check);
+                [[maybe_unused]] auto result = storage_acc->CreateIndex(edge_type, cancel_check);
               }};
 
           std::visit(create_index, *it);

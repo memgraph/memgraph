@@ -1435,12 +1435,10 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
-    LabelId label, bool check_access, CheckCancelFunction cancel_check, PublishIndexWrapper wrapper) {
-  if (check_access) {
-    MG_ASSERT(type() == UNIQUE || type() == READ_ONLY,
-              "Creating label index requires a unique or read only access to the storage!");
-  }
+    LabelId label, CheckCancelFunction cancel_check, PublishIndexWrapper wrapper) {
   // UNIQUE access is also required by schema.assert
+  MG_ASSERT(type() == UNIQUE || type() == READ_ONLY,
+            "Creating label index requires a unique or read only access to the storage!");
 
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get());
@@ -1500,10 +1498,9 @@ void InMemoryStorage::InMemoryAccessor::DowngradeToReadIfValid() {
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
-    EdgeTypeId edge_type, bool unique_access_needed, CheckCancelFunction cancel_check, PublishIndexWrapper wrapper) {
-  if (unique_access_needed) {
-    MG_ASSERT(type() == UNIQUE || type() == READ_ONLY, "Create index requires a unique access to the storage!");
-  }
+    EdgeTypeId edge_type, CheckCancelFunction cancel_check, PublishIndexWrapper wrapper) {
+  MG_ASSERT(type() == UNIQUE || type() == READ_ONLY,
+            "Create index requires a unique or readonly access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
   if (!mem_edge_type_index->RegisterIndex(edge_type)) {
@@ -3245,10 +3242,6 @@ bool InMemoryStorage::InMemoryAccessor::PointIndexExists(LabelId label, Property
 }
 
 IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
-  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
-  auto *mem_edge_property_index =
-      static_cast<InMemoryEdgePropertyIndex *>(in_memory->indices_.edge_property_index_.get());
-
   return {transaction_.active_indices_.label_->ListIndices(transaction_.start_timestamp),
           transaction_.active_indices_.label_properties_->ListIndices(transaction_.start_timestamp),
           transaction_.active_indices_.edge_type_->ListIndices(transaction_.start_timestamp),
