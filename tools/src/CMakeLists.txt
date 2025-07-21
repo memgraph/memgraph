@@ -9,7 +9,18 @@ find_package(Threads REQUIRED)
 
 # Memgraph Dump Target
 add_executable(mg_dump mg_dump/main.cpp)
-target_link_libraries(mg_dump gflags spdlog fmt::fmt mgclient Threads::Threads)
+
+# Link mg_dump with custom libstdc++
+message(STATUS "Linking mg_dump with custom libstdc++")
+target_link_libraries(mg_dump gflags spdlog fmt::fmt mgclient Threads::Threads libstdc++_custom)
+target_link_options(mg_dump PRIVATE -nostdlib++)
+
+# Set RPATH for custom libstdc++
+set_target_properties(mg_dump PROPERTIES
+    INSTALL_RPATH "\$ORIGIN/../lib/memgraph"
+    INSTALL_RPATH_USE_LINK_PATH TRUE
+)
+
 install(TARGETS mg_dump RUNTIME DESTINATION bin)
 
 # Target for building all the tool executables.
