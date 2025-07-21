@@ -112,8 +112,8 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action const action) -> d
 #undef add_case
 }
 
-auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex, VertexAccessor *to_vertex)
-    -> Result<EdgesVertexAccessorResult> {
+auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex,
+               VertexAccessor *to_vertex) -> Result<EdgesVertexAccessorResult> {
   auto use_out_edges = [](Vertex const *from_vertex, Vertex const *to_vertex) {
     // Obtain the locks by `gid` order to avoid lock cycles.
     auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
@@ -276,12 +276,60 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     commit_log_.emplace(timestamp_);
   }
 
+  if (config_.salient.items.enable_edge_type_index_auto_creation ||
+      config_.salient.items.enable_label_index_auto_creation) {
+    auto_index_thread_ = std::jthread([this]() {
+      while (!stop_source.stop_requested()) {
+        std::unique_lock<std::mutex> lock(auto_index_structure_.mutex_);
+
+        auto_index_structure_.index_auto_creation_cv_.wait(lock, [this] {
+          return auto_index_structure_.index_auto_creation_queue_.size() != 0 || stop_source.stop_requested();
+        });
+        if (stop_source.stop_requested()) {
+          return;
+        }
+
+        auto access = auto_index_structure_.index_auto_creation_queue_.access();
+        auto it_end = access.end();
+        auto cancel_check = [&]() { return stop_source.stop_requested(); };
+
+        for (auto it = access.begin(); it != it_end;) {
+          try {
+            // If we wait forever for the read only lock it will block new writes
+            auto db_read_only_acc = ReadOnlyAccess(IsolationLevel::SNAPSHOT_ISOLATION, std::chrono::milliseconds(500));
+
+            // Creating an index can only fail due to db shutdown or if the index manually got created
+            // so there is not need to handle errors
+            auto visitor = utils::Overloaded{
+                [&](LabelId label) {
+                  [[maybe_unused]] auto result = db_read_only_acc->CreateIndex(label, false, cancel_check);
+                },
+                [&](EdgeTypeId edge_type) {
+                  [[maybe_unused]] auto result = db_read_only_acc->CreateIndex(edge_type, false, cancel_check);
+                }};
+
+            std::visit(visitor, *it);
+            [[maybe_unused]] auto result = db_read_only_acc->PrepareForCommitPhase();
+
+            auto next_it = std::next(it);
+            access.remove(*it);
+            it = next_it;
+          } catch (ReadOnlyAccessTimeout &) {
+            std::this_thread::sleep_for(std::chrono::milliseconds(1000));
+          }
+        }
+      }
+    });
+  }
+
   flags::run_time::SnapshotPeriodicAttach(snapshot_periodic_observer_);
 }
 
 InMemoryStorage::~InMemoryStorage() {
   flags::run_time::SnapshotPeriodicDetach(snapshot_periodic_observer_);
+
   stop_source.request_stop();
+  auto_index_structure_.index_auto_creation_cv_.notify_one();
 
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
     gc_runner_.Stop();
@@ -772,7 +820,8 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           if (count == 0) {
             // TODO: (andi) Handle auto-creation issue
             // NOLINTNEXTLINE(clang-diagnostic-unused-result)
-            CreateIndex(label, false);
+            mem_storage->auto_index_structure_.index_auto_creation_queue_.access().insert(label);
+            mem_storage->auto_index_structure_.index_auto_creation_cv_.notify_one();
             label_indices.erase(it);
           }
         }
@@ -792,7 +841,8 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
           if (count == 0) {
             // TODO: (andi) Handle silent failure
             // NOLINTNEXTLINE(clang-diagnostic-unused-result)
-            CreateIndex(edge_type, false);
+            mem_storage->auto_index_structure_.index_auto_creation_queue_.access().insert(edge_type);
+            mem_storage->auto_index_structure_.index_auto_creation_cv_.notify_one();
             edge_type_indices.erase(it);
           }
         }

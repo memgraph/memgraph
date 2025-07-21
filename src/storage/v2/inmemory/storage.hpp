@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <condition_variable>
 #include <cstdint>
 #include <memory>
 #include <utility>
@@ -524,8 +525,8 @@ class InMemoryStorage final : public Storage {
     /// View is not needed because a new rtree gets created for each transaction and it is always
     /// using the latest version
     auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
-                       PropertyValue const &bottom_left, PropertyValue const &top_right, WithinBBoxCondition condition)
-        -> PointIterable override;
+                       PropertyValue const &bottom_left, PropertyValue const &top_right,
+                       WithinBBoxCondition condition) -> PointIterable override;
 
     std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearchOnNodes(
         const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) override;
@@ -708,6 +709,15 @@ class InMemoryStorage final : public Storage {
 
     friend bool operator==(SnapshotDigest const &, SnapshotDigest const &) = default;
   };
+
+  struct AutoIndexStructure {
+    utils::SkipList<std::variant<LabelId, EdgeTypeId>> index_auto_creation_queue_{};
+    std::mutex mutex_{};
+    std::condition_variable index_auto_creation_cv_{};
+  } auto_index_structure_;
+
+  std::jthread auto_index_thread_;
+
   std::optional<SnapshotDigest> last_snapshot_digest_;
 
   void Clear();
