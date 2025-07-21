@@ -12,10 +12,321 @@
 #include <iostream>
 #include <mgp.hpp>
 #include <optional>
+#include <set>
+#include <string>
+#include <vector>
 
 #include <nlohmann/json.hpp>
 
+// Forward declarations
+mgp::Value ConvertToTreeImpl(const mgp::Value &value, const mgp::Map &config, mgp_memory *memory);
 std::optional<mgp::Value> ParseJsonToMgpValue(const nlohmann::json &json_obj, mgp_memory *memory);
+
+// Struct to encapsulate property filter logic for a label
+struct NodePropertyFilter {
+  enum class Mode { INCLUDE, EXCLUDE, WILDCARD, INVALID };
+  Mode mode = Mode::INVALID;
+  std::set<std::string> properties;
+
+  NodePropertyFilter() = default;
+  NodePropertyFilter(const mgp::List &props) {
+    if (props.Size() == 0) {
+      mode = Mode::INVALID;
+      return;
+    }
+    // All entries must be strings
+    for (size_t i = 0; i < props.Size(); ++i) {
+      if (!props[i].IsString()) {
+        mode = Mode::INVALID;
+        return;
+      }
+    }
+    std::string_view first = props[0].ValueString();
+    if (first == "*") {
+      mode = Mode::WILDCARD;
+      return;
+    }
+    if (!first.empty() && first[0] == '-') {
+      mode = Mode::EXCLUDE;
+      for (size_t i = 0; i < props.Size(); ++i) {
+        std::string_view val_sv = props[i].ValueString();
+        std::string val(val_sv);
+        if (!val.empty() && val[0] == '-') val = val.substr(1);
+        properties.insert(std::move(val));
+      }
+      return;
+    }
+    // Otherwise, inclusion mode
+    mode = Mode::INCLUDE;
+    for (size_t i = 0; i < props.Size(); ++i) {
+      std::string_view val_sv = props[i].ValueString();
+      properties.insert(std::string(val_sv));
+    }
+  }
+  bool ShouldInclude(const std::string_view &prop_name) const {
+    switch (mode) {
+      case Mode::WILDCARD:
+        return true;
+      case Mode::EXCLUDE:
+        return properties.count(std::string(prop_name)) == 0;
+      case Mode::INCLUDE:
+        return properties.count(std::string(prop_name)) > 0;
+      default:
+        return false;
+    }
+  }
+  bool IsValid() const { return mode != Mode::INVALID; }
+};
+
+// Struct to encapsulate property filter logic for a relationship type
+struct RelPropertyFilter {
+  enum class Mode { INCLUDE, EXCLUDE, WILDCARD, INVALID };
+  Mode mode = Mode::INVALID;
+  std::set<std::string> properties;
+
+  RelPropertyFilter() = default;
+  RelPropertyFilter(const mgp::List &props) {
+    if (props.Size() == 0) {
+      mode = Mode::INVALID;
+      return;
+    }
+    // All entries must be strings
+    for (size_t i = 0; i < props.Size(); ++i) {
+      if (!props[i].IsString()) {
+        mode = Mode::INVALID;
+        return;
+      }
+    }
+    std::string_view first = props[0].ValueString();
+    if (first == "*") {
+      mode = Mode::WILDCARD;
+      return;
+    }
+    if (!first.empty() && first[0] == '-') {
+      mode = Mode::EXCLUDE;
+      for (size_t i = 0; i < props.Size(); ++i) {
+        std::string_view val_sv = props[i].ValueString();
+        std::string val(val_sv);
+        if (!val.empty() && val[0] == '-') val = val.substr(1);
+        properties.insert(std::move(val));
+      }
+      return;
+    }
+    // Otherwise, inclusion mode
+    mode = Mode::INCLUDE;
+    for (size_t i = 0; i < props.Size(); ++i) {
+      std::string_view val_sv = props[i].ValueString();
+      properties.insert(std::string(val_sv));
+    }
+  }
+  bool ShouldInclude(const std::string_view &prop_name) const {
+    switch (mode) {
+      case Mode::WILDCARD:
+        return true;
+      case Mode::EXCLUDE:
+        return properties.count(std::string(prop_name)) == 0;
+      case Mode::INCLUDE:
+        return properties.count(std::string(prop_name)) > 0;
+      default:
+        return false;
+    }
+  }
+  bool IsValid() const { return mode != Mode::INVALID; }
+};
+
+// Config struct to hold all relationship property filters
+struct RelPropertyFilterConfig {
+  std::map<std::string, RelPropertyFilter> filters;
+  RelPropertyFilterConfig(const mgp::Map &rels) {
+    for (const auto &[key, value] : rels) {
+      if (!value.IsList()) continue;
+      filters.emplace(std::string(key), RelPropertyFilter(value.ValueList()));
+    }
+  }
+  // Returns the filter for a given rel_type, or a default wildcard filter if not present
+  const RelPropertyFilter &GetFilter(const std::string_view &rel_type) const {
+    static RelPropertyFilter wildcard_filter;
+    auto it = filters.find(std::string(rel_type));
+    if (it != filters.end()) return it->second;
+    // If not present, default to wildcard (include all)
+    static RelPropertyFilter default_wildcard(mgp::List({mgp::Value("*")}));
+    return default_wildcard;
+  }
+};
+
+// Helper function to check if a property should be included
+// Determines if a node property should be included in the output based on config filtering rules.
+bool ShouldIncludeProperty(std::string_view prop_name, const mgp::Map &config, const mgp::Labels &labels) {
+  if (!config.KeyExists("nodes")) {
+    // No filtering config: include all properties
+    return true;
+  }
+  auto nodes = config.At("nodes").ValueMap();
+  std::vector<NodePropertyFilter> filters;
+  for (size_t label_idx = 0; label_idx < labels.Size(); ++label_idx) {
+    std::string_view label = labels[label_idx];
+    if (!nodes.KeyExists(label)) continue;
+    auto props = nodes.At(label).ValueList();
+    NodePropertyFilter filter(props);
+    if (filter.IsValid()) filters.push_back(filter);
+  }
+  if (filters.empty()) return false;
+  // Exclusion mode takes precedence if any filter is exclusion
+  for (const auto &filter : filters) {
+    if (filter.mode == NodePropertyFilter::Mode::EXCLUDE) {
+      return filter.ShouldInclude(prop_name);
+    }
+  }
+  // Wildcard mode if any filter is wildcard
+  for (const auto &filter : filters) {
+    if (filter.mode == NodePropertyFilter::Mode::WILDCARD) {
+      return true;
+    }
+  }
+  // Otherwise, inclusion mode: include if any filter includes the property
+  for (const auto &filter : filters) {
+    if (filter.mode == NodePropertyFilter::Mode::INCLUDE && filter.ShouldInclude(prop_name)) {
+      return true;
+    }
+  }
+  return false;
+}
+
+// Helper function to check if a relationship property should be included
+// Determines if a relationship property should be included in the output based on config filtering rules.
+bool ShouldIncludeRelProperty(std::string_view prop_name, const mgp::Map &config, const std::string_view &rel_type) {
+  if (!config.KeyExists("rels")) {
+    // No filtering config: include all properties
+    return true;
+  }
+  auto rels = config.At("rels").ValueMap();
+  static RelPropertyFilterConfig rel_filter_config(rels);
+  const RelPropertyFilter &filter = rel_filter_config.GetFilter(rel_type);
+  return filter.ShouldInclude(prop_name);
+}
+
+// Main implementation function
+// Converts a list of paths (or a single path) into a hierarchical tree structure.
+mgp::Value ConvertToTreeImpl(const mgp::Value &value, const mgp::Map &config, mgp_memory *memory) {
+  if (value.IsNull()) {
+    // Null input: return as is
+    return value;
+  }
+
+  // If the value is a List of Paths, convert each path and merge into a tree
+  if (value.IsList()) {
+    auto paths = value.ValueList();
+    if (paths.Size() == 0) {
+      // Empty list: return as is
+      return value;
+    }
+
+    // Get the first path to extract the root node
+    auto first_path = paths[0].ValuePath();
+    auto root_node = first_path.GetNodeAt(0);
+
+    // Create root node map with properties
+    mgp::Map root_map;
+    auto root_props = root_node.Properties();
+    auto root_labels = root_node.Labels();
+
+    // Copy all root node properties that pass filtering
+    for (const auto &[key, value] : root_props) {
+      if (ShouldIncludeProperty(key, config, root_labels)) {
+        root_map.Insert(key, value);
+      }
+    }
+
+    // Lambda to insert _type and _id from labels and node id into a map
+    auto insert_type_and_id = [](mgp::Map &map, const mgp::Labels &labels, const mgp::Node &node) {
+      if (labels.Size() == 1) {
+        map.Insert("_type", mgp::Value(labels[0]));
+      } else if (labels.Size() > 1) {
+        mgp::List label_list;
+        for (size_t l = 0; l < labels.Size(); ++l) {
+          label_list.Append(mgp::Value(labels[l]));
+        }
+        map.Insert("_type", mgp::Value(label_list));
+      }
+      map.Insert("_id", mgp::Value(node.Id().AsInt()));
+    };
+
+    // Add type and id to root node
+    insert_type_and_id(root_map, root_labels, root_node);
+
+    // Process all paths to collect relationships and build the tree
+    for (size_t path_idx = 0; path_idx < paths.Size(); path_idx++) {
+      auto path = paths[path_idx].ValuePath();
+
+      // For each relationship in the path, add the target node to the appropriate relationship array
+      for (size_t i = 0; i < path.Length(); i++) {
+        auto rel = path.GetRelationshipAt(i);
+        auto target_node = path.GetNodeAt(i + 1);
+        std::string rel_type{rel.Type()};
+
+        // Create or get relationship array for this type
+        mgp::List rel_list;
+        if (!root_map.KeyExists(rel_type)) {
+          rel_list = mgp::List();
+        } else {
+          rel_list = root_map.At(rel_type).ValueList();
+        }
+
+        // Create target node map
+        mgp::Map target_map;
+
+        // Copy all target node properties that pass filtering
+        auto target_props = target_node.Properties();
+        auto target_labels = target_node.Labels();
+        for (const auto &[key, value] : target_props) {
+          if (ShouldIncludeProperty(key, config, target_labels)) {
+            target_map.Insert(key, value);
+          }
+        }
+
+        // Add relationship properties with type-prefixed keys
+        auto rel_props = rel.Properties();
+        for (const auto &[key, value] : rel_props) {
+          if (ShouldIncludeRelProperty(key, config, rel_type)) {
+            std::string prefixed_key = rel_type + "." + key;
+            target_map.Insert(prefixed_key, value);
+          }
+        }
+
+        // Add type and id to target node
+        insert_type_and_id(target_map, target_labels, target_node);
+
+        // Only add unique target nodes to the relationship array (by _id)
+        bool found = false;
+        for (size_t j = 0; j < rel_list.Size(); ++j) {
+          auto existing = rel_list[j].ValueMap();
+          if (existing.KeyExists("_id") && existing.At("_id").ValueInt() == target_node.Id().AsInt()) {
+            found = true;
+            break;
+          }
+        }
+        if (!found) {
+          rel_list.AppendExtend(mgp::Value(target_map));
+        }
+        // Update the relationship array in the root map
+        root_map.Update(rel_type, mgp::Value(rel_list));
+      }
+    }
+
+    // Return the constructed tree as a map
+    return mgp::Value(root_map);
+  }
+
+  // If single path, convert it to a list and process recursively
+  if (value.IsPath()) {
+    auto list = mgp::List(1);
+    list.Append(value);
+    return ConvertToTreeImpl(mgp::Value(list), config, memory);
+  }
+
+  // For other types, return as is
+  return value;
+}
 
 mgp::Value ParseJsonToMgpMap(const nlohmann::json &json_obj, mgp_memory *memory) {
   auto map = mgp::Map();
@@ -100,11 +411,44 @@ void str2object(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp
   }
 }
 
+void convert_to_tree(mgp_list *args, mgp_func_context *ctx, mgp_func_result *func_result, mgp_memory *memory) {
+  try {
+    mgp::MemoryDispatcherGuard guard(memory);
+    const auto arguments = mgp::List(args);
+    const auto record = arguments[0];
+
+    // Create a default empty config if none provided
+    mgp::Map config;
+    if (arguments.Size() > 1) {
+      config = arguments[1].ValueMap();
+    }
+
+    // Convert the input value to tree structure
+    auto result_value = ConvertToTreeImpl(record, config, memory);
+
+    // We know the result will be a Map, so handle it directly
+    mgp::Result result(func_result);
+    if (result_value.IsMap()) {
+      result.SetValue(result_value.ValueMap());
+    } else {
+      // For any other type (shouldn't happen in our case), return null
+      result.SetValue();
+    }
+
+  } catch (const std::exception &e) {
+    mgp::Result(func_result).SetErrorMessage(e.what());
+  }
+}
+
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
     mgp::MemoryDispatcherGuard guard(memory);
 
     mgp::AddFunction(str2object, "str2object", {mgp::Parameter("string", mgp::Type::String)}, module, memory);
+    mgp::AddFunction(
+        convert_to_tree, "to_tree",
+        {mgp::Parameter("value", mgp::Type::Any), mgp::Parameter("config", mgp::Type::Map, mgp::Value(mgp::Map()))},
+        module, memory);
 
   } catch (const std::exception &e) {
     std::cerr << "Error while initializing query module: " << e.what() << '\n';
