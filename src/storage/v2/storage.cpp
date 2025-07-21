@@ -16,12 +16,14 @@
 #include "spdlog/spdlog.h"
 
 #include "flags/experimental.hpp"
+#include "license/license.hpp"
 #include "storage/v2/disk/name_id_mapper.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/schema_info_glue.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/transaction.hpp"
+#include "storage/v2/ttl.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/view.hpp"
@@ -97,8 +99,15 @@ Storage::Storage(Config config, StorageMode storage_mode)
       isolation_level_(config.transaction.isolation_level),
       storage_mode_(storage_mode),
       indices_(config, storage_mode),
-      constraints_(config, storage_mode) {
+      constraints_(config, storage_mode),
+      ttl_(config.durability.storage_directory / "ttl") {
   spdlog::info("Created database with {} storage mode.", StorageModeToString(storage_mode));
+#ifdef MG_ENTERPRISE
+  // Handle TTL recovery if enabled
+  if (config.durability.recover_on_startup && memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    ttl_.Restore(this, config.salient.items.properties_on_edges && storage_mode != StorageMode::ON_DISK_TRANSACTIONAL);
+  }
+#endif
 }
 
 Storage::Accessor::Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
@@ -152,6 +161,8 @@ Storage::Accessor::Accessor(Accessor &&other) noexcept
 }
 
 StorageMode Storage::GetStorageMode() const noexcept { return storage_mode_; }
+
+ttl::TTL &Storage::Accessor::ttl() { return storage_->ttl_; }
 
 std::vector<EventInfo> Storage::GetMetrics() noexcept {
   std::vector<EventInfo> result;

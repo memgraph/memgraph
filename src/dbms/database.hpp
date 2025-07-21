@@ -15,7 +15,6 @@
 #include <optional>
 
 #include "query/stream/streams.hpp"
-#include "query/time_to_live/time_to_live.hpp"
 #include "query/trigger.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/gatekeeper.hpp"
@@ -162,7 +161,7 @@ class Database {
    */
   query::PlanCacheLRU *plan_cache() { return &plan_cache_; }
 
-  query::ttl::TTL &ttl() { return time_to_live_; }
+  storage::ttl::TTL &ttl() { return storage_->ttl_; }
 
   /**
    * @brief Useful when trying to gracefully destroy Database.
@@ -183,7 +182,6 @@ class Database {
   query::TriggerStore trigger_store_;               //!< Triggers associated with the storage
   utils::ThreadPool after_commit_trigger_pool_{1};  //!< Thread pool for executing after commit triggers
   query::stream::Streams streams_;                  //!< Streams associated with the storage
-  query::ttl::TTL time_to_live_;                    //!< TTL associated with the storage
 
   // TODO: Move to a better place
   query::PlanCacheLRU plan_cache_;  //!< Plan cache associated with the storage

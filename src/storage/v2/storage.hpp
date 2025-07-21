@@ -24,6 +24,7 @@
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
 #include "storage/v2/storage_error.hpp"
+#include "storage/v2/ttl.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/vertices_iterable.hpp"
 #include "utils/event_counter.hpp"
@@ -557,6 +558,9 @@ class Storage {
       return transaction_.active_indices_.CheckIndicesAreReady(required_indices);
     }
 
+    // TTL methods
+    virtual ttl::TTL &ttl() = 0;
+
    protected:
     Storage *storage_;
     utils::SharedResourceLockGuard storage_guard_;
@@ -733,6 +737,9 @@ class Storage {
   EnumStore enum_store_;
 
   SchemaInfo schema_info_;
+
+  // TTL handler
+  ttl::TTL ttl_;
 };
 
 inline std::ostream &operator<<(std::ostream &os, Storage::Accessor::Type type) {

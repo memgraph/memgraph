@@ -24,6 +24,7 @@
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/ttl.hpp"
 #include "utils/result.hpp"
 #include "utils/rw_lock.hpp"
 
@@ -301,8 +302,8 @@ class DiskStorage final : public Storage {
                        PointDistanceCondition condition) -> PointIterable override;
 
     auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
-                       PropertyValue const &bottom_left, PropertyValue const &top_right,
-                       WithinBBoxCondition condition) -> PointIterable override;
+                       PropertyValue const &bottom_left, PropertyValue const &top_right, WithinBBoxCondition condition)
+        -> PointIterable override;
 
     std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearchOnNodes(
         const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) override;
@@ -313,6 +314,8 @@ class DiskStorage final : public Storage {
     std::vector<VectorIndexInfo> ListAllVectorIndices() const override;
 
     std::vector<VectorEdgeIndexInfo> ListAllVectorEdgeIndices() const override;
+
+    ttl::TTL &ttl() override { return storage_->ttl_; }
 
    private:
     VerticesIterable Vertices(LabelId label, PropertyId property, const PropertyValue &value, View view);

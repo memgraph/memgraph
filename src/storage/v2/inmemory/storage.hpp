@@ -24,6 +24,7 @@
 #include "storage/v2/inmemory/snapshot_info.hpp"
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/ttl.hpp"
 
 /// REPLICATION ///
 
@@ -536,6 +537,8 @@ class InMemoryStorage final : public Storage {
     std::vector<VectorIndexInfo> ListAllVectorIndices() const override;
 
     std::vector<VectorEdgeIndexInfo> ListAllVectorEdgeIndices() const override;
+
+    ttl::TTL &ttl() override { return storage_->ttl_; }
 
     void DowngradeToReadIfValid();
 

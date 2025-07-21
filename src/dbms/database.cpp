@@ -22,7 +22,6 @@ Database::Database(storage::Config config,
                    utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &repl_state)
     : trigger_store_(config.durability.storage_directory / "triggers"),
       streams_{config.durability.storage_directory / "streams"},
-      time_to_live_{config.durability.storage_directory / "ttl"},
       plan_cache_{FLAGS_query_plan_cache_max_size} {
   if (config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
       utils::DirExists(config.disk.main_storage_directory)) {
