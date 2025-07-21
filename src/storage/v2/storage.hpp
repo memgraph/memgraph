@@ -13,7 +13,8 @@
 
 #include "common_function_signatures.hpp"
 #include "mg_procedure.h"
-#include "storage/v2/auto_indexer.hpp"
+#include "storage/v2/async_indexer.hpp"
+#include "storage/v2/commit_args.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/database_access.hpp"
 #include "storage/v2/edge_accessor.hpp"
@@ -26,6 +27,7 @@
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
 #include "storage/v2/storage_error.hpp"
+#include "storage/v2/ttl.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/vertices_iterable.hpp"
 #include "utils/event_counter.hpp"
@@ -158,12 +160,8 @@ struct EdgeInfoForDeletion {
   std::unordered_set<Vertex *> partial_dest_vertices{};
 };
 
-struct CommitReplicationArgs {
-  // REPLICA on receipt of Deltas will have a desired commit timestamp
-  std::optional<uint64_t> desired_commit_timestamp{std::nullopt};
+struct TTLReplicationArgs {
   bool is_main{true};
-  // nullopt if main, true for SYNC/ASYNC replica, false for STRICT_SYNC replica
-  std::optional<bool> commit_immediately{std::nullopt};
 };
 
 struct PlanInvalidator {
@@ -187,7 +185,8 @@ class Storage {
   friend class ReplicationStorageClient;
 
  public:
-  Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator);
+  Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator,
+          std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory = nullptr);
 
   Storage(const Storage &) = delete;
   Storage(Storage &&) = delete;
@@ -357,6 +356,8 @@ class Storage {
 
     virtual bool LabelPropertyIndexReady(LabelId label, std::span<PropertyPath const> properties) const = 0;
 
+    virtual bool LabelPropertyIndexExists(LabelId label, std::span<PropertyPath const> properties) const = 0;
+
     auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
                                             std::span<PropertyPath const> properties) const
         -> std::vector<LabelPropertiesIndicesInfo> {
@@ -368,6 +369,8 @@ class Storage {
     virtual bool EdgeTypePropertyIndexReady(EdgeTypeId edge_type, PropertyId property) const = 0;
 
     virtual bool EdgePropertyIndexReady(PropertyId property) const = 0;
+
+    virtual bool EdgePropertyIndexExists(PropertyId property) const = 0;
 
     bool TextIndexExists(const std::string &index_name) const {
       return storage_->indices_.text_index_.IndexExists(index_name);
@@ -390,12 +393,10 @@ class Storage {
     virtual ConstraintsInfo ListAllConstraints() const = 0;
 
     // NOLINTNEXTLINE(google-default-arguments)
-    virtual utils::BasicResult<StorageManipulationError, void> PrepareForCommitPhase(
-        CommitReplicationArgs reparg = {}, DatabaseAccessProtector db_acc = {}) = 0;
+    virtual utils::BasicResult<StorageManipulationError, void> PrepareForCommitPhase(CommitArgs commit_args) = 0;
 
     // NOLINTNEXTLINE(google-default-arguments)
-    virtual utils::BasicResult<StorageManipulationError, void> PeriodicCommit(CommitReplicationArgs reparg = {},
-                                                                              DatabaseAccessProtector db_acc = {}) = 0;
+    virtual utils::BasicResult<StorageManipulationError, void> PeriodicCommit(CommitArgs commit_args) = 0;
 
     virtual void Abort() = 0;
 
@@ -567,6 +568,17 @@ class Storage {
       return transaction_.active_indices_.CheckIndicesAreReady(required_indices);
     }
 
+    // TTL methods
+    ttl::TTL &ttl() { return storage_->ttl_; }
+
+#ifdef MG_ENTERPRISE
+    // TTL management methods
+    virtual void StartTtl(TTLReplicationArgs repl_args = {}) = 0;
+    virtual void DisableTtl(TTLReplicationArgs repl_args = {}) = 0;
+    virtual void StopTtl() = 0;
+    virtual void ConfigureTtl(const storage::ttl::TtlInfo &ttl_info, TTLReplicationArgs repl_args = {}) = 0;
+    virtual storage::ttl::TtlInfo GetTtlConfig() const = 0;
+#endif
    protected:
     Storage *storage_;
     utils::SharedResourceLockGuard storage_guard_;
@@ -683,6 +695,16 @@ class Storage {
     };
   }
 
+  /// Check if async indexer is idle (no pending work)
+  /// @return true if async indexer is idle, false if actively processing or has pending work
+  /// @note For storage types without async indexing, this always returns true
+  virtual bool IsAsyncIndexerIdle() const = 0;
+
+  /// Check if async indexer thread has stopped
+  /// @return true if async indexer thread has stopped (due to null protector or shutdown), false otherwise
+  /// @note For storage types without async indexing, this always returns true
+  virtual bool HasAsyncIndexerStopped() const = 0;
+
   // TODO: make non-public
   ReplicationStorageState repl_storage_state_;
 
@@ -733,6 +755,26 @@ class Storage {
   EnumStore enum_store_;
 
   SchemaInfo schema_info_;
+
+  // A way to tell async operation to stop
+  std::stop_source stop_source;
+
+  ttl::TTL ttl_{this};  // TTL handler
+
+  // Factory function to create database protectors for async operations
+  // Used by async indexer and TTL system to get protectors for committing transactions
+  std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory_;
+
+  /// Creates a database protector for async operations
+  /// @return DatabaseProtector instance for committing async transactions
+  /// @note Never returns nullptr - always provides a valid protector
+  auto make_database_protector() const -> std::unique_ptr<DatabaseProtector> { return database_protector_factory_(); }
+
+  /// Gets the database protector factory for copying to new storage instances
+  /// @return Copy of the factory function for preservation during storage transitions
+  auto get_database_protector_factory() const -> std::function<std::unique_ptr<DatabaseProtector>()> {
+    return database_protector_factory_;
+  }
 };
 
 inline std::ostream &operator<<(std::ostream &os, Storage::Accessor::Type type) {

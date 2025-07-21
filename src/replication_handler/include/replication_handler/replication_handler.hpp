@@ -231,8 +231,10 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
       auto *storage = db_acc->storage();
       if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) return;
 
+      auto protector = dbms::DatabaseProtector{db_acc};
+
       auto client = std::make_unique<storage::ReplicationStorageClient>(*instance_client_ptr, main_uuid);
-      client->Start(storage, db_acc);
+      client->Start(storage, protector);
 
       all_clients_good &= storage->repl_storage_state_.replication_storage_clients_.WithLock(
           [client = std::move(client)](auto &storage_clients) mutable {  // NOLINT

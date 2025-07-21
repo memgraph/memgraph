@@ -9,6 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+// NOLINTBEGIN(modernize-use-constraints)
+
 #include "query/plan/operator.hpp"
 
 #include <algorithm>
@@ -326,6 +328,8 @@ void HandlePeriodicCommitError(const storage::StorageManipulationError &error) {
           throw QueryException("PeriodicCommit failed: Unable to commit due to serialization error.");
         } else if constexpr (std::is_same_v<ErrorType, storage::PersistenceError>) {
           throw QueryException("PeriodicCommit failed: Unable to commit due to persistence error.");
+        } else if constexpr (std::is_same_v<ErrorType, storage::ReplicaShouldNotWriteError>) {
+          throw QueryException("PeriodicCommit failed: Queries on replica shouldn't write.");
         } else {
           static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
         }
@@ -4620,13 +4624,15 @@ SetProperties::SetPropertiesCursor::SetPropertiesCursor(const SetProperties &sel
 namespace {
 
 template <typename T>
-concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
-                                          storage::PropertyValue property_value,
-                                          std::map<storage::PropertyId, storage::PropertyValue> properties) {
-  { value.ClearProperties() } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
-  {value.SetProperty(property_id, property_value)};
-  {value.UpdateProperties(properties)};
-};
+concept AccessorWithProperties =
+    requires(T value, storage::PropertyId property_id, storage::PropertyValue property_value,
+             std::map<storage::PropertyId, storage::PropertyValue> properties) {
+      {
+        value.ClearProperties()
+      } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
+      { value.SetProperty(property_id, property_value) };
+      { value.UpdateProperties(properties) };
+    };
 
 /// Helper function that sets the given values on either a Vertex or an Edge.
 ///
@@ -5663,7 +5669,7 @@ class AggregateCursor : public Cursor {
           value_it->ValueMap().emplace(key.ValueString(), std::move(input_value));
           break;
       }  // end switch over Aggregation::Op enum
-    }    // end loop over all aggregations
+    }  // end loop over all aggregations
   }
 
   /** Project a subgraph from lists of nodes and lists of edges. Any nulls in these lists are ignored.
@@ -5946,9 +5952,8 @@ class OrderByCursor : public Cursor {
       // sorting with range zip
       // we compare on just the projection of the 1st range (order_by)
       // this will also permute the 2nd range (output)
-      ranges::sort(
-          rv::zip(order_by, output), self_.compare_.lex_cmp(),
-          [](auto const &value) -> auto const & { return std::get<0>(value); });
+      ranges::sort(rv::zip(order_by, output), self_.compare_.lex_cmp(),
+                   [](auto const &value) -> auto const & { return std::get<0>(value); });
 
       // no longer need the order_by terms
       order_by.clear();
@@ -7781,11 +7786,11 @@ class PeriodicCommitCursor : public Cursor {
     utils::BasicResult<storage::StorageManipulationError, void> commit_result;
     if (pulled_ >= commit_frequency_) {
       // do periodic commit since we pulled that many times
-      commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
+      commit_result = context.db_accessor->PeriodicCommit(context.commit_args());
       pulled_ = 0;
     } else if (!pull_value && pulled_ > 0) {
       // do periodic commit for the rest of pulled items
-      commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
+      commit_result = context.db_accessor->PeriodicCommit(context.commit_args());
     }
 
     if (commit_result.HasError()) {
@@ -7879,7 +7884,7 @@ class PeriodicSubqueryCursor : public Cursor {
         } else {
           if (pulled_ > 0) {
             // do periodic commit for the rest of pulled items
-            const auto commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
+            const auto commit_result = context.db_accessor->PeriodicCommit(context.commit_args());
             if (commit_result.HasError()) {
               HandlePeriodicCommitError(commit_result.GetError());
             }
@@ -7896,7 +7901,7 @@ class PeriodicSubqueryCursor : public Cursor {
 
       if (pulled_ >= commit_frequency_) {
         // do periodic commit since we pulled that many times
-        const auto commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
+        const auto commit_result = context.db_accessor->PeriodicCommit(context.commit_args());
         if (commit_result.HasError()) {
           HandlePeriodicCommitError(commit_result.GetError());
         }
@@ -8132,3 +8137,5 @@ query::plan::Aggregate::Element query::plan::Aggregate::Element::Clone(query::As
 }
 
 }  // namespace memgraph::query::plan
+
+// NOLINTEND(modernize-use-constraints)

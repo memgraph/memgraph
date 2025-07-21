@@ -15,7 +15,7 @@ from functools import partial
 
 import pytest
 from common import connect, execute_and_fetch_all
-from mg_utils import mg_assert_until, mg_sleep_and_assert
+from mg_utils import mg_sleep_and_assert
 
 
 def test_spec(connect):

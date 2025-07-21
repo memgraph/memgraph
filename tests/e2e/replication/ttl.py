@@ -11,12 +11,13 @@
 
 import os
 import sys
+import time
 from functools import partial
 
 import interactive_mg_runner
 import pytest
 from common import execute_and_fetch_all, get_data_path, get_logs_path
-from mg_utils import mg_assert_until, mg_sleep_and_assert
+from mg_utils import mg_sleep_and_assert
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 interactive_mg_runner.PROJECT_DIR = os.path.normpath(
@@ -42,6 +43,25 @@ def cleanup_after_test():
 @pytest.fixture
 def test_name(request):
     return request.node.name
+
+
+class VertexChecker:
+    def __init__(self, check):
+        self._check = check
+        self.update()
+
+    def is_less(self):
+        last_n_prev = self.last_n
+        self.last_n = self._check()
+        return self.last_n < last_n_prev
+
+    def is_same(self):
+        last_n_prev = self.last_n
+        self.last_n = self._check()
+        return self.last_n == last_n_prev
+
+    def update(self):
+        self.last_n = self._check()
 
 
 def test_ttl_replication(connection, test_name):
@@ -195,24 +215,6 @@ def test_ttl_on_replica(connection, test_name):
         cursor, "UNWIND RANGE(51,100) AS d CREATE ()-[:E2{ttl:timestamp() + timestamp(duration({second:d}))}]->();"
     )
 
-    class VertexChecker:
-        def __init__(self, check):
-            self._check = check
-            self.update()
-
-        def is_less(self):
-            last_n_prev = self.last_n
-            self.last_n = self._check()
-            return self.last_n < last_n_prev
-
-        def is_same(self):
-            last_n_prev = self.last_n
-            self.last_n = self._check()
-            return self.last_n == last_n_prev
-
-        def update(self):
-            self.last_n = self._check()
-
     v_checker = VertexChecker(n_vertices)
     e_checker = VertexChecker(n_edges)
 
@@ -227,8 +229,8 @@ def test_ttl_on_replica(connection, test_name):
     # 4/
     v_checker.update()
     e_checker.update()
-    mg_assert_until(True, v_checker.is_same, max_duration=3)
-    mg_assert_until(True, e_checker.is_same, max_duration=3)
+    mg_sleep_and_assert(True, v_checker.is_same, max_duration=3)
+    mg_sleep_and_assert(True, e_checker.is_same, max_duration=3)
 
     # 5/
     execute_and_fetch_all(cursor, "SET REPLICATION ROLE TO MAIN;")
@@ -236,6 +238,123 @@ def test_ttl_on_replica(connection, test_name):
     # 6/
     mg_sleep_and_assert(True, v_checker.is_less, max_duration=3)
     mg_sleep_and_assert(True, e_checker.is_less, max_duration=3)
+
+
+def test_ttl_recovery_scenario(connection, test_name):
+    # Goal: Test that TTL behaves correctly during recovery scenarios
+    # 0/ Setup replication with main and replica
+    # 1/ Create dataset and configure TTL
+    # 2/ Kill both main and replica
+    # 3/ Start replica first - verify TTL is not running
+    # 4/ Start main - verify TTL starts running and deletes vertices on replica
+    # 5/ Verify that vertices are being deleted on both instances
+
+    MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
+        "replica_1": {
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['replica_1']}",
+                "--log-level=TRACE",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica1",
+            "setup_queries": [
+                f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};",
+            ],
+        },
+        "main": {
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['main']}",
+                "--log-level=TRACE",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
+            "setup_queries": [
+                f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';",
+            ],
+        },
+    }
+    MEMGRAPH_INSTANCES_DESCRIPTION_RESTART = {
+        name: {k: v for k, v in instance.items() if k != "setup_queries"}
+        for name, instance in MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL.items()
+    }
+
+    # 0/ Setup replication
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, keep_directories=False)
+    cursor_main = connection(BOLT_PORTS["main"], "main").cursor()
+    cursor_replica = connection(BOLT_PORTS["replica_1"], "replica").cursor()
+
+    # 1/ Create dataset and configure TTL
+    execute_and_fetch_all(
+        cursor_main, "UNWIND RANGE(1,50) AS d CREATE (:TTL{ttl:timestamp() + timestamp(duration({second:d}))});"
+    )
+    execute_and_fetch_all(
+        cursor_main, "UNWIND RANGE(1,25) AS d CREATE ()-[:E1{ttl:timestamp() + timestamp(duration({second:d}))}]->();"
+    )
+    execute_and_fetch_all(
+        cursor_main, "UNWIND RANGE(26,50) AS d CREATE ()-[:E2{ttl:timestamp() + timestamp(duration({second:d}))}]->();"
+    )
+
+    # Configure TTL
+    execute_and_fetch_all(cursor_main, 'ENABLE TTL EVERY "1s";')
+
+    # Verify initial state - TTL should be running and deleting vertices
+    def n_vertices(cursor):
+        return execute_and_fetch_all(cursor, "MATCH (n:TTL) RETURN count(n);")[0][0]
+
+    def n_edges(cursor):
+        return execute_and_fetch_all(cursor, "MATCH ()-[e]->() WHERE e.ttl > 0 RETURN count(e);")[0][0]
+
+    # Wait for TTL to start working
+    mg_sleep_and_assert(True, lambda: n_vertices(cursor_main) < 50, max_duration=5)
+    mg_sleep_and_assert(True, lambda: n_edges(cursor_main) < 50, max_duration=5)
+
+    # Verify replica also has vertices being deleted
+    mg_sleep_and_assert(True, lambda: n_vertices(cursor_replica) < 50, max_duration=5)
+    mg_sleep_and_assert(True, lambda: n_edges(cursor_replica) < 50, max_duration=5)
+
+    # 2/ Kill both main and replica
+    interactive_mg_runner.kill_all(keep_directories=True)
+
+    # 3/ Start replica first - verify TTL is not running
+    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION_RESTART, "replica_1")
+    cursor_replica = connection(BOLT_PORTS["replica_1"], "replica").cursor()
+
+    # Wait for replica to fully start up
+    mg_sleep_and_assert(True, lambda: execute_and_fetch_all(cursor_replica, "RETURN 1;")[0][0] == 1, max_duration=10)
+
+    # Create checkers to track if vertices/edges are being deleted
+    v_checker = VertexChecker(lambda: n_vertices(cursor_replica))
+    e_checker = VertexChecker(lambda: n_edges(cursor_replica))
+
+    # Wait and verify that vertices/edges are not being deleted (TTL should not run on replica)
+    for _ in range(5):
+        assert v_checker.is_same(), "Vertices are being deleted on replica, but TTL should not run on replica"
+        assert e_checker.is_same(), "Edges are being deleted on replica, but TTL should not run on replica"
+        time.sleep(1)
+
+    # 4/ Start main - verify TTL starts running
+    interactive_mg_runner.start(MEMGRAPH_INSTANCES_DESCRIPTION_RESTART, "main")
+    cursor_main = connection(BOLT_PORTS["main"], "main").cursor()
+
+    # Wait for main to fully start up and reconnect to replica
+    mg_sleep_and_assert(True, lambda: execute_and_fetch_all(cursor_main, "RETURN 1;")[0][0] == 1, max_duration=10)
+
+    # Wait for replication to be established
+    mg_sleep_and_assert(True, lambda: len(execute_and_fetch_all(cursor_main, "SHOW REPLICAS;")) > 0, max_duration=10)
+
+    # 5/ Verify that vertices are being deleted on both instances
+    # Main should start running TTL and deleting vertices
+    v_checker = VertexChecker(lambda: n_vertices(cursor_main))
+    e_checker = VertexChecker(lambda: n_edges(cursor_main))
+    mg_sleep_and_assert(True, v_checker.is_less, max_duration=5)
+    mg_sleep_and_assert(True, e_checker.is_less, max_duration=5)
+
+    v_checker = VertexChecker(lambda: n_vertices(cursor_replica))
+    e_checker = VertexChecker(lambda: n_edges(cursor_replica))
+    mg_sleep_and_assert(True, v_checker.is_less, max_duration=5)
+    mg_sleep_and_assert(True, e_checker.is_less, max_duration=5)
 
 
 if __name__ == "__main__":

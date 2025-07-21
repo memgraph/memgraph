@@ -633,6 +633,10 @@ target_link_libraries(${test_prefix}ttl mg-query)
 target_include_directories(${test_prefix}ttl PRIVATE ${CMAKE_SOURCE_DIR}/include)
 endif()
 
+# Test database protector factory system
+add_unit_test(database_protector_test.cpp)
+target_link_libraries(${test_prefix}database_protector_test mg-storage-v2)
+
 # Test community detection online
 # avoid linking with shared library due to missing symbols
 if(MG_ENTERPRISE)

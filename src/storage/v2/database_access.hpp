@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include <any>
+#include <memory>
 
 namespace memgraph::storage {
 
@@ -20,6 +20,13 @@ namespace memgraph::storage {
  * untied. To achieve that we are using std::any, but beware to pass in the correct type using DatabaseAccess =
  * memgraph::utils::Gatekeeper<memgraph::dbms::Database>::Accessor;
  */
-using DatabaseAccessProtector = std::any;
+struct DatabaseProtector;
+
+using DatabaseProtectorPtr = std::unique_ptr<DatabaseProtector>;
+
+struct DatabaseProtector {
+  virtual auto clone() const -> DatabaseProtectorPtr = 0;
+  virtual ~DatabaseProtector() = default;
+};
 
 }  // namespace memgraph::storage

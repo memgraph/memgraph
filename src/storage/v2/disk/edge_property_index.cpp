@@ -20,12 +20,17 @@ bool DiskEdgePropertyIndex::DropIndex(PropertyId /*property*/) {
   return true;
 }
 
-bool DiskEdgePropertyIndex::ActiveIndices::IndexReady(PropertyId property) const {
+bool DiskEdgePropertyIndex::ActiveIndices::IndexExists(PropertyId /**/) const {
   spdlog::warn("Edge index related operations are not yet supported using on-disk storage mode.");
   return false;
 }
 
-std::vector<PropertyId> DiskEdgePropertyIndex::ActiveIndices::ListIndices(uint64_t start_timestamp) const {
+bool DiskEdgePropertyIndex::ActiveIndices::IndexReady(PropertyId /**/) const {
+  spdlog::warn("Edge index related operations are not yet supported using on-disk storage mode.");
+  return false;
+}
+
+std::vector<PropertyId> DiskEdgePropertyIndex::ActiveIndices::ListIndices(uint64_t /**/) const {
   spdlog::warn("Edge index related operations are not yet supported using on-disk storage mode.");
   return {};
 }
@@ -60,7 +65,7 @@ EdgePropertyIndex::AbortProcessor DiskEdgePropertyIndex::ActiveIndices::GetAbort
 }
 
 void DiskEdgePropertyIndex::ActiveIndices::AbortEntries(EdgePropertyIndex::AbortableInfo const &info,
-                                                        uint64_t start_timestamp){
+                                                        uint64_t start_timestamp) {
 
 };
 

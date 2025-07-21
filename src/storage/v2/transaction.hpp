@@ -23,7 +23,7 @@
 #include "utils/skip_list.hpp"
 
 #include "delta_container.hpp"
-#include "storage/v2/auto_indexer.hpp"
+#include "storage/v2/async_indexer.hpp"
 #include "storage/v2/constraint_verification_info.hpp"
 #include "storage/v2/delta.hpp"
 #include "storage/v2/edge.hpp"
@@ -80,7 +80,7 @@ struct AutoIndexHelper {
     }
   }
 
-  void DispatchRequests(AutoIndexer &auto_indexer);
+  void DispatchRequests(AsyncIndexer &async_indexer);
 
  private:
   struct LabelIndexInfo {

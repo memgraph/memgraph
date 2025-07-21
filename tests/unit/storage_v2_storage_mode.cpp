@@ -24,6 +24,7 @@
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage_test_utils.hpp"
+#include "tests/test_commit_args_helper.hpp"
 #include "utils/exceptions.hpp"
 
 class StorageModeTest : public ::testing::TestWithParam<memgraph::storage::StorageMode> {
@@ -61,7 +62,7 @@ TEST_P(StorageModeTest, Mode) {
     }
   }
 
-  ASSERT_FALSE(creator->PrepareForCommitPhase().HasError());
+  ASSERT_FALSE(creator->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
 }
 
 INSTANTIATE_TEST_SUITE_P(ParameterizedStorageModeTests, StorageModeTest, ::testing::ValuesIn(storage_modes),
