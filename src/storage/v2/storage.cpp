@@ -13,7 +13,6 @@
 #include <shared_mutex>
 #include <tuple>
 
-#include "query/exceptions.hpp"
 #include "spdlog/spdlog.h"
 
 #include "flags/experimental.hpp"
@@ -22,6 +21,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/schema_info_glue.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/storage_error.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -687,7 +687,7 @@ utils::BasicResult<storage::StorageIndexDefinitionError, void> Storage::Accessor
     transaction_.md_deltas.emplace_back(MetadataDelta::text_index_create, index_name, label);
     memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextIndices);
   } catch (const query::TextSearchException &e) {
-    return storage::StorageIndexDefinitionError{};
+    return storage::StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   return {};
 }
@@ -700,7 +700,7 @@ utils::BasicResult<storage::StorageIndexDefinitionError, void> Storage::Accessor
     transaction_.md_deltas.emplace_back(MetadataDelta::text_index_drop, index_name, deleted_index_label);
     memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTextIndices);
   } catch (const query::TextSearchException &e) {
-    return storage::StorageIndexDefinitionError{};
+    return storage::StorageIndexDefinitionError{StorageIndexDefinitionError{}};
   }
   return {};
 }

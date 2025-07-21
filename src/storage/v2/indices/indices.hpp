@@ -12,7 +12,6 @@
 #pragma once
 
 #include <memory>
-#include <span>
 
 #include "storage/v2/indices/active_indices.hpp"
 #include "storage/v2/indices/edge_property_index.hpp"
@@ -24,7 +23,6 @@
 #include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
-#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/storage_mode.hpp"
 
 namespace memgraph::storage {

@@ -3949,17 +3949,11 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
   auto *text_index_query = utils::Downcast<TextIndexQuery>(parsed_query.query);
   std::function<void(Notification &)> handler;
 
-  // TODO: we will need transaction for replication
   MG_ASSERT(current_db.db_acc_, "Text index query expects a current DB");
   auto &db_acc = *current_db.db_acc_;
 
   MG_ASSERT(current_db.db_transactional_accessor_, "Text index query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
-
-  // Creating an index influences computed plan costs. // TODO: is this needed for indices that don't utilize planner?
-  auto invalidate_plan_cache = [plan_cache = db_acc->plan_cache()] {
-    plan_cache->WithLock([&](auto &cache) { cache.reset(); });
-  };
 
   auto *storage = db_acc->storage();
   auto label_name = text_index_query->label_.name;
@@ -3971,10 +3965,8 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
     case TextIndexQuery::Action::CREATE: {
       index_notification.code = NotificationCode::CREATE_INDEX;
       index_notification.title = fmt::format("Created text index on label {}.", label_name);
-      handler = [dba, label, index_name, invalidate_plan_cache = std::move(invalidate_plan_cache),
-                 label_name = std::move(label_name)](Notification &index_notification) {
+      handler = [dba, label, index_name, label_name = std::move(label_name)](Notification &index_notification) {
         auto maybe_error = dba->CreateTextIndex(index_name, label);
-        utils::OnScopeExit invalidator(invalidate_plan_cache);
         if (maybe_error.HasError()) {
           index_notification.code = NotificationCode::EXISTENT_INDEX;
           index_notification.title =
@@ -3986,10 +3978,8 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
     case TextIndexQuery::Action::DROP: {
       index_notification.code = NotificationCode::DROP_INDEX;
       index_notification.title = fmt::format("Dropped text index {}.", index_name);
-      handler = [dba, index_name,
-                 invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
+      handler = [dba, index_name](Notification &index_notification) {
         auto maybe_error = dba->DropTextIndex(index_name);
-        utils::OnScopeExit invalidator(invalidate_plan_cache);
         if (maybe_error.HasError()) {
           index_notification.code = NotificationCode::NONEXISTENT_INDEX;
           index_notification.title = fmt::format("Text index with name {} doesn't exist.", index_name);

@@ -2372,13 +2372,10 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
     // NOTE: while this was experimental and hence optional
     //       it must be last in the SECTION_INDICES
     {
-      auto size = snapshot.ReadUint();
-      if (!size) {
-        spdlog::warn("Couldn't read the number of text indices. Assuming 0.");
-        size = 0;
-      }
-      spdlog::info("Recovering metadata of {} text indices.", *size);
-      for (uint64_t i = 0; i < *size; ++i) {
+      auto size_opt = snapshot.ReadUint();
+      const auto size = size_opt.value_or(0);
+      spdlog::info("Recovering metadata of {} text indices.", size);
+      for (uint64_t i = 0; i < size; ++i) {
         auto index_name = snapshot.ReadString();
         if (!index_name.has_value()) throw RecoveryFailure("Couldn't read text index name!");
         auto label = snapshot.ReadUint();
@@ -2821,13 +2818,10 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
     // NOTE: while this was experimental and hence optional
     //       it must be last in the SECTION_INDICES
     {
-      auto size = snapshot.ReadUint();
-      if (!size) {
-        spdlog::warn("Couldn't read the number of text indices. Assuming 0.");
-        size = 0;
-      }
-      spdlog::info("Recovering metadata of {} text indices.", *size);
-      for (uint64_t i = 0; i < *size; ++i) {
+      auto size_opt = snapshot.ReadUint();
+      const auto size = size_opt.value_or(0);
+      spdlog::info("Recovering metadata of {} text indices.", size);
+      for (uint64_t i = 0; i < size; ++i) {
         auto index_name = snapshot.ReadString();
         if (!index_name.has_value()) throw RecoveryFailure("Couldn't read text index name!");
         auto label = snapshot.ReadUint();
@@ -3288,13 +3282,10 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
     // NOTE: while this was experimental and hence optional
     //       it must be last in the SECTION_INDICES
     {
-      auto size = snapshot.ReadUint();
-      if (!size) {
-        spdlog::warn("Couldn't read the number of text indices. Assuming 0.");
-        size = 0;
-      }
-      spdlog::info("Recovering metadata of {} text indices.", *size);
-      for (uint64_t i = 0; i < *size; ++i) {
+      auto size_opt = snapshot.ReadUint();
+      const auto size = size_opt.value_or(0);
+      spdlog::info("Recovering metadata of {} text indices.", size);
+      for (uint64_t i = 0; i < size; ++i) {
         auto index_name = snapshot.ReadString();
         if (!index_name.has_value()) throw RecoveryFailure("Couldn't read text index name!");
         auto label = snapshot.ReadUint();
@@ -3827,13 +3818,10 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
     // NOTE: while this was experimental and hence optional
     //       it must be last in the SECTION_INDICES
     {
-      auto size = snapshot.ReadUint();
-      if (!size) {
-        spdlog::warn("Couldn't read the number of text indices. Assuming 0.");
-        size = 0;
-      }
-      spdlog::info("Recovering metadata of {} text indices.", *size);
-      for (uint64_t i = 0; i < *size; ++i) {
+      auto size_opt = snapshot.ReadUint();
+      const auto size = size_opt.value_or(0);
+      spdlog::info("Recovering metadata of {} text indices.", size);
+      for (uint64_t i = 0; i < size; ++i) {
         auto index_name = snapshot.ReadString();
         if (!index_name.has_value()) throw RecoveryFailure("Couldn't read text index name!");
         auto label = snapshot.ReadUint();
@@ -4413,13 +4401,10 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
     // NOTE: while this was experimental and hence optional
     //       it must be last in the SECTION_INDICES
     {
-      auto size = snapshot.ReadUint();
-      if (!size) {
-        spdlog::warn("Couldn't read the number of text indices. Assuming 0.");
-        size = 0;
-      }
-      spdlog::info("Recovering metadata of {} text indices.", *size);
-      for (uint64_t i = 0; i < *size; ++i) {
+      auto size_opt = snapshot.ReadUint();
+      const auto size = size_opt.value_or(0);
+      spdlog::info("Recovering metadata of {} text indices.", size);
+      for (uint64_t i = 0; i < size; ++i) {
         auto index_name = snapshot.ReadString();
         if (!index_name.has_value()) throw RecoveryFailure("Couldn't read text index name!");
         auto label = snapshot.ReadUint();
@@ -4994,13 +4979,10 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
     // NOTE: while this was experimental and hence optional
     //       it must be last in the SECTION_INDICES
     {
-      auto size = snapshot.ReadUint();
-      if (!size) {
-        spdlog::warn("Couldn't read the number of text indices. Assuming 0.");
-        size = 0;
-      }
-      spdlog::info("Recovering metadata of {} text indices.", *size);
-      for (uint64_t i = 0; i < *size; ++i) {
+      auto size_opt = snapshot.ReadUint();
+      const auto size = size_opt.value_or(0);
+      spdlog::info("Recovering metadata of {} text indices.", size);
+      for (uint64_t i = 0; i < size; ++i) {
         auto index_name = snapshot.ReadString();
         if (!index_name.has_value()) throw RecoveryFailure("Couldn't read text index name!");
         auto label = snapshot.ReadUint();
@@ -5577,13 +5559,10 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
     // NOTE: while this was experimental and hence optional
     //       it must be last in the SECTION_INDICES
     {
-      auto size = snapshot.ReadUint();
-      if (!size) {
-        spdlog::warn("Couldn't read the number of text indices. Assuming 0.");
-        size = 0;
-      }
-      spdlog::info("Recovering metadata of {} text indices.", *size);
-      for (uint64_t i = 0; i < *size; ++i) {
+      auto size_opt = snapshot.ReadUint();
+      const auto size = size_opt.value_or(0);
+      spdlog::info("Recovering metadata of {} text indices.", size);
+      for (uint64_t i = 0; i < size; ++i) {
         auto index_name = snapshot.ReadString();
         if (!index_name.has_value()) throw RecoveryFailure("Couldn't read text index name!");
         auto label = snapshot.ReadUint();
@@ -6208,13 +6187,10 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
     // NOTE: while this was experimental and hence optional
     //       it must be last in the SECTION_INDICES
     {
-      auto size = snapshot.ReadUint();
-      if (!size) {
-        spdlog::warn("Couldn't recover the number of text indices! Assuming 0.");
-        size = 0;
-      }
-      spdlog::info("Recovering metadata of {} text indices.", *size);
-      for (uint64_t i = 0; i < *size; ++i) {
+      auto size_opt = snapshot.ReadUint();
+      const auto size = size_opt.value_or(0);
+      spdlog::info("Recovering metadata of {} text indices.", size);
+      for (uint64_t i = 0; i < size; ++i) {
         auto index_name = snapshot.ReadString();
         if (!index_name.has_value()) throw RecoveryFailure("Couldn't read text index name!");
         auto label = snapshot.ReadUint();

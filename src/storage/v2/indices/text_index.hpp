@@ -36,7 +36,7 @@ class TextIndex {
   static constexpr std::string_view kTextIndicesDirectory = "text_indices";
   std::filesystem::path text_index_storage_dir_;
 
-  inline std::string MakeIndexPath(const std::string &index_name);
+  inline std::string MakeIndexPath(std::string_view index_name);
 
   void CreateEmptyIndex(const std::string &index_name, LabelId label);
 
@@ -78,7 +78,7 @@ class TextIndex {
       Vertex *vertex, NameIdMapper *name_id_mapper,
       const std::optional<std::vector<mgcxx::text_search::Context *>> &maybe_applicable_text_indices = std::nullopt);
 
-  void UpdateNode(Vertex *vertex, NameIdMapper *name_id_mapper, const std::vector<LabelId> &removed_labels = {});
+  void UpdateNode(Vertex *vertex, NameIdMapper *name_id_mapper);
 
   void RemoveNode(
       Vertex *vertex,

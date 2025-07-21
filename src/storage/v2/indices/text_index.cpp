@@ -26,7 +26,7 @@ std::string GetPropertyName(PropertyId prop_id, NameIdMapper *name_id_mapper) {
   return name_id_mapper->IdToName(prop_id.AsUint());
 }
 
-inline std::string TextIndex::MakeIndexPath(const std::string &index_name) {
+inline std::string TextIndex::MakeIndexPath(std::string_view index_name) {
   return (text_index_storage_dir_ / index_name).string();
 }
 
@@ -130,7 +130,7 @@ void TextIndex::LoadNodeToTextIndices(std::int64_t gid, const nlohmann::json &pr
   }
 
   // NOTE: Text indexes are presently all-property indices. If we allow text indexes restricted to specific properties,
-  // an indexable document should be created for each applicable index.
+  // an indexable document should be created for each applicable index. TODO(@DavIvek): check this
   nlohmann::json document = {};
   document["data"] = properties;
   document["all"] = property_values_as_str;
@@ -177,16 +177,10 @@ void TextIndex::AddNode(
                         StringifyProperties(vertex_properties), applicable_text_indices);
 }
 
-void TextIndex::UpdateNode(Vertex *vertex_after_update, NameIdMapper *name_id_mapper,
-                           const std::vector<LabelId> &removed_labels) {
-  if (!removed_labels.empty()) {
-    auto indexes_to_remove_node_from = GetApplicableTextIndices(removed_labels);
-    RemoveNode(vertex_after_update, indexes_to_remove_node_from);
-  }
-
+void TextIndex::UpdateNode(Vertex *vertex_after_update, NameIdMapper *name_id_mapper) {
   auto applicable_text_indices = GetApplicableTextIndices(vertex_after_update->labels);
   if (applicable_text_indices.empty()) return;
-  RemoveNode(vertex_after_update, applicable_text_indices);  // TODO: is this needed?
+  RemoveNode(vertex_after_update, applicable_text_indices);  // In order to update the node, we first remove it.
   AddNode(vertex_after_update, name_id_mapper, applicable_text_indices);
 }
 
@@ -210,7 +204,7 @@ void TextIndex::UpdateOnRemoveLabel(LabelId label, Vertex *vertex) {
 
 void TextIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
                                     NameIdMapper *name_id_mapper) {
-  // TODO: This will get extended to handle specific properties in the future.
+  // TODO(@DavIvek): This will get extended to handle specific properties in the future.
   UpdateNode(vertex, name_id_mapper);
 }
 
