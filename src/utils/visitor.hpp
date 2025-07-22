@@ -73,7 +73,7 @@ class VisitorBase<R, T> {
  public:
   /// @brief ReturnType of the @c Visit method.
   using ReturnType = R;
-  virtual ~VisitorBase() = default;
+  // virtual ~VisitorBase() = default;
 
   /// @brief Visit an instance of @c T.
   virtual ReturnType Visit(T &) = 0;
@@ -162,6 +162,7 @@ class CompositeVisitorBase<T> {
 template <typename TReturn, class... TVisitable>
 class Visitor : public detail::VisitorBase<TReturn, TVisitable...> {
  public:
+  virtual ~Visitor() = default;
   using typename detail::VisitorBase<TReturn, TVisitable...>::ReturnType;
   using detail::VisitorBase<TReturn, TVisitable...>::Visit;
 };

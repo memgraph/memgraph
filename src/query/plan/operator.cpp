@@ -2599,25 +2599,28 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
 
 namespace {
 
-void CheckWeightType(TypedValue current_weight, utils::MemoryResource *memory) {
+void ValidateWeight(TypedValue current_weight) {
   if (current_weight.IsNull()) {
     return;
   }
 
-  if (!current_weight.IsNumeric() && !current_weight.IsDuration()) {
-    throw QueryRuntimeException("Calculated weight must be numeric or a Duration, got {}.", current_weight.type());
-  }
+  auto value = std::invoke(
+      [&](const TypedValue &tv) -> double {
+        switch (tv.type()) {
+          case TypedValue::Type::Int:
+            return static_cast<double>(tv.ValueInt());
+          case TypedValue::Type::Double:
+            return tv.ValueDouble();
+          case TypedValue::Type::Duration:
+            return static_cast<double>(tv.ValueDuration().microseconds);
+          default:
+            throw QueryRuntimeException("Weight must be numeric or a Duration, got {}.", tv.type());
+        }
+      },
+      current_weight);
 
-  const auto is_valid_numeric = [&] {
-    return current_weight.IsNumeric() && (current_weight >= TypedValue(0, memory)).ValueBool();
-  };
-
-  const auto is_valid_duration = [&] {
-    return current_weight.IsDuration() && (current_weight >= TypedValue(utils::Duration(0), memory)).ValueBool();
-  };
-
-  if (!is_valid_numeric() && !is_valid_duration()) {
-    throw QueryRuntimeException("Calculated weight must be non-negative!");
+  if (value < 0.0) {
+    throw QueryRuntimeException("Weight must be non-negative, got {}.", value);
   }
 }
 
@@ -2632,21 +2635,18 @@ void ValidateWeightTypes(const TypedValue &lhs, const TypedValue &rhs) {
 }
 
 TypedValue CalculateNextWeight(const std::optional<memgraph::query::plan::ExpansionLambda> &weight_lambda,
-                               const TypedValue &total_weight, ExpressionEvaluator evaluator) {
+                               const TypedValue &total_weight, ExpressionEvaluator &evaluator) {
   if (!weight_lambda) {
     return {};
   }
-  auto *memory = evaluator.GetMemoryResource();
   TypedValue current_weight = weight_lambda->expression->Accept(evaluator);
-  CheckWeightType(current_weight, memory);
-
+  ValidateWeight(current_weight);
   if (total_weight.IsNull()) {
     return current_weight;
   }
-
   ValidateWeightTypes(current_weight, total_weight);
 
-  return TypedValue(current_weight, memory) + total_weight;
+  return current_weight + total_weight;
 }
 
 }  // namespace
@@ -3236,7 +3236,12 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         cheapest_cost_[*start_vertex] = 0;
         visited_cost_.emplace(*start_vertex,
                               std::vector<std::pair<TypedValue, int64_t>>{std::make_pair(TypedValue(0, memory), 0)});
-        frame[self_.common_.edge_symbol] = TypedValue::TVector(memory);
+
+        auto new_vector = TypedValue::TVector(memory);
+        if (upper_bound_set_ && upper_bound_ > 0) {
+          new_vector.reserve(upper_bound_);
+        }
+        frame[self_.common_.edge_symbol] = std::move(new_vector);
       }
 
       // Create a DFS traversal tree from the start node
