@@ -309,3 +309,15 @@ Feature: All Shortest Path
       Then the result should be:
           | path   | total_weight   |
           | <(:station {arrival: 08:00:00.000000000, departure: 08:15:00.000000000, name: 'A'})-[:ride {duration: PT1H5M, id: 1}]->(:station {arrival: 09:20:00.000000000, departure: 09:30:00.000000000, name: 'B'})-[:ride {duration: PT30M, id: 2}]->(:station {arrival: 10:00:00.000000000, departure: 10:20:00.000000000, name: 'C'})> | PT2H20M  |
+
+    Scenario: Test match AllShortest with edge case
+      Given graph "graph_wsp_edge_case"
+      And with new index :Node
+      When executing query:
+          """
+          MATCH (n:Start) WHERE n.id = 1
+          MATCH p=(n)-[r*allshortest ..3 (e, v | e.cost)]->(k:Node) return DISTINCT count(p) as cnt;
+          """
+      Then the result should be:
+          | cnt |
+          | 5   |
