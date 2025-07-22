@@ -36,9 +36,10 @@ class TextIndex {
   static constexpr bool kDoSkipCommit = true;
   static constexpr std::string_view kTextIndicesDirectory = "text_indices";
   std::filesystem::path text_index_storage_dir_;
-  std::shared_mutex text_index_mutex_;  // This mutex is used to protect add_document, remove_document and commit
-                                        // operations. Underlying Tantivy IndexWriter requires unique lock for commit
-                                        // operation and shared lock for add_document and remove_document operations.
+  std::shared_mutex
+      text_index_mutex_;  // This mutex is used to protect add_document, remove_document, commit and rollback
+                          // operations. Underlying Tantivy IndexWriter requires unique lock for commit and rollback
+                          // operations and shared lock for add_document and remove_document operations.
 
   inline std::string MakeIndexPath(std::string_view index_name);
 
