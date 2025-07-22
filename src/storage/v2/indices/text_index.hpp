@@ -35,11 +35,18 @@ class TextIndex {
  private:
   static constexpr bool kDoSkipCommit = true;
   static constexpr std::string_view kTextIndicesDirectory = "text_indices";
+
+  // Boolean operators that should be preserved in uppercase for Tantivy
+  static constexpr std::string_view kBooleanAnd = "AND";
+  static constexpr std::string_view kBooleanOr = "OR";
+  static constexpr std::string_view kBooleanNot = "NOT";
+
   std::filesystem::path text_index_storage_dir_;
   std::shared_mutex
       text_index_mutex_;  // This mutex is used to protect add_document, remove_document, commit and rollback
                           // operations. Underlying Tantivy IndexWriter requires unique lock for commit and rollback
                           // operations and shared lock for add_document and remove_document operations.
+                          // TODO(@DavIvek): Better approach would be to add locking on mgcxx side.
 
   inline std::string MakeIndexPath(std::string_view index_name);
 
@@ -49,6 +56,8 @@ class TextIndex {
   nlohmann::json SerializeProperties(const std::map<PropertyId, PropertyValue> &properties, T *name_resolver);
 
   static std::string StringifyProperties(const std::map<PropertyId, PropertyValue> &properties);
+
+  static std::string ToLowerCasePreservingBooleanOperators(std::string_view input);
 
   std::vector<mgcxx::text_search::Context *> GetApplicableTextIndices(std::span<storage::LabelId const> labels);
 

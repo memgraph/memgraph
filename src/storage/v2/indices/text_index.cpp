@@ -115,6 +115,38 @@ std::string TextIndex::StringifyProperties(const std::map<PropertyId, PropertyVa
   return utils::Join(indexable_properties_as_string, " ");
 }
 
+std::string TextIndex::ToLowerCasePreservingBooleanOperators(std::string_view input) {
+  if (input.empty()) return {};
+
+  std::string result;
+  result.reserve(input.length());
+
+  auto it = input.begin();
+  while (it != input.end()) {
+    if (std::isspace(*it)) {
+      result += *it++;
+      continue;
+    }
+
+    auto word_start = it;
+    it = std::ranges::find_if(word_start, input.end(), [](char c) { return std::isspace(c); });
+
+    // Extract the word
+    auto word = input.substr(word_start - input.begin(), it - word_start);
+    auto uppercase_word = utils::ToUpperCase(word);
+
+    // Check if it's a boolean operator (case-insensitive)
+    if (uppercase_word == kBooleanAnd || uppercase_word == kBooleanOr || uppercase_word == kBooleanNot) {
+      // Preserve the boolean operator in uppercase
+      result += uppercase_word;
+    } else {
+      result += utils::ToLowerCase(word);
+    }
+  }
+
+  return result;
+}
+
 std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(
     std::span<storage::LabelId const> labels) {
   std::vector<mgcxx::text_search::Context *> applicable_text_indices;
@@ -341,13 +373,13 @@ std::vector<Gid> TextIndex::Search(const std::string &index_name, const std::str
   mgcxx::text_search::SearchOutput search_results;
   switch (search_mode) {
     case text_search_mode::SPECIFIED_PROPERTIES:
-      search_results = SearchGivenProperties(index_name, utils::ToLowerCase(search_query));
+      search_results = SearchGivenProperties(index_name, ToLowerCasePreservingBooleanOperators(search_query));
       break;
     case text_search_mode::REGEX:
-      search_results = RegexSearch(index_name, utils::ToLowerCase(search_query));
+      search_results = RegexSearch(index_name, ToLowerCasePreservingBooleanOperators(search_query));
       break;
     case text_search_mode::ALL_PROPERTIES:
-      search_results = SearchAllProperties(index_name, utils::ToLowerCase(search_query));
+      search_results = SearchAllProperties(index_name, ToLowerCasePreservingBooleanOperators(search_query));
       break;
     default:
       throw query::TextSearchException(

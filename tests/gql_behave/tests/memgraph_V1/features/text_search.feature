@@ -208,6 +208,53 @@ Feature: Text search related features
             | title       | version |
             | 'Rules2030' | 1       |
 
+    Scenario: Case-insensitive regex search with lowercase query
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX testIndex ON :Document
+            """
+        And having executed
+            """
+            CREATE (:Document {title: 'TITLE ONE'})
+            CREATE (:Document {title: 'title two'})
+            CREATE (:Document {title: 'Title Three'})
+            """
+        When executing query:
+            """
+            CALL text_search.regex_search('testIndex', 't.*') YIELD node
+            RETURN node.title AS title
+            ORDER BY title ASC
+            """
+        Then the result should be:
+            | title         |
+            | 'TITLE ONE'   |
+            | 'Title Three' |
+            | 'title two'   |
+
+    Scenario: Case-insensitive regex search with uppercase query
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX testIndex ON :Document
+            """
+        And having executed
+            """
+            CREATE (:Document {content: 'Testing REGEX patterns'})
+            CREATE (:Document {content: 'regex TESTING patterns'})
+            CREATE (:Document {content: 'No match here'})
+            """
+        When executing query:
+            """
+            CALL text_search.regex_search('testIndex', 'T.*G') YIELD node
+            RETURN node.content AS content
+            ORDER BY content ASC
+            """
+        Then the result should be:
+            | content                    |
+            | 'Testing REGEX patterns'   |
+            | 'regex TESTING patterns'   |
+
     Scenario: Search on nonexistent text index raises error
         Given an empty graph
         When executing query:
