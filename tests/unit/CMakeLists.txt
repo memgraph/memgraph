@@ -380,6 +380,9 @@ target_link_libraries(${test_prefix}storage_v2_gc mg::storage)
 add_unit_test(storage_v2_indices.cpp)
 target_link_libraries(${test_prefix}storage_v2_indices mg::storage mg-utils)
 
+add_unit_test(storage_v2_auto_index_edge_count.cpp)
+target_link_libraries(${test_prefix}storage_v2_auto_index_edge_count mg::storage mg-utils)
+
 add_unit_test(storage_v2_name_id_mapper.cpp)
 target_link_libraries(${test_prefix}storage_v2_name_id_mapper mg::storage)
 

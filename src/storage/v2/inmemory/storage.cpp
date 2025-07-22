@@ -3300,19 +3300,32 @@ void InMemoryStorage::InMemoryAccessor::DropGraph() {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   // we take the control from the GC to clear any deltas
-  auto gc_guard = std::unique_lock{mem_storage->gc_lock_};
-  mem_storage->garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) { garbage_undo_buffers.clear(); });
-  mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) { committed_transactions.clear(); });
+  {
+    auto gc_guard = std::unique_lock{mem_storage->gc_lock_};
+    mem_storage->garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) { garbage_undo_buffers.clear(); });
+    mem_storage->committed_transactions_.WithLock(
+        [&](auto &committed_transactions) { committed_transactions.clear(); });
+    mem_storage->deleted_vertices_->clear();
+    mem_storage->deleted_edges_->clear();
+  }
 
   // also, we're the only transaction running, so we can safely remove the data as well
   mem_storage->indices_.DropGraphClearIndices();
   mem_storage->constraints_.DropGraphClearConstraints();
+
+  if (mem_storage->auto_indexer_) {
+    mem_storage->auto_indexer_->Clear();
+  }
 
   if (mem_storage->config_.salient.items.enable_schema_info) mem_storage->schema_info_.Clear();
 
   mem_storage->vertices_.clear();
   mem_storage->edges_.clear();
   mem_storage->edge_count_.store(0, std::memory_order_release);
+  mem_storage->edges_metadata_.clear();
+  mem_storage->edges_metadata_.run_gc();
+  mem_storage->stored_node_labels_.clear();
+  mem_storage->stored_edge_types_.clear();
 
   memory::PurgeUnusedMemory();
 }

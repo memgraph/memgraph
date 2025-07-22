@@ -29,12 +29,12 @@ AutoIndexer::AutoIndexer(std::stop_token stop_token, Storage *storage) {
 
       auto access = request_queue_.access();
       auto it_end = access.end();
-      auto backoff = std::chrono::milliseconds(1000);
+      auto backoff = std::chrono::milliseconds(100);
       for (auto it = access.begin(); it != it_end;) {
         try {
           // If we wait forever for the read only lock it will block new writes
           auto const storage_acc =
-              storage->ReadOnlyAccess(IsolationLevel::SNAPSHOT_ISOLATION, std::chrono::milliseconds(500));
+              storage->ReadOnlyAccess(IsolationLevel::SNAPSHOT_ISOLATION, std::chrono::milliseconds(1000));
 
           // Creating an index can only fail due to db shutdown or if the index manually got created
           // so there is not need to handle errors
@@ -52,12 +52,12 @@ AutoIndexer::AutoIndexer(std::stop_token stop_token, Storage *storage) {
           auto const next_it = std::next(it);
           access.remove(*it);
           it = next_it;
-          backoff = std::chrono::milliseconds(1000);
+          backoff = std::chrono::milliseconds(100);
         } catch (ReadOnlyAccessTimeout &) {
-          spdlog::info("Auto-indexing async creation, was blocked by other transactions. Retrying in {} second.",
-                       std::chrono::duration_cast<std::chrono::seconds>(backoff).count());
+          spdlog::info("Auto-indexing async creation, was blocked by other transactions. Retrying in {} ms.",
+                       backoff.count());
           std::this_thread::sleep_for(backoff);
-          backoff *= 2;
+          backoff = std::min(backoff * 3 / 2, std::chrono::milliseconds(2000));  // 1.5x multiplier, max 2s
         }
       }
     }
