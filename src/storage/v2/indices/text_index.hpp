@@ -12,6 +12,7 @@
 #pragma once
 
 #include <nlohmann/json_fwd.hpp>
+#include <shared_mutex>
 #include "mg_procedure.h"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/name_id_mapper.hpp"
@@ -35,6 +36,9 @@ class TextIndex {
   static constexpr bool kDoSkipCommit = true;
   static constexpr std::string_view kTextIndicesDirectory = "text_indices";
   std::filesystem::path text_index_storage_dir_;
+  std::shared_mutex text_index_mutex_;  // This mutex is used to protect add_document, remove_document and commit
+                                        // operations. Underlying Tantivy IndexWriter requires unique lock for commit
+                                        // operation and shared lock for add_document and remove_document operations.
 
   inline std::string MakeIndexPath(std::string_view index_name);
 
@@ -47,11 +51,11 @@ class TextIndex {
 
   std::vector<mgcxx::text_search::Context *> GetApplicableTextIndices(std::span<storage::LabelId const> labels);
 
-  static void LoadNodeToTextIndices(std::int64_t gid, const nlohmann::json &properties,
-                                    const std::string &property_values_as_str,
-                                    const std::vector<mgcxx::text_search::Context *> &applicable_text_indices);
+  void LoadNodeToTextIndices(std::int64_t gid, const nlohmann::json &properties,
+                             const std::string &property_values_as_str,
+                             const std::vector<mgcxx::text_search::Context *> &applicable_text_indices);
 
-  static void CommitLoadedNodes(mgcxx::text_search::Context &index_context);
+  void CommitLoadedNodes(mgcxx::text_search::Context &index_context);
 
   mgcxx::text_search::SearchOutput SearchGivenProperties(const std::string &index_name,
                                                          const std::string &search_query);

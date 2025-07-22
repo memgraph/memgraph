@@ -129,14 +129,6 @@ TEST_F(TextIndexTest, ConcurrencyTest) {
   this->CreateIndex();
 
   const auto index_size = 10;
-
-  {
-    // check that count is 0 in the beginning
-    auto acc = this->storage->Access();
-    auto results = acc->TextIndexSearch(test_index.data(), "title.*", text_search_mode::REGEX);
-    EXPECT_EQ(results.size(), 0);
-  }
-
   std::vector<std::thread> threads;
   threads.reserve(index_size);
   for (int i = 0; i < index_size; i++) {

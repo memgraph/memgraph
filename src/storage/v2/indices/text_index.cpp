@@ -18,6 +18,9 @@
 #include "storage/v2/view.hpp"
 #include "utils/string.hpp"
 
+#include <iterator>
+#include <mutex>
+#include <shared_mutex>
 #include <span>
 #include <vector>
 
@@ -142,6 +145,7 @@ void TextIndex::LoadNodeToTextIndices(std::int64_t gid, const nlohmann::json &pr
 
   for (auto *index_context : applicable_text_indices) {
     try {
+      std::shared_lock lock(text_index_mutex_);
       mgcxx::text_search::add_document(
           *index_context,
           mgcxx::text_search::DocumentInput{
@@ -158,6 +162,7 @@ void TextIndex::CommitLoadedNodes(mgcxx::text_search::Context &index_context) {
   // the code area where changes to indices are committed. To get around that without needing to commit text indices
   // after every such query, we commit here.
   try {
+    std::lock_guard lock(text_index_mutex_);
     mgcxx::text_search::commit(index_context);
   } catch (const std::exception &e) {
     throw query::TextSearchException("Tantivy error: {}", e.what());
@@ -216,6 +221,7 @@ void TextIndex::RemoveNode(
   for (auto *index_context :
        maybe_applicable_text_indices.value_or(GetApplicableTextIndices(vertex_after_update->labels))) {
     try {
+      std::shared_lock lock(text_index_mutex_);
       mgcxx::text_search::delete_document(*index_context, search_node_to_be_deleted, kDoSkipCommit);
     } catch (const std::exception &e) {
       throw query::TextSearchException("Tantivy error: {}", e.what());
@@ -386,12 +392,14 @@ std::string TextIndex::Aggregate(const std::string &index_name, const std::strin
 
 void TextIndex::Commit() {
   for (auto &[_, index_data] : index_) {
+    std::lock_guard lock(text_index_mutex_);
     mgcxx::text_search::commit(index_data.context_);
   }
 }
 
 void TextIndex::Rollback() {
   for (auto &[_, index_data] : index_) {
+    std::lock_guard lock(text_index_mutex_);
     mgcxx::text_search::rollback(index_data.context_);
   }
 }
