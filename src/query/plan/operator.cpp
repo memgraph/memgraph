@@ -2621,7 +2621,7 @@ void ValidateWeight(TypedValue current_weight) {
 }
 
 void ValidateWeightTypes(const TypedValue &lhs, const TypedValue &rhs) {
-  if ((lhs.IsNumeric() && rhs.IsNumeric()) || (lhs.IsDuration() && rhs.IsDuration())) {
+  if ((lhs.IsNumeric() && rhs.IsNumeric()) || (lhs.IsDuration() && rhs.IsDuration())) [[likely]] {
     return;
   }
   throw QueryRuntimeException(utils::MessageWithLink(
@@ -3010,8 +3010,8 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       // Check if the vertex has already been processed.
       if (found_it != visited_cost_.end()) {
         auto &weights = found_it->second;
-        bool insert = std::ranges::none_of(weights, [depth, next_weight](const auto &entry) {
-          auto [old_weight, old_depth] = entry;
+        bool insert = std::ranges::none_of(weights, [&depth, &next_weight](const auto &entry) {
+          auto const &[old_weight, old_depth] = entry;
           return old_depth <= depth && (old_weight < next_weight).ValueBool() && !are_equal(old_weight, next_weight);
         });
 
@@ -3034,8 +3034,8 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         cheapest_cost_[next_vertex] = next_weight;
       }
 
-      DirectedEdge directed_edge = {edge, direction, next_weight};
-      pq_.emplace(next_weight, depth + 1, next_vertex, directed_edge, curr_acc_path);
+      pq_.emplace(std::move(next_weight), depth + 1, next_vertex, DirectedEdge{edge, direction, next_weight},
+                  std::move(curr_acc_path));
     };
 
     auto restore_frame_state_after_expansion = [this, &frame]() {
@@ -3112,12 +3112,14 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       frame[self_.total_weight_.value()] = current_weight;
 
       if (next_edges_.find({next_vertex, traversal_stack_.size()}) != next_edges_.end()) {
-        auto next_vertex_edges = next_edges_[{next_vertex, traversal_stack_.size()}];
-        traversal_stack_.emplace_back(std::move(next_vertex_edges));
+        auto [it, inserted] =
+            next_edges_.try_emplace({next_vertex, traversal_stack_.size()}, utils::pmr::list<DirectedEdge>(memory));
+
+        // Need to propagate the allocator
+        traversal_stack_.emplace_back(utils::pmr::list<DirectedEdge>(it->second, memory));
       } else {
         // Signal the end of iteration
-        utils::pmr::list<DirectedEdge> empty(memory);
-        traversal_stack_.emplace_back(std::move(empty));
+        traversal_stack_.emplace_back(utils::pmr::list<DirectedEdge>(memory));
       }
 
       auto cheapest_cost = cheapest_cost_.find(next_vertex)->second;
@@ -3249,8 +3251,8 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
       // DFS traversal tree is create,
       if (start_vertex && next_edges_.find({*start_vertex, 0}) != next_edges_.end()) {
-        auto start_vertex_edges = next_edges_[{*start_vertex, 0}];
-        traversal_stack_.emplace_back(std::move(start_vertex_edges));
+        auto [it, inserted] = next_edges_.try_emplace({*start_vertex, 0}, utils::pmr::list<DirectedEdge>(memory));
+        traversal_stack_.emplace_back(it->second);
       }
     }
   }
