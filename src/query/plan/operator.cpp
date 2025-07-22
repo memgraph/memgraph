@@ -2934,10 +2934,15 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
 };
 
 namespace {
-bool are_equal(const TypedValue &lhs, const TypedValue &rhs) {
-  double l = lhs.IsDouble() ? lhs.ValueDouble() : lhs.ValueInt();
-  double r = rhs.IsDouble() ? rhs.ValueDouble() : rhs.ValueInt();
-  return std::abs(l - r) < 1e-6;
+
+// Numerical error can only happen with doubles
+inline bool are_equal(const TypedValue &lhs, const TypedValue &rhs) {
+  if (!lhs.IsDouble() || !rhs.IsDouble()) return false;
+  auto l = lhs.ValueDouble();
+  auto r = rhs.ValueDouble();
+  auto diff = std::abs(l - r);
+  if (diff < 1e-12) return true;  // relative comparison doesn't work well if numbers are near zero
+  return std::abs(lhs.ValueDouble() - rhs.ValueDouble()) < std::max(l, r) * 1e-12;
 }
 }  // namespace
 
@@ -3119,7 +3124,6 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         traversal_stack_.emplace_back(std::move(empty));
       }
 
-      // TODO correct?
       auto cheapest_cost = cheapest_cost_.find(next_vertex)->second;
       if ((current_weight > cheapest_cost).ValueBool() && !are_equal(current_weight, cheapest_cost)) return false;
 
