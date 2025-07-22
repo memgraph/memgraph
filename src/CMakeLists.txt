@@ -62,7 +62,6 @@ target_link_libraries(memgraph "-Wl,--dynamic-list=${CMAKE_SOURCE_DIR}/include/m
 set_target_properties(memgraph PROPERTIES
     OUTPUT_NAME "memgraph"
     INSTALL_RPATH "\$ORIGIN"
-    INSTALL_RPATH_USE_LINK_PATH TRUE
     # Output the executable in main binary dir.
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
     POSITION_INDEPENDENT_CODE ON
@@ -111,8 +110,62 @@ install(TARGETS memgraph
 # Install custom libstdc++
 get_property(CUSTOM_LIBSTDCXX_PATH GLOBAL PROPERTY MG_CUSTOM_LIBSTDCXX_PATH)
 message(STATUS "Installing custom libstdc++.so.6: ${CUSTOM_LIBSTDCXX_PATH}")
+
+# Get the directory of the custom libstdc++
+get_filename_component(CUSTOM_LIBSTDCXX_DIR "${CUSTOM_LIBSTDCXX_PATH}" DIRECTORY)
+
+# Function to collect all files in a symbolic link chain
+function(collect_symlink_chain START_PATH RESULT_LIST)
+    set(CURRENT_PATH "${START_PATH}")
+    set(COLLECTED_FILES "")
+
+    # Follow the symbolic link chain
+    while(IS_SYMLINK "${CURRENT_PATH}")
+        # Add current file to the list
+        list(APPEND COLLECTED_FILES "${CURRENT_PATH}")
+
+        # Read the symbolic link target
+        execute_process(
+            COMMAND readlink "${CURRENT_PATH}"
+            OUTPUT_VARIABLE SYMLINK_TARGET
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+
+        # Construct the full path to the target file
+        get_filename_component(CURRENT_DIR "${CURRENT_PATH}" DIRECTORY)
+        set(CURRENT_PATH "${CURRENT_DIR}/${SYMLINK_TARGET}")
+
+        # Safety check to prevent infinite loops
+        if(CURRENT_PATH IN_LIST COLLECTED_FILES)
+            message(WARNING "Circular symbolic link detected at: ${CURRENT_PATH}")
+            break()
+        endif()
+    endwhile()
+
+    # Add the final file (non-symlink) to the list
+    list(APPEND COLLECTED_FILES "${CURRENT_PATH}")
+
+    # Return the collected files
+    set(${RESULT_LIST} "${COLLECTED_FILES}" PARENT_SCOPE)
+endfunction()
+
+# Collect all files in the symbolic link chain
+collect_symlink_chain("${CUSTOM_LIBSTDCXX_PATH}" FILES_TO_INSTALL)
+
+# Log what we found
+list(LENGTH FILES_TO_INSTALL NUM_FILES)
+if(IS_SYMLINK "${CUSTOM_LIBSTDCXX_PATH}")
+    message(STATUS "Found symbolic link chain with ${NUM_FILES} files:")
+    foreach(FILE_PATH ${FILES_TO_INSTALL})
+        message(STATUS "  - ${FILE_PATH}")
+    endforeach()
+else()
+    message(STATUS "Installing regular file: ${CUSTOM_LIBSTDCXX_PATH}")
+endif()
+
+# Install all files in the chain
 install(FILES
-    ${CUSTOM_LIBSTDCXX_PATH}
+    ${FILES_TO_INSTALL}
     DESTINATION lib/memgraph
     PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
                 GROUP_READ GROUP_EXECUTE
@@ -172,7 +225,6 @@ target_link_options(mg_import_csv PRIVATE -nostdlib++)
 # Set RPATH for custom libstdc++
 set_target_properties(mg_import_csv PROPERTIES
     INSTALL_RPATH "\$ORIGIN/../lib/memgraph"
-    INSTALL_RPATH_USE_LINK_PATH TRUE
 )
 
 # Strip the executable in release build.
