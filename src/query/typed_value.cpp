@@ -1282,6 +1282,7 @@ bool IsTemporalType(const TypedValue::Type type) {
 };
 }  // namespace
 
+// TODO: make it faster
 TypedValue operator<(const TypedValue &a, const TypedValue &b) {
   auto is_legal = [](TypedValue::Type type) {
     switch (type) {
