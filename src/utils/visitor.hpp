@@ -55,8 +55,13 @@ namespace memgraph::utils {
 
 // Don't use anonymous namespace, because each translation unit will then get a
 // unique type. This may cause errors if one wants to check the type.
+
 namespace detail {
 
+// No need to dispatch virtual destructor to base classes because visitor is stateless
+// Virtual destructor moved to Visitor
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnon-virtual-dtor"
 template <typename R, class... T>
 class VisitorBase;
 
@@ -67,18 +72,16 @@ class VisitorBase<R, Head, Tail...> : public VisitorBase<R, Tail...> {
   using VisitorBase<R, Tail...>::Visit;
   virtual ReturnType Visit(Head &) = 0;
 };
-
 template <typename R, class T>
 class VisitorBase<R, T> {
  public:
   /// @brief ReturnType of the @c Visit method.
   using ReturnType = R;
-  virtual ~VisitorBase() = default;
 
   /// @brief Visit an instance of @c T.
   virtual ReturnType Visit(T &) = 0;
 };
-
+#pragma clang diagnostic pop
 template <class... T>
 class CompositeVisitorBase;
 
@@ -162,6 +165,7 @@ class CompositeVisitorBase<T> {
 template <typename TReturn, class... TVisitable>
 class Visitor : public detail::VisitorBase<TReturn, TVisitable...> {
  public:
+  virtual ~Visitor() = default;
   using typename detail::VisitorBase<TReturn, TVisitable...>::ReturnType;
   using detail::VisitorBase<TReturn, TVisitable...>::Visit;
 };
