@@ -3017,8 +3017,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
         if (!insert) return;
         std::erase_if(weights, [&next_weight, depth](const std::pair<TypedValue, int64_t> &p) {
-          return (p.first > next_weight).ValueBool() && p.second <= depth &&
-                 !are_equal(p.first, next_weight);  // allow same weight to allow multiple paths with same cost
+          return p.second >= depth && ((p.first > next_weight).ValueBool() || are_equal(p.first, next_weight));
         });
         weights.emplace_back(next_weight, depth);
 
@@ -3252,7 +3251,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       // DFS traversal tree is create,
       if (start_vertex && next_edges_.find({*start_vertex, 0}) != next_edges_.end()) {
         auto [it, inserted] = next_edges_.try_emplace({*start_vertex, 0}, utils::pmr::list<DirectedEdge>(memory));
-        traversal_stack_.emplace_back(it->second);
+        traversal_stack_.emplace_back(utils::pmr::list<DirectedEdge>(it->second, memory));
       }
     }
   }
