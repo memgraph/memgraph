@@ -219,6 +219,85 @@ Feature: Nested property Update
             """
         Then an error should be raised
 
+    Scenario: Remove top level property on a node
+        Given an empty graph
+        And having executed
+            """
+            CREATE (n {id: 1, details: {age: 20, details2: {dummy: 1}, name: 'Gareth'}})
+            """
+        When executing query:
+            """
+            MATCH (n)
+            REMOVE n.details
+            RETURN properties(n) as props
+            """
+        Then the result should be:
+            | props   |
+            | {id: 1} |
+
+
+    Scenario: Remove nested property on a node
+        Given an empty graph
+        And having executed
+            """
+            CREATE (n {id: 1, details: {age: 20, details2: {dummy: 1}, name: 'Gareth'}})
+            """
+        When executing query:
+            """
+            MATCH (n)
+            REMOVE n.details.age
+            RETURN properties(n) as props
+            """
+        Then the result should be:
+            | props                                                    |
+            | {id: 1, details: {details2: {dummy: 1}, name: 'Gareth'}} |
+
+    Scenario: Remove deeply nested property on a node
+        Given an empty graph
+        And having executed
+            """
+            CREATE (n {id: 1, details: {age: 20, details2: {dummy: 1}, name: 'Gareth'}})
+            """
+        When executing query:
+            """
+            MATCH (n)
+            REMOVE n.details.details2.dummy
+            RETURN properties(n) as props
+            """
+        Then the result should be:
+            | props                                                     |
+            | {id: 1, details: {age: 20, details2: {}, name: 'Gareth'}} |
+
+    Scenario: Remove nonexistent nested property on a node
+        Given an empty graph
+        And having executed
+            """
+            CREATE (n {id: 1, details: {age: 20, details2: {dummy: 1}, name: 'Gareth'}})
+            """
+        When executing query:
+            """
+            MATCH (n)
+            REMOVE n.details.nonexistent
+            RETURN properties(n) as props
+            """
+        Then the result should be:
+            | props                                                             |
+            | {id: 1, details: {age: 20, details2: {dummy: 1}, name: 'Gareth'}} |
+
+    Scenario: Remove deeply nonexistent nested property on a node
+        Given an empty graph
+        And having executed
+            """
+            CREATE (n {id: 1, details: {age: 20, details2: {dummy: 1}, name: 'Gareth'}})
+            """
+        When executing query:
+            """
+            MATCH (n)
+            REMOVE n.nonexistent.nonexistent
+            RETURN properties(n) as props
+            """
+        Then an error should be raised
+
     Scenario: Set nested property in a map on an edge
         Given an empty graph
         And having executed
@@ -436,3 +515,82 @@ Feature: Nested property Update
         Then the result should be:
             | props                                                                       |
             | {id: 1, details: {age: 20, name: 'Gareth'}, details2: {nested: {class: 1}}} |
+
+    Scenario: Remove top level property on an edge
+        Given an empty graph
+        And having executed
+            """
+            CREATE ()-[:NEXT {id: 1, details: {age: 20, details2: {dummy: 1}, name: 'Gareth'}}]->()
+            """
+        When executing query:
+            """
+            MATCH ()-[r]->()
+            REMOVE r.details
+            RETURN properties(r) as props
+            """
+        Then the result should be:
+            | props   |
+            | {id: 1} |
+
+
+    Scenario: Remove nested property on an edge
+        Given an empty graph
+        And having executed
+            """
+            CREATE ()-[:NEXT {id: 1, details: {age: 20, details2: {dummy: 1}, name: 'Gareth'}}]->()
+            """
+        When executing query:
+            """
+            MATCH ()-[r]->()
+            REMOVE r.details.age
+            RETURN properties(r) as props
+            """
+        Then the result should be:
+            | props                                                    |
+            | {id: 1, details: {details2: {dummy: 1}, name: 'Gareth'}} |
+
+    Scenario: Remove deeply nested property on an edge
+        Given an empty graph
+        And having executed
+            """
+            CREATE ()-[:NEXT {id: 1, details: {age: 20, details2: {dummy: 1}, name: 'Gareth'}}]->()
+            """
+        When executing query:
+            """
+            MATCH ()-[r]->()
+            REMOVE r.details.details2.dummy
+            RETURN properties(r) as props
+            """
+        Then the result should be:
+            | props                                                     |
+            | {id: 1, details: {age: 20, details2: {}, name: 'Gareth'}} |
+
+    Scenario: Remove nonexistent nested property on an edge
+        Given an empty graph
+        And having executed
+            """
+            CREATE ()-[:NEXT {id: 1, details: {age: 20, details2: {dummy: 1}, name: 'Gareth'}}]->()
+            """
+        When executing query:
+            """
+            MATCH ()-[r]->()
+            REMOVE r.details.nonexistent
+            RETURN properties(r) as props
+            """
+        Then the result should be:
+            | props                                                             |
+            | {id: 1, details: {age: 20, details2: {dummy: 1}, name: 'Gareth'}} |
+
+    Scenario: Remove deeply nonexistent nested property on an edge
+        Given an empty graph
+        And having executed
+            """
+            CREATE ()-[:NEXT {id: 1, details: {age: 20, details2: {dummy: 1}, name: 'Gareth'}}]->()
+            """
+        When executing query:
+            """
+            MATCH ()-[r]->()
+            REMOVE r.nonexistent.nonexistent
+            RETURN properties(r) as props
+            """
+        Then an error should be raised

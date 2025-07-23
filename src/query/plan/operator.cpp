@@ -4651,17 +4651,21 @@ bool RemoveNestedProperty::RemoveNestedPropertyCursor::Pull(Frame &frame, Execut
                               context.evaluation_context.memory};
       auto it = current_map->find(key);
       if (it == current_map->end()) {
-        return;
+        throw QueryRuntimeException(fmt::format("Nested property '{}' is nonexistent!", key));
       }
       if (!it->second.IsMap()) {
         throw QueryRuntimeException("Nested structure is not of type map!");
       }
       current_map = &it->second.ValueMap();
     }
+
     TypedValue::TString final_key{
         context.db_accessor->GetStorageAccessor()->PropertyToName(self_.property_path_.back()),
         context.evaluation_context.memory};
-    current_map->emplace(final_key, TypedValue(context.evaluation_context.memory));
+    auto it = current_map->find(final_key);
+    if (it != current_map->end()) {
+      current_map->erase(it);
+    }
 
     auto reconstructed_property_value = TypedValue(old_value_map, context.evaluation_context.memory);
     auto old_stored_value = PropsSetChecked(record, self_.property_path_[0], reconstructed_property_value,
