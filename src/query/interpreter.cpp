@@ -6836,7 +6836,6 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   void Visit(ShowDatabasesQuery &) override {}
   void Visit(ReplicationInfoQuery &) override {}
   void Visit(CoordinatorQuery &) override {}
-  void Visit(UserProfileQuery &) override {}
 
   // No database access required (but need current database)
   void Visit(SystemInfoQuery &info_query) override {}
@@ -7762,7 +7761,11 @@ void Interpreter::SetUser(std::shared_ptr<QueryUserOrRole> user_or_role,
                           std::shared_ptr<utils::UserResources> user_resource) {
   user_or_role_ = std::move(user_or_role);
   if (query_logger_) {
-    query_logger_->SetUser(user_or_role_->key());
+    std::string username;
+    if (user_or_role_ && user_or_role_->username()) {
+      username = user_or_role_->username().value();
+    }
+    query_logger_->SetUser(username);
   }
   // Pre-existsing user resource; decrement session (since it is not being used anymore)
   if (user_resource_) {
