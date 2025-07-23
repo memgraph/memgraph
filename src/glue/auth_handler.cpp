@@ -529,6 +529,15 @@ bool AuthQueryHandler::DropRole(const std::string &rolename, system::Transaction
   }
 }
 
+bool AuthQueryHandler::HasRole(const std::string &rolename) {
+  try {
+    auto locked_auth = auth_->ReadLock();
+    return locked_auth->GetRole(rolename).has_value();
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
+}
+
 std::vector<memgraph::query::TypedValue> AuthQueryHandler::GetUsernames() {
   try {
     auto locked_auth = auth_->ReadLock();
@@ -709,8 +718,8 @@ void AuthQueryHandler::RemoveRole(const std::string &username, const std::string
   }
 }
 
-std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetPrivileges(const std::string &user_or_role,
-                                                                                      std::string_view db_name) {
+std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetPrivileges(
+    const std::string &user_or_role, std::optional<std::string> db_name) {
   try {
     auto locked_auth = auth_->ReadLock();
     std::vector<std::vector<memgraph::query::TypedValue>> grants;
@@ -718,7 +727,7 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetPrivi
     std::vector<std::vector<memgraph::query::TypedValue>> fine_grained_grants;
 #endif
     if (auto user = locked_auth->GetUser(user_or_role)) {
-      grants = ShowUserPrivileges(user, db_name);
+      grants = ShowUserPrivileges(user, db_name ? std::string_view(*db_name) : std::string_view(""));
 #ifdef MG_ENTERPRISE
       if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
         fine_grained_grants = ShowFineGrainedUserPrivileges(user, db_name);

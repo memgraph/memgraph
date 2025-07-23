@@ -1173,13 +1173,13 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
           if (database_specification != AuthQuery::DatabaseSpecification::NONE) {
             throw QueryRuntimeException("Multi-database queries are only available in enterprise edition");
           }
-          return auth->GetPrivileges(user_or_role);
+          return auth->GetPrivileges(user_or_role, std::nullopt);
         }
-        std::string target_db;
+        std::optional<std::string> target_db;
         switch (database_specification) {
           case AuthQuery::DatabaseSpecification::NONE:
-            // Allow only if there are no other databases
-            if (db_handler->Count() > 1) {
+            // Allow only if there are no other databases (or for roles)
+            if (db_handler->Count() > 1 && !auth->HasRole(user_or_role)) {
               throw QueryRuntimeException(
                   "In a multi-tenant environment, SHOW PRIVILEGES query requires database specification. Use ON MAIN, "
                   "ON CURRENT or ON DATABASE.");
@@ -1203,16 +1203,16 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
             break;
         }
         std::optional<dbms::DatabaseAccess> target_db_acc;
-        if (!target_db.empty()) {
+        if (target_db) {
           // Check that the db exists
-          target_db_acc = db_handler->Get(target_db);
+          target_db_acc = db_handler->Get(*target_db);
         }
         return auth->GetPrivileges(user_or_role, target_db);
 #else
         if (database_specification != AuthQuery::DatabaseSpecification::NONE) {
           throw QueryRuntimeException("Multi-database queries are only available in enterprise edition");
         }
-        return auth->GetPrivileges(user_or_role);
+        return auth->GetPrivileges(user_or_role, std::nullopt);
 #endif
       };
       return callback;
@@ -1232,12 +1232,6 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         std::optional<std::string> target_db;
         switch (database_specification) {
           case AuthQuery::DatabaseSpecification::NONE:
-            // Allow only if there are no other databases
-            if (db_handler->Count() > 1) {
-              throw QueryRuntimeException(
-                  "In a multi-tenant environment, SHOW ROLE FOR USER query requires database specification. Use ON "
-                  "MAIN, ON CURRENT or ON DATABASE.");
-            }
             break;
           case AuthQuery::DatabaseSpecification::MAIN: {
             auto main_db = auth->GetMainDatabase(username);

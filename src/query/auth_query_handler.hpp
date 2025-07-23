@@ -93,6 +93,10 @@ class AuthQueryHandler {
   /// @throw QueryRuntimeException if an error ocurred.
   virtual bool DropRole(const std::string &rolename, system::Transaction *system_tx) = 0;
 
+  /// Return true if the role exists.
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual bool HasRole(const std::string &rolename) = 0;
+
   /// @throw QueryRuntimeException if an error ocurred.
   virtual std::vector<memgraph::query::TypedValue> GetUsernames() = 0;
 
@@ -117,8 +121,8 @@ class AuthQueryHandler {
   virtual void ClearRoles(const std::string &username, const std::unordered_set<std::string> &role_databases,
                           system::Transaction *system_tx) = 0;
 
-  virtual std::vector<std::vector<memgraph::query::TypedValue>> GetPrivileges(const std::string &user_or_role,
-                                                                              std::string_view = "") = 0;
+  virtual std::vector<std::vector<memgraph::query::TypedValue>> GetPrivileges(
+      const std::string &user_or_role, std::optional<std::string> = std::nullopt) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void GrantPrivilege(
