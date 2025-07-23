@@ -280,6 +280,7 @@ void ReplicationStorageClient::TryCheckReplicaStateSync(Storage *main_storage, D
   }
 }
 
+// The method which updates replication state machine. Used for all replication modes.
 // If replica is in state RECOVERY -> skip
 // If replica is REPLICATING old txn (ASYNC), set the state to MAYBE_BEHIND
 // If replica is MAYBE_BEHIND, skip and asynchronously check the state of the replica
@@ -324,13 +325,13 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
         utils::MetricsTimer const replica_stream_timer{metrics::ReplicaStream_us};
         std::optional<rpc::Client::StreamHandler<replication::PrepareCommitRpc>> maybe_stream_handler;
 
-        // Try to obtain RPC stream for ASYNC replica
+        // Try to obtain RPC stream for ASYNC replica. It is OK to fail.
         if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
           maybe_stream_handler = client_.rpc_client_.TryStream<replication::PrepareCommitRpc>(
               std::optional{kCommitRpcTimeout}, main_uuid_, storage->uuid(),
               storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire), commit_immediately,
               durability_commit_timestamp);
-        } else {  // Block for SYNC and STRICT_SYNC replica
+        } else {  // Block for SYNC and STRICT_SYNC replica until we obtain the RPC lock
           maybe_stream_handler.emplace(client_.rpc_client_.Stream<replication::PrepareCommitRpc>(
               main_uuid_, storage->uuid(),
               storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire), commit_immediately,

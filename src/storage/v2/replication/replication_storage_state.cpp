@@ -15,6 +15,8 @@
 
 namespace memgraph::storage {
 
+// This will block until we retrieve RPC streams for all STRICT_SYNC and SYNC replicas. It is OK to not be able to
+// obtain the RPC lock for the ASYNC replica.
 auto ReplicationStorageState::StartPrepareCommitPhase(uint64_t const durability_commit_timestamp, Storage *storage,
                                                       DatabaseAccessProtector db_acc) -> TransactionReplication {
   return {durability_commit_timestamp, storage, db_acc, replication_storage_clients_};
