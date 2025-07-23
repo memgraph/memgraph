@@ -450,7 +450,7 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetDatab
     std::optional<memgraph::auth::Roles> roles_obj;
     for (const auto &role : roles) {
       if (auto role_obj = locked_auth->GetRole(role)) {
-        roles_obj.emplace();
+        if (!roles_obj) roles_obj.emplace();
         roles_obj->AddRole(std::move(*role_obj));
       }
     }
