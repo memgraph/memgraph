@@ -2979,12 +2979,6 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       frame[self_.weight_lambda_->inner_node_symbol] = next_vertex;
       TypedValue next_weight = CalculateNextWeight(self_.weight_lambda_, total_weight, evaluator);
 
-      if (next_vertex.Gid().AsInt() == 1) {
-        spdlog::debug("Expanding edge {} to vertex {} with weight {} at depth {}", edge.Gid().AsInt(),
-                      next_vertex.Gid().AsInt(),
-                      next_weight.IsDouble() ? next_weight.ValueDouble() : next_weight.ValueInt(), depth);
-      }
-
       // If filter expression exists, evaluate filter
       std::optional<Path> curr_acc_path = std::nullopt;
       if (self_.filter_lambda_.expression) {
@@ -3209,6 +3203,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         if (vertex_value.IsNull()) continue;
 
         start_vertex = vertex_value.ValueVertex();
+
         if (self_.common_.existing_node) {
           const auto &node = frame[self_.common_.node_symbol];
           // Due to optional matching the existing node could be null.
