@@ -3682,12 +3682,14 @@ void WrapTextSearch(mgp_graph *graph, mgp_memory *memory, mgp_map **result,
     throw std::logic_error("Retrieving text search results failed during creation of a mgp_map");
   }
 
-  mgp_value *error_value;
+  mgp_value *error_value = nullptr;
   if (error_msg.has_value()) {
     if (const auto err = mgp_value_make_string(error_msg.value().data(), memory, &error_value);
         err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving text search results failed during creation of a string mgp_value");
     }
+    mgp_value_destroy(error_value);
+    return;
   }
 
   // first find vertices by their GIDs because maybe not all vertices exist in the graph anymore
@@ -3715,9 +3717,10 @@ void WrapTextSearch(mgp_graph *graph, mgp_memory *memory, mgp_map **result,
       throw std::logic_error(
           "Retrieving text search results failed during insertion of the mgp_value into the result list");
     }
+    mgp_value_destroy(vertex);
   }
 
-  mgp_value *search_results_value;
+  mgp_value *search_results_value = nullptr;
   if (const auto err = mgp_value_make_list(search_results, &search_results_value);
       err != mgp_error::MGP_ERROR_NO_ERROR) {
     throw std::logic_error("Retrieving text search results failed during creation of a list mgp_value");
@@ -3734,6 +3737,7 @@ void WrapTextSearch(mgp_graph *graph, mgp_memory *memory, mgp_map **result,
       err != mgp_error::MGP_ERROR_NO_ERROR) {
     throw std::logic_error("Retrieving text index search results failed during insertion into mgp_map");
   }
+  mgp_value_destroy(search_results_value);
 }
 
 void WrapTextIndexAggregation(mgp_memory *memory, mgp_map **result, const std::string &aggregation_result,
@@ -3742,7 +3746,7 @@ void WrapTextIndexAggregation(mgp_memory *memory, mgp_map **result, const std::s
     throw std::logic_error("Retrieving text search results failed during creation of a mgp_map");
   }
 
-  mgp_value *aggregation_result_or_error_value;
+  mgp_value *aggregation_result_or_error_value = nullptr;
   if (const auto err = mgp_value_make_string(error_msg.value_or(aggregation_result).data(), memory,
                                              &aggregation_result_or_error_value);
       err != mgp_error::MGP_ERROR_NO_ERROR) {
@@ -3761,6 +3765,7 @@ void WrapTextIndexAggregation(mgp_memory *memory, mgp_map **result, const std::s
       err != mgp_error::MGP_ERROR_NO_ERROR) {
     throw std::logic_error("Retrieving text index aggregation results failed during insertion into mgp_map");
   }
+  mgp_value_destroy(aggregation_result_or_error_value);
 }
 
 mgp_error mgp_graph_search_text_index(mgp_graph *graph, const char *index_name, const char *search_query,

@@ -43,10 +43,10 @@ class TextIndex {
 
   std::filesystem::path text_index_storage_dir_;
   std::shared_mutex
-      text_index_mutex_;  // This mutex is used to protect add_document, remove_document, commit and rollback
-                          // operations. Underlying Tantivy IndexWriter requires unique lock for commit and rollback
-                          // operations and shared lock for add_document and remove_document operations.
-                          // TODO(@DavIvek): Better approach would be to add locking on mgcxx side.
+      index_writer_muex_;  // This mutex is used to protect add_document, remove_document, commit and rollback
+                           // operations. Underlying Tantivy IndexWriter requires unique lock for commit and rollback
+                           // operations and shared lock for add_document and remove_document operations.
+                           // TODO(@DavIvek): Better approach would be to add locking on mgcxx side.
 
   inline std::string MakeIndexPath(std::string_view index_name);
 

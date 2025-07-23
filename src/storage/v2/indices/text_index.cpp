@@ -16,14 +16,11 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
-#include "utils/string.hpp"
 
-#include <iterator>
-#include <mutex>
-#include <shared_mutex>
 #include <span>
 #include <vector>
 
+namespace r = ranges;
 namespace memgraph::storage {
 
 std::string GetPropertyName(PropertyId prop_id, NameIdMapper *name_id_mapper) {
@@ -121,18 +118,18 @@ std::string TextIndex::ToLowerCasePreservingBooleanOperators(std::string_view in
   std::string result;
   result.reserve(input.length());
 
-  auto it = input.begin();
-  while (it != input.end()) {
+  auto it = input.cbegin();
+  while (it != input.cend()) {
     if (std::isspace(*it)) {
       result += *it++;
       continue;
     }
 
     auto word_start = it;
-    it = std::ranges::find_if(word_start, input.end(), [](char c) { return std::isspace(c); });
+    it = r::find_if(word_start, input.cend(), [](char c) { return std::isspace(c); });
 
     // Extract the word
-    auto word = input.substr(word_start - input.begin(), it - word_start);
+    auto word = input.substr(word_start - input.cbegin(), it - word_start);
     auto uppercase_word = utils::ToUpperCase(word);
 
     // Check if it's a boolean operator (case-insensitive)
@@ -177,7 +174,7 @@ void TextIndex::LoadNodeToTextIndices(std::int64_t gid, const nlohmann::json &pr
 
   for (auto *index_context : applicable_text_indices) {
     try {
-      std::shared_lock lock(text_index_mutex_);
+      std::shared_lock lock(index_writer_muex_);
       mgcxx::text_search::add_document(
           *index_context,
           mgcxx::text_search::DocumentInput{
@@ -194,7 +191,7 @@ void TextIndex::CommitLoadedNodes(mgcxx::text_search::Context &index_context) {
   // the code area where changes to indices are committed. To get around that without needing to commit text indices
   // after every such query, we commit here.
   try {
-    std::lock_guard lock(text_index_mutex_);
+    std::lock_guard lock(index_writer_muex_);
     mgcxx::text_search::commit(index_context);
   } catch (const std::exception &e) {
     throw query::TextSearchException("Tantivy error: {}", e.what());
@@ -253,7 +250,7 @@ void TextIndex::RemoveNode(
   for (auto *index_context :
        maybe_applicable_text_indices.value_or(GetApplicableTextIndices(vertex_after_update->labels))) {
     try {
-      std::shared_lock lock(text_index_mutex_);
+      std::shared_lock lock(index_writer_muex_);
       mgcxx::text_search::delete_document(*index_context, search_node_to_be_deleted, kDoSkipCommit);
     } catch (const std::exception &e) {
       throw query::TextSearchException("Tantivy error: {}", e.what());
@@ -424,14 +421,14 @@ std::string TextIndex::Aggregate(const std::string &index_name, const std::strin
 
 void TextIndex::Commit() {
   for (auto &[_, index_data] : index_) {
-    std::lock_guard lock(text_index_mutex_);
+    std::lock_guard lock(index_writer_muex_);
     mgcxx::text_search::commit(index_data.context_);
   }
 }
 
 void TextIndex::Rollback() {
   for (auto &[_, index_data] : index_) {
-    std::lock_guard lock(text_index_mutex_);
+    std::lock_guard lock(index_writer_muex_);
     mgcxx::text_search::rollback(index_data.context_);
   }
 }
