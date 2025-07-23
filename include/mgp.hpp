@@ -126,7 +126,13 @@ extern thread_local std::optional<mgp_memory *> current_memory __attribute__((vi
 
 inline mgp_memory *GetMemoryResource() noexcept { return current_memory.value_or(nullptr); }
 
-inline mgp_memory *Register(mgp_memory *mem) noexcept { return std::exchange(*current_memory, mem); }
+inline mgp_memory *Register(mgp_memory *mem) noexcept {
+  if (current_memory.has_value()) {
+    return std::exchange(*current_memory, mem);
+  }
+  current_memory = mem;
+  return nullptr;
+}
 
 inline void UnRegister(mgp_memory *mem) noexcept { current_memory = mem; }
 
