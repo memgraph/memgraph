@@ -4,7 +4,6 @@ script_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 
 MEMGRAPH_BUILD_PATH="$script_dir/../../build"
 MEMGRAPH_BINARY_PATH="$MEMGRAPH_BUILD_PATH/memgraph"
-MEMGRAPH_MODULE_SUPPORT_LIB_PATH="$MEMGRAPH_BUILD_PATH/src/query/libmemgraph_module_support.so"
 MEMGRAPH_MTENANCY_DATASETS="$script_dir/datasets/"
 # NOTE: Jepsen Git tags are not consistent, there are: 0.2.4, v0.3.0, 0.3.2, ...
 JEPSEN_VERSION="${JEPSEN_VERSION:-v0.3.5}"
@@ -19,7 +18,7 @@ WGET_OR_CLONE_TIMEOUT=60
 
 PRINT_CONTEXT() {
     echo -e "MEMGRAPH_BINARY_PATH:\t\t $MEMGRAPH_BINARY_PATH"
-    echo -e "MEMGRAPH_MODULE_SUPPORT_LIB_PATH:\t\t $MEMGRAPH_MODULE_SUPPORT_LIB_PATH"
+    echo -e "MEMGRAPH_BUILD_PATH:\t\t $MEMGRAPH_BUILD_PATH"
     echo -e "JEPSEN_VERSION:\t\t\t $JEPSEN_VERSION"
     echo -e "JEPSEN_ACTIVE_NODES_NO:\t\t $JEPSEN_ACTIVE_NODES_NO"
     echo -e "CONTROL_LEIN_RUN_ARGS:\t\t $CONTROL_LEIN_RUN_ARGS"
@@ -50,6 +49,45 @@ ERROR() {
 
 INFO() {
     /bin/echo -e "\e[104m\e[97m[INFO]\e[49m\e[39m" "$@"
+}
+
+# Function to get shared libraries that the binary depends on and are in the build directory
+GET_SHARED_LIBRARIES() {
+    local binary_path="$1"
+    local build_dir="$2"
+    local libraries=()
+
+    # Use ldd to get the list of shared libraries
+    # Filter for libraries that are in the build directory
+    while IFS= read -r line; do
+        # Skip lines that don't contain library paths
+        if [[ "$line" =~ =\>[[:space:]]+([^[:space:]]+) ]]; then
+            local lib_path="${BASH_REMATCH[1]}"
+            # Skip "not found" and system libraries
+            if [[ "$lib_path" != "not found" && "$lib_path" != "/lib"* && "$lib_path" != "/usr/lib"* ]]; then
+                # Check if the library is in the build directory
+                if [[ "$lib_path" == "$build_dir"* ]]; then
+                    # Always add the original path (symlink or file)
+                    libraries+=("$lib_path")
+
+                    # If it's a symlink, also add the resolved path
+                    if [[ -L "$lib_path" ]]; then
+                        local resolved_path=$(readlink -f "$lib_path")
+                        if [[ "$resolved_path" != "$lib_path" ]]; then
+                            libraries+=("$resolved_path")
+                        fi
+                    fi
+
+                    echo "Found shared library in build directory: $lib_path" >&2
+                    if [[ -L "$lib_path" ]]; then
+                        echo "  -> resolves to: $(readlink -f "$lib_path")" >&2
+                    fi
+                fi
+            fi
+        fi
+    done < <(ldd "$binary_path" 2>/dev/null || echo "")
+
+    echo "${libraries[@]}"
 }
 
 if [[ "$#" -lt 1 || "$1" == "-h" || "$1" == "--help" ]]; then
@@ -126,15 +164,25 @@ COPY_FILES() {
    # Datasets need to be downloaded only if MT test is being run
    __control_lein_run_args="${1:-}"
    binary_path="$MEMGRAPH_BINARY_PATH"
-   support_lib="${MEMGRAPH_MODULE_SUPPORT_LIB_PATH}"
+
+   # Resolve binary symlink if needed
    if [ -L "$binary_path" ]; then
        binary_path=$(readlink "$binary_path")
    fi
-   if [ -L "support_lib" ]; then
-       support_lib=$(readlink "$support_lib")
-   fi
    binary_name=$(basename -- "$binary_path")
-   support_lib_name=$(basename -- "$support_lib")
+
+   # Get all shared libraries that the binary depends on and are in the build directory
+   INFO "Scanning binary dependencies for shared libraries in build directory..."
+   shared_libs=($(GET_SHARED_LIBRARIES "$binary_path" "$MEMGRAPH_BUILD_PATH"))
+
+   if [ ${#shared_libs[@]} -eq 0 ]; then
+       INFO "No shared libraries found in build directory that the binary depends on"
+   else
+       INFO "Found ${#shared_libs[@]} shared library(ies) to copy:"
+       for lib in "${shared_libs[@]}"; do
+           INFO "  - $lib"
+       done
+   fi
 
 
    # If running MT test, we need to download pokec medium dataset from s3
@@ -162,7 +210,34 @@ COPY_FILES() {
        fi
        $docker_exec "rm -rf /opt/memgraph/ && mkdir -p /opt/memgraph/src/query"
        docker cp "$binary_path" "$jepsen_node_name":/opt/memgraph/"$_binary_name"
-       docker cp "$support_lib" "$jepsen_node_name":"/opt/memgraph/src/query/${support_lib_name}"
+
+       # Copy all shared libraries to the appropriate location
+       for lib in "${shared_libs[@]}"; do
+           if [[ -f "$lib" ]]; then
+               lib_name=$(basename -- "$lib")
+               # Copy to the same relative path structure as in build directory
+               # Create a clean build path without trailing slash
+               clean_build_path="${MEMGRAPH_BUILD_PATH%/}"
+
+               # Use the original path (not resolved) to preserve symlink structure
+               if [[ "$lib" == "$clean_build_path"* ]]; then
+                   lib_rel_path="${lib#$clean_build_path/}"
+               else
+                   # Fallback: use realpath --relative-to for paths outside build directory
+                   lib_rel_path=$(realpath --relative-to="$clean_build_path" "$lib")
+               fi
+               lib_dir=$(dirname -- "$lib_rel_path")
+
+               # Create the directory structure in the container
+               $docker_exec "mkdir -p /opt/memgraph/$lib_dir"
+
+               # Copy the library
+               docker cp "$lib" "$jepsen_node_name:/opt/memgraph/$lib_rel_path"
+               INFO "Copied library $lib_name to $jepsen_node_name:/opt/memgraph/$lib_rel_path"
+           else
+               ERROR "Library file not found: $lib"
+           fi
+       done
 
        if [ -d "$MEMGRAPH_MTENANCY_DATASETS" ]; then
            docker cp "$MEMGRAPH_MTENANCY_DATASETS" "$jepsen_node_name:/opt/memgraph"

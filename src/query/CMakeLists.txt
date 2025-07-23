@@ -116,7 +116,7 @@ target_link_libraries(mg-query
     mg-license
     mg-utils
     mg-kvstore
-    mg-memory
+    mg-memory-utils
     mg::csv
     mg::system
     mg-flags
