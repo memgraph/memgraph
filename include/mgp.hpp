@@ -144,14 +144,25 @@ inline UnsupportedMgpMemory memory;  // NOSONAR
 
 class MemoryDispatcherGuard final {
  public:
-  explicit MemoryDispatcherGuard(mgp_memory *mem) { MemoryDispatcher::Register(mem); };
+  explicit MemoryDispatcherGuard(mgp_memory *mem) {
+    MemoryDispatcher::Register(mem);
+    counter_++;
+  }
 
   MemoryDispatcherGuard(const MemoryDispatcherGuard &) = delete;
   MemoryDispatcherGuard(MemoryDispatcherGuard &&) = delete;
   MemoryDispatcherGuard &operator=(const MemoryDispatcherGuard &) = delete;
   MemoryDispatcherGuard &operator=(MemoryDispatcherGuard &&) = delete;
 
-  ~MemoryDispatcherGuard() { MemoryDispatcher::UnRegister(); }
+  ~MemoryDispatcherGuard() {
+    counter_--;
+    if (counter_ == 0) {
+      MemoryDispatcher::UnRegister();
+    }
+  }
+
+ private:
+  std::uint64_t counter_{0};
 };
 
 // Thread must be registered, otherwise the function will segfault.
