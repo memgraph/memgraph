@@ -30,7 +30,7 @@ function(add_custom_library NAME SRC)
     add_library(${NAME} SHARED ${SRC})
     target_include_directories(${NAME} PRIVATE ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/libs)
     target_compile_options(${NAME} PRIVATE -Wall)
-    target_link_libraries(${NAME} PRIVATE -static-libgcc -static-libstdc++ ${optional_libs})
+    target_link_libraries(${NAME} PRIVATE ${optional_libs})
 
     # Apply post-build strip in release mode
     add_post_build_strip_in_release(${NAME} CMAKE_BUILD_TYPE)
@@ -64,10 +64,6 @@ function(add_query_module target_name version src)
   )
 
   target_compile_options(${target_name} PRIVATE -Wall)
-  target_link_libraries(${target_name} PRIVATE
-      -static-libgcc
-      -static-libstdc++
-  )
 
   add_post_build_strip_in_release(${target_name} CMAKE_BUILD_TYPE)
 
