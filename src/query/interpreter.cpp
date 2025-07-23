@@ -4966,6 +4966,47 @@ PreparedQuery PrepareShowSnapshotsQuery(ParsedQuery parsed_query, bool in_explic
                        RWType::NONE};
 }
 
+PreparedQuery PrepareShowNextSnapshotQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                                           CurrentDB &current_db) {
+  if (in_explicit_transaction) {
+    throw ShowSchemaInfoInMulticommandTxException();
+  }
+
+  MG_ASSERT(current_db.db_acc_, "Show Next Snapshot query expects a current DB");
+  storage::Storage *storage = current_db.db_acc_->get()->storage();
+
+  if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+    throw ShowSnapshotsDisabledOnDiskStorage();
+  }
+
+  Callback callback;
+  callback.header = {"path", "creation_time"};
+  callback.fn = [storage]() mutable -> std::vector<std::vector<TypedValue>> {
+    std::vector<std::vector<TypedValue>> infos;
+    const auto res = static_cast<storage::InMemoryStorage *>(storage)->ShowNextSnapshot();
+
+    if (res) {
+      infos.push_back({TypedValue{res->path.string()}, TypedValue{res->creation_time.ToStringWTZ()}});
+    }
+    return infos;
+  };
+
+  return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
+                       [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+                         if (!pull_plan) {
+                           auto results = handler();
+                           pull_plan = std::make_shared<PullPlanVector>(std::move(results));
+                         }
+
+                         if (pull_plan->Pull(stream, n)) {
+                           return QueryHandlerResult::NOTHING;
+                         }
+                         return std::nullopt;
+                       },
+                       RWType::NONE};
+}
+
 PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explicit_transaction) {
   if (in_explicit_transaction) {
     throw SettingConfigInMulticommandTxException{};
@@ -6534,6 +6575,7 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
       override { /*CreateSnapshot is also used in a periodic way so internally will arrange its own access*/
   }
   void Visit(ShowSnapshotsQuery &) override {}
+  void Visit(ShowNextSnapshotQuery &) override {}
   void Visit(EdgeImportModeQuery &) override {}
   void Visit(AlterEnumRemoveValueQuery &) override { /* Not implemented yet */
   }
@@ -6857,6 +6899,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
           PrepareRecoverSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, current_db_, replication_role);
     } else if (utils::Downcast<ShowSnapshotsQuery>(parsed_query.query)) {
       prepared_query = PrepareShowSnapshotsQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
+    } else if (utils::Downcast<ShowNextSnapshotQuery>(parsed_query.query)) {
+      prepared_query = PrepareShowNextSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<SettingQuery>(parsed_query.query)) {
       /// SYSTEM PURE
       prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_);

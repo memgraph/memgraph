@@ -3040,7 +3040,15 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
   return {};
 }
 
-// Note:
+std::optional<SnapshotFileInfo> InMemoryStorage::ShowNextSnapshot() {
+  auto lock = std::unique_lock{snapshot_lock_};
+  auto next = snapshot_runner_.NextExecution();
+  if (next) {
+    return SnapshotFileInfo{recovery_.snapshot_directory_, 0, utils::LocalDateTime{*next}, 0};
+  }
+  return std::nullopt;
+}
+
 std::vector<SnapshotFileInfo> InMemoryStorage::ShowSnapshots() {
   auto lock = std::unique_lock{snapshot_lock_};
 
@@ -3068,12 +3076,6 @@ std::vector<SnapshotFileInfo> InMemoryStorage::ShowSnapshots() {
       size = 0;
     }
     res.emplace_back(snapshot_path, start_timestamp, write_time_ldt, size);
-  }
-
-  // Add next
-  auto next = snapshot_runner_.NextExecution();
-  if (next) {
-    res.emplace_back(recovery_.snapshot_directory_, 0, utils::LocalDateTime{*next}, 0);
   }
 
   std::sort(res.begin(), res.end(),

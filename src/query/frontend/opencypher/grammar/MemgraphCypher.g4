@@ -224,6 +224,7 @@ query : cypherQuery
       | createSnapshotQuery
       | recoverSnapshotQuery
       | showSnapshotsQuery
+      | showNextSnapshotQuery
       | streamQuery
       | settingQuery
       | versionQuery
@@ -586,6 +587,8 @@ createSnapshotQuery : CREATE SNAPSHOT ;
 recoverSnapshotQuery : RECOVER SNAPSHOT path=literal ( FORCE )? ;
 
 showSnapshotsQuery : SHOW SNAPSHOTS ;
+
+showNextSnapshotQuery : SHOW NEXT SNAPSHOT ;
 
 streamName : symbolicName ;
 
