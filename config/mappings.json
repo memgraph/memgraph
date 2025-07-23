@@ -40,5 +40,9 @@
     "apoc.text.format": "text.format",
     "apoc.text.regexGroups": "text.regexGroups",
     "apoc.text.replace": "text.replace",
-    "apoc.text.regReplace": "text.regreplace"
+    "apoc.text.regReplace": "text.regreplace",
+    "apoc.convert.toJson": "convert.to_json",
+    "apoc.convert.fromJsonList": "convert.from_json_list",
+    "apoc.convert.toTree": "convert.to_tree",
+    "apoc.coll.flatten": "collections.flatten"
 }
