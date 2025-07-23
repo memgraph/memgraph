@@ -14,7 +14,7 @@ on:
           - sync
           - strict_sync
           - strict_sync_mixed
-        default: sync_mixed
+        default: strict_sync
       run-mt:
         description: "Run MT tests"
         type: boolean
@@ -43,7 +43,7 @@ jobs:
     outputs:
       mode: ${{ steps.set_sync.outputs.mode }}
     steps:
-      - name: Determine if test should run in sync mode based on day
+      - name: Determine in which mode test should run based on day
         id: set_sync
         run: |
           # Get the current day of the month (leading zeros are stripped)
@@ -70,7 +70,7 @@ jobs:
     with:
       name: "${{ needs.determine-sync.outputs.mode }}${{ matrix.mt && '-mt' || '' }}"
       mt: ${{ matrix.mt }}
-      mode: ${{ needs.determine-sync.outputs.mode == 'true' }}
+      mode: ${{ needs.determine-sync.outputs.mode }}
       time-limit: ${{ matrix.mt && '7200' || '25200' }}
     secrets: inherit
 
