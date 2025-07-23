@@ -44,5 +44,6 @@
     "apoc.convert.toJson": "convert.to_json",
     "apoc.convert.fromJsonList": "convert.from_json_list",
     "apoc.convert.toTree": "convert.to_tree",
-    "apoc.coll.flatten": "collections.flatten"
+    "apoc.coll.flatten": "collections.flatten",
+    "apoc.text.indexOf": "text.indexOf"
 }
