@@ -1507,7 +1507,6 @@ class RemoveNestedProperty : public memgraph::query::plan::LogicalOperator {
                        PropertyLookup *lhs);
 
   std::shared_ptr<LogicalOperator> input_;
-  storage::PropertyId property_;
   std::vector<storage::PropertyId> property_path_;
   PropertyLookup *lhs_;
 
