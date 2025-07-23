@@ -124,21 +124,11 @@ namespace MemoryDispatcher {
 
 extern thread_local std::optional<mgp_memory *> current_memory __attribute__((visibility("default")));
 
-inline thread_local std::uint64_t counter_{0};
-
 inline mgp_memory *GetMemoryResource() noexcept { return current_memory.value_or(nullptr); }
 
-inline void Register(mgp_memory *mem) noexcept {
-  current_memory = mem;
-  counter_++;
-}
+inline mgp_memory *Register(mgp_memory *mem) noexcept { return std::exchange(*current_memory, mem); }
 
-inline void UnRegister() noexcept {
-  counter_--;
-  if (counter_ == 0) {
-    current_memory.reset();
-  }
-}
+inline void UnRegister(mgp_memory *mem) noexcept { current_memory = mem; }
 
 inline bool IsThisThreadRegistered() noexcept { return current_memory.has_value(); }
 };  // namespace MemoryDispatcher
@@ -154,14 +144,17 @@ inline UnsupportedMgpMemory memory;  // NOSONAR
 
 class MemoryDispatcherGuard final {
  public:
-  explicit MemoryDispatcherGuard(mgp_memory *mem) { MemoryDispatcher::Register(mem); }
+  explicit MemoryDispatcherGuard(mgp_memory *mem) : old_mem{MemoryDispatcher::Register(mem)} {};
 
   MemoryDispatcherGuard(const MemoryDispatcherGuard &) = delete;
   MemoryDispatcherGuard(MemoryDispatcherGuard &&) = delete;
   MemoryDispatcherGuard &operator=(const MemoryDispatcherGuard &) = delete;
   MemoryDispatcherGuard &operator=(MemoryDispatcherGuard &&) = delete;
 
-  ~MemoryDispatcherGuard() { MemoryDispatcher::UnRegister(); }
+  ~MemoryDispatcherGuard() { MemoryDispatcher::UnRegister(old_mem); }
+
+ private:
+  mgp_memory *old_mem{nullptr};
 };
 
 // Thread must be registered, otherwise the function will segfault.
