@@ -13,6 +13,7 @@
 #include <string_view>
 #include <thread>
 
+#include "flags/experimental.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
@@ -31,7 +32,10 @@ class TextIndexTest : public testing::Test {
   static constexpr std::string_view testSuite = "text_search";
   std::unique_ptr<Storage> storage;
 
-  void SetUp() override { storage = std::make_unique<InMemoryStorage>(); }
+  void SetUp() override {
+    memgraph::flags::SetExperimental(memgraph::flags::Experiments::TEXT_SEARCH);
+    storage = std::make_unique<InMemoryStorage>();
+  }
 
   void TearDown() override {
     CleanupTextIndices();
