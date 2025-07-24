@@ -84,11 +84,7 @@ jobs:
 
       - name: Copy memgraph binary
         run: |
-          ./release/package/mgbuild.sh --toolchain $TOOLCHAIN --os $OS --arch $ARCH copy --binary --dest-dir build
-
-      - name: Copy libmemgraph_module_support.so
-        run: |
-          ./release/package/mgbuild.sh --toolchain $TOOLCHAIN --os $OS --arch $ARCH copy --libs --dest-dir build/src/query
+          ./release/package/mgbuild.sh --toolchain $TOOLCHAIN --os $OS --arch $ARCH copy --binary --use-make-install --dest-dir build
 
       - name: Run unit tests for Jepsen code
         run: |
