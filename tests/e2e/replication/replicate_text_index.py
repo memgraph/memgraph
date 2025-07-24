@@ -112,14 +112,14 @@ def test_text_index_replication(connection, test_name):
                 "replica_1",
                 "127.0.0.1:10001",
                 "sync",
-                {"behind": None, "status": "ready", "ts": 0},
+                None,
                 {"memgraph": {"behind": 0, "status": "ready", "ts": ts}},
             ),
             (
                 "replica_2",
                 "127.0.0.1:10002",
                 "async",
-                {"behind": None, "status": "ready", "ts": 0},
+                None,
                 {"memgraph": {"behind": 0, "status": "ready", "ts": ts}},
             ),
         ]
@@ -161,13 +161,13 @@ def test_text_index_replication(connection, test_name):
         get_replica_cursor("replica_1"),
         "CALL text_search.search('test_index', 'data.name:test1') YIELD node RETURN node.name AS name;",
     )
-    assert search_results == [{"name": "test1"}]
+    assert search_results == [("test1",)]
 
     search_results = execute_and_fetch_all(
         get_replica_cursor("replica_2"),
         "CALL text_search.search('test_index', 'data.name:test1') YIELD node RETURN node.name AS name;",
     )
-    assert search_results == [{"name": "test1"}]
+    assert search_results == [("test1",)]
 
     # 5/
     execute_and_fetch_all(
@@ -176,6 +176,7 @@ def test_text_index_replication(connection, test_name):
     )
     wait_for_replication_change(cursor, 6)
 
+    # 6/
     expected_result = []
     replica_1_info = get_show_index_info(get_replica_cursor("replica_1"))
     assert replica_1_info == expected_result
