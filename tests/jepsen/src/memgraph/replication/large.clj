@@ -53,19 +53,17 @@
         (catch Exception e
           (assoc op :type :fail :value (str e))))
 
-      :register (if (= (:replication-role this) :main)
-                  (do
-                    (doseq [n (filter #(= (:replication-role (val %))
-                                          :replica)
-                                      nodes-config)]
-                      (try
-                        (utils/with-session (:conn this) session
-                          ((mgquery/create-register-replica-query
-                            (first n)
-                            (second n)) session))
-                        (catch Exception _e)))
-                    (assoc op :type :ok))
-                  (assoc op :type :info :value "Not main node"))
+      (register
+        (if (= (:replication-role this) :main)
+          (try
+            (doseq [[name node-config] (filter #(= (:replication-role (val %)) :replica) nodes-config)]
+              (utils/with-session (:conn this) session
+                ((mgquery/create-register-replica-query name node-config) session)))
+            (assoc op :type :ok)
+            (catch Exception e
+              (assoc op :type :fail :value (str e))))
+          (assoc op :type :info :value "Not main node")))
+
 
       ; When executed on main, create nodes.
       :add    (if (= (:replication-role this) :main)
@@ -187,6 +185,6 @@
    :checker (checker/compose
              {:large    (large-checker)
               :timeline (timeline/html)})
-   :generator (repl-utils/replication-gen (gen/mix [read-nodes add-nodes]))
+   :generator (repl-utils/replication-gen [read-nodes add-nodes])
    :final-generator {:clients (gen/once read-nodes) :recovery-time 40}
    :nemesis-config (nemesis/create)})

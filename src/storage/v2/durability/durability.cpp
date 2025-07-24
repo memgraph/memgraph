@@ -304,7 +304,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
     }
     spdlog::info("Edge index on property {} is recreated from metadata", name_id_mapper->IdToName(property.AsUint()));
   }
-  spdlog::info("Global edge property indices are recreated.");
+  ¬ spdlog::info("Global edge property indices are recreated.");
 
   // Text idx
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
