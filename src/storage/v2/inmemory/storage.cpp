@@ -1673,9 +1673,6 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
   auto *mem_edge_property_index =
       static_cast<InMemoryEdgePropertyIndex *>(in_memory->indices_.edge_property_index_.get());
-  if (!mem_edge_property_index->DropIndex(property)) {
-    return StorageIndexDefinitionError{IndexDefinitionError{}};
-  }
   auto was_dropped =
       storage_->invalidator_->invalidate_now([&] { return mem_edge_property_index->DropIndex(property); });
   if (!was_dropped) {

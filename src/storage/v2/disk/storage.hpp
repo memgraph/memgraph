@@ -38,7 +38,7 @@ namespace memgraph::storage {
 class DiskStorage final : public Storage {
  public:
   explicit DiskStorage(Config config = Config(),
-                       PlanInvalidatorPtr invalidator = std::make_unique<PlanInvalidatorDefaut>());
+                       PlanInvalidatorPtr invalidator = std::make_unique<PlanInvalidatorDefault>());
 
   DiskStorage(const DiskStorage &) = delete;
   DiskStorage(DiskStorage &&) = delete;

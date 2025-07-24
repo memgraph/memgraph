@@ -122,7 +122,7 @@ class InMemoryStorage final : public Storage {
   /// @throw std::system_error
   /// @throw std::bad_alloc
   explicit InMemoryStorage(Config config = Config(), std::optional<free_mem_fn> free_mem_fn_override = std::nullopt,
-                           PlanInvalidatorPtr invalidator = std::make_unique<PlanInvalidatorDefaut>());
+                           PlanInvalidatorPtr invalidator = std::make_unique<PlanInvalidatorDefault>());
 
   InMemoryStorage(const InMemoryStorage &) = delete;
   InMemoryStorage(InMemoryStorage &&) = delete;
