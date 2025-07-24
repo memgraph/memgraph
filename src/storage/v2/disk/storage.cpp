@@ -1814,6 +1814,8 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Pr
         case MetadataDelta::Action::VECTOR_EDGE_INDEX_CREATE:
         case MetadataDelta::Action::VECTOR_INDEX_DROP:
           throw utils::NotYetImplemented("Vector index is not implemented for DiskStorage. {}", kErrorMessage);
+        case MetadataDelta::Action::TTL_OPERATION:
+          throw utils::NotYetImplemented("TTL operations are not implemented for DiskStorage. {}", kErrorMessage);
       }
     }
   } else if (transaction_.deltas.empty() ||

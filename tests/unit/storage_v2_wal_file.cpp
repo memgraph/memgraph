@@ -400,6 +400,13 @@ class DeltaGenerator final {
         });
         break;
       }
+      case memgraph::storage::durability::StorageMetadataOperation::TTL_OPERATION: {
+        apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
+          memgraph::storage::durability::EncodeTtlOperation(
+              encoder, memgraph::storage::durability::TtlOperationType::ENABLE, std::nullopt, std::nullopt, false);
+        });
+        break;
+      }
     }
     if (valid_) {
       UpdateStats(timestamp_, 1);
@@ -472,6 +479,8 @@ class DeltaGenerator final {
                                              static_cast<uint8_t>(kScalarKind)}};
           case VECTOR_INDEX_DROP:
             return {WalVectorIndexDrop{vector_index_name}};
+          case TTL_OPERATION:
+            return {WalTtlOperation{TtlOperationType::ENABLE, std::nullopt, std::nullopt, false}};
         }
       });
       data_.emplace_back(timestamp_, data);
@@ -811,6 +820,7 @@ GENERATE_SIMPLE_TEST(AllGlobalOperations, {
   OPERATION_TX(TYPE_CONSTRAINT_DROP, "hello", {{"world"}});
   OPERATION_TX(VECTOR_INDEX_CREATE, "hello", {{"world"}}, {}, {}, {}, {}, {}, {}, "vector_index", 2, 100);
   OPERATION_TX(VECTOR_INDEX_DROP, "hello", {{"world"}}, {}, {}, {}, {}, {}, {}, "vector_index");
+  OPERATION_TX(TTL_OPERATION, "hello");
 });
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)

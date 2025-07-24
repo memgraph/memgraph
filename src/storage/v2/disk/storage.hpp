@@ -308,6 +308,63 @@ class DiskStorage final : public Storage {
 
     ttl::TTL &ttl() override { return storage_->ttl_; }
 
+    // TTL management methods
+    void StartTtl() override {
+      storage_->ttl_.Resume();
+      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::ENABLE,
+                                          std::nullopt, std::nullopt, false);
+    }
+
+    void DisableTtl() override {
+      auto ttl_label = NameToLabel("TTL");
+      auto ttl_property = NameToProperty("ttl");
+
+      // Drop indices
+      auto index_result = DropIndex(ttl_label, std::vector<storage::PropertyPath>{{ttl_property}});
+      if (index_result.HasError()) {
+        // Silently fail if vertex index already dropped
+      }
+
+      // Check if edge TTL was enabled and drop edge index if needed
+      if (storage_->ttl_.Config().should_run_edge_ttl) {
+        auto edge_index_result = DropGlobalEdgeIndex(ttl_property);
+        if (edge_index_result.HasError()) {
+          // Silently fail if edge index already dropped
+        }
+      }
+
+      storage_->ttl_.Disable();
+
+      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::DISABLE,
+                                          std::nullopt, std::nullopt, false);
+    }
+
+    void StopTtl() override {
+      storage_->ttl_.Pause();
+      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::STOP,
+                                          std::nullopt, std::nullopt, false);
+    }
+
+    void ConfigureTtl(const storage::ttl::TtlInfo &ttl_info) override {
+      auto ttl_label = NameToLabel("TTL");
+      auto ttl_property = NameToProperty("ttl");
+
+      // If TTL is not enabled, create required indices and enable TTL
+      if (!storage_->ttl_.Enabled()) {
+        // Create label+property index for TTL
+        (void)CreateIndex(ttl_label, std::vector<storage::PropertyPath>{{ttl_property}});
+        storage_->ttl_.Enable();
+      }
+
+      // Configure TTL
+      if (!storage_->ttl_.Running()) storage_->ttl_.Configure(ttl_info.should_run_edge_ttl);
+      storage_->ttl_.SetInterval(ttl_info.period, ttl_info.start_time);
+      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::CONFIGURE,
+                                          ttl_info.period, ttl_info.start_time, ttl_info.should_run_edge_ttl);
+    }
+
+    storage::ttl::TtlInfo GetTtlConfig() const override { return storage_->ttl_.Config(); }
+
    private:
     VerticesIterable Vertices(LabelId label, PropertyId property, const PropertyValue &value, View view);
     VerticesIterable Vertices(LabelId label, PropertyId property, View view);

@@ -1589,7 +1589,7 @@ TEST_P(DurabilityTest, SnapshotRetention) {
                        .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
                        .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::milliseconds(2000)},
                        .snapshot_retention_count = 1},  // if the retention is more than 1 snapshots won't get created
-                                                        // due to db having the same state as before
+        // due to db having the same state as before
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
@@ -3636,6 +3636,7 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
   memgraph::storage::Constraints constraints{config, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
   memgraph::storage::ReplicationStorageState repl_storage_state;
   memgraph::storage::EnumStore enum_store;
+  memgraph::storage::ttl::TTL ttl{nullptr};
 
   memgraph::storage::durability::Recovery recovery{
       config.durability.storage_directory / memgraph::storage::durability::kSnapshotDirectory,
@@ -3645,7 +3646,7 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
   const auto info = recovery.RecoverData(
       uuid, repl_storage_state, &vertices, &edges, &edges_metadata, &edge_count, name_id_mapper.get(), &indices,
       &constraints, config, &wal_seq_num, &enum_store, nullptr /* schema_info */, [](auto in) { return std::nullopt; },
-      "memgraph");
+      "memgraph", &ttl);
 
   MG_ASSERT(info.has_value(), "Info doesn't have value present");
   const auto par_exec_info = memgraph::storage::durability::GetParallelExecInfo(*info, config);
@@ -3866,5 +3867,368 @@ TEST_P(DurabilityTest, EdgeMetadataRecovered) {
     ASSERT_FALSE(edge.has_value());
 
     ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+  }
+}
+
+// Comprehensive test for TTL durability via WAL/snapshots with different configurations
+TEST_F(DurabilityTest, TtlDurability) {
+  // Test 1: TTL enabled with edge TTL
+  {
+    memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+                                     .salient.items = {.properties_on_edges = true}};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::dbms::Database db{config, repl_state};
+
+    // Configure TTL with edge TTL enabled
+    {
+      auto acc = db.UniqueAccess();
+      auto ttl_config = memgraph::storage::ttl::TtlInfo{
+          std::chrono::hours(24),            // 24 hour period
+          std::chrono::system_clock::now(),  // start time
+          true                               // enable edge TTL
+      };
+      acc->ConfigureTtl(ttl_config);
+      acc->StartTtl();
+      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    }
+
+    // Verify TTL is configured correctly
+    {
+      auto acc = db.UniqueAccess();
+      auto config = acc->GetTtlConfig();
+      ASSERT_EQ(config.period, std::chrono::hours(24));
+      ASSERT_TRUE(config.should_run_edge_ttl);
+    }
+  }
+
+  // Verify snapshot was created
+  ASSERT_EQ(GetSnapshotsList().size(), 1);
+  ASSERT_EQ(GetWalsList().size(), 0);
+
+  // Recover from snapshot and verify TTL with edge TTL
+  {
+    memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+                                     .salient.items = {.properties_on_edges = true}};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::dbms::Database db{config, repl_state};
+
+    // Verify TTL configuration was recovered
+    {
+      auto acc = db.UniqueAccess();
+      auto config = acc->GetTtlConfig();
+      ASSERT_EQ(config.period, std::chrono::hours(24));
+      ASSERT_TRUE(config.should_run_edge_ttl);
+    }
+  }
+
+  // Test 2: TTL enabled without edge TTL
+  {
+    memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+                                     .salient.items = {.properties_on_edges = true}};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::dbms::Database db{config, repl_state};
+
+    // Configure TTL with edge TTL disabled
+    {
+      auto acc = db.UniqueAccess();
+      auto ttl_config = memgraph::storage::ttl::TtlInfo{
+          std::chrono::minutes(30),                                  // 30 minute period
+          std::chrono::system_clock::now() + std::chrono::hours(1),  // start time in the future
+          false                                                      // disable edge TTL
+      };
+      acc->ConfigureTtl(ttl_config);
+      acc->StartTtl();
+      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    }
+
+    // Verify TTL is configured correctly
+    {
+      auto acc = db.UniqueAccess();
+      auto config = acc->GetTtlConfig();
+      ASSERT_EQ(config.period, std::chrono::minutes(30));
+      ASSERT_FALSE(config.should_run_edge_ttl);
+    }
+  }
+
+  // Test 3: TTL disabled
+  {
+    memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+                                     .salient.items = {.properties_on_edges = true}};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::dbms::Database db{config, repl_state};
+
+    // Disable TTL
+    {
+      auto acc = db.UniqueAccess();
+      acc->DisableTtl();
+      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    }
+
+    // Verify TTL is disabled
+    {
+      auto acc = db.UniqueAccess();
+      auto config = acc->GetTtlConfig();
+      ASSERT_FALSE(config.period.has_value());
+      ASSERT_FALSE(config.start_time.has_value());
+    }
+  }
+
+  // Test 4: WAL durability with multiple TTL state transitions
+  {
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL},
+        .salient.items = {.properties_on_edges = true}};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::dbms::Database db{config, repl_state};
+
+    // Perform various TTL operations that will be logged to WAL
+    {
+      auto acc = db.UniqueAccess();
+
+      // Start with TTL disabled
+      acc->DisableTtl();
+      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    }
+    {
+      auto acc = db.UniqueAccess();
+
+      // Configure TTL with edge TTL enabled
+      auto ttl_config1 = memgraph::storage::ttl::TtlInfo{
+          std::chrono::hours(12),            // 12 hour period
+          std::chrono::system_clock::now(),  // start time now
+          true                               // enable edge TTL
+      };
+      acc->ConfigureTtl(ttl_config1);
+      acc->StartTtl();
+      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    }
+    {
+      auto acc = db.UniqueAccess();
+
+      // Stop TTL
+      acc->StopTtl();
+      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    }
+    {
+      auto acc = db.UniqueAccess();
+
+      // Re-enable TTL
+      acc->StartTtl();
+      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    }
+    {
+      auto acc = db.UniqueAccess();
+
+      // Final configuration
+      auto ttl_config3 = memgraph::storage::ttl::TtlInfo{
+          std::chrono::seconds(3600),                                   // 1 hour period
+          std::chrono::system_clock::now() + std::chrono::seconds(60),  // start time in 1 minute
+          true                                                          // enable edge TTL
+      };
+      acc->ConfigureTtl(ttl_config3);
+      acc->StartTtl();
+      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    }
+  }
+
+  // Verify WAL was created
+  ASSERT_GT(GetWalsList().size(), 0);
+
+  // Recover from WAL and verify final TTL state
+  {
+    memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+                                     .salient.items = {.properties_on_edges = true}};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::dbms::Database db{config, repl_state};
+
+    // Verify final TTL configuration (last operation was ConfigureTtl with 1-hour period and edge TTL enabled)
+    {
+      auto acc = db.UniqueAccess();
+      auto config = acc->GetTtlConfig();
+      ASSERT_EQ(config.period, std::chrono::seconds(3600));
+      ASSERT_TRUE(config.should_run_edge_ttl);
+      ASSERT_TRUE(config.start_time.has_value());
+      ASSERT_TRUE(db.storage()->ttl_.Running());
+      ASSERT_TRUE(db.storage()->ttl_.Enabled());
+    }
+  }
+
+  // Test 5: No recovery -> TTL stopped state
+  {
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory,
+                       .recover_on_startup = false,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL},
+        .salient.items = {.properties_on_edges = true}};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::dbms::Database db{config, repl_state};
+
+    ASSERT_FALSE(db.storage()->ttl_.Running());
+    ASSERT_FALSE(db.storage()->ttl_.Enabled());
+
+    // Start with TTL enabled, then stop it
+    {
+      auto acc = db.UniqueAccess();
+
+      // Enable and configure TTL
+      auto ttl_config = memgraph::storage::ttl::TtlInfo{
+          std::chrono::hours(6),             // 6 hour period
+          std::chrono::system_clock::now(),  // start time
+          false                              // disable edge TTL
+      };
+      acc->ConfigureTtl(ttl_config);
+      acc->StartTtl();
+      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+      ASSERT_TRUE(db.storage()->ttl_.Running());
+      ASSERT_FALSE(db.storage()->ttl_.Paused());
+      ASSERT_TRUE(db.storage()->ttl_.Enabled());
+    }
+    {
+      auto acc = db.UniqueAccess();
+      // Stop TTL
+      acc->StopTtl();
+      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+      ASSERT_TRUE(db.storage()->ttl_.Running());
+      ASSERT_TRUE(db.storage()->ttl_.Paused());
+      ASSERT_TRUE(db.storage()->ttl_.Enabled());
+    }
+  }
+
+  // Recover and verify TTL is stopped
+  {
+    memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+                                     .salient.items = {.properties_on_edges = true}};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::dbms::Database db{config, repl_state};
+
+    // Verify TTL is stopped
+    {
+      auto acc = db.UniqueAccess();
+      auto config = acc->GetTtlConfig();
+      ASSERT_TRUE(config.period.has_value());
+      ASSERT_TRUE(config.start_time.has_value());
+      ASSERT_TRUE(db.storage()->ttl_.Running());
+      ASSERT_TRUE(db.storage()->ttl_.Paused());
+      ASSERT_TRUE(db.storage()->ttl_.Enabled());
+    }
+  }
+
+  // Snapshot and recover
+  {
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory,
+                       .recover_on_startup = true,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL},
+        .salient.items = {.properties_on_edges = true}};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::dbms::Database db{config, repl_state};
+
+    // Verify setup and stopped TTL
+    {
+      auto acc = db.UniqueAccess();
+      auto config = acc->GetTtlConfig();
+      ASSERT_TRUE(config.period.has_value());
+      ASSERT_TRUE(config.start_time.has_value());
+      ASSERT_TRUE(db.storage()->ttl_.Running());
+      ASSERT_TRUE(db.storage()->ttl_.Paused());
+      ASSERT_TRUE(db.storage()->ttl_.Enabled());
+    }
+
+    ASSERT_FALSE(static_cast<memgraph::storage::InMemoryStorage *>(db.storage())->CreateSnapshot({}).HasError());
+  }
+
+  {
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory,
+                       .recover_on_startup = true,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL},
+        .salient.items = {.properties_on_edges = true}};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::dbms::Database db{config, repl_state};
+
+    // Verify setup and stopped TTL
+    {
+      auto acc = db.UniqueAccess();
+      auto config = acc->GetTtlConfig();
+      ASSERT_TRUE(config.period.has_value());
+      ASSERT_TRUE(config.start_time.has_value());
+      ASSERT_TRUE(db.storage()->ttl_.Running());
+      ASSERT_TRUE(db.storage()->ttl_.Paused());
+      ASSERT_TRUE(db.storage()->ttl_.Enabled());
+    }
+
+    // Startup TTL
+    {
+      auto acc = db.UniqueAccess();
+      acc->StartTtl();
+      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+      ASSERT_TRUE(db.storage()->ttl_.Running());
+      ASSERT_FALSE(db.storage()->ttl_.Paused());
+      ASSERT_TRUE(db.storage()->ttl_.Enabled());
+    }
+  }
+
+  // Snapshot + WAL
+  {
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory,
+                       .recover_on_startup = true,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL},
+        .salient.items = {.properties_on_edges = true}};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::dbms::Database db{config, repl_state};
+
+    // Verify setup and running TTL
+    {
+      auto acc = db.UniqueAccess();
+      auto config = acc->GetTtlConfig();
+      ASSERT_TRUE(config.period.has_value());
+      ASSERT_TRUE(config.start_time.has_value());
+      ASSERT_TRUE(db.storage()->ttl_.Running());
+      ASSERT_FALSE(db.storage()->ttl_.Paused());
+      ASSERT_TRUE(db.storage()->ttl_.Enabled());
+    }
+
+    ASSERT_FALSE(static_cast<memgraph::storage::InMemoryStorage *>(db.storage())->CreateSnapshot({}).HasError());
+  }
+  // Only snapshot
+  {
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory,
+                       .recover_on_startup = true,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL},
+        .salient.items = {.properties_on_edges = true}};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::dbms::Database db{config, repl_state};
+
+    // Verify setup and running TTL
+    {
+      auto acc = db.UniqueAccess();
+      auto config = acc->GetTtlConfig();
+      ASSERT_TRUE(config.period.has_value());
+      ASSERT_TRUE(config.start_time.has_value());
+      ASSERT_TRUE(db.storage()->ttl_.Running());
+      ASSERT_FALSE(db.storage()->ttl_.Paused());
+      ASSERT_TRUE(db.storage()->ttl_.Enabled());
+    }
   }
 }

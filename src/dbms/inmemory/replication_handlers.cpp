@@ -527,7 +527,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
           recovery_snapshot_path, &storage->vertices_, &storage->edges_, &storage->edges_metadata_,
           &storage->repl_storage_state_.history, storage->name_id_mapper_.get(), &storage->edge_count_,
           storage->config_, &storage->enum_store_,
-          storage->config_.salient.items.enable_schema_info ? &storage->schema_info_.Get() : nullptr,
+          storage->config_.salient.items.enable_schema_info ? &storage->schema_info_.Get() : nullptr, &storage->ttl_,
           snapshot_observer_info);
       // If this step is present it should always be the first step of
       // the recovery so we use the UUID we read from snapshot
@@ -1483,6 +1483,30 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           auto res = transaction->DropVectorIndex(data.index_name);
           if (res.HasError()) {
             throw utils::BasicException("Failed to drop vector index {}", data.index_name);
+          }
+        },
+        [&](WalTtlOperation const &data) {
+          spdlog::trace("   Delta {}. TTL operation type {}", current_delta_idx, static_cast<int>(data.operation_type));
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          switch (data.operation_type) {
+            case storage::durability::TtlOperationType::ENABLE:
+              transaction->StartTtl();
+              break;
+            case storage::durability::TtlOperationType::DISABLE:
+              transaction->DisableTtl();
+              break;
+            case storage::durability::TtlOperationType::CONFIGURE:
+              if (data.period && data.start_time) {
+                transaction->ConfigureTtl(
+                    storage::ttl::TtlInfo{*data.period, *data.start_time, data.should_run_edge_ttl});
+                // Configuration will leave it paused; replicas should not run ttl
+              }
+              break;
+            case storage::durability::TtlOperationType::STOP:
+              transaction->StopTtl();
+              break;
+            default:
+              throw utils::BasicException("Invalid TTL operation type: {}", static_cast<int>(data.operation_type));
           }
         },
     };
