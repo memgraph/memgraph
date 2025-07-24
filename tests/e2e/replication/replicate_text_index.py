@@ -152,25 +152,11 @@ def test_text_index_replication(connection, test_name):
     # 3/
     execute_and_fetch_all(
         cursor,
-        "DROP TEXT INDEX test_index;",
+        "CREATE (:Node {name: 'test1'});",
     )
     wait_for_replication_change(cursor, 4)
 
     # 4/
-    expected_result = []
-    replica_1_info = get_show_index_info(get_replica_cursor("replica_1"))
-    assert replica_1_info == expected_result
-    replica_2_info = get_show_index_info(get_replica_cursor("replica_2"))
-    assert replica_2_info == expected_result
-
-    # 5/
-    execute_and_fetch_all(
-        cursor,
-        "CREATE (:Node {name: 'test1'});",
-    )
-    wait_for_replication_change(cursor, 6)
-
-    # 6/
     search_results = execute_and_fetch_all(
         get_replica_cursor("replica_1"),
         "CALL text_search.search('test_index', 'data.name:test1') YIELD node RETURN node.name AS name;",
@@ -182,6 +168,19 @@ def test_text_index_replication(connection, test_name):
         "CALL text_search.search('test_index', 'data.name:test1') YIELD node RETURN node.name AS name;",
     )
     assert search_results == [{"name": "test1"}]
+
+    # 5/
+    execute_and_fetch_all(
+        cursor,
+        "DROP TEXT INDEX test_index;",
+    )
+    wait_for_replication_change(cursor, 6)
+
+    expected_result = []
+    replica_1_info = get_show_index_info(get_replica_cursor("replica_1"))
+    assert replica_1_info == expected_result
+    replica_2_info = get_show_index_info(get_replica_cursor("replica_2"))
+    assert replica_2_info == expected_result
 
 
 if __name__ == "__main__":
