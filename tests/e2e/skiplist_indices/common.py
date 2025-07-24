@@ -47,3 +47,4 @@ def memgraph(**kwargs) -> Memgraph:
     # GQLAlchemy does not have support for this yet
     memgraph.execute("DROP EDGE INDEX ON :TYPE;")
     memgraph.execute("DROP EDGE INDEX ON :TYPE(prop);")
+    memgraph.execute("DROP GLOBAL EDGE INDEX ON :TYPE(prop);")

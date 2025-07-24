@@ -175,6 +175,17 @@ def test_auto_create_multiple_label_index_with_multiple_entries(cursor):
     execute_and_fetch_all(cursor, f"MATCH (n) DETACH DELETE n")
 
 
+def test_auto_create_label_index_plan_invalidation(cursor):
+    label = "Label"
+
+    # populate the plan cache
+    execute_and_fetch_all(cursor, f"MATCH (n:{label}) RETURN n")
+
+    execute_and_fetch_all(cursor, f"CREATE (n:{label})")
+    assert index_exists(get_index_stats(cursor), label)
+    results = execute_and_fetch_all(cursor, f"EXPLAIN MATCH (n:{label}) RETURN n")
+    assert results == [(" * Produce {n}",), (" * ScanAllByLabel (n :Label)", ), (" * Once", )]
+
 #########################
 # Edge-type index tests #
 #########################
@@ -327,6 +338,21 @@ def test_auto_create_multiple_edge_type_index_with_multiple_entries(cursor):
     assert number_of_index_structures_are(index_stats, 0)
 
     execute_and_fetch_all(cursor, f"MATCH (n) DETACH DELETE n")
+
+def test_auto_create_edge_type_index_plan_invalidation(cursor):
+    edge_type = "Label"
+
+    # populate the plan cache
+    execute_and_fetch_all(cursor, f"MATCH ()-[r:Label]->() RETURN r")
+
+    execute_and_fetch_all(cursor, f"CREATE ()-[r:{edge_type}]->()")
+
+    execute_and_fetch_all(cursor, f"MATCH ()-[r:Label]->() RETURN r")
+    assert index_exists(get_index_stats(cursor), edge_type)
+    
+    results = execute_and_fetch_all(cursor, f"EXPLAIN MATCH ()-[r:Label]->() RETURN r")
+    assert results == [(" * Produce {r}",), (" * ScanAllByEdgeType (anon1)-[r:Label]->(anon2)", ), (" * Once", )]
+
 
 
 if __name__ == "__main__":
