@@ -140,103 +140,52 @@ std::string TtlInfo::StringifyStartTime(std::chrono::system_clock::time_point st
   return fmt::format("{:02d}:{:02d}:{:02d}", h, m, s);
 }
 
-bool TTL::Restore(Storage *storage, bool should_run_edge_ttl) {
-  // Restore TTL configuration and state from durable storage.
-  // TTL background job restart is handled automatically in the Storage constructor
-  // when config.durability.recover_on_startup is true.
-
-  auto fail = [&](std::string_view field) {
-    spdlog::warn("Failed to restore TTL, due to '{}'.", field);
-    ttl_.Stop();
-    info_ = {};
-    enabled_ = false;
-    return false;
-  };
-
-  try {
-    // Restore version information
-    {
-      const auto ver = storage_.Get("version");
-      if (!ver || *ver != "1.0") {
-        return fail("version");
-      }
-    }
-
-    // Restore enabled state
-    {
-      const auto ena = storage_.Get("enabled");
-      if (!ena || (*ena != "false" && *ena != "true")) {
-        return fail("enabled");
-      }
-      enabled_ = *ena == "true";
-    }
-
-    // Restore period configuration
-    {
-      const auto per = storage_.Get("period");
-      if (!per) {
-        return fail("period");
-      }
-      if (per->empty())
-        info_.period = std::nullopt;
-      else
-        info_.period = TtlInfo::ParsePeriod(*per);
-    }
-
-    // Restore start time configuration
-    {
-      const auto st = storage_.Get("start_time");
-      if (!st) {
-        return fail("start_time");
-      }
-      if (st->empty())
-        info_.start_time = std::nullopt;
-      else
-        info_.start_time = TtlInfo::ParseStartTime(*st);
-    }
-
-    // Restore running state
-    {
-      const auto run = storage_.Get("running");
-      if (!run || (*run != "false" && *run != "true")) {
-        return fail("running");
-      }
-
-      // Check if TTL was running before shutdown and restart it
-      if (*run == "true") {
-        // Restart the TTL background job
-        Setup_(storage, should_run_edge_ttl);
-        spdlog::info("TTL background job restarted after recovery");
-      }
-    }
-  } catch (TtlException &e) {
-    return fail(e.what());
+void TTL::SetInterval(std::optional<std::chrono::microseconds> period,
+                      std::optional<std::chrono::system_clock::time_point> start_time) {
+  if (!enabled_) {
+    throw TtlException("TTL not enabled!");
   }
-  return true;
+  if (!ttl_.IsRunning()) {
+    throw TtlException("TTL not running!");
+  }
+
+  // Use provided period or default to 1 day
+  auto actual_period = period.value_or(std::chrono::days(1));
+
+  // Update the info_ with the new period and start_time
+  info_.period = actual_period;
+  info_.start_time = start_time;
+
+  ttl_.SetInterval(actual_period, start_time);
 }
 
-void TTL::Setup_(Storage *storage_ptr, bool should_run_edge_ttl) {
+void TTL::Configure(bool should_run_edge_ttl) {
   if (!enabled_) {
     throw TtlException("TTL not enabled!");
   }
   if (ttl_.IsRunning()) {
     throw TtlException("TTL already running!");
   }
-  if (!info_) {
-    throw TtlException("TTL not configured!");
+
+  info_.should_run_edge_ttl = should_run_edge_ttl;
+
+  if (info_.should_run_edge_ttl && (storage_ptr_->GetStorageMode() == StorageMode::ON_DISK_TRANSACTIONAL ||
+                                    !storage_ptr_->config_.salient.items.properties_on_edges)) {
+    spdlog::warn("Memgraph configuration doesn't support edge TTL. Edge TTL will be disabled.");
+    info_.should_run_edge_ttl = false;
   }
 
-  auto ttl_job = [storage_ptr, should_run_edge_ttl]() {
+  auto ttl_job = [this]() {
     bool finished_vertex = false;
-    bool finished_edge = !should_run_edge_ttl;
+    bool finished_edge = !info_.should_run_edge_ttl;
     const auto now = std::chrono::system_clock::now();
     const auto now_us = std::chrono::duration_cast<std::chrono::microseconds>(now.time_since_epoch());
 
     spdlog::trace("Running TTL at {}",
                   std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count());
 
-    const auto ttl_label = storage_ptr->NameToLabel("TTL");
-    const auto ttl_property = storage_ptr->NameToProperty("ttl");
+    const auto ttl_label = storage_ptr_->NameToLabel("TTL");
+    const auto ttl_property = storage_ptr_->NameToProperty("ttl");
 
     while (!finished_vertex || !finished_edge) {
       try {
@@ -246,7 +195,7 @@ void TTL::Setup_(Storage *storage_ptr, bool should_run_edge_ttl) {
 
         // Create a new transaction for this batch
         // This ensures each batch is isolated and can be retried independently
-        auto batch_accessor = storage_ptr->Access(storage::Storage::Accessor::Type::WRITE);
+        auto batch_accessor = storage_ptr_->Access(storage::Storage::Accessor::Type::WRITE);
 
         // Verify required indices exist and are ready for TTL operations
         // This ensures TTL can work efficiently using range-based filtering
@@ -257,7 +206,7 @@ void TTL::Setup_(Storage *storage_ptr, bool should_run_edge_ttl) {
           throw TtlMissingIndexException(TtlMissingIndexException::IndexType::LABEL_PROPERTY, ":TTL(ttl)");
         }
 
-        if (should_run_edge_ttl && !batch_accessor->EdgePropertyIndexReady(ttl_property)) {
+        if (info_.should_run_edge_ttl && !batch_accessor->EdgePropertyIndexReady(ttl_property)) {
           spdlog::warn(
               "TTL requires edge property index on ttl property but it doesn't exist. Will create it automatically.");
           throw TtlMissingIndexException(TtlMissingIndexException::IndexType::EDGE_PROPERTY, "ttl property");
@@ -327,7 +276,8 @@ void TTL::Setup_(Storage *storage_ptr, bool should_run_edge_ttl) {
         }
 
         // Commit the transaction for this batch
-        auto commit_result = batch_accessor->PrepareForCommitPhase();
+        // TODO: Very hacky solution to pass something as the "db_acc" to the accessor
+        auto commit_result = batch_accessor->PrepareForCommitPhase({}, DatabaseAccessProtector{1});
         if (commit_result.HasError()) {
           // Transaction failed, will retry in next iteration
           continue;
@@ -344,9 +294,9 @@ void TTL::Setup_(Storage *storage_ptr, bool should_run_edge_ttl) {
         spdlog::info("TTL missing required index, creating it automatically: {}", e.what());
         try {
           // Create the missing index with read-only access
-          auto read_accessor = storage_ptr->GetStorageMode() == StorageMode::ON_DISK_TRANSACTIONAL
-                                   ? storage_ptr->UniqueAccess()
-                                   : storage_ptr->ReadOnlyAccess();
+          auto read_accessor = storage_ptr_->GetStorageMode() == StorageMode::ON_DISK_TRANSACTIONAL
+                                   ? storage_ptr_->UniqueAccess()
+                                   : storage_ptr_->ReadOnlyAccess();
 
           if (e.GetIndexType() == TtlMissingIndexException::IndexType::LABEL_PROPERTY) {
             // Create label+property index on :TTL(ttl)
@@ -365,7 +315,8 @@ void TTL::Setup_(Storage *storage_ptr, bool should_run_edge_ttl) {
             spdlog::info("Successfully created TTL edge property index on ttl property");
           }
           // Commit the transaction
-          auto commit_result = read_accessor->PrepareForCommitPhase();
+          // TODO: Very hacky solution to pass something as the "db_acc" to the accessor
+          auto commit_result = read_accessor->PrepareForCommitPhase({}, DatabaseAccessProtector{1});
           if (commit_result.HasError()) {
             spdlog::error("Failed to commit TTL index creation");
             throw TtlException("Failed to commit TTL index creation");
@@ -386,10 +337,9 @@ void TTL::Setup_(Storage *storage_ptr, bool should_run_edge_ttl) {
                   std::chrono::duration_cast<std::chrono::seconds>(now.time_since_epoch()).count());
   };
 
-  DMG_ASSERT(info_.period, "Period has to be defined for TTL");
-  ttl_.SetInterval(*info_.period, info_.start_time);
+  // Starts the TTL job, but will not run until the period is set
+  ttl_.Pause();
   ttl_.Run("storage-ttl", std::move(ttl_job));
-  Persist_();
 }
 
 }  // namespace memgraph::storage::ttl

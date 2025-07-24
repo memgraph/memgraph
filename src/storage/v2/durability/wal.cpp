@@ -32,6 +32,7 @@
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
+#include "storage/v2/ttl.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/logging.hpp"
@@ -134,6 +135,7 @@ constexpr Marker OperationToMarker(StorageMetadataOperation operation) {
     add_case(VECTOR_INDEX_CREATE);
     add_case(VECTOR_EDGE_INDEX_CREATE);
     add_case(VECTOR_INDEX_DROP);
+    add_case(TTL_OPERATION);
   }
 #undef add_case
 }
@@ -160,6 +162,8 @@ constexpr Marker DeltaActionToMarker(Delta::Action action) {
     case Delta::Action::REMOVE_IN_EDGE:
     case Delta::Action::REMOVE_OUT_EDGE:
       return Marker::DELTA_EDGE_CREATE;
+    default:
+      throw RecoveryFailure(kInvalidWalErrorMessage);
   }
 }
 
@@ -218,6 +222,7 @@ constexpr bool IsMarkerImplicitTransactionEndVersion15(Marker marker) {
     case DELTA_VECTOR_INDEX_CREATE:
     case DELTA_VECTOR_EDGE_INDEX_CREATE:
     case DELTA_VECTOR_INDEX_DROP:
+    case DELTA_TTL_OPERATION:
       return true;
 
     // Not deltas
@@ -245,6 +250,7 @@ constexpr bool IsMarkerImplicitTransactionEndVersion15(Marker marker) {
     case SECTION_EDGE_INDICES:
     case SECTION_OFFSETS:
     case SECTION_ENUMS:
+    case SECTION_TTL:
     case VALUE_FALSE:
     case VALUE_TRUE:
       throw RecoveryFailure(kInvalidWalErrorMessage);
@@ -289,6 +295,28 @@ auto Decode(utils::tag_type<std::string> /*unused*/, BaseDecoder *decoder, const
     return *std::move(str);
   } else {
     if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
+  }
+}
+
+template <bool is_read>
+auto Decode(utils::tag_type<std::optional<std::string>> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, std::optional<std::string>, void> {
+  if constexpr (is_read) {
+    auto has_value = decoder->ReadBool();
+    if (!has_value) throw RecoveryFailure(kInvalidWalErrorMessage);
+    if (*has_value) {
+      auto str = decoder->ReadString();
+      if (!str) throw RecoveryFailure(kInvalidWalErrorMessage);
+      return std::make_optional(*std::move(str));
+    } else {
+      return std::nullopt;
+    }
+  } else {
+    auto has_value = decoder->ReadBool();
+    if (!has_value) throw RecoveryFailure(kInvalidWalErrorMessage);
+    if (*has_value) {
+      if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
+    }
   }
 }
 
@@ -382,12 +410,80 @@ auto Decode(utils::tag_type<uint8_t> /*unused*/, BaseDecoder *decoder, const uin
 }
 
 template <bool is_read>
+auto Decode(utils::tag_type<TtlOperationType> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, TtlOperationType, void> {
+  const auto uint8 = decoder->ReadUint();
+  if (!uint8) throw RecoveryFailure(kInvalidWalErrorMessage);
+
+  if constexpr (is_read) {
+    return static_cast<TtlOperationType>(*uint8);
+  }
+}
+
+template <bool is_read>
 auto Decode(utils::tag_type<std::size_t> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
     -> std::conditional_t<is_read, std::size_t, void> {
   const auto size = decoder->ReadUint();
   if (!size) throw RecoveryFailure(kInvalidWalErrorMessage);
   if constexpr (is_read) {
     return static_cast<std::size_t>(*size);
+  }
+}
+
+template <bool is_read>
+auto Decode(utils::tag_type<std::chrono::microseconds> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, std::chrono::microseconds, void> {
+  const auto count = decoder->ReadUint();
+  if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
+  if constexpr (is_read) {
+    return std::chrono::microseconds(*count);
+  }
+}
+
+template <bool is_read>
+auto Decode(utils::tag_type<std::chrono::system_clock::time_point> /*unused*/, BaseDecoder *decoder,
+            const uint64_t /*version*/) -> std::conditional_t<is_read, std::chrono::system_clock::time_point, void> {
+  const auto count = decoder->ReadUint();
+  if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
+  if constexpr (is_read) {
+    return std::chrono::system_clock::time_point(std::chrono::microseconds(*count));
+  }
+}
+
+template <bool is_read>
+auto Decode(utils::tag_type<std::optional<std::chrono::microseconds>> /*unused*/, BaseDecoder *decoder,
+            const uint64_t version) -> std::conditional_t<is_read, std::optional<std::chrono::microseconds>, void> {
+  const auto has_value = decoder->ReadBool();
+  if (!has_value) throw RecoveryFailure(kInvalidWalErrorMessage);
+  if constexpr (is_read) {
+    if (*has_value) {
+      return Decode<true>(utils::tag_t<std::chrono::microseconds>, decoder, version);
+    } else {
+      return std::nullopt;
+    }
+  } else {
+    if (*has_value) {
+      Decode<false>(utils::tag_t<std::chrono::microseconds>, decoder, version);
+    }
+  }
+}
+
+template <bool is_read>
+auto Decode(utils::tag_type<std::optional<std::chrono::system_clock::time_point>> /*unused*/, BaseDecoder *decoder,
+            const uint64_t version)
+    -> std::conditional_t<is_read, std::optional<std::chrono::system_clock::time_point>, void> {
+  const auto has_value = decoder->ReadBool();
+  if (!has_value) throw RecoveryFailure(kInvalidWalErrorMessage);
+  if constexpr (is_read) {
+    if (*has_value) {
+      return Decode<true>(utils::tag_t<std::chrono::system_clock::time_point>, decoder, version);
+    } else {
+      return std::nullopt;
+    }
+  } else {
+    if (*has_value) {
+      Decode<false>(utils::tag_t<std::chrono::system_clock::time_point>, decoder, version);
+    }
   }
 }
 
@@ -527,6 +623,7 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     read_skip(VECTOR_INDEX_CREATE, WalVectorIndexCreate);
     read_skip(VECTOR_EDGE_INDEX_CREATE, WalVectorEdgeIndexCreate);
     read_skip(VECTOR_INDEX_DROP, WalVectorIndexDrop);
+    read_skip(TTL_OPERATION, WalTtlOperation);
 
     // Other markers are not actions
     case Marker::TYPE_NULL:
@@ -553,6 +650,7 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     case Marker::SECTION_EDGE_INDICES:
     case Marker::SECTION_OFFSETS:
     case Marker::SECTION_ENUMS:
+    case Marker::SECTION_TTL:
     case Marker::VALUE_FALSE:
     case Marker::VALUE_TRUE:
       throw RecoveryFailure(kInvalidWalErrorMessage);
@@ -796,7 +894,8 @@ std::optional<RecoveryInfo> LoadWal(
     const std::optional<uint64_t> last_applied_delta_timestamp, utils::SkipList<Vertex> *vertices,
     utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
     SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
-    std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge) {
+    std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
+    memgraph::storage::ttl::TTL *ttl) {
   spdlog::info("Trying to load WAL file {}.", path);
 
   Decoder wal;
@@ -1239,6 +1338,32 @@ std::optional<RecoveryInfo> LoadWal(
         std::erase_if(indices_constraints->indices.vector_indices,
                       [&](const auto &index) { return index.index_name == data.index_name; });
       },
+      [&](WalTtlOperation const &data) {
+        switch (data.operation_type) {
+          case TtlOperationType::ENABLE:
+            if (ttl->Config()) ttl->Resume();
+            break;
+          case TtlOperationType::DISABLE:
+            ttl->Disable();
+            break;
+          case TtlOperationType::CONFIGURE:
+            if (data.period && data.start_time) {
+              // TODO create index logic currently done via index deltas
+              ttl->Enable();
+              if (!ttl->Running()) ttl->Configure(data.should_run_edge_ttl);
+              ttl->SetInterval(*data.period, *data.start_time);
+              ttl->Resume();
+            } else {
+              throw RecoveryFailure("Corrupted TTL configuration");
+            }
+            break;
+          case TtlOperationType::STOP:
+            ttl->Pause();
+            break;
+          default:
+            throw RecoveryFailure("Invalid TTL operation type: {}", static_cast<int>(data.operation_type));
+        }
+      },
   };
 
   for (uint64_t i = 0; i < info.num_deltas; ++i) {
@@ -1544,6 +1669,24 @@ void EncodeVectorEdgeIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mappe
 }
 
 void EncodeVectorIndexName(BaseEncoder &encoder, std::string_view index_name) { encoder.WriteString(index_name); }
+
+// TTL encoding function
+void EncodeTtlOperation(BaseEncoder &encoder, TtlOperationType operation_type,
+                        const std::optional<std::chrono::microseconds> &period,
+                        const std::optional<std::chrono::system_clock::time_point> &start_time,
+                        bool should_run_edge_ttl) {
+  encoder.WriteUint(static_cast<uint64_t>(operation_type));
+  encoder.WriteBool(period.has_value());
+  if (period.has_value()) {
+    encoder.WriteUint(static_cast<uint64_t>(period->count()));
+  }
+  encoder.WriteBool(start_time.has_value());
+  if (start_time.has_value()) {
+    encoder.WriteUint(static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(start_time->time_since_epoch()).count()));
+  }
+  encoder.WriteBool(should_run_edge_ttl);
+}
 
 void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, uint64_t timestamp) {
   encoder.WriteMarker(Marker::SECTION_DELTA);

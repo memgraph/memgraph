@@ -790,6 +790,17 @@ class DbAccessor final {
   }
 
   auto GetStorageAccessor() const -> storage::Storage::Accessor * { return accessor_; }
+
+  // TTL operations - pushed into accessor
+  void StartTtl() { accessor_->StartTtl(); }
+
+  void ConfigureTtl(const storage::ttl::TtlInfo &ttl_info) { accessor_->ConfigureTtl(ttl_info); }
+
+  void DisableTtl() { accessor_->DisableTtl(); }
+
+  void StopTtl() { accessor_->StopTtl(); }
+
+  storage::ttl::TtlInfo GetTtlConfig() const { return accessor_->GetTtlConfig(); }
 };
 
 class SubgraphDbAccessor final {

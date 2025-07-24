@@ -561,6 +561,13 @@ class Storage {
     // TTL methods
     virtual ttl::TTL &ttl() = 0;
 
+    // TTL management methods
+    virtual void StartTtl() = 0;
+    virtual void DisableTtl() = 0;
+    virtual void StopTtl() = 0;
+    virtual void ConfigureTtl(const storage::ttl::TtlInfo &ttl_info) = 0;
+    virtual storage::ttl::TtlInfo GetTtlConfig() const = 0;
+
    protected:
     Storage *storage_;
     utils::SharedResourceLockGuard storage_guard_;
@@ -739,7 +746,7 @@ class Storage {
   SchemaInfo schema_info_;
 
   // TTL handler
-  ttl::TTL ttl_;
+  ttl::TTL ttl_{this};
 };
 
 inline std::ostream &operator<<(std::ostream &os, Storage::Accessor::Type type) {

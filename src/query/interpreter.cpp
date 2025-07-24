@@ -4028,17 +4028,21 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
   MG_ASSERT(current_db.db_transactional_accessor_, "Time to live query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
 
-  auto *storage = db_acc->storage();
-  auto label = storage->NameToLabel("TTL");
-  auto prop = storage->NameToProperty("ttl");
-
   auto invalidate_plan_cache = [plan_cache = db_acc->plan_cache()] {
     plan_cache->WithLock([&](auto &cache) { cache.reset(); });
   };
 
   Notification notification(SeverityLevel::INFO);
   switch (ttl_query->type_) {
-    case TtlQuery::Type::ENABLE: {
+    case TtlQuery::Type::START: {
+      handler = [db_acc = std::move(db_acc), dba](Notification &notification) mutable {
+        dba->StartTtl();
+        notification.code = NotificationCode::ENABLE_TTL;
+        notification.title = fmt::format("Starting time-to-live worker. Will be executed");
+      };
+      break;
+    }
+    case TtlQuery::Type::CONFIGURE: {
       auto evaluation_context = EvaluationContext{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
       try {
@@ -4051,7 +4055,9 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
         if (ttl_query->specific_time_) {
           start_time = ttl_query->specific_time_->Accept(evaluator).ValueString();
         }
-        auto ttl_info = storage::ttl::TtlInfo{period, start_time};
+        bool run_edge_ttl = db_acc->config().salient.items.properties_on_edges &&
+                            db_acc->GetStorageMode() != storage::StorageMode::ON_DISK_TRANSACTIONAL;
+        auto ttl_info = storage::ttl::TtlInfo{period, start_time, run_edge_ttl};
         if (interpreter_context->repl_state.ReadLock()->IsReplica()) {
           // Special case for REPLICA
           info = "TTL configured. Background job will not run, since instance is REPLICA.";
@@ -4060,34 +4066,18 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
           info = "Starting time-to-live worker. Will be executed";
           if (ttl_info)
             info += ttl_info.ToString();
-          else if (db_acc->ttl().Config())
-            info += db_acc->ttl().Config().ToString();
+          else {
+            // Get current TTL config through DbAccessor
+            auto current_ttl_config = dba->GetTtlConfig();
+            if (current_ttl_config) info += current_ttl_config.ToString();
+          }
         }
 
-        bool run_edge_ttl = db_acc->config().salient.items.properties_on_edges &&
-                            db_acc->GetStorageMode() != storage::StorageMode::ON_DISK_TRANSACTIONAL;
-
-        handler = [db_acc = std::move(db_acc), dba, label, prop, ttl_info, info = std::move(info),
-                   invalidate_plan_cache = std::move(invalidate_plan_cache),
-                   run_edge_ttl](Notification &notification) mutable {
-          auto &ttl = db_acc->ttl();
-
-          if (!ttl.Enabled()) {
-            (void)dba->CreateIndex(label,
-                                   std::vector<memgraph::storage::PropertyPath>{
-                                       {prop}});  // Only way to fail is to try to create an already existant index
-            if (run_edge_ttl) {
-              (void)dba->CreateGlobalEdgeIndex(prop);  // Only way to fail is to try to create an already existant index
-            }
-            ttl.Enable();
-            std::invoke(invalidate_plan_cache);
-          }
-          if (ttl_info) ttl.Configure(ttl_info);
-          // Start TTL background job using storage operations
-          const bool run_edge_ttl = db_acc->config().salient.items.properties_on_edges &&
-                                    db_acc->GetStorageMode() != storage::StorageMode::ON_DISK_TRANSACTIONAL;
-          ttl.Setup_(db_acc->storage(), run_edge_ttl);
-
+        handler = [db_acc = std::move(db_acc), dba, ttl_info, info = std::move(info),
+                   invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &notification) mutable {
+          dba->ConfigureTtl(ttl_info);
+          dba->StartTtl();
+          std::invoke(invalidate_plan_cache);
           notification.code = NotificationCode::ENABLE_TTL;
           notification.title = info;
         };
@@ -4098,23 +4088,18 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
     }
     case TtlQuery::Type::DISABLE: {
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
-      handler = [db_acc = std::move(db_acc), dba, label, prop,
+      handler = [db_acc = std::move(db_acc), dba,
                  invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &notification) mutable {
-        (void)dba->DropIndex(label, std::vector<storage::PropertyPath>{
-                                        {prop}});  // Only way to fail is to try to drop a non-existant index
-        if (db_acc->config().salient.items.properties_on_edges) {
-          (void)dba->DropGlobalEdgeIndex(prop);  // Only way to fail is to try to drop a non-existant index
-        }
+        dba->DisableTtl();
         const utils::OnScopeExit invalidator(invalidate_plan_cache);
-        db_acc->ttl().Disable();
         notification.code = NotificationCode::DISABLE_TTL;
         notification.title = fmt::format("Disabled time-to-live feature.");
       };
       break;
     }
     case TtlQuery::Type::STOP: {
-      handler = [db_acc = std::move(db_acc)](Notification &notification) mutable {
-        db_acc->ttl().Stop();
+      handler = [db_acc = std::move(db_acc), dba](Notification &notification) mutable {
+        dba->StopTtl();
         notification.code = NotificationCode::STOP_TTL;
         notification.title = fmt::format("Stopped time-to-live worker.");
       };
@@ -4708,7 +4693,7 @@ Callback DropGraph(memgraph::dbms::DatabaseAccess &db, DbAccessor *dba) {
     streams->DropAll();
 
     auto &ttl = db->ttl();
-    ttl.Stop();
+    ttl.Disable();
 
     return std::vector<std::vector<TypedValue>>();
   };

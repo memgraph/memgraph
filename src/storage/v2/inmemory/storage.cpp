@@ -106,6 +106,7 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action const action) -> d
     add_case(VECTOR_INDEX_CREATE);
     add_case(VECTOR_EDGE_INDEX_CREATE);
     add_case(VECTOR_INDEX_DROP);
+    add_case(TTL_OPERATION);
     default:
       LOG_FATAL("Unknown MetadataDelta::Action");
   }
@@ -197,7 +198,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
         uuid(), repl_storage_state_, &vertices_, &edges_, &edges_metadata_, &edge_count_, name_id_mapper_.get(),
         &indices_, &constraints_, config_, &wal_seq_num_, &enum_store_,
         config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
-        [this](Gid edge_gid) { return FindEdge(edge_gid); }, name());
+        [this](Gid edge_gid) { return FindEdge(edge_gid); }, name(), &ttl_);
     if (info) {
       vertex_id_.store(info->next_vertex_id, std::memory_order_release);
       edge_id_.store(info->next_edge_id, std::memory_order_release);
@@ -1385,7 +1386,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
 
     {
       auto engine_guard = std::unique_lock(storage_->engine_lock_);
-      uint64_t mark_timestamp = storage_->timestamp_;
+      uint64_t mark_timestamp = storage_->timestamp_;  // a timestamp no active transaction can currently have
+
       // Take garbage_undo_buffers lock while holding the engine lock to make
       // sure that entries are sorted by mark timestamp in the list.
       mem_storage->garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
@@ -2192,7 +2194,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
             }
             vertex->delta = nullptr;
             if (vertex->deleted) {
-              DMG_ASSERT(delta.action == memgraph::storage::Delta::Action::RECREATE_OBJECT);
+              DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
               current_deleted_vertices.push_back(vertex->gid);
             }
             break;
@@ -2207,7 +2209,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
             }
             edge->delta = nullptr;
             if (edge->deleted) {
-              DMG_ASSERT(delta.action == memgraph::storage::Delta::Action::RECREATE_OBJECT);
+              DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
               current_deleted_edges.push_back(edge->gid);
             }
             break;
@@ -2675,6 +2677,14 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
         });
         break;
       }
+      case MetadataDelta::Action::TTL_OPERATION: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          durability::EncodeTtlOperation(encoder, md_delta.ttl_operation_info.operation_type,
+                                         md_delta.ttl_operation_info.period, md_delta.ttl_operation_info.start_time,
+                                         md_delta.ttl_operation_info.should_run_edge_ttl);
+        });
+        break;
+      }
     }
   }
   // A single transaction will always be fully-contained in a single WAL file.
@@ -2973,7 +2983,8 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
     spdlog::debug("Recovering from a snapshot {}", local_path);
     auto recovered_snapshot = storage::durability::LoadSnapshot(
         local_path, &vertices_, &edges_, &edges_metadata_, &repl_storage_state_.history, name_id_mapper_.get(),
-        &edge_count_, config_, &enum_store_, config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr);
+        &edge_count_, config_, &enum_store_, config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
+        &ttl_);
     spdlog::debug("Snapshot recovered successfully");
     // Instead of using the UUID from the snapshot, we will override the snapshot's UUID with our own
     // This snapshot creates a new state and cannot have any WALs associated with it at this point

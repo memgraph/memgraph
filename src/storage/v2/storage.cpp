@@ -99,15 +99,8 @@ Storage::Storage(Config config, StorageMode storage_mode)
       isolation_level_(config.transaction.isolation_level),
       storage_mode_(storage_mode),
       indices_(config, storage_mode),
-      constraints_(config, storage_mode),
-      ttl_(config.durability.storage_directory / "ttl") {
+      constraints_(config, storage_mode) {
   spdlog::info("Created database with {} storage mode.", StorageModeToString(storage_mode));
-#ifdef MG_ENTERPRISE
-  // Handle TTL recovery if enabled
-  if (config.durability.recover_on_startup && memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-    ttl_.Restore(this, config.salient.items.properties_on_edges && storage_mode != StorageMode::ON_DISK_TRANSACTIONAL);
-  }
-#endif
 }
 
 Storage::Accessor::Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level,

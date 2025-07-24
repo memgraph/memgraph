@@ -31,6 +31,7 @@
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
+#include "storage/v2/ttl.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/skip_list.hpp"
@@ -287,6 +288,27 @@ struct WalVectorIndexDrop {
   std::string index_name;
 };
 
+// TTL operation types
+enum class TtlOperationType : uint8_t {
+  ENABLE = 0,
+  DISABLE = 1,
+  CONFIGURE = 2,
+  STOP = 3,
+};
+
+// Single TTL WAL structure that encompasses all TTL operations
+struct WalTtlOperation {
+  friend bool operator==(const WalTtlOperation &, const WalTtlOperation &) = default;
+  using ctr_types = std::tuple<TtlOperationType, std::optional<std::chrono::microseconds>,
+                               std::optional<std::chrono::system_clock::time_point>,
+                               bool>;  // operation_type, period, start_time, should_run_edge_ttl
+
+  TtlOperationType operation_type;
+  std::optional<std::chrono::microseconds> period;                  // Raw period (for CONFIGURE operation)
+  std::optional<std::chrono::system_clock::time_point> start_time;  // Raw start time (for CONFIGURE operation)
+  bool should_run_edge_ttl;  // Whether edge TTL should be run (for CONFIGURE operation)
+};
+
 /// Structure used to return loaded WAL delta data.
 struct WalDeltaData {
   friend bool operator==(const WalDeltaData &a, const WalDeltaData &b) {
@@ -299,15 +321,15 @@ struct WalDeltaData {
   }
 
   std::variant<WalVertexCreate, WalVertexDelete, WalVertexAddLabel, WalVertexRemoveLabel, WalVertexSetProperty,
-               WalEdgeSetProperty, WalEdgeCreate, WalEdgeDelete, WalTransactionStart, WalTransactionEnd, WalLabelIndexCreate,
-               WalLabelIndexDrop, WalLabelIndexStatsClear, WalLabelPropertyIndexStatsClear, WalEdgeTypeIndexCreate,
-               WalEdgeTypeIndexDrop, WalEdgePropertyIndexCreate, WalEdgePropertyIndexDrop, WalLabelIndexStatsSet,
-               WalLabelPropertyIndexCreate, WalLabelPropertyIndexDrop, WalPointIndexCreate, WalPointIndexDrop,
-               WalExistenceConstraintCreate, WalExistenceConstraintDrop, WalLabelPropertyIndexStatsSet,
-               WalEdgeTypePropertyIndexCreate, WalEdgeTypePropertyIndexDrop, WalUniqueConstraintCreate,
-               WalUniqueConstraintDrop, WalTypeConstraintCreate, WalTypeConstraintDrop, WalTextIndexCreate,
-               WalTextIndexDrop, WalEnumCreate, WalEnumAlterAdd, WalEnumAlterUpdate, WalVectorIndexCreate,
-               WalVectorIndexDrop, WalVectorEdgeIndexCreate>
+               WalEdgeSetProperty, WalEdgeCreate, WalEdgeDelete, WalTransactionStart, WalTransactionEnd,
+               WalLabelIndexCreate, WalLabelIndexDrop, WalLabelIndexStatsClear, WalLabelPropertyIndexStatsClear,
+               WalEdgeTypeIndexCreate, WalEdgeTypeIndexDrop, WalEdgePropertyIndexCreate, WalEdgePropertyIndexDrop,
+               WalLabelIndexStatsSet, WalLabelPropertyIndexCreate, WalLabelPropertyIndexDrop, WalPointIndexCreate,
+               WalPointIndexDrop, WalExistenceConstraintCreate, WalExistenceConstraintDrop,
+               WalLabelPropertyIndexStatsSet, WalEdgeTypePropertyIndexCreate, WalEdgeTypePropertyIndexDrop,
+               WalUniqueConstraintCreate, WalUniqueConstraintDrop, WalTypeConstraintCreate, WalTypeConstraintDrop,
+               WalTextIndexCreate, WalTextIndexDrop, WalEnumCreate, WalEnumAlterAdd, WalEnumAlterUpdate,
+               WalVectorIndexCreate, WalVectorIndexDrop, WalVectorEdgeIndexCreate, WalTtlOperation>
       data_ = WalTransactionEnd{};
 };
 
@@ -361,6 +383,7 @@ constexpr bool IsWalDeltaDataImplicitTransactionEndVersion15(const WalDeltaData 
                         [](WalVectorIndexCreate const &) { return true; },
                         [](WalVectorEdgeIndexCreate const &) { return true; },
                         [](WalVectorIndexDrop const &) { return true; },
+                        [](WalTtlOperation const &) { return true; },
                     },
                     delta.data_);
 }
@@ -436,6 +459,12 @@ void EncodeVectorIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, c
 void EncodeVectorEdgeIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const VectorEdgeIndexSpec &spec);
 void EncodeVectorIndexName(BaseEncoder &encoder, std::string_view index_name);
 
+// TTL encoding function
+void EncodeTtlOperation(BaseEncoder &encoder, TtlOperationType operation_type,
+                        const std::optional<std::chrono::microseconds> &period,
+                        const std::optional<std::chrono::system_clock::time_point> &start_time,
+                        bool should_run_edge_ttl);
+
 void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, uint64_t timestamp);
 
 /// Function used to load the WAL data into the storage.
@@ -445,7 +474,8 @@ std::optional<RecoveryInfo> LoadWal(
     std::optional<uint64_t> last_applied_delta_timestamp, utils::SkipList<Vertex> *vertices,
     utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
     SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
-    std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge);
+    std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
+    memgraph::storage::ttl::TTL *ttl);
 
 /// WalFile class used to append deltas and operations to the WAL file.
 class WalFile {

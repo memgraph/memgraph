@@ -119,24 +119,25 @@ using TestTypes = ::testing::Types<std::tuple<memgraph::storage::InMemoryStorage
 TYPED_TEST_SUITE(TTLFixture, TestTypes);
 
 TYPED_TEST(TTLFixture, EnableTest) {
-  const memgraph::storage::ttl::TtlInfo ttl_info{std::chrono::days(1), std::chrono::system_clock::now()};
+  const auto period = std::chrono::days(1);
+  const auto start_time = std::chrono::system_clock::now();
+  const bool should_run_edge_ttl = this->RunEdgeTTL();
+
   EXPECT_FALSE(this->ttl_->Enabled());
-  EXPECT_THROW(this->ttl_->Configure(ttl_info), memgraph::storage::ttl::TtlException);
-  EXPECT_THROW(this->ttl_->Setup_(this->db_->storage(), this->RunEdgeTTL()), memgraph::storage::ttl::TtlException);
+  EXPECT_THROW(this->ttl_->Configure(should_run_edge_ttl), memgraph::storage::ttl::TtlException);
+  EXPECT_THROW(this->ttl_->SetInterval(period, start_time), memgraph::storage::ttl::TtlException);
   this->ttl_->Enable();
   EXPECT_TRUE(this->ttl_->Enabled());
-  EXPECT_THROW(this->ttl_->Configure({}), memgraph::storage::ttl::TtlException);
-  EXPECT_THROW(this->ttl_->Setup_(this->db_->storage(), this->RunEdgeTTL()), memgraph::storage::ttl::TtlException);
-  EXPECT_NO_THROW(this->ttl_->Configure(ttl_info));
-  EXPECT_EQ(this->ttl_->Config(), ttl_info);
-  EXPECT_NO_THROW(this->ttl_->Setup_(this->db_->storage(), this->RunEdgeTTL()));
-  EXPECT_THROW(this->ttl_->Configure(ttl_info), memgraph::storage::ttl::TtlException);
-  this->ttl_->Stop();
-  EXPECT_NO_THROW(this->ttl_->Setup_(this->db_->storage(), this->RunEdgeTTL()));
-  EXPECT_EQ(this->ttl_->Config(), ttl_info);
+  EXPECT_NO_THROW(this->ttl_->Configure(should_run_edge_ttl));
+  EXPECT_NO_THROW(this->ttl_->SetInterval(period, start_time));
+  this->ttl_->Resume();
+  EXPECT_THROW(this->ttl_->Configure(should_run_edge_ttl), memgraph::storage::ttl::TtlException);
+  this->ttl_->Pause();
+  EXPECT_NO_THROW(this->ttl_->SetInterval(period, start_time));
+  this->ttl_->Resume();
   this->ttl_->Disable();
   EXPECT_FALSE(this->ttl_->Enabled());
-  EXPECT_THROW(this->ttl_->Setup_(this->db_->storage(), this->RunEdgeTTL()), memgraph::storage::ttl::TtlException);
+  EXPECT_THROW(this->ttl_->SetInterval(period, start_time), memgraph::storage::ttl::TtlException);
 }
 
 TYPED_TEST(TTLFixture, Periodic) {
@@ -175,8 +176,9 @@ TYPED_TEST(TTLFixture, Periodic) {
     EXPECT_EQ(size, 6);
   }
   this->ttl_->Enable();
-  this->ttl_->Configure(memgraph::storage::ttl::TtlInfo{std::chrono::milliseconds(700), {}});
-  EXPECT_NO_THROW(this->ttl_->Setup_(this->db_->storage(), this->RunEdgeTTL()));
+  this->ttl_->Configure(this->RunEdgeTTL());
+  EXPECT_NO_THROW(this->ttl_->SetInterval(std::chrono::milliseconds(700)));
+  this->ttl_->Resume();
   std::this_thread::sleep_for(std::chrono::seconds(1));
   {
     auto acc = this->db_->Access();
@@ -232,9 +234,10 @@ TYPED_TEST(TTLFixture, StartTime) {
     EXPECT_EQ(size, 6);
   }
   this->ttl_->Enable();
-  this->ttl_->Configure(memgraph::storage::ttl::TtlInfo{std::chrono::milliseconds(100),
-                                                        std::chrono::system_clock::now() + std::chrono::seconds(3)});
-  EXPECT_NO_THROW(this->ttl_->Setup_(this->db_->storage(), this->RunEdgeTTL()));
+  this->ttl_->Configure(this->RunEdgeTTL());
+  EXPECT_NO_THROW(this->ttl_->SetInterval(std::chrono::milliseconds(100),
+                                          std::chrono::system_clock::now() + std::chrono::seconds(3)));
+  this->ttl_->Resume();
   // Shouldn't start still
   for (int i = 0; i < 3; ++i) {
     std::this_thread::sleep_for(std::chrono::milliseconds(800));
@@ -320,8 +323,9 @@ TYPED_TEST(TTLFixture, Edge) {
     EXPECT_EQ(size, 6);
   }
   this->ttl_->Enable();
-  this->ttl_->Configure(memgraph::storage::ttl::TtlInfo{std::chrono::milliseconds(700), {}});
-  EXPECT_NO_THROW(this->ttl_->Setup_(this->db_->storage(), this->RunEdgeTTL()));
+  this->ttl_->Configure(this->RunEdgeTTL());
+  EXPECT_NO_THROW(this->ttl_->SetInterval(std::chrono::milliseconds(700)));
+  this->ttl_->Resume();
   std::this_thread::sleep_for(std::chrono::seconds(1));
   {
     auto acc = this->db_->Access();
@@ -364,64 +368,6 @@ TYPED_TEST(TTLFixture, Edge) {
       EXPECT_EQ(edge_size, 1);
     } else {
       EXPECT_EQ(edge_size, 3);
-    }
-  }
-}
-
-TYPED_TEST(TTLFixture, Durability) {
-  const auto path = GetCleanDataDirectory();
-  ASSERT_TRUE(memgraph::utils::EnsureDir(path));
-  auto clean_up = memgraph::utils::OnScopeExit([&] { std::filesystem::remove_all(path); });
-  memgraph::storage::ttl::TtlInfo ttl_info;
-  {
-    {
-      memgraph::storage::ttl::TTL ttl(path);
-      ttl.Restore(this->db_->storage(), this->RunEdgeTTL());
-      EXPECT_FALSE(ttl.Enabled());
-      EXPECT_EQ(ttl.Config(), memgraph::storage::ttl::TtlInfo{});
-      EXPECT_FALSE(ttl.Running());
-    }
-    {
-      memgraph::storage::ttl::TTL ttl(path);
-      ttl.Enable();
-    }
-    {
-      memgraph::storage::ttl::TTL ttl(path);
-      ttl.Restore(this->db_->storage(), this->RunEdgeTTL());
-      EXPECT_TRUE(ttl.Enabled());
-      EXPECT_EQ(ttl.Config(), memgraph::storage::ttl::TtlInfo{});
-      EXPECT_FALSE(ttl.Running());
-    }
-    {
-      ttl_info.period = std::chrono::minutes(12);
-      memgraph::storage::ttl::TTL ttl(path);
-      ttl.Enable();
-      ttl.Configure(ttl_info);
-    }
-    {
-      memgraph::storage::ttl::TTL ttl(path);
-      ttl.Restore(this->db_->storage(), this->RunEdgeTTL());
-      EXPECT_TRUE(ttl.Enabled());
-      EXPECT_EQ(ttl.Config(), ttl_info);
-      EXPECT_FALSE(ttl.Running());
-    }
-    {
-      ttl_info.period = std::chrono::hours(34);
-      ttl_info.start_time = std::chrono::system_clock::now();
-      memgraph::storage::ttl::TTL ttl(path);
-      ttl.Enable();
-      ttl.Configure(ttl_info);
-      ttl.Setup_(this->db_->storage(), this->RunEdgeTTL());
-    }
-    {
-      memgraph::storage::ttl::TTL ttl(path);
-      ttl.Restore(this->db_->storage(), this->RunEdgeTTL());
-      EXPECT_TRUE(ttl.Enabled());
-      EXPECT_EQ(ttl.Config().period, ttl_info.period);
-      ASSERT_TRUE(ttl.Config().start_time && ttl_info.start_time);
-      EXPECT_EQ(*ttl.Config().start_time, std::chrono::time_point_cast<std::chrono::seconds>(
-                                              *ttl_info.start_time));  // Durability has seconds precision
-      EXPECT_TRUE(ttl.Running());
     }
   }
 }
