@@ -19,7 +19,7 @@
     (gen/phases
       (gen/once register-replicas)
       (gen/sleep 5)
-      (gen/delay 3 (gen/mix ops) )))
+      (gen/delay 3 (gen/mix ops)))))
 
 
 (defn replication-open-connection
