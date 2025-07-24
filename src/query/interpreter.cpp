@@ -3957,7 +3957,7 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
 
   auto *storage = db_acc->storage();
   auto label_name = text_index_query->label_.name;
-  auto label = storage->NameToLabel(label_name);
+  auto label_id = storage->NameToLabel(label_name);
   auto &index_name = text_index_query->index_name_;
 
   Notification index_notification(SeverityLevel::INFO);
@@ -3965,8 +3965,8 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
     case TextIndexQuery::Action::CREATE: {
       index_notification.code = NotificationCode::CREATE_INDEX;
       index_notification.title = fmt::format("Created text index on label {}.", label_name);
-      handler = [dba, label, index_name, label_name = std::move(label_name)](Notification &index_notification) {
-        auto maybe_error = dba->CreateTextIndex(index_name, label);
+      handler = [dba, label_id, index_name, label_name = std::move(label_name)](Notification &index_notification) {
+        auto maybe_error = dba->CreateTextIndex(index_name, label_id);
         if (maybe_error.HasError()) {
           index_notification.code = NotificationCode::EXISTENT_INDEX;
           index_notification.title =

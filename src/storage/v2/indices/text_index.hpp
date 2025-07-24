@@ -43,17 +43,17 @@ class TextIndex {
 
   std::filesystem::path text_index_storage_dir_;
   std::shared_mutex
-      index_writer_muex_;  // This mutex is used to protect add_document, remove_document, commit and rollback
-                           // operations. Underlying Tantivy IndexWriter requires unique lock for commit and rollback
-                           // operations and shared lock for add_document and remove_document operations.
-                           // TODO(@DavIvek): Better approach would be to add locking on mgcxx side.
+      index_writer_mutex_;  // This mutex is used to protect add_document, remove_document, commit and rollback
+                            // operations. Underlying Tantivy IndexWriter requires unique lock for commit and rollback
+                            // operations and shared lock for add_document and remove_document operations.
+                            // TODO(@DavIvek): Better approach would be to add locking on mgcxx side.
 
-  inline std::string MakeIndexPath(std::string_view index_name);
+  inline std::string MakeIndexPath(std::string_view index_name) const;
 
   void CreateEmptyIndex(const std::string &index_name, LabelId label);
 
-  template <typename T>
-  nlohmann::json SerializeProperties(const std::map<PropertyId, PropertyValue> &properties, T *name_resolver);
+  nlohmann::json SerializeProperties(const std::map<PropertyId, PropertyValue> &properties,
+                                     NameIdMapper *name_id_mapper);
 
   static std::string StringifyProperties(const std::map<PropertyId, PropertyValue> &properties);
 
@@ -61,9 +61,9 @@ class TextIndex {
 
   std::vector<mgcxx::text_search::Context *> GetApplicableTextIndices(std::span<storage::LabelId const> labels);
 
-  void LoadNodeToTextIndices(std::int64_t gid, const nlohmann::json &properties,
-                             const std::string &property_values_as_str,
-                             const std::vector<mgcxx::text_search::Context *> &applicable_text_indices);
+  void AddNodeToTextIndices(std::int64_t gid, const nlohmann::json &properties,
+                            const std::string &property_values_as_str,
+                            const std::vector<mgcxx::text_search::Context *> &applicable_text_indices);
 
   void CommitLoadedNodes(mgcxx::text_search::Context &index_context);
 
@@ -88,15 +88,12 @@ class TextIndex {
   std::map<std::string, TextIndexData> index_;
   std::map<LabelId, std::string> label_to_index_;
 
-  void AddNode(
-      Vertex *vertex, NameIdMapper *name_id_mapper,
-      const std::optional<std::vector<mgcxx::text_search::Context *>> &maybe_applicable_text_indices = std::nullopt);
+  void AddNode(Vertex *vertex, NameIdMapper *name_id_mapper,
+               const std::vector<mgcxx::text_search::Context *> &maybe_applicable_text_indices = {});
 
   void UpdateNode(Vertex *vertex, NameIdMapper *name_id_mapper);
 
-  void RemoveNode(
-      Vertex *vertex,
-      const std::optional<std::vector<mgcxx::text_search::Context *>> &maybe_applicable_text_indices = std::nullopt);
+  void RemoveNode(Vertex *vertex, const std::vector<mgcxx::text_search::Context *> &maybe_applicable_text_indices = {});
 
   void UpdateOnAddLabel(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper);
 

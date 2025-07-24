@@ -11,6 +11,7 @@
 
 import os
 import sys
+from functools import partial
 
 import interactive_mg_runner
 import pytest
@@ -43,10 +44,7 @@ def cleanup_after_test():
 
 
 def show_replicas_func(cursor):
-    def func():
-        return execute_and_fetch_all(cursor, "SHOW REPLICAS;")
-
-    return func
+    return partial(execute_and_fetch_all, cursor, "SHOW REPLICAS;")
 
 
 def test_text_index_replication(connection, test_name):
@@ -134,10 +132,10 @@ def test_text_index_replication(connection, test_name):
         return connection(BOLT_PORTS[name], "replica").cursor()
 
     expected_result = [("text (name: test_index)", "Node", None, None)]
-    replica_1_enums = get_show_index_info(get_replica_cursor("replica_1"))
-    assert replica_1_enums == expected_result
-    replica_2_enums = get_show_index_info(get_replica_cursor("replica_2"))
-    assert replica_2_enums == expected_result
+    replica_1_info = get_show_index_info(get_replica_cursor("replica_1"))
+    assert replica_1_info == expected_result
+    replica_2_info = get_show_index_info(get_replica_cursor("replica_2"))
+    assert replica_2_info == expected_result
 
     # 3/
     execute_and_fetch_all(
@@ -148,10 +146,30 @@ def test_text_index_replication(connection, test_name):
 
     # 4/
     expected_result = []
-    replica_1_enums = get_show_index_info(get_replica_cursor("replica_1"))
-    assert replica_1_enums == expected_result
-    replica_2_enums = get_show_index_info(get_replica_cursor("replica_2"))
-    assert replica_2_enums == expected_result
+    replica_1_info = get_show_index_info(get_replica_cursor("replica_1"))
+    assert replica_1_info == expected_result
+    replica_2_info = get_show_index_info(get_replica_cursor("replica_2"))
+    assert replica_2_info == expected_result
+
+    # 5/
+    execute_and_fetch_all(
+        cursor,
+        "CREATE (:Node {name: 'test1');",
+    )
+    wait_for_replication_change(cursor, 6)
+
+    # 6/
+    search_results = execute_and_fetch_all(
+        get_replica_cursor("replica_1"),
+        "CALL text_search.search('test_index', 'test1') YIELD node RETURN node.name AS name;",
+    )
+    assert search_results == [{"name": "test1"}]
+
+    search_results = execute_and_fetch_all(
+        get_replica_cursor("replica_2"),
+        "CALL text_search.search('test_index', 'test1') YIELD node RETURN node.name AS name;",
+    )
+    assert search_results == [{"name": "test1"}]
 
 
 if __name__ == "__main__":

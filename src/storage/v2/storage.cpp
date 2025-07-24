@@ -682,24 +682,25 @@ utils::BasicResult<storage::StorageIndexDefinitionError, void> Storage::Accessor
   MG_ASSERT(type() == UNIQUE, "Creating a text index requires unique access to storage!");
   try {
     storage_->indices_.text_index_.CreateIndex(index_name, label, Vertices(View::NEW), storage_->name_id_mapper_.get());
-    transaction_.md_deltas.emplace_back(MetadataDelta::text_index_create, index_name, label);
-    memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextIndices);
   } catch (const query::TextSearchException &e) {
     return storage::StorageIndexDefinitionError{IndexDefinitionError{}};
   }
+  transaction_.md_deltas.emplace_back(MetadataDelta::text_index_create, index_name, label);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextIndices);
   return {};
 }
 
 utils::BasicResult<storage::StorageIndexDefinitionError, void> Storage::Accessor::DropTextIndex(
     const std::string &index_name) {
+  LabelId deleted_index_label;
   MG_ASSERT(type() == UNIQUE, "Dropping a text index requires unique access to storage!");
   try {
-    auto deleted_index_label = storage_->indices_.text_index_.DropIndex(index_name);
-    transaction_.md_deltas.emplace_back(MetadataDelta::text_index_drop, index_name, deleted_index_label);
-    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTextIndices);
+    deleted_index_label = storage_->indices_.text_index_.DropIndex(index_name);
   } catch (const query::TextSearchException &e) {
     return storage::StorageIndexDefinitionError{StorageIndexDefinitionError{}};
   }
+  transaction_.md_deltas.emplace_back(MetadataDelta::text_index_drop, index_name, deleted_index_label);
+  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTextIndices);
   return {};
 }
 

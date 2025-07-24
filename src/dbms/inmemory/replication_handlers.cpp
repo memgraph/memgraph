@@ -970,7 +970,6 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           if (!vertex) {
             throw utils::BasicException("Couldn't find vertex {} when adding label.", gid);
           }
-          // NOTE: Text search doesn’t have replication in scope yet (Phases 1 and 2)
           auto ret = vertex->AddLabel(transaction->NameToLabel(data.label));
           if (ret.HasError() || !ret.GetValue()) {
             throw utils::BasicException("Failed to add label to vertex {}.", gid);
@@ -982,7 +981,6 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           auto *transaction = get_replication_accessor(delta_timestamp);
           auto vertex = transaction->FindVertex(data.gid, View::NEW);
           if (!vertex) throw utils::BasicException("Failed to find vertex {} when removing label.", gid);
-          // NOTE: Text search doesn’t have replication in scope yet (Phases 1 and 2)
           auto ret = vertex->RemoveLabel(transaction->NameToLabel(data.label));
           if (ret.HasError() || !ret.GetValue()) {
             throw utils::BasicException("Failed to remove label from vertex {}.", gid);
