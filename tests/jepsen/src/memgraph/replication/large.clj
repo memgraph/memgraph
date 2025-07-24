@@ -54,16 +54,15 @@
           (assoc op :type :fail :value (str e))))
 
       :register
-      (register
-        (if (= (:replication-role this) :main)
-          (try
-            (doseq [[name node-config] (filter #(= (:replication-role (val %)) :replica) nodes-config)]
-              (utils/with-session (:conn this) session
-                ((mgquery/create-register-replica-query name node-config) session)))
-            (assoc op :type :ok)
-            (catch Exception e
-              (assoc op :type :fail :value (str e))))
-          (assoc op :type :info :value "Not main node")))
+      (if (= (:replication-role this) :main)
+        (try
+          (doseq [[name node-config] (filter #(= (:replication-role (val %)) :replica) nodes-config)]
+            (utils/with-session (:conn this) session
+              ((mgquery/create-register-replica-query name node-config) session)))
+          (assoc op :type :ok)
+          (catch Exception e
+            (assoc op :type :fail :value (str e))))
+        (assoc op :type :info :value "Not main node"))
 
 
       ; When executed on main, create nodes.
