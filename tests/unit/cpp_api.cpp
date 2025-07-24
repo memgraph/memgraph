@@ -30,7 +30,7 @@ struct CppApiTestFixture : public ::testing::Test {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
     }
-    mgp::MemoryDispatcher::UnRegister();
+    mgp::MemoryDispatcher::UnRegister(nullptr);
   }
 
   mgp_graph CreateGraph(memgraph::query::DbAccessor *db_acc) {
