@@ -19,7 +19,6 @@
 #include "flags/experimental.hpp"
 #include "query/db_accessor.hpp"
 #include "spdlog/spdlog.h"
-#include "storage/v2/indices/text_index.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/rw_spin_lock.hpp"
