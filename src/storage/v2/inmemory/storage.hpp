@@ -334,13 +334,10 @@ class InMemoryStorage final : public Storage {
 
     ConstraintsInfo ListAllConstraints() const override;
 
-    /// Represents the 1st phase of 2PC protocol.
-    /// Returns void if the transaction has been committed.
-    /// Returns `StorageDataManipulationError` if an error occurred. Error can be:
-    /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
-    /// * `ConstraintViolation`: the changes made by this transaction violate an existence or unique constraint. In this
-    /// case the transaction is automatically aborted.
-    /// @throw std::bad_alloc
+    // Represents the 1st phase of 2PC protocol.
+    // If there is only a single MG instance, this method serves as commit method. The method itself calls
+    // finalize commit method which will bump ldt, update commit ts etc.
+    // @throw std::bad_alloc
     // NOLINTNEXTLINE(google-default-arguments)
     utils::BasicResult<StorageManipulationError, void> PrepareForCommitPhase(
         CommitReplicationArgs repl_args = {}, DatabaseAccessProtector db_acc = {}) override;
@@ -350,8 +347,10 @@ class InMemoryStorage final : public Storage {
 
     void AbortAndResetCommitTs();
 
-    /// Represents the 2nd phase of the 2PC protocol
-    /// Needs to be called while holding the engine lock
+    // Represents the 2nd phase of the 2PC protocol
+    // NOTE: Needs to be called while holding the engine lock
+    // NOTE: If there is a single instance, PrepareForCommitPhase will call this method, you shouldn't call this method
+    // independently of PrepareForCommitPhase.
     void FinalizeCommitPhase(uint64_t durability_commit_timestamp);
 
     /// @throw std::bad_alloc

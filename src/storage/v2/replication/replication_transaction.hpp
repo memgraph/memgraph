@@ -24,15 +24,15 @@ namespace memgraph::storage {
 
 class TransactionReplication {
  public:
-  // The contract of the constructor is the following: If streams are empty, it means starting txn failed and we cannot
-  // proceed with the Commit.
+  // This will block until we retrieve RPC streams for all STRICT_SYNC and SYNC replicas. It is OK to not be able to
+  // obtain the RPC lock for the ASYNC replica.
   TransactionReplication(uint64_t const durability_commit_timestamp, Storage *storage, DatabaseAccessProtector db_acc,
                          auto &clients)
       : locked_clients{clients.ReadLock()} {
-    spdlog::trace("Successfully locked clients");
     streams.reserve(locked_clients->size());
     for (const auto &client : *locked_clients) {
-      // SYNC and ASYNC replicas should commit immediately when receiving deltas
+      // SYNC and ASYNC replicas should commit immediately when receiving deltas, that's why we pass
+      // `should_commit_immediately`
       bool const should_commit_immediately =
           client->Mode() != replication_coordination_glue::ReplicationMode::STRICT_SYNC;
       streams.emplace_back(

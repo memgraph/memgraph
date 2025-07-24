@@ -689,7 +689,11 @@ std::optional<ConstraintViolation> InMemoryStorage::InMemoryAccessor::UniqueCons
     }
 
     auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+
+    // Hold accessor to prevent deletion of vertices while validating unique constraints. Otherwise, some previously
+    // aborted txn could delete one of vertices being deleted.
     auto acc = mem_storage->vertices_.access();
+
     for (auto const *vertex : vertices_to_update) {
       // No need to take any locks here because we modified this vertex and no
       // one else can touch it until we commit.
@@ -817,47 +821,45 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     // written before actually committing the transaction (before setting
     // the commit timestamp) so that no other transaction can see the
     // modifications before they are written to disk.
-    // Replica can log only the write transaction received from Main
+    // Replica can log only the write transaction received from main
     // so the wal files are consistent
-
     if (repl_args.is_main || repl_args.desired_commit_timestamp.has_value()) {
       auto const durability_commit_timestamp =
           repl_args.desired_commit_timestamp.has_value() ? *repl_args.desired_commit_timestamp : *commit_timestamp_;
 
-      // Don't write things to WAL and replicate only if needed
+      // Specific case in which durability mode is != PERIODIC_SNAPSHOT_WITH_WAL
       if (!mem_storage->InitializeWalFile(mem_storage->repl_storage_state_.epoch_)) {
-        // No need to finalize WAL
         FinalizeCommitPhase(durability_commit_timestamp);
+        // No WAL file, hence no need to finalize it
         return {};
       }
 
-      // Handle durability and replication
-      // This will block until we retrieve RPC streams for all replicas or until the moment one stream for an instance
-      // couldn't be retrieved. As long as this object is alive, RPC streams are held. We use recursive mutex because
-      // this thread will lock the RPC lock twice: once for PrepareCommitRpc and 2nd time for FinalizeCommitRpc
+      // If replica executes this, it will return immediately because it doesn't have any replicas registered (no
+      // streams to obtain)
       auto replicating_txn =
           mem_storage->repl_storage_state_.StartPrepareCommitPhase(durability_commit_timestamp, mem_storage, db_acc);
 
-      // This will block until we receive OK votes from all replicas if we are main
-      // If we are replica, we will make durable our deltas and return
+      // If main executes this: Block until we receive votes from all replicas.
+      // If replica executes this:,
       bool const repl_prepare_phase_status = HandleDurabilityAndReplicate(
           durability_commit_timestamp, db_acc, replicating_txn, repl_args.commit_immediately);
 
-      // If I am STRICT_SYNC replica with write txn return because the 2nd phase will be executed once we receive
-      // FinalizeCommitRpc If SYNC replica, commit immediately
+      // If replica executes this
       if (!repl_args.is_main && repl_args.desired_commit_timestamp.has_value()) {
-        // It is important to commit while holding the engine lock
-        // This part executed by SYNC and ASYNC replicas
+        // If SYNC and ASYNC replica executes this, commit immediately while holding the engine lock
         if (repl_args.commit_immediately.has_value() && *repl_args.commit_immediately) {
-          // WAL file already finalized
+          // WAL file is already finalized
           FinalizeCommitPhase(*repl_args.desired_commit_timestamp);
         }
+        // If STRICT_SYNC replica with write txn executes this: return because the 2nd phase will be executed once we
+        // receive FinalizeCommitRpc.
         return {};
       }
 
-      // There are no STRICT_SYNC replicas currently in the commit
+      // From this point on, only main executes this
+      // If there are no STRICT_SYNC replicas for the current txn
       if (!replicating_txn.ShouldRunTwoPC()) {
-        // WAL file already finalized
+        // WAL file is already finalized
         FinalizeCommitPhase(durability_commit_timestamp);
         // Throw exception if we couldn't commit on one of SYNC replica
         if (!repl_prepare_phase_status) {
@@ -869,24 +871,23 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       // If we are here, it means we are the main executing the commit and there are some STRICT_SYNC replicas in the
       // cluster.
       if (repl_prepare_phase_status) {
+        // All replicas voted yes, hence they want to commit the current transaction
         FinalizeCommitPhase(durability_commit_timestamp);
-        // Important that WAL file gets finalize after the finalize commit phase finished because we are still modifying
-        // WAL file
+        // We need to finalize WAL file after running FinalizeCommitPhase because we update there commit value in WAL
+        // (commit_flag_wal_position_
         if (mem_storage->wal_file_) {
           mem_storage->FinalizeWalFile();
         }
-
+        // Send to all replicas they can finalize a transaction
         replicating_txn.FinalizeTransaction(true, mem_storage->uuid(), std::move(db_acc), durability_commit_timestamp);
       } else {
+        // One of replica didn't vote for committing, you can finalize WAL file freely here because WAL file doesn't
+        // need to be updated since by default we write to WAL that the txn should be aborted
         if (mem_storage->wal_file_) {
           mem_storage->FinalizeWalFile();
         }
-
-        // This is currently done as SYNC communication but in reality we don't need to wait for response by replicas
-        // because their in-memory state shouldn't show that there is some data and also durability should be
-        // automatically handled
-        // Aborting on replica before than on main should't be a problem. Even if MAIN goes down, by default it will
-        // not load the current txn. When commiting, the situation is different
+        // Aborting on replica before than on main shouldn't be a problem. Even if MAIN goes down, by default it will
+        // not load the current txn. When commiting, the situation is different as explained above.
         replicating_txn.FinalizeTransaction(false, mem_storage->uuid(), std::move(db_acc), durability_commit_timestamp);
 
         // Release engine lock because we don't have to hold it anymore for abort
@@ -914,6 +915,8 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
                                                  mem_storage->config_.salient.items.properties_on_edges);
   }
 
+  // We only need to update commit flag from false->true if we are running 2PC. In all other situations, the default
+  // is fine.
   if (commit_flag_wal_position_ != 0 && needs_wal_update_) {
     constexpr bool commit{true};
     mem_storage->wal_file_->UpdateCommitStatus(commit_flag_wal_position_, commit);
@@ -2503,16 +2506,26 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
                                                                      std::optional<bool> const &commit_immediately) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
+  // If replica executes this:
+  //   STRICT_SYNC: commit_immediately is false because such replica needs to commit only after receiving
+  //   FinalizeCommitRpc SYNC/ASYNC:  commit_immediately is true because such replica needs to commit immediately
+  // If main executes this:
+  //   Any STRICT_SYNC replica registered -> need to run 2PC, don't commit immediately
+  // else:
+  //   All SYNC/ASYNC replicas -> commit immediately
   bool const commit_flag = std::invoke([&commit_immediately, &replicating_txn]() {
     // Replica
     if (commit_immediately.has_value()) {
       return *commit_immediately;
     }
     // MAIN
-    // If there are no strict sync replicas in the cluster, write immediately to WAL: flag 'commit' = true
     return !replicating_txn.ShouldRunTwoPC();
   });
+
+  // Both main and replica append txn start delta and remember the position in the WAL file in which this delta is
+  // saved.
   commit_flag_wal_position_ = mem_storage->wal_file_->AppendTransactionStart(durability_commit_timestamp, commit_flag);
+  // The WAL file needs to be updated only if we don't commit immediately.
   needs_wal_update_ = !commit_flag;
 
   // IMPORTANT: In most transactions there can only be one, either data or metadata deltas.
@@ -2834,14 +2847,14 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
   // Add a delta that indicates that the transaction is fully written to the WAL
   mem_storage->wal_file_->AppendTransactionEnd(durability_commit_timestamp);
 
-  // SYNC/ASYNC replica part of cluster without STRICT SYNC replica
-  // MAIN without STRICT SYNC replicas
+  // If main executes this and committing immediately we need to finalize wal file before sending deltas to replicas
+  // If replica executes this and committing immediately, it is OK to finalize wal here
   if (commit_flag) {
     mem_storage->FinalizeWalFile();
   }
 
   // Ships deltas to instances and waits for the reply
-  // Returns only the status of SYNC replicas.
+  // Returns only the status of SYNC and STRICT_SYNC replicas.
   return replicating_txn.ShipDeltas(durability_commit_timestamp, std::move(db_acc));
 }
 
