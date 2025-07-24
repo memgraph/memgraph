@@ -112,14 +112,14 @@ def test_text_index_replication(connection, test_name):
                 "replica_1",
                 "127.0.0.1:10001",
                 "sync",
-                None,
+                {"behind": None, "status": "ready", "ts": 0},
                 {"memgraph": {"behind": 0, "status": "ready", "ts": ts}},
             ),
             (
                 "replica_2",
                 "127.0.0.1:10002",
                 "async",
-                None,
+                {"behind": None, "status": "ready", "ts": 0},
                 {"memgraph": {"behind": 0, "status": "ready", "ts": ts}},
             ),
         ]
