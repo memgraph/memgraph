@@ -13,6 +13,7 @@
 #include <shared_mutex>
 #include <tuple>
 
+#include "flags/experimental.hpp"
 #include "spdlog/spdlog.h"
 
 #include "storage/v2/disk/name_id_mapper.hpp"
@@ -374,8 +375,11 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
   if (maybe_deleted_vertices.HasError()) {
     return maybe_deleted_vertices.GetError();
   }
-  for (auto *node : nodes_to_delete) {
-    storage_->indices_.text_index_.RemoveNode(node);
+
+  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    for (auto *node : nodes_to_delete) {
+      storage_->indices_.text_index_.RemoveNode(node);
+    }
   }
 
   auto deleted_vertices = maybe_deleted_vertices.GetValue();

@@ -337,8 +337,7 @@ mgcxx::text_search::SearchOutput TextIndex::SearchAllProperties(const std::strin
 std::vector<Gid> TextIndex::Search(const std::string &index_name, const std::string &search_query,
                                    text_search_mode search_mode) {
   if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    throw query::TextSearchException(
-        "To use text indices and text search, start Memgraph with the --experimental-enabled='text-search' flag.");
+    throw query::TextSearchDisabledException();
   }
   if (!index_.contains(index_name)) {
     throw query::TextSearchException("Text index \"{}\" doesn’t exist.", index_name);
@@ -375,8 +374,7 @@ std::vector<Gid> TextIndex::Search(const std::string &index_name, const std::str
 std::string TextIndex::Aggregate(const std::string &index_name, const std::string &search_query,
                                  const std::string &aggregation_query) {
   if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    throw query::TextSearchException(
-        "To use text indices and text search, start Memgraph with the --experimental-enabled='text-search' flag.");
+    throw query::TextSearchDisabledException();
   }
   if (!index_.contains(index_name)) {
     throw query::TextSearchException("Text index \"{}\" doesn’t exist.", index_name);

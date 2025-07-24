@@ -7017,7 +7017,7 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     }
 
     // Write text indices.
-    {
+    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
       auto text_indices = storage->indices_.text_index_.ListIndices();
       snapshot.WriteUint(text_indices.size());
       for (const auto &[index_name, label] : text_indices) {
