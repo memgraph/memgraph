@@ -53,6 +53,7 @@
         (catch Exception e
           (assoc op :type :fail :value (str e))))
 
+      :register
       (register
         (if (= (:replication-role this) :main)
           (try
