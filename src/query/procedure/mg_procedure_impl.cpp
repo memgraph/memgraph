@@ -3688,6 +3688,9 @@ void WrapTextSearch(mgp_graph *graph, mgp_memory *memory, mgp_map **result,
         err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving text search results failed during creation of a string mgp_value");
     }
+    if (const auto err = mgp_map_insert(*result, "error_msg", error_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error("Retrieving text search error failed during insertion into mgp_map");
+    }
     mgp_value_destroy(error_value);
     return;
   }
@@ -3724,13 +3727,6 @@ void WrapTextSearch(mgp_graph *graph, mgp_memory *memory, mgp_map **result,
   if (const auto err = mgp_value_make_list(search_results, &search_results_value);
       err != mgp_error::MGP_ERROR_NO_ERROR) {
     throw std::logic_error("Retrieving text search results failed during creation of a list mgp_value");
-  }
-
-  if (error_msg.has_value()) {
-    if (const auto err = mgp_map_insert(*result, "error_msg", error_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
-      throw std::logic_error("Retrieving text index search error failed during insertion into mgp_map");
-    }
-    return;
   }
 
   if (const auto err = mgp_map_insert(*result, "search_results", search_results_value);
