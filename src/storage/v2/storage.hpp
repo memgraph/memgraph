@@ -174,7 +174,7 @@ struct PlanInvalidator {
 
 struct PlanInvalidatorDefault : public PlanInvalidator {
   auto invalidate_for_timestamp_wrapper(std::function<bool(uint64_t)> func) -> std::function<bool(uint64_t)> override {
-    return [=](uint64_t timestamp) { return func(timestamp); };
+    return func;
   }
   bool invalidate_now(std::function<bool()> func) override { return func(); };
 };
