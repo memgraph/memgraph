@@ -381,10 +381,9 @@ std::vector<Gid> TextIndex::Search(const std::string &index_name, const std::str
 
   std::vector<Gid> found_nodes;
   for (const auto &doc : search_results.docs) {
-    // The CXX .data() method (https://cxx.rs/binding/string.html) may overestimate string length, causing JSON parsing
-    // errors downstream. We prevent this by resizing the converted string with the correctly-working .length() method.
-    std::string doc_string = doc.data.data();
-    doc_string.resize(doc.data.length());
+    // Create string using both data pointer and length to avoid buffer overflow
+    // The CXX .data() method may not null-terminate the string properly
+    std::string doc_string(doc.data.data(), doc.data.length());
     auto doc_json = nlohmann::json::parse(doc_string);
     found_nodes.push_back(storage::Gid::FromString(doc_json["metadata"]["gid"].dump()));
   }
@@ -409,8 +408,7 @@ std::string TextIndex::Aggregate(const std::string &index_name, const std::strin
   }
   // The CXX .data() method (https://cxx.rs/binding/string.html) may overestimate string length, causing JSON parsing
   // errors downstream. We prevent this by resizing the converted string with the correctly-working .length() method.
-  std::string result_string = aggregation_result.data.data();
-  result_string.resize(aggregation_result.data.length());
+  std::string result_string(aggregation_result.data.data(), aggregation_result.data.length());
   return result_string;
 }
 
