@@ -312,9 +312,6 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
     auto &mem_text_index = indices->text_index_;
     for (const auto &[index_name, label] : indices_metadata.text_indices) {
       try {
-        if (!storage_dir.has_value()) {
-          throw RecoveryFailure("There must exist a storage directory in order to recover text indices!");
-        }
         // TODO: parallel execution
         mem_text_index.RecoverIndex(index_name, label, vertices->access(), name_id_mapper, snapshot_info);
       } catch (...) {

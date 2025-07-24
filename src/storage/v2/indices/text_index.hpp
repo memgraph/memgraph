@@ -51,7 +51,7 @@ class TextIndex {
 
   inline std::string MakeIndexPath(std::string_view index_name) const;
 
-  void CreateTantivyIndex(const std::string &index_name, LabelId label);
+  void CreateTantivyIndex(const std::string &index_name, LabelId label, const std::string &index_path);
 
   nlohmann::json SerializeProperties(const std::map<PropertyId, PropertyValue> &properties,
                                      NameIdMapper *name_id_mapper);

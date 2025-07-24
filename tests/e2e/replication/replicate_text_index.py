@@ -173,13 +173,13 @@ def test_text_index_replication(connection, test_name):
     # 6/
     search_results = execute_and_fetch_all(
         get_replica_cursor("replica_1"),
-        "CALL text_search.search('test_index', 'test1') YIELD node RETURN node.name AS name;",
+        "CALL text_search.search('test_index', 'data.name:test1') YIELD node RETURN node.name AS name;",
     )
     assert search_results == [{"name": "test1"}]
 
     search_results = execute_and_fetch_all(
         get_replica_cursor("replica_2"),
-        "CALL text_search.search('test_index', 'test1') YIELD node RETURN node.name AS name;",
+        "CALL text_search.search('test_index', 'data.name:test1') YIELD node RETURN node.name AS name;",
     )
     assert search_results == [{"name": "test1"}]
 

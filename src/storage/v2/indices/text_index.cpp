@@ -31,7 +31,7 @@ inline std::string TextIndex::MakeIndexPath(std::string_view index_name) const {
   return (text_index_storage_dir_ / index_name).string();
 }
 
-void TextIndex::CreateTantivyIndex(const std::string &index_name, LabelId label) {
+void TextIndex::CreateTantivyIndex(const std::string &index_name, LabelId label, const std::string &index_path) {
   if (index_.contains(index_name)) {
     throw query::TextSearchException("Text index \"{}\" already exists.", index_name);
   }
@@ -43,10 +43,10 @@ void TextIndex::CreateTantivyIndex(const std::string &index_name, LabelId label)
     mappings["properties"]["data"] = {{"type", "json"}, {"fast", true}, {"stored", true}, {"text", true}};
     mappings["properties"]["all"] = {{"type", "text"}, {"fast", true}, {"stored", true}, {"text", true}};
 
-    index_.emplace(index_name, TextIndexData{.context_ = mgcxx::text_search::create_index(
-                                                 MakeIndexPath(index_name),
-                                                 mgcxx::text_search::IndexConfig{.mappings = mappings.dump()}),
-                                             .scope_ = label});
+    index_.emplace(index_name,
+                   TextIndexData{.context_ = mgcxx::text_search::create_index(
+                                     index_path, mgcxx::text_search::IndexConfig{.mappings = mappings.dump()}),
+                                 .scope_ = label});
   } catch (const std::exception &e) {
     throw query::TextSearchException("Tantivy error: {}", e.what());
   }
@@ -244,7 +244,7 @@ void TextIndex::RemoveNode(Vertex *vertex_after_update,
 
 void TextIndex::CreateIndex(std::string const &index_name, LabelId label, storage::VerticesIterable vertices,
                             NameIdMapper *name_id_mapper) {
-  CreateTantivyIndex(index_name, label);
+  CreateTantivyIndex(index_name, label, MakeIndexPath(index_name));
 
   for (const auto &v : vertices) {
     if (!v.HasLabel(label, View::NEW).GetValue()) {
@@ -260,7 +260,12 @@ void TextIndex::CreateIndex(std::string const &index_name, LabelId label, storag
 void TextIndex::RecoverIndex(const std::string &index_name, LabelId label,
                              memgraph::utils::SkipList<Vertex>::Accessor vertices, NameIdMapper *name_id_mapper,
                              std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  CreateTantivyIndex(index_name, label);
+  auto index_path = MakeIndexPath(index_name);
+  if (!std::filesystem::exists(index_path)) {
+    throw query::TextSearchException("Text index \"{}\" does not exist at path: {}. Recovery failed.", index_name,
+                                     index_path);
+  }
+  CreateTantivyIndex(index_name, label, index_path);
   if (snapshot_info) {
     snapshot_info->Update(UpdateType::TEXT_IDX);
   }
