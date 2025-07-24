@@ -307,7 +307,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   spdlog::info("Global edge property indices are recreated.");
 
   // Text idx
-  {
+  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     spdlog::info("Recreating {} text indices from metadata.", indices_metadata.text_indices.size());
     auto &mem_text_index = indices->text_index_;
     for (const auto &[index_name, label] : indices_metadata.text_indices) {

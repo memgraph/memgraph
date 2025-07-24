@@ -19,7 +19,6 @@
 #include "flags/experimental.hpp"
 #include "query/db_accessor.hpp"
 #include "spdlog/spdlog.h"
-#include "system/include/system/system.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/rw_spin_lock.hpp"
@@ -198,6 +197,7 @@ DbmsHandler::DbmsHandler(storage::Config config,
       locked_auth->DeleteDatabase(name);
       durability_->Delete(key);
     }
+    std::filesystem::remove_all(storage::kTextIndicesDirectory);
   }
 
   /*

@@ -12,6 +12,7 @@
 #include "dbms/inmemory/replication_handlers.hpp"
 
 #include "dbms/dbms_handler.hpp"
+#include "flags/experimental.hpp"
 #include "replication/replication_server.hpp"
 #include "rpc/utils.hpp"  // Include after all SLK definitions are present
 #include "storage/v2/constraints/type_constraints_kind.hpp"
@@ -1289,6 +1290,9 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           }
         },
         [&](WalTextIndexCreate const &data) {
+          if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+            throw query::TextSearchDisabledException();
+          }
           spdlog::trace("   Delta {}. Create text search index {} on {}.", current_delta_idx, data.index_name,
                         data.label);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
@@ -1298,6 +1302,9 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           }
         },
         [&](WalTextIndexDrop const &data) {
+          if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+            throw query::TextSearchDisabledException();
+          }
           spdlog::trace("   Delta {}. Drop text search index {}.", current_delta_idx, data.index_name);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           if (transaction->DropTextIndex(data.index_name).HasError()) {

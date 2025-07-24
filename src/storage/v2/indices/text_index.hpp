@@ -26,6 +26,8 @@ class DbAccessor;
 }
 
 namespace memgraph::storage {
+
+inline constexpr std::string_view kTextIndicesDirectory = "text_indices";
 struct TextIndexData {
   mgcxx::text_search::Context context_;
   LabelId scope_;
@@ -34,7 +36,6 @@ struct TextIndexData {
 class TextIndex {
  private:
   static constexpr bool kDoSkipCommit = true;
-  static constexpr std::string_view kTextIndicesDirectory = "text_indices";
 
   // Boolean operators that should be preserved in uppercase for Tantivy
   static constexpr std::string_view kBooleanAnd = "AND";
@@ -50,7 +51,7 @@ class TextIndex {
 
   inline std::string MakeIndexPath(std::string_view index_name) const;
 
-  void CreateEmptyIndex(const std::string &index_name, LabelId label);
+  void CreateTantivyIndex(const std::string &index_name, LabelId label);
 
   nlohmann::json SerializeProperties(const std::map<PropertyId, PropertyValue> &properties,
                                      NameIdMapper *name_id_mapper);
@@ -64,8 +65,6 @@ class TextIndex {
   void AddNodeToTextIndices(std::int64_t gid, const nlohmann::json &properties,
                             const std::string &property_values_as_str,
                             const std::vector<mgcxx::text_search::Context *> &applicable_text_indices);
-
-  void CommitLoadedNodes(mgcxx::text_search::Context &index_context);
 
   mgcxx::text_search::SearchOutput SearchGivenProperties(const std::string &index_name,
                                                          const std::string &search_query);

@@ -503,6 +503,14 @@ class TextSearchException : public QueryException {
   SPECIALIZE_GET_EXCEPTION_NAME(TextSearchException)
 };
 
+class TextSearchDisabledException : public TextSearchException {
+ public:
+  TextSearchDisabledException()
+      : TextSearchException(MessageWithDocsLink(" To use text indices and text search, start Memgraph with the "
+                                                "--experimental-enabled='text-search' flag.")) {}
+  SPECIALIZE_GET_EXCEPTION_NAME(TextSearchDisabledException)
+};
+
 class VectorSearchException : public QueryException {
   using QueryException::QueryException;
   SPECIALIZE_GET_EXCEPTION_NAME(VectorSearchException)

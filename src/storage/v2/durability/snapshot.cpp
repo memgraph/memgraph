@@ -2369,9 +2369,9 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
     }
 
     // Recover text indices.
-    // NOTE: while this was experimental and hence optional
+    // NOTE: while this is experimental and hence optional
     //       it must be last in the SECTION_INDICES
-    {
+    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
       auto size_opt = snapshot.ReadUint();
       const auto size = size_opt.value_or(0);
       spdlog::info("Recovering metadata of {} text indices.", size);
@@ -2815,9 +2815,9 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
     }
 
     // Recover text indices.
-    // NOTE: while this was experimental and hence optional
+    // NOTE: while this is experimental and hence optional
     //       it must be last in the SECTION_INDICES
-    {
+    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
       auto size_opt = snapshot.ReadUint();
       const auto size = size_opt.value_or(0);
       spdlog::info("Recovering metadata of {} text indices.", size);
@@ -3279,9 +3279,9 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
     }
 
     // Recover text indices.
-    // NOTE: while this was experimental and hence optional
+    // NOTE: while this is experimental and hence optional
     //       it must be last in the SECTION_INDICES
-    {
+    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
       auto size_opt = snapshot.ReadUint();
       const auto size = size_opt.value_or(0);
       spdlog::info("Recovering metadata of {} text indices.", size);
@@ -3815,9 +3815,9 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
     }
 
     // Recover text indices.
-    // NOTE: while this was experimental and hence optional
+    // NOTE: while this is experimental and hence optional
     //       it must be last in the SECTION_INDICES
-    {
+    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
       auto size_opt = snapshot.ReadUint();
       const auto size = size_opt.value_or(0);
       spdlog::info("Recovering metadata of {} text indices.", size);
@@ -4398,9 +4398,9 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
     }
 
     // Recover text indices.
-    // NOTE: while this was experimental and hence optional
+    // NOTE: while this is experimental and hence optional
     //       it must be last in the SECTION_INDICES
-    {
+    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
       auto size_opt = snapshot.ReadUint();
       const auto size = size_opt.value_or(0);
       spdlog::info("Recovering metadata of {} text indices.", size);
@@ -4976,9 +4976,9 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
     }
 
     // Recover text indices.
-    // NOTE: while this was experimental and hence optional
+    // NOTE: while this is experimental and hence optional
     //       it must be last in the SECTION_INDICES
-    {
+    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
       auto size_opt = snapshot.ReadUint();
       const auto size = size_opt.value_or(0);
       spdlog::info("Recovering metadata of {} text indices.", size);
@@ -5556,9 +5556,9 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
     }
 
     // Recover text indices.
-    // NOTE: while this was experimental and hence optional
+    // NOTE: while this is experimental and hence optional
     //       it must be last in the SECTION_INDICES
-    {
+    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
       auto size_opt = snapshot.ReadUint();
       const auto size = size_opt.value_or(0);
       spdlog::info("Recovering metadata of {} text indices.", size);
@@ -6184,9 +6184,9 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
     }
 
     // Recover text indices.
-    // NOTE: while this was experimental and hence optional
+    // NOTE: while this is experimental and hence optional
     //       it must be last in the SECTION_INDICES
-    {
+    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
       auto size_opt = snapshot.ReadUint();
       const auto size = size_opt.value_or(0);
       spdlog::info("Recovering metadata of {} text indices.", size);

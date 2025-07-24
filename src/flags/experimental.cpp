@@ -25,7 +25,8 @@
 
 // Bolt server flags.
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_string(experimental_enabled, "", "Experimental features to be used, comma-separated. Options []",
+DEFINE_VALIDATED_string(experimental_enabled, "",
+                        "Experimental features to be used, comma-separated. Options [text-search]",
                         { return memgraph::flags::ValidExperimentalFlag(value); });
 
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
@@ -49,8 +50,12 @@ auto const canonicalize_string = [](auto &&rng) {
 
 namespace memgraph::flags {
 
-auto const mapping = std::map<std::string_view, Experiments>{};
-auto const reverse_mapping = std::map<Experiments, std::string_view>{};
+auto const mapping = std::map{
+    std::pair{"text-search"sv, Experiments::TEXT_SEARCH},
+};
+auto const reverse_mapping = std::map{
+    std::pair{Experiments::TEXT_SEARCH, "text-search"sv},
+};
 auto const config_mapping = std::map<std::string_view, Experiments>{};
 
 auto ExperimentsInstance() -> Experiments & {

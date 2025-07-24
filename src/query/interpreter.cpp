@@ -3946,6 +3946,10 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
     throw IndexInMulticommandTxException();
   }
 
+  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    throw TextSearchDisabledException();
+  }
+
   auto *text_index_query = utils::Downcast<TextIndexQuery>(parsed_query.query);
   std::function<void(Notification &)> handler;
 

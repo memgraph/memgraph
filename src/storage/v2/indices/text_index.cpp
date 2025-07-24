@@ -31,7 +31,7 @@ inline std::string TextIndex::MakeIndexPath(std::string_view index_name) const {
   return (text_index_storage_dir_ / index_name).string();
 }
 
-void TextIndex::CreateEmptyIndex(const std::string &index_name, LabelId label) {
+void TextIndex::CreateTantivyIndex(const std::string &index_name, LabelId label) {
   if (index_.contains(index_name)) {
     throw query::TextSearchException("Text index \"{}\" already exists.", index_name);
   }
@@ -186,18 +186,6 @@ void TextIndex::AddNodeToTextIndices(std::int64_t gid, const nlohmann::json &pro
   }
 }
 
-void TextIndex::CommitLoadedNodes(mgcxx::text_search::Context &index_context) {
-  // As CREATE TEXT INDEX (...) queries don’t accumulate deltas, db_transactional_accessor_->Commit() does not reach
-  // the code area where changes to indices are committed. To get around that without needing to commit text indices
-  // after every such query, we commit here.
-  std::lock_guard lock(index_writer_mutex_);
-  try {
-    mgcxx::text_search::commit(index_context);
-  } catch (const std::exception &e) {
-    throw query::TextSearchException("Tantivy error: {}", e.what());
-  }
-}
-
 void TextIndex::AddNode(Vertex *vertex_after_update, NameIdMapper *name_id_mapper,
                         const std::vector<mgcxx::text_search::Context *> &maybe_applicable_text_indices) {
   auto applicable_text_indices = maybe_applicable_text_indices.empty()
@@ -256,7 +244,7 @@ void TextIndex::RemoveNode(Vertex *vertex_after_update,
 
 void TextIndex::CreateIndex(std::string const &index_name, LabelId label, storage::VerticesIterable vertices,
                             NameIdMapper *name_id_mapper) {
-  CreateEmptyIndex(index_name, label);
+  CreateTantivyIndex(index_name, label);
 
   for (const auto &v : vertices) {
     if (!v.HasLabel(label, View::NEW).GetValue()) {
@@ -272,26 +260,10 @@ void TextIndex::CreateIndex(std::string const &index_name, LabelId label, storag
 void TextIndex::RecoverIndex(const std::string &index_name, LabelId label,
                              memgraph::utils::SkipList<Vertex>::Accessor vertices, NameIdMapper *name_id_mapper,
                              std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  // Clear Tantivy-internal files if they exist from previous sessions
-  std::filesystem::remove_all(text_index_storage_dir_ / index_name);
-
-  CreateEmptyIndex(index_name, label);
-
-  for (const auto &v : vertices) {
-    if (std::find(v.labels.begin(), v.labels.end(), label) == v.labels.end()) {
-      continue;
-    }
-
-    auto vertex_properties = v.properties.Properties();
-    AddNodeToTextIndices(v.gid.AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
-                         StringifyProperties(vertex_properties), {&index_.at(index_name).context_});
-
-    if (snapshot_info) {
-      snapshot_info->Update(UpdateType::TEXT_IDX);
-    }
+  CreateTantivyIndex(index_name, label);
+  if (snapshot_info) {
+    snapshot_info->Update(UpdateType::TEXT_IDX);
   }
-
-  CommitLoadedNodes(index_.at(index_name).context_);
 }
 
 LabelId TextIndex::DropIndex(const std::string &index_name) {
