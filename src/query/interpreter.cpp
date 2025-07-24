@@ -3407,47 +3407,6 @@ PreparedQuery PrepareAnalyzeGraphQuery(ParsedQuery parsed_query, bool in_explici
                        RWType::NONE};
 }
 
-template <typename F>
-concept InvocableWithUInt64 = std::invocable<F, std::uint64_t>;
-
-struct DoNothing {
-  template <typename... Args>
-  bool operator()(Args &&...) {
-    return true;
-  }
-};
-
-// Creating an index influences computed plan costs.
-// We need to atomically invalidate the plan when publishing new index
-auto make_create_index_plan_invalidator_builder(memgraph::dbms::DatabaseAccess db_acc) {
-  // capture DatabaseAccess in builder
-  return [db_acc = std::move(db_acc)]<InvocableWithUInt64 Func = DoNothing>(Func && publish_func = Func{}) {
-    // build plan invalidator wrapper
-    return [db_acc = std::move(db_acc),
-            publish_func = std::forward<Func>(publish_func)](uint64_t commit_timestamp) mutable {
-      return db_acc->plan_cache()->WithLock([&](auto &cache) {
-        auto do_reset = publish_func(commit_timestamp);
-        if (do_reset) cache.reset();
-        return do_reset;
-      });
-    };
-  };
-}
-
-auto make_drop_index_plan_invalidator_builder(memgraph::dbms::DatabaseAccess db_acc) {
-  // capture DatabaseAccess in builder
-  return [db_acc = std::move(db_acc)]<std::invocable Func = DoNothing>(Func && publish_func = Func{}) {
-    // build plan invalidator wrapper
-    return [db_acc = std::move(db_acc), publish_func = std::forward<Func>(publish_func)]() mutable {
-      return db_acc->plan_cache()->WithLock([&](auto &cache) {
-        auto do_reset = publish_func();
-        if (do_reset) cache.reset();
-        return do_reset;
-      });
-    };
-  };
-}
-
 constexpr auto kCancelPeriodCreateIndex = 10'000;  // TODO: control via flag?
 auto make_create_index_cancel_callback(StoppingContext stopping_context) {
   return
@@ -3502,7 +3461,6 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
   switch (index_query->action_) {
     case IndexQuery::Action::CREATE: {
       // Creating an index influences computed plan costs.
-      auto plan_invalidator_builder = make_create_index_plan_invalidator_builder(db_acc);
       index_notification.code = NotificationCode::CREATE_INDEX;
       index_notification.title =
           fmt::format("Created index on label {} on properties {}.", index_query->label_.name, properties_stringified);
@@ -3510,14 +3468,11 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
       handler = [dba, label, properties_stringified = std::move(properties_stringified),
                  label_name = index_query->label_.name, properties = std::move(properties),
-                 plan_invalidator_builder = std::move(plan_invalidator_builder),
                  stopping_context = std::move(stopping_context)](Notification &index_notification) mutable {
         auto cancel_callback = make_create_index_cancel_callback(stopping_context);
-        auto maybe_index_error =
-            properties.empty()
-                ? dba->CreateIndex(label, std::move(cancel_callback), std::move(plan_invalidator_builder))
-                : dba->CreateIndex(label, std::move(properties), std::move(cancel_callback),
-                                   std::move(plan_invalidator_builder));
+        auto maybe_index_error = properties.empty()
+                                     ? dba->CreateIndex(label, std::move(cancel_callback))
+                                     : dba->CreateIndex(label, std::move(properties), std::move(cancel_callback));
         if (maybe_index_error.HasError()) {
           auto const error_visitor = [&]<typename T>(T const &) {
             if constexpr (std::is_same_v<T, storage::IndexDefinitionError> ||
@@ -3541,18 +3496,15 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
     }
     case IndexQuery::Action::DROP: {
       // Creating an index influences computed plan costs.
-      auto plan_invalidator_builder = make_drop_index_plan_invalidator_builder(db_acc);
       index_notification.code = NotificationCode::DROP_INDEX;
       index_notification.title = fmt::format("Dropped index on label {} on properties {}.", index_query->label_.name,
                                              utils::Join(properties_string, ", "));
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
       handler = [dba, label, properties_stringified = std::move(properties_stringified),
-                 label_name = index_query->label_.name, properties = std::move(properties),
-                 plan_invalidator_builder =
-                     std::move(plan_invalidator_builder)](Notification &index_notification) mutable {
+                 label_name = index_query->label_.name,
+                 properties = std::move(properties)](Notification &index_notification) mutable {
         auto maybe_index_error =
-            properties.empty() ? dba->DropIndex(label, std::move(plan_invalidator_builder))
-                               : dba->DropIndex(label, std::move(properties), std::move(plan_invalidator_builder));
+            properties.empty() ? dba->DropIndex(label) : dba->DropIndex(label, std::move(properties));
         if (maybe_index_error.HasError()) {
           index_notification.code = NotificationCode::NONEXISTENT_INDEX;
           index_notification.title =
@@ -3617,8 +3569,6 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
   Notification index_notification(SeverityLevel::INFO);
   switch (index_query->action_) {
     case EdgeIndexQuery::Action::CREATE: {
-      auto plan_invalidator_builder = make_create_index_plan_invalidator_builder(db_acc);
-
       index_notification.code = NotificationCode::CREATE_INDEX;
       const auto &ix_properties = index_query->properties_;
       if (ix_properties.empty()) {
@@ -3630,7 +3580,6 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
 
       handler = [dba, edge_type, edge_type_name = index_query->edge_type_.name, global_index = index_query->global_,
                  properties_stringified = std::move(properties_stringified), properties = std::move(properties),
-                 plan_invalidator_builder = std::move(plan_invalidator_builder),
                  stopping_context = std::move(stopping_context)](Notification &index_notification) {
         MG_ASSERT(properties.size() <= 1U);
 
@@ -3638,13 +3587,11 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
           auto cancel_check = make_create_index_cancel_callback(stopping_context);
           if (global_index) {
             if (properties.empty()) throw utils::BasicException("Missing property for global edge index.");
-            return dba->CreateGlobalEdgeIndex(properties[0], std::move(cancel_check),
-                                              std::move(plan_invalidator_builder));
+            return dba->CreateGlobalEdgeIndex(properties[0], std::move(cancel_check));
           } else if (properties.empty()) {
-            return dba->CreateIndex(edge_type, std::move(cancel_check), std::move(plan_invalidator_builder));
+            return dba->CreateIndex(edge_type, std::move(cancel_check));
           }
-          return dba->CreateIndex(edge_type, properties[0], std::move(cancel_check),
-                                  std::move(plan_invalidator_builder));
+          return dba->CreateIndex(edge_type, properties[0], std::move(cancel_check));
         });
 
         if (maybe_index_error.HasError()) {
@@ -3669,21 +3616,19 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
       break;
     }
     case EdgeIndexQuery::Action::DROP: {
-      auto plan_invalidator_builder = make_drop_index_plan_invalidator_builder(db_acc);
       index_notification.code = NotificationCode::DROP_INDEX;
       index_notification.title = fmt::format("Dropped index on edge-type {}.", index_query->edge_type_.name);
       handler = [dba, edge_type, label_name = index_query->edge_type_.name, global_index = index_query->global_,
-                 properties_stringified = std::move(properties_stringified), properties = std::move(properties),
-                 plan_invalidator_builder = std::move(plan_invalidator_builder)](Notification &index_notification) {
+                 properties_stringified = std::move(properties_stringified),
+                 properties = std::move(properties)](Notification &index_notification) {
         MG_ASSERT(properties.size() <= 1U);
 
         const utils::BasicResult<storage::StorageIndexDefinitionError, void> maybe_index_error = std::invoke([&] {
           if (global_index) {
             if (properties.size() != 1) throw utils::BasicException("Missing property for global edge index.");
-            return dba->DropGlobalEdgeIndex(properties[0], std::move(plan_invalidator_builder));
+            return dba->DropGlobalEdgeIndex(properties[0]);
           }
-          return properties.empty() ? dba->DropIndex(edge_type, std::move(plan_invalidator_builder))
-                                    : dba->DropIndex(edge_type, properties[0], std::move(plan_invalidator_builder));
+          return properties.empty() ? dba->DropIndex(edge_type) : dba->DropIndex(edge_type, properties[0]);
         });
 
         if (maybe_index_error.HasError()) {

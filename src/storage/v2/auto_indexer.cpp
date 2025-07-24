@@ -57,7 +57,7 @@ AutoIndexer::AutoIndexer(std::stop_token stop_token, Storage *storage) {
           spdlog::info("Auto-indexing async creation, was blocked by other transactions. Retrying in {} ms.",
                        backoff.count());
           std::this_thread::sleep_for(backoff);
-          backoff = std::min(backoff * 3 / 2, std::chrono::milliseconds(2000));  // 1.5x multiplier, max 2s
+          backoff = std::min(backoff * 3 / 2, std::chrono::milliseconds(10'000));  // 1.5x multiplier, max 10s
         }
       }
     }

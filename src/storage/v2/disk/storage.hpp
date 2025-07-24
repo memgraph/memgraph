@@ -37,7 +37,8 @@ namespace memgraph::storage {
 
 class DiskStorage final : public Storage {
  public:
-  explicit DiskStorage(Config config = Config());
+  explicit DiskStorage(Config config = Config(),
+                       PlanInvalidatorPtr invalidator = std::make_unique<PlanInvalidatorDefaut>());
 
   DiskStorage(const DiskStorage &) = delete;
   DiskStorage(DiskStorage &&) = delete;
@@ -227,40 +228,30 @@ class DiskStorage final : public Storage {
     void FinalizeTransaction() override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        LabelId label, CheckCancelFunction cancel_check = neverCancel,
-        PublishIndexWrapper wrapper = publish_no_wrap) override;
+        LabelId label, CheckCancelFunction cancel_check = neverCancel) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        LabelId label, PropertiesPaths, CheckCancelFunction cancel_check = neverCancel,
-        PublishIndexWrapper wrapper = publish_no_wrap) override;
+        LabelId label, PropertiesPaths, CheckCancelFunction cancel_check = neverCancel) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        EdgeTypeId edge_type, CheckCancelFunction cancel_check = neverCancel,
-        PublishIndexWrapper wrapper = publish_no_wrap) override;
+        EdgeTypeId edge_type, CheckCancelFunction cancel_check = neverCancel) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        EdgeTypeId edge_type, PropertyId property, CheckCancelFunction cancel_check = neverCancel,
-        PublishIndexWrapper wrapper = publish_no_wrap) override;
+        EdgeTypeId edge_type, PropertyId property, CheckCancelFunction cancel_check = neverCancel) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> CreateGlobalEdgeIndex(
-        PropertyId property, CheckCancelFunction cancel_check = neverCancel,
-        PublishIndexWrapper wrapper = publish_no_wrap) override;
+        PropertyId property, CheckCancelFunction cancel_check = neverCancel) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label,
-                                                                    DropIndexWrapper wrapper = drop_no_wrap) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label,
-                                                                    std::vector<storage::PropertyPath> &&properties,
-                                                                    DropIndexWrapper wrapper = drop_no_wrap) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
+        LabelId label, std::vector<storage::PropertyPath> &&properties) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type,
-                                                                    DropIndexWrapper wrapper = drop_no_wrap) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type, PropertyId property,
-                                                                    DropIndexWrapper wrapper = drop_no_wrap) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type, PropertyId property) override;
 
-    utils::BasicResult<StorageIndexDefinitionError, void> DropGlobalEdgeIndex(
-        PropertyId property, DropIndexWrapper wrapper = drop_no_wrap) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> DropGlobalEdgeIndex(PropertyId property) override;
 
     utils::BasicResult<storage::StorageIndexDefinitionError, void> CreatePointIndex(
         storage::LabelId label, storage::PropertyId property) override;

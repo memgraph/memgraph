@@ -157,8 +157,9 @@ class PeriodicSnapshotObserver : public memgraph::utils::Observer<memgraph::util
 
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
-InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_mem_fn_override)
-    : Storage(config, config.salient.storage_mode),
+InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_mem_fn_override,
+                                 PlanInvalidatorPtr invalidator)
+    : Storage(config, config.salient.storage_mode, std::move(invalidator)),
       recovery_{config.durability.storage_directory / durability::kSnapshotDirectory,
                 config.durability.storage_directory / durability::kWalDirectory},
       lock_file_path_(config.durability.storage_directory / durability::kLockFile),
@@ -1435,7 +1436,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
-    LabelId label, CheckCancelFunction cancel_check, PublishIndexWrapper wrapper) {
+    LabelId label, CheckCancelFunction cancel_check) {
   // UNIQUE access is also required by schema.assert
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY,
             "Creating label index requires a unique or read only access to the storage!");
@@ -1453,8 +1454,10 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
     return StorageIndexDefinitionError{IndexDefinitionCancelationError{}};
   }
   // Wrapper will make sure plan cache is cleared
-  auto publisher =
-      wrapper([=](uint64_t commit_timestamp) { return mem_label_index->PublishIndex(label, commit_timestamp); });
+
+  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
+      [=](uint64_t commit_timestamp) { return mem_label_index->PublishIndex(label, commit_timestamp); });
+
   transaction_.commit_callbacks_.Add(std::move(publisher));
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_create, label);
@@ -1463,7 +1466,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPaths properties,
-                                                    CheckCancelFunction cancel_check, PublishIndexWrapper wrapper)
+                                                    CheckCancelFunction cancel_check)
     -> utils::BasicResult<StorageIndexDefinitionError, void> {
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY,
             "Creating label-property index requires a unique or read only access to the storage!");
@@ -1481,7 +1484,7 @@ auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPat
     return StorageIndexDefinitionError{IndexDefinitionCancelationError{}};
   }
   // Wrapper will make sure plan cache is cleared
-  auto publisher = wrapper([=](uint64_t commit_timestamp) {
+  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper([=](uint64_t commit_timestamp) {
     return mem_label_property_index->PublishIndex(label, properties, commit_timestamp);
   });
   transaction_.commit_callbacks_.Add(std::move(publisher));
@@ -1498,7 +1501,7 @@ void InMemoryStorage::InMemoryAccessor::DowngradeToReadIfValid() {
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
-    EdgeTypeId edge_type, CheckCancelFunction cancel_check, PublishIndexWrapper wrapper) {
+    EdgeTypeId edge_type, CheckCancelFunction cancel_check) {
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY,
             "Create index requires a unique or readonly access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
@@ -1514,7 +1517,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
     return StorageIndexDefinitionError{IndexDefinitionCancelationError{}};
   }
   // Wrapper will make sure plan cache is cleared
-  auto publisher = wrapper(
+  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
       [=](uint64_t commit_timestamp) { return mem_edge_type_index->PublishIndex(edge_type, commit_timestamp); });
   transaction_.commit_callbacks_.Add(std::move(publisher));
 
@@ -1523,7 +1526,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
-    EdgeTypeId edge_type, PropertyId property, CheckCancelFunction cancel_check, PublishIndexWrapper wrapper) {
+    EdgeTypeId edge_type, PropertyId property, CheckCancelFunction cancel_check) {
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY, "Create index requires a unique access to the storage!");
 
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
@@ -1544,7 +1547,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
     return StorageIndexDefinitionError{IndexDefinitionCancelationError{}};
   }
   // Wrapper will make sure plan cache is cleared
-  auto publisher = wrapper([=](uint64_t commit_timestamp) {
+  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper([=](uint64_t commit_timestamp) {
     return mem_edge_type_property_index->PublishIndex(edge_type, property, commit_timestamp);
   });
   transaction_.commit_callbacks_.Add(std::move(publisher));
@@ -1554,7 +1557,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateGlobalEdgeIndex(
-    PropertyId property, CheckCancelFunction cancel_check, PublishIndexWrapper wrapper) {
+    PropertyId property, CheckCancelFunction cancel_check) {
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY,
             "Create index requires a unique or read-only access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
@@ -1574,7 +1577,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
     return StorageIndexDefinitionError{IndexDefinitionCancelationError{}};
   }
   // Wrapper will make sure plan cache is cleared
-  auto publisher = wrapper(
+  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
       [=](uint64_t commit_timestamp) { return mem_edge_property_index->PublishIndex(property, commit_timestamp); });
   transaction_.commit_callbacks_.Add(std::move(publisher));
 
@@ -1582,16 +1585,15 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   return {};
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
-    LabelId label, DropIndexWrapper wrapper) {
+utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(LabelId label) {
   MG_ASSERT(type() == UNIQUE || type() == READ,
             "Dropping label index requires a unique or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
 
   // Done inside the wrapper to ensure plan cache invalidation is safe
-  auto drop_index_callback = wrapper([&]() { return mem_label_index->DropIndex(label); });
-  if (!drop_index_callback()) {
+  auto was_dropped = storage_->invalidator_->invalidate_now([&] { return mem_label_index->DropIndex(label); });
+  if (!was_dropped) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
 
@@ -1601,7 +1603,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
-    LabelId label, std::vector<storage::PropertyPath> &&properties, DropIndexWrapper wrapper) {
+    LabelId label, std::vector<storage::PropertyPath> &&properties) {
   // Because of replication we still use UNIQUE ATM
   MG_ASSERT(type() == UNIQUE || type() == READ,
             "Dropping label-property index requires a unique or read access to the storage!");
@@ -1610,8 +1612,9 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
 
   // Done inside the wrapper to ensure plan cache invalidation is safe
-  auto drop_index_callback = wrapper([&]() { return mem_label_property_index->DropIndex(label, properties); });
-  if (!drop_index_callback()) {
+  auto was_dropped =
+      storage_->invalidator_->invalidate_now([&] { return mem_label_property_index->DropIndex(label, properties); });
+  if (!was_dropped) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
 
@@ -1622,15 +1625,15 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
-    EdgeTypeId edge_type, DropIndexWrapper wrapper) {
+    EdgeTypeId edge_type) {
   // Because of replication we still use UNIQUE ATM
   MG_ASSERT(type() == UNIQUE || type() == READ,
             "Dropping edge-type index requires a unique or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
   // Done inside the wrapper to ensure plan cache invalidation is safe
-  auto drop_index_callback = wrapper([&]() { return mem_edge_type_index->DropIndex(edge_type); });
-  if (!drop_index_callback()) {
+  auto was_dropped = storage_->invalidator_->invalidate_now([&] { return mem_edge_type_index->DropIndex(edge_type); });
+  if (!was_dropped) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::edge_index_drop, edge_type);
@@ -1638,7 +1641,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
-    EdgeTypeId edge_type, PropertyId property, DropIndexWrapper wrapper) {
+    EdgeTypeId edge_type, PropertyId property) {
   // Because of replication we still use UNIQUE ATM
   MG_ASSERT(type() == UNIQUE || type() == READ,
             "Dropping edge-type property index requires a unique or read access to the storage!");
@@ -1647,11 +1650,12 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
     // Not possible to drop the index, no properties on edges
     return StorageIndexDefinitionError{IndexDefinitionConfigError{}};
   }
-  auto *mem_edge_type_index =
+  auto *mem_edge_type_property_index =
       static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
   // Done inside the wrapper to ensure plan cache invalidation is safe
-  auto drop_index_callback = wrapper([&]() { return mem_edge_type_index->DropIndex(edge_type, property); });
-  if (!drop_index_callback()) {
+  auto was_dropped = storage_->invalidator_->invalidate_now(
+      [&] { return mem_edge_type_property_index->DropIndex(edge_type, property); });
+  if (!was_dropped) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::edge_property_index_drop, edge_type, property);
@@ -1659,7 +1663,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropGlobalEdgeIndex(
-    PropertyId property, DropIndexWrapper wrapper) {
+    PropertyId property) {
   MG_ASSERT(type() == UNIQUE || type() == READ, "Drop index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   if (!in_memory->config_.salient.items.properties_on_edges) {
@@ -1672,9 +1676,12 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   if (!mem_edge_property_index->DropIndex(property)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  // TODO: concurrent index drop
-  auto drop_index_callback = wrapper(always_invalidate_plan_cache);
-  drop_index_callback();
+  auto was_dropped =
+      storage_->invalidator_->invalidate_now([&] { return mem_edge_property_index->DropIndex(property); });
+  if (!was_dropped) {
+    return StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
+
   transaction_.md_deltas.emplace_back(MetadataDelta::global_edge_property_index_drop, property);
   return {};
 }
