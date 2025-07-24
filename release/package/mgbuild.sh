@@ -121,6 +121,7 @@ print_help () {
   echo -e "  --build-logs                  Copy build logs from mgbuild container to host"
   echo -e "  --dest-dir string             Specify a custom path for destination directory on host"
   echo -e "  --package                     Copy memgraph package from mgbuild container to host"
+  echo -e "  --use-make-install            Use 'make install' with DESTDIR instead of copying individual files"
 
   echo -e "\npackage-docker options:"
   echo -e "  --dest-dir string             Specify a custom path for destination directory on host. Provide relative path inside memgraph directory."
@@ -153,6 +154,7 @@ print_help () {
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd --build-type RelWithDebInfo test-memgraph unit"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd package"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd copy --package"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd copy --use-make-install --dest-dir build/install"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd stop --remove"
 }
 
@@ -526,9 +528,11 @@ copy_memgraph() {
   local host_dir="$PROJECT_BUILD_DIR"
   local host_dir_override=""
   local artifact_name_override=""
+  local use_make_install=false
+
   while [[ $# -gt 0 ]]; do
     case "$1" in
-      --binary)#cp -L
+      --binary)
         if [[ "$artifact" == "build logs" ]] || [[ "$artifact" == "package" ]] || [[ "$artifact" == "libs" ]]; then
           echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs, --libs, --package or --memgraph-logs"
           exit 1
@@ -539,7 +543,7 @@ copy_memgraph() {
         host_dir="$PROJECT_BUILD_DIR"
         shift 1
       ;;
-      --build-logs)#cp -L
+      --build-logs)
         if [[ "$artifact" == "package" ]] || [[ "$artifact" == "libs" ]]; then
           echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs, --libs, --package or --memgraph-logs"
           exit 1
@@ -550,7 +554,7 @@ copy_memgraph() {
         host_dir="$PROJECT_BUILD_DIR"
         shift 1
       ;;
-      --memgraph-logs)#cp -L
+      --memgraph-logs)
         if [[ "$artifact" == "package" ]] || [[ "$artifact" == "libs" ]]; then
           echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs, --libs, --package or --memgraph-logs"
           exit 1
@@ -561,7 +565,7 @@ copy_memgraph() {
         host_dir="$PROJECT_BUILD_DIR"
         shift 1
       ;;
-      --package)#cp
+      --package)
         if [[ "$artifact" == "build logs" ]] || [[ "$artifact" == "libs" ]]; then
           echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs, --libs, --package or --memgraph-logs"
           exit 1
@@ -573,19 +577,18 @@ copy_memgraph() {
         container_artifact_path="$container_package_dir/$artifact_name"
         shift 1
       ;;
-      --libs)#cp -L
+      --libs)
         if [[ "$artifact" == "build logs" ]] || [[ "$artifact" == "package" ]]; then
           echo -e "Error: When executing 'copy' command, choose only one of --binary, --build-logs, --libs, --package or --memgraph-logs"
           exit 1
         fi
         artifact="libs"
         artifact_name="libmemgraph_module_support.so"
-
         container_artifact_path="$MGBUILD_BUILD_DIR/src/query/$artifact_name"
         host_dir="$PROJECT_BUILD_DIR/src/query"
         shift 1
       ;;
-      --logs-dir)#cp -L
+      --logs-dir)
         container_artifact_path=$2
         shift 2
       ;;
@@ -597,6 +600,14 @@ copy_memgraph() {
         artifact_name_override=$2
         shift 2
       ;;
+      --use-make-install)
+        if [[ "$artifact" != "binary" ]]; then
+          echo -e "Error: Only the --binary artifact can be installed using make install"
+          exit 1
+        fi
+        use_make_install=true
+        shift 1
+      ;;
       *)
         echo "Error: Unknown flag '$1'"
         print_help
@@ -604,12 +615,39 @@ copy_memgraph() {
       ;;
     esac
   done
+
   if [[ "$host_dir_override" != "" ]]; then
     host_dir=$host_dir_override
   fi
   if [[ "$artifact_name_override" != "" ]]; then
     artifact_name=$artifact_name_override
   fi
+
+  # If using make install, handle it differently
+  if [[ "$use_make_install" == "true" ]]; then
+    local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
+    local ACTIVATE_CARGO="source $MGBUILD_HOME_DIR/.cargo/env"
+
+    # Create a temporary staging directory in the container
+    local staging_dir="/tmp/memgraph-staging"
+    docker exec -u mg "$build_container" bash -c "mkdir -p $staging_dir"
+
+    echo "Installing Memgraph using make install with DESTDIR=$staging_dir..."
+    docker exec -u mg "$build_container" bash -c "cd $MGBUILD_BUILD_DIR && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && DESTDIR=$staging_dir make install"
+
+    # Copy the staged installation from container to host
+    echo "Copying installed files from staging directory to $host_dir..."
+    mkdir -p "$host_dir"
+    docker cp "$build_container:$staging_dir/usr/local/lib/memgraph/." "$host_dir/"
+
+    # Clean up staging directory
+    docker exec -u mg "$build_container" bash -c "rm -rf $staging_dir"
+
+    echo "Memgraph installed to $host_dir!"
+    return
+  fi
+
+  # Original copy logic for individual files
   local host_artifact_path="$host_dir/$artifact_name"
   echo "Host dir: '$host_dir'"
   echo "Artifact name: '$artifact_name'"

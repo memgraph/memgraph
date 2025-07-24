@@ -13,6 +13,12 @@
 
 namespace memgraph::storage {
 
+// For all replicas, we append transaction end
+// When handling STRICT_SYNC replica, we send deltas as part of the 1st phase of the 2PC protocol and wait for the
+// response.
+// When handling some other type of replica, it is checked whether there is another STRICT_SYNC replica. There are 2
+// possible cluster combinations: STRICT_SYNC and ASYNC or SYNC and ASYNC. If there are no STRICT_SYNC replicas in the
+// cluster, we send all deltas and commit immediately on replicas.
 auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, DatabaseAccessProtector db_acc) -> bool {
   bool success{true};
   MG_ASSERT(locked_clients->empty() || db_acc.has_value(),
@@ -25,14 +31,14 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Da
                                    replica_stream);
     // NOLINTNEXTLINE
     auto const finalized = std::invoke([&]() -> bool {
-      // If I am STRICT SYNC replica, ship deltas as part of the 1st phase and preserve replica stream
+      // If I am STRICT SYNC replica, ship deltas as part of the 1st phase and preserve replica stream.
       // NOLINTNEXTLINE
       if (client->Mode() == replication_coordination_glue::ReplicationMode::STRICT_SYNC) {
         // NOLINTNEXTLINE
         return client->FinalizePrepareCommitPhase(db_acc, replica_stream, durability_commit_timestamp);
       }
-      // If there are no STRICT_SYNC replicas, shipping deltas means finalize of the whole transaction
-      // Destroy the RPC stream
+      // If there are no STRICT_SYNC replicas, shipping deltas means finalizing the transaction
+      // RPC stream gets destroyed => RPC lock released.
       if (!should_run_2pc) {
         // NOLINTNEXTLINE
         bool const res =
@@ -70,6 +76,7 @@ auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUI
       if (decision) {
         client->FinalizeTransactionReplication(db_acc, std::move(replica_stream), durability_commit_timestamp);
       } else {
+        // Reconnect needed because we optimistically prepared PrepareCommitReq message already
         client->AbortRpcClient();
       }
     }
