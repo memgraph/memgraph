@@ -447,7 +447,7 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
         }
       }
       if (schema_acc) {
-        std::visit(utils::Overloaded{[vertex, property, new_type = ExtendedPropertyType{new_value}](
+        std::visit(utils::Overloaded{[vertex = vertex, property = property, new_type = ExtendedPropertyType{new_value}](
                                          SchemaInfo::VertexModifyingAccessor &acc) {
                                        acc.SetProperty(vertex, property, new_type, ExtendedPropertyType{});
                                      },
