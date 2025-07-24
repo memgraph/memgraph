@@ -107,6 +107,7 @@ create : CREATE pattern ;
 set : SET setItem ( ',' setItem )* ;
 
 setItem : ( propertyExpression '=' expression )
+        | ( propertyExpression '+=' expression )
         | ( variable '=' expression )
         | ( variable '+=' expression )
         | ( variable nodeLabels )
