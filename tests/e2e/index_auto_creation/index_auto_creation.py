@@ -166,38 +166,34 @@ def assert_multiple_edges_with_labels(cursor, label_from, label_to, edge_counts_
 def cleanup_indexes_and_data(cursor):
     """Clean up all indexes and data from the database."""
     try:
-        # Use DROP GRAPH for efficient cleanup of everything
-        execute_and_fetch_all(cursor, "DROP GRAPH")
-        execute_and_fetch_all(cursor, "FREE MEMORY")
-        time.sleep(1)
-    except Exception:
-        # If DROP GRAPH fails (e.g., due to concurrent transactions),
-        # fall back to manual cleanup
-        try:
-            # Get all current indexes
-            index_stats = get_index_stats(cursor)
+        # Get all current indexes
+        index_stats = get_index_stats(cursor)
 
-            # Drop all label and edge indexes
-            for index_info in index_stats:
-                index_type = index_info[0]
-                index_name = index_info[1]
+        # Drop all label and edge indexes
+        for index_info in index_stats:
+            index_type = index_info[0]
+            index_name = index_info[1]
 
-                try:
-                    if index_type == "label":
-                        execute_and_fetch_all(cursor, f"DROP INDEX ON :{index_name}")
-                    elif index_type == "edge-type":
-                        execute_and_fetch_all(cursor, f"DROP EDGE INDEX ON :{index_name}")
-                except Exception:
-                    pass  # Index might already be dropped
-
-            # Delete all data
-            execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
-        except Exception:
-            # If something goes wrong, still try to delete all data
             try:
-                execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
+                if index_type == "label":
+                    execute_and_fetch_all(cursor, f"DROP INDEX ON :{index_name}")
+                elif index_type == "edge-type":
+                    execute_and_fetch_all(cursor, f"DROP EDGE INDEX ON :{index_name}")
             except Exception:
-                pass
+                pass  # Index might already be dropped
+
+        # Delete all data
+        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
+
+        # Free memory
+        execute_and_fetch_all(cursor, "FREE MEMORY")
+    except Exception:
+        # If something goes wrong, still try to delete all data
+        try:
+            execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
+            execute_and_fetch_all(cursor, "FREE MEMORY")
+        except Exception:
+            pass
 
 
 def ensure_clean_state(cursor):
@@ -210,80 +206,80 @@ def ensure_clean_state(cursor):
 #####################
 
 
-# def test_auto_create_single_label_index(cursor):
-#     ensure_clean_state(cursor)
-#     label = "SOMELABEL"
-#
-#     try:
-#         execute_and_fetch_all(cursor, f"CREATE (n:{label})")
-#
-#         assert_single_label_index(cursor, label)
-#
-#         execute_and_fetch_all(cursor, f"DROP INDEX ON :{label}")
-#         assert_no_indexes(cursor)
-#     finally:
-#         cleanup_indexes_and_data(cursor)
-#
-#
-# def test_auto_create_several_different_label_index(cursor):
-#     ensure_clean_state(cursor)
-#     label1 = "SOMELABEL1"
-#     label2 = "SOMELABEL2"
-#     label3 = "SOMELABEL3"
-#
-#     try:
-#         execute_and_fetch_all(cursor, f"CREATE (n:{label1}:{label2}:{label3})")
-#
-#         assert_index_count(cursor, 3)
-#
-#         execute_and_fetch_all(cursor, f"DROP INDEX ON :{label1}")
-#         execute_and_fetch_all(cursor, f"DROP INDEX ON :{label2}")
-#         execute_and_fetch_all(cursor, f"DROP INDEX ON :{label3}")
-#
-#         assert_no_indexes(cursor)
-#     finally:
-#         cleanup_indexes_and_data(cursor)
-#
-#
-# def test_auto_create_multiple_label_index(cursor):
-#     ensure_clean_state(cursor)
-#     label1 = "SOMELABEL1"
-#     label2 = "SOMELABEL2"
-#     label3 = "SOMELABEL3"
-#
-#     try:
-#         execute_and_fetch_all(cursor, f"CREATE (n:{label1})")
-#         execute_and_fetch_all(cursor, f"CREATE (n:{label2})")
-#         execute_and_fetch_all(cursor, f"CREATE (n:{label3})")
-#
-#         assert_multiple_labels_with_counts(cursor, {label1: 1, label2: 1, label3: 1}, 3)
-#
-#         execute_and_fetch_all(cursor, f"DROP INDEX ON :{label1}")
-#         assert_index_count(cursor, 2)
-#
-#         execute_and_fetch_all(cursor, f"DROP INDEX ON :{label2}")
-#         assert_index_count(cursor, 1)
-#
-#         execute_and_fetch_all(cursor, f"DROP INDEX ON :{label3}")
-#         assert_no_indexes(cursor)
-#     finally:
-#         cleanup_indexes_and_data(cursor)
-#
-#
-# def test_auto_create_single_label_index_with_multiple_entries(cursor):
-#     ensure_clean_state(cursor)
-#     label = "SOMELABEL"
-#
-#     try:
-#         for _ in range(100):
-#             execute_and_fetch_all(cursor, f"CREATE (n:{label})")
-#
-#         assert_multiple_labels_with_counts(cursor, {label: 100}, 1)
-#
-#         execute_and_fetch_all(cursor, f"DROP INDEX ON :{label}")
-#         assert_no_indexes(cursor)
-#     finally:
-#         cleanup_indexes_and_data(cursor)
+def test_auto_create_single_label_index(cursor):
+    ensure_clean_state(cursor)
+    label = "SOMELABEL"
+
+    try:
+        execute_and_fetch_all(cursor, f"CREATE (n:{label})")
+
+        assert_single_label_index(cursor, label)
+
+        execute_and_fetch_all(cursor, f"DROP INDEX ON :{label}")
+        assert_no_indexes(cursor)
+    finally:
+        cleanup_indexes_and_data(cursor)
+
+
+def test_auto_create_several_different_label_index(cursor):
+    ensure_clean_state(cursor)
+    label1 = "SOMELABEL1"
+    label2 = "SOMELABEL2"
+    label3 = "SOMELABEL3"
+
+    try:
+        execute_and_fetch_all(cursor, f"CREATE (n:{label1}:{label2}:{label3})")
+
+        assert_index_count(cursor, 3)
+
+        execute_and_fetch_all(cursor, f"DROP INDEX ON :{label1}")
+        execute_and_fetch_all(cursor, f"DROP INDEX ON :{label2}")
+        execute_and_fetch_all(cursor, f"DROP INDEX ON :{label3}")
+
+        assert_no_indexes(cursor)
+    finally:
+        cleanup_indexes_and_data(cursor)
+
+
+def test_auto_create_multiple_label_index(cursor):
+    ensure_clean_state(cursor)
+    label1 = "SOMELABEL1"
+    label2 = "SOMELABEL2"
+    label3 = "SOMELABEL3"
+
+    try:
+        execute_and_fetch_all(cursor, f"CREATE (n:{label1})")
+        execute_and_fetch_all(cursor, f"CREATE (n:{label2})")
+        execute_and_fetch_all(cursor, f"CREATE (n:{label3})")
+
+        assert_multiple_labels_with_counts(cursor, {label1: 1, label2: 1, label3: 1}, 3)
+
+        execute_and_fetch_all(cursor, f"DROP INDEX ON :{label1}")
+        assert_index_count(cursor, 2)
+
+        execute_and_fetch_all(cursor, f"DROP INDEX ON :{label2}")
+        assert_index_count(cursor, 1)
+
+        execute_and_fetch_all(cursor, f"DROP INDEX ON :{label3}")
+        assert_no_indexes(cursor)
+    finally:
+        cleanup_indexes_and_data(cursor)
+
+
+def test_auto_create_single_label_index_with_multiple_entries(cursor):
+    ensure_clean_state(cursor)
+    label = "SOMELABEL"
+
+    try:
+        for _ in range(100):
+            execute_and_fetch_all(cursor, f"CREATE (n:{label})")
+
+        assert_multiple_labels_with_counts(cursor, {label: 100}, 1)
+
+        execute_and_fetch_all(cursor, f"DROP INDEX ON :{label}")
+        assert_no_indexes(cursor)
+    finally:
+        cleanup_indexes_and_data(cursor)
 
 
 def test_auto_create_multiple_label_index_with_multiple_entries(cursor):
@@ -317,99 +313,107 @@ def test_auto_create_multiple_label_index_with_multiple_entries(cursor):
 
 
 def test_auto_create_label_index_plan_invalidation(cursor):
+    ensure_clean_state(cursor)
     label = "Label"
 
-    # populate the plan cache
-    execute_and_fetch_all(cursor, f"MATCH (n:{label}) RETURN n")
+    try:
+        # populate the plan cache
+        execute_and_fetch_all(cursor, f"MATCH (n:{label}) RETURN n")
 
-    execute_and_fetch_all(cursor, f"CREATE (n:{label})")
-    assert index_exists(get_index_stats(cursor), label)
-    results = execute_and_fetch_all(cursor, f"EXPLAIN MATCH (n:{label}) RETURN n")
-    assert results == [(" * Produce {n}",), (" * ScanAllByLabel (n :Label)", ), (" * Once", )]
+        execute_and_fetch_all(cursor, f"CREATE (n:{label})")
+
+        # Wait for index to be created
+        assert_single_label_index(cursor, label)
+
+        results = execute_and_fetch_all(cursor, f"EXPLAIN MATCH (n:{label}) RETURN n")
+        assert results == [(" * Produce {n}",), (" * ScanAllByLabel (n :Label)",), (" * Once",)]
+    finally:
+        cleanup_indexes_and_data(cursor)
+
 
 #########################
 # Edge-type index tests #
 #########################
-#
-#
-# def test_auto_create_single_edge_type_index(cursor):
-#     ensure_clean_state(cursor)
-#     label_from = "LABEL_FROM"
-#     label_to = "LABEL_TO"
-#     edge_type = "SOMEEDGETYPE"
-#
-#     try:
-#         execute_and_fetch_all(cursor, f"CREATE (:{label_from})-[:{edge_type}]->(:{label_to})")
-#
-#         assert_edge_and_label_indexes(cursor, label_from, label_to, edge_type, 1)
-#
-#         execute_and_fetch_all(cursor, f"DROP INDEX ON :{label_from}")
-#         execute_and_fetch_all(cursor, f"DROP INDEX ON :{label_to}")
-#         execute_and_fetch_all(cursor, f"DROP EDGE INDEX ON :{edge_type}")
-#
-#         assert_no_indexes(cursor)
-#     finally:
-#         cleanup_indexes_and_data(cursor)
-#
-#
-# def test_auto_create_multiple_edge_type_index(cursor):
-#     ensure_clean_state(cursor)
-#     label_from = "LABEL_FROM"
-#     label_to = "LABEL_TO"
-#     edge_type1 = "SOMEEDGETYPE1"
-#     edge_type2 = "SOMEEDGETYPE2"
-#     edge_type3 = "SOMEEDGETYPE3"
-#
-#     try:
-#         execute_and_fetch_all(cursor, f"CREATE (n:{label_from})")
-#         execute_and_fetch_all(cursor, f"CREATE (n:{label_to})")
-#         execute_and_fetch_all(cursor, f"MATCH (n:{label_from}), (m:{label_to}) CREATE (n)-[:{edge_type1}]->(m)")
-#         execute_and_fetch_all(cursor, f"MATCH (n:{label_from}), (m:{label_to}) CREATE (n)-[:{edge_type2}]->(m)")
-#         execute_and_fetch_all(cursor, f"MATCH (n:{label_from}), (m:{label_to}) CREATE (n)-[:{edge_type3}]->(m)")
-#
-#         assert_multiple_edges_with_labels(
-#             cursor, label_from, label_to, {edge_type1: 1, edge_type2: 1, edge_type3: 1}, 5
-#         )
-#
-#         execute_and_fetch_all(cursor, f"DROP INDEX ON :{label_from}")
-#         assert_index_count(cursor, 4)
-#
-#         execute_and_fetch_all(cursor, f"DROP INDEX ON :{label_to}")
-#         assert_index_count(cursor, 3)
-#
-#         execute_and_fetch_all(cursor, f"DROP EDGE INDEX ON :{edge_type1}")
-#         assert_index_count(cursor, 2)
-#
-#         execute_and_fetch_all(cursor, f"DROP EDGE INDEX ON :{edge_type2}")
-#         assert_index_count(cursor, 1)
-#
-#         execute_and_fetch_all(cursor, f"DROP EDGE INDEX ON :{edge_type3}")
-#         assert_no_indexes(cursor)
-#     finally:
-#         cleanup_indexes_and_data(cursor)
-#
-#
-# def test_auto_create_single_edge_type_index_with_multiple_entries(cursor):
-#     ensure_clean_state(cursor)
-#     label_from = "LABEL_FROM"
-#     label_to = "LABEL_TO"
-#     edge_type = "SOMEEDGETYPE"
-#
-#     try:
-#         execute_and_fetch_all(cursor, f"CREATE (n:{label_from})")
-#         execute_and_fetch_all(cursor, f"CREATE (n:{label_to})")
-#         for _ in range(100):
-#             execute_and_fetch_all(cursor, f"MATCH (n:{label_from}), (m:{label_to}) CREATE (n)-[:{edge_type}]->(m)")
-#
-#         assert_edge_and_label_indexes(cursor, label_from, label_to, edge_type, 100)
-#
-#         execute_and_fetch_all(cursor, f"DROP INDEX ON :{label_from}")
-#         execute_and_fetch_all(cursor, f"DROP INDEX ON :{label_to}")
-#         execute_and_fetch_all(cursor, f"DROP EDGE INDEX ON :{edge_type}")
-#
-#         assert_no_indexes(cursor)
-#     finally:
-#         cleanup_indexes_and_data(cursor)
+
+
+def test_auto_create_single_edge_type_index(cursor):
+    ensure_clean_state(cursor)
+    label_from = "LABEL_FROM"
+    label_to = "LABEL_TO"
+    edge_type = "SOMEEDGETYPE"
+
+    try:
+        execute_and_fetch_all(cursor, f"CREATE (:{label_from})-[:{edge_type}]->(:{label_to})")
+
+        assert_edge_and_label_indexes(cursor, label_from, label_to, edge_type, 1)
+
+        execute_and_fetch_all(cursor, f"DROP INDEX ON :{label_from}")
+        execute_and_fetch_all(cursor, f"DROP INDEX ON :{label_to}")
+        execute_and_fetch_all(cursor, f"DROP EDGE INDEX ON :{edge_type}")
+
+        assert_no_indexes(cursor)
+    finally:
+        cleanup_indexes_and_data(cursor)
+
+
+def test_auto_create_multiple_edge_type_index(cursor):
+    ensure_clean_state(cursor)
+    label_from = "LABEL_FROM"
+    label_to = "LABEL_TO"
+    edge_type1 = "SOMEEDGETYPE1"
+    edge_type2 = "SOMEEDGETYPE2"
+    edge_type3 = "SOMEEDGETYPE3"
+
+    try:
+        execute_and_fetch_all(cursor, f"CREATE (n:{label_from})")
+        execute_and_fetch_all(cursor, f"CREATE (n:{label_to})")
+        execute_and_fetch_all(cursor, f"MATCH (n:{label_from}), (m:{label_to}) CREATE (n)-[:{edge_type1}]->(m)")
+        execute_and_fetch_all(cursor, f"MATCH (n:{label_from}), (m:{label_to}) CREATE (n)-[:{edge_type2}]->(m)")
+        execute_and_fetch_all(cursor, f"MATCH (n:{label_from}), (m:{label_to}) CREATE (n)-[:{edge_type3}]->(m)")
+
+        assert_multiple_edges_with_labels(
+            cursor, label_from, label_to, {edge_type1: 1, edge_type2: 1, edge_type3: 1}, 5
+        )
+
+        execute_and_fetch_all(cursor, f"DROP INDEX ON :{label_from}")
+        assert_index_count(cursor, 4)
+
+        execute_and_fetch_all(cursor, f"DROP INDEX ON :{label_to}")
+        assert_index_count(cursor, 3)
+
+        execute_and_fetch_all(cursor, f"DROP EDGE INDEX ON :{edge_type1}")
+        assert_index_count(cursor, 2)
+
+        execute_and_fetch_all(cursor, f"DROP EDGE INDEX ON :{edge_type2}")
+        assert_index_count(cursor, 1)
+
+        execute_and_fetch_all(cursor, f"DROP EDGE INDEX ON :{edge_type3}")
+        assert_no_indexes(cursor)
+    finally:
+        cleanup_indexes_and_data(cursor)
+
+
+def test_auto_create_single_edge_type_index_with_multiple_entries(cursor):
+    ensure_clean_state(cursor)
+    label_from = "LABEL_FROM"
+    label_to = "LABEL_TO"
+    edge_type = "SOMEEDGETYPE"
+
+    try:
+        execute_and_fetch_all(cursor, f"CREATE (n:{label_from})")
+        execute_and_fetch_all(cursor, f"CREATE (n:{label_to})")
+        for _ in range(100):
+            execute_and_fetch_all(cursor, f"MATCH (n:{label_from}), (m:{label_to}) CREATE (n)-[:{edge_type}]->(m)")
+
+        assert_edge_and_label_indexes(cursor, label_from, label_to, edge_type, 100)
+
+        execute_and_fetch_all(cursor, f"DROP INDEX ON :{label_from}")
+        execute_and_fetch_all(cursor, f"DROP INDEX ON :{label_to}")
+        execute_and_fetch_all(cursor, f"DROP EDGE INDEX ON :{edge_type}")
+
+        assert_no_indexes(cursor)
+    finally:
+        cleanup_indexes_and_data(cursor)
 
 
 def test_auto_create_multiple_edge_type_index_with_multiple_entries(cursor):
@@ -451,20 +455,29 @@ def test_auto_create_multiple_edge_type_index_with_multiple_entries(cursor):
     finally:
         cleanup_indexes_and_data(cursor)
 
+
 def test_auto_create_edge_type_index_plan_invalidation(cursor):
+    ensure_clean_state(cursor)
     edge_type = "Label"
 
-    # populate the plan cache
-    execute_and_fetch_all(cursor, f"MATCH ()-[r:Label]->() RETURN r")
+    try:
+        # populate the plan cache
+        execute_and_fetch_all(cursor, f"MATCH ()-[r:Label]->() RETURN r")
 
-    execute_and_fetch_all(cursor, f"CREATE ()-[r:{edge_type}]->()")
+        execute_and_fetch_all(cursor, f"CREATE ()-[r:{edge_type}]->()")
 
-    execute_and_fetch_all(cursor, f"MATCH ()-[r:Label]->() RETURN r")
-    assert index_exists(get_index_stats(cursor), edge_type)
-    
-    results = execute_and_fetch_all(cursor, f"EXPLAIN MATCH ()-[r:Label]->() RETURN r")
-    assert results == [(" * Produce {r}",), (" * ScanAllByEdgeType (anon1)-[r:Label]->(anon2)", ), (" * Once", )]
+        # Wait for index to be created using helper function that checks for edge indexes
+        def condition(stats):
+            return index_exists(stats, edge_type) and index_count_is(stats, edge_type, 1)
 
+        assert_index_condition(cursor, condition, f"Expected edge index for {edge_type}")
+
+        execute_and_fetch_all(cursor, f"MATCH ()-[r:Label]->() RETURN r")
+
+        results = execute_and_fetch_all(cursor, f"EXPLAIN MATCH ()-[r:Label]->() RETURN r")
+        assert results == [(" * Produce {r}",), (" * ScanAllByEdgeType (anon1)-[r:Label]->(anon2)",), (" * Once",)]
+    finally:
+        cleanup_indexes_and_data(cursor)
 
 
 if __name__ == "__main__":

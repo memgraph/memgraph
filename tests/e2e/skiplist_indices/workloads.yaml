@@ -11,7 +11,7 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["skiplist_indices/edge_indices.py"]
     <<: *skiplist_indices_cluster
-  - name: "Plan invalidation"
+  - name: "Query plan invalidation on index creation"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["skiplist_indices/plan_invalidation.py"]
     <<: *skiplist_indices_cluster

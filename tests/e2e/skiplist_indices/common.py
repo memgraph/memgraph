@@ -42,9 +42,14 @@ def memgraph(**kwargs) -> Memgraph:
     yield memgraph
 
     memgraph.drop_database()
-    memgraph.drop_indexes()
+    # TODO: fix gqlalchemy to work for composite indices (+ other missing index types)
+    # memgraph.drop_indexes()
 
     # GQLAlchemy does not have support for this yet
+    memgraph.execute("DROP INDEX ON :label;")
+    memgraph.execute("DROP INDEX ON :label(prop);")
+    memgraph.execute("DROP INDEX ON :TYPE;")
+    memgraph.execute("DROP INDEX ON :TYPE(prop);")
     memgraph.execute("DROP EDGE INDEX ON :TYPE;")
     memgraph.execute("DROP EDGE INDEX ON :TYPE(prop);")
-    memgraph.execute("DROP GLOBAL EDGE INDEX ON :TYPE(prop);")
+    memgraph.execute("DROP GLOBAL EDGE INDEX ON :(prop);")
