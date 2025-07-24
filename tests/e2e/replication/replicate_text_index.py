@@ -24,6 +24,9 @@ interactive_mg_runner.PROJECT_DIR = os.path.normpath(
 )
 interactive_mg_runner.BUILD_DIR = os.path.normpath(os.path.join(interactive_mg_runner.PROJECT_DIR, "build"))
 interactive_mg_runner.MEMGRAPH_BINARY = os.path.normpath(os.path.join(interactive_mg_runner.BUILD_DIR, "memgraph"))
+interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR = os.path.normpath(
+    os.path.join(interactive_mg_runner.BUILD_DIR, "query_modules")
+)
 
 BOLT_PORTS = {"main": 7687, "replica_1": 7688, "replica_2": 7689}
 REPLICATION_PORTS = {"replica_1": 10001, "replica_2": 10002}
@@ -63,6 +66,8 @@ def test_text_index_replication(connection, test_name):
                 "--bolt-port",
                 f"{BOLT_PORTS['replica_1']}",
                 "--log-level=TRACE",
+                "--query-modules-directory",
+                interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
             ],
             "log_file": f"{get_logs_path(LOG_DIR, test_name)}/replica1.log",
             "setup_queries": [
@@ -74,6 +79,8 @@ def test_text_index_replication(connection, test_name):
                 "--bolt-port",
                 f"{BOLT_PORTS['replica_2']}",
                 "--log-level=TRACE",
+                "--query-modules-directory",
+                interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
             ],
             "log_file": f"{get_logs_path(LOG_DIR, test_name)}/replica2.log",
             "setup_queries": [
@@ -85,6 +92,8 @@ def test_text_index_replication(connection, test_name):
                 "--bolt-port",
                 f"{BOLT_PORTS['main']}",
                 "--log-level=TRACE",
+                "--query-modules-directory",
+                interactive_mg_runner.MEMGRAPH_QUERY_MODULES_DIR,
             ],
             "log_file": f"{get_logs_path(LOG_DIR, test_name)}/main.log",
             "setup_queries": [
