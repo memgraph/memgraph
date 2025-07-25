@@ -61,6 +61,7 @@ struct RecoveredSnapshot {
   SnapshotInfo snapshot_info;
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
+  // TODO: RecoveredTTL
 };
 
 /// Function used to read information about the snapshot file.
