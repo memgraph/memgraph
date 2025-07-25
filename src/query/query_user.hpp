@@ -38,8 +38,8 @@ struct QueryUserOrRole {
       : username_{std::move(username)}, rolenames_{std::move(rolenames)} {}
   virtual ~QueryUserOrRole() = default;
 
-  virtual bool IsAuthorized(const std::vector<AuthQuery::Privilege> &privileges, std::string_view db_name,
-                            UserPolicy *policy) const = 0;
+  virtual bool IsAuthorized(const std::vector<AuthQuery::Privilege> &privileges,
+                            std::optional<std::string_view> db_name, UserPolicy *policy) const = 0;
 
   virtual std::vector<std::string> GetRolenames(std::optional<std::string> db_name) const = 0;
 

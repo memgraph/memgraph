@@ -77,13 +77,13 @@ std::vector<std::vector<memgraph::query::TypedValue>> ConstructPrivilegesResult(
 }
 
 std::vector<std::vector<memgraph::query::TypedValue>> ShowUserPrivileges(
-    const std::optional<memgraph::auth::User> &user, std::string_view db_name) {
+    const std::optional<memgraph::auth::User> &user, std::optional<std::string_view> db_name) {
   std::vector<PermissionForPrivilegeResult> privilege_results;
 
   const auto &permissions = user->GetPermissions(db_name);
   memgraph::auth::Permissions user_level_permissions =
 #ifdef MG_ENTERPRISE
-      user->has_access(db_name) ? user->permissions() : memgraph::auth::Permissions{};
+      (!db_name || user->has_access(db_name.value())) ? user->permissions() : memgraph::auth::Permissions{};
 #else
       user->permissions();
 #endif
@@ -727,7 +727,7 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetPrivi
     std::vector<std::vector<memgraph::query::TypedValue>> fine_grained_grants;
 #endif
     if (auto user = locked_auth->GetUser(user_or_role)) {
-      grants = ShowUserPrivileges(user, db_name ? std::string_view(*db_name) : std::string_view(""));
+      grants = ShowUserPrivileges(user, db_name);
 #ifdef MG_ENTERPRISE
       if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
         fine_grained_grants = ShowFineGrainedUserPrivileges(user, db_name);

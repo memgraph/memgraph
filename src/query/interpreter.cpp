@@ -1179,10 +1179,12 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         switch (database_specification) {
           case AuthQuery::DatabaseSpecification::NONE:
             // Allow only if there are no other databases (or for roles)
+            // Roles themselves cannot have MT specializations, so no need to filter for them (nullopt)
+            // Users can have MT specializations, so we force them to specify the database
             if (db_handler->Count() > 1 && !auth->HasRole(user_or_role)) {
               throw QueryRuntimeException(
                   "In a multi-tenant environment, SHOW PRIVILEGES query requires database specification. Use ON MAIN, "
-                  "ON CURRENT or ON DATABASE.");
+                  "ON CURRENT or ON DATABASE db_name.");
             }
             break;
           case AuthQuery::DatabaseSpecification::MAIN: {
@@ -7021,16 +7023,15 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 }
 
 void Interpreter::CheckAuthorized(std::vector<AuthQuery::Privilege> const &privileges, std::optional<std::string> db) {
-  const std::string db_name = db.value_or("");
-  if (user_or_role_ && !user_or_role_->IsAuthorized(privileges, db_name, &query::session_long_policy)) {
+  if (user_or_role_ && !user_or_role_->IsAuthorized(privileges, db, &query::session_long_policy)) {
     Abort();
-    if (db_name.empty()) {
+    if (!db) {
       throw QueryException("You are not authorized to execute this query! Please contact your database administrator.");
     }
     throw QueryException(
         "You are not authorized to execute this query on database \"{}\"! Please contact your database "
         "administrator.",
-        db_name);
+        db.value());
   }
 }
 

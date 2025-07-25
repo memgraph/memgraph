@@ -843,10 +843,10 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWithMultipleRolesWhenFilteringByDefault
   user.AddRole(role2);
   auth->SaveUser(user);
 
-  // Test with empty database name
+  // Test with empty database name (should return all privileges)
   {
     auto privileges = auth_handler.GetPrivileges(user_name);
-    ASSERT_EQ(privileges.size(), 0);
+    ASSERT_EQ(privileges.size(), 2);
   }
 
   // Test with default database

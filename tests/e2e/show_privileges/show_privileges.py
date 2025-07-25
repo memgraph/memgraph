@@ -21,12 +21,14 @@ def test_show_privileges_basic(connect):
 
     # Test that users require ON clause in multi-database environment
     try:
-        execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR admin;")
+        result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR admin;")
         # If this succeeds, we might be in single-database mode
         # Check if we have multiple databases
         databases = execute_and_fetch_all(cursor, "SHOW DATABASES;")
         if len(databases) > 1:
             assert False, "Should throw error for user without ON clause in multi-database environment"
+        # Single db mode, return all privileges
+        assert len(result) > 0, "Should return all privileges for user in single-database environment"
     except Exception as e:
         # Expected to fail for users in multi-database environment
         assert (
@@ -118,11 +120,13 @@ def test_show_privileges_user_vs_role_behavior(connect):
 
     # Test user behavior - should require ON clause in multi-database environment
     try:
-        execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR admin;")
+        result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR admin;")
         # If this succeeds, check if we're in single-database mode
         databases = execute_and_fetch_all(cursor, "SHOW DATABASES;")
         if len(databases) > 1:
             assert False, "User should require ON clause in multi-database environment"
+        # Single db mode, return all privileges
+        assert len(result) > 0, "Should return all privileges for user in single-database environment"
     except Exception as e:
         # Expected for users in multi-database environment
         assert (
@@ -180,8 +184,12 @@ def test_show_privileges_on_database(connect):
     assert len(result) > 0, "Should return privileges for admin on specified database"
 
     # Test with database name containing special characters
-    result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR admin ON DATABASE `test-db`;")
-    assert len(result) > 0, "Should return privileges for admin on database with special characters"
+    try:
+        result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR admin ON DATABASE `test-db`;")
+        assert len(result) > 0, "Should return privileges for admin on database with special characters"
+    except Exception:
+        # Expected to fail in single db mode
+        assert len(execute_and_fetch_all(cursor, "SHOW DATABASES;")) == 1
 
 
 def test_show_privileges_enterprise_only_features(connect):
