@@ -260,9 +260,9 @@ class MockModule : public procedure::Module {
   std::map<std::string, mgp_func, std::less<>> functions{};
 };
 
-void DummyProcCallback(mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result * /*result*/, mgp_memory * /*memory*/) {};
+void DummyProcCallback(mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result * /*result*/, mgp_memory * /*memory*/){};
 void DummyFuncCallback(mgp_list * /*args*/, mgp_func_context * /*func_ctx*/, mgp_func_result * /*result*/,
-                       mgp_memory * /*memory*/) {};
+                       mgp_memory * /*memory*/){};
 
 enum class ProcedureType { WRITE, READ };
 
@@ -6406,5 +6406,20 @@ TEST_P(CypherMainVisitorTest, UserProfiles) {
     ASSERT_EQ(query->limits_.size(), 0);
     ASSERT_EQ(query->user_or_role_, "user");
     ASSERT_EQ(query->action_, UserProfileQuery::Action::CLEAR);
+  }
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("SHOW RESOURCE USAGE FOR user"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "");
+    ASSERT_EQ(query->limits_.size(), 0);
+    ASSERT_EQ(query->user_or_role_, "user");
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::SHOW_RESOURCE_USAGE);
+  }
+  {
+    try {
+      (void)ast_generator.ParseQuery("SHOW RESOURCE USAGE FOR user user2");
+      FAIL();
+    } catch (...) {
+    }
   }
 }

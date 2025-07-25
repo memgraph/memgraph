@@ -179,7 +179,8 @@ struct UpdateAuthData : memgraph::system::ISystemAction {
   explicit UpdateAuthData(Role role) : role_{std::move(role)} {}
   explicit UpdateAuthData(UserProfiles::Profile profile) : profile_{std::move(profile)} {}
 
-  void DoDurability() override { /* Done during Auth execution */ }
+  void DoDurability() override { /* Done during Auth execution */
+  }
 
   bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
                      memgraph::system::Transaction const &txn) const override {
@@ -215,7 +216,8 @@ struct DropAuthData : memgraph::system::ISystemAction {
 
   explicit DropAuthData(AuthDataType type, std::string_view name) : type_{type}, name_{name} {}
 
-  void DoDurability() override { /* Done during Auth execution */ }
+  void DoDurability() override { /* Done during Auth execution */
+  }
 
   bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
                      memgraph::system::Transaction const &txn) const override {
@@ -881,16 +883,15 @@ bool Auth::AccessControlled() const { return HasUsers() || UsingAuthModule(); }
 
 void Auth::LinkRole(Role &role) const {
 #ifdef MG_ENTERPRISE
-  // Profile
-  {
-    auto link = storage_.Get(kProfileLinkPrefix + role.rolename());
-    if (link) {
-      auto profile = GetProfile(*link);
-      if (profile) {
-        role.SetProfile(*profile);
-      }
-    }
+    // Profile
+    {auto link = storage_.Get(kProfileLinkPrefix + role.rolename());
+if (link) {
+  auto profile = GetProfile(*link);
+  if (profile) {
+    role.SetProfile(*profile);
   }
+}
+}
 #endif
 }
 
@@ -1126,6 +1127,17 @@ bool Auth::RemoveRole(const std::string &rolename_orig, system::Transaction *sys
   auto rolename = utils::ToLowerCase(rolename_orig);
   if (!storage_.Get(kRolePrefix + rolename)) return false;
 
+// Update profiles after role is removed
+#ifdef MG_ENTERPRISE
+  // User profile
+  const bool update_profile = user_resources_ && ShouldUpdateProfile(*this, rolename);
+  if (!storage_.Delete(kProfileLinkPrefix + rolename)) {
+    throw AuthException("Couldn't remove profile role '{}'!", rolename);
+  }
+  std::vector<std::string> users;
+  if (update_profile) users = AllUsernamesForRole(rolename);
+#endif
+
   // First, remove the role from all users who have it
   for (auto it = storage_.begin(kRoleLinkPrefix); it != storage_.end(kRoleLinkPrefix); ++it) {
     auto username = it->first.substr(kRoleLinkPrefix.size());
@@ -1193,17 +1205,6 @@ bool Auth::RemoveRole(const std::string &rolename_orig, system::Transaction *sys
       }
     }
   }
-
-// Update profiles after role is removed
-#ifdef MG_ENTERPRISE
-  // User profile
-  if (!storage_.Delete(kProfileLinkPrefix + rolename)) {
-    throw AuthException("Couldn't remove profile role '{}'!", rolename);
-  }
-  const bool update_profile = user_resources_ && ShouldUpdateProfile(*this, rolename);
-  std::vector<std::string> users;
-  if (update_profile) users = AllUsernamesForRole(rolename);
-#endif
 
   // Then remove the role itself
   if (!storage_.Delete(kRolePrefix + rolename)) {
@@ -1304,10 +1305,27 @@ std::vector<std::string> Auth::AllUsernamesForRole(const std::string &rolename_o
   for (auto it = storage_.begin(kRoleLinkPrefix); it != storage_.end(kRoleLinkPrefix); ++it) {
     auto username = it->first.substr(kRoleLinkPrefix.size());
     if (username != utils::ToLowerCase(username)) continue;
-    if (it->second != utils::ToLowerCase(it->second)) continue;
-    if (it->second == rolename && HasUser(username)) {
-      ret.push_back(std::move(username));
+    bool has_role = false;
+    try {
+      // Parse as JSON array (V2 format)
+      auto json_data = ParseJson(it->second);
+      if (!json_data.is_array()) {
+        spdlog::warn("Found non-array link format for user '{}'", username);
+        continue;
+      }
+      // V2 format: check if role is in the array
+      for (const auto &role_name : json_data) {
+        if (role_name.is_string() && utils::ToLowerCase(role_name.get<std::string>()) == rolename) {
+          has_role = true;
+          break;
+        }
+      }
+    } catch (const nlohmann::detail::exception &) {
+      // This shouldn't happen after V2 migration, but handle gracefully
+      spdlog::warn("Found invalid JSON in link format for user '{}', treating as single role", username);
+      continue;
     }
+    if (has_role) ret.push_back(std::move(username));
   }
   return ret;
 }

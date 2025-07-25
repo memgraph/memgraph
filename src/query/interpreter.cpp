@@ -1158,6 +1158,7 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
                   "In a multi-tenant environment, SHOW PRIVILEGES query requires database specification. Use ON MAIN, "
                   "ON CURRENT or ON DATABASE db_name.");
             }
+            target_db = dbms::kDefaultDB;  // HOTFIX: REMOVE ONCE MASTER IS FIXED
             break;
           case AuthQuery::DatabaseSpecification::MAIN: {
             auto main_db = auth->GetMainDatabase(user_or_role);
@@ -6691,8 +6692,7 @@ PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterConte
         }
         return std::nullopt;
       },
-      RWType::NONE,
-      ""  // No target DB possible
+      RWType::NONE, std::string{dbms::kSystemDB}  // System query => system database
   };
 #else
   // here to satisfy clang-tidy

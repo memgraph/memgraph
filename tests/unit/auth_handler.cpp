@@ -1136,6 +1136,12 @@ TEST_F(AuthQueryHandlerFixture, UserProfileRole) {
   }
   auth_handler.DropRole("role", nullptr);
   {
+    ASSERT_THROW(auth_handler.GetUsernamesForRole("role"), memgraph::query::QueryRuntimeException);
+    const auto user = auth.value()->GetUser("user");
+    ASSERT_TRUE(user);
+    ASSERT_EQ(user->GetRoles().size(), 0);
+  }
+  {
     const auto resource = resources.GetUser("user");
     ASSERT_EQ(resource->GetSessions().second, quantity.quantity.value);
     ASSERT_EQ(resource->GetTransactionsMemory().second, -1);
