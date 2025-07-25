@@ -237,7 +237,7 @@ mg_create_linkable_if_no_cmake(benchmark STATIC
 set(RC_ENABLE_GTEST ON CACHE BOOL "Build Google Test integration" FORCE)
 set(RC_ENABLE_GMOCK ON CACHE BOOL "Build Google Mock integration" FORCE)
 mark_as_advanced(RC_ENABLE_GTEST RC_ENABLE_GMOCK)
-add_subdirectory(rapidcheck EXCLUDE_FROM_ALL)
+add_subdirectory(rapidcheck EXCLUDE_FROM_ALL SYSTEM)
 
 macro(build_gtest)
   add_external_project(gtest SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/googletest
@@ -328,7 +328,7 @@ mg_build_if_needed(build_mgconsole "mgconsole")
 
 # Setup spdlog
 set(SPDLOG_FMT_EXTERNAL ON)
-add_subdirectory(spdlog)
+add_subdirectory(spdlog SYSTEM)
 
 macro(build_kafka)
     import_external_library(librdkafka STATIC
@@ -409,7 +409,7 @@ import_header_library(ctre ${CMAKE_CURRENT_SOURCE_DIR})
 
 # setup absl (cmake sub_directory tolerant)
 set(ABSL_PROPAGATE_CXX_STD ON)
-add_subdirectory(absl EXCLUDE_FROM_ALL)
+add_subdirectory(absl EXCLUDE_FROM_ALL SYSTEM)
 
 # macro(link_jmalloc)
 set_path_external_library(jemalloc STATIC
@@ -457,7 +457,7 @@ target_link_libraries(tantivy_text_search INTERFACE ${CMAKE_DL_LIBS})
 target_link_libraries(mgcxx_text_search INTERFACE ${CMAKE_DL_LIBS})
 
 # setup strong_type (cmake sub_directory tolerant)
-add_subdirectory(strong_type EXCLUDE_FROM_ALL)
+add_subdirectory(strong_type EXCLUDE_FROM_ALL SYSTEM)
 
 # setup usearch
 import_header_library(usearch ${CMAKE_CURRENT_SOURCE_DIR}/usearch/include)
@@ -471,4 +471,4 @@ set_property(TARGET usearch PROPERTY INTERFACE_INCLUDE_DIRECTORIES
 target_compile_options(usearch INTERFACE -Wno-cpp)
 
 # setup croncpp
-add_subdirectory(croncpp EXCLUDE_FROM_ALL)
+add_subdirectory(croncpp EXCLUDE_FROM_ALL SYSTEM)

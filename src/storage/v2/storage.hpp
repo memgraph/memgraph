@@ -13,6 +13,7 @@
 
 #include "common_function_signatures.hpp"
 #include "mg_procedure.h"
+#include "storage/v2/auto_indexer.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/database_access.hpp"
 #include "storage/v2/edge_accessor.hpp"
@@ -164,12 +165,28 @@ struct CommitReplicationArgs {
   std::optional<bool> commit_immediately{std::nullopt};
 };
 
+struct PlanInvalidator {
+  virtual auto invalidate_for_timestamp_wrapper(std::function<bool(uint64_t)> func)
+      -> std::function<bool(uint64_t)> = 0;
+  virtual bool invalidate_now(std::function<bool()> func) = 0;
+  virtual ~PlanInvalidator() = default;
+};
+
+struct PlanInvalidatorDefault : public PlanInvalidator {
+  auto invalidate_for_timestamp_wrapper(std::function<bool(uint64_t)> func) -> std::function<bool(uint64_t)> override {
+    return func;
+  }
+  bool invalidate_now(std::function<bool()> func) override { return func(); };
+};
+
+using PlanInvalidatorPtr = std::unique_ptr<PlanInvalidator>;
+
 class Storage {
   friend class ReplicationServer;
   friend class ReplicationStorageClient;
 
  public:
-  Storage(Config config, StorageMode storage_mode);
+  Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator);
 
   Storage(const Storage &) = delete;
   Storage(Storage &&) = delete;
@@ -414,39 +431,31 @@ class Storage {
     std::vector<EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        LabelId label, bool check_access = true, CheckCancelFunction cancel_check = neverCancel,
-        PublishIndexWrapper wrapper = publish_no_wrap) = 0;
+        LabelId label, CheckCancelFunction cancel_check = neverCancel) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        LabelId label, PropertiesPaths properties, CheckCancelFunction cancel_check = neverCancel,
-        PublishIndexWrapper wrapper = publish_no_wrap) = 0;
+        LabelId label, PropertiesPaths properties, CheckCancelFunction cancel_check = neverCancel) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        EdgeTypeId edge_type, bool unique_access_needed = true, CheckCancelFunction cancel_check = neverCancel,
-        PublishIndexWrapper wrapper = publish_no_wrap) = 0;
+        EdgeTypeId edge_type, CheckCancelFunction cancel_check = neverCancel) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        EdgeTypeId edge_type, PropertyId property, CheckCancelFunction cancel_check = neverCancel,
-        PublishIndexWrapper wrapper = publish_no_wrap) = 0;
+        EdgeTypeId edge_type, PropertyId property, CheckCancelFunction cancel_check = neverCancel) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateGlobalEdgeIndex(
-        PropertyId property, CheckCancelFunction cancel_check = neverCancel,
-        PublishIndexWrapper wrapper = publish_no_wrap) = 0;
+        PropertyId property, CheckCancelFunction cancel_check = neverCancel) = 0;
+
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
-        LabelId label, DropIndexWrapper wrapper = drop_no_wrap) = 0;
+        LabelId label, std::vector<storage::PropertyPath> &&properties) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
-        LabelId label, std::vector<storage::PropertyPath> &&properties, DropIndexWrapper wrapper = drop_no_wrap) = 0;
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
-        EdgeTypeId edge_type, DropIndexWrapper wrapper = drop_no_wrap) = 0;
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type,
+                                                                            PropertyId property) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
-        EdgeTypeId edge_type, PropertyId property, DropIndexWrapper wrapper = drop_no_wrap) = 0;
-
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropGlobalEdgeIndex(
-        PropertyId property, DropIndexWrapper wrapper = drop_no_wrap) = 0;
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> DropGlobalEdgeIndex(PropertyId property) = 0;
 
     virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> CreatePointIndex(
         storage::LabelId label, storage::PropertyId property) = 0;
@@ -702,6 +711,7 @@ class Storage {
 
   Indices indices_;
   Constraints constraints_;
+  PlanInvalidatorPtr invalidator_;
 
   // Datastructures to provide fast retrieval of node-label and
   // edge-type related metadata.
@@ -714,17 +724,6 @@ class Storage {
   // TODO(gvolfing): check if this would be faster with flat_maps.
   utils::SynchronizedMetaDataStore<LabelId> stored_node_labels_;
   utils::SynchronizedMetaDataStore<EdgeTypeId> stored_edge_types_;
-
-  // Maps that hold onto labels and edge-types that have to be created.
-  // Used only if the label/edge-type auto-creation flags are enabled,
-  // does not affect index creation otherwise. The counter in the maps
-  // are needed because it is possible that two concurrent transactions
-  // are introducing the same label/edge-type in which case we do only
-  // build the index when the last transaction is commiting. The counter
-  // is used trace if the currently commiting transaction is the last one
-  // that would like to introduce a new index.
-  utils::Synchronized<std::map<LabelId, uint32_t>, utils::SpinLock> labels_to_auto_index_;
-  utils::Synchronized<std::map<EdgeTypeId, uint32_t>, utils::SpinLock> edge_types_to_auto_index_;
 
   std::atomic<uint64_t> vertex_id_{0};  // contains Vertex Gid that has not been used yet
   std::atomic<uint64_t> edge_id_{0};    // contains Edge Gid that has not been used yet

@@ -138,7 +138,12 @@ Comprehensive testing added in:
 ## Current Implementation Status
 
 ### ✅ **Implemented**
-- **Main Database**: Full three-phase concurrent index creation for label+property indices
+- **Main Database**: Full three-phase concurrent index creation for skiplist based indexes:
+  - Label indices
+  - Label+property indices
+  - Edge-type indices
+  - Edge-type+property indices
+  - Edge global property indices
 - **Single Transaction**: Register/Populate/Publish all occur within one transaction
 - **Plan Integration**: Query planner correctly ignores unpopulated indices
 - **Cancellation**: Robust cleanup of partially populated indices
@@ -165,11 +170,17 @@ auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
 - **Workaround**: TTL uses `kUniqueAccess` to avoid multiple downgrades
 - **Future**: Split TTL into separate Register→(downgrade)→Populate/Publish phases
 
-#### **Auto-indexing**
-- **Current**: Concurrent creation for auto indexing not implemented yet
-- **Planned**: Auto-indexing happens during it own txn
-- **Replica Issue**: ATM requires special delta ordering to work with writes that have happened
-- **Solution**: Move auto-indexing to separate async transactions
+#### **Auto-indexing** ✅ (Implemented as of July 2025)
+- **Implemented**: Auto-indexing now runs in dedicated background thread with separate transactions
+- **Architecture**: `AutoIndexStructure` with thread-safe skiplist queue manages index creation requests
+- **Transaction Handling**: Requests queued during user transaction, processed asynchronously post-commit
+- **Concurrency**: Read-only transactions with 500ms timeout, automatic retry on failure
+- **Implementation Details**:
+  - Dedicated `auto_index_thread_` processes queued requests
+  - Uses `index_auto_creation_queue_` (skiplist) for thread-safe request management
+  - Condition variable `index_auto_creation_cv_` for efficient wake-up
+  - Supports both `LabelId` and `EdgeTypeId` via `std::variant`
+- **Benefits**: Zero blocking of user transactions, isolated failures, automatic retry mechanism
 
 ## Architecture Decisions Made
 
@@ -187,8 +198,6 @@ auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
 
 1. **Replica READ_ONLY Support**: Resolve delta ordering to enable `kReadOnlyAccess` in replication
 2. **TTL Register/Populate/Publish Split**: Enable TTL to register multiple indices then downgrade once
-3. **Auto-indexing**: Build async transaction capability for auto-indexing
-4. **Other Index Types**: Extend concurrent creation to label-only and edge-type indices
 
 ## Impact
 
