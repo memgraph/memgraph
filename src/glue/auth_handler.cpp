@@ -89,7 +89,7 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowUserPrivileges(
   const auto &permissions = user->GetPermissions(db_name);
   memgraph::auth::Permissions user_level_permissions =
 #ifdef MG_ENTERPRISE
-      user->has_access(db_name) ? user->permissions() : memgraph::auth::Permissions{};
+      (db_name.empty() || user->has_access(db_name)) ? user->permissions() : memgraph::auth::Permissions{};
 #else
       user->permissions();
 #endif
@@ -374,7 +374,13 @@ bool AuthQueryHandler::CreateUser(const std::string &username, const std::option
 #ifdef MG_ENTERPRISE
           ,
           {{{memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {memgraph::query::kAsterisk}}}},
-          {{{memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {memgraph::query::kAsterisk}}}}
+          {
+            {
+              {
+                memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE, { memgraph::query::kAsterisk }
+              }
+            }
+          }
 #endif
           ,
           system_tx);
