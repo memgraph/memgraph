@@ -197,8 +197,15 @@ DbmsHandler::DbmsHandler(storage::Config config,
       locked_auth->DeleteDatabase(name);
       durability_->Delete(key);
     }
+    // When data recovery is disabled, we need to remove all text indices to ensure a clean state.
+    // Text indices use Tantivy files, and removing them prevents
+    // stale index data from being present in the system.
     auto text_indices_dir = root / storage::kTextIndicesDirectory;
-    std::filesystem::remove_all(text_indices_dir);
+    std::error_code ec;
+    std::filesystem::remove_all(text_indices_dir, ec);
+    if (ec) {
+      LOG_FATAL("Failed to remove text indices directory {}: {}", text_indices_dir.string(), ec.message());
+    }
   }
 
   /*
