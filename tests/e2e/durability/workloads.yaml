@@ -11,3 +11,6 @@ workloads:
   - name: "MT durability"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["durability/multitenancy.py"]
+  - name: "Durability with text index"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["durability/durability_with_text_index.py"]

@@ -12,6 +12,7 @@
 #include "dbms/inmemory/replication_handlers.hpp"
 
 #include "dbms/dbms_handler.hpp"
+#include "flags/experimental.hpp"
 #include "replication/replication_server.hpp"
 #include "rpc/utils.hpp"  // Include after all SLK definitions are present
 #include "storage/v2/constraints/type_constraints_kind.hpp"
@@ -970,7 +971,6 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           if (!vertex) {
             throw utils::BasicException("Couldn't find vertex {} when adding label.", gid);
           }
-          // NOTE: Text search doesn’t have replication in scope yet (Phases 1 and 2)
           auto ret = vertex->AddLabel(transaction->NameToLabel(data.label));
           if (ret.HasError() || !ret.GetValue()) {
             throw utils::BasicException("Failed to add label to vertex {}.", gid);
@@ -982,7 +982,6 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           auto *transaction = get_replication_accessor(delta_timestamp);
           auto vertex = transaction->FindVertex(data.gid, View::NEW);
           if (!vertex) throw utils::BasicException("Failed to find vertex {} when removing label.", gid);
-          // NOTE: Text search doesn’t have replication in scope yet (Phases 1 and 2)
           auto ret = vertex->RemoveLabel(transaction->NameToLabel(data.label));
           if (ret.HasError() || !ret.GetValue()) {
             throw utils::BasicException("Failed to remove label from vertex {}.", gid);
@@ -1290,11 +1289,27 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
             throw utils::BasicException("Failed to drop global edge property index on ({}).", data.property);
           }
         },
-        [&](WalTextIndexCreate const &) {
-          /* NOTE: Text search doesn’t have replication in scope yet (Phases 1 and 2)*/
+        [&](WalTextIndexCreate const &data) {
+          if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+            throw query::TextSearchDisabledException();
+          }
+          spdlog::trace("   Delta {}. Create text search index {} on {}.", current_delta_idx, data.index_name,
+                        data.label);
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          auto ret = transaction->CreateTextIndex(data.index_name, storage->NameToLabel(data.label));
+          if (ret.HasError()) {
+            throw utils::BasicException("Failed to create text search index {} on {}.", data.index_name, data.label);
+          }
         },
-        [&](WalTextIndexDrop const &) {
-          /* NOTE: Text search doesn’t have replication in scope yet (Phases 1 and 2)*/
+        [&](WalTextIndexDrop const &data) {
+          if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+            throw query::TextSearchDisabledException();
+          }
+          spdlog::trace("   Delta {}. Drop text search index {}.", current_delta_idx, data.index_name);
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          if (transaction->DropTextIndex(data.index_name).HasError()) {
+            throw utils::BasicException("Failed to drop text search index {}.", data.index_name);
+          }
         },
         [&](WalExistenceConstraintCreate const &data) {
           spdlog::trace("   Delta {}. Create existence constraint on :{} ({})", current_delta_idx, data.label,

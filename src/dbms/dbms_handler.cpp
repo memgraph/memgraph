@@ -19,7 +19,6 @@
 #include "flags/experimental.hpp"
 #include "query/db_accessor.hpp"
 #include "spdlog/spdlog.h"
-#include "system/include/system/system.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/rw_spin_lock.hpp"
@@ -197,6 +196,15 @@ DbmsHandler::DbmsHandler(storage::Config config,
           "Data recovery on startup not set, this will result in dropping database in case of multi-tenancy enabled.");
       locked_auth->DeleteDatabase(name);
       durability_->Delete(key);
+    }
+    // When data recovery is disabled, we need to remove all text indices to ensure a clean state.
+    // Text indices use Tantivy files, and removing them prevents
+    // stale index data from being present in the system.
+    auto text_indices_dir = root / storage::kTextIndicesDirectory;
+    std::error_code ec;
+    std::filesystem::remove_all(text_indices_dir, ec);
+    if (ec) {
+      LOG_FATAL("Failed to remove text indices directory {}: {}", text_indices_dir.string(), ec.message());
     }
   }
 

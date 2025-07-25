@@ -21,21 +21,18 @@
 #include <span>
 #include <vector>
 
+namespace r = ranges;
 namespace memgraph::storage {
 
 std::string GetPropertyName(PropertyId prop_id, NameIdMapper *name_id_mapper) {
   return name_id_mapper->IdToName(prop_id.AsUint());
 }
 
-inline std::string TextIndex::MakeIndexPath(const std::string &index_name) {
+inline std::string TextIndex::MakeIndexPath(std::string_view index_name) const {
   return (text_index_storage_dir_ / index_name).string();
 }
 
-void TextIndex::CreateEmptyIndex(const std::string &index_name, LabelId label) {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    throw query::TextSearchDisabledException();
-  }
-
+void TextIndex::CreateTantivyIndex(const std::string &index_name, LabelId label, const std::string &index_path) {
   if (index_.contains(index_name)) {
     throw query::TextSearchException("Text index \"{}\" already exists.", index_name);
   }
@@ -47,32 +44,33 @@ void TextIndex::CreateEmptyIndex(const std::string &index_name, LabelId label) {
     mappings["properties"]["data"] = {{"type", "json"}, {"fast", true}, {"stored", true}, {"text", true}};
     mappings["properties"]["all"] = {{"type", "text"}, {"fast", true}, {"stored", true}, {"text", true}};
 
-    index_.emplace(index_name, TextIndexData{.context_ = mgcxx::text_search::create_index(
-                                                 MakeIndexPath(index_name),
-                                                 mgcxx::text_search::IndexConfig{.mappings = mappings.dump()}),
-                                             .scope_ = label});
+    index_.emplace(index_name,
+                   TextIndexData{.context_ = mgcxx::text_search::create_index(
+                                     index_path, mgcxx::text_search::IndexConfig{.mappings = mappings.dump()}),
+                                 .scope_ = label});
   } catch (const std::exception &e) {
     throw query::TextSearchException("Tantivy error: {}", e.what());
   }
   label_to_index_.emplace(label, index_name);
 }
 
-template <typename T>
-nlohmann::json TextIndex::SerializeProperties(const std::map<PropertyId, PropertyValue> &properties, T *name_resolver) {
+nlohmann::json TextIndex::SerializeProperties(const std::map<PropertyId, PropertyValue> &properties,
+                                              NameIdMapper *name_id_mapper) {
+  // Property types that are indexed in Tantivy are Bool, Int, Double, and String.
   nlohmann::json serialized_properties = nlohmann::json::value_t::object;
   for (const auto &[prop_id, prop_value] : properties) {
     switch (prop_value.type()) {
       case PropertyValue::Type::Bool:
-        serialized_properties[GetPropertyName(prop_id, name_resolver)] = prop_value.ValueBool();
+        serialized_properties[GetPropertyName(prop_id, name_id_mapper)] = prop_value.ValueBool();
         break;
       case PropertyValue::Type::Int:
-        serialized_properties[GetPropertyName(prop_id, name_resolver)] = prop_value.ValueInt();
+        serialized_properties[GetPropertyName(prop_id, name_id_mapper)] = prop_value.ValueInt();
         break;
       case PropertyValue::Type::Double:
-        serialized_properties[GetPropertyName(prop_id, name_resolver)] = prop_value.ValueDouble();
+        serialized_properties[GetPropertyName(prop_id, name_id_mapper)] = prop_value.ValueDouble();
         break;
       case PropertyValue::Type::String:
-        serialized_properties[GetPropertyName(prop_id, name_resolver)] = prop_value.ValueString();
+        serialized_properties[GetPropertyName(prop_id, name_id_mapper)] = prop_value.ValueString();
         break;
       case PropertyValue::Type::Null:
       case PropertyValue::Type::List:
@@ -88,6 +86,7 @@ nlohmann::json TextIndex::SerializeProperties(const std::map<PropertyId, Propert
 }
 
 std::string TextIndex::StringifyProperties(const std::map<PropertyId, PropertyValue> &properties) {
+  // Property types that are indexed in Tantivy are Bool, Int, Double, and String.
   std::vector<std::string> indexable_properties_as_string;
   for (const auto &[_, prop_value] : properties) {
     switch (prop_value.type()) {
@@ -116,12 +115,40 @@ std::string TextIndex::StringifyProperties(const std::map<PropertyId, PropertyVa
   return utils::Join(indexable_properties_as_string, " ");
 }
 
-std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(
-    std::span<storage::LabelId const> labels) {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    throw query::TextSearchDisabledException();
+std::string TextIndex::ToLowerCasePreservingBooleanOperators(std::string_view input) {
+  if (input.empty()) return {};
+
+  std::string result;
+  result.reserve(input.length());
+
+  auto it = input.cbegin();
+  while (it != input.cend()) {
+    if (std::isspace(*it)) {
+      result += *it++;
+      continue;
+    }
+
+    auto word_start = it;
+    it = r::find_if(word_start, input.cend(), [](char c) { return std::isspace(c); });
+
+    // Extract the word
+    auto word = input.substr(word_start - input.cbegin(), it - word_start);
+    auto uppercase_word = utils::ToUpperCase(word);
+
+    // Check if it's a boolean operator (case-insensitive)
+    if (uppercase_word == kBooleanAnd || uppercase_word == kBooleanOr || uppercase_word == kBooleanNot) {
+      // Preserve the boolean operator in uppercase
+      result += uppercase_word;
+    } else {
+      result += utils::ToLowerCase(word);
+    }
   }
 
+  return result;
+}
+
+std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(
+    std::span<storage::LabelId const> labels) {
   std::vector<mgcxx::text_search::Context *> applicable_text_indices;
   for (const auto &label : labels) {
     if (label_to_index_.contains(label)) {
@@ -131,23 +158,22 @@ std::vector<mgcxx::text_search::Context *> TextIndex::GetApplicableTextIndices(
   return applicable_text_indices;
 }
 
-void TextIndex::LoadNodeToTextIndices(std::int64_t gid, const nlohmann::json &properties,
-                                      const std::string &property_values_as_str,
-                                      const std::vector<mgcxx::text_search::Context *> &applicable_text_indices) {
+void TextIndex::AddNodeToTextIndices(std::int64_t gid, const nlohmann::json &properties,
+                                     const std::string &property_values_as_str,
+                                     const std::vector<mgcxx::text_search::Context *> &applicable_text_indices) {
   if (applicable_text_indices.empty()) {
     return;
   }
 
   // NOTE: Text indexes are presently all-property indices. If we allow text indexes restricted to specific properties,
-  // an indexable document should be created for each applicable index.
+  // an indexable document should be created for each applicable index. TODO(@DavIvek): check this
   nlohmann::json document = {};
   document["data"] = properties;
   document["all"] = property_values_as_str;
   document["metadata"] = {};
   document["metadata"]["gid"] = gid;
-  document["metadata"]["deleted"] = false;
-  document["metadata"]["is_node"] = true;
 
+  std::shared_lock lock(index_writer_mutex_);
   for (auto *index_context : applicable_text_indices) {
     try {
       mgcxx::text_search::add_document(
@@ -161,64 +187,54 @@ void TextIndex::LoadNodeToTextIndices(std::int64_t gid, const nlohmann::json &pr
   }
 }
 
-void TextIndex::CommitLoadedNodes(mgcxx::text_search::Context &index_context) {
-  // As CREATE TEXT INDEX (...) queries don’t accumulate deltas, db_transactional_accessor_->Commit() does not reach
-  // the code area where changes to indices are committed. To get around that without needing to commit text indices
-  // after every such query, we commit here.
-  try {
-    mgcxx::text_search::commit(index_context);
-  } catch (const std::exception &e) {
-    throw query::TextSearchException("Tantivy error: {}", e.what());
-  }
-}
-
-void TextIndex::AddNode(
-    Vertex *vertex_after_update, NameIdMapper *name_id_mapper,
-    const std::optional<std::vector<mgcxx::text_search::Context *>> &maybe_applicable_text_indices) {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    throw query::TextSearchDisabledException();
-  }
-
-  auto applicable_text_indices =
-      maybe_applicable_text_indices.value_or(GetApplicableTextIndices(vertex_after_update->labels));
-  if (applicable_text_indices.empty()) {
-    return;
-  }
+void TextIndex::AddNode(Vertex *vertex_after_update, NameIdMapper *name_id_mapper,
+                        const std::vector<mgcxx::text_search::Context *> &maybe_applicable_text_indices) {
+  auto applicable_text_indices = maybe_applicable_text_indices.empty()
+                                     ? GetApplicableTextIndices(vertex_after_update->labels)
+                                     : maybe_applicable_text_indices;
+  if (applicable_text_indices.empty()) return;
 
   auto vertex_properties = vertex_after_update->properties.Properties();
-  LoadNodeToTextIndices(vertex_after_update->gid.AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
-                        StringifyProperties(vertex_properties), applicable_text_indices);
+  AddNodeToTextIndices(vertex_after_update->gid.AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
+                       StringifyProperties(vertex_properties), applicable_text_indices);
 }
 
-void TextIndex::UpdateNode(Vertex *vertex_after_update, NameIdMapper *name_id_mapper,
-                           const std::vector<LabelId> &removed_labels) {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    throw query::TextSearchDisabledException();
-  }
-
-  if (!removed_labels.empty()) {
-    auto indexes_to_remove_node_from = GetApplicableTextIndices(removed_labels);
-    RemoveNode(vertex_after_update, indexes_to_remove_node_from);
-  }
-
+void TextIndex::UpdateNode(Vertex *vertex_after_update, NameIdMapper *name_id_mapper) {
   auto applicable_text_indices = GetApplicableTextIndices(vertex_after_update->labels);
   if (applicable_text_indices.empty()) return;
-  RemoveNode(vertex_after_update, applicable_text_indices);
+  RemoveNode(vertex_after_update, applicable_text_indices);  // In order to update the node, we first remove it.
   AddNode(vertex_after_update, name_id_mapper, applicable_text_indices);
 }
 
-void TextIndex::RemoveNode(
-    Vertex *vertex_after_update,
-    const std::optional<std::vector<mgcxx::text_search::Context *>> &maybe_applicable_text_indices) {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    throw query::TextSearchDisabledException();
-  }
+void TextIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper) {
+  auto applicable_text_indices = GetApplicableTextIndices(std::array{label});
+  if (applicable_text_indices.empty()) return;
 
+  AddNode(vertex, name_id_mapper, applicable_text_indices);
+}
+
+void TextIndex::UpdateOnRemoveLabel(LabelId label, Vertex *vertex) {
+  auto applicable_text_indices = GetApplicableTextIndices(std::array{label});
+  if (applicable_text_indices.empty()) return;
+
+  RemoveNode(vertex, applicable_text_indices);
+}
+
+void TextIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
+                                    NameIdMapper *name_id_mapper) {
+  // TODO(@DavIvek): This will get extended to handle specific properties in the future.
+  UpdateNode(vertex, name_id_mapper);
+}
+
+void TextIndex::RemoveNode(Vertex *vertex_after_update,
+                           const std::vector<mgcxx::text_search::Context *> &maybe_applicable_text_indices) {
   auto search_node_to_be_deleted =
       mgcxx::text_search::SearchInput{.search_query = fmt::format("metadata.gid:{}", vertex_after_update->gid.AsInt())};
-
-  for (auto *index_context :
-       maybe_applicable_text_indices.value_or(GetApplicableTextIndices(vertex_after_update->labels))) {
+  auto applicable_text_indices = maybe_applicable_text_indices.empty()
+                                     ? GetApplicableTextIndices(vertex_after_update->labels)
+                                     : maybe_applicable_text_indices;
+  std::shared_lock lock(index_writer_mutex_);
+  for (auto *index_context : applicable_text_indices) {
     try {
       mgcxx::text_search::delete_document(*index_context, search_node_to_be_deleted, kDoSkipCommit);
     } catch (const std::exception &e) {
@@ -228,12 +244,8 @@ void TextIndex::RemoveNode(
 }
 
 void TextIndex::CreateIndex(std::string const &index_name, LabelId label, storage::VerticesIterable vertices,
-                            NameIdMapper *nameIdMapper) {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    throw query::TextSearchDisabledException();
-  }
-
-  CreateEmptyIndex(index_name, label);
+                            NameIdMapper *name_id_mapper) {
+  CreateTantivyIndex(index_name, label, MakeIndexPath(index_name));
 
   for (const auto &v : vertices) {
     if (!v.HasLabel(label, View::NEW).GetValue()) {
@@ -241,52 +253,32 @@ void TextIndex::CreateIndex(std::string const &index_name, LabelId label, storag
     }
 
     auto vertex_properties = v.Properties(View::NEW).GetValue();
-    LoadNodeToTextIndices(v.Gid().AsInt(), SerializeProperties(vertex_properties, nameIdMapper),
-                          StringifyProperties(vertex_properties), {&index_.at(index_name).context_});
+    AddNodeToTextIndices(v.Gid().AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
+                         StringifyProperties(vertex_properties), {&index_.at(index_name).context_});
   }
-
-  CommitLoadedNodes(index_.at(index_name).context_);
 }
 
 void TextIndex::RecoverIndex(const std::string &index_name, LabelId label,
                              memgraph::utils::SkipList<Vertex>::Accessor vertices, NameIdMapper *name_id_mapper,
                              std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    throw query::TextSearchDisabledException();
+  auto index_path = MakeIndexPath(index_name);
+  if (!std::filesystem::exists(index_path)) {
+    throw query::TextSearchException("Text index \"{}\" does not exist at path: {}. Recovery failed.", index_name,
+                                     index_path);
   }
-
-  // Clear Tantivy-internal files if they exist from previous sessions
-  std::filesystem::remove_all(text_index_storage_dir_ / index_name);
-
-  CreateEmptyIndex(index_name, label);
-
-  for (const auto &v : vertices) {
-    if (std::find(v.labels.begin(), v.labels.end(), label) == v.labels.end()) {
-      continue;
-    }
-
-    auto vertex_properties = v.properties.Properties();
-    LoadNodeToTextIndices(v.gid.AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
-                          StringifyProperties(vertex_properties), {&index_.at(index_name).context_});
-
-    if (snapshot_info) {
-      snapshot_info->Update(UpdateType::TEXT_IDX);
-    }
+  CreateTantivyIndex(index_name, label, index_path);
+  if (snapshot_info) {
+    snapshot_info->Update(UpdateType::TEXT_IDX);
   }
-
-  CommitLoadedNodes(index_.at(index_name).context_);
 }
 
 LabelId TextIndex::DropIndex(const std::string &index_name) {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    throw query::TextSearchDisabledException();
-  }
-
   if (!index_.contains(index_name)) {
     throw query::TextSearchException("Text index \"{}\" doesn’t exist.", index_name);
   }
 
   try {
+    std::lock_guard lock(index_writer_mutex_);
     mgcxx::text_search::drop_index(MakeIndexPath(index_name));
   } catch (const std::exception &e) {
     throw query::TextSearchException("Tantivy error: {}", e.what());
@@ -347,7 +339,6 @@ std::vector<Gid> TextIndex::Search(const std::string &index_name, const std::str
   if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     throw query::TextSearchDisabledException();
   }
-
   if (!index_.contains(index_name)) {
     throw query::TextSearchException("Text index \"{}\" doesn’t exist.", index_name);
   }
@@ -355,13 +346,13 @@ std::vector<Gid> TextIndex::Search(const std::string &index_name, const std::str
   mgcxx::text_search::SearchOutput search_results;
   switch (search_mode) {
     case text_search_mode::SPECIFIED_PROPERTIES:
-      search_results = SearchGivenProperties(index_name, search_query);
+      search_results = SearchGivenProperties(index_name, ToLowerCasePreservingBooleanOperators(search_query));
       break;
     case text_search_mode::REGEX:
-      search_results = RegexSearch(index_name, search_query);
+      search_results = RegexSearch(index_name, ToLowerCasePreservingBooleanOperators(search_query));
       break;
     case text_search_mode::ALL_PROPERTIES:
-      search_results = SearchAllProperties(index_name, search_query);
+      search_results = SearchAllProperties(index_name, ToLowerCasePreservingBooleanOperators(search_query));
       break;
     default:
       throw query::TextSearchException(
@@ -371,10 +362,9 @@ std::vector<Gid> TextIndex::Search(const std::string &index_name, const std::str
 
   std::vector<Gid> found_nodes;
   for (const auto &doc : search_results.docs) {
-    // The CXX .data() method (https://cxx.rs/binding/string.html) may overestimate string length, causing JSON parsing
-    // errors downstream. We prevent this by resizing the converted string with the correctly-working .length() method.
-    std::string doc_string = doc.data.data();
-    doc_string.resize(doc.data.length());
+    // Create string using both data pointer and length to avoid buffer overflow
+    // The CXX .data() method may not null-terminate the string properly
+    std::string doc_string(doc.data.data(), doc.data.length());
     auto doc_json = nlohmann::json::parse(doc_string);
     found_nodes.push_back(storage::Gid::FromString(doc_json["metadata"]["gid"].dump()));
   }
@@ -386,7 +376,6 @@ std::string TextIndex::Aggregate(const std::string &index_name, const std::strin
   if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     throw query::TextSearchDisabledException();
   }
-
   if (!index_.contains(index_name)) {
     throw query::TextSearchException("Text index \"{}\" doesn’t exist.", index_name);
   }
@@ -403,26 +392,19 @@ std::string TextIndex::Aggregate(const std::string &index_name, const std::strin
   }
   // The CXX .data() method (https://cxx.rs/binding/string.html) may overestimate string length, causing JSON parsing
   // errors downstream. We prevent this by resizing the converted string with the correctly-working .length() method.
-  std::string result_string = aggregation_result.data.data();
-  result_string.resize(aggregation_result.data.length());
+  std::string result_string(aggregation_result.data.data(), aggregation_result.data.length());
   return result_string;
 }
 
 void TextIndex::Commit() {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    throw query::TextSearchDisabledException();
-  }
-
+  std::lock_guard lock(index_writer_mutex_);
   for (auto &[_, index_data] : index_) {
     mgcxx::text_search::commit(index_data.context_);
   }
 }
 
 void TextIndex::Rollback() {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    throw query::TextSearchDisabledException();
-  }
-
+  std::lock_guard lock(index_writer_mutex_);
   for (auto &[_, index_data] : index_) {
     mgcxx::text_search::rollback(index_data.context_);
   }
@@ -438,6 +420,7 @@ std::vector<std::pair<std::string, LabelId>> TextIndex::ListIndices() const {
 }
 
 void TextIndex::Clear() {
+  std::lock_guard lock(index_writer_mutex_);
   for (const auto &[index_name, _] : index_) {
     mgcxx::text_search::drop_index(MakeIndexPath(index_name));
   }

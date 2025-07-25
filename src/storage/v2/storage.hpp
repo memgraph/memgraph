@@ -339,8 +339,9 @@ class Storage {
 
     virtual bool LabelPropertyIndexReady(LabelId label, std::span<PropertyPath const> properties) const = 0;
 
-    auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels, std::span<PropertyPath const> properties)
-        const -> std::vector<LabelPropertiesIndicesInfo> {
+    auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
+                                            std::span<PropertyPath const> properties) const
+        -> std::vector<LabelPropertiesIndicesInfo> {
       return transaction_.active_indices_.label_properties_->RelevantLabelPropertiesIndicesInfo(labels, properties);
     };
 
@@ -352,14 +353,6 @@ class Storage {
 
     bool TextIndexExists(const std::string &index_name) const {
       return storage_->indices_.text_index_.IndexExists(index_name);
-    }
-
-    void TextIndexAddVertex(const VertexAccessor &vertex) {
-      storage_->indices_.text_index_.AddNode(vertex.vertex_, storage_->name_id_mapper_.get());
-    }
-
-    void TextIndexUpdateVertex(const VertexAccessor &vertex, const std::vector<LabelId> &removed_labels = {}) {
-      storage_->indices_.text_index_.UpdateNode(vertex.vertex_, storage_->name_id_mapper_.get(), removed_labels);
     }
 
     std::vector<Gid> TextIndexSearch(const std::string &index_name, const std::string &search_query,
@@ -461,9 +454,10 @@ class Storage {
     virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> DropPointIndex(
         storage::LabelId label, storage::PropertyId property) = 0;
 
-    void CreateTextIndex(const std::string &index_name, LabelId label);
+    utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateTextIndex(const std::string &index_name,
+                                                                                   LabelId label);
 
-    void DropTextIndex(const std::string &index_name);
+    utils::BasicResult<storage::StorageIndexDefinitionError, void> DropTextIndex(const std::string &index_name);
 
     virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorIndex(VectorIndexSpec spec) = 0;
 
@@ -501,8 +495,8 @@ class Storage {
     }
     auto GetEnumStoreShared() const -> EnumStore const & { return storage_->enum_store_; }
 
-    auto CreateEnum(std::string_view name,
-                    std::span<std::string const> values) -> memgraph::utils::BasicResult<EnumStorageError, EnumTypeId> {
+    auto CreateEnum(std::string_view name, std::span<std::string const> values)
+        -> memgraph::utils::BasicResult<EnumStorageError, EnumTypeId> {
       auto res = storage_->enum_store_.RegisterEnum(name, values);
       if (res.HasValue()) {
         transaction_.md_deltas.emplace_back(MetadataDelta::enum_create, res.GetValue());
@@ -510,8 +504,8 @@ class Storage {
       return res;
     }
 
-    auto EnumAlterAdd(std::string_view name,
-                      std::string_view value) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+    auto EnumAlterAdd(std::string_view name, std::string_view value)
+        -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
       auto res = storage_->enum_store_.AddValue(name, value);
       if (res.HasValue()) {
         transaction_.md_deltas.emplace_back(MetadataDelta::enum_alter_add, res.GetValue());
@@ -519,8 +513,8 @@ class Storage {
       return res;
     }
 
-    auto EnumAlterUpdate(std::string_view name, std::string_view old_value,
-                         std::string_view new_value) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+    auto EnumAlterUpdate(std::string_view name, std::string_view old_value, std::string_view new_value)
+        -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
       auto res = storage_->enum_store_.UpdateValue(name, old_value, new_value);
       if (res.HasValue()) {
         transaction_.md_deltas.emplace_back(MetadataDelta::enum_alter_update, res.GetValue(), std::string{old_value});
@@ -530,8 +524,8 @@ class Storage {
 
     auto ShowEnums() { return storage_->enum_store_.AllRegistered(); }
 
-    auto GetEnumValue(std::string_view name,
-                      std::string_view value) const -> utils::BasicResult<EnumStorageError, Enum> {
+    auto GetEnumValue(std::string_view name, std::string_view value) const
+        -> utils::BasicResult<EnumStorageError, Enum> {
       return storage_->enum_store_.ToEnum(name, value);
     }
 
@@ -673,10 +667,8 @@ class Storage {
 
   auto GetActiveIndices() const -> ActiveIndices {
     return ActiveIndices{
-        indices_.label_index_->GetActiveIndices(),
-        indices_.label_property_index_->GetActiveIndices(),
-        indices_.edge_type_index_->GetActiveIndices(),
-        indices_.edge_type_property_index_->GetActiveIndices(),
+        indices_.label_index_->GetActiveIndices(),         indices_.label_property_index_->GetActiveIndices(),
+        indices_.edge_type_index_->GetActiveIndices(),     indices_.edge_type_property_index_->GetActiveIndices(),
         indices_.edge_property_index_->GetActiveIndices(),
     };
   }
