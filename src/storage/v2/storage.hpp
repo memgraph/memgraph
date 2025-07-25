@@ -24,6 +24,7 @@
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
 #include "storage/v2/storage_error.hpp"
+#include "storage/v2/transaction_dependencies.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/vertices_iterable.hpp"
 #include "utils/event_counter.hpp"
@@ -213,7 +214,7 @@ class Storage {
 
     Accessor(Accessor &&other) noexcept;
 
-    virtual ~Accessor() = default;
+    virtual ~Accessor();
 
     Type type() const {
       if (unique_guard_.owns_lock()) {
@@ -733,6 +734,8 @@ class Storage {
   EnumStore enum_store_;
 
   SchemaInfo schema_info_;
+
+  TransactionDependencies transaction_dependencies_;
 };
 
 inline std::ostream &operator<<(std::ostream &os, Storage::Accessor::Type type) {
