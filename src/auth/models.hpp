@@ -627,9 +627,7 @@ class Roles {
     std::optional<UserProfiles::Profile> profile;
     for (const auto &role : roles_) {
       if (db_name && !role.HasAccess(*db_name)) continue;  // Skip roles that don't have access to the database
-      if (role.profile()) {
-        UserProfiles::Merge(profile, role.profile());
-      }
+      profile = UserProfiles::Merge(profile, role.profile());
     }
     return profile;
   }
