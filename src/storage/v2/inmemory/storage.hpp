@@ -24,6 +24,7 @@
 #include "storage/v2/inmemory/snapshot_info.hpp"
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/ttl.hpp"
 
 /// REPLICATION ///
 
@@ -536,6 +537,64 @@ class InMemoryStorage final : public Storage {
     std::vector<VectorIndexInfo> ListAllVectorIndices() const override;
 
     std::vector<VectorEdgeIndexInfo> ListAllVectorEdgeIndices() const override;
+
+#ifdef MG_ENTERPRISE
+    // TTL management methods
+    void StartTtl() override {
+      if (!storage_->ttl_.Config()) throw ttl::TtlException("TTL not configured!");
+      storage_->ttl_.Resume();
+      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::ENABLE,
+                                          std::nullopt, std::nullopt, false);
+    }
+
+    void StopTtl() override {
+      storage_->ttl_.Pause();
+      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::STOP,
+                                          std::nullopt, std::nullopt, false);
+    }
+
+    void ConfigureTtl(const storage::ttl::TtlInfo &ttl_info) override {
+      auto ttl_label = NameToLabel("TTL");
+      auto ttl_property = NameToProperty("ttl");
+
+      auto &ttl = storage_->ttl_;
+
+      // If TTL is not enabled, create required indices and enable TTL
+      if (!ttl.Enabled()) {
+        // Create label+property index for TTL
+        (void)CreateIndex(ttl_label, std::vector<storage::PropertyPath>{{ttl_property}});
+        // Create edge index if needed based on TTL configuration
+        if (ttl_info.should_run_edge_ttl) (void)CreateGlobalEdgeIndex(ttl_property);
+
+        ttl.Enable();
+      }
+
+      // Configure TTL
+      if (!ttl.Running()) ttl.Configure(ttl_info.should_run_edge_ttl);
+      ttl.SetInterval(ttl_info.period, ttl_info.start_time);
+      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::CONFIGURE,
+                                          ttl_info.period, ttl_info.start_time, ttl_info.should_run_edge_ttl);
+    }
+
+    void DisableTtl() override {
+      auto ttl_label = NameToLabel("TTL");
+      auto ttl_property = NameToProperty("ttl");
+      auto &ttl = storage_->ttl_;
+      // Drop indices (silently fail if index already dropped )
+      (void)DropIndex(ttl_label, std::vector<storage::PropertyPath>{{ttl_property}});
+      // Check if edge TTL was enabled and drop edge index if needed (silently fail if index already dropped)
+      if (ttl.Config().should_run_edge_ttl) {
+        (void)DropGlobalEdgeIndex(ttl_property);
+      }
+
+      ttl.Disable();
+
+      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::DISABLE,
+                                          std::nullopt, std::nullopt, false);
+    }
+
+    storage::ttl::TtlInfo GetTtlConfig() const override { return storage_->ttl_.Config(); }
+#endif
 
     void DowngradeToReadIfValid();
 

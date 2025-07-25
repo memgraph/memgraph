@@ -637,12 +637,6 @@ int main(int argc, char **argv) {
     spdlog::trace("Triggers restored.");
     dbms_handler.RestoreStreams(&interpreter_context_);
     spdlog::trace("Streams restored.");
-    if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-#ifdef MG_ENTERPRISE
-      dbms_handler.RestoreTTL(&interpreter_context_);
-      spdlog::trace("TTL restored.");
-#endif
-    }
   }
 
   // Global worker pool!

@@ -24,6 +24,7 @@
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "storage/v2/transaction.hpp"
+#include "storage/v2/ttl.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/observer.hpp"
@@ -44,6 +45,7 @@ struct SnapshotInfo {
   uint64_t offset_metadata;
   uint64_t offset_edge_batches;
   uint64_t offset_vertex_batches;
+  uint64_t offset_ttl;
 
   std::string uuid;
   std::string epoch_id;
@@ -59,6 +61,7 @@ struct RecoveredSnapshot {
   SnapshotInfo snapshot_info;
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
+  // TODO: RecoveredTTL
 };
 
 /// Function used to read information about the snapshot file.
@@ -74,7 +77,7 @@ RecoveredSnapshot LoadSnapshot(std::filesystem::path const &path, utils::SkipLis
                                std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, Config const &config,
                                memgraph::storage::EnumStore *enum_store,
-                               memgraph::storage::SharedSchemaTracking *schema_info,
+                               memgraph::storage::SharedSchemaTracking *schema_info, memgraph::storage::ttl::TTL *ttl,
                                std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
 bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::filesystem::path &snapshot_directory,
