@@ -26,11 +26,13 @@ AutoIndexHelper::AutoIndexHelper(Config const &config, ActiveIndices const &acti
 
 void AutoIndexHelper::DispatchRequests(AutoIndexer &auto_indexer) {
   if (label_index_ && !label_index_->requested_.empty()) {
+    // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
     for (auto label : label_index_->requested_) {
       auto_indexer.Enqueue(label);
     }
   }
   if (edgetype_index_ && !edgetype_index_->requested_.empty()) {
+    // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
     for (auto edge_type : edgetype_index_->requested_) {
       auto_indexer.Enqueue(edge_type);
     }

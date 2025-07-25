@@ -2040,7 +2040,7 @@ void DiskStorage::DiskAccessor::FinalizeTransaction() {
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(
-    LabelId label, CheckCancelFunction cancel_check) {
+    LabelId label, CheckCancelFunction /*cancel_check*/) {
   MG_ASSERT(type() == UNIQUE, "Create index requires unique access to the storage!");
 
   auto *on_disk = static_cast<DiskStorage *>(storage_);
@@ -2061,7 +2061,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(
-    LabelId label, PropertiesPaths properties, CheckCancelFunction cancel_check) {
+    LabelId label, PropertiesPaths properties, CheckCancelFunction /*cancel_check*/) {
   MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
 
   if (properties.size() != 1) {
