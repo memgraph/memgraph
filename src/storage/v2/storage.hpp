@@ -568,15 +568,16 @@ class Storage {
     }
 
     // TTL methods
-    virtual ttl::TTL &ttl() = 0;
+    ttl::TTL &ttl() { return storage_->ttl_; }
 
+#ifdef MG_ENTERPRISE
     // TTL management methods
     virtual void StartTtl() = 0;
     virtual void DisableTtl() = 0;
     virtual void StopTtl() = 0;
     virtual void ConfigureTtl(const storage::ttl::TtlInfo &ttl_info) = 0;
     virtual storage::ttl::TtlInfo GetTtlConfig() const = 0;
-
+#endif
    protected:
     Storage *storage_;
     utils::SharedResourceLockGuard storage_guard_;
@@ -744,8 +745,7 @@ class Storage {
 
   SchemaInfo schema_info_;
 
-  // TTL handler
-  ttl::TTL ttl_{this};
+  ttl::TTL ttl_{this};  // TTL handler
 };
 
 inline std::ostream &operator<<(std::ostream &os, Storage::Accessor::Type type) {

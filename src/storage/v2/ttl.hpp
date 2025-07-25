@@ -64,18 +64,6 @@ struct TtlInfo {
           std::optional<std::chrono::system_clock::time_point> start_time, bool should_run_edge_ttl)
       : period{period}, start_time{start_time}, should_run_edge_ttl{should_run_edge_ttl} {}
 
-  TtlInfo(std::string_view period_sv, std::string_view start_time_sv) {
-    if (!period_sv.empty()) {
-      period = ParsePeriod(period_sv);
-    }
-    if (!start_time_sv.empty()) {
-      if (!period) {
-        period = std::chrono::days(1);  // Default period with start time is a day
-      }
-      start_time = ParseStartTime(start_time_sv);
-    }
-  }
-
   TtlInfo(std::string_view period_sv, std::string_view start_time_sv, bool should_run_edge_ttl)
       : should_run_edge_ttl{should_run_edge_ttl} {
     if (!period_sv.empty()) {
@@ -152,7 +140,7 @@ inline bool operator==(const TtlInfo &lhs, const TtlInfo &rhs) {
  */
 class TTL final {
  public:
-  TTL(Storage *storage_ptr) : storage_ptr_(storage_ptr) {}
+  explicit TTL(Storage *storage_ptr) : storage_ptr_(storage_ptr) {}
   ~TTL() = default;
 
   TTL(const TTL &) = delete;
@@ -244,6 +232,11 @@ class TTL final {
 
 #else  // MG_ENTERPRISE
 
+// Forward declarations
+namespace memgraph::storage {
+class Storage;
+}  // namespace memgraph::storage
+
 namespace memgraph::storage::ttl {
 
 struct TtlInfo {
@@ -261,6 +254,9 @@ struct TtlInfo {
  *
  */
 class TTL final {
+  std::optional<std::chrono::microseconds> period_{};
+  std::optional<std::chrono::system_clock::time_point> start_time_{};
+
  public:
   explicit TTL(Storage * /*storage_ptr*/) {}
   void Shutdown() {}
@@ -269,6 +265,7 @@ class TTL final {
   void Resume() {}
   bool Enabled() const { return false; }
   bool Running() { return false; }
+  bool Paused() const { return false; }
   void Enable() {}
   void Disable() {}
   void Configure(bool) {}
