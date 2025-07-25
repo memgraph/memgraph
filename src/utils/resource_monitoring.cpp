@@ -9,20 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "utils/skip_list.hpp"
+#include "utils/resource_monitoring.hpp"
 
-namespace memgraph::utils::detail {
+namespace memgraph::utils {
 
-bool &SkipListGcRunning() {
-  thread_local bool skip_list_gc_running{false};
-  return skip_list_gc_running;
-}
+bool TransactionsMemoryResource::Allocate(size_t size) { return Increment(size); }
+void TransactionsMemoryResource::Deallocate(size_t size) { Decrement(size); }
 
-bool IsSkipListGcRunning() { return SkipListGcRunning(); }
-
-auto thread_local_mt19937() -> std::mt19937 & {
-  thread_local std::mt19937 gen{std::random_device{}()};
-  return gen;
-}
-
-}  // namespace memgraph::utils::detail
+}  // namespace memgraph::utils

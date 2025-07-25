@@ -548,8 +548,9 @@ State HandleRoute(TSession &session, const Marker marker) {
 }
 
 template <typename TSession>
-State HandleLogOff() {
-  // No arguments sent, the user just needs to reauthenticate
+State HandleLogOff(TSession &session) {
+  // No arguments and cannot fail
+  session.LogOff();
   return State::Init;
 }
 }  // namespace memgraph::communication::bolt
