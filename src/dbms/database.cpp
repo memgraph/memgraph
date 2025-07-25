@@ -45,6 +45,7 @@ struct PlanInvalidatorForDatabase : storage::PlanInvalidator {
 
  private:
   // Storage and Plan cache exist in Database
+  // NOLINTNEXTLINE(cppcoreguidelines-avoid-const-or-ref-data-members)
   query::PlanCacheLRU &plan_cache;
 };
 
