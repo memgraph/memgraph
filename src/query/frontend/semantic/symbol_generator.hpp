@@ -172,6 +172,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   static std::optional<Symbol> FindSymbolInScope(const std::string &name, const Scope &scope, Symbol::Type type);
 
   bool HasSymbol(const std::string &name) const;
+  std::optional<Symbol> GetSymbol(const std::string &name) const;
 
   // @return true if it added a predefined identifier with that name
   bool ConsumePredefinedIdentifier(const std::string &name);
@@ -179,12 +180,13 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   // Returns a freshly generated symbol. Previous mapping of the same name to a
   // different symbol is replaced with the new one.
   auto CreateSymbol(const std::string &name, bool user_declared, Symbol::Type type = Symbol::Type::ANY,
-                    int token_position = -1);
+                    int token_position = -1, bool is_temporary = false);
 
   // Returns a freshly generated anonymous symbol.
   auto CreateAnonymousSymbol(Symbol::Type type = Symbol::Type::ANY);
 
-  auto GetOrCreateSymbol(const std::string &name, bool user_declared, Symbol::Type type = Symbol::Type::ANY);
+  auto GetOrCreateSymbol(const std::string &name, bool user_declared, Symbol::Type type = Symbol::Type::ANY,
+                         bool is_temporary = false);
   // Returns the symbol by name. If the mapping already exists, checks if the
   // types match. Otherwise, returns a new symbol.
 

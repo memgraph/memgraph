@@ -1083,6 +1083,7 @@ void AddMatching(const Match &match, SymbolTable &symbol_table, AstStorage &stor
 
     filter.expression->Accept(visitor);
     filter.matchings = visitor.getFilterMatchings();
+    filter.pattern_comprehension_matchings = visitor.getPatternComprehensionMatchings();
   }
 }
 

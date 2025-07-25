@@ -79,7 +79,7 @@ auto MakePlanningContext(AstStorage *ast_storage, SymbolTable *symbol_table, Cyp
 // Contextual information used for generating match operators.
 struct MatchContext {
   const Matching &matching;
-  const SymbolTable &symbol_table;
+  SymbolTable &symbol_table;
   // Already bound symbols, which are used to determine whether the operator
   // should reference them or establish new. This is both read from and written
   // to during generation.
@@ -528,7 +528,7 @@ class RuleBasedPlanner {
                                                 std::unique_ptr<LogicalOperator> input_op) {
     auto &bound_symbols = match_context.bound_symbols;
     auto &storage = *context_->ast_storage;
-    const auto &symbol_table = match_context.symbol_table;
+    auto &symbol_table = match_context.symbol_table;
     const auto &matching = match_context.matching;
     // Copy filters, because we will modify them as we generate Filters.
     auto filters = matching.filters;
@@ -583,7 +583,7 @@ class RuleBasedPlanner {
   }
 
   std::unique_ptr<LogicalOperator> HandleExpansions(std::unique_ptr<LogicalOperator> last_op, const Matching &matching,
-                                                    const SymbolTable &symbol_table, AstStorage &storage,
+                                                    SymbolTable &symbol_table, AstStorage &storage,
                                                     std::unordered_set<Symbol> &bound_symbols,
                                                     std::vector<Symbol> &new_symbols,
                                                     std::unordered_map<Symbol, std::vector<Symbol>> &named_paths,
@@ -598,7 +598,7 @@ class RuleBasedPlanner {
   }
 
   std::unique_ptr<LogicalOperator> HandleExpansionsWithCartesian(
-      std::unique_ptr<LogicalOperator> last_op, const Matching &matching, const SymbolTable &symbol_table,
+      std::unique_ptr<LogicalOperator> last_op, const Matching &matching, SymbolTable &symbol_table,
       AstStorage &storage, std::unordered_set<Symbol> &bound_symbols, std::vector<Symbol> &new_symbols,
       std::unordered_map<Symbol, std::vector<Symbol>> &named_paths, Filters &filters, storage::View view) {
     if (matching.expansions.empty()) {
@@ -692,7 +692,7 @@ class RuleBasedPlanner {
   }
 
   std::unique_ptr<LogicalOperator> HandleExpansionsWithoutCartesian(
-      std::unique_ptr<LogicalOperator> last_op, const Matching &matching, const SymbolTable &symbol_table,
+      std::unique_ptr<LogicalOperator> last_op, const Matching &matching, SymbolTable &symbol_table,
       AstStorage &storage, std::unordered_set<Symbol> &bound_symbols, std::vector<Symbol> &new_symbols,
       std::unordered_map<Symbol, std::vector<Symbol>> &named_paths, Filters &filters, storage::View view) {
     for (const auto &expansion : matching.expansions) {
@@ -737,7 +737,7 @@ class RuleBasedPlanner {
   }
 
   std::unique_ptr<LogicalOperator> GenerateExpansionGroup(
-      std::unique_ptr<LogicalOperator> last_op, const Matching &matching, const SymbolTable &symbol_table,
+      std::unique_ptr<LogicalOperator> last_op, const Matching &matching, SymbolTable &symbol_table,
       AstStorage &storage, std::unordered_set<Symbol> &bound_symbols, std::vector<Symbol> &new_symbols,
       std::unordered_map<Symbol, std::vector<Symbol>> &named_paths, Filters &filters, storage::View view,
       ExpansionGroupId expansion_group_id) {
@@ -757,7 +757,7 @@ class RuleBasedPlanner {
 
   std::unique_ptr<LogicalOperator> GenerateOperatorsForExpansion(
       std::unique_ptr<LogicalOperator> last_op, const Matching &matching, const Expansion &expansion,
-      const SymbolTable &symbol_table, AstStorage &storage, std::unordered_set<Symbol> &bound_symbols,
+      SymbolTable &symbol_table, AstStorage &storage, std::unordered_set<Symbol> &bound_symbols,
       std::vector<Symbol> &new_symbols, std::unordered_map<Symbol, std::vector<Symbol>> &named_paths, Filters &filters,
       storage::View view) {
     const auto &node1_symbol = symbol_table.at(*expansion.node1->identifier_);
@@ -810,7 +810,7 @@ class RuleBasedPlanner {
   }
 
   std::unique_ptr<LogicalOperator> GenExpand(std::unique_ptr<LogicalOperator> last_op, const Expansion &expansion,
-                                             const SymbolTable &symbol_table, std::unordered_set<Symbol> &bound_symbols,
+                                             SymbolTable &symbol_table, std::unordered_set<Symbol> &bound_symbols,
                                              const Matching &matching, AstStorage &storage, Filters &filters,
                                              std::unordered_map<Symbol, std::vector<Symbol>> &named_paths,
                                              std::vector<Symbol> &new_symbols, storage::View view) {
@@ -1020,7 +1020,7 @@ class RuleBasedPlanner {
 
   std::unique_ptr<LogicalOperator> GenerateCartesian(std::unique_ptr<LogicalOperator> left,
                                                      std::unique_ptr<LogicalOperator> right,
-                                                     const SymbolTable &symbol_table) {
+                                                     SymbolTable &symbol_table) {
     auto left_symbols = left->ModifiedSymbols(symbol_table);
     auto right_symbols = right->ModifiedSymbols(symbol_table);
     return std::make_unique<Cartesian>(std::move(left), left_symbols, std::move(right), right_symbols);
@@ -1028,7 +1028,7 @@ class RuleBasedPlanner {
 
   std::unique_ptr<LogicalOperator> GenFilters(std::unique_ptr<LogicalOperator> last_op,
                                               const std::unordered_set<Symbol> &bound_symbols, Filters &filters,
-                                              AstStorage &storage, const SymbolTable &symbol_table) {
+                                              AstStorage &storage, SymbolTable &symbol_table) {
     auto pattern_filters = ExtractPatternFilters(filters, symbol_table, storage, bound_symbols);
     auto *filter_expr = impl::ExtractFilters(bound_symbols, filters, storage);
 
@@ -1043,7 +1043,7 @@ class RuleBasedPlanner {
     return last_op;
   }
 
-  std::unique_ptr<LogicalOperator> MakeExistsFilter(const FilterMatching &matching, const SymbolTable &symbol_table,
+  std::unique_ptr<LogicalOperator> MakeExistsFilter(const FilterMatching &matching, SymbolTable &symbol_table,
                                                     AstStorage &storage,
                                                     const std::unordered_set<Symbol> &bound_symbols) {
     std::vector<Symbol> once_symbols(bound_symbols.begin(), bound_symbols.end());
@@ -1060,13 +1060,41 @@ class RuleBasedPlanner {
                                named_paths, filters, storage::View::OLD);
 
     last_op = std::make_unique<Limit>(std::move(last_op), storage.Create<PrimitiveLiteral>(1));
-
     last_op = std::make_unique<EvaluatePatternFilter>(std::move(last_op), matching.symbol.value());
 
     return last_op;
   }
 
-  std::vector<std::shared_ptr<LogicalOperator>> ExtractPatternFilters(Filters &filters, const SymbolTable &symbol_table,
+  std::unique_ptr<LogicalOperator> MakePatternComprehensionFilter(const PatternComprehensionMatching &matching,
+                                                                  SymbolTable &symbol_table, AstStorage &storage,
+                                                                  const std::unordered_set<Symbol> &bound_symbols) {
+    std::vector<Symbol> once_symbols(bound_symbols.begin(), bound_symbols.end());
+    std::unique_ptr<LogicalOperator> last_op = std::make_unique<Once>(once_symbols);
+
+    std::vector<Symbol> new_symbols;
+    std::unordered_set<Symbol> expand_symbols(bound_symbols.begin(), bound_symbols.end());
+
+    auto filters = matching.filters;
+
+    std::unordered_map<Symbol, std::vector<Symbol>> named_paths;
+
+    last_op = HandleExpansions(std::move(last_op), matching, symbol_table, storage, expand_symbols, new_symbols,
+                               named_paths, filters, storage::View::OLD);
+    last_op = std::make_unique<Produce>(std::move(last_op), std::vector{matching.result_expr});
+    auto list_collection_symbols = last_op->ModifiedSymbols(symbol_table);
+    last_op = std::make_unique<RollUpApply>(std::make_unique<Once>(), std::move(last_op), list_collection_symbols,
+                                            matching.result_symbol);
+
+    auto const &symbol = symbol_table.CreateAnonymousSymbol();
+    auto *expression = storage.Create<Identifier>(symbol.name_);
+    expression->MapTo(symbol);
+
+    last_op = std::make_unique<EvaluatePatternFilter>(std::move(last_op), symbol);
+
+    return last_op;
+  }
+
+  std::vector<std::shared_ptr<LogicalOperator>> ExtractPatternFilters(Filters &filters, SymbolTable &symbol_table,
                                                                       AstStorage &storage,
                                                                       const std::unordered_set<Symbol> &bound_symbols) {
     std::vector<std::shared_ptr<LogicalOperator>> operators;
@@ -1108,6 +1136,10 @@ class RuleBasedPlanner {
             break;
           }
         }
+      }
+
+      for (const auto &matching : filter.pattern_comprehension_matchings) {
+        operators.push_back(MakePatternComprehensionFilter(matching, symbol_table, storage, bound_symbols));
       }
     }
 

@@ -60,8 +60,9 @@ std::optional<Symbol> SymbolGenerator::FindSymbolInScope(const std::string &name
   return std::nullopt;
 }
 
-auto SymbolGenerator::CreateSymbol(const std::string &name, bool user_declared, Symbol::Type type, int token_position) {
-  auto symbol = symbol_table_->CreateSymbol(name, user_declared, type, token_position);
+auto SymbolGenerator::CreateSymbol(const std::string &name, bool user_declared, Symbol::Type type, int token_position,
+                                   bool is_temporary) {
+  auto symbol = symbol_table_->CreateSymbol(name, user_declared, type, token_position, is_temporary);
   scopes_.back().symbols[name] = symbol;
   return symbol;
 }
@@ -71,14 +72,15 @@ auto SymbolGenerator::CreateAnonymousSymbol(Symbol::Type /*type*/) {
   return symbol;
 }
 
-auto SymbolGenerator::GetOrCreateSymbol(const std::string &name, bool user_declared, Symbol::Type type) {
+auto SymbolGenerator::GetOrCreateSymbol(const std::string &name, bool user_declared, Symbol::Type type,
+                                        bool is_temporary) {
   // NOLINTNEXTLINE
   for (auto scope = scopes_.rbegin(); scope != scopes_.rend(); ++scope) {
     if (auto maybe_symbol = FindSymbolInScope(name, *scope, type); maybe_symbol) {
       return *maybe_symbol;
     }
   }
-  return CreateSymbol(name, user_declared, type);
+  return CreateSymbol(name, user_declared, type, -1, is_temporary);
 }
 
 void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
@@ -386,9 +388,18 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
   if (scope.in_exists_subquery && (scope.visiting_edge || scope.in_node_atom)) {
     auto has_symbol = HasSymbol(ident.name_);
     if (!has_symbol) {
-      ident.user_declared_ = false;
       symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_,
-                                 scope.in_node_atom ? Symbol::Type::VERTEX : Symbol::Type::EDGE);
+                                 scope.in_node_atom ? Symbol::Type::VERTEX : Symbol::Type::EDGE, true);
+    } else {
+      symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::ANY);
+    }
+  } else if (scope.in_pattern_comprehension) {
+    auto has_symbol = HasSymbol(ident.name_);
+    if (!scope.in_pattern && !has_symbol) {
+      throw SemanticException("Unbounded symbols not allowed in pattern comprehension!");
+    }
+    if (!has_symbol) {
+      symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::ANY, true);
     } else {
       symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::ANY);
     }
@@ -869,15 +880,7 @@ bool SymbolGenerator::PostVisit(EdgeAtom &) {
 
 bool SymbolGenerator::PreVisit(PatternComprehension &pc) {
   auto &scope = scopes_.back();
-
-  if (!scope.in_with && !scope.in_return) {
-    throw utils::NotYetImplemented("Pattern comprehension can only be used within With and Return clauses!");
-  }
-  if (scope.in_list_comprehension) {
-    throw utils::NotYetImplemented("Pattern comprehension inside list comprehension!");
-  }
-
-  scopes_.emplace_back(Scope{.in_pattern_comprehension = true});
+  scope.in_pattern_comprehension = true;
 
   const auto &symbol = CreateAnonymousSymbol();
   pc.MapTo(symbol);
@@ -885,7 +888,7 @@ bool SymbolGenerator::PreVisit(PatternComprehension &pc) {
 }
 
 bool SymbolGenerator::PostVisit(PatternComprehension & /*pc*/) {
-  scopes_.pop_back();
+  scopes_.back().in_pattern_comprehension = false;
   return true;
 }
 

@@ -28,10 +28,10 @@ class SymbolTable final {
  public:
   SymbolTable() = default;
   const Symbol &CreateSymbol(const std::string &name, bool user_declared, Symbol::Type type = Symbol::Type::ANY,
-                             int32_t token_position = -1) {
+                             int32_t token_position = -1, bool is_temporary = false) {
     MG_ASSERT(table_.size() <= std::numeric_limits<int32_t>::max(),
               "SymbolTable size doesn't fit into 32-bit integer!");
-    auto got = table_.emplace(position_, Symbol(name, position_, user_declared, type, token_position));
+    auto got = table_.emplace(position_, Symbol(name, position_, user_declared, type, token_position, is_temporary));
     MG_ASSERT(got.second, "Duplicate symbol ID!");
     position_++;
     return got.first->second;

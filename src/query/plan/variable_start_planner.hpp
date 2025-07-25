@@ -231,6 +231,8 @@ class VaryMatchingStart {
 CartesianProduct<VaryMatchingStart> VaryMultiMatchingStarts(const std::vector<Matching> &, const SymbolTable &);
 
 CartesianProduct<VaryMatchingStart> VaryFilterMatchingStarts(const Matching &matching, const SymbolTable &symbol_table);
+CartesianProduct<VaryMatchingStart> VaryPatternComprehensionMatchingStarts(const Matching &matching,
+                                                                           const SymbolTable &symbol_table);
 
 // Produces alternative query parts out of a single part by varying how each
 // graph matching is done.
@@ -247,6 +249,7 @@ class VaryQueryPartMatching {
     using pointer = const SingleQueryPart *;
 
     iterator(SingleQueryPart, VaryMatchingStart::iterator, VaryMatchingStart::iterator,
+             CartesianProduct<VaryMatchingStart>::iterator, CartesianProduct<VaryMatchingStart>::iterator,
              CartesianProduct<VaryMatchingStart>::iterator, CartesianProduct<VaryMatchingStart>::iterator,
              CartesianProduct<VaryMatchingStart>::iterator, CartesianProduct<VaryMatchingStart>::iterator,
              CartesianProduct<VaryMatchingStart>::iterator, CartesianProduct<VaryMatchingStart>::iterator);
@@ -272,17 +275,22 @@ class VaryQueryPartMatching {
     CartesianProduct<VaryMatchingStart>::iterator filter_it_;
     CartesianProduct<VaryMatchingStart>::iterator filter_begin_;
     CartesianProduct<VaryMatchingStart>::iterator filter_end_;
+    CartesianProduct<VaryMatchingStart>::iterator pattern_comprehension_it_;
+    CartesianProduct<VaryMatchingStart>::iterator pattern_comprehension_begin_;
+    CartesianProduct<VaryMatchingStart>::iterator pattern_comprehension_end_;
   };
 
   auto begin() {
     return iterator(query_part_, matchings_.begin(), matchings_.end(), optional_matchings_.begin(),
                     optional_matchings_.end(), merge_matchings_.begin(), merge_matchings_.end(),
-                    filter_matchings_.begin(), filter_matchings_.end());
+                    filter_matchings_.begin(), filter_matchings_.end(), pattern_comprehension_matchings_.begin(),
+                    pattern_comprehension_matchings_.end());
   }
   auto end() {
     return iterator(query_part_, matchings_.end(), matchings_.end(), optional_matchings_.end(),
                     optional_matchings_.end(), merge_matchings_.end(), merge_matchings_.end(), filter_matchings_.end(),
-                    filter_matchings_.end());
+                    filter_matchings_.end(), pattern_comprehension_matchings_.end(),
+                    pattern_comprehension_matchings_.end());
   }
 
  private:
@@ -295,6 +303,7 @@ class VaryQueryPartMatching {
   // Like optional matching, but for merge matchings.
   CartesianProduct<VaryMatchingStart> merge_matchings_;
   CartesianProduct<VaryMatchingStart> filter_matchings_;
+  CartesianProduct<VaryMatchingStart> pattern_comprehension_matchings_;
 };
 
 }  // namespace impl
