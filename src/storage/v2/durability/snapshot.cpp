@@ -495,7 +495,7 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
       info.offset_edge_batches = 0U;
       info.offset_vertex_batches = 0U;
     }
-    if (*version >= 29U) {
+    if (*version >= kTtlSupport) {
       info.offset_ttl = read_offset();
     } else {
       info.offset_ttl = 0U;
@@ -6998,6 +6998,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
 
       // Create TtlInfo and store it in recovery_info;
       // TODO Index independent of TTL recovery
+      // TODO: defer TTL enable till after index recovery
       ttl->Enable();
       ttl->Configure(*should_run_edge_ttl);
       ttl->SetInterval(period, start_time);
