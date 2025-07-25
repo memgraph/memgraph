@@ -947,7 +947,6 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     mem_storage->indices_.text_index_.Commit();
   }
-
   is_transaction_active_ = false;
 }
 
@@ -1434,10 +1433,10 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
 
     // Cleanup INDICES
     index_abort_processor.Process(storage_->indices_, transaction_.active_indices_, transaction_.start_timestamp);
-
     if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
       storage_->indices_.text_index_.Rollback();
     }
+
     for (auto const &[label_prop, vertices] : vector_label_property_cleanup) {
       storage_->indices_.vector_index_.AbortEntries(label_prop, vertices);
     }
@@ -3300,10 +3299,6 @@ bool InMemoryStorage::InMemoryAccessor::PointIndexExists(LabelId label, Property
 }
 
 IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
-  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
-  auto *mem_edge_property_index =
-      static_cast<InMemoryEdgePropertyIndex *>(in_memory->indices_.edge_property_index_.get());
-
   return {transaction_.active_indices_.label_->ListIndices(transaction_.start_timestamp),
           transaction_.active_indices_.label_properties_->ListIndices(transaction_.start_timestamp),
           transaction_.active_indices_.edge_type_->ListIndices(transaction_.start_timestamp),

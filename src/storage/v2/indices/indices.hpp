@@ -12,7 +12,6 @@
 #pragma once
 
 #include <memory>
-#include <span>
 
 #include "storage/v2/indices/active_indices.hpp"
 #include "storage/v2/indices/edge_property_index.hpp"
@@ -78,14 +77,14 @@ struct Indices {
 
   /// This function should be called whenever a label is added to a vertex.
   /// @throw std::bad_alloc
-  void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) const;
+  void UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx, NameIdMapper *name_id_mapper) const;
 
   void UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Transaction &tx) const;
 
   /// This function should be called whenever a property is modified on a vertex.
   /// @throw std::bad_alloc
-  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                           const Transaction &tx) const;
+  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, const Transaction &tx,
+                           NameIdMapper *name_id_mapper) const;
 
   /// This function should be called whenever a property is modified on an edge.
   /// @throw std::bad_alloc

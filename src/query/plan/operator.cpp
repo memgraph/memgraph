@@ -506,10 +506,6 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
 
   MultiPropsInitChecked(&new_node, properties);
 
-  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    context.db_accessor->TextIndexAddVertex(new_node);
-  }
-
   (*frame)[node_info.symbol] = new_node;
   return (*frame)[node_info.symbol].ValueVertex();
 }
@@ -4017,9 +4013,6 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
             TypedValue{std::move(old_value), context.db_accessor->GetStorageAccessor()->GetNameIdMapper()},
             TypedValue{rhs});
       }
-      if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-        context.db_accessor->TextIndexUpdateVertex(lhs.ValueVertex());
-      }
       break;
     }
     case TypedValue::Type::Edge: {
@@ -4193,9 +4186,6 @@ void SetPropertiesOnRecord(TRecordAccessor *record, const TypedValue &rhs, SetPr
     case TypedValue::Type::Vertex: {
       PropertiesMap new_properties = get_props(rhs.ValueVertex());
       update_props(new_properties);
-      if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-        context->db_accessor->TextIndexUpdateVertex(rhs.ValueVertex());
-      }
       break;
     }
     case TypedValue::Type::Map: {
@@ -4257,9 +4247,7 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
       }
 #endif
       SetPropertiesOnRecord(&lhs.ValueVertex(), rhs, self_.op_, &context, cached_name_id_);
-      if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-        context.db_accessor->TextIndexUpdateVertex(lhs.ValueVertex());
-      }
+
       break;
     case TypedValue::Type::Edge:
 #ifdef MG_ENTERPRISE
@@ -4361,11 +4349,6 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
       context.trigger_context_collector->RegisterSetVertexLabel(vertex, label);
     }
   }
-
-  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    context.db_accessor->TextIndexUpdateVertex(vertex);
-  }
-
   return true;
 }
 
@@ -4448,9 +4431,7 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
       }
 #endif
       remove_prop(&lhs.ValueVertex());
-      if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-        context.db_accessor->TextIndexUpdateVertex(lhs.ValueVertex());
-      }
+
       break;
     case TypedValue::Type::Edge:
 #ifdef MG_ENTERPRISE
@@ -4553,11 +4534,6 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
       context.trigger_context_collector->RegisterRemovedVertexLabel(vertex, label);
     }
   }
-
-  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    context.db_accessor->TextIndexUpdateVertex(vertex, EvaluateLabels(self_.labels_, evaluator, context.db_accessor));
-  }
-
   return true;
 }
 

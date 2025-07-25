@@ -437,6 +437,9 @@ target_link_libraries(${test_prefix}vector_index mg::storage)
 add_unit_test(vector_edge_index.cpp)
 target_link_libraries(${test_prefix}vector_edge_index mg::storage)
 
+add_unit_test(text_index.cpp)
+target_link_libraries(${test_prefix}text_index mg::storage)
+
 # Test mg-auth
 if(MG_ENTERPRISE)
   add_unit_test(auth.cpp)
