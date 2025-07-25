@@ -424,7 +424,9 @@ class ReplQueryHandler {
       if (error.GetError() == RegisterReplicaError::NOT_MAIN) {
         throw QueryRuntimeException("Replica can't register another replica!");
       }
-      throw QueryRuntimeException("Couldn't register replica {}.", name);
+
+      throw QueryRuntimeException("Couldn't register replica {}. Error: {}", name,
+                                  static_cast<uint8_t>(error.GetError()));
     }
   }
 
