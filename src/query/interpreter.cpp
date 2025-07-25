@@ -3251,6 +3251,10 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphCreat
     results.push_back(std::move(result));
   });
 
+  if (results.empty()) {
+    throw QueryException("No index with specified labels found.");
+  }
+
   return results;
 }
 
