@@ -638,62 +638,52 @@ class DbAccessor final {
   const std::string &id() const { return accessor_->id(); }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(
-      storage::LabelId label, storage::CheckCancelFunction cancel_check = storage::neverCancel,
-      storage::PublishIndexWrapper wrapper = storage::publish_no_wrap) {
-    return accessor_->CreateIndex(label, true, cancel_check, std::move(wrapper));
+      storage::LabelId label, storage::CheckCancelFunction cancel_check = storage::neverCancel) {
+    return accessor_->CreateIndex(label, cancel_check);
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(
       storage::LabelId label, std::vector<storage::PropertyPath> &&properties,
-      storage::CheckCancelFunction cancel_check = storage::neverCancel,
-      storage::PublishIndexWrapper wrapper = storage::publish_no_wrap) {
-    return accessor_->CreateIndex(label, std::move(properties), std::move(cancel_check), std::move(wrapper));
+      storage::CheckCancelFunction cancel_check = storage::neverCancel) {
+    return accessor_->CreateIndex(label, std::move(properties), std::move(cancel_check));
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(
-      storage::EdgeTypeId edge_type, storage::CheckCancelFunction cancel_check = storage::neverCancel,
-      storage::PublishIndexWrapper wrapper = storage::publish_no_wrap) {
-    return accessor_->CreateIndex(edge_type, true, std::move(cancel_check), std::move(wrapper));
+      storage::EdgeTypeId edge_type, storage::CheckCancelFunction cancel_check = storage::neverCancel) {
+    return accessor_->CreateIndex(edge_type, std::move(cancel_check));
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(
       storage::EdgeTypeId edge_type, storage::PropertyId property,
-      storage::CheckCancelFunction cancel_check = storage::neverCancel,
-      storage::PublishIndexWrapper wrapper = storage::publish_no_wrap) {
-    return accessor_->CreateIndex(edge_type, property, std::move(cancel_check), std::move(wrapper));
+      storage::CheckCancelFunction cancel_check = storage::neverCancel) {
+    return accessor_->CreateIndex(edge_type, property, std::move(cancel_check));
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateGlobalEdgeIndex(
-      storage::PropertyId property, storage::CheckCancelFunction cancel_check = storage::neverCancel,
-      storage::PublishIndexWrapper wrapper = storage::publish_no_wrap) {
-    return accessor_->CreateGlobalEdgeIndex(property, std::move(cancel_check), std::move(wrapper));
+      storage::PropertyId property, storage::CheckCancelFunction cancel_check = storage::neverCancel) {
+    return accessor_->CreateGlobalEdgeIndex(property, std::move(cancel_check));
+  }
+
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(storage::LabelId label) {
+    return accessor_->DropIndex(label);
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(
-      storage::LabelId label, storage::DropIndexWrapper wrapper = storage::drop_no_wrap) {
-    return accessor_->DropIndex(label, std::move(wrapper));
+      storage::LabelId label, std::vector<storage::PropertyPath> &&properties) {
+    return accessor_->DropIndex(label, std::move(properties));
   }
 
-  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(
-      storage::LabelId label, std::vector<storage::PropertyPath> &&properties,
-      storage::DropIndexWrapper wrapper = storage::drop_no_wrap) {
-    return accessor_->DropIndex(label, std::move(properties), std::move(wrapper));
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(storage::EdgeTypeId edge_type) {
+    return accessor_->DropIndex(edge_type);
   }
 
-  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(
-      storage::EdgeTypeId edge_type, storage::DropIndexWrapper wrapper = storage::drop_no_wrap) {
-    return accessor_->DropIndex(edge_type, std::move(wrapper));
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(storage::EdgeTypeId edge_type,
+                                                                           storage::PropertyId property) {
+    return accessor_->DropIndex(edge_type, property);
   }
 
-  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropIndex(
-      storage::EdgeTypeId edge_type, storage::PropertyId property,
-      storage::DropIndexWrapper wrapper = storage::drop_no_wrap) {
-    return accessor_->DropIndex(edge_type, property, std::move(wrapper));
-  }
-
-  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropGlobalEdgeIndex(
-      storage::PropertyId property, storage::DropIndexWrapper wrapper = storage::drop_no_wrap) {
-    return accessor_->DropGlobalEdgeIndex(property, std::move(wrapper));
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> DropGlobalEdgeIndex(storage::PropertyId property) {
+    return accessor_->DropGlobalEdgeIndex(property);
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreatePointIndex(storage::LabelId label,

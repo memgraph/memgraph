@@ -1,0 +1,17 @@
+skiplist_indices_cluster: &skiplist_indices_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "skiplist_indices.log"
+      setup_queries: []
+      validation_queries: []
+
+workloads:
+  - name: "Edge indices"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["skiplist_indices/edge_indices.py"]
+    <<: *skiplist_indices_cluster
+  - name: "Query plan invalidation on index creation"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["skiplist_indices/plan_invalidation.py"]
+    <<: *skiplist_indices_cluster

@@ -85,7 +85,7 @@ auto CreateUniqueGuard(Storage *storage, const std::optional<std::chrono::millis
 }
 }  // namespace
 
-Storage::Storage(Config config, StorageMode storage_mode)
+Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator)
     : name_id_mapper_(std::invoke([config, storage_mode]() -> std::unique_ptr<NameIdMapper> {
         if (storage_mode == StorageMode::ON_DISK_TRANSACTIONAL) {
           return std::make_unique<DiskNameIdMapper>(config.disk.name_id_mapper_directory,
@@ -97,7 +97,8 @@ Storage::Storage(Config config, StorageMode storage_mode)
       isolation_level_(config.transaction.isolation_level),
       storage_mode_(storage_mode),
       indices_(config, storage_mode),
-      constraints_(config, storage_mode) {
+      constraints_(config, storage_mode),
+      invalidator_{std::move(invalidator)} {
   spdlog::info("Created database with {} storage mode.", StorageModeToString(storage_mode));
 }
 

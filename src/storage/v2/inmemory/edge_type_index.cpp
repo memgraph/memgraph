@@ -56,7 +56,7 @@ inline void TryInsertEdgeTypeIndex(Vertex &from_vertex, EdgeTypeId edge_type, au
   }
   // Create and drop index will always use snapshot isolation
   if (delta) {
-    ApplyDeltasForRead(&tx, delta, View::NEW /*NEW becasue of auto indexing*/, [&](const Delta &delta) {
+    ApplyDeltasForRead(&tx, delta, View::OLD, [&](const Delta &delta) {
       // clang-format off
       DeltaDispatch(delta, utils::ChainedOverloaded{
         Exists_ActionMethod(exists),
@@ -285,7 +285,9 @@ void InMemoryEdgeTypeIndex::ActiveIndices::UpdateOnEdgeCreation(Vertex *from, Ve
 
 void InMemoryEdgeTypeIndex::DropGraphClearIndices() {
   index_.WithLock([](std::shared_ptr<IndicesContainer const> &index) { index = std::make_shared<IndicesContainer>(); });
-  CleanupAllIndices();
+  all_indices_.WithLock([](std::shared_ptr<std::vector<AllIndicesEntry> const> &all_indices) {
+    all_indices = std::make_unique<std::vector<AllIndicesEntry>>();
+  });
 }
 
 InMemoryEdgeTypeIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor,

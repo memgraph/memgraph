@@ -192,7 +192,7 @@ inline auto Edges_ActionMethod(utils::small_vector<std::tuple<EdgeTypeId, Vertex
 template <EdgeDirection dir>
 inline auto Edges_ActionMethod(utils::small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> &edges,
                                EdgeTypeId edge_type) {
-  auto const predicate = [&](Delta const &delta) { return delta.vertex_edge.edge_type == edge_type; };
+  auto const predicate = [edge_type](Delta const &delta) { return delta.vertex_edge.edge_type == edge_type; };
 
   // clang-format off
   using enum Delta::Action;

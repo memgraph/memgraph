@@ -11,15 +11,35 @@
 
 #pragma once
 
-#include <cstdint>
-#include <functional>
+#include <condition_variable>
+#include <mutex>
+#include <thread>
+#include <variant>
+#include "storage/v2/id_types.hpp"
+#include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
 
-using CheckCancelFunction = std::function<bool()>;
-constexpr auto neverCancel = []() { return false; };
+class Storage;
 
-// default for when callback not provided
-constexpr auto always_invalidate_plan_cache = []<typename... Args>(Args && ...) { return true; };
+struct AutoIndexer {
+  AutoIndexer(std::stop_token stop_token, Storage *storage);
+
+  ~AutoIndexer();
+
+  void Enqueue(LabelId label);
+
+  void Enqueue(EdgeTypeId edge_type);
+
+  void RunGC();
+
+  void Clear();
+
+ private:
+  utils::SkipList<std::variant<LabelId, EdgeTypeId>> request_queue_{};
+  std::mutex mutex_{};
+  std::condition_variable cv_{};
+  std::jthread index_creator_thread_{};
+};
 
 }  // namespace memgraph::storage

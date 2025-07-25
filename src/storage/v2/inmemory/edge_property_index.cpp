@@ -348,7 +348,9 @@ uint64_t InMemoryEdgePropertyIndex::ActiveIndices::ApproximateEdgeCount(
 
 void InMemoryEdgePropertyIndex::DropGraphClearIndices() {
   index_.WithLock([](std::shared_ptr<IndicesContainer const> &index) { index = std::make_shared<IndicesContainer>(); });
-  CleanupAllIndicies();
+  all_indices_.WithLock([](std::shared_ptr<std::vector<AllIndicesEntry> const> &all_indices) {
+    all_indices = std::make_unique<std::vector<AllIndicesEntry>>();
+  });
 }
 
 InMemoryEdgePropertyIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor,
