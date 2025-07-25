@@ -791,6 +791,7 @@ class DbAccessor final {
 
   auto GetStorageAccessor() const -> storage::Storage::Accessor * { return accessor_; }
 
+#ifdef MG_ENTERPRISE
   // TTL operations - pushed into accessor
   void StartTtl() { accessor_->StartTtl(); }
 
@@ -801,6 +802,7 @@ class DbAccessor final {
   void StopTtl() { accessor_->StopTtl(); }
 
   storage::ttl::TtlInfo GetTtlConfig() const { return accessor_->GetTtlConfig(); }
+#endif
 };
 
 class SubgraphDbAccessor final {

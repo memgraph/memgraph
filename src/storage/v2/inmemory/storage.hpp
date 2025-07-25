@@ -538,8 +538,7 @@ class InMemoryStorage final : public Storage {
 
     std::vector<VectorEdgeIndexInfo> ListAllVectorEdgeIndices() const override;
 
-    ttl::TTL &ttl() override { return storage_->ttl_; }
-
+#ifdef MG_ENTERPRISE
     // TTL management methods
     void StartTtl() override {
       if (!storage_->ttl_.Config()) throw ttl::TtlException("TTL not configured!");
@@ -595,6 +594,7 @@ class InMemoryStorage final : public Storage {
     }
 
     storage::ttl::TtlInfo GetTtlConfig() const override { return storage_->ttl_.Config(); }
+#endif
 
     void DowngradeToReadIfValid();
 

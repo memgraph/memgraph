@@ -7881,6 +7881,7 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
     offset_ttl = snapshot.GetPosition();
     snapshot.WriteMarker(Marker::SECTION_TTL);
 
+#ifdef MG_ENTERPRISE
     // Write TTL enabled state
     snapshot.WriteBool(storage->ttl_.Enabled());
 
@@ -7908,6 +7909,10 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
       // Write should_run_edge_ttl
       snapshot.WriteBool(info.should_run_edge_ttl);
     }
+#else
+    // Write TTL always disabled in community edition
+    snapshot.WriteBool(false);
+#endif
 
     if (snapshot_aborted()) {
       return false;

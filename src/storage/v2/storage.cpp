@@ -155,8 +155,6 @@ Storage::Accessor::Accessor(Accessor &&other) noexcept
 
 StorageMode Storage::GetStorageMode() const noexcept { return storage_mode_; }
 
-ttl::TTL &Storage::Accessor::ttl() { return storage_->ttl_; }
-
 std::vector<EventInfo> Storage::GetMetrics() noexcept {
   std::vector<EventInfo> result;
   result.reserve(metrics::CounterEnd() + metrics::GaugeEnd() + metrics::HistogramEnd());

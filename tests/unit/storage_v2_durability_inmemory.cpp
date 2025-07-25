@@ -3870,6 +3870,7 @@ TEST_P(DurabilityTest, EdgeMetadataRecovered) {
   }
 }
 
+#ifdef MG_ENTERPRISE
 // Comprehensive test for TTL durability via WAL/snapshots with different configurations
 TEST_F(DurabilityTest, TtlDurability) {
   // Test 1: TTL enabled with edge TTL
@@ -4232,3 +4233,4 @@ TEST_F(DurabilityTest, TtlDurability) {
     }
   }
 }
+#endif

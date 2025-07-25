@@ -1486,6 +1486,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           }
         },
         [&](WalTtlOperation const &data) {
+#ifdef MG_ENTERPRISE
           spdlog::trace("   Delta {}. TTL operation type {}", current_delta_idx, static_cast<int>(data.operation_type));
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           switch (data.operation_type) {
@@ -1508,6 +1509,9 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
             default:
               throw utils::BasicException("Invalid TTL operation type: {}", static_cast<int>(data.operation_type));
           }
+#else
+          spdlog::trace("TTL operation is not supported in community edition");
+#endif
         },
     };
 
