@@ -2333,6 +2333,12 @@ TEST_F(AuthWithStorage, SetProfileUserWRole) {
     auth->SaveUser(*user);
   }
   {
+    const auto profile = auth->GetRole("role")->profile();
+    ASSERT_TRUE(profile);
+    ASSERT_EQ(profile->name, "profile");
+    ASSERT_EQ(profile->limits.size(), 0);
+  }
+  {
     const auto profile = auth->GetUser("user")->GetProfile();
     ASSERT_TRUE(profile);
     ASSERT_EQ(profile->name, "profile");

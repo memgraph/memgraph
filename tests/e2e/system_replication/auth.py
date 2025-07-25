@@ -1396,6 +1396,9 @@ def test_user_profile_replication(connection, test_name):
     )
     all_resource_check({("transactions_memory", None, "UNLIMITED"), ("sessions", 2, "UNLIMITED")})
 
+    # Hotfix: Make sure the last connection is user1 on main (connect caches the connection and uses it for cleanup)
+    connection(BOLT_PORTS["main"], "main", "user1")
+
 
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
