@@ -996,6 +996,11 @@ antlrcpp::Any CypherMainVisitor::visitShowSnapshotsQuery(MemgraphCypher::ShowSna
   return query_;
 }
 
+antlrcpp::Any CypherMainVisitor::visitShowNextSnapshotQuery(MemgraphCypher::ShowNextSnapshotQueryContext * /*ctx*/) {
+  query_ = storage_->Create<ShowNextSnapshotQuery>();
+  return query_;
+}
+
 antlrcpp::Any CypherMainVisitor::visitStreamQuery(MemgraphCypher::StreamQueryContext *ctx) {
   MG_ASSERT(ctx->children.size() == 1, "StreamQuery should have exactly one child!");
   auto *stream_query = std::any_cast<StreamQuery *>(ctx->children[0]->accept(this));

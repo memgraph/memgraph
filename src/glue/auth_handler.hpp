@@ -62,6 +62,8 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
 
   bool DropRole(const std::string &rolename, system::Transaction *system_tx) override;
 
+  bool HasRole(const std::string &rolename) override;
+
   std::vector<memgraph::query::TypedValue> GetUsernames() override;
 
   std::vector<memgraph::query::TypedValue> GetRolenames() override;
@@ -80,7 +82,7 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
                   system::Transaction *system_tx) override;
 
   std::vector<std::vector<memgraph::query::TypedValue>> GetPrivileges(const std::string &user_or_role,
-                                                                      std::string_view = "") override;
+                                                                      std::optional<std::string>) override;
 
   void GrantPrivilege(
       const std::string &user_or_role, const std::vector<memgraph::query::AuthQuery::Privilege> &privileges

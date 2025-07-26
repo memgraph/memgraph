@@ -324,23 +324,34 @@ def test_show_role_syntax_variations(memgraph):
     memgraph.execute("CREATE ROLE role2;")
     memgraph.execute("SET ROLE FOR test_user TO role1, role2;")
 
-    # Test SHOW ROLE (singular)
+    # Test SHOW ROLE (singular) - should work without database specification
     results = list(memgraph.execute_and_fetch("SHOW ROLE FOR test_user;"))
     assert len(results) > 0
+    # Should show both roles
+    role_names = [row["role"] for row in results]
+    assert "role1" in role_names
+    assert "role2" in role_names
 
-    # Test SHOW ROLES (plural)
+    # Test SHOW ROLES (plural) - should work without database specification
     results = list(memgraph.execute_and_fetch("SHOW ROLES FOR test_user;"))
     assert len(results) > 0
+    # Should show both roles
+    role_names = [row["role"] for row in results]
+    assert "role1" in role_names
+    assert "role2" in role_names
 
     memgraph.execute("CREATE DATABASE db1;")
     memgraph.execute("CREATE DATABASE db2;")
     memgraph.execute("GRANT DATABASE db1 TO role1;")
     memgraph.execute("GRANT DATABASE db2 TO role2;")
-    try:
-        memgraph.execute("SHOW ROLE FOR test_user;")
-        assert False, "Expected exception"
-    except Exception as e:
-        pass
+
+    # Test that SHOW ROLE still works without database specification even in multi-database environment
+    results = list(memgraph.execute_and_fetch("SHOW ROLE FOR test_user;"))
+    assert len(results) > 0
+    # Should still show both roles
+    role_names = [row["role"] for row in results]
+    assert "role1" in role_names
+    assert "role2" in role_names
 
     memgraph.execute("CLEAR ROLE FOR test_user;")
     memgraph.execute("SET ROLE FOR test_user TO role1 ON db1;")
@@ -416,6 +427,19 @@ def test_database_specific_role_management(memgraph):
 
     results = list(memgraph.execute_and_fetch("SHOW ROLES FOR test_user ON DATABASE db2;"))
     assert results == [{"role": "null"}]
+
+    # Test that SHOW ROLE works without database specification even with database-specific roles
+    # Set some database-specific roles
+    memgraph.execute("SET ROLE FOR test_user TO role1 ON db1;")
+    memgraph.execute("SET ROLE FOR test_user TO role2 ON db2;")
+
+    # SHOW ROLE without database specification should still work
+    results = list(memgraph.execute_and_fetch("SHOW ROLE FOR test_user;"))
+    assert len(results) > 0, "SHOW ROLE should work without database specification"
+
+    # SHOW ROLES without database specification should also work
+    results = list(memgraph.execute_and_fetch("SHOW ROLES FOR test_user;"))
+    assert len(results) > 0, "SHOW ROLES should work without database specification"
 
     # Clean up
     memgraph.execute("DROP USER test_user;")
@@ -614,6 +638,57 @@ def test_show_databases_for_user_and_role(memgraph):
     memgraph.execute("DROP DATABASE db1;")
     memgraph.execute("DROP DATABASE db2;")
     memgraph.execute("DROP DATABASE db3;")
+
+
+def test_show_role_no_database_specification_required(memgraph):
+    """Test that SHOW ROLE FOR user no longer forces database specification."""
+    # Create test user and roles
+    memgraph.execute("CREATE USER test_user;")
+    memgraph.execute("CREATE ROLE global_role;")
+    memgraph.execute("CREATE ROLE db_specific_role;")
+
+    # Set a global role
+    memgraph.execute("SET ROLE FOR test_user TO global_role;")
+
+    # Test that SHOW ROLE works without database specification
+    results = list(memgraph.execute_and_fetch("SHOW ROLE FOR test_user;"))
+    assert len(results) == 1
+    assert results[0]["role"] == "global_role"
+
+    # Test that SHOW ROLES works without database specification
+    results = list(memgraph.execute_and_fetch("SHOW ROLES FOR test_user;"))
+    assert len(results) == 1
+    assert results[0]["role"] == "global_role"
+
+    # Create a database and set database-specific role
+    memgraph.execute("CREATE DATABASE test_db;")
+    memgraph.execute("GRANT DATABASE test_db TO db_specific_role;")
+    memgraph.execute("SET ROLE FOR test_user TO db_specific_role ON test_db;")
+
+    # Test that SHOW ROLE still works without database specification in multi-database environment
+    results = list(memgraph.execute_and_fetch("SHOW ROLE FOR test_user;"))
+    assert len(results) > 0, "SHOW ROLE should work without database specification even in multi-database environment"
+
+    # Test that SHOW ROLES still works without database specification in multi-database environment
+    results = list(memgraph.execute_and_fetch("SHOW ROLES FOR test_user;"))
+    assert len(results) > 0, "SHOW ROLES should work without database specification even in multi-database environment"
+
+    # Test with multiple global roles
+    memgraph.execute("CREATE ROLE second_global_role;")
+    memgraph.execute("SET ROLE FOR test_user TO global_role, second_global_role;")
+
+    results = list(memgraph.execute_and_fetch("SHOW ROLE FOR test_user;"))
+    assert len(results) == 2
+    role_names = [row["role"] for row in results]
+    assert "global_role" in role_names
+    assert "second_global_role" in role_names
+
+    # Clean up
+    memgraph.execute("DROP USER test_user;")
+    memgraph.execute("DROP ROLE global_role;")
+    memgraph.execute("DROP ROLE second_global_role;")
+    memgraph.execute("DROP ROLE db_specific_role;")
+    memgraph.execute("DROP DATABASE test_db;")
 
 
 if __name__ == "__main__":
