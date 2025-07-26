@@ -12,6 +12,7 @@ args_100_MiB_limit: &args_100_MiB_limit
   - "--memory-limit=100"
   - "--storage-gc-cycle-sec=180"
   - "--log-level=TRACE"
+  - "--data-recovery-on-startup=false"
 
 in_memory_100_MiB_limit_cluster: &in_memory_100_MiB_limit_cluster
   cluster:

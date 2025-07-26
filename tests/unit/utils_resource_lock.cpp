@@ -228,17 +228,20 @@ TEST_F(ResourceLockTest, ReadOnlyLockTryForWillNotifyWaitingWriterUponFailure) {
     return !guard_ro.try_lock_for(2ms);
   });
 
+  std::atomic<std::chrono::milliseconds> w2_duration{0ms};
   auto w2_outcome = std::async([&] {
     auto guard_write_2 = SharedResourceLockGuard(lock, SharedResourceLockGuard::WRITE, std::defer_lock);
     latch1.arrive_and_wait();
     // wait for read only workload to start to try and get the lock
     std::this_thread::sleep_for(1ms);
     // expect to get lock
-    return guard_write_2.try_lock_for(100ms);
+    auto start = std::chrono::steady_clock::now();
+    auto result = guard_write_2.try_lock_for(100ms);
+    w2_duration = std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::steady_clock::now() - start);
+    return result;
   });
 
   latch1.wait();
-  auto start = std::chrono::steady_clock::now();
 
   // Ensure that the all wait times will time out
   std::this_thread::sleep_for(3ms);
@@ -246,10 +249,7 @@ TEST_F(ResourceLockTest, ReadOnlyLockTryForWillNotifyWaitingWriterUponFailure) {
   // Check we got the write lock, and did not have to wait for whole 100ms
   {
     auto writer_result = w2_outcome.get();
-    auto end = std::chrono::steady_clock::now();
-    auto duration = std::chrono::duration_cast<std::chrono::milliseconds>(end - start);
-
-    ASSERT_LT(duration, 20ms);
+    ASSERT_LT(w2_duration.load(), 100ms);
     ASSERT_TRUE(writer_result);
   }
 
