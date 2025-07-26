@@ -845,7 +845,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWithMultipleRolesWhenFilteringByDefault
 
   // Test with empty database name (should return all privileges)
   {
-    auto privileges = auth_handler.GetPrivileges(user_name);
+    auto privileges = auth_handler.GetPrivileges(user_name, std::nullopt);
     ASSERT_EQ(privileges.size(), 2);
   }
 

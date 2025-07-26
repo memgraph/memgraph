@@ -6571,7 +6571,7 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
       override { /*CreateSnapshot is also used in a periodic way so internally will arrange its own access*/
   }
   void Visit(ShowSnapshotsQuery &) override {}
-  void Visit(ShowNextSnapshotQuery &) override {}
+  void Visit(ShowNextSnapshotQuery & /* unused */) override {}
   void Visit(EdgeImportModeQuery &) override {}
   void Visit(AlterEnumRemoveValueQuery &) override { /* Not implemented yet */
   }
