@@ -321,6 +321,9 @@ constexpr utils::TypeInfo query::RecoverSnapshotQuery::kType{utils::TypeId::AST_
 constexpr utils::TypeInfo query::ShowSnapshotsQuery::kType{utils::TypeId::AST_SHOW_SNAPSHOTS_QUERY,
                                                            "ShowSnapshotsQuery", &query::Query::kType};
 
+constexpr utils::TypeInfo query::ShowNextSnapshotQuery::kType{utils::TypeId::AST_SHOW_NEXT_SNAPSHOT_QUERY,
+                                                              "ShowNextSnapshotQuery", &query::Query::kType};
+
 constexpr utils::TypeInfo query::StreamQuery::kType{utils::TypeId::AST_STREAM_QUERY, "StreamQuery",
                                                     &query::Query::kType};
 

@@ -573,6 +573,8 @@ class InMemoryStorage final : public Storage {
 
   std::vector<SnapshotFileInfo> ShowSnapshots();
 
+  std::optional<SnapshotFileInfo> ShowNextSnapshot();
+
   void CreateSnapshotHandler(std::function<utils::BasicResult<InMemoryStorage::CreateSnapshotError>()> cb);
 
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;

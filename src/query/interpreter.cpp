@@ -1175,16 +1175,18 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
           if (database_specification != AuthQuery::DatabaseSpecification::NONE) {
             throw QueryRuntimeException("Multi-database queries are only available in enterprise edition");
           }
-          return auth->GetPrivileges(user_or_role);
+          return auth->GetPrivileges(user_or_role, std::nullopt);
         }
-        std::string target_db;
+        std::optional<std::string> target_db;
         switch (database_specification) {
           case AuthQuery::DatabaseSpecification::NONE:
-            // Allow only if there are no other databases
-            if (db_handler->Count() > 1) {
+            // Allow only if there are no other databases (or for roles)
+            // Roles themselves cannot have MT specializations, so no need to filter for them (nullopt)
+            // Users can have MT specializations, so we force them to specify the database
+            if (db_handler->Count() > 1 && !auth->HasRole(user_or_role)) {
               throw QueryRuntimeException(
                   "In a multi-tenant environment, SHOW PRIVILEGES query requires database specification. Use ON MAIN, "
-                  "ON CURRENT or ON DATABASE.");
+                  "ON CURRENT or ON DATABASE db_name.");
             }
             break;
           case AuthQuery::DatabaseSpecification::MAIN: {
@@ -1205,16 +1207,16 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
             break;
         }
         std::optional<dbms::DatabaseAccess> target_db_acc;
-        if (!target_db.empty()) {
+        if (target_db) {
           // Check that the db exists
-          target_db_acc = db_handler->Get(target_db);
+          target_db_acc = db_handler->Get(*target_db);
         }
         return auth->GetPrivileges(user_or_role, target_db);
 #else
         if (database_specification != AuthQuery::DatabaseSpecification::NONE) {
           throw QueryRuntimeException("Multi-database queries are only available in enterprise edition");
         }
-        return auth->GetPrivileges(user_or_role);
+        return auth->GetPrivileges(user_or_role, std::nullopt);
 #endif
       };
       return callback;
@@ -1234,12 +1236,6 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         std::optional<std::string> target_db;
         switch (database_specification) {
           case AuthQuery::DatabaseSpecification::NONE:
-            // Allow only if there are no other databases
-            if (db_handler->Count() > 1) {
-              throw QueryRuntimeException(
-                  "In a multi-tenant environment, SHOW ROLE FOR USER query requires database specification. Use ON "
-                  "MAIN, ON CURRENT or ON DATABASE.");
-            }
             break;
           case AuthQuery::DatabaseSpecification::MAIN: {
             auto main_db = auth->GetMainDatabase(username);
@@ -4909,6 +4905,47 @@ PreparedQuery PrepareShowSnapshotsQuery(ParsedQuery parsed_query, bool in_explic
                        RWType::NONE};
 }
 
+PreparedQuery PrepareShowNextSnapshotQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                                           CurrentDB &current_db) {
+  if (in_explicit_transaction) {
+    throw ShowSchemaInfoInMulticommandTxException();
+  }
+
+  MG_ASSERT(current_db.db_acc_, "Show Next Snapshot query expects a current DB");
+  storage::Storage *storage = current_db.db_acc_->get()->storage();
+
+  if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+    throw ShowSnapshotsDisabledOnDiskStorage();
+  }
+
+  Callback callback;
+  callback.header = {"path", "creation_time"};
+  callback.fn = [storage]() mutable -> std::vector<std::vector<TypedValue>> {
+    std::vector<std::vector<TypedValue>> infos;
+    const auto res = static_cast<storage::InMemoryStorage *>(storage)->ShowNextSnapshot();
+
+    if (res) {
+      infos.push_back({TypedValue{res->path.string()}, TypedValue{res->creation_time.ToStringWTZ()}});
+    }
+    return infos;
+  };
+
+  return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
+                       [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+                         if (!pull_plan) {
+                           auto results = handler();
+                           pull_plan = std::make_shared<PullPlanVector>(std::move(results));
+                         }
+
+                         if (pull_plan->Pull(stream, n)) {
+                           return QueryHandlerResult::NOTHING;
+                         }
+                         return std::nullopt;
+                       },
+                       RWType::NONE};
+}
+
 PreparedQuery PrepareSettingQuery(ParsedQuery parsed_query, const bool in_explicit_transaction) {
   if (in_explicit_transaction) {
     throw SettingConfigInMulticommandTxException{};
@@ -6477,6 +6514,7 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
       override { /*CreateSnapshot is also used in a periodic way so internally will arrange its own access*/
   }
   void Visit(ShowSnapshotsQuery &) override {}
+  void Visit(ShowNextSnapshotQuery & /* unused */) override {}
   void Visit(EdgeImportModeQuery &) override {}
   void Visit(AlterEnumRemoveValueQuery &) override { /* Not implemented yet */
   }
@@ -6796,6 +6834,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
           PrepareRecoverSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, current_db_, replication_role);
     } else if (utils::Downcast<ShowSnapshotsQuery>(parsed_query.query)) {
       prepared_query = PrepareShowSnapshotsQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
+    } else if (utils::Downcast<ShowNextSnapshotQuery>(parsed_query.query)) {
+      prepared_query = PrepareShowNextSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<SettingQuery>(parsed_query.query)) {
       /// SYSTEM PURE
       prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_);
@@ -6922,16 +6962,15 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 }
 
 void Interpreter::CheckAuthorized(std::vector<AuthQuery::Privilege> const &privileges, std::optional<std::string> db) {
-  const std::string db_name = db.value_or("");
-  if (user_or_role_ && !user_or_role_->IsAuthorized(privileges, db_name, &query::session_long_policy)) {
+  if (user_or_role_ && !user_or_role_->IsAuthorized(privileges, db, &query::session_long_policy)) {
     Abort();
-    if (db_name.empty()) {
+    if (!db) {
       throw QueryException("You are not authorized to execute this query! Please contact your database administrator.");
     }
     throw QueryException(
         "You are not authorized to execute this query on database \"{}\"! Please contact your database "
         "administrator.",
-        db_name);
+        db.value());
   }
 }
 
