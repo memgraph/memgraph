@@ -833,7 +833,7 @@ def test_basic_recovery(recover_data_on_startup, connection, test_name):
             "127.0.0.1:10001",
             "sync",
             {"ts": 0, "behind": None, "status": "invalid"},
-            {"memgraph": {"ts": 6, "behind": -3, "status": "invalid"}},
+            {"memgraph": {"ts": 6, "behind": 3, "status": "invalid"}},
         ),
         (
             "replica_2",
@@ -1560,7 +1560,7 @@ def test_attempt_to_write_data_on_main_when_sync_replica_is_down(connection, tes
             "127.0.0.1:10001",
             "sync",
             {"ts": 0, "behind": None, "status": "invalid"},
-            {"memgraph": {"ts": 2, "behind": -3, "status": "invalid"}},
+            {"memgraph": {"ts": 2, "behind": 3, "status": "invalid"}},
         ),
         (
             "sync_replica2",
@@ -1807,7 +1807,7 @@ def test_attempt_to_create_indexes_on_main_when_sync_replica_is_down(connection,
             "127.0.0.1:10001",
             "sync",
             {"ts": 0, "behind": None, "status": "invalid"},
-            {"memgraph": {"ts": 2, "behind": -4, "status": "invalid"}},
+            {"memgraph": {"ts": 2, "behind": 4, "status": "invalid"}},
         ),
         (
             "sync_replica2",
