@@ -517,7 +517,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     snapshot_durable_timestamp = recovered_snapshot->snapshot_info.durable_timestamp;
     spdlog::trace("Recovered epoch {} for db {}", recovered_snapshot->snapshot_info.epoch_id, db_name);
     repl_storage_state.epoch_.SetEpoch(std::move(recovered_snapshot->snapshot_info.epoch_id));
-    recovery_info.last_durable_timestamp = snapshot_durable_timestamp;
+    recovery_info.last_durable_timestamp = *snapshot_durable_timestamp;
   } else {
     // UUID couldn't be recovered from the snapshot; recovering it from WALs
     spdlog::info("No snapshot file was found, collecting information from WAL directory {}.", wal_directory_);
@@ -622,10 +622,8 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
           recovery_info.next_edge_id = std::max(recovery_info.next_edge_id, info->next_edge_id);
           recovery_info.next_timestamp = std::max(recovery_info.next_timestamp, info->next_timestamp);
           recovery_info.last_durable_timestamp = info->last_durable_timestamp;
-          MG_ASSERT(info->last_durable_timestamp.has_value(),
-                    "RecoveryInfo has value but ldt not after loading from WAL");
-          last_loaded_timestamp.emplace(*info->last_durable_timestamp);
-          spdlog::trace("Set ldt to {} after loading from WAL", *info->last_durable_timestamp);
+          last_loaded_timestamp.emplace(info->last_durable_timestamp);
+          spdlog::trace("Set ldt to {} after loading from WAL", info->last_durable_timestamp);
         }
 
         if (epoch_history->empty() || epoch_history->back().first != wal_file.epoch_id) {
