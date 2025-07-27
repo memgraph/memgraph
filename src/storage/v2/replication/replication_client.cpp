@@ -236,10 +236,8 @@ TimestampInfo ReplicationStorageClient::GetTimestampInfo(Storage const *storage)
   auto const main_timestamp = storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
   auto const replica_timestamp = last_known_ts_.load(std::memory_order_acquire);
   // NOTE: Intentional negative value
-  return {
-    .current_timestamp_of_replica = replica_timestamp,
-    .current_number_of_timestamp_behind_main = replica_timestamp - main_timestamp
-  }
+  return {.current_timestamp_of_replica = replica_timestamp,
+          .current_number_of_timestamp_behind_main = replica_timestamp - main_timestamp};
 }
 
 void ReplicationStorageClient::LogRpcFailure() const {
