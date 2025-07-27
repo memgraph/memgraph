@@ -233,11 +233,13 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
 }
 
 TimestampInfo ReplicationStorageClient::GetTimestampInfo(Storage const *storage) const {
-  TimestampInfo info;
   auto const main_timestamp = storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
-  info.current_timestamp_of_replica = last_known_ts_.load(std::memory_order::acquire);
-  info.current_number_of_timestamp_behind_main = info.current_timestamp_of_replica - main_timestamp;
-  return info;
+  auto const replica_timestamp = last_known_ts_.load(std::memory_order_acquire);
+  // NOTE: Intentional negative value
+  return {
+    .current_timestamp_of_replica = replica_timestamp,
+    .current_number_of_timestamp_behind_main = replica_timestamp - main_timestamp
+  }
 }
 
 void ReplicationStorageClient::LogRpcFailure() const {

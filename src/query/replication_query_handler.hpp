@@ -51,7 +51,7 @@ enum class ShowReplicaError : uint8_t {
 
 struct ReplicaSystemInfoState {
   uint64_t ts_;
-  uint64_t behind_;
+  int64_t behind_;
   replication::ReplicationClient::State state_;
 };
 
@@ -60,7 +60,7 @@ struct ReplicaInfoState {
       : ts_(ts), behind_(behind), state_(state) {}
 
   uint64_t ts_;
-  uint64_t behind_;
+  int64_t behind_;
   storage::replication::ReplicaState state_;
 };
 

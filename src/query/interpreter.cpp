@@ -1572,7 +1572,7 @@ Callback HandleReplicationInfoQuery(ReplicationInfoQuery *repl_query,
           auto info = std::map<std::string, TypedValue>{};
           info.emplace("ts", TypedValue{static_cast<int64_t>(orig.ts_)});
           // TODO: behind not implemented
-          info.emplace("behind", TypedValue{/* static_cast<int64_t>(orig.behind_) */});
+          info.emplace("behind", TypedValue{/*orig.behind_*/});
           info.emplace("status", replica_sys_state_to_tv(orig.state_));
           return TypedValue{std::move(info)};
         };
@@ -1597,7 +1597,7 @@ Callback HandleReplicationInfoQuery(ReplicationInfoQuery *repl_query,
         auto const info_to_tv = [&](ReplicaInfoState orig) {
           auto info = std::map<std::string, TypedValue>{};
           info.emplace("ts", TypedValue{static_cast<int64_t>(orig.ts_)});
-          info.emplace("behind", TypedValue{static_cast<int64_t>(orig.behind_)});
+          info.emplace("behind", TypedValue{orig.behind_});
           info.emplace("status", replica_state_to_tv(orig.state_));
           return TypedValue{std::move(info)};
         };
