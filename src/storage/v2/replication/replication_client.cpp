@@ -71,7 +71,7 @@ ReplicationStorageClient::ReplicationStorageClient(::memgraph::replication::Repl
     : client_{client}, main_uuid_(main_uuid) {}
 
 void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, DatabaseAccessProtector db_acc) {
-  auto &replStorageState = main_storage->repl_storage_state_;
+  auto &main_repl_state = main_storage->repl_storage_state_;
   auto const &main_db_name = main_storage->name();
 
   // stream should be destroyed so that RPC lock is released before taking engine lock
@@ -87,8 +87,8 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
         if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
           auto hb_stream = client_.rpc_client_.TryStream<replication::HeartbeatRpc>(
               std::optional{kHeartbeatRpcTimeout}, main_uuid_, main_storage->uuid(),
-              replStorageState.last_durable_timestamp_.load(std::memory_order_acquire),
-              std::string{replStorageState.epoch_.id()});
+              main_repl_state.last_durable_timestamp_.load(std::memory_order_acquire),
+              std::string{main_repl_state.epoch_.id()});
 
           std::optional<replication::HeartbeatRes> res;
           if (hb_stream.has_value()) {
@@ -99,8 +99,8 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
 
         // If SYNC or STRICT_SYNC replica, block while waiting for RPC lock
         auto hb_stream = client_.rpc_client_.Stream<replication::HeartbeatRpc>(
-            main_uuid_, main_storage->uuid(), replStorageState.last_durable_timestamp_.load(std::memory_order_acquire),
-            std::string{replStorageState.epoch_.id()});
+            main_uuid_, main_storage->uuid(), main_repl_state.last_durable_timestamp_.load(std::memory_order_acquire),
+            std::string{main_repl_state.epoch_.id()});
         return hb_stream.SendAndWait();
       });
 
@@ -129,20 +129,20 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
   // different epoch id, replica was main
   // In case there is no epoch transfer, and MAIN doesn't hold all the epochs as it could have been down and miss it
   // we need then just to check commit timestamp
-  if (heartbeat_res.epoch_id != replStorageState.epoch_.id() &&
+  if (heartbeat_res.epoch_id != main_repl_state.epoch_.id() &&
       heartbeat_res.current_commit_timestamp != kTimestampInitialId) {
     spdlog::trace(
         "DB: {} Replica {}: Epoch id: {}, last_durable_timestamp: {}; Main: Epoch id: {}, last_durable_timestamp: {}",
         main_db_name, client_.name_, std::string(heartbeat_res.epoch_id), heartbeat_res.current_commit_timestamp,
-        std::string(replStorageState.epoch_.id()),
-        replStorageState.last_durable_timestamp_.load(std::memory_order_acquire));
+        std::string(main_repl_state.epoch_.id()),
+        main_repl_state.last_durable_timestamp_.load(std::memory_order_acquire));
 
-    auto const &history = replStorageState.history;
-    const auto epoch_info_iter = std::find_if(history.crbegin(), history.crend(), [&](const auto &main_epoch_info) {
-      return main_epoch_info.first == heartbeat_res.epoch_id;
-    });
+    auto const &main_history = main_repl_state.history;
+    const auto epoch_info_iter =
+        std::find_if(main_history.crbegin(), main_history.crend(),
+                     [&](const auto &main_epoch_info) { return main_epoch_info.first == heartbeat_res.epoch_id; });
 
-    if (epoch_info_iter == history.crend()) {
+    if (epoch_info_iter == main_history.crend()) {
       branching_point = 0;
       spdlog::trace("Couldn't find epoch {} in main for db {}, setting branching point to 0.",
                     std::string(heartbeat_res.epoch_id), main_db_name);
@@ -213,13 +213,13 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
   spdlog::trace("Current timestamp on replica {} for db {} is {}.", client_.name_, main_db_name,
                 heartbeat_res.current_commit_timestamp);
   spdlog::trace("Current durable timestamp on main for db {} is {}", main_db_name,
-                replStorageState.last_durable_timestamp_.load(std::memory_order_acquire));
+                main_repl_state.last_durable_timestamp_.load(std::memory_order_acquire));
 
   replica_state_.WithLock([&](auto &state) {
     // Recovered state didn't change in the meantime
     // ldt can be larger on replica due to snapshots
     if (heartbeat_res.current_commit_timestamp >=
-        replStorageState.last_durable_timestamp_.load(std::memory_order_acquire)) {
+        main_repl_state.last_durable_timestamp_.load(std::memory_order_acquire)) {
       spdlog::debug("Replica {} up to date for db {}.", client_.name_, main_db_name);
       state = ReplicaState::READY;
     } else {

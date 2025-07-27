@@ -46,8 +46,7 @@ struct ReplicationStorageState {
   auto GetReplicaState(std::string_view name) const -> std::optional<replication::ReplicaState>;
 
   // History
-  void TrackLatestHistory();
-  void AddEpochToHistoryForce(std::string prev_epoch);
+  void SaveLatestHistory();
 
   void Reset();
 
