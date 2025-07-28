@@ -7157,8 +7157,8 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
 }
 
 auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_directory, const std::string &path,
-                                        const std::string &uuid, utils::FileRetainer *file_retainer,
-                                        Storage *storage) -> OldSnapshotFiles {
+                                        const std::string &uuid, utils::FileRetainer *file_retainer, Storage *storage)
+    -> OldSnapshotFiles {
   OldSnapshotFiles old_snapshot_files;
   std::error_code error_code;
   for (const auto &item : std::filesystem::directory_iterator(snapshot_directory, error_code)) {
@@ -7892,19 +7892,15 @@ bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::files
       const auto &info = storage->ttl_.Config();
 
       // Write period
+      snapshot.WriteBool(info.period.has_value());
       if (info.period) {
-        snapshot.WriteBool(true);
         snapshot.WriteUint(info.period->count());
-      } else {
-        snapshot.WriteBool(false);
       }
 
       // Write start_time
+      snapshot.WriteBool(info.start_time.has_value());
       if (info.start_time) {
-        snapshot.WriteBool(true);
         snapshot.WriteUint(info.start_time->time_since_epoch().count());
-      } else {
-        snapshot.WriteBool(false);
       }
 
       // Write should_run_edge_ttl

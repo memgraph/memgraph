@@ -386,11 +386,12 @@ template <bool is_read, typename T>
 auto Decode(utils::tag_type<std::optional<T>> /*unused*/, BaseDecoder *decoder, const uint64_t version)
     -> std::conditional_t<is_read, std::optional<T>, void> {
   auto has_value = decoder->ReadBool();
+  if (!has_value) throw RecoveryFailure(kInvalidWalErrorMessage);
   if constexpr (is_read) {
-    if (!has_value) return std::nullopt;
+    if (*has_value) return std::nullopt;
     return Decode<is_read>(utils::tag_t<T>, decoder, version);
   } else {
-    if (!has_value) return;
+    if (*has_value) return;
     return Decode<is_read>(utils::tag_t<T>, decoder, version);
   }
 }
@@ -476,7 +477,7 @@ requires std::is_integral_v<T> && std::is_unsigned_v<T>
 auto Decode(utils::tag_type<T> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
     -> std::conditional_t<is_read, T, void> {
   const auto value = decoder->ReadUint();
-  if (!value) throw RecoveryFailure(kInvalidWalErrorMessage);
+  if (!value) throw RecoveryFailure("here {}", value.has_value());
   if constexpr (is_read) {
     return static_cast<T>(*value);
   }
@@ -610,7 +611,14 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     read_skip(VECTOR_INDEX_CREATE, WalVectorIndexCreate);
     read_skip(VECTOR_EDGE_INDEX_CREATE, WalVectorEdgeIndexCreate);
     read_skip(VECTOR_INDEX_DROP, WalVectorIndexDrop);
-    read_skip(TTL_OPERATION, WalTtlOperation);
+    case Marker::DELTA_TTL_OPERATION: {
+      if constexpr (read_data) {
+        return {.data_ = Read<WalTtlOperation>(decoder, version)};
+      } else {
+        Skip<WalTtlOperation>(decoder, version);
+        return IsMarkerTransactionEnd(*action, version);
+      }
+    };
 
     // Other markers are not actions
     case Marker::TYPE_NULL:
