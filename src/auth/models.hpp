@@ -623,7 +623,7 @@ class Roles {
     return !UserImpIsDenied(user, db_name) && UserImpIsGranted(user, db_name);
   }
 
-  std::optional<UserProfiles::Profile> Profile(const std::optional<std::string> &db_name) const {
+  std::optional<UserProfiles::Profile> Profile(std::optional<std::string_view> db_name) const {
     std::optional<UserProfiles::Profile> profile;
     for (const auto &role : roles_) {
       if (db_name && !role.HasAccess(*db_name)) continue;  // Skip roles that don't have access to the database
@@ -825,9 +825,11 @@ class User final {
 #ifdef MG_ENTERPRISE
   const std::optional<UserProfiles::Profile> &profile() const { return profile_; }
   std::optional<UserProfiles::Profile> profile() { return profile_; }
-  std::optional<UserProfiles::Profile> GetProfile() const {
+  std::optional<UserProfiles::Profile> GetProfile(std::optional<std::string_view> db_name = std::nullopt) const {
     // If both user and role have profiles, merge them
-    return UserProfiles::Merge(profile_, roles_.Profile(std::nullopt));  // TODO add db_name
+    std::optional<UserProfiles::Profile> user_profile;
+    if (!db_name || has_access(*db_name)) user_profile = profile_;
+    return UserProfiles::Merge(user_profile, roles_.Profile(db_name));
   }
   void SetProfile(const UserProfiles::Profile &profile) { profile_ = profile; }
   void ClearProfile() { profile_.reset(); }

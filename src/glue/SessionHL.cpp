@@ -260,7 +260,7 @@ utils::BasicResult<communication::bolt::AuthFailure> SessionHL::Authenticate(con
     if (locked_auth->AccessControlled()) {
       const auto user_or_role = locked_auth->Authenticate(username, password);
       if (!user_or_role.has_value()) return communication::bolt::AuthFailure::kGeneric;  // Failed to authenticate
-      session_user_or_role_ = AuthChecker::GenQueryUser(auth_, *user_or_role);
+      session_user_or_role_ = AuthChecker::GenQueryUser(auth_, user_or_role);
       DMG_ASSERT(session_user_or_role_, "Session user or role should be set after authentication, but it is not set!");
 #ifdef MG_ENTERPRISE
       // Setup user-related resource monitoring
