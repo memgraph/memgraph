@@ -199,21 +199,33 @@ void TTL::Configure(bool should_run_edge_ttl) {
 
         // Verify required indices exist and are ready for TTL operations
         // This ensures TTL can work efficiently using range-based filtering
+
         std::vector<PropertyPath> ttl_property_path = {ttl_property};
-        if (!batch_accessor->LabelPropertyIndexReady(ttl_label, ttl_property_path)) {
+        bool missing_lp_index = !batch_accessor->LabelPropertyIndexExists(ttl_label, ttl_property_path);
+        bool missing_edge_index = !batch_accessor->EdgePropertyIndexExists(ttl_property);
+
+        if (missing_lp_index) {
           spdlog::warn(
               "TTL requires label+property index on :TTL(ttl) but it doesn't exist. Will create it automatically.");
-          throw TtlMissingIndexException(TtlMissingIndexException::IndexType::LABEL_PROPERTY, ":TTL(ttl)");
+          storage_ptr_->async_indexer_->Enqueue(std::make_pair(ttl_label, PropertiesPaths{ttl_property_path}));
         }
 
-        if (info_.should_run_edge_ttl && !batch_accessor->EdgePropertyIndexReady(ttl_property)) {
+        if (info_.should_run_edge_ttl && missing_edge_index) {
           spdlog::warn(
               "TTL requires edge property index on ttl property but it doesn't exist. Will create it automatically.");
-          throw TtlMissingIndexException(TtlMissingIndexException::IndexType::EDGE_PROPERTY, "ttl property");
+          storage_ptr_->async_indexer_->Enqueue(ttl_property);
+        }
+
+        bool lp_index_ready = batch_accessor->LabelPropertyIndexReady(ttl_label, ttl_property_path);
+        bool edge_index_ready = info_.should_run_edge_ttl && batch_accessor->EdgePropertyIndexReady(ttl_property);
+
+        if (!lp_index_ready || (info_.should_run_edge_ttl && !edge_index_ready)) {
+          spdlog::warn("TTL indices not ready: label+property index on :TTL(ttl) = {}, edge property index on ttl = {}",
+                       lp_index_ready, edge_index_ready);
         }
 
         // Process vertices with TTL label and ttl property using label+property index with range
-        if (!finished_vertex) {
+        if (!finished_vertex && lp_index_ready) {
           // Use label+property index with range to efficiently find vertices where ttl < now
           // This is the most efficient approach as it uses the index to filter by property value
           std::vector<PropertyPath> ttl_property_path = {ttl_property};
@@ -243,7 +255,7 @@ void TTL::Configure(bool should_run_edge_ttl) {
           }
 
           finished_vertex = vertices_to_delete.size() < batch_size;
-        } else if (!finished_edge) {
+        } else if (!finished_edge && edge_index_ready) {
           // Process edges with TTL property using range-based filtering
           // Use edge property index with range to efficiently find edges where ttl < now
           // This is much more efficient than using property index + checking each edge for the value
@@ -271,6 +283,8 @@ void TTL::Configure(bool should_run_edge_ttl) {
           }
 
           finished_edge = edges_to_delete.size() < batch_size;
+        } else if (!lp_index_ready || !edge_index_ready) {
+          spdlog::info("TTL indices not ready, skipping this run.");
         } else {
           DMG_ASSERT(false, "Unsupported TTL state.");
         }
@@ -289,42 +303,6 @@ void TTL::Configure(bool should_run_edge_ttl) {
         memgraph::metrics::IncrementCounter(memgraph::metrics::DeletedNodes, n_deleted);
         memgraph::metrics::IncrementCounter(memgraph::metrics::DeletedEdges, n_edges_deleted);
 
-      } catch (const TtlMissingIndexException &e) {
-        // The batch_accessor will be automatically destroyed when we exit this scope
-        spdlog::info("TTL missing required index, creating it automatically: {}", e.what());
-        try {
-          // Create the missing index with read-only access
-          auto read_accessor = storage_ptr_->GetStorageMode() == StorageMode::ON_DISK_TRANSACTIONAL
-                                   ? storage_ptr_->UniqueAccess()
-                                   : storage_ptr_->ReadOnlyAccess();
-
-          if (e.GetIndexType() == TtlMissingIndexException::IndexType::LABEL_PROPERTY) {
-            // Create label+property index on :TTL(ttl)
-            auto result = read_accessor->CreateIndex(ttl_label, {ttl_property});
-            if (result.HasError()) {
-              spdlog::error("Failed to create TTL label+property index");
-              throw TtlException("Failed to create required TTL index");
-            }
-            spdlog::info("Successfully created TTL label+property index on :TTL(ttl)");
-          } else if (e.GetIndexType() == TtlMissingIndexException::IndexType::EDGE_PROPERTY) {
-            auto result = read_accessor->CreateGlobalEdgeIndex(ttl_property);
-            if (result.HasError()) {
-              spdlog::error("Failed to create TTL edge property index");
-              throw TtlException("Failed to create required TTL edge index");
-            }
-            spdlog::info("Successfully created TTL edge property index on ttl property");
-          }
-          // Commit the transaction
-          // TODO: Very hacky solution to pass something as the "db_acc" to the accessor
-          auto commit_result = read_accessor->PrepareForCommitPhase({}, DatabaseAccessProtector{1});
-          if (commit_result.HasError()) {
-            spdlog::error("Failed to commit TTL index creation");
-            throw TtlException("Failed to commit TTL index creation");
-          }
-        } catch (const std::exception &index_error) {
-          spdlog::error("Failed to create TTL index: {}", index_error.what());
-          throw TtlException("Failed to create required TTL index");
-        }
       } catch (const std::exception &e) {
         spdlog::trace("TTL error; retrying later: {}", e.what());
         std::this_thread::sleep_for(std::chrono::milliseconds{10});

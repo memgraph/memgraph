@@ -171,6 +171,10 @@ bool DiskLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPath> 
   return index_.erase({label, properties[0][0]}) > 0U;
 }
 
+bool DiskLabelPropertyIndex::ActiveIndices::IndexExists(LabelId label, std::span<PropertyPath const> properties) const {
+  return utils::Contains(index_, LabelProperty{label, properties[0][0]});
+}
+
 bool DiskLabelPropertyIndex::ActiveIndices::IndexReady(LabelId label, std::span<PropertyPath const> properties) const {
   return utils::Contains(index_, LabelProperty{label, properties[0][0]});
 }
@@ -185,23 +189,20 @@ auto DiskLabelPropertyIndex::ActiveIndices::ListIndices(uint64_t start_timestamp
   return index_ | ranges::views::transform(convert) | ranges::to_vector;
 }
 
-auto DiskLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(LabelId /*label*/,
-                                                                   std::span<PropertyPath const> /*properties*/) const
-    -> uint64_t {
+auto DiskLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(
+    LabelId /*label*/, std::span<PropertyPath const> /*properties*/) const -> uint64_t {
   return 10;
 }
 
-auto DiskLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(LabelId /*label*/,
-                                                                   std::span<PropertyPath const> /*properties*/,
-                                                                   std::span<PropertyValue const> /*values*/) const
-    -> uint64_t {
+auto DiskLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(
+    LabelId /*label*/, std::span<PropertyPath const> /*properties*/,
+    std::span<PropertyValue const> /*values*/) const -> uint64_t {
   return 10;
 }
 
-auto DiskLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(LabelId label,
-                                                                   std::span<PropertyPath const> /*properties*/,
-                                                                   std::span<PropertyValueRange const> /*bounds*/) const
-    -> uint64_t {
+auto DiskLabelPropertyIndex::ActiveIndices::ApproximateVertexCount(
+    LabelId label, std::span<PropertyPath const> /*properties*/,
+    std::span<PropertyValueRange const> /*bounds*/) const -> uint64_t {
   return 10;
 }
 
@@ -221,8 +222,8 @@ auto DiskLabelPropertyIndex::GetActiveIndices() const -> std::unique_ptr<LabelPr
 }
 
 auto DiskLabelPropertyIndex::ActiveIndices::RelevantLabelPropertiesIndicesInfo(
-    std::span<LabelId const> labels, std::span<PropertyPath const> properties) const
-    -> std::vector<LabelPropertiesIndicesInfo> {
+    std::span<LabelId const> labels,
+    std::span<PropertyPath const> properties) const -> std::vector<LabelPropertiesIndicesInfo> {
   auto res = std::vector<LabelPropertiesIndicesInfo>{};
   // NOTE: only looking for singular property index, as disk does not support composite indices
   for (auto &&[l_pos, label] : ranges::views::enumerate(labels)) {

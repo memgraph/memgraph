@@ -15,6 +15,7 @@
 #include <memory>
 #include <utility>
 #include "flags/run_time_configurable.hpp"
+#include "storage/v2/async_indexer.hpp"
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
@@ -314,6 +315,10 @@ class InMemoryStorage final : public Storage {
       return transaction_.active_indices_.label_->IndexReady(label);
     }
 
+    bool LabelPropertyIndexExists(LabelId label, std::span<PropertyPath const> properties) const override {
+      return transaction_.active_indices_.label_properties_->IndexExists(label, properties);
+    }
+
     bool LabelPropertyIndexReady(LabelId label, std::span<PropertyPath const> properties) const override {
       return transaction_.active_indices_.label_properties_->IndexReady(label, properties);
     }
@@ -324,6 +329,10 @@ class InMemoryStorage final : public Storage {
 
     bool EdgeTypePropertyIndexReady(EdgeTypeId edge_type, PropertyId property) const override {
       return transaction_.active_indices_.edge_type_properties_->IndexReady(edge_type, property);
+    }
+
+    bool EdgePropertyIndexExists(PropertyId property) const override {
+      return transaction_.active_indices_.edge_property_->IndexExists(property);
     }
 
     bool EdgePropertyIndexReady(PropertyId property) const override {
@@ -516,8 +525,8 @@ class InMemoryStorage final : public Storage {
     /// View is not needed because a new rtree gets created for each transaction and it is always
     /// using the latest version
     auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
-                       PropertyValue const &bottom_left, PropertyValue const &top_right, WithinBBoxCondition condition)
-        -> PointIterable override;
+                       PropertyValue const &bottom_left, PropertyValue const &top_right,
+                       WithinBBoxCondition condition) -> PointIterable override;
 
     std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearchOnNodes(
         const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) override;
@@ -760,8 +769,6 @@ class InMemoryStorage final : public Storage {
 
     friend bool operator==(SnapshotDigest const &, SnapshotDigest const &) = default;
   };
-
-  std::optional<AutoIndexer> auto_indexer_;
 
   std::optional<SnapshotDigest> last_snapshot_digest_;
 

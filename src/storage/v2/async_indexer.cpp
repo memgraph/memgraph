@@ -9,14 +9,15 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/auto_indexer.hpp"
+#include "storage/v2/async_indexer.hpp"
+#include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage.hpp"
 #include "utils/variant_helpers.hpp"
 
 namespace memgraph::storage {
 
-AutoIndexer::AutoIndexer(std::stop_token stop_token, Storage *storage) {
+AsyncIndexer::AsyncIndexer(std::stop_token stop_token, Storage *storage) {
   index_creator_thread_ = std::jthread{[this, stop_token, storage]() {
     auto const cancel_check = [&]() { return stop_token.stop_requested(); };
     std::unique_lock<std::mutex> lock(mutex_);
@@ -45,6 +46,13 @@ AutoIndexer::AutoIndexer(std::stop_token stop_token, Storage *storage) {
               [&](LabelId label) { [[maybe_unused]] auto result = storage_acc->CreateIndex(label, cancel_check); },
               [&](EdgeTypeId edge_type) {
                 [[maybe_unused]] auto result = storage_acc->CreateIndex(edge_type, cancel_check);
+              },
+              [&](std::pair<LabelId, PropertiesPaths> composite) {
+                [[maybe_unused]] auto result =
+                    storage_acc->CreateIndex(composite.first, composite.second, cancel_check);
+              },
+              [&](PropertyId property) {
+                [[maybe_unused]] auto result = storage_acc->CreateGlobalEdgeIndex(property, cancel_check);
               }};
 
           std::visit(create_index, *it);
@@ -67,21 +75,31 @@ AutoIndexer::AutoIndexer(std::stop_token stop_token, Storage *storage) {
   }};
 }
 
-AutoIndexer::~AutoIndexer() { cv_.notify_one(); }
+AsyncIndexer::~AsyncIndexer() { cv_.notify_one(); }
 
-void AutoIndexer::Enqueue(LabelId label) {
+void AsyncIndexer::Enqueue(LabelId label) {
   request_queue_.access().insert(label);
   cv_.notify_one();
 }
 
-void AutoIndexer::Enqueue(EdgeTypeId edge_type) {
+void AsyncIndexer::Enqueue(EdgeTypeId edge_type) {
   request_queue_.access().insert(edge_type);
   cv_.notify_one();
 }
 
-void AutoIndexer::RunGC() { request_queue_.run_gc(); }
+void AsyncIndexer::Enqueue(std::pair<LabelId, PropertiesPaths> composite) {
+  request_queue_.access().insert(composite);
+  cv_.notify_one();
+}
 
-void AutoIndexer::Clear() {
+void AsyncIndexer::Enqueue(PropertyId property) {
+  request_queue_.access().insert(property);
+  cv_.notify_one();
+}
+
+void AsyncIndexer::RunGC() { request_queue_.run_gc(); }
+
+void AsyncIndexer::Clear() {
   // SkipList clear is not thread safe
   // need to make sure it is not being scanned
   auto lock = std::unique_lock{mutex_};

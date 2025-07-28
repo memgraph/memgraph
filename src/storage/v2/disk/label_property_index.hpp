@@ -39,6 +39,8 @@ class DiskLabelPropertyIndex : public storage::LabelPropertyIndex {
     void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
                              const Transaction &tx) override {};
 
+    bool IndexExists(LabelId label, std::span<PropertyPath const> properties) const override;
+
     bool IndexReady(LabelId label, std::span<PropertyPath const> properties) const override;
 
     auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels, std::span<PropertyPath const> properties)

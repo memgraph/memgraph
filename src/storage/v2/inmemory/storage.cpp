@@ -113,8 +113,8 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action const action) -> d
 #undef add_case
 }
 
-auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex, VertexAccessor *to_vertex)
-    -> Result<EdgesVertexAccessorResult> {
+auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex,
+               VertexAccessor *to_vertex) -> Result<EdgesVertexAccessorResult> {
   auto use_out_edges = [](Vertex const *from_vertex, Vertex const *to_vertex) {
     // Obtain the locks by `gid` order to avoid lock cycles.
     auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
@@ -262,8 +262,8 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       edges_.run_gc();
 
       // Auto-indexer also has a skiplist
-      if (auto_indexer_) {
-        auto_indexer_->RunGC();
+      if (async_indexer_) {
+        async_indexer_->RunGC();
       }
 
       // AsyncTimer resources are global, not particularly storage related, more query related
@@ -285,7 +285,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
 
   if (config_.salient.items.enable_edge_type_index_auto_creation ||
       config_.salient.items.enable_label_index_auto_creation) {
-    auto_indexer_.emplace(stop_source.get_token(), this);
+    async_indexer_.emplace(stop_source.get_token(), this);
   }
 
   flags::run_time::SnapshotPeriodicAttach(snapshot_periodic_observer_);
@@ -907,8 +907,8 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   transaction_.commit_callbacks_.RunAll(*commit_timestamp_);
 
   // Dispatch to another async work to create requested auto-indexes in their own transaction
-  if (mem_storage->auto_indexer_) {
-    transaction_.auto_index_helper_.DispatchRequests(*mem_storage->auto_indexer_);
+  if (mem_storage->async_indexer_) {
+    transaction_.auto_index_helper_.DispatchRequests(*mem_storage->async_indexer_);
   }
 
   // TODO: can and should this be moved earlier?
@@ -3244,8 +3244,8 @@ void InMemoryStorage::Clear() {
   edges_metadata_.run_gc();
   stored_node_labels_.clear();
   stored_edge_types_.clear();
-  if (auto_indexer_) {
-    auto_indexer_->Clear();
+  if (async_indexer_) {
+    async_indexer_->Clear();
   }
 
   // Reset helper classes
@@ -3324,8 +3324,8 @@ void InMemoryStorage::InMemoryAccessor::DropGraph() {
   mem_storage->indices_.DropGraphClearIndices();
   mem_storage->constraints_.DropGraphClearConstraints();
 
-  if (mem_storage->auto_indexer_) {
-    mem_storage->auto_indexer_->Clear();
+  if (mem_storage->async_indexer_) {
+    mem_storage->async_indexer_->Clear();
   }
 
   if (mem_storage->config_.salient.items.enable_schema_info) mem_storage->schema_info_.Clear();
