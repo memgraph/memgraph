@@ -382,7 +382,7 @@ void str2object(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp
     if (!maybe_result.has_value()) {
       mgp::func_result_set_error_msg(
           res,
-          "The end result is not one of the following JSON-language data types: object, array, "
+          "The end result is not one of the following JSON-language  data types: object, array, "
           "number, string, boolean, or null.",
           memory);
       return;
