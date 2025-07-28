@@ -868,8 +868,7 @@ bool SymbolGenerator::PostVisit(EdgeAtom &) {
 }
 
 bool SymbolGenerator::PreVisit(PatternComprehension &pc) {
-  auto &scope = scopes_.back();
-  scope.in_pattern_comprehension = true;
+  scopes_.emplace_back(Scope{.in_pattern_comprehension = true});
 
   const auto &symbol = CreateAnonymousSymbol();
   pc.MapTo(symbol);
