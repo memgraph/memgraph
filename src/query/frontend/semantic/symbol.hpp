@@ -34,14 +34,12 @@ class Symbol {
   }
 
   Symbol() = default;
-  Symbol(std::string name, int position, bool user_declared, Type type = Type::ANY, int token_position = -1,
-         bool is_temporary = false)
+  Symbol(std::string name, int position, bool user_declared, Type type = Type::ANY, int token_position = -1)
       : name_(std::move(name)),
         position_(position),
         user_declared_(user_declared),
         type_(type),
-        token_position_(token_position),
-        is_temporary_(is_temporary) {}
+        token_position_(token_position) {}
 
   bool operator==(const Symbol &other) const {
     return position_ == other.position_ && name_ == other.name_ && type_ == other.type_;
@@ -54,7 +52,6 @@ class Symbol {
   Type type() const { return type_; }
   bool user_declared() const { return user_declared_; }
   int token_position() const { return token_position_; }
-  bool is_temporary() const { return is_temporary_; }
 
   bool IsSymbolAnonym() const { return name_.substr(0U, 4U) == "anon"; }
 
@@ -63,7 +60,6 @@ class Symbol {
   bool user_declared_{true};
   memgraph::query::Symbol::Type type_{Type::ANY};
   int64_t token_position_{-1};
-  bool is_temporary_{false};
 };
 
 }  // namespace memgraph::query

@@ -84,7 +84,7 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   }
 
   bool Visit(Identifier &ident) override {
-    if (ident.user_declared_ && !ident.is_temporary_) {
+    if (ident.user_declared_) {
       symbols_.insert(symbol_table_.at(ident));
     }
 
@@ -129,15 +129,11 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
 
   bool PreVisit(PatternComprehension &pc) override {
     in_pattern_comprehension = true;
-    pc.pattern_->Accept(*this);
-    return false;
+    return true;
   }
 
   bool PostVisit(PatternComprehension &pc) override {
     in_pattern_comprehension = false;
-    if (pc.variable_) {
-      symbols_.erase(symbol_table_.at(*pc.variable_));
-    }
     return true;
   }
 

@@ -1027,7 +1027,7 @@ class RuleBasedPlanner {
   }
 
   std::unique_ptr<LogicalOperator> GenFilters(std::unique_ptr<LogicalOperator> last_op,
-                                              const std::unordered_set<Symbol> &bound_symbols, Filters &filters,
+                                              std::unordered_set<Symbol> &bound_symbols, Filters &filters,
                                               AstStorage &storage, SymbolTable &symbol_table) {
     auto pattern_filters = ExtractPatternFilters(filters, symbol_table, storage, bound_symbols);
     auto *filter_expr = impl::ExtractFilters(bound_symbols, filters, storage);
@@ -1067,36 +1067,30 @@ class RuleBasedPlanner {
 
   std::unique_ptr<LogicalOperator> MakePatternComprehensionFilter(const PatternComprehensionMatching &matching,
                                                                   SymbolTable &symbol_table, AstStorage &storage,
-                                                                  const std::unordered_set<Symbol> &bound_symbols) {
+                                                                  std::unordered_set<Symbol> &bound_symbols) {
     std::vector<Symbol> once_symbols(bound_symbols.begin(), bound_symbols.end());
     std::unique_ptr<LogicalOperator> last_op = std::make_unique<Once>(once_symbols);
 
     std::vector<Symbol> new_symbols;
-    std::unordered_set<Symbol> expand_symbols(bound_symbols.begin(), bound_symbols.end());
+    // std::unordered_set<Symbol> expand_symbols(bound_symbols.begin(), bound_symbols.end());
 
     auto filters = matching.filters;
 
     std::unordered_map<Symbol, std::vector<Symbol>> named_paths;
 
-    last_op = HandleExpansions(std::move(last_op), matching, symbol_table, storage, expand_symbols, new_symbols,
+    last_op = HandleExpansions(std::move(last_op), matching, symbol_table, storage, bound_symbols, new_symbols,
                                named_paths, filters, storage::View::OLD);
     last_op = std::make_unique<Produce>(std::move(last_op), std::vector{matching.result_expr});
     auto list_collection_symbols = last_op->ModifiedSymbols(symbol_table);
     last_op = std::make_unique<RollUpApply>(std::make_unique<Once>(), std::move(last_op), list_collection_symbols,
                                             matching.result_symbol);
 
-    auto const &symbol = symbol_table.CreateAnonymousSymbol();
-    auto *expression = storage.Create<Identifier>(symbol.name_);
-    expression->MapTo(symbol);
-
-    last_op = std::make_unique<EvaluatePatternFilter>(std::move(last_op), symbol);
-
     return last_op;
   }
 
   std::vector<std::shared_ptr<LogicalOperator>> ExtractPatternFilters(Filters &filters, SymbolTable &symbol_table,
                                                                       AstStorage &storage,
-                                                                      const std::unordered_set<Symbol> &bound_symbols) {
+                                                                      std::unordered_set<Symbol> &bound_symbols) {
     std::vector<std::shared_ptr<LogicalOperator>> operators;
 
     for (const auto &filter : filters) {

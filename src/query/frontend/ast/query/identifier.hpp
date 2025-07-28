@@ -29,7 +29,6 @@ class Identifier : public memgraph::query::Expression {
 
   Identifier *MapTo(const Symbol &symbol) {
     symbol_pos_ = symbol.position();
-    is_temporary_ = symbol.is_temporary();
     return this;
   }
 
@@ -38,7 +37,6 @@ class Identifier : public memgraph::query::Expression {
 
   std::string name_;
   bool user_declared_{true};
-  bool is_temporary_{false};
   /// Symbol table position of the symbol this Identifier is mapped to.
   int32_t symbol_pos_{-1};
 
@@ -46,7 +44,6 @@ class Identifier : public memgraph::query::Expression {
     Identifier *object = storage->Create<Identifier>();
     object->name_ = name_;
     object->user_declared_ = user_declared_;
-    object->is_temporary_ = is_temporary_;
     object->symbol_pos_ = symbol_pos_;
     return object;
   }

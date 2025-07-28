@@ -60,9 +60,8 @@ std::optional<Symbol> SymbolGenerator::FindSymbolInScope(const std::string &name
   return std::nullopt;
 }
 
-auto SymbolGenerator::CreateSymbol(const std::string &name, bool user_declared, Symbol::Type type, int token_position,
-                                   bool is_temporary) {
-  auto symbol = symbol_table_->CreateSymbol(name, user_declared, type, token_position, is_temporary);
+auto SymbolGenerator::CreateSymbol(const std::string &name, bool user_declared, Symbol::Type type, int token_position) {
+  auto symbol = symbol_table_->CreateSymbol(name, user_declared, type, token_position);
   scopes_.back().symbols[name] = symbol;
   return symbol;
 }
@@ -72,15 +71,14 @@ auto SymbolGenerator::CreateAnonymousSymbol(Symbol::Type /*type*/) {
   return symbol;
 }
 
-auto SymbolGenerator::GetOrCreateSymbol(const std::string &name, bool user_declared, Symbol::Type type,
-                                        bool is_temporary) {
+auto SymbolGenerator::GetOrCreateSymbol(const std::string &name, bool user_declared, Symbol::Type type) {
   // NOLINTNEXTLINE
   for (auto scope = scopes_.rbegin(); scope != scopes_.rend(); ++scope) {
     if (auto maybe_symbol = FindSymbolInScope(name, *scope, type); maybe_symbol) {
       return *maybe_symbol;
     }
   }
-  return CreateSymbol(name, user_declared, type, -1, is_temporary);
+  return CreateSymbol(name, user_declared, type);
 }
 
 void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
@@ -388,18 +386,9 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
   if (scope.in_exists_subquery && (scope.visiting_edge || scope.in_node_atom)) {
     auto has_symbol = HasSymbol(ident.name_);
     if (!has_symbol) {
+      ident.user_declared_ = false;
       symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_,
-                                 scope.in_node_atom ? Symbol::Type::VERTEX : Symbol::Type::EDGE, true);
-    } else {
-      symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::ANY);
-    }
-  } else if (scope.in_pattern_comprehension) {
-    auto has_symbol = HasSymbol(ident.name_);
-    if (!scope.in_pattern && !has_symbol) {
-      throw SemanticException("Unbounded symbols not allowed in pattern comprehension!");
-    }
-    if (!has_symbol) {
-      symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::ANY, true);
+                                 scope.in_node_atom ? Symbol::Type::VERTEX : Symbol::Type::EDGE);
     } else {
       symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::ANY);
     }

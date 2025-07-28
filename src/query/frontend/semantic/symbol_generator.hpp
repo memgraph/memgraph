@@ -180,13 +180,12 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   // Returns a freshly generated symbol. Previous mapping of the same name to a
   // different symbol is replaced with the new one.
   auto CreateSymbol(const std::string &name, bool user_declared, Symbol::Type type = Symbol::Type::ANY,
-                    int token_position = -1, bool is_temporary = false);
+                    int token_position = -1);
 
   // Returns a freshly generated anonymous symbol.
   auto CreateAnonymousSymbol(Symbol::Type type = Symbol::Type::ANY);
 
-  auto GetOrCreateSymbol(const std::string &name, bool user_declared, Symbol::Type type = Symbol::Type::ANY,
-                         bool is_temporary = false);
+  auto GetOrCreateSymbol(const std::string &name, bool user_declared, Symbol::Type type = Symbol::Type::ANY);
   // Returns the symbol by name. If the mapping already exists, checks if the
   // types match. Otherwise, returns a new symbol.
 
