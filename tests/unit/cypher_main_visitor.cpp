@@ -3188,17 +3188,35 @@ TEST_P(CypherMainVisitorTest, TestShowStorageInfo) {
 }
 
 TEST_P(CypherMainVisitorTest, TestShowIndexInfo) {
-  auto &ast_generator = *GetParam();
-  auto *query = dynamic_cast<DatabaseInfoQuery *>(ast_generator.ParseQuery("SHOW INDEX INFO"));
-  ASSERT_TRUE(query);
-  EXPECT_EQ(query->info_type_, DatabaseInfoQuery::InfoType::INDEX);
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<DatabaseInfoQuery *>(ast_generator.ParseQuery("SHOW INDEX INFO"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->info_type_, DatabaseInfoQuery::InfoType::INDEX);
+  }
+
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<DatabaseInfoQuery *>(ast_generator.ParseQuery("SHOW INDEXES"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->info_type_, DatabaseInfoQuery::InfoType::INDEX);
+  }
 }
 
 TEST_P(CypherMainVisitorTest, TestShowConstraintInfo) {
-  auto &ast_generator = *GetParam();
-  auto *query = dynamic_cast<DatabaseInfoQuery *>(ast_generator.ParseQuery("SHOW CONSTRAINT INFO"));
-  ASSERT_TRUE(query);
-  EXPECT_EQ(query->info_type_, DatabaseInfoQuery::InfoType::CONSTRAINT);
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<DatabaseInfoQuery *>(ast_generator.ParseQuery("SHOW CONSTRAINT INFO"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->info_type_, DatabaseInfoQuery::InfoType::CONSTRAINT);
+  }
+
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<DatabaseInfoQuery *>(ast_generator.ParseQuery("SHOW CONSTRAINTS"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->info_type_, DatabaseInfoQuery::InfoType::CONSTRAINT);
+  }
 }
 
 TEST_P(CypherMainVisitorTest, CreateConstraintSyntaxError) {
@@ -6019,5 +6037,53 @@ TEST_P(CypherMainVisitorTest, ExistsSubqueries) {
     const auto *union_single_query = dynamic_cast<SingleQuery *>(union_query->single_query_);
     ASSERT_NE(union_single_query, nullptr);
     ASSERT_EQ(union_single_query->clauses_.size(), 1);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, TestShowMetricsInfo) {
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<DatabaseInfoQuery *>(ast_generator.ParseQuery("SHOW METRICS INFO"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->info_type_, DatabaseInfoQuery::InfoType::METRICS);
+  }
+
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<DatabaseInfoQuery *>(ast_generator.ParseQuery("SHOW METRICS"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->info_type_, DatabaseInfoQuery::InfoType::METRICS);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, TestShowVectorIndexInfo) {
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<DatabaseInfoQuery *>(ast_generator.ParseQuery("SHOW VECTOR INDEX INFO"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->info_type_, DatabaseInfoQuery::InfoType::VECTOR_INDEX);
+  }
+
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<DatabaseInfoQuery *>(ast_generator.ParseQuery("SHOW VECTOR INDEXES"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->info_type_, DatabaseInfoQuery::InfoType::VECTOR_INDEX);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, TestShowActiveUsersInfo) {
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<DatabaseInfoQuery *>(ast_generator.ParseQuery("SHOW ACTIVE USERS INFO"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->info_type_, SystemInfoQuery::InfoType::ACTIVE_USERS);
+  }
+
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<DatabaseInfoQuery *>(ast_generator.ParseQuery("SHOW ACTIVE USERS"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->info_type_, SystemInfoQuery::InfoType::ACTIVE_USERS);
   }
 }

@@ -187,6 +187,8 @@ UPDATE                  : U P D A T E ;
 USE                     : U S E ;
 USER                    : U S E R ;
 USERS                   : U S E R S ;
+INDEXES                 : I N D E X E S ;
+CONSTRAINTS             : C O N S T R A I N T S ;
 USING                   : U S I N G ;
 VALUE                   : V A L U E ;
 VALUES                  : V A L U E S ;

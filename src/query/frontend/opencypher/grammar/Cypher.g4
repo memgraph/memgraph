@@ -44,21 +44,21 @@ constraintPropertyList : variable propertyLookup ( ',' variable propertyLookup )
 
 storageInfo : STORAGE INFO ;
 
-activeUsersInfo : ACTIVE USERS INFO ;
+activeUsersInfo : ACTIVE USERS INFO | ACTIVE USERS ;
 
 licenseInfo : LICENSE INFO ;
 
-indexInfo : INDEX INFO ;
+indexInfo : INDEX INFO | INDEXES ;
 
-constraintInfo : CONSTRAINT INFO ;
+constraintInfo : CONSTRAINT INFO | CONSTRAINTS ;
 
 edgetypeInfo : EDGE_TYPES INFO ;
 
 nodelabelInfo : NODE_LABELS INFO ;
 
-metricsInfo : METRICS INFO ;
+metricsInfo : METRICS INFO | METRICS ;
 
-vectorIndexInfo : VECTOR INDEX INFO ;
+vectorIndexInfo : VECTOR INDEX INFO | VECTOR INDEXES ;
 
 buildInfo : BUILD INFO ;
 
