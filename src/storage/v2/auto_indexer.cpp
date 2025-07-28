@@ -33,8 +33,11 @@ AutoIndexer::AutoIndexer(std::stop_token stop_token, Storage *storage) {
       for (auto it = access.begin(); it != it_end;) {
         try {
           // If we wait forever for the read only lock it will block new writes
-          auto const storage_acc =
-              storage->ReadOnlyAccess(IsolationLevel::SNAPSHOT_ISOLATION, std::chrono::milliseconds(1000));
+          auto const storage_acc = std::invoke([&]() {
+            return storage->GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL
+                       ? storage->ReadOnlyAccess(IsolationLevel::SNAPSHOT_ISOLATION, std::chrono::milliseconds(1000))
+                       : storage->UniqueAccess(IsolationLevel::SNAPSHOT_ISOLATION, std::chrono::milliseconds(1000));
+          });
 
           // Creating an index can only fail due to db shutdown or if the index manually got created
           // so there is not need to handle errors
