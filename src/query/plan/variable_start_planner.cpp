@@ -194,18 +194,6 @@ FilterMatching ToFilterMatching(Matching &matching) {
   return filter_matching;
 }
 
-PatternComprehensionMatching ToPatternComprehensionMatching(Matching &matching) {
-  PatternComprehensionMatching pattern_comprehension_matching;
-  pattern_comprehension_matching.expansions = matching.expansions;
-  pattern_comprehension_matching.edge_symbols = matching.edge_symbols;
-  pattern_comprehension_matching.filters = matching.filters;
-  pattern_comprehension_matching.atom_symbol_to_expansions = matching.atom_symbol_to_expansions;
-  pattern_comprehension_matching.named_paths = matching.named_paths;
-  pattern_comprehension_matching.expansion_symbols = matching.expansion_symbols;
-
-  return pattern_comprehension_matching;
-}
-
 }  // namespace
 
 VaryMatchingStart::VaryMatchingStart(Matching matching, const SymbolTable &symbol_table)
@@ -281,32 +269,12 @@ CartesianProduct<VaryMatchingStart> VaryFilterMatchingStarts(const Matching &mat
   return MakeCartesianProduct(std::move(variants));
 }
 
-CartesianProduct<VaryMatchingStart> VaryPatternComprehensionMatchingStarts(const Matching &matching,
-                                                                           const SymbolTable &symbol_table) {
-  auto pattern_comprehension_matching_cnt = 0;
-  for (const auto &filter : matching.filters) {
-    pattern_comprehension_matching_cnt += static_cast<int>(filter.pattern_comprehension_matchings.size());
-  }
-
-  std::vector<VaryMatchingStart> variants;
-  variants.reserve(pattern_comprehension_matching_cnt);
-
-  for (const auto &filter : matching.filters) {
-    for (const auto &pattern_comprehension_matching : filter.pattern_comprehension_matchings) {
-      variants.emplace_back(pattern_comprehension_matching, symbol_table);
-    }
-  }
-
-  return MakeCartesianProduct(std::move(variants));
-}
-
 VaryQueryPartMatching::VaryQueryPartMatching(SingleQueryPart query_part, const SymbolTable &symbol_table)
     : query_part_(std::move(query_part)),
       matchings_(VaryMatchingStart(query_part_.matching, symbol_table)),
       optional_matchings_(VaryMultiMatchingStarts(query_part_.optional_matching, symbol_table)),
       merge_matchings_(VaryMultiMatchingStarts(query_part_.merge_matching, symbol_table)),
-      filter_matchings_(VaryFilterMatchingStarts(query_part_.matching, symbol_table)),
-      pattern_comprehension_matchings_(VaryPatternComprehensionMatchingStarts(query_part_.matching, symbol_table)) {}
+      filter_matchings_(VaryFilterMatchingStarts(query_part_.matching, symbol_table)) {}
 
 VaryQueryPartMatching::iterator::iterator(SingleQueryPart query_part, VaryMatchingStart::iterator matchings_begin,
                                           VaryMatchingStart::iterator matchings_end,
@@ -315,9 +283,7 @@ VaryQueryPartMatching::iterator::iterator(SingleQueryPart query_part, VaryMatchi
                                           CartesianProduct<VaryMatchingStart>::iterator merge_begin,
                                           CartesianProduct<VaryMatchingStart>::iterator merge_end,
                                           CartesianProduct<VaryMatchingStart>::iterator filter_begin,
-                                          CartesianProduct<VaryMatchingStart>::iterator filter_end,
-                                          CartesianProduct<VaryMatchingStart>::iterator pattern_comprehension_begin,
-                                          CartesianProduct<VaryMatchingStart>::iterator pattern_comprehension_end)
+                                          CartesianProduct<VaryMatchingStart>::iterator filter_end)
     : current_query_part_(std::move(query_part)),
       matchings_it_(std::move(matchings_begin)),
       matchings_end_(std::move(matchings_end)),
@@ -329,10 +295,7 @@ VaryQueryPartMatching::iterator::iterator(SingleQueryPart query_part, VaryMatchi
       merge_end_(std::move(merge_end)),
       filter_it_(filter_begin),
       filter_begin_(filter_begin),
-      filter_end_(std::move(filter_end)),
-      pattern_comprehension_it_(pattern_comprehension_begin),
-      pattern_comprehension_begin_(pattern_comprehension_begin),
-      pattern_comprehension_end_(std::move(pattern_comprehension_end)) {
+      filter_end_(std::move(filter_end)) {
   if (matchings_it_ != matchings_end_) {
     // Fill the query part with the first variation of matchings
     SetCurrentQueryPart();
@@ -355,14 +318,8 @@ VaryQueryPartMatching::iterator &VaryQueryPartMatching::iterator::operator++() {
   //    * (m2), (o2), (g1), (f1)
   //    * (m2), (o2), (g1), (f2)
 
-  // Create variations by changing the pattern comprehension part first.
-  if (pattern_comprehension_it_ != pattern_comprehension_end_) ++pattern_comprehension_it_;
-
-  // Create variations by changing the filter part.
-  if (pattern_comprehension_it_ == pattern_comprehension_end_) {
-    pattern_comprehension_it_ = pattern_comprehension_begin_;
-    if (filter_it_ != filter_end_) ++filter_it_;
-  }
+  // Create variations by changing the filter part first.
+  if (filter_it_ != filter_end_) ++filter_it_;
 
   // Create variations by changing the merge part.
   if (filter_it_ == filter_end_) {
@@ -425,30 +382,6 @@ void VaryQueryPartMatching::iterator::SetCurrentQueryPart() {
 
     filter.matchings = std::move(new_matchings);
   }
-
-  DMG_ASSERT(pattern_comprehension_it_ != pattern_comprehension_end_ ||
-                 pattern_comprehension_begin_ == pattern_comprehension_end_,
-             "Either there are no pattern comprehension matchings or we can always generate"
-             "a variation");
-  auto all_pattern_comprehension_matchings = *pattern_comprehension_it_;
-  auto all_pattern_comprehension_matchings_idx = 0;
-  for (auto &filter : current_query_part_.matching.filters) {
-    auto matchings_size = filter.pattern_comprehension_matchings.size();
-
-    std::vector<PatternComprehensionMatching> new_matchings;
-    new_matchings.reserve(matchings_size);
-
-    for (auto i = 0; i < matchings_size; i++) {
-      new_matchings.push_back(
-          ToPatternComprehensionMatching(all_pattern_comprehension_matchings[all_pattern_comprehension_matchings_idx]));
-      new_matchings[i].result_symbol = filter.pattern_comprehension_matchings[i].result_symbol;
-      new_matchings[i].result_expr = filter.pattern_comprehension_matchings[i].result_expr;
-
-      all_filter_matchings_idx++;
-    }
-
-    filter.pattern_comprehension_matchings = std::move(new_matchings);
-  }
 }
 
 bool VaryQueryPartMatching::iterator::operator==(const iterator &other) const {
@@ -458,7 +391,7 @@ bool VaryQueryPartMatching::iterator::operator==(const iterator &other) const {
     return true;
   }
   return matchings_it_ == other.matchings_it_ && optional_it_ == other.optional_it_ && merge_it_ == other.merge_it_ &&
-         filter_it_ == other.filter_it_ && pattern_comprehension_it_ == other.pattern_comprehension_it_;
+         filter_it_ == other.filter_it_;
 }
 
 }  // namespace memgraph::query::plan::impl

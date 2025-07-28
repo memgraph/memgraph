@@ -877,7 +877,7 @@ bool SymbolGenerator::PreVisit(PatternComprehension &pc) {
 }
 
 bool SymbolGenerator::PostVisit(PatternComprehension & /*pc*/) {
-  scopes_.back().in_pattern_comprehension = false;
+  scopes_.pop_back();
   return true;
 }
 

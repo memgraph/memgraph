@@ -127,16 +127,6 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
     return false;
   }
 
-  bool PreVisit(PatternComprehension &pc) override {
-    in_pattern_comprehension = true;
-    return true;
-  }
-
-  bool PostVisit(PatternComprehension &pc) override {
-    in_pattern_comprehension = false;
-    return true;
-  }
-
   bool Visit(PrimitiveLiteral &) override { return true; }
   bool Visit(ParameterLookup &) override { return true; }
   bool Visit(EnumValueAccess &) override { return true; }
@@ -146,7 +136,6 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
 
  private:
   bool in_exists{false};
-  bool in_pattern_comprehension{false};
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)

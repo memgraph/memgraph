@@ -172,7 +172,6 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   static std::optional<Symbol> FindSymbolInScope(const std::string &name, const Scope &scope, Symbol::Type type);
 
   bool HasSymbol(const std::string &name) const;
-  std::optional<Symbol> GetSymbol(const std::string &name) const;
 
   // @return true if it added a predefined identifier with that name
   bool ConsumePredefinedIdentifier(const std::string &name);
