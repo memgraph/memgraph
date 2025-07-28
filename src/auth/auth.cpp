@@ -699,7 +699,6 @@ std::optional<User> Auth::GetUser(const std::string &username_orig) const {
 }
 
 void Auth::SaveUser(const User &user, system::Transaction *system_tx) {
-  bool success = false;
   std::map<std::string, std::string> puts;
   std::vector<std::string> deletes;
 

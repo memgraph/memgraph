@@ -9,9 +9,15 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <fmt/format.h>
 #include <gflags/gflags.h>
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <openssl/x509_vfy.h>
+#include <atomic>
+#include <chrono>
+#include <latch>
+#include <thread>
 #include <variant>
 
 #include "auth/auth.hpp"
@@ -2188,4 +2194,539 @@ TEST_F(AuthQueryHandlerFixture, SetRole_DuplicateRoles_NoDuplicatesInResult) {
   ASSERT_EQ(unique_roles.size(), 2);
   ASSERT_TRUE(unique_roles.count("role1"));
   ASSERT_TRUE(unique_roles.count("role2"));
+}
+
+// Concurrent Access Tests
+TEST_F(AuthQueryHandlerFixture, ConcurrentProfileCreation) {
+  constexpr size_t kNumThreads = 10;
+  constexpr size_t kNumProfiles = 100;
+  std::vector<std::thread> threads;
+  std::atomic<size_t> success_count{0};
+  std::atomic<size_t> failure_count{0};
+
+  // Test concurrent profile creation
+  for (size_t i = 0; i < kNumThreads; ++i) {
+    threads.emplace_back([&, i]() {
+      for (size_t j = 0; j < kNumProfiles; ++j) {
+        std::string profile_name = fmt::format("profile_{}_{}", i, j);
+        try {
+          auth_handler.CreateProfile(profile_name, {}, nullptr);
+          success_count.fetch_add(1);
+        } catch (const memgraph::query::QueryRuntimeException &) {
+          failure_count.fetch_add(1);
+        }
+      }
+    });
+  }
+
+  for (auto &thread : threads) {
+    thread.join();
+  }
+
+  // All profiles should be created successfully (no duplicates)
+  ASSERT_EQ(success_count.load(), kNumThreads * kNumProfiles);
+  ASSERT_EQ(failure_count.load(), 0);
+
+  // Verify all profiles exist
+  auto all_profiles = auth_handler.AllProfiles();
+  ASSERT_EQ(all_profiles.size(), kNumThreads * kNumProfiles);
+}
+
+TEST_F(AuthQueryHandlerFixture, ConcurrentProfileUpdates) {
+  // Create initial profile
+  ASSERT_NO_THROW(auth_handler.CreateProfile("test_profile", {}, nullptr));
+
+  constexpr size_t kNumThreads = 5;
+  std::vector<std::thread> threads;
+  std::atomic<size_t> success_count{0};
+  std::atomic<size_t> failure_count{0};
+
+  // Test concurrent profile updates
+  for (size_t i = 0; i < kNumThreads; ++i) {
+    threads.emplace_back([&, i]() {
+      try {
+        auto limit = memgraph::query::UserProfileQuery::LimitValueResult{};
+        limit.type = memgraph::query::UserProfileQuery::LimitValueResult::Type::QUANTITY;
+        limit.quantity.value = i + 1;
+
+        auth_handler.UpdateProfile(
+            "test_profile",
+            {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], limit}}, nullptr);
+        success_count.fetch_add(1);
+      } catch (const memgraph::query::QueryRuntimeException &) {
+        failure_count.fetch_add(1);
+      }
+    });
+  }
+
+  for (auto &thread : threads) {
+    thread.join();
+  }
+
+  // At least one update should succeed
+  ASSERT_GT(success_count.load(), 0);
+
+  // Verify profile was updated
+  auto profile = auth_handler.GetProfile("test_profile");
+  ASSERT_FALSE(profile.empty());
+}
+
+TEST_F(AuthQueryHandlerFixture, ConcurrentProfileAssignment) {
+  // Create profiles and users
+  ASSERT_NO_THROW(auth_handler.CreateProfile("profile1", {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.CreateProfile("profile2", {}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("user1", {}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("user2", {}, nullptr));
+
+  constexpr size_t kNumThreads = 4;
+  std::vector<std::thread> threads;
+  std::atomic<size_t> success_count{0};
+  std::atomic<size_t> failure_count{0};
+
+  // Test concurrent profile assignments
+  for (size_t i = 0; i < kNumThreads; ++i) {
+    threads.emplace_back([&, i]() {
+      std::string profile_name = (i % 2 == 0) ? "profile1" : "profile2";
+      std::string user_name = (i % 2 == 0) ? "user1" : "user2";
+
+      try {
+        auth_handler.SetProfile(profile_name, user_name, nullptr);
+        success_count.fetch_add(1);
+      } catch (const memgraph::query::QueryRuntimeException &) {
+        failure_count.fetch_add(1);
+      }
+    });
+  }
+
+  for (auto &thread : threads) {
+    thread.join();
+  }
+
+  // All assignments should succeed
+  ASSERT_EQ(success_count.load(), kNumThreads);
+  ASSERT_EQ(failure_count.load(), 0);
+
+  // Verify assignments
+  auto user1_profile = auth_handler.GetProfileForUser("user1");
+  auto user2_profile = auth_handler.GetProfileForUser("user2");
+  ASSERT_TRUE(user1_profile.has_value());
+  ASSERT_TRUE(user2_profile.has_value());
+}
+
+TEST_F(AuthQueryHandlerFixture, ConcurrentProfileDeletion) {
+  // Create multiple profiles
+  constexpr size_t kNumProfiles = 50;
+  for (size_t i = 0; i < kNumProfiles; ++i) {
+    ASSERT_NO_THROW(auth_handler.CreateProfile(fmt::format("profile_{}", i), {}, nullptr));
+  }
+
+  constexpr size_t kNumThreads = 5;
+  std::vector<std::thread> threads;
+  std::atomic<size_t> success_count{0};
+  std::atomic<size_t> failure_count{0};
+
+  // Test concurrent profile deletion
+  for (size_t i = 0; i < kNumThreads; ++i) {
+    threads.emplace_back([&, i]() {
+      for (size_t j = 0; j < kNumProfiles / kNumThreads; ++j) {
+        size_t profile_idx = i * (kNumProfiles / kNumThreads) + j;
+        try {
+          auth_handler.DropProfile(fmt::format("profile_{}", profile_idx), nullptr);
+          success_count.fetch_add(1);
+        } catch (const memgraph::query::QueryRuntimeException &) {
+          failure_count.fetch_add(1);
+        }
+      }
+    });
+  }
+
+  for (auto &thread : threads) {
+    thread.join();
+  }
+
+  // All deletions should succeed
+  ASSERT_EQ(success_count.load(), kNumProfiles);
+  ASSERT_EQ(failure_count.load(), 0);
+
+  // Verify all profiles were deleted
+  auto all_profiles = auth_handler.AllProfiles();
+  ASSERT_EQ(all_profiles.size(), 0);
+}
+
+TEST_F(AuthQueryHandlerFixture, ConcurrentResourceAccess) {
+  // Create profile with limits
+  auto limit = memgraph::query::UserProfileQuery::LimitValueResult{};
+  limit.type = memgraph::query::UserProfileQuery::LimitValueResult::Type::QUANTITY;
+  limit.quantity.value = 5;  // 5 sessions limit
+
+  ASSERT_NO_THROW(auth_handler.CreateProfile(
+      "limited_profile", {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], limit}},
+      nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.SetProfile("limited_profile", "test_user", nullptr));
+
+  constexpr size_t kNumThreads = 10;
+  std::vector<std::thread> threads;
+  std::atomic<size_t> success_count{0};
+  std::atomic<size_t> failure_count{0};
+
+  // Test concurrent resource access
+  std::latch latch(kNumThreads);
+  for (size_t i = 0; i < kNumThreads; ++i) {
+    threads.emplace_back([&]() {
+      auto resource = resources.GetUser("test_user");
+      if (resource->IncrementSessions()) {
+        success_count.fetch_add(1);
+        // Simulate some work
+        latch.arrive_and_wait();
+        resource->DecrementSessions();
+      } else {
+        latch.arrive_and_wait();
+        failure_count.fetch_add(1);
+      }
+    });
+  }
+
+  latch.wait();
+
+  for (auto &thread : threads) {
+    thread.join();
+  }
+
+  // Should have exactly 5 successful increments (due to limit)
+  ASSERT_EQ(success_count.load(), 5);
+  ASSERT_EQ(failure_count.load(), 5);
+}
+
+// Resource Exhaustion Tests
+TEST_F(AuthQueryHandlerFixture, SessionLimitExhaustion) {
+  // Create profile with very low session limit
+  auto limit = memgraph::query::UserProfileQuery::LimitValueResult{};
+  limit.type = memgraph::query::UserProfileQuery::LimitValueResult::Type::QUANTITY;
+  limit.quantity.value = 1;  // Only 1 session allowed
+
+  ASSERT_NO_THROW(auth_handler.CreateProfile(
+      "single_session_profile",
+      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], limit}}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.SetProfile("single_session_profile", "test_user", nullptr));
+
+  auto resource = resources.GetUser("test_user");
+
+  // First session should succeed
+  ASSERT_TRUE(resource->IncrementSessions());
+  ASSERT_EQ(resource->GetSessions().first, 1);
+  ASSERT_EQ(resource->GetSessions().second, 1);
+
+  // Second session should fail
+  ASSERT_FALSE(resource->IncrementSessions());
+  ASSERT_EQ(resource->GetSessions().first, 1);  // Should remain at 1
+  ASSERT_EQ(resource->GetSessions().second, 1);
+
+  // After releasing the session, should be able to create another
+  resource->DecrementSessions();
+  ASSERT_EQ(resource->GetSessions().first, 0);
+  ASSERT_TRUE(resource->IncrementSessions());
+  ASSERT_EQ(resource->GetSessions().first, 1);
+}
+
+TEST_F(AuthQueryHandlerFixture, MemoryLimitExhaustion) {
+  memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
+  // Create profile with memory limit
+  auto limit = memgraph::query::UserProfileQuery::LimitValueResult{};
+  limit.type = memgraph::query::UserProfileQuery::LimitValueResult::Type::MEMORY_LIMIT;
+  limit.mem_limit.value = 1024;  // 1KB limit
+  limit.mem_limit.scale = 1;     // 1 byte units
+
+  ASSERT_NO_THROW(auth_handler.CreateProfile(
+      "memory_limited_profile",
+      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[1], limit}}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.SetProfile("memory_limited_profile", "test_user", nullptr));
+
+  auto resource = resources.GetUser("test_user");
+
+  // Allocate within limit
+  ASSERT_TRUE(resource->IncrementTransactionsMemory(512));
+  ASSERT_EQ(resource->GetTransactionsMemory().first, 512);
+  ASSERT_EQ(resource->GetTransactionsMemory().second, 1024);
+
+  // Allocate more within limit
+  ASSERT_TRUE(resource->IncrementTransactionsMemory(256));
+  ASSERT_EQ(resource->GetTransactionsMemory().first, 768);
+  ASSERT_EQ(resource->GetTransactionsMemory().second, 1024);
+
+  // Try to exceed limit
+  ASSERT_FALSE(resource->IncrementTransactionsMemory(300));  // Would exceed 1024
+  ASSERT_EQ(resource->GetTransactionsMemory().first, 768);   // Should remain unchanged
+  ASSERT_EQ(resource->GetTransactionsMemory().second, 1024);
+
+  // Deallocate and try again
+  resource->DecrementTransactionsMemory(256);
+  ASSERT_EQ(resource->GetTransactionsMemory().first, 512);
+  ASSERT_TRUE(resource->IncrementTransactionsMemory(300));  // Should now fit
+  ASSERT_EQ(resource->GetTransactionsMemory().first, 812);
+}
+
+TEST_F(AuthQueryHandlerFixture, MemoryLimitExhaustionWithLargeAllocation) {
+  memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
+  // Create profile with moderate memory limit
+  auto limit = memgraph::query::UserProfileQuery::LimitValueResult{};
+  limit.type = memgraph::query::UserProfileQuery::LimitValueResult::Type::MEMORY_LIMIT;
+  limit.mem_limit.value = 2048;  // 2KB limit
+  limit.mem_limit.scale = 1;
+
+  ASSERT_NO_THROW(auth_handler.CreateProfile(
+      "moderate_memory_profile",
+      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[1], limit}}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.SetProfile("moderate_memory_profile", "test_user", nullptr));
+
+  auto resource = resources.GetUser("test_user");
+
+  // Try to allocate more than the limit in one go
+  ASSERT_FALSE(resource->IncrementTransactionsMemory(4096));  // 4KB > 2KB limit
+  ASSERT_EQ(resource->GetTransactionsMemory().first, 0);      // Should remain at 0
+  ASSERT_EQ(resource->GetTransactionsMemory().second, 2048);
+
+  // Verify we can still allocate within limits
+  ASSERT_TRUE(resource->IncrementTransactionsMemory(1024));
+  ASSERT_EQ(resource->GetTransactionsMemory().first, 1024);
+}
+
+TEST_F(AuthQueryHandlerFixture, MemoryLimitExhaustionWithLargeAllocationAndNoThrow) {
+  memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
+  // Create profile with moderate memory limit
+  auto limit = memgraph::query::UserProfileQuery::LimitValueResult{};
+  limit.type = memgraph::query::UserProfileQuery::LimitValueResult::Type::MEMORY_LIMIT;
+  limit.mem_limit.value = 2048;  // 2KB limit
+  limit.mem_limit.scale = 1;
+
+  ASSERT_NO_THROW(auth_handler.CreateProfile(
+      "moderate_memory_profile",
+      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[1], limit}}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.SetProfile("moderate_memory_profile", "test_user", nullptr));
+
+  auto resource = resources.GetUser("test_user");
+
+  // Try to allocate more than the limit in one go
+  ASSERT_FALSE(resource->IncrementTransactionsMemory(4096));  // 4KB > 2KB limit
+  ASSERT_EQ(resource->GetTransactionsMemory().first, 0);      // Should remain at 0
+  ASSERT_EQ(resource->GetTransactionsMemory().second, 2048);
+
+  {
+    memgraph::utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
+    ASSERT_TRUE(resource->IncrementTransactionsMemory(4096));  // 4KB > 2KB limit
+    ASSERT_EQ(resource->GetTransactionsMemory().first, 4096);
+    ASSERT_EQ(resource->GetTransactionsMemory().second, 2048);
+  }
+}
+
+TEST_F(AuthQueryHandlerFixture, ResourceExhaustionRecovery) {
+  memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
+  // Create profile with limits
+  auto session_limit = memgraph::query::UserProfileQuery::LimitValueResult{};
+  session_limit.type = memgraph::query::UserProfileQuery::LimitValueResult::Type::QUANTITY;
+  session_limit.quantity.value = 2;
+
+  auto memory_limit = memgraph::query::UserProfileQuery::LimitValueResult{};
+  memory_limit.type = memgraph::query::UserProfileQuery::LimitValueResult::Type::MEMORY_LIMIT;
+  memory_limit.mem_limit.value = 1024;
+  memory_limit.mem_limit.scale = 1;
+
+  ASSERT_NO_THROW(auth_handler.CreateProfile(
+      "recovery_test_profile",
+      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], session_limit},
+       memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[1], memory_limit}},
+      nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.SetProfile("recovery_test_profile", "test_user", nullptr));
+
+  auto resource = resources.GetUser("test_user");
+
+  // Exhaust both resources
+  ASSERT_TRUE(resource->IncrementSessions());
+  ASSERT_TRUE(resource->IncrementSessions());
+  ASSERT_FALSE(resource->IncrementSessions());  // Should fail
+
+  ASSERT_TRUE(resource->IncrementTransactionsMemory(1024));
+  ASSERT_FALSE(resource->IncrementTransactionsMemory(1));  // Should fail
+
+  // Verify current state
+  ASSERT_EQ(resource->GetSessions().first, 2);
+  ASSERT_EQ(resource->GetSessions().second, 2);
+  ASSERT_EQ(resource->GetTransactionsMemory().first, 1024);
+  ASSERT_EQ(resource->GetTransactionsMemory().second, 1024);
+
+  // Release resources
+  resource->DecrementSessions();
+  resource->DecrementSessions();
+  resource->DecrementTransactionsMemory(1024);
+
+  // Verify recovery
+  ASSERT_EQ(resource->GetSessions().first, 0);
+  ASSERT_EQ(resource->GetSessions().second, 2);
+  ASSERT_EQ(resource->GetTransactionsMemory().first, 0);
+  ASSERT_EQ(resource->GetTransactionsMemory().second, 1024);
+
+  // Should be able to allocate again
+  ASSERT_TRUE(resource->IncrementSessions());
+  ASSERT_TRUE(resource->IncrementSessions());
+  ASSERT_TRUE(resource->IncrementTransactionsMemory(1024));
+}
+
+TEST_F(AuthQueryHandlerFixture, ProfileUpdateDuringResourceExhaustion) {
+  // Create profile with low limits
+  auto session_limit = memgraph::query::UserProfileQuery::LimitValueResult{};
+  session_limit.type = memgraph::query::UserProfileQuery::LimitValueResult::Type::QUANTITY;
+  session_limit.quantity.value = 1;
+
+  ASSERT_NO_THROW(auth_handler.CreateProfile(
+      "update_test_profile",
+      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], session_limit}}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.SetProfile("update_test_profile", "test_user", nullptr));
+
+  auto resource = resources.GetUser("test_user");
+
+  // Exhaust the resource
+  ASSERT_TRUE(resource->IncrementSessions());
+  ASSERT_FALSE(resource->IncrementSessions());  // Should fail
+
+  // Update profile to increase limits
+  auto new_limit = memgraph::query::UserProfileQuery::LimitValueResult{};
+  new_limit.type = memgraph::query::UserProfileQuery::LimitValueResult::Type::QUANTITY;
+  new_limit.quantity.value = 3;  // Increase to 3 sessions
+
+  ASSERT_NO_THROW(auth_handler.UpdateProfile(
+      "update_test_profile",
+      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], new_limit}}, nullptr));
+
+  // Should now be able to allocate more sessions
+  ASSERT_TRUE(resource->IncrementSessions());
+  ASSERT_TRUE(resource->IncrementSessions());
+  ASSERT_FALSE(resource->IncrementSessions());  // Should fail at 3
+
+  ASSERT_EQ(resource->GetSessions().first, 3);
+  ASSERT_EQ(resource->GetSessions().second, 3);
+}
+
+TEST_F(AuthQueryHandlerFixture, ProfileDeletionDuringResourceUsage) {
+  // Create profile and use resources
+  auto session_limit = memgraph::query::UserProfileQuery::LimitValueResult{};
+  session_limit.type = memgraph::query::UserProfileQuery::LimitValueResult::Type::QUANTITY;
+  session_limit.quantity.value = 2;
+
+  ASSERT_NO_THROW(auth_handler.CreateProfile(
+      "delete_test_profile",
+      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], session_limit}}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.SetProfile("delete_test_profile", "test_user", nullptr));
+
+  auto resource = resources.GetUser("test_user");
+
+  // Use some resources
+  ASSERT_TRUE(resource->IncrementSessions());
+  ASSERT_EQ(resource->GetSessions().first, 1);
+  ASSERT_EQ(resource->GetSessions().second, 2);
+
+  // Delete the profile
+  ASSERT_NO_THROW(auth_handler.DropProfile("delete_test_profile", nullptr));
+
+  // Resources should be reset to unlimited
+  ASSERT_EQ(resource->GetSessions().first, 1);                                    // Current usage remains
+  ASSERT_EQ(resource->GetSessions().second, std::numeric_limits<size_t>::max());  // Unlimited
+
+  // Should be able to allocate unlimited sessions now
+  ASSERT_TRUE(resource->IncrementSessions());
+  ASSERT_TRUE(resource->IncrementSessions());
+  ASSERT_TRUE(resource->IncrementSessions());
+  ASSERT_EQ(resource->GetSessions().first, 4);
+}
+
+TEST_F(AuthQueryHandlerFixture, ConcurrentResourceExhaustion) {
+  // Create profile with low limits
+  auto session_limit = memgraph::query::UserProfileQuery::LimitValueResult{};
+  session_limit.type = memgraph::query::UserProfileQuery::LimitValueResult::Type::QUANTITY;
+  session_limit.quantity.value = 3;  // Only 3 sessions allowed
+
+  ASSERT_NO_THROW(auth_handler.CreateProfile(
+      "concurrent_exhaustion_profile",
+      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[0], session_limit}}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.SetProfile("concurrent_exhaustion_profile", "test_user", nullptr));
+
+  constexpr size_t kNumThreads = 10;
+  std::vector<std::thread> threads;
+  std::atomic<size_t> success_count{0};
+  std::atomic<size_t> failure_count{0};
+  std::atomic<size_t> total_allocated{0};
+
+  // Test concurrent resource exhaustion
+  for (size_t i = 0; i < kNumThreads; ++i) {
+    threads.emplace_back([&]() {
+      auto resource = resources.GetUser("test_user");
+      if (resource->IncrementSessions()) {
+        success_count.fetch_add(1);
+        total_allocated.fetch_add(1);
+        // Hold the resource for a bit
+        std::this_thread::sleep_for(std::chrono::milliseconds(50));
+        resource->DecrementSessions();
+        total_allocated.fetch_sub(1);
+      } else {
+        failure_count.fetch_add(1);
+      }
+    });
+  }
+
+  for (auto &thread : threads) {
+    thread.join();
+  }
+
+  // Should have exactly 3 successful allocations at any time
+  ASSERT_EQ(success_count.load(), 3);
+  ASSERT_EQ(failure_count.load(), 7);
+  ASSERT_EQ(total_allocated.load(), 0);  // All resources should be released
+}
+
+TEST_F(AuthQueryHandlerFixture, MemoryExhaustionUnderLoad) {
+  // Create profile with memory limit
+  auto memory_limit = memgraph::query::UserProfileQuery::LimitValueResult{};
+  memory_limit.type = memgraph::query::UserProfileQuery::LimitValueResult::Type::MEMORY_LIMIT;
+  memory_limit.mem_limit.value = 1024;  // 1KB limit
+  memory_limit.mem_limit.scale = 1;
+
+  ASSERT_NO_THROW(auth_handler.CreateProfile(
+      "memory_load_profile",
+      {memgraph::query::UserProfileQuery::limit_t{memgraph::auth::UserProfiles::kLimits[1], memory_limit}}, nullptr));
+  ASSERT_TRUE(auth_handler.CreateUser("test_user", {}, nullptr));
+  ASSERT_NO_THROW(auth_handler.SetProfile("memory_load_profile", "test_user", nullptr));
+
+  constexpr size_t kNumThreads = 8;
+  std::vector<std::jthread> threads;
+  std::atomic<size_t> success_count{0};
+  std::atomic<size_t> failure_count{0};
+
+  // Test concurrent memory allocation under load
+  for (size_t i = 0; i < kNumThreads; ++i) {
+    threads.emplace_back([&]() {
+      memgraph::utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_enabler;
+      auto resource = resources.GetUser("test_user");
+      ASSERT_TRUE(resource);
+      size_t allocation_size = 256;  // 256 bytes per thread
+
+      if (resource->IncrementTransactionsMemory(allocation_size)) {
+        success_count.fetch_add(1);
+      } else {
+        failure_count.fetch_add(1);
+      }
+    });
+  }
+
+  threads.clear();
+
+  // Should have exactly 4 successful allocations (1024/256 = 4)
+  ASSERT_EQ(success_count.load(), 4);
+  ASSERT_EQ(failure_count.load(), 4);
 }

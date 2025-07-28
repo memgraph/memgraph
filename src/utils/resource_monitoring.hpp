@@ -31,6 +31,12 @@ class Resource {
  public:
   using value_type = T;
 
+  struct IncrementResult {
+    bool success;
+    T current;
+    T limit;
+  };
+
   Resource() = default;
   explicit Resource(T limit) : limit_(limit) {}
   ~Resource() = default;
@@ -45,26 +51,22 @@ class Resource {
   // Should this fail?
   void UpdateLimit(T limit) { limit_.store(limit, std::memory_order_release); }
 
-  bool Increment(T size) {
+  IncrementResult Increment(T size, bool can_throw = true) {
     auto current = allocated_.fetch_add(size, std::memory_order_acq_rel) + size;
 
-    // Failure is forbidden, return true and don't throw
-    if (!MemoryTrackerCanThrow()) {
+    if (!can_throw) {
       // NOTE: This is needed because we have paths that block exceptions
-      return true;
+      return {true, current, {}};
     }
 
     const auto limit =
         limit_.load(std::memory_order_relaxed);  // Could miss updates to limit, but allowing stale values for now
     if (current > limit) {
       allocated_.fetch_sub(size, std::memory_order_acq_rel);  // Rollback increment
-      // register our error data, we will pick this up on the other side of jemalloc
-      utils::MemoryErrorStatus().set({static_cast<int64_t>(size), static_cast<int64_t>(current),
-                                      static_cast<int64_t>(limit), utils::MemoryTrackerStatus::kUser});
-      return false;  // increment failed
+      return {false, current, limit};
     }
 
-    return true;
+    return {true, current, limit};
   }
 
   // Decrementing cannot fail
@@ -109,7 +111,7 @@ struct UserResources {
 
   // Session limits
   void SetSessionLimit(SessionsResource::value_type limit) { sessions.UpdateLimit(limit); }
-  bool IncrementSessions() { return sessions.Increment(1); }
+  bool IncrementSessions() { return sessions.Increment(1).success; }
   void DecrementSessions() { sessions.Decrement(1); }
   std::pair<SessionsResource::value_type, SessionsResource::value_type> GetSessions() const {
     return {sessions.GetCurrent(), sessions.GetLimit()};
