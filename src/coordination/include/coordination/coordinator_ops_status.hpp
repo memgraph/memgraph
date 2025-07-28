@@ -15,7 +15,7 @@
 
 namespace memgraph::coordination {
 
-enum class YieldLeadershipStatus { SUCCESS = 0, NOT_LEADER };
+enum class YieldLeadershipStatus : uint8_t { SUCCESS = 0, NOT_LEADER };
 enum class SetCoordinatorSettingStatus : uint8_t { SUCCESS = 0, RAFT_LOG_ERROR, UNKNOWN_SETTING };
 
 enum class RegisterInstanceCoordinatorStatus : uint8_t {
@@ -27,7 +27,6 @@ enum class RegisterInstanceCoordinatorStatus : uint8_t {
   RPC_FAILED,
   RAFT_LOG_ERROR,
   SUCCESS,
-  LOCK_OPENED,
   STRICT_SYNC_AND_SYNC_FORBIDDEN,
 };
 
@@ -40,7 +39,6 @@ enum class UnregisterInstanceCoordinatorStatus : uint8_t {
   NOT_LEADER,
   RAFT_LOG_ERROR,
   SUCCESS,
-  LOCK_OPENED,
 };
 
 enum class SetInstanceToMainCoordinatorStatus : uint8_t {

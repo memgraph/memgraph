@@ -626,7 +626,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
                                                                       .bolt_server = *maybe_bolt_server,
                                                                       .replication_client_info = repl_config};
 
-    switch (auto status = coordinator_handler_.RegisterReplicationInstance(coordinator_client_config)) {
+    switch (coordinator_handler_.RegisterReplicationInstance(coordinator_client_config)) {
       using enum coordination::RegisterInstanceCoordinatorStatus;
       case STRICT_SYNC_AND_SYNC_FORBIDDEN:
         throw QueryRuntimeException(
