@@ -56,7 +56,7 @@ struct ReplicaSystemInfoState {
 };
 
 struct ReplicaInfoState {
-  ReplicaInfoState(uint64_t ts, uint64_t behind, storage::replication::ReplicaState state)
+  ReplicaInfoState(uint64_t const ts, int64_t const behind, storage::replication::ReplicaState state)
       : ts_(ts), behind_(behind), state_(state) {}
 
   uint64_t ts_;
