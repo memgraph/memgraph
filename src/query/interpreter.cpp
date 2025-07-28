@@ -509,13 +509,6 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case RPC_FAILED:
         throw QueryRuntimeException(
             "Couldn't unregister replica instance because current main instance couldn't unregister replica!");
-      case LOCK_OPENED:
-        throw QueryRuntimeException("Couldn't unregister replica because the last action didn't finish successfully!");
-      case FAILED_TO_OPEN_LOCK:
-        throw QueryRuntimeException("Couldn't unregister instance as cluster didn't accept start of action!");
-      case FAILED_TO_CLOSE_LOCK:
-        throw QueryRuntimeException(
-            "Couldn't unregister instance as cluster didn't accept successful finish of action!");
       case SUCCESS:
         break;
     }
@@ -550,15 +543,6 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case RPC_FAILED:
         throw QueryRuntimeException(
             "Couldn't demote instance to replica because current main instance couldn't unregister replica!");
-      case LOCK_OPENED:
-        throw QueryRuntimeException(
-            "Couldn't successfully finish action demote instance to replica because the last action didn't finish "
-            "successfully!");
-      case FAILED_TO_OPEN_LOCK:
-        throw QueryRuntimeException("Couldn't demote instance to replica as cluster didn't accept start of action!");
-      case FAILED_TO_CLOSE_LOCK:
-        throw QueryRuntimeException(
-            "Couldn't demote  instance to replica as cluster didn't accept successful finish of action!");
       case SUCCESS:
         break;
     }
@@ -642,7 +626,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
                                                                       .bolt_server = *maybe_bolt_server,
                                                                       .replication_client_info = repl_config};
 
-    switch (auto status = coordinator_handler_.RegisterReplicationInstance(coordinator_client_config)) {
+    switch (coordinator_handler_.RegisterReplicationInstance(coordinator_client_config)) {
       using enum coordination::RegisterInstanceCoordinatorStatus;
       case STRICT_SYNC_AND_SYNC_FORBIDDEN:
         throw QueryRuntimeException(
@@ -677,13 +661,6 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
         throw QueryRuntimeException(
             "Couldn't register replica instance because setting instance to replica failed! Check logs on replica to "
             "find out more info!");
-      case LOCK_OPENED:
-        throw QueryRuntimeException(
-            "Couldn't register replica instance because because the last action didn't finish successfully!");
-      case FAILED_TO_OPEN_LOCK:
-        throw QueryRuntimeException("Couldn't register instance as cluster didn't accept start of action!");
-      case FAILED_TO_CLOSE_LOCK:
-        throw QueryRuntimeException("Couldn't register instance as cluster didn't accept successful finish of action!");
       case SUCCESS:
         break;
     }
@@ -770,16 +747,8 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case COULD_NOT_PROMOTE_TO_MAIN:
         throw QueryRuntimeException(
             "Couldn't set replica instance to main! Check coordinator and replica for more logs");
-      case FAILED_TO_OPEN_LOCK:
-        throw QueryRuntimeException("Couldn't set instance to main as cluster didn't accept start of action!");
-      case LOCK_OPENED:
-        throw QueryRuntimeException(
-            "Couldn't set instance to main instance because because the last action didn't finish successfully!");
       case ENABLE_WRITING_FAILED:
         throw QueryRuntimeException("Instance promoted to MAIN, but couldn't enable writing to instance.");
-      case FAILED_TO_CLOSE_LOCK:
-        throw QueryRuntimeException(
-            "Couldn't set instance to main as cluster didn't accept successful finish of action!");
       case SUCCESS:
         break;
     }
@@ -1603,7 +1572,7 @@ Callback HandleReplicationInfoQuery(ReplicationInfoQuery *repl_query,
           auto info = std::map<std::string, TypedValue>{};
           info.emplace("ts", TypedValue{static_cast<int64_t>(orig.ts_)});
           // TODO: behind not implemented
-          info.emplace("behind", TypedValue{/* static_cast<int64_t>(orig.behind_) */});
+          info.emplace("behind", TypedValue{/*orig.behind_*/});
           info.emplace("status", replica_sys_state_to_tv(orig.state_));
           return TypedValue{std::move(info)};
         };
@@ -1628,7 +1597,7 @@ Callback HandleReplicationInfoQuery(ReplicationInfoQuery *repl_query,
         auto const info_to_tv = [&](ReplicaInfoState orig) {
           auto info = std::map<std::string, TypedValue>{};
           info.emplace("ts", TypedValue{static_cast<int64_t>(orig.ts_)});
-          info.emplace("behind", TypedValue{static_cast<int64_t>(orig.behind_)});
+          info.emplace("behind", TypedValue{orig.behind_});
           info.emplace("status", replica_state_to_tv(orig.state_));
           return TypedValue{std::move(info)};
         };

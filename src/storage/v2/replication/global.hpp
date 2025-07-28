@@ -23,7 +23,7 @@ namespace memgraph::storage {
 
 struct TimestampInfo {
   uint64_t current_timestamp_of_replica{0};
-  uint64_t current_number_of_timestamp_behind_main{0};
+  int64_t current_number_of_timestamp_behind_main{0};
 };
 
 struct ReplicaInfo {

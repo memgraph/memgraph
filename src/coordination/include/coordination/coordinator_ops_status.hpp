@@ -15,7 +15,7 @@
 
 namespace memgraph::coordination {
 
-enum class YieldLeadershipStatus { SUCCESS = 0, NOT_LEADER };
+enum class YieldLeadershipStatus : uint8_t { SUCCESS = 0, NOT_LEADER };
 enum class SetCoordinatorSettingStatus : uint8_t { SUCCESS = 0, RAFT_LOG_ERROR, UNKNOWN_SETTING };
 
 enum class RegisterInstanceCoordinatorStatus : uint8_t {
@@ -27,9 +27,6 @@ enum class RegisterInstanceCoordinatorStatus : uint8_t {
   RPC_FAILED,
   RAFT_LOG_ERROR,
   SUCCESS,
-  LOCK_OPENED,
-  FAILED_TO_OPEN_LOCK,
-  FAILED_TO_CLOSE_LOCK,
   STRICT_SYNC_AND_SYNC_FORBIDDEN,
 };
 
@@ -42,9 +39,6 @@ enum class UnregisterInstanceCoordinatorStatus : uint8_t {
   NOT_LEADER,
   RAFT_LOG_ERROR,
   SUCCESS,
-  LOCK_OPENED,
-  FAILED_TO_OPEN_LOCK,
-  FAILED_TO_CLOSE_LOCK
 };
 
 enum class SetInstanceToMainCoordinatorStatus : uint8_t {
@@ -55,10 +49,7 @@ enum class SetInstanceToMainCoordinatorStatus : uint8_t {
   RAFT_LOG_ERROR,
   COULD_NOT_PROMOTE_TO_MAIN,
   SUCCESS,
-  LOCK_OPENED,
-  FAILED_TO_OPEN_LOCK,
   ENABLE_WRITING_FAILED,
-  FAILED_TO_CLOSE_LOCK
 };
 
 enum class AddCoordinatorInstanceStatus : uint8_t {
@@ -79,9 +70,6 @@ enum class DemoteInstanceCoordinatorStatus : uint8_t {
   RPC_FAILED,
   RAFT_LOG_ERROR,
   SUCCESS,
-  LOCK_OPENED,
-  FAILED_TO_OPEN_LOCK,
-  FAILED_TO_CLOSE_LOCK,
   NOT_COORDINATOR
 };
 

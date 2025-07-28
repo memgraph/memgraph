@@ -15,8 +15,6 @@
 
 #include "utils/uuid.hpp"
 
-#include <spdlog/spdlog.h>
-
 namespace memgraph::replication {
 
 struct ReplicationEpoch {
