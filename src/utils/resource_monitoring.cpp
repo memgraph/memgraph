@@ -13,7 +13,15 @@
 
 namespace memgraph::utils {
 
-bool TransactionsMemoryResource::Allocate(size_t size) { return Increment(size); }
+bool TransactionsMemoryResource::Allocate(size_t size) {
+  const auto result = Increment(size, MemoryTrackerCanThrow());
+  if (!result.success) {
+    // register our error data, we will pick this up on the other side of jemalloc
+    utils::MemoryErrorStatus().set({static_cast<int64_t>(size), static_cast<int64_t>(result.current),
+                                    static_cast<int64_t>(result.limit), utils::MemoryTrackerStatus::kUser});
+  }
+  return result.success;
+}
 void TransactionsMemoryResource::Deallocate(size_t size) { Decrement(size); }
 
 }  // namespace memgraph::utils
