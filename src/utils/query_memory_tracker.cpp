@@ -19,7 +19,7 @@ namespace memgraph::utils {
 
 bool QueryMemoryTracker::TrackAlloc(size_t size) {
   if (transaction_tracker_.has_value()) [[likely]] {
-    bool ok = transaction_tracker_->Alloc(static_cast<int64_t>(size));
+    const bool ok = transaction_tracker_->Alloc(static_cast<int64_t>(size));
     if (!ok) return false;
   }
 
@@ -31,6 +31,7 @@ bool QueryMemoryTracker::TrackAlloc(size_t size) {
 
   return proc_tracker->Alloc(static_cast<int64_t>(size));
 }
+
 void QueryMemoryTracker::TrackFree(size_t size) {
   if (transaction_tracker_.has_value()) [[likely]] {
     transaction_tracker_->Free(static_cast<int64_t>(size));

@@ -3813,7 +3813,7 @@ antlrcpp::Any CypherMainVisitor::visitSetSessionTraceQuery(MemgraphCypher::SetSe
 antlrcpp::Any CypherMainVisitor::visitLimitKV(MemgraphCypher::LimitKVContext *ctx) {
   auto key = utils::ToLowerCase(std::any_cast<std::string>(ctx->key->accept(this)));
   auto value = VisitLimitValue(ctx->val, this);
-  return std::pair{std::move(key), std::move(value)};
+  return std::pair{key, value};
 }
 
 antlrcpp::Any CypherMainVisitor::visitListOfLimits(MemgraphCypher::ListOfLimitsContext *ctx) {
