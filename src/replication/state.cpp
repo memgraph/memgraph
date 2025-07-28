@@ -59,13 +59,14 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
 #ifdef MG_ENTERPRISE
   if (flags::CoordinationSetupInstance().IsDataInstanceManagedByCoordinator() &&
       std::holds_alternative<RoleReplicaData>(replication_data)) {
-    spdlog::trace("Restarted replication uuid for replica");
-    std::get<RoleReplicaData>(replication_data).uuid_.reset();
+    // TODO: (andi) Do we still need that and if yes why?
+    std::get<RoleReplicaData>(replication_data).uuid_ = utils::UUID{};
+    spdlog::trace("Replica's replication uuid for replica has been reset");
   }
 #endif
   if (std::holds_alternative<RoleReplicaData>(replication_data)) {
-    auto &replica_uuid = std::get<RoleReplicaData>(replication_data).uuid_;
-    std::string uuid = replica_uuid.has_value() ? std::string(replica_uuid.value()) : "";
+    auto const &replica_uuid = std::get<RoleReplicaData>(replication_data).uuid_;
+    auto const uuid = std::string(replica_uuid);
     spdlog::trace("Recovered main's uuid for replica {}", uuid);
   } else {
     spdlog::trace("Recovered uuid for main {}", std::string(std::get<RoleMainData>(replication_data).uuid_));
@@ -73,8 +74,7 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
   replication_data_ = std::move(replication_data);
 }
 
-bool ReplicationState::TryPersistRoleReplica(const ReplicationServerConfig &config,
-                                             const std::optional<utils::UUID> &main_uuid) {
+bool ReplicationState::TryPersistRoleReplica(const ReplicationServerConfig &config, utils::UUID const &main_uuid) {
   if (!HasDurability()) return true;
 
   auto data =
@@ -284,16 +284,18 @@ bool ReplicationState::SetReplicationRoleMain(const utils::UUID &main_uuid) {
   return true;
 }
 
-bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &config,
-                                                 const std::optional<utils::UUID> &main_uuid) {
+bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &config) {
   // False positive report for the std::make_unique
+  // Random UUID when first setting replica rol
+  auto const main_uuid = utils::UUID{};
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
   if (!TryPersistRoleReplica(config, main_uuid)) {
     return false;
   }
   // False positive report for the std::make_unique
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
-  replication_data_ = RoleReplicaData{config, std::make_unique<ReplicationServer>(config), std::nullopt};
+  replication_data_ =
+      RoleReplicaData{.config = config, .server = std::make_unique<ReplicationServer>(config), .uuid_ = main_uuid};
   return true;
 }
 

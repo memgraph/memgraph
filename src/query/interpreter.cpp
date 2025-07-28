@@ -381,7 +381,7 @@ class ReplQueryHandler {
           .repl_server = memgraph::io::network::Endpoint(memgraph::replication::kDefaultReplicationServerIp,
                                                          static_cast<uint16_t>(*port))};
 
-      if (!handler_->TrySetReplicationRoleReplica(config, std::nullopt)) {
+      if (!handler_->TrySetReplicationRoleReplica(config)) {
         throw QueryRuntimeException("Couldn't set role to replica!");
       }
     }
