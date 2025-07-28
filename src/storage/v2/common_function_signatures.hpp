@@ -19,18 +19,7 @@ namespace memgraph::storage {
 using CheckCancelFunction = std::function<bool()>;
 constexpr auto neverCancel = []() { return false; };
 
-using PublishIndexFunction = std::function<bool(uint64_t)>;
-using DropIndexFunction = std::function<bool()>;
-
-// Main purpose is the we need to invalidate plans at query level
-// the wrapper allows that to happen in storage level via a callback
-// which executed the index publish function while the plan cache is locked
-using PublishIndexWrapper = std::function<PublishIndexFunction(PublishIndexFunction)>;
-using DropIndexWrapper = std::function<DropIndexFunction(DropIndexFunction)>;
-
 // default for when callback not provided
-constexpr auto publish_no_wrap = std::identity{};
-constexpr auto drop_no_wrap = std::identity{};
 constexpr auto always_invalidate_plan_cache = []<typename... Args>(Args && ...) { return true; };
 
 }  // namespace memgraph::storage

@@ -69,7 +69,6 @@ Checks: '*,
          -bugprone-unchecked-optional-access'
 WarningsAsErrors: ''
 HeaderFilterRegex: 'src/.*'
-AnalyzeTemporaryDtors: false
 FormatStyle:     none
 CheckOptions:
   - key:             google-readability-braces-around-statements.ShortStatementLines

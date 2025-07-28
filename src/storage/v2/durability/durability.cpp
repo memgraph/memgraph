@@ -207,7 +207,6 @@ void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadat
 void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata, Indices *indices,
                             utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper, bool properties_on_edges,
                             const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
-                            const std::optional<std::filesystem::path> &storage_dir,
                             std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(indices->label_index_.get());
   // Recover label indices.
@@ -308,14 +307,10 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
 
   // Text idx
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    // Recover text indices.
     spdlog::info("Recreating {} text indices from metadata.", indices_metadata.text_indices.size());
     auto &mem_text_index = indices->text_index_;
     for (const auto &[index_name, label] : indices_metadata.text_indices) {
       try {
-        if (!storage_dir.has_value()) {
-          throw RecoveryFailure("There must exist a storage directory in order to recover text indices!");
-        }
         // TODO: parallel execution
         mem_text_index.RecoverIndex(index_name, label, vertices->access(), name_id_mapper, snapshot_info);
       } catch (...) {
@@ -449,13 +444,8 @@ void RecoverIndicesStatsAndConstraints(utils::SkipList<Vertex> *vertices, NameId
                                        RecoveredIndicesAndConstraints const &indices_constraints,
                                        bool properties_on_edges,
                                        std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  auto storage_dir = std::optional<std::filesystem::path>{};
-  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    storage_dir = config.durability.storage_directory;
-  }
-
   RecoverIndicesAndStats(indices_constraints.indices, indices, vertices, name_id_mapper, properties_on_edges,
-                         GetParallelExecInfo(recovery_info, config), storage_dir, snapshot_info);
+                         GetParallelExecInfo(recovery_info, config), snapshot_info);
   RecoverConstraints(indices_constraints.constraints, constraints, vertices, name_id_mapper,
                      GetParallelExecInfo(recovery_info, config), snapshot_info);
 }

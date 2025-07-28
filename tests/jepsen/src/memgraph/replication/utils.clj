@@ -14,9 +14,13 @@
 (defn replication-gen
   "Generator which should be used for replication tests
   as it adds register replica invoke."
-  [generator]
-  (gen/each-thread (gen/phases (cycle [(gen/once register-replicas)
-                                       (gen/time-limit 5 generator)]))))
+  [ops]
+  (gen/each-thread
+    (gen/phases
+      (gen/once register-replicas)
+      (gen/sleep 5)
+      (gen/delay 3 (gen/mix ops)))))
+
 
 (defn replication-open-connection
   "Open a connection to a node using the client.

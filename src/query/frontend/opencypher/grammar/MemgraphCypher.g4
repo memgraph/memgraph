@@ -224,6 +224,7 @@ query : cypherQuery
       | createSnapshotQuery
       | recoverSnapshotQuery
       | showSnapshotsQuery
+      | showNextSnapshotQuery
       | streamQuery
       | settingQuery
       | versionQuery
@@ -587,6 +588,8 @@ recoverSnapshotQuery : RECOVER SNAPSHOT path=literal ( FORCE )? ;
 
 showSnapshotsQuery : SHOW SNAPSHOTS ;
 
+showNextSnapshotQuery : SHOW NEXT SNAPSHOT ;
+
 streamName : symbolicName ;
 
 symbolicNameWithMinus : symbolicName ( MINUS symbolicName )* ;
@@ -664,7 +667,7 @@ dropDatabase : DROP DATABASE databaseName ;
 
 useDatabase : USE DATABASE databaseName ;
 
-showDatabase : SHOW DATABASE ;
+showDatabase : SHOW ( CURRENT )? DATABASE ;
 
 showDatabases : SHOW DATABASES ;
 

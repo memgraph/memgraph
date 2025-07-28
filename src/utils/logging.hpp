@@ -46,7 +46,7 @@ namespace memgraph::logging {
 
 #define MG_ASSERT(expr, ...)                                                                                 \
   do {                                                                                                       \
-    if (!(expr)) [[unlikely]] {                                                                              \
+    if (!(expr)) [[unlikely]] { /* NOLINT(readability-simplify-boolean-expr) */                              \
       [&]() __attribute__((noinline, cold, noreturn)) {                                                      \
         ::memgraph::logging::AssertFailed(std::source_location::current(), #expr, GET_MESSAGE(__VA_ARGS__)); \
       }                                                                                                      \

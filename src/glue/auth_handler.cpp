@@ -77,13 +77,13 @@ std::vector<std::vector<memgraph::query::TypedValue>> ConstructPrivilegesResult(
 }
 
 std::vector<std::vector<memgraph::query::TypedValue>> ShowUserPrivileges(
-    const std::optional<memgraph::auth::User> &user, std::string_view db_name) {
+    const std::optional<memgraph::auth::User> &user, std::optional<std::string_view> db_name) {
   std::vector<PermissionForPrivilegeResult> privilege_results;
 
   const auto &permissions = user->GetPermissions(db_name);
   memgraph::auth::Permissions user_level_permissions =
 #ifdef MG_ENTERPRISE
-      user->has_access(db_name) ? user->permissions() : memgraph::auth::Permissions{};
+      (!db_name || user->has_access(db_name.value())) ? user->permissions() : memgraph::auth::Permissions{};
 #else
       user->permissions();
 #endif
@@ -450,7 +450,7 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetDatab
     std::optional<memgraph::auth::Roles> roles_obj;
     for (const auto &role : roles) {
       if (auto role_obj = locked_auth->GetRole(role)) {
-        roles_obj.emplace();
+        if (!roles_obj) roles_obj.emplace();
         roles_obj->AddRole(std::move(*role_obj));
       }
     }
@@ -524,6 +524,15 @@ bool AuthQueryHandler::DropRole(const std::string &rolename, system::Transaction
     };
 
     return locked_auth->RemoveRole(rolename, system_tx);
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
+}
+
+bool AuthQueryHandler::HasRole(const std::string &rolename) {
+  try {
+    auto locked_auth = auth_->ReadLock();
+    return locked_auth->GetRole(rolename).has_value();
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
@@ -709,8 +718,8 @@ void AuthQueryHandler::RemoveRole(const std::string &username, const std::string
   }
 }
 
-std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetPrivileges(const std::string &user_or_role,
-                                                                                      std::string_view db_name) {
+std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetPrivileges(
+    const std::string &user_or_role, std::optional<std::string> db_name) {
   try {
     auto locked_auth = auth_->ReadLock();
     std::vector<std::vector<memgraph::query::TypedValue>> grants;

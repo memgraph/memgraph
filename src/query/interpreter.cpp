@@ -424,7 +424,9 @@ class ReplQueryHandler {
       if (error.GetError() == RegisterReplicaError::NOT_MAIN) {
         throw QueryRuntimeException("Replica can't register another replica!");
       }
-      throw QueryRuntimeException("Couldn't register replica {}.", name);
+
+      throw QueryRuntimeException("Couldn't register replica {}. Error: {}", name,
+                                  static_cast<uint8_t>(error.GetError()));
     }
   }
 
@@ -1173,16 +1175,18 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
           if (database_specification != AuthQuery::DatabaseSpecification::NONE) {
             throw QueryRuntimeException("Multi-database queries are only available in enterprise edition");
           }
-          return auth->GetPrivileges(user_or_role);
+          return auth->GetPrivileges(user_or_role, std::nullopt);
         }
-        std::string target_db;
+        std::optional<std::string> target_db;
         switch (database_specification) {
           case AuthQuery::DatabaseSpecification::NONE:
-            // Allow only if there are no other databases
-            if (db_handler->Count() > 1) {
+            // Allow only if there are no other databases (or for roles)
+            // Roles themselves cannot have MT specializations, so no need to filter for them (nullopt)
+            // Users can have MT specializations, so we force them to specify the database
+            if (db_handler->Count() > 1 && !auth->HasRole(user_or_role)) {
               throw QueryRuntimeException(
                   "In a multi-tenant environment, SHOW PRIVILEGES query requires database specification. Use ON MAIN, "
-                  "ON CURRENT or ON DATABASE.");
+                  "ON CURRENT or ON DATABASE db_name.");
             }
             break;
           case AuthQuery::DatabaseSpecification::MAIN: {
@@ -1203,16 +1207,16 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
             break;
         }
         std::optional<dbms::DatabaseAccess> target_db_acc;
-        if (!target_db.empty()) {
+        if (target_db) {
           // Check that the db exists
-          target_db_acc = db_handler->Get(target_db);
+          target_db_acc = db_handler->Get(*target_db);
         }
         return auth->GetPrivileges(user_or_role, target_db);
 #else
         if (database_specification != AuthQuery::DatabaseSpecification::NONE) {
           throw QueryRuntimeException("Multi-database queries are only available in enterprise edition");
         }
-        return auth->GetPrivileges(user_or_role);
+        return auth->GetPrivileges(user_or_role, std::nullopt);
 #endif
       };
       return callback;
@@ -1232,12 +1236,6 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         std::optional<std::string> target_db;
         switch (database_specification) {
           case AuthQuery::DatabaseSpecification::NONE:
-            // Allow only if there are no other databases
-            if (db_handler->Count() > 1) {
-              throw QueryRuntimeException(
-                  "In a multi-tenant environment, SHOW ROLE FOR USER query requires database specification. Use ON "
-                  "MAIN, ON CURRENT or ON DATABASE.");
-            }
             break;
           case AuthQuery::DatabaseSpecification::MAIN: {
             auto main_db = auth->GetMainDatabase(username);
@@ -3405,47 +3403,6 @@ PreparedQuery PrepareAnalyzeGraphQuery(ParsedQuery parsed_query, bool in_explici
                        RWType::NONE};
 }
 
-template <typename F>
-concept InvocableWithUInt64 = std::invocable<F, std::uint64_t>;
-
-struct DoNothing {
-  template <typename... Args>
-  bool operator()(Args &&...) {
-    return true;
-  }
-};
-
-// Creating an index influences computed plan costs.
-// We need to atomically invalidate the plan when publishing new index
-auto make_create_index_plan_invalidator_builder(memgraph::dbms::DatabaseAccess db_acc) {
-  // capture DatabaseAccess in builder
-  return [db_acc = std::move(db_acc)]<InvocableWithUInt64 Func = DoNothing>(Func && publish_func = Func{}) {
-    // build plan invalidator wrapper
-    return [db_acc = std::move(db_acc),
-            publish_func = std::forward<Func>(publish_func)](uint64_t commit_timestamp) mutable {
-      return db_acc->plan_cache()->WithLock([&](auto &cache) {
-        auto do_reset = publish_func(commit_timestamp);
-        if (do_reset) cache.reset();
-        return do_reset;
-      });
-    };
-  };
-}
-
-auto make_drop_index_plan_invalidator_builder(memgraph::dbms::DatabaseAccess db_acc) {
-  // capture DatabaseAccess in builder
-  return [db_acc = std::move(db_acc)]<std::invocable Func = DoNothing>(Func && publish_func = Func{}) {
-    // build plan invalidator wrapper
-    return [db_acc = std::move(db_acc), publish_func = std::forward<Func>(publish_func)]() mutable {
-      return db_acc->plan_cache()->WithLock([&](auto &cache) {
-        auto do_reset = publish_func();
-        if (do_reset) cache.reset();
-        return do_reset;
-      });
-    };
-  };
-}
-
 constexpr auto kCancelPeriodCreateIndex = 10'000;  // TODO: control via flag?
 auto make_create_index_cancel_callback(StoppingContext stopping_context) {
   return
@@ -3500,7 +3457,6 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
   switch (index_query->action_) {
     case IndexQuery::Action::CREATE: {
       // Creating an index influences computed plan costs.
-      auto plan_invalidator_builder = make_create_index_plan_invalidator_builder(db_acc);
       index_notification.code = NotificationCode::CREATE_INDEX;
       index_notification.title =
           fmt::format("Created index on label {} on properties {}.", index_query->label_.name, properties_stringified);
@@ -3508,14 +3464,11 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
       handler = [dba, label, properties_stringified = std::move(properties_stringified),
                  label_name = index_query->label_.name, properties = std::move(properties),
-                 plan_invalidator_builder = std::move(plan_invalidator_builder),
                  stopping_context = std::move(stopping_context)](Notification &index_notification) mutable {
         auto cancel_callback = make_create_index_cancel_callback(stopping_context);
-        auto maybe_index_error =
-            properties.empty()
-                ? dba->CreateIndex(label, std::move(cancel_callback), std::move(plan_invalidator_builder))
-                : dba->CreateIndex(label, std::move(properties), std::move(cancel_callback),
-                                   std::move(plan_invalidator_builder));
+        auto maybe_index_error = properties.empty()
+                                     ? dba->CreateIndex(label, std::move(cancel_callback))
+                                     : dba->CreateIndex(label, std::move(properties), std::move(cancel_callback));
         if (maybe_index_error.HasError()) {
           auto const error_visitor = [&]<typename T>(T const &) {
             if constexpr (std::is_same_v<T, storage::IndexDefinitionError> ||
@@ -3539,18 +3492,15 @@ PreparedQuery PrepareIndexQuery(ParsedQuery parsed_query, bool in_explicit_trans
     }
     case IndexQuery::Action::DROP: {
       // Creating an index influences computed plan costs.
-      auto plan_invalidator_builder = make_drop_index_plan_invalidator_builder(db_acc);
       index_notification.code = NotificationCode::DROP_INDEX;
       index_notification.title = fmt::format("Dropped index on label {} on properties {}.", index_query->label_.name,
                                              utils::Join(properties_string, ", "));
       // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
       handler = [dba, label, properties_stringified = std::move(properties_stringified),
-                 label_name = index_query->label_.name, properties = std::move(properties),
-                 plan_invalidator_builder =
-                     std::move(plan_invalidator_builder)](Notification &index_notification) mutable {
+                 label_name = index_query->label_.name,
+                 properties = std::move(properties)](Notification &index_notification) mutable {
         auto maybe_index_error =
-            properties.empty() ? dba->DropIndex(label, std::move(plan_invalidator_builder))
-                               : dba->DropIndex(label, std::move(properties), std::move(plan_invalidator_builder));
+            properties.empty() ? dba->DropIndex(label) : dba->DropIndex(label, std::move(properties));
         if (maybe_index_error.HasError()) {
           index_notification.code = NotificationCode::NONEXISTENT_INDEX;
           index_notification.title =
@@ -3615,8 +3565,6 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
   Notification index_notification(SeverityLevel::INFO);
   switch (index_query->action_) {
     case EdgeIndexQuery::Action::CREATE: {
-      auto plan_invalidator_builder = make_create_index_plan_invalidator_builder(db_acc);
-
       index_notification.code = NotificationCode::CREATE_INDEX;
       const auto &ix_properties = index_query->properties_;
       if (ix_properties.empty()) {
@@ -3628,7 +3576,6 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
 
       handler = [dba, edge_type, edge_type_name = index_query->edge_type_.name, global_index = index_query->global_,
                  properties_stringified = std::move(properties_stringified), properties = std::move(properties),
-                 plan_invalidator_builder = std::move(plan_invalidator_builder),
                  stopping_context = std::move(stopping_context)](Notification &index_notification) {
         MG_ASSERT(properties.size() <= 1U);
 
@@ -3636,13 +3583,11 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
           auto cancel_check = make_create_index_cancel_callback(stopping_context);
           if (global_index) {
             if (properties.empty()) throw utils::BasicException("Missing property for global edge index.");
-            return dba->CreateGlobalEdgeIndex(properties[0], std::move(cancel_check),
-                                              std::move(plan_invalidator_builder));
+            return dba->CreateGlobalEdgeIndex(properties[0], std::move(cancel_check));
           } else if (properties.empty()) {
-            return dba->CreateIndex(edge_type, std::move(cancel_check), std::move(plan_invalidator_builder));
+            return dba->CreateIndex(edge_type, std::move(cancel_check));
           }
-          return dba->CreateIndex(edge_type, properties[0], std::move(cancel_check),
-                                  std::move(plan_invalidator_builder));
+          return dba->CreateIndex(edge_type, properties[0], std::move(cancel_check));
         });
 
         if (maybe_index_error.HasError()) {
@@ -3667,21 +3612,19 @@ PreparedQuery PrepareEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
       break;
     }
     case EdgeIndexQuery::Action::DROP: {
-      auto plan_invalidator_builder = make_drop_index_plan_invalidator_builder(db_acc);
       index_notification.code = NotificationCode::DROP_INDEX;
       index_notification.title = fmt::format("Dropped index on edge-type {}.", index_query->edge_type_.name);
       handler = [dba, edge_type, label_name = index_query->edge_type_.name, global_index = index_query->global_,
-                 properties_stringified = std::move(properties_stringified), properties = std::move(properties),
-                 plan_invalidator_builder = std::move(plan_invalidator_builder)](Notification &index_notification) {
+                 properties_stringified = std::move(properties_stringified),
+                 properties = std::move(properties)](Notification &index_notification) {
         MG_ASSERT(properties.size() <= 1U);
 
         const utils::BasicResult<storage::StorageIndexDefinitionError, void> maybe_index_error = std::invoke([&] {
           if (global_index) {
             if (properties.size() != 1) throw utils::BasicException("Missing property for global edge index.");
-            return dba->DropGlobalEdgeIndex(properties[0], std::move(plan_invalidator_builder));
+            return dba->DropGlobalEdgeIndex(properties[0]);
           }
-          return properties.empty() ? dba->DropIndex(edge_type, std::move(plan_invalidator_builder))
-                                    : dba->DropIndex(edge_type, properties[0], std::move(plan_invalidator_builder));
+          return properties.empty() ? dba->DropIndex(edge_type) : dba->DropIndex(edge_type, properties[0]);
         });
 
         if (maybe_index_error.HasError()) {
@@ -3946,52 +3889,48 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
     throw IndexInMulticommandTxException();
   }
 
+  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    throw TextSearchDisabledException();
+  }
+
   auto *text_index_query = utils::Downcast<TextIndexQuery>(parsed_query.query);
   std::function<void(Notification &)> handler;
 
-  // TODO: we will need transaction for replication
   MG_ASSERT(current_db.db_acc_, "Text index query expects a current DB");
   auto &db_acc = *current_db.db_acc_;
 
   MG_ASSERT(current_db.db_transactional_accessor_, "Text index query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
 
-  // Creating an index influences computed plan costs.
-  auto invalidate_plan_cache = [plan_cache = db_acc->plan_cache()] {
-    plan_cache->WithLock([&](auto &cache) { cache.reset(); });
-  };
-
   auto *storage = db_acc->storage();
-  auto label = storage->NameToLabel(text_index_query->label_.name);
+  auto label_name = text_index_query->label_.name;
+  auto label_id = storage->NameToLabel(label_name);
   auto &index_name = text_index_query->index_name_;
 
   Notification index_notification(SeverityLevel::INFO);
   switch (text_index_query->action_) {
     case TextIndexQuery::Action::CREATE: {
       index_notification.code = NotificationCode::CREATE_INDEX;
-      index_notification.title = fmt::format("Created text index on label {}.", text_index_query->label_.name);
-      // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
-      handler = [dba, label, index_name,
-                 invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
-        if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-          throw TextSearchDisabledException();
+      index_notification.title = fmt::format("Created text index on label {}.", label_name);
+      handler = [dba, label_id, index_name, label_name = std::move(label_name)](Notification &index_notification) {
+        auto maybe_error = dba->CreateTextIndex(index_name, label_id);
+        if (maybe_error.HasError()) {
+          index_notification.code = NotificationCode::EXISTENT_INDEX;
+          index_notification.title =
+              fmt::format("Text index on label {} with name {} already exists.", label_name, index_name);
         }
-        dba->CreateTextIndex(index_name, label);
-        utils::OnScopeExit invalidator(invalidate_plan_cache);
       };
       break;
     }
     case TextIndexQuery::Action::DROP: {
       index_notification.code = NotificationCode::DROP_INDEX;
-      index_notification.title = fmt::format("Dropped text index on label {}.", text_index_query->label_.name);
-      // TODO: not just storage + invalidate_plan_cache. Need a DB transaction (for replication)
-      handler = [dba, index_name,
-                 invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification &index_notification) {
-        if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-          throw TextSearchDisabledException();
+      index_notification.title = fmt::format("Dropped text index {}.", index_name);
+      handler = [dba, index_name](Notification &index_notification) {
+        auto maybe_error = dba->DropTextIndex(index_name);
+        if (maybe_error.HasError()) {
+          index_notification.code = NotificationCode::NONEXISTENT_INDEX;
+          index_notification.title = fmt::format("Text index with name {} doesn't exist.", index_name);
         }
-        dba->DropTextIndex(index_name);
-        utils::OnScopeExit invalidator(invalidate_plan_cache);
       };
       break;
     }
@@ -4004,7 +3943,7 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
           AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
         handler(index_notification);
         notifications->push_back(index_notification);
-        return QueryHandlerResult::COMMIT;  // TODO: Will need to become COMMIT when we fix replication
+        return QueryHandlerResult::COMMIT;
       },
       RWType::W};
 }
@@ -4946,6 +4885,47 @@ PreparedQuery PrepareShowSnapshotsQuery(ParsedQuery parsed_query, bool in_explic
       infos.push_back({TypedValue{info.path.string()}, TypedValue{static_cast<int64_t>(info.start_timestamp)},
                        TypedValue{info.creation_time.ToStringWTZ()},
                        TypedValue{utils::GetReadableSize(static_cast<double>(info.size))}});
+    }
+    return infos;
+  };
+
+  return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
+                       [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+                         if (!pull_plan) {
+                           auto results = handler();
+                           pull_plan = std::make_shared<PullPlanVector>(std::move(results));
+                         }
+
+                         if (pull_plan->Pull(stream, n)) {
+                           return QueryHandlerResult::NOTHING;
+                         }
+                         return std::nullopt;
+                       },
+                       RWType::NONE};
+}
+
+PreparedQuery PrepareShowNextSnapshotQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                                           CurrentDB &current_db) {
+  if (in_explicit_transaction) {
+    throw ShowSchemaInfoInMulticommandTxException();
+  }
+
+  MG_ASSERT(current_db.db_acc_, "Show Next Snapshot query expects a current DB");
+  storage::Storage *storage = current_db.db_acc_->get()->storage();
+
+  if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+    throw ShowSnapshotsDisabledOnDiskStorage();
+  }
+
+  Callback callback;
+  callback.header = {"path", "creation_time"};
+  callback.fn = [storage]() mutable -> std::vector<std::vector<TypedValue>> {
+    std::vector<std::vector<TypedValue>> infos;
+    const auto res = static_cast<storage::InMemoryStorage *>(storage)->ShowNextSnapshot();
+
+    if (res) {
+      infos.push_back({TypedValue{res->path.string()}, TypedValue{res->creation_time.ToStringWTZ()}});
     }
     return infos;
   };
@@ -6534,6 +6514,7 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
       override { /*CreateSnapshot is also used in a periodic way so internally will arrange its own access*/
   }
   void Visit(ShowSnapshotsQuery &) override {}
+  void Visit(ShowNextSnapshotQuery & /* unused */) override {}
   void Visit(EdgeImportModeQuery &) override {}
   void Visit(AlterEnumRemoveValueQuery &) override { /* Not implemented yet */
   }
@@ -6588,18 +6569,14 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
     }
   }
   void Visit(EdgeIndexQuery &edge_index_query) override {
+    using enum storage::Storage::Accessor::Type;
     if (is_in_memory_transactional_) {
       // Concurrent population of index requires snapshot isolation
       isolation_level_override_ = storage::IsolationLevel::SNAPSHOT_ISOLATION;
-      if (edge_index_query.action_ == EdgeIndexQuery::Action::CREATE) {
-        // Need writers to leave so we can make populate a consistent index
-        accessor_type_ = storage::Storage::Accessor::Type::READ_ONLY;
-      } else {
-        accessor_type_ = storage::Storage::Accessor::Type::READ;
-      }
+      accessor_type_ = (edge_index_query.action_ == EdgeIndexQuery::Action::CREATE) ? READ_ONLY : READ;
     } else {
       // IN_MEMORY_ANALYTICAL and ON_DISK_TRANSACTIONAL require unique access
-      accessor_type_ = storage::Storage::Accessor::Type::UNIQUE;
+      accessor_type_ = UNIQUE;
     }
   }
 
@@ -6857,6 +6834,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
           PrepareRecoverSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, current_db_, replication_role);
     } else if (utils::Downcast<ShowSnapshotsQuery>(parsed_query.query)) {
       prepared_query = PrepareShowSnapshotsQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
+    } else if (utils::Downcast<ShowNextSnapshotQuery>(parsed_query.query)) {
+      prepared_query = PrepareShowNextSnapshotQuery(std::move(parsed_query), in_explicit_transaction_, current_db_);
     } else if (utils::Downcast<SettingQuery>(parsed_query.query)) {
       /// SYSTEM PURE
       prepared_query = PrepareSettingQuery(std::move(parsed_query), in_explicit_transaction_);
@@ -6983,16 +6962,15 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 }
 
 void Interpreter::CheckAuthorized(std::vector<AuthQuery::Privilege> const &privileges, std::optional<std::string> db) {
-  const std::string db_name = db.value_or("");
-  if (user_or_role_ && !user_or_role_->IsAuthorized(privileges, db_name, &query::session_long_policy)) {
+  if (user_or_role_ && !user_or_role_->IsAuthorized(privileges, db, &query::session_long_policy)) {
     Abort();
-    if (db_name.empty()) {
+    if (!db) {
       throw QueryException("You are not authorized to execute this query! Please contact your database administrator.");
     }
     throw QueryException(
         "You are not authorized to execute this query on database \"{}\"! Please contact your database "
         "administrator.",
-        db_name);
+        db.value());
   }
 }
 

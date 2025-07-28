@@ -283,6 +283,9 @@ bool SessionHL::SSOAuthenticate(const std::string &scheme, const std::string &id
 
   session_user_or_role_ = AuthChecker::GenQueryUser(auth_, *user_or_role);
   interpreter_.SetUser(session_user_or_role_);
+  interpreter_.SetSessionInfo(
+      UUID(), session_user_or_role_->username().has_value() ? session_user_or_role_->username().value() : "",
+      GetLoginTimestamp());
 
   TryDefaultDB();
   return true;
