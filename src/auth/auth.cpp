@@ -206,13 +206,13 @@ struct UpdateAuthData : memgraph::system::ISystemAction {
   void PostReplication(replication::RoleMainData &mainData) const override {}
 
  private:
-  std::optional<User> user_{};
-  std::optional<Role> role_{};
-  std::optional<UserProfiles::Profile> profile_{};
+  std::optional<User> user_;
+  std::optional<Role> role_;
+  std::optional<UserProfiles::Profile> profile_;
 };
 
 struct DropAuthData : memgraph::system::ISystemAction {
-  enum class AuthDataType { USER, ROLE, PROFILE };
+  enum class AuthDataType : uint8_t { USER, ROLE, PROFILE };
 
   explicit DropAuthData(AuthDataType type, std::string_view name) : type_{type}, name_{name} {}
 
