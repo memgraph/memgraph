@@ -143,21 +143,22 @@ void StartReplicaClient(replication::ReplicationClient &client, dbms::DbmsHandle
   spdlog::trace("Replication client started at: {}", endpoint.SocketAddress());  // non-resolved IP
   client.StartFrequentCheck(
       [&, license = license::global_license_checker.IsEnterpriseValidFast(),
-       main_uuid](ReplicationClient &client) mutable {
+       main_uuid](ReplicationClient &local_client) mutable {
         // Working connection
-        if (client.try_set_uuid && replication_coordination_glue::SendSwapMainUUIDRpc(client.rpc_client_, main_uuid)) {
-          client.try_set_uuid = false;
+        if (local_client.try_set_uuid &&
+            replication_coordination_glue::SendSwapMainUUIDRpc(local_client.rpc_client_, main_uuid)) {
+          local_client.try_set_uuid = false;
         }
         // Check if license has changed
         if (const auto new_license = license::global_license_checker.IsEnterpriseValidFast(); new_license != license) {
           license = new_license;
-          client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
+          local_client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
         }
 #ifdef MG_ENTERPRISE
-        SystemRestore<true>(client, system, dbms_handler, main_uuid, auth);
+        SystemRestore<true>(local_client, system, dbms_handler, main_uuid, auth);
 #endif
         // Check if any database has been left behind
-        dbms_handler.ForEach([&name = client.name_](dbms::DatabaseAccess db_acc) {
+        dbms_handler.ForEach([&name = local_client.name_](dbms::DatabaseAccess db_acc) {
           // Specific database <-> replica client
           db_acc->storage()->repl_storage_state_.WithClient(name, [&](storage::ReplicationStorageClient &client) {
             if (client.State() == storage::replication::ReplicaState::MAYBE_BEHIND) {
@@ -167,10 +168,10 @@ void StartReplicaClient(replication::ReplicationClient &client, dbms::DbmsHandle
           });
         });
       },
-      [&](ReplicationClient &client) {
+      [&](ReplicationClient &local_client) {
         // Connection lost, instance could be behind
-        client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
-        dbms_handler.ForEach([&name = client.name_](dbms::DatabaseAccess db_acc) {
+        local_client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
+        dbms_handler.ForEach([&name = local_client.name_](dbms::DatabaseAccess db_acc) {
           db_acc->storage()->repl_storage_state_.WithClient(name, [&](storage::ReplicationStorageClient &client) {
             // Specific database <-> replica client
             client.SetMaybeBehind();
@@ -246,7 +247,7 @@ bool ReplicationHandler::TrySetReplicationRoleReplica(const ReplicationServerCon
   }
 }
 
-bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool force) {
+bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool const force) {
   try {
     auto locked_repl_state = repl_state_.TryLock();
 
@@ -282,11 +283,13 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool fo
       return false;
     }
 
+    // All DBs should have the same epoch
+    auto const new_epoch = ReplicationEpoch();
+
     // STEP 3) We are now MAIN, update storage local epoch
-    const auto &epoch = std::get<RoleMainData>(locked_repl_state->ReplicationData()).epoch_;
     dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
       auto *storage = db_acc->storage();
-      storage->repl_storage_state_.epoch_ = epoch;
+      storage->repl_storage_state_.epoch_ = new_epoch;
 
       // Modifying storage->timestamp_ needs to be done under the engine lock.
       // Engine lock needs to be acquired after the repl state lock
@@ -423,9 +426,10 @@ auto ReplicationHandler::ShowReplicas() const -> utils::BasicResult<query::ShowR
       // Already locked on system transaction via the interpreter
       const auto ts = system_.LastCommittedSystemTimestamp();
       // NOTE: no system behind at the moment
-      query::ReplicaSystemInfoState system_info{ts, 0 /* behind ts not implemented */, *replica.state_.ReadLock()};
+      query::ReplicaSystemInfoState const system_info{ts, 0 /* behind ts not implemented */,
+                                                      *replica.state_.ReadLock()};
 #else
-      query::ReplicaSystemInfoState system_info{};
+      query::ReplicaSystemInfoState const system_info{};
 #endif
       // STEP 3: add entry
       entries.emplace_back(replica.name_, replica.rpc_client_.Endpoint().SocketAddress(), replica.mode_, system_info,

@@ -88,18 +88,15 @@ struct UpdateAuthData : memgraph::system::ISystemAction {
   }
 
   bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
-                     replication::ReplicationEpoch const &epoch,
                      memgraph::system::Transaction const &txn) const override {
     auto check_response = [](const replication::UpdateAuthDataRes &response) { return response.success; };
     if (user_) {
       return client.StreamAndFinalizeDelta<replication::UpdateAuthDataRpc>(
-          check_response, main_uuid, std::string{epoch.id()}, txn.last_committed_system_timestamp(), txn.timestamp(),
-          *user_);
+          check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), *user_);
     }
     if (role_) {
       return client.StreamAndFinalizeDelta<replication::UpdateAuthDataRpc>(
-          check_response, main_uuid, std::string{epoch.id()}, txn.last_committed_system_timestamp(), txn.timestamp(),
-          *role_);
+          check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), *role_);
     }
     // Should never get here
     MG_ASSERT(false, "Trying to update auth data that is not a user nor a role");
@@ -122,7 +119,6 @@ struct DropAuthData : memgraph::system::ISystemAction {
   }
 
   bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
-                     replication::ReplicationEpoch const &epoch,
                      memgraph::system::Transaction const &txn) const override {
     auto check_response = [](const replication::DropAuthDataRes &response) { return response.success; };
 
@@ -136,8 +132,7 @@ struct DropAuthData : memgraph::system::ISystemAction {
         break;
     }
     return client.StreamAndFinalizeDelta<replication::DropAuthDataRpc>(
-        check_response, main_uuid, std::string{epoch.id()}, txn.last_committed_system_timestamp(), txn.timestamp(),
-        type, name_);
+        check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), type, name_);
   }
   void PostReplication(replication::RoleMainData &mainData) const override {}
 
