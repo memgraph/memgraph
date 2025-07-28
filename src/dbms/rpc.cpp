@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -58,7 +58,6 @@ namespace slk {
 
 void Save(const memgraph::storage::replication::CreateDatabaseReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.main_uuid, builder);
-  memgraph::slk::Save(self.epoch_id, builder);
   memgraph::slk::Save(self.expected_group_timestamp, builder);
   memgraph::slk::Save(self.new_group_timestamp, builder);
   memgraph::slk::Save(self.config, builder);
@@ -66,7 +65,6 @@ void Save(const memgraph::storage::replication::CreateDatabaseReq &self, memgrap
 
 void Load(memgraph::storage::replication::CreateDatabaseReq *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->main_uuid, reader);
-  memgraph::slk::Load(&self->epoch_id, reader);
   memgraph::slk::Load(&self->expected_group_timestamp, reader);
   memgraph::slk::Load(&self->new_group_timestamp, reader);
   memgraph::slk::Load(&self->config, reader);
@@ -90,7 +88,6 @@ void Load(memgraph::storage::replication::CreateDatabaseRes *self, memgraph::slk
 
 void Save(const memgraph::storage::replication::DropDatabaseReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.main_uuid, builder);
-  memgraph::slk::Save(self.epoch_id, builder);
   memgraph::slk::Save(self.expected_group_timestamp, builder);
   memgraph::slk::Save(self.new_group_timestamp, builder);
   memgraph::slk::Save(self.uuid, builder);
@@ -98,7 +95,6 @@ void Save(const memgraph::storage::replication::DropDatabaseReq &self, memgraph:
 
 void Load(memgraph::storage::replication::DropDatabaseReq *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->main_uuid, reader);
-  memgraph::slk::Load(&self->epoch_id, reader);
   memgraph::slk::Load(&self->expected_group_timestamp, reader);
   memgraph::slk::Load(&self->new_group_timestamp, reader);
   memgraph::slk::Load(&self->uuid, reader);

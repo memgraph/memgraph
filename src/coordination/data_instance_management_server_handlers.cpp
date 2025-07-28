@@ -201,8 +201,9 @@ void DataInstanceManagementServerHandlers::PromoteToMainHandler(replication::Rep
   coordination::PromoteToMainReq req;
   slk::Load(&req, req_reader);
 
-  // TODO: Fix potential datarace. Main promotion, replica registration and main write enabling should all be performed
-  // under the same lock. Since this can happen only if coordinator is present AND RPC is single threaded, this is fine
+  // Main promotion, replica registration and main write enabling should all be performed
+  // under the same lock. Currently, we take and release lock for all operations.
+  // Since this can happen only if coordinator is present AND RPC is single threaded, this is fine
   // for now.
 
   // This can fail because of disk. If it does, the cluster state could get inconsistent.

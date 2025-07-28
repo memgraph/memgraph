@@ -28,15 +28,13 @@ constexpr auto *kCheckFrequency = "replica_check_frequency";
 constexpr auto *kSSLKeyFile = "replica_ssl_key_file";
 constexpr auto *kSSLCertFile = "replica_ssl_cert_file";
 constexpr auto *kReplicationRole = "replication_role";
-constexpr auto *kEpoch = "epoch";
 constexpr auto *kVersion = "durability_version";
 constexpr auto *kMainUUID = "main_uuid";
 
 void to_json(nlohmann::json &j, const ReplicationRoleEntry &p) {
   auto processMAIN = [&](MainRole const &main) {
-    auto common = nlohmann::json{{kVersion, p.version},
-                                 {kReplicationRole, replication_coordination_glue::ReplicationRole::MAIN},
-                                 {kEpoch, main.epoch.id()}};
+    auto common =
+        nlohmann::json{{kVersion, p.version}, {kReplicationRole, replication_coordination_glue::ReplicationRole::MAIN}};
     MG_ASSERT(main.main_uuid.has_value(), "Main should have id ready on version >= V3");
     common[kMainUUID] = main.main_uuid.value();
     j = std::move(common);
@@ -62,21 +60,14 @@ void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
   j.at(kReplicationRole).get_to(role);
   switch (role) {
     case replication_coordination_glue::ReplicationRole::MAIN: {
-      auto json_epoch = j.value(kEpoch, std::string{});
-      auto epoch = ReplicationEpoch{};
-      if (!json_epoch.empty()) {
-        epoch.SetEpoch(json_epoch);
-        spdlog::trace("Restored epoch to {}", json_epoch);
-      }
-      auto main_role = MainRole{.epoch = std::move(epoch)};
-
+      auto main_role = MainRole{};
       if (j.contains(kMainUUID)) {
         main_role.main_uuid = j.at(kMainUUID);
       }
       p = ReplicationRoleEntry{.version = version, .role = std::move(main_role)};
       break;
     }
-    case memgraph::replication_coordination_glue::ReplicationRole::REPLICA: {
+    case replication_coordination_glue::ReplicationRole::REPLICA: {
       using io::network::Endpoint;
       // In V4 we renamed key `replica_ip_address` to `replica_server`
       auto repl_server = [j]() -> Endpoint {
@@ -121,7 +112,7 @@ void from_json(const nlohmann::json &j, ReplicationReplicaEntry &p) {
 
   MG_ASSERT(key_file.is_null() == cert_file.is_null());
 
-  auto seconds = j.at(kCheckFrequency).get<std::chrono::seconds::rep>();
+  auto const seconds = j.at(kCheckFrequency).get<std::chrono::seconds::rep>();
   auto config = ReplicationClientConfig{
       .name = j.at(kReplicaName).get<std::string>(),
       .mode = j.at(kSyncMode).get<replication_coordination_glue::ReplicationMode>(),
