@@ -382,7 +382,7 @@ void str2object(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp
     if (!maybe_result.has_value()) {
       mgp::func_result_set_error_msg(
           res,
-          "The end result is not one of the following JSON-language data types: object, array, "
+          "The end result is not one of the following JSON-language  data types: object, array, "
           "number, string, boolean, or null.",
           memory);
       return;
@@ -440,15 +440,46 @@ void convert_to_tree(mgp_list *args, mgp_func_context *ctx, mgp_func_result *fun
   }
 }
 
+void convert_to_tree_proc(mgp_list *args, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {
+  try {
+    mgp::MemoryDispatcherGuard guard(memory);
+    const auto arguments = mgp::List(args);
+    const auto record = arguments[0];
+
+    // Create a default empty config if none provided
+    mgp::Map config;
+    if (arguments.Size() > 1) {
+      config = arguments[1].ValueMap();
+    }
+
+    // Convert the input value to tree structure
+    auto result_value = ConvertToTreeImpl(record, config, memory);
+
+    // Create a new record for the result
+    auto *result_record = mgp::result_new_record(result);
+
+    // We know the result will be a Map, so handle it directly
+    if (result_value.IsMap()) {
+      mgp::result_record_insert(result_record, "tree", result_value.ptr());
+    } else {
+      // For any other type (shouldn't happen in our case), return null
+      mgp::result_record_insert(result_record, "tree", mgp::Value().ptr());
+    }
+
+  } catch (const std::exception &e) {
+    mgp::result_set_error_msg(result, e.what());
+  }
+}
+
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
     mgp::MemoryDispatcherGuard guard(memory);
 
     mgp::AddFunction(str2object, "str2object", {mgp::Parameter("string", mgp::Type::String)}, module, memory);
-    mgp::AddFunction(
-        convert_to_tree, "to_tree",
+    mgp::AddProcedure(
+        convert_to_tree_proc, "to_tree", mgp::ProcedureType::Read,
         {mgp::Parameter("value", mgp::Type::Any), mgp::Parameter("config", mgp::Type::Map, mgp::Value(mgp::Map()))},
-        module, memory);
+        {mgp::Return("tree", mgp::Type::Any)}, module, memory);
 
   } catch (const std::exception &e) {
     std::cerr << "Error while initializing query module: " << e.what() << '\n';
