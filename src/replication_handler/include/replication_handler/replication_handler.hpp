@@ -129,12 +129,10 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
   bool SetReplicationRoleMain() override;
 
   // as MAIN, become REPLICA, can be called on MAIN and REPLICA
-  bool SetReplicationRoleReplica(const ReplicationServerConfig &config,
-                                 const std::optional<utils::UUID> &main_uuid) override;
+  bool SetReplicationRoleReplica(const ReplicationServerConfig &config) override;
 
   // as MAIN, become REPLICA, can be called only on MAIN
-  bool TrySetReplicationRoleReplica(const ReplicationServerConfig &config,
-                                    const std::optional<utils::UUID> &main_uuid) override;
+  bool TrySetReplicationRoleReplica(const ReplicationServerConfig &config) override;
 
   // as MAIN, define and connect to REPLICAs
   auto TryRegisterReplica(const ReplicationClientConfig &config)
@@ -299,8 +297,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
   }
 
   template <bool AllowIdempotency>
-  bool SetReplicationRoleReplica_(auto &locked_repl_state, const ReplicationServerConfig &config,
-                                  const std::optional<utils::UUID> &main_uuid) {
+  bool SetReplicationRoleReplica_(auto &locked_repl_state, const ReplicationServerConfig &config) {
     if (locked_repl_state->IsReplica()) {
       if (!AllowIdempotency) {
         return false;
@@ -310,7 +307,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
       if (replica_data.config == config) {
         return true;
       }
-      locked_repl_state->SetReplicationRoleReplica(config, main_uuid);
+      locked_repl_state->SetReplicationRoleReplica(config);
 #ifdef MG_ENTERPRISE
       return StartRpcServer(dbms_handler_, replica_data, auth_, system_);
 #else
@@ -321,7 +318,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
     // Shutdown any clients we might have had
     ClientsShutdown(locked_repl_state);
     // Creates the server
-    locked_repl_state->SetReplicationRoleReplica(config, main_uuid);
+    locked_repl_state->SetReplicationRoleReplica(config);
     spdlog::trace("Role set to replica, instance-level clients destroyed.");
 
     // Start

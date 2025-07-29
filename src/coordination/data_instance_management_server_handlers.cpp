@@ -184,7 +184,7 @@ void DataInstanceManagementServerHandlers::DemoteMainToReplicaHandler(
   const replication::ReplicationServerConfig clients_config{
       .repl_server = io::network::Endpoint("0.0.0.0", req.replication_client_info.replication_server.GetPort())};
 
-  if (!replication_handler.SetReplicationRoleReplica(clients_config, std::nullopt)) {
+  if (!replication_handler.SetReplicationRoleReplica(clients_config)) {
     spdlog::error("Demoting main to replica failed.");
     coordination::DemoteMainToReplicaRes const rpc_res{false};
     rpc::SendFinalResponse(rpc_res, res_builder);

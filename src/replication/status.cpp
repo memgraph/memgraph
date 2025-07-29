@@ -46,9 +46,7 @@ void to_json(nlohmann::json &j, const ReplicationRoleEntry &p) {
                                  {kReplicationRole, replication_coordination_glue::ReplicationRole::REPLICA}};
 
     common[kReplicaServer] = replica.config.repl_server;  // non-resolved
-    if (replica.main_uuid.has_value()) {
-      common[kMainUUID] = replica.main_uuid.value();
-    }
+    common[kMainUUID] = replica.main_uuid;
     j = std::move(common);
   };
   std::visit(utils::Overloaded{processMAIN, processREPLICA}, p.role);
@@ -56,7 +54,7 @@ void to_json(nlohmann::json &j, const ReplicationRoleEntry &p) {
 
 void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
   // This value did not exist in V1, hence default DurabilityVersion::V1
-  DurabilityVersion version = j.value(kVersion, DurabilityVersion::V1);
+  auto const version = j.value(kVersion, DurabilityVersion::V1);
   // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
   replication_coordination_glue::ReplicationRole role;
   j.at(kReplicationRole).get_to(role);
@@ -69,7 +67,7 @@ void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
         spdlog::trace("Restored epoch to {}", json_epoch);
       }
       auto main_role = MainRole{.epoch = std::move(epoch)};
-
+      // main_uuid was introduced in V3
       if (j.contains(kMainUUID)) {
         main_role.main_uuid = j.at(kMainUUID);
       }
@@ -87,6 +85,7 @@ void from_json(const nlohmann::json &j, ReplicationRoleEntry &p) {
       }();
 
       auto config = ReplicationServerConfig{.repl_server = std::move(repl_server)};
+      // main_uuid was introduced in V3
       auto replica_role = ReplicaRole{.config = std::move(config)};
       if (j.contains(kMainUUID)) {
         replica_role.main_uuid = j.at(kMainUUID);
