@@ -7,7 +7,7 @@ cd "$DIR"
 PIP_DEPS=(
    "behave==1.2.6"
    "ldap3==2.6"
-   "kafka-python==2.0.2"
+   "kafka-python==2.2.15"
    "requests==2.25.1"
    "neo4j==5.14.1"
    "parse==1.18.0"
