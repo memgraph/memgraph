@@ -13,15 +13,11 @@
 
 #include "flags/experimental.hpp"
 #include "mgcxx_text_search.hpp"
-#include "query/exceptions.hpp"  // TODO: remove from storage
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
 
-#include <chrono>
 #include <span>
-#include <system_error>
-#include <thread>
 #include <vector>
 
 namespace r = ranges;

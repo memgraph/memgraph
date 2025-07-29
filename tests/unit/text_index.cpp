@@ -62,8 +62,8 @@ class TextIndexTest : public testing::Test {
 
  private:
   void CleanupTextIndices() const {
-    // It's possible that the Tantivy is changing files in the background and if that happens while we are trying to
-    // delete the index, it can lead to an error. To avoid flakiness, we won't fail the test if the index cannot be
+    // Tantivy performs file merging as a background process, which can lead to file deletion errors when trying to
+    // delete the index. To avoid flakiness, we won't fail the test if the index cannot be
     // deleted. Correct approach would be to wait for the merging threads to finish on the mgcxx side.
     constexpr auto max_retries = 5;
     constexpr auto retry_delay = std::chrono::milliseconds(100);
@@ -154,6 +154,7 @@ TEST_F(TextIndexTest, ConcurrencyTest) {
     }
   }
 
+  // Check that all entries ended up in the index by searching
   auto acc = this->storage->Access();
   auto results = acc->TextIndexSearch(test_index.data(), "title.*", text_search_mode::REGEX);
   EXPECT_EQ(results.size(), index_size);
