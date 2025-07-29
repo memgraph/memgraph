@@ -19,9 +19,11 @@
 #include <nlohmann/json_fwd.hpp>
 #include <utility>
 #include <variant>
+#include "auth/profiles/user_profiles.hpp"
 #include "crypto.hpp"
 #include "dbms/constants.hpp"
 #include "utils/logging.hpp"
+#include "utils/resource_monitoring.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::auth {
@@ -29,33 +31,34 @@ namespace memgraph::auth {
 // bitmask.
 // clang-format off
 enum class Permission : uint64_t {
-  MATCH        = 1,
-  CREATE       = 1U << 1U,
-  MERGE        = 1U << 2U,
-  DELETE       = 1U << 3U,
-  SET          = 1U << 4U,
-  REMOVE       = 1U << 5U,
-  INDEX        = 1U << 6U,
-  STATS        = 1U << 7U,
-  CONSTRAINT   = 1U << 8U,
-  DUMP         = 1U << 9U,
-  REPLICATION  = 1U << 10U,
-  DURABILITY   = 1U << 11U,
-  READ_FILE    = 1U << 12U,
-  FREE_MEMORY  = 1U << 13U,
-  TRIGGER      = 1U << 14U,
-  CONFIG       = 1U << 15U,
-  AUTH         = 1U << 16U,
-  STREAM       = 1U << 17U,
-  MODULE_READ  = 1U << 18U,
-  MODULE_WRITE = 1U << 19U,
-  WEBSOCKET    = 1U << 20U,
+  MATCH                  = 1,
+  CREATE                 = 1U << 1U,
+  MERGE                  = 1U << 2U,
+  DELETE                 = 1U << 3U,
+  SET                    = 1U << 4U,
+  REMOVE                 = 1U << 5U,
+  INDEX                  = 1U << 6U,
+  STATS                  = 1U << 7U,
+  CONSTRAINT             = 1U << 8U,
+  DUMP                   = 1U << 9U,
+  REPLICATION            = 1U << 10U,
+  DURABILITY             = 1U << 11U,
+  READ_FILE              = 1U << 12U,
+  FREE_MEMORY            = 1U << 13U,
+  TRIGGER                = 1U << 14U,
+  CONFIG                 = 1U << 15U,
+  AUTH                   = 1U << 16U,
+  STREAM                 = 1U << 17U,
+  MODULE_READ            = 1U << 18U,
+  MODULE_WRITE           = 1U << 19U,
+  WEBSOCKET              = 1U << 20U,
   TRANSACTION_MANAGEMENT = 1U << 21U,
-  STORAGE_MODE = 1U << 22U,
-  MULTI_DATABASE_EDIT = 1U << 23U,
-  MULTI_DATABASE_USE  = 1U << 24U,
-  COORDINATOR  = 1U << 25U,
-  IMPERSONATE_USER    = 1U << 26U,
+  STORAGE_MODE           = 1U << 22U,
+  MULTI_DATABASE_EDIT    = 1U << 23U,
+  MULTI_DATABASE_USE     = 1U << 24U,
+  COORDINATOR            = 1U << 25U,
+  IMPERSONATE_USER       = 1U << 26U,
+  PROFILE_RESTRICTION    = 1U << 27U,
 };
 // clang-format on
 
@@ -468,6 +471,14 @@ class Role {
   const auto &user_impersonation() const { return user_impersonation_; }
 #endif
 
+// User profiles
+#ifdef MG_ENTERPRISE
+  const std::optional<UserProfiles::Profile> &profile() const { return profile_; }
+  std::optional<UserProfiles::Profile> profile() { return profile_; }
+  void SetProfile(const UserProfiles::Profile &profile) { profile_ = profile; }
+  void ClearProfile() { profile_.reset(); }
+#endif
+
   nlohmann::json Serialize() const;
 
   /// @throw AuthException if unable to deserialize.
@@ -482,6 +493,7 @@ class Role {
   FineGrainedAccessHandler fine_grained_access_handler_;
   Databases db_access_;
   std::optional<UserImpersonation> user_impersonation_;
+  std::optional<UserProfiles::Profile> profile_{};  // Sticking with the convention of storing a copy
 #endif
 };
 
@@ -610,6 +622,15 @@ class Roles {
   bool CanImpersonate(const User &user, std::optional<std::string_view> db_name = std::nullopt) const {
     return !UserImpIsDenied(user, db_name) && UserImpIsGranted(user, db_name);
   }
+
+  std::optional<UserProfiles::Profile> Profile(std::optional<std::string_view> db_name) const {
+    std::optional<UserProfiles::Profile> profile;
+    for (const auto &role : roles_) {
+      if (db_name && !role.HasAccess(*db_name)) continue;  // Skip roles that don't have access to the database
+      profile = UserProfiles::Merge(profile, role.profile());
+    }
+    return profile;
+  }
 #endif
 
   // Iteration support
@@ -667,7 +688,6 @@ class User final {
   /// @throw AuthException if unable to set the password.
   void UpdatePassword(const std::optional<std::string> &password = {},
                       std::optional<PasswordHashAlgorithm> algo_override = std::nullopt);
-
   void UpdateHash(HashedPassword hashed_password);
 
   [[deprecated("Use SetRoles instead")]] void SetRole(const Role &role);
@@ -685,6 +705,7 @@ class User final {
   void ClearMultiTenantRoles(const std::string &db_name);
 #endif
 
+  // Fine grained access control
 #ifdef MG_ENTERPRISE
   FineGrainedAccessPermissions GetFineGrainedAccessLabelPermissions(
       std::optional<std::string_view> db_name = std::nullopt) const;
@@ -706,6 +727,7 @@ class User final {
   const Permissions &permissions() const;
   Permissions &permissions();
 
+  // Multi-tenant access
 #ifdef MG_ENTERPRISE
   Databases &db_access() { return database_access_; }
   const Databases &db_access() const { return database_access_; }
@@ -721,6 +743,7 @@ class User final {
   }
 #endif
 
+// Impersonate user
 #ifdef MG_ENTERPRISE
   bool CanImpersonate(const User &user, std::optional<std::string_view> db_name = std::nullopt) const {
     if (GetPermissions(db_name).Has(Permission::IMPERSONATE_USER) != PermissionLevel::GRANT) return false;
@@ -798,6 +821,20 @@ class User final {
 
   const utils::UUID &uuid() const { return uuid_; }
 
+// User profiles
+#ifdef MG_ENTERPRISE
+  const std::optional<UserProfiles::Profile> &profile() const { return profile_; }
+  std::optional<UserProfiles::Profile> profile() { return profile_; }
+  std::optional<UserProfiles::Profile> GetProfile(std::optional<std::string_view> db_name = std::nullopt) const {
+    // If both user and role have profiles, merge them
+    std::optional<UserProfiles::Profile> user_profile;
+    if (!db_name || has_access(*db_name)) user_profile = profile_;
+    return UserProfiles::Merge(user_profile, roles_.Profile(db_name));
+  }
+  void SetProfile(const UserProfiles::Profile &profile) { profile_ = profile; }
+  void ClearProfile() { profile_.reset(); }
+#endif
+
   // Read-only API that combines rolenames from all roles
   std::vector<std::string> rolenames() const { return roles_.rolenames(); }
 
@@ -818,6 +855,7 @@ class User final {
   std::optional<UserImpersonation> user_impersonation_{};
   std::unordered_map<std::string, std::unordered_set<std::string>> db_role_map_{};  // Map of database name to role name
   std::unordered_map<std::string, std::unordered_set<std::string>> role_db_map_{};  // Map of role name to database name
+  std::optional<UserProfiles::Profile> profile_{};  // Sticking with the convention of storing a copy
 #endif
   Roles roles_;
   utils::UUID uuid_{};  // To uniquely identify a user

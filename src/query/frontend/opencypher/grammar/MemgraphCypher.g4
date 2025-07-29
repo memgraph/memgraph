@@ -246,6 +246,7 @@ query : cypherQuery
       | showSchemaInfoQuery
       | ttlQuery
       | setSessionTraceQuery
+      | userProfileQuery
       ;
 
 cypherQuery : ( preQueryDirectives )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
@@ -472,6 +473,7 @@ privilege : CREATE
           | MULTI_DATABASE_USE
           | COORDINATOR
           | IMPERSONATE_USER
+          | PROFILE_RESTRICTION
           ;
 
 granularPrivilege : NOTHING | READ | UPDATE | CREATE_DELETE ;
@@ -748,3 +750,33 @@ typeConstraintType : BOOLEAN
              | ENUM
              | POINT
              ;
+
+
+memoryLimitValue : literal ( MB | KB ) ;
+
+limitValue : UNLIMITED | mem_limit=memoryLimitValue | quantity=literal ;
+
+limitKV : key=symbolicName val=limitValue ;
+
+listOfLimits : limitKV (',' limitKV )* ;
+
+createUserProfile : ( CREATE | UPDATE ) PROFILE profile=symbolicName ( LIMIT list=listOfLimits )? ;
+dropUserProfile : DROP PROFILE profile=symbolicName ;
+showUserProfiles : SHOW PROFILES ;
+showUserProfile : SHOW PROFILE profile=symbolicName ;
+showUserProfileForUser : SHOW PROFILE FOR user=userOrRoleName ;
+showUserProfileForProfile : SHOW ( USERS | ROLES ) FOR PROFILE profile=symbolicName ;
+setUserProfile : SET PROFILE FOR user=userOrRoleName TO profile=symbolicName ;
+clearUserProfile : CLEAR PROFILE FOR user=userOrRoleName ;
+showResourceConsumption : SHOW RESOURCE USAGE FOR user=userOrRoleName ;
+
+userProfileQuery : createUserProfile
+                 | dropUserProfile
+                 | showUserProfiles
+                 | showUserProfile
+                 | showUserProfileForUser
+                 | showUserProfileForProfile
+                 | setUserProfile
+                 | clearUserProfile
+                 | showResourceConsumption
+                 ;

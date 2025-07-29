@@ -17,6 +17,7 @@
 #include "communication/v2/session.hpp"
 #include "glue/SessionContext.hpp"
 #include "query/interpreter.hpp"
+#include "utils/result.hpp"
 
 namespace memgraph::glue {
 using bolt_value_t = memgraph::communication::bolt::Value;
@@ -89,8 +90,8 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   }
 
 #ifdef MG_ENTERPRISE
-  auto Route(bolt_map_t const &routing, std::vector<bolt_value_t> const &bookmarks, bolt_map_t const &extra)
-      -> bolt_map_t;
+  auto Route(bolt_map_t const &routing, std::vector<bolt_value_t> const &bookmarks,
+             bolt_map_t const &extra) -> bolt_map_t;
 #endif
 
   bolt_map_t Pull(std::optional<int> n, std::optional<int> qid);
@@ -102,10 +103,14 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   /// Server/Session level API ///
 
   // Called during Init
-  bool Authenticate(const std::string &username, const std::string &password);
+  utils::BasicResult<communication::bolt::AuthFailure> Authenticate(const std::string &username,
+                                                                    const std::string &password);
 
   // Called during Init
-  bool SSOAuthenticate(const std::string &scheme, const std::string &identity_provider_response);
+  utils::BasicResult<communication::bolt::AuthFailure> SSOAuthenticate(const std::string &scheme,
+                                                                       const std::string &identity_provider_response);
+
+  void LogOff();
 
   static std::optional<std::string> GetServerNameForInit();
 
@@ -132,6 +137,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
 #ifdef MG_ENTERPRISE
   memgraph::audit::Log *audit_log_;
   RuntimeConfig runtime_config_;  // Run-time configurable database started used by the interpreter
+  std::shared_ptr<memgraph::utils::UserResources> user_resource_;  // User-related resource monitoring
 #endif
   memgraph::auth::SynchedAuth *auth_;
   memgraph::communication::v2::ServerEndpoint endpoint_;
