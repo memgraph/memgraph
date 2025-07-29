@@ -4323,13 +4323,27 @@ TEST_P(CypherMainVisitorTest, DropTrigger) {
 }
 
 TEST_P(CypherMainVisitorTest, ShowTriggers) {
-  auto &ast_generator = *GetParam();
+  {
+    auto &ast_generator = *GetParam();
+    TestInvalidQuery("SHOW TR", ast_generator);
+  }
 
-  TestInvalidQuery("SHOW TR", ast_generator);
-  TestInvalidQuery("SHOW TRIGGER", ast_generator);
+  {
+    auto &ast_generator = *GetParam();
+    TestInvalidQuery("SHOW TRIGGER", ast_generator);
+  }
 
-  auto *parsed_query = dynamic_cast<TriggerQuery *>(ast_generator.ParseQuery("SHOW TRIGGERS"));
-  EXPECT_EQ(parsed_query->action_, TriggerQuery::Action::SHOW_TRIGGERS);
+  {
+    auto &ast_generator = *GetParam();
+    auto *parsed_query = dynamic_cast<TriggerQuery *>(ast_generator.ParseQuery("SHOW TRIGGERS"));
+    EXPECT_EQ(parsed_query->action_, TriggerQuery::Action::SHOW_TRIGGERS);
+  }
+
+  {
+    auto &ast_generator = *GetParam();
+    auto *parsed_query = dynamic_cast<TriggerQuery *>(ast_generator.ParseQuery("SHOW TRIGGER INFO"));
+    EXPECT_EQ(parsed_query->action_, TriggerQuery::Action::SHOW_TRIGGERS);
+  }
 }
 
 namespace {
@@ -6075,14 +6089,14 @@ TEST_P(CypherMainVisitorTest, TestShowVectorIndexInfo) {
 TEST_P(CypherMainVisitorTest, TestShowActiveUsersInfo) {
   {
     auto &ast_generator = *GetParam();
-    auto *query = dynamic_cast<DatabaseInfoQuery *>(ast_generator.ParseQuery("SHOW ACTIVE USERS INFO"));
+    auto *query = dynamic_cast<SystemInfoQuery *>(ast_generator.ParseQuery("SHOW ACTIVE USERS INFO"));
     ASSERT_TRUE(query);
     EXPECT_EQ(query->info_type_, SystemInfoQuery::InfoType::ACTIVE_USERS);
   }
 
   {
     auto &ast_generator = *GetParam();
-    auto *query = dynamic_cast<DatabaseInfoQuery *>(ast_generator.ParseQuery("SHOW ACTIVE USERS"));
+    auto *query = dynamic_cast<SystemInfoQuery *>(ast_generator.ParseQuery("SHOW ACTIVE USERS"));
     ASSERT_TRUE(query);
     EXPECT_EQ(query->info_type_, SystemInfoQuery::InfoType::ACTIVE_USERS);
   }

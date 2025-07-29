@@ -570,7 +570,7 @@ createTrigger : CREATE TRIGGER triggerName ( ON ( emptyVertex | emptyEdge ) ? ( 
 
 dropTrigger : DROP TRIGGER triggerName ;
 
-showTriggers : SHOW TRIGGERS ;
+showTriggers : SHOW TRIGGERS | SHOW TRIGGER INFO ;
 
 isolationLevel : SNAPSHOT ISOLATION | READ COMMITTED | READ UNCOMMITTED ;
 
