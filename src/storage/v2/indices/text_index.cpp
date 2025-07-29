@@ -18,7 +18,10 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/view.hpp"
 
+#include <chrono>
 #include <span>
+#include <system_error>
+#include <thread>
 #include <vector>
 
 namespace r = ranges;
@@ -91,7 +94,7 @@ std::string TextIndex::StringifyProperties(const std::map<PropertyId, PropertyVa
   for (const auto &[_, prop_value] : properties) {
     switch (prop_value.type()) {
       case PropertyValue::Type::Bool:
-        indexable_properties_as_string.push_back(prop_value.ValueBool() ? "true" : "false");
+        indexable_properties_as_string.emplace_back(prop_value.ValueBool() ? "true" : "false");
         break;
       case PropertyValue::Type::Int:
         indexable_properties_as_string.push_back(std::to_string(prop_value.ValueInt()));
@@ -121,14 +124,14 @@ std::string TextIndex::ToLowerCasePreservingBooleanOperators(std::string_view in
   std::string result;
   result.reserve(input.length());
 
-  auto it = input.cbegin();
+  const auto *it = input.cbegin();
   while (it != input.cend()) {
     if (std::isspace(*it)) {
       result += *it++;
       continue;
     }
 
-    auto word_start = it;
+    const auto *word_start = it;
     it = r::find_if(word_start, input.cend(), [](char c) { return std::isspace(c); });
 
     // Extract the word
@@ -220,8 +223,7 @@ void TextIndex::UpdateOnRemoveLabel(LabelId label, Vertex *vertex) {
   RemoveNode(vertex, applicable_text_indices);
 }
 
-void TextIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                                    NameIdMapper *name_id_mapper) {
+void TextIndex::UpdateOnSetProperty(Vertex *vertex, NameIdMapper *name_id_mapper) {
   // TODO(@DavIvek): This will get extended to handle specific properties in the future.
   UpdateNode(vertex, name_id_mapper);
 }
@@ -259,7 +261,6 @@ void TextIndex::CreateIndex(std::string const &index_name, LabelId label, storag
 }
 
 void TextIndex::RecoverIndex(const std::string &index_name, LabelId label,
-                             memgraph::utils::SkipList<Vertex>::Accessor vertices, NameIdMapper *name_id_mapper,
                              std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto index_path = MakeIndexPath(index_name);
   if (!std::filesystem::exists(index_path)) {
@@ -276,19 +277,17 @@ LabelId TextIndex::DropIndex(const std::string &index_name) {
   if (!index_.contains(index_name)) {
     throw query::TextSearchException("Text index \"{}\" doesn’t exist.", index_name);
   }
-
   try {
     std::lock_guard lock(index_writer_mutex_);
+    auto deleted_index_label = index_.at(index_name).scope_;
+    index_.erase(index_name);
+    std::erase_if(label_to_index_,
+                  [deleted_index_label](const auto &item) { return item.first == deleted_index_label; });
     mgcxx::text_search::drop_index(MakeIndexPath(index_name));
+    return deleted_index_label;
   } catch (const std::exception &e) {
     throw query::TextSearchException("Tantivy error: {}", e.what());
   }
-  auto deleted_index_label = index_.at(index_name).scope_;
-
-  index_.erase(index_name);
-  std::erase_if(label_to_index_, [index_name](const auto &item) { return item.second == index_name; });
-
-  return deleted_index_label;
 }
 
 bool TextIndex::IndexExists(const std::string &index_name) const { return index_.contains(index_name); }
@@ -421,8 +420,13 @@ std::vector<std::pair<std::string, LabelId>> TextIndex::ListIndices() const {
 
 void TextIndex::Clear() {
   std::lock_guard lock(index_writer_mutex_);
-  for (const auto &[index_name, _] : index_) {
-    mgcxx::text_search::drop_index(MakeIndexPath(index_name));
+  if (!index_.empty()) {
+    std::error_code ec;
+    std::filesystem::remove_all(text_index_storage_dir_, ec);
+    if (ec) {
+      spdlog::error("Error removing text index directory '{}': {}", text_index_storage_dir_, ec.message());
+      return;
+    }
   }
   index_.clear();
   label_to_index_.clear();
