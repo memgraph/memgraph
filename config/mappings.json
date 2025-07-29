@@ -1,25 +1,105 @@
 {
+    "apoc.algo.aStar": "algo.astar",
+    "apoc.algo.allSimplePaths": "algo.all_simple_paths",
+    "apoc.algo.cover": "algo.cover",
+
+    "apoc.coll.avg": "collections.avg",
     "apoc.coll.contains": "collections.contains",
+    "apoc.coll.containsAll": "collections.contains_all",
+    "apoc.coll.containsSorted": "collections.contains_sorted",
     "apoc.coll.flatten": "collections.flatten",
+    "apoc.coll.intersection": "collections.intersection",
+    "apoc.coll.max": "collections.max",
+    "apoc.coll.min": "collections.min",
     "apoc.coll.partition": "collections.partition",
     "apoc.coll.pairs": "collections.pairs",
     "apoc.coll.removeAll": "collections.remove_all",
+    "apoc.coll.sort": "collections.sort",
+    "apoc.coll.split": "collections.split",
     "apoc.coll.sum": "collections.sum",
+    "apoc.coll.sumLongs": "collections.sum_longs",
     "apoc.coll.toSet": "collections.to_set",
     "apoc.coll.union": "collections.union",
     "apoc.coll.unionAll": "collections.unionAll",
+
     "apoc.convert.fromJsonList": "convert.from_json_list",
     "apoc.convert.toJson": "convert.to_json",
     "apoc.convert.toTree": "convert.to_tree",
+
     "apoc.create.node": "create.node",
     "apoc.create.nodes": "create.nodes",
-    "apoc.create.removeLabel": "create.remove_label",
+    "apoc.create.relationship": "create.relationship",
+    "apoc.create.removeLabels": "create.remove_labels",
     "apoc.create.removeProperties": "create.remove_properties",
+    "apoc.create.removeRelProperties": "create.remove_rel_properties",
+    "apoc.create.setProperty": "create.set_property",
+    "apoc.create.setProperties": "create.set_properties",
+    "apoc.create.setRelProperty": "create.set_rel_property",
+    "apoc.create.setRelProperties": "create.set_rel_properties",
+    "apoc.create.uuid": "uuid_generator.get",
+
+    "apoc.date.add": "date.add",
+    "apoc.date.format": "date.format",
+    "apoc.date.parse": "date.parse",
     "apoc.date.convertFormat": "date.convert_format",
+
+    "apoc.do.case": "do.case",
+    "apoc.do.when": "do.when",
+
+    "apoc.export.csv.graph": "export_util.csv_graph",
+    "apoc.export.csv.query": "export_util.csv_query",
+    "apoc.export.cypher.all": "export_util.cypher_all",
+    "apoc.export.graphml.all": "export_util.graphml",
+    "apoc.export.json.all": "export_util.json",
+    "apoc.export.json.graph": "export_util.json_graph",
+
+    "apoc.import.graphml": "import_util.graphml",
+    "apoc.import.json": "import_util.json",
+
     "apoc.label.exists": "label.exists",
+
+    "apoc.map.flatten": "map.flatten",
     "apoc.map.fromLists": "map.from_lists",
+    "apoc.map.fromNodes": "map.from_nodes",
+    "apoc.map.fromPairs": "map.from_pairs",
+    "apoc.map.fromValues": "map.from_values",
     "apoc.map.merge": "map.merge",
+    "apoc.map.removeKey": "map.remove_key",
     "apoc.map.removeKeys": "map.remove_keys",
+    "apoc.map.setKey": "map.set_key",
+
+    "apoc.merge.node": "merge.node",
+    "apoc.merge.relationship": "merge.relationship",
+
+    "apoc.meta.schema": "meta_util.schema",
+    "apoc.meta.stats": "meta.stats_online",
+
+    "apoc.neighbors.athop": "neighbors.at_hop",
+    "apoc.neighbors.byhop": "neightbors.by_hop",
+
+    "apoc.node.degree.in": "node.degree_in",
+    "apoc.node.degree.out": "node.degree_out",
+    "apoc.node.relationship.exists": "node.relationship_exists",
+    "apoc.node.relationship.types": "node.relationship_types",
+    "apoc.node.relationships.exist": "node.relationship_exists",
+
+    "apoc.nodes.delete": "nodes.delete",
+    "apoc.nodes.link": "nodes.link",
+    "apoc.nodes.relationship.types": "nodes.relationship_types",
+    "apoc.nodes.relationships.exist": "nodes.relationships_exist",
+
+    "apoc.path.expand": "path.expand",
+    "apoc.path.expandConfig": "path.expand",
+    "apoc.path.subgraphAll": "path.subgraph_all",
+    "apoc.path.subgraphNodes": "path.subgraph_nodes",
+    "apoc.path.combine": "path.combine",
+    "apoc.path.create": "path.create",
+    "apoc.path.elements": "path.elements",
+    "apoc.path.slice": "path.slice",
+
+    "apoc.periodic.iterate": "periodic.iterate",
+
+    "apoc.refactor.categorize": "refactor.categorize",
     "apoc.refactor.cloneNodes": "refactor.clone_nodes",
     "apoc.refactor.cloneSubgraph": "refactor.clone_subgraph",
     "apoc.refactor.cloneSubgraphFromPaths": "refactor.clone_subgraph_from_paths",
@@ -33,18 +113,26 @@
     "apoc.refactor.rename.label": "refactor.rename_label",
     "apoc.refactor.rename.nodeProperty": "refactor.rename_node_property",
     "apoc.refactor.rename.typeProperty": "refactor.rename_type_property",
-    "apoc.refactor.renameType": "refactor.renameType",
+    "apoc.refactor.renameType": "refactor.rename_type",
     "apoc.refactor.to": "refactor.to",
+
+    "apoc.temporal.format": "temporal.format",
+
     "apoc.text.format": "text.format",
     "apoc.text.indexOf": "text.indexOf",
     "apoc.text.join": "text.join",
     "apoc.text.regReplace": "text.regreplace",
     "apoc.text.regexGroups": "text.regexGroups",
     "apoc.text.replace": "text.replace",
+
     "apoc.util.md5": "util_module.md5",
     "apoc.util.validate": "mgps.validate",
     "apoc.util.validatePredicate": "mgps.validate_predicate",
+
+    "apoc.xml.parse": "xml.parse",
+
     "db.schema.nodeTypeProperties": "schema.NodeTypeOroperties",
     "db.schema.relTypeProperties": "schema.RelTypeProperties",
+
     "dbms.components": "mgps.components"
 }
