@@ -24,7 +24,6 @@
 namespace memgraph::query {
 class DbAccessor;
 }  // namespace memgraph::query
-}  // namespace memgraph::query
 
 namespace memgraph::storage {
 
