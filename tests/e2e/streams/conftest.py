@@ -54,7 +54,7 @@ def kafka_topics():
     # "__consumer_offsets"
     previous_topics = [topic for topic in admin_client.list_topics() if topic != "__consumer_offsets"]
     if previous_topics:
-        admin_client.delete_topics(topics=previous_topics, timeout_ms=5000)
+        admin_client.delete_topics(topics=previous_topics, timeout_ms=30000)
 
     topics = get_topics(3)
     topics_to_create = []
@@ -63,7 +63,7 @@ def kafka_topics():
 
     admin_client.create_topics(new_topics=topics_to_create, timeout_ms=5000)
     yield topics
-    admin_client.delete_topics(topics=topics, timeout_ms=5000)
+    admin_client.delete_topics(topics=topics, timeout_ms=30000)
 
 
 @pytest.fixture(scope="function")
