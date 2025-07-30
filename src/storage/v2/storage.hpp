@@ -463,8 +463,8 @@ class Storage {
     virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> DropPointIndex(
         storage::LabelId label, storage::PropertyId property) = 0;
 
-    utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateTextIndex(const std::string &index_name,
-                                                                                   LabelId label);
+    utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateTextIndex(
+        const std::string &index_name, LabelId label, std::span<PropertyId const> properties);
 
     utils::BasicResult<storage::StorageIndexDefinitionError, void> DropTextIndex(const std::string &index_name);
 

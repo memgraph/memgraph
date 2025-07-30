@@ -312,7 +312,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
     for (const auto &[index_name, label] : indices_metadata.text_indices) {
       try {
         // TODO: parallel execution
-        mem_text_index.RecoverIndex(index_name, label, snapshot_info);
+        // mem_text_index.RecoverIndex(index_name, label, snapshot_info);
       } catch (...) {
         throw RecoveryFailure("The text index must be created here!");
       }

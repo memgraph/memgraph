@@ -1295,11 +1295,11 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           }
           spdlog::trace("   Delta {}. Create text search index {} on {}.", current_delta_idx, data.index_name,
                         data.label);
-          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          auto ret = transaction->CreateTextIndex(data.index_name, storage->NameToLabel(data.label));
-          if (ret.HasError()) {
-            throw utils::BasicException("Failed to create text search index {} on {}.", data.index_name, data.label);
-          }
+          // auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          // auto ret = transaction->CreateTextIndex(data.index_name, storage->NameToLabel(data.label));
+          // if (ret.HasError()) {
+          //   throw utils::BasicException("Failed to create text search index {} on {}.", data.index_name, data.label);
+          // }
         },
         [&](WalTextIndexDrop const &data) {
           if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {

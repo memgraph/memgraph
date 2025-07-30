@@ -31,6 +31,7 @@ inline constexpr std::string_view kTextIndicesDirectory = "text_indices";
 struct TextIndexData {
   mgcxx::text_search::Context context_;
   LabelId scope_;
+  std::vector<PropertyId> properties_;
 };
 
 class TextIndex {
@@ -51,7 +52,8 @@ class TextIndex {
 
   inline std::string MakeIndexPath(std::string_view index_name) const;
 
-  void CreateTantivyIndex(const std::string &index_name, LabelId label, const std::string &index_path);
+  void CreateTantivyIndex(const std::string &index_name, LabelId label, const std::string &index_path,
+                          std::span<PropertyId const> properties);
 
   static nlohmann::json SerializeProperties(const std::map<PropertyId, PropertyValue> &properties,
                                             NameIdMapper *name_id_mapper);
@@ -60,11 +62,13 @@ class TextIndex {
 
   static std::string ToLowerCasePreservingBooleanOperators(std::string_view input);
 
-  std::vector<mgcxx::text_search::Context *> GetApplicableTextIndices(std::span<storage::LabelId const> labels);
+  std::vector<TextIndexData *> GetApplicableTextIndices(std::span<storage::LabelId const> labels);
 
-  void AddNodeToTextIndices(std::int64_t gid, const nlohmann::json &properties,
-                            const std::string &property_values_as_str,
-                            const std::vector<mgcxx::text_search::Context *> &applicable_text_indices);
+  void AddNodeToTextIndex(std::int64_t gid, const nlohmann::json &properties, const std::string &property_values_as_str,
+                          mgcxx::text_search::Context *applicable_text_index);
+
+  static std::map<PropertyId, PropertyValue> ExtractVertexProperties(const PropertyStore &property_store,
+                                                                     std::span<PropertyId const> properties);
 
   mgcxx::text_search::SearchOutput SearchGivenProperties(const std::string &index_name,
                                                          const std::string &search_query);
@@ -88,11 +92,13 @@ class TextIndex {
   std::map<LabelId, std::string> label_to_index_;
 
   void AddNode(Vertex *vertex, NameIdMapper *name_id_mapper,
-               const std::vector<mgcxx::text_search::Context *> &maybe_applicable_text_indices = {});
+               const std::vector<TextIndexData *> &applicable_text_indices);
 
   void UpdateNode(Vertex *vertex, NameIdMapper *name_id_mapper);
 
-  void RemoveNode(Vertex *vertex, const std::vector<mgcxx::text_search::Context *> &maybe_applicable_text_indices = {});
+  void RemoveNode(Vertex *vertex_after_update);
+
+  void RemoveNode(Vertex *vertex, const std::vector<TextIndexData *> &applicable_text_indices);
 
   void UpdateOnAddLabel(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper);
 
@@ -101,9 +107,9 @@ class TextIndex {
   void UpdateOnSetProperty(Vertex *vertex, NameIdMapper *name_id_mapper);
 
   void CreateIndex(std::string const &index_name, LabelId label, VerticesIterable vertices,
-                   NameIdMapper *name_id_mapper);
+                   NameIdMapper *name_id_mapper, std::span<PropertyId const> properties);
 
-  void RecoverIndex(const std::string &index_name, LabelId label,
+  void RecoverIndex(const std::string &index_name, LabelId label, std::span<PropertyId const> properties,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   LabelId DropIndex(const std::string &index_name);
