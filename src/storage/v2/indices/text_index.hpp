@@ -34,6 +34,7 @@ struct TextIndexData {
   std::vector<PropertyId> properties_;
 };
 
+using TextIndexInfo = std::tuple<std::string, LabelId, std::vector<PropertyId>>;
 class TextIndex {
  private:
   static constexpr bool kDoSkipCommit = true;
@@ -89,7 +90,6 @@ class TextIndex {
   ~TextIndex() = default;
 
   std::map<std::string, TextIndexData> index_;
-  std::map<LabelId, std::string> label_to_index_;
 
   void AddNode(Vertex *vertex, NameIdMapper *name_id_mapper,
                const std::vector<TextIndexData *> &applicable_text_indices);
@@ -112,7 +112,7 @@ class TextIndex {
   void RecoverIndex(const std::string &index_name, LabelId label, std::span<PropertyId const> properties,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
-  LabelId DropIndex(const std::string &index_name);
+  void DropIndex(const std::string &index_name);
 
   bool IndexExists(const std::string &index_name) const;
 
@@ -125,7 +125,7 @@ class TextIndex {
 
   void Rollback();
 
-  std::vector<std::pair<std::string, LabelId>> ListIndices() const;
+  std::vector<TextIndexInfo> ListIndices() const;
 
   void Clear();
 };

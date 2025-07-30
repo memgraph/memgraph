@@ -37,7 +37,7 @@
 
 namespace memgraph::storage {
 class NameIdMapper;
-};
+}  // namespace memgraph::storage
 
 namespace memgraph::storage::durability {
 
@@ -55,7 +55,10 @@ struct WalInfo {
 };
 
 template <auto MIN_VER, typename Type>
-struct VersionDependant {};
+struct MinVersionDependant {};
+
+template <auto MAX_VER, typename Type>
+struct MaxVersionDependant {};
 
 // Note this is highly composable
 // `Before` can also be VersionDependantUpgradable:
@@ -155,12 +158,6 @@ struct TypeConstraintOpInfo {
   std::string property;
   TypeConstraintKind kind;
 };
-struct TextIndexOpInfo {
-  friend bool operator==(const TextIndexOpInfo &, const TextIndexOpInfo &) = default;
-  using ctr_types = std::tuple<std::string, std::string>;
-  std::string index_name;
-  std::string label;
-};
 
 // Wal Deltas after Decode
 struct WalVertexCreate : VertexOpInfo {};
@@ -181,7 +178,7 @@ struct WalEdgeSetProperty {
     return std::tie(lhs.gid, lhs.property, lhs.value) == std::tie(rhs.gid, rhs.property, rhs.value);
   }
   using ctr_types =
-      std::tuple<Gid, std::string, ExternalPropertyValue, VersionDependant<kEdgeSetDeltaWithVertexInfo, Gid>>;
+      std::tuple<Gid, std::string, ExternalPropertyValue, MinVersionDependant<kEdgeSetDeltaWithVertexInfo, Gid>>;
   Gid gid;
   std::string property;
   ExternalPropertyValue value;
@@ -234,8 +231,19 @@ struct WalUniqueConstraintCreate : LabelUnorderedPropertiesOpInfo {};
 struct WalUniqueConstraintDrop : LabelUnorderedPropertiesOpInfo {};
 struct WalTypeConstraintCreate : TypeConstraintOpInfo {};
 struct WalTypeConstraintDrop : TypeConstraintOpInfo {};
-struct WalTextIndexCreate : TextIndexOpInfo {};
-struct WalTextIndexDrop : TextIndexOpInfo {};
+struct WalTextIndexCreate {
+  friend bool operator==(const WalTextIndexCreate &, const WalTextIndexCreate &) = default;
+  using ctr_types = std::tuple<std::string, std::string, std::vector<std::string>>;
+  std::string index_name;
+  std::string label;
+  std::vector<std::string> properties;
+};
+struct WalTextIndexDrop {
+  friend bool operator==(const WalTextIndexDrop &, const WalTextIndexDrop &) = default;
+  using ctr_types = std::tuple<std::string, MaxVersionDependant<kTextIndexWithProperties, std::string>>;
+  std::string index_name;
+  std::optional<std::string> label;  // !< Optional label, not needed for the text index drop
+};
 struct WalEnumCreate {
   friend bool operator==(const WalEnumCreate &, const WalEnumCreate &) = default;
   using ctr_types = std::tuple<std::string, std::vector<std::string>>;
@@ -258,7 +266,7 @@ struct WalEnumAlterUpdate {
 struct WalVectorIndexCreate {
   friend bool operator==(const WalVectorIndexCreate &, const WalVectorIndexCreate &) = default;
   using ctr_types = std::tuple<std::string, std::string, std::string, std::string, std::uint16_t, std::uint16_t,
-                               std::size_t, VersionDependant<kVectorIndexWithScalarKind, std::uint8_t>>;
+                               std::size_t, MinVersionDependant<kVectorIndexWithScalarKind, std::uint8_t>>;
   std::string index_name;
   std::string label;
   std::string property;
@@ -299,15 +307,15 @@ struct WalDeltaData {
   }
 
   std::variant<WalVertexCreate, WalVertexDelete, WalVertexAddLabel, WalVertexRemoveLabel, WalVertexSetProperty,
-               WalEdgeSetProperty, WalEdgeCreate, WalEdgeDelete, WalTransactionStart, WalTransactionEnd, WalLabelIndexCreate,
-               WalLabelIndexDrop, WalLabelIndexStatsClear, WalLabelPropertyIndexStatsClear, WalEdgeTypeIndexCreate,
-               WalEdgeTypeIndexDrop, WalEdgePropertyIndexCreate, WalEdgePropertyIndexDrop, WalLabelIndexStatsSet,
-               WalLabelPropertyIndexCreate, WalLabelPropertyIndexDrop, WalPointIndexCreate, WalPointIndexDrop,
-               WalExistenceConstraintCreate, WalExistenceConstraintDrop, WalLabelPropertyIndexStatsSet,
-               WalEdgeTypePropertyIndexCreate, WalEdgeTypePropertyIndexDrop, WalUniqueConstraintCreate,
-               WalUniqueConstraintDrop, WalTypeConstraintCreate, WalTypeConstraintDrop, WalTextIndexCreate,
-               WalTextIndexDrop, WalEnumCreate, WalEnumAlterAdd, WalEnumAlterUpdate, WalVectorIndexCreate,
-               WalVectorIndexDrop, WalVectorEdgeIndexCreate>
+               WalEdgeSetProperty, WalEdgeCreate, WalEdgeDelete, WalTransactionStart, WalTransactionEnd,
+               WalLabelIndexCreate, WalLabelIndexDrop, WalLabelIndexStatsClear, WalLabelPropertyIndexStatsClear,
+               WalEdgeTypeIndexCreate, WalEdgeTypeIndexDrop, WalEdgePropertyIndexCreate, WalEdgePropertyIndexDrop,
+               WalLabelIndexStatsSet, WalLabelPropertyIndexCreate, WalLabelPropertyIndexDrop, WalPointIndexCreate,
+               WalPointIndexDrop, WalExistenceConstraintCreate, WalExistenceConstraintDrop,
+               WalLabelPropertyIndexStatsSet, WalEdgeTypePropertyIndexCreate, WalEdgeTypePropertyIndexDrop,
+               WalUniqueConstraintCreate, WalUniqueConstraintDrop, WalTypeConstraintCreate, WalTypeConstraintDrop,
+               WalTextIndexCreate, WalTextIndexDrop, WalEnumCreate, WalEnumAlterAdd, WalEnumAlterUpdate,
+               WalVectorIndexCreate, WalVectorIndexDrop, WalVectorEdgeIndexCreate>
       data_ = WalTransactionEnd{};
 };
 
@@ -431,10 +439,10 @@ void EncodeLabelPropertyStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper
                               std::span<PropertyPath const> properties, LabelPropertyIndexStats const &stats);
 void EncodeLabelStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, LabelIndexStats stats);
 void EncodeTextIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, std::string_view text_index_name,
-                     LabelId label);
+                     LabelId label, std::span<PropertyId const> properties);
 void EncodeVectorIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const VectorIndexSpec &spec);
 void EncodeVectorEdgeIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const VectorEdgeIndexSpec &spec);
-void EncodeVectorIndexName(BaseEncoder &encoder, std::string_view index_name);
+void EncodeIndexName(BaseEncoder &encoder, std::string_view index_name);
 
 void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, uint64_t timestamp);
 

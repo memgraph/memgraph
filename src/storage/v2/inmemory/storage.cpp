@@ -2567,12 +2567,15 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
         });
         break;
       }
-      case MetadataDelta::Action::TEXT_INDEX_CREATE:
-      case MetadataDelta::Action::TEXT_INDEX_DROP: {
+      case MetadataDelta::Action::TEXT_INDEX_CREATE: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
           EncodeTextIndex(encoder, *mem_storage->name_id_mapper_, md_delta.text_index.index_name,
-                          md_delta.text_index.label);
+                          md_delta.text_index.label, md_delta.text_index.properties);
         });
+        break;
+      }
+      case MetadataDelta::Action::TEXT_INDEX_DROP: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) { EncodeIndexName(encoder, md_delta.index_name); });
         break;
       }
       case MetadataDelta::Action::VECTOR_INDEX_CREATE: {
@@ -2588,8 +2591,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
         break;
       }
       case MetadataDelta::Action::VECTOR_INDEX_DROP: {
-        apply_encode(
-            op, [&](durability::BaseEncoder &encoder) { EncodeVectorIndexName(encoder, md_delta.vector_index_name); });
+        apply_encode(op, [&](durability::BaseEncoder &encoder) { EncodeIndexName(encoder, md_delta.index_name); });
         break;
       }
       case MetadataDelta::Action::UNIQUE_CONSTRAINT_CREATE:

@@ -23,9 +23,8 @@
 #include <utility>
 #include <vector>
 
-#include "flags/all.hpp"
+#include "flags/experimental.hpp"
 #include "replication/epoch.hpp"
-#include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/snapshot.hpp"
@@ -46,8 +45,6 @@
 #include "fmt/format.h"
 
 namespace r = ranges;
-namespace rv = r::views;
-
 struct PropertyPathFormatter {
   std::span<memgraph::storage::PropertyPath const> data;
   memgraph::storage::NameIdMapper *name_mapper;
@@ -309,10 +306,10 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     spdlog::info("Recreating {} text indices from metadata.", indices_metadata.text_indices.size());
     auto &mem_text_index = indices->text_index_;
-    for (const auto &[index_name, label] : indices_metadata.text_indices) {
+    for (const auto &[index_name, label, properties] : indices_metadata.text_indices) {
       try {
         // TODO: parallel execution
-        // mem_text_index.RecoverIndex(index_name, label, snapshot_info);
+        mem_text_index.RecoverIndex(index_name, label, properties, snapshot_info);
       } catch (...) {
         throw RecoveryFailure("The text index must be created here!");
       }

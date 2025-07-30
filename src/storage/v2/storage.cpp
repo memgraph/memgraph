@@ -691,21 +691,21 @@ utils::BasicResult<storage::StorageIndexDefinitionError, void> Storage::Accessor
   } catch (const query::TextSearchException &e) {
     return storage::StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::text_index_create, index_name, label);
+  transaction_.md_deltas.emplace_back(MetadataDelta::text_index_create, index_name, label,
+                                      std::vector<PropertyId>(properties.begin(), properties.end()));
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextIndices);
   return {};
 }
 
 utils::BasicResult<storage::StorageIndexDefinitionError, void> Storage::Accessor::DropTextIndex(
     const std::string &index_name) {
-  LabelId deleted_index_label;
   MG_ASSERT(type() == UNIQUE, "Dropping a text index requires unique access to storage!");
   try {
-    deleted_index_label = storage_->indices_.text_index_.DropIndex(index_name);
+    storage_->indices_.text_index_.DropIndex(index_name);
   } catch (const query::TextSearchException &e) {
     return storage::StorageIndexDefinitionError{StorageIndexDefinitionError{}};
   }
-  transaction_.md_deltas.emplace_back(MetadataDelta::text_index_drop, index_name, deleted_index_label);
+  transaction_.md_deltas.emplace_back(MetadataDelta::text_index_drop, index_name);
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTextIndices);
   return {};
 }

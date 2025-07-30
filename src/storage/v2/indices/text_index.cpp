@@ -53,7 +53,6 @@ void TextIndex::CreateTantivyIndex(const std::string &index_name, LabelId label,
   } catch (const std::exception &e) {
     throw query::TextSearchException("Tantivy error: {}", e.what());
   }
-  label_to_index_.emplace(label, index_name);  // TODO(@DavIvek): remove this container
 }
 
 nlohmann::json TextIndex::SerializeProperties(const std::map<PropertyId, PropertyValue> &properties,
@@ -151,9 +150,9 @@ std::string TextIndex::ToLowerCasePreservingBooleanOperators(std::string_view in
 
 std::vector<TextIndexData *> TextIndex::GetApplicableTextIndices(std::span<storage::LabelId const> labels) {
   std::vector<TextIndexData *> applicable_text_indices;
-  for (const auto &label : labels) {
-    if (label_to_index_.contains(label)) {
-      applicable_text_indices.push_back(&index_.at(label_to_index_.at(label)));
+  for (auto &[index_name, text_index_data] : index_) {
+    if (r::any_of(labels, [&](LabelId label) { return label == text_index_data.scope_; })) {
+      applicable_text_indices.push_back(&text_index_data);
     }
   }
   return applicable_text_indices;
@@ -221,14 +220,12 @@ void TextIndex::UpdateNode(Vertex *vertex_after_update, NameIdMapper *name_id_ma
 void TextIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper) {
   auto applicable_text_indices = GetApplicableTextIndices(std::array{label});
   if (applicable_text_indices.empty()) return;
-
   AddNode(vertex, name_id_mapper, applicable_text_indices);
 }
 
 void TextIndex::UpdateOnRemoveLabel(LabelId label, Vertex *vertex) {
   auto applicable_text_indices = GetApplicableTextIndices(std::array{label});
   if (applicable_text_indices.empty()) return;
-
   RemoveNode(vertex, applicable_text_indices);
 }
 
@@ -239,7 +236,6 @@ void TextIndex::UpdateOnSetProperty(Vertex *vertex, NameIdMapper *name_id_mapper
 void TextIndex::RemoveNode(Vertex *vertex) {
   auto applicable_text_indices = GetApplicableTextIndices(vertex->labels);
   if (applicable_text_indices.empty()) return;
-
   RemoveNode(vertex, applicable_text_indices);
 }
 
@@ -285,18 +281,14 @@ void TextIndex::RecoverIndex(const std::string &index_name, LabelId label, std::
   }
 }
 
-LabelId TextIndex::DropIndex(const std::string &index_name) {
+void TextIndex::DropIndex(const std::string &index_name) {
   if (!index_.contains(index_name)) {
     throw query::TextSearchException("Text index \"{}\" doesn’t exist.", index_name);
   }
   try {
     std::lock_guard lock(index_writer_mutex_);
-    auto deleted_index_label = index_.at(index_name).scope_;
     index_.erase(index_name);
-    std::erase_if(label_to_index_,
-                  [deleted_index_label](const auto &item) { return item.first == deleted_index_label; });
     mgcxx::text_search::drop_index(MakeIndexPath(index_name));
-    return deleted_index_label;
   } catch (const std::exception &e) {
     throw query::TextSearchException("Tantivy error: {}", e.what());
   }
@@ -421,11 +413,11 @@ void TextIndex::Rollback() {
   }
 }
 
-std::vector<std::pair<std::string, LabelId>> TextIndex::ListIndices() const {
-  std::vector<std::pair<std::string, LabelId>> ret;
+std::vector<TextIndexInfo> TextIndex::ListIndices() const {
+  std::vector<TextIndexInfo> ret;
   ret.reserve(index_.size());
   for (const auto &[index_name, index_data] : index_) {
-    ret.emplace_back(index_name, index_data.scope_);
+    ret.emplace_back(index_name, index_data.scope_, index_data.properties_);
   }
   return ret;
 }
@@ -441,7 +433,6 @@ void TextIndex::Clear() {
     }
   }
   index_.clear();
-  label_to_index_.clear();
 }
 
 }  // namespace memgraph::storage

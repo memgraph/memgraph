@@ -5168,9 +5168,13 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
                              TypedValue(storage->PropertyToName(item)),
                              TypedValue(static_cast<int>(storage_acc->ApproximateEdgeCount(item)))});
         }
-        for (const auto &[index_name, label] : info.text_indices) {
+        for (const auto &[index_name, label, properties] : info.text_indices) {
+          auto prop_names =
+              properties |
+              rv::transform([storage](const auto &prop) { return TypedValue(storage->PropertyToName(prop)); }) |
+              ranges::to_vector;
           results.push_back({TypedValue(fmt::format("{} (name: {})", text_index_mark, index_name)),
-                             TypedValue(storage->LabelToName(label)), TypedValue(), TypedValue()});
+                             TypedValue(storage->LabelToName(label)), TypedValue(std::move(prop_names)), TypedValue()});
         }
         for (const auto &[label_id, prop_id] : info.point_label_property) {
           results.push_back({TypedValue(point_label_property_index_mark), TypedValue(storage->LabelToName(label_id)),
@@ -6249,9 +6253,13 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
         }));
       }
       // Vertex label text
-      for (const auto &[str, label_id] : index_info.text_indices) {
+      for (const auto &[str, label_id, properties] : index_info.text_indices) {
+        auto prop_names = properties | rv::transform([storage](const storage::PropertyId &property) {
+                            return storage->PropertyToName(property);
+                          }) |
+                          r::to_vector;
         node_indexes.push_back(nlohmann::json::object({{"labels", {storage->LabelToName(label_id)}},
-                                                       {"properties", nlohmann::json::array()},
+                                                       {"properties", prop_names},
                                                        {"count", -1},
                                                        {"type", "label_text"}}));
       }

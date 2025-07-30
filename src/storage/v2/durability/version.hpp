@@ -42,6 +42,7 @@ constexpr uint64_t kNestedIndices{25};
 constexpr uint64_t kVectorIndexWithScalarKind{26};
 constexpr uint64_t kVectorIndexWithEdgeTypeProp{27};
 constexpr uint64_t kTxnStart{28};
+constexpr uint64_t kTextIndexWithProperties{29};
 
 // Magic values written to the start of a snapshot/WAL file to identify it.
 const std::string kSnapshotMagic{"MGsn"};

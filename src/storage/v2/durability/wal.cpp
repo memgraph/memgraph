@@ -12,8 +12,10 @@
 #include "storage/v2/durability/wal.hpp"
 #include <algorithm>
 #include <cstdint>
+#include <range/v3/view/transform.hpp>
 #include <type_traits>
 #include <usearch/index_plugins.hpp>
+#include <vector>
 
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/delta.hpp"
@@ -416,9 +418,21 @@ auto Decode(utils::tag_type<T> /*unused*/, BaseDecoder *decoder, const uint64_t 
 
 // Generic helper decoder, please keep after the concrete type decoders
 template <bool is_read, auto MIN_VER, typename Type>
-auto Decode(utils::tag_type<VersionDependant<MIN_VER, Type>> /*unused*/, BaseDecoder *decoder, const uint64_t version)
-    -> std::conditional_t<is_read, std::optional<Type>, void> {
+auto Decode(utils::tag_type<MinVersionDependant<MIN_VER, Type>> /*unused*/, BaseDecoder *decoder,
+            const uint64_t version) -> std::conditional_t<is_read, std::optional<Type>, void> {
   if (MIN_VER <= version) {
+    return Decode<is_read>(utils::tag_t<Type>, decoder, version);
+  }
+  if constexpr (is_read) {
+    return std::nullopt;
+  }
+}
+
+// Generic helper decoder, please keep after the concrete type decoders
+template <bool is_read, auto MAX_VER, typename Type>
+auto Decode(utils::tag_type<MaxVersionDependant<MAX_VER, Type>> /*unused*/, BaseDecoder *decoder,
+            const uint64_t version) -> std::conditional_t<is_read, std::optional<Type>, void> {
+  if (MAX_VER > version) {
     return Decode<is_read>(utils::tag_t<Type>, decoder, version);
   }
   if constexpr (is_read) {
@@ -1107,13 +1121,19 @@ std::optional<RecoveryInfo> LoadWal(
       },
       [&](WalTextIndexCreate const &data) {
         auto label = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        AddRecoveredIndexConstraint(&indices_constraints->indices.text_indices, {data.index_name, label},
+        auto prop_ids =
+            data.properties |
+            rv::transform([&](const auto &prop) { return PropertyId::FromUint(name_id_mapper->NameToId(prop)); }) |
+            r::to<std::vector<PropertyId>>();
+        AddRecoveredIndexConstraint(&indices_constraints->indices.text_indices,
+                                    std::make_tuple(data.index_name, label, std::move(prop_ids)),
                                     "The text index already exists!");
       },
       [&](WalTextIndexDrop const &data) {
-        auto label = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        RemoveRecoveredIndexConstraint(&indices_constraints->indices.text_indices, {data.index_name, label},
-                                       "The text index doesn't exist!");
+        std::erase_if(indices_constraints->indices.text_indices, [&](const auto &index_metadata) {
+          const auto &[index_name, _, _] = index_metadata;
+          return index_name == data.index_name;
+        });
       },
       [&](WalExistenceConstraintCreate const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
@@ -1515,9 +1535,13 @@ void EncodeTypeConstraint(BaseEncoder &encoder, NameIdMapper &name_id_mapper, La
 }
 
 void EncodeTextIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, std::string_view text_index_name,
-                     LabelId label) {
+                     LabelId label, std::span<PropertyId const> properties) {
   encoder.WriteString(text_index_name);
   encoder.WriteString(name_id_mapper.IdToName(label.AsUint()));
+  encoder.WriteUint(properties.size());
+  for (const auto &property : properties) {
+    encoder.WriteString(name_id_mapper.IdToName(property.AsUint()));
+  }
 }
 
 void EncodeVectorIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const VectorIndexSpec &index_spec) {
@@ -1543,7 +1567,7 @@ void EncodeVectorEdgeIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mappe
   encoder.WriteUint(static_cast<uint64_t>(index_spec.scalar_kind));
 }
 
-void EncodeVectorIndexName(BaseEncoder &encoder, std::string_view index_name) { encoder.WriteString(index_name); }
+void EncodeIndexName(BaseEncoder &encoder, std::string_view index_name) { encoder.WriteString(index_name); }
 
 void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, uint64_t timestamp) {
   encoder.WriteMarker(Marker::SECTION_DELTA);
