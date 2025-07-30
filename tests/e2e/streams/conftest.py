@@ -10,6 +10,8 @@
 # licenses/APL.txt.
 
 # import os
+import time
+
 import pulsar
 import pytest
 from common import NAME, PULSAR_SERVICE_URL, connect, execute_and_fetch_all
@@ -52,6 +54,20 @@ def kafka_topics():
     previous_topics = [topic for topic in admin_client.list_topics() if topic != "__consumer_offsets"]
     if previous_topics:
         admin_client.delete_topics(topics=previous_topics, timeout_ms=5000)
+        # Wait for topics to be fully deleted
+        max_wait_time = 30  # seconds
+        wait_time = 0
+        while wait_time < max_wait_time:
+            current_topics = admin_client.list_topics()
+            remaining_topics = [
+                topic for topic in current_topics if topic in previous_topics and topic != "__consumer_offsets"
+            ]
+            if not remaining_topics:
+                break
+            time.sleep(1)
+            wait_time += 1
+        if wait_time >= max_wait_time:
+            print(f"Warning: Some topics may still be marked for deletion after {max_wait_time} seconds")
 
     topics = get_topics(3)
     topics_to_create = []
