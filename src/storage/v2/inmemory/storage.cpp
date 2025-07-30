@@ -262,9 +262,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       edges_.run_gc();
 
       // Auto-indexer also has a skiplist
-      if (async_indexer_) {
-        async_indexer_->RunGC();
-      }
+      async_indexer_.RunGC();
 
       // AsyncTimer resources are global, not particularly storage related, more query related
       // At some point in the future this should be scheduled by something else
@@ -281,11 +279,6 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     commit_log_.emplace();
   } else {
     commit_log_.emplace(timestamp_);
-  }
-
-  if (config_.salient.items.enable_edge_type_index_auto_creation ||
-      config_.salient.items.enable_label_index_auto_creation) {
-    async_indexer_.emplace(stop_source.get_token(), this);
   }
 
   flags::run_time::SnapshotPeriodicAttach(snapshot_periodic_observer_);
@@ -907,10 +900,10 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   transaction_.commit_callbacks_.RunAll(*commit_timestamp_);
 
   // Dispatch to another async work to create requested auto-indexes in their own transaction
-  if (mem_storage->async_indexer_) {
-    transaction_.auto_index_helper_.DispatchRequests(*mem_storage->async_indexer_);
+  // check if autoindexing is turned on
+  if (config_.enable_label_index_auto_creation || config_.enable_edge_type_index_auto_creation) {
+    transaction_.auto_index_helper_.DispatchRequests(mem_storage->async_indexer_);
   }
-
   // TODO: can and should this be moved earlier?
   mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   CheckForFastDiscardOfDeltas();
@@ -3244,9 +3237,7 @@ void InMemoryStorage::Clear() {
   edges_metadata_.run_gc();
   stored_node_labels_.clear();
   stored_edge_types_.clear();
-  if (async_indexer_) {
-    async_indexer_->Clear();
-  }
+  async_indexer_.Clear();
 
   // Reset helper classes
   enum_store_.clear();
@@ -3324,9 +3315,7 @@ void InMemoryStorage::InMemoryAccessor::DropGraph() {
   mem_storage->indices_.DropGraphClearIndices();
   mem_storage->constraints_.DropGraphClearConstraints();
 
-  if (mem_storage->async_indexer_) {
-    mem_storage->async_indexer_->Clear();
-  }
+  mem_storage->async_indexer_.Clear();
 
   if (mem_storage->config_.salient.items.enable_schema_info) mem_storage->schema_info_.Clear();
 

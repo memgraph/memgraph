@@ -207,13 +207,13 @@ void TTL::Configure(bool should_run_edge_ttl) {
         if (missing_lp_index) {
           spdlog::warn(
               "TTL requires label+property index on :TTL(ttl) but it doesn't exist. Will create it automatically.");
-          storage_ptr_->async_indexer_->Enqueue(std::make_pair(ttl_label, PropertiesPaths{ttl_property_path}));
+          storage_ptr_->async_indexer_.Enqueue(std::make_pair(ttl_label, PropertiesPaths{ttl_property_path}));
         }
 
         if (info_.should_run_edge_ttl && missing_edge_index) {
           spdlog::warn(
               "TTL requires edge property index on ttl property but it doesn't exist. Will create it automatically.");
-          storage_ptr_->async_indexer_->Enqueue(ttl_property);
+          storage_ptr_->async_indexer_.Enqueue(ttl_property);
         }
 
         bool lp_index_ready = batch_accessor->LabelPropertyIndexReady(ttl_label, ttl_property_path);

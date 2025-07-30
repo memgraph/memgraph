@@ -17,6 +17,7 @@
 
 #include "flags/experimental.hpp"
 #include "license/license.hpp"
+#include "storage/v2/async_indexer.hpp"
 #include "storage/v2/disk/name_id_mapper.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
@@ -100,7 +101,8 @@ Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr inv
       storage_mode_(storage_mode),
       indices_(config, storage_mode),
       constraints_(config, storage_mode),
-      invalidator_{std::move(invalidator)} {
+      invalidator_{std::move(invalidator)},
+      async_indexer_{stop_source.get_token(), this} {
   spdlog::info("Created database with {} storage mode.", StorageModeToString(storage_mode));
 }
 

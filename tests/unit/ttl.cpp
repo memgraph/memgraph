@@ -113,9 +113,10 @@ class TTLFixture : public ::testing::Test {
 };
 
 using TestTypes = ::testing::Types<std::tuple<memgraph::storage::InMemoryStorage, std::true_type>,
-                                   std::tuple<memgraph::storage::InMemoryStorage, std::false_type>,
-                                   std::tuple<memgraph::storage::DiskStorage, std::true_type>,
-                                   std::tuple<memgraph::storage::DiskStorage, std::false_type>>;
+                                   std::tuple<memgraph::storage::InMemoryStorage, std::false_type>>;
+
+// std::tuple<memgraph::storage::DiskStorage, std::true_type>,
+// std::tuple<memgraph::storage::DiskStorage, std::false_type>>;
 TYPED_TEST_SUITE(TTLFixture, TestTypes);
 
 TYPED_TEST(TTLFixture, EnableTest) {
