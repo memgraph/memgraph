@@ -43,7 +43,9 @@ def connection():
 
 
 def get_topics(num):
-    return [f"topic_{i}" for i in range(num)]
+    # Use timestamp to make topic names unique
+    timestamp = int(time.time() * 1000) % 100000  # Last 5 digits of timestamp
+    return [f"topic_{i}_{timestamp}" for i in range(num)]
 
 
 @pytest.fixture(scope="function")
