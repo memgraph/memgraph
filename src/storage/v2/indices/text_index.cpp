@@ -201,7 +201,7 @@ void TextIndex::AddNodeToTextIndex(std::int64_t gid, const nlohmann::json &prope
 }
 
 void TextIndex::AddNode(Vertex *vertex_after_update, NameIdMapper *name_id_mapper,
-                        const std::vector<TextIndexData *> &applicable_text_indices) {
+                        std::span<TextIndexData *> applicable_text_indices) {
   for (auto *applicable_text_index : applicable_text_indices) {
     auto vertex_properties =
         ExtractVertexProperties(vertex_after_update->properties, applicable_text_index->properties_);
@@ -239,7 +239,7 @@ void TextIndex::RemoveNode(Vertex *vertex) {
   RemoveNode(vertex, applicable_text_indices);
 }
 
-void TextIndex::RemoveNode(Vertex *vertex_after_update, const std::vector<TextIndexData *> &applicable_text_indices) {
+void TextIndex::RemoveNode(Vertex *vertex_after_update, std::span<TextIndexData *> applicable_text_indices) {
   auto search_node_to_be_deleted =
       mgcxx::text_search::SearchInput{.search_query = fmt::format("metadata.gid:{}", vertex_after_update->gid.AsInt())};
   std::shared_lock lock(index_writer_mutex_);

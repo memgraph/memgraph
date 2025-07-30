@@ -91,14 +91,13 @@ class TextIndex {
 
   std::map<std::string, TextIndexData> index_;
 
-  void AddNode(Vertex *vertex, NameIdMapper *name_id_mapper,
-               const std::vector<TextIndexData *> &applicable_text_indices);
+  void AddNode(Vertex *vertex, NameIdMapper *name_id_mapper, std::span<TextIndexData *> applicable_text_indices);
 
   void UpdateNode(Vertex *vertex, NameIdMapper *name_id_mapper);
 
   void RemoveNode(Vertex *vertex_after_update);
 
-  void RemoveNode(Vertex *vertex, const std::vector<TextIndexData *> &applicable_text_indices);
+  void RemoveNode(Vertex *vertex, std::span<TextIndexData *> applicable_text_indices);
 
   void UpdateOnAddLabel(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper);
 

@@ -1131,7 +1131,7 @@ std::optional<RecoveryInfo> LoadWal(
       },
       [&](WalTextIndexDrop const &data) {
         std::erase_if(indices_constraints->indices.text_indices, [&](const auto &index_metadata) {
-          const auto &[index_name, _, _] = index_metadata;
+          const auto &[index_name, label, properties] = index_metadata;
           return index_name == data.index_name;
         });
       },
