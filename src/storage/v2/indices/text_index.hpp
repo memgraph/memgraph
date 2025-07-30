@@ -23,7 +23,7 @@
 
 namespace memgraph::query {
 class DbAccessor;
-}
+}  // namespace memgraph::query
 
 namespace memgraph::storage {
 
@@ -53,8 +53,8 @@ class TextIndex {
 
   void CreateTantivyIndex(const std::string &index_name, LabelId label, const std::string &index_path);
 
-  nlohmann::json SerializeProperties(const std::map<PropertyId, PropertyValue> &properties,
-                                     NameIdMapper *name_id_mapper);
+  static nlohmann::json SerializeProperties(const std::map<PropertyId, PropertyValue> &properties,
+                                            NameIdMapper *name_id_mapper);
 
   static std::string StringifyProperties(const std::map<PropertyId, PropertyValue> &properties);
 
@@ -98,13 +98,12 @@ class TextIndex {
 
   void UpdateOnRemoveLabel(LabelId label, Vertex *vertex);
 
-  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                           NameIdMapper *name_id_mapper);
+  void UpdateOnSetProperty(Vertex *vertex, NameIdMapper *name_id_mapper);
 
-  void CreateIndex(std::string const &index_name, LabelId label, VerticesIterable vertices, NameIdMapper *nameIdMapper);
+  void CreateIndex(std::string const &index_name, LabelId label, VerticesIterable vertices,
+                   NameIdMapper *name_id_mapper);
 
-  void RecoverIndex(const std::string &index_name, LabelId label, utils::SkipList<Vertex>::Accessor vertices,
-                    NameIdMapper *name_id_mapper,
+  void RecoverIndex(const std::string &index_name, LabelId label,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   LabelId DropIndex(const std::string &index_name);
