@@ -54,11 +54,22 @@ def cleanup(workload, keep_directories=True):
         interactive_mg_runner.stop_all(keep_directories)
 
 
+stream_workloads = [
+    "Kafka streams start, stop and show",
+    "Streams with users",
+    "Pulsar streams start, stop and show",
+]
+
+
 def run(args):
     workloads = load_workloads(args.workloads_root_directory)
     for workload in workloads:
         workload_name = workload["name"]
-        if args.workload_name is not None and args.workload_name != workload_name:
+        if (
+            args.workload_name is not None
+            and args.workload_name != workload_name
+            and args.workload_name not in stream_workloads
+        ):
             continue
         log.info("%s STARTED.", workload_name)
 
