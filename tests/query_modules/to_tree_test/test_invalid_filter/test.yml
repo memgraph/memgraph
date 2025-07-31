@@ -2,7 +2,7 @@ query: >
   MATCH p = (a:Student {name: 'Ana'})-[:FRIEND]->(b:Student {name: 'Bob'})
   WITH collect(p) AS paths
   CALL convert.to_tree(paths, true, {nodes: {Student: [123, "name"]}}) YIELD value
-  RETURN value._type AS type, value.name AS name, value.age AS age, size(value.FRIEND) AS friend_count
+  RETURN value._type AS type, value.name AS name, value.age AS age, size(value.friend) AS friend_count
 output:
   - type: Student
     name: null
