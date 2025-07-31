@@ -343,7 +343,7 @@ class DeltaGenerator final {
       case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_CREATE:
       case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_DROP: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
-          EncodeTextIndex(encoder, mapper_, name, label_id);
+          EncodeTextIndex(encoder, mapper_, name, label_id, {});
         });
         break;
       }
@@ -354,7 +354,7 @@ class DeltaGenerator final {
         break;
       case memgraph::storage::durability::StorageMetadataOperation::VECTOR_INDEX_DROP:
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
-          EncodeVectorIndexName(encoder, vector_index_name);
+          EncodeIndexName(encoder, vector_index_name);
         });
         break;
       case memgraph::storage::durability::StorageMetadataOperation::VECTOR_EDGE_INDEX_CREATE:
