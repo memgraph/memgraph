@@ -224,7 +224,7 @@ mgp::Value ConvertToTreeImpl(const mgp::Value &input, const bool lowerCaseRels, 
 
   if (value.IsNull()) {
     // Null input: return as is
-    return value;
+    return mgp::Value(mgp::Map());
   }
 
   // If the value is a List of Paths, convert each path and merge into a tree
@@ -232,7 +232,7 @@ mgp::Value ConvertToTreeImpl(const mgp::Value &input, const bool lowerCaseRels, 
     auto paths = value.ValueList();
     if (paths.Size() == 0) {
       // Empty list: return as is
-      return value;
+      return mgp::Value(mgp::Map());
     }
 
     // Get the first path to extract the root node
@@ -461,7 +461,7 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                       {mgp::Parameter(kParameterPaths, mgp::Type::Any),
                        mgp::Parameter(kParameterLowerCaseRels, mgp::Type::Bool, true),
                        mgp::Parameter(kParameterConfig, mgp::Type::Map, mgp::Value(mgp::Map()))},
-                      {mgp::Return(kReturnValue, mgp::Type::Any)}, module, memory);
+                      {mgp::Return(kReturnValue, mgp::Type::Map)}, module, memory);
 
   } catch (const std::exception &e) {
     std::cerr << "Error while initializing query module: " << e.what() << '\n';
