@@ -82,6 +82,7 @@ struct DatabaseState {
   struct TextItem {
     std::string index_name;
     std::string label;
+    std::vector<std::string> properties;
   };
 
   struct LabelPropertiesItem {
@@ -266,13 +267,14 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
     }
     for (const auto &[label, properties] : info.label_properties) {
       using namespace std::string_literals;
-      auto properties_as_strings = properties |
-                                   ranges::views::transform([&](auto &&path) { return ToString(path, dba.get()); }) |
-                                   ranges::to_vector;
+      auto properties_as_strings =
+          properties | rv::transform([&](auto &&path) { return ToString(path, dba.get()); }) | r::to_vector;
       label_properties_indices.insert({dba->LabelToName(label), std::move(properties_as_strings)});
     }
-    for (const auto &item : info.text_indices) {
-      text_indices.insert({item.first, dba->LabelToName(item.second)});
+    for (const auto &[name, label, properties] : info.text_indices) {
+      auto prop_names =
+          properties | rv::transform([&](auto prop_id) { return dba->PropertyToName(prop_id); }) | r::to_vector;
+      text_indices.insert({name, dba->LabelToName(label), std::move(prop_names)});
     }
     for (const auto &item : info.point_label_property) {
       point_indices.insert({dba->LabelToName(item.first), dba->PropertyToName(item.second)});
