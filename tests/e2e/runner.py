@@ -66,10 +66,8 @@ def run(args):
     for workload in workloads:
         workload_name = workload["name"]
         if (
-            args.workload_name is not None
-            and args.workload_name != workload_name
-            and args.workload_name not in stream_workloads
-        ):
+            args.workload_name is not None and args.workload_name != workload_name
+        ) or workload_name not in stream_workloads:
             continue
         log.info("%s STARTED.", workload_name)
 
