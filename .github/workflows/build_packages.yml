@@ -11,10 +11,13 @@ on:
         type: string
         description: "PR number to use for the build (e.g., 1234)"
         required: true
+  push:
+    branches:
+      - '**'
 
 jobs:
   get-pr-number:
-    if: (github.event.pull_request.merged == true && github.ref == 'refs/heads/master') || github.event_name == 'workflow_dispatch'
+    if: (github.event.pull_request.merged == true && github.ref == 'refs/heads/master') || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
     name: "Get PR Number"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
     outputs:
@@ -32,6 +35,9 @@ jobs:
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
             PR_NUMBER=${{ github.event.inputs.pr_number }}
             echo "Using manually provided PR number: $PR_NUMBER"
+          elif [ "${{ github.event_name }}" == "push" ]; then
+            PR_NUMBER="1234"
+            echo "Using default PR number for push trigger: $PR_NUMBER"
           else
             PR_NUMBER=${{ github.event.pull_request.number }}
             echo "Using PR number from merged PR: $PR_NUMBER"
@@ -40,7 +46,7 @@ jobs:
           echo "PR Number: $PR_NUMBER"
 
   build-packages:
-    if: (github.event.pull_request.merged == true && github.ref == 'refs/heads/master') || github.event_name == 'workflow_dispatch'
+    if: (github.event.pull_request.merged == true && github.ref == 'refs/heads/master') || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
     name: "Build ${{ matrix.arch }} Package"
     needs: get-pr-number
     uses: ./.github/workflows/reusable_package.yaml
@@ -59,7 +65,7 @@ jobs:
       ref: refs/heads/master
 
   trigger-repository-dispatch:
-    if: (github.event.pull_request.merged == true && github.ref == 'refs/heads/master') || github.event_name == 'workflow_dispatch'
+    if: (github.event.pull_request.merged == true && github.ref == 'refs/heads/master') || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
     name: "Trigger Repository Dispatch"
     needs: [get-pr-number, build-packages]
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
