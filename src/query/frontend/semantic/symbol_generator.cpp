@@ -869,15 +869,6 @@ bool SymbolGenerator::PostVisit(EdgeAtom &) {
 }
 
 bool SymbolGenerator::PreVisit(PatternComprehension &pc) {
-  auto &scope = scopes_.back();
-
-  if (!scope.in_with && !scope.in_return) {
-    throw utils::NotYetImplemented("Pattern comprehension can only be used within With and Return clauses!");
-  }
-  if (scope.in_list_comprehension) {
-    throw utils::NotYetImplemented("Pattern comprehension inside list comprehension!");
-  }
-
   scopes_.emplace_back(Scope{.in_pattern_comprehension = true});
 
   const auto &symbol = CreateAnonymousSymbol();
