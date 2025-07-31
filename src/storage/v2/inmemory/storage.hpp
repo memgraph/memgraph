@@ -15,7 +15,6 @@
 #include <memory>
 #include <utility>
 #include "flags/run_time_configurable.hpp"
-#include "storage/v2/async_indexer.hpp"
 #include "storage/v2/commit_log.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
@@ -25,6 +24,7 @@
 #include "storage/v2/inmemory/snapshot_info.hpp"
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/storage_mode.hpp"
 #include "storage/v2/ttl.hpp"
 
 /// REPLICATION ///
@@ -541,6 +541,7 @@ class InMemoryStorage final : public Storage {
 #ifdef MG_ENTERPRISE
     // TTL management methods
     void StartTtl() override {
+      DMG_ASSERT(type() == UNIQUE, "TTL operations require unique access to the storage!");
       if (!storage_->ttl_.Config()) throw ttl::TtlException("TTL not configured!");
       storage_->ttl_.Resume();
       transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::ENABLE,
@@ -548,12 +549,14 @@ class InMemoryStorage final : public Storage {
     }
 
     void StopTtl() override {
+      DMG_ASSERT(type() == UNIQUE, "TTL operations require unique access to the storage!");
       storage_->ttl_.Pause();
       transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::STOP,
                                           std::nullopt, std::nullopt, false);
     }
 
     void ConfigureTtl(const storage::ttl::TtlInfo &ttl_info) override {
+      DMG_ASSERT(type() == UNIQUE, "TTL operations require unique access to the storage!");
       auto ttl_label = NameToLabel("TTL");
       auto ttl_property = NameToProperty("ttl");
 
@@ -561,11 +564,22 @@ class InMemoryStorage final : public Storage {
 
       // If TTL is not enabled, create required indices and enable TTL
       if (!ttl.Enabled()) {
-        // Create label+property index for TTL
-        (void)CreateIndex(ttl_label, std::vector<storage::PropertyPath>{{ttl_property}});
-        // Create edge index if needed based on TTL configuration
-        if (ttl_info.should_run_edge_ttl) (void)CreateGlobalEdgeIndex(ttl_property);
-
+        if (GetCreationStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
+          // Async index creation -> happens in separate transaction
+          DMG_ASSERT(storage_->async_indexer_);
+          storage_->async_indexer_->Enqueue(
+              std::make_pair(ttl_label, std::vector<storage::PropertyPath>{{ttl_property}}));
+          if (ttl_info.should_run_edge_ttl) {
+            storage_->async_indexer_->Enqueue(ttl_property);
+          }
+        } else {
+          // Create index with unique access in same transaction
+          (void)CreateIndex(ttl_label, std::vector<storage::PropertyPath>{{ttl_property}});
+          // Create edge index if needed based on TTL configuration
+          if (ttl_info.should_run_edge_ttl) {
+            (void)CreateGlobalEdgeIndex(ttl_property);
+          }
+        }
         ttl.Enable();
       }
 
@@ -577,6 +591,7 @@ class InMemoryStorage final : public Storage {
     }
 
     void DisableTtl() override {
+      DMG_ASSERT(type() == UNIQUE, "TTL operations require unique access to the storage!");
       auto ttl_label = NameToLabel("TTL");
       auto ttl_property = NameToProperty("ttl");
       auto &ttl = storage_->ttl_;

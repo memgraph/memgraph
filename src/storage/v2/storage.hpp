@@ -752,7 +752,7 @@ class Storage {
   std::stop_source stop_source;
 
   // Used for TTL and autoindexing
-  AsyncIndexer async_indexer_;
+  std::optional<AsyncIndexer> async_indexer_;
   ttl::TTL ttl_{this};  // TTL handler
 };
 

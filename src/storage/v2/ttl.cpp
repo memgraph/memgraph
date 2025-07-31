@@ -207,21 +207,34 @@ void TTL::Configure(bool should_run_edge_ttl) {
         if (missing_lp_index) {
           spdlog::warn(
               "TTL requires label+property index on :TTL(ttl) but it doesn't exist. Will create it automatically.");
-          storage_ptr_->async_indexer_.Enqueue(std::make_pair(ttl_label, PropertiesPaths{ttl_property_path}));
+          std::vector<PropertyPath> ttl_property_path = {storage_ptr_->NameToProperty("ttl")};
+
+          if (storage_ptr_->GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
+            storage_ptr_->async_indexer_->Enqueue(
+                std::make_pair(storage_ptr_->NameToLabel("TTL"), PropertiesPaths{ttl_property_path}));
+          } else {
+            // TODO: what to do, can't take unique because batch is already holding a write accessor
+          }
         }
 
         if (info_.should_run_edge_ttl && missing_edge_index) {
           spdlog::warn(
               "TTL requires edge property index on ttl property but it doesn't exist. Will create it automatically.");
-          storage_ptr_->async_indexer_.Enqueue(ttl_property);
+          if (storage_ptr_->GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
+            storage_ptr_->async_indexer_->Enqueue(storage_ptr_->NameToProperty("ttl"));
+          } else {
+            // TODO: what to do, can't take unique because batch is already holding a write accessor
+          }
         }
 
         bool lp_index_ready = batch_accessor->LabelPropertyIndexReady(ttl_label, ttl_property_path);
         bool edge_index_ready = info_.should_run_edge_ttl && batch_accessor->EdgePropertyIndexReady(ttl_property);
 
         if (!lp_index_ready || (info_.should_run_edge_ttl && !edge_index_ready)) {
-          spdlog::warn("TTL indices not ready: label+property index on :TTL(ttl) = {}, edge property index on ttl = {}",
-                       lp_index_ready, edge_index_ready);
+          spdlog::warn(
+              "TTL indices not ready yet, they are being populated: label+property index on :TTL(ttl) = {}, edge "
+              "property index on ttl = {}",
+              lp_index_ready, edge_index_ready);
         }
 
         // Process vertices with TTL label and ttl property using label+property index with range

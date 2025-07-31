@@ -6512,6 +6512,7 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   void Visit(AlterEnumUpdateValueQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
   void Visit(TtlQuery &) override {
     // TTLQuery is UNIQUE but indices it creates are created as READ_ONLY asynchronously
+    // if using IN_MEMORY_TRANSACTIONAL otherwise UNIQUE
     accessor_type_ = storage::Storage::Accessor::Type::UNIQUE;
   }
   void Visit(RecoverSnapshotQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }

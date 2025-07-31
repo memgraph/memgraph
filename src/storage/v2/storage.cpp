@@ -101,8 +101,12 @@ Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr inv
       storage_mode_(storage_mode),
       indices_(config, storage_mode),
       constraints_(config, storage_mode),
-      invalidator_{std::move(invalidator)},
-      async_indexer_{stop_source.get_token(), this} {
+      invalidator_{std::move(invalidator)} {
+  if (storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL) {
+    // Async index creation is only possible in IN_MEMORY_TRANSACTIONAL
+    async_indexer_.emplace(stop_source.get_token(), this);
+  }
+
   spdlog::info("Created database with {} storage mode.", StorageModeToString(storage_mode));
 }
 
