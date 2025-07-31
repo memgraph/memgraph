@@ -11,18 +11,14 @@ on:
         type: string
         description: "PR number to use for the build (e.g., 1234)"
         required: true
-  push:
-    branches:
-      - '**'
 
 jobs:
   get-pr-number:
-    if: (github.event.pull_request.merged == true && github.ref == 'refs/heads/master') || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+    if: (github.event.pull_request.merged == true && github.ref == 'refs/heads/master') || github.event_name == 'workflow_dispatch'
     name: "Get PR Number"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
     outputs:
       pr_number: ${{ steps.get_pr.outputs.pr_number }}
-      memgraph_commit: ${{ steps.get_commit.outputs.memgraph_commit }}
     steps:
       - name: Set up repository
         uses: actions/checkout@v4
@@ -36,9 +32,6 @@ jobs:
           if [ "${{ github.event_name }}" == "workflow_dispatch" ]; then
             PR_NUMBER=${{ github.event.inputs.pr_number }}
             echo "Using manually provided PR number: $PR_NUMBER"
-          elif [ "${{ github.event_name }}" == "push" ]; then
-            PR_NUMBER="1234"
-            echo "Using default PR number for push trigger: $PR_NUMBER"
           else
             PR_NUMBER=${{ github.event.pull_request.number }}
             echo "Using PR number from merged PR: $PR_NUMBER"
@@ -46,17 +39,8 @@ jobs:
           echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
           echo "PR Number: $PR_NUMBER"
 
-      - name: Get Master Commit Hash
-        id: get_commit
-        run: |
-          # Fetch the latest master commit hash
-          git fetch origin master
-          MASTER_COMMIT=$(git rev-parse origin/master)
-          echo "memgraph_commit=$MASTER_COMMIT" >> $GITHUB_OUTPUT
-          echo "Master commit hash: $MASTER_COMMIT"
-
   build-packages:
-    if: (github.event.pull_request.merged == true && github.ref == 'refs/heads/master') || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+    if: (github.event.pull_request.merged == true && github.ref == 'refs/heads/master') || github.event_name == 'workflow_dispatch'
     name: "Build ${{ matrix.arch }} Package"
     needs: get-pr-number
     uses: ./.github/workflows/reusable_package.yaml
@@ -75,7 +59,7 @@ jobs:
       ref: refs/heads/master
 
   trigger-repository-dispatch:
-    if: (github.event.pull_request.merged == true && github.ref == 'refs/heads/master') || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
+    if: (github.event.pull_request.merged == true && github.ref == 'refs/heads/master') || github.event_name == 'workflow_dispatch'
     name: "Trigger Repository Dispatch"
     needs: [get-pr-number, build-packages]
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
@@ -90,7 +74,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.REPO_PAT }}
         run: |
           # Create the payload with the PR number
-          payload="{\"event_type\": \"trigger_pr_build\", \"client_payload\": {\"pr\": \"pr${{ needs.get-pr-number.outputs.pr_number }}\", \"memgraph_commit\": \"${{ needs.get-pr-number.outputs.memgraph_commit }}\"}}"
+          payload="{\"event_type\": \"trigger_pr_build\", \"client_payload\": {\"pr\": \"pr${{ needs.get-pr-number.outputs.pr_number }}\"}}"
           echo "Payload: $payload"
 
           # Send the dispatch request to the mage repository
