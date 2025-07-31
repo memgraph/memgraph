@@ -309,8 +309,11 @@ jobs:
           echo "DOCKER_COMPOSE_CMD=$DOCKER_COMPOSE_CMD" >> $GITHUB_ENV
 
           cd tests/e2e/streams/kafka
+          docker pull bitnami/kafka:3.9.0
+          docker pull bitnami/zookeeper:3.9.3
           $DOCKER_COMPOSE_CMD up -d
           cd ../pulsar
+          docker pull apachepulsar/pulsar:2.8.1
           $DOCKER_COMPOSE_CMD up -d
 
       - name: Run e2e tests
