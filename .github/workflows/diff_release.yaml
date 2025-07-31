@@ -298,10 +298,20 @@ jobs:
 
       - name: Ensure Kafka and Pulsar are up
         run: |
+          # Check if docker-compose exists, otherwise use docker compose
+          if command -v docker-compose >/dev/null 2>&1; then
+            DOCKER_COMPOSE_CMD="docker-compose"
+          else
+            DOCKER_COMPOSE_CMD="docker compose"
+          fi
+
+          # Export to GITHUB_ENV for use in subsequent steps
+          echo "DOCKER_COMPOSE_CMD=$DOCKER_COMPOSE_CMD" >> $GITHUB_ENV
+
           cd tests/e2e/streams/kafka
-          docker-compose up -d
+          $DOCKER_COMPOSE_CMD up -d
           cd ../pulsar
-          docker-compose up -d
+          $DOCKER_COMPOSE_CMD up -d
 
       - name: Run e2e tests
         run: |
@@ -316,9 +326,9 @@ jobs:
       - name: Ensure Kafka and Pulsar are down
         run: |
           cd tests/e2e/streams/kafka
-          docker-compose down
+          $DOCKER_COMPOSE_CMD down
           cd ../pulsar
-          docker-compose down
+          $DOCKER_COMPOSE_CMD down
 
       - name: Copy build logs
         if: always()
