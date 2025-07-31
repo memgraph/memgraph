@@ -21,7 +21,7 @@ namespace memgraph::storage::durability {
 // IMPORTANT: Please bump this version for every snapshot and/or WAL format
 // change!!!
 
-constexpr uint64_t kVersion{28};
+constexpr uint64_t kVersion{29};
 
 constexpr uint64_t kOldestSupportedVersion{14};
 constexpr uint64_t kUniqueConstraintVersion{13};

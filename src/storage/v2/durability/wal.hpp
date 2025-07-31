@@ -54,9 +54,11 @@ struct WalInfo {
   uint64_t num_deltas;
 };
 
+// MIN_VER is a version from which the Type was introduced
 template <auto MIN_VER, typename Type>
 struct MinVersionDependant {};
 
+// MAX_VER is a version from which the Type became invalid or unnecessary
 template <auto MAX_VER, typename Type>
 struct MaxVersionDependant {};
 
@@ -233,14 +235,15 @@ struct WalTypeConstraintCreate : TypeConstraintOpInfo {};
 struct WalTypeConstraintDrop : TypeConstraintOpInfo {};
 struct WalTextIndexCreate {
   friend bool operator==(const WalTextIndexCreate &, const WalTextIndexCreate &) = default;
-  using ctr_types = std::tuple<std::string, std::string, std::vector<std::string>>;
+  using ctr_types =
+      std::tuple<std::string, std::string, MinVersionDependant<kTextIndexWithProperties, std::vector<std::string>>>;
   std::string index_name;
   std::string label;
-  std::vector<std::string> properties;
+  std::optional<std::vector<std::string>> properties;  //!< Optional properties, if not set, no properties are indexed
 };
 struct WalTextIndexDrop {
   friend bool operator==(const WalTextIndexDrop &, const WalTextIndexDrop &) = default;
-  using ctr_types = std::tuple<std::string, MaxVersionDependant<kTextIndexWithProperties, std::string>>;
+  using ctr_types = std::tuple<std::string, MaxVersionDependant<kTxnStart, std::string>>;
   std::string index_name;
   std::optional<std::string> label;  // !< Optional label, not needed for the text index drop
 };

@@ -65,6 +65,7 @@
 using namespace std::chrono_literals;
 
 namespace r = ranges;
+namespace rv = r::views;
 namespace {
 constexpr auto kCheckIfSnapshotAborted = 3s;
 }  // namespace
@@ -4221,9 +4222,8 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
         });
 
         auto properties_string =
-            properties |
-            ranges::views::transform([&](PropertyId prop_id) { return name_id_mapper->IdToName(prop_id.AsUint()); }) |
-            ranges::views::join(", ") | ranges::_to_::to<std::string>;
+            properties | rv::transform([&](PropertyId prop_id) { return name_id_mapper->IdToName(prop_id.AsUint()); }) |
+            rv::join(", ") | r::_to_::to<std::string>;
 
         auto property_paths = properties |
                               std::views::transform([](const auto &property_id) { return PropertyPath{property_id}; }) |
@@ -4813,12 +4813,12 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
         if (!label) throw RecoveryFailure("Couldn't read label for label properties index.");
         auto property_paths = get_property_paths("label properties index");
         auto path_to_name = [&](const PropertyPath &path) {
-          return path | ranges::views::transform([&](const auto &property_id) {
+          return path | rv::transform([&](const auto &property_id) {
                    return name_id_mapper->IdToName(property_id.AsUint());
                  }) |
-                 ranges::views::join(". ") | ranges::_to_::to<std::string>;
+                 rv::join(". ") | r::_to_::to<std::string>;
         };
-        auto properties_vec = property_paths | ranges::views::transform(path_to_name) | r::to_vector;
+        auto properties_vec = property_paths | rv::transform(path_to_name) | r::to_vector;
         auto properties_string = fmt::format("{}", fmt::join(properties_vec, ", "));
 
         AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties,
@@ -5393,12 +5393,12 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
         if (!label) throw RecoveryFailure("Couldn't read label for label properties index.");
         auto property_paths = get_property_paths("label properties index");
         auto path_to_name = [&](const PropertyPath &path) {
-          return path | ranges::views::transform([&](const auto &property_id) {
+          return path | rv::transform([&](const auto &property_id) {
                    return name_id_mapper->IdToName(property_id.AsUint());
                  }) |
-                 ranges::views::join(". ") | ranges::_to_::to<std::string>;
+                 rv::join(". ") | r::_to_::to<std::string>;
         };
-        auto properties_vec = property_paths | ranges::views::transform(path_to_name) | r::to_vector;
+        auto properties_vec = property_paths | rv::transform(path_to_name) | r::to_vector;
         auto properties_string = fmt::format("{}", fmt::join(properties_vec, ", "));
 
         AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties,
@@ -5975,12 +5975,12 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
         if (!label) throw RecoveryFailure("Couldn't read label for label properties index.");
         auto property_paths = get_property_paths("label properties index");
         auto path_to_name = [&](const PropertyPath &path) {
-          return path | ranges::views::transform([&](const auto &property_id) {
+          return path | rv::transform([&](const auto &property_id) {
                    return name_id_mapper->IdToName(property_id.AsUint());
                  }) |
-                 ranges::views::join(". ") | ranges::_to_::to<std::string>;
+                 rv::join(". ") | r::_to_::to<std::string>;
         };
-        auto properties_vec = property_paths | ranges::views::transform(path_to_name) | r::to_vector;
+        auto properties_vec = property_paths | rv::transform(path_to_name) | r::to_vector;
         auto properties_string = fmt::format("{}", fmt::join(properties_vec, ", "));
 
         AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties,
@@ -6605,12 +6605,14 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
         if (!label) throw RecoveryFailure("Couldn't read label for label properties index.");
         auto property_paths = get_property_paths("label properties index");
         auto path_to_name = [&](const PropertyPath &path) {
-          return path | ranges::views::transform([&](const auto &property_id) {
+          return path | rv::transform([&](const auto &property_id) {
                    return name_id_mapper->IdToName(property_id.AsUint());
                  }) |
-                 ranges::views::join(". ") | ranges::_to_::to<std::string>;
+                 rv::join(". ") | r::_to_::to<std::string>;
         };
-        auto properties_vec = property_paths | ranges::views::transform(path_to_name) | r::to_vector;
+
+        // NOLINTNEXTLINE(bugprone-unused-local-non-trivial-variable)
+        auto properties_vec = property_paths | rv::transform(path_to_name) | r::to_vector;
         auto properties_string = fmt::format("{}", fmt::join(properties_vec, ", "));
 
         AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties,
