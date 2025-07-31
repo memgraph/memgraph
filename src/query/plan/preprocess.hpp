@@ -92,8 +92,6 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   }
 
   bool PreVisit(Exists &exists) override {
-    in_exists = true;
-
     if (exists.HasPattern()) {
       // We do not visit pattern identifier since we're in exists filter pattern
       for (auto &atom : exists.GetPattern()->atoms_) {
@@ -122,20 +120,12 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
     return false;
   }
 
-  bool PostVisit(Exists & /*exists*/) override {
-    in_exists = false;
-    return false;
-  }
-
   bool Visit(PrimitiveLiteral &) override { return true; }
   bool Visit(ParameterLookup &) override { return true; }
   bool Visit(EnumValueAccess &) override { return true; }
 
   std::unordered_set<Symbol> symbols_;
   const SymbolTable &symbol_table_;
-
- private:
-  bool in_exists{false};
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
