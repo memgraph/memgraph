@@ -117,3 +117,8 @@
     RETURN date.convert_format('2011-12-03T10:15:30', 'iso_local_date_time', 'iso_offset_date_time') AS output;
   exception: >-
     "missing timezone"
+
+- query: >-
+    RETURN date.convert_format(null, 'iso_time', 'iso_offset_time') AS output;
+  output:
+    - output: null
