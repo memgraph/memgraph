@@ -18,8 +18,19 @@
 
 #include <nlohmann/json.hpp>
 
+constexpr const std::string_view kFunctionStr2Object = "str2object";
+constexpr const std::string_view kProcedureToTree = "to_tree";
+
+constexpr const std::string_view kParameterPaths = "paths";
+constexpr const std::string_view kParameterConfig = "config";
+constexpr const std::string_view kParameterString = "string";
+constexpr const std::string_view kParameterLowerCaseRels = "lowerCaseRels";
+
+constexpr const std::string_view kReturnValue = "value";
+
 // Forward declarations
-mgp::Value ConvertToTreeImpl(const mgp::Value &value, const mgp::Map &config, mgp_memory *memory);
+mgp::Value ConvertToTreeImpl(const mgp::Value &value, const bool lowerCaseRels, const mgp::Map &config,
+                             mgp_memory *memory);
 std::optional<mgp::Value> ParseJsonToMgpValue(const nlohmann::json &json_obj, mgp_memory *memory);
 
 // Struct to encapsulate property filter logic for a label
@@ -207,7 +218,10 @@ bool ShouldIncludeRelProperty(std::string_view prop_name, const mgp::Map &config
 
 // Main implementation function
 // Converts a list of paths (or a single path) into a hierarchical tree structure.
-mgp::Value ConvertToTreeImpl(const mgp::Value &value, const mgp::Map &config, mgp_memory *memory) {
+mgp::Value ConvertToTreeImpl(const mgp::Value &input, const bool lowerCaseRels, const mgp::Map &config,
+                             mgp_memory *memory) {
+  auto value = mgp::Value(input);
+
   if (value.IsNull()) {
     // Null input: return as is
     return value;
@@ -263,6 +277,10 @@ mgp::Value ConvertToTreeImpl(const mgp::Value &value, const mgp::Map &config, mg
         auto rel = path.GetRelationshipAt(i);
         auto target_node = path.GetNodeAt(i + 1);
         std::string rel_type{rel.Type()};
+        if (lowerCaseRels) {
+          std::transform(rel_type.begin(), rel_type.end(), rel_type.begin(),
+                         [](unsigned char c) { return std::tolower(c); });
+        }
 
         // Create or get relationship array for this type
         mgp::List rel_list;
@@ -321,7 +339,7 @@ mgp::Value ConvertToTreeImpl(const mgp::Value &value, const mgp::Map &config, mg
   if (value.IsPath()) {
     auto list = mgp::List(1);
     list.Append(value);
-    return ConvertToTreeImpl(mgp::Value(list), config, memory);
+    return ConvertToTreeImpl(mgp::Value(list), lowerCaseRels, config, memory);
   }
 
   // For other types, return as is
@@ -411,63 +429,25 @@ void str2object(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp
   }
 }
 
-void convert_to_tree(mgp_list *args, mgp_func_context *ctx, mgp_func_result *func_result, mgp_memory *memory) {
-  try {
-    mgp::MemoryDispatcherGuard guard(memory);
-    const auto arguments = mgp::List(args);
-    const auto record = arguments[0];
+void to_tree(mgp_list *args, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {
+  mgp::MemoryDispatcherGuard guard(memory);
+  const auto arguments = mgp::List(args);
+  const auto record_factory = mgp::RecordFactory(result);
 
-    // Create a default empty config if none provided
-    mgp::Map config;
-    if (arguments.Size() > 1) {
-      config = arguments[1].ValueMap();
-    }
+  try {
+    const auto input = arguments[0];
+
+    const bool lowerCaseRels = arguments.Size() > 1 ? arguments[1].ValueBool() : true;
+    const mgp::Map config = arguments.Size() > 2 ? arguments[2].ValueMap() : mgp::Map();
 
     // Convert the input value to tree structure
-    auto result_value = ConvertToTreeImpl(record, config, memory);
+    auto result_value = ConvertToTreeImpl(input, lowerCaseRels, config, memory);
 
-    // We know the result will be a Map, so handle it directly
-    mgp::Result result(func_result);
-    if (result_value.IsMap()) {
-      result.SetValue(result_value.ValueMap());
-    } else {
-      // For any other type (shouldn't happen in our case), return null
-      result.SetValue();
-    }
+    auto record = record_factory.NewRecord();
+    record.Insert(kReturnValue.data(), result_value);
 
   } catch (const std::exception &e) {
-    mgp::Result(func_result).SetErrorMessage(e.what());
-  }
-}
-
-void convert_to_tree_proc(mgp_list *args, mgp_graph *graph, mgp_result *result, mgp_memory *memory) {
-  try {
-    mgp::MemoryDispatcherGuard guard(memory);
-    const auto arguments = mgp::List(args);
-    const auto record = arguments[0];
-
-    // Create a default empty config if none provided
-    mgp::Map config;
-    if (arguments.Size() > 1) {
-      config = arguments[1].ValueMap();
-    }
-
-    // Convert the input value to tree structure
-    auto result_value = ConvertToTreeImpl(record, config, memory);
-
-    // Create a new record for the result
-    auto *result_record = mgp::result_new_record(result);
-
-    // We know the result will be a Map, so handle it directly
-    if (result_value.IsMap()) {
-      mgp::result_record_insert(result_record, "tree", result_value.ptr());
-    } else {
-      // For any other type (shouldn't happen in our case), return null
-      mgp::result_record_insert(result_record, "tree", mgp::Value().ptr());
-    }
-
-  } catch (const std::exception &e) {
-    mgp::result_set_error_msg(result, e.what());
+    record_factory.SetErrorMessage(e.what());
   }
 }
 
@@ -475,11 +455,13 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
   try {
     mgp::MemoryDispatcherGuard guard(memory);
 
-    mgp::AddFunction(str2object, "str2object", {mgp::Parameter("string", mgp::Type::String)}, module, memory);
-    mgp::AddProcedure(
-        convert_to_tree_proc, "to_tree", mgp::ProcedureType::Read,
-        {mgp::Parameter("value", mgp::Type::Any), mgp::Parameter("config", mgp::Type::Map, mgp::Value(mgp::Map()))},
-        {mgp::Return("tree", mgp::Type::Any)}, module, memory);
+    mgp::AddFunction(str2object, kFunctionStr2Object, {mgp::Parameter(kParameterString, mgp::Type::String)}, module,
+                     memory);
+    mgp::AddProcedure(to_tree, kProcedureToTree, mgp::ProcedureType::Read,
+                      {mgp::Parameter(kParameterPaths, mgp::Type::Any),
+                       mgp::Parameter(kParameterLowerCaseRels, mgp::Type::Bool, true),
+                       mgp::Parameter(kParameterConfig, mgp::Type::Map, mgp::Value(mgp::Map()))},
+                      {mgp::Return(kReturnValue, mgp::Type::Any)}, module, memory);
 
   } catch (const std::exception &e) {
     std::cerr << "Error while initializing query module: " << e.what() << '\n';
