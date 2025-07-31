@@ -22,6 +22,7 @@ jobs:
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
     outputs:
       pr_number: ${{ steps.get_pr.outputs.pr_number }}
+      memgraph_commit: ${{ steps.get_commit.outputs.memgraph_commit }}
     steps:
       - name: Set up repository
         uses: actions/checkout@v4
@@ -44,6 +45,15 @@ jobs:
           fi
           echo "pr_number=$PR_NUMBER" >> $GITHUB_OUTPUT
           echo "PR Number: $PR_NUMBER"
+
+      - name: Get Master Commit Hash
+        id: get_commit
+        run: |
+          # Fetch the latest master commit hash
+          git fetch origin master
+          MASTER_COMMIT=$(git rev-parse origin/master)
+          echo "memgraph_commit=$MASTER_COMMIT" >> $GITHUB_OUTPUT
+          echo "Master commit hash: $MASTER_COMMIT"
 
   build-packages:
     if: (github.event.pull_request.merged == true && github.ref == 'refs/heads/master') || github.event_name == 'workflow_dispatch' || github.event_name == 'push'
@@ -80,7 +90,7 @@ jobs:
           GITHUB_TOKEN: ${{ secrets.REPO_PAT }}
         run: |
           # Create the payload with the PR number
-          payload="{\"event_type\": \"trigger_pr_build\", \"client_payload\": {\"pr\": \"pr${{ needs.get-pr-number.outputs.pr_number }}\"}}"
+          payload="{\"event_type\": \"trigger_pr_build\", \"client_payload\": {\"pr\": \"pr${{ needs.get-pr-number.outputs.pr_number }}\", \"memgraph_commit\": \"${{ needs.get-pr-number.outputs.memgraph_commit }}\"}}"
           echo "Payload: $payload"
 
           # Send the dispatch request to the mage repository
