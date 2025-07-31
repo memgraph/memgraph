@@ -328,8 +328,9 @@ bool SymbolGenerator::PostVisit(Merge &) {
 }
 
 bool SymbolGenerator::PostVisit(Unwind &unwind) {
+  auto &scope = scopes_.back();
   const auto &name = unwind.named_expression_->name_;
-  if (HasSymbol(name)) {
+  if (FindSymbolInScope(name, scope, Symbol::Type::ANY).has_value()) {
     throw RedeclareVariableError(name);
   }
   unwind.named_expression_->MapTo(CreateSymbol(name, true));

@@ -9,6 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 #include <gtest/gtest.h>
+#include <spdlog/spdlog.h>
 #include <sys/types.h>
 #include <string_view>
 #include <thread>
@@ -42,7 +43,7 @@ class TextIndexTest : public testing::Test {
     storage.reset();
   }
 
-  void CreateIndex() {
+  void CreateIndex() const {
     auto unique_acc = this->storage->UniqueAccess();
     const auto label = unique_acc->NameToLabel(test_label.data());
 
@@ -50,7 +51,7 @@ class TextIndexTest : public testing::Test {
     ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase());
   }
 
-  VertexAccessor CreateVertex(Storage::Accessor *accessor, const std::string &title, const std::string &content) {
+  static VertexAccessor CreateVertex(Storage::Accessor *accessor, std::string_view title, std::string_view content) {
     VertexAccessor vertex = accessor->CreateVertex();
     MG_ASSERT(!vertex.AddLabel(accessor->NameToLabel(test_label)).HasError());
     MG_ASSERT(!vertex.SetProperty(accessor->NameToProperty("title"), PropertyValue(title)).HasError());
@@ -60,14 +61,21 @@ class TextIndexTest : public testing::Test {
   }
 
  private:
-  void CleanupTextIndices() {
-    try {
-      auto unique_acc = storage->UniqueAccess();
-      ASSERT_NO_ERROR(unique_acc->DropTextIndex(test_index.data()));
-    } catch (const std::exception &e) {
-      // Log error but don't fail the test
-      std::cerr << "Warning: Failed to cleanup text indices: " << e.what() << std::endl;
+  void CleanupTextIndices() const {
+    // Tantivy performs file merging as a background process, which can lead to file deletion errors when trying to
+    // delete the index. To avoid flakiness, we won't fail the test if the index cannot be
+    // deleted. Correct approach would be to wait for the merging threads to finish on the mgcxx side.
+    constexpr auto max_retries = 5;
+    constexpr auto retry_delay = std::chrono::milliseconds(100);
+    auto unique_acc = this->storage->UniqueAccess();
+    for (int i = 0; i < max_retries; ++i) {
+      auto status = unique_acc->DropTextIndex(test_index.data());
+      if (!status.HasError()) {
+        return;  // Successfully cleared the index
+      }
+      std::this_thread::sleep_for(retry_delay);
     }
+    spdlog::error("Failed to clear text index after {} retries.", max_retries);
   }
 };
 
@@ -79,8 +87,8 @@ TEST_F(TextIndexTest, SimpleAbortTest) {
 
     // Create multiple nodes within a transaction that will be aborted
     for (int i = 0; i < index_size; i++) {
-      [[maybe_unused]] const auto vertex =
-          this->CreateVertex(acc.get(), "title" + std::to_string(i), "content " + std::to_string(i));
+      [[maybe_unused]] const auto vertex = TextIndexTest_SimpleAbortTest_Test::CreateVertex(
+          acc.get(), "title" + std::to_string(i), "content " + std::to_string(i));
     }
 
     // This is enough to check if abort works
@@ -97,7 +105,7 @@ TEST_F(TextIndexTest, DeletePropertyTest) {
 
   {
     auto acc = this->storage->Access();
-    auto vertex = this->CreateVertex(acc.get(), "Test Title", "Test content");
+    auto vertex = TextIndexTest_DeletePropertyTest_Test::CreateVertex(acc.get(), "Test Title", "Test content");
     vertex_gid = vertex.Gid();
     ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
@@ -133,21 +141,17 @@ TEST_F(TextIndexTest, ConcurrencyTest) {
   this->CreateIndex();
 
   const auto index_size = 10;
-  std::vector<std::thread> threads;
-  threads.reserve(index_size);
-  for (int i = 0; i < index_size; i++) {
-    threads.emplace_back(std::thread([this, i]() {
-      auto acc = this->storage->Access();
-
-      // Each thread adds a node to the index
-      [[maybe_unused]] const auto vertex =
-          this->CreateVertex(acc.get(), "Title" + std::to_string(i), "Content for document " + std::to_string(i));
-      ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
-    }));
-  }
-
-  for (auto &thread : threads) {
-    thread.join();
+  {
+    std::vector<std::jthread> threads;
+    threads.reserve(index_size);
+    for (int i = 0; i < index_size; i++) {
+      threads.emplace_back([this, i](std::stop_token) {
+        auto acc = this->storage->Access();
+        [[maybe_unused]] const auto vertex = TextIndexTest_ConcurrencyTest_Test::CreateVertex(
+            acc.get(), "Title" + std::to_string(i), "Content for document " + std::to_string(i));
+        ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
+      });
+    }
   }
 
   // Check that all entries ended up in the index by searching

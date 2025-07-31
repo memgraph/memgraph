@@ -82,7 +82,7 @@ void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &valu
   tx.active_indices_.label_properties_->UpdateOnSetProperty(property, value, vertex, tx);
   vector_index_.UpdateOnSetProperty(property, value, vertex);
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    text_index_.UpdateOnSetProperty(property, value, vertex, name_id_mapper);
+    text_index_.UpdateOnSetProperty(vertex, name_id_mapper);
   }
 }
 
