@@ -68,6 +68,8 @@
     "apoc.map.removeKeys": "map.remove_keys",
     "apoc.map.setKey": "map.set_key",
 
+    "apoc.math.round": "math.round",
+
     "apoc.merge.node": "merge.node",
     "apoc.merge.relationship": "merge.relationship",
 
