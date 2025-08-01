@@ -47,4 +47,3 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     proc: "tests/e2e/streams/transformations/"
     args: ["streams/sso_streams_tests.py"]
-    <<: *in_memory_cluster
