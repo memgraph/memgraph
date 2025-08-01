@@ -12,7 +12,7 @@ Feature: Text search related features
             """
         Then the result should be:
             | index type                  | label      | property | count |
-            | 'text (name: exampleIndex)' | 'Document' | null     | null  |
+            | 'text (name: exampleIndex)' | 'Document' | []       | null  |
 
     Scenario: Drop text index
         Given an empty graph

@@ -15,7 +15,6 @@
 #include "mgcxx_text_search.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
-#include "storage/v2/storage_mode.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/view.hpp"
 
@@ -152,16 +151,20 @@ std::string TextIndex::ToLowerCasePreservingBooleanOperators(std::string_view in
 std::vector<TextIndexData *> TextIndex::GetApplicableTextIndices(std::span<storage::LabelId const> labels,
                                                                  std::span<PropertyId const> properties) {
   std::vector<TextIndexData *> applicable_text_indices;
-  auto has_label = [&](auto const &text_index_data) {
+  auto matches_label = [&](const auto &text_index_data) {
     return r::any_of(labels, [&](auto label_id) { return label_id == text_index_data.scope_; });
   };
-  auto has_property = [&](auto const &text_index_data) {
+
+  auto matches_property = [&](const auto &text_index_data) {
+    if (text_index_data.properties_.empty()) {
+      return true;
+    }
     return r::any_of(properties,
                      [&](auto property_id) { return r::contains(text_index_data.properties_, property_id); });
   };
 
   for (auto &[index_name, text_index_data] : index_) {
-    if (has_label(text_index_data) && (has_property(text_index_data) || text_index_data.properties_.empty())) {
+    if (matches_label(text_index_data) && matches_property(text_index_data)) {
       applicable_text_indices.push_back(&text_index_data);
     }
   }
