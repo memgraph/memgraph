@@ -1343,15 +1343,11 @@ std::optional<RecoveryInfo> LoadWal(
             ttl->Disable();
             break;
           case TtlOperationType::CONFIGURE:
-            if (data.period && data.start_time) {
-              // TODO create index logic currently done via index deltas
-              ttl->Enable();
-              if (!ttl->Running()) ttl->Configure(data.should_run_edge_ttl);
-              ttl->SetInterval(*data.period, *data.start_time);
-              ttl->Resume();
-            } else {
-              throw RecoveryFailure("Corrupted TTL configuration");
-            }
+            // TODO create index logic currently done via index deltas
+            ttl->Enable();
+            if (!ttl->Running()) ttl->Configure(data.should_run_edge_ttl);
+            ttl->SetInterval(data.period, data.start_time);
+            ttl->Resume();
             break;
           case TtlOperationType::STOP:
             ttl->Pause();

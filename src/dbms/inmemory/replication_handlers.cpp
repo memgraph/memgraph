@@ -1497,11 +1497,9 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
               transaction->DisableTtl();
               break;
             case storage::durability::TtlOperationType::CONFIGURE:
-              if (data.period && data.start_time) {
-                transaction->ConfigureTtl(
-                    storage::ttl::TtlInfo{*data.period, *data.start_time, data.should_run_edge_ttl});
-                // Configuration will leave it paused; replicas should not run ttl
-              }
+              transaction->ConfigureTtl(
+                  storage::ttl::TtlInfo{data.period, data.start_time, data.should_run_edge_ttl});
+              // Configuration will leave it paused; replicas should not run ttl
               break;
             case storage::durability::TtlOperationType::STOP:
               transaction->StopTtl();
