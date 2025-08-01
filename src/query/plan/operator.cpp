@@ -3158,8 +3158,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
         // Update the parent
         if (next_edges_.find({prev_vertex, current_depth - 1}) == next_edges_.end()) {
-          utils::pmr::list<DirectedEdge> empty(memory);
-          next_edges_[{prev_vertex, current_depth - 1}] = std::move(empty);
+          next_edges_[{prev_vertex, current_depth - 1}] = utils::pmr::list<DirectedEdge>(memory);
         }
         next_edges_.at({prev_vertex, current_depth - 1}).emplace_back(directed_edge);
       }
