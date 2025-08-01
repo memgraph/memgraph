@@ -914,7 +914,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   CheckForFastDiscardOfDeltas();
 
-  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH) && transaction_.text_index_operations_performed_) {
     mem_storage->indices_.text_index_.Commit();
   }
   is_transaction_active_ = false;
@@ -1374,7 +1374,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
 
     // Cleanup INDICES
     index_abort_processor.Process(storage_->indices_, transaction_.active_indices_, transaction_.start_timestamp);
-    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH) &&
+        transaction_.text_index_operations_performed_) {
       storage_->indices_.text_index_.Rollback();
     }
 

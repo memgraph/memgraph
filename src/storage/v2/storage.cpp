@@ -379,7 +379,7 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
 
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     for (auto *node : nodes_to_delete) {
-      storage_->indices_.text_index_.RemoveNode(node);
+      storage_->indices_.text_index_.RemoveNode(node, transaction_);
     }
   }
 

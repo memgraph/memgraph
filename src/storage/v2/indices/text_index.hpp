@@ -17,6 +17,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
+#include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertices_iterable.hpp"
 #include "text_search.hpp"
@@ -29,9 +30,17 @@ namespace memgraph::storage {
 
 inline constexpr std::string_view kTextIndicesDirectory = "text_indices";
 struct TextIndexData {
+  TextIndexData(mgcxx::text_search::Context context, LabelId scope, std::vector<PropertyId> props)
+      : context_(std::move(context)), scope_(scope), properties_(std::move(props)){};
+
   mgcxx::text_search::Context context_;
   LabelId scope_;
   std::vector<PropertyId> properties_;
+  std::shared_mutex
+      index_writer_mutex_;  // This mutex is used to protect add_document, remove_document, commit and rollback
+                            // operations. Underlying Tantivy IndexWriter requires unique lock for commit and rollback
+                            // operations and shared lock for add_document and remove_document operations.
+                            // TODO(@DavIvek): Better approach would be to add locking on mgcxx side.
 };
 
 using TextIndexInfo = std::tuple<std::string, LabelId, std::vector<PropertyId>>;
@@ -45,11 +54,6 @@ class TextIndex {
   static constexpr std::string_view kBooleanNot = "NOT";
 
   std::filesystem::path text_index_storage_dir_;
-  std::shared_mutex
-      index_writer_mutex_;  // This mutex is used to protect add_document, remove_document, commit and rollback
-                            // operations. Underlying Tantivy IndexWriter requires unique lock for commit and rollback
-                            // operations and shared lock for add_document and remove_document operations.
-                            // TODO(@DavIvek): Better approach would be to add locking on mgcxx side.
 
   inline std::string MakeIndexPath(std::string_view index_name) const;
 
@@ -63,10 +67,11 @@ class TextIndex {
 
   static std::string ToLowerCasePreservingBooleanOperators(std::string_view input);
 
-  std::vector<TextIndexData *> GetApplicableTextIndices(std::span<storage::LabelId const> labels);
+  std::vector<TextIndexData *> GetApplicableTextIndices(std::span<storage::LabelId const> labels,
+                                                        std::span<PropertyId const> properties);
 
   void AddNodeToTextIndex(std::int64_t gid, const nlohmann::json &properties, const std::string &property_values_as_str,
-                          mgcxx::text_search::Context *applicable_text_index);
+                          TextIndexData *applicable_text_index);
 
   static std::map<PropertyId, PropertyValue> ExtractVertexProperties(const PropertyStore &property_store,
                                                                      std::span<PropertyId const> properties);
@@ -93,17 +98,15 @@ class TextIndex {
 
   void AddNode(Vertex *vertex, NameIdMapper *name_id_mapper, std::span<TextIndexData *> applicable_text_indices);
 
-  void UpdateNode(Vertex *vertex, NameIdMapper *name_id_mapper);
-
-  void RemoveNode(Vertex *vertex_after_update);
+  void RemoveNode(Vertex *vertex_after_update, Transaction &tx);
 
   void RemoveNode(Vertex *vertex, std::span<TextIndexData *> applicable_text_indices);
 
-  void UpdateOnAddLabel(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper);
+  void UpdateOnAddLabel(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper, Transaction &tx);
 
-  void UpdateOnRemoveLabel(LabelId label, Vertex *vertex);
+  void UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx);
 
-  void UpdateOnSetProperty(Vertex *vertex, NameIdMapper *name_id_mapper);
+  void UpdateOnSetProperty(Vertex *vertex, NameIdMapper *name_id_mapper, Transaction &tx);
 
   void CreateIndex(std::string const &index_name, LabelId label, VerticesIterable vertices,
                    NameIdMapper *name_id_mapper, std::span<PropertyId const> properties);

@@ -5134,7 +5134,6 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         const std::string_view edge_type_property_index_mark{"edge-type+property"};
         const std::string_view edge_property_index_mark{"edge-property"};
         const std::string_view text_index_mark{"text"};
-        const std::string_view text_all_props{"all-properties"};
         const std::string_view point_label_property_index_mark{"point"};
         const std::string_view vector_label_property_index_mark{"label+property_vector"};
         const std::string_view vector_edge_property_index_mark{"edge-type+property_vector"};
@@ -5174,9 +5173,8 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
               properties |
               rv::transform([storage](auto prop_id) { return TypedValue(storage->PropertyToName(prop_id)); }) |
               ranges::to_vector;
-          auto value = prop_names.empty() ? TypedValue(text_all_props) : TypedValue(std::move(prop_names));
           results.push_back({TypedValue(fmt::format("{} (name: {})", text_index_mark, index_name)),
-                             TypedValue(storage->LabelToName(label)), std::move(value), TypedValue()});
+                             TypedValue(storage->LabelToName(label)), TypedValue(std::move(prop_names)), TypedValue()});
         }
         for (const auto &[label_id, prop_id] : info.point_label_property) {
           results.push_back({TypedValue(point_label_property_index_mark), TypedValue(storage->LabelToName(label_id)),
