@@ -128,11 +128,11 @@ std::string ExtractArmCPUVariant(const std::vector<std::string> &cpu_data) {
     if (utils::StartsWith(tmp, "CPU implementer")) {
       auto split = utils::Split(tmp, ":");
       if (split.size() != 2) continue;
-      implementer = split[1];
+      implementer = utils::Trim(split[1]);
     } else if (utils::StartsWith(tmp, "CPU variant")) {
       auto split = utils::Split(tmp, ":");
       if (split.size() != 2) continue;
-      variant = split[1];
+      variant = utils::Trim(split[1]);
     }
   }
   if (implementer.empty()) {
