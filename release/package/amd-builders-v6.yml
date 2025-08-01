@@ -12,6 +12,7 @@ services:
       - "mgdeps-cache:10.42.16.10"
       - "bench-graph-api:10.42.16.10"
     container_name: "mgbuild_v6_centos-9"
+    network_mode: host
 
   mgbuild_v6_centos-10:
     image: "memgraph/mgbuild:v6_centos-10"
@@ -23,6 +24,7 @@ services:
       - "mgdeps-cache:10.42.16.10"
       - "bench-graph-api:10.42.16.10"
     container_name: "mgbuild_v6_centos-10"
+    network_mode: host
 
   mgbuild_v6_debian-11:
     image: "memgraph/mgbuild:v6_debian-11"
@@ -34,6 +36,7 @@ services:
       - "mgdeps-cache:10.42.16.10"
       - "bench-graph-api:10.42.16.10"
     container_name: "mgbuild_v6_debian-11"
+    network_mode: host
 
   mgbuild_v6_debian-12:
     image: "memgraph/mgbuild:v6_debian-12"
@@ -45,6 +48,7 @@ services:
       - "mgdeps-cache:10.42.16.10"
       - "bench-graph-api:10.42.16.10"
     container_name: "mgbuild_v6_debian-12"
+    network_mode: host
 
   mgbuild_v6_fedora-41:
     image: "memgraph/mgbuild:v6_fedora-41"
@@ -56,6 +60,7 @@ services:
       - "mgdeps-cache:10.42.16.10"
       - "bench-graph-api:10.42.16.10"
     container_name: "mgbuild_v6_fedora-41"
+    network_mode: host
 
   mgbuild_v6_ubuntu-22.04:
     image: "memgraph/mgbuild:v6_ubuntu-22.04"
@@ -67,6 +72,7 @@ services:
       - "mgdeps-cache:10.42.16.10"
       - "bench-graph-api:10.42.16.10"
     container_name: "mgbuild_v6_ubuntu-22.04"
+    network_mode: host
 
   mgbuild_v6_ubuntu-24.04:
     image: "memgraph/mgbuild:v6_ubuntu-24.04"
@@ -78,3 +84,4 @@ services:
       - "mgdeps-cache:10.42.16.10"
       - "bench-graph-api:10.42.16.10"
     container_name: "mgbuild_v6_ubuntu-24.04"
+    network_mode: host
