@@ -334,7 +334,7 @@ class InteractiveDbAccessor {
     return 0;
   }
 
-  bool LabelIndexExists(memgraph::storage::LabelId label) { return true; }
+  bool LabelIndexReady(memgraph::storage::LabelId label) { return true; }
 
   auto RelevantLabelPropertiesIndicesInfo(std::span<memgraph::storage::LabelId const> labels,
                                           std::span<memgraph::storage::PropertyPath const> property_paths) const
@@ -354,10 +354,10 @@ class InteractiveDbAccessor {
     return label_property_index_.at(key);
   }
 
-  bool EdgeTypeIndexExists(memgraph::storage::EdgeTypeId edge_type_id) { return true; }
+  bool EdgeTypeIndexReady(memgraph::storage::EdgeTypeId edge_type_id) { return true; }
 
-  bool EdgeTypePropertyIndexExists(memgraph::storage::EdgeTypeId edge_type_id,
-                                   memgraph::storage::PropertyId property_id) {
+  bool EdgeTypePropertyIndexReady(memgraph::storage::EdgeTypeId edge_type_id,
+                                  memgraph::storage::PropertyId property_id) {
     auto edge_type = dba_->EdgeTypeToName(edge_type_id);
     auto property = dba_->PropertyToName(property_id);
     auto key = std::make_pair(edge_type, property);
@@ -369,7 +369,7 @@ class InteractiveDbAccessor {
     return edge_type_property_index_.at(key);
   }
 
-  bool EdgePropertyIndexExists(memgraph::storage::PropertyId property_id) { return false; }
+  bool EdgePropertyIndexReady(memgraph::storage::PropertyId property_id) { return false; }
 
   std::optional<memgraph::storage::LabelIndexStats> GetIndexStats(const memgraph::storage::LabelId label) const {
     return dba_->GetIndexStats(label);

@@ -704,7 +704,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
         }
 
         const auto &property = filter.property_filter->property_ids_.path[0];
-        if (!db_->EdgeTypePropertyIndexExists(GetEdgeType(edge_type), GetProperty(property))) {
+        if (!db_->EdgeTypePropertyIndexReady(GetEdgeType(edge_type), GetProperty(property))) {
           continue;
         }
         candidate_indices.push_back({.edge_type_from_filter = edge_type, .property = property, .filter = filter});
@@ -726,7 +726,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
       }
 
       const auto &property = filter.property_filter->property_ids_.path[0];
-      if (!db_->EdgePropertyIndexExists(GetProperty(property))) {
+      if (!db_->EdgePropertyIndexReady(GetProperty(property))) {
         continue;
       }
       candidate_indices.push_back({.property = property, .filter = filter});
@@ -748,7 +748,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
       }
 
       const auto &property = filter.property_filter->property_ids_.path[0];
-      if (!db_->EdgeTypePropertyIndexExists(edge_type_from_relationship.value(), GetProperty(property))) {
+      if (!db_->EdgeTypePropertyIndexReady(edge_type_from_relationship.value(), GetProperty(property))) {
         continue;
       }
       candidate_indices.push_back(
@@ -776,7 +776,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     std::optional<LabelIx> best_edge_type;
     for (const auto &edge_type : edge_types) {
-      if (!db_->EdgeTypeIndexExists(GetEdgeType(edge_type))) continue;
+      if (!db_->EdgeTypeIndexReady(GetEdgeType(edge_type))) continue;
       if (!best_edge_type) {
         best_edge_type = edge_type;
         continue;
@@ -912,7 +912,7 @@ class EdgeIndexRewriter final : public HierarchicalLogicalOperatorVisitor {
     }
 
     // if no edge type property index found, we try to see if we can add an index from the relationship
-    if (edge_type_from_relationship.has_value() && db_->EdgeTypeIndexExists(edge_type_from_relationship.value())) {
+    if (edge_type_from_relationship.has_value() && db_->EdgeTypeIndexReady(edge_type_from_relationship.value())) {
       return std::make_unique<ScanAllByEdgeType>(input, common.edge_symbol, common.node1_symbol, common.node2_symbol,
                                                  common.direction, edge_type_from_relationship.value(), view);
     }

@@ -166,6 +166,53 @@ endif()
 
 # -----------------------------------------------------------------------------
 
+# This is used to so that 3rd party libs can find the
+# correct libraries from our toolchain
+# Set MG_TOOLCHAIN_ROOT early so it's available for custom libstdc++ configuration
+set(MG_TOOLCHAIN_ROOT "$ENV{MG_TOOLCHAIN_ROOT}")
+
+# Custom libstdc++ configuration - REQUIRED
+if(NOT DEFINED ENV{MG_TOOLCHAIN_ROOT} OR "$ENV{MG_TOOLCHAIN_ROOT}" STREQUAL "")
+    message(FATAL_ERROR "MG_TOOLCHAIN_ROOT environment variable is required but not set. Please set it to the toolchain directory.")
+endif()
+
+message(STATUS "MG_TOOLCHAIN_ROOT: ${MG_TOOLCHAIN_ROOT}")
+
+set(CUSTOM_LIBSTDCXX_DIR "${MG_TOOLCHAIN_ROOT}/lib64" CACHE PATH "Directory containing custom libstdc++.so.6")
+set(CUSTOM_LIBSTDCXX "${CUSTOM_LIBSTDCXX_DIR}/libstdc++.so.6")
+
+if(NOT EXISTS "${CUSTOM_LIBSTDCXX}")
+    message(FATAL_ERROR "Custom libstdc++.so.6 not found at: ${CUSTOM_LIBSTDCXX}. Please ensure the toolchain is properly built.")
+endif()
+
+message(STATUS "Found custom libstdc++.so.6 at: ${CUSTOM_LIBSTDCXX}")
+
+# Verify the library has the correct SONAME
+execute_process(
+    COMMAND readelf -d "${CUSTOM_LIBSTDCXX}"
+    OUTPUT_VARIABLE ELF_INFO
+    RESULT_VARIABLE READ_RESULT
+)
+
+if(NOT READ_RESULT EQUAL 0 OR NOT ELF_INFO MATCHES "SONAME.*libstdc\\+\\+\\.so\\.6")
+    message(FATAL_ERROR "Invalid libstdc++.so.6: bad or missing SONAME. Please ensure the toolchain is properly built.")
+endif()
+
+message(STATUS "Custom libstdc++.so.6 validation successful")
+
+# Create imported target for custom libstdc++
+add_library(libstdc++_custom SHARED IMPORTED GLOBAL)
+set_target_properties(libstdc++_custom PROPERTIES
+    IMPORTED_LOCATION "${CUSTOM_LIBSTDCXX}"
+    INTERFACE_LINK_LIBRARIES ""
+)
+
+# Set global property to use custom libstdc++
+set_property(GLOBAL PROPERTY MG_USE_CUSTOM_LIBSTDCXX TRUE)
+set_property(GLOBAL PROPERTY MG_CUSTOM_LIBSTDCXX_PATH "${CUSTOM_LIBSTDCXX}")
+
+# -----------------------------------------------------------------------------
+
 # setup CMake module path, defines path for include() and find_package()
 # https://cmake.org/cmake/help/latest/variable/CMAKE_MODULE_PATH.html
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
@@ -213,14 +260,6 @@ add_compile_options(
 set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
     "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -fno-omit-frame-pointer")
 
-# Statically link libgcc and libstdc++, the GCC allows this according to:
-# https://gcc.gnu.org/onlinedocs/gcc-10.2.0/libstdc++/manual/manual/license.html
-# https://www.gnu.org/licenses/gcc-exception-faq.html
-# Last checked for gcc-10.2 which we are using on the build machines.
-# ** If we change versions, recheck this! **
-# ** Static linking is allowed only for executables! **
-set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -static-libgcc -static-libstdc++")
-
 # Use lld linker to speedup build and use less memory.
 add_link_options(-fuse-ld=lld)
 if (DEFINED ENV{LD_LIBRARY_PATH})
@@ -236,10 +275,6 @@ include(CheckIPOSupported)
 check_ipo_supported() # fatal error if IPO is not supported
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_Release TRUE)
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo TRUE)
-
-# This is used to so that 3rd party libs can find the
-# correct libraries from our toolchain
-set(MG_TOOLCHAIN_ROOT "$ENV{MG_TOOLCHAIN_ROOT}")
 
 # release flags
 set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")

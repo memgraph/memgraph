@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -60,7 +60,126 @@ int main(int argc, char **argv) {
     error = true;
   }
 
-  MG_ASSERT(error, "Error should have happend");
+  MG_ASSERT(error, "Error should have happened");
+
+  error = false;
+  try {
+    client->Execute(
+        "CALL libproc_memory_limit.alloc_32_mib() PROCEDURE MEMORY LIMIT 200MB YIELD allocated RETURN "
+        "allocated");
+    auto result_rows = client->FetchAll();
+    if (result_rows) {
+      auto row = *result_rows->begin();
+      error = !row[0].ValueBool();
+    }
+
+  } catch (const std::exception &e) {
+    error = true;
+  }
+
+  MG_ASSERT(!error, "Error should have NOT happened");
+
+  error = false;
+  try {
+    client->Execute(
+        "CALL libproc_memory_limit.malloc_256_mib() PROCEDURE MEMORY LIMIT 200MB YIELD allocated RETURN "
+        "allocated");
+    auto result_rows = client->FetchAll();
+    if (result_rows) {
+      auto row = *result_rows->begin();
+      error = !row[0].ValueBool();
+    }
+
+  } catch (const std::exception &e) {
+    error = true;
+  }
+
+  MG_ASSERT(error, "Error should have happened");
+
+  error = false;
+  try {
+    client->Execute(
+        "CALL libproc_memory_limit.malloc_32_mib() PROCEDURE MEMORY LIMIT 200MB YIELD allocated RETURN "
+        "allocated");
+    auto result_rows = client->FetchAll();
+    if (result_rows) {
+      auto row = *result_rows->begin();
+      error = !row[0].ValueBool();
+    }
+
+  } catch (const std::exception &e) {
+    error = true;
+  }
+
+  MG_ASSERT(!error, "Error should have NOT happened");
+
+  error = false;
+  try {
+    client->Execute(
+        "CALL libproc_memory_limit.new_256_mib() PROCEDURE MEMORY LIMIT 200MB YIELD allocated RETURN "
+        "allocated");
+    auto result_rows = client->FetchAll();
+    if (result_rows) {
+      auto row = *result_rows->begin();
+      error = !row[0].ValueBool();
+    }
+
+  } catch (const std::exception &e) {
+    error = true;
+  }
+
+  MG_ASSERT(error, "Error should have happened");
+
+  error = false;
+  try {
+    client->Execute(
+        "CALL libproc_memory_limit.new_32_mib() PROCEDURE MEMORY LIMIT 200MB YIELD allocated RETURN "
+        "allocated");
+    auto result_rows = client->FetchAll();
+    if (result_rows) {
+      auto row = *result_rows->begin();
+      error = !row[0].ValueBool();
+    }
+
+  } catch (const std::exception &e) {
+    error = true;
+  }
+
+  MG_ASSERT(!error, "Error should have NOT happened");
+
+  error = false;
+  try {
+    client->Execute(
+        "CALL libproc_memory_limit.local_heap_256_mib() PROCEDURE MEMORY LIMIT 200MB YIELD allocated RETURN "
+        "allocated");
+    auto result_rows = client->FetchAll();
+    if (result_rows) {
+      auto row = *result_rows->begin();
+      error = !row[0].ValueBool();
+    }
+
+  } catch (const std::exception &e) {
+    error = true;
+  }
+
+  MG_ASSERT(error, "Error should have happened");
+
+  error = false;
+  try {
+    client->Execute(
+        "CALL libproc_memory_limit.local_heap_32_mib() PROCEDURE MEMORY LIMIT 200MB YIELD allocated RETURN "
+        "allocated");
+    auto result_rows = client->FetchAll();
+    if (result_rows) {
+      auto row = *result_rows->begin();
+      error = !row[0].ValueBool();
+    }
+
+  } catch (const std::exception &e) {
+    error = true;
+  }
+
+  MG_ASSERT(!error, "Error should have NOT happened");
 
   return 0;
 }

@@ -26,6 +26,8 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
+#include "storage/v2/indices/vector_edge_index.hpp"
+#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
@@ -187,6 +189,13 @@ struct WalEdgeSetProperty {
 };
 struct WalEdgeCreate : EdgeOpInfo {};
 struct WalEdgeDelete : EdgeOpInfo {};
+
+struct WalTransactionStart {
+  friend bool operator==(const WalTransactionStart &lhs, const WalTransactionStart &rhs) = default;
+  using ctr_types = std::tuple<bool>;
+  bool commit;
+};
+
 struct WalTransactionEnd {
   friend bool operator==(const WalTransactionEnd &, const WalTransactionEnd &) = default;
   using ctr_types = std::tuple<>;
@@ -248,8 +257,8 @@ struct WalEnumAlterUpdate {
 };
 struct WalVectorIndexCreate {
   friend bool operator==(const WalVectorIndexCreate &, const WalVectorIndexCreate &) = default;
-  using ctr_types =
-      std::tuple<std::string, std::string, std::string, std::string, std::uint16_t, std::uint16_t, std::size_t>;
+  using ctr_types = std::tuple<std::string, std::string, std::string, std::string, std::uint16_t, std::uint16_t,
+                               std::size_t, VersionDependant<kVectorIndexWithScalarKind, std::uint8_t>>;
   std::string index_name;
   std::string label;
   std::string property;
@@ -257,6 +266,20 @@ struct WalVectorIndexCreate {
   std::uint16_t dimension;
   std::uint16_t resize_coefficient;
   std::size_t capacity;
+  std::optional<std::uint8_t> scalar_kind;  //!< Optional scalar kind, if not set, scalar is not used
+};
+struct WalVectorEdgeIndexCreate {
+  friend bool operator==(const WalVectorEdgeIndexCreate &, const WalVectorEdgeIndexCreate &) = default;
+  using ctr_types = std::tuple<std::string, std::string, std::string, std::string, std::uint16_t, std::uint16_t,
+                               std::size_t, uint8_t>;
+  std::string index_name;
+  std::string edge_type;
+  std::string property;
+  std::string metric_kind;
+  std::uint16_t dimension;
+  std::uint16_t resize_coefficient;
+  std::size_t capacity;
+  std::uint8_t scalar_kind;
 };
 struct WalVectorIndexDrop {
   friend bool operator==(const WalVectorIndexDrop &, const WalVectorIndexDrop &) = default;
@@ -276,7 +299,7 @@ struct WalDeltaData {
   }
 
   std::variant<WalVertexCreate, WalVertexDelete, WalVertexAddLabel, WalVertexRemoveLabel, WalVertexSetProperty,
-               WalEdgeSetProperty, WalEdgeCreate, WalEdgeDelete, WalTransactionEnd, WalLabelIndexCreate,
+               WalEdgeSetProperty, WalEdgeCreate, WalEdgeDelete, WalTransactionStart, WalTransactionEnd, WalLabelIndexCreate,
                WalLabelIndexDrop, WalLabelIndexStatsClear, WalLabelPropertyIndexStatsClear, WalEdgeTypeIndexCreate,
                WalEdgeTypeIndexDrop, WalEdgePropertyIndexCreate, WalEdgePropertyIndexDrop, WalLabelIndexStatsSet,
                WalLabelPropertyIndexCreate, WalLabelPropertyIndexDrop, WalPointIndexCreate, WalPointIndexDrop,
@@ -284,7 +307,7 @@ struct WalDeltaData {
                WalEdgeTypePropertyIndexCreate, WalEdgeTypePropertyIndexDrop, WalUniqueConstraintCreate,
                WalUniqueConstraintDrop, WalTypeConstraintCreate, WalTypeConstraintDrop, WalTextIndexCreate,
                WalTextIndexDrop, WalEnumCreate, WalEnumAlterAdd, WalEnumAlterUpdate, WalVectorIndexCreate,
-               WalVectorIndexDrop>
+               WalVectorIndexDrop, WalVectorEdgeIndexCreate>
       data_ = WalTransactionEnd{};
 };
 
@@ -300,6 +323,7 @@ constexpr bool IsWalDeltaDataImplicitTransactionEndVersion15(const WalDeltaData 
                         [](WalEdgeCreate const &) { return false; },
                         [](WalEdgeDelete const &) { return false; },
                         [](WalEdgeSetProperty const &) { return false; },
+                        [](WalTransactionStart const &) { return false; },
 
                         // This delta explicitly indicates that a transaction is done.
                         [](WalTransactionEnd const &) { return true; },
@@ -335,6 +359,7 @@ constexpr bool IsWalDeltaDataImplicitTransactionEndVersion15(const WalDeltaData 
                         [](WalTypeConstraintCreate const &) { return true; },
                         [](WalTypeConstraintDrop const &) { return true; },
                         [](WalVectorIndexCreate const &) { return true; },
+                        [](WalVectorEdgeIndexCreate const &) { return true; },
                         [](WalVectorIndexDrop const &) { return true; },
                     },
                     delta.data_);
@@ -378,6 +403,10 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, SalientConf
 void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, const Delta &delta, const Edge &edge,
                  uint64_t timestamp);
 
+// Function used to encode the transaction start
+// Returns the position in the WAL where the flag 'commit' is about to be written
+uint64_t EncodeTransactionStart(Encoder<utils::OutputFile> *encoder, uint64_t timestamp, bool commit);
+
 /// Function used to encode the transaction end.
 void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp);
 
@@ -404,6 +433,7 @@ void EncodeLabelStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelI
 void EncodeTextIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, std::string_view text_index_name,
                      LabelId label);
 void EncodeVectorIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const VectorIndexSpec &spec);
+void EncodeVectorEdgeIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const VectorEdgeIndexSpec &spec);
 void EncodeVectorIndexName(BaseEncoder &encoder, std::string_view index_name);
 
 void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, uint64_t timestamp);
@@ -436,6 +466,15 @@ class WalFile {
 
   void AppendDelta(const Delta &delta, const Vertex &vertex, uint64_t timestamp);
   void AppendDelta(const Delta &delta, const Edge &edge, uint64_t timestamp);
+
+  // True means storage should use deltas associated with this txn, false means skip until
+  // you find the next txn.
+  // Returns the position in the WAL where the flag 'commit' is about to be written
+  uint64_t AppendTransactionStart(uint64_t timestamp, bool commit);
+
+  // Updates the commit flag in the WAL file with the new decision whether deltas should be read or skipped upon the
+  // recovery
+  void UpdateCommitStatus(uint64_t flag_pos, bool new_decision);
 
   void AppendTransactionEnd(uint64_t timestamp);
 

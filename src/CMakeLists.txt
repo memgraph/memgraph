@@ -44,24 +44,28 @@ set(mg_single_node_v2_sources
 # memgraph main executable
 add_executable(memgraph ${mg_single_node_v2_sources})
 target_include_directories(memgraph PUBLIC ${CMAKE_SOURCE_DIR}/include)
-target_link_libraries(memgraph stdc++fs Threads::Threads
-        mg-telemetry mgcxx_text_search tantivy_text_search mg-communication mg-communication-metrics mg-memory mg-utils mg-license mg-settings mg-glue mg-flags mg::system mg::replication_handler)
+
+# Link memgraph with custom libstdc++
+message(STATUS "Linking memgraph with custom libstdc++")
+target_link_libraries(memgraph "$<LINK_LIBRARY:WHOLE_ARCHIVE,mg-memory>" Threads::Threads
+        mg-telemetry mgcxx_text_search tantivy_text_search mg-communication mg-communication-metrics mg-utils mg-license mg-settings mg-glue mg-flags mg::system mg::replication_handler
+        libstdc++_custom)
+target_link_options(memgraph PRIVATE -nostdlib++)
 
 # NOTE: `include/mg_procedure.syms` describes a pattern match for symbols which
 # should be dynamically exported, so that `dlopen` can correctly link th
 # symbols in custom procedure module libraries.
+# The better approach might be to use visibility to define what to export. This is a simple way to have targeted
+# exporting of symbols without having to deal with all the libraries and their visibility.
 target_link_libraries(memgraph "-Wl,--dynamic-list=${CMAKE_SOURCE_DIR}/include/mg_procedure.syms")
+# Set RPATH for custom libstdc++
 set_target_properties(memgraph PROPERTIES
-
-        OUTPUT_NAME "memgraph"
-
-        INSTALL_RPATH "\$ORIGIN"
-
-        # Output the executable in main binary dir.
-        RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
-
-        POSITION_INDEPENDENT_CODE ON
-        )
+    OUTPUT_NAME "memgraph"
+    INSTALL_RPATH "\$ORIGIN"
+    # Output the executable in main binary dir.
+    RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
+    POSITION_INDEPENDENT_CODE ON
+)
 
 # Emulate the installed python_support, by creating a symlink
 add_custom_command(TARGET memgraph POST_BUILD
@@ -102,6 +106,71 @@ set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "memgraph")
 # Install memgraph
 install(TARGETS memgraph
     RUNTIME DESTINATION lib/memgraph)
+
+# Install custom libstdc++
+get_property(CUSTOM_LIBSTDCXX_PATH GLOBAL PROPERTY MG_CUSTOM_LIBSTDCXX_PATH)
+message(STATUS "Installing custom libstdc++.so.6: ${CUSTOM_LIBSTDCXX_PATH}")
+
+# Get the directory of the custom libstdc++
+get_filename_component(CUSTOM_LIBSTDCXX_DIR "${CUSTOM_LIBSTDCXX_PATH}" DIRECTORY)
+
+# Function to collect all files in a symbolic link chain
+function(collect_symlink_chain START_PATH RESULT_LIST)
+    set(CURRENT_PATH "${START_PATH}")
+    set(COLLECTED_FILES "")
+
+    # Follow the symbolic link chain
+    while(IS_SYMLINK "${CURRENT_PATH}")
+        # Add current file to the list
+        list(APPEND COLLECTED_FILES "${CURRENT_PATH}")
+
+        # Read the symbolic link target
+        execute_process(
+            COMMAND readlink "${CURRENT_PATH}"
+            OUTPUT_VARIABLE SYMLINK_TARGET
+            OUTPUT_STRIP_TRAILING_WHITESPACE
+        )
+
+        # Construct the full path to the target file
+        get_filename_component(CURRENT_DIR "${CURRENT_PATH}" DIRECTORY)
+        set(CURRENT_PATH "${CURRENT_DIR}/${SYMLINK_TARGET}")
+
+        # Safety check to prevent infinite loops
+        if(CURRENT_PATH IN_LIST COLLECTED_FILES)
+            message(WARNING "Circular symbolic link detected at: ${CURRENT_PATH}")
+            break()
+        endif()
+    endwhile()
+
+    # Add the final file (non-symlink) to the list
+    list(APPEND COLLECTED_FILES "${CURRENT_PATH}")
+
+    # Return the collected files
+    set(${RESULT_LIST} "${COLLECTED_FILES}" PARENT_SCOPE)
+endfunction()
+
+# Collect all files in the symbolic link chain
+collect_symlink_chain("${CUSTOM_LIBSTDCXX_PATH}" FILES_TO_INSTALL)
+
+# Log what we found
+list(LENGTH FILES_TO_INSTALL NUM_FILES)
+if(IS_SYMLINK "${CUSTOM_LIBSTDCXX_PATH}")
+    message(STATUS "Found symbolic link chain with ${NUM_FILES} files:")
+    foreach(FILE_PATH ${FILES_TO_INSTALL})
+        message(STATUS "  - ${FILE_PATH}")
+    endforeach()
+else()
+    message(STATUS "Installing regular file: ${CUSTOM_LIBSTDCXX_PATH}")
+endif()
+
+# Install all files in the chain
+install(FILES
+    ${FILES_TO_INSTALL}
+    DESTINATION lib/memgraph
+    PERMISSIONS OWNER_READ OWNER_WRITE OWNER_EXECUTE
+                GROUP_READ GROUP_EXECUTE
+                WORLD_READ WORLD_EXECUTE
+)
 
 install(TARGETS mg-module-support
     LIBRARY DESTINATION lib/memgraph)
@@ -147,7 +216,16 @@ install(CODE "file(MAKE_DIRECTORY \$ENV{DESTDIR}/var/log/memgraph
 # Memgraph CSV Import Tool Executable
 # ----------------------------------------------------------------------------
 add_executable(mg_import_csv mg_import_csv.cpp)
-target_link_libraries(mg_import_csv mg::storage mg-dbms)
+
+# Link mg_import_csv with custom libstdc++
+message(STATUS "Linking mg_import_csv with custom libstdc++")
+target_link_libraries(mg_import_csv mg::storage mg-dbms libstdc++_custom)
+target_link_options(mg_import_csv PRIVATE -nostdlib++)
+
+# Set RPATH for custom libstdc++
+set_target_properties(mg_import_csv PROPERTIES
+    INSTALL_RPATH "\$ORIGIN/../lib/memgraph"
+)
 
 # Strip the executable in release build.
 if(lower_build_type STREQUAL "release")

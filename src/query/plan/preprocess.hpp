@@ -93,9 +93,29 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   bool PreVisit(Exists &exists) override {
     in_exists = true;
 
-    // We do not visit pattern identifier since we're in exists filter pattern
-    for (auto &atom : exists.pattern_->atoms_) {
-      atom->Accept(*this);
+    if (exists.HasPattern()) {
+      // We do not visit pattern identifier since we're in exists filter pattern
+      for (auto &atom : exists.GetPattern()->atoms_) {
+        atom->Accept(*this);
+      }
+    } else if (exists.HasSubquery()) {
+      // For subqueries, we need to collect symbols from the subquery
+      auto *single_query = exists.GetSubquery()->single_query_;
+      if (single_query) {
+        for (auto *clause : single_query->clauses_) {
+          if (auto *match = utils::Downcast<Match>(clause)) {
+            for (auto *pattern : match->patterns_) {
+              for (auto &atom : pattern->atoms_) {
+                atom->Accept(*this);
+              }
+            }
+          }
+        }
+      }
+    } else {
+      throw SemanticException(
+          "EXISTS semantic is neither of type pattern, or subquery! Please contact Memgraph support as this scenario "
+          "should not happen!");
     }
 
     return false;
@@ -174,7 +194,7 @@ enum class SplitExpressionMode { AND, OR };
 struct PatternComprehensionMatching;
 struct FilterMatching;
 
-enum class PatternFilterType { EXISTS };
+enum class PatternFilterType { EXISTS_PATTERN, EXISTS_SUBQUERY };
 
 /// Collects matchings that include patterns
 class PatternVisitor : public ExpressionVisitor<void> {
@@ -646,6 +666,8 @@ struct FilterMatching : Matching {
   PatternFilterType type;
   /// Symbol for the filter expression
   std::optional<Symbol> symbol;
+  /// For EXISTS_SUBQUERY, holds the full subquery QueryParts
+  std::shared_ptr<QueryParts> subquery;
 };
 
 inline auto Filters::erase(Filters::iterator pos) -> iterator { return all_filters_.erase(pos); }

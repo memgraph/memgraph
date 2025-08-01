@@ -62,6 +62,7 @@ struct UUID {
   explicit operator arr_t() const { return uuid; }
 
   friend bool operator==(UUID const &, UUID const &) = default;
+  friend bool operator==(UUID const &lhs, std::string_view rhs) { return std::string(lhs) == rhs; };
 
  private:
   friend void to_json(nlohmann::json &j, const UUID &uuid);

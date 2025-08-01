@@ -17,41 +17,85 @@
 
 #include "rpc/messages.hpp"
 #include "slk/serialization.hpp"
-#include "slk/streams.hpp"
 #include "storage/v2/config.hpp"
 #include "utils/uuid.hpp"
 
 namespace memgraph::storage::replication {
 
-struct AppendDeltasReq {
+struct FinalizeCommitReq {
   static const utils::TypeInfo kType;
   static const utils::TypeInfo &GetTypeInfo() { return kType; }
 
-  static void Load(AppendDeltasReq *self, memgraph::slk::Reader *reader);
-  static void Save(const AppendDeltasReq &self, memgraph::slk::Builder *builder);
-  AppendDeltasReq() = default;
-  AppendDeltasReq(const utils::UUID &main_uuid, const utils::UUID &uuid, uint64_t previous_commit_timestamp,
-                  uint64_t seq_num)
-      : main_uuid{main_uuid}, uuid{uuid}, previous_commit_timestamp(previous_commit_timestamp), seq_num(seq_num) {}
+  static void Load(FinalizeCommitReq *self, slk::Reader *reader);
+  static void Save(const FinalizeCommitReq &self, slk::Builder *builder);
+  FinalizeCommitReq() = default;
 
+  FinalizeCommitReq(bool const decision_arg, const utils::UUID &main_uuid_arg, const utils::UUID &storage_uuid_arg,
+                    uint64_t const durability_commit_timestamp_arg)
+      : decision(decision_arg),
+        main_uuid(main_uuid_arg),
+        storage_uuid(storage_uuid_arg),
+        durability_commit_timestamp(durability_commit_timestamp_arg) {}
+
+  // If true, commit should be done, if false abort
+  bool decision;
   utils::UUID main_uuid;
-  utils::UUID uuid;
-  uint64_t previous_commit_timestamp;
-  uint64_t seq_num;
+  utils::UUID storage_uuid;
+  uint64_t durability_commit_timestamp;
 };
 
-struct AppendDeltasRes {
+struct FinalizeCommitRes {
   static const utils::TypeInfo kType;
   static const utils::TypeInfo &GetTypeInfo() { return kType; }
 
-  static void Load(AppendDeltasRes *self, memgraph::slk::Reader *reader);
-  static void Save(const AppendDeltasRes &self, memgraph::slk::Builder *builder);
-  AppendDeltasRes() = default;
+  static void Load(FinalizeCommitRes *self, slk::Reader *reader);
+  static void Save(const FinalizeCommitRes &self, slk::Builder *builder);
+  FinalizeCommitRes() = default;
 
-  explicit AppendDeltasRes(bool const success) : success(success) {}
+  explicit FinalizeCommitRes(bool const success_arg) : success(success_arg) {}
 
   bool success;
 };
+
+using FinalizeCommitRpc = rpc::RequestResponse<FinalizeCommitReq, FinalizeCommitRes>;
+
+struct PrepareCommitReq {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(PrepareCommitReq *self, slk::Reader *reader);
+  static void Save(const PrepareCommitReq &self, slk::Builder *builder);
+  PrepareCommitReq() = default;
+  PrepareCommitReq(const utils::UUID &main_uuid_arg, const utils::UUID &storage_uuid_arg,
+                   uint64_t const previous_commit_timestamp_arg, bool const commit_immediately_arg,
+                   uint64_t const durability_commit_timestamp_arg)
+      : main_uuid{main_uuid_arg},
+        storage_uuid{storage_uuid_arg},
+        previous_commit_timestamp(previous_commit_timestamp_arg),
+        commit_immediately(commit_immediately_arg),
+        durability_commit_timestamp(durability_commit_timestamp_arg) {}
+
+  utils::UUID main_uuid;
+  utils::UUID storage_uuid;
+  uint64_t previous_commit_timestamp;
+  bool commit_immediately;
+  uint64_t durability_commit_timestamp;
+};
+
+struct PrepareCommitRes {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(PrepareCommitRes *self, slk::Reader *reader);
+  static void Save(const PrepareCommitRes &self, slk::Builder *builder);
+  PrepareCommitRes() = default;
+
+  explicit PrepareCommitRes(bool const success) : success(success) {}
+
+  bool success;
+};
+
+using PrepareCommitRpc = rpc::RequestResponse<PrepareCommitReq, PrepareCommitRes>;
 
 struct InProgressRes {
   static const utils::TypeInfo kType;
@@ -59,8 +103,6 @@ struct InProgressRes {
 
   InProgressRes() = default;
 };
-
-using AppendDeltasRpc = rpc::RequestResponse<AppendDeltasReq, AppendDeltasRes>;
 
 struct HeartbeatReq {
   static const utils::TypeInfo kType;
@@ -225,13 +267,21 @@ void Save(const memgraph::storage::replication::HeartbeatReq &self, memgraph::sl
 
 void Load(memgraph::storage::replication::HeartbeatReq *self, memgraph::slk::Reader *reader);
 
-void Save(const memgraph::storage::replication::AppendDeltasRes &self, memgraph::slk::Builder *builder);
+void Save(const memgraph::storage::replication::PrepareCommitRes &self, memgraph::slk::Builder *builder);
 
-void Load(memgraph::storage::replication::AppendDeltasRes *self, memgraph::slk::Reader *reader);
+void Load(memgraph::storage::replication::PrepareCommitRes *self, memgraph::slk::Reader *reader);
 
-void Save(const memgraph::storage::replication::AppendDeltasReq &self, memgraph::slk::Builder *builder);
+void Save(const memgraph::storage::replication::PrepareCommitReq &self, memgraph::slk::Builder *builder);
 
-void Load(memgraph::storage::replication::AppendDeltasReq *self, memgraph::slk::Reader *reader);
+void Load(memgraph::storage::replication::PrepareCommitReq *self, memgraph::slk::Reader *reader);
+
+void Save(const memgraph::storage::replication::FinalizeCommitRes &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::storage::replication::FinalizeCommitRes *self, memgraph::slk::Reader *reader);
+
+void Save(const memgraph::storage::replication::FinalizeCommitReq &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::storage::replication::FinalizeCommitReq *self, memgraph::slk::Reader *reader);
 
 void Save(const memgraph::storage::SalientConfig &self, memgraph::slk::Builder *builder);
 

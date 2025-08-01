@@ -11,15 +11,15 @@
 
 #pragma once
 
+#include "common_function_signatures.hpp"
 #include "mg_procedure.h"
-#include "storage/v2/commit_log.hpp"
+#include "storage/v2/auto_indexer.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/database_access.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edges_iterable.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/indices.hpp"
-#include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/replication_client.hpp"
@@ -36,9 +36,13 @@ extern const Event SnapshotCreationLatency_us;
 
 extern const Event ActiveLabelIndices;
 extern const Event ActiveLabelPropertyIndices;
+extern const Event ActiveEdgeTypeIndices;
+extern const Event ActiveEdgeTypePropertyIndices;
+extern const Event ActiveEdgePropertyIndices;
 extern const Event ActivePointIndices;
 extern const Event ActiveTextIndices;
 extern const Event ActiveVectorIndices;
+extern const Event ActiveVectorEdgeIndices;
 }  // namespace memgraph::metrics
 
 namespace memgraph::storage {
@@ -70,6 +74,7 @@ class ReadOnlyAccessTimeout : public utils::BasicException {
 struct Transaction;
 class EdgeAccessor;
 
+// TODO: list status Populating/Ready
 struct IndicesInfo {
   std::vector<LabelId> label;
   std::vector<std::pair<LabelId, std::vector<PropertyPath>>> label_properties;
@@ -79,6 +84,7 @@ struct IndicesInfo {
   std::vector<std::pair<std::string, LabelId>> text_indices;
   std::vector<std::pair<LabelId, PropertyId>> point_label_property;
   std::vector<VectorIndexSpec> vector_indices_spec;
+  std::vector<VectorEdgeIndexSpec> vector_edge_indices_spec;
 };
 
 struct ConstraintsInfo {
@@ -99,6 +105,7 @@ struct StorageInfo {
   uint64_t label_property_indices;
   uint64_t text_indices;
   uint64_t vector_indices;
+  uint64_t vector_edge_indices;
   uint64_t existence_constraints;
   uint64_t unique_constraints;
   StorageMode storage_mode;
@@ -129,6 +136,7 @@ static inline nlohmann::json ToJson(const StorageInfo &info) {
   res["label_prop_indices"] = info.label_property_indices;
   res["text_indices"] = info.text_indices;
   res["vector_indices"] = info.vector_indices;
+  res["vector_edge_indices"] = info.vector_edge_indices;
   res["existence_constraints"] = info.existence_constraints;
   res["unique_constraints"] = info.unique_constraints;
   res["storage_mode"] = storage::StorageModeToString(info.storage_mode);
@@ -149,21 +157,36 @@ struct EdgeInfoForDeletion {
   std::unordered_set<Vertex *> partial_dest_vertices{};
 };
 
-struct CommitReplArgs {
-  // REPLICA on recipt of Deltas will have a desired commit timestamp
-  std::optional<uint64_t> desired_commit_timestamp = std::nullopt;
-
-  bool is_main = true;
-
-  bool IsMain() const { return is_main; }
+struct CommitReplicationArgs {
+  // REPLICA on receipt of Deltas will have a desired commit timestamp
+  std::optional<uint64_t> desired_commit_timestamp{std::nullopt};
+  bool is_main{true};
+  // nullopt if main, true for SYNC/ASYNC replica, false for STRICT_SYNC replica
+  std::optional<bool> commit_immediately{std::nullopt};
 };
+
+struct PlanInvalidator {
+  virtual auto invalidate_for_timestamp_wrapper(std::function<bool(uint64_t)> func)
+      -> std::function<bool(uint64_t)> = 0;
+  virtual bool invalidate_now(std::function<bool()> func) = 0;
+  virtual ~PlanInvalidator() = default;
+};
+
+struct PlanInvalidatorDefault : public PlanInvalidator {
+  auto invalidate_for_timestamp_wrapper(std::function<bool(uint64_t)> func) -> std::function<bool(uint64_t)> override {
+    return func;
+  }
+  bool invalidate_now(std::function<bool()> func) override { return func(); };
+};
+
+using PlanInvalidatorPtr = std::unique_ptr<PlanInvalidator>;
 
 class Storage {
   friend class ReplicationServer;
   friend class ReplicationStorageClient;
 
  public:
-  Storage(Config config, StorageMode storage_mode);
+  Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator);
 
   Storage(const Storage &) = delete;
   Storage(Storage &&) = delete;
@@ -187,7 +210,13 @@ class Storage {
     static constexpr struct ReadOnlyAccess {
     } read_only_access;
 
-    enum Type { NO_ACCESS, UNIQUE, WRITE, READ, READ_ONLY };
+    enum Type {
+      NO_ACCESS,  // Modifies nothing in the storage
+      UNIQUE,     // An operation that requires mutral exclusive access to the storage
+      WRITE,      // Writes to the data of storage
+      READ,       // Either reads the data of storage, or a metadata operation that doesn't require unique access
+      READ_ONLY,  // Ensures writers have gone
+    };
 
     Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
              Type rw_type = Type::WRITE, std::optional<std::chrono::milliseconds> timeout = std::nullopt);
@@ -299,6 +328,8 @@ class Storage {
 
     virtual std::optional<uint64_t> ApproximateVerticesVectorCount(LabelId label, PropertyId property) const = 0;
 
+    virtual std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const = 0;
+
     virtual auto GetIndexStats(const storage::LabelId &label) const -> std::optional<storage::LabelIndexStats> = 0;
 
     virtual auto GetIndexStats(const storage::LabelId &label, std::span<storage::PropertyPath const> properties) const
@@ -321,32 +352,24 @@ class Storage {
 
     virtual auto DeleteEdge(EdgeAccessor *edge) -> Result<std::optional<EdgeAccessor>>;
 
-    virtual bool LabelIndexExists(LabelId label) const = 0;
+    virtual bool LabelIndexReady(LabelId label) const = 0;
 
-    virtual bool LabelPropertyIndexExists(LabelId label, std::span<PropertyPath const> properties) const = 0;
+    virtual bool LabelPropertyIndexReady(LabelId label, std::span<PropertyPath const> properties) const = 0;
 
     auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
                                             std::span<PropertyPath const> properties) const
         -> std::vector<LabelPropertiesIndicesInfo> {
-      return storage_->indices_.label_property_index_->RelevantLabelPropertiesIndicesInfo(labels, properties);
+      return transaction_.active_indices_.label_properties_->RelevantLabelPropertiesIndicesInfo(labels, properties);
     };
 
-    virtual bool EdgeTypeIndexExists(EdgeTypeId edge_type) const = 0;
+    virtual bool EdgeTypeIndexReady(EdgeTypeId edge_type) const = 0;
 
-    virtual bool EdgeTypePropertyIndexExists(EdgeTypeId edge_type, PropertyId property) const = 0;
+    virtual bool EdgeTypePropertyIndexReady(EdgeTypeId edge_type, PropertyId property) const = 0;
 
-    virtual bool EdgePropertyIndexExists(PropertyId property) const = 0;
+    virtual bool EdgePropertyIndexReady(PropertyId property) const = 0;
 
     bool TextIndexExists(const std::string &index_name) const {
       return storage_->indices_.text_index_.IndexExists(index_name);
-    }
-
-    void TextIndexAddVertex(const VertexAccessor &vertex) {
-      storage_->indices_.text_index_.AddNode(vertex.vertex_, storage_->name_id_mapper_.get());
-    }
-
-    void TextIndexUpdateVertex(const VertexAccessor &vertex, const std::vector<LabelId> &removed_labels = {}) {
-      storage_->indices_.text_index_.UpdateNode(vertex.vertex_, storage_->name_id_mapper_.get(), removed_labels);
     }
 
     std::vector<Gid> TextIndexSearch(const std::string &index_name, const std::string &search_query,
@@ -366,11 +389,11 @@ class Storage {
     virtual ConstraintsInfo ListAllConstraints() const = 0;
 
     // NOLINTNEXTLINE(google-default-arguments)
-    virtual utils::BasicResult<StorageManipulationError, void> Commit(CommitReplArgs reparg = {},
-                                                                      DatabaseAccessProtector db_acc = {}) = 0;
+    virtual utils::BasicResult<StorageManipulationError, void> PrepareForCommitPhase(
+        CommitReplicationArgs reparg = {}, DatabaseAccessProtector db_acc = {}) = 0;
 
     // NOLINTNEXTLINE(google-default-arguments)
-    virtual utils::BasicResult<StorageManipulationError, void> PeriodicCommit(CommitReplArgs reparg = {},
+    virtual utils::BasicResult<StorageManipulationError, void> PeriodicCommit(CommitReplicationArgs reparg = {},
                                                                               DatabaseAccessProtector db_acc = {}) = 0;
 
     virtual void Abort() = 0;
@@ -407,19 +430,20 @@ class Storage {
 
     std::vector<EdgeTypeId> ListAllPossiblyPresentEdgeTypes() const;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(LabelId label,
-                                                                              bool unique_access_needed = true) = 0;
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+        LabelId label, CheckCancelFunction cancel_check = neverCancel) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        LabelId label, std::vector<storage::PropertyPath> properties) = 0;
+        LabelId label, PropertiesPaths properties, CheckCancelFunction cancel_check = neverCancel) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
-                                                                              bool unique_access_needed = true) = 0;
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+        EdgeTypeId edge_type, CheckCancelFunction cancel_check = neverCancel) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(EdgeTypeId edge_type,
-                                                                              PropertyId property) = 0;
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
+        EdgeTypeId edge_type, PropertyId property, CheckCancelFunction cancel_check = neverCancel) = 0;
 
-    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateGlobalEdgeIndex(PropertyId property) = 0;
+    virtual utils::BasicResult<StorageIndexDefinitionError, void> CreateGlobalEdgeIndex(
+        PropertyId property, CheckCancelFunction cancel_check = neverCancel) = 0;
 
     virtual utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) = 0;
 
@@ -439,16 +463,18 @@ class Storage {
     virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> DropPointIndex(
         storage::LabelId label, storage::PropertyId property) = 0;
 
-    void CreateTextIndex(const std::string &index_name, LabelId label);
+    utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateTextIndex(const std::string &index_name,
+                                                                                   LabelId label);
 
-    void DropTextIndex(const std::string &index_name);
+    utils::BasicResult<storage::StorageIndexDefinitionError, void> DropTextIndex(const std::string &index_name);
 
     virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorIndex(VectorIndexSpec spec) = 0;
 
     virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> DropVectorIndex(
         std::string_view index_name) = 0;
 
-    void TryInsertVertexIntoVectorIndex(const VertexAccessor &vertex);
+    virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorEdgeIndex(
+        VectorEdgeIndexSpec spec) = 0;
 
     virtual utils::BasicResult<StorageExistenceConstraintDefinitionError, void> CreateExistenceConstraint(
         LabelId label, PropertyId property) = 0;
@@ -524,12 +550,21 @@ class Storage {
                                PropertyValue const &bottom_left, PropertyValue const &top_right,
                                WithinBBoxCondition condition) -> PointIterable = 0;
 
-    virtual std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearch(
+    virtual std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearchOnNodes(
+        const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) = 0;
+
+    virtual std::vector<std::tuple<EdgeAccessor, double, double>> VectorIndexSearchOnEdges(
         const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) = 0;
 
     virtual std::vector<VectorIndexInfo> ListAllVectorIndices() const = 0;
 
+    virtual std::vector<VectorEdgeIndexInfo> ListAllVectorEdgeIndices() const = 0;
+
     auto GetNameIdMapper() const -> NameIdMapper * { return storage_->name_id_mapper_.get(); }
+
+    bool CheckIndicesAreReady(IndicesCollection const &required_indices) const {
+      return transaction_.active_indices_.CheckIndicesAreReady(required_indices);
+    }
 
    protected:
     Storage *storage_;
@@ -639,6 +674,14 @@ class Storage {
     return repl_storage_state_.GetReplicaState(name);
   }
 
+  auto GetActiveIndices() const -> ActiveIndices {
+    return ActiveIndices{
+        indices_.label_index_->GetActiveIndices(),         indices_.label_property_index_->GetActiveIndices(),
+        indices_.edge_type_index_->GetActiveIndices(),     indices_.edge_type_property_index_->GetActiveIndices(),
+        indices_.edge_property_index_->GetActiveIndices(),
+    };
+  }
+
   // TODO: make non-public
   ReplicationStorageState repl_storage_state_;
 
@@ -668,6 +711,7 @@ class Storage {
 
   Indices indices_;
   Constraints constraints_;
+  PlanInvalidatorPtr invalidator_;
 
   // Datastructures to provide fast retrieval of node-label and
   // edge-type related metadata.
@@ -680,17 +724,6 @@ class Storage {
   // TODO(gvolfing): check if this would be faster with flat_maps.
   utils::SynchronizedMetaDataStore<LabelId> stored_node_labels_;
   utils::SynchronizedMetaDataStore<EdgeTypeId> stored_edge_types_;
-
-  // Maps that hold onto labels and edge-types that have to be created.
-  // Used only if the label/edge-type auto-creation flags are enabled,
-  // does not affect index creation otherwise. The counter in the maps
-  // are needed because it is possible that two concurrent transactions
-  // are introducing the same label/edge-type in which case we do only
-  // build the index when the last transaction is commiting. The counter
-  // is used trace if the currently commiting transaction is the last one
-  // that would like to introduce a new index.
-  utils::Synchronized<std::map<LabelId, uint32_t>, utils::SpinLock> labels_to_auto_index_;
-  utils::Synchronized<std::map<EdgeTypeId, uint32_t>, utils::SpinLock> edge_types_to_auto_index_;
 
   std::atomic<uint64_t> vertex_id_{0};  // contains Vertex Gid that has not been used yet
   std::atomic<uint64_t> edge_id_{0};    // contains Edge Gid that has not been used yet

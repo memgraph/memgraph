@@ -445,3 +445,43 @@ Feature: List operators
              RETURN a;
             """
         Then an error should be raised
+
+    Scenario: Access map property inside a list
+        Given any graph
+        When executing query:
+            """
+             RETURN [{x: 42}][0].x AS x;
+            """
+        Then the result should be, in order:
+            | x  |
+            | 42 |
+
+    Scenario: Access list property inside a map
+        Given any graph
+        When executing query:
+            """
+             RETURN {arr: [2, 3, 5]}.arr[1] AS x;
+            """
+        Then the result should be, in order:
+            | x |
+            | 3 |
+
+     Scenario: Access map property inside a list inside a map
+        Given any graph
+        When executing query:
+            """
+             RETURN {arr: [{x: 23}]}.arr[0].x AS x;
+            """
+        Then the result should be, in order:
+            | x  |
+            | 23 |
+
+    Scenario: Access list property inside a map inside a list
+        Given any graph
+        When executing query:
+            """
+             RETURN [{scores: [2, 3, 5]}][0].scores[2] AS x
+            """
+        Then the result should be, in order:
+            | x |
+            | 5 |

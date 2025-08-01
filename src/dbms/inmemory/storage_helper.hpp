@@ -20,9 +20,10 @@ namespace memgraph::dbms {
 
 inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(
     storage::Config config,
-    const utils::Synchronized<::memgraph::replication::ReplicationState, utils::RWSpinLock> &repl_state) {
+    const utils::Synchronized<::memgraph::replication::ReplicationState, utils::RWSpinLock> &repl_state,
+    storage::PlanInvalidatorPtr invalidator = std::make_unique<storage::PlanInvalidatorDefault>()) {
   const auto name = config.salient.name;
-  auto storage = std::make_unique<storage::InMemoryStorage>(std::move(config));
+  auto storage = std::make_unique<storage::InMemoryStorage>(std::move(config), std::nullopt, std::move(invalidator));
 
   // Connect replication state and storage
   storage->CreateSnapshotHandler(

@@ -126,9 +126,15 @@ extern thread_local std::optional<mgp_memory *> current_memory __attribute__((vi
 
 inline mgp_memory *GetMemoryResource() noexcept { return current_memory.value_or(nullptr); }
 
-inline void Register(mgp_memory *mem) noexcept { current_memory = mem; }
+inline mgp_memory *Register(mgp_memory *mem) noexcept {
+  if (current_memory.has_value()) {
+    return std::exchange(*current_memory, mem);
+  }
+  current_memory = mem;
+  return nullptr;
+}
 
-inline void UnRegister() noexcept { current_memory.reset(); }
+inline void UnRegister(mgp_memory *mem) noexcept { current_memory = mem; }
 
 inline bool IsThisThreadRegistered() noexcept { return current_memory.has_value(); }
 };  // namespace MemoryDispatcher
@@ -144,14 +150,17 @@ inline UnsupportedMgpMemory memory;  // NOSONAR
 
 class MemoryDispatcherGuard final {
  public:
-  explicit MemoryDispatcherGuard(mgp_memory *mem) { MemoryDispatcher::Register(mem); };
+  explicit MemoryDispatcherGuard(mgp_memory *mem) : old_mem{MemoryDispatcher::Register(mem)} {};
 
   MemoryDispatcherGuard(const MemoryDispatcherGuard &) = delete;
   MemoryDispatcherGuard(MemoryDispatcherGuard &&) = delete;
   MemoryDispatcherGuard &operator=(const MemoryDispatcherGuard &) = delete;
   MemoryDispatcherGuard &operator=(MemoryDispatcherGuard &&) = delete;
 
-  ~MemoryDispatcherGuard() { MemoryDispatcher::UnRegister(); }
+  ~MemoryDispatcherGuard() { MemoryDispatcher::UnRegister(old_mem); }
+
+ private:
+  mgp_memory *old_mem{nullptr};
 };
 
 // Thread must be registered, otherwise the function will segfault.
@@ -4513,7 +4522,7 @@ inline List SearchTextIndex(mgp_graph *memgraph_graph, std::string_view index_na
   }
 
   if (!results_or_error.KeyExists(kSearchResultsKey)) {
-    throw TextSearchException{"Incomplete text index search results!"};
+    return List();  // No results found, return empty list.
   }
 
   if (!results_or_error.At(kSearchResultsKey).IsList()) {
@@ -4552,6 +4561,20 @@ inline List SearchVectorIndex(mgp_graph *memgraph_graph, std::string_view index_
                               size_t result_size) {
   auto results_or_error = Map(mgp::MemHandlerCallback(graph_search_vector_index, memgraph_graph, index_name.data(),
                                                       query_vector.GetPtr(), result_size),
+                              StealType{});
+  if (results_or_error.KeyExists(kErrorMsgKey)) {
+    if (!results_or_error.At(kErrorMsgKey).IsString()) {
+      throw VectorSearchException{"The error message is not a string!"};
+    }
+    throw VectorSearchException(results_or_error.At(kErrorMsgKey).ValueString().data());
+  }
+  return results_or_error.At(kSearchResultsKey).ValueList();
+}
+
+inline List SearchVectorIndexOnEdges(mgp_graph *memgraph_graph, std::string_view index_name, List &query_vector,
+                                     size_t result_size) {
+  auto results_or_error = Map(mgp::MemHandlerCallback(graph_search_vector_index_on_edges, memgraph_graph,
+                                                      index_name.data(), query_vector.GetPtr(), result_size),
                               StealType{});
   if (results_or_error.KeyExists(kErrorMsgKey)) {
     if (!results_or_error.At(kErrorMsgKey).IsString()) {

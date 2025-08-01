@@ -21,6 +21,7 @@
 #include <unordered_set>
 #include <variant>
 
+#include "exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "utils/algorithm.hpp"
@@ -97,7 +98,7 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
       }
       user_symbols.emplace_back(sym_pair.second);
     }
-    if (user_symbols.empty()) {
+    if (scope.in_return && user_symbols.empty()) {
       throw SemanticException("There are no variables in scope to use for '*'.");
     }
   }
@@ -327,8 +328,9 @@ bool SymbolGenerator::PostVisit(Merge &) {
 }
 
 bool SymbolGenerator::PostVisit(Unwind &unwind) {
+  auto &scope = scopes_.back();
   const auto &name = unwind.named_expression_->name_;
-  if (HasSymbol(name)) {
+  if (FindSymbolInScope(name, scope, Symbol::Type::ANY).has_value()) {
     throw RedeclareVariableError(name);
   }
   unwind.named_expression_->MapTo(CreateSymbol(name, true));
@@ -374,7 +376,7 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     throw SemanticException("Variables are not allowed in {}.", scope.in_skip ? "SKIP" : "LIMIT");
   }
 
-  if (scope.in_exists && (scope.visiting_edge || scope.in_node_atom)) {
+  if (scope.in_exists_pattern && (scope.visiting_edge || scope.in_node_atom)) {
     auto has_symbol = HasSymbol(ident.name_);
     if (!has_symbol && !ConsumePredefinedIdentifier(ident.name_) && ident.user_declared_) {
       throw SemanticException("Unbounded variables are not allowed in exists!");
@@ -382,7 +384,16 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
   }
 
   Symbol symbol;
-  if (scope.in_pattern && !(scope.in_node_atom || scope.visiting_edge)) {
+  if (scope.in_exists_subquery && (scope.visiting_edge || scope.in_node_atom)) {
+    auto has_symbol = HasSymbol(ident.name_);
+    if (!has_symbol) {
+      ident.user_declared_ = false;
+      symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_,
+                                 scope.in_node_atom ? Symbol::Type::VERTEX : Symbol::Type::EDGE);
+    } else {
+      symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::ANY);
+    }
+  } else if (scope.in_pattern && !(scope.in_node_atom || scope.visiting_edge)) {
     // If we are in the pattern, and outside of a node or an edge, the
     // identifier is the pattern name.
     symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::PATH);
@@ -429,6 +440,7 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     }
     symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::ANY);
   }
+
   ident.MapTo(symbol);
   return true;
 }
@@ -557,8 +569,18 @@ bool SymbolGenerator::PostVisit(ListComprehension & /*list_comprehension*/) {
 bool SymbolGenerator::PreVisit(Exists &exists) {
   auto &scope = scopes_.back();
 
+  if (!exists.HasPattern() && !exists.HasSubquery()) {
+    throw SemanticException(
+        "EXISTS semantic hold neither pattern or subquery part! Please contact Memgraph support as this scenario "
+        "should not happen!");
+  }
+
+  if (!scope.in_where) {
+    throw utils::NotYetImplemented("Exists can only be used inside the WHERE clause!");
+  }
+
   if (scope.in_set_property) {
-    throw utils::NotYetImplemented("Exists cannot be used within SET clause.!");
+    throw utils::NotYetImplemented("Exists cannot be used within SET clause!");
   }
 
   if (scope.in_with) {
@@ -577,17 +599,27 @@ bool SymbolGenerator::PreVisit(Exists &exists) {
     throw utils::NotYetImplemented("IF operator cannot be used with exists, but only during matching!");
   }
 
-  scope.in_exists = true;
-
   const auto &symbol = CreateAnonymousSymbol();
   exists.MapTo(symbol);
+
+  if (exists.HasPattern()) {
+    scope.in_exists_pattern = true;
+  }
+
+  if (exists.HasSubquery()) {
+    scopes_.emplace_back(Scope{.in_exists_subquery = true});  // NOLINT(hicpp-use-emplace,modernize-use-emplace)
+  }
 
   return true;
 }
 
-bool SymbolGenerator::PostVisit(Exists & /*exists*/) {
-  auto &scope = scopes_.back();
-  scope.in_exists = false;
+bool SymbolGenerator::PostVisit(Exists &exists) {
+  if (exists.HasPattern()) {
+    auto &scope = scopes_.back();
+    scope.in_exists_pattern = false;
+  } else if (exists.HasSubquery()) {
+    scopes_.pop_back();
+  }
 
   return true;
 }

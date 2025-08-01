@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -108,4 +108,37 @@ TEST(LRUCacheTest, LargeCacheTest) {
     EXPECT_TRUE(value.has_value());
     EXPECT_EQ(value.value(), i);
   }
+}
+
+TEST(LRUCacheTest, InvalidateTest) {
+  memgraph::utils::LRUCache<int, int> cache(3);
+  cache.put(1, 100);
+  cache.put(2, 200);
+  cache.put(3, 300);
+
+  // Ensure all elements are present
+  EXPECT_TRUE(cache.get(1).has_value());
+  EXPECT_TRUE(cache.get(2).has_value());
+  EXPECT_TRUE(cache.get(3).has_value());
+
+  // Invalidate one key
+  cache.invalidate(2);
+
+  // Key 2 should be removed
+  std::optional<int> value = cache.get(2);
+  EXPECT_FALSE(value.has_value());
+
+  // Other keys should still be present
+  EXPECT_TRUE(cache.get(1).has_value());
+  EXPECT_EQ(cache.get(1).value(), 100);
+
+  EXPECT_TRUE(cache.get(3).has_value());
+  EXPECT_EQ(cache.get(3).value(), 300);
+
+  // Cache size should be 2 now
+  EXPECT_EQ(cache.size(), 2);
+
+  // Invalidate a non-existent key (should not crash or change state)
+  cache.invalidate(42);
+  EXPECT_EQ(cache.size(), 2);
 }

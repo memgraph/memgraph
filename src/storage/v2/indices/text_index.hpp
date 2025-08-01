@@ -12,6 +12,7 @@
 #pragma once
 
 #include <nlohmann/json_fwd.hpp>
+#include <shared_mutex>
 #include "mg_procedure.h"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/name_id_mapper.hpp"
@@ -22,9 +23,11 @@
 
 namespace memgraph::query {
 class DbAccessor;
-}
+}  // namespace memgraph::query
 
 namespace memgraph::storage {
+
+inline constexpr std::string_view kTextIndicesDirectory = "text_indices";
 struct TextIndexData {
   mgcxx::text_search::Context context_;
   LabelId scope_;
@@ -33,25 +36,35 @@ struct TextIndexData {
 class TextIndex {
  private:
   static constexpr bool kDoSkipCommit = true;
-  static constexpr std::string_view kTextIndicesDirectory = "text_indices";
+
+  // Boolean operators that should be preserved in uppercase for Tantivy
+  static constexpr std::string_view kBooleanAnd = "AND";
+  static constexpr std::string_view kBooleanOr = "OR";
+  static constexpr std::string_view kBooleanNot = "NOT";
+
   std::filesystem::path text_index_storage_dir_;
+  std::shared_mutex
+      index_writer_mutex_;  // This mutex is used to protect add_document, remove_document, commit and rollback
+                            // operations. Underlying Tantivy IndexWriter requires unique lock for commit and rollback
+                            // operations and shared lock for add_document and remove_document operations.
+                            // TODO(@DavIvek): Better approach would be to add locking on mgcxx side.
 
-  inline std::string MakeIndexPath(const std::string &index_name);
+  inline std::string MakeIndexPath(std::string_view index_name) const;
 
-  void CreateEmptyIndex(const std::string &index_name, LabelId label);
+  void CreateTantivyIndex(const std::string &index_name, LabelId label, const std::string &index_path);
 
-  template <typename T>
-  nlohmann::json SerializeProperties(const std::map<PropertyId, PropertyValue> &properties, T *name_resolver);
+  static nlohmann::json SerializeProperties(const std::map<PropertyId, PropertyValue> &properties,
+                                            NameIdMapper *name_id_mapper);
 
   static std::string StringifyProperties(const std::map<PropertyId, PropertyValue> &properties);
 
+  static std::string ToLowerCasePreservingBooleanOperators(std::string_view input);
+
   std::vector<mgcxx::text_search::Context *> GetApplicableTextIndices(std::span<storage::LabelId const> labels);
 
-  static void LoadNodeToTextIndices(std::int64_t gid, const nlohmann::json &properties,
-                                    const std::string &property_values_as_str,
-                                    const std::vector<mgcxx::text_search::Context *> &applicable_text_indices);
-
-  static void CommitLoadedNodes(mgcxx::text_search::Context &index_context);
+  void AddNodeToTextIndices(std::int64_t gid, const nlohmann::json &properties,
+                            const std::string &property_values_as_str,
+                            const std::vector<mgcxx::text_search::Context *> &applicable_text_indices);
 
   mgcxx::text_search::SearchOutput SearchGivenProperties(const std::string &index_name,
                                                          const std::string &search_query);
@@ -74,20 +87,23 @@ class TextIndex {
   std::map<std::string, TextIndexData> index_;
   std::map<LabelId, std::string> label_to_index_;
 
-  void AddNode(
-      Vertex *vertex, NameIdMapper *name_id_mapper,
-      const std::optional<std::vector<mgcxx::text_search::Context *>> &maybe_applicable_text_indices = std::nullopt);
+  void AddNode(Vertex *vertex, NameIdMapper *name_id_mapper,
+               const std::vector<mgcxx::text_search::Context *> &maybe_applicable_text_indices = {});
 
-  void UpdateNode(Vertex *vertex, NameIdMapper *name_id_mapper, const std::vector<LabelId> &removed_labels = {});
+  void UpdateNode(Vertex *vertex, NameIdMapper *name_id_mapper);
 
-  void RemoveNode(
-      Vertex *vertex,
-      const std::optional<std::vector<mgcxx::text_search::Context *>> &maybe_applicable_text_indices = std::nullopt);
+  void RemoveNode(Vertex *vertex, const std::vector<mgcxx::text_search::Context *> &maybe_applicable_text_indices = {});
 
-  void CreateIndex(std::string const &index_name, LabelId label, VerticesIterable vertices, NameIdMapper *nameIdMapper);
+  void UpdateOnAddLabel(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper);
 
-  void RecoverIndex(const std::string &index_name, LabelId label, utils::SkipList<Vertex>::Accessor vertices,
-                    NameIdMapper *name_id_mapper,
+  void UpdateOnRemoveLabel(LabelId label, Vertex *vertex);
+
+  void UpdateOnSetProperty(Vertex *vertex, NameIdMapper *name_id_mapper);
+
+  void CreateIndex(std::string const &index_name, LabelId label, VerticesIterable vertices,
+                   NameIdMapper *name_id_mapper);
+
+  void RecoverIndex(const std::string &index_name, LabelId label,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   LabelId DropIndex(const std::string &index_name);

@@ -15,10 +15,12 @@
 
 namespace VectorSearch {
 static constexpr std::string_view kProcedureSearch = "search";
+static constexpr std::string_view kProcedureSearchEdges = "search_edges";
 static constexpr std::string_view kParameterIndexName = "index_name";
 static constexpr std::string_view kParameterResultSetSize = "result_set_size";
 static constexpr std::string_view kParameterQueryVector = "query_vector";
 static constexpr std::string_view kReturnNode = "node";
+static constexpr std::string_view kReturnEdge = "edge";
 static constexpr std::string_view kReturnDistance = "distance";
 static constexpr std::string_view kReturnSimilarity = "similarity";
 
@@ -30,8 +32,11 @@ static constexpr std::string_view kMetric = "metric";
 static constexpr std::string_view kReturnDimension = "dimension";
 static constexpr std::string_view kReturnCapacity = "capacity";
 static constexpr std::string_view kReturnSize = "size";
+static constexpr std::string_view kReturnScalarKind = "scalar_kind";
+static constexpr std::string_view kReturnIndexType = "index_type";
 
 void Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
+void SearchEdges(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 void ShowIndexInfo(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 }  // namespace VectorSearch
 
@@ -50,9 +55,34 @@ void VectorSearch::Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result 
     for (const auto &result : results) {
       auto record = record_factory.NewRecord();
 
-      // result is also a list with two elements: node_id and score
       auto result_list = result.ValueList();
       record.Insert(VectorSearch::kReturnNode.data(), result_list[0].ValueNode());
+      record.Insert(VectorSearch::kReturnDistance.data(), result_list[1].ValueDouble());
+      record.Insert(VectorSearch::kReturnSimilarity.data(), result_list[2].ValueDouble());
+    }
+
+  } catch (const std::exception &e) {
+    record_factory.SetErrorMessage(e.what());
+  }
+}
+
+void VectorSearch::SearchEdges(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
+  mgp::MemoryDispatcherGuard guard{memory};
+  const auto record_factory = mgp::RecordFactory(result);
+  auto arguments = mgp::List(args);
+
+  try {
+    const auto index_name = arguments[0].ValueString();
+    const auto result_set_size = arguments[1].ValueInt();
+    auto query_vector = arguments[2].ValueList();
+
+    auto results = mgp::SearchVectorIndexOnEdges(memgraph_graph, index_name, query_vector, result_set_size);
+
+    for (const auto &result : results) {
+      auto record = record_factory.NewRecord();
+
+      auto result_list = result.ValueList();
+      record.Insert(VectorSearch::kReturnEdge.data(), result_list[0].ValueRelationship());
       record.Insert(VectorSearch::kReturnDistance.data(), result_list[1].ValueDouble());
       record.Insert(VectorSearch::kReturnSimilarity.data(), result_list[2].ValueDouble());
     }
@@ -73,13 +103,15 @@ void VectorSearch::ShowIndexInfo(mgp_list *args, mgp_graph *memgraph_graph, mgp_
     for (const auto &info : index_info) {
       auto record = record_factory.NewRecord();
       auto info_list = info.ValueList();
-      record.Insert(VectorSearch::kReturnIndexName.data(), std::string(info_list[0].ValueString()));
-      record.Insert(VectorSearch::kReturnLabel.data(), std::string(info_list[1].ValueString()));
-      record.Insert(VectorSearch::kReturnProperty.data(), std::string(info_list[2].ValueString()));
-      record.Insert(VectorSearch::kMetric.data(), std::string(info_list[3].ValueString()));
+      record.Insert(VectorSearch::kReturnIndexName.data(), info_list[0].ValueString());
+      record.Insert(VectorSearch::kReturnLabel.data(), info_list[1].ValueString());
+      record.Insert(VectorSearch::kReturnProperty.data(), info_list[2].ValueString());
+      record.Insert(VectorSearch::kMetric.data(), info_list[3].ValueString());
       record.Insert(VectorSearch::kReturnDimension.data(), info_list[4].ValueInt());
       record.Insert(VectorSearch::kReturnCapacity.data(), info_list[5].ValueInt());
       record.Insert(VectorSearch::kReturnSize.data(), info_list[6].ValueInt());
+      record.Insert(VectorSearch::kReturnScalarKind.data(), info_list[7].ValueString());
+      record.Insert(VectorSearch::kReturnIndexType.data(), info_list[8].ValueString());
     }
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
@@ -111,6 +143,21 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                      mgp::Return(VectorSearch::kReturnDimension, mgp::Type::Int),
                      mgp::Return(VectorSearch::kReturnCapacity, mgp::Type::Int),
                      mgp::Return(VectorSearch::kReturnSize, mgp::Type::Int),
+                     mgp::Return(VectorSearch::kReturnScalarKind, mgp::Type::String),
+                     mgp::Return(VectorSearch::kReturnIndexType, mgp::Type::String),
+                 },
+                 module, memory);
+
+    AddProcedure(VectorSearch::SearchEdges, VectorSearch::kProcedureSearchEdges, mgp::ProcedureType::Read,
+                 {
+                     mgp::Parameter(VectorSearch::kParameterIndexName, mgp::Type::String),
+                     mgp::Parameter(VectorSearch::kParameterResultSetSize, mgp::Type::Int),
+                     mgp::Parameter(VectorSearch::kParameterQueryVector, {mgp::Type::List, mgp::Type::Any}),
+                 },
+                 {
+                     mgp::Return(VectorSearch::kReturnEdge, mgp::Type::Relationship),
+                     mgp::Return(VectorSearch::kReturnDistance, mgp::Type::Double),
+                     mgp::Return(VectorSearch::kReturnSimilarity, mgp::Type::Double),
                  },
                  module, memory);
   } catch (const std::exception &e) {

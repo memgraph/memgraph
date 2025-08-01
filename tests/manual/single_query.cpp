@@ -52,7 +52,7 @@ int main(int argc, char *argv[]) {
 
   ResultStreamFaker stream(db_acc->storage());
   memgraph::query::AllowEverythingAuthChecker auth_checker;
-  interpreter.SetUser(auth_checker.GenQueryUser(std::nullopt, std::nullopt));
+  interpreter.SetUser(auth_checker.GenQueryUser(std::nullopt, {}));
   auto [header, _1, qid, _2] = interpreter.Prepare(argv[1], memgraph::query::no_params_fn, {});
   stream.Header(header);
   auto summary = interpreter.PullAll(&stream);

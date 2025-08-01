@@ -13,8 +13,8 @@ import os
 import shutil
 import sys
 import tempfile
-import time
 import threading
+import time
 from typing import Any, Dict
 
 import interactive_mg_runner
@@ -101,6 +101,7 @@ def number_of_snapshots(dir):
     except:
         return 0
 
+
 # Need to constantly make changes to the database to trigger snapshots
 class StoppableThread(threading.Thread):
     def __init__(self):
@@ -159,10 +160,24 @@ def main_test(snapshots_dir):
         tries = tries + 1
         time.sleep(1)
     assert 2 < tries < 15, "Failed to wait for the next snapshot"
-    assert len(execute_and_fetch_all(cursor, "SHOW SNAPSHOTS;")) == n_snapshots3 + 1  # + next
+    # Test SHOW SNAPSHOTS (should return only existing snapshots)
+    all_snapshots = execute_and_fetch_all(cursor, "SHOW SNAPSHOTS;")
+    assert len(all_snapshots) == n_snapshots3  # Only existing snapshots
 
+    # Test SHOW NEXT SNAPSHOT (should return only the next scheduled snapshot)
+    next_snapshot = execute_and_fetch_all(cursor, "SHOW NEXT SNAPSHOT;")
+    assert len(next_snapshot) == 1  # Should return exactly one row
+
+    # Disable snapshots
     execute_and_fetch_all(cursor, "SET DATABASE SETTING 'storage.snapshot.interval' TO '';")
-    assert len(execute_and_fetch_all(cursor, "SHOW SNAPSHOTS;")) == n_snapshots3  # no next
+
+    # Test SHOW SNAPSHOTS (should still return existing snapshots)
+    all_snapshots_after_disable = execute_and_fetch_all(cursor, "SHOW SNAPSHOTS;")
+    assert len(all_snapshots_after_disable) == n_snapshots3  # Still the same existing snapshots
+
+    # Test SHOW NEXT SNAPSHOT (should return no rows when no next snapshot is scheduled)
+    next_snapshot_after_disable = execute_and_fetch_all(cursor, "SHOW NEXT SNAPSHOT;")
+    assert len(next_snapshot_after_disable) == 0  # Should return no rows
 
     thread.stop()
     thread.join()

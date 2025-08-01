@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include "coordination/raft_state.hpp"
+#include "coordination/utils.hpp"
 #include "utils/file.hpp"
 
 #include <gflags/gflags.h>
@@ -31,7 +32,7 @@ using memgraph::replication_coordination_glue::ReplicationRole;
 using memgraph::utils::UUID;
 using nuraft::ptr;
 
-// Networking is used in this test, be careful with ports used.
+// The test doesn't use networking
 class RaftStateTest : public ::testing::Test {
  protected:
   void SetUp() override {
@@ -66,10 +67,8 @@ TEST_F(RaftStateTest, RaftStateEmptyMetadata) {
 
   auto const raft_state =
       std::make_unique<RaftState>(instance_config, std::move(become_leader_cb), std::move(become_follower_cb));
-  raft_state->InitRaftServer();
 
   ASSERT_EQ(raft_state->InstanceName(), fmt::format("coordinator_{}", coordinator_id));
-  ASSERT_TRUE(raft_state->IsLeader());
   ASSERT_TRUE(raft_state->GetDataInstancesContext().empty());
 
   // Context for coordinators get changed only after you added coordinator
@@ -85,21 +84,6 @@ class RaftStateParamTest : public RaftStateTest, public ::testing::WithParamInte
 INSTANTIATE_TEST_SUITE_P(BoolParams, RaftStateParamTest, ::testing::Values(true, false));
 
 TEST_P(RaftStateParamTest, GetMixedRoutingTable) {
-  auto become_leader_cb = []() {};
-  auto become_follower_cb = []() {};
-  auto const init_config =
-      CoordinatorInstanceInitConfig{.coordinator_id = coordinator_id,
-                                    .coordinator_port = coordinator_port,
-                                    .bolt_port = bolt_port,
-                                    .management_port = management_port,
-                                    .durability_dir = test_folder_ / "high_availability" / "mixed_routing",
-                                    .coordinator_hostname = "localhost"};
-
-  auto raft_state_leader =
-      std::make_unique<RaftState>(init_config, std::move(become_leader_cb), std::move(become_follower_cb));
-
-  raft_state_leader->InitRaftServer();
-
   std::vector<DataInstanceContext> data_instances{};
   auto const curr_uuid = UUID{};
 
@@ -138,16 +122,11 @@ TEST_P(RaftStateParamTest, GetMixedRoutingTable) {
   coord_instances.emplace_back(1, fmt::format("localhost:{}", bolt_port));
 
   bool const enabled_reads_on_main = GetParam();
-  // NOLINTNEXTLINE
-  memgraph::coordination::CoordinatorClusterStateDelta const delta_state{
-      .data_instances_ = data_instances,
-      .coordinator_instances_ = coord_instances,
-      .current_main_uuid_ = curr_uuid,
-      .enabled_reads_on_main_ = enabled_reads_on_main};
 
-  ASSERT_TRUE(raft_state_leader->AppendClusterUpdate(delta_state));
+  auto const is_instance_main = [](auto const &instance) { return instance.config.instance_name == "instance1"sv; };
 
-  auto const routing_table = raft_state_leader->GetRoutingTable();
+  auto const routing_table =
+      CreateRoutingTable(data_instances, coord_instances, is_instance_main, enabled_reads_on_main);
 
   ASSERT_EQ(routing_table.size(), 3);
 

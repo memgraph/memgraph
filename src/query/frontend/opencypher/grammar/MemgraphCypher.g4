@@ -162,6 +162,7 @@ memgraphCypherKeyword : cypherKeyword
                       | STORAGE_MODE
                       | STREAM
                       | STREAMS
+                      | STRICT_SYNC
                       | STRING
                       | SYNC
                       | TERMINATE
@@ -204,6 +205,7 @@ query : cypherQuery
       | pointIndexQuery
       | textIndexQuery
       | vectorIndexQuery
+      | createVectorEdgeIndex
       | explainQuery
       | profileQuery
       | databaseInfoQuery
@@ -222,6 +224,7 @@ query : cypherQuery
       | createSnapshotQuery
       | recoverSnapshotQuery
       | showSnapshotsQuery
+      | showNextSnapshotQuery
       | streamQuery
       | settingQuery
       | versionQuery
@@ -255,6 +258,7 @@ authQuery : createRole
           | changePassword
           | dropUser
           | showCurrentUser
+          | showCurrentRole
           | showUsers
           | setRole
           | clearRole
@@ -407,11 +411,13 @@ dropUser : DROP USER user=userOrRoleName ;
 
 showCurrentUser : SHOW CURRENT USER ;
 
+showCurrentRole : SHOW CURRENT ( ROLE | ROLES ) ;
+
 showUsers : SHOW USERS ;
 
-setRole : SET ROLE FOR user=userOrRoleName TO role=userOrRoleName;
+setRole : SET ( ROLE | ROLES ) FOR user=userOrRoleName TO roles=listOfSymbolicNames ( ON db=listOfSymbolicNames )? ;
 
-clearRole : CLEAR ROLE FOR user=userOrRoleName ;
+clearRole : CLEAR ( ROLE | ROLES ) FOR user=userOrRoleName ( ON db=listOfSymbolicNames )? ;
 
 grantPrivilege : GRANT ( ALL PRIVILEGES | privileges=grantPrivilegesList ) TO userOrRole=userOrRoleName ;
 
@@ -492,9 +498,9 @@ listOfColonSymbolicNames : colonSymbolicName ( ',' colonSymbolicName )* ;
 
 colonSymbolicName : COLON symbolicName ;
 
-showPrivileges : SHOW PRIVILEGES FOR userOrRole=userOrRoleName ;
+showPrivileges : SHOW PRIVILEGES FOR userOrRole=userOrRoleName ( ON ( MAIN | CURRENT | DATABASE db=symbolicName ) )? ;
 
-showRoleForUser : SHOW ROLE FOR user=userOrRoleName ;
+showRoleForUser : SHOW ( ROLE | ROLES ) FOR user=userOrRoleName ( ON ( MAIN | CURRENT | DATABASE db=symbolicName ) )? ;
 
 showUsersForRole : SHOW USERS FOR role=userOrRoleName ;
 
@@ -514,14 +520,14 @@ instanceName : symbolicName ;
 
 socketAddress : literal ;
 
-registerReplica : REGISTER REPLICA instanceName ( SYNC | ASYNC )
+registerReplica : REGISTER REPLICA instanceName ( SYNC | ASYNC | STRICT_SYNC )
                 TO socketAddress ;
 
 configKeyValuePair : literal ':' literal ;
 
 configMap : '{' ( configKeyValuePair ( ',' configKeyValuePair )* )? '}' ;
 
-registerInstanceOnCoordinator : REGISTER INSTANCE instanceName ( AS ASYNC ) ? WITH CONFIG configsMap=configMap ;
+registerInstanceOnCoordinator : REGISTER INSTANCE instanceName ( AS ASYNC | AS STRICT_SYNC ) ? WITH CONFIG configsMap=configMap ;
 
 unregisterInstanceOnCoordinator : UNREGISTER INSTANCE instanceName ;
 
@@ -564,7 +570,7 @@ createTrigger : CREATE TRIGGER triggerName ( ON ( emptyVertex | emptyEdge ) ? ( 
 
 dropTrigger : DROP TRIGGER triggerName ;
 
-showTriggers : SHOW TRIGGERS ;
+showTriggers : SHOW TRIGGERS | SHOW TRIGGER INFO ;
 
 isolationLevel : SNAPSHOT ISOLATION | READ COMMITTED | READ UNCOMMITTED ;
 
@@ -581,6 +587,8 @@ createSnapshotQuery : CREATE SNAPSHOT ;
 recoverSnapshotQuery : RECOVER SNAPSHOT path=literal ( FORCE )? ;
 
 showSnapshotsQuery : SHOW SNAPSHOTS ;
+
+showNextSnapshotQuery : SHOW NEXT SNAPSHOT ;
 
 streamName : symbolicName ;
 
@@ -659,7 +667,7 @@ dropDatabase : DROP DATABASE databaseName ;
 
 useDatabase : USE DATABASE databaseName ;
 
-showDatabase : SHOW DATABASE ;
+showDatabase : SHOW ( CURRENT )? DATABASE ;
 
 showDatabases : SHOW DATABASES ;
 
@@ -690,6 +698,8 @@ dropPointIndex : DROP POINT INDEX ON ':' labelName '(' propertyKeyName ')' ;
 pointIndexQuery : createPointIndex | dropPointIndex ;
 
 createVectorIndex : CREATE VECTOR INDEX indexName ON ':' labelName ( '(' propertyKeyName ')' )? WITH CONFIG configsMap=configMap ;
+
+createVectorEdgeIndex: CREATE VECTOR EDGE INDEX indexName ON ':' labelName ( '(' propertyKeyName ')' )? WITH CONFIG configsMap=configMap ;
 
 dropVectorIndex : DROP VECTOR INDEX indexName ;
 

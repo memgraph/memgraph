@@ -53,8 +53,8 @@ def test_concurrency_if_no_delta_on_same_edge_property_update(first_connection, 
     assert test_has_error is False
 
 
-def test_concurrency_unique_v_shared_storage_acc(first_connection, second_connection):
-    first_connection.autocommit = False  # needed so the data query to trigger a transaction
+def test_concurrency_read_only_v_shared_storage_acc(first_connection, second_connection):
+    first_connection.autocommit = False  # needed so the data query to trigger a transaction (assumed write)
     second_connection.autocommit = True  # needed so the index query does not trigger a transaction
 
     m1c = first_connection.cursor()
@@ -62,10 +62,34 @@ def test_concurrency_unique_v_shared_storage_acc(first_connection, second_connec
 
     # m1c takes and holds on to shared storage acc (data query)
     execute_and_fetch_all(m1c, "RETURN 1")
-    # m2c tries to take a unique storage accessor (index query); should timeout
+    # m2c tries to take a read only storage accessor (index query); should timeout
     m2c_timeout = False
     try:
         execute_and_fetch_all(m2c, "CREATE INDEX ON :L")
+    except Exception as e:
+        assert (
+            str(e)
+            == "Cannot get read only access to the storage. Try stopping other queries that are running in parallel."
+        )
+        m2c_timeout = True
+
+    first_connection.commit()
+    assert m2c_timeout is True
+
+
+def test_concurrency_unique_v_shared_storage_acc(first_connection, second_connection):
+    first_connection.autocommit = False  # needed so the data query to trigger a transaction (assumed write)
+    second_connection.autocommit = True  # needed so the drop graph query does not trigger a transaction
+
+    m1c = first_connection.cursor()
+    m2c = second_connection.cursor()
+
+    # m1c takes and holds on to shared storage acc (data query)
+    execute_and_fetch_all(m1c, "RETURN 1")
+    # m2c tries to take a unique storage accessor (drop graph query); should timeout
+    m2c_timeout = False
+    try:
+        execute_and_fetch_all(m2c, "DROP GRAPH")
     except Exception as e:
         assert (
             str(e)
@@ -75,6 +99,42 @@ def test_concurrency_unique_v_shared_storage_acc(first_connection, second_connec
 
     first_connection.commit()
     assert m2c_timeout is True
+
+
+def test_plan_cache_invalidation_on_index_drop(first_connection, second_connection):
+    first_connection.autocommit = True
+    second_connection.autocommit = False
+
+    # TX1: Create the index
+    c = first_connection.cursor()
+    execute_and_fetch_all(c, "CREATE INDEX ON :Label(prop)")
+
+    # TX2: Begin transaction on second connection
+    tx2_cursor = second_connection.cursor()
+    res = execute_and_fetch_all(tx2_cursor, "EXPLAIN MATCH (n:Label) WHERE n.prop = 42 RETURN n")
+    # Check we use the index
+    assert res == [(" * Produce {n}",), (" * ScanAllByLabelProperties (n :Label {prop})",), (" * Once",)]
+
+    # TX3: Drop index
+    c = first_connection.cursor()
+    execute_and_fetch_all(c, "DROP INDEX ON :Label(prop)")
+
+    # NOTE: the plan cache has now been cleared
+
+    # TX2: Run the same query again in same txn
+    res = execute_and_fetch_all(tx2_cursor, "EXPLAIN MATCH (n:Label) WHERE n.prop = 42 RETURN n")
+    # A new plan has been made, still using index since transaction has kept the indexes alive
+    assert res == [(" * Produce {n}",), (" * ScanAllByLabelProperties (n :Label {prop})",), (" * Once",)]
+    second_connection.commit()
+
+    # NOTE: now the index is no longer existing anywhere
+
+    # TX4: Run the same query again in a new transaction
+    c = second_connection.cursor()
+    res = execute_and_fetch_all(c, "EXPLAIN MATCH (n:Label) WHERE n.prop = 42 RETURN n")
+    # The previous cached plan is now invalid -> because the used index no longer exists
+    # Hence plan is removed. A new plan is now made without the index
+    assert res == [(" * Produce {n}",), (" * Filter (n :Label), {n.prop}",), (" * ScanAll (n)",), (" * Once",)]
 
 
 if __name__ == "__main__":

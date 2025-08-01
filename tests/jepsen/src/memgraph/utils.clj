@@ -98,6 +98,12 @@
   [e]
   (string/includes? (str e) "Unable to commit due to unique constraint violation"))
 
+(defn txn-timeout?
+  "Txn timeout has occurred."
+  [e]
+  (string/includes? (str e) "Transaction was asked to abort because of transaction timeout."
+ ))
+
 (defn server-no-longer-available
   "Accepts exception e as argument."
   [e]
@@ -117,6 +123,11 @@
   "Accepts exception e as argument."
   [e]
   (string/includes? (str e) "Write queries are forbidden on the replica"))
+
+(defn strict-sync-replica-down?
+  "Accepts exception e as argument."
+  [e]
+  (string/includes? (str e) "At least one STRICT_SYNC replica has not confirmed committing last transaction."))
 
 (defn sync-replica-down?
   "Accepts exception e as argument."

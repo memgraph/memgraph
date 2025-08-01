@@ -12,12 +12,13 @@
 #pragma once
 
 #ifdef MG_ENTERPRISE
+
 #include <optional>
 
-#include <flags/replication.hpp>
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_state_machine.hpp"
 #include "coordination/coordinator_state_manager.hpp"
+#include "coordination/utils.hpp"
 #include "coordination_observer.hpp"
 
 #include <libnuraft/logger.hxx>
@@ -30,7 +31,6 @@ struct DataInstanceConfig;
 
 using BecomeLeaderCb = std::function<void()>;
 using BecomeFollowerCb = std::function<void()>;
-using RoutingTable = std::vector<std::pair<std::vector<std::string>, std::string>>;
 
 using nuraft::asio_service;
 using nuraft::buffer;

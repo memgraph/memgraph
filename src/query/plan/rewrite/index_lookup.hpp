@@ -62,7 +62,7 @@ struct IndexHints {
       const auto index_type = index_hint.index_type_;
       const auto label_name = index_hint.label_ix_.name;
       if (index_type == IndexHint::IndexType::LABEL) {
-        if (!db->LabelIndexExists(db->NameToLabel(label_name))) {
+        if (!db->LabelIndexReady(db->NameToLabel(label_name))) {
           spdlog::debug("Index for label {} doesn't exist", label_name);
           continue;
         }
@@ -72,7 +72,7 @@ struct IndexHints {
             index_hint.property_ixs_ | ranges::views::transform(property_path_converter(db)) | ranges::to_vector;
 
         // Fetching the corresponding index to the hint
-        if (!db->LabelPropertyIndexExists(db->NameToLabel(label_name), properties)) {
+        if (!db->LabelPropertyIndexReady(db->NameToLabel(label_name), properties)) {
           auto property_names = index_hint.property_ixs_ |
                                 ranges::views::transform([&](auto &&path) { return fmt::format("{}", path); }) |
                                 ranges::views::join(", ") | ranges::to<std::string>;
@@ -868,7 +868,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
     std::optional<LabelIx> best_label;
     for (const auto &label : labels) {
-      if (!db_->LabelIndexExists(GetLabel(label))) continue;
+      if (!db_->LabelIndexReady(GetLabel(label))) continue;
       if (!best_label) {
         best_label = label;
         continue;
@@ -890,8 +890,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
 
   using CandidatePointIndices = std::unordered_map<std::pair<LabelIx, PropertyIx>, PointIndexCandidate, HashPair>;
 
-  auto GetCandidatePointIndices(const Symbol &symbol, const std::unordered_set<Symbol> &bound_symbols)
-      -> CandidatePointIndices {
+  auto GetCandidatePointIndices(const Symbol &symbol,
+                                const std::unordered_set<Symbol> &bound_symbols) -> CandidatePointIndices {
     auto are_bound = [&bound_symbols](const auto &used_symbols) {
       for (const auto &used_symbol : used_symbols) {
         if (!utils::Contains(bound_symbols, used_symbol)) {
@@ -1249,7 +1249,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
         }
 
         // Check if there is a LabelIndex available
-        auto label_index_exists = db_->LabelIndexExists(label_id);
+        auto label_index_exists = db_->LabelIndexReady(label_id);
         if (label_index_exists && !best_has_hint && index_hints_.HasLabelIndex(db_, label_id)) {
           // LabelIndex is available and has hint
           best_vertex_count = db_->VerticesCount(label_id);

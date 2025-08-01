@@ -22,9 +22,11 @@
 #include "utils/skip_list.hpp"
 
 #include "delta_container.hpp"
+#include "storage/v2/auto_indexer.hpp"
 #include "storage/v2/constraint_verification_info.hpp"
 #include "storage/v2/delta.hpp"
 #include "storage/v2/edge.hpp"
+#include "storage/v2/indices/active_indices.hpp"
 #include "storage/v2/indices/point_index.hpp"
 #include "storage/v2/indices/point_index_change_collector.hpp"
 #include "storage/v2/isolation_level.hpp"
@@ -33,6 +35,7 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info_types.hpp"
 #include "storage/v2/storage_mode.hpp"
+#include "storage/v2/transaction_constants.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_info_cache.hpp"
 #include "utils/pmr/list.hpp"
@@ -41,13 +44,62 @@
 
 namespace memgraph::storage {
 
-const uint64_t kTimestampInitialId = 0;
-const uint64_t kTransactionInitialId = 1ULL << 63U;
+struct CommitCallbacks {
+  using func_t = std::function<void(uint64_t)>;
+  void Add(func_t callback) { callbacks_.emplace_back(std::move(callback)); }
+  void RunAll(uint64_t commit_timestamp) {
+    for (auto &callback : callbacks_) {
+      callback(commit_timestamp);
+    }
+    callbacks_.clear();
+  }
+
+  std::vector<std::function<void(uint64_t)>> callbacks_;
+};
+
+struct AutoIndexHelper {
+  AutoIndexHelper() = default;
+  AutoIndexHelper(Config const &config, ActiveIndices const &active_indices, uint64_t start_timestamp);
+
+  // Perf: keep this code inlinable
+  void Track(LabelId label) {
+    if (label_index_ && !label_index_->existing_.contains(label)) {
+      label_index_->requested_.insert(label);
+      // optimisation: this prevent redundant insertions requested_
+      label_index_->existing_.insert(label);
+    }
+  }
+
+  // Perf: keep this code inlinable
+  void Track(EdgeTypeId edge_type) {
+    if (edgetype_index_ && !edgetype_index_->existing_.contains(edge_type)) {
+      edgetype_index_->requested_.insert(edge_type);
+      // optimisation: this prevent redundant insertions requested_
+      edgetype_index_->existing_.insert(edge_type);
+    }
+  }
+
+  void DispatchRequests(AutoIndexer &auto_indexer);
+
+ private:
+  struct LabelIndexInfo {
+    absl::flat_hash_set<LabelId> existing_;
+    absl::flat_hash_set<LabelId> requested_;
+  };
+  struct EdgeTypeIndexInfo {
+    absl::flat_hash_set<EdgeTypeId> existing_;
+    absl::flat_hash_set<EdgeTypeId> requested_;
+  };
+
+  std::optional<LabelIndexInfo> label_index_ = std::nullopt;
+  std::optional<EdgeTypeIndexInfo> edgetype_index_ = std::nullopt;
+};
 
 struct Transaction {
   Transaction(uint64_t transaction_id, uint64_t start_timestamp, IsolationLevel isolation_level,
               StorageMode storage_mode, bool edge_import_mode_active, bool has_constraints,
-              PointIndexContext point_index_ctx, std::optional<uint64_t> last_durable_ts = std::nullopt)
+              PointIndexContext point_index_ctx, ActiveIndices active_indices, AutoIndexHelper auto_index_helper = {},
+              std::optional<uint64_t> last_durable_ts = std::nullopt)
       : transaction_id(transaction_id),
         start_timestamp(start_timestamp),
         command_id(0),
@@ -66,7 +118,9 @@ struct Transaction {
                    : std::nullopt},
         point_index_ctx_{std::move(point_index_ctx)},
         point_index_change_collector_{point_index_ctx_},
-        last_durable_ts_{last_durable_ts} {}
+        last_durable_ts_{last_durable_ts},
+        active_indices_{std::move(active_indices)},
+        auto_index_helper_(std::move(auto_index_helper)) {}
 
   Transaction(Transaction &&other) noexcept = default;
 
@@ -144,8 +198,6 @@ struct Transaction {
   std::map<std::string, std::pair<std::string, std::string>, std::less<>> edges_to_delete_{};
   std::map<std::string, std::string, std::less<>> vertices_to_delete_{};
   bool scanned_all_vertices_ = false;
-  std::set<LabelId> introduced_new_label_index_;
-  std::set<EdgeTypeId> introduced_new_edge_type_index_;
   /// Hold point index relevant to this txn+command
   PointIndexContext point_index_ctx_;
   /// Tracks changes relevant to point index (used during Commit/AdvanceCommand)
@@ -159,6 +211,14 @@ struct Transaction {
 
   /// Last durable timestamp at the moment of transaction creation
   std::optional<uint64_t> last_durable_ts_;
+
+  /// Concurrent safe indices that existed at the beginning of the transaction
+  /// Used to insert new entries, and during planning to speed up scans
+  ActiveIndices active_indices_;
+  CommitCallbacks commit_callbacks_;
+
+  /// Auto indexing infomation gathering
+  AutoIndexHelper auto_index_helper_;
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {

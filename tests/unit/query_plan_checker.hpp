@@ -708,23 +708,12 @@ class FakeDbAccessor {
 
   int64_t EdgesCount(memgraph::storage::PropertyId property) const { return 0; }
 
-  bool LabelIndexExists(memgraph::storage::LabelId label) const {
+  bool LabelIndexReady(memgraph::storage::LabelId label) const {
     return label_index_.find(label) != label_index_.end();
   }
 
-  bool LabelPropertyIndexExists(memgraph::storage::LabelId label,
-                                memgraph::storage::PropertyPath const &property) const {
-    std::vector const properties{property};
-    for (const auto &index : label_properties_index_) {
-      if (std::get<0>(index) == label && std::get<1>(index) == properties) {
-        return true;
-      }
-    }
-    return false;
-  }
-
-  bool LabelPropertyIndexExists(memgraph::storage::LabelId label,
-                                std::span<memgraph::storage::PropertyPath const> properties) const {
+  bool LabelPropertyIndexReady(memgraph::storage::LabelId label,
+                               std::span<memgraph::storage::PropertyPath const> properties) const {
     return std::ranges::find_if(label_properties_index_, [&](auto const &each) {
              return std::get<0>(each) == label && std::ranges::equal(std::get<1>(each), properties);
            }) != label_properties_index_.end();
@@ -765,12 +754,12 @@ class FakeDbAccessor {
     return res;
   }
 
-  bool EdgeTypeIndexExists(memgraph::storage::EdgeTypeId edge_type) const {
+  bool EdgeTypeIndexReady(memgraph::storage::EdgeTypeId edge_type) const {
     return edge_type_index_.find(edge_type) != edge_type_index_.end();
   }
 
-  bool EdgeTypePropertyIndexExists(memgraph::storage::EdgeTypeId edge_type,
-                                   memgraph::storage::PropertyId property) const {
+  bool EdgeTypePropertyIndexReady(memgraph::storage::EdgeTypeId edge_type,
+                                  memgraph::storage::PropertyId property) const {
     for (const auto &index : edge_type_property_index_) {
       if (std::get<0>(index) == edge_type && std::get<1>(index) == property) {
         return true;
@@ -779,7 +768,7 @@ class FakeDbAccessor {
     return false;
   }
 
-  bool EdgePropertyIndexExists(memgraph::storage::PropertyId property) const { return false; }
+  bool EdgePropertyIndexReady(memgraph::storage::PropertyId property) const { return false; }
 
   std::optional<memgraph::storage::LabelPropertyIndexStats> GetIndexStats(
       const memgraph::storage::LabelId label, std::span<memgraph::storage::PropertyPath const> properties) const {

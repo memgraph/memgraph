@@ -9,6 +9,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+from constants import GraphVendors
 from workloads.base import Workload
 
 
@@ -60,13 +61,21 @@ prop19: $id, prop20: $id});
         return queries
 
     def benchmark__test__write_20_attributes_set_property(self):
-        return (
-            "MATCH (n:Node) SET n.prop1 = n.prop2, n.prop2 = n.prop3, n.prop3 = n.prop4, n.prop4 = n.prop5, n.prop5 = n.prop6, n.prop6 = n.prop7, n.prop7 = n.prop8, n.prop8 = n.prop9, n.prop9 = n.prop10, n.prop10 = n.prop11, n.prop11 = n.prop12, n.prop12 = n.prop13, n.prop13 = n.prop14, n.prop14 = n.prop15, n.prop15 = n.prop16, n.prop16 = n.prop17, n.prop17 = n.prop18, n.prop18 = n.prop19, n.prop19 = n.prop20, n.prop20 = n.prop1;",
-            {},
-        )
+        match self._vendor:
+            case GraphVendors.MEMGRAPH:
+                return (
+                    "MATCH (n:Node) SET n.prop1 = n.prop2, n.prop2 = n.prop3, n.prop3 = n.prop4, n.prop4 = n.prop5, n.prop5 = n.prop6, n.prop6 = n.prop7, n.prop7 = n.prop8, n.prop8 = n.prop9, n.prop9 = n.prop10, n.prop10 = n.prop11, n.prop11 = n.prop12, n.prop12 = n.prop13, n.prop13 = n.prop14, n.prop14 = n.prop15, n.prop15 = n.prop16, n.prop16 = n.prop17, n.prop17 = n.prop18, n.prop18 = n.prop19, n.prop19 = n.prop20, n.prop20 = n.prop1;",
+                    {},
+                )
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     def benchmark__test__write_20_attributes_set_properties(self):
-        return (
-            "MATCH (n:Node) SET n += {prop1: n.prop2, prop2: n.prop3, prop3: n.prop4, prop4: n.prop5, prop5: n.prop6, prop6: n.prop7, prop7: n.prop8, prop8: n.prop9, prop9: n.prop10, prop10: n.prop11, prop11: n.prop12, prop12: n.prop13, prop13: n.prop14, prop14: n.prop15, prop15: n.prop16, prop16: n.prop17, prop17: n.prop18, prop18: n.prop19, prop19: n.prop20, prop20: n.prop1};",
-            {},
-        )
+        match self._vendor:
+            case GraphVendors.MEMGRAPH:
+                return (
+                    "MATCH (n:Node) SET n += {prop1: n.prop2, prop2: n.prop3, prop3: n.prop4, prop4: n.prop5, prop5: n.prop6, prop6: n.prop7, prop7: n.prop8, prop8: n.prop9, prop9: n.prop10, prop10: n.prop11, prop11: n.prop12, prop12: n.prop13, prop13: n.prop14, prop14: n.prop15, prop15: n.prop16, prop16: n.prop17, prop17: n.prop18, prop18: n.prop19, prop19: n.prop20, prop20: n.prop1};",
+                    {},
+                )
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")

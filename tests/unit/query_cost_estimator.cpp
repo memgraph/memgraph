@@ -59,23 +59,23 @@ class QueryCostEstimator : public ::testing::Test {
     {
       auto unique_acc = db->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateIndex(label).HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
     }
     {
       auto unique_acc = db->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateIndex(label, {prop_a}).HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
     }
     {
       auto unique_acc = db->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateIndex(label, {prop_c, prop_a, prop_b}).HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
     }
     {
       auto unique_acc = db->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateIndex(label, {ms::PropertyPath{prop_d, prop_a}, ms::PropertyPath{prop_d, prop_b}})
                        .HasError());
-      ASSERT_FALSE(unique_acc->Commit().HasError());
+      ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
     }
     storage_dba.emplace(db->Access());
     dba.emplace(storage_dba->get());

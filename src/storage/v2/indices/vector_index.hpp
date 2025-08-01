@@ -11,30 +11,16 @@
 
 #pragma once
 
-#include <cstddef>
 #include <cstdint>
-#include <string>
 
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex.hpp"
-#include "usearch/index_plugins.hpp"
 #include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
-
-/// @struct VectorIndexConfigMap
-/// @brief Represents the configuration options for a vector index.
-///
-/// This structure includes the metric name, the dimension of the vectors in the index,
-/// the capacity of the index, and the resize coefficient for the index.
-struct VectorIndexConfigMap {
-  unum::usearch::metric_kind_t metric;
-  std::uint16_t dimension;
-  std::size_t capacity;
-  std::uint16_t resize_coefficient;
-};
 
 /// @struct VectorIndexInfo
 /// @brief Represents information about a vector index in the system.
@@ -43,12 +29,13 @@ struct VectorIndexConfigMap {
 /// the dimension of the vectors in the index, and the size of the index.
 struct VectorIndexInfo {
   std::string index_name;
-  LabelId label;
+  LabelId label_id;
   PropertyId property;
   std::string metric;
   std::uint16_t dimension;
   std::size_t capacity;
   std::size_t size;
+  std::string scalar_kind;
 };
 
 /// @struct VectorIndexSpec
@@ -57,14 +44,14 @@ struct VectorIndexInfo {
 /// This structure includes the index name, the label and property on which the index is created,
 /// and the configuration options for the index in the form of a JSON object.
 struct VectorIndexSpec {
-  // TODO(@DavIvek): Add scalar kind configuration options. This will be useful for memory usage.
   std::string index_name;
-  LabelId label;
+  LabelId label_id;
   PropertyId property;
   unum::usearch::metric_kind_t metric_kind;
   std::uint16_t dimension;
   std::uint16_t resize_coefficient;
   std::size_t capacity;
+  unum::usearch::scalar_kind_t scalar_kind;
 
   friend bool operator==(const VectorIndexSpec &, const VectorIndexSpec &) = default;
 };
@@ -85,24 +72,12 @@ class VectorIndex {
     std::map<PropertyId, std::vector<LabelId>> p2l;
   };
 
-  explicit VectorIndex();
+  using VectorSearchNodeResults = std::vector<std::tuple<Vertex *, double, double>>;
+
+  VectorIndex();
   ~VectorIndex();
-  VectorIndex(const VectorIndex &) = delete;
-  VectorIndex &operator=(const VectorIndex &) = delete;
   VectorIndex(VectorIndex &&) noexcept;
   VectorIndex &operator=(VectorIndex &&) noexcept;
-
-  /// @brief Converts a metric kind to a string.
-  /// @param metric The metric kind to be converted.
-  /// @return The string representation of the metric kind.
-  /// @throw query::VectorSearchException
-  static const char *NameFromMetric(unum::usearch::metric_kind_t metric);
-
-  /// @brief Converts a metric name to a metric kind.
-  /// @param name The name of the metric to be converted.
-  /// @return The metric kind corresponding to the name.
-  /// @throw query::VectorSearchException
-  static unum::usearch::metric_kind_t MetricFromName(std::string_view name);
 
   /// @brief Creates a new index based on the provided specification.
   /// @param spec The specification for the index to be created.
@@ -148,15 +123,15 @@ class VectorIndex {
   /// @param label The label of the vertices in the index.
   /// @param property The property of the vertices in the index.
   /// @return The number of vertices in the index.
-  std::optional<uint64_t> ApproximateVectorCount(LabelId label, PropertyId property) const;
+  std::optional<uint64_t> ApproximateNodesVectorCount(LabelId label, PropertyId property) const;
 
   /// @brief Searches for nodes in the specified index using a query vector.
   /// @param index_name The name of the index to search.
   /// @param result_set_size The number of results to return.
   /// @param query_vector The vector to be used for the search query.
   /// @return A vector of tuples containing the vertex, distance, and similarity of the search results.
-  std::vector<std::tuple<Vertex *, double, double>> Search(std::string_view index_name, uint64_t result_set_size,
-                                                           const std::vector<float> &query_vector) const;
+  VectorSearchNodeResults SearchNodes(std::string_view index_name, uint64_t result_set_size,
+                                      const std::vector<float> &query_vector) const;
 
   /// @brief Aborts the entries that were inserted in the specified transaction.
   /// @param label_prop The label of the vertices to be removed.
@@ -169,15 +144,18 @@ class VectorIndex {
   void RestoreEntries(const LabelPropKey &label_prop,
                       std::span<std::pair<PropertyValue, Vertex *> const> prop_vertices);
 
+  /// @brief Removes obsolete entries from the index.
+  /// @param token A stop token to allow for cancellation of the operation.
   void RemoveObsoleteEntries(std::stop_token token) const;
 
   /// @brief Returns the index statistics.
   /// @return The index statistics.
   IndexStats Analysis() const;
 
-  /// @brief Tries to insert a vertex into the index.
-  /// @param vertex The vertex to be inserted.
-  void TryInsertVertex(Vertex *vertex);
+  /// @brief Checks if a vector index exists for the given name.
+  /// @param index_name The name of the index to check.
+  /// @return true if the index exists, false otherwise.
+  bool IndexExists(std::string_view index_name) const;
 
  private:
   /// @brief Adds a vertex to an existing index.

@@ -22,6 +22,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/property_value_utils.hpp"
 #include "storage/v2/temporal.hpp"
 #include "storage_test_utils.hpp"
 #include "utils/rocksdb_serialization.hpp"
@@ -98,6 +99,22 @@ class IndexTest : public testing::Test {
     this->storage.reset(nullptr);
   }
 
+  auto CreateIndexAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> {
+    if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>) {
+      return this->storage->ReadOnlyAccess();
+    } else {
+      return this->storage->UniqueAccess();
+    }
+  }
+
+  auto DropIndexAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> {
+    if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>) {
+      return this->storage->Access(memgraph::storage::Storage::Accessor::Type::READ);
+    } else {
+      return this->storage->UniqueAccess();
+    }
+  }
+
   const std::string testSuite = "storage_v2_indices";
   memgraph::storage::Config config_;
   std::unique_ptr<memgraph::storage::Storage> storage;
@@ -154,7 +171,7 @@ TYPED_TEST_SUITE(IndexTest, StorageTypes);
 TYPED_TEST(IndexTest, LabelIndexCreate) {
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelIndexExists(this->label1));
+    EXPECT_FALSE(acc->LabelIndexReady(this->label1));
     EXPECT_EQ(acc->ListAllIndices().label.size(), 0);
   }
 
@@ -164,13 +181,13 @@ TYPED_TEST(IndexTest, LabelIndexCreate) {
       auto vertex = this->CreateVertex(acc.get());
       ASSERT_NO_ERROR(vertex.AddLabel(i % 2 ? this->label1 : this->label2));
     }
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   {
@@ -219,7 +236,7 @@ TYPED_TEST(IndexTest, LabelIndexCreate) {
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::NEW), View::NEW),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
 
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   {
@@ -236,7 +253,7 @@ TYPED_TEST(IndexTest, LabelIndexCreate) {
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::NEW), View::NEW),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
 
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 }
 
@@ -244,7 +261,7 @@ TYPED_TEST(IndexTest, LabelIndexCreate) {
 TYPED_TEST(IndexTest, LabelIndexDrop) {
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelIndexExists(this->label1));
+    EXPECT_FALSE(acc->LabelIndexReady(this->label1));
     EXPECT_EQ(acc->ListAllIndices().label.size(), 0);
   }
 
@@ -254,13 +271,13 @@ TYPED_TEST(IndexTest, LabelIndexDrop) {
       auto vertex = this->CreateVertex(acc.get());
       ASSERT_NO_ERROR(vertex.AddLabel(i % 2 ? this->label1 : this->label2));
     }
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   {
@@ -270,24 +287,24 @@ TYPED_TEST(IndexTest, LabelIndexDrop) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->DropIndex(this->label1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->DropIndexAccessor();
+    EXPECT_FALSE(acc->DropIndex(this->label1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelIndexExists(this->label1));
+    EXPECT_FALSE(acc->LabelIndexReady(this->label1));
     EXPECT_EQ(acc->ListAllIndices().label.size(), 0);
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_TRUE(unique_acc->DropIndex(this->label1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->DropIndexAccessor();
+    EXPECT_TRUE(acc->DropIndex(this->label1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelIndexExists(this->label1));
+    EXPECT_FALSE(acc->LabelIndexReady(this->label1));
     EXPECT_EQ(acc->ListAllIndices().label.size(), 0);
   }
 
@@ -297,17 +314,17 @@ TYPED_TEST(IndexTest, LabelIndexDrop) {
       auto vertex = this->CreateVertex(acc.get());
       ASSERT_NO_ERROR(vertex.AddLabel(i % 2 ? this->label1 : this->label2));
     }
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_TRUE(acc->LabelIndexExists(this->label1));
+    EXPECT_TRUE(acc->LabelIndexReady(this->label1));
     EXPECT_THAT(acc->ListAllIndices().label, UnorderedElementsAre(this->label1));
   }
 
@@ -338,14 +355,14 @@ TYPED_TEST(IndexTest, LabelIndexBasic) {
   //    vertices.
   // 4. Delete even numbered vertices.
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label2).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label2).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   auto acc = this->storage->Access();
@@ -411,14 +428,14 @@ TYPED_TEST(IndexTest, LabelIndexDuplicateVersions) {
   // the same vertex in the index (they only differ by the timestamp). This test
   // checks that duplicates are properly filtered out.
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label2).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label2).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   {
@@ -430,7 +447,7 @@ TYPED_TEST(IndexTest, LabelIndexDuplicateVersions) {
 
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1, 2, 3, 4));
 
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   {
@@ -459,14 +476,14 @@ TYPED_TEST(IndexTest, LabelIndexDuplicateVersions) {
 TYPED_TEST(IndexTest, LabelIndexTransactionalIsolation) {
   // Check that transactions only see entries they are supposed to see.
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label2).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label2).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   auto acc_before = this->storage->Access();
@@ -484,7 +501,7 @@ TYPED_TEST(IndexTest, LabelIndexTransactionalIsolation) {
 
   EXPECT_THAT(this->GetIds(acc_after->Vertices(this->label1, View::NEW), View::NEW), IsEmpty());
 
-  ASSERT_NO_ERROR(acc->Commit());
+  ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
 
   auto acc_after_commit = this->storage->Access();
 
@@ -500,14 +517,14 @@ TYPED_TEST(IndexTest, LabelIndexTransactionalIsolation) {
 TYPED_TEST(IndexTest, LabelIndexCountEstimate) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto acc = this->CreateIndexAccessor();
+      EXPECT_FALSE(acc->CreateIndex(this->label1).HasError());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
     }
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label2).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto acc = this->CreateIndexAccessor();
+      EXPECT_FALSE(acc->CreateIndex(this->label2).HasError());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
     }
 
     auto acc = this->storage->Access();
@@ -524,9 +541,9 @@ TYPED_TEST(IndexTest, LabelIndexCountEstimate) {
 TYPED_TEST(IndexTest, LabelIndexDeletedVertex) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto acc = this->CreateIndexAccessor();
+      EXPECT_FALSE(acc->CreateIndex(this->label1).HasError());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
     }
     auto acc1 = this->storage->Access();
     auto vertex1 = this->CreateVertex(acc1.get());
@@ -534,12 +551,12 @@ TYPED_TEST(IndexTest, LabelIndexDeletedVertex) {
     auto vertex2 = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex2.AddLabel(this->label1));
     EXPECT_THAT(this->GetIds(acc1->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
-    ASSERT_NO_ERROR(acc1->Commit());
+    ASSERT_NO_ERROR(acc1->PrepareForCommitPhase());
     auto acc2 = this->storage->Access();
     auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
     auto res = acc2->DeleteVertex(&*vertex_to_delete);
     ASSERT_FALSE(res.HasError());
-    ASSERT_NO_ERROR(acc2->Commit());
+    ASSERT_NO_ERROR(acc2->PrepareForCommitPhase());
     auto acc3 = this->storage->Access();
     EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(1));
   }
@@ -548,22 +565,22 @@ TYPED_TEST(IndexTest, LabelIndexDeletedVertex) {
 TYPED_TEST(IndexTest, LabelIndexRemoveIndexedLabel) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto acc = this->CreateIndexAccessor();
+      EXPECT_FALSE(acc->CreateIndex(this->label1).HasError());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
     }
     auto acc1 = this->storage->Access();
     auto vertex1 = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
     auto vertex2 = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex2.AddLabel(this->label1));
-    ASSERT_NO_ERROR(acc1->Commit());
+    ASSERT_NO_ERROR(acc1->PrepareForCommitPhase());
     auto acc2 = this->storage->Access();
     EXPECT_THAT(this->GetIds(acc2->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
     auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
     auto res = vertex_to_delete->RemoveLabel(this->label1);
     ASSERT_FALSE(res.HasError());
-    ASSERT_NO_ERROR(acc2->Commit());
+    ASSERT_NO_ERROR(acc2->PrepareForCommitPhase());
     auto acc3 = this->storage->Access();
     EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(1));
   }
@@ -572,16 +589,16 @@ TYPED_TEST(IndexTest, LabelIndexRemoveIndexedLabel) {
 TYPED_TEST(IndexTest, LabelIndexRemoveAndAddIndexedLabel) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto acc = this->CreateIndexAccessor();
+      EXPECT_FALSE(acc->CreateIndex(this->label1).HasError());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
     }
     auto acc1 = this->storage->Access();
     auto vertex1 = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
     auto vertex2 = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex2.AddLabel(this->label1));
-    ASSERT_NO_ERROR(acc1->Commit());
+    ASSERT_NO_ERROR(acc1->PrepareForCommitPhase());
     auto acc2 = this->storage->Access();
     EXPECT_THAT(this->GetIds(acc2->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
     auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
@@ -589,7 +606,7 @@ TYPED_TEST(IndexTest, LabelIndexRemoveAndAddIndexedLabel) {
     ASSERT_FALSE(res_remove.HasError());
     auto res_add = vertex_to_delete->AddLabel(this->label1);
     ASSERT_FALSE(res_add.HasError());
-    ASSERT_NO_ERROR(acc2->Commit());
+    ASSERT_NO_ERROR(acc2->PrepareForCommitPhase());
     auto acc3 = this->storage->Access();
     EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
   }
@@ -601,15 +618,15 @@ TYPED_TEST(IndexTest, LabelIndexClearOldDataFromDisk) {
         static_cast<memgraph::storage::DiskLabelIndex *>(this->storage->indices_.label_index_.get());
 
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto acc = this->CreateIndexAccessor();
+      EXPECT_FALSE(acc->CreateIndex(this->label1).HasError());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
     }
     auto acc1 = this->storage->Access();
     auto vertex = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
     ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(10)));
-    ASSERT_NO_ERROR(acc1->Commit());
+    ASSERT_NO_ERROR(acc1->PrepareForCommitPhase());
 
     auto *tx_db = disk_label_index->GetRocksDBStorage()->db_;
     ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
@@ -617,14 +634,14 @@ TYPED_TEST(IndexTest, LabelIndexClearOldDataFromDisk) {
     auto acc2 = this->storage->Access();
     auto vertex2 = acc2->FindVertex(vertex.Gid(), memgraph::storage::View::NEW).value();
     ASSERT_TRUE(vertex2.SetProperty(this->prop_val, memgraph::storage::PropertyValue(10)).HasValue());
-    ASSERT_FALSE(acc2->Commit().HasError());
+    ASSERT_FALSE(acc2->PrepareForCommitPhase().HasError());
 
     ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
 
     auto acc3 = this->storage->Access();
     auto vertex3 = acc3->FindVertex(vertex.Gid(), memgraph::storage::View::NEW).value();
     ASSERT_TRUE(vertex3.SetProperty(this->prop_val, memgraph::storage::PropertyValue(15)).HasValue());
-    ASSERT_FALSE(acc3->Commit().HasError());
+    ASSERT_FALSE(acc3->PrepareForCommitPhase().HasError());
 
     ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
   }
@@ -637,47 +654,47 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
     EXPECT_EQ(acc->ListAllIndices().label_properties.size(), 0);
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_id}}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_id}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_TRUE(acc->LabelPropertyIndexExists(this->label1, std::array{PropertyPath{this->prop_id}}));
+    EXPECT_TRUE(acc->LabelPropertyIndexReady(this->label1, std::array{PropertyPath{this->prop_id}}));
   }
-  {
-    auto acc = this->storage->Access();
-    EXPECT_THAT(
-        acc->ListAllIndices().label_properties,
-        UnorderedElementsAre(std::make_pair(this->label1, std::vector<PropertyPath>{PropertyPath{this->prop_id}})));
-  }
-  {
-    auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label2, std::array{PropertyPath{this->prop_id}}));
-  }
-
-  {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_TRUE(unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_id}}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
-  }
-
   {
     auto acc = this->storage->Access();
     EXPECT_THAT(
         acc->ListAllIndices().label_properties,
         UnorderedElementsAre(std::make_pair(this->label1, std::vector<PropertyPath>{PropertyPath{this->prop_id}})));
   }
+  {
+    auto acc = this->storage->Access();
+    EXPECT_FALSE(acc->LabelPropertyIndexReady(this->label2, std::array{PropertyPath{this->prop_id}}));
+  }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label2, {PropertyPath{this->prop_id}}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_TRUE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_id}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   {
     auto acc = this->storage->Access();
-    EXPECT_TRUE(acc->LabelPropertyIndexExists(this->label2, std::array{PropertyPath{this->prop_id}}));
+    EXPECT_THAT(
+        acc->ListAllIndices().label_properties,
+        UnorderedElementsAre(std::make_pair(this->label1, std::vector<PropertyPath>{PropertyPath{this->prop_id}})));
+  }
+
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label2, {PropertyPath{this->prop_id}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
+  }
+
+  {
+    auto acc = this->storage->Access();
+    EXPECT_TRUE(acc->LabelPropertyIndexReady(this->label2, std::array{PropertyPath{this->prop_id}}));
   }
 
   {
@@ -689,13 +706,13 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->DropIndex(this->label1, {PropertyPath{this->prop_id}}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->DropIndexAccessor();
+    EXPECT_FALSE(acc->DropIndex(this->label1, {PropertyPath{this->prop_id}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label1, std::array{PropertyPath{this->prop_id}}));
+    EXPECT_FALSE(acc->LabelPropertyIndexReady(this->label1, std::array{PropertyPath{this->prop_id}}));
   }
 
   {
@@ -706,19 +723,19 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_TRUE(unique_acc->DropIndex(this->label1, {PropertyPath{this->prop_id}}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->DropIndexAccessor();
+    EXPECT_TRUE(acc->DropIndex(this->label1, {PropertyPath{this->prop_id}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->DropIndex(this->label2, {PropertyPath{this->prop_id}}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->DropIndexAccessor();
+    EXPECT_FALSE(acc->DropIndex(this->label2, {PropertyPath{this->prop_id}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label2, std::array{PropertyPath{this->prop_id}}));
+    EXPECT_FALSE(acc->LabelPropertyIndexReady(this->label2, std::array{PropertyPath{this->prop_id}}));
   }
 
   {
@@ -737,16 +754,15 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
     EXPECT_EQ(acc->ListAllIndices().label_properties.size(), 0);
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc
-                     ->CreateIndex(this->label1,
-                                   {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1,
+                                  {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})
                      .HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_TRUE(acc->LabelPropertyIndexExists(
+    EXPECT_TRUE(acc->LabelPropertyIndexReady(
         this->label1, std::array{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}));
   }
   {
@@ -758,17 +774,16 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelPropertyIndexExists(
+    EXPECT_FALSE(acc->LabelPropertyIndexReady(
         this->label2, std::array{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}));
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_TRUE(unique_acc
-                    ->CreateIndex(this->label1,
-                                  {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_TRUE(acc->CreateIndex(this->label1,
+                                 {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})
                     .HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   {
@@ -780,17 +795,16 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc
-                     ->CreateIndex(this->label2,
-                                   {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label2,
+                                  {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})
                      .HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   {
     auto acc = this->storage->Access();
-    EXPECT_TRUE(acc->LabelPropertyIndexExists(
+    EXPECT_TRUE(acc->LabelPropertyIndexReady(
         this->label2, std::array{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}));
   }
 
@@ -805,16 +819,15 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc
-                     ->DropIndex(this->label1,
-                                 {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})
+    auto acc = this->DropIndexAccessor();
+    EXPECT_FALSE(acc->DropIndex(this->label1,
+                                {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})
                      .HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelPropertyIndexExists(
+    EXPECT_FALSE(acc->LabelPropertyIndexReady(
         this->label1, std::array{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}));
   }
 
@@ -827,25 +840,23 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_TRUE(unique_acc
-                    ->DropIndex(this->label1,
-                                {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})
+    auto acc = this->DropIndexAccessor();
+    EXPECT_TRUE(acc->DropIndex(this->label1,
+                               {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})
                     .HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc
-                     ->DropIndex(this->label2,
-                                 {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})
+    auto acc = this->DropIndexAccessor();
+    EXPECT_FALSE(acc->DropIndex(this->label2,
+                                {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})
                      .HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelPropertyIndexExists(
+    EXPECT_FALSE(acc->LabelPropertyIndexReady(
         this->label2, std::array{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}));
   }
 
@@ -863,14 +874,14 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelPropertyIndexBasic) {
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label2, {PropertyPath{this->prop_val}}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label2, {PropertyPath{this->prop_val}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   auto acc = this->storage->Access();
@@ -1012,18 +1023,16 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexBasic) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc
-                     ->CreateIndex(this->label1,
-                                   {PropertyPath{this->prop_b}, PropertyPath{this->prop_a}, PropertyPath{this->prop_c}})
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1,
+                                  {PropertyPath{this->prop_b}, PropertyPath{this->prop_a}, PropertyPath{this->prop_c}})
                      .HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(
-        unique_acc->CreateIndex(this->label2, {PropertyPath{this->prop_c}, PropertyPath{this->prop_b}}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label2, {PropertyPath{this->prop_c}, PropertyPath{this->prop_b}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   auto acc = this->storage->Access();
@@ -1208,9 +1217,9 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexBasic) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelPropertyIndexDuplicateVersions) {
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   {
@@ -1226,7 +1235,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexDuplicateVersions) {
                              View::NEW),
                 UnorderedElementsAre(0, 1, 2, 3, 4));
 
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   {
@@ -1272,9 +1281,9 @@ TYPED_TEST(IndexTest, LabelPropertyIndexStrictInsert) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    ASSERT_FALSE(unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    ASSERT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   auto acc = this->storage->Access();
@@ -1299,9 +1308,9 @@ TYPED_TEST(IndexTest, LabelPropertyIndexStrictInsert) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelPropertyIndexTransactionalIsolation) {
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   auto acc_before = this->storage->Access();
@@ -1329,7 +1338,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexTransactionalIsolation) {
                            View::NEW),
               IsEmpty());
 
-  ASSERT_NO_ERROR(acc->Commit());
+  ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
 
   auto acc_after_commit = this->storage->Access();
 
@@ -1358,9 +1367,9 @@ TYPED_TEST(IndexTest, LabelPropertyIndexFiltering) {
   // properly.
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   {
@@ -1371,7 +1380,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexFiltering) {
       ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
       ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, i % 2 ? PropertyValue(i / 2) : PropertyValue(i / 2.0)));
     }
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
   {
     auto acc = this->storage->Access();
@@ -1450,9 +1459,9 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCountEstimate) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   auto acc = this->storage->Access();
@@ -1484,10 +1493,9 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCountEstimate) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(
-        unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   auto acc = this->storage->Access();
@@ -1530,9 +1538,9 @@ TYPED_TEST(IndexTest, LabelPropertyNestedIndexCountEstimate) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_a, this->prop_b}}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_a, this->prop_b}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   auto acc = this->storage->Access();
@@ -1561,9 +1569,9 @@ TYPED_TEST(IndexTest, LabelPropertyNestedIndexCountEstimate) {
 
 TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   const std::array temporals{TemporalData{TemporalType::Date, 23}, TemporalData{TemporalType::Date, 28},
@@ -1616,7 +1624,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
       ASSERT_TRUE(v.AddLabel(this->label1).HasValue());
       ASSERT_TRUE(v.SetProperty(this->prop_val, value).HasValue());
     }
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
   }
 
   // Verify that all nodes are in the index.
@@ -1816,9 +1824,9 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {PropertyPath{prop_a}, PropertyPath{prop_b}}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{prop_a}, PropertyPath{prop_b}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   auto a_values = ranges::views::iota(0, 5) | ranges::views::transform([](int val) { return PropertyValue(val); }) |
@@ -1837,7 +1845,7 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
       ASSERT_TRUE(v.SetProperty(prop_b, b_val).HasValue());
     }
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
   }
 
   auto const inclusive_bound = [](PropertyValue val) { return memgraph::utils::MakeBoundInclusive(val); };
@@ -1908,9 +1916,9 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
 TYPED_TEST(IndexTest, LabelPropertyIndexDeletedVertex) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto acc = this->CreateIndexAccessor();
+      EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
     }
     auto acc1 = this->storage->Access();
 
@@ -1923,13 +1931,13 @@ TYPED_TEST(IndexTest, LabelPropertyIndexDeletedVertex) {
     ASSERT_NO_ERROR(vertex2.SetProperty(this->prop_val, PropertyValue(1)));
 
     EXPECT_THAT(this->GetIds(acc1->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
-    ASSERT_NO_ERROR(acc1->Commit());
+    ASSERT_NO_ERROR(acc1->PrepareForCommitPhase());
 
     auto acc2 = this->storage->Access();
     auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
     auto res = acc2->DeleteVertex(&*vertex_to_delete);
     ASSERT_FALSE(res.HasError());
-    ASSERT_NO_ERROR(acc2->Commit());
+    ASSERT_NO_ERROR(acc2->PrepareForCommitPhase());
 
     auto acc3 = this->storage->Access();
     EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
@@ -1943,9 +1951,9 @@ TYPED_TEST(IndexTest, LabelPropertyIndexDeletedVertex) {
 TYPED_TEST(IndexTest, LabelPropertyIndexRemoveIndexedLabel) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto acc = this->CreateIndexAccessor();
+      EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
     }
     auto acc1 = this->storage->Access();
 
@@ -1958,13 +1966,13 @@ TYPED_TEST(IndexTest, LabelPropertyIndexRemoveIndexedLabel) {
     ASSERT_NO_ERROR(vertex2.SetProperty(this->prop_val, PropertyValue(1)));
 
     EXPECT_THAT(this->GetIds(acc1->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
-    ASSERT_NO_ERROR(acc1->Commit());
+    ASSERT_NO_ERROR(acc1->PrepareForCommitPhase());
 
     auto acc2 = this->storage->Access();
     auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
     auto res = vertex_to_delete->RemoveLabel(this->label1);
     ASSERT_FALSE(res.HasError());
-    ASSERT_NO_ERROR(acc2->Commit());
+    ASSERT_NO_ERROR(acc2->PrepareForCommitPhase());
 
     auto acc3 = this->storage->Access();
     EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
@@ -1977,9 +1985,9 @@ TYPED_TEST(IndexTest, LabelPropertyIndexRemoveIndexedLabel) {
 TYPED_TEST(IndexTest, LabelPropertyIndexRemoveAndAddIndexedLabel) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto acc = this->CreateIndexAccessor();
+      EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
     }
     auto acc1 = this->storage->Access();
 
@@ -1992,7 +2000,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexRemoveAndAddIndexedLabel) {
     ASSERT_NO_ERROR(vertex2.SetProperty(this->prop_val, PropertyValue(1)));
 
     EXPECT_THAT(this->GetIds(acc1->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
-    ASSERT_NO_ERROR(acc1->Commit());
+    ASSERT_NO_ERROR(acc1->PrepareForCommitPhase());
 
     auto acc2 = this->storage->Access();
     auto target_vertex = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
@@ -2000,7 +2008,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexRemoveAndAddIndexedLabel) {
     ASSERT_FALSE(remove_res.HasError());
     auto add_res = target_vertex->AddLabel(this->label1);
     ASSERT_FALSE(add_res.HasError());
-    ASSERT_NO_ERROR(acc2->Commit());
+    ASSERT_NO_ERROR(acc2->PrepareForCommitPhase());
   }
 }
 
@@ -2010,15 +2018,15 @@ TYPED_TEST(IndexTest, LabelPropertyIndexClearOldDataFromDisk) {
         static_cast<memgraph::storage::DiskLabelPropertyIndex *>(this->storage->indices_.label_property_index_.get());
 
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto acc = this->CreateIndexAccessor();
+      EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
     }
     auto acc1 = this->storage->Access();
     auto vertex = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
     ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(10)));
-    ASSERT_NO_ERROR(acc1->Commit());
+    ASSERT_NO_ERROR(acc1->PrepareForCommitPhase());
 
     auto *tx_db = disk_label_property_index->GetRocksDBStorage()->db_;
     ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
@@ -2026,14 +2034,14 @@ TYPED_TEST(IndexTest, LabelPropertyIndexClearOldDataFromDisk) {
     auto acc2 = this->storage->Access();
     auto vertex2 = acc2->FindVertex(vertex.Gid(), memgraph::storage::View::NEW).value();
     ASSERT_TRUE(vertex2.SetProperty(this->prop_val, memgraph::storage::PropertyValue(10)).HasValue());
-    ASSERT_FALSE(acc2->Commit().HasError());
+    ASSERT_FALSE(acc2->PrepareForCommitPhase().HasError());
 
     ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
 
     auto acc3 = this->storage->Access();
     auto vertex3 = acc3->FindVertex(vertex.Gid(), memgraph::storage::View::NEW).value();
     ASSERT_TRUE(vertex3.SetProperty(this->prop_val, memgraph::storage::PropertyValue(15)).HasValue());
-    ASSERT_FALSE(acc3->Commit().HasError());
+    ASSERT_FALSE(acc3->PrepareForCommitPhase().HasError());
 
     ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
   }
@@ -2044,7 +2052,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     {
       auto acc = this->storage->Access();
-      EXPECT_FALSE(acc->EdgeTypeIndexExists(this->edge_type_id1));
+      EXPECT_FALSE(acc->EdgeTypeIndexReady(this->edge_type_id1));
       EXPECT_EQ(acc->ListAllIndices().edge_type.size(), 0);
       EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1), 0);
     }
@@ -2056,19 +2064,19 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
         auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
         this->CreateEdge(&vertex_from, &vertex_to, i % 2 ? this->edge_type_id1 : this->edge_type_id2, acc.get());
       }
-      ASSERT_NO_ERROR(acc->Commit());
-      EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1), 0);
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
     }
 
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
-      EXPECT_EQ(unique_acc->ApproximateEdgeCount(this->edge_type_id1), 5);
+      auto read_only_acc = this->storage->ReadOnlyAccess();
+      EXPECT_EQ(read_only_acc->ApproximateEdgeCount(this->edge_type_id1), 0);
+      EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id1).HasError());
+      ASSERT_NO_ERROR(read_only_acc->PrepareForCommitPhase());
     }
 
     {
       auto acc = this->storage->Access();
+      EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1), 5);
       EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::OLD), View::OLD),
                   UnorderedElementsAre(1, 3, 5, 7, 9));
       EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::NEW), View::NEW),
@@ -2120,7 +2128,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
       EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::NEW), View::NEW),
                   UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
 
-      ASSERT_NO_ERROR(acc->Commit());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
       EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1), 10);
     }
 
@@ -2138,7 +2146,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
       EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::NEW), View::NEW),
                   UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
 
-      ASSERT_NO_ERROR(acc->Commit());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
     }
 
     // Check that GC doesn't remove useful elements
@@ -2164,7 +2172,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
             }
           }
         }
-        ASSERT_NO_ERROR(acc->Commit());
+        ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
       }
       this->storage->FreeMemory({}, false);
       this->storage->FreeMemory({}, false);
@@ -2185,7 +2193,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
             }
           }
         }
-        ASSERT_NO_ERROR(acc->Commit());
+        ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
       }
       this->storage->FreeMemory({}, false);
       this->storage->FreeMemory({}, false);
@@ -2201,7 +2209,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexDrop) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     {
       auto acc = this->storage->Access();
-      EXPECT_FALSE(acc->EdgeTypeIndexExists(this->edge_type_id1));
+      EXPECT_FALSE(acc->EdgeTypeIndexReady(this->edge_type_id1));
       EXPECT_EQ(acc->ListAllIndices().edge_type.size(), 0);
     }
 
@@ -2212,13 +2220,13 @@ TYPED_TEST(IndexTest, EdgeTypeIndexDrop) {
         auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
         this->CreateEdge(&vertex_from, &vertex_to, i % 2 ? this->edge_type_id1 : this->edge_type_id2, acc.get());
       }
-      ASSERT_NO_ERROR(acc->Commit());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
     }
 
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto read_only_acc = this->storage->ReadOnlyAccess();
+      EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id1).HasError());
+      ASSERT_NO_ERROR(read_only_acc->PrepareForCommitPhase());
     }
 
     {
@@ -2231,14 +2239,14 @@ TYPED_TEST(IndexTest, EdgeTypeIndexDrop) {
     }
 
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->DropIndex(this->edge_type_id1).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
-      EXPECT_EQ(unique_acc->ApproximateEdgeCount(this->edge_type_id1), 0);
+      auto drop_acc = this->DropIndexAccessor();
+      EXPECT_FALSE(drop_acc->DropIndex(this->edge_type_id1).HasError());
+      ASSERT_NO_ERROR(drop_acc->PrepareForCommitPhase());
     }
     {
       auto acc = this->storage->Access();
-      EXPECT_FALSE(acc->EdgeTypeIndexExists(this->edge_type_id1));
+      EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1), 0);
+      EXPECT_FALSE(acc->EdgeTypeIndexReady(this->edge_type_id1));
       EXPECT_EQ(acc->ListAllIndices().edge_type.size(), 0);
       EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1), 0);
     }
@@ -2250,17 +2258,17 @@ TYPED_TEST(IndexTest, EdgeTypeIndexDrop) {
         auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
         this->CreateEdge(&vertex_from, &vertex_to, i % 2 ? this->edge_type_id1 : this->edge_type_id2, acc.get());
       }
-      ASSERT_NO_ERROR(acc->Commit());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
     }
 
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto read_only_acc = this->storage->ReadOnlyAccess();
+      EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id1).HasError());
+      ASSERT_NO_ERROR(read_only_acc->PrepareForCommitPhase());
     }
     {
       auto acc = this->storage->Access();
-      EXPECT_TRUE(acc->EdgeTypeIndexExists(this->edge_type_id1));
+      EXPECT_TRUE(acc->EdgeTypeIndexReady(this->edge_type_id1));
       EXPECT_THAT(acc->ListAllIndices().edge_type, UnorderedElementsAre(this->edge_type_id1));
     }
 
@@ -2291,14 +2299,14 @@ TYPED_TEST(IndexTest, EdgeTypeIndexBasic) {
   // 3. Delete even numbered edges.
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto read_only_acc = this->storage->ReadOnlyAccess();
+      EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id1).HasError());
+      ASSERT_NO_ERROR(read_only_acc->PrepareForCommitPhase());
     }
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id2).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto read_only_acc = this->storage->ReadOnlyAccess();
+      EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id2).HasError());
+      ASSERT_NO_ERROR(read_only_acc->PrepareForCommitPhase());
     }
 
     auto acc = this->storage->Access();
@@ -2365,14 +2373,14 @@ TYPED_TEST(IndexTest, EdgeTypeIndexTransactionalIsolation) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     // Check that transactions only see entries they are supposed to see.
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto read_only_acc = this->storage->ReadOnlyAccess();
+      EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id1).HasError());
+      ASSERT_NO_ERROR(read_only_acc->PrepareForCommitPhase());
     }
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id2).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto read_only_acc = this->storage->ReadOnlyAccess();
+      EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id2).HasError());
+      ASSERT_NO_ERROR(read_only_acc->PrepareForCommitPhase());
     }
 
     auto acc_before = this->storage->Access();
@@ -2392,7 +2400,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexTransactionalIsolation) {
 
     EXPECT_THAT(this->GetIds(acc_after->Edges(this->edge_type_id1, View::NEW), View::NEW), IsEmpty());
 
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
 
     auto acc_after_commit = this->storage->Access();
 
@@ -2409,14 +2417,14 @@ TYPED_TEST(IndexTest, EdgeTypeIndexTransactionalIsolation) {
 TYPED_TEST(IndexTest, EdgeTypeIndexCountEstimate) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto read_only_acc = this->storage->ReadOnlyAccess();
+      EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id1).HasError());
+      ASSERT_NO_ERROR(read_only_acc->PrepareForCommitPhase());
     }
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id2).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto read_only_acc = this->storage->ReadOnlyAccess();
+      EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id2).HasError());
+      ASSERT_NO_ERROR(read_only_acc->PrepareForCommitPhase());
     }
 
     auto acc = this->storage->Access();
@@ -2435,9 +2443,9 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCountEstimate) {
 TYPED_TEST(IndexTest, EdgeTypeIndexRepeatingEdgeTypesBetweenSameVertices) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto read_only_acc = this->storage->ReadOnlyAccess();
+      EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id1).HasError());
+      ASSERT_NO_ERROR(read_only_acc->PrepareForCommitPhase());
     }
 
     auto acc = this->storage->Access();
@@ -2462,7 +2470,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->EdgeTypePropertyIndexExists(this->edge_type_id1, this->edge_prop_id1));
+    EXPECT_FALSE(acc->EdgeTypePropertyIndexReady(this->edge_type_id1, this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_type_property.size(), 0);
     EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1, this->edge_prop_id1), 0);
   }
@@ -2476,19 +2484,19 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
           this->CreateEdge(&vertex_from, &vertex_to, i % 2 ? this->edge_type_id1 : this->edge_type_id2, acc.get());
       ASSERT_NO_ERROR(edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i)));
     }
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
     EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1, this->edge_prop_id1), 0);
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
-    EXPECT_EQ(unique_acc->ApproximateEdgeCount(this->edge_type_id1, this->edge_prop_id1), 5);
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   {
     auto acc = this->storage->Access();
+    EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1, this->edge_prop_id1), 5);
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::OLD), View::OLD),
                 UnorderedElementsAre(1, 3, 5, 7, 9));
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
@@ -2544,7 +2552,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
 
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
     EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1, this->edge_prop_id1), 10);
   }
 
@@ -2562,7 +2570,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
 
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   // Check that GC doesn't remove useful elements
@@ -2588,7 +2596,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
           }
         }
       }
-      ASSERT_NO_ERROR(acc->Commit());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
     }
     this->storage->FreeMemory({}, false);
     this->storage->FreeMemory({}, false);
@@ -2609,7 +2617,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
           }
         }
       }
-      ASSERT_NO_ERROR(acc->Commit());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
     }
     this->storage->FreeMemory({}, false);
     this->storage->FreeMemory({}, false);
@@ -2626,7 +2634,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexDrop) {
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->EdgeTypePropertyIndexExists(this->edge_type_id1, this->edge_prop_id1));
+    EXPECT_FALSE(acc->EdgeTypePropertyIndexReady(this->edge_type_id1, this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_type_property.size(), 0);
   }
 
@@ -2639,13 +2647,13 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexDrop) {
           this->CreateEdge(&vertex_from, &vertex_to, i % 2 ? this->edge_type_id1 : this->edge_type_id2, acc.get());
       ASSERT_NO_ERROR(edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i)));
     }
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   {
@@ -2657,24 +2665,24 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexDrop) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->DropIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->DropIndexAccessor();
+    EXPECT_FALSE(acc->DropIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->EdgeTypePropertyIndexExists(this->edge_type_id1, this->edge_prop_id1));
+    EXPECT_FALSE(acc->EdgeTypePropertyIndexReady(this->edge_type_id1, this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_type_property.size(), 0);
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_TRUE(unique_acc->DropIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->DropIndexAccessor();
+    EXPECT_TRUE(acc->DropIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->EdgeTypePropertyIndexExists(this->edge_type_id1, this->edge_prop_id1));
+    EXPECT_FALSE(acc->EdgeTypePropertyIndexReady(this->edge_type_id1, this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_type_property.size(), 0);
   }
 
@@ -2687,17 +2695,17 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexDrop) {
           this->CreateEdge(&vertex_from, &vertex_to, i % 2 ? this->edge_type_id1 : this->edge_type_id2, acc.get());
       ASSERT_NO_ERROR(edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i)));
     }
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_TRUE(acc->EdgeTypePropertyIndexExists(this->edge_type_id1, this->edge_prop_id1));
+    EXPECT_TRUE(acc->EdgeTypePropertyIndexReady(this->edge_type_id1, this->edge_prop_id1));
     EXPECT_THAT(acc->ListAllIndices().edge_type_property,
                 UnorderedElementsAre(std::make_pair(this->edge_type_id1, this->edge_prop_id1)));
   }
@@ -2730,14 +2738,14 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexBasic) {
     return;
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id2, this->edge_prop_id2).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->edge_type_id2, this->edge_prop_id2).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   auto acc = this->storage->Access();
@@ -2813,14 +2821,14 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexTransactionalIsolation) {
   }
   // Check that transactions only see entries they are supposed to see.
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id2, this->edge_prop_id2).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->edge_type_id2, this->edge_prop_id2).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   auto acc_before = this->storage->Access();
@@ -2843,7 +2851,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexTransactionalIsolation) {
   EXPECT_THAT(this->GetIds(acc_after->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
               IsEmpty());
 
-  ASSERT_NO_ERROR(acc->Commit());
+  ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
 
   auto acc_after_commit = this->storage->Access();
 
@@ -2863,14 +2871,14 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCountEstimate) {
     return;
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id2, this->edge_prop_id2).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->edge_type_id2, this->edge_prop_id2).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   auto acc = this->storage->Access();
@@ -2896,9 +2904,9 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexRepeatingEdgeTypesBetweenSameVertices
     return;
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   auto acc = this->storage->Access();
@@ -2932,7 +2940,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexCreate) {
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->EdgePropertyIndexExists(this->edge_prop_id1));
+    EXPECT_FALSE(acc->EdgePropertyIndexReady(this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_type_property.size(), 0);
     EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_prop_id1), 0);
   }
@@ -2946,19 +2954,19 @@ TYPED_TEST(IndexTest, EdgePropertyIndexCreate) {
           this->CreateEdge(&vertex_from, &vertex_to, i % 2 ? this->edge_type_id1 : this->edge_type_id2, acc.get());
       ASSERT_NO_ERROR(edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i)));
     }
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
     EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_prop_id1), 0);
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
-    EXPECT_EQ(unique_acc->ApproximateEdgeCount(this->edge_prop_id1), 10);
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   {
     auto acc = this->storage->Access();
+    EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_prop_id1), 10);
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_prop_id1, View::OLD), View::OLD),
                 UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9));
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_prop_id1, View::NEW), View::NEW),
@@ -3014,7 +3022,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexCreate) {
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_prop_id1, View::NEW), View::NEW),
                 UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29));
 
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
     EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_prop_id1), 20);
   }
 
@@ -3032,7 +3040,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexCreate) {
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_prop_id1, View::NEW), View::NEW),
                 UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29));
 
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   // Check that GC doesn't remove useful elements
@@ -3058,7 +3066,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexCreate) {
           }
         }
       }
-      ASSERT_NO_ERROR(acc->Commit());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
     }
     this->storage->FreeMemory({}, false);
     this->storage->FreeMemory({}, false);
@@ -3079,7 +3087,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexCreate) {
           }
         }
       }
-      ASSERT_NO_ERROR(acc->Commit());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
     }
     this->storage->FreeMemory({}, false);
     this->storage->FreeMemory({}, false);
@@ -3096,7 +3104,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexDrop) {
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->EdgePropertyIndexExists(this->edge_prop_id1));
+    EXPECT_FALSE(acc->EdgePropertyIndexReady(this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_property.size(), 0);
   }
 
@@ -3109,13 +3117,13 @@ TYPED_TEST(IndexTest, EdgePropertyIndexDrop) {
           this->CreateEdge(&vertex_from, &vertex_to, i % 2 ? this->edge_type_id1 : this->edge_type_id2, acc.get());
       ASSERT_NO_ERROR(edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i)));
     }
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   {
@@ -3127,24 +3135,24 @@ TYPED_TEST(IndexTest, EdgePropertyIndexDrop) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->DropGlobalEdgeIndex(this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->DropIndexAccessor();
+    EXPECT_FALSE(acc->DropGlobalEdgeIndex(this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->EdgePropertyIndexExists(this->edge_prop_id1));
+    EXPECT_FALSE(acc->EdgePropertyIndexReady(this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_property.size(), 0);
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_TRUE(unique_acc->DropGlobalEdgeIndex(this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->DropIndexAccessor();
+    EXPECT_TRUE(acc->DropGlobalEdgeIndex(this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->EdgePropertyIndexExists(this->edge_prop_id1));
+    EXPECT_FALSE(acc->EdgePropertyIndexReady(this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_property.size(), 0);
   }
 
@@ -3157,17 +3165,17 @@ TYPED_TEST(IndexTest, EdgePropertyIndexDrop) {
           this->CreateEdge(&vertex_from, &vertex_to, i % 2 ? this->edge_type_id1 : this->edge_type_id2, acc.get());
       ASSERT_NO_ERROR(edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i)));
     }
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_TRUE(acc->EdgePropertyIndexExists(this->edge_prop_id1));
+    EXPECT_TRUE(acc->EdgePropertyIndexReady(this->edge_prop_id1));
     EXPECT_THAT(acc->ListAllIndices().edge_property, UnorderedElementsAre(this->edge_prop_id1));
   }
 
@@ -3199,14 +3207,14 @@ TYPED_TEST(IndexTest, EdgePropertyIndexBasic) {
     return;
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateGlobalEdgeIndex(this->edge_prop_id2).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id2).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   auto acc = this->storage->Access();
@@ -3269,14 +3277,14 @@ TYPED_TEST(IndexTest, EdgePropertyIndexTransactionalIsolation) {
   }
   // Check that transactions only see entries they are supposed to see.
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateGlobalEdgeIndex(this->edge_prop_id2).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id2).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   auto acc_before = this->storage->Access();
@@ -3296,7 +3304,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexTransactionalIsolation) {
 
   EXPECT_THAT(this->GetIds(acc_after->Edges(this->edge_prop_id1, View::NEW), View::NEW), IsEmpty());
 
-  ASSERT_NO_ERROR(acc->Commit());
+  ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
 
   auto acc_after_commit = this->storage->Access();
 
@@ -3314,14 +3322,14 @@ TYPED_TEST(IndexTest, EdgePropertyIndexCountEstimate) {
     return;
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateGlobalEdgeIndex(this->edge_prop_id2).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id2).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   auto acc = this->storage->Access();
@@ -3347,9 +3355,9 @@ TYPED_TEST(IndexTest, EdgePropertyIndexRepeatingEdgeTypesBetweenSameVertices) {
     return;
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   auto acc = this->storage->Access();
@@ -3384,10 +3392,9 @@ TYPED_TEST(IndexTest, CanIterateNestedLabelPropertyIndex) {
   };
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(
-        unique_acc->CreateIndex(this->label1, {PropertyPath{this->prop_a, this->prop_b, this->prop_c}}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_a, this->prop_b, this->prop_c}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   {
@@ -3418,7 +3425,7 @@ TYPED_TEST(IndexTest, CanIterateNestedLabelPropertyIndex) {
             vertex.SetProperty(this->prop_a, make_map(this->prop_b, make_map(this->prop_c, PropertyValue(true)))));
       }
     }
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   auto acc = this->storage->Access();
@@ -3490,14 +3497,13 @@ TYPED_TEST(IndexTest, CompositeIndicesReadOutOfOrderProperties) {
 #endif
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
+    auto acc = this->CreateIndexAccessor();
     // Note the index properties are not based on monotonic `PropertyId`. They
     // will need to be permuted when writing and reading from the property store.
-    EXPECT_FALSE(unique_acc
-                     ->CreateIndex(this->label1,
-                                   {PropertyPath{this->prop_b}, PropertyPath{this->prop_a}, PropertyPath{this->prop_c}})
+    EXPECT_FALSE(acc->CreateIndex(this->label1,
+                                  {PropertyPath{this->prop_b}, PropertyPath{this->prop_a}, PropertyPath{this->prop_c}})
                      .HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   auto acc = this->storage->Access();
@@ -3589,15 +3595,14 @@ TYPED_TEST(IndexTest, NestedIndicesReadOutOfOrderProperties) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
+    auto acc = this->CreateIndexAccessor();
     // Note the index properties are not based on monotonic `PropertyId`. They
     // will need to be permuted when writing and reading from the property store.
-    EXPECT_FALSE(unique_acc
-                     ->CreateIndex(this->label1,
-                                   {PropertyPath{this->prop_b, this->prop_d}, PropertyPath{this->prop_a, this->prop_d},
-                                    PropertyPath{this->prop_c, this->prop_d}})
+    EXPECT_FALSE(acc->CreateIndex(this->label1,
+                                  {PropertyPath{this->prop_b, this->prop_d}, PropertyPath{this->prop_a, this->prop_d},
+                                   PropertyPath{this->prop_c, this->prop_d}})
                      .HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
   }
 
   auto acc = this->storage->Access();
@@ -3682,4 +3687,40 @@ TYPED_TEST(IndexTest, DeltaDoesNotLeak) {
     vertex.SetProperty(this->prop_a, PropertyValue("goodbye"));
   }
   this->storage->FreeMemory();
+}
+
+TYPED_TEST(IndexTest, LabelPropertiesIndicesScansOnlyStringsForRegexes) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Regex index search currently not supported on disk";
+  }
+  auto const values = std::vector{
+      PropertyValue{false},    PropertyValue{true},    PropertyValue{2},
+      PropertyValue{3},        PropertyValue{"apple"}, PropertyValue{"banana"},
+      PropertyValue{"cherry"}, PropertyValue{"date"},  PropertyValue{"eggplant"},
+  };
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase());
+  }
+
+  auto acc = this->storage->Access();
+
+  for (auto &&value : values) {
+    auto vertex = this->CreateVertex(acc.get());
+    ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+    ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, value));
+  }
+
+  auto const get_ids = [&](View view) {
+    return this->GetIds(
+        acc->Vertices(
+            this->label1, std::array{PropertyPath{this->prop_val}},
+            std::array{pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue("")),
+                                  memgraph::storage::UpperBoundForType(memgraph::storage::PropertyValueType::String))},
+            view),
+        view);
+  };
+
+  EXPECT_THAT(get_ids(View::NEW), UnorderedElementsAre(4, 5, 6, 7, 8));
 }

@@ -1,5 +1,6 @@
 find_package(gflags REQUIRED)
 
+copy_e2e_python_files(high_availability strict_sync.py)
 copy_e2e_python_files(high_availability coordinator.py)
 copy_e2e_python_files(high_availability single_coordinator.py)
 copy_e2e_python_files(high_availability coord_cluster_registration.py)

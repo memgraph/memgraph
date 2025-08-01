@@ -1,4 +1,4 @@
-# Copyright 2023 Memgraph Ltd.
+# Copyright 2025 Memgraph Ltd.
 #
 # Use of this software is governed by the Business Source License
 # included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -39,6 +39,9 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "RegisterReplicaOnMainRpcFail", "type": "HighAvailability", "metric type": "Counter"},
         {"name": "RegisterReplicaOnMainRpcSuccess", "type": "HighAvailability", "metric type": "Counter"},
         {"name": "RemoveCoordInstance", "type": "HighAvailability", "metric type": "Counter"},
+        {"name": "ReplicaRecoveryFail", "type": "HighAvailability", "metric type": "Counter"},
+        {"name": "ReplicaRecoverySkip", "type": "HighAvailability", "metric type": "Counter"},
+        {"name": "ReplicaRecoverySuccess", "type": "HighAvailability", "metric type": "Counter"},
         {"name": "ShowInstance", "type": "HighAvailability", "metric type": "Counter"},
         {"name": "ShowInstances", "type": "HighAvailability", "metric type": "Counter"},
         {"name": "StateCheckRpcFail", "type": "HighAvailability", "metric type": "Counter"},
@@ -49,9 +52,6 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "UnregisterReplInstance", "type": "HighAvailability", "metric type": "Counter"},
         {"name": "UnregisterReplicaRpcFail", "type": "HighAvailability", "metric type": "Counter"},
         {"name": "UnregisterReplicaRpcSuccess", "type": "HighAvailability", "metric type": "Counter"},
-        {"name": "AppendDeltasRpc_us_50p", "type": "HighAvailability", "metric type": "Histogram"},
-        {"name": "AppendDeltasRpc_us_90p", "type": "HighAvailability", "metric type": "Histogram"},
-        {"name": "AppendDeltasRpc_us_99p", "type": "HighAvailability", "metric type": "Histogram"},
         {"name": "ChooseMostUpToDateInstance_us_50p", "type": "HighAvailability", "metric type": "Histogram"},
         {"name": "ChooseMostUpToDateInstance_us_90p", "type": "HighAvailability", "metric type": "Histogram"},
         {"name": "ChooseMostUpToDateInstance_us_99p", "type": "HighAvailability", "metric type": "Histogram"},
@@ -88,6 +88,9 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "InstanceSuccCallback_us_50p", "type": "HighAvailability", "metric type": "Histogram"},
         {"name": "InstanceSuccCallback_us_90p", "type": "HighAvailability", "metric type": "Histogram"},
         {"name": "InstanceSuccCallback_us_99p", "type": "HighAvailability", "metric type": "Histogram"},
+        {"name": "PrepareCommitRpc_us_50p", "type": "HighAvailability", "metric type": "Histogram"},
+        {"name": "PrepareCommitRpc_us_90p", "type": "HighAvailability", "metric type": "Histogram"},
+        {"name": "PrepareCommitRpc_us_99p", "type": "HighAvailability", "metric type": "Histogram"},
         {"name": "PromoteToMainRpc_us_50p", "type": "HighAvailability", "metric type": "Histogram"},
         {"name": "PromoteToMainRpc_us_90p", "type": "HighAvailability", "metric type": "Histogram"},
         {"name": "PromoteToMainRpc_us_99p", "type": "HighAvailability", "metric type": "Histogram"},
@@ -115,10 +118,14 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "WalFilesRpc_us_50p", "type": "HighAvailability", "metric type": "Histogram"},
         {"name": "WalFilesRpc_us_90p", "type": "HighAvailability", "metric type": "Histogram"},
         {"name": "WalFilesRpc_us_99p", "type": "HighAvailability", "metric type": "Histogram"},
+        {"name": "ActiveEdgePropertyIndices", "type": "Index", "metric type": "Counter"},
+        {"name": "ActiveEdgeTypeIndices", "type": "Index", "metric type": "Counter"},
+        {"name": "ActiveEdgeTypePropertyIndices", "type": "Index", "metric type": "Counter"},
         {"name": "ActiveLabelIndices", "type": "Index", "metric type": "Counter"},
         {"name": "ActiveLabelPropertyIndices", "type": "Index", "metric type": "Counter"},
         {"name": "ActivePointIndices", "type": "Index", "metric type": "Counter"},
         {"name": "ActiveTextIndices", "type": "Index", "metric type": "Counter"},
+        {"name": "ActiveVectorEdgeIndices", "type": "Index", "metric type": "Counter"},
         {"name": "ActiveVectorIndices", "type": "Index", "metric type": "Counter"},
         {"name": "UnreleasedDeltaObjects", "type": "Memory", "metric type": "Counter"},
         {"name": "DiskUsage", "type": "Memory", "metric type": "Gauge"},

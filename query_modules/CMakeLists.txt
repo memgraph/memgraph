@@ -30,7 +30,7 @@ function(add_custom_library NAME SRC)
     add_library(${NAME} SHARED ${SRC})
     target_include_directories(${NAME} PRIVATE ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/libs)
     target_compile_options(${NAME} PRIVATE -Wall)
-    target_link_libraries(${NAME} PRIVATE -static-libgcc -static-libstdc++ ${optional_libs})
+    target_link_libraries(${NAME} PRIVATE ${optional_libs})
 
     # Apply post-build strip in release mode
     add_post_build_strip_in_release(${NAME} CMAKE_BUILD_TYPE)
@@ -64,10 +64,6 @@ function(add_query_module target_name version src)
   )
 
   target_compile_options(${target_name} PRIVATE -Wall)
-  target_link_libraries(${target_name} PRIVATE
-      -static-libgcc
-      -static-libstdc++
-  )
 
   add_post_build_strip_in_release(${target_name} CMAKE_BUILD_TYPE)
 
@@ -97,6 +93,7 @@ set(PYTHON_QUERY_MODULES_FILES
     ${CMAKE_CURRENT_SOURCE_DIR}/nxalg.py
     ${CMAKE_CURRENT_SOURCE_DIR}/wcc.py
     ${CMAKE_CURRENT_SOURCE_DIR}/mgps.py
+    ${CMAKE_CURRENT_SOURCE_DIR}/date.py
 )
 add_custom_target(copy_python_query_modules ALL
     COMMAND ${CMAKE_COMMAND} -E copy ${PYTHON_QUERY_MODULES_FILES} ${QUERY_MODULES_BUILD_DIR}
@@ -116,5 +113,6 @@ install(FILES mgp_networkx.py DESTINATION lib/memgraph/query_modules)
 install(FILES nxalg.py DESTINATION lib/memgraph/query_modules)
 install(FILES wcc.py DESTINATION lib/memgraph/query_modules)
 install(FILES mgps.py DESTINATION lib/memgraph/query_modules)
+install(FILES date.py DESTINATION lib/memgraph/query_modules)
 
 # IMPORTANT: when adding enterprise module add its name to kEnterpriseModuleList in src/query/procedure/module.cpp
