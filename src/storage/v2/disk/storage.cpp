@@ -72,8 +72,8 @@ namespace memgraph::storage {
 
 namespace {
 
-auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex, VertexAccessor *to_vertex)
-    -> Result<EdgesVertexAccessorResult> {
+auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex,
+               VertexAccessor *to_vertex) -> Result<EdgesVertexAccessorResult> {
   auto use_out_edges = [](Vertex const *from_vertex, Vertex const *to_vertex) {
     // Obtain the locks by `gid` order to avoid lock cycles.
     auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
@@ -1814,6 +1814,8 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Pr
         case MetadataDelta::Action::VECTOR_EDGE_INDEX_CREATE:
         case MetadataDelta::Action::VECTOR_INDEX_DROP:
           throw utils::NotYetImplemented("Vector index is not implemented for DiskStorage. {}", kErrorMessage);
+        case MetadataDelta::Action::TTL_OPERATION:
+          throw utils::NotYetImplemented("TTL operations are not implemented for DiskStorage. {}", kErrorMessage);
       }
     }
   } else if (transaction_.deltas.empty() ||
@@ -2304,8 +2306,8 @@ std::vector<VectorEdgeIndexInfo> DiskStorage::DiskAccessor::ListAllVectorEdgeInd
 
 auto DiskStorage::DiskAccessor::PointVertices(LabelId /*label*/, PropertyId /*property*/,
                                               CoordinateReferenceSystem /*crs*/, PropertyValue const & /*bottom_left*/,
-                                              PropertyValue const & /*top_right*/, WithinBBoxCondition /*condition*/)
-    -> PointIterable {
+                                              PropertyValue const & /*top_right*/,
+                                              WithinBBoxCondition /*condition*/) -> PointIterable {
   throw utils::NotYetImplemented("Point Vertices is not yet implemented for on-disk storage. {}", kErrorMessage);
 };
 
@@ -2370,6 +2372,11 @@ std::unique_ptr<Storage::Accessor> DiskStorage::ReadOnlyAccess(std::optional<Iso
       new DiskAccessor{Storage::Accessor::read_only_access, this, isolation_level, storage_mode_});
 }
 
+bool DiskStorage::DiskAccessor::LabelPropertyIndexExists(LabelId label,
+                                                         std::span<PropertyPath const> properties) const {
+  return transaction_.active_indices_.label_properties_->IndexExists(label, properties);
+}
+
 bool DiskStorage::DiskAccessor::EdgeTypeIndexReady(EdgeTypeId /*edge_type*/) const {
   spdlog::info("Edge-type index related operations are not yet supported using on-disk storage mode. {}",
                kErrorMessage);
@@ -2379,6 +2386,11 @@ bool DiskStorage::DiskAccessor::EdgeTypeIndexReady(EdgeTypeId /*edge_type*/) con
 bool DiskStorage::DiskAccessor::EdgeTypePropertyIndexReady(EdgeTypeId /*edge_type*/, PropertyId /*property*/) const {
   spdlog::info("Edge-type index related operations are not yet supported using on-disk storage mode. {}",
                kErrorMessage);
+  return false;
+}
+
+bool DiskStorage::DiskAccessor::EdgePropertyIndexExists(PropertyId /*property*/) const {
+  spdlog::info("Edge index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
   return false;
 }
 

@@ -16,12 +16,15 @@
 #include "spdlog/spdlog.h"
 
 #include "flags/experimental.hpp"
+#include "license/license.hpp"
+#include "storage/v2/async_indexer.hpp"
 #include "storage/v2/disk/name_id_mapper.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/schema_info_glue.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/transaction.hpp"
+#include "storage/v2/ttl.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/view.hpp"
@@ -99,6 +102,11 @@ Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr inv
       indices_(config, storage_mode),
       constraints_(config, storage_mode),
       invalidator_{std::move(invalidator)} {
+  if (storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL) {
+    // Async index creation is only possible in IN_MEMORY_TRANSACTIONAL
+    async_indexer_.emplace(stop_source.get_token(), this);
+  }
+
   spdlog::info("Created database with {} storage mode.", StorageModeToString(storage_mode));
 }
 

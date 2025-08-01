@@ -201,6 +201,9 @@ bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig
     auto locked_repl_state = repl_state_.TryLock();
 
     dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
+      // Pause TTL
+      db_acc->ttl().Pause();
+      // Stop any snapshots
       auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
       storage->snapshot_runner_.Pause();
       storage->abort_snapshot_.store(true, std::memory_order_release);

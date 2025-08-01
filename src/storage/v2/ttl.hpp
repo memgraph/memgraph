@@ -11,21 +11,24 @@
 
 #pragma once
 
-#include <filesystem>
+#include <chrono>
+#include <optional>
 #include <string>
 
 #ifdef MG_ENTERPRISE
 
 #include <fmt/core.h>
-#include <chrono>
 #include <nlohmann/json_fwd.hpp>
-#include <optional>
 
-#include "kvstore/kvstore.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/scheduler.hpp"
 
-namespace memgraph::query {
+// Forward declarations
+namespace memgraph::storage {
+class Storage;
+}  // namespace memgraph::storage
+
+namespace memgraph::storage {
 
 struct InterpreterContext;
 
@@ -37,17 +40,32 @@ class TtlException : public utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(TtlException)
 };
 
+class TtlMissingIndexException : public TtlException {
+ public:
+  enum class IndexType { LABEL_PROPERTY, EDGE_PROPERTY };
+
+  TtlMissingIndexException(IndexType index_type, std::string_view details)
+      : TtlException("TTL missing required index: " + std::string(details)), index_type_(index_type) {}
+
+  IndexType GetIndexType() const { return index_type_; }
+
+ private:
+  IndexType index_type_;
+};
+
 struct TtlInfo {
   std::optional<std::chrono::microseconds> period;
   std::optional<std::chrono::system_clock::time_point> start_time;
+  bool should_run_edge_ttl{false};
 
   TtlInfo() = default;
 
   TtlInfo(std::optional<std::chrono::microseconds> period,
-          std::optional<std::chrono::system_clock::time_point> start_time)
-      : period{period}, start_time{start_time} {}
+          std::optional<std::chrono::system_clock::time_point> start_time, bool should_run_edge_ttl)
+      : period{period}, start_time{start_time}, should_run_edge_ttl{should_run_edge_ttl} {}
 
-  TtlInfo(std::string_view period_sv, std::string_view start_time_sv) {
+  TtlInfo(std::string_view period_sv, std::string_view start_time_sv, bool should_run_edge_ttl)
+      : should_run_edge_ttl{should_run_edge_ttl} {
     if (!period_sv.empty()) {
       period = ParsePeriod(period_sv);
     }
@@ -67,11 +85,14 @@ struct TtlInfo {
     if (start_time) {
       str += " at " + StringifyStartTime(*start_time);
     }
+    if (should_run_edge_ttl) {
+      str += " (edge TTL enabled)";
+    }
     return str;
   }
 
   /**
-   * @brief
+   * @brief Parse a period string into microseconds
    *
    * @param sv
    * @return std::chrono::microseconds
@@ -79,7 +100,7 @@ struct TtlInfo {
   static std::chrono::microseconds ParsePeriod(std::string_view sv);
 
   /**
-   * @brief
+   * @brief Convert microseconds to a string representation
    *
    * @param us
    * @return std::string
@@ -87,7 +108,7 @@ struct TtlInfo {
   static std::string StringifyPeriod(std::chrono::microseconds us);
 
   /**
-   * @brief
+   * @brief Parse a start time string into a time point
    *
    * @param sv
    * @return std::chrono::system_clock::time_point
@@ -95,7 +116,7 @@ struct TtlInfo {
   static std::chrono::system_clock::time_point ParseStartTime(std::string_view sv);
 
   /**
-   * @brief
+   * @brief Convert a time point to a string representation
    *
    * @param st
    * @return std::string
@@ -119,8 +140,7 @@ inline bool operator==(const TtlInfo &lhs, const TtlInfo &rhs) {
  */
 class TTL final {
  public:
-  explicit TTL(std::filesystem::path directory) : storage_{directory} {}
-
+  explicit TTL(Storage *storage_ptr) : storage_ptr_(storage_ptr) {}
   ~TTL() = default;
 
   TTL(const TTL &) = delete;
@@ -129,80 +149,54 @@ class TTL final {
   TTL &operator=(TTL &&) = delete;
 
   /**
-   * @brief Restore from durable data.
+   * @brief Setup and start the TTL background job
    *
-   * @tparam TDbAccess
-   * @param db
-   * @param interpreter_context
-   * @return true
-   * @return false
+   * @param period The TTL period (how often to run), defaults to 1 day if not provided
+   * @param start_time Optional start time for the TTL job
    */
-  template <typename TDbAccess>
-  bool Restore(TDbAccess db, InterpreterContext *interpreter_context);
+  void SetInterval(std::optional<std::chrono::microseconds> period = std::nullopt,
+                   std::optional<std::chrono::system_clock::time_point> start_time = std::nullopt);
 
   /**
-   * @brief Configure the TTL's background job period and time of execution.
+   * @brief Configure TTL with edge TTL setting
    *
-   * @param ttl_info
+   * @param should_run_edge_ttl Whether to enable edge TTL
    */
-  void Configure(TtlInfo ttl_info) {
-    if (!enabled_) {
-      throw TtlException("TTL not enabled!");
-    }
-    if (ttl_.IsRunning()) {
-      throw TtlException("TTL already running!");
-    }
-    if (!ttl_info.period) {
-      throw TtlException("TTL requires a defined period");
-    }
-    info_ = ttl_info;
-    Persist_();
-  }
+  void Configure(bool should_run_edge_ttl);
 
+  /**
+   * @brief Get the current TTL configuration
+   *
+   * @return TtlInfo
+   */
   TtlInfo Config() const { return info_; }
 
   /**
-   * @brief Setup TTL background job. Configuration should have already be present.
+   * @brief Shutdown TTL (stop background job)
    *
-   * @tparam TDbAccess
-   * @param db
-   * @param interpreter_context
-   */
-  template <typename TDbAccess>
-  void Setup(TDbAccess db, InterpreterContext *interpreter_context, bool should_run_edge_ttl) {
-    Setup_(db, interpreter_context, should_run_edge_ttl);
-  }
-
-  /**
-   * @brief Stop background thread, but leave configuration as is.
-   *
-   */
-  void Stop() {
-    ttl_.Stop();
-    Persist_();
-  }
-
-  /**
-   * @brief Stops TTL without affecting the durable data. Use for destruction only.
    */
   void Shutdown() { ttl_.Stop(); }
 
+  /**
+   * @brief Check if TTL is enabled
+   *
+   * @return true if enabled, false otherwise
+   */
   bool Enabled() const { return enabled_; }
 
   /**
    * @brief Enable the TTL feature.
    *
    */
-  void Enable() {
-    enabled_ = true;
-    Persist_();
-  }
+  void Enable() { enabled_ = true; }
 
   /**
    * @brief Returns whether TTL is running. @note: Paused TTL still counts as running.
    *
    */
   bool Running() { return ttl_.IsRunning(); }
+
+  bool Paused() const { return ttl_.IsPaused(); }
 
   /**
    * @brief Disable the TTL feature.
@@ -212,7 +206,6 @@ class TTL final {
     enabled_ = false;
     info_ = {};
     ttl_.Stop();
-    Persist_();
   }
 
   /**
@@ -228,46 +221,61 @@ class TTL final {
   void Resume() { ttl_.Resume(); }
 
  private:
-  void Persist_() {
-    std::map<std::string, std::string> data;
-    data["version"] = "1.0";
-    data["enabled"] = enabled_ ? "true" : "false";
-    data["running"] = ttl_.IsRunning() ? "true" : "false";
-    data["period"] = info_.period ? TtlInfo::StringifyPeriod(*info_.period) : "";
-    data["start_time"] = info_.start_time ? TtlInfo::StringifyStartTime(*info_.start_time) : "";
-
-    if (!storage_.PutMultiple(data)) {
-      throw TtlException{"Couldn't persist TTL data"};
-    }
-  }
-
-  template <typename TDbAccess>
-  void Setup_(TDbAccess db, InterpreterContext *interpreter_context, bool should_run_edge_ttl);
-
-  utils::Scheduler ttl_;      //!< background thread
-  TtlInfo info_{};            //!< configuration
-  bool enabled_{false};       //!< feature enabler
-  kvstore::KVStore storage_;  //!< durability
+  utils::Scheduler ttl_;  //!< background thread
+  TtlInfo info_{};        //!< configuration
+  bool enabled_{false};   //!< feature enabler
+  Storage *storage_ptr_{};
 };
 
 }  // namespace ttl
-}  // namespace memgraph::query
+}  // namespace memgraph::storage
 
 #else  // MG_ENTERPRISE
 
-namespace memgraph::query::ttl {
+// Forward declarations
+namespace memgraph::storage {
+class Storage;
+}  // namespace memgraph::storage
+
+namespace memgraph::storage::ttl {
+
+struct TtlInfo {
+  TtlInfo() = default;
+  TtlInfo(std::string_view, std::string_view) {}
+  TtlInfo(std::optional<std::chrono::microseconds>, std::optional<std::chrono::system_clock::time_point>) {}
+  TtlInfo(std::string_view, std::string_view, bool) {}
+  TtlInfo(std::optional<std::chrono::microseconds>, std::optional<std::chrono::system_clock::time_point>, bool) {}
+  std::string ToString() const { return ""; }
+  explicit operator bool() const { return false; }
+};
+
 /**
  * @brief Empty TTL implementation for simpler interface in community code
  *
  */
 class TTL final {
+  std::optional<std::chrono::microseconds> period_{};
+  std::optional<std::chrono::system_clock::time_point> start_time_{};
+
  public:
-  explicit TTL(std::filesystem::path directory) {}
+  explicit TTL(Storage * /*storage_ptr*/) {}
   void Shutdown() {}
   void Stop() {}
   void Pause() {}
   void Resume() {}
+  bool Enabled() const { return false; }
+  bool Running() { return false; }
+  bool Paused() const { return false; }
+  void Enable() {}
+  void Disable() {}
+  void Configure(bool) {}
+  TtlInfo Config() const { return TtlInfo{}; }
+  void SetInterval(std::optional<std::chrono::microseconds> = std::nullopt,
+                   std::optional<std::chrono::system_clock::time_point> = std::nullopt) {}
+
+  bool Restore() { return false; }
 };
-}  // namespace memgraph::query::ttl
+
+}  // namespace memgraph::storage::ttl
 
 #endif  // MG_ENTERPRISE

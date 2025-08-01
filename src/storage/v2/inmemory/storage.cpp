@@ -106,14 +106,15 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action const action) -> d
     add_case(VECTOR_INDEX_CREATE);
     add_case(VECTOR_EDGE_INDEX_CREATE);
     add_case(VECTOR_INDEX_DROP);
+    add_case(TTL_OPERATION);
     default:
       LOG_FATAL("Unknown MetadataDelta::Action");
   }
 #undef add_case
 }
 
-auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex, VertexAccessor *to_vertex)
-    -> Result<EdgesVertexAccessorResult> {
+auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex,
+               VertexAccessor *to_vertex) -> Result<EdgesVertexAccessorResult> {
   auto use_out_edges = [](Vertex const *from_vertex, Vertex const *to_vertex) {
     // Obtain the locks by `gid` order to avoid lock cycles.
     auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
@@ -198,7 +199,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
         uuid(), repl_storage_state_, &vertices_, &edges_, &edges_metadata_, &edge_count_, name_id_mapper_.get(),
         &indices_, &constraints_, config_, &wal_seq_num_, &enum_store_,
         config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
-        [this](Gid edge_gid) { return FindEdge(edge_gid); }, name());
+        [this](Gid edge_gid) { return FindEdge(edge_gid); }, name(), &ttl_);
     if (info) {
       vertex_id_.store(info->next_vertex_id, std::memory_order_release);
       edge_id_.store(info->next_edge_id, std::memory_order_release);
@@ -261,8 +262,8 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       edges_.run_gc();
 
       // Auto-indexer also has a skiplist
-      if (auto_indexer_) {
-        auto_indexer_->RunGC();
+      if (async_indexer_) {
+        async_indexer_->RunGC();
       }
 
       // AsyncTimer resources are global, not particularly storage related, more query related
@@ -280,11 +281,6 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     commit_log_.emplace();
   } else {
     commit_log_.emplace(timestamp_);
-  }
-
-  if (config_.salient.items.enable_edge_type_index_auto_creation ||
-      config_.salient.items.enable_label_index_auto_creation) {
-    auto_indexer_.emplace(stop_source.get_token(), this);
   }
 
   flags::run_time::SnapshotPeriodicAttach(snapshot_periodic_observer_);
@@ -906,10 +902,10 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   transaction_.commit_callbacks_.RunAll(*commit_timestamp_);
 
   // Dispatch to another async work to create requested auto-indexes in their own transaction
-  if (mem_storage->auto_indexer_) {
-    transaction_.auto_index_helper_.DispatchRequests(*mem_storage->auto_indexer_);
+  // check if autoindexing is turned on
+  if (config_.enable_label_index_auto_creation || config_.enable_edge_type_index_auto_creation) {
+    transaction_.auto_index_helper_.DispatchRequests(*mem_storage->async_indexer_);
   }
-
   // TODO: can and should this be moved earlier?
   mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   CheckForFastDiscardOfDeltas();
@@ -1355,7 +1351,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
 
     {
       auto engine_guard = std::unique_lock(storage_->engine_lock_);
-      uint64_t mark_timestamp = storage_->timestamp_;
+      uint64_t mark_timestamp = storage_->timestamp_;  // a timestamp no active transaction can currently have
+
       // Take garbage_undo_buffers lock while holding the engine lock to make
       // sure that entries are sorted by mark timestamp in the list.
       mem_storage->garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
@@ -2144,7 +2141,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
             }
             vertex->delta = nullptr;
             if (vertex->deleted) {
-              DMG_ASSERT(delta.action == memgraph::storage::Delta::Action::RECREATE_OBJECT);
+              DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
               current_deleted_vertices.push_back(vertex->gid);
             }
             break;
@@ -2159,7 +2156,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
             }
             edge->delta = nullptr;
             if (edge->deleted) {
-              DMG_ASSERT(delta.action == memgraph::storage::Delta::Action::RECREATE_OBJECT);
+              DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
               current_deleted_edges.push_back(edge->gid);
             }
             break;
@@ -2627,6 +2624,14 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
         });
         break;
       }
+      case MetadataDelta::Action::TTL_OPERATION: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          durability::EncodeTtlOperation(encoder, md_delta.ttl_operation_info.operation_type,
+                                         md_delta.ttl_operation_info.period, md_delta.ttl_operation_info.start_time,
+                                         md_delta.ttl_operation_info.should_run_edge_ttl);
+        });
+        break;
+      }
     }
   }
   // A single transaction will always be fully-contained in a single WAL file.
@@ -2925,7 +2930,8 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
     spdlog::debug("Recovering from a snapshot {}", local_path);
     auto recovered_snapshot = storage::durability::LoadSnapshot(
         local_path, &vertices_, &edges_, &edges_metadata_, &repl_storage_state_.history, name_id_mapper_.get(),
-        &edge_count_, config_, &enum_store_, config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr);
+        &edge_count_, config_, &enum_store_, config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
+        &ttl_);
     spdlog::debug("Snapshot recovered successfully");
     // Instead of using the UUID from the snapshot, we will override the snapshot's UUID with our own
     // This snapshot creates a new state and cannot have any WALs associated with it at this point
@@ -3233,8 +3239,9 @@ void InMemoryStorage::Clear() {
   edges_metadata_.run_gc();
   stored_node_labels_.clear();
   stored_edge_types_.clear();
-  if (auto_indexer_) {
-    auto_indexer_->Clear();
+
+  if (async_indexer_) {
+    async_indexer_->Clear();
   }
 
   // Reset helper classes
@@ -3313,10 +3320,9 @@ void InMemoryStorage::InMemoryAccessor::DropGraph() {
   mem_storage->indices_.DropGraphClearIndices();
   mem_storage->constraints_.DropGraphClearConstraints();
 
-  if (mem_storage->auto_indexer_) {
-    mem_storage->auto_indexer_->Clear();
+  if (mem_storage->async_indexer_) {
+    mem_storage->async_indexer_->Clear();
   }
-
   if (mem_storage->config_.salient.items.enable_schema_info) mem_storage->schema_info_.Clear();
 
   mem_storage->vertices_.clear();

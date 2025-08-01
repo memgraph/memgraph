@@ -16,27 +16,33 @@
 #include <thread>
 #include <variant>
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/property_path.hpp"
 #include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
 
 class Storage;
 
-struct AutoIndexer {
-  AutoIndexer(std::stop_token stop_token, Storage *storage);
+struct AsyncIndexer {
+  AsyncIndexer(std::stop_token stop_token, Storage *storage);
 
-  ~AutoIndexer();
+  ~AsyncIndexer();
 
   void Enqueue(LabelId label);
 
   void Enqueue(EdgeTypeId edge_type);
+
+  void Enqueue(std::pair<LabelId, PropertiesPaths> composite);
+
+  void Enqueue(PropertyId property);
 
   void RunGC();
 
   void Clear();
 
  private:
-  utils::SkipList<std::variant<LabelId, EdgeTypeId>> request_queue_{};
+  // Label, EdgeType, Composite, Edge Property
+  utils::SkipList<std::variant<LabelId, EdgeTypeId, std::pair<LabelId, PropertiesPaths>, PropertyId>> request_queue_{};
   std::mutex mutex_{};
   std::condition_variable cv_{};
   std::jthread index_creator_thread_{};

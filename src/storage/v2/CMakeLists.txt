@@ -4,7 +4,7 @@ add_library(mg::storage ALIAS mg-storage-v2)
 target_sources(mg-storage-v2
         PRIVATE
         all_vertices_iterable.cpp
-        auto_indexer.cpp
+        async_indexer.cpp
         commit_log.cpp
         config.cpp
         constraint_verification_info.cpp
@@ -69,12 +69,18 @@ target_sources(mg-storage-v2
         vertex_accessor.cpp
         vertex_info_cache.cpp
         vertices_iterable.cpp
+        edge_ref.cpp
+        indices/point_iterator.cpp
+        property_value_utils.cpp
+        config.cpp
+        id_types.cpp
+        ttl.cpp
 
         PUBLIC
         FILE_SET HEADERS
         BASE_DIRS ../../
         FILES
-        auto_indexer.hpp
+        async_indexer.hpp
         config.hpp
         constraints/type_constraints.hpp
         constraints/type_constraints_kind.hpp
@@ -106,6 +112,7 @@ target_sources(mg-storage-v2
         replication/replication_transaction.hpp
         schema_info.hpp
         storage.hpp
+        ttl.hpp
         transaction.hpp
         transaction_constants.hpp
         vertex_info_cache.hpp

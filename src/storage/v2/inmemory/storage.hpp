@@ -24,6 +24,8 @@
 #include "storage/v2/inmemory/snapshot_info.hpp"
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/storage_mode.hpp"
+#include "storage/v2/ttl.hpp"
 
 /// REPLICATION ///
 
@@ -313,6 +315,10 @@ class InMemoryStorage final : public Storage {
       return transaction_.active_indices_.label_->IndexReady(label);
     }
 
+    bool LabelPropertyIndexExists(LabelId label, std::span<PropertyPath const> properties) const override {
+      return transaction_.active_indices_.label_properties_->IndexExists(label, properties);
+    }
+
     bool LabelPropertyIndexReady(LabelId label, std::span<PropertyPath const> properties) const override {
       return transaction_.active_indices_.label_properties_->IndexReady(label, properties);
     }
@@ -323,6 +329,10 @@ class InMemoryStorage final : public Storage {
 
     bool EdgeTypePropertyIndexReady(EdgeTypeId edge_type, PropertyId property) const override {
       return transaction_.active_indices_.edge_type_properties_->IndexReady(edge_type, property);
+    }
+
+    bool EdgePropertyIndexExists(PropertyId property) const override {
+      return transaction_.active_indices_.edge_property_->IndexExists(property);
     }
 
     bool EdgePropertyIndexReady(PropertyId property) const override {
@@ -515,8 +525,8 @@ class InMemoryStorage final : public Storage {
     /// View is not needed because a new rtree gets created for each transaction and it is always
     /// using the latest version
     auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
-                       PropertyValue const &bottom_left, PropertyValue const &top_right, WithinBBoxCondition condition)
-        -> PointIterable override;
+                       PropertyValue const &bottom_left, PropertyValue const &top_right,
+                       WithinBBoxCondition condition) -> PointIterable override;
 
     std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearchOnNodes(
         const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) override;
@@ -527,6 +537,79 @@ class InMemoryStorage final : public Storage {
     std::vector<VectorIndexInfo> ListAllVectorIndices() const override;
 
     std::vector<VectorEdgeIndexInfo> ListAllVectorEdgeIndices() const override;
+
+#ifdef MG_ENTERPRISE
+    // TTL management methods
+    void StartTtl() override {
+      DMG_ASSERT(type() == UNIQUE, "TTL operations require unique access to the storage!");
+      if (!storage_->ttl_.Config()) throw ttl::TtlException("TTL not configured!");
+      storage_->ttl_.Resume();
+      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::ENABLE,
+                                          std::nullopt, std::nullopt, false);
+    }
+
+    void StopTtl() override {
+      DMG_ASSERT(type() == UNIQUE, "TTL operations require unique access to the storage!");
+      storage_->ttl_.Pause();
+      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::STOP,
+                                          std::nullopt, std::nullopt, false);
+    }
+
+    void ConfigureTtl(const storage::ttl::TtlInfo &ttl_info) override {
+      DMG_ASSERT(type() == UNIQUE, "TTL operations require unique access to the storage!");
+      auto ttl_label = NameToLabel("TTL");
+      auto ttl_property = NameToProperty("ttl");
+
+      auto &ttl = storage_->ttl_;
+
+      // If TTL is not enabled, create required indices and enable TTL
+      if (!ttl.Enabled()) {
+        if (GetCreationStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
+          // Async index creation -> happens in separate transaction
+          DMG_ASSERT(storage_->async_indexer_);
+          storage_->async_indexer_->Enqueue(
+              std::make_pair(ttl_label, std::vector<storage::PropertyPath>{{ttl_property}}));
+          if (ttl_info.should_run_edge_ttl) {
+            storage_->async_indexer_->Enqueue(ttl_property);
+          }
+        } else {
+          // Create index with unique access in same transaction
+          (void)CreateIndex(ttl_label, std::vector<storage::PropertyPath>{{ttl_property}});
+          // Create edge index if needed based on TTL configuration
+          if (ttl_info.should_run_edge_ttl) {
+            (void)CreateGlobalEdgeIndex(ttl_property);
+          }
+        }
+        ttl.Enable();
+      }
+
+      // Configure TTL
+      if (!ttl.Running()) ttl.Configure(ttl_info.should_run_edge_ttl);
+      ttl.SetInterval(ttl_info.period, ttl_info.start_time);
+      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::CONFIGURE,
+                                          ttl_info.period, ttl_info.start_time, ttl_info.should_run_edge_ttl);
+    }
+
+    void DisableTtl() override {
+      DMG_ASSERT(type() == UNIQUE, "TTL operations require unique access to the storage!");
+      auto ttl_label = NameToLabel("TTL");
+      auto ttl_property = NameToProperty("ttl");
+      auto &ttl = storage_->ttl_;
+      // Drop indices (silently fail if index already dropped )
+      (void)DropIndex(ttl_label, std::vector<storage::PropertyPath>{{ttl_property}});
+      // Check if edge TTL was enabled and drop edge index if needed (silently fail if index already dropped)
+      if (ttl.Config().should_run_edge_ttl) {
+        (void)DropGlobalEdgeIndex(ttl_property);
+      }
+
+      ttl.Disable();
+
+      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::DISABLE,
+                                          std::nullopt, std::nullopt, false);
+    }
+
+    storage::ttl::TtlInfo GetTtlConfig() const override { return storage_->ttl_.Config(); }
+#endif
 
     void DowngradeToReadIfValid();
 
@@ -688,9 +771,6 @@ class InMemoryStorage final : public Storage {
   // Moved the create snapshot to a user defined handler so we can remove the global replication state from the storage
   std::function<void()> create_snapshot_handler{};
 
-  // A way to tell async operation to stop
-  std::stop_source stop_source;
-
   // Snapshot digest is the minimal meta info of a snapshot
   // Used to figure out if the current snapshot should be written or not
   struct SnapshotDigest {
@@ -701,8 +781,6 @@ class InMemoryStorage final : public Storage {
 
     friend bool operator==(SnapshotDigest const &, SnapshotDigest const &) = default;
   };
-
-  std::optional<AutoIndexer> auto_indexer_;
 
   std::optional<SnapshotDigest> last_snapshot_digest_;
 
