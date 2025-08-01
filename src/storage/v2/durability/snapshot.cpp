@@ -6611,7 +6611,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
                  rv::join(". ") | r::_to_::to<std::string>;
         };
 
-        // NOLINTNEXTLINE(bugprone-unused-local-non-trivial-variable)
+        // NOLINTBEGIN(bugprone-unused-local-non-trivial-variable)
         auto properties_vec = property_paths | rv::transform(path_to_name) | r::to_vector;
         auto properties_string = fmt::format("{}", fmt::join(properties_vec, ", "));
 
@@ -6620,6 +6620,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
                                     "The label+property index already exists!");
         SPDLOG_TRACE("Recovered metadata of label+property index for :{}({})",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)), properties_string);
+        // NOLINTEND(bugprone-unused-local-non-trivial-variable)
       }
       spdlog::info("Metadata of label+property indices are recovered.");
     }

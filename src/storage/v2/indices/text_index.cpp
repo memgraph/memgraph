@@ -226,7 +226,6 @@ void TextIndex::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &
 }
 
 void TextIndex::UpdateOnSetProperty(Vertex *vertex, NameIdMapper *name_id_mapper, Transaction &tx) {
-  // TODO: improve
   auto applicable_text_indices = GetApplicableTextIndices(vertex->labels, vertex->properties.ExtractPropertyIds());
   if (applicable_text_indices.empty()) return;
   RemoveNode(vertex, applicable_text_indices);

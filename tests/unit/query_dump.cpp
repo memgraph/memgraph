@@ -24,6 +24,7 @@
 #include "dbms/constants.hpp"
 #include "dbms/database.hpp"
 #include "disk_test_utils.hpp"
+#include "flags/experimental.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/dump.hpp"
@@ -1184,6 +1185,7 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
+  memgraph::flags::SetExperimental(memgraph::flags::Experiments::TEXT_SEARCH);
   {
     auto dba = this->db->Access();
     auto name_id = dba->NameToProperty("name");
@@ -1266,6 +1268,14 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
     ASSERT_FALSE(unique_acc
                      ->CreateIndex(this->db->storage()->NameToLabel("Person"),
                                    {this->db->storage()->NameToProperty("unexisting_property")})
+                     .HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
+  }
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    ASSERT_FALSE(unique_acc
+                     ->CreateTextIndex("text_index", this->db->storage()->NameToLabel("Person"),
+                                       std::array{this->db->storage()->NameToProperty("name")})
                      .HasError());
     ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
   }
