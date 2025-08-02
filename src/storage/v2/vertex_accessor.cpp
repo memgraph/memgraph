@@ -42,6 +42,9 @@
 #include "utils/small_vector.hpp"
 #include "utils/variant_helpers.hpp"
 
+namespace r = ranges;
+namespace rv = r::views;
+
 namespace memgraph::storage {
 
 namespace {
@@ -678,6 +681,65 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
   if (!exists) return Error::NONEXISTENT_OBJECT;
   if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return std::move(properties);
+}
+
+Result<std::map<PropertyId, PropertyValue>> VertexAccessor::PropertiesByPropertyIds(
+    std::span<PropertyId const> properties, View view) const {
+  bool exists = true;
+  bool deleted = false;
+  std::vector<PropertyValue> property_values;
+  property_values.reserve(properties.size());
+  Delta *delta = nullptr;
+  {
+    auto guard = std::shared_lock{vertex_->lock};
+    deleted = vertex_->deleted;
+    auto property_paths = properties |
+                          rv::transform([](PropertyId property) { return storage::PropertyPath{property}; }) |
+                          r::to<std::vector<storage::PropertyPath>>();
+    property_values = vertex_->properties.ExtractPropertyValuesMissingAsNull(property_paths);
+    delta = vertex_->delta;
+  }
+  auto properties_map =
+      rv::zip(properties, property_values) | rv::transform([](const auto &property_id_value_pair) {
+        return std::make_pair(std::get<0>(property_id_value_pair), std::get<1>(property_id_value_pair));
+      }) |
+      r::to<std::map<PropertyId, PropertyValue>>();
+
+  // TODO: this can be refactored to avoid code duplication with
+  // Checking cache has a cost, only do it if we have any deltas
+  // if we have no deltas then what we already have from the vertex is correct.
+  if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
+    // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
+    // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
+    auto const useCache = transaction_->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
+    if (useCache) {
+      auto const &cache = transaction_->manyDeltasCache;
+      if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return *resError;
+      // Note: We don't have specific cache for properties by IDs, so we skip caching for now
+    }
+
+    auto const n_processed =
+        ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &properties_map](const Delta &delta) {
+          // clang-format off
+          DeltaDispatch(delta, utils::ChainedOverloaded{
+            Deleted_ActionMethod(deleted),
+            Exists_ActionMethod(exists),
+            Properties_ActionMethod(properties_map)
+          });
+          // clang-format on
+        });
+
+    if (useCache && n_processed >= FLAGS_delta_chain_cache_threshold) {
+      auto &cache = transaction_->manyDeltasCache;
+      cache.StoreExists(view, vertex_, exists);
+      cache.StoreDeleted(view, vertex_, deleted);
+      // Note: We don't cache this specific subset of properties for now
+    }
+  }
+
+  if (!exists) return Error::NONEXISTENT_OBJECT;
+  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
+  return std::move(properties_map);
 }
 
 auto VertexAccessor::BuildResultOutEdges(edge_store const &out_edges) const {

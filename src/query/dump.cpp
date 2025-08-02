@@ -323,8 +323,17 @@ void DumpLabelPropertiesIndex(std::ostream *os, query::DbAccessor *dba, storage:
   *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << "(" << prop_names << ");";
 }
 
-void DumpTextIndex(std::ostream *os, query::DbAccessor *dba, const std::string &index_name, storage::LabelId label) {
-  *os << "CREATE TEXT INDEX " << EscapeName(index_name) << " ON :" << EscapeName(dba->LabelToName(label)) << ";";
+void DumpTextIndex(std::ostream *os, query::DbAccessor *dba, const std::string &index_name, storage::LabelId label,
+                   std::span<const storage::PropertyId> properties) {
+  auto prop_names = properties |
+                    rv::transform([&](auto property_id) { return EscapeName(dba->PropertyToName(property_id)); }) |
+                    rv::join(", "sv) | r::to<std::string>();
+
+  *os << "CREATE TEXT INDEX " << EscapeName(index_name) << " ON :" << EscapeName(dba->LabelToName(label));
+  if (!properties.empty()) {
+    *os << "(" << prop_names << ")";
+  }
+  *os << ";";
 }
 
 void DumpPointIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId label, storage::PropertyId property) {
@@ -646,10 +655,9 @@ PullPlanDump::PullChunk PullPlanDump::CreateTextIndicesPullChunk() {
     size_t local_counter = 0;
     while (global_index < text.size() && (!n || local_counter < *n)) {
       std::ostringstream os;
-      const auto &text_index = text[global_index];
-      DumpTextIndex(&os, dba_, text_index.first, text_index.second);
+      const auto &[index_name, label, properties] = text[global_index];
+      DumpTextIndex(&os, dba_, index_name, label, properties);
       stream->Result({TypedValue(os.str())});
-
       ++global_index;
       ++local_counter;
     }

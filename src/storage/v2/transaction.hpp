@@ -209,6 +209,10 @@ struct Transaction {
   /// Query memory tracker
   std::unique_ptr<utils::QueryMemoryTracker> query_memory_tracker_{};
 
+  /// Flag to track if any text index operations were performed during this transaction. Needed because text index
+  /// commit can be expensive and we want to avoid it if no text index operations were performed.
+  bool text_index_operations_performed_ = false;
+
   /// Last durable timestamp at the moment of transaction creation
   std::optional<uint64_t> last_durable_ts_;
 

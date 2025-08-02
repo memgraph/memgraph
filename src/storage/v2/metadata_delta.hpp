@@ -159,11 +159,11 @@ struct MetadataDelta {
   MetadataDelta(GlobalEdgePropertyIndexDrop /*tag*/, PropertyId property)
       : action(Action::GLOBAL_EDGE_PROPERTY_INDEX_DROP), edge_property{property} {}
 
-  MetadataDelta(TextIndexCreate /*tag*/, std::string index_name, LabelId label)
-      : action(Action::TEXT_INDEX_CREATE), text_index{std::move(index_name), label} {}
+  MetadataDelta(TextIndexCreate /*tag*/, std::string index_name, LabelId label, std::vector<PropertyId> properties)
+      : action(Action::TEXT_INDEX_CREATE), text_index{std::move(index_name), label, std::move(properties)} {}
 
-  MetadataDelta(TextIndexDrop /*tag*/, std::string index_name, LabelId label)
-      : action(Action::TEXT_INDEX_DROP), text_index{std::move(index_name), label} {}
+  MetadataDelta(TextIndexDrop /*tag*/, std::string index_name)
+      : action(Action::TEXT_INDEX_DROP), text_index{std::move(index_name)} {}
 
   MetadataDelta(PointIndexCreate /*tag*/, LabelId label, PropertyId property)
       : action(Action::POINT_INDEX_CREATE), label_property{label, property} {}
@@ -175,7 +175,7 @@ struct MetadataDelta {
       : action(Action::VECTOR_INDEX_CREATE), vector_index_spec(std::move(spec)) {}
 
   MetadataDelta(VectorIndexDrop /*tag*/, std::string_view index_name)
-      : action(Action::VECTOR_INDEX_DROP), vector_index_name{index_name} {}
+      : action(Action::VECTOR_INDEX_DROP), index_name{index_name} {}
 
   MetadataDelta(VectorEdgeIndexCreate /*tag*/, VectorEdgeIndexSpec spec)
       : action(Action::VECTOR_EDGE_INDEX_CREATE), vector_edge_index_spec(std::move(spec)) {}
@@ -283,7 +283,7 @@ struct MetadataDelta {
         break;
       }
       case VECTOR_INDEX_DROP: {
-        std::destroy_at(&vector_index_name);
+        std::destroy_at(&index_name);
         break;
       }
       case UNIQUE_CONSTRAINT_CREATE:
@@ -291,9 +291,12 @@ struct MetadataDelta {
         std::destroy_at(&label_unordered_properties);
         break;
       }
-      case TEXT_INDEX_CREATE:
-      case TEXT_INDEX_DROP: {
+      case TEXT_INDEX_CREATE: {
         std::destroy_at(&text_index);
+        break;
+      }
+      case TEXT_INDEX_DROP: {
+        std::destroy_at(&index_name);
         break;
       }
     }
@@ -350,6 +353,7 @@ struct MetadataDelta {
     struct {
       std::string index_name;
       LabelId label;
+      std::vector<PropertyId> properties;
     } text_index;
 
     struct {
@@ -367,7 +371,7 @@ struct MetadataDelta {
 
     VectorIndexSpec vector_index_spec;
     VectorEdgeIndexSpec vector_edge_index_spec;
-    std::string vector_index_name;
+    std::string index_name;
   };
 };
 

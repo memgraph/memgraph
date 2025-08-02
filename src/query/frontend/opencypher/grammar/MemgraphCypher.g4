@@ -685,7 +685,7 @@ edgeIndexQuery : createEdgeIndex | dropEdgeIndex | createGlobalEdgeIndex | dropG
 
 indexName : symbolicName ;
 
-createTextIndex : CREATE TEXT INDEX indexName ON ':' labelName ;
+createTextIndex : CREATE TEXT INDEX indexName ON ':' labelName ( '(' propertyKeyName ( ',' propertyKeyName )* ')' )* ;
 
 dropTextIndex : DROP TEXT INDEX indexName ;
 
