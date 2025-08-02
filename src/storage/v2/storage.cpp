@@ -691,6 +691,7 @@ utils::BasicResult<storage::StorageIndexDefinitionError, void> Storage::Accessor
   } catch (const query::TextSearchException &e) {
     return storage::StorageIndexDefinitionError{IndexDefinitionError{}};
   }
+  transaction_.text_index_operations_performed_ = true;
   transaction_.md_deltas.emplace_back(MetadataDelta::text_index_create, index_name, label,
                                       std::vector<PropertyId>(properties.begin(), properties.end()));
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextIndices);
@@ -705,6 +706,7 @@ utils::BasicResult<storage::StorageIndexDefinitionError, void> Storage::Accessor
   } catch (const query::TextSearchException &e) {
     return storage::StorageIndexDefinitionError{StorageIndexDefinitionError{}};
   }
+  transaction_.text_index_operations_performed_ = true;
   transaction_.md_deltas.emplace_back(MetadataDelta::text_index_drop, index_name);
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTextIndices);
   return {};
