@@ -200,7 +200,7 @@ void TextIndex::AddNodeToTextIndex(std::int64_t gid, const nlohmann::json &prope
   document["metadata"] = {};
   document["metadata"]["gid"] = gid;
 
-  std::shared_lock lock(applicable_text_index->index_writer_mutex_);
+  const std::shared_lock lock(applicable_text_index->index_writer_mutex_);
   try {
     mgcxx::text_search::add_document(
         applicable_text_index->context_,
@@ -256,7 +256,7 @@ void TextIndex::RemoveNode(Vertex *vertex_after_update, std::span<TextIndexData 
       mgcxx::text_search::SearchInput{.search_query = fmt::format("metadata.gid:{}", vertex_after_update->gid.AsInt())};
   for (auto *applicable_text_index : applicable_text_indices) {
     try {
-      std::shared_lock lock(applicable_text_index->index_writer_mutex_);
+      const std::shared_lock lock(applicable_text_index->index_writer_mutex_);
       mgcxx::text_search::delete_document(applicable_text_index->context_, search_node_to_be_deleted, kDoSkipCommit);
     } catch (const std::exception &e) {
       throw query::TextSearchException("Tantivy error: {}", e.what());
@@ -412,14 +412,14 @@ std::string TextIndex::Aggregate(const std::string &index_name, const std::strin
 
 void TextIndex::Commit() {
   for (auto &[_, index_data] : index_) {
-    std::lock_guard lock(index_data.index_writer_mutex_);
+    const std::lock_guard lock(index_data.index_writer_mutex_);
     mgcxx::text_search::commit(index_data.context_);
   }
 }
 
 void TextIndex::Rollback() {
   for (auto &[_, index_data] : index_) {
-    std::lock_guard lock(index_data.index_writer_mutex_);
+    const std::lock_guard lock(index_data.index_writer_mutex_);
     mgcxx::text_search::rollback(index_data.context_);
   }
 }

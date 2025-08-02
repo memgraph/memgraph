@@ -70,8 +70,8 @@ class TextIndex {
   std::vector<TextIndexData *> GetApplicableTextIndices(std::span<storage::LabelId const> labels,
                                                         std::span<PropertyId const> properties);
 
-  void AddNodeToTextIndex(std::int64_t gid, const nlohmann::json &properties, const std::string &property_values_as_str,
-                          TextIndexData *applicable_text_index);
+  static void AddNodeToTextIndex(std::int64_t gid, const nlohmann::json &properties,
+                                 const std::string &property_values_as_str, TextIndexData *applicable_text_index);
 
   static std::map<PropertyId, PropertyValue> ExtractVertexProperties(const PropertyStore &property_store,
                                                                      std::span<PropertyId const> properties);
@@ -96,11 +96,11 @@ class TextIndex {
 
   std::map<std::string, TextIndexData> index_;
 
-  void AddNode(Vertex *vertex, NameIdMapper *name_id_mapper, std::span<TextIndexData *> applicable_text_indices);
+  static void AddNode(Vertex *vertex, NameIdMapper *name_id_mapper, std::span<TextIndexData *> applicable_text_indices);
 
   void RemoveNode(Vertex *vertex_after_update, Transaction &tx);
 
-  void RemoveNode(Vertex *vertex, std::span<TextIndexData *> applicable_text_indices);
+  static void RemoveNode(Vertex *vertex, std::span<TextIndexData *> applicable_text_indices);
 
   void UpdateOnAddLabel(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper, Transaction &tx);
 
