@@ -170,11 +170,12 @@ std::vector<UserProfiles::Profile> UserProfiles::GetAll() const {
   return profiles;
 }
 
-bool UserProfiles::AddUsername(std::string_view profile_name, std::string_view username) {
+std::optional<UserProfiles::Profile> UserProfiles::AddUsername(std::string_view profile_name,
+                                                               std::string_view username) {
   auto l = std::unique_lock{mtx_};
   auto profile_it = profiles_.find(profile_name);
   if (profile_it == profiles_.end()) {
-    return false;
+    return std::nullopt;
   }
 
   // Check if username is already in another profile and remove it
@@ -195,10 +196,10 @@ bool UserProfiles::AddUsername(std::string_view profile_name, std::string_view u
   if (!durability_->Put(kUserProfilesPrefix.data() + std::string{profile_name}, json.dump())) {
     // Revert changes
     profile_it->usernames.erase(std::string{username});
-    return false;
+    return std::nullopt;
   }
 
-  return true;
+  return *profile_it;
 }
 
 bool UserProfiles::RemoveUsername(std::string_view profile_name, std::string_view username) {
