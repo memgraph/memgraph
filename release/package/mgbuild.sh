@@ -270,9 +270,7 @@ setup_ccache_override() {
   local compose_files="-f ${arch}-builders-${toolchain_version}.yml"
 
   if [[ "$ccache_enabled" == "true" ]]; then
-    echo "Enabling ccache volume mounting..."
     cat > ccache-override.yml << EOF
-version: "3"
 services:
 EOF
     # Add ccache volumes for all services in the compose file
@@ -1003,7 +1001,7 @@ case $command in
       done
 
       # Create ccache override file if ccache is enabled
-      local compose_files=$(setup_ccache_override)
+      compose_files=$(setup_ccache_override)
 
       if [[ "$os" == "all" ]]; then
         if [[ "$pull" == "true" ]]; then
