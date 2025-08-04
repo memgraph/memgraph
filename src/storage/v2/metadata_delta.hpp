@@ -19,6 +19,7 @@
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
 #include "storage/v2/indices/property_path.hpp"
+#include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 
@@ -159,11 +160,11 @@ struct MetadataDelta {
   MetadataDelta(GlobalEdgePropertyIndexDrop /*tag*/, PropertyId property)
       : action(Action::GLOBAL_EDGE_PROPERTY_INDEX_DROP), edge_property{property} {}
 
-  MetadataDelta(TextIndexCreate /*tag*/, std::string index_name, LabelId label, std::vector<PropertyId> properties)
-      : action(Action::TEXT_INDEX_CREATE), text_index{std::move(index_name), label, std::move(properties)} {}
+  MetadataDelta(TextIndexCreate /*tag*/, TextIndexInfo text_index_info)
+      : action(Action::TEXT_INDEX_CREATE), text_index(std::move(text_index_info)) {}
 
   MetadataDelta(TextIndexDrop /*tag*/, std::string index_name)
-      : action(Action::TEXT_INDEX_DROP), text_index{std::move(index_name)} {}
+      : action(Action::TEXT_INDEX_DROP), index_name{std::move(index_name)} {}
 
   MetadataDelta(PointIndexCreate /*tag*/, LabelId label, PropertyId property)
       : action(Action::POINT_INDEX_CREATE), label_property{label, property} {}
@@ -351,12 +352,6 @@ struct MetadataDelta {
     } edge_property;
 
     struct {
-      std::string index_name;
-      LabelId label;
-      std::vector<PropertyId> properties;
-    } text_index;
-
-    struct {
       EnumTypeId etype;
     } enum_create_info;
 
@@ -369,6 +364,7 @@ struct MetadataDelta {
       std::string old_value;
     } enum_alter_update_info;
 
+    TextIndexInfo text_index;
     VectorIndexSpec vector_index_spec;
     VectorEdgeIndexSpec vector_edge_index_spec;
     std::string index_name;

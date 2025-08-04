@@ -20,6 +20,7 @@
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/schema_info.hpp"
@@ -1301,7 +1302,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
             return storage->NameToProperty(prop);
           }) | r::to<std::vector<PropertyId>>()
                                           : std::vector<PropertyId>{};
-          auto ret = transaction->CreateTextIndex(data.index_name, label_id, std::move(prop_ids));
+          auto ret = transaction->CreateTextIndex(storage::TextIndexInfo{data.index_name, label_id, prop_ids});
           if (ret.HasError()) {
             throw utils::BasicException("Failed to create text search index {} on {}.", data.index_name, data.label);
           }

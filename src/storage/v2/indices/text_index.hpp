@@ -13,23 +13,19 @@
 
 #include <nlohmann/json_fwd.hpp>
 #include <shared_mutex>
+
 #include "mg_procedure.h"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
-#include "storage/v2/transaction.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertices_iterable.hpp"
 #include "text_search.hpp"
 #include "utils/synchronized.hpp"
 
-namespace memgraph::query {
-class DbAccessor;
-}  // namespace memgraph::query
-
 namespace memgraph::storage {
 
-inline constexpr std::string_view kTextIndicesDirectory = "text_indices";
 struct TextIndexData {
   // This synchronized wrapper is used to protect add_document, remove_document, commit and rollback
   // operations. Underlying Tantivy IndexWriter requires unique lock for commit and rollback
@@ -43,29 +39,13 @@ struct TextIndexData {
       : synchronized_context_(std::move(context)), scope_(scope), properties_(std::move(properties)) {}
 };
 
-using TextIndexInfo = std::tuple<std::string, LabelId, std::vector<PropertyId>>;
 class TextIndex {
  private:
-  static constexpr bool kDoSkipCommit = true;
-
-  // Boolean operators that should be preserved in uppercase for Tantivy
-  static constexpr std::string_view kBooleanAnd = "AND";
-  static constexpr std::string_view kBooleanOr = "OR";
-  static constexpr std::string_view kBooleanNot = "NOT";
-
   std::filesystem::path text_index_storage_dir_;
 
   inline std::string MakeIndexPath(std::string_view index_name) const;
 
-  void CreateTantivyIndex(const std::string &index_name, LabelId label, const std::string &index_path,
-                          std::span<PropertyId const> properties);
-
-  static nlohmann::json SerializeProperties(const std::map<PropertyId, PropertyValue> &properties,
-                                            NameIdMapper *name_id_mapper);
-
-  static std::string StringifyProperties(const std::map<PropertyId, PropertyValue> &properties);
-
-  static std::string ToLowerCasePreservingBooleanOperators(std::string_view input);
+  void CreateTantivyIndex(const std::string &index_path, const TextIndexInfo &index_info);
 
   std::vector<TextIndexData *> GetApplicableTextIndices(std::span<storage::LabelId const> labels,
                                                         std::span<PropertyId const> properties);
@@ -108,11 +88,9 @@ class TextIndex {
 
   void UpdateOnSetProperty(Vertex *vertex, NameIdMapper *name_id_mapper, Transaction &tx);
 
-  void CreateIndex(std::string const &index_name, LabelId label, VerticesIterable vertices,
-                   NameIdMapper *name_id_mapper, std::span<PropertyId const> properties);
+  void CreateIndex(TextIndexInfo index_info, VerticesIterable vertices, NameIdMapper *name_id_mapper);
 
-  void RecoverIndex(const std::string &index_name, LabelId label, std::span<PropertyId const> properties,
-                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+  void RecoverIndex(TextIndexInfo index_info, std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   void DropIndex(const std::string &index_name);
 

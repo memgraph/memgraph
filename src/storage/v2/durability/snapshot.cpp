@@ -2380,7 +2380,7 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
         if (!label) throw RecoveryFailure("Couldn't read text index label!");
         AddRecoveredIndexConstraint(
             &indices_constraints.indices.text_indices,
-            std::make_tuple(index_name.value(), get_label_from_id(*label), std::vector<PropertyId>{}),
+            TextIndexInfo{index_name.value(), get_label_from_id(*label), std::vector<PropertyId>{}},
             "The text index already exists!");
         SPDLOG_TRACE("Recovered metadata of text index {} for :{}", index_name.value(),
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)));
@@ -2828,7 +2828,7 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
         if (!label) throw RecoveryFailure("Couldn't read text index label!");
         AddRecoveredIndexConstraint(
             &indices_constraints.indices.text_indices,
-            std::make_tuple(index_name.value(), get_label_from_id(*label), std::vector<PropertyId>{}),
+            TextIndexInfo{index_name.value(), get_label_from_id(*label), std::vector<PropertyId>{}},
             "The text index already exists!");
         SPDLOG_TRACE("Recovered metadata of text index {} for :{}", index_name.value(),
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)));
@@ -3294,7 +3294,7 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
         if (!label) throw RecoveryFailure("Couldn't read text index label!");
         AddRecoveredIndexConstraint(
             &indices_constraints.indices.text_indices,
-            std::make_tuple(index_name.value(), get_label_from_id(*label), std::vector<PropertyId>{}),
+            TextIndexInfo{index_name.value(), get_label_from_id(*label), std::vector<PropertyId>{}},
             "The text index already exists!");
         SPDLOG_TRACE("Recovered metadata of text index {} for :{}", index_name.value(),
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)));
@@ -3832,7 +3832,7 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
         if (!label) throw RecoveryFailure("Couldn't read text index label!");
         AddRecoveredIndexConstraint(
             &indices_constraints.indices.text_indices,
-            std::make_tuple(index_name.value(), get_label_from_id(*label), std::vector<PropertyId>{}),
+            TextIndexInfo{index_name.value(), get_label_from_id(*label), std::vector<PropertyId>{}},
             "The text index already exists!");
         SPDLOG_TRACE("Recovered metadata of text index {} for :{}", index_name.value(),
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)));
@@ -4416,7 +4416,7 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
         if (!label) throw RecoveryFailure("Couldn't read text index label!");
         AddRecoveredIndexConstraint(
             &indices_constraints.indices.text_indices,
-            std::make_tuple(index_name.value(), get_label_from_id(*label), std::vector<PropertyId>{}),
+            TextIndexInfo{index_name.value(), get_label_from_id(*label), std::vector<PropertyId>{}},
             "The text index already exists!");
         SPDLOG_TRACE("Recovered metadata of text index {} for :{}", index_name.value(),
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)));
@@ -4996,7 +4996,7 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
         if (!label) throw RecoveryFailure("Couldn't read text index label!");
         AddRecoveredIndexConstraint(
             &indices_constraints.indices.text_indices,
-            std::make_tuple(index_name.value(), get_label_from_id(*label), std::vector<PropertyId>{}),
+            TextIndexInfo{index_name.value(), get_label_from_id(*label), std::vector<PropertyId>{}},
             "The text index already exists!");
         SPDLOG_TRACE("Recovered metadata of text index {} for :{}", index_name.value(),
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)));
@@ -5578,7 +5578,7 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
         if (!label) throw RecoveryFailure("Couldn't read text index label!");
         AddRecoveredIndexConstraint(
             &indices_constraints.indices.text_indices,
-            std::make_tuple(index_name.value(), get_label_from_id(*label), std::vector<PropertyId>{}),
+            TextIndexInfo{index_name.value(), get_label_from_id(*label), std::vector<PropertyId>{}},
             "The text index already exists!");
         SPDLOG_TRACE("Recovered metadata of text index {} for :{}", index_name.value(),
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)));
@@ -6207,7 +6207,7 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
         if (!label) throw RecoveryFailure("Couldn't read text index label!");
         AddRecoveredIndexConstraint(
             &indices_constraints.indices.text_indices,
-            std::make_tuple(index_name.value(), get_label_from_id(*label), std::vector<PropertyId>{}),
+            TextIndexInfo{index_name.value(), get_label_from_id(*label), std::vector<PropertyId>{}},
             "The text index already exists!");
         SPDLOG_TRACE("Recovered metadata of text index {} for :{}", index_name.value(),
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)));
@@ -6847,10 +6847,9 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
           if (!property) throw RecoveryFailure("Couldn't read text index property!");
           properties.emplace_back(get_property_from_id(*property));
         }
-        AddRecoveredIndexConstraint(
-            &indices_constraints.indices.text_indices,
-            std::make_tuple(index_name.value(), get_label_from_id(*label), std::move(properties)),
-            "The text index already exists!");
+        AddRecoveredIndexConstraint(&indices_constraints.indices.text_indices,
+                                    TextIndexInfo{index_name.value(), get_label_from_id(*label), std::move(properties)},
+                                    "The text index already exists!");
         SPDLOG_TRACE("Recovered metadata of text index {} for :{}", index_name.value(),
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)));
       }

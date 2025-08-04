@@ -29,6 +29,7 @@
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
+#include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/inmemory/edge_property_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
@@ -309,7 +310,7 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
     for (const auto &[index_name, label, properties] : indices_metadata.text_indices) {
       try {
         // TODO: parallel execution
-        mem_text_index.RecoverIndex(index_name, label, properties, snapshot_info);
+        mem_text_index.RecoverIndex(TextIndexInfo{index_name, label, properties}, snapshot_info);
       } catch (...) {
         throw RecoveryFailure("The text index must be created here!");
       }

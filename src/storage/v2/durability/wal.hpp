@@ -26,6 +26,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
+#include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/name_id_mapper.hpp"
@@ -444,8 +445,7 @@ void EncodeLabelProperty(BaseEncoder &encoder, NameIdMapper &name_id_mapper, Lab
 void EncodeLabelPropertyStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
                               std::span<PropertyPath const> properties, LabelPropertyIndexStats const &stats);
 void EncodeLabelStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, LabelIndexStats stats);
-void EncodeTextIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, std::string_view text_index_name,
-                     LabelId label, std::span<PropertyId const> properties);
+void EncodeTextIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const TextIndexInfo &text_index_info);
 void EncodeVectorIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const VectorIndexSpec &spec);
 void EncodeVectorEdgeIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const VectorEdgeIndexSpec &spec);
 void EncodeIndexName(BaseEncoder &encoder, std::string_view index_name);

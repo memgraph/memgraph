@@ -19,6 +19,7 @@
 #include "storage/v2/disk/name_id_mapper.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/schema_info_glue.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/transaction.hpp"
@@ -683,17 +684,16 @@ void Storage::Accessor::MarkEdgeAsDeleted(Edge *edge) {
 }
 
 utils::BasicResult<storage::StorageIndexDefinitionError, void> Storage::Accessor::CreateTextIndex(
-    const std::string &index_name, LabelId label, std::span<PropertyId const> properties) {
+    TextIndexInfo text_index_info) {
   MG_ASSERT(type() == UNIQUE, "Creating a text index requires unique access to storage!");
   try {
-    storage_->indices_.text_index_.CreateIndex(index_name, label, Vertices(View::NEW), storage_->name_id_mapper_.get(),
-                                               properties);
+    storage_->indices_.text_index_.CreateIndex(std::move(text_index_info), Vertices(View::NEW),
+                                               storage_->name_id_mapper_.get());
   } catch (const query::TextSearchException &e) {
     return storage::StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   transaction_.text_index_operations_performed_ = true;
-  transaction_.md_deltas.emplace_back(MetadataDelta::text_index_create, index_name, label,
-                                      std::vector<PropertyId>(properties.begin(), properties.end()));
+  transaction_.md_deltas.emplace_back(MetadataDelta::text_index_create, text_index_info);
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextIndices);
   return {};
 }

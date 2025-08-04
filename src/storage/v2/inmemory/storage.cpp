@@ -2570,8 +2570,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       }
       case MetadataDelta::Action::TEXT_INDEX_CREATE: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeTextIndex(encoder, *mem_storage->name_id_mapper_, md_delta.text_index.index_name,
-                          md_delta.text_index.label, md_delta.text_index.properties);
+          EncodeTextIndex(encoder, *mem_storage->name_id_mapper_, md_delta.text_index);
         });
         break;
       }

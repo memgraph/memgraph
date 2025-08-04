@@ -14,28 +14,20 @@
 #include "flags/experimental.hpp"
 #include "mgcxx_text_search.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/view.hpp"
-
-#include <range/v3/algorithm/any_of.hpp>
-#include <span>
-#include <vector>
 
 namespace r = ranges;
 namespace rv = r::views;
 namespace memgraph::storage {
 
-std::string GetPropertyName(PropertyId prop_id, NameIdMapper *name_id_mapper) {
-  return name_id_mapper->IdToName(prop_id.AsUint());
-}
-
 inline std::string TextIndex::MakeIndexPath(std::string_view index_name) const {
   return (text_index_storage_dir_ / index_name).string();
 }
 
-void TextIndex::CreateTantivyIndex(const std::string &index_name, LabelId label, const std::string &index_path,
-                                   std::span<PropertyId const> properties) {
+void TextIndex::CreateTantivyIndex(const std::string &index_path, const TextIndexInfo &index_info) {
   try {
     nlohmann::json mappings = {};
     mappings["properties"] = {};
@@ -44,108 +36,16 @@ void TextIndex::CreateTantivyIndex(const std::string &index_name, LabelId label,
     mappings["properties"]["all"] = {{"type", "text"}, {"fast", true}, {"stored", true}, {"text", true}};
 
     auto [_, success] = index_.try_emplace(
-        index_name,
+        index_info.index_name_,
         mgcxx::text_search::create_index(index_path, mgcxx::text_search::IndexConfig{.mappings = mappings.dump()}),
-        label, std::vector<PropertyId>(properties.begin(), properties.end()));
+        index_info.label_, index_info.properties_);
     if (!success) {
-      throw query::TextSearchException("Text index \"{}\" already exists at path: {}.", index_name, index_path);
+      throw query::TextSearchException("Text index \"{}\" already exists at path: {}.", index_info.index_name_,
+                                       index_path);
     }
   } catch (const std::exception &e) {
     throw query::TextSearchException("Tantivy error: {}", e.what());
   }
-}
-
-nlohmann::json TextIndex::SerializeProperties(const std::map<PropertyId, PropertyValue> &properties,
-                                              NameIdMapper *name_id_mapper) {
-  // Property types that are indexed in Tantivy are Bool, Int, Double, and String.
-  nlohmann::json serialized_properties = nlohmann::json::value_t::object;
-  for (const auto &[prop_id, prop_value] : properties) {
-    switch (prop_value.type()) {
-      case PropertyValue::Type::Bool:
-        serialized_properties[GetPropertyName(prop_id, name_id_mapper)] = prop_value.ValueBool();
-        break;
-      case PropertyValue::Type::Int:
-        serialized_properties[GetPropertyName(prop_id, name_id_mapper)] = prop_value.ValueInt();
-        break;
-      case PropertyValue::Type::Double:
-        serialized_properties[GetPropertyName(prop_id, name_id_mapper)] = prop_value.ValueDouble();
-        break;
-      case PropertyValue::Type::String:
-        serialized_properties[GetPropertyName(prop_id, name_id_mapper)] = prop_value.ValueString();
-        break;
-      case PropertyValue::Type::Null:
-      case PropertyValue::Type::List:
-      case PropertyValue::Type::Map:
-      case PropertyValue::Type::TemporalData:
-      case PropertyValue::Type::ZonedTemporalData:
-      default:
-        continue;
-    }
-  }
-
-  return serialized_properties;
-}
-
-std::string TextIndex::StringifyProperties(const std::map<PropertyId, PropertyValue> &properties) {
-  // Property types that are indexed in Tantivy are Bool, Int, Double, and String.
-  std::vector<std::string> indexable_properties_as_string;
-  for (const auto &[_, prop_value] : properties) {
-    switch (prop_value.type()) {
-      case PropertyValue::Type::Bool:
-        indexable_properties_as_string.emplace_back(prop_value.ValueBool() ? "true" : "false");
-        break;
-      case PropertyValue::Type::Int:
-        indexable_properties_as_string.push_back(std::to_string(prop_value.ValueInt()));
-        break;
-      case PropertyValue::Type::Double:
-        indexable_properties_as_string.push_back(std::to_string(prop_value.ValueDouble()));
-        break;
-      case PropertyValue::Type::String:
-        indexable_properties_as_string.push_back(prop_value.ValueString());
-        break;
-      // NOTE: As the following types aren‘t indexed in Tantivy, they don’t appear in the property value string either.
-      case PropertyValue::Type::Null:
-      case PropertyValue::Type::List:
-      case PropertyValue::Type::Map:
-      case PropertyValue::Type::TemporalData:
-      case PropertyValue::Type::ZonedTemporalData:
-      default:
-        continue;
-    }
-  }
-  return utils::Join(indexable_properties_as_string, " ");
-}
-
-std::string TextIndex::ToLowerCasePreservingBooleanOperators(std::string_view input) {
-  if (input.empty()) return {};
-
-  std::string result;
-  result.reserve(input.length());
-
-  const auto *it = input.cbegin();
-  while (it != input.cend()) {
-    if (std::isspace(*it)) {
-      result += *it++;
-      continue;
-    }
-
-    const auto *word_start = it;
-    it = r::find_if(word_start, input.cend(), [](char c) { return std::isspace(c); });
-
-    // Extract the word
-    auto word = input.substr(word_start - input.cbegin(), it - word_start);
-    auto uppercase_word = utils::ToUpperCase(word);
-
-    // Check if it's a boolean operator (case-insensitive)
-    if (uppercase_word == kBooleanAnd || uppercase_word == kBooleanOr || uppercase_word == kBooleanNot) {
-      // Preserve the boolean operator in uppercase
-      result += uppercase_word;
-    } else {
-      result += utils::ToLowerCase(word);
-    }
-  }
-
-  return result;
 }
 
 std::vector<TextIndexData *> TextIndex::GetApplicableTextIndices(std::span<storage::LabelId const> labels,
@@ -264,30 +164,31 @@ void TextIndex::RemoveNode(Vertex *vertex_after_update, std::span<TextIndexData 
   }
 }
 
-void TextIndex::CreateIndex(std::string const &index_name, LabelId label, storage::VerticesIterable vertices,
-                            NameIdMapper *name_id_mapper, std::span<PropertyId const> properties) {
-  CreateTantivyIndex(index_name, label, MakeIndexPath(index_name), properties);
+void TextIndex::CreateIndex(TextIndexInfo index_info, storage::VerticesIterable vertices,
+                            NameIdMapper *name_id_mapper) {
+  CreateTantivyIndex(MakeIndexPath(index_info.index_name_),
+                     {index_info.index_name_, index_info.label_, index_info.properties_});
 
   for (const auto &v : vertices) {
-    if (!v.HasLabel(label, View::NEW).GetValue()) {
+    if (!v.HasLabel(index_info.label_, View::NEW).GetValue()) {
       continue;
     }
     // If properties aren't specified, we serialize all properties of the vertex.
-    auto vertex_properties = properties.empty() ? v.Properties(View::NEW).GetValue()
-                                                : v.PropertiesByPropertyIds(properties, View::NEW).GetValue();
+    auto vertex_properties = index_info.properties_.empty()
+                                 ? v.Properties(View::NEW).GetValue()
+                                 : v.PropertiesByPropertyIds(index_info.properties_, View::NEW).GetValue();
     AddNodeToTextIndex(v.Gid().AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
-                       StringifyProperties(vertex_properties), &index_.at(index_name));
+                       StringifyProperties(vertex_properties), &index_.at(index_info.index_name_));
   }
 }
 
-void TextIndex::RecoverIndex(const std::string &index_name, LabelId label, std::span<PropertyId const> properties,
-                             std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  auto index_path = MakeIndexPath(index_name);
+void TextIndex::RecoverIndex(TextIndexInfo index_info, std::optional<SnapshotObserverInfo> const &snapshot_info) {
+  auto index_path = MakeIndexPath(index_info.index_name_);
   if (!std::filesystem::exists(index_path)) {
-    throw query::TextSearchException("Text index \"{}\" does not exist at path: {}. Recovery failed.", index_name,
-                                     index_path);
+    throw query::TextSearchException("Text index \"{}\" does not exist at path: {}. Recovery failed.",
+                                     index_info.index_name_, index_path);
   }
-  CreateTantivyIndex(index_name, label, index_path, properties);
+  CreateTantivyIndex(index_path, index_info);
   if (snapshot_info) {
     snapshot_info->Update(UpdateType::TEXT_IDX);
   }

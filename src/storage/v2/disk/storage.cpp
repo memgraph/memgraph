@@ -1758,13 +1758,13 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Pr
         } break;
         case MetadataDelta::Action::TEXT_INDEX_CREATE: {
           const auto &info = md_delta.text_index;
-          if (!disk_storage->durable_metadata_.PersistTextIndexCreation(info.index_name, info.label)) {
+          if (!disk_storage->durable_metadata_.PersistTextIndexCreation(info.index_name_, info.label_)) {
             return StorageManipulationError{PersistenceError{}};
           }
         } break;
         case MetadataDelta::Action::TEXT_INDEX_DROP: {
           const auto &info = md_delta.text_index;
-          if (!disk_storage->durable_metadata_.PersistTextIndexDeletion(info.index_name, info.label)) {
+          if (!disk_storage->durable_metadata_.PersistTextIndexDeletion(info.index_name_, info.label_)) {
             return StorageManipulationError{PersistenceError{}};
           }
         } break;

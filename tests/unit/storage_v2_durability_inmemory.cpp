@@ -47,6 +47,7 @@
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
@@ -234,7 +235,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     {
       // Create text index.
       auto unique_acc = store->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateTextIndex("text_index", label_indexed, std::array{property_text}).HasError());
+      ASSERT_FALSE(
+          unique_acc->CreateTextIndex(memgraph::storage::TextIndexInfo{"text_index", label_indexed, {property_text}})
+              .HasError());
       ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
     }
 
@@ -574,8 +577,8 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
             return index == vector_index_spec;
           }));
           ASSERT_EQ(info.text_indices.size(), 1);
-          ASSERT_THAT(info.text_indices, UnorderedElementsAre(std::make_tuple("text_index", base_label_indexed,
-                                                                              std::vector{property_text})));
+          ASSERT_EQ(info.text_indices[0],
+                    (memgraph::storage::TextIndexInfo{"text_index", base_label_indexed, {property_text}}));
           break;
         case DatasetType::ONLY_EXTENDED:
           ASSERT_THAT(info.label, UnorderedElementsAre(extended_label_unused));
@@ -604,8 +607,8 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
             return index == vector_index_spec;
           }));
           ASSERT_EQ(info.text_indices.size(), 1);
-          ASSERT_THAT(info.text_indices, UnorderedElementsAre(std::make_tuple("text_index", base_label_indexed,
-                                                                              std::vector{property_text})));
+          ASSERT_EQ(info.text_indices[0],
+                    (memgraph::storage::TextIndexInfo{"text_index", base_label_indexed, {property_text}}));
           break;
         case DatasetType::BASE_WITH_EDGE_TYPE_INDEXED:
           ASSERT_THAT(info.label, UnorderedElementsAre(base_label_unindexed));
@@ -623,8 +626,8 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
             return index == vector_index_spec;
           }));
           ASSERT_EQ(info.text_indices.size(), 1);
-          ASSERT_THAT(info.text_indices, UnorderedElementsAre(std::make_tuple("text_index", base_label_indexed,
-                                                                              std::vector{property_text})));
+          ASSERT_EQ(info.text_indices[0],
+                    (memgraph::storage::TextIndexInfo{"text_index", base_label_indexed, {property_text}}));
           break;
         case DatasetType::BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED:
           ASSERT_THAT(info.label, UnorderedElementsAre(base_label_unindexed));
@@ -645,8 +648,8 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
             return index == vector_edge_index_spec;
           }));
           ASSERT_EQ(info.text_indices.size(), 1);
-          ASSERT_THAT(info.text_indices, UnorderedElementsAre(std::make_tuple("text_index", base_label_indexed,
-                                                                              std::vector{property_text})));
+          ASSERT_EQ(info.text_indices[0],
+                    (memgraph::storage::TextIndexInfo{"text_index", base_label_indexed, {property_text}}));
           break;
       }
     }

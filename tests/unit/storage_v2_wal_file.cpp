@@ -22,6 +22,8 @@
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/indices/text_index.hpp"
+#include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/name_id_mapper.hpp"
@@ -342,7 +344,7 @@ class DeltaGenerator final {
       }
       case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_CREATE: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
-          EncodeTextIndex(encoder, mapper_, name, label_id, property_ids);
+          EncodeTextIndex(encoder, mapper_, memgraph::storage::TextIndexInfo{name, label_id, property_ids});
         });
         break;
       }

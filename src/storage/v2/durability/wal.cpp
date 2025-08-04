@@ -12,7 +12,6 @@
 #include "storage/v2/durability/wal.hpp"
 #include <algorithm>
 #include <cstdint>
-#include <range/v3/view/transform.hpp>
 #include <type_traits>
 #include <usearch/index_plugins.hpp>
 #include <vector>
@@ -28,6 +27,8 @@
 #include "storage/v2/edge.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/property_path.hpp"
+#include "storage/v2/indices/text_index.hpp"
+#include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/indices/vector_index_utils.hpp"
@@ -1127,7 +1128,7 @@ std::optional<RecoveryInfo> LoadWal(
         }) | r::to<std::vector<PropertyId>>()
                                         : std::vector<PropertyId>{};
         AddRecoveredIndexConstraint(&indices_constraints->indices.text_indices,
-                                    std::make_tuple(data.index_name, label, std::move(prop_ids)),
+                                    TextIndexInfo{data.index_name, label, std::move(prop_ids)},
                                     "The text index already exists!");
       },
       [&](WalTextIndexDrop const &data) {
@@ -1535,8 +1536,8 @@ void EncodeTypeConstraint(BaseEncoder &encoder, NameIdMapper &name_id_mapper, La
   encoder.WriteUint(static_cast<uint64_t>(type));
 }
 
-void EncodeTextIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, std::string_view text_index_name,
-                     LabelId label, std::span<PropertyId const> properties) {
+void EncodeTextIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const TextIndexInfo &text_index_info) {
+  const auto &[text_index_name, label, properties] = text_index_info;
   encoder.WriteString(text_index_name);
   encoder.WriteString(name_id_mapper.IdToName(label.AsUint()));
   encoder.WriteUint(properties.size());

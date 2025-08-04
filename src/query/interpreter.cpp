@@ -3917,7 +3917,7 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
       index_notification.title = fmt::format("Created text index on label {}.", label_name);
       handler = [dba, label_id, index_name, label_name = std::move(label_name),
                  property_ids = std::move(property_ids)](Notification &index_notification) {
-        auto maybe_error = dba->CreateTextIndex(index_name, label_id, property_ids);
+        auto maybe_error = dba->CreateTextIndex(storage::TextIndexInfo{index_name, label_id, property_ids});
         if (maybe_error.HasError()) {
           index_notification.code = NotificationCode::EXISTENT_INDEX;
           index_notification.title =

@@ -41,6 +41,7 @@ target_sources(mg-storage-v2
         indices/point_index.cpp
         indices/point_index_change_collector.cpp
         indices/point_iterator.cpp
+        indices/text_index_utils.cpp
         indices/text_index.cpp
         indices/vector_edge_index.cpp
         indices/vector_index.cpp

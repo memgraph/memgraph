@@ -21,6 +21,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/indices.hpp"
 #include "storage/v2/indices/text_index.hpp"
+#include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/replication_client.hpp"
@@ -464,8 +465,7 @@ class Storage {
     virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> DropPointIndex(
         storage::LabelId label, storage::PropertyId property) = 0;
 
-    utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateTextIndex(
-        const std::string &index_name, LabelId label, std::span<PropertyId const> properties);
+    utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateTextIndex(TextIndexInfo text_index_info);
 
     utils::BasicResult<storage::StorageIndexDefinitionError, void> DropTextIndex(const std::string &index_name);
 
