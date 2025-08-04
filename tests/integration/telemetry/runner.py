@@ -119,7 +119,8 @@ if __name__ == "__main__":
             print("\033[1;36m~~ Executing test with arguments:", json.dumps(test, sort_keys=True), "~~\033[0m")
 
             # Handle add_garbage test for original tests
-            if test.get("add_garbage", False):
+            add_garbage = test.pop("add_garbage", False)
+            if add_garbage:
                 proc = subprocess.Popen(
                     [args.kvstore_console, "--path", storage], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL
                 )
@@ -140,6 +141,9 @@ if __name__ == "__main__":
             else:
                 print("\033[1;32m~~", "Test ok!", "~~\033[0m")
 
+            if add_garbage:
+                test["add_garbage"] = True
+
     # Run AWS Lambda API compatibility tests
     print("\033[1;35m~~ Running AWS Lambda API compatibility tests ~~\033[0m")
 
@@ -153,7 +157,8 @@ if __name__ == "__main__":
             print("\033[1;36m~~ Executing AWS test with arguments:", json.dumps(aws_test, sort_keys=True), "~~\033[0m")
 
             # Handle add_garbage test for AWS tests
-            if test.get("add_garbage", False):
+            add_garbage = test.get("add_garbage", False)
+            if add_garbage:
                 proc = subprocess.Popen(
                     [args.kvstore_console, "--path", storage], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL
                 )
