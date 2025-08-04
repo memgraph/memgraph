@@ -98,7 +98,7 @@ print_help () {
   echo -e "  --os string                   Specify operating system (\"${SUPPORTED_OS[*]}\") (default \"$DEFAULT_OS\")"
   echo -e "  --threads int                 Specify the number of threads a command will use (default \"\$(nproc)\" for container)"
   echo -e "  --toolchain string            Specify toolchain version (\"${SUPPORTED_TOOLCHAINS[*]}\") (default \"$DEFAULT_TOOLCHAIN\")"
-  echo -e "  --no-ccache                   Disable ccache volume mounting (default \"$DEFAULT_CCACHE_ENABLED\")"
+  echo -e "  --no-ccache                   Disable ccache volume mounting (default \"$DEFAULT_CCACHE_ENABLED\") -> this is required for run, stop and build-memgraph commands on the coverage build"
 
   echo -e "\nbuild options:"
   echo -e "  --git-ref string              Specify git ref from which the environment deps will be installed (default \"master\")"
