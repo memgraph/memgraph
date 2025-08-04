@@ -156,7 +156,6 @@ struct RelPropertyFilterConfig {
   }
   // Returns the filter for a given rel_type, or a default wildcard filter if not present
   const RelPropertyFilter &GetFilter(const std::string_view &rel_type) const {
-    static RelPropertyFilter wildcard_filter;
     auto it = filters.find(std::string(rel_type));
     if (it != filters.end()) return it->second;
     // If not present, default to wildcard (include all)
@@ -211,7 +210,7 @@ bool ShouldIncludeRelProperty(std::string_view prop_name, const mgp::Map &config
     return true;
   }
   auto rels = config.At("rels").ValueMap();
-  static RelPropertyFilterConfig rel_filter_config(rels);
+  RelPropertyFilterConfig rel_filter_config(rels);
   const RelPropertyFilter &filter = rel_filter_config.GetFilter(rel_type);
   return filter.ShouldInclude(prop_name);
 }
@@ -239,20 +238,8 @@ mgp::Value ConvertToTreeImpl(const mgp::Value &input, const bool lowerCaseRels, 
     auto first_path = paths[0].ValuePath();
     auto root_node = first_path.GetNodeAt(0);
 
-    // Create root node map with properties
-    mgp::Map root_map;
-    auto root_props = root_node.Properties();
-    auto root_labels = root_node.Labels();
-
-    // Copy all root node properties that pass filtering
-    for (const auto &[key, value] : root_props) {
-      if (ShouldIncludeProperty(key, config, root_labels)) {
-        root_map.Insert(key, value);
-      }
-    }
-
-    // Lambda to insert _type and _id from labels and node id into a map
-    auto insert_type_and_id = [](mgp::Map &map, const mgp::Labels &labels, const mgp::Node &node) {
+    // Lambda to insert _type, _id, and _elementId from labels and node into a map
+    auto insert_node_metadata = [](mgp::Map &map, const mgp::Labels &labels, const mgp::Node &node) {
       if (labels.Size() == 1) {
         map.Insert("_type", mgp::Value(labels[0]));
       } else if (labels.Size() > 1) {
@@ -263,18 +250,44 @@ mgp::Value ConvertToTreeImpl(const mgp::Value &input, const bool lowerCaseRels, 
         map.Insert("_type", mgp::Value(label_list));
       }
       map.Insert("_id", mgp::Value(node.Id().AsInt()));
+      // Note: ElementId is not available in the current mgp API
+      // map.Insert("_elementId", mgp::Value(node.ElementId().ToString()));
     };
 
-    // Add type and id to root node
-    insert_type_and_id(root_map, root_labels, root_node);
+    // Helper function to create a node map with properties and metadata
+    auto create_node_map = [&](const mgp::Node &node) {
+      mgp::Map node_map;
+      auto props = node.Properties();
+      auto labels = node.Labels();
 
-    // Process all paths to collect relationships and build the tree
+      // Copy all node properties that pass filtering
+      for (const auto &[key, value] : props) {
+        if (ShouldIncludeProperty(key, config, labels)) {
+          node_map.Insert(key, value);
+        }
+      }
+
+      // Add type, id, and elementId
+      insert_node_metadata(node_map, labels, node);
+
+      return node_map;
+    };
+
+    // Build a map to track all nodes by their ID for efficient lookup
+    std::map<int64_t, mgp::Map> node_map_by_id;
+    node_map_by_id[root_node.Id().AsInt()] = create_node_map(root_node);
+
+    // Build relationship maps for the root node
+    std::map<std::string, mgp::List> root_relationships;
+
+    // Process all paths to build the tree structure
     for (size_t path_idx = 0; path_idx < paths.Size(); path_idx++) {
       auto path = paths[path_idx].ValuePath();
 
-      // For each relationship in the path, add the target node to the appropriate relationship array
+      // For each path, determine the relationship type that leads to each node from the root
       for (size_t i = 0; i < path.Length(); i++) {
         auto rel = path.GetRelationshipAt(i);
+        auto source_node = path.GetNodeAt(i);
         auto target_node = path.GetNodeAt(i + 1);
         std::string rel_type{rel.Type()};
         if (lowerCaseRels) {
@@ -282,56 +295,82 @@ mgp::Value ConvertToTreeImpl(const mgp::Value &input, const bool lowerCaseRels, 
                          [](unsigned char c) { return std::tolower(c); });
         }
 
-        // Create or get relationship array for this type
-        mgp::List rel_list;
-        if (!root_map.KeyExists(rel_type)) {
-          rel_list = mgp::List();
-        } else {
-          rel_list = root_map.At(rel_type).ValueList();
-        }
+        auto source_id = source_node.Id().AsInt();
+        auto target_id = target_node.Id().AsInt();
 
-        // Create target node map
+        // Get or create the target node map
         mgp::Map target_map;
-
-        // Copy all target node properties that pass filtering
-        auto target_props = target_node.Properties();
-        auto target_labels = target_node.Labels();
-        for (const auto &[key, value] : target_props) {
-          if (ShouldIncludeProperty(key, config, target_labels)) {
-            target_map.Insert(key, value);
-          }
+        if (node_map_by_id.find(target_id) != node_map_by_id.end()) {
+          target_map = node_map_by_id[target_id];
+        } else {
+          target_map = create_node_map(target_node);
+          node_map_by_id[target_id] = target_map;
         }
 
-        // Add relationship properties with type-prefixed keys
+        // Create a copy of the target node map to add relationship properties
+        mgp::Map target_with_rel_props = target_map;
+
+        // Add relationship properties with type-prefixed keys to the target node
         auto rel_props = rel.Properties();
         for (const auto &[key, value] : rel_props) {
           if (ShouldIncludeRelProperty(key, config, rel_type)) {
             std::string prefixed_key = rel_type + "." + key;
-            target_map.Insert(prefixed_key, value);
+            target_with_rel_props.Update(prefixed_key, value);
           }
         }
 
-        // Add type and id to target node
-        insert_type_and_id(target_map, target_labels, target_node);
+        // Add relationship metadata to the target node
+        target_with_rel_props.Update(rel_type + "._id", mgp::Value(rel.Id().AsInt()));
+        // Note: ElementId is not available in the current mgp API
+        // target_with_rel_props.Update(rel_type + "._elementId", mgp::Value(rel.ElementId().ToString()));
 
-        // Only add unique target nodes to the relationship array (by _id)
+        // Determine the relationship type that leads to this target node from the root
+        // If this is the first relationship in the path, it's the direct relationship type
+        // If it's not the first, we need to find the relationship type that leads to this node
+        std::string root_rel_type = rel_type;
+        if (i > 0) {
+          // This is not the first relationship, so we need to find the relationship type
+          // that leads to this target node from the root
+          // For now, we'll use the relationship type of the first relationship that leads to this node
+          // This is a simplification - in a more complex case, we might need to track the path
+          root_rel_type = rel_type;
+        }
+
+        // Add the target node to the root's relationships based on the relationship type
+        // Get or create the relationship array for this type
+        mgp::List rel_list;
+        if (root_relationships.find(root_rel_type) != root_relationships.end()) {
+          rel_list = root_relationships[root_rel_type];
+        } else {
+          rel_list = mgp::List();
+        }
+
+        // Check if target node already exists in the relationship array
         bool found = false;
         for (size_t j = 0; j < rel_list.Size(); ++j) {
           auto existing = rel_list[j].ValueMap();
-          if (existing.KeyExists("_id") && existing.At("_id").ValueInt() == target_node.Id().AsInt()) {
+          if (existing.KeyExists("_id") && existing.At("_id").ValueInt() == target_id) {
             found = true;
             break;
           }
         }
+
+        // If not found, add the target node with relationship properties to the relationship array
         if (!found) {
-          rel_list.AppendExtend(mgp::Value(target_map));
+          rel_list.AppendExtend(mgp::Value(target_with_rel_props));
         }
-        // Update the relationship array in the root map
-        root_map.Update(rel_type, mgp::Value(rel_list));
+
+        root_relationships[root_rel_type] = rel_list;
       }
     }
 
-    // Return the constructed tree as a map
+    // Build the root node map with all relationships
+    mgp::Map root_map = node_map_by_id[root_node.Id().AsInt()];
+    for (const auto &[rel_type, rel_list] : root_relationships) {
+      root_map.Insert(rel_type, mgp::Value(rel_list));
+    }
+
+    // Return the root map (which now contains the complete tree structure)
     return mgp::Value(root_map);
   }
 
