@@ -305,26 +305,11 @@ setup_host_ccache_permissions() {
     echo "Setting up host ccache directory permissions..."
     mkdir -p ~/.cache/ccache
 
-    # Check if we can determine the mg user UID from the container
-    if docker image inspect memgraph/mgbuild:${toolchain_version}_${os} > /dev/null 2>&1; then
-      # Try to get the mg user UID from the container image
-      container_uid=$(docker run --rm memgraph/mgbuild:${toolchain_version}_${os} id -u mg 2>/dev/null || echo "1000")
-      echo "Container mg user UID: $container_uid"
+    # Set open permissions to allow container access without ownership changes
+    # This works in CI environments where we can't change ownership
+    chmod 777 ~/.cache/ccache || true
 
-      # If the host user UID matches the container UID, we can use normal permissions
-      if [[ "$(id -u)" == "$container_uid" ]]; then
-        chmod 755 ~/.cache/ccache
-        echo "Host ccache directory permissions set to 755 (UID match)"
-      else
-        # Otherwise, make it world-writable to avoid permission issues
-        chmod 777 ~/.cache/ccache
-        echo "Host ccache directory permissions set to 777 (UID mismatch)"
-      fi
-    else
-      # Fallback: make it world-writable
-      chmod 777 ~/.cache/ccache
-      echo "Host ccache directory permissions set to 777 (fallback)"
-    fi
+    echo "Host ccache directory permissions set to 777 (open access)"
   fi
 }
 
@@ -1096,20 +1081,19 @@ case $command in
           echo "Warning: Unknown OS $os - not installing ccache"
         fi
 
-        # Set up ccache directory permissions
-        echo "Setting up ccache directory permissions..."
-        docker exec -u root $build_container bash -c "
-          mkdir -p /home/mg/.cache/ccache
-          chown -R mg:mg /home/mg/.cache/ccache
-          chmod -R 755 /home/mg/.cache/ccache
-        "
-
         # Verify ccache installation and permissions
         echo "Verifying ccache installation..."
         docker exec -u mg $build_container bash -c "
           ccache --version
           ccache -s
           echo 'Ccache is ready for use'
+        "
+
+        # Set cache directory permissions for cross-container access
+        echo "Setting cache directory permissions for cross-container access..."
+        docker exec -u root $build_container bash -c "
+          chmod -R 777 /home/mg/.cache/ccache
+          echo 'Cache directory permissions set for cross-container access'
         "
       fi
 
