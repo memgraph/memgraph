@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -48,6 +48,23 @@ const utils::TypeInfo CreateDatabaseRes::kType{utils::TypeId::REP_CREATE_DATABAS
 const utils::TypeInfo DropDatabaseReq::kType{utils::TypeId::REP_DROP_DATABASE_REQ, "DropDatabaseReq", nullptr};
 
 const utils::TypeInfo DropDatabaseRes::kType{utils::TypeId::REP_DROP_DATABASE_RES, "DropDatabaseRes", nullptr};
+
+void RenameDatabaseReq::Save(const RenameDatabaseReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+void RenameDatabaseReq::Load(RenameDatabaseReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+void RenameDatabaseRes::Save(const RenameDatabaseRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+void RenameDatabaseRes::Load(RenameDatabaseRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
+const utils::TypeInfo RenameDatabaseReq::kType{utils::TypeId::REP_RENAME_DATABASE_REQ, "RenameDatabaseReq", nullptr};
+
+const utils::TypeInfo RenameDatabaseRes::kType{utils::TypeId::REP_RENAME_DATABASE_RES, "RenameDatabaseRes", nullptr};
 
 }  // namespace storage::replication
 
@@ -111,6 +128,42 @@ void Save(const memgraph::storage::replication::DropDatabaseRes &self, memgraph:
 }
 
 void Load(memgraph::storage::replication::DropDatabaseRes *self, memgraph::slk::Reader *reader) {
+  uint8_t res = 0;
+  memgraph::slk::Load(&res, reader);
+  if (!utils::NumToEnum(res, self->result)) {
+    throw SlkReaderException("Unexpected result line:{}!", __LINE__);
+  }
+}
+
+// Serialize code for RenameDatabaseReq
+
+void Save(const memgraph::storage::replication::RenameDatabaseReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.main_uuid, builder);
+  memgraph::slk::Save(self.epoch_id, builder);
+  memgraph::slk::Save(self.expected_group_timestamp, builder);
+  memgraph::slk::Save(self.new_group_timestamp, builder);
+  memgraph::slk::Save(self.uuid, builder);
+  memgraph::slk::Save(self.old_name, builder);
+  memgraph::slk::Save(self.new_name, builder);
+}
+
+void Load(memgraph::storage::replication::RenameDatabaseReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->main_uuid, reader);
+  memgraph::slk::Load(&self->epoch_id, reader);
+  memgraph::slk::Load(&self->expected_group_timestamp, reader);
+  memgraph::slk::Load(&self->new_group_timestamp, reader);
+  memgraph::slk::Load(&self->uuid, reader);
+  memgraph::slk::Load(&self->old_name, reader);
+  memgraph::slk::Load(&self->new_name, reader);
+}
+
+// Serialize code for RenameDatabaseRes
+
+void Save(const memgraph::storage::replication::RenameDatabaseRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(utils::EnumToNum<uint8_t>(self.result), builder);
+}
+
+void Load(memgraph::storage::replication::RenameDatabaseRes *self, memgraph::slk::Reader *reader) {
   uint8_t res = 0;
   memgraph::slk::Load(&res, reader);
   if (!utils::NumToEnum(res, self->result)) {
