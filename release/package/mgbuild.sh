@@ -65,6 +65,7 @@ DEFAULT_BENCH_GRAPH_HOST="bench-graph-api"
 DEFAULT_BENCH_GRAPH_PORT="9001"
 DEFAULT_MGDEPS_CACHE_HOST="mgdeps-cache"
 DEFAULT_MGDEPS_CACHE_PORT="8000"
+DEFAULT_CCACHE_ENABLED="true"
 
 print_help () {
   echo -e "\nUsage:  $SCRIPT_NAME [GLOBAL OPTIONS] COMMAND [COMMAND OPTIONS]"
@@ -97,6 +98,7 @@ print_help () {
   echo -e "  --os string                   Specify operating system (\"${SUPPORTED_OS[*]}\") (default \"$DEFAULT_OS\")"
   echo -e "  --threads int                 Specify the number of threads a command will use (default \"\$(nproc)\" for container)"
   echo -e "  --toolchain string            Specify toolchain version (\"${SUPPORTED_TOOLCHAINS[*]}\") (default \"$DEFAULT_TOOLCHAIN\")"
+  echo -e "  --no-ccache                   Disable ccache volume mounting (default \"$DEFAULT_CCACHE_ENABLED\")"
 
   echo -e "\nbuild options:"
   echo -e "  --git-ref string              Specify git ref from which the environment deps will be installed (default \"master\")"
@@ -262,6 +264,44 @@ version_lt() {
 ##################################################
 ######## BUILD, COPY AND PACKAGE MEMGRAPH ########
 ##################################################
+
+# Function to handle ccache override file creation and cleanup
+setup_ccache_override() {
+  local compose_files="-f ${arch}-builders-${toolchain_version}.yml"
+
+  if [[ "$ccache_enabled" == "true" ]]; then
+    echo "Enabling ccache volume mounting..."
+    cat > ccache-override.yml << EOF
+version: "3"
+services:
+EOF
+    # Add ccache volumes for all services in the compose file
+    if [[ "$os" == "all" ]]; then
+      # For all OS, we need to add volumes to all services
+      grep "^  mgbuild_" ${arch}-builders-${toolchain_version}.yml | while read -r line; do
+        service_name=$(echo "$line" | sed 's/://')
+        echo "  $service_name:" >> ccache-override.yml
+        echo "    volumes:" >> ccache-override.yml
+        echo "      - ~/.cache/ccache:/home/mg/.cache/ccache" >> ccache-override.yml
+      done
+    else
+      # For specific OS, only add volume to the target service
+      echo "  $build_container:" >> ccache-override.yml
+      echo "    volumes:" >> ccache-override.yml
+      echo "      - ~/.cache/ccache:/home/mg/.cache/ccache" >> ccache-override.yml
+    fi
+    compose_files="$compose_files -f ccache-override.yml"
+  fi
+
+  echo "$compose_files"
+}
+
+cleanup_ccache_override() {
+  if [[ "$ccache_enabled" == "true" ]]; then
+    rm -f ccache-override.yml
+  fi
+}
+
 copy_project_files() {
   echo "Copying project files..."
   project_files=$(ls -A1 "$PROJECT_ROOT")
@@ -812,6 +852,7 @@ bench_graph_host=$DEFAULT_BENCH_GRAPH_HOST
 bench_graph_port=$DEFAULT_BENCH_GRAPH_PORT
 mgdeps_cache_host=$DEFAULT_MGDEPS_CACHE_HOST
 mgdeps_cache_port=$DEFAULT_MGDEPS_CACHE_PORT
+ccache_enabled=$DEFAULT_CCACHE_ENABLED
 command=""
 build_container=""
 while [[ $# -gt 0 ]]; do
@@ -863,6 +904,10 @@ while [[ $# -gt 0 ]]; do
         toolchain_version=$2
         check_support toolchain $toolchain_version
         shift 2
+    ;;
+    --no-ccache)
+        ccache_enabled="false"
+        shift 1
     ;;
     *)
       if [[ "$1" =~ ^--.* ]]; then
@@ -956,20 +1001,24 @@ case $command in
             ;;
         esac
       done
+
+      # Create ccache override file if ccache is enabled
+      local compose_files=$(setup_ccache_override)
+
       if [[ "$os" == "all" ]]; then
         if [[ "$pull" == "true" ]]; then
-          $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull --ignore-pull-failures
+          $docker_compose_cmd $compose_files pull --ignore-pull-failures
         elif [[ "$docker_compose_cmd" == "docker compose" ]]; then
-            $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull --ignore-pull-failures --policy missing
+            $docker_compose_cmd $compose_files pull --ignore-pull-failures --policy missing
         fi
-        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml up -d
+        $docker_compose_cmd $compose_files up -d
       else
         if [[ "$pull" == "true" ]]; then
-          $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull $build_container
+          $docker_compose_cmd $compose_files pull $build_container
         elif ! docker image inspect memgraph/mgbuild:${toolchain_version}_${os} > /dev/null 2>&1; then
-          $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull --ignore-pull-failures $build_container
+          $docker_compose_cmd $compose_files pull --ignore-pull-failures $build_container
         fi
-        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml up -d $build_container
+        $docker_compose_cmd $compose_files up -d $build_container
 
         # set local mirror for Ubuntu
         if [[ "$os" =~ ^"ubuntu".* && "$arch" == "amd" ]]; then
@@ -1006,6 +1055,21 @@ case $command in
           fi
         fi
       fi
+
+      # Install ccache if enabled
+      if [[ "$ccache_enabled" == "true" ]]; then
+        echo "Installing ccache in container..."
+        if [[ "$os" =~ ^"debian".* || "$os" =~ ^"ubuntu".* ]]; then
+          docker exec -u root $build_container bash -c "apt update && apt install -y ccache"
+        elif [[ "$os" =~ ^"centos".* || "$os" =~ ^"rocky".* || "$os" =~ ^"fedora".* ]]; then
+          docker exec -u root $build_container bash -c "yum -y update && yum -y install ccache"
+        else
+          echo "Warning: Unknown OS $os - not installing ccache"
+        fi
+      fi
+
+      # Clean up override file if it was created
+      cleanup_ccache_override
     ;;
     stop)
       cd $SCRIPT_DIR
@@ -1023,22 +1087,36 @@ case $command in
             ;;
         esac
       done
+
+      # Create ccache override file if ccache is enabled (same logic as run command)
+      local compose_files=$(setup_ccache_override)
+
       if [[ "$os" == "all" ]]; then
-        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml down
+        $docker_compose_cmd $compose_files down
       else
         docker stop $build_container
         if [[ "$remove" == "true" ]]; then
           docker rm $build_container
         fi
       fi
+
+      # Clean up override file if it was created
+      cleanup_ccache_override
     ;;
     pull)
       cd $SCRIPT_DIR
+
+      # Create ccache override file if ccache is enabled (same logic as run command)
+      local compose_files=$(setup_ccache_override)
+
       if [[ "$os" == "all" ]]; then
-        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull --ignore-pull-failures
+        $docker_compose_cmd $compose_files pull --ignore-pull-failures
       else
-        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull $build_container
+        $docker_compose_cmd $compose_files pull $build_container
       fi
+
+      # Clean up override file if it was created
+      cleanup_ccache_override
     ;;
     push)
       docker login $@
