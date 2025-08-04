@@ -65,8 +65,22 @@ void UpdateAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system
     }
     if (req.profile) {
       spdlog::trace("Saving profile '{}'", req.profile->name);
-      if (!auth->CreateProfile(req.profile->name, req.profile->limits)) {
+      if (!auth->CreateProfile(req.profile->name, req.profile->limits, req.profile->usernames)) {
         // Profile already exists, update it
+        // Figure out the difference between the existing users and the new ones
+        auto existing_users = auth->GetUsernamesForProfile(req.profile->name);
+        auto new_users = req.profile->usernames;
+        for (const auto &user : existing_users) {
+          if (!new_users.contains(user)) {
+            auth->RevokeProfile(user);
+          }
+        }
+        for (const auto &user : new_users) {
+          if (!existing_users.contains(user)) {
+            auth->SetProfile(req.profile->name, user);
+          }
+        }
+        // Update limits
         auth->UpdateProfile(req.profile->name, req.profile->limits);
       }
     }
@@ -144,12 +158,13 @@ bool SystemRecoveryHandler(auth::SynchedAuth &auth, auth::Auth::Config auth_conf
       // Save incoming profiles
       for (const auto &profile : profiles) {
         // Missing profile
-        if (!locked_auth.CreateProfile(profile.name, profile.limits)) {
+        if (!locked_auth.CreateProfile(profile.name, profile.limits, profile.usernames)) {
           // Profile already exists, update it
           if (!locked_auth.UpdateProfile(profile.name, profile.limits)) {
             spdlog::debug("SystemRecoveryHandler: Failed to save profile");
             return false;
           }
+          // TODO Update users connected to the profile
         }
         const auto it = std::find_if(old_profiles.begin(), old_profiles.end(),
                                      [&](const auto &p) { return p.name == profile.name; });

@@ -471,13 +471,7 @@ class Role {
   const auto &user_impersonation() const { return user_impersonation_; }
 #endif
 
-// User profiles
-#ifdef MG_ENTERPRISE
-  const std::optional<UserProfiles::Profile> &profile() const { return profile_; }
-  std::optional<UserProfiles::Profile> profile() { return profile_; }
-  void SetProfile(const UserProfiles::Profile &profile) { profile_ = profile; }
-  void ClearProfile() { profile_.reset(); }
-#endif
+  // Profile management moved to UserProfiles class
 
   nlohmann::json Serialize() const;
 
@@ -493,7 +487,7 @@ class Role {
   FineGrainedAccessHandler fine_grained_access_handler_;
   Databases db_access_;
   std::optional<UserImpersonation> user_impersonation_;
-  std::optional<UserProfiles::Profile> profile_{};  // Sticking with the convention of storing a copy
+  // Profile data moved to UserProfiles class
 #endif
 };
 
@@ -623,14 +617,7 @@ class Roles {
     return !UserImpIsDenied(user, db_name) && UserImpIsGranted(user, db_name);
   }
 
-  std::optional<UserProfiles::Profile> Profile(std::optional<std::string_view> db_name) const {
-    std::optional<UserProfiles::Profile> profile;
-    for (const auto &role : roles_) {
-      if (db_name && !role.HasAccess(*db_name)) continue;  // Skip roles that don't have access to the database
-      profile = UserProfiles::Merge(profile, role.profile());
-    }
-    return profile;
-  }
+  // Profile management moved to UserProfiles class
 #endif
 
   // Iteration support
@@ -821,19 +808,7 @@ class User final {
 
   const utils::UUID &uuid() const { return uuid_; }
 
-// User profiles
-#ifdef MG_ENTERPRISE
-  const std::optional<UserProfiles::Profile> &profile() const { return profile_; }
-  std::optional<UserProfiles::Profile> profile() { return profile_; }
-  std::optional<UserProfiles::Profile> GetProfile(std::optional<std::string_view> db_name = std::nullopt) const {
-    // If both user and role have profiles, merge them
-    std::optional<UserProfiles::Profile> user_profile;
-    if (!db_name || has_access(*db_name)) user_profile = profile_;
-    return UserProfiles::Merge(user_profile, roles_.Profile(db_name));
-  }
-  void SetProfile(const UserProfiles::Profile &profile) { profile_ = profile; }
-  void ClearProfile() { profile_.reset(); }
-#endif
+  // Profile management moved to UserProfiles class
 
   // Read-only API that combines rolenames from all roles
   std::vector<std::string> rolenames() const { return roles_.rolenames(); }
@@ -855,7 +830,7 @@ class User final {
   std::optional<UserImpersonation> user_impersonation_{};
   std::unordered_map<std::string, std::unordered_set<std::string>> db_role_map_{};  // Map of database name to role name
   std::unordered_map<std::string, std::unordered_set<std::string>> role_db_map_{};  // Map of role name to database name
-  std::optional<UserProfiles::Profile> profile_{};  // Sticking with the convention of storing a copy
+  // Profile data moved to UserProfiles class
 #endif
   Roles roles_;
   utils::UUID uuid_{};  // To uniquely identify a user

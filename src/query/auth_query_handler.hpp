@@ -169,7 +169,8 @@ class AuthQueryHandler {
 // User profiles
 #ifdef MG_ENTERPRISE
   virtual void CreateProfile(const std::string &profile_name, const UserProfileQuery::limits_t &defined_limits,
-                             system::Transaction *system_tx) = 0;
+                             const std::unordered_set<std::string> &usernames = {},
+                             system::Transaction *system_tx = nullptr) = 0;
   virtual void UpdateProfile(const std::string &profile_name, const UserProfileQuery::limits_t &updated_limits,
                              system::Transaction *system_tx) = 0;
   virtual void DropProfile(const std::string &profile_name, system::Transaction *system_tx) = 0;
@@ -180,6 +181,7 @@ class AuthQueryHandler {
   virtual void RevokeProfile(const std::string &user_or_role, system::Transaction *system_tx) = 0;
   virtual std::optional<std::string> GetProfileForUser(const std::string &user_or_role) = 0;
   virtual std::vector<std::string> GetUsernamesForProfile(const std::string &profile_name) = 0;
+  // Role-based profile management is no longer supported
   virtual std::optional<std::string> GetProfileForRole(const std::string &user_or_role) = 0;
   virtual std::vector<std::string> GetRolenamesForProfile(const std::string &profile_name) = 0;
 #endif

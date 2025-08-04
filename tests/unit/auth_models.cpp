@@ -11,12 +11,14 @@
 
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
+#include <filesystem>
 #include <type_traits>
 #include <variant>
 
 #include "auth/crypto.hpp"
 #include "auth/exceptions.hpp"
 #include "auth/models.hpp"
+#include "kvstore/kvstore.hpp"
 #include "license/license.hpp"
 #include "nlohmann/json.hpp"
 
@@ -1098,103 +1100,83 @@ TEST(AuthModule, UserProfiles) {
   memgraph::license::global_license_checker.EnableTesting(memgraph::license::LicenseType::ENTERPRISE);
   ASSERT_TRUE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
 
-  memgraph::auth::UserProfiles::Profile profile{"profile", {}};
-  memgraph::auth::UserProfiles::Profile other_profile{
-      "other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{1UL}}}};
+  // Test UserProfiles class directly since profile management is now centralized
+  auto temp_dir = std::filesystem::temp_directory_path() / "MG_test_user_profiles";
+  memgraph::kvstore::KVStore kvstore{temp_dir};
+  memgraph::auth::UserProfiles user_profiles{kvstore};
 
-  // User
-  memgraph::auth::User user{};
-  ASSERT_FALSE(user.profile());
-  ASSERT_FALSE(user.GetProfile());
-  ASSERT_NO_THROW(user.SetProfile(profile));
-  {
-    const auto profile = user.profile();
-    ASSERT_TRUE(profile.has_value());
-    ASSERT_EQ(profile->name, "profile");
-    ASSERT_EQ(profile->limits.size(), 0);
-  }
-  {
-    const auto profile = user.GetProfile();
-    ASSERT_TRUE(profile.has_value());
-    ASSERT_EQ(profile->name, "profile");
-    ASSERT_EQ(profile->limits.size(), 0);
-  }
-  ASSERT_NO_THROW(user.SetProfile(other_profile));
-  {
-    const auto profile = user.profile();
-    ASSERT_TRUE(profile.has_value());
-    ASSERT_EQ(profile->name, "other_profile");
-    ASSERT_EQ(profile->limits.size(), 1);
-  }
-  {
-    const auto profile = user.GetProfile();
-    ASSERT_TRUE(profile.has_value());
-    ASSERT_EQ(profile->name, "other_profile");
-    ASSERT_EQ(profile->limits.size(), 1);
-  }
-  ASSERT_NO_THROW(user.ClearProfile());
-  ASSERT_FALSE(user.profile());
-  ASSERT_FALSE(user.GetProfile());
+  // Test profile creation
+  ASSERT_TRUE(user_profiles.Create("profile", {}));
+  ASSERT_TRUE(user_profiles.Create("other_profile", {{memgraph::auth::UserProfiles::Limits::kSessions,
+                                                      memgraph::auth::UserProfiles::limit_t{1UL}}}));
 
-  // Role
-  memgraph::auth::Role role{};
-  ASSERT_FALSE(role.profile());
-  ASSERT_NO_THROW(role.SetProfile(profile));
-  {
-    const auto profile = role.profile();
-    ASSERT_TRUE(profile.has_value());
-    ASSERT_EQ(profile->name, "profile");
-    ASSERT_EQ(profile->limits.size(), 0);
-  }
-  ASSERT_NO_THROW(role.SetProfile(other_profile));
-  {
-    const auto profile = role.profile();
-    ASSERT_TRUE(profile.has_value());
-    ASSERT_EQ(profile->name, "other_profile");
-    ASSERT_EQ(profile->limits.size(), 1);
-  }
-  ASSERT_NO_THROW(role.ClearProfile());
-  ASSERT_FALSE(role.profile());
+  // Test profile creation with usernames
+  ASSERT_TRUE(user_profiles.Create("profile_with_users", {}, {"user1", "user2", "user3"}));
+  auto profile_with_users = user_profiles.Get("profile_with_users");
+  ASSERT_TRUE(profile_with_users.has_value());
+  ASSERT_EQ(profile_with_users->usernames.size(), 3);
+  ASSERT_TRUE(profile_with_users->usernames.find("user1") != profile_with_users->usernames.end());
+  ASSERT_TRUE(profile_with_users->usernames.find("user2") != profile_with_users->usernames.end());
+  ASSERT_TRUE(profile_with_users->usernames.find("user3") != profile_with_users->usernames.end());
 
-  // User with role
-  user.SetRole(role);
-  ASSERT_FALSE(user.profile());
-  ASSERT_FALSE(user.GetProfile());
-  ASSERT_NO_THROW(role.SetProfile(profile));
-  user.SetRole(role);
-  ASSERT_FALSE(user.profile());
-  {
-    const auto profile = user.GetProfile();
-    ASSERT_TRUE(profile.has_value());
-    ASSERT_EQ(profile->name, "profile");
-    ASSERT_EQ(profile->limits.size(), 0);
-  }
-  ASSERT_NO_THROW(user.SetProfile(other_profile));
-  {
-    const auto profile = user.profile();
-    ASSERT_TRUE(profile.has_value());
-    ASSERT_EQ(profile->name, "other_profile");
-    ASSERT_EQ(profile->limits.size(), 1);
-  }
-  {
-    const auto profile = user.GetProfile();
-    ASSERT_TRUE(profile.has_value());
-    ASSERT_EQ(profile->name, "other_profile\nprofile");
-    ASSERT_EQ(profile->limits.size(), 1);
-  }
-  ASSERT_NO_THROW(role.ClearProfile());
-  user.SetRole(role);
-  {
-    const auto profile = user.profile();
-    ASSERT_TRUE(profile.has_value());
-    ASSERT_EQ(profile->name, "other_profile");
-    ASSERT_EQ(profile->limits.size(), 1);
-  }
-  {
-    const auto profile = user.GetProfile();
-    ASSERT_TRUE(profile.has_value());
-    ASSERT_EQ(profile->name, "other_profile");
-    ASSERT_EQ(profile->limits.size(), 1);
-  }
+  // Test that usernames are moved from other profiles when creating a new profile
+  ASSERT_TRUE(user_profiles.Create("profile1", {}, {"user1", "user4"}));
+  ASSERT_TRUE(user_profiles.Create("profile2", {}, {"user1", "user5"}));  // user1 should be moved from profile1
+
+  auto profile1 = user_profiles.Get("profile1");
+  auto profile2 = user_profiles.Get("profile2");
+  ASSERT_TRUE(profile1.has_value());
+  ASSERT_TRUE(profile2.has_value());
+
+  // user1 should be moved from profile1 to profile2
+  ASSERT_TRUE(profile1->usernames.find("user1") == profile1->usernames.end());
+  ASSERT_TRUE(profile1->usernames.find("user4") != profile1->usernames.end());
+  ASSERT_TRUE(profile2->usernames.find("user1") != profile2->usernames.end());
+  ASSERT_TRUE(profile2->usernames.find("user5") != profile2->usernames.end());
+
+  // Test profile retrieval
+  auto profile = user_profiles.Get("profile");
+  ASSERT_TRUE(profile.has_value());
+  ASSERT_EQ(profile->name, "profile");
+  ASSERT_EQ(profile->limits.size(), 0);
+
+  auto other_profile = user_profiles.Get("other_profile");
+  ASSERT_TRUE(other_profile.has_value());
+  ASSERT_EQ(other_profile->name, "other_profile");
+  ASSERT_EQ(other_profile->limits.size(), 1);
+
+  // Test username management
+  ASSERT_TRUE(user_profiles.AddUsername("profile", "user1"));
+  ASSERT_TRUE(user_profiles.AddUsername("profile", "user2"));
+  ASSERT_TRUE(user_profiles.AddUsername("other_profile", "user3"));
+
+  // Test getting usernames for profile
+  auto usernames = user_profiles.GetUsernames("profile");
+  ASSERT_EQ(usernames.size(), 2);
+  ASSERT_TRUE(std::find(usernames.begin(), usernames.end(), "user1") != usernames.end());
+  ASSERT_TRUE(std::find(usernames.begin(), usernames.end(), "user2") != usernames.end());
+
+  // Test getting profile for username
+  auto profile_for_user = user_profiles.GetProfileForUsername("user1");
+  ASSERT_TRUE(profile_for_user.has_value());
+  ASSERT_EQ(*profile_for_user, "profile");
+
+  // Test removing username
+  ASSERT_TRUE(user_profiles.RemoveUsername("profile", "user1"));
+  usernames = user_profiles.GetUsernames("profile");
+  ASSERT_EQ(usernames.size(), 1);
+  ASSERT_TRUE(usernames.find("user2") != usernames.end());
+
+  // Test profile update
+  ASSERT_TRUE(user_profiles.Update(
+      "profile", {{memgraph::auth::UserProfiles::Limits::kSessions, memgraph::auth::UserProfiles::limit_t{5UL}}}));
+  profile = user_profiles.Get("profile");
+  ASSERT_TRUE(profile.has_value());
+  ASSERT_EQ(profile->limits.size(), 1);
+
+  // Test profile deletion
+  ASSERT_TRUE(user_profiles.Drop("profile"));
+  profile = user_profiles.Get("profile");
+  ASSERT_FALSE(profile.has_value());
 }
 #endif

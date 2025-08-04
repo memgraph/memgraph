@@ -265,9 +265,9 @@ def test_error_handling_and_edge_cases():
             with pytest.raises(Exception):
                 session.run("DROP PROFILE non_existent_profile;").consume()
 
-            # Test assigning profile to non-existent user
-            with pytest.raises(Exception):
-                session.run("SET PROFILE FOR non_existent_user TO test_profile;").consume()
+            # Test assigning profile to non-existent user (should succeed)
+            session.run("SET PROFILE FOR non_existent_user TO test_profile;").consume()
+            assert list(session.run("SHOW PROFILE FOR non_existent_user;"))[0]["profile"] == "test_profile"
 
             # Test assigning non-existent profile to user
             session.run("CREATE USER test_user1;").consume()
@@ -639,19 +639,15 @@ def test_profile_cleanup_on_user_deletion():
             # Delete one user
             session.run("DROP USER cleanup_user1;").consume()
 
-            # Verify the remaining user still has the profile
+            # User/roles are not removed from profiles when users are deleted
             result = session.run("SHOW USERS FOR PROFILE cleanup_profile;")
             results = list(result)
-            assert len(results) == 1
-            assert results[0]["user"] == "cleanup_user2"
+            assert len(results) == 2
+            usernames = {row["user"] for row in results}
+            assert usernames == {"cleanup_user1", "cleanup_user2"}
 
             # Delete the other user
             session.run("DROP USER cleanup_user2;").consume()
-
-            # Verify no users are assigned to the profile
-            result = session.run("SHOW USERS FOR PROFILE cleanup_profile;")
-            results = list(result)
-            assert len(results) == 0
 
         # cleanup
         with driver.session() as session:

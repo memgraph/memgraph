@@ -48,6 +48,16 @@ void from_json(const nlohmann::json &data, memgraph::auth::UserProfiles::limits_
   }
 }
 
+void to_json(nlohmann::json &data, const memgraph::auth::UserProfiles::Profile &profile) {
+  data["limits"] = profile.limits;
+  data["usernames"] = profile.usernames;
+}
+
+void from_json(const nlohmann::json &data, memgraph::auth::UserProfiles::Profile &profile) {
+  if (data.contains("limits")) profile.limits = data["limits"].get<memgraph::auth::UserProfiles::limits_t>();
+  if (data.contains("usernames")) profile.usernames = data["usernames"].get<std::unordered_set<std::string>>();
+}
+
 UserProfiles::UserProfiles(kvstore::KVStore &durability) : durability_{&durability} {
   // No migration at the moment
   durability_->Put(kUserProfilesVersionkey, kUserProfilesVersion);
@@ -59,21 +69,40 @@ UserProfiles::UserProfiles(kvstore::KVStore &durability) : durability_{&durabili
     const auto &value = it->second;
     const auto name = key.substr(kUserProfilesPrefix.size());
     try {
-      auto limits = nlohmann::json::parse(value);
-      profiles_.emplace(name, limits);
+      auto profile = nlohmann::json::parse(value).get<memgraph::auth::UserProfiles::Profile>();
+      profile.name = name;
+      profiles_.emplace(std::move(profile));
     } catch (const nlohmann::json::parse_error &) {
       spdlog::warn("Failed to parse user profile {}", name);
     }
   }
 };
 
-bool UserProfiles::Create(std::string_view name, limits_t defined_limits) {
+bool UserProfiles::Create(std::string_view name, limits_t defined_limits,
+                          const std::unordered_set<std::string> &usernames) {
   auto l = std::unique_lock{mtx_};
   if (profiles_.contains(name)) {
     return false;
   }
-  const nlohmann::json json = defined_limits;
-  const auto [it, succ] = profiles_.emplace(name.data(), std::move(defined_limits));
+
+  // Create profile with initial usernames
+  Profile profile{std::string{name}, std::move(defined_limits), usernames};
+
+  // Remove usernames from other profiles if they exist
+  for (const auto &username : usernames) {
+    // Check if username is already in another profile and remove it
+    for (auto &existing_profile : profiles_) {
+      if (existing_profile.usernames.contains(username)) {
+        existing_profile.usernames.erase(username);
+        // Update the other profile in durability
+        const nlohmann::json json = existing_profile;
+        durability_->Put(kUserProfilesPrefix.data() + existing_profile.name, json.dump());
+      }
+    }
+  }
+
+  const nlohmann::json json = profile;
+  const auto [it, succ] = profiles_.emplace(std::move(profile));
   if (!succ) {
     return false;
   }
@@ -97,7 +126,7 @@ std::optional<UserProfiles::Profile> UserProfiles::Update(std::string_view name,
     profile_it->limits[key] = val;
   }
   // Update durability
-  const nlohmann::json json = profile_it->limits;
+  const nlohmann::json json = *profile_it;
   if (!durability_->Put(kUserProfilesPrefix.data() + std::string{name}, json.dump())) {
     // Revert to old profile
     profile_it->limits = std::move(old_limits);
@@ -112,11 +141,11 @@ bool UserProfiles::Drop(std::string_view name) {
   if (profile_it == profiles_.end()) {
     return false;
   }
-  auto old_limits = std::move(profile_it->limits);
+  auto old_profile = *profile_it;  // copy
   profiles_.erase(profile_it);
   if (!durability_->Delete(kUserProfilesPrefix.data() + std::string{name})) {
     // Revert to old profile
-    profiles_.emplace(name.data(), std::move(old_limits));
+    profiles_.emplace(std::move(old_profile));
     return false;
   }
   return true;
@@ -141,6 +170,82 @@ std::vector<UserProfiles::Profile> UserProfiles::GetAll() const {
   return profiles;
 }
 
+bool UserProfiles::AddUsername(std::string_view profile_name, std::string_view username) {
+  auto l = std::unique_lock{mtx_};
+  auto profile_it = profiles_.find(profile_name);
+  if (profile_it == profiles_.end()) {
+    return false;
+  }
+
+  // Check if username is already in another profile and remove it
+  for (auto &profile : profiles_) {
+    if (profile.usernames.contains(std::string{username})) {
+      profile.usernames.erase(std::string{username});
+      // Update the other profile in durability
+      const nlohmann::json json = profile;
+      durability_->Put(kUserProfilesPrefix.data() + profile.name, json.dump());
+    }
+  }
+
+  // Add username to the target profile
+  profile_it->usernames.insert(std::string{username});
+
+  // Update durability
+  const nlohmann::json json = *profile_it;
+  if (!durability_->Put(kUserProfilesPrefix.data() + std::string{profile_name}, json.dump())) {
+    // Revert changes
+    profile_it->usernames.erase(std::string{username});
+    return false;
+  }
+
+  return true;
+}
+
+bool UserProfiles::RemoveUsername(std::string_view profile_name, std::string_view username) {
+  auto l = std::unique_lock{mtx_};
+  auto profile_it = profiles_.find(profile_name);
+  if (profile_it == profiles_.end()) {
+    return false;
+  }
+
+  auto username_it = profile_it->usernames.find(std::string{username});
+  if (username_it == profile_it->usernames.end()) {
+    return false;
+  }
+
+  profile_it->usernames.erase(username_it);
+
+  // Update durability
+  const nlohmann::json json = *profile_it;
+  if (!durability_->Put(kUserProfilesPrefix.data() + std::string{profile_name}, json.dump())) {
+    // Revert changes
+    profile_it->usernames.insert(std::string{username});
+    return false;
+  }
+
+  return true;
+}
+
+std::unordered_set<std::string> UserProfiles::GetUsernames(std::string_view profile_name) const {
+  auto l = std::shared_lock{mtx_};
+  auto profile_it = profiles_.find(profile_name);
+  if (profile_it == profiles_.end()) {
+    return {};
+  }
+
+  return profile_it->usernames;
+}
+
+std::optional<std::string> UserProfiles::GetProfileForUsername(std::string_view username) const {
+  auto l = std::shared_lock{mtx_};
+  for (const auto &profile : profiles_) {
+    if (profile.usernames.contains(std::string{username})) {
+      return profile.name;
+    }
+  }
+  return std::nullopt;
+}
+
 }  // namespace memgraph::auth
 
 namespace memgraph::slk {
@@ -155,7 +260,7 @@ void from_json(const nlohmann::json &data, memgraph::auth::UserProfiles::limits_
 // Serialize code for auth::UserProfiles::Profile
 void Save(const auth::UserProfiles::Profile &self, memgraph::slk::Builder *builder) {
   nlohmann::json json;
-  json[self.name] = self.limits;
+  json[self.name] = self;
   memgraph::slk::Save(json.dump(), builder);
 }
 // Deserialize code for auth::UserProfiles::Profile
@@ -164,8 +269,8 @@ void Load(auth::UserProfiles::Profile *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&tmp, reader);
   const auto json = nlohmann::json::parse(tmp);
   const auto name = json.begin().key();
-  const auto limits = json.begin().value();
-  self->name = name;
-  self->limits = limits.get<auth::UserProfiles::limits_t>();
+  auto profile = json.begin().value().get<auth::UserProfiles::Profile>();
+  profile.name = name;
+  *self = std::move(profile);
 }
 }  // namespace memgraph::slk
