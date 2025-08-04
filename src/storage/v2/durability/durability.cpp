@@ -638,9 +638,6 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
           epoch_history->emplace_back(wal_file.epoch_id, *last_loaded_timestamp);
           repl_storage_state.epoch_.SetEpoch(wal_file.epoch_id);
           spdlog::trace("Set epoch to {} for db {}", wal_file.epoch_id, db_name);
-        } else if (epoch_history->back().second < *last_loaded_timestamp) {
-          // existing epoch, update with newer timestamp
-          epoch_history->back().second = *last_loaded_timestamp;
         }
 
       } catch (const RecoveryFailure &e) {
