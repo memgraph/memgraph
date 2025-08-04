@@ -6096,7 +6096,60 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
           RWType::W,
           query->db_name_};
     }
-  };
+    case MultiDatabaseQuery::Action::RENAME: {
+      if (is_replica) {
+        throw QueryException("Query forbidden on the replica!");
+      }
+
+      if (!query->new_db_name_) {
+        throw QueryException("New database name is required for RENAME DATABASE query.");
+      }
+
+      return PreparedQuery{
+          {"STATUS"},
+          std::move(parsed_query.required_privileges),
+          [old_name = query->db_name_, new_name = query->new_db_name_, db_handler, interpreter = &interpreter](
+              AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+            if (!interpreter->system_transaction_) {
+              throw QueryException("Expected to be in a system transaction");
+            }
+
+            std::vector<std::vector<TypedValue>> status;
+            std::string res;
+
+            try {
+              auto result = db_handler->Rename(old_name, *new_name, &*interpreter->system_transaction_);
+              if (!result.HasError()) {
+                res = "Successfully renamed database " + old_name + " to " + *new_name;
+              } else {
+                switch (result.GetError()) {
+                  case dbms::RenameError::DEFAULT_DB:
+                    throw QueryRuntimeException("Cannot rename the default database.");
+                  case dbms::RenameError::NON_EXISTENT:
+                    throw QueryRuntimeException("Database {} does not exist.", old_name);
+                  case dbms::RenameError::ALREADY_EXISTS:
+                    throw QueryRuntimeException("Database {} already exists.", new_name);
+                  case dbms::RenameError::USING:
+                    throw QueryRuntimeException("Cannot rename {}, it is currently being used.", old_name);
+                  case dbms::RenameError::FAIL:
+                    throw QueryRuntimeException("Failed while renaming {}", old_name);
+                }
+              }
+            } catch (const utils::BasicException &e) {
+              throw QueryRuntimeException(e.what());
+            }
+
+            status.emplace_back(std::vector<TypedValue>{TypedValue(res)});
+            auto pull_plan = std::make_shared<PullPlanVector>(std::move(status));
+            if (pull_plan->Pull(stream, n)) {
+              return QueryHandlerResult::COMMIT;
+            }
+            return std::nullopt;
+          },
+          RWType::W,
+          query->db_name_};
+    }
+  }
 #else
   // here to satisfy clang-tidy
   (void)parsed_query;

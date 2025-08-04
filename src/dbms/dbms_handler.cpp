@@ -253,6 +253,33 @@ struct DropDatabase : memgraph::system::ISystemAction {
   utils::UUID uuid_;
 };
 
+struct RenameDatabase : memgraph::system::ISystemAction {
+  explicit RenameDatabase(std::string old_name, std::string new_name)
+      : old_name_{std::move(old_name)}, new_name_{std::move(new_name)} {}
+
+  void DoDurability() override { /* Done during DBMS execution */
+  }
+
+  bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
+                     replication::ReplicationEpoch const &epoch,
+                     memgraph::system::Transaction const &txn) const override {
+    auto check_response = [](const storage::replication::RenameDatabaseRes &response) {
+      return response.result != storage::replication::RenameDatabaseRes::Result::FAILURE;
+    };
+
+    return client.StreamAndFinalizeDelta<storage::replication::RenameDatabaseRpc>(
+        check_response, main_uuid, std::string(epoch.id()), txn.last_committed_system_timestamp(), txn.timestamp(),
+        uuid_, old_name_, new_name_);
+  }
+
+  void PostReplication(replication::RoleMainData &mainData) const override {}
+
+ private:
+  std::string old_name_;
+  std::string new_name_;
+  utils::UUID uuid_;
+};
+
 DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, system::Transaction *transaction) {
   auto wr = std::lock_guard{lock_};
   if (db_name == kDefaultDB) {
@@ -312,6 +339,51 @@ DbmsHandler::DeleteResult DbmsHandler::Delete(utils::UUID uuid) {
     return DeleteError::NON_EXISTENT;
   }
   return Delete_(db_name);
+}
+
+DbmsHandler::RenameResult DbmsHandler::Rename(std::string_view old_name, std::string_view new_name,
+                                              system::Transaction *txn) {
+  auto wr = std::lock_guard{lock_};
+
+  // Check if trying to rename default database
+  if (old_name == kDefaultDB) {
+    return RenameError::DEFAULT_DB;
+  }
+
+  // Perform the rename operation in the handler
+  if (auto rename_result = db_handler_.Rename(old_name, new_name); rename_result.HasError()) {
+    return rename_result.GetError();
+  }
+
+  // Update current db config
+  auto new_db = db_handler_.Get(new_name);
+  if (new_db) {
+    new_db.value()->storage()->config_.salient.name = new_name;  // TODO Make thread safe
+  }
+
+  // Update durability metadata
+  if (durability_) {
+    const auto old_key = Durability::GenKey(old_name);
+    const auto new_key = Durability::GenKey(new_name);
+    const auto old_val = durability_->Get(old_key);
+
+    if (old_val) {
+      // Parse the existing value and update the name
+      auto json = nlohmann::json::parse(*old_val);
+      json["name"] = new_name;
+
+      // Update in durability store
+      durability_->Put(new_key, json.dump());
+      durability_->Delete(old_key);
+    }
+  }
+
+  // Add system action for replication
+  if (txn) {
+    txn->AddAction<RenameDatabase>(std::string{old_name}, std::string{new_name});
+  }
+
+  return {};  // Success
 }
 
 struct CreateDatabase : memgraph::system::ISystemAction {
