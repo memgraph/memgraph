@@ -91,7 +91,7 @@ bool UserProfiles::Create(std::string_view name, limits_t defined_limits,
   // Remove usernames from other profiles if they exist
   for (const auto &username : usernames) {
     // Check if username is already in another profile and remove it
-    for (auto &existing_profile : profiles_) {
+    for (auto &existing_profile : profiles_) {  // NOLINT
       if (existing_profile.usernames.contains(username)) {
         existing_profile.usernames.erase(username);
         // Update the other profile in durability
@@ -178,7 +178,7 @@ bool UserProfiles::AddUsername(std::string_view profile_name, std::string_view u
   }
 
   // Check if username is already in another profile and remove it
-  for (auto &profile : profiles_) {
+  for (auto &profile : profiles_) {  // NOLINT
     if (profile.usernames.contains(std::string{username})) {
       profile.usernames.erase(std::string{username});
       // Update the other profile in durability
