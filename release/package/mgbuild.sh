@@ -1076,7 +1076,11 @@ case $command in
         if [[ "$os" =~ ^"debian".* || "$os" =~ ^"ubuntu".* ]]; then
           docker exec -u root $build_container bash -c "apt update && apt install -y ccache"
         elif [[ "$os" =~ ^"centos".* || "$os" =~ ^"rocky".* || "$os" =~ ^"fedora".* ]]; then
-          docker exec -u root $build_container bash -c "yum -y update && yum -y install ccache"
+          if [[ "$os" == "centos-9" ]]; then
+            docker exec -u root $build_container bash -c "dnf config-manager --set-enabled crb"
+            docker exec -u root $build_container bash -c "dnf install -y epel-release"
+          fi
+          docker exec -u root $build_container bash -c "dnf -y install ccache"
         else
           echo "Warning: Unknown OS $os - not installing ccache"
         fi
