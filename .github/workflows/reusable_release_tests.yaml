@@ -147,7 +147,7 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --threads $THREADS \
-          build-memgraph --coverage
+          build-memgraph --coverage --no-ccache
 
       - name: Run unit tests
         run: |
