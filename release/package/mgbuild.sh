@@ -1134,7 +1134,7 @@ case $command in
       done
 
       # Create ccache override file if ccache is enabled (same logic as run command)
-      local compose_files=$(setup_ccache_override)
+      compose_files=$(setup_ccache_override)
 
       if [[ "$os" == "all" ]]; then
         $docker_compose_cmd $compose_files down
@@ -1152,7 +1152,7 @@ case $command in
       cd $SCRIPT_DIR
 
       # Create ccache override file if ccache is enabled (same logic as run command)
-      local compose_files=$(setup_ccache_override)
+      compose_files=$(setup_ccache_override)
 
       if [[ "$os" == "all" ]]; then
         $docker_compose_cmd $compose_files pull --ignore-pull-failures
