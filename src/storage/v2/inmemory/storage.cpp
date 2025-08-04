@@ -3058,7 +3058,7 @@ void InMemoryStorage::PrepareForNewEpoch() {
     wal_file_->FinalizeWal();
     wal_file_.reset();
   }
-  repl_storage_state_.TrackLatestHistory();
+  repl_storage_state_.SaveLatestHistory();
 }
 
 utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::IsPathLocked() {
