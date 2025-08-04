@@ -305,11 +305,14 @@ setup_host_ccache_permissions() {
     echo "Setting up host ccache directory permissions..."
     mkdir -p ~/.cache/ccache
 
+    # Set open permissions on the parent .cache directory to allow other tools to create subdirectories
+    chmod 777 ~/.cache || true
+
     # Set open permissions to allow container access without ownership changes
     # This works in CI environments where we can't change ownership
     chmod 777 ~/.cache/ccache || true
 
-    echo "Host ccache directory permissions set to 777 (open access)"
+    echo "Host cache directory permissions set to 777 (open access)"
   fi
 }
 
@@ -1115,6 +1118,15 @@ case $command in
           echo 'Cache directory permissions set for cross-container access'
         "
       fi
+
+      # Ensure .cache directory permissions are correct for all tools (pip, go, etc.)
+      echo "Setting up .cache directory permissions for all tools..."
+      docker exec -u root $build_container bash -c "
+        mkdir -p /home/mg/.cache
+        chown -R mg:mg /home/mg/.cache
+        chmod -R 755 /home/mg/.cache
+        echo '.cache directory permissions set for all tools'
+      "
 
       # Clean up override file if it was created
       cleanup_ccache_override
