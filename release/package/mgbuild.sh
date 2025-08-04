@@ -445,6 +445,12 @@ build_memgraph () {
   # Fix cmake failing locally if remote is clone via ssh
   docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && git remote set-url origin https://github.com/memgraph/memgraph.git"
 
+  # Zero ccache statistics before build if ccache is enabled
+  if [[ "$ccache_enabled" == "true" ]]; then
+    echo "Zeroing ccache statistics for this build..."
+    docker exec -u mg "$build_container" bash -c "ccache -z"
+  fi
+
   # Define cmake command
   local cmake_cmd="cmake $build_type_flag $arm_flag $community_flag $telemetry_id_override_flag $coverage_flag $asan_flag $ubsan_flag $disable_jemalloc_flag .."
   docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && $cmake_cmd"
@@ -476,6 +482,15 @@ build_memgraph () {
     if version_lt "$toolchain_version" "v6"; then
       docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $EXPORT_THREADS && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$THREADS -B mgconsole'
     fi
+  fi
+
+  # Show ccache statistics if ccache is enabled
+  if [[ "$ccache_enabled" == "true" ]]; then
+    echo ""
+    echo "=== Ccache Statistics ==="
+    docker exec -u mg "$build_container" bash -c "ccache -s"
+    echo "========================="
+    echo ""
   fi
 }
 
