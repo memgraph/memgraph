@@ -751,7 +751,7 @@ std::optional<User> Auth::AddUser(const std::string &username, const std::option
 bool Auth::RemoveUser(const std::string &username_orig, system::Transaction *system_tx) {
   auto username = utils::ToLowerCase(username_orig);
   if (!storage_.Get(kUserPrefix + username)) return false;
-  std::vector<std::string> keys({kMtLinkPrefix + username, kRoleLinkPrefix + username, kUserPrefix + username});
+  const std::vector<std::string> keys({kMtLinkPrefix + username, kRoleLinkPrefix + username, kUserPrefix + username});
 
 // User profiles
 #ifdef MG_ENTERPRISE
@@ -892,7 +892,7 @@ std::optional<UserProfiles::Profile> Auth::SetProfile(const std::string &profile
   }
 
   if (user_resources_) {
-    UpdateProfileLimits(name, *profile, *user_resources_);
+    UpdateProfileLimits(name, profile, *user_resources_);
   }
 
   if (system_tx) {
@@ -958,11 +958,10 @@ std::optional<std::string> Auth::GetProfileForUsername(const std::string &userna
 #endif
 
 void Auth::SaveRole(const Role &role, system::Transaction *system_tx) {
-  std::map<std::string, std::string> puts = {{kRolePrefix + role.rolename(), role.Serialize().dump()}};
-  std::vector<std::string> deletes;
+  const std::map<std::string, std::string> puts = {{kRolePrefix + role.rolename(), role.Serialize().dump()}};
 
   // Update
-  if (!storage_.PutAndDeleteMultiple(puts, deletes)) {
+  if (!storage_.PutMultiple(puts)) {
     throw AuthException("Couldn't save role '{}'!", role.rolename());
   }
 

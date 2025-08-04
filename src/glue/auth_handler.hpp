@@ -116,8 +116,7 @@ class AuthQueryHandler final : public memgraph::query::AuthQueryHandler {
 // User profiles
 #ifdef MG_ENTERPRISE
   void CreateProfile(const std::string &profile_name, const query::UserProfileQuery::limits_t &defined_limits,
-                     const std::unordered_set<std::string> &usernames = {},
-                     system::Transaction *system_tx = nullptr) override;
+                     const std::unordered_set<std::string> &usernames, system::Transaction *system_tx) override;
   void UpdateProfile(const std::string &profile_name, const query::UserProfileQuery::limits_t &updated_limits,
                      system::Transaction *system_tx) override;
   void DropProfile(const std::string &profile_name, system::Transaction *system_tx) override;

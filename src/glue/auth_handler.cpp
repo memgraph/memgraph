@@ -1181,18 +1181,18 @@ std::vector<std::string> AuthQueryHandler::GetUsernamesForProfile(const std::str
   try {
     auto locked_auth = auth_->Lock();
     auto usernames_set = locked_auth->GetUsernamesForProfile(profile_name);
-    return std::vector<std::string>(usernames_set.begin(), usernames_set.end());
+    return {usernames_set.begin(), usernames_set.end()};
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
 }
 
 // Role-based profile management is no longer supported in the new architecture
-std::optional<std::string> AuthQueryHandler::GetProfileForRole(const std::string &user_or_role) {
+std::optional<std::string> AuthQueryHandler::GetProfileForRole(const std::string & /*user_or_role*/) {
   throw memgraph::query::QueryRuntimeException("Role-based profile management is no longer supported.");
 }
 
-std::vector<std::string> AuthQueryHandler::GetRolenamesForProfile(const std::string &profile_name) {
+std::vector<std::string> AuthQueryHandler::GetRolenamesForProfile(const std::string & /*profile_name*/) {
   throw memgraph::query::QueryRuntimeException("Role-based profile management is no longer supported.");
 }
 #endif
