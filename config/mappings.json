@@ -133,8 +133,8 @@
 
     "apoc.xml.parse": "xml_module.parse",
 
-    "db.schema.nodeTypeProperties": "schema.NodeTypeProperties",
-    "db.schema.relTypeProperties": "schema.RelTypeProperties",
+    "db.schema.nodeTypeProperties": "schema.node_type_properties",
+    "db.schema.relTypeProperties": "schema.rel_type_properties",
 
     "dbms.components": "mgps.components"
 }
