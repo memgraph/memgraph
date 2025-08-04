@@ -21,6 +21,7 @@
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertices_iterable.hpp"
 #include "text_search.hpp"
+#include "utils/synchronized.hpp"
 
 namespace memgraph::query {
 class DbAccessor;
@@ -30,17 +31,16 @@ namespace memgraph::storage {
 
 inline constexpr std::string_view kTextIndicesDirectory = "text_indices";
 struct TextIndexData {
-  TextIndexData(mgcxx::text_search::Context context, LabelId scope, std::vector<PropertyId> props)
-      : context_(std::move(context)), scope_(scope), properties_(std::move(props)){};
-
-  mgcxx::text_search::Context context_;
+  // This synchronized wrapper is used to protect add_document, remove_document, commit and rollback
+  // operations. Underlying Tantivy IndexWriter requires unique lock for commit and rollback
+  // operations and shared lock for add_document and remove_document operations.
+  // TODO(@DavIvek): Better approach would be to add locking on mgcxx side.
+  utils::Synchronized<mgcxx::text_search::Context, std::shared_mutex> synchronized_context_;
   LabelId scope_;
   std::vector<PropertyId> properties_;
-  std::shared_mutex
-      index_writer_mutex_;  // This mutex is used to protect add_document, remove_document, commit and rollback
-                            // operations. Underlying Tantivy IndexWriter requires unique lock for commit and rollback
-                            // operations and shared lock for add_document and remove_document operations.
-                            // TODO(@DavIvek): Better approach would be to add locking on mgcxx side.
+
+  TextIndexData(mgcxx::text_search::Context context, LabelId scope, std::vector<PropertyId> properties)
+      : synchronized_context_(std::move(context)), scope_(scope), properties_(std::move(properties)) {}
 };
 
 using TextIndexInfo = std::tuple<std::string, LabelId, std::vector<PropertyId>>;

@@ -200,10 +200,10 @@ void TextIndex::AddNodeToTextIndex(std::int64_t gid, const nlohmann::json &prope
   document["metadata"] = {};
   document["metadata"]["gid"] = gid;
 
-  const std::shared_lock lock(applicable_text_index->index_writer_mutex_);
+  auto context_ptr = applicable_text_index->synchronized_context_.MutableSharedLock();
   try {
     mgcxx::text_search::add_document(
-        applicable_text_index->context_,
+        *context_ptr,
         mgcxx::text_search::DocumentInput{.data =
                                               document.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace)},
         kDoSkipCommit);
@@ -256,8 +256,8 @@ void TextIndex::RemoveNode(Vertex *vertex_after_update, std::span<TextIndexData 
       mgcxx::text_search::SearchInput{.search_query = fmt::format("metadata.gid:{}", vertex_after_update->gid.AsInt())};
   for (auto *applicable_text_index : applicable_text_indices) {
     try {
-      const std::shared_lock lock(applicable_text_index->index_writer_mutex_);
-      mgcxx::text_search::delete_document(applicable_text_index->context_, search_node_to_be_deleted, kDoSkipCommit);
+      auto context_ptr = applicable_text_index->synchronized_context_.MutableSharedLock();
+      mgcxx::text_search::delete_document(*context_ptr, search_node_to_be_deleted, kDoSkipCommit);
     } catch (const std::exception &e) {
       throw query::TextSearchException("Tantivy error: {}", e.what());
     }
@@ -310,9 +310,9 @@ bool TextIndex::IndexExists(const std::string &index_name) const { return index_
 mgcxx::text_search::SearchOutput TextIndex::SearchGivenProperties(const std::string &index_name,
                                                                   const std::string &search_query) {
   try {
+    auto context_ptr = index_.at(index_name).synchronized_context_.MutableSharedLock();
     return mgcxx::text_search::search(
-        index_.at(index_name).context_,
-        mgcxx::text_search::SearchInput{.search_query = search_query, .return_fields = {"metadata"}});
+        *context_ptr, mgcxx::text_search::SearchInput{.search_query = search_query, .return_fields = {"metadata"}});
   } catch (const std::exception &e) {
     throw query::TextSearchException("Tantivy error: {}", e.what());
   }
@@ -323,10 +323,10 @@ mgcxx::text_search::SearchOutput TextIndex::SearchGivenProperties(const std::str
 mgcxx::text_search::SearchOutput TextIndex::RegexSearch(const std::string &index_name,
                                                         const std::string &search_query) {
   try {
+    auto context_ptr = index_.at(index_name).synchronized_context_.MutableSharedLock();
     return mgcxx::text_search::regex_search(
-        index_.at(index_name).context_,
-        mgcxx::text_search::SearchInput{
-            .search_fields = {"all"}, .search_query = search_query, .return_fields = {"metadata"}});
+        *context_ptr, mgcxx::text_search::SearchInput{
+                          .search_fields = {"all"}, .search_query = search_query, .return_fields = {"metadata"}});
   } catch (const std::exception &e) {
     throw query::TextSearchException("Tantivy error: {}", e.what());
   }
@@ -337,10 +337,10 @@ mgcxx::text_search::SearchOutput TextIndex::RegexSearch(const std::string &index
 mgcxx::text_search::SearchOutput TextIndex::SearchAllProperties(const std::string &index_name,
                                                                 const std::string &search_query) {
   try {
+    auto context_ptr = index_.at(index_name).synchronized_context_.MutableSharedLock();
     return mgcxx::text_search::search(
-        index_.at(index_name).context_,
-        mgcxx::text_search::SearchInput{
-            .search_fields = {"all"}, .search_query = search_query, .return_fields = {"metadata"}});
+        *context_ptr, mgcxx::text_search::SearchInput{
+                          .search_fields = {"all"}, .search_query = search_query, .return_fields = {"metadata"}});
   } catch (const std::exception &e) {
     throw query::TextSearchException("Tantivy error: {}", e.what());
   }
@@ -396,8 +396,9 @@ std::string TextIndex::Aggregate(const std::string &index_name, const std::strin
 
   mgcxx::text_search::DocumentOutput aggregation_result;
   try {
+    auto context_ptr = index_.at(index_name).synchronized_context_.MutableSharedLock();
     aggregation_result = mgcxx::text_search::aggregate(
-        index_.at(index_name).context_,
+        *context_ptr,
         mgcxx::text_search::SearchInput{
             .search_fields = {"all"}, .search_query = search_query, .aggregation_query = aggregation_query});
 
@@ -412,15 +413,15 @@ std::string TextIndex::Aggregate(const std::string &index_name, const std::strin
 
 void TextIndex::Commit() {
   for (auto &[_, index_data] : index_) {
-    const std::lock_guard lock(index_data.index_writer_mutex_);
-    mgcxx::text_search::commit(index_data.context_);
+    auto context_ptr = index_data.synchronized_context_.Lock();
+    mgcxx::text_search::commit(*context_ptr);
   }
 }
 
 void TextIndex::Rollback() {
   for (auto &[_, index_data] : index_) {
-    const std::lock_guard lock(index_data.index_writer_mutex_);
-    mgcxx::text_search::rollback(index_data.context_);
+    auto context_ptr = index_data.synchronized_context_.Lock();
+    mgcxx::text_search::rollback(*context_ptr);
   }
 }
 
