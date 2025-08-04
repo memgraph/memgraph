@@ -56,7 +56,7 @@ class UserProfiles {
   std::vector<Profile> GetAll() const;
 
   // New methods for username management
-  bool AddUsername(std::string_view profile_name, std::string_view username);
+  std::optional<Profile> AddUsername(std::string_view profile_name, std::string_view username);
   bool RemoveUsername(std::string_view profile_name, std::string_view username);
   std::unordered_set<std::string> GetUsernames(std::string_view profile_name) const;
   std::optional<std::string> GetProfileForUsername(std::string_view username) const;

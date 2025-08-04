@@ -68,7 +68,7 @@ void UpdateAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system
       if (!auth->CreateProfile(req.profile->name, req.profile->limits, req.profile->usernames)) {
         // Profile already exists, update it
         // Figure out the difference between the existing users and the new ones
-        auto existing_users = auth->GetUsernamesForProfile(req.profile->name);
+        const auto existing_users = auth->GetUsernamesForProfile(req.profile->name);
         auto new_users = req.profile->usernames;
         for (const auto &user : existing_users) {
           if (!new_users.contains(user)) {

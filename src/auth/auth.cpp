@@ -881,13 +881,9 @@ std::vector<UserProfiles::Profile> Auth::AllProfiles() const { return user_profi
 
 std::optional<UserProfiles::Profile> Auth::SetProfile(const std::string &profile_name, const std::string &name,
                                                       system::Transaction *system_tx) {
-  auto profile = user_profiles_.Get(profile_name);  // Check if profile exists
-  if (!profile) {
-    throw AuthException("Couldn't find profile '{}'!", profile_name);
-  }
-
   // Add username to the profile
-  if (!user_profiles_.AddUsername(profile_name, name)) {
+  const auto profile = user_profiles_.AddUsername(profile_name, name);
+  if (!profile) {
     throw AuthException("Couldn't set profile '{}' for user '{}'!", profile_name, name);
   }
 
