@@ -101,18 +101,22 @@ TESTS = [
 
 if __name__ == "__main__":
     server_binary = os.path.join(SCRIPT_DIR, "server.py")
+    aws_server_binary = os.path.join(SCRIPT_DIR, "aws_server.py")
     client_binary = os.path.join(PROJECT_DIR, "build", "tests", "integration", "telemetry", "client")
     kvstore_console_binary = os.path.join(PROJECT_DIR, "build", "tests", "manual", "kvstore_console")
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--client", default=client_binary)
     parser.add_argument("--server", default=server_binary)
+    parser.add_argument("--aws-server", default=aws_server_binary)
     parser.add_argument("--kvstore-console", default=kvstore_console_binary)
+
     args = parser.parse_args()
 
     storage = tempfile.TemporaryDirectory()
     durability_root = tempfile.TemporaryDirectory()
 
+    # Run original tests
     for test in TESTS:
         print("\033[1;36m~~ Executing test with arguments:", json.dumps(test, sort_keys=True), "~~\033[0m")
 
@@ -136,5 +140,30 @@ if __name__ == "__main__":
             sys.exit(1)
         else:
             print("\033[1;32m~~", "Test ok!", "~~\033[0m")
+
+    # Run AWS Lambda API compatibility tests
+    print("\033[1;35m~~ Running AWS Lambda API compatibility tests ~~\033[0m")
+
+    # Use the same TESTS but with AWS endpoint
+    for test in TESTS:
+        # Add AWS endpoint to each test
+        aws_test = test.copy()
+        aws_test["endpoint"] = "http://127.0.0.1:9000/88b5e7e8-746a-11e8-9f85-538a9e9690cc"
+
+        print("\033[1;36m~~ Executing AWS test with arguments:", json.dumps(aws_test, sort_keys=True), "~~\033[0m")
+
+        try:
+            success = execute_test(
+                client=args.client, server=args.aws_server, storage=storage.name, root=durability_root, **aws_test
+            )
+        except Exception as e:
+            print("\033[1;33m", e, "\033[0m", sep="")
+            success = False
+
+        if not success:
+            print("\033[1;31m~~", "AWS test failed!", "~~\033[0m")
+            sys.exit(1)
+        else:
+            print("\033[1;32m~~", "AWS test ok!", "~~\033[0m")
 
     sys.exit(0)
