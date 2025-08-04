@@ -414,7 +414,7 @@ class Auth final {
 // user profiles
 #ifdef MG_ENTERPRISE
   bool CreateProfile(const std::string &profile_name, UserProfiles::limits_t defined_limits,
-                     system::Transaction *system_tx = nullptr);
+                     const std::unordered_set<std::string> &usernames = {}, system::Transaction *system_tx = nullptr);
   std::optional<UserProfiles::Profile> UpdateProfile(const std::string &profile_name,
                                                      const UserProfiles::limits_t &updated_limits,
                                                      system::Transaction *system_tx = nullptr);
@@ -425,18 +425,12 @@ class Auth final {
 
   std::optional<UserProfiles::Profile> SetProfile(const std::string &profile_name, const std::string &name,
                                                   system::Transaction *system_tx = nullptr);
-  void SetProfile(const UserProfiles::Profile &profile, User &user, system::Transaction *system_tx = nullptr);
-  void SetProfile(const UserProfiles::Profile &profile, Role &role, system::Transaction *system_tx = nullptr);
 
   void RevokeProfile(const std::string &name, system::Transaction *system_tx = nullptr);
-  void RevokeProfile(User &user, system::Transaction *system_tx = nullptr);
-  void RevokeProfile(Role &role, system::Transaction *system_tx = nullptr);
 
   std::vector<User> GetUsersForProfile(const std::string &profile_name) const;
-  std::vector<std::string> GetUsernamesForProfile(const std::string &profile_name) const;
-
-  std::vector<Role> GetRolesForProfile(const std::string &profile_name) const;
-  std::vector<std::string> GetRolenamesForProfile(const std::string &profile_name) const;
+  std::unordered_set<std::string> GetUsernamesForProfile(const std::string &profile_name) const;
+  std::optional<std::string> GetProfileForUsername(const std::string &username) const;
 #endif
 
   bool HasUser(std::string_view name) const;

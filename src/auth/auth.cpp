@@ -64,56 +64,14 @@ void UpdateProfileLimits(const std::string &user, const std::optional<memgraph::
   }
 }
 
-void UpdateProfileLimits(const memgraph::auth::User &user, memgraph::utils::ResourceMonitoring &resource_monitor) {
-  UpdateProfileLimits(user.username(), user.GetProfile(), resource_monitor);
-}
-
-void UpdateProfileLimits(const std::string &username, auto &auth,
-                         memgraph::utils::ResourceMonitoring &resource_monitor) {
-  const auto user = auth.GetUser(username);
-  DMG_ASSERT(user, "Expected user here");
-  UpdateProfileLimits(user->username(), user->GetProfile(), resource_monitor);
-}
-
 auto UsersConnectedToProfile(auto &auth, const std::string &profile_name) -> std::unordered_set<std::string> {
   try {
+    // NOTE: Supporting only user profiles
     auto users_for_profile = auth.GetUsernamesForProfile(profile_name);
-    std::unordered_set<std::string> users{std::make_move_iterator(users_for_profile.begin()),
-                                          std::make_move_iterator(users_for_profile.end())};
-    for (const auto &role : auth.GetRolenamesForProfile(profile_name)) {
-      auto users_for_role = auth.AllUsernamesForRole(role);
-      users.insert(std::make_move_iterator(users_for_role.begin()), std::make_move_iterator(users_for_role.end()));
-    }
-    return users;
+    return {std::make_move_iterator(users_for_profile.begin()), std::make_move_iterator(users_for_profile.end())};
   } catch (const memgraph::auth::AuthException & /*unused*/) {
     return {};
   }
-}
-
-bool ShouldUpdateProfile(auto &auth, const memgraph::auth::Role &new_role) {
-  const auto old_role = auth.GetRole(new_role.rolename());
-  if (!old_role) return new_role.profile().has_value();  // No prev profile, update if new role has a profile
-  const auto &old_profile = old_role->profile();
-  const auto &new_profile = new_role.profile();
-  return new_profile != old_profile;  // Role has a profile, update if new role does not or has a different one
-}
-
-bool ShouldUpdateProfile(auto &auth, const memgraph::auth::User &new_user) {
-  const auto old_user = auth.GetUser(new_user.username());
-  if (!old_user) return new_user.GetProfile().has_value();  // No prev profile, update if new role has a profile
-  const auto &old_profile = old_user->GetProfile();         // Combined profiles
-  const auto &new_profile = new_user.GetProfile();          // Combined profiles
-  return new_profile != old_profile;  // Role has a profile, update if new role does not or has a different one
-}
-
-bool ShouldUpdateProfile(auto &auth, const std::string &name) {
-  // try user
-  const auto old_user = auth.GetUser(name);
-  if (old_user) return old_user->profile().has_value();
-  // try role
-  const auto old_role = auth.GetRole(name);
-  if (old_role) return old_role->profile().has_value();
-  return false;
 }
 #endif
 }  // namespace
@@ -253,9 +211,7 @@ const std::string kUserPrefix = "user:";
 const std::string kRolePrefix = "role:";
 const std::string kRoleLinkPrefix = "link:";
 const std::string kMtLinkPrefix = "mtlink:";
-#ifdef MG_ENTERPRISE
-const std::string kProfileLinkPrefix = "plink:";
-#endif
+// Profile linking is now handled by UserProfiles class
 const std::string kVersion = "version";
 
 static constexpr auto kVersionV1 = "V1";
@@ -410,11 +366,8 @@ Auth::Auth(std::string storage_directory, Config config
 
 #ifdef MG_ENTERPRISE
   if (user_resources_) {
-    for (const auto &user : AllUsers()) {
-      const auto profile = user.GetProfile();  // Combined profile
-      if (!profile) continue;
-      UpdateUserProfileLimits(user.username(), *profile, *user_resources_);
-    }
+    // Profiles are now managed separately in UserProfiles class
+    // No need to initialize profile limits here as they are managed when profiles are set
   }
 #endif
 }  // namespace memgraph::auth
@@ -675,16 +628,7 @@ void Auth::LinkUser(User &user) const {
   }
 
 #ifdef MG_ENTERPRISE
-  // Profile
-  {
-    auto link = storage_.Get(kProfileLinkPrefix + user.username());
-    if (link) {
-      auto profile = GetProfile(*link);
-      if (profile) {
-        user.SetProfile(*profile);
-      }
-    }
-  }
+  // Profile linking moved to UserProfiles class
 #endif
 }
 
@@ -734,15 +678,6 @@ void Auth::SaveUser(const User &user, system::Transaction *system_tx) {
   }
 #endif
 
-  // User profile
-#ifdef MG_ENTERPRISE
-  if (const auto &profile = user.profile()) {
-    puts.emplace(kProfileLinkPrefix + user.username(), profile->name);
-  } else {
-    deletes.emplace_back(kProfileLinkPrefix + user.username());
-  }
-  if (user_resources_ && ShouldUpdateProfile(*this, user)) UpdateProfileLimits(user, *user_resources_);
-#endif
   // Update
   if (!storage_.PutAndDeleteMultiple(puts, deletes)) {
     throw AuthException("Couldn't save user '{}'!", user.username());
@@ -764,10 +699,6 @@ void Auth::UpdatePassword(auth::User &user, const std::optional<std::string> &pa
   if (password) {
     const auto already_hashed = UserDefinedHash(*password);
     if (already_hashed) {
-      // TODO: Do this?
-      // if (config_.custom_password_regex || config_.password_permit_null) {
-      //   throw AuthException("Passing in a hash is not allowed when password format restrictions are defined.");
-      // }
       user.UpdateHash(*already_hashed);
       return;
     }
@@ -824,7 +755,7 @@ bool Auth::RemoveUser(const std::string &username_orig, system::Transaction *sys
 
 // User profiles
 #ifdef MG_ENTERPRISE
-  keys.emplace_back(kProfileLinkPrefix + username);
+  // Profile data is now managed by UserProfiles class
   if (user_resources_) user_resources_->RemoveUser(username);
 #endif
 
@@ -882,15 +813,7 @@ bool Auth::AccessControlled() const { return HasUsers() || UsingAuthModule(); }
 
 void Auth::LinkRole(Role &role) const {
 #ifdef MG_ENTERPRISE
-    // Profile
-    {auto link = storage_.Get(kProfileLinkPrefix + role.rolename());
-if (link) {
-  auto profile = GetProfile(*link);
-  if (profile) {
-    role.SetProfile(*profile);
-  }
-}
-}
+// Profile linking moved to UserProfiles class
 #endif
 }
 
@@ -906,10 +829,10 @@ std::optional<Role> Auth::GetRole(const std::string &rolename_orig) const {
 
 #ifdef MG_ENTERPRISE
 bool Auth::CreateProfile(const std::string &profile_name, UserProfiles::limits_t defined_limits,
-                         system::Transaction *system_tx) {
-  const auto res = user_profiles_.Create(profile_name, defined_limits);
+                         const std::unordered_set<std::string> &usernames, system::Transaction *system_tx) {
+  const auto res = user_profiles_.Create(profile_name, defined_limits, usernames);
   if (res && system_tx) {
-    system_tx->AddAction<UpdateAuthData>(UserProfiles::Profile{profile_name, defined_limits});
+    system_tx->AddAction<UpdateAuthData>(UserProfiles::Profile{profile_name, defined_limits, usernames});
   }
   return res;
 }
@@ -922,7 +845,7 @@ std::optional<UserProfiles::Profile> Auth::UpdateProfile(const std::string &prof
     // Update user resources
     if (user_resources_) {
       for (const auto &user : UsersConnectedToProfile(*this, profile_name)) {
-        UpdateProfileLimits(user, *this, *user_resources_);
+        UpdateProfileLimits(user, res, *user_resources_);
       }
     }
     if (system_tx) {
@@ -942,7 +865,7 @@ bool Auth::DropProfile(const std::string &profile_name, system::Transaction *sys
     // Update user resources
     if (user_resources_) {
       for (const auto &user : users) {
-        UpdateProfileLimits(user, *this, *user_resources_);
+        UpdateProfileLimits(user, {}, *user_resources_);
       }
     }
     if (system_tx) {
@@ -962,47 +885,46 @@ std::optional<UserProfiles::Profile> Auth::SetProfile(const std::string &profile
   if (!profile) {
     throw AuthException("Couldn't find profile '{}'!", profile_name);
   }
-  if (auto user = GetUser(name)) {
-    SetProfile(*profile, *user, system_tx);
-    return profile;
-  }
-  if (auto role = GetRole(name)) {
-    SetProfile(*profile, *role, system_tx);
-    return profile;
-  }
-  throw AuthException("Couldn't find user or role named '{}'!", name);
-}
 
-void Auth::SetProfile(const UserProfiles::Profile &profile, User &user, system::Transaction *system_tx) {
-  user.SetProfile(profile);
-  SaveUser(user, system_tx);
-}
+  // Add username to the profile
+  if (!user_profiles_.AddUsername(profile_name, name)) {
+    throw AuthException("Couldn't set profile '{}' for user '{}'!", profile_name, name);
+  }
 
-void Auth::SetProfile(const UserProfiles::Profile &profile, Role &role, system::Transaction *system_tx) {
-  role.SetProfile(profile);
-  SaveRole(role, system_tx);
+  if (user_resources_) {
+    UpdateProfileLimits(name, *profile, *user_resources_);
+  }
+
+  if (system_tx) {
+    system_tx->AddAction<UpdateAuthData>(*profile);
+  }
+
+  return profile;
 }
 
 void Auth::RevokeProfile(const std::string &name, system::Transaction *system_tx) {
-  if (auto user = GetUser(name)) {
-    RevokeProfile(*user, system_tx);
+  // Find which profile the username belongs to
+  auto profile_name = user_profiles_.GetProfileForUsername(name);
+  if (!profile_name) {
+    // User doesn't have a profile, nothing to revoke
     return;
   }
-  if (auto role = GetRole(name)) {
-    RevokeProfile(*role, system_tx);
-    return;
+
+  // Remove username from the profile
+  if (!user_profiles_.RemoveUsername(*profile_name, name)) {
+    throw AuthException("Couldn't revoke profile for user '{}'!", name);
   }
-  throw AuthException("Couldn't find user or role named '{}'!", name);
-}
 
-void Auth::RevokeProfile(User &user, system::Transaction *system_tx) {
-  user.ClearProfile();
-  SaveUser(user, system_tx);
-}
+  if (user_resources_) {
+    user_resources_->RemoveUser(name);
+  }
 
-void Auth::RevokeProfile(Role &role, system::Transaction *system_tx) {
-  role.ClearProfile();
-  SaveRole(role, system_tx);
+  if (system_tx) {
+    auto profile = user_profiles_.Get(*profile_name);
+    if (profile) {
+      system_tx->AddAction<UpdateAuthData>(*profile);
+    }
+  }
 }
 
 std::vector<User> Auth::GetUsersForProfile(const std::string &profile_name) const {
@@ -1010,63 +932,27 @@ std::vector<User> Auth::GetUsersForProfile(const std::string &profile_name) cons
   if (!profile) {
     throw AuthException("Couldn't find profile '{}'!", profile_name);
   }
+
   std::vector<User> ret;
-  for (auto it = storage_.begin(kProfileLinkPrefix); it != storage_.end(kProfileLinkPrefix); ++it) {
-    auto username = it->first.substr(kProfileLinkPrefix.size());
-    if (username != utils::ToLowerCase(username)) continue;
-    if (it->second == profile_name && HasUser(username)) {
-      ret.push_back(*GetUser(username));
+  for (const auto &username : profile->usernames) {
+    if (auto user = GetUser(username)) {
+      ret.push_back(*user);
     }
   }
   return ret;
 }
 
-std::vector<std::string> Auth::GetUsernamesForProfile(const std::string &profile_name) const {
+std::unordered_set<std::string> Auth::GetUsernamesForProfile(const std::string &profile_name) const {
   const auto profile = user_profiles_.Get(profile_name);
   if (!profile) {
     throw AuthException("Couldn't find profile '{}'!", profile_name);
   }
-  std::vector<std::string> ret;
-  for (auto it = storage_.begin(kProfileLinkPrefix); it != storage_.end(kProfileLinkPrefix); ++it) {
-    auto username = it->first.substr(kProfileLinkPrefix.size());
-    if (username != utils::ToLowerCase(username)) continue;
-    if (it->second == profile_name && HasUser(username)) {
-      ret.push_back(std::move(username));
-    }
-  }
-  return ret;
+
+  return profile->usernames;
 }
 
-std::vector<Role> Auth::GetRolesForProfile(const std::string &profile_name) const {
-  const auto profile = user_profiles_.Get(profile_name);
-  if (!profile) {
-    throw AuthException("Couldn't find profile '{}'!", profile_name);
-  }
-  std::vector<Role> ret;
-  for (auto it = storage_.begin(kProfileLinkPrefix); it != storage_.end(kProfileLinkPrefix); ++it) {
-    auto rolename = it->first.substr(kProfileLinkPrefix.size());
-    if (rolename != utils::ToLowerCase(rolename)) continue;
-    if (it->second == profile_name && HasRole(rolename)) {
-      ret.push_back(*GetRole(rolename));
-    }
-  }
-  return ret;
-}
-
-std::vector<std::string> Auth::GetRolenamesForProfile(const std::string &profile_name) const {
-  const auto profile = user_profiles_.Get(profile_name);
-  if (!profile) {
-    throw AuthException("Couldn't find profile '{}'!", profile_name);
-  }
-  std::vector<std::string> ret;
-  for (auto it = storage_.begin(kProfileLinkPrefix); it != storage_.end(kProfileLinkPrefix); ++it) {
-    auto rolename = it->first.substr(kProfileLinkPrefix.size());
-    if (rolename != utils::ToLowerCase(rolename)) continue;
-    if (it->second == profile_name && HasRole(rolename)) {
-      ret.push_back(std::move(rolename));
-    }
-  }
-  return ret;
+std::optional<std::string> Auth::GetProfileForUsername(const std::string &username) const {
+  return user_profiles_.GetProfileForUsername(username);
 }
 
 #endif
@@ -1074,31 +960,11 @@ std::vector<std::string> Auth::GetRolenamesForProfile(const std::string &profile
 void Auth::SaveRole(const Role &role, system::Transaction *system_tx) {
   std::map<std::string, std::string> puts = {{kRolePrefix + role.rolename(), role.Serialize().dump()}};
   std::vector<std::string> deletes;
-  // User profile
-#ifdef MG_ENTERPRISE
-  if (const auto &profile = role.profile()) {
-    puts.emplace(kProfileLinkPrefix + role.rolename(), profile->name);
-  } else {
-    deletes.emplace_back(kProfileLinkPrefix + role.rolename());
-  }
-  const bool update_profile = user_resources_ && ShouldUpdateProfile(*this, role);
-  std::vector<std::string> users;
-  if (update_profile) users = AllUsernamesForRole(role.rolename());
-#endif
 
   // Update
   if (!storage_.PutAndDeleteMultiple(puts, deletes)) {
     throw AuthException("Couldn't save role '{}'!", role.rolename());
   }
-
-// Update profiles after role update
-#ifdef MG_ENTERPRISE
-  if (update_profile) {
-    for (const auto &user : users) {
-      UpdateProfileLimits(user, *this, *user_resources_);
-    }
-  }
-#endif
 
   // Durability updated -> new epoch
   UpdateEpoch();
@@ -1125,17 +991,6 @@ std::optional<Role> Auth::AddRole(const std::string &rolename, system::Transacti
 bool Auth::RemoveRole(const std::string &rolename_orig, system::Transaction *system_tx) {
   auto rolename = utils::ToLowerCase(rolename_orig);
   if (!storage_.Get(kRolePrefix + rolename)) return false;
-
-// Update profiles after role is removed
-#ifdef MG_ENTERPRISE
-  // User profile
-  const bool update_profile = user_resources_ && ShouldUpdateProfile(*this, rolename);
-  if (!storage_.Delete(kProfileLinkPrefix + rolename)) {
-    throw AuthException("Couldn't remove profile role '{}'!", rolename);
-  }
-  std::vector<std::string> users;
-  if (update_profile) users = AllUsernamesForRole(rolename);
-#endif
 
   // First, remove the role from all users who have it
   for (auto it = storage_.begin(kRoleLinkPrefix); it != storage_.end(kRoleLinkPrefix); ++it) {
@@ -1209,15 +1064,6 @@ bool Auth::RemoveRole(const std::string &rolename_orig, system::Transaction *sys
   if (!storage_.Delete(kRolePrefix + rolename)) {
     throw AuthException("Couldn't remove role '{}'!", rolename);
   }
-
-#ifdef MG_ENTERPRISE
-  // Update user resources if needed
-  if (update_profile) {
-    for (const auto &user : users) {
-      UpdateProfileLimits(user, *this, *user_resources_);
-    }
-  }
-#endif
 
   // Durability updated -> new epoch
   UpdateEpoch();
