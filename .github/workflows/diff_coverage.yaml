@@ -60,6 +60,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
+          --no-ccache \
           run
 
       # This is also needed if we want do to comparison against other branches
@@ -137,6 +138,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
+          --no-ccache \
           stop --remove
 
   clang-tidy-community:
@@ -162,6 +164,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
+          --no-ccache \
           run
 
       - name: Set base branch
@@ -198,6 +201,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
+          --no-ccache \
           stop --remove
 
   clang-tidy-enterprise:
@@ -223,6 +227,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
+          --no-ccache \
           run
 
       - name: Set base branch
@@ -259,4 +264,5 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
+          --no-ccache \
           stop --remove
