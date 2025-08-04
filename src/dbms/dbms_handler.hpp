@@ -102,6 +102,7 @@ class DbmsHandler {
 
   using NewResultT = utils::BasicResult<NewError, DatabaseAccess>;
   using DeleteResult = utils::BasicResult<DeleteError>;
+  using RenameResult = utils::BasicResult<RenameError>;
 
   /**
    * @brief Initialize the handler.
@@ -261,6 +262,16 @@ class DbmsHandler {
    * @return DeleteResult error on failure
    */
   DeleteResult Delete(utils::UUID uuid);
+
+  /**
+   * @brief Rename a database.
+   *
+   * @param old_name current database name
+   * @param new_name new database name
+   * @param txn system transaction for replication
+   * @return RenameResult error on failure
+   */
+  RenameResult Rename(std::string_view old_name, std::string_view new_name, system::Transaction *txn = nullptr);
 #endif
 
   /**

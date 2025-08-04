@@ -93,6 +93,48 @@ struct DropDatabaseRes {
 
 using DropDatabaseRpc = rpc::RequestResponse<DropDatabaseReq, DropDatabaseRes>;
 
+struct RenameDatabaseReq {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_RENAME_DATABASE_REQ, .name = "RenameDatabaseReq"};
+  static constexpr uint64_t kVersion{1};
+
+  static void Load(RenameDatabaseReq *self, memgraph::slk::Reader *reader);
+  static void Save(const RenameDatabaseReq &self, memgraph::slk::Builder *builder);
+  RenameDatabaseReq() = default;
+  RenameDatabaseReq(const utils::UUID &main_uuid, std::string epoch_id, uint64_t expected_group_timestamp,
+                    uint64_t new_group_timestamp, const utils::UUID &uuid, std::string old_name, std::string new_name)
+      : main_uuid(main_uuid),
+        epoch_id(std::move(epoch_id)),
+        expected_group_timestamp{expected_group_timestamp},
+        new_group_timestamp(new_group_timestamp),
+        uuid(uuid),
+        old_name(std::move(old_name)),
+        new_name(std::move(new_name)) {}
+
+  utils::UUID main_uuid;
+  std::string epoch_id;
+  uint64_t expected_group_timestamp;
+  uint64_t new_group_timestamp;
+  utils::UUID uuid;
+  std::string old_name;
+  std::string new_name;
+};
+
+struct RenameDatabaseRes {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_RENAME_DATABASE_RES, .name = "RenameDatabaseRes"};
+  static constexpr uint64_t kVersion{1};
+
+  enum class Result : uint8_t { SUCCESS, NO_NEED, FAILURE, /* Leave at end */ N };
+
+  static void Load(RenameDatabaseRes *self, memgraph::slk::Reader *reader);
+  static void Save(const RenameDatabaseRes &self, memgraph::slk::Builder *builder);
+  RenameDatabaseRes() = default;
+  explicit RenameDatabaseRes(Result res) : result(res) {}
+
+  Result result;
+};
+
+using RenameDatabaseRpc = rpc::RequestResponse<RenameDatabaseReq, RenameDatabaseRes>;
+
 }  // namespace memgraph::storage::replication
 
 // SLK serialization declarations
@@ -114,4 +156,11 @@ void Save(const memgraph::storage::replication::DropDatabaseRes &self, memgraph:
 
 void Load(memgraph::storage::replication::DropDatabaseRes *self, memgraph::slk::Reader *reader);
 
+void Save(const memgraph::storage::replication::RenameDatabaseReq &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::storage::replication::RenameDatabaseReq *self, memgraph::slk::Reader *reader);
+
+void Save(const memgraph::storage::replication::RenameDatabaseRes &self, memgraph::slk::Builder *builder);
+
+void Load(memgraph::storage::replication::RenameDatabaseRes *self, memgraph::slk::Reader *reader);
 }  // namespace memgraph::slk
