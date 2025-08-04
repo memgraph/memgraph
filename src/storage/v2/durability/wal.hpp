@@ -54,13 +54,8 @@ struct WalInfo {
   uint64_t num_deltas;
 };
 
-// MIN_VER is a version from which the Type was introduced
 template <auto MIN_VER, typename Type>
 struct MinVersionDependant {};
-
-// MAX_VER is a version from which the Type became invalid or unnecessary
-template <auto MAX_VER, typename Type>
-struct MaxVersionDependant {};
 
 // Note this is highly composable
 // `Before` can also be VersionDependantUpgradable:
@@ -241,11 +236,19 @@ struct WalTextIndexCreate {
   std::string label;
   std::optional<std::vector<std::string>> properties;  //!< Optional properties, if not set, no properties are indexed
 };
+
+inline auto UpgradeDropTextIndexRemoveLabel(std::pair<std::string, std::string> name_and_label) -> std::string {
+  return name_and_label.first;  // Extract only the index_name, discard the label
+};
+using UpgradableDropTextIndex =
+    VersionDependantUpgradable<kTextIndexWithProperties, std::pair<std::string, std::string>, std::string,
+                               UpgradeDropTextIndexRemoveLabel>;
+
 struct WalTextIndexDrop {
   friend bool operator==(const WalTextIndexDrop &, const WalTextIndexDrop &) = default;
-  using ctr_types = std::tuple<std::string, MaxVersionDependant<kTxnStart, std::string>>;
+  using ctr_types = std::tuple<UpgradableDropTextIndex>;
   std::string index_name;
-  std::optional<std::string> label;  // !< Optional label, not needed for the text index drop
+  std::optional<std::string> label;  //!< Optional label, only used for versions < kTextIndexWithProperties
 };
 struct WalEnumCreate {
   friend bool operator==(const WalEnumCreate &, const WalEnumCreate &) = default;

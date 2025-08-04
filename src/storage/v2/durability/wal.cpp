@@ -393,6 +393,19 @@ auto Decode(utils::tag_type<std::size_t> /*unused*/, BaseDecoder *decoder, const
   }
 }
 
+template <bool is_read>
+auto Decode(utils::tag_type<std::pair<std::string, std::string>> /*unused*/, BaseDecoder *decoder,
+            const uint64_t version) -> std::conditional_t<is_read, std::pair<std::string, std::string>, void> {
+  if constexpr (is_read) {
+    auto first = Decode<true>(utils::tag_t<std::string>, decoder, version);
+    auto second = Decode<true>(utils::tag_t<std::string>, decoder, version);
+    return std::make_pair(std::move(first), std::move(second));
+  } else {
+    Decode<false>(utils::tag_t<std::string>, decoder, version);
+    Decode<false>(utils::tag_t<std::string>, decoder, version);
+  }
+}
+
 // ========== concrete type decoders end here ==========
 
 template <typename T>
@@ -421,18 +434,6 @@ template <bool is_read, auto MIN_VER, typename Type>
 auto Decode(utils::tag_type<MinVersionDependant<MIN_VER, Type>> /*unused*/, BaseDecoder *decoder,
             const uint64_t version) -> std::conditional_t<is_read, std::optional<Type>, void> {
   if (MIN_VER <= version) {
-    return Decode<is_read>(utils::tag_t<Type>, decoder, version);
-  }
-  if constexpr (is_read) {
-    return std::nullopt;
-  }
-}
-
-// Generic helper decoder, please keep after the concrete type decoders
-template <bool is_read, auto MAX_VER, typename Type>
-auto Decode(utils::tag_type<MaxVersionDependant<MAX_VER, Type>> /*unused*/, BaseDecoder *decoder,
-            const uint64_t version) -> std::conditional_t<is_read, std::optional<Type>, void> {
-  if (MAX_VER > version) {
     return Decode<is_read>(utils::tag_t<Type>, decoder, version);
   }
   if constexpr (is_read) {
