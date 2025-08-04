@@ -64,6 +64,14 @@ def build_handler(storage, args):
             assert False
 
         def do_POST(self):
+            if args.redirect and self.path == args.path:
+                # 307 is used instead of 301 to preserve body data
+                # https://stackoverflow.com/questions/19070801/curl-loses-body-when-a-post-redirected-from-http-to-https
+                self.send_response(307)
+                self.send_header("Location", args.redirect_path)
+                self.end_headers()
+                return
+
             # Check if this is a memgraph user agent
             ua = self.headers.get("User-Agent", "")
             if not ua.startswith("memgraph"):
@@ -120,6 +128,21 @@ def build_handler(storage, args):
 
                 # Store for verification
                 storage.append(item)
+
+            if args.no_response_count > 0:
+                args.no_response_count -= 1
+                return
+
+            if args.wrong_code_count > 0:
+                args.wrong_code_count -= 1
+                self.send_response(500)
+                self.send_header("Content-Type", "application/json")
+                self.end_headers()
+                self.wfile.write(json.dumps({"success": False, "msg": "server error"}).encode("utf-8"))
+                return
+
+            if args.hang:
+                time.sleep(20)
 
             # Simulate S3 upload success
             self.send_response(200)
@@ -198,11 +221,17 @@ if __name__ == "__main__":
     parser.add_argument("--address", type=str, default="127.0.0.1")
     parser.add_argument("--port", type=int, default=9000)
     parser.add_argument("--path", type=str, default="/88b5e7e8-746a-11e8-9f85-538a9e9690cc")
+    parser.add_argument("--redirect", action="store_true")
+    parser.add_argument("--no-response-count", type=int, default=0)
+    parser.add_argument("--wrong-code-count", type=int, default=0)
+    parser.add_argument("--no-check", action="store_true")
+    parser.add_argument("--hang", action="store_true")
     parser.add_argument("--interval", type=int, default=1)
     parser.add_argument("--duration", type=int, default=10)
     parser.add_argument("--startups", type=int, default=1)
-    parser.add_argument("--no-check", action="store_true")
+    parser.add_argument("--no-check-duration", action="store_true")
     args = parser.parse_args()
+    args.redirect_path = os.path.join(args.path, "redirect")
 
     storage = []
     handler = build_handler(storage, args)
