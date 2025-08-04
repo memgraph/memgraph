@@ -120,6 +120,30 @@ uint8_t DetectArmArchitectureLevel(const std::vector<std::string> &cpu_data) {
   return 0;
 }
 
+std::string ExtractArmCPUVariant(const std::vector<std::string> &cpu_data) {
+  std::string variant;
+  std::string implementer;
+  for (auto &row : cpu_data) {
+    auto tmp = utils::Trim(row);
+    if (utils::StartsWith(tmp, "CPU implementer")) {
+      auto split = utils::Split(tmp, ":");
+      if (split.size() != 2) continue;
+      implementer = utils::Trim(split[1]);
+    } else if (utils::StartsWith(tmp, "CPU variant")) {
+      auto split = utils::Split(tmp, ":");
+      if (split.size() != 2) continue;
+      variant = utils::Trim(split[1]);
+    }
+  }
+  if (implementer.empty()) {
+    implementer = "Unknown Implementer";
+  }
+  if (variant.empty()) {
+    variant = "Unknown Variant";
+  }
+  return fmt::format("{} {}", implementer, variant);
+}
+
 CPUInfo GetCPUInfo(const std::string &machine) {
   // Parse `/proc/cpuinfo`.
   std::string cpu_model;
@@ -143,6 +167,10 @@ CPUInfo GetCPUInfo(const std::string &machine) {
 
   if (machine == "aarch64") {
     microarch_level = DetectArmArchitectureLevel(cpu_data);
+    // cpu_model is often empty on arm64 - try to extract cpu variant and implementer
+    if (cpu_model.empty()) {
+      cpu_model = ExtractArmCPUVariant(cpu_data);
+    }
   }
 
   return {cpu_model, cpu_count, microarch_level};

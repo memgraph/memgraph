@@ -45,6 +45,8 @@ bool HasCPUFlag(const std::unordered_set<std::string> &flags, const std::string 
 
 std::unordered_set<std::string> ExtractCPUFlags(const std::vector<std::string> &cpu_data);
 
+std::string ExtractArmCPUVariant(const std::vector<std::string> &cpu_data);
+
 /**
  * This function return a dictionary containing some basic system information
  * (eg. operating system name, cpu information, memory information, etc.).
