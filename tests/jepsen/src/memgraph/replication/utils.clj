@@ -17,6 +17,7 @@
   [ops]
   (gen/each-thread
     (gen/phases
+      (gen/sleep 5)
       (gen/once register-replicas)
       (gen/sleep 5)
       (gen/delay 3 (gen/mix ops)))))
