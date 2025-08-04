@@ -39,18 +39,27 @@ class UserProfiles {
 
   struct Profile {
     std::string name;
-    mutable limits_t limits;  // mutable to allow update in sets
+    mutable limits_t limits;                            // mutable to allow update in sets
+    mutable std::unordered_set<std::string> usernames;  // mutable to allow update in sets
 
-    bool operator==(const Profile &other) const { return std::tie(name, limits) == std::tie(other.name, other.limits); }
+    Profile() = default;
+    Profile(std::string name, limits_t limits, std::unordered_set<std::string> usernames = {})
+        : name(std::move(name)), limits(std::move(limits)), usernames(std::move(usernames)) {}
   };
 
   explicit UserProfiles(kvstore::KVStore &durability);
 
-  bool Create(std::string_view name, limits_t defined_limits);
+  bool Create(std::string_view name, limits_t defined_limits, const std::unordered_set<std::string> &usernames = {});
   std::optional<Profile> Update(std::string_view name, const limits_t &updated_limits);
   bool Drop(std::string_view name);
   std::optional<Profile> Get(std::string_view name) const;
   std::vector<Profile> GetAll() const;
+
+  // New methods for username management
+  bool AddUsername(std::string_view profile_name, std::string_view username);
+  bool RemoveUsername(std::string_view profile_name, std::string_view username);
+  std::unordered_set<std::string> GetUsernames(std::string_view profile_name) const;
+  std::optional<std::string> GetProfileForUsername(std::string_view username) const;
 
   static std::optional<Profile> Merge(const std::optional<Profile> &user, const std::optional<Profile> &role) {
     if (!user && !role) return std::nullopt;

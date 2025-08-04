@@ -374,7 +374,13 @@ bool AuthQueryHandler::CreateUser(const std::string &username, const std::option
 #ifdef MG_ENTERPRISE
           ,
           {{{memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {memgraph::query::kAsterisk}}}},
-          {{{memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {memgraph::query::kAsterisk}}}}
+          {
+            {
+              {
+                memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE, { memgraph::query::kAsterisk }
+              }
+            }
+          }
 #endif
           ,
           system_tx);
@@ -1057,7 +1063,7 @@ void AuthQueryHandler::DenyImpersonateUser(const std::string &user_or_role, cons
 
 void AuthQueryHandler::CreateProfile(const std::string &profile_name,
                                      const query::UserProfileQuery::limits_t &defined_limits,
-                                     system::Transaction *system_tx) {
+                                     const std::unordered_set<std::string> &usernames, system::Transaction *system_tx) {
   auth::UserProfiles::limits_t limits;
   for (const auto &[limit_name, limit_value] : defined_limits) {
     const auto limit_type = name_to_limit(limit_name);
@@ -1075,7 +1081,7 @@ void AuthQueryHandler::CreateProfile(const std::string &profile_name,
     }
   }
   auto locked_auth = auth_->Lock();
-  if (!locked_auth->CreateProfile(profile_name, std::move(limits), system_tx)) {
+  if (!locked_auth->CreateProfile(profile_name, std::move(limits), usernames, system_tx)) {
     throw memgraph::query::QueryRuntimeException("Profile '{}' already exists.", profile_name);
   }
 }
@@ -1168,44 +1174,26 @@ void AuthQueryHandler::RevokeProfile(const std::string &user_or_role, system::Tr
 
 std::optional<std::string> AuthQueryHandler::GetProfileForUser(const std::string &user_or_role) {
   auto locked_auth = auth_->Lock();
-  auto user = locked_auth->GetUser(user_or_role);
-  if (!user) {
-    throw memgraph::query::QueryRuntimeException("User '{}' doesn't exist.", user_or_role);
-  }
-  if (const auto profile = user->profile(); profile) {
-    return profile->name;
-  }
-  return std::nullopt;
+  return locked_auth->GetProfileForUsername(user_or_role);
 }
 
 std::vector<std::string> AuthQueryHandler::GetUsernamesForProfile(const std::string &profile_name) {
   try {
     auto locked_auth = auth_->Lock();
-    return locked_auth->GetUsernamesForProfile(profile_name);
+    auto usernames_set = locked_auth->GetUsernamesForProfile(profile_name);
+    return std::vector<std::string>(usernames_set.begin(), usernames_set.end());
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
 }
 
+// Role-based profile management is no longer supported in the new architecture
 std::optional<std::string> AuthQueryHandler::GetProfileForRole(const std::string &user_or_role) {
-  auto locked_auth = auth_->Lock();
-  auto role = locked_auth->GetRole(user_or_role);
-  if (!role) {
-    throw memgraph::query::QueryRuntimeException("Role '{}' doesn't exist.", user_or_role);
-  }
-  if (const auto profile = role->profile(); profile) {
-    return profile->name;
-  }
-  return std::nullopt;
+  throw memgraph::query::QueryRuntimeException("Role-based profile management is no longer supported.");
 }
 
 std::vector<std::string> AuthQueryHandler::GetRolenamesForProfile(const std::string &profile_name) {
-  try {
-    auto locked_auth = auth_->Lock();
-    return locked_auth->GetRolenamesForProfile(profile_name);
-  } catch (const memgraph::auth::AuthException &e) {
-    throw memgraph::query::QueryRuntimeException(e.what());
-  }
+  throw memgraph::query::QueryRuntimeException("Role-based profile management is no longer supported.");
 }
 #endif
 
