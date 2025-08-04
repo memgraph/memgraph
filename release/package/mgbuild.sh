@@ -1091,7 +1091,7 @@ case $command in
         if [[ "$os" =~ ^"debian".* || "$os" =~ ^"ubuntu".* ]]; then
           docker exec -u root $build_container bash -c "apt update && apt install -y ccache"
         elif [[ "$os" =~ ^"centos".* || "$os" =~ ^"rocky".* || "$os" =~ ^"fedora".* ]]; then
-          if [[ "$os" == "centos-9" ]]; then
+          if [[ "$os" =~ ^"centos".* ]]; then
             docker exec -u root $build_container bash -c "dnf config-manager --set-enabled crb"
             docker exec -u root $build_container bash -c "dnf install -y epel-release"
           fi
