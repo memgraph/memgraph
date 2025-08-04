@@ -83,6 +83,7 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --no-ccache \
           build-memgraph --init-only
 
       - name: Run python code analysis
@@ -102,6 +103,7 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --no-ccache \
           build-memgraph --coverage --asan --ubsan
 
       - name: Run unit tests
@@ -182,6 +184,7 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --no-ccache \
           build-memgraph --cmake-only --community
 
       - name: Run clang-tidy
@@ -245,6 +248,7 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --no-ccache \
           build-memgraph --cmake-only
 
       - name: Run clang-tidy
