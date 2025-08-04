@@ -169,8 +169,7 @@ class AuthQueryHandler {
 // User profiles
 #ifdef MG_ENTERPRISE
   virtual void CreateProfile(const std::string &profile_name, const UserProfileQuery::limits_t &defined_limits,
-                             const std::unordered_set<std::string> &usernames = {},
-                             system::Transaction *system_tx = nullptr) = 0;
+                             const std::unordered_set<std::string> &usernames, system::Transaction *system_tx) = 0;
   virtual void UpdateProfile(const std::string &profile_name, const UserProfileQuery::limits_t &updated_limits,
                              system::Transaction *system_tx) = 0;
   virtual void DropProfile(const std::string &profile_name, system::Transaction *system_tx) = 0;
