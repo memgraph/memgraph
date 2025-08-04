@@ -224,3 +224,26 @@ function install_node () {
       && nvm install ${NODE_VERSION} \
       && nvm use ${NODE_VERSION}
 }
+
+function parse_operating_system() {
+    local os_output=$(operating_system)
+    local os_name=""
+    local os_version=""
+    
+    # Split on the first dash to separate OS name from version
+    if [[ "$os_output" == *"-"* ]]; then
+        os_name=$(echo "$os_output" | cut -d'-' -f1)
+        os_version=$(echo "$os_output" | cut -d'-' -f2-)
+    else
+        # If no dash found, treat the whole string as OS name
+        os_name="$os_output"
+        os_version=""
+    fi
+    
+    # Export variables for use by calling script
+    export OS="$os_name"
+    export VER="$os_version"
+    
+    echo "OS: $OS"
+    echo "VER: $VER"
+}

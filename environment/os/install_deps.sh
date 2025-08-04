@@ -1,6 +1,9 @@
 #!/bin/bash
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
+# Source the util.sh file to get the parse_operating_system function
+source "$SCRIPT_DIR/../util.sh"
+
 SUPPORTED_OS=(
     all
     centos-9 centos-10
@@ -87,8 +90,7 @@ prepare_toolchain() {
 # Detect OS, version, and architecture
 if [ -f /etc/os-release ]; then
     . /etc/os-release
-    OS=$ID
-    VER=$VERSION_ID
+    parse_operating_system
 elif type lsb_release >/dev/null 2>&1; then
     OS=$(lsb_release -si)
     VER=$(lsb_release -sr)
