@@ -207,7 +207,6 @@ void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadat
 void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata, Indices *indices,
                             utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper, bool properties_on_edges,
                             const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
-                            const std::optional<std::filesystem::path> &storage_dir,
                             std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(indices->label_index_.get());
   // Recover label indices.
@@ -308,16 +307,12 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
 
   // Text idx
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    // Recover text indices.
     spdlog::info("Recreating {} text indices from metadata.", indices_metadata.text_indices.size());
     auto &mem_text_index = indices->text_index_;
     for (const auto &[index_name, label] : indices_metadata.text_indices) {
       try {
-        if (!storage_dir.has_value()) {
-          throw RecoveryFailure("There must exist a storage directory in order to recover text indices!");
-        }
         // TODO: parallel execution
-        mem_text_index.RecoverIndex(index_name, label, vertices->access(), name_id_mapper, snapshot_info);
+        mem_text_index.RecoverIndex(index_name, label, snapshot_info);
       } catch (...) {
         throw RecoveryFailure("The text index must be created here!");
       }
@@ -449,13 +444,8 @@ void RecoverIndicesStatsAndConstraints(utils::SkipList<Vertex> *vertices, NameId
                                        RecoveredIndicesAndConstraints const &indices_constraints,
                                        bool properties_on_edges,
                                        std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  auto storage_dir = std::optional<std::filesystem::path>{};
-  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    storage_dir = config.durability.storage_directory;
-  }
-
   RecoverIndicesAndStats(indices_constraints.indices, indices, vertices, name_id_mapper, properties_on_edges,
-                         GetParallelExecInfo(recovery_info, config), storage_dir, snapshot_info);
+                         GetParallelExecInfo(recovery_info, config), snapshot_info);
   RecoverConstraints(indices_constraints.constraints, constraints, vertices, name_id_mapper,
                      GetParallelExecInfo(recovery_info, config), snapshot_info);
 }
@@ -527,7 +517,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     snapshot_durable_timestamp = recovered_snapshot->snapshot_info.durable_timestamp;
     spdlog::trace("Recovered epoch {} for db {}", recovered_snapshot->snapshot_info.epoch_id, db_name);
     repl_storage_state.epoch_.SetEpoch(std::move(recovered_snapshot->snapshot_info.epoch_id));
-    recovery_info.last_durable_timestamp = snapshot_durable_timestamp;
+    recovery_info.last_durable_timestamp = *snapshot_durable_timestamp;
   } else {
     // UUID couldn't be recovered from the snapshot; recovering it from WALs
     spdlog::info("No snapshot file was found, collecting information from WAL directory {}.", wal_directory_);
@@ -632,10 +622,8 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
           recovery_info.next_edge_id = std::max(recovery_info.next_edge_id, info->next_edge_id);
           recovery_info.next_timestamp = std::max(recovery_info.next_timestamp, info->next_timestamp);
           recovery_info.last_durable_timestamp = info->last_durable_timestamp;
-          MG_ASSERT(info->last_durable_timestamp.has_value(),
-                    "RecoveryInfo has value but ldt not after loading from WAL");
-          last_loaded_timestamp.emplace(*info->last_durable_timestamp);
-          spdlog::trace("Set ldt to {} after loading from WAL", *info->last_durable_timestamp);
+          last_loaded_timestamp.emplace(info->last_durable_timestamp);
+          spdlog::trace("Set ldt to {} after loading from WAL", info->last_durable_timestamp);
         }
 
         if (epoch_history->empty() || epoch_history->back().first != wal_file.epoch_id) {

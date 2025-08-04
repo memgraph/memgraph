@@ -121,7 +121,8 @@ class InMemoryStorage final : public Storage {
 
   /// @throw std::system_error
   /// @throw std::bad_alloc
-  explicit InMemoryStorage(Config config = Config(), std::optional<free_mem_fn> free_mem_fn_override = std::nullopt);
+  explicit InMemoryStorage(Config config = Config(), std::optional<free_mem_fn> free_mem_fn_override = std::nullopt,
+                           PlanInvalidatorPtr invalidator = std::make_unique<PlanInvalidatorDefault>());
 
   InMemoryStorage(const InMemoryStorage &) = delete;
   InMemoryStorage(InMemoryStorage &&) = delete;
@@ -365,8 +366,7 @@ class InMemoryStorage final : public Storage {
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// @throw std::bad_alloc
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        LabelId label, bool check_access = true, CheckCancelFunction cancel_check = neverCancel,
-        PublishIndexWrapper wrapper = publish_no_wrap) override;
+        LabelId label, CheckCancelFunction cancel_check = neverCancel) override;
 
     /// Create an index.
     /// Returns void if the index has been created.
@@ -375,8 +375,7 @@ class InMemoryStorage final : public Storage {
     /// * `IndexDefinitionError`: the index already exists.
     /// @throw std::bad_alloc
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        LabelId label, PropertiesPaths properties, CheckCancelFunction cancel_check = neverCancel,
-        PublishIndexWrapper wrapper = publish_no_wrap) override;
+        LabelId label, PropertiesPaths properties, CheckCancelFunction cancel_check = neverCancel) override;
 
     /// Create an index.
     /// Returns void if the index has been created.
@@ -385,8 +384,7 @@ class InMemoryStorage final : public Storage {
     /// * `IndexDefinitionError`: the index already exists.
     /// @throw std::bad_alloc
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        EdgeTypeId edge_type, bool unique_access_needed = true, CheckCancelFunction cancel_check = neverCancel,
-        PublishIndexWrapper wrapper = publish_no_wrap) override;
+        EdgeTypeId edge_type, CheckCancelFunction cancel_check = neverCancel) override;
 
     /// Create an index.
     /// Returns void if the index has been created.
@@ -395,8 +393,7 @@ class InMemoryStorage final : public Storage {
     /// * `IndexDefinitionError`: the index already exists.
     /// @throw std::bad_alloc
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        EdgeTypeId edge_type, PropertyId property, CheckCancelFunction cancel_check = neverCancel,
-        PublishIndexWrapper wrapper = publish_no_wrap) override;
+        EdgeTypeId edge_type, PropertyId property, CheckCancelFunction cancel_check = neverCancel) override;
 
     /// Create an index.
     /// Returns void if the index has been created.
@@ -405,49 +402,43 @@ class InMemoryStorage final : public Storage {
     /// * `IndexDefinitionError`: the index already exists.
     /// @throw std::bad_alloc
     utils::BasicResult<StorageIndexDefinitionError, void> CreateGlobalEdgeIndex(
-        PropertyId property, CheckCancelFunction cancel_check = neverCancel,
-        PublishIndexWrapper wrapper = publish_no_wrap) override;
+        PropertyId property, CheckCancelFunction cancel_check = neverCancel) override;
 
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index does not exist.
-    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label,
-                                                                    DropIndexWrapper wrapper = drop_no_wrap) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) override;
 
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index does not exist.
-    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label,
-                                                                    std::vector<storage::PropertyPath> &&properties,
-                                                                    DropIndexWrapper wrapper = drop_no_wrap) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
+        LabelId label, std::vector<storage::PropertyPath> &&properties) override;
 
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index does not exist.
-    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type,
-                                                                    DropIndexWrapper wrapper = drop_no_wrap) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type) override;
 
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index does not exist.
-    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type, PropertyId property,
-                                                                    DropIndexWrapper wrapper = drop_no_wrap) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type, PropertyId property) override;
 
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index does not exist.
-    utils::BasicResult<StorageIndexDefinitionError, void> DropGlobalEdgeIndex(
-        PropertyId property, DropIndexWrapper wrapper = drop_no_wrap) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> DropGlobalEdgeIndex(PropertyId property) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> CreatePointIndex(storage::LabelId label,
                                                                            storage::PropertyId property) override;
@@ -582,6 +573,8 @@ class InMemoryStorage final : public Storage {
 
   std::vector<SnapshotFileInfo> ShowSnapshots();
 
+  std::optional<SnapshotFileInfo> ShowNextSnapshot();
+
   void CreateSnapshotHandler(std::function<utils::BasicResult<InMemoryStorage::CreateSnapshotError>()> cb);
 
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
@@ -708,6 +701,9 @@ class InMemoryStorage final : public Storage {
 
     friend bool operator==(SnapshotDigest const &, SnapshotDigest const &) = default;
   };
+
+  std::optional<AutoIndexer> auto_indexer_;
+
   std::optional<SnapshotDigest> last_snapshot_digest_;
 
   void Clear();

@@ -467,3 +467,24 @@ Scenario: Advance command on subquery should not affect outer query vertex visib
         Then the result should be:
             | n0 |
             | 0  |
+
+    Scenario: Unwind in subquery passes correctly with same named symbol
+        Given an empty graph
+        When executing query:
+            """
+            CREATE (this0 {id: 1})
+            WITH this0
+            CALL {
+                WITH this0
+                WITH collect(this0) as parentNodes
+                CALL {
+                    WITH parentNodes
+                    UNWIND parentNodes as this0
+                    create ()
+                }
+            }
+            RETURN this0.id AS id
+            """
+        Then the result should be:
+            | id |
+            | 1  |

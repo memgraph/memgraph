@@ -4,7 +4,9 @@ add_library(mg::storage ALIAS mg-storage-v2)
 target_sources(mg-storage-v2
         PRIVATE
         all_vertices_iterable.cpp
+        auto_indexer.cpp
         commit_log.cpp
+        config.cpp
         constraint_verification_info.cpp
         constraints/constraints.cpp
         constraints/existence_constraints.cpp
@@ -25,7 +27,9 @@ target_sources(mg-storage-v2
         durability/snapshot.cpp
         durability/wal.cpp
         edge_accessor.cpp
+        edge_ref.cpp
         edges_iterable.cpp
+        id_types.cpp
         indices/edge_property_index.cpp
         indices/edge_type_index.cpp
         indices/edge_type_property_index.cpp
@@ -36,9 +40,10 @@ target_sources(mg-storage-v2
         indices/label_property_index_stats.cpp
         indices/point_index.cpp
         indices/point_index_change_collector.cpp
+        indices/point_iterator.cpp
         indices/text_index.cpp
-        indices/vector_index.cpp
         indices/vector_edge_index.cpp
+        indices/vector_index.cpp
         inmemory/edge_property_index.cpp
         inmemory/edge_type_index.cpp
         inmemory/edge_type_property_index.cpp
@@ -49,29 +54,27 @@ target_sources(mg-storage-v2
         inmemory/unique_constraints.cpp
         point_functions.cpp
         property_store.cpp
+        property_value_utils.cpp
         replication/replication_client.cpp
         replication/replication_storage_state.cpp
+        replication/replication_transaction.cpp
         replication/rpc.cpp
         replication/serialization.cpp
         replication/slk.cpp
-        replication/replication_transaction.cpp
         schema_info.cpp
         storage.cpp
         storage_mode.cpp
         temporal.cpp
+        transaction.cpp
         vertex_accessor.cpp
         vertex_info_cache.cpp
         vertices_iterable.cpp
-        edge_ref.cpp
-        indices/point_iterator.cpp
-        property_value_utils.cpp
-        config.cpp
-        id_types.cpp
 
         PUBLIC
         FILE_SET HEADERS
         BASE_DIRS ../../
         FILES
+        auto_indexer.hpp
         config.hpp
         constraints/type_constraints.hpp
         constraints/type_constraints_kind.hpp
@@ -87,9 +90,9 @@ target_sources(mg-storage-v2
         indices/point_index_change_collector.hpp
         indices/point_index_expensive_header.hpp
         indices/point_iterator.hpp
+        indices/vector_edge_index.hpp
         indices/vector_index.hpp
         indices/vector_index_utils.hpp
-        indices/vector_edge_index.hpp
         inmemory/indices_mvcc.hpp
         inmemory/storage.hpp
         inmemory/storagefwd.hpp
@@ -100,13 +103,13 @@ target_sources(mg-storage-v2
         property_store.hpp
         property_value.hpp
         property_value_utils.hpp
+        replication/replication_transaction.hpp
         schema_info.hpp
         storage.hpp
         transaction.hpp
         transaction_constants.hpp
         vertex_info_cache.hpp
         vertex_info_cache_fwd.hpp
-        replication/replication_transaction.hpp
 )
 
 find_package(gflags REQUIRED)

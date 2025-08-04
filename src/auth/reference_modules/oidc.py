@@ -6,6 +6,7 @@ import os
 import time
 
 import jwt
+
 import requests
 
 
@@ -17,14 +18,30 @@ def validate_jwt_token(token: str, scheme: str, config: dict, token_type: str):
         jwks_uri = f"{config['id_issuer']}/v1/keys"
     elif scheme == "oidc-custom":
         jwks_uri = f"{config['public_key_endpoint']}"
-    jwks = requests.get(jwks_uri).json()
+
+    try:
+        response = requests.get(jwks_uri, timeout=10)
+        response.raise_for_status()
+        jwks = response.json()
+    except (requests.RequestException, ValueError) as e:
+        return {"valid": False, "errors": f"Failed to fetch JWKS: {str(e)}"}
 
     # need the header to match KID with provider
-    header = jwt.get_unverified_header(token)  # NOSONAR
+    try:
+        header = jwt.get_unverified_header(token)  # NOSONAR
+    except Exception as e:
+        return {"valid": False, "errors": f"Failed to decode JWT header: {str(e)}"}
+
     if "alg" not in header or header["alg"] != "RS256":
         return {"valid": False, "errors": "Invalid algorithm in header"}
 
+    if "kid" not in header:
+        return {"valid": False, "errors": "Missing key ID (kid) in JWT header"}
+
     kid = header["kid"]
+
+    if "keys" not in jwks or not isinstance(jwks["keys"], list):
+        return {"valid": False, "errors": "Invalid JWKS response: missing or invalid keys array"}
 
     decoded_token = None
     for jwk in jwks["keys"]:
@@ -52,8 +69,15 @@ def validate_jwt_token(token: str, scheme: str, config: dict, token_type: str):
     if decoded_token is None:
         return {"valid": False, "errors": "Matching kid not found"}
 
-    if decoded_token.get("exp", None) < int(time.time()):
-        return {"valid": False, "errors": "Token expired"}
+    exp = decoded_token.get("exp")
+    if exp is None:
+        return {"valid": False, "errors": "Token missing expiration claim"}
+
+    try:
+        if int(exp) < int(time.time()):
+            return {"valid": False, "errors": "Token expired"}
+    except (ValueError, TypeError):
+        return {"valid": False, "errors": "Invalid expiration claim in token"}
 
     return {"valid": True, "token": decoded_token}
 
@@ -90,7 +114,7 @@ def _load_config_from_env(scheme: str):
         config["tenant_id"] = os.environ.get("MEMGRAPH_SSO_ENTRA_ID_OIDC_TENANT_ID", "")
         config["role_field"] = os.environ.get("MEMGRAPH_SSO_ENTRA_ID_OIDC_ROLE_FIELD", "roles")
         config["username"] = os.environ.get("MEMGRAPH_SSO_ENTRA_ID_OIDC_USERNAME", "id:sub")
-        config["role_mapping"] = _load_role_mappings(os.environ.get("MEMGRAPH_SSO_ENTRA_ID_OIDC_ROLE_MAPPING", {}))
+        config["role_mapping"] = _load_role_mappings(os.environ.get("MEMGRAPH_SSO_ENTRA_ID_OIDC_ROLE_MAPPING", ""))
 
     elif scheme == "oidc-okta":
         config["client_id"] = os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_CLIENT_ID", "")
@@ -98,7 +122,7 @@ def _load_config_from_env(scheme: str):
         config["authorization_server"] = os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_AUTHORIZATION_SERVER", "")
         config["role_field"] = os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_ROLE_FIELD", "groups")
         config["username"] = os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_USERNAME", "id:sub")
-        config["role_mapping"] = _load_role_mappings(os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_ROLE_MAPPING", {}))
+        config["role_mapping"] = _load_role_mappings(os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_ROLE_MAPPING", ""))
 
     elif scheme == "oidc-custom":
         config["public_key_endpoint"] = os.environ.get("MEMGRAPH_SSO_CUSTOM_OIDC_PUBLIC_KEY_ENDPOINT", "")
@@ -106,7 +130,7 @@ def _load_config_from_env(scheme: str):
         config["id_token_audience"] = os.environ.get("MEMGRAPH_SSO_CUSTOM_OIDC_ID_TOKEN_AUDIENCE", "")
         config["role_field"] = os.environ.get("MEMGRAPH_SSO_CUSTOM_OIDC_ROLE_FIELD", "")
         config["username"] = os.environ.get("MEMGRAPH_SSO_CUSTOM_OIDC_USERNAME", "")
-        config["role_mapping"] = _load_role_mappings(os.environ.get("MEMGRAPH_SSO_CUSTOM_OIDC_ROLE_MAPPING", {}))
+        config["role_mapping"] = _load_role_mappings(os.environ.get("MEMGRAPH_SSO_CUSTOM_OIDC_ROLE_MAPPING", ""))
 
     return config
 
@@ -140,20 +164,30 @@ def process_tokens(tokens: tuple, config: dict, scheme: str):
     idp_roles = access_token[roles_field]
     if isinstance(idp_roles, list):
         matching_roles = set()
-        
+
         for idp_role in idp_roles:
             if idp_role in config["role_mapping"]:
                 matching_roles.update(config["role_mapping"][idp_role])
-        
+
         if not matching_roles:
-            return {"authenticated": False, "errors": f"Cannot map any of the roles {sorted(idp_roles)} to Memgraph roles"}
+            return {
+                "authenticated": False,
+                "errors": f"Cannot map any of the roles {sorted(idp_roles)} to Memgraph roles",
+            }
         roles = list(matching_roles)
     elif isinstance(idp_roles, str):
         if idp_roles not in config["role_mapping"]:
             return {"authenticated": False, "errors": f"Cannot map role {idp_roles} to Memgraph role"}
         roles = config["role_mapping"][idp_roles]
 
-    token_type, field = config["username"].split(":")
+    try:
+        token_type, field = config["username"].split(":")
+    except ValueError:
+        return {
+            "authenticated": False,
+            "errors": f"Invalid username configuration format: {config['username']}. Expected format: 'token_type:field_name'",
+        }
+
     if (token_type == "id" and field not in id_token) or (token_type == "access" and field not in access_token):
         return {"authenticated": False, "errors": f"Field {field} missing in {token_type} token"}
 

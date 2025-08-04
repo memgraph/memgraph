@@ -26,17 +26,17 @@ RUN DEBIAN_FRONTEND=noninteractive apt-get update && apt-get install -y \
 
 # NOTE: The following are required to run built-in Python modules. For the full
 # list, please visit query_modules/CMakeLists.txt.
-RUN pip3 install --break-system-packages  numpy==1.26.4 scipy==1.13.0 networkx==3.4.2 gensim==4.3.3 xmlsec==1.3.16
-
-COPY "${BINARY_NAME}${TARGETARCH}.${EXTENSION}" /
-COPY "${SOURCE_CODE}" /home/mg/memgraph/src
+RUN pip3 install --break-system-packages --no-cache-dir numpy==1.26.4 scipy==1.13.0 networkx==3.4.2 gensim==4.3.3 xmlsec==1.3.16
 
 # fix `memgraph` UID and GID for compatibility with previous Debian releases
 RUN groupadd -g 103 memgraph && \
     useradd -u 101 -g memgraph -m -d /home/memgraph -s /bin/bash memgraph
 
+COPY "${SOURCE_CODE}" /home/mg/memgraph/src
+
 # Install memgraph package
-RUN dpkg -i "${BINARY_NAME}${TARGETARCH}.deb"
+COPY "${BINARY_NAME}${TARGETARCH}.${EXTENSION}" /
+RUN dpkg -i "${BINARY_NAME}${TARGETARCH}.deb" && rm "${BINARY_NAME}${TARGETARCH}.deb"
 
 # NOTE: The following are required to run built-in auth modules. The source of
 # truth requirements file is located under

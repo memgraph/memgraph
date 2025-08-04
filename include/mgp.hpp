@@ -4522,7 +4522,7 @@ inline List SearchTextIndex(mgp_graph *memgraph_graph, std::string_view index_na
   }
 
   if (!results_or_error.KeyExists(kSearchResultsKey)) {
-    throw TextSearchException{"Incomplete text index search results!"};
+    return List();  // No results found, return empty list.
   }
 
   if (!results_or_error.At(kSearchResultsKey).IsList()) {

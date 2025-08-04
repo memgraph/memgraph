@@ -33,7 +33,7 @@ struct RecoveryInfo {
   uint64_t next_edge_id{0};
   uint64_t next_timestamp{0};
   // last timestamp read from a WAL file
-  std::optional<uint64_t> last_durable_timestamp;
+  uint64_t last_durable_timestamp;
 
   std::vector<std::pair<Gid /*first vertex gid*/, uint64_t /*batch size*/>> vertex_batches;
 };

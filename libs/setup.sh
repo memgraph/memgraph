@@ -255,6 +255,9 @@ skip_if_under_toolchain "mgconsole" repo_clone_try_double "${primary_urls[mgcons
 
 spdlog_tag="v1.12.0" # (2022-11-02)
 repo_clone_try_double "${primary_urls[spdlog]}" "${secondary_urls[spdlog]}" "spdlog" "$spdlog_tag" true
+pushd spdlog
+git apply --3way ../spdlog.patch
+popd
 
 # librdkafka
 librdkafka_tag="v2.6.1" # (2024-12-05)

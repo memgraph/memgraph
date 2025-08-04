@@ -3250,6 +3250,19 @@ class ShowSnapshotsQuery : public memgraph::query::Query {
   }
 };
 
+class ShowNextSnapshotQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  ShowNextSnapshotQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<ShowNextSnapshotQuery>();
+    return object;
+  }
+};
+
 class StreamQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
