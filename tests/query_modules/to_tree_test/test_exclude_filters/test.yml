@@ -1,0 +1,39 @@
+query: >
+  MATCH p = (person:Person)-[:OWNS]->(car:Car)
+  WITH collect(p) AS paths
+  CALL convert.to_tree(paths, true, {
+    nodes: {
+      Person: ["-email", "-city"],
+      Car: ["-price"]
+    },
+    rels: {
+      owns: ["-warranty"]
+    }
+  }) YIELD value
+  RETURN value.name AS name,
+         value.age AS age,
+         value.city AS city,
+         value.email AS email,
+         size(value.owns) AS car_count,
+         [car IN value.owns | car.model] AS car_models,
+         [car IN value.owns | car.price] AS car_prices,
+         [car IN value.owns | keys(car)] AS car_keys
+  ORDER BY name
+
+output:
+  - name: Alice
+    age: 30
+    city: null
+    email: null
+    car_count: 1
+    car_models: ["Toyota"]
+    car_prices: [null]
+    car_keys: [["_id", "_type", "color", "model", "owns.since", "owns.status", "year"]]
+  - name: Bob
+    age: 25
+    city: null
+    email: null
+    car_count: 1
+    car_models: ["Honda"]
+    car_prices: [null]
+    car_keys: [["_id", "_type", "color", "model", "owns.since", "owns.status", "year"]]
