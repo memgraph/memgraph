@@ -1,0 +1,1 @@
+CREATE (alice:Person {name:'Alice'}), (bob:Person {name:'Bob'}), (car1:Car {model:'Toyota'}), (car2:Car {model:'Honda'}), (car3:Car {model:'Ford'}), (car4:Car {model:'BMW'}) MERGE (alice)-[:OWNS]->(car1) MERGE (alice)-[:OWNS]->(car2) MERGE (bob)-[:OWNS]->(car3) MERGE (bob)-[:OWNS]->(car4)
