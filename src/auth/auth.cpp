@@ -916,7 +916,7 @@ void Auth::RevokeProfile(const std::string &name, system::Transaction *system_tx
   }
 
   if (user_resources_) {
-    user_resources_->RemoveUser(name);
+    UpdateProfileLimits(name, std::nullopt, *user_resources_);
   }
 
   if (system_tx) {
