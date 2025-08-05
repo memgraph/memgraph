@@ -517,22 +517,19 @@ TEST_F(MultiTenantTest, RenameDatabaseErrors) {
   ASSERT_THROW(RenameDatabase(interpreter1, "rename_error_db1", "rename_error_db2", ""),
                memgraph::query::QueryRuntimeException);
 
-  // Test 4: Cannot rename to same name (no-op should succeed)
+  // Test 4: Rename to same name (no-op should succeed)
   RenameDatabase(interpreter1, "rename_error_db1", "rename_error_db1",
                  "Successfully renamed database rename_error_db1 to rename_error_db1");
 
-  // Test 5: Cannot rename database that is currently in use
+  // Test 5: Support renaming database that is currently in use
   UseDatabase(interpreter1, "rename_error_db1", "Using rename_error_db1");
-  ASSERT_THROW(RenameDatabase(interpreter2, "rename_error_db1", "new_name", ""),
-               memgraph::query::QueryRuntimeException);
+  ASSERT_NO_THROW(RenameDatabase(interpreter2, "rename_error_db1", "new_name",
+                                 "Successfully renamed database rename_error_db1 to new_name"));
 
-  // Switch back to default database
-  UseDatabase(interpreter1, memgraph::dbms::kDefaultDB.data(), "Using memgraph");
-
-  // Test 6: Cannot rename database that another interpreter is using
+  // Test 6: Support renaming database that another interpreter is using
   UseDatabase(interpreter2, "rename_error_db2", "Using rename_error_db2");
-  ASSERT_THROW(RenameDatabase(interpreter1, "rename_error_db2", "new_name", ""),
-               memgraph::query::QueryRuntimeException);
+  ASSERT_NO_THROW(RenameDatabase(interpreter1, "rename_error_db2", "new_name2",
+                                 "Successfully renamed database rename_error_db2 to new_name2"));
 }
 
 TEST_F(MultiTenantTest, RenameDatabaseConcurrency) {
@@ -558,23 +555,24 @@ TEST_F(MultiTenantTest, RenameDatabaseConcurrency) {
 
   // Test 1: Rename while another interpreter is using the database
   UseDatabase(interpreter2, "rename_concurrent_db", "Using rename_concurrent_db");
-  ASSERT_THROW(RenameDatabase(interpreter1, "rename_concurrent_db", "renamed_concurrent_db", ""),
-               memgraph::query::QueryRuntimeException);
+  ASSERT_NO_THROW(RenameDatabase(interpreter1, "rename_concurrent_db", "renamed_concurrent_db",
+                                 "Successfully renamed database rename_concurrent_db to renamed_concurrent_db"));
 
   // Test 2: Rename after all interpreters stop using the database
   UseDatabase(interpreter2, memgraph::dbms::kDefaultDB.data(), "Using memgraph");
-  RenameDatabase(interpreter1, "rename_concurrent_db", "renamed_concurrent_db",
-                 "Successfully renamed database rename_concurrent_db to renamed_concurrent_db");
+  RenameDatabase(interpreter1, "renamed_concurrent_db", "renamed_again_concurrent_db",
+                 "Successfully renamed database renamed_concurrent_db to renamed_again_concurrent_db");
 
   // Test 3: Verify data is preserved and accessible with new name
-  UseDatabase(interpreter3, "renamed_concurrent_db", "Using renamed_concurrent_db");
+  UseDatabase(interpreter3, "renamed_again_concurrent_db", "Using renamed_again_concurrent_db");
   auto results = RunQuery(interpreter3, "MATCH (n:Node) RETURN n.name, n.value");
   ASSERT_EQ(results.size(), 1U);
   ASSERT_EQ(results[0][0].ValueString(), "test_node");
   ASSERT_EQ(results[0][1].ValueInt(), 42);
 
   // Test 4: Verify old name no longer exists
-  ASSERT_THROW(UseDatabase(interpreter1, "rename_concurrent_db", ""), memgraph::query::QueryRuntimeException);
+  ASSERT_THROW(UseDatabase(interpreter1, "rename_concurrent_db"), memgraph::query::QueryRuntimeException);
+  ASSERT_THROW(UseDatabase(interpreter1, "renamed_concurrent_db"), memgraph::query::QueryRuntimeException);
 }
 
 TEST_F(MultiTenantTest, RenameDatabaseWithTransactions) {
@@ -595,20 +593,22 @@ TEST_F(MultiTenantTest, RenameDatabaseWithTransactions) {
   RunQuery(interpreter1, "BEGIN");
 
   // Try to rename while transaction is active
-  ASSERT_THROW(RenameDatabase(interpreter2, "rename_tx_db", "renamed_tx_db", ""),
-               memgraph::query::QueryRuntimeException);
+  ASSERT_EQ(RunQuery(interpreter1, "SHOW DATABASE")[0][0].ValueString(), "rename_tx_db");
+  ASSERT_NO_THROW(RenameDatabase(interpreter2, "rename_tx_db", "renamed_tx_db",
+                                 "Successfully renamed database rename_tx_db to renamed_tx_db"));
 
+  ASSERT_EQ(RunQuery(interpreter1, "SHOW DATABASE")[0][0].ValueString(), "renamed_tx_db");
   // Commit transaction and then rename
   RunQuery(interpreter1, "COMMIT");
 
   // Switch back to default database before renaming
   UseDatabase(interpreter1, memgraph::dbms::kDefaultDB.data(), "Using memgraph");
 
-  RenameDatabase(interpreter2, "rename_tx_db", "renamed_tx_db",
-                 "Successfully renamed database rename_tx_db to renamed_tx_db");
+  RenameDatabase(interpreter2, "renamed_tx_db", "renamed_again_tx_db",
+                 "Successfully renamed database renamed_tx_db to renamed_again_tx_db");
 
   // Verify data is preserved
-  UseDatabase(interpreter1, "renamed_tx_db", "Using renamed_tx_db");
+  UseDatabase(interpreter1, "renamed_again_tx_db", "Using renamed_again_tx_db");
   auto results = RunQuery(interpreter1, "MATCH (n:Node) RETURN n.name, n.value");
   ASSERT_EQ(results.size(), 1U);
   ASSERT_EQ(results[0][0].ValueString(), "original_node");
