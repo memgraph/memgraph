@@ -152,12 +152,11 @@ if __name__ == "__main__":
         for test in TESTS:
             # Add AWS endpoint to each test
             aws_test = test.copy()
-            aws_test["endpoint"] = "http://127.0.0.1:9000/88b5e7e8-746a-11e8-9f85-538a9e9690cc"
 
             print("\033[1;36m~~ Executing AWS test with arguments:", json.dumps(aws_test, sort_keys=True), "~~\033[0m")
 
             # Handle add_garbage test for AWS tests
-            add_garbage = test.get("add_garbage", False)
+            add_garbage = aws_test.pop("add_garbage", False)
             if add_garbage:
                 proc = subprocess.Popen(
                     [args.kvstore_console, "--path", storage], stdin=subprocess.PIPE, stdout=subprocess.DEVNULL
@@ -178,5 +177,36 @@ if __name__ == "__main__":
                 sys.exit(1)
             else:
                 print("\033[1;32m~~", "AWS test ok!", "~~\033[0m")
+
+    # Run AWS telemetry validation test
+    print("\033[1;35m~~ Running AWS telemetry validation test ~~\033[0m")
+
+    with tempfile.TemporaryDirectory() as storage, tempfile.TemporaryDirectory() as durability_root:
+        # Test with longer duration to ensure we get multiple telemetry messages
+        validation_test = {
+            "duration": 10,
+            "interval": 2,
+            "field_check": True,  # Enable detailed field validation
+        }
+
+        print(
+            "\033[1;36m~~ Executing AWS telemetry validation test with arguments:",
+            json.dumps(validation_test, sort_keys=True),
+            "~~\033[0m",
+        )
+
+        try:
+            success = execute_test(
+                client=args.client, server=args.aws_server, storage=storage, root=durability_root, **validation_test
+            )
+        except Exception as e:
+            print("\033[1;33m", e, "\033[0m", sep="")
+            success = False
+
+        if not success:
+            print("\033[1;31m~~", "AWS telemetry validation test failed!", "~~\033[0m")
+            sys.exit(1)
+        else:
+            print("\033[1;32m~~", "AWS telemetry validation test ok!", "~~\033[0m")
 
     sys.exit(0)
