@@ -12,6 +12,7 @@
 import os
 import sys
 import time
+from functools import partial
 from pathlib import Path
 from typing import Any, Dict
 
@@ -1626,11 +1627,7 @@ def test_rename_database_errors(connection, test_name):
 
     # 4/ Test renaming database in use
     execute_and_fetch_all(main_cursor, "USE DATABASE db1")
-    try:
-        execute_and_fetch_all(main_cursor, "RENAME DATABASE db1 TO new_name")
-        assert False, "Should not be able to rename database in use"
-    except mgclient.DatabaseError:
-        pass  # Expected
+    execute_and_fetch_all(main_cursor, "RENAME DATABASE db1 TO new_name")
 
 
 def test_rename_database_replication(connection, test_name):
@@ -1657,11 +1654,7 @@ def test_rename_database_replication(connection, test_name):
     execute_and_fetch_all(main_cursor, "CREATE (:Node{name:'replicated_node', value:123})")
 
     # 2/
-    mg_sleep_and_assert_collection(
-        lambda cursor: execute_and_fetch_all(cursor, "USE DATABASE test_db"),
-        None,
-        replica_cursor,
-    )
+    execute_and_fetch_all(replica_cursor, "USE DATABASE test_db")
     results = execute_and_fetch_all(replica_cursor, "MATCH (n:Node) RETURN n.name, n.value")
     assert len(results) == 1
     assert results[0] == ("replicated_node", 123)
@@ -1670,11 +1663,7 @@ def test_rename_database_replication(connection, test_name):
     execute_and_fetch_all(main_cursor, "RENAME DATABASE test_db TO renamed_test_db")
 
     # 4/ Wait for replication and verify rename is replicated
-    mg_sleep_and_assert_collection(
-        lambda cursor: execute_and_fetch_all(cursor, "USE DATABASE renamed_test_db"),
-        None,
-        replica_cursor,
-    )
+    execute_and_fetch_all(replica_cursor, "USE DATABASE renamed_test_db")
 
     # 5/ Verify data is preserved on replica with new name
     results = execute_and_fetch_all(replica_cursor, "MATCH (n:Node) RETURN n.name, n.value")
@@ -1687,6 +1676,16 @@ def test_rename_database_replication(connection, test_name):
         assert False, "Should not be able to use old database name on replica"
     except mgclient.DatabaseError:
         pass  # Expected
+
+    # Restart cluster and verify data is preserved
+    interactive_mg_runner.stop_all(keep_directories=True)
+    interactive_mg_runner.start_all(instances, keep_directories=True)
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+    replica_cursor = connection(BOLT_PORTS["replica_1"], "replica_1").cursor()
+    results = execute_and_fetch_all(main_cursor, "SHOW DATABASES")
+    assert results == [("memgraph",), ("renamed_test_db",)]
+    results = execute_and_fetch_all(replica_cursor, "SHOW DATABASES")
+    assert results == [("memgraph",), ("renamed_test_db",)]
 
 
 def test_rename_database_concurrent_access(connection, test_name):
@@ -1718,21 +1717,17 @@ def test_rename_database_concurrent_access(connection, test_name):
     execute_and_fetch_all(session1_cursor, "USE DATABASE test_db")
     execute_and_fetch_all(session2_cursor, "USE DATABASE test_db")
 
-    # 3/ Try to rename while database is in use (should fail)
-    try:
-        execute_and_fetch_all(main_cursor, "RENAME DATABASE test_db TO renamed_test_db")
-        assert False, "Should not be able to rename database while in use"
-    except mgclient.DatabaseError:
-        pass  # Expected
+    # 3/ Try to rename while database is in use
+    execute_and_fetch_all(main_cursor, "RENAME DATABASE test_db TO renamed_test_db")
 
-    # 4/ Stop using database and rename (should succeed)
+    # 4/ Stop using database and rename
     execute_and_fetch_all(session1_cursor, "USE DATABASE memgraph")
     execute_and_fetch_all(session2_cursor, "USE DATABASE memgraph")
 
-    execute_and_fetch_all(main_cursor, "RENAME DATABASE test_db TO renamed_test_db")
+    execute_and_fetch_all(main_cursor, "RENAME DATABASE renamed_test_db TO renamed_again_test_db")
 
     # 5/ Verify data is preserved with new name
-    execute_and_fetch_all(main_cursor, "USE DATABASE renamed_test_db")
+    execute_and_fetch_all(main_cursor, "USE DATABASE renamed_again_test_db")
     results = execute_and_fetch_all(main_cursor, "MATCH (n:Node) RETURN n.name, n.value")
     assert len(results) == 1
     assert results[0] == ("concurrent_node", 999)
