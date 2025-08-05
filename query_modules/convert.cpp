@@ -415,23 +415,22 @@ mgp::Value ConvertToTreeImpl(const mgp::Value &input, const bool lowerCaseRels, 
 
     // Process each root group - always use hierarchical tree building (APOC behavior)
     std::vector<mgp::Map> all_root_trees;
-    
+
     for (const auto &[root_id, group_paths] : root_groups) {
       if (group_paths.empty()) continue;
-      
+
       // Always use hierarchical tree building for all paths
       auto root_tree = BuildTreeFromPath(group_paths[0], 0, lowerCaseRels, config);
-      
+
       // Merge additional paths into the root tree
       for (size_t i = 1; i < group_paths.size(); ++i) {
         auto additional_tree = BuildTreeFromPath(group_paths[i], 0, lowerCaseRels, config);
         MergeTrees(root_tree, additional_tree);
       }
-      
+
       all_root_trees.push_back(root_tree);
     }
-    
-    // Always return a single Map (APOC behavior)  
+
     if (all_root_trees.size() == 1) {
       // Single root: return the tree directly
       return mgp::Value(all_root_trees[0]);
