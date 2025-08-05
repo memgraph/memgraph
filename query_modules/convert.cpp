@@ -45,7 +45,7 @@ struct NodePropertyFilter {
       mode = Mode::INVALID;
       return;
     }
-    // All entries must be strings
+    // All entries must be strings - if any non-string found, mark as invalid
     for (size_t i = 0; i < props.Size(); ++i) {
       if (!props[i].IsString()) {
         mode = Mode::INVALID;
@@ -177,13 +177,20 @@ bool ShouldIncludeProperty(std::string_view prop_name, const mgp::Map &config, c
   }
   auto nodes = config.At("nodes").ValueMap();
   std::vector<NodePropertyFilter> filters;
+  bool hasInvalidFilter = false;
   for (size_t label_idx = 0; label_idx < labels.Size(); ++label_idx) {
     std::string_view label = labels[label_idx];
     if (!nodes.KeyExists(label)) continue;
     auto props = nodes.At(label).ValueList();
     NodePropertyFilter filter(props);
-    if (filter.IsValid()) filters.push_back(filter);
+    if (filter.IsValid()) {
+      filters.push_back(filter);
+    } else {
+      hasInvalidFilter = true;
+    }
   }
+  // If we have invalid filters, exclude all properties for affected labels
+  if (hasInvalidFilter && filters.empty()) return false;
   if (filters.empty()) return true;
   // Exclusion mode takes precedence if any filter is exclusion
   for (const auto &filter : filters) {
@@ -232,7 +239,7 @@ mgp::Map CreateNodeMap(const mgp::Node &node, const mgp::Map &config) {
     }
   }
 
-  // Add type and id
+  // Add type only (no _id)
   if (labels.Size() == 1) {
     node_map.Insert("_type", mgp::Value(labels[0]));
   } else if (labels.Size() > 1) {
@@ -242,7 +249,6 @@ mgp::Map CreateNodeMap(const mgp::Node &node, const mgp::Map &config) {
     }
     node_map.Insert("_type", mgp::Value(label_list));
   }
-  node_map.Insert("_id", mgp::Value(node.Id().AsInt()));
 
   return node_map;
 }
@@ -411,12 +417,42 @@ mgp::Value ConvertToTreeImpl(const mgp::Value &input, const bool lowerCaseRels, 
     // If all paths have the same root, return a single merged tree
     if (root_groups.size() == 1) {
       auto &group_paths = root_groups.begin()->second;
-      auto root_tree = BuildTreeFromPath(group_paths[0], 0, lowerCaseRels, config);
       
-      // Merge additional paths into the root tree
-      for (size_t i = 1; i < group_paths.size(); ++i) {
-        auto additional_tree = BuildTreeFromPath(group_paths[i], 0, lowerCaseRels, config);
-        MergeTrees(root_tree, additional_tree);
+      // Build a comprehensive tree by collecting all nodes reachable by each relationship type
+      auto root_node = group_paths[0].GetNodeAt(0);
+      auto root_tree = CreateNodeMap(root_node, config);
+      
+      // Collect all nodes by relationship type across all paths
+      std::map<std::string, std::set<int64_t>> rel_type_to_node_ids;
+      std::map<int64_t, mgp::Map> node_id_to_map;
+      
+      for (const auto &path : group_paths) {
+        for (size_t rel_idx = 0; rel_idx < path.Length(); ++rel_idx) {
+          auto rel = path.GetRelationshipAt(rel_idx);
+          auto target_node = path.GetNodeAt(rel_idx + 1);
+          
+          std::string rel_type{rel.Type()};
+          if (lowerCaseRels) {
+            std::transform(rel_type.begin(), rel_type.end(), rel_type.begin(),
+                         [](unsigned char c) { return std::tolower(c); });
+          }
+          
+          auto target_id = target_node.Id().AsInt();
+          rel_type_to_node_ids[rel_type].insert(target_id);
+          
+          if (node_id_to_map.find(target_id) == node_id_to_map.end()) {
+            node_id_to_map[target_id] = CreateNodeMap(target_node, config);
+          }
+        }
+      }
+      
+      // Build relationship arrays with all unique target nodes
+      for (const auto &[rel_type, node_ids] : rel_type_to_node_ids) {
+        mgp::List rel_list;
+        for (auto node_id : node_ids) {
+          rel_list.AppendExtend(mgp::Value(node_id_to_map[node_id]));
+        }
+        root_tree.Insert(rel_type, mgp::Value(rel_list));
       }
       
       return mgp::Value(root_tree);
