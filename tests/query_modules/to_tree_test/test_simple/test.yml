@@ -7,4 +7,4 @@ query: >
 output:
   - name: Ana
     type: Student
-    friend_count: 2
+    friend_count: 1
