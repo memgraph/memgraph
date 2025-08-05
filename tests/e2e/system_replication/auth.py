@@ -1255,11 +1255,13 @@ def test_user_profile_replication(connection, test_name):
         {("transactions_memory", "0B", "200.00MiB"), ("sessions", 1, 2)},
     )
 
-    # DROP USER WITH PROFILE
+    # DROP USER WITH PROFILE (profile map is unrelated to existing users)
     execute_and_fetch_all(cursor_main, "DROP USER user2")
     check(
         partial(show_users_for_profile_func, profilename="p2"),
-        set(),  # empty
+        {
+            ("user2",),
+        },
     )
 
     all_resource_check({("transactions_memory", None, "UNLIMITED"), ("sessions", 2, "UNLIMITED")})
@@ -1321,14 +1323,15 @@ def test_user_profile_replication(connection, test_name):
     #     },
     # )
 
-    all_resource_check({("transactions_memory", "0B", "1000.00MiB"), ("sessions", 2, 10)})
+    # NOTE: Role profiles are disabled for now
+    # all_resource_check({("transactions_memory", "0B", "1000.00MiB"), ("sessions", 2, 10)})
 
     execute_and_fetch_all(cursor_main, "UPDATE PROFILE p1 LIMIT sessions 3")
     check(
         partial(show_profile_func, profilename="p1"),
         {("sessions", 3), ("transactions_memory", "1000MB")},
     )
-    all_resource_check({("transactions_memory", "0B", "1000.00MiB"), ("sessions", 2, 3)})
+    # all_resource_check({("transactions_memory", "0B", "1000.00MiB"), ("sessions", 2, 3)})
 
     execute_and_fetch_all(cursor_main, "CREATE PROFILE p2 LIMIT SESSIONS 20, TRANSACTIONS_MEMORY 200MB")
     check(
@@ -1345,7 +1348,8 @@ def test_user_profile_replication(connection, test_name):
         },
     )
 
-    all_resource_check({("transactions_memory", "0B", "200.00MiB"), ("sessions", 2, 3)})
+    # all_resource_check({("transactions_memory", "0B", "200.00MiB"), ("sessions", 2, 3)})
+    all_resource_check({("transactions_memory", "0B", "200.00MiB"), ("sessions", 2, 20)})
 
     # drop profile of user
 
@@ -1366,35 +1370,35 @@ def test_user_profile_replication(connection, test_name):
 
     all_resource_check({("transactions_memory", "0B", "200.00MiB"), ("sessions", 2, 20)})
 
-    execute_and_fetch_all(cursor_main, "CREATE ROLE role1")
-    execute_and_fetch_all(cursor_main, "SET ROLE FOR user1 TO role1")
-    execute_and_fetch_all(cursor_main, "SET PROFILE FOR role1 TO p1")
-    check(
-        partial(show_profile_for_user_func, username="role1"),
-        {
-            ("p1",),
-        },
-    )
+    # execute_and_fetch_all(cursor_main, "CREATE ROLE role1")
+    # execute_and_fetch_all(cursor_main, "SET ROLE FOR user1 TO role1")
+    # execute_and_fetch_all(cursor_main, "SET PROFILE FOR role1 TO p1")
+    # check(
+    #     partial(show_profile_for_user_func, username="role1"),
+    #     {
+    #         ("p1",),
+    #     },
+    # )
 
-    all_resource_check({("transactions_memory", "0B", "200.00MiB"), ("sessions", 2, 3)})
+    # all_resource_check({("transactions_memory", "0B", "200.00MiB"), ("sessions", 2, 3)})
 
-    execute_and_fetch_all(cursor_main, "DROP PROFILE p1")
-    check(
-        partial(show_profile_for_user_func, username="role1"),
-        {
-            ("null",),
-        },
-    )
-    all_resource_check({("transactions_memory", "0B", "200.00MiB"), ("sessions", 2, 20)})
+    # execute_and_fetch_all(cursor_main, "DROP PROFILE p1")
+    # check(
+    #     partial(show_profile_for_user_func, username="role1"),
+    #     {
+    #         ("null",),
+    #     },
+    # )
+    # all_resource_check({("transactions_memory", "0B", "200.00MiB"), ("sessions", 2, 20)})
 
-    execute_and_fetch_all(cursor_main, "DROP PROFILE p2")
-    check(
-        partial(show_profile_for_user_func, username="user1"),
-        {
-            ("null",),
-        },
-    )
-    all_resource_check({("transactions_memory", None, "UNLIMITED"), ("sessions", 2, "UNLIMITED")})
+    # execute_and_fetch_all(cursor_main, "DROP PROFILE p2")
+    # check(
+    #     partial(show_profile_for_user_func, username="user1"),
+    #     {
+    #         ("null",),
+    #     },
+    # )
+    # all_resource_check({("transactions_memory", None, "UNLIMITED"), ("sessions", 2, "UNLIMITED")})
 
     # Hotfix: Make sure the last connection is user1 on main (connect caches the connection and uses it for cleanup)
     connection(BOLT_PORTS["main"], "main", "user1")

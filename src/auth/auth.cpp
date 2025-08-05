@@ -366,8 +366,12 @@ Auth::Auth(std::string storage_directory, Config config
 
 #ifdef MG_ENTERPRISE
   if (user_resources_) {
-    // Profiles are now managed separately in UserProfiles class
-    // No need to initialize profile limits here as they are managed when profiles are set
+    // Update user resources with the initial profile limits
+    for (const auto &profile : user_profiles_.GetAll()) {
+      for (const auto &username : profile.usernames) {
+        UpdateProfileLimits(username, profile, *user_resources_);
+      }
+    }
   }
 #endif
 }  // namespace memgraph::auth
