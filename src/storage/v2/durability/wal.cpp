@@ -14,7 +14,6 @@
 #include <cstdint>
 #include <type_traits>
 #include <usearch/index_plugins.hpp>
-#include <vector>
 
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/delta.hpp"
@@ -27,7 +26,6 @@
 #include "storage/v2/edge.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/property_path.hpp"
-#include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
@@ -432,8 +430,8 @@ auto Decode(utils::tag_type<T> /*unused*/, BaseDecoder *decoder, const uint64_t 
 
 // Generic helper decoder, please keep after the concrete type decoders
 template <bool is_read, auto MIN_VER, typename Type>
-auto Decode(utils::tag_type<MinVersionDependant<MIN_VER, Type>> /*unused*/, BaseDecoder *decoder,
-            const uint64_t version) -> std::conditional_t<is_read, std::optional<Type>, void> {
+auto Decode(utils::tag_type<VersionDependant<MIN_VER, Type>> /*unused*/, BaseDecoder *decoder, const uint64_t version)
+    -> std::conditional_t<is_read, std::optional<Type>, void> {
   if (MIN_VER <= version) {
     return Decode<is_read>(utils::tag_t<Type>, decoder, version);
   }

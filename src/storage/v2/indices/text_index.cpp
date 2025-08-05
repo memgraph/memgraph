@@ -40,10 +40,13 @@ void TextIndex::CreateTantivyIndex(const std::string &index_path, const TextInde
         mgcxx::text_search::create_index(index_path, mgcxx::text_search::IndexConfig{.mappings = mappings.dump()}),
         index_info.label_, index_info.properties_);
     if (!success) {
+      spdlog::error("Text index \"{}\" already exists at path: {}.", index_info.index_name_, index_path);
       throw query::TextSearchException("Text index \"{}\" already exists at path: {}.", index_info.index_name_,
                                        index_path);
     }
   } catch (const std::exception &e) {
+    spdlog::error("Failed to create text index \"{}\" at path: {}. Error: {}", index_info.index_name_, index_path,
+                  e.what());
     throw query::TextSearchException("Tantivy error: {}", e.what());
   }
 }
@@ -164,7 +167,7 @@ void TextIndex::RemoveNode(Vertex *vertex_after_update, std::span<TextIndexData 
   }
 }
 
-void TextIndex::CreateIndex(TextIndexInfo index_info, storage::VerticesIterable vertices,
+void TextIndex::CreateIndex(const TextIndexInfo &index_info, storage::VerticesIterable vertices,
                             NameIdMapper *name_id_mapper) {
   CreateTantivyIndex(MakeIndexPath(index_info.index_name_),
                      {index_info.index_name_, index_info.label_, index_info.properties_});
@@ -182,13 +185,9 @@ void TextIndex::CreateIndex(TextIndexInfo index_info, storage::VerticesIterable 
   }
 }
 
-void TextIndex::RecoverIndex(TextIndexInfo index_info, std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  auto index_path = MakeIndexPath(index_info.index_name_);
-  if (!std::filesystem::exists(index_path)) {
-    throw query::TextSearchException("Text index \"{}\" does not exist at path: {}. Recovery failed.",
-                                     index_info.index_name_, index_path);
-  }
-  CreateTantivyIndex(index_path, index_info);
+void TextIndex::RecoverIndex(const TextIndexInfo &index_info,
+                             std::optional<SnapshotObserverInfo> const &snapshot_info) {
+  CreateTantivyIndex(MakeIndexPath(index_info.index_name_), index_info);
   if (snapshot_info) {
     snapshot_info->Update(UpdateType::TEXT_IDX);
   }

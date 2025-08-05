@@ -29,6 +29,7 @@
 #include "query/trigger_context.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
+#include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/property_value.hpp"
@@ -323,14 +324,14 @@ void DumpLabelPropertiesIndex(std::ostream *os, query::DbAccessor *dba, storage:
   *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << "(" << prop_names << ");";
 }
 
-void DumpTextIndex(std::ostream *os, query::DbAccessor *dba, const std::string &index_name, storage::LabelId label,
-                   std::span<const storage::PropertyId> properties) {
-  auto prop_names = properties |
+void DumpTextIndex(std::ostream *os, query::DbAccessor *dba, const storage::TextIndexInfo &text_index) {
+  auto prop_names = text_index.properties_ |
                     rv::transform([&](auto property_id) { return EscapeName(dba->PropertyToName(property_id)); }) |
                     rv::join(", "sv) | r::to<std::string>();
 
-  *os << "CREATE TEXT INDEX " << EscapeName(index_name) << " ON :" << EscapeName(dba->LabelToName(label));
-  if (!properties.empty()) {
+  *os << "CREATE TEXT INDEX " << EscapeName(text_index.index_name_)
+      << " ON :" << EscapeName(dba->LabelToName(text_index.label_));
+  if (!text_index.properties_.empty()) {
     *os << "(" << prop_names << ")";
   }
   *os << ";";
@@ -655,8 +656,8 @@ PullPlanDump::PullChunk PullPlanDump::CreateTextIndicesPullChunk() {
     size_t local_counter = 0;
     while (global_index < text.size() && (!n || local_counter < *n)) {
       std::ostringstream os;
-      const auto &[index_name, label, properties] = text[global_index];
-      DumpTextIndex(&os, dba_, index_name, label, properties);
+      const auto &text_index = text[global_index];
+      DumpTextIndex(&os, dba_, text_index);
       stream->Result({TypedValue(os.str())});
       ++global_index;
       ++local_counter;

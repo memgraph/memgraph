@@ -88,9 +88,10 @@ class TextIndex {
 
   void UpdateOnSetProperty(Vertex *vertex, NameIdMapper *name_id_mapper, Transaction &tx);
 
-  void CreateIndex(TextIndexInfo index_info, VerticesIterable vertices, NameIdMapper *name_id_mapper);
+  void CreateIndex(const TextIndexInfo &index_info, VerticesIterable vertices, NameIdMapper *name_id_mapper);
 
-  void RecoverIndex(TextIndexInfo index_info, std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+  void RecoverIndex(const TextIndexInfo &index_info,
+                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   void DropIndex(const std::string &index_name);
 

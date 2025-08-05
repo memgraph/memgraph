@@ -26,7 +26,6 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
-#include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/name_id_mapper.hpp"
@@ -56,7 +55,7 @@ struct WalInfo {
 };
 
 template <auto MIN_VER, typename Type>
-struct MinVersionDependant {};
+struct VersionDependant {};
 
 // Note this is highly composable
 // `Before` can also be VersionDependantUpgradable:
@@ -176,7 +175,7 @@ struct WalEdgeSetProperty {
     return std::tie(lhs.gid, lhs.property, lhs.value) == std::tie(rhs.gid, rhs.property, rhs.value);
   }
   using ctr_types =
-      std::tuple<Gid, std::string, ExternalPropertyValue, MinVersionDependant<kEdgeSetDeltaWithVertexInfo, Gid>>;
+      std::tuple<Gid, std::string, ExternalPropertyValue, VersionDependant<kEdgeSetDeltaWithVertexInfo, Gid>>;
   Gid gid;
   std::string property;
   ExternalPropertyValue value;
@@ -232,7 +231,7 @@ struct WalTypeConstraintDrop : TypeConstraintOpInfo {};
 struct WalTextIndexCreate {
   friend bool operator==(const WalTextIndexCreate &, const WalTextIndexCreate &) = default;
   using ctr_types =
-      std::tuple<std::string, std::string, MinVersionDependant<kTextIndexWithProperties, std::vector<std::string>>>;
+      std::tuple<std::string, std::string, VersionDependant<kTextIndexWithProperties, std::vector<std::string>>>;
   std::string index_name;
   std::string label;
   std::optional<std::vector<std::string>> properties;  //!< Optional properties, if not set, no properties are indexed
@@ -273,7 +272,7 @@ struct WalEnumAlterUpdate {
 struct WalVectorIndexCreate {
   friend bool operator==(const WalVectorIndexCreate &, const WalVectorIndexCreate &) = default;
   using ctr_types = std::tuple<std::string, std::string, std::string, std::string, std::uint16_t, std::uint16_t,
-                               std::size_t, MinVersionDependant<kVectorIndexWithScalarKind, std::uint8_t>>;
+                               std::size_t, VersionDependant<kVectorIndexWithScalarKind, std::uint8_t>>;
   std::string index_name;
   std::string label;
   std::string property;

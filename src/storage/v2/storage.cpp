@@ -684,11 +684,10 @@ void Storage::Accessor::MarkEdgeAsDeleted(Edge *edge) {
 }
 
 utils::BasicResult<storage::StorageIndexDefinitionError, void> Storage::Accessor::CreateTextIndex(
-    TextIndexInfo text_index_info) {
+    const TextIndexInfo &text_index_info) {
   MG_ASSERT(type() == UNIQUE, "Creating a text index requires unique access to storage!");
   try {
-    storage_->indices_.text_index_.CreateIndex(std::move(text_index_info), Vertices(View::NEW),
-                                               storage_->name_id_mapper_.get());
+    storage_->indices_.text_index_.CreateIndex(text_index_info, Vertices(View::NEW), storage_->name_id_mapper_.get());
   } catch (const query::TextSearchException &e) {
     return storage::StorageIndexDefinitionError{IndexDefinitionError{}};
   }
