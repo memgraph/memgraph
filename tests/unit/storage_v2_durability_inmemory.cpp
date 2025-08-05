@@ -3868,3 +3868,68 @@ TEST_P(DurabilityTest, EdgeMetadataRecovered) {
     ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
   }
 }
+
+TEST_P(DurabilityTest, CreateSnapshotReturnsPath) {
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory,
+                     .recover_on_startup = false,
+                     .snapshot_on_exit = false,
+                     .items_per_batch = 13,
+                     .allow_parallel_schema_creation = true},
+      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+  };
+
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::dbms::Database db{config, repl_state};
+
+  auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
+
+  // Create some data to ensure snapshot has content
+  {
+    auto acc = mem_storage->Access();
+    auto vertex = acc->CreateVertex();
+    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+  }
+
+  // Test CreateSnapshot returns path on success
+  auto result = mem_storage->CreateSnapshot(memgraph::replication_coordination_glue::ReplicationRole::MAIN);
+
+  ASSERT_FALSE(result.HasError()) << "CreateSnapshot should succeed with some data";
+
+  auto snapshot_path = result.GetValue();
+  ASSERT_TRUE(std::filesystem::exists(snapshot_path)) << "Snapshot file should exist at returned path";
+  ASSERT_TRUE(std::filesystem::is_regular_file(snapshot_path)) << "Snapshot should be a regular file";
+
+  // Verify the path is in the expected directory
+  auto expected_dir = config.durability.storage_directory / memgraph::storage::durability::kSnapshotDirectory;
+  ASSERT_EQ(snapshot_path.parent_path(), expected_dir) << "Snapshot should be in the snapshots directory";
+
+  // Verify the filename format (should contain timestamp)
+  auto filename = snapshot_path.filename().string();
+  ASSERT_TRUE(filename.find("timestamp_") != std::string::npos) << "Snapshot filename should contain timestamp";
+}
+
+TEST_P(DurabilityTest, CreateSnapshotReturnsErrorForReplica) {
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory,
+                     .recover_on_startup = false,
+                     .snapshot_on_exit = false,
+                     .items_per_batch = 13,
+                     .allow_parallel_schema_creation = true},
+      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+  };
+
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::dbms::Database db{config, repl_state};
+
+  auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
+
+  // Test CreateSnapshot returns error for replica role
+  auto result = mem_storage->CreateSnapshot(memgraph::replication_coordination_glue::ReplicationRole::REPLICA);
+
+  ASSERT_TRUE(result.HasError()) << "CreateSnapshot should fail for replica role";
+  ASSERT_EQ(result.GetError(), memgraph::storage::InMemoryStorage::CreateSnapshotError::DisabledForReplica)
+      << "Should return DisabledForReplica error";
+}
