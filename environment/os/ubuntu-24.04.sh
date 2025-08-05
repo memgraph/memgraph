@@ -1,5 +1,8 @@
 #!/bin/bash
 set -Eeuo pipefail
+
+# Set noninteractive frontend to avoid prompts during package installation
+export DEBIAN_FRONTEND=noninteractive
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
@@ -78,52 +81,61 @@ list() {
 }
 
 check() {
+    local -n packages=$1
     local missing=""
     local missing_custom=""
-    declare -n packages=$1
 
-    # check custom packages first
-    for pkg in "${packages[@]}"; do
-        if [ "$pkg" == custom-maven3.9.3 ]; then
-            if [ ! -f "/opt/apache-maven-3.9.3/bin/mvn" ]; then
-                missing_custom="$pkg $missing"
-            fi
-            continue
-        fi
-        if [ "$pkg" == custom-golang1.18.9 ]; then
-            if [ ! -f "/opt/go1.18.9/go/bin/go" ]; then
-                missing_custom="$pkg $missing"
-            fi
-            continue
-        fi
-        if [ "$pkg" == custom-rust ]; then
-            if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
-                missing_custom="$pkg $missing"
-            fi
-            continue
-        fi
-    done
+    # Separate standard and custom packages
+    local standard_packages=()
+    local custom_packages=()
 
-    # pop custom items off the package list
-    filtered=()
     for pkg in "${packages[@]}"; do
         case "$pkg" in
-            custom-maven3.9.3|custom-golang1.18.9|custom-rust|custom-node)
-                continue
+            custom-*|dotnet-sdk-8.0)
+                custom_packages+=("$pkg")
                 ;;
-            *) 
-                filtered+=( "$pkg" )
+            *)
+                standard_packages+=("$pkg")
                 ;;
         esac
     done
-    packages=("${filtered[@]}")
 
-    # call python script to check the rest
-    missing=$(python3 "$DIR/check-packages.py" "ubuntu-24.04" "${packages[@]}")
+    # Check standard packages with Python script
+    if [ ${#standard_packages[@]} -gt 0 ]; then
+        missing=$(python3 "$DIR/check-packages.py" "check" "ubuntu-24.04" "${standard_packages[@]}")
+    fi
 
-    # combine with custom packages
-    if [ -n "$missing_custom" ]; then
+    # Check custom packages with bash logic
+    for pkg in "${custom_packages[@]}"; do
+        case "$pkg" in
+            custom-maven3.9.3)
+                if [ ! -f "/opt/apache-maven-3.9.3/bin/mvn" ]; then
+                    missing_custom="$pkg $missing_custom"
+                fi
+                ;;
+            custom-golang1.18.9)
+                if [ ! -f "/opt/go1.18.9/go/bin/go" ]; then
+                    missing_custom="$pkg $missing_custom"
+                fi
+                ;;
+            custom-rust)
+                if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
+                    missing_custom="$pkg $missing_custom"
+                fi
+                ;;
+            dotnet-sdk-8.0)
+                if ! dpkg -s dotnet-sdk-8.0 &>/dev/null; then
+                    missing_custom="$pkg $missing_custom"
+                fi
+                ;;
+        esac
+    done
+
+    # Combine missing packages
+    if [ -n "$missing" ] && [ -n "$missing_custom" ]; then
         missing="$missing $missing_custom"
+    elif [ -n "$missing_custom" ]; then
+        missing="$missing_custom"
     fi
 
     if [ -n "$missing" ]; then
@@ -133,9 +145,11 @@ check() {
 }
 
 install() {
-    cd "$DIR"
+    local -n packages=$1
+
+    # Update package lists first
     apt update -y
-    apt install -y wget
+
     # If GitHub Actions runner is installed, append LANG to the environment.
     # Python related tests doesn't work the LANG export.
     if [ -d "/home/gh/actions-runner" ]; then
@@ -143,13 +157,32 @@ install() {
     else
         echo "NOTE: export LANG=en_US.utf8"
     fi
-    # Create an array for packages to be installed via apt later.
-    local apt_packages=()
-    # Create an array from all arguments passed (the package list)
-    local -n packages="$1"
 
-    # Iterate through each package in the provided list
+    # Separate standard and custom packages
+    local standard_packages=()
+    local custom_packages=()
+
     for pkg in "${packages[@]}"; do
+        case "$pkg" in
+            custom-*|dotnet-sdk-8.0)
+                custom_packages+=("$pkg")
+                ;;
+            *)
+                standard_packages+=("$pkg")
+                ;;
+        esac
+    done
+
+    # Install standard packages with Python script
+    if [ ${#standard_packages[@]} -gt 0 ]; then
+        if ! python3 "$DIR/check-packages.py" "install" "ubuntu-24.04" "${standard_packages[@]}"; then
+            echo "Failed to install standard packages"
+            exit 1
+        fi
+    fi
+
+    # Install custom packages with bash logic
+    for pkg in "${custom_packages[@]}"; do
         case "$pkg" in
             custom-maven3.9.3)
                 install_custom_maven "3.9.3"
@@ -171,30 +204,10 @@ install() {
                     apt-get install -y apt-transport-https dotnet-sdk-8.0
                 fi
                 ;;
-            openjdk-17-jdk-headless)
-                # We delay installation so we can update alternatives after
-                if ! dpkg -s "$pkg" &>/dev/null; then
-                    apt_packages+=("$pkg")
-                fi
-                ;;
-            *)
-                # For a generic package, add it to the list
-                apt_packages+=("$pkg")
-                ;;
         esac
     done
-    
-    # Now use your python script to check which generic packages are missing.
-    # It should output a space-separated list.
-    missing=$(python3 "$DIR/check-packages.py" "ubuntu-24.04" "${apt_packages[@]}")
 
-    # If there are missing packages, install them all in one apt install call.
-    if [ -n "$missing" ]; then
-        echo "Installing missing packages: $missing"
-        apt install -y $missing
-    fi
-
-    # For openjdk-17-jdk-headless, update alternatives if it is installed.
+    # Handle special cases that need post-installation setup
     if dpkg -s openjdk-17-jdk-headless &>/dev/null; then
         update-alternatives --set java /usr/lib/jvm/java-17-openjdk-amd64/bin/java
         update-alternatives --set javac /usr/lib/jvm/java-17-openjdk-amd64/bin/javac

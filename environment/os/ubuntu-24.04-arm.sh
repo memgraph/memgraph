@@ -1,5 +1,8 @@
 #!/bin/bash
 set -Eeuo pipefail
+
+# Set noninteractive frontend to avoid prompts during package installation
+export DEBIAN_FRONTEND=noninteractive
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
@@ -78,39 +81,75 @@ list() {
 }
 
 check() {
+    local -n packages=$1
     local missing=""
-    for pkg in $1; do
-        if [ "$pkg" == custom-maven3.9.3 ]; then
-            if [ ! -f "/opt/apache-maven-3.9.3/bin/mvn" ]; then
-                missing="$pkg $missing"
-            fi
-            continue
-        fi
-        if [ "$pkg" == custom-golang1.18.9 ]; then
-            if [ ! -f "/opt/go1.18.9/go/bin/go" ]; then
-                missing="$pkg $missing"
-            fi
-            continue
-        fi
-        if [ "$pkg" == custom-rust ]; then
-            if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
-                missing="$pkg $missing"
-            fi
-            continue
-        fi
-        if ! dpkg -s "$pkg" >/dev/null 2>/dev/null; then
-            missing="$pkg $missing"
-        fi
+    local missing_custom=""
+
+    # Separate standard and custom packages
+    local standard_packages=()
+    local custom_packages=()
+
+    for pkg in "${packages[@]}"; do
+        case "$pkg" in
+            custom-*|dotnet-sdk-8.0)
+                custom_packages+=("$pkg")
+                ;;
+            *)
+                standard_packages+=("$pkg")
+                ;;
+        esac
     done
-    if [ "$missing" != "" ]; then
+
+    # Check standard packages with Python script
+    if [ ${#standard_packages[@]} -gt 0 ]; then
+        missing=$(python3 "$DIR/check-packages.py" "check" "ubuntu-24.04" "${standard_packages[@]}")
+    fi
+
+    # Check custom packages with bash logic
+    for pkg in "${custom_packages[@]}"; do
+        case "$pkg" in
+            custom-maven3.9.3)
+                if [ ! -f "/opt/apache-maven-3.9.3/bin/mvn" ]; then
+                    missing_custom="$pkg $missing_custom"
+                fi
+                ;;
+            custom-golang1.18.9)
+                if [ ! -f "/opt/go1.18.9/go/bin/go" ]; then
+                    missing_custom="$pkg $missing_custom"
+                fi
+                ;;
+            custom-rust)
+                if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
+                    missing_custom="$pkg $missing_custom"
+                fi
+                ;;
+            dotnet-sdk-8.0)
+                if ! dpkg -s dotnet-sdk-8.0 &>/dev/null; then
+                    missing_custom="$pkg $missing_custom"
+                fi
+                ;;
+        esac
+    done
+
+    # Combine missing packages
+    if [ -n "$missing" ] && [ -n "$missing_custom" ]; then
+        missing="$missing $missing_custom"
+    elif [ -n "$missing_custom" ]; then
+        missing="$missing_custom"
+    fi
+
+    if [ -n "$missing" ]; then
         echo "MISSING PACKAGES: $missing"
         exit 1
     fi
 }
 
 install() {
-    cd "$DIR"
-    apt update
+    local -n packages=$1
+
+    # Update package lists first
+    apt update -y
+
     # If GitHub Actions runner is installed, append LANG to the environment.
     # Python related tests doesn't work the LANG export.
     if [ -d "/home/gh/actions-runner" ]; then
@@ -118,46 +157,63 @@ install() {
     else
         echo "NOTE: export LANG=en_US.utf8"
     fi
-    apt install -y wget
 
-    for pkg in $1; do
-        if [ "$pkg" == custom-maven3.9.3 ]; then
-            install_custom_maven "3.9.3"
-            continue
-        fi
-        if [ "$pkg" == custom-golang1.18.9 ]; then
-            install_custom_golang "1.18.9"
-            continue
-        fi
-        if [ "$pkg" == custom-rust ]; then
-            install_rust "1.80"
-            continue
-        fi
-        if [ "$pkg" == custom-node ]; then
-            install_node "20"
-            continue
-        fi
-        if [ "$pkg" == dotnet-sdk-8.0 ]; then
-            if ! dpkg -s dotnet-sdk-8.0 2>/dev/null >/dev/null; then
-                wget -nv https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
-                dpkg -i packages-microsoft-prod.deb
-                apt-get update
-                apt-get install -y apt-transport-https dotnet-sdk-8.0
-            fi
-            continue
-        fi
-        if [ "$pkg" == openjdk-17-jdk-headless ]; then
-            if ! dpkg -s "$pkg" 2>/dev/null >/dev/null; then
-                apt install -y "$pkg"
-                # The default Java version should be Java 11
-                update-alternatives --set java /usr/lib/jvm/java-17-openjdk-arm64/bin/java
-                update-alternatives --set javac /usr/lib/jvm/java-17-openjdk-arm64/bin/javac
-            fi
-            continue
-        fi
-        apt install -y "$pkg"
+    # Separate standard and custom packages
+    local standard_packages=()
+    local custom_packages=()
+
+    for pkg in "${packages[@]}"; do
+        case "$pkg" in
+            custom-*|dotnet-sdk-8.0)
+                custom_packages+=("$pkg")
+                ;;
+            *)
+                standard_packages+=("$pkg")
+                ;;
+        esac
     done
+
+    # Install standard packages with Python script
+    if [ ${#standard_packages[@]} -gt 0 ]; then
+        if ! python3 "$DIR/check-packages.py" "install" "ubuntu-24.04" "${standard_packages[@]}"; then
+            echo "Failed to install standard packages"
+            exit 1
+        fi
+    fi
+
+    # Install custom packages with bash logic
+    for pkg in "${custom_packages[@]}"; do
+        case "$pkg" in
+            custom-maven3.9.3)
+                install_custom_maven "3.9.3"
+                ;;
+            custom-golang1.18.9)
+                install_custom_golang "1.18.9"
+                ;;
+            custom-rust)
+                install_rust "1.80"
+                ;;
+            custom-node)
+                install_node "20"
+                ;;
+            dotnet-sdk-8.0)
+                if ! dpkg -s dotnet-sdk-8.0 &>/dev/null; then
+                    wget -nv https://packages.microsoft.com/config/ubuntu/24.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
+                    dpkg -i packages-microsoft-prod.deb
+                    apt-get update
+                    apt-get install -y apt-transport-https dotnet-sdk-8.0
+                fi
+                ;;
+        esac
+    done
+
+    # Handle special cases that need post-installation setup
+    if dpkg -s openjdk-17-jdk-headless &>/dev/null; then
+        # The default Java version should be Java 17 for ARM
+        update-alternatives --set java /usr/lib/jvm/java-17-openjdk-arm64/bin/java
+        update-alternatives --set javac /usr/lib/jvm/java-17-openjdk-arm64/bin/javac
+    fi
 }
 
 deps=$2"[*]"
-"$1" "${!deps}"
+"$1" "$2"

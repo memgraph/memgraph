@@ -86,22 +86,54 @@ check() {
       local OLD_LD_LIBRARY_PATH=${LD_LIBRARY_PATH}
       LD_LIBRARY_PATH=""
     fi
+
+    local -n packages=$1
     local missing=""
-    for pkg in $1; do
-        if [ "$pkg" == custom-rust ]; then
-            if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
-                missing="$pkg $missing"
-            fi
-            continue
-        fi
-        if ! rpm -q "$pkg" >/dev/null 2>/dev/null; then
-            missing="$pkg $missing"
-        fi
+    local missing_custom=""
+
+    # Separate standard and custom packages
+    local standard_packages=()
+    local custom_packages=()
+
+    for pkg in "${packages[@]}"; do
+        case "$pkg" in
+            custom-*)
+                custom_packages+=("$pkg")
+                ;;
+            *)
+                standard_packages+=("$pkg")
+                ;;
+        esac
     done
-    if [ "$missing" != "" ]; then
+
+    # Check standard packages with Python script
+    if [ ${#standard_packages[@]} -gt 0 ]; then
+        missing=$(python3 "$DIR/check-packages.py" "check" "fedora-41" "${standard_packages[@]}")
+    fi
+
+    # Check custom packages with bash logic
+    for pkg in "${custom_packages[@]}"; do
+        case "$pkg" in
+            custom-rust)
+                if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
+                    missing_custom="$pkg $missing_custom"
+                fi
+                ;;
+        esac
+    done
+
+    # Combine missing packages
+    if [ -n "$missing" ] && [ -n "$missing_custom" ]; then
+        missing="$missing $missing_custom"
+    elif [ -n "$missing_custom" ]; then
+        missing="$missing_custom"
+    fi
+
+    if [ -n "$missing" ]; then
         echo "MISSING PACKAGES: $missing"
         exit 1
     fi
+
     if [ -v OLD_LD_LIBRARY_PATH ]; then
       echo "Restoring LD_LIBRARY_PATH..."
       LD_LIBRARY_PATH=${OLD_LD_LIBRARY_PATH}
@@ -109,11 +141,13 @@ check() {
 }
 
 install() {
-    cd "$DIR"
     if [ "$EUID" -ne 0 ]; then
         echo "Please run as root."
         exit 1
     fi
+
+    local -n packages=$1
+
     # If GitHub Actions runner is installed, append LANG to the environment.
     # Python related tests don't work without the LANG export.
     if [ -d "/home/gh/actions-runner" ]; then
@@ -121,19 +155,45 @@ install() {
     else
         echo "NOTE: export LANG=en_US.utf8"
     fi
+
+    # Update package lists first
     dnf update -y
-    for pkg in $1; do
-        if [ "$pkg" == custom-rust ]; then
-            install_rust "1.80"
-            continue
+
+    # Separate standard and custom packages
+    local standard_packages=()
+    local custom_packages=()
+
+    for pkg in "${packages[@]}"; do
+        case "$pkg" in
+            custom-*)
+                custom_packages+=("$pkg")
+                ;;
+            *)
+                standard_packages+=("$pkg")
+                ;;
+        esac
+    done
+
+    # Install standard packages with Python script
+    if [ ${#standard_packages[@]} -gt 0 ]; then
+        if ! python3 "$DIR/check-packages.py" "install" "fedora-41" "${standard_packages[@]}"; then
+            echo "Failed to install standard packages"
+            exit 1
         fi
-        if [ "$pkg" == custom-node ]; then
-            install_node "20"
-            continue
-        fi
-        dnf install -y "$pkg"
+    fi
+
+    # Install custom packages with bash logic
+    for pkg in "${custom_packages[@]}"; do
+        case "$pkg" in
+            custom-rust)
+                install_rust "1.80"
+                ;;
+            custom-node)
+                install_node "20"
+                ;;
+        esac
     done
 }
 
 deps=$2"[*]"
-"$1" "${!deps}"
+"$1" "$2"

@@ -6,8 +6,8 @@ export DEBIAN_FRONTEND=noninteractive
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
-check_operating_system "debian-12"
-check_architecture "arm64" "aarch64"
+check_operating_system "debian-13"
+check_architecture "x86_64"
 
 TOOLCHAIN_BUILD_DEPS=(
     coreutils gcc g++ build-essential make # generic build tools
@@ -15,7 +15,7 @@ TOOLCHAIN_BUILD_DEPS=(
     gnupg # used for archive signature verification
     tar gzip bzip2 xz-utils unzip # used for archive unpacking
     zlib1g-dev # zlib library used for all builds
-    libexpat1-dev liblzma-dev python3-dev texinfo # for gdb
+    libexpat1-dev libipt-dev libbabeltrace-dev liblzma-dev python3-dev texinfo # for gdb
     libcurl4-openssl-dev # for cmake
     libreadline-dev # for cmake and llvm
     libffi-dev libxml2-dev # for llvm
@@ -36,7 +36,7 @@ TOOLCHAIN_RUN_DEPS=(
     make # generic build tools
     tar gzip bzip2 xz-utils # used for archive unpacking
     zlib1g # zlib library used for all builds
-    libexpat1 liblzma5 python3 # for gdb
+    libexpat1 libipt2 libbabeltrace1 liblzma5 python3 # for gdb
     libcurl4 # for cmake
     file # for CPack
     libreadline8 # for cmake and llvm
@@ -46,7 +46,7 @@ TOOLCHAIN_RUN_DEPS=(
 
 MEMGRAPH_BUILD_DEPS=(
     git # source code control
-    make pkg-config # build system
+    make cmake pkg-config # build system
     curl wget # for downloading libs
     uuid-dev default-jre-headless # required by antlr
     libreadline-dev # for memgraph console
@@ -66,6 +66,8 @@ MEMGRAPH_BUILD_DEPS=(
     libsasl2-dev
     ninja-build
 )
+
+MEMGRAPH_TEST_DEPS="${MEMGRAPH_BUILD_DEPS[*]}"
 
 MEMGRAPH_RUN_DEPS=(
     logrotate openssl python3 libseccomp2
@@ -101,7 +103,7 @@ check() {
 
     # Check standard packages with Python script
     if [ ${#standard_packages[@]} -gt 0 ]; then
-        missing=$(python3 "$DIR/check-packages.py" "check" "debian-12" "${standard_packages[@]}")
+        missing=$(python3 "$DIR/check-packages.py" "check" "debian-13" "${standard_packages[@]}")
     fi
 
     # Check custom packages with bash logic
@@ -123,7 +125,7 @@ check() {
                 fi
                 ;;
             dotnet-sdk-8.0)
-                if [ ! -f "/opt/dotnet-sdk-8.0/dotnet" ]; then
+                if ! dpkg -s dotnet-sdk-8.0 &>/dev/null; then
                     missing_custom="$pkg $missing_custom"
                 fi
                 ;;
@@ -174,7 +176,7 @@ install() {
 
     # Install standard packages with Python script
     if [ ${#standard_packages[@]} -gt 0 ]; then
-        if ! python3 "$DIR/check-packages.py" "install" "debian-12" "${standard_packages[@]}"; then
+        if ! python3 "$DIR/check-packages.py" "install" "debian-13" "${standard_packages[@]}"; then
             echo "Failed to install standard packages"
             exit 1
         fi
@@ -196,7 +198,12 @@ install() {
                 install_node "20"
                 ;;
             dotnet-sdk-8.0)
-                install_dotnet_sdk "8.0"
+                if ! dpkg -s dotnet-sdk-8.0 &>/dev/null; then
+                    wget -nv https://packages.microsoft.com/config/debian/13/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
+                    dpkg -i packages-microsoft-prod.deb
+                    apt update -y
+                    apt install -y apt-transport-https dotnet-sdk-8.0
+                fi
                 ;;
         esac
     done

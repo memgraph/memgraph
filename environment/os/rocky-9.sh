@@ -85,51 +85,86 @@ list() {
 }
 
 check() {
+    local -n packages=$1
     local missing=""
-    for pkg in $1; do
-        if [ "$pkg" == custom-maven3.9.3 ]; then
-            if [ ! -f "/opt/apache-maven-3.9.3/bin/mvn" ]; then
-                missing="$pkg $missing"
-            fi
-            continue
-        fi
-        if [ "$pkg" == custom-golang1.18.9 ]; then
-            if [ ! -f "/opt/go1.18.9/go/bin/go" ]; then
-                missing="$pkg $missing"
-            fi
-            continue
-        fi
-        if [ "$pkg" == custom-rust ]; then
-            if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
-                missing="$pkg $missing"
-            fi
-            continue
-        fi
-        if [ "$pkg" == "PyYAML" ]; then
-            if ! python3 -c "import yaml" >/dev/null 2>/dev/null; then
-                missing="$pkg $missing"
-            fi
-            continue
-        fi
-        if [ "$pkg" == "python3-virtualenv" ]; then
-            continue
-        fi
-        if ! yum list installed "$pkg" >/dev/null 2>/dev/null; then
-            missing="$pkg $missing"
-        fi
+    local missing_custom=""
+
+    # Separate standard and custom packages
+    local standard_packages=()
+    local custom_packages=()
+
+    for pkg in "${packages[@]}"; do
+        case "$pkg" in
+            custom-*|PyYAML|python3-virtualenv)
+                custom_packages+=("$pkg")
+                ;;
+            *)
+                standard_packages+=("$pkg")
+                ;;
+        esac
     done
-    if [ "$missing" != "" ]; then
+
+    # Check standard packages with Python script
+    if [ ${#standard_packages[@]} -gt 0 ]; then
+        missing=$(python3 "$DIR/check-packages.py" "check" "rocky-9" "${standard_packages[@]}")
+    fi
+
+    # Check custom packages with bash logic
+    for pkg in "${custom_packages[@]}"; do
+        case "$pkg" in
+            custom-maven3.9.3)
+                if [ ! -f "/opt/apache-maven-3.9.3/bin/mvn" ]; then
+                    missing_custom="$pkg $missing_custom"
+                fi
+                ;;
+            custom-golang1.18.9)
+                if [ ! -f "/opt/go1.18.9/go/bin/go" ]; then
+                    missing_custom="$pkg $missing_custom"
+                fi
+                ;;
+            custom-rust)
+                if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
+                    missing_custom="$pkg $missing_custom"
+                fi
+                ;;
+            PyYAML)
+                if ! python3 -c "import yaml" >/dev/null 2>/dev/null; then
+                    missing_custom="$pkg $missing_custom"
+                fi
+                ;;
+            python3-virtualenv)
+                # Skip this as it's handled during installation
+                ;;
+            # These packages are now handled by standard package management
+            # libbabeltrace-devel|libipt-devel|cl-asdf|common-lisp-controller|sbcl)
+            #     if ! yum list installed "$pkg" >/dev/null 2>/dev/null; then
+            #         missing_custom="$pkg $missing_custom"
+            #     fi
+            #     ;;
+        esac
+    done
+
+    # Combine missing packages
+    if [ -n "$missing" ] && [ -n "$missing_custom" ]; then
+        missing="$missing $missing_custom"
+    elif [ -n "$missing_custom" ]; then
+        missing="$missing_custom"
+    fi
+
+    if [ -n "$missing" ]; then
         echo "MISSING PACKAGES: $missing"
         exit 1
     fi
 }
 
 install() {
-    cd "$DIR"
     if [ "$EUID" -ne 0 ]; then
         echo "Please run as root."
         exit 1
     fi
+
+    local -n packages=$1
+
     # If GitHub Actions runner is installed, append LANG to the environment.
     # Python related tests doesn't work the LANG export.
     if [ -d "/home/gh/actions-runner" ]; then
@@ -138,81 +173,78 @@ install() {
         echo "NOTE: export LANG=en_US.utf8"
     fi
 
-    # enable CRB repo 
+    # enable CRB and devel repos
     dnf install -y dnf-plugins-core
     dnf config-manager --set-enabled crb
-    
+    dnf config-manager --set-enabled devel
+    sudo dnf install -y epel-release
+
+
+    # Try to install SBCL from standard repositories first
+    # If not available, we'll handle it in the custom package logic
+
     dnf update -y
     dnf install -y wget git python3 python3-pip
 
-    for pkg in $1; do
-        if [ "$pkg" == custom-maven3.9.3 ]; then
-            install_custom_maven "3.9.3"
-            continue
+    # Separate standard and custom packages
+    local standard_packages=()
+    local custom_packages=()
+
+    for pkg in "${packages[@]}"; do
+        case "$pkg" in
+            custom-*|PyYAML|python3-virtualenv)
+                custom_packages+=("$pkg")
+                ;;
+            *)
+                standard_packages+=("$pkg")
+                ;;
+        esac
+    done
+
+    # Install standard packages with Python script
+    if [ ${#standard_packages[@]} -gt 0 ]; then
+        if ! python3 "$DIR/check-packages.py" "install" "rocky-9" "${standard_packages[@]}"; then
+            echo "Failed to install standard packages"
+            exit 1
         fi
-        if [ "$pkg" == custom-golang1.18.9 ]; then
-            install_custom_golang "1.18.9"
-            continue
-        fi
-        if [ "$pkg" == custom-rust ]; then
-            install_rust "1.80"
-            continue
-        fi
-        if [ "$pkg" == custom-node ]; then
-            install_node "20"
-            continue
-        fi
-        if [ "$pkg" == libbabeltrace-devel ]; then
-            if ! dnf list installed libbabeltrace-devel >/dev/null 2>/dev/null; then
-                dnf install -y https://dl.rockylinux.org/pub/rocky/9/devel/x86_64/os/Packages/l/libbabeltrace-devel-1.5.8-10.el9.x86_64.rpm
-            fi
-            continue
-        fi
-        if [ "$pkg" == libipt-devel ]; then
-            if ! dnf list installed libipt-devel >/dev/null 2>/dev/null; then
-                dnf install -y https://dl.rockylinux.org/pub/rocky/9/devel/x86_64/os/Packages/l/libipt-devel-2.0.4-5.el9.x86_64.rpm
-            fi
-            continue
-        fi
-        if [ "$pkg" == cl-asdf ]; then
-            if ! dnf list installed cl-asdf >/dev/null 2>/dev/null; then
-                dnf install -y https://pkgs.sysadmins.ws/el8/base/x86_64/cl-asdf-20101028-18.el8.noarch.rpm
-            fi
-            continue
-        fi
-        if [ "$pkg" == common-lisp-controller ]; then
-            if ! dnf list installed common-lisp-controller >/dev/null 2>/dev/null; then
-                dnf install -y https://pkgs.sysadmins.ws/el8/base/x86_64/common-lisp-controller-7.4-20.el8.noarch.rpm
-            fi
-            continue
-        fi
-        if [ "$pkg" == sbcl ]; then
-            if ! dnf list installed sbcl >/dev/null 2>/dev/null; then
-                dnf install -y https://pkgs.sysadmins.ws/el8/base/x86_64/sbcl-2.0.1-4.el8.x86_64.rpm
-            fi
-            continue
-        fi
-        if [ "$pkg" == PyYAML ]; then
-            if [ -z ${SUDO_USER+x} ]; then # Running as root (e.g. Docker).
-                pip3 install --user PyYAML
-            else # Running using sudo.
-                sudo -H -u "$SUDO_USER" bash -c "pip3 install --user PyYAML"
-            fi
-            continue
-        fi
-        if [ "$pkg" == python3-virtualenv ]; then
-            if [ -z ${SUDO_USER+x} ]; then # Running as root (e.g. Docker).
-                pip3 install virtualenv
-                pip3 install virtualenvwrapper
-            else # Running using sudo.
-                sudo -H -u "$SUDO_USER" bash -c "pip3 install virtualenv"
-                sudo -H -u "$SUDO_USER" bash -c "pip3 install virtualenvwrapper"
-            fi
-            continue
-        fi
-        yum install -y "$pkg"
+    fi
+
+    # Install custom packages with bash logic
+    for pkg in "${custom_packages[@]}"; do
+        case "$pkg" in
+            custom-maven3.9.3)
+                install_custom_maven "3.9.3"
+                ;;
+            custom-golang1.18.9)
+                install_custom_golang "1.18.9"
+                ;;
+            custom-rust)
+                install_rust "1.80"
+                ;;
+            custom-node)
+                install_node "20"
+                ;;
+            # These packages are now handled by standard package management via repositories
+            # libbabeltrace-devel, libipt-devel, cl-asdf, common-lisp-controller, sbcl
+            PyYAML)
+                if [ -z ${SUDO_USER+x} ]; then # Running as root (e.g. Docker).
+                    pip3 install --user PyYAML
+                else # Running using sudo.
+                    sudo -H -u "$SUDO_USER" bash -c "pip3 install --user PyYAML"
+                fi
+                ;;
+            python3-virtualenv)
+                if [ -z ${SUDO_USER+x} ]; then # Running as root (e.g. Docker).
+                    pip3 install virtualenv
+                    pip3 install virtualenvwrapper
+                else # Running using sudo.
+                    sudo -H -u "$SUDO_USER" bash -c "pip3 install virtualenv"
+                    sudo -H -u "$SUDO_USER" bash -c "pip3 install virtualenvwrapper"
+                fi
+                ;;
+        esac
     done
 }
 
 deps=$2"[*]"
-"$1" "${!deps}"
+"$1" "$2"

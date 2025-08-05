@@ -84,51 +84,80 @@ list() {
 }
 
 check() {
+    local -n packages=$1
     local missing=""
-    for pkg in $1; do
-        if [ "$pkg" == custom-maven3.9.3 ]; then
-            if [ ! -f "/opt/apache-maven-3.9.3/bin/mvn" ]; then
-                missing="$pkg $missing"
-            fi
-            continue
-        fi
-        if [ "$pkg" == custom-golang1.18.9 ]; then
-            if [ ! -f "/opt/go1.18.9/go/bin/go" ]; then
-                missing="$pkg $missing"
-            fi
-            continue
-        fi
-        if [ "$pkg" == custom-rust ]; then
-            if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
-                missing="$pkg $missing"
-            fi
-            continue
-        fi
-        if [ "$pkg" == "PyYAML" ]; then
-            if ! python3 -c "import yaml" >/dev/null 2>/dev/null; then
-                missing="$pkg $missing"
-            fi
-            continue
-        fi
-        if [ "$pkg" == "python3-virtualenv" ]; then
-            continue
-        fi
-        if ! yum list installed "$pkg" >/dev/null 2>/dev/null; then
-            missing="$pkg $missing"
-        fi
+    local missing_custom=""
+
+    # Separate standard and custom packages
+    local standard_packages=()
+    local custom_packages=()
+
+    for pkg in "${packages[@]}"; do
+        case "$pkg" in
+            custom-*|PyYAML|python3-virtualenv)
+                custom_packages+=("$pkg")
+                ;;
+            *)
+                standard_packages+=("$pkg")
+                ;;
+        esac
     done
-    if [ "$missing" != "" ]; then
+
+    # Check standard packages with Python script
+    if [ ${#standard_packages[@]} -gt 0 ]; then
+        missing=$(python3 "$DIR/check-packages.py" "check" "centos-9" "${standard_packages[@]}")
+    fi
+
+    # Check custom packages with bash logic
+    for pkg in "${custom_packages[@]}"; do
+        case "$pkg" in
+            custom-maven3.9.3)
+                if [ ! -f "/opt/apache-maven-3.9.3/bin/mvn" ]; then
+                    missing_custom="$pkg $missing_custom"
+                fi
+                ;;
+            custom-golang1.18.9)
+                if [ ! -f "/opt/go1.18.9/go/bin/go" ]; then
+                    missing_custom="$pkg $missing_custom"
+                fi
+                ;;
+            custom-rust)
+                if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
+                    missing_custom="$pkg $missing_custom"
+                fi
+                ;;
+            PyYAML)
+                if ! python3 -c "import yaml" >/dev/null 2>/dev/null; then
+                    missing_custom="$pkg $missing_custom"
+                fi
+                ;;
+            python3-virtualenv)
+                # Skip this as it's handled during installation
+                ;;
+        esac
+    done
+
+    # Combine missing packages
+    if [ -n "$missing" ] && [ -n "$missing_custom" ]; then
+        missing="$missing $missing_custom"
+    elif [ -n "$missing_custom" ]; then
+        missing="$missing_custom"
+    fi
+
+    if [ -n "$missing" ]; then
         echo "MISSING PACKAGES: $missing"
         exit 1
     fi
 }
 
 install() {
-    cd "$DIR"
     if [ "$EUID" -ne 0 ]; then
         echo "Please run as root."
         exit 1
     fi
+
+    local -n packages=$1
+
     # If GitHub Actions runner is installed, append LANG to the environment.
     # Python related tests doesn't work the LANG export.
     if [ -d "/home/gh/actions-runner" ]; then
@@ -136,84 +165,88 @@ install() {
     else
         echo "NOTE: export LANG=en_US.utf8"
     fi
+
     # --nobest is used because of libipt because we install custom versions
     # because libipt-devel is not available on CentOS 9 Stream
     dnf update -y --nobest
     dnf install -y wget git python3 python3-pip
     dnf config-manager --set-enabled crb
 
-    for pkg in $1; do
-        if [ "$pkg" == custom-maven3.9.3 ]; then
-            install_custom_maven "3.9.3"
-            continue
+    # Enable EPEL for additional packages
+    dnf install -y epel-release epel-next-release
+
+    # Separate standard and custom packages
+    local standard_packages=()
+    local custom_packages=()
+
+    for pkg in "${packages[@]}"; do
+        case "$pkg" in
+            custom-*|PyYAML|python3-virtualenv|libipt|libipt-devel)
+                custom_packages+=("$pkg")
+                ;;
+            *)
+                standard_packages+=("$pkg")
+                ;;
+        esac
+    done
+
+    # Install standard packages with Python script
+    if [ ${#standard_packages[@]} -gt 0 ]; then
+        if ! python3 "$DIR/check-packages.py" "install" "centos-9" "${standard_packages[@]}"; then
+            echo "Failed to install standard packages"
+            exit 1
         fi
-        if [ "$pkg" == custom-golang1.18.9 ]; then
-            install_custom_golang "1.18.9"
-            continue
-        fi
-        if [ "$pkg" == custom-rust ]; then
-            install_rust "1.80"
-            continue
-        fi
-        if [ "$pkg" == custom-node ]; then
-            install_node "20"
-            continue
-        fi
-        # Since there is no support for libipt-devel for CentOS 9 we install
-        # Fedoras version of same libs, they are the same version but released
-        # for different OS
-        # TODO Update when libipt-devel releases for CentOS 9
-        if [ "$pkg" == libipt ]; then
-            if ! dnf list installed libipt >/dev/null 2>/dev/null; then
-                dnf install -y http://repo.okay.com.mx/centos/8/x86_64/release/libipt-1.6.1-8.el8.x86_64.rpm
-            fi
-            continue
-        fi
-        if [ "$pkg" == libipt-devel ]; then
-            if ! dnf list installed libipt-devel >/dev/null 2>/dev/null; then
-                dnf install -y http://repo.okay.com.mx/centos/8/x86_64/release/libipt-devel-1.6.1-8.el8.x86_64.rpm
-            fi
-            continue
-        fi
-        if [ "$pkg" == libbabeltrace-devel ]; then
-            if ! dnf list installed libbabeltrace-devel >/dev/null 2>/dev/null; then
-                dnf install -y http://mirror.stream.centos.org/9-stream/CRB/x86_64/os/Packages/libbabeltrace-devel-1.5.8-10.el9.x86_64.rpm
-            fi
-            continue
-        fi
-        if [ "$pkg" == sbcl ]; then
-            if ! dnf list installed cl-asdf >/dev/null 2>/dev/null; then
-                dnf install -y http://www.nosuchhost.net/~cheese/fedora/packages/epel-9/x86_64/cl-asdf-20101028-27.el9.noarch.rpm
-            fi
-            if ! dnf list installed common-lisp-controller >/dev/null 2>/dev/null; then
-                dnf install -y http://www.nosuchhost.net/~cheese/fedora/packages/epel-9/x86_64/common-lisp-controller-7.4-29.el9.noarch.rpm
-            fi
-            if ! dnf list installed sbcl >/dev/null 2>/dev/null; then
-                dnf install -y http://www.nosuchhost.net/~cheese/fedora/packages/epel-9/x86_64/sbcl-2.3.11-3.el9~bootstrap.x86_64.rpm
-            fi
-            continue
-        fi
-        if [ "$pkg" == PyYAML ]; then
-            if [ -z ${SUDO_USER+x} ]; then # Running as root (e.g. Docker).
-                pip3 install --user PyYAML
-            else # Running using sudo.
-                sudo -H -u "$SUDO_USER" bash -c "pip3 install --user PyYAML"
-            fi
-            continue
-        fi
-        if [ "$pkg" == python3-virtualenv ]; then
-            if [ -z ${SUDO_USER+x} ]; then # Running as root (e.g. Docker).
-                pip3 install virtualenv
-                pip3 install virtualenvwrapper
-            else # Running using sudo.
-                sudo -H -u "$SUDO_USER" bash -c "pip3 install virtualenv"
-                sudo -H -u "$SUDO_USER" bash -c "pip3 install virtualenvwrapper"
-            fi
-            continue
-        fi
-        yum install -y "$pkg"
+    fi
+
+    # Install custom packages with bash logic
+    for pkg in "${custom_packages[@]}"; do
+        case "$pkg" in
+            custom-maven3.9.3)
+                install_custom_maven "3.9.3"
+                ;;
+            custom-golang1.18.9)
+                install_custom_golang "1.18.9"
+                ;;
+            custom-rust)
+                install_rust "1.80"
+                ;;
+            custom-node)
+                install_node "20"
+                ;;
+            libipt)
+                if ! dnf list installed libipt >/dev/null 2>/dev/null; then
+                    dnf install -y http://repo.okay.com.mx/centos/8/x86_64/release/libipt-1.6.1-8.el8.x86_64.rpm
+                fi
+                ;;
+            libipt-devel)
+                if ! dnf list installed libipt-devel >/dev/null 2>/dev/null; then
+                    dnf install -y http://repo.okay.com.mx/centos/8/x86_64/release/libipt-devel-1.6.1-8.el8.x86_64.rpm
+                fi
+                ;;
+            # Since there is no support for libipt-devel for CentOS 9 we install
+            # Fedoras version of same libs, they are the same version but released
+            # for different OS
+            # TODO Update when libipt-devel releases for CentOS 9
+            # SBCL packages are now available via EPEL repository
+            PyYAML)
+                if [ -z ${SUDO_USER+x} ]; then # Running as root (e.g. Docker).
+                    pip3 install --user PyYAML
+                else # Running using sudo.
+                    sudo -H -u "$SUDO_USER" bash -c "pip3 install --user PyYAML"
+                fi
+                ;;
+            python3-virtualenv)
+                if [ -z ${SUDO_USER+x} ]; then # Running as root (e.g. Docker).
+                    pip3 install virtualenv
+                    pip3 install virtualenvwrapper
+                else # Running using sudo.
+                    sudo -H -u "$SUDO_USER" bash -c "pip3 install virtualenv"
+                    sudo -H -u "$SUDO_USER" bash -c "pip3 install virtualenvwrapper"
+                fi
+                ;;
+        esac
     done
 }
 
 deps=$2"[*]"
-"$1" "${!deps}"
+"$1" "$2"
