@@ -50,7 +50,7 @@ struct RecoveredIndicesAndConstraints {
     std::vector<EdgeTypeId> edge;
     std::vector<std::pair<EdgeTypeId, PropertyId>> edge_type_property;
     std::vector<PropertyId> edge_property;
-    std::vector<TextIndexInfo> text_indices;
+    std::vector<TextIndexSpec> text_indices;
     std::vector<VectorIndexSpec> vector_indices;
     std::vector<VectorEdgeIndexSpec> vector_edge_indices;
   } indices;

@@ -33,9 +33,9 @@ struct TextIndexData {
   // TODO(@DavIvek): Better approach would be to add locking on mgcxx side.
   utils::Synchronized<mgcxx::text_search::Context, std::shared_mutex> synchronized_context_;
   LabelId scope_;
-  std::vector<PropertyId> properties_;
+  std::optional<std::vector<PropertyId>> properties_;
 
-  TextIndexData(mgcxx::text_search::Context context, LabelId scope, std::vector<PropertyId> properties)
+  TextIndexData(mgcxx::text_search::Context context, LabelId scope, std::optional<std::vector<PropertyId>> properties)
       : synchronized_context_(std::move(context)), scope_(scope), properties_(std::move(properties)) {}
 };
 
@@ -45,7 +45,7 @@ class TextIndex {
 
   inline std::string MakeIndexPath(std::string_view index_name) const;
 
-  void CreateTantivyIndex(const std::string &index_path, const TextIndexInfo &index_info);
+  void CreateTantivyIndex(const std::string &index_path, const TextIndexSpec &index_info);
 
   std::vector<TextIndexData *> GetApplicableTextIndices(std::span<storage::LabelId const> labels,
                                                         std::span<PropertyId const> properties);
@@ -88,9 +88,9 @@ class TextIndex {
 
   void UpdateOnSetProperty(Vertex *vertex, NameIdMapper *name_id_mapper, Transaction &tx);
 
-  void CreateIndex(const TextIndexInfo &index_info, VerticesIterable vertices, NameIdMapper *name_id_mapper);
+  void CreateIndex(const TextIndexSpec &index_info, VerticesIterable vertices, NameIdMapper *name_id_mapper);
 
-  void RecoverIndex(const TextIndexInfo &index_info,
+  void RecoverIndex(const TextIndexSpec &index_info,
                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
   void DropIndex(const std::string &index_name);
@@ -106,7 +106,7 @@ class TextIndex {
 
   void Rollback();
 
-  std::vector<TextIndexInfo> ListIndices() const;
+  std::vector<TextIndexSpec> ListIndices() const;
 
   void Clear();
 };

@@ -1126,7 +1126,7 @@ std::optional<RecoveryInfo> LoadWal(
         }) | r::to<std::vector<PropertyId>>()
                                         : std::vector<PropertyId>{};
         AddRecoveredIndexConstraint(&indices_constraints->indices.text_indices,
-                                    TextIndexInfo{data.index_name, label, std::move(prop_ids)},
+                                    TextIndexSpec{data.index_name, label, std::move(prop_ids)},
                                     "The text index already exists!");
       },
       [&](WalTextIndexDrop const &data) {
@@ -1534,13 +1534,14 @@ void EncodeTypeConstraint(BaseEncoder &encoder, NameIdMapper &name_id_mapper, La
   encoder.WriteUint(static_cast<uint64_t>(type));
 }
 
-void EncodeTextIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const TextIndexInfo &text_index_info) {
-  const auto &[text_index_name, label, properties] = text_index_info;
-  encoder.WriteString(text_index_name);
-  encoder.WriteString(name_id_mapper.IdToName(label.AsUint()));
-  encoder.WriteUint(properties.size());
-  for (const auto &property : properties) {
-    encoder.WriteString(name_id_mapper.IdToName(property.AsUint()));
+void EncodeTextIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const TextIndexSpec &text_index_info) {
+  encoder.WriteString(text_index_info.index_name_);
+  encoder.WriteString(name_id_mapper.IdToName(text_index_info.label_.AsUint()));
+  encoder.WriteUint(text_index_info.properties_ ? text_index_info.properties_->size() : 0);
+  if (text_index_info.properties_) {
+    for (const auto &property : *text_index_info.properties_) {
+      encoder.WriteString(name_id_mapper.IdToName(property.AsUint()));
+    }
   }
 }
 

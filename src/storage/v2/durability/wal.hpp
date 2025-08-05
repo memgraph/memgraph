@@ -444,7 +444,7 @@ void EncodeLabelProperty(BaseEncoder &encoder, NameIdMapper &name_id_mapper, Lab
 void EncodeLabelPropertyStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
                               std::span<PropertyPath const> properties, LabelPropertyIndexStats const &stats);
 void EncodeLabelStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, LabelIndexStats stats);
-void EncodeTextIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const TextIndexInfo &text_index_info);
+void EncodeTextIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const TextIndexSpec &text_index_info);
 void EncodeVectorIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const VectorIndexSpec &spec);
 void EncodeVectorEdgeIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const VectorEdgeIndexSpec &spec);
 void EncodeIndexName(BaseEncoder &encoder, std::string_view index_name);

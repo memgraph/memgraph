@@ -83,7 +83,7 @@ struct IndicesInfo {
   std::vector<EdgeTypeId> edge_type;
   std::vector<std::pair<EdgeTypeId, PropertyId>> edge_type_property;
   std::vector<PropertyId> edge_property;
-  std::vector<TextIndexInfo> text_indices;
+  std::vector<TextIndexSpec> text_indices;
   std::vector<std::pair<LabelId, PropertyId>> point_label_property;
   std::vector<VectorIndexSpec> vector_indices_spec;
   std::vector<VectorEdgeIndexSpec> vector_edge_indices_spec;
@@ -466,7 +466,7 @@ class Storage {
         storage::LabelId label, storage::PropertyId property) = 0;
 
     utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateTextIndex(
-        const TextIndexInfo &text_index_info);
+        const TextIndexSpec &text_index_info);
 
     utils::BasicResult<storage::StorageIndexDefinitionError, void> DropTextIndex(const std::string &index_name);
 

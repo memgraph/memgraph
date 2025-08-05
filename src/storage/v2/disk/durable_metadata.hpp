@@ -14,7 +14,6 @@
 #include <cstdint>
 #include <set>
 #include <string>
-#include <vector>
 
 #include "kvstore/kvstore.hpp"
 #include "storage/v2/config.hpp"
@@ -55,7 +54,7 @@ class DurableMetadata {
   bool PersistLabelPropertyIndexAndExistenceConstraintDeletion(LabelId label, PropertyId property,
                                                                const std::string &key);
 
-  bool PersistTextIndexCreation(const storage::TextIndexInfo &text_index);
+  bool PersistTextIndexCreation(const storage::TextIndexSpec &text_index);
 
   bool PersistTextIndexDeletion(std::string_view index_name);
 

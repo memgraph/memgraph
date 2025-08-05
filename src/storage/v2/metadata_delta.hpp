@@ -160,7 +160,7 @@ struct MetadataDelta {
   MetadataDelta(GlobalEdgePropertyIndexDrop /*tag*/, PropertyId property)
       : action(Action::GLOBAL_EDGE_PROPERTY_INDEX_DROP), edge_property{property} {}
 
-  MetadataDelta(TextIndexCreate /*tag*/, TextIndexInfo text_index_info)
+  MetadataDelta(TextIndexCreate /*tag*/, TextIndexSpec text_index_info)
       : action(Action::TEXT_INDEX_CREATE), text_index(std::move(text_index_info)) {}
 
   MetadataDelta(TextIndexDrop /*tag*/, std::string index_name)
@@ -364,7 +364,7 @@ struct MetadataDelta {
       std::string old_value;
     } enum_alter_update_info;
 
-    TextIndexInfo text_index;
+    TextIndexSpec text_index;
     VectorIndexSpec vector_index_spec;
     VectorEdgeIndexSpec vector_edge_index_spec;
     std::string index_name;

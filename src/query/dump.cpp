@@ -324,14 +324,14 @@ void DumpLabelPropertiesIndex(std::ostream *os, query::DbAccessor *dba, storage:
   *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << "(" << prop_names << ");";
 }
 
-void DumpTextIndex(std::ostream *os, query::DbAccessor *dba, const storage::TextIndexInfo &text_index) {
-  auto prop_names = text_index.properties_ |
-                    rv::transform([&](auto property_id) { return EscapeName(dba->PropertyToName(property_id)); }) |
-                    rv::join(", "sv) | r::to<std::string>();
-
+void DumpTextIndex(std::ostream *os, query::DbAccessor *dba, const storage::TextIndexSpec &text_index) {
   *os << "CREATE TEXT INDEX " << EscapeName(text_index.index_name_)
       << " ON :" << EscapeName(dba->LabelToName(text_index.label_));
-  if (!text_index.properties_.empty()) {
+
+  if (text_index.properties_) {
+    auto prop_names = *text_index.properties_ |
+                      rv::transform([&](auto property_id) { return EscapeName(dba->PropertyToName(property_id)); }) |
+                      rv::join(", "sv) | r::to<std::string>();
     *os << "(" << prop_names << ")";
   }
   *os << ";";

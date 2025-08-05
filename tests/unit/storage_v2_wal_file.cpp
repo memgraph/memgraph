@@ -344,7 +344,7 @@ class DeltaGenerator final {
       }
       case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_CREATE: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
-          EncodeTextIndex(encoder, mapper_, memgraph::storage::TextIndexInfo{name, label_id, property_ids});
+          EncodeTextIndex(encoder, mapper_, memgraph::storage::TextIndexSpec{name, label_id, property_ids});
         });
         break;
       }

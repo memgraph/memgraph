@@ -1298,11 +1298,11 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
                         data.label);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto label_id = storage->NameToLabel(data.label);
-          auto prop_ids = data.properties ? *data.properties | rv::transform([&](const auto &prop) {
+          auto prop_ids = data.properties ? std::make_optional(*data.properties | rv::transform([&](const auto &prop) {
             return storage->NameToProperty(prop);
-          }) | r::to<std::vector<PropertyId>>()
-                                          : std::vector<PropertyId>{};
-          auto ret = transaction->CreateTextIndex(storage::TextIndexInfo{data.index_name, label_id, prop_ids});
+          }) | r::to<std::vector<PropertyId>>())
+                                          : std::nullopt;
+          auto ret = transaction->CreateTextIndex(storage::TextIndexSpec{data.index_name, label_id, prop_ids});
           if (ret.HasError()) {
             throw utils::BasicException("Failed to create text search index {} on {}.", data.index_name, data.label);
           }

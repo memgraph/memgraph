@@ -27,7 +27,7 @@ inline std::string TextIndex::MakeIndexPath(std::string_view index_name) const {
   return (text_index_storage_dir_ / index_name).string();
 }
 
-void TextIndex::CreateTantivyIndex(const std::string &index_path, const TextIndexInfo &index_info) {
+void TextIndex::CreateTantivyIndex(const std::string &index_path, const TextIndexSpec &index_info) {
   try {
     nlohmann::json mappings = {};
     mappings["properties"] = {};
@@ -59,11 +59,11 @@ std::vector<TextIndexData *> TextIndex::GetApplicableTextIndices(std::span<stora
   };
 
   auto matches_property = [&](const auto &text_index_data) {
-    if (text_index_data.properties_.empty()) {
+    if (!text_index_data.properties_) {
       return true;
     }
     return r::any_of(properties,
-                     [&](auto property_id) { return r::contains(text_index_data.properties_, property_id); });
+                     [&](auto property_id) { return r::contains(*text_index_data.properties_, property_id); });
   };
 
   for (auto &[index_name, text_index_data] : index_) {
@@ -119,7 +119,9 @@ void TextIndex::AddNode(Vertex *vertex_after_update, NameIdMapper *name_id_mappe
                         std::span<TextIndexData *> applicable_text_indices) {
   for (auto *applicable_text_index : applicable_text_indices) {
     auto vertex_properties =
-        ExtractVertexProperties(vertex_after_update->properties, applicable_text_index->properties_);
+        applicable_text_index->properties_
+            ? ExtractVertexProperties(vertex_after_update->properties, *applicable_text_index->properties_)
+            : vertex_after_update->properties.Properties();
     AddNodeToTextIndex(vertex_after_update->gid.AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
                        StringifyProperties(vertex_properties), applicable_text_index);
   }
@@ -167,7 +169,7 @@ void TextIndex::RemoveNode(Vertex *vertex_after_update, std::span<TextIndexData 
   }
 }
 
-void TextIndex::CreateIndex(const TextIndexInfo &index_info, storage::VerticesIterable vertices,
+void TextIndex::CreateIndex(const TextIndexSpec &index_info, storage::VerticesIterable vertices,
                             NameIdMapper *name_id_mapper) {
   CreateTantivyIndex(MakeIndexPath(index_info.index_name_),
                      {index_info.index_name_, index_info.label_, index_info.properties_});
@@ -176,16 +178,16 @@ void TextIndex::CreateIndex(const TextIndexInfo &index_info, storage::VerticesIt
     if (!v.HasLabel(index_info.label_, View::NEW).GetValue()) {
       continue;
     }
-    // If properties aren't specified, we serialize all properties of the vertex.
-    auto vertex_properties = index_info.properties_.empty()
-                                 ? v.Properties(View::NEW).GetValue()
-                                 : v.PropertiesByPropertyIds(index_info.properties_, View::NEW).GetValue();
+    // If properties are specified, we serialize only those properties; otherwise, all properties of the vertex.
+    auto vertex_properties = index_info.properties_.has_value() && !index_info.properties_->empty()
+                                 ? v.PropertiesByPropertyIds(*index_info.properties_, View::NEW).GetValue()
+                                 : v.Properties(View::NEW).GetValue();
     AddNodeToTextIndex(v.Gid().AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
                        StringifyProperties(vertex_properties), &index_.at(index_info.index_name_));
   }
 }
 
-void TextIndex::RecoverIndex(const TextIndexInfo &index_info,
+void TextIndex::RecoverIndex(const TextIndexSpec &index_info,
                              std::optional<SnapshotObserverInfo> const &snapshot_info) {
   CreateTantivyIndex(MakeIndexPath(index_info.index_name_), index_info);
   if (snapshot_info) {
@@ -325,8 +327,8 @@ void TextIndex::Rollback() {
   }
 }
 
-std::vector<TextIndexInfo> TextIndex::ListIndices() const {
-  std::vector<TextIndexInfo> ret;
+std::vector<TextIndexSpec> TextIndex::ListIndices() const {
+  std::vector<TextIndexSpec> ret;
   ret.reserve(index_.size());
   for (const auto &[index_name, index_data] : index_) {
     ret.emplace_back(index_name, index_data.scope_, index_data.properties_);

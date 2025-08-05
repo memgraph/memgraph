@@ -32,12 +32,12 @@ inline constexpr std::string_view kBooleanAnd = "AND";
 inline constexpr std::string_view kBooleanOr = "OR";
 inline constexpr std::string_view kBooleanNot = "NOT";
 
-struct TextIndexInfo {
-  inline bool operator==(const TextIndexInfo &other) const = default;
+struct TextIndexSpec {
+  inline bool operator==(const TextIndexSpec &other) const = default;
 
   std::string index_name_;
   LabelId label_;
-  std::vector<PropertyId> properties_;
+  std::optional<std::vector<PropertyId>> properties_;
 };
 
 // Convert text to lowercase while preserving boolean operators
