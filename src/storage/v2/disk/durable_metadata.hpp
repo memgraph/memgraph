@@ -13,7 +13,6 @@
 
 #include <cstdint>
 #include <set>
-#include <string>
 
 #include "kvstore/kvstore.hpp"
 #include "storage/v2/config.hpp"
