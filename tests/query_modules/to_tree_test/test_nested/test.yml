@@ -2,33 +2,21 @@ query: >
   MATCH path = (p:Person)-[:OWNS]->(c:Car)-[:MADE_BY]->(co:Company)-[:LOCATED_IN]->(loc:Location)
   WITH collect(path) AS paths
   CALL convert.to_tree(paths) YIELD value
-  WITH value
-  UNWIND value.owns AS car
-  UNWIND car.made_by AS company  
-  UNWIND company.located_in AS location
-  WITH value, car, company, location,
-       {_type: car._type, model: car.model, made_by: [{_type: company._type, name: company.name, located_in: [{_type: location._type, name: location.name}]}]} AS final_car
-  WITH {_type: value._type, name: value.name, owns: collect(DISTINCT final_car)} AS clean_value
-  RETURN clean_value AS value
+  RETURN value.name AS name, 
+         value._type AS type,
+         size(value.owns) AS car_count,
+         [car IN value.owns | car.model] AS car_models,
+         [car IN value.owns | car.made_by[0].name] AS company_names
+  ORDER BY name
 
 output:
-  - value:
-      _type: Person
-      name: John
-      owns:
-        - _type: Car
-          model: Tesla Model S
-          made_by:
-            - _type: Company
-              name: Tesla Inc.
-              located_in:
-                - _type: Location
-                  name: California
-        - _type: Car
-          model: BMW 320i
-          made_by:
-            - _type: Company
-              name: BMW AG
-              located_in:
-                - _type: Location
-                  name: Bavaria
+  - name: Jane
+    type: Person
+    car_count: 1
+    car_models: ["BMW 320i"]
+    company_names: ["BMW AG"]
+  - name: John
+    type: Person
+    car_count: 2
+    car_models: ["Tesla Model S", "BMW 320i"]
+    company_names: ["Tesla Inc.", "BMW AG"]

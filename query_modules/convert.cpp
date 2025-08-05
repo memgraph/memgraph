@@ -239,7 +239,7 @@ mgp::Map CreateNodeMap(const mgp::Node &node, const mgp::Map &config) {
     }
   }
 
-  // Add type only (no _id)
+  // Add type and id
   if (labels.Size() == 1) {
     node_map.Insert("_type", mgp::Value(labels[0]));
   } else if (labels.Size() > 1) {
@@ -249,13 +249,14 @@ mgp::Map CreateNodeMap(const mgp::Node &node, const mgp::Map &config) {
     }
     node_map.Insert("_type", mgp::Value(label_list));
   }
+  node_map.Insert("_id", mgp::Value(node.Id().AsInt()));
 
   return node_map;
 }
 
 // Helper function to recursively build tree structure from a path starting at a given index
-mgp::Map BuildTreeFromPath(const mgp::Path &path, size_t start_index, const bool lowerCaseRels, 
-                          const mgp::Map &config) {
+mgp::Map BuildTreeFromPath(const mgp::Path &path, size_t start_index, const bool lowerCaseRels,
+                           const mgp::Map &config) {
   auto current_node = path.GetNodeAt(start_index);
   auto node_map = CreateNodeMap(current_node, config);
 
@@ -267,11 +268,10 @@ mgp::Map BuildTreeFromPath(const mgp::Path &path, size_t start_index, const bool
   // Get the relationship and next node
   auto rel = path.GetRelationshipAt(start_index);
   auto next_node = path.GetNodeAt(start_index + 1);
-  
+
   std::string rel_type{rel.Type()};
   if (lowerCaseRels) {
-    std::transform(rel_type.begin(), rel_type.end(), rel_type.begin(),
-                   [](unsigned char c) { return std::tolower(c); });
+    std::transform(rel_type.begin(), rel_type.end(), rel_type.begin(), [](unsigned char c) { return std::tolower(c); });
   }
 
   // Recursively build the subtree for the next part of the path
@@ -312,15 +312,15 @@ void MergeTrees(mgp::Map &target, const mgp::Map &source) {
       if (target.At(key).IsList() && value.IsList()) {
         auto target_list = target.At(key).ValueList();
         auto source_list = value.ValueList();
-        
+
         // Create a new merged list
         mgp::List merged_list;
-        
+
         // First add all items from target list
         for (size_t j = 0; j < target_list.Size(); ++j) {
           merged_list.AppendExtend(target_list[j]);
         }
-        
+
         // Add items from source that don't exist in merged list (based on _id)
         for (size_t i = 0; i < source_list.Size(); ++i) {
           auto source_item = source_list[i];
@@ -328,22 +328,21 @@ void MergeTrees(mgp::Map &target, const mgp::Map &source) {
             merged_list.AppendExtend(source_item);
             continue;
           }
-          
+
           auto source_map = source_item.ValueMap();
           bool found = false;
-          
+
           if (source_map.KeyExists("_id")) {
             auto source_id = source_map.At("_id").ValueInt();
             for (size_t j = 0; j < merged_list.Size(); ++j) {
               auto merged_item = merged_list[j];
               if (merged_item.IsMap()) {
                 auto merged_item_map = merged_item.ValueMap();
-                if (merged_item_map.KeyExists("_id") && 
-                    merged_item_map.At("_id").ValueInt() == source_id) {
+                if (merged_item_map.KeyExists("_id") && merged_item_map.At("_id").ValueInt() == source_id) {
                   // Found existing item, merge recursively and reconstruct the list
                   auto new_merged_map = merged_item_map;
                   MergeTrees(new_merged_map, source_map);
-                  
+
                   // Reconstruct the list with the merged item
                   mgp::List updated_list;
                   for (size_t k = 0; k < merged_list.Size(); ++k) {
@@ -360,7 +359,7 @@ void MergeTrees(mgp::Map &target, const mgp::Map &source) {
               }
             }
           }
-          
+
           if (!found) {
             merged_list.AppendExtend(source_item);
           }
@@ -404,7 +403,7 @@ mgp::Value ConvertToTreeImpl(const mgp::Value &input, const bool lowerCaseRels, 
 
     // For multiple paths, group by root node ID to build separate trees
     std::map<int64_t, std::vector<mgp::Path>> root_groups;
-    
+
     for (size_t i = 0; i < paths.Size(); ++i) {
       auto path = paths[i].ValuePath();
       if (path.Length() > 0) {
@@ -414,61 +413,39 @@ mgp::Value ConvertToTreeImpl(const mgp::Value &input, const bool lowerCaseRels, 
       }
     }
 
-    // If all paths have the same root, return a single merged tree
-    if (root_groups.size() == 1) {
-      auto &group_paths = root_groups.begin()->second;
+    // Process each root group - always use hierarchical tree building (APOC behavior)
+    std::vector<mgp::Map> all_root_trees;
+    
+    for (const auto &[root_id, group_paths] : root_groups) {
+      if (group_paths.empty()) continue;
       
-      // Build a comprehensive tree by collecting all nodes reachable by each relationship type
-      auto root_node = group_paths[0].GetNodeAt(0);
-      auto root_tree = CreateNodeMap(root_node, config);
+      // Always use hierarchical tree building for all paths
+      auto root_tree = BuildTreeFromPath(group_paths[0], 0, lowerCaseRels, config);
       
-      // Collect all nodes by relationship type across all paths
-      std::map<std::string, std::set<int64_t>> rel_type_to_node_ids;
-      std::map<int64_t, mgp::Map> node_id_to_map;
-      
-      for (const auto &path : group_paths) {
-        for (size_t rel_idx = 0; rel_idx < path.Length(); ++rel_idx) {
-          auto rel = path.GetRelationshipAt(rel_idx);
-          auto target_node = path.GetNodeAt(rel_idx + 1);
-          
-          std::string rel_type{rel.Type()};
-          if (lowerCaseRels) {
-            std::transform(rel_type.begin(), rel_type.end(), rel_type.begin(),
-                         [](unsigned char c) { return std::tolower(c); });
-          }
-          
-          auto target_id = target_node.Id().AsInt();
-          rel_type_to_node_ids[rel_type].insert(target_id);
-          
-          if (node_id_to_map.find(target_id) == node_id_to_map.end()) {
-            node_id_to_map[target_id] = CreateNodeMap(target_node, config);
-          }
-        }
+      // Merge additional paths into the root tree
+      for (size_t i = 1; i < group_paths.size(); ++i) {
+        auto additional_tree = BuildTreeFromPath(group_paths[i], 0, lowerCaseRels, config);
+        MergeTrees(root_tree, additional_tree);
       }
       
-      // Build relationship arrays with all unique target nodes
-      for (const auto &[rel_type, node_ids] : rel_type_to_node_ids) {
-        mgp::List rel_list;
-        for (auto node_id : node_ids) {
-          rel_list.AppendExtend(mgp::Value(node_id_to_map[node_id]));
-        }
-        root_tree.Insert(rel_type, mgp::Value(rel_list));
+      all_root_trees.push_back(root_tree);
+    }
+    
+    // Always return a single Map (APOC behavior)  
+    if (all_root_trees.size() == 1) {
+      // Single root: return the tree directly
+      return mgp::Value(all_root_trees[0]);
+    } else if (all_root_trees.size() > 1) {
+      // Multiple roots: return a list of all root trees
+      mgp::List tree_list;
+      for (const auto &tree : all_root_trees) {
+        tree_list.AppendExtend(mgp::Value(tree));
       }
-      
-      return mgp::Value(root_tree);
+      return mgp::Value(tree_list);
+    } else {
+      // No root groups found, return empty map
+      return mgp::Value(mgp::Map());
     }
-
-    // Multiple root nodes - this case may need special handling
-    // For now, return the first root's tree
-    auto &first_group = root_groups.begin()->second;
-    auto root_tree = BuildTreeFromPath(first_group[0], 0, lowerCaseRels, config);
-    
-    for (size_t i = 1; i < first_group.size(); ++i) {
-      auto additional_tree = BuildTreeFromPath(first_group[i], 0, lowerCaseRels, config);
-      MergeTrees(root_tree, additional_tree);
-    }
-    
-    return mgp::Value(root_tree);
   }
 
   // If single path, convert it to a list and process recursively
@@ -579,8 +556,19 @@ void to_tree(mgp_list *args, mgp_graph *graph, mgp_result *result, mgp_memory *m
     // Convert the input value to tree structure
     auto result_value = ConvertToTreeImpl(input, lowerCaseRels, config, memory);
 
-    auto record = record_factory.NewRecord();
-    record.Insert(kReturnValue.data(), result_value);
+    // Handle multiple results (APOC behavior for multiple roots)
+    if (result_value.IsList()) {
+      // Multiple roots: yield one record per root
+      auto result_list = result_value.ValueList();
+      for (size_t i = 0; i < result_list.Size(); ++i) {
+        auto record = record_factory.NewRecord();
+        record.Insert(kReturnValue.data(), result_list[i]);
+      }
+    } else {
+      // Single root: yield one record
+      auto record = record_factory.NewRecord();
+      record.Insert(kReturnValue.data(), result_value);
+    }
 
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());

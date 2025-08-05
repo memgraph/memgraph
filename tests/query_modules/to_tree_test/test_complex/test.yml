@@ -7,5 +7,5 @@ query: >
 output:
   - name: Ana
     type: Student
-    friend_count: 3
-    colleague_count: 1
+    friend_count: 2
+    colleague_count: null
