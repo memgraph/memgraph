@@ -188,6 +188,7 @@ void RenameDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
     }
   } catch (...) {
     // Failure
+    spdlog::trace("RenameDatabaseHandler: Failed to rename database \"{}\" to \"{}\".", req.old_name, req.new_name);
   }
 
   rpc::SendFinalResponse(res, res_builder);
