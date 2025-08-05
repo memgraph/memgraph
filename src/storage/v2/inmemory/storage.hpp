@@ -564,7 +564,7 @@ class InMemoryStorage final : public Storage {
   utils::FileRetainer::FileLockerAccessor::ret_type LockPath();
   utils::FileRetainer::FileLockerAccessor::ret_type UnlockPath();
 
-  utils::BasicResult<InMemoryStorage::CreateSnapshotError> CreateSnapshot(
+  utils::BasicResult<InMemoryStorage::CreateSnapshotError, std::filesystem::path> CreateSnapshot(
       memgraph::replication_coordination_glue::ReplicationRole replication_role);
 
   utils::BasicResult<InMemoryStorage::RecoverSnapshotError> RecoverSnapshot(

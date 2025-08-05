@@ -2808,7 +2808,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
   return replicating_txn.ShipDeltas(durability_commit_timestamp, std::move(db_acc));
 }
 
-utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(
+utils::BasicResult<InMemoryStorage::CreateSnapshotError, std::filesystem::path> InMemoryStorage::CreateSnapshot(
     memgraph::replication_coordination_glue::ReplicationRole replication_role) {
   using memgraph::replication_coordination_glue::ReplicationRole;
   if (replication_role == ReplicationRole::REPLICA) {
@@ -2861,16 +2861,17 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
   }
 
   // At the moment, the only way in which create snapshot can fail is if it got aborted
-  if (!durability::CreateSnapshot(this, transaction, recovery_.snapshot_directory_, recovery_.wal_directory_,
-                                  &vertices_, &edges_, storage_uuid, epoch, epochHistory, &file_retainer_,
-                                  &abort_snapshot_)) {
+  const auto snapshot_path =
+      durability::CreateSnapshot(this, transaction, recovery_.snapshot_directory_, recovery_.wal_directory_, &vertices_,
+                                 &edges_, storage_uuid, epoch, epochHistory, &file_retainer_, &abort_snapshot_);
+  if (!snapshot_path) {
     return CreateSnapshotError::AbortSnapshot;
   }
 
   memgraph::metrics::Measure(memgraph::metrics::SnapshotCreationLatency_us,
                              std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
 
-  return {};
+  return *snapshot_path;
 }
 
 // NOTE: Make sure this function is called while exclusively holding on to the main lock
