@@ -1284,9 +1284,9 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
   {
     auto unique_acc = this->db->UniqueAccess();
     ASSERT_FALSE(unique_acc
-                     ->CreateTextIndex(memgraph::storage::TextIndexSpec{"text_index_with_properties",
-                                                                        this->db->storage()->NameToLabel("Person"),
-                                                                        {this->db->storage()->NameToProperty("name")}})
+                     ->CreateTextIndex(memgraph::storage::TextIndexSpec{
+                         "text_index_with_properties", this->db->storage()->NameToLabel("Person"),
+                         std::vector{this->db->storage()->NameToProperty("name")}})
                      .HasError());
     ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
   }
