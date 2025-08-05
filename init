@@ -89,16 +89,14 @@ fi
 # develop on them -> pre-commit hook not required -> we can use latest
 # packages.
 if [[ "$ci" == "false" ]]; then
-  if [ "${DISTRO}" != "centos-7" ] && [ "$DISTRO" != "debian-10" ] && [ "${DISTRO}" != "ubuntu-18.04" ] && [ "${DISTRO}" != "amzn-2" ]; then
-    python3 -m pip install --upgrade pip
-    python3 -m pip install pre-commit
-    python3 -m pre_commit install
-    # Install py format tools for usage during the development.
-    echo "Install black formatter"
-    python3 -m pip install black==23.1.*
-    echo "Install isort"
-    python3 -m pip install isort==5.12.*
-  fi
+  python3 -m pip install --upgrade pip
+  python3 -m pip install pre-commit
+  python3 -m pre_commit install
+  # Install py format tools for usage during the development.
+  echo "Install black formatter"
+  python3 -m pip install black==23.1.*
+  echo "Install isort"
+  python3 -m pip install isort==5.12.*
 fi
 
 # Link `include/mgp.py` with `release/mgp/mgp.py`
