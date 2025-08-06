@@ -503,7 +503,7 @@ package_memgraph() {
       # install much newer rpmlint than what ships with centos-10
       docker exec -u root "$build_container" bash -c "dnf remove -y rpmlint"
       docker exec -u root "$build_container" bash -c "pip install rpmlint==2.8.0 --user"
-      package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc_centos10' memgraph*.rpm "
+      package_command=" cpack -G RPM --config ../CPackConfig.cmake && /root/.local/bin/rpmlint --file='../../release/rpm/rpmlintrc_centos10' memgraph*.rpm "
   elif [[ "$os" =~ ^"fedora".* ]]; then
       docker exec -u root "$build_container" bash -c "yum -y update"
       package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc_fedora' memgraph*.rpm "
