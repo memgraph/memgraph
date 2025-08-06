@@ -33,7 +33,6 @@ endif(CCACHE_FOUND AND USE_CCACHE)
 
 project(memgraph LANGUAGES C CXX)
 
-message(STATUS "MG_TOOLCHAIN_ROOT = ${MG_TOOLCHAIN_ROOT}")
 if (NOT MG_TOOLCHAIN_ROOT)
     # This is used to so that 3rd party libs can find the
     # correct libraries from our toolchain
@@ -225,8 +224,8 @@ link_directories("${MG_TOOLCHAIN_ROOT}/lib")
 
 # After linker is set, check we can use link-time optimization
 cmake_policy(SET CMP0138 NEW)
-include(CheckIPOSupported)
-check_ipo_supported() # fatal error if IPO is not supported
+# include(CheckIPOSupported)
+# check_ipo_supported() # fatal error if IPO is not supported
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_Release TRUE)
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo TRUE)
 
@@ -388,7 +387,7 @@ set(libs_dir ${CMAKE_SOURCE_DIR}/libs)
 add_subdirectory(libs EXCLUDE_FROM_ALL)
 
 set(MG_PYTHON_VERSION "3.12.9" CACHE STRING "Specify the exact Python version used by the query modules")
-set(MG_PYTHON_PATH "${MG_TOOLCHAIN_ROOT}/bin/python3.12" CACHE STRING "Specify the exact Python path used by the query modules")
+set(MG_PYTHON_PATH "${MG_TOOLCHAIN_ROOT}" CACHE STRING "Specify the exact Python path used by the query modules")
 
 # Add subprojects
 include_directories(src)
@@ -426,7 +425,6 @@ if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
         generate_opencypher_parser
         mgcxx-proj
         librdkafka-proj
-        antlr4-proj
         librdtsc-proj
         pulsar-proj
     )
@@ -436,7 +434,6 @@ else()
       generate_opencypher_parser
       mgcxx-proj
       librdkafka-proj
-      antlr4-proj
       librdtsc-proj
       pulsar-proj
   )
