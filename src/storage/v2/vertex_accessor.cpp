@@ -705,7 +705,6 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::PropertiesByProperty
       }) |
       r::to<std::map<PropertyId, PropertyValue>>();
 
-  // TODO: this can be refactored to avoid code duplication with
   // Checking cache has a cost, only do it if we have any deltas
   // if we have no deltas then what we already have from the vertex is correct.
   if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {

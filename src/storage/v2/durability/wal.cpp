@@ -1118,7 +1118,7 @@ std::optional<RecoveryInfo> LoadWal(
       },
       [&](WalTextIndexCreate const &data) {
         auto label = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        auto prop_ids = (data.properties && !data.properties->empty())
+        auto prop_ids = data.properties && !data.properties->empty()
                             ? std::make_optional(*data.properties | rv::transform([&](const auto &prop_name) {
                                 return PropertyId::FromUint(name_id_mapper->NameToId(prop_name));
                               }) | r::to_vector)

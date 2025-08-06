@@ -176,7 +176,7 @@ void TextIndex::CreateIndex(const TextIndexSpec &index_info, storage::VerticesIt
       continue;
     }
     // If properties are specified, we serialize only those properties; otherwise, all properties of the vertex.
-    auto vertex_properties = index_info.properties_.has_value() && !index_info.properties_->empty()
+    auto vertex_properties = index_info.properties_ && !index_info.properties_->empty()
                                  ? v.PropertiesByPropertyIds(*index_info.properties_, View::NEW).GetValue()
                                  : v.Properties(View::NEW).GetValue();
     AddNodeToTextIndex(v.Gid().AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
