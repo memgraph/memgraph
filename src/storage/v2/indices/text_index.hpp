@@ -31,12 +31,12 @@ struct TextIndexData {
   // operations. Underlying Tantivy IndexWriter requires unique lock for commit and rollback
   // operations and shared lock for add_document and remove_document operations.
   // TODO(@DavIvek): Better approach would be to add locking on mgcxx side.
-  utils::Synchronized<mgcxx::text_search::Context, std::shared_mutex> synchronized_context_;
+  utils::Synchronized<mgcxx::text_search::Context, std::shared_mutex> context_;
   LabelId scope_;
   std::optional<std::vector<PropertyId>> properties_;
 
   TextIndexData(mgcxx::text_search::Context context, LabelId scope, std::optional<std::vector<PropertyId>> properties)
-      : synchronized_context_(std::move(context)), scope_(scope), properties_(std::move(properties)) {}
+      : context_(std::move(context)), scope_(scope), properties_(std::move(properties)) {}
 };
 
 class TextIndex {
