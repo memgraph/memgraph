@@ -306,13 +306,13 @@ setup_host_ccache_permissions() {
     mkdir -p ~/.cache/ccache
 
     # Set open permissions on the parent .cache directory to allow other tools to create subdirectories
-    chmod 777 ~/.cache || true
+    chmod -R a+rwX ~/.cache || true
 
-    # Set open permissions to allow container access without ownership changes
-    # This works in CI environments where we can't change ownership
-    chmod 777 ~/.cache/ccache || true
+    # # Set open permissions to allow container access without ownership changes
+    # # This works in CI environments where we can't change ownership
+    # chmod 777 ~/.cache/ccache || true
 
-    echo "Host cache directory permissions set to 777 (open access)"
+    echo "Host cache directory permissions set to a+rwX (open access)"
   fi
 }
 
@@ -1114,7 +1114,7 @@ case $command in
         # Set cache directory permissions for cross-container access
         echo "Setting cache directory permissions for cross-container access..."
         docker exec -u root $build_container bash -c "
-          chmod -R 777 /home/mg/.cache/ccache
+          chmod -R a+rwX /home/mg/.cache/ccache
           echo 'Cache directory permissions set for cross-container access'
         "
       fi
