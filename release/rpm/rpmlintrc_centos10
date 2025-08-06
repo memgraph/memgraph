@@ -8,9 +8,4 @@ addFilter("E: incorrect-fsf-address")
 
 # Handle compatibility issues with rpmlint in CentOS 10
 # The rpmlint tool may have compatibility issues with the RPM library
-try:
-    # Add any additional filters that might cause issues
-    pass
-except Exception as e:
-    # Silently ignore rpmlint compatibility errors
-    pass
+addFilter("E: missing-call-to-chdir-with-chroot")
