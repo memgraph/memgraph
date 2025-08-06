@@ -3910,7 +3910,7 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
       text_index_query->properties_
           ? std::make_optional(*text_index_query->properties_ | rv::transform([&](const auto &property) {
               return storage->NameToProperty(property.name);
-            }) | ranges::to_vector)
+            }) | r::to_vector)
           : std::nullopt;
 
   Notification index_notification(SeverityLevel::INFO);

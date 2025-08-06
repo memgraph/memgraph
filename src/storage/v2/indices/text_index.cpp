@@ -23,10 +23,6 @@ namespace r = ranges;
 namespace rv = r::views;
 namespace memgraph::storage {
 
-inline std::string TextIndex::MakeIndexPath(std::string_view index_name) const {
-  return (text_index_storage_dir_ / index_name).string();
-}
-
 void TextIndex::CreateTantivyIndex(const std::string &index_path, const TextIndexSpec &index_info) {
   try {
     nlohmann::json mappings = {};
@@ -59,7 +55,8 @@ std::vector<TextIndexData *> TextIndex::GetApplicableTextIndices(std::span<stora
   };
 
   auto matches_property = [&](const auto &text_index_data) {
-    if (!text_index_data.properties_) {
+    if (!text_index_data.properties_ ||
+        text_index_data.properties_->empty()) {  // If no properties are specified, all properties match
       return true;
     }
     return r::any_of(properties,
@@ -171,7 +168,7 @@ void TextIndex::RemoveNode(Vertex *vertex_after_update, std::span<TextIndexData 
 
 void TextIndex::CreateIndex(const TextIndexSpec &index_info, storage::VerticesIterable vertices,
                             NameIdMapper *name_id_mapper) {
-  CreateTantivyIndex(MakeIndexPath(index_info.index_name_),
+  CreateTantivyIndex(MakeIndexPath(text_index_storage_dir_, index_info.index_name_),
                      {index_info.index_name_, index_info.label_, index_info.properties_});
 
   for (const auto &v : vertices) {
@@ -189,7 +186,7 @@ void TextIndex::CreateIndex(const TextIndexSpec &index_info, storage::VerticesIt
 
 void TextIndex::RecoverIndex(const TextIndexSpec &index_info,
                              std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  CreateTantivyIndex(MakeIndexPath(index_info.index_name_), index_info);
+  CreateTantivyIndex(MakeIndexPath(text_index_storage_dir_, index_info.index_name_), index_info);
   if (snapshot_info) {
     snapshot_info->Update(UpdateType::TEXT_IDX);
   }
@@ -201,7 +198,7 @@ void TextIndex::DropIndex(const std::string &index_name) {
   }
   try {
     index_.erase(index_name);
-    mgcxx::text_search::drop_index(MakeIndexPath(index_name));
+    mgcxx::text_search::drop_index(MakeIndexPath(text_index_storage_dir_, index_name));
   } catch (const std::exception &e) {
     throw query::TextSearchException("Tantivy error: {}", e.what());
   }

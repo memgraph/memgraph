@@ -43,8 +43,6 @@ class TextIndex {
  private:
   std::filesystem::path text_index_storage_dir_;
 
-  inline std::string MakeIndexPath(std::string_view index_name) const;
-
   void CreateTantivyIndex(const std::string &index_path, const TextIndexSpec &index_info);
 
   std::vector<TextIndexData *> GetApplicableTextIndices(std::span<storage::LabelId const> labels,

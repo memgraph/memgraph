@@ -6832,12 +6832,15 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
         if (!label) throw RecoveryFailure("Couldn't read text index label!");
         auto n_props = snapshot.ReadUint();
         if (!n_props) throw RecoveryFailure("Couldn't read text index properties size!");
-        std::vector<PropertyId> properties;
-        properties.reserve(*n_props);
-        for (uint64_t j = 0; j < *n_props; ++j) {
-          auto property = snapshot.ReadUint();
-          if (!property) throw RecoveryFailure("Couldn't read text index property!");
-          properties.emplace_back(get_property_from_id(*property));
+        std::optional<std::vector<PropertyId>> properties;
+        if (*n_props > 0) {
+          properties = std::vector<PropertyId>{};
+          properties->reserve(*n_props);
+          for (uint64_t j = 0; j < *n_props; ++j) {
+            auto property = snapshot.ReadUint();
+            if (!property) throw RecoveryFailure("Couldn't read text index property!");
+            properties->emplace_back(get_property_from_id(*property));
+          }
         }
         AddRecoveredIndexConstraint(&indices_constraints.indices.text_indices,
                                     TextIndexSpec{index_name.value(), get_label_from_id(*label), std::move(properties)},

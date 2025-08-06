@@ -1121,10 +1121,11 @@ std::optional<RecoveryInfo> LoadWal(
       },
       [&](WalTextIndexCreate const &data) {
         auto label = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        auto prop_ids = data.properties ? *data.properties | rv::transform([&](const auto &prop) {
-          return PropertyId::FromUint(name_id_mapper->NameToId(prop));
-        }) | r::to<std::vector<PropertyId>>()
-                                        : std::vector<PropertyId>{};
+        auto prop_ids = (data.properties && !data.properties->empty())
+                            ? std::make_optional(*data.properties | rv::transform([&](const auto &prop_name) {
+                                return PropertyId::FromUint(name_id_mapper->NameToId(prop_name));
+                              }) | r::to_vector)
+                            : std::nullopt;
         AddRecoveredIndexConstraint(&indices_constraints->indices.text_indices,
                                     TextIndexSpec{data.index_name, label, std::move(prop_ids)},
                                     "The text index already exists!");

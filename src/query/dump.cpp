@@ -328,7 +328,7 @@ void DumpTextIndex(std::ostream *os, query::DbAccessor *dba, const storage::Text
   *os << "CREATE TEXT INDEX " << EscapeName(text_index.index_name_)
       << " ON :" << EscapeName(dba->LabelToName(text_index.label_));
 
-  if (text_index.properties_) {
+  if (text_index.properties_ && !text_index.properties_->empty()) {
     auto prop_names = *text_index.properties_ |
                       rv::transform([&](auto property_id) { return EscapeName(dba->PropertyToName(property_id)); }) |
                       rv::join(", "sv) | r::to<std::string>();
