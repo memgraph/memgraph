@@ -4,7 +4,7 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
 # TODO(gitbuda): Rocky gets automatically updates -> figure out how to handle it.
-check_operating_system "rocky-9"
+check_operating_system "rocky-10"
 check_architecture "x86_64"
 
 TOOLCHAIN_BUILD_DEPS=(
@@ -14,16 +14,12 @@ TOOLCHAIN_BUILD_DEPS=(
     libcurl-devel # cmake build requires it
     gnupg2 # used for archive signature verification
     tar gzip bzip2 xz unzip # used for archive unpacking
-    zlib-devel # zlib library used for all builds
-    expat-devel xz-devel python3-devel perl-Unicode-EastAsianWidth texinfo libbabeltrace-devel # for gdb
+    zlib-ng-compat-devel # zlib library used for all builds
+    expat-devel xz-devel python3-devel texinfo libbabeltrace-devel # for gdb
     readline-devel # for cmake and llvm
     libffi-devel libxml2-devel # for llvm
-    libedit-devel pcre-devel pcre2-devel automake bison # for swig
-    file
-    openssl-devel
-    gmp-devel
-    gperf
-    diffutils
+    libedit-devel pcre2-devel automake bison # for swig
+    file gmp-devel gperf diffutils
     libipt libipt-devel # intel
     patch
     custom-rust # for mgcxx
@@ -35,7 +31,7 @@ TOOLCHAIN_BUILD_DEPS=(
 TOOLCHAIN_RUN_DEPS=(
     make # generic build tools
     tar gzip bzip2 xz # used for archive unpacking
-    zlib # zlib library used for all builds
+    zlib-ng-compat # zlib library used for all builds
     expat xz-libs python3 # for gdb
     readline # for cmake and llvm
     libffi libxml2 # for llvm
@@ -47,22 +43,22 @@ MEMGRAPH_BUILD_DEPS=(
     git # source code control
     make cmake pkgconf-pkg-config # build system
     wget # for downloading libs
-    libuuid-devel java-11-openjdk # required by antlr
+    libuuid-devel java-21-openjdk-headless java-21-openjdk java-21-openjdk-devel # required by antlr
     readline-devel # for memgraph console
     python3-devel # for query modules
     openssl-devel
     libseccomp-devel
     python3 python3-pip python3-virtualenv nmap-ncat # for qa, macro_benchmark and stress tests
     #
-    # IMPORTANT: python3-yaml does NOT exist on CentOS
+    # IMPORTANT: python3-yaml does NOT exist on Rocky
     # Install it manually using `pip3 install PyYAML`
     #
-    PyYAML # Package name here does not correspond to the yum package!
+    PyYAML # Package name here does not correspond to the dnf package!
     libcurl-devel # mg-requests
     rpm-build rpmlint # for RPM package building
     doxygen graphviz # source documentation generators
     which nodejs golang custom-golang1.18.9 # for driver tests
-    zip unzip java-11-openjdk-devel java-17-openjdk java-17-openjdk-devel custom-maven3.9.3 # for driver tests
+    zip unzip custom-maven3.9.3 # for driver tests
     cl-asdf common-lisp-controller sbcl # for custom Lisp C++ preprocessing
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
@@ -106,7 +102,7 @@ check() {
 
     # Check standard packages with Python script
     if [ ${#standard_packages[@]} -gt 0 ]; then
-        missing=$(python3 "$DIR/check-packages.py" "check" "rocky-9" "${standard_packages[@]}")
+        missing=$(python3 "$DIR/check-packages.py" "check" "rocky-10" "${standard_packages[@]}")
     fi
 
     # Check custom packages with bash logic
@@ -188,10 +184,6 @@ install() {
     dnf config-manager --set-enabled devel
     sudo dnf install -y epel-release
 
-
-    # Try to install SBCL from standard repositories first
-    # If not available, we'll handle it in the custom package logic
-
     dnf update -y
     dnf install -y wget git python3 python3-pip
 
@@ -212,7 +204,7 @@ install() {
 
     # Install standard packages with Python script
     if [ ${#standard_packages[@]} -gt 0 ]; then
-        if ! python3 "$DIR/check-packages.py" "install" "rocky-9" "${standard_packages[@]}"; then
+        if ! python3 "$DIR/check-packages.py" "install" "rocky-10" "${standard_packages[@]}"; then
             echo "Failed to install standard packages"
             exit 1
         fi
