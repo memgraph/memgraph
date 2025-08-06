@@ -4084,15 +4084,13 @@ SetProperties::SetPropertiesCursor::SetPropertiesCursor(const SetProperties &sel
 namespace {
 
 template <typename T>
-concept AccessorWithProperties =
-    requires(T value, storage::PropertyId property_id, storage::PropertyValue property_value,
-             std::map<storage::PropertyId, storage::PropertyValue> properties) {
-      {
-        value.ClearProperties()
-      } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
-      { value.SetProperty(property_id, property_value) };
-      { value.UpdateProperties(properties) };
-    };
+concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
+                                          storage::PropertyValue property_value,
+                                          std::map<storage::PropertyId, storage::PropertyValue> properties) {
+  { value.ClearProperties() } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
+  {value.SetProperty(property_id, property_value)};
+  {value.UpdateProperties(properties)};
+};
 
 /// Helper function that sets the given values on either a Vertex or an Edge.
 ///
@@ -5129,7 +5127,7 @@ class AggregateCursor : public Cursor {
           value_it->ValueMap().emplace(key.ValueString(), std::move(input_value));
           break;
       }  // end switch over Aggregation::Op enum
-    }  // end loop over all aggregations
+    }    // end loop over all aggregations
   }
 
   /** Project a subgraph from lists of nodes and lists of edges. Any nulls in these lists are ignored.
@@ -5411,8 +5409,9 @@ class OrderByCursor : public Cursor {
       // sorting with range zip
       // we compare on just the projection of the 1st range (order_by)
       // this will also permute the 2nd range (output)
-      ranges::sort(rv::zip(order_by, output), self_.compare_.lex_cmp(),
-                   [](auto const &value) -> auto const & { return std::get<0>(value); });
+      ranges::sort(
+          rv::zip(order_by, output), self_.compare_.lex_cmp(),
+          [](auto const &value) -> auto const & { return std::get<0>(value); });
 
       // no longer need the order_by terms
       order_by.clear();
@@ -7101,10 +7100,11 @@ std::string HashJoin::ToString() const {
 
 RollUpApply::RollUpApply(std::shared_ptr<LogicalOperator> &&input,
                          std::shared_ptr<LogicalOperator> &&list_collection_branch,
-                         const std::vector<Symbol> &list_collection_symbols, Symbol result_symbol)
+                         const std::vector<Symbol> &list_collection_symbols, Symbol result_symbol, bool pass_input)
     : input_(std::move(input)),
       list_collection_branch_(std::move(list_collection_branch)),
-      result_symbol_(std::move(result_symbol)) {
+      result_symbol_(std::move(result_symbol)),
+      pass_input_(pass_input) {
   if (list_collection_symbols.size() != 1) {
     throw QueryRuntimeException("RollUpApply: list_collection_symbols must be of size 1! Please contact support.");
   }
@@ -7146,7 +7146,7 @@ class RollUpApplyCursor : public Cursor {
     AbortCheck(context);
 
     TypedValue result(std::vector<TypedValue>(), context.evaluation_context.memory);
-    if (input_cursor_->Pull(frame, context)) {
+    if (input_cursor_->Pull(frame, context) || self_.pass_input_) {
       while (list_collection_cursor_->Pull(frame, context)) {
         // collect values from the list collection branch
         result.ValueList().emplace_back(frame[self_.list_collection_symbol_]);

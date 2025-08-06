@@ -705,7 +705,7 @@ class RuleBasedPlanner {
 
   std::unique_ptr<LogicalOperator> GenerateExpansionOnAlreadySeenSymbols(
       std::unique_ptr<LogicalOperator> last_op, const Matching &matching,
-      std::set<ExpansionGroupId> &visited_expansion_groups, SymbolTable symbol_table, AstStorage &storage,
+      std::set<ExpansionGroupId> &visited_expansion_groups, const SymbolTable symbol_table, AstStorage &storage,
       std::unordered_set<Symbol> &bound_symbols, std::vector<Symbol> &new_symbols,
       std::unordered_map<Symbol, std::vector<Symbol>> &named_paths, Filters &filters, storage::View view) {
     bool added_new_expansions = true;
@@ -1027,7 +1027,7 @@ class RuleBasedPlanner {
   }
 
   std::unique_ptr<LogicalOperator> GenFilters(std::unique_ptr<LogicalOperator> last_op,
-                                              const std::unordered_set<Symbol> &bound_symbols, Filters &filters,
+                                              std::unordered_set<Symbol> &bound_symbols, Filters &filters,
                                               AstStorage &storage, const SymbolTable &symbol_table) {
     auto pattern_filters = ExtractPatternFilters(filters, symbol_table, storage, bound_symbols);
     auto *filter_expr = impl::ExtractFilters(bound_symbols, filters, storage);
@@ -1060,23 +1060,42 @@ class RuleBasedPlanner {
                                named_paths, filters, storage::View::OLD);
 
     last_op = std::make_unique<Limit>(std::move(last_op), storage.Create<PrimitiveLiteral>(1));
-
     last_op = std::make_unique<EvaluatePatternFilter>(std::move(last_op), matching.symbol.value());
+
+    return last_op;
+  }
+
+  std::unique_ptr<LogicalOperator> MakePatternComprehensionFilter(const PatternComprehensionMatching &matching,
+                                                                  const SymbolTable &symbol_table, AstStorage &storage,
+                                                                  std::unordered_set<Symbol> &bound_symbols) {
+    std::vector<Symbol> once_symbols(bound_symbols.begin(), bound_symbols.end());
+    std::unique_ptr<LogicalOperator> last_op = std::make_unique<Once>(once_symbols);
+
+    auto filters = matching.filters;
+    std::vector<Symbol> new_symbols;
+    std::unordered_map<Symbol, std::vector<Symbol>> named_paths;
+
+    last_op = HandleExpansions(std::move(last_op), matching, symbol_table, storage, bound_symbols, new_symbols,
+                               named_paths, filters, storage::View::OLD);
+    last_op = std::make_unique<Produce>(std::move(last_op), std::vector{matching.result_expr});
+    auto list_collection_symbols = last_op->ModifiedSymbols(symbol_table);
+    last_op = std::make_unique<RollUpApply>(std::make_unique<Once>(), std::move(last_op), list_collection_symbols,
+                                            matching.result_symbol, true);
 
     return last_op;
   }
 
   std::vector<std::shared_ptr<LogicalOperator>> ExtractPatternFilters(Filters &filters, const SymbolTable &symbol_table,
                                                                       AstStorage &storage,
-                                                                      const std::unordered_set<Symbol> &bound_symbols) {
+                                                                      std::unordered_set<Symbol> &bound_symbols) {
     std::vector<std::shared_ptr<LogicalOperator>> operators;
 
     for (const auto &filter : filters) {
-      for (const auto &matching : filter.matchings) {
-        if (!impl::HasBoundFilterSymbols(bound_symbols, filter)) {
-          continue;
-        }
+      if (!impl::HasBoundFilterSymbols(bound_symbols, filter)) {
+        continue;
+      }
 
+      for (const auto &matching : filter.matchings) {
         switch (matching.type) {
           case PatternFilterType::EXISTS_PATTERN: {
             operators.push_back(MakeExistsFilter(matching, symbol_table, storage, bound_symbols));
@@ -1108,6 +1127,10 @@ class RuleBasedPlanner {
             break;
           }
         }
+      }
+
+      for (const auto &matching : filter.pattern_comprehension_matchings) {
+        operators.push_back(MakePatternComprehensionFilter(matching, symbol_table, storage, bound_symbols));
       }
     }
 
