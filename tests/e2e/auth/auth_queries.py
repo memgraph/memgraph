@@ -638,6 +638,8 @@ def test_show_databases_for_user_and_role(memgraph):
     memgraph.execute("DROP DATABASE db1;")
     memgraph.execute("DROP DATABASE db2;")
     memgraph.execute("DROP DATABASE db3;")
+
+
 def test_user_profiles(memgraph):
     try:
         list(memgraph.execute_and_fetch("CREATE PROFILE profile;"))
@@ -773,12 +775,18 @@ def test_user_profiles(memgraph):
 
     memgraph.execute("DROP USER bcrypt;")
     results = list(memgraph.execute_and_fetch("SHOW USERS FOR PROFILE Profile;"))
-    assert len(results) == 0
+    assert len(results) == 1  # bcrypt is still in the profile
+    assert {"user": "bcrypt"} in results
     results = list(memgraph.execute_and_fetch("SHOW USERS FOR PROFILE profile2;"))
     assert len(results) == 0
 
-    with pytest.raises(Exception):
-        memgraph.execute("SET PROFILE FOR non_user TO profile;")
+    # auth users and profile maps have been made independent of each other
+    memgraph.execute("SET PROFILE FOR non_user TO Profile;")
+    results = list(memgraph.execute_and_fetch("SHOW USERS FOR PROFILE Profile;"))
+    assert len(results) == 2
+    assert {"user": "bcrypt"} in results
+    assert {"user": "non_user"} in results
+
     with pytest.raises(Exception):
         memgraph.execute("SET PROFILE FOR user TO non_profile;")
 
