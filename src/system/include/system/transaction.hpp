@@ -105,7 +105,8 @@ struct DoReplication {
 
     for (auto &client : main_data_.registered_replicas_) {
       bool completed = action.DoReplication(client, main_data_.uuid_, main_data_.epoch_, system_tx);
-      if (!completed && client.mode_ == replication_coordination_glue::ReplicationMode::SYNC) {
+      if (!completed && (client.mode_ == replication_coordination_glue::ReplicationMode::SYNC ||
+                         client.mode_ == replication_coordination_glue::ReplicationMode::STRICT_SYNC)) {
         sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
       }
     }

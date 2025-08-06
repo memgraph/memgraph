@@ -137,6 +137,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
+          --no-ccache \
           run
 
       - name: Build coverage binaries
@@ -147,7 +148,7 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --threads $THREADS \
-          build-memgraph --coverage
+          build-memgraph --coverage --no-ccache
 
       - name: Run unit tests
         run: |
@@ -182,6 +183,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
+          --no-ccache \
           stop --remove
 
   debug_build:
