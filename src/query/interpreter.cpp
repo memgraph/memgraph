@@ -4759,7 +4759,8 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
   callback.header = {"path"};
   callback.fn = [storage, replication_role]() mutable -> std::vector<std::vector<TypedValue>> {
     auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
-    const auto maybe_path = mem_storage->CreateSnapshot(replication_role);
+    constexpr bool kForce = true;
+    const auto maybe_path = mem_storage->CreateSnapshot(replication_role, kForce);
     if (maybe_path.HasError()) {
       switch (maybe_path.GetError()) {
         case storage::InMemoryStorage::CreateSnapshotError::DisabledForReplica:

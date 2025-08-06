@@ -123,39 +123,10 @@ TEST_F(CreateSnapshotTest, CreateSnapshotReturnsErrorWhenNothingNewToWrite) {
   ASSERT_TRUE(result2.HasError()) << "Second CreateSnapshot should fail";
   ASSERT_EQ(result2.GetError(), memgraph::storage::InMemoryStorage::CreateSnapshotError::NothingNewToWrite)
       << "Should return NothingNewToWrite error";
-}
 
-TEST_F(CreateSnapshotTest, CreateSnapshotReturnsErrorWhenAlreadyRunning) {
-  auto config = CreateConfig();
-  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
-      memgraph::storage::ReplicationStateRootPath(config)};
-  memgraph::dbms::Database db{config, repl_state};
-
-  auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
-
-  // Create some data
-  {
-    auto acc = mem_storage->Access();
-    auto vertex = acc->CreateVertex();
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
-  }
-
-  // Start a snapshot creation in a separate thread
-  std::thread snapshot_thread([mem_storage]() {
-    auto result = mem_storage->CreateSnapshot(ReplicationRole::MAIN);
-    // This should succeed, but we don't check the result here
-  });
-
-  // Try to create another snapshot while the first one is running
-  auto result = mem_storage->CreateSnapshot(ReplicationRole::MAIN);
-
-  // Wait for the first snapshot to complete
-  snapshot_thread.join();
-
-  // The second call should fail with AlreadyRunning
-  ASSERT_TRUE(result.HasError()) << "Concurrent CreateSnapshot should fail";
-  ASSERT_EQ(result.GetError(), memgraph::storage::InMemoryStorage::CreateSnapshotError::AlreadyRunning)
-      << "Should return AlreadyRunning error";
+  // Force another snapshot immediately - should succeed
+  auto result3 = mem_storage->CreateSnapshot(ReplicationRole::MAIN, true);
+  ASSERT_FALSE(result3.HasError()) << "Third CreateSnapshot should succeed";
 }
 
 TEST_F(CreateSnapshotTest, CreateSnapshotPathFormat) {

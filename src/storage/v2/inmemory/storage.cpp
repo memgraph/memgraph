@@ -2809,7 +2809,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
 }
 
 utils::BasicResult<InMemoryStorage::CreateSnapshotError, std::filesystem::path> InMemoryStorage::CreateSnapshot(
-    memgraph::replication_coordination_glue::ReplicationRole replication_role) {
+    memgraph::replication_coordination_glue::ReplicationRole replication_role, bool force) {
   using memgraph::replication_coordination_glue::ReplicationRole;
   if (replication_role == ReplicationRole::REPLICA) {
     return CreateSnapshotError::DisabledForReplica;
@@ -2856,7 +2856,7 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError, std::filesystem::path> 
   // In memory analytical doesn't update last_durable_ts so digest isn't valid
   if (transaction->storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL) {
     auto current_digest = SnapshotDigest{epoch, epochHistory, storage_uuid, *transaction->last_durable_ts_};
-    if (last_snapshot_digest_ == current_digest) return CreateSnapshotError::NothingNewToWrite;
+    if (!force && last_snapshot_digest_ == current_digest) return CreateSnapshotError::NothingNewToWrite;
     last_snapshot_digest_ = std::move(current_digest);
   }
 
