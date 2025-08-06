@@ -161,44 +161,6 @@ install() {
         echo "NOTE: export LANG=en_US.utf8"
     fi
 
-<<<<<<< HEAD
-    for pkg in $1; do
-        if [ "$pkg" == custom-maven3.9.3 ]; then
-            install_custom_maven "3.9.3"
-            continue
-        fi
-        if [ "$pkg" == custom-golang1.18.9 ]; then
-            install_custom_golang "1.18.9"
-            continue
-        fi
-        if [ "$pkg" == dotnet-sdk-6.0 ]; then
-            if ! dpkg -s dotnet-sdk-6.0 2>/dev/null >/dev/null; then
-                wget -nv https://packages.microsoft.com/config/ubuntu/22.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
-                dpkg -i packages-microsoft-prod.deb
-                apt-get update
-                apt-get install -y apt-transport-https dotnet-sdk-6.0
-            fi
-            continue
-        fi
-        if [ "$pkg" == openjdk-17-jdk-headless ]; then
-            if ! dpkg -s "$pkg" 2>/dev/null >/dev/null; then
-                apt install -y "$pkg"
-                # The default Java version should be Java 11
-                update-alternatives --set java /usr/lib/jvm/java-11-openjdk-amd64/bin/java
-                update-alternatives --set javac /usr/lib/jvm/java-11-openjdk-amd64/bin/javac
-            fi
-            continue
-        fi
-        if [ "$pkg" == custom-rust ]; then
-            install_rust "1.80"
-            continue
-        fi
-        if [ "$pkg" == custom-node ]; then
-            install_node "20"
-            continue
-        fi
-        apt install -y "$pkg"
-=======
     # Separate standard and custom packages
     local standard_packages=()
     local custom_packages=()
@@ -212,7 +174,6 @@ install() {
                 standard_packages+=("$pkg")
                 ;;
         esac
->>>>>>> 450533162 (updated os scripts)
     done
 
     # Install standard packages with Python script
