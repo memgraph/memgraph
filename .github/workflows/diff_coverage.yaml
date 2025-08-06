@@ -60,6 +60,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
+          --no-ccache \
           run
 
       # This is also needed if we want do to comparison against other branches
@@ -82,6 +83,7 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --no-ccache \
           build-memgraph --init-only
 
       - name: Run python code analysis
@@ -101,6 +103,7 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --no-ccache \
           build-memgraph --coverage --asan --ubsan
 
       - name: Run unit tests
@@ -137,6 +140,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
+          --no-ccache \
           stop --remove
 
   clang-tidy-community:
@@ -162,6 +166,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
+          --no-ccache \
           run
 
       - name: Set base branch
@@ -179,6 +184,7 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --no-ccache \
           build-memgraph --cmake-only --community
 
       - name: Run clang-tidy
@@ -198,6 +204,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
+          --no-ccache \
           stop --remove
 
   clang-tidy-enterprise:
@@ -223,6 +230,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
+          --no-ccache \
           run
 
       - name: Set base branch
@@ -240,6 +248,7 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
+          --no-ccache \
           build-memgraph --cmake-only
 
       - name: Run clang-tidy
@@ -259,4 +268,5 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
+          --no-ccache \
           stop --remove
