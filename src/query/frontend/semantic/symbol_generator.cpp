@@ -383,8 +383,11 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     }
   }
 
+  const bool is_in_pattern_comprehension_filter =
+      scope.in_pattern_comprehension && scopes_.size() > 1 && scopes_[scopes_.size() - 2].in_where;
+
   Symbol symbol;
-  if (scope.in_exists_subquery && (scope.visiting_edge || scope.in_node_atom)) {
+  if ((scope.in_exists_subquery || is_in_pattern_comprehension_filter) && (scope.visiting_edge || scope.in_node_atom)) {
     auto has_symbol = HasSymbol(ident.name_);
     if (!has_symbol) {
       ident.user_declared_ = false;

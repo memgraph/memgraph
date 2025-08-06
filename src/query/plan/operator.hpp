@@ -2384,7 +2384,7 @@ class RollUpApply : public memgraph::query::plan::LogicalOperator {
 
   RollUpApply() = default;
   RollUpApply(std::shared_ptr<LogicalOperator> &&input, std::shared_ptr<LogicalOperator> &&list_collection_branch,
-              const std::vector<Symbol> &list_collection_symbols, Symbol result_symbol);
+              const std::vector<Symbol> &list_collection_symbols, Symbol result_symbol, bool pass_input = false);
 
   bool HasSingleInput() const override { return false; }
   std::shared_ptr<LogicalOperator> input() const override { return input_; }
@@ -2400,6 +2400,7 @@ class RollUpApply : public memgraph::query::plan::LogicalOperator {
   std::shared_ptr<memgraph::query::plan::LogicalOperator> list_collection_branch_;
   Symbol result_symbol_;
   Symbol list_collection_symbol_;
+  bool pass_input_{false};
 };
 
 class PeriodicCommit : public memgraph::query::plan::LogicalOperator {

@@ -84,14 +84,18 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   }
 
   bool Visit(Identifier &ident) override {
-    if (ident.user_declared_) {
+    const bool is_ordinary_flow = !in_exists && !in_pattern_comprehension;
+    if (is_ordinary_flow) {
+      symbols_.insert(symbol_table_.at(ident));
+    } else if (ident.user_declared_) {
       symbols_.insert(symbol_table_.at(ident));
     }
-
     return true;
   }
 
   bool PreVisit(Exists &exists) override {
+    in_exists = true;
+
     if (exists.HasPattern()) {
       // We do not visit pattern identifier since we're in exists filter pattern
       for (auto &atom : exists.GetPattern()->atoms_) {
@@ -120,12 +124,33 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
     return false;
   }
 
+  bool PostVisit(Exists & /*exists*/) override {
+    in_exists = false;
+    return true;
+  }
+
+  bool PreVisit(PatternComprehension &pc) override {
+    in_pattern_comprehension = true;
+    pc.pattern_->Accept(*this);
+
+    return false;
+  }
+
+  bool PostVisit(PatternComprehension & /*pc*/) override {
+    in_pattern_comprehension = false;
+    return true;
+  }
+
   bool Visit(PrimitiveLiteral &) override { return true; }
   bool Visit(ParameterLookup &) override { return true; }
   bool Visit(EnumValueAccess &) override { return true; }
 
   std::unordered_set<Symbol> symbols_;
   const SymbolTable &symbol_table_;
+
+ private:
+  bool in_exists{false};
+  bool in_pattern_comprehension{false};
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)

@@ -1080,7 +1080,7 @@ class RuleBasedPlanner {
     last_op = std::make_unique<Produce>(std::move(last_op), std::vector{matching.result_expr});
     auto list_collection_symbols = last_op->ModifiedSymbols(symbol_table);
     last_op = std::make_unique<RollUpApply>(std::make_unique<Once>(), std::move(last_op), list_collection_symbols,
-                                            matching.result_symbol);
+                                            matching.result_symbol, true);
 
     return last_op;
   }
@@ -1091,11 +1091,11 @@ class RuleBasedPlanner {
     std::vector<std::shared_ptr<LogicalOperator>> operators;
 
     for (const auto &filter : filters) {
-      for (const auto &matching : filter.matchings) {
-        if (!impl::HasBoundFilterSymbols(bound_symbols, filter)) {
-          continue;
-        }
+      if (!impl::HasBoundFilterSymbols(bound_symbols, filter)) {
+        continue;
+      }
 
+      for (const auto &matching : filter.matchings) {
         switch (matching.type) {
           case PatternFilterType::EXISTS_PATTERN: {
             operators.push_back(MakeExistsFilter(matching, symbol_table, storage, bound_symbols));
