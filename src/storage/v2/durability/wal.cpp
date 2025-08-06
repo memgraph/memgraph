@@ -844,27 +844,27 @@ std::optional<RecoveryInfo> LoadWal(
       [&](WalVertexCreate const &data) {
         auto [vertex, inserted] = vertex_acc.insert(Vertex{data.gid, nullptr});
         if (!inserted)
-          throw RecoveryFailure("The vertex must be inserted here! Current ldt is: {}", *ret->last_durable_timestamp);
+          throw RecoveryFailure("The vertex must be inserted here! Current ldt is: {}", ret->last_durable_timestamp);
         ret->next_vertex_id = std::max(ret->next_vertex_id, data.gid.AsUint() + 1);
         if (schema_info) schema_info->AddVertex(&*vertex);
       },
       [&](WalVertexDelete const &data) {
         const auto vertex = vertex_acc.find(data.gid);
         if (vertex == vertex_acc.end())
-          throw RecoveryFailure("The vertex doesn't exist! Current ldt is: {}", *ret->last_durable_timestamp);
+          throw RecoveryFailure("The vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
         if (!vertex->in_edges.empty() || !vertex->out_edges.empty())
           throw RecoveryFailure("The vertex can't be deleted because it still has edges!");
         if (!vertex_acc.remove(data.gid))
-          throw RecoveryFailure("The vertex must be removed here! Current ldt is: {}", *ret->last_durable_timestamp);
+          throw RecoveryFailure("The vertex must be removed here! Current ldt is: {}", ret->last_durable_timestamp);
         if (schema_info) schema_info->DeleteVertex(&*vertex);
       },
       [&](WalVertexAddLabel const &data) {
         const auto vertex = vertex_acc.find(data.gid);
         if (vertex == vertex_acc.end())
-          throw RecoveryFailure("The vertex doesn't exist! Current ldt is: {}", *ret->last_durable_timestamp);
+          throw RecoveryFailure("The vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
         const auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         if (r::contains(vertex->labels, label_id))
-          throw RecoveryFailure("The vertex already has the label! Current ldt is: {}", *ret->last_durable_timestamp);
+          throw RecoveryFailure("The vertex already has the label! Current ldt is: {}", ret->last_durable_timestamp);
         std::optional<utils::small_vector<LabelId>> old_labels{};
         if (schema_info) old_labels.emplace(vertex->labels);
         vertex->labels.push_back(label_id);
@@ -873,11 +873,11 @@ std::optional<RecoveryInfo> LoadWal(
       [&](WalVertexRemoveLabel const &data) {
         const auto vertex = vertex_acc.find(data.gid);
         if (vertex == vertex_acc.end())
-          throw RecoveryFailure("The vertex doesn't exist! Current ldt is: {}", *ret->last_durable_timestamp);
+          throw RecoveryFailure("The vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
         const auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         auto it = r::find(vertex->labels, label_id);
         if (it == vertex->labels.end())
-          throw RecoveryFailure("The vertex doesn't have the label! Current ldt is: {}", *ret->last_durable_timestamp);
+          throw RecoveryFailure("The vertex doesn't have the label! Current ldt is: {}", ret->last_durable_timestamp);
         std::optional<utils::small_vector<LabelId>> old_labels{};
         if (schema_info) old_labels.emplace(vertex->labels);
         std::swap(*it, vertex->labels.back());
@@ -887,7 +887,7 @@ std::optional<RecoveryInfo> LoadWal(
       [&](WalVertexSetProperty const &data) {
         const auto vertex = vertex_acc.find(data.gid);
         if (vertex == vertex_acc.end())
-          throw RecoveryFailure("The vertex doesn't exist! Current ldt is: {}", *ret->last_durable_timestamp);
+          throw RecoveryFailure("The vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
         auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
         const auto property_value = ToPropertyValue(data.value, name_id_mapper);
         if (schema_info) {
@@ -899,17 +899,17 @@ std::optional<RecoveryInfo> LoadWal(
       [&](WalEdgeCreate const &data) {
         const auto from_vertex = vertex_acc.find(data.from_vertex);
         if (from_vertex == vertex_acc.end())
-          throw RecoveryFailure("The from vertex doesn't exist! Current ldt is: {}", *ret->last_durable_timestamp);
+          throw RecoveryFailure("The from vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
         const auto to_vertex = vertex_acc.find(data.to_vertex);
         if (to_vertex == vertex_acc.end())
-          throw RecoveryFailure("The to vertex doesn't exist! Current ldt is: {}", *ret->last_durable_timestamp);
+          throw RecoveryFailure("The to vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
 
         auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));
         auto edge_ref = std::invoke([&]() -> EdgeRef {
           if (items.properties_on_edges) {
             auto [edge, inserted] = edge_acc.insert(Edge{(data.gid), nullptr});
             if (!inserted)
-              throw RecoveryFailure("The edge must be inserted here! Current ldt is: {}", *ret->last_durable_timestamp);
+              throw RecoveryFailure("The edge must be inserted here! Current ldt is: {}", ret->last_durable_timestamp);
             return EdgeRef{&*edge};
           }
           return EdgeRef{data.gid};
@@ -917,12 +917,11 @@ std::optional<RecoveryInfo> LoadWal(
         auto out_link = std::tuple{edge_type_id, &*to_vertex, edge_ref};
         if (r::contains(from_vertex->out_edges, out_link))
           throw RecoveryFailure("The from vertex already has this edge! Current ldt is: {}",
-                                *ret->last_durable_timestamp);
+                                ret->last_durable_timestamp);
         from_vertex->out_edges.push_back(out_link);
         auto in_link = std::tuple{edge_type_id, &*from_vertex, edge_ref};
         if (r::contains(to_vertex->in_edges, in_link))
-          throw RecoveryFailure("The to vertex already has this edge! Current ldt is: {}",
-                                *ret->last_durable_timestamp);
+          throw RecoveryFailure("The to vertex already has this edge! Current ldt is: {}", ret->last_durable_timestamp);
         to_vertex->in_edges.push_back(in_link);
 
         ret->next_edge_id = std::max(ret->next_edge_id, data.gid.AsUint() + 1);
@@ -935,17 +934,17 @@ std::optional<RecoveryInfo> LoadWal(
       [&](WalEdgeDelete const &data) {
         const auto from_vertex = vertex_acc.find(data.from_vertex);
         if (from_vertex == vertex_acc.end())
-          throw RecoveryFailure("The from vertex doesn't exist! Current ldt is: {}", *ret->last_durable_timestamp);
+          throw RecoveryFailure("The from vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
         const auto to_vertex = vertex_acc.find(data.to_vertex);
         if (to_vertex == vertex_acc.end())
-          throw RecoveryFailure("The to vertex doesn't exist! Current ldt is: {}", *ret->last_durable_timestamp);
+          throw RecoveryFailure("The to vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
 
         auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));
         auto edge_ref = std::invoke([&]() -> EdgeRef {
           if (items.properties_on_edges) {
             auto edge = edge_acc.find(data.gid);
             if (edge == edge_acc.end())
-              throw RecoveryFailure("The edge doesn't exist! Current ldt is: {}", *ret->last_durable_timestamp);
+              throw RecoveryFailure("The edge doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
             return EdgeRef{&*edge};
           }
           return EdgeRef{data.gid};
@@ -956,7 +955,7 @@ std::optional<RecoveryInfo> LoadWal(
           auto it = r::find(from_vertex->out_edges, out_link);
           if (it == from_vertex->out_edges.end())
             throw RecoveryFailure("The from vertex doesn't have this edge! Current ldt is: {}",
-                                  *ret->last_durable_timestamp);
+                                  ret->last_durable_timestamp);
           std::swap(*it, from_vertex->out_edges.back());
           from_vertex->out_edges.pop_back();
         }
@@ -965,13 +964,13 @@ std::optional<RecoveryInfo> LoadWal(
           auto it = r::find(to_vertex->in_edges, in_link);
           if (it == to_vertex->in_edges.end())
             throw RecoveryFailure("The to vertex doesn't have this edge! Current ldt is: {}",
-                                  *ret->last_durable_timestamp);
+                                  ret->last_durable_timestamp);
           std::swap(*it, to_vertex->in_edges.back());
           to_vertex->in_edges.pop_back();
         }
         if (items.properties_on_edges) {
           if (!edge_acc.remove(data.gid))
-            throw RecoveryFailure("The edge must be removed here! Current ldt is: {}", *ret->last_durable_timestamp);
+            throw RecoveryFailure("The edge must be removed here! Current ldt is: {}", ret->last_durable_timestamp);
         }
 
         // Decrement edge count.
@@ -985,11 +984,11 @@ std::optional<RecoveryInfo> LoadWal(
           throw RecoveryFailure(
               "The WAL has properties on edges, but the storage is "
               "configured without properties on edges! Current ldt is: {}",
-              *ret->last_durable_timestamp);
+              ret->last_durable_timestamp);
 
         auto edge = edge_acc.find(data.gid);
         if (edge == edge_acc.end())
-          throw RecoveryFailure("The edge doesn't exist! Current ldt is: {}", *ret->last_durable_timestamp);
+          throw RecoveryFailure("The edge doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
         const auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
         const auto property_value = ToPropertyValue(data.value, name_id_mapper);
 
@@ -998,23 +997,21 @@ std::optional<RecoveryInfo> LoadWal(
             if (data.from_gid.has_value()) {
               const auto from_vertex = vertex_acc.find(data.from_gid);
               if (from_vertex == vertex_acc.end())
-                throw RecoveryFailure("The from vertex doesn't exist! Current ldt is: {}",
-                                      *ret->last_durable_timestamp);
+                throw RecoveryFailure("The from vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
               const auto found_edge = r::find_if(from_vertex->out_edges, [&edge](const auto &edge_info) {
                 const auto &[edge_type, to_vertex, edge_ref] = edge_info;
                 return edge_ref.ptr == &*edge;
               });
               if (found_edge == from_vertex->out_edges.end())
                 throw RecoveryFailure("Recovery failed, edge not found. Current ldt is: {}",
-                                      *ret->last_durable_timestamp);
+                                      ret->last_durable_timestamp);
               const auto &[edge_type, to_vertex, edge_ref] = *found_edge;
               return std::tuple{edge_ref, edge_type, &*from_vertex, to_vertex};
             }
             // Fallback on user defined find edge function
             const auto maybe_edge = find_edge(edge->gid);
             if (!maybe_edge)
-              throw RecoveryFailure("Recovery failed, edge not found. Current ldt is: {}",
-                                    *ret->last_durable_timestamp);
+              throw RecoveryFailure("Recovery failed, edge not found. Current ldt is: {}", ret->last_durable_timestamp);
             return *maybe_edge;
           });
 

@@ -327,8 +327,8 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
   auto &repl_storage_state = storage->repl_storage_state_;
   if (*maybe_epoch_id != repl_storage_state.epoch_.id()) {
-    auto prev_epoch = repl_storage_state.epoch_.SetEpoch(*maybe_epoch_id);
-    repl_storage_state.AddEpochToHistoryForce(prev_epoch);
+    repl_storage_state.SaveLatestHistory();
+    repl_storage_state.epoch_.SetEpoch(*maybe_epoch_id);
   }
 
   // We do not care about incoming sequence numbers, after a snapshot recovery, the sequence number is 0
@@ -810,10 +810,10 @@ std::pair<bool, uint32_t> InMemoryReplicationHandlers::LoadWal(storage::InMemory
   }
 
   // We trust only WAL files which contain changes we are interested in (newer changes)
-  if (auto &replica_epoch = storage->repl_storage_state_.epoch_; wal_info.epoch_id != replica_epoch.id()) {
+  if (auto &repl_epoch = storage->repl_storage_state_.epoch_; wal_info.epoch_id != repl_epoch.id()) {
     spdlog::trace("Set epoch to {} for db {}", wal_info.epoch_id, storage->name());
-    auto prev_epoch = replica_epoch.SetEpoch(wal_info.epoch_id);
-    storage->repl_storage_state_.AddEpochToHistoryForce(prev_epoch);
+    storage->repl_storage_state_.SaveLatestHistory();
+    repl_epoch.SetEpoch(wal_info.epoch_id);
   }
 
   // We do not care about incoming sequence numbers, after a snapshot recovery, the sequence number is 0
