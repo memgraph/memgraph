@@ -20,10 +20,10 @@
     "apoc.coll.sumLongs": "collections.sum_longs",
     "apoc.coll.toSet": "collections.to_set",
     "apoc.coll.union": "collections.union",
-    "apoc.coll.unionAll": "collections.unionAll",
+    "apoc.coll.unionAll": "collections.union_all",
 
-    "apoc.convert.fromJsonList": "convert.from_json_list",
-    "apoc.convert.toJson": "convert.to_json",
+    "apoc.convert.fromJsonList": "json_util.from_json_list",
+    "apoc.convert.toJson": "json_util.to_json",
     "apoc.convert.toTree": "convert.to_tree",
 
     "apoc.create.node": "create.node",
@@ -68,6 +68,8 @@
     "apoc.map.removeKeys": "map.remove_keys",
     "apoc.map.setKey": "map.set_key",
 
+    "apoc.math.round": "math.round",
+
     "apoc.merge.node": "merge.node",
     "apoc.merge.relationship": "merge.relationship",
 
@@ -75,7 +77,7 @@
     "apoc.meta.stats": "meta.stats_online",
 
     "apoc.neighbors.athop": "neighbors.at_hop",
-    "apoc.neighbors.byhop": "neightbors.by_hop",
+    "apoc.neighbors.byhop": "neighbors.by_hop",
 
     "apoc.node.degree.in": "node.degree_in",
     "apoc.node.degree.out": "node.degree_out",
@@ -129,10 +131,10 @@
     "apoc.util.validate": "mgps.validate",
     "apoc.util.validatePredicate": "mgps.validate_predicate",
 
-    "apoc.xml.parse": "xml.parse",
+    "apoc.xml.parse": "xml_module.parse",
 
-    "db.schema.nodeTypeProperties": "schema.NodeTypeOroperties",
-    "db.schema.relTypeProperties": "schema.RelTypeProperties",
+    "db.schema.nodeTypeProperties": "schema.node_type_properties",
+    "db.schema.relTypeProperties": "schema.rel_type_properties",
 
     "dbms.components": "mgps.components"
 }

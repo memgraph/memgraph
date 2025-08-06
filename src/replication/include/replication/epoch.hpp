@@ -15,7 +15,7 @@
 
 #include "utils/uuid.hpp"
 
-#include <spdlog/spdlog.h>
+#include "spdlog/spdlog.h"  // Needed
 
 namespace memgraph::replication {
 
