@@ -212,6 +212,8 @@ class ReplicationStorageClient {
    */
   void ForceRecoverReplica(Storage *storage, DatabaseAccessProtector db_acc) const;
 
+  auto GetNumCommittedTxns() const -> uint64_t;
+
  private:
   /**
    * @brief Get necessary recovery steps and execute them.
@@ -248,6 +250,7 @@ class ReplicationStorageClient {
   mutable std::atomic<uint64_t> last_known_ts_{0};
   mutable utils::Synchronized<replication::ReplicaState, utils::SpinLock> replica_state_{
       replication::ReplicaState::MAYBE_BEHIND};
+  mutable std::atomic<uint64_t> num_committed_txns_{0};
 
   const utils::UUID main_uuid_;
 };

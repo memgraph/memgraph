@@ -63,6 +63,11 @@ auto CoordinatorHandler::ShowCoordinatorSettings() const -> std::vector<std::pai
   return coordinator_state_.ShowCoordinatorSettings();
 }
 
+auto CoordinatorHandler::ShowReplicationLag() const
+    -> std::map<std::string, std::map<std::string, coordination::ReplicaDBLagData>> {
+  return coordinator_state_.ShowReplicationLag();
+}
+
 auto CoordinatorHandler::ShowInstance() const -> coordination::InstanceStatus {
   return coordinator_state_.ShowInstance();
 }

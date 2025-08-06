@@ -99,5 +99,25 @@ inline void Load(coordination::InstanceState *obj, Reader *reader) {
   Load(&obj->is_writing_enabled, reader);
 }
 
+inline void Save(const coordination::ReplicaDBLagData &obj, Builder *builder) {
+  Save(obj.num_committed_txns_, builder);
+  Save(obj.num_txns_behind_main_, builder);
+}
+
+inline void Load(coordination::ReplicaDBLagData *obj, Reader *reader) {
+  Load(&obj->num_committed_txns_, reader);
+  Load(&obj->num_txns_behind_main_, reader);
+}
+
+inline void Save(const coordination::ReplicationLagInfo &obj, Builder *builder) {
+  Save(obj.dbs_main_committed_txns_, builder);
+  Save(obj.replicas_info_, builder);
+}
+
+inline void Load(coordination::ReplicationLagInfo *obj, Reader *reader) {
+  Load(&obj->dbs_main_committed_txns_, reader);
+  Load(&obj->replicas_info_, reader);
+}
+
 }  // namespace memgraph::slk
 #endif

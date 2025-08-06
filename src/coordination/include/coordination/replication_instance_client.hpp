@@ -76,6 +76,7 @@ class ReplicationInstanceClient {
   auto ReplicationSocketAddress() const -> std::string;
 
   auto SendGetDatabaseHistoriesRpc() const -> std::optional<replication_coordination_glue::InstanceInfo>;
+  auto SendGetReplicationLagRpc() const -> std::optional<ReplicationLagInfo>;
   auto GetReplicationClientInfo() const -> ReplicationClientInfo;
   auto RpcClient() const -> rpc::Client & { return rpc_client_; }
 

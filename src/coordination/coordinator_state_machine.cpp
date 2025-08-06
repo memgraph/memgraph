@@ -133,6 +133,7 @@ bool CoordinatorStateMachine::HandleMigration(LogStoreVersion stored_version) {
     throw CoordinatorStateMachineVersionMigrationException("Unexpected log store version {} for active version v2.",
                                                            static_cast<int>(stored_version));
   }
+  // C++ std::unreachable
   throw CoordinatorStateMachineVersionMigrationException("Unexpected log store version {} for active version {}.",
                                                          static_cast<int>(stored_version),
                                                          static_cast<int>(kActiveVersion));
@@ -358,7 +359,7 @@ auto CoordinatorStateMachine::CreateSnapshotInternal(ptr<snapshot> const &snapsh
 
   while (snapshots_.size() > MAX_SNAPSHOTS) {
     auto snapshot_current = snapshots_.begin()->first;
-    if (auto const ok = durability_->Delete("snapshot_id_" + std::to_string(snapshot_current)); !ok) {
+    if (auto const ok = durability_->Delete(fmt::format("{}{}", kSnapshotIdPrefix, snapshot_current)); !ok) {
       throw DeleteSnapshotFromDiskException("Failed to delete snapshot with id {} from disk.", snapshot_current);
     }
     snapshots_.erase(snapshots_.begin());

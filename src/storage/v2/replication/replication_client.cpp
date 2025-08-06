@@ -251,7 +251,7 @@ void ReplicationStorageClient::TryCheckReplicaStateAsync(Storage *main_storage, 
 }
 
 void ReplicationStorageClient::ForceRecoverReplica(Storage *main_storage, DatabaseAccessProtector db_acc) const {
-  spdlog::debug("Force recoverying replica {} for db {}", client_.name_,
+  spdlog::debug("Force recovering replica {} for db {}", client_.name_,
                 static_cast<InMemoryStorage *>(main_storage)->name());
   replica_state_.WithLock([&](auto &state) {
     state = ReplicaState::RECOVERY;
@@ -720,6 +720,10 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
       spdlog::info("Replica {} set to MAYBE_BEHIND after recovery for db {}.", name, main_db_name);
     });
   }
+}
+
+auto ReplicationStorageClient::GetNumCommittedTxns() const -> uint64_t {
+  return num_committed_txns_.load(std::memory_order_acquire);
 }
 
 ////// ReplicaStream //////

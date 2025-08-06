@@ -14,23 +14,18 @@
 #include <cstdint>
 #include <string>
 
-#include "io/network/endpoint.hpp"
-#include "storage/v2/replication/enums.hpp"
+namespace memgraph::coordination {
 
-// TODO: move to replication namespace and unify
-namespace memgraph::storage {
-
-struct TimestampInfo {
-  uint64_t current_timestamp_of_replica{0};
-  int64_t current_number_of_timestamp_behind_main{0};
+struct ReplicaDBLagData {
+  uint64_t num_committed_txns_;
+  uint64_t num_txns_behind_main_;
 };
 
-struct ReplicaInfo {
-  std::string name;
-  replication_coordination_glue::ReplicationMode mode;
-  io::network::Endpoint endpoint;
-  replication::ReplicaState state;
-  TimestampInfo timestamp_info;
+struct ReplicationLagInfo {
+  // db -> num_committed_txns on main
+  std::map<std::string, uint64_t> dbs_main_committed_txns_;
+  // instance -> db -> data
+  std::map<std::string, std::map<std::string, ReplicaDBLagData>> replicas_info_;
 };
 
-}  // namespace memgraph::storage
+}  // namespace memgraph::coordination

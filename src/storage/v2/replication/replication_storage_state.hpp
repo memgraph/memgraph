@@ -71,6 +71,7 @@ struct ReplicationStorageState {
   // Each value consists of the epoch id along the last commit belonging to that
   // epoch.
   EpochHistory history;
+  std::atomic<uint64_t> num_committed_txns_{0};
   std::atomic<uint64_t> last_durable_timestamp_{kTimestampInitialId};
 
   // We create ReplicationClient using unique_ptr so we can move
