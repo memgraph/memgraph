@@ -61,6 +61,8 @@ class CoordinatorState {
 
   auto ShowCoordinatorSettings() const -> std::vector<std::pair<std::string, std::string>>;
 
+  auto ShowReplicationLag() const -> std::map<std::string, std::map<std::string, ReplicaDBLagData>>;
+
   [[nodiscard]] auto GetLeaderCoordinatorData() const -> std::optional<LeaderCoordinatorData>;
 
   auto YieldLeadership() const -> YieldLeadershipStatus;

@@ -60,6 +60,8 @@ class CoordinatorHandler {
 
   auto GetLeaderCoordinatorData() const -> std::optional<coordination::LeaderCoordinatorData>;
 
+  auto ShowReplicationLag() const -> std::map<std::string, std::map<std::string, coordination::ReplicaDBLagData>>;
+
  private:
   // NOLINTNEXTLINE
   coordination::CoordinatorState &coordinator_state_;

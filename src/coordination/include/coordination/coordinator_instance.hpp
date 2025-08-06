@@ -120,6 +120,7 @@ class CoordinatorInstance {
   void UpdateClientConnectors(std::vector<CoordinatorInstanceAux> const &coord_instances_aux) const;
 
   auto ShowCoordinatorSettings() const -> std::vector<std::pair<std::string, std::string>>;
+  auto ShowReplicationLag() const -> std::map<std::string, std::map<std::string, ReplicaDBLagData>>;
 
  private:
   auto FindReplicationInstance(std::string_view replication_instance_name)

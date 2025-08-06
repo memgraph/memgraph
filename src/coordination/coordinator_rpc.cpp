@@ -110,6 +110,23 @@ void StateCheckRes::Save(const StateCheckRes &self, memgraph::slk::Builder *buil
 
 void StateCheckRes::Load(StateCheckRes *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
 
+// ReplicationLagRpc
+void ReplicationLagReq::Save(const ReplicationLagReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void ReplicationLagReq::Load(ReplicationLagReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
+void ReplicationLagRes::Save(const ReplicationLagRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void ReplicationLagRes::Load(ReplicationLagRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
 // GetDatabaseHistoriesRpc
 
 void GetDatabaseHistoriesReq::Save(const GetDatabaseHistoriesReq & /*self*/, memgraph::slk::Builder * /*builder*/) {
@@ -195,6 +212,12 @@ constexpr utils::TypeInfo coordination::StateCheckReq::kType{utils::TypeId::COOR
 
 constexpr utils::TypeInfo coordination::StateCheckRes::kType{utils::TypeId::COORD_STATE_CHECK_RES, "StateCheckRes",
                                                              nullptr};
+
+constexpr utils::TypeInfo coordination::ReplicationLagReq::kType{utils::TypeId::COORD_GET_REPLICATION_LAG_REQ,
+                                                                 "ReplicationLagReq", nullptr};
+
+constexpr utils::TypeInfo coordination::ReplicationLagRes::kType{utils::TypeId::COORD_GET_REPLICATION_LAG_RES,
+                                                                 "ReplicationLagRes", nullptr};
 
 namespace slk {
 
@@ -319,6 +342,17 @@ void Save(const memgraph::coordination::StateCheckRes &self, memgraph::slk::Buil
 void Load(memgraph::coordination::StateCheckRes *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->state, reader);
 }
+
+// ReplicationLagRpc
+void Save(const coordination::ReplicationLagReq &self, slk::Builder *builder) { /*empty*/
+}
+
+void Load(coordination::ReplicationLagReq *self, slk::Reader *reader) { /*empty*/
+}
+
+void Save(const coordination::ReplicationLagRes &self, slk::Builder *builder) { slk::Save(self.lag_info_, builder); }
+
+void Load(coordination::ReplicationLagRes *self, slk::Reader *reader) { slk::Load(&self->lag_info_, reader); }
 
 }  // namespace slk
 

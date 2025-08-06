@@ -13,10 +13,6 @@
 
 #ifdef MG_ENTERPRISE
 
-#include "io/network/endpoint.hpp"
-
-#include <string_view>
-
 namespace memgraph::coordination {
 
 struct InstanceStatus {
