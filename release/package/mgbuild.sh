@@ -306,11 +306,8 @@ setup_host_ccache_permissions() {
     mkdir -p ~/.cache/ccache
 
     # Set open permissions on the parent .cache directory to allow other tools to create subdirectories
-    chmod -R a+rwX ~/.cache || true
-
-    # # Set open permissions to allow container access without ownership changes
-    # # This works in CI environments where we can't change ownership
-    # chmod 777 ~/.cache/ccache || true
+    # Suppress both errors and warnings about operations not permitted
+    chmod -R a+rwX ~/.cache 2>/dev/null || true
 
     echo "Host cache directory permissions set to a+rwX (open access)"
   fi
