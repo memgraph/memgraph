@@ -1,3 +1,13 @@
+# Conan files
+conanbuild.sh
+conanbuildenv*
+conanrun.sh
+conanrunenv*
+deactivate_conanbuild.sh
+deactivate_conanrun.sh
+CMakeUserPresets.json
+
+
 *.breakpoint
 *.data
 *.dSYM/

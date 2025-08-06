@@ -134,36 +134,19 @@ repo_clone_try_double () {
 # dedicated machine inside the build cluster or on the actual build machine.
 # Download from primary_urls might fail because the cache is not installed.
 
-# NOTE: Antlr tag is exceptionally here because it's required on multiple
-# places because of the additional required .jar file.
-antlr4_tag="4.13.2" # 2024-08-03
-
 declare -A primary_urls=(
-  ["antlr4-code"]="http://$local_cache_host/git/antlr4.git"
-  ["antlr4-generator"]="http://$local_cache_host/file/antlr-$antlr4_tag-complete.jar"
-  ["cppitertools"]="http://$local_cache_host/git/cppitertools.git"
   ["rapidcheck"]="http://$local_cache_host/git/rapidcheck.git"
-  ["gbenchmark"]="http://$local_cache_host/git/benchmark.git"
-  ["gtest"]="http://$local_cache_host/git/googletest.git"
   ["libbcrypt"]="http://$local_cache_host/git/libbcrypt.git"
-  ["mgclient"]="http://$local_cache_host/git/mgclient.git"
   ["mgconsole"]="http://$local_cache_host/git/mgconsole.git"
-  ["spdlog"]="http://$local_cache_host/git/spdlog"
   ["neo4j"]="http://$local_cache_host/file/neo4j-community-5.6.0-unix.tar.gz"
   ["librdkafka"]="http://$local_cache_host/git/librdkafka.git"
   ["protobuf"]="http://$local_cache_host/git/protobuf.git"
   ["pulsar"]="http://$local_cache_host/git/pulsar.git"
   ["librdtsc"]="http://$local_cache_host/git/librdtsc.git"
-  ["ctre"]="http://$local_cache_host/file/hanickadot/compile-time-regular-expressions/v3.7.2/single-header/ctre.hpp"
-  ["absl"]="http://$local_cache_host/git/abseil-cpp.git"
   ["jemalloc"]="http://$local_cache_host/git/jemalloc.git"
-  ["range-v3"]="http://$local_cache_host/git/range-v3.git"
   ["nuraft"]="http://$local_cache_host/git/NuRaft.git"
-  ["asio"]="http://$local_cache_host/git/asio.git"
   ["mgcxx"]="http://$local_cache_host/git/mgcxx.git"
-  ["strong_type"]="http://$local_cache_host/git/strong_type.git"
   ["usearch"]="http://$local_cache_host/git/usearch.git"
-  ["croncpp"]="http://$local_cache_host/git/croncpp.git"
 )
 
 # The goal of secondary urls is to have links to the "source of truth" of
@@ -171,31 +154,18 @@ declare -A primary_urls=(
 # at all, should never fail. In other words, if it fails, the whole build
 # should fail.
 declare -A secondary_urls=(
-  ["antlr4-code"]="https://github.com/antlr/antlr4.git"
-  ["antlr4-generator"]="https://www.antlr.org/download/antlr-$antlr4_tag-complete.jar"
-  ["cppitertools"]="https://github.com/ryanhaining/cppitertools.git"
   ["rapidcheck"]="https://github.com/emil-e/rapidcheck.git"
-  ["gbenchmark"]="https://github.com/google/benchmark.git"
-  ["gtest"]="https://github.com/google/googletest.git"
   ["libbcrypt"]="https://github.com/rg3/libbcrypt"
-  ["mgclient"]="https://github.com/memgraph/mgclient.git"
   ["mgconsole"]="https://github.com/memgraph/mgconsole.git"
-  ["spdlog"]="https://github.com/gabime/spdlog"
   ["neo4j"]="https://dist.neo4j.org/neo4j-community-5.6.0-unix.tar.gz"
   ["librdkafka"]="https://github.com/edenhill/librdkafka.git"
   ["protobuf"]="https://github.com/protocolbuffers/protobuf.git"
   ["pulsar"]="https://github.com/apache/pulsar.git"
   ["librdtsc"]="https://github.com/gabrieleara/librdtsc.git"
-  ["ctre"]="https://raw.githubusercontent.com/hanickadot/compile-time-regular-expressions/v3.7.2/single-header/ctre.hpp"
-  ["absl"]="https://github.com/abseil/abseil-cpp.git"
   ["jemalloc"]="https://github.com/jemalloc/jemalloc.git"
-  ["range-v3"]="https://github.com/ericniebler/range-v3.git"
   ["nuraft"]="https://github.com/eBay/NuRaft.git"
-  ["asio"]="https://github.com/chriskohlhoff/asio.git"
   ["mgcxx"]="https://github.com/memgraph/mgcxx.git"
-  ["strong_type"]="https://github.com/rollbear/strong_type.git"
   ["usearch"]="https://github.com/unum-cloud/usearch.git"
-  ["croncpp"]="https://github.com/mariusbancila/croncpp.git"
 )
 
 # Skip download if we are under the latest toolchains (>= 6).
@@ -211,25 +181,13 @@ skip_if_under_toolchain () {
   fi
 }
 
-file_get_try_double "${primary_urls[antlr4-generator]}" "${secondary_urls[antlr4-generator]}"
-skip_if_under_toolchain "antlr4-code" repo_clone_try_double "${primary_urls[antlr4-code]}" "${secondary_urls[antlr4-code]}" "antlr4" "$antlr4_tag" true
-
-cppitertools_ref="v2.1" # 2021-01-15
-repo_clone_try_double "${primary_urls[cppitertools]}" "${secondary_urls[cppitertools]}" "cppitertools" "$cppitertools_ref"
 
 # rapidcheck
 rapidcheck_tag="ff6af6fc683159deb51c543b065eba14dfcf329b" # (2023-12-14)
 repo_clone_try_double "${primary_urls[rapidcheck]}" "${secondary_urls[rapidcheck]}" "rapidcheck" "$rapidcheck_tag"
 
-benchmark_tag="v1.6.0"
-skip_if_under_toolchain "gbenchmark" repo_clone_try_double "${primary_urls[gbenchmark]}" "${secondary_urls[gbenchmark]}" "benchmark" "$benchmark_tag" true
-
 libbcrypt_tag="8aa32ad94ebe06b76853b0767c910c9fbf7ccef4" # custom version (Dec 16, 2016)
 skip_if_under_toolchain "libbcrypt" repo_clone_try_double "${primary_urls[libbcrypt]}" "${secondary_urls[libbcrypt]}" "libbcrypt" "$libbcrypt_tag"
-
-# google test
-googletest_tag="v1.14.0"
-skip_if_under_toolchain "gtest" repo_clone_try_double "${primary_urls[gtest]}" "${secondary_urls[gtest]}" "googletest" "$googletest_tag" true
 
 # neo4j
 file_get_try_double "${primary_urls[neo4j]}" "${secondary_urls[neo4j]}"
@@ -257,19 +215,9 @@ rm neo4j-community-5.6.0-unix.tar.gz
 # git apply ../rocksdb8.1.1.patch
 # popd
 
-mgclient_tag="v1.4.0" # (2022-06-14)
-repo_clone_try_double "${primary_urls[mgclient]}" "${secondary_urls[mgclient]}" "mgclient" "$mgclient_tag"
-sed -i 's/\${CMAKE_INSTALL_LIBDIR}/lib/' mgclient/src/CMakeLists.txt
-
 # mgconsole
 mgconsole_tag="v1.4.0" # (2023-05-21)
 skip_if_under_toolchain "mgconsole" repo_clone_try_double "${primary_urls[mgconsole]}" "${secondary_urls[mgconsole]}" "mgconsole" "$mgconsole_tag" true
-
-spdlog_tag="v1.15.3" # (2022-11-02)
-repo_clone_try_double "${primary_urls[spdlog]}" "${secondary_urls[spdlog]}" "spdlog" "$spdlog_tag" true
-pushd spdlog
-git apply --3way ../spdlog.patch
-popd
 
 # librdkafka
 librdkafka_tag="v2.6.1" # (2024-12-05)
@@ -305,17 +253,6 @@ else
   echo "Skipping librdtsc download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
 fi
 
-#ctre
-mkdir -p ctre
-cd ctre
-file_get_try_double "${primary_urls[ctre]}" "${secondary_urls[ctre]}"
-cd ..
-
-# abseil 20240116.2
-absl_ref="20240116.2"
-repo_clone_try_double "${primary_urls[absl]}" "${secondary_urls[absl]}" "absl" "$absl_ref"
-
-# if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
 # jemalloc ea6b3e973b477b8061e0076bb257dbd7f3faa756
 JEMALLOC_COMMIT_VERSION="5.2.1"
 repo_clone_try_double "${primary_urls[jemalloc]}" "${secondary_urls[jemalloc]}" "jemalloc" "$JEMALLOC_COMMIT_VERSION"
@@ -326,47 +263,14 @@ pushd jemalloc
   --disable-cxx \
   --with-lg-page=12 \
   --with-lg-hugepage=21 \
-  --with-jemalloc-prefix=je_ \
   --enable-shared=no --prefix=$working_dir \
   --with-malloc-conf="background_thread:true,retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000"
 make -j$CPUS install
 popd
-# else
-#   echo "Skipping jmalloc download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
-# fi
-
-#range-v3 release-0.12.0
-range_v3_ref="release-0.12.0"
-repo_clone_try_double "${primary_urls[range-v3]}" "${secondary_urls[range-v3]}" "rangev3" "$range_v3_ref"
-
-# Asio
-if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
-  # TODO(gitbuda): ASIO under libs/setup.sh.
-  #   * Shouldn't ASIO be part of the boost under toolchain?
-  #   * ./prepare.sh under NuRaft is downloading ASIO?
-  asio_tag="asio-1-24-0"
-  repo_clone_try_double "${primary_urls[asio]}" "${secondary_urls[asio]}" "asio" "$asio_tag" true
-  # NuRaft
-  NURAFT_COMMIT_HASH="4b148a7e76291898c838a7457eeda2b16f7317ea"
-  NURAFT_TAG="master"
-  repo_clone_try_double "${primary_urls[nuraft]}" "${secondary_urls[nuraft]}" "nuraft" "$NURAFT_TAG" false
-  pushd nuraft
-  mv ../asio .
-  git checkout $NURAFT_COMMIT_HASH
-  git apply ../nuraft.patch
-  ./prepare.sh
-  popd
-else
-  echo "Skipping asio and nuraft download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
-fi
 
 # mgcxx (text search)
 mgcxx_tag="v0.0.7"
 skip_if_under_toolchain "mgcxx" repo_clone_try_double "${primary_urls[mgcxx]}" "${secondary_urls[mgcxx]}" "mgcxx" "$mgcxx_tag" true
-
-# strong_type v14
-strong_type_ref="v14"
-repo_clone_try_double "${primary_urls[strong_type]}" "${secondary_urls[strong_type]}" "strong_type" "$strong_type_ref"
 
 # usearch (shallow clone to reduce flakiness)
 usearch_ref="v2.15.3"
@@ -374,7 +278,3 @@ repo_clone_try_double "${primary_urls[usearch]}" "${secondary_urls[usearch]}" "u
 pushd usearch
 git submodule update --init --recursive
 popd
-
-# croncpp
-croncpp_ref="v2023.03.30"
-repo_clone_try_double "${primary_urls[croncpp]}" "${secondary_urls[croncpp]}" "croncpp" "$croncpp_ref"

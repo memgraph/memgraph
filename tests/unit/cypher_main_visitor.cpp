@@ -28,7 +28,7 @@
 #include "query/frontend/ast/ast.hpp"
 //////////////////////////////////////////////////////
 #pragma push_macro("EOF")  // hide EOF for antlr headers
-#include <antlr4-runtime.h>
+#include "antlr4-runtime/antlr4-runtime.h"
 #include "query/frontend/opencypher/generated/MemgraphCypherBaseVisitor.h"
 #pragma pop_macro("EOF")  // bring back EOF
 #include <gmock/gmock.h>
