@@ -151,12 +151,12 @@ Feature: ListComprehension
         Given an empty graph
         And having executed:
             """
-            CREATE (a:A {id: 1})-[:R1]->(:B)-[:R2]->(:C)-[:R3]->(:D {id: 1});
+            CREATE (a:A {id: 1})<-[:R1]-(:B)<-[:R2]-(:C)<-[:R3]-(:D {id: 1});
             """
         When executing query:
             """
             MATCH (a:A)
-            WHERE single(b IN [(a)<-[:R1]-(b:B) WHERE single(c IN [(b)<-[:R2]-(c:C) WHERE single(d IN [(c)<-[:R3]-(d:D) WHERE this0.id = 1 | 1] WHERE true) | 1] WHERE true) | 1] WHERE true)
+            WHERE single(b IN [(a)<-[:R1]-(b:B) WHERE single(c IN [(b)<-[:R2]-(c:C) WHERE single(d IN [(c)<-[:R3]-(d:D) WHERE d.id = 1 | 1] WHERE true) | 1] WHERE true) | 1] WHERE true)
             RETURN a.id AS id;
             """
         Then the result should be:
