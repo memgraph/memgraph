@@ -16,9 +16,9 @@
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/instance_state.hpp"
 #include "coordination/instance_status.hpp"
+#include "coordination/replication_lag_info.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "slk/serialization.hpp"
-#include "slk/streams.hpp"
 
 namespace memgraph::slk {
 
