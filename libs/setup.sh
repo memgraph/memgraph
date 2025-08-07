@@ -181,6 +181,7 @@ skip_if_under_toolchain () {
   fi
 }
 
+# TODO (matt): parallelize this
 
 # rapidcheck
 rapidcheck_tag="ff6af6fc683159deb51c543b065eba14dfcf329b" # (2023-12-14)
