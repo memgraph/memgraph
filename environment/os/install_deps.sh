@@ -4,8 +4,9 @@ SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 SUPPORTED_OS=(
     all
     centos-9 centos-10
-    debian-11 debian-11-arm debian-12 debian-12-arm
-    fedora-41
+    debian-11 debian-11-arm debian-12 debian-12-arm debian-13
+    fedora-41 fedora-42
+    rocky-9
     ubuntu-22.04 ubuntu-24.04 ubuntu-24.04-arm
 )
 

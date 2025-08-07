@@ -1,5 +1,8 @@
 #!/bin/bash
 set -Eeuo pipefail
+
+# Set noninteractive frontend to avoid prompts during package installation
+export DEBIAN_FRONTEND=noninteractive
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
@@ -58,8 +61,8 @@ MEMGRAPH_BUILD_DEPS=(
     libcurl4-openssl-dev # mg-requests
     sbcl # for custom Lisp C++ preprocessing
     doxygen graphviz # source documentation generators
-    mono-runtime mono-mcs zip unzip default-jdk-headless openjdk-17-jdk custom-maven3.9.3 # for driver tests
-    golang custom-golang1.18.9 nodejs npm
+    mono-runtime mono-mcs zip unzip default-jdk-headless openjdk-17-jdk custom-maven # for driver tests
+    golang custom-golang nodejs npm
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
     libsasl2-dev
@@ -67,7 +70,7 @@ MEMGRAPH_BUILD_DEPS=(
 )
 
 MEMGRAPH_RUN_DEPS=(
-    logrotate openssl python3 libseccomp
+    logrotate openssl python3 libseccomp2
 )
 
 NEW_DEPS=(
@@ -79,37 +82,54 @@ list() {
 }
 
 check() {
+    local -n packages=$1
     local missing=""
-    for pkg in $1; do
-        if [ "$pkg" == custom-maven3.9.3 ]; then
-            if [ ! -f "/opt/apache-maven-3.9.3/bin/mvn" ]; then
-                missing="$pkg $missing"
+    local missing_custom=""
+
+    # Separate standard and custom packages
+    local standard_packages=()
+    local custom_packages=()
+
+    for pkg in "${packages[@]}"; do
+        case "$pkg" in
+            custom-*)
+                custom_packages+=("$pkg")
+                ;;
+            *)
+                standard_packages+=("$pkg")
+                ;;
+        esac
+    done
+
+    # Check standard packages with Python script
+    if [ ${#standard_packages[@]} -gt 0 ]; then
+        missing=$(python3 "$DIR/check-packages.py" "check" "debian-11" "${standard_packages[@]}")
+    fi
+
+    # Check custom packages with bash logic
+    for pkg in "${custom_packages[@]}"; do
+        missing_pkg=$(check_custom_package "$pkg" || true)
+        if [ $? -eq 0 ]; then
+            # Custom package was handled, check if it's missing
+            if [ -n "$missing_pkg" ]; then
+                missing_custom="$missing_pkg $missing_custom"
             fi
-            continue
-        fi
-        if [ "$pkg" == custom-golang1.18.9 ]; then
-            if [ ! -f "/opt/go1.18.9/go/bin/go" ]; then
-                missing="$pkg $missing"
-            fi
-            continue
-        fi
-        if [ "$pkg" == custom-rust ]; then
-            if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
-                missing="$pkg $missing"
-            fi
-            continue
-        fi
-        if ! dpkg -s "$pkg" >/dev/null 2>/dev/null; then
-            missing="$pkg $missing"
         fi
     done
-    if [ "$missing" != "" ]; then
+
+    # Combine missing packages
+    [ -n "$missing_custom" ] && missing="${missing:+$missing }$missing_custom"
+
+    if [ -n "$missing" ]; then
         echo "MISSING PACKAGES: $missing"
         exit 1
     fi
 }
 
 install() {
+    local -n packages=$1
+
+    # Set up sources.list for Debian 11
     cat >/etc/apt/sources.list <<EOF
 deb http://deb.debian.org/debian bullseye main
 deb-src http://deb.debian.org/debian bullseye main
@@ -120,8 +140,10 @@ deb-src http://deb.debian.org/debian-security/ bullseye-security main
 deb http://deb.debian.org/debian bullseye-updates main
 deb-src http://deb.debian.org/debian bullseye-updates main
 EOF
-    cd "$DIR"
-    apt update
+
+    # Update package lists first
+    apt update -y
+
     # If GitHub Actions runner is installed, append LANG to the environment.
     # Python related tests doesn't work the LANG export.
     if [ -d "/home/gh/actions-runner" ]; then
@@ -129,37 +151,40 @@ EOF
     else
         echo "NOTE: export LANG=en_US.utf8"
     fi
-    apt install -y wget
 
-    for pkg in $1; do
-        if [ "$pkg" == custom-maven3.9.3 ]; then
-            install_custom_maven "3.9.3"
-            continue
-        fi
-        if [ "$pkg" == custom-golang1.18.9 ]; then
-            install_custom_golang "1.18.9"
-            continue
-        fi
-        if [ "$pkg" == custom-rust ]; then
-            install_rust "1.80"
-            continue
-        fi
-        if [ "$pkg" == custom-node ]; then
-            install_node "20"
-            continue
-        fi
-        if [ "$pkg" == openjdk-17-jdk ]; then
-            if ! dpkg -s "$pkg" 2>/dev/null >/dev/null; then
-                apt install -y "$pkg"
-                # The default Java version should be Java 11
-                update-alternatives --set java /usr/lib/jvm/java-11-openjdk-arm64/bin/java
-                update-alternatives --set javac /usr/lib/jvm/java-11-openjdk-arm64/bin/javac
-            fi
-            continue
-        fi
-        apt install -y "$pkg"
+    # Separate standard and custom packages
+    local standard_packages=()
+    local custom_packages=()
+
+    for pkg in "${packages[@]}"; do
+        case "$pkg" in
+            custom-*)
+                custom_packages+=("$pkg")
+                ;;
+            *)
+                standard_packages+=("$pkg")
+                ;;
+        esac
     done
+
+    # Install standard packages with Python script
+    if [ ${#standard_packages[@]} -gt 0 ]; then
+        if ! python3 "$DIR/check-packages.py" "install" "debian-11" "${standard_packages[@]}"; then
+            echo "Failed to install standard packages"
+            exit 1
+        fi
+    fi
+
+    # Install custom packages with bash logic
+    install_custom_packages "${custom_packages[@]}"
+
+    # Handle special cases that need post-installation setup
+    if dpkg -s openjdk-17-jdk &>/dev/null; then
+        # The default Java version should be Java 11 for ARM
+        update-alternatives --set java /usr/lib/jvm/java-11-openjdk-arm64/bin/java
+        update-alternatives --set javac /usr/lib/jvm/java-11-openjdk-arm64/bin/javac
+    fi
 }
 
 deps=$2"[*]"
-"$1" "${!deps}"
+"$1" "$2"
