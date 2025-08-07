@@ -67,3 +67,5 @@ if [[ -n "$TARGET" ]]; then
 else
     cmake --build --preset $PRESET $CMAKE_ARGS
 fi
+
+deactivate
