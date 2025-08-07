@@ -251,7 +251,6 @@ class ReplicationStorageClient {
   mutable utils::Synchronized<replication::ReplicaState, utils::SpinLock> replica_state_{
       replication::ReplicaState::MAYBE_BEHIND};
   mutable std::atomic<uint64_t> num_committed_txns_{0};
-
   const utils::UUID main_uuid_;
 };
 

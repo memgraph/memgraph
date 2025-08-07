@@ -357,6 +357,7 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
 }
 
 // RPC lock released at the end of this function
+// Used for STRICT_SYNC replica
 // ReSharper disable once CppMemberFunctionMayBeConst
 [[nodiscard]] bool ReplicationStorageClient::SendFinalizeCommitRpc(
     bool const decision, utils::UUID const &storage_uuid, DatabaseAccessProtector db_acc,
@@ -370,7 +371,11 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
     auto stream{client_.rpc_client_.UpgradeStream<replication::FinalizeCommitRpc>(
         std::move(replica_stream->GetStreamHandler()), decision, main_uuid_, storage_uuid,
         durability_commit_timestamp)};
-    return stream.SendAndWait().success;
+    auto const res = stream.SendAndWait().success;
+    if (res) {
+      num_committed_txns_.fetch_add(1, std::memory_order_release);
+    }
+    return res;
   } catch (const rpc::RpcFailedException &) {
     // Frequent heartbeat should trigger the recovery. Until then, commits on MAIN won't be allowed
     return false;
@@ -505,6 +510,7 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseAccessProt
 
         last_known_ts_.store(durability_commit_timestamp, std::memory_order_release);
         state = ReplicaState::READY;
+        num_committed_txns_.fetch_add(1, std::memory_order_release);
         return true;
       });
     } catch (const rpc::RpcFailedException &) {
