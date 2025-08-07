@@ -32,7 +32,11 @@ inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(
         // Holding on to the lock for the duration of CreateSnapshot will cause a deadlock
         // Not holding the lock might allow a replica to create the snapshot if the role switch is happening
         const auto role = repl_state.ReadLock()->GetRole();
-        return storage->CreateSnapshot(role);
+        auto result = storage->CreateSnapshot(role);
+        if (result.HasError()) {
+          return result.GetError();
+        }
+        return utils::BasicResult<storage::InMemoryStorage::CreateSnapshotError>{};
       });
 
   return std::move(storage);

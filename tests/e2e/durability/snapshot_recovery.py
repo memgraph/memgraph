@@ -413,7 +413,17 @@ def test_local_snapshot(global_snapshot, database):
     cursor = mt_cursor(connection, database)
     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE SNAPSHOT;")
+    result = execute_and_fetch_all(cursor, "CREATE SNAPSHOT;")
+    # Verify that CREATE SNAPSHOT returned a path and it exists as a file
+    assert len(result) == 1, "CREATE SNAPSHOT should return exactly one row"
+    assert len(result[0]) == 1, "CREATE SNAPSHOT should return exactly one column (path)"
+    snapshot_path = result[0][0]
+    assert snapshot_path is not None, "CREATE SNAPSHOT should return a non-null path"
+    assert isinstance(snapshot_path, str), "CREATE SNAPSHOT should return a string path"
+    # Verify the path exists and is a file
+    path_obj = Path(snapshot_path)
+    assert path_obj.exists(), f"Snapshot file should exist at {snapshot_path}"
+    assert path_obj.is_file(), f"Snapshot should be a file at {snapshot_path}"
     main_test(mt_data_dir(data_directory.name, database), global_snapshot, database, False)
     interactive_mg_runner.kill_all()
     interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
@@ -431,7 +441,17 @@ def test_local_snapshot_and_current_wal(global_snapshot, database):
     cursor = mt_cursor(connection, database)
     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE SNAPSHOT;")
+    result = execute_and_fetch_all(cursor, "CREATE SNAPSHOT;")
+    # Verify that CREATE SNAPSHOT returned a path and it exists as a file
+    assert len(result) == 1, "CREATE SNAPSHOT should return exactly one row"
+    assert len(result[0]) == 1, "CREATE SNAPSHOT should return exactly one column (path)"
+    snapshot_path = result[0][0]
+    assert snapshot_path is not None, "CREATE SNAPSHOT should return a non-null path"
+    assert isinstance(snapshot_path, str), "CREATE SNAPSHOT should return a string path"
+    # Verify the path exists and is a file
+    path_obj = Path(snapshot_path)
+    assert path_obj.exists(), f"Snapshot file should exist at {snapshot_path}"
+    assert path_obj.is_file(), f"Snapshot should be a file at {snapshot_path}"
     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
     main_test(mt_data_dir(data_directory.name, database), global_snapshot, database, False)
     interactive_mg_runner.kill_all()
@@ -459,7 +479,17 @@ def test_marked_commits_after_snapshot():
     execute_and_fetch_all(cursor, "CREATE ()")
     execute_and_fetch_all(cursor, "CREATE ()")
     # 2
-    execute_and_fetch_all(cursor, "CREATE SNAPSHOT")
+    result = execute_and_fetch_all(cursor, "CREATE SNAPSHOT")
+    # Verify that CREATE SNAPSHOT returned a path and it exists as a file
+    assert len(result) == 1, "CREATE SNAPSHOT should return exactly one row"
+    assert len(result[0]) == 1, "CREATE SNAPSHOT should return exactly one column (path)"
+    snapshot_path = result[0][0]
+    assert snapshot_path is not None, "CREATE SNAPSHOT should return a non-null path"
+    assert isinstance(snapshot_path, str), "CREATE SNAPSHOT should return a string path"
+    # Verify the path exists and is a file
+    path_obj = Path(snapshot_path)
+    assert path_obj.exists(), f"Snapshot file should exist at {snapshot_path}"
+    assert path_obj.is_file(), f"Snapshot should be a file at {snapshot_path}"
     # 3
     execute_and_fetch_all(cursor, "MATCH (n) RETURN count(*)")
     execute_and_fetch_all(cursor, "MATCH (n) RETURN count(*)")

@@ -4755,31 +4755,44 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
     throw CreateSnapshotDisabledOnDiskStorage();
   }
 
-  return PreparedQuery{
-      {},
-      std::move(parsed_query.required_privileges),
-      [storage, replication_role](AnyStream * /*stream*/,
-                                  std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
-        auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
-        if (auto maybe_error = mem_storage->CreateSnapshot(replication_role); maybe_error.HasError()) {
-          switch (maybe_error.GetError()) {
-            case storage::InMemoryStorage::CreateSnapshotError::DisabledForReplica:
-              throw utils::BasicException(
-                  "Failed to create a snapshot. Replica instances are not allowed to create them.");
-            case storage::InMemoryStorage::CreateSnapshotError::ReachedMaxNumTries:
-              spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
-              break;
-            case storage::InMemoryStorage::CreateSnapshotError::AbortSnapshot:
-              throw utils::BasicException("Failed to create snapshot. The current snapshot needs to be aborted.");
-            case storage::InMemoryStorage::CreateSnapshotError::AlreadyRunning:
-              throw utils::BasicException("Another snapshot creation is already in progress.");
-            case storage::InMemoryStorage::CreateSnapshotError::NothingNewToWrite:
-              throw utils::BasicException("Nothing has been written since the last snapshot.");
-          }
-        }
-        return QueryHandlerResult::COMMIT;
-      },
-      RWType::NONE};
+  Callback callback;
+  callback.header = {"path"};
+  callback.fn = [storage, replication_role]() mutable -> std::vector<std::vector<TypedValue>> {
+    auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage);
+    constexpr bool kForce = true;
+    const auto maybe_path = mem_storage->CreateSnapshot(replication_role, kForce);
+    if (maybe_path.HasError()) {
+      switch (maybe_path.GetError()) {
+        case storage::InMemoryStorage::CreateSnapshotError::DisabledForReplica:
+          throw utils::BasicException("Failed to create a snapshot. Replica instances are not allowed to create them.");
+        case storage::InMemoryStorage::CreateSnapshotError::ReachedMaxNumTries:
+          spdlog::warn("Failed to create snapshot. Reached max number of tries. Please contact support");
+          break;
+        case storage::InMemoryStorage::CreateSnapshotError::AbortSnapshot:
+          throw utils::BasicException("Failed to create snapshot. The current snapshot needs to be aborted.");
+        case storage::InMemoryStorage::CreateSnapshotError::AlreadyRunning:
+          throw utils::BasicException("Another snapshot creation is already in progress.");
+        case storage::InMemoryStorage::CreateSnapshotError::NothingNewToWrite:
+          throw utils::BasicException("Nothing has been written since the last snapshot.");
+      }
+    }
+    return std::vector<std::vector<TypedValue>>{{TypedValue{maybe_path.GetValue()}}};
+  };
+
+  return PreparedQuery{std::move(callback.header), std::move(parsed_query.required_privileges),
+                       [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
+                           AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
+                         if (!pull_plan) {
+                           auto results = handler();
+                           pull_plan = std::make_shared<PullPlanVector>(std::move(results));
+                         }
+
+                         if (pull_plan->Pull(stream, n)) {
+                           return QueryHandlerResult::COMMIT;
+                         }
+                         return std::nullopt;
+                       },
+                       RWType::NONE};
 }
 
 PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db,
