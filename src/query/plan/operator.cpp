@@ -3407,23 +3407,17 @@ class KShortestPathsCursor : public Cursor {
  private:
   struct PathInfo {
     utils::pmr::vector<EdgeAccessor> edges;
-    double cost;
     size_t deviation_vertex_index;  // Index where this path deviates from parent
 
-    explicit PathInfo(utils::MemoryResource *mem) : edges(mem), cost(0.0), deviation_vertex_index(0) {}
+    explicit PathInfo(utils::MemoryResource *mem) : edges(mem), deviation_vertex_index(0) {}
 
-    PathInfo(const utils::pmr::vector<EdgeAccessor> &path_edges, double path_cost, size_t deviation_idx,
-             utils::MemoryResource *mem)
-        : edges(path_edges.begin(), path_edges.end(), mem), cost(path_cost), deviation_vertex_index(deviation_idx) {}
+    PathInfo(const utils::pmr::vector<EdgeAccessor> &path_edges, size_t deviation_idx, utils::MemoryResource *mem)
+        : edges(path_edges.begin(), path_edges.end(), mem), deviation_vertex_index(deviation_idx) {}
   };
 
   struct PathComparator {
     bool operator()(const PathInfo &a, const PathInfo &b) const {
-      if (std::abs(a.cost - b.cost) < 1e-9) {
-        // If costs are equal, prefer shorter paths by edge count
-        return a.edges.size() > b.edges.size();
-      }
-      return a.cost > b.cost;  // Min-heap: smaller costs have higher priority
+      return a.edges.size() > b.edges.size();  // Min-heap: smaller costs have higher priority
     }
   };
 
@@ -3522,13 +3516,11 @@ class KShortestPathsCursor : public Cursor {
       // Add edges from source to deviation vertex
       for (size_t i = 0; i < deviation_index; ++i) {
         candidate_path.edges.push_back(base_path.edges[i]);
-        candidate_path.cost += GetEdgeWeight(base_path.edges[i], evaluator);
       }
 
       // Add spur path edges
       for (const auto &edge : spur_path.edges) {
         candidate_path.edges.push_back(edge);
-        candidate_path.cost += GetEdgeWeight(edge, evaluator);
       }
 
       candidate_path.deviation_vertex_index = deviation_index;
@@ -3608,20 +3600,19 @@ class KShortestPathsCursor : public Cursor {
 
       if (vertex == target) break;
       if (dist > distances_[vertex]) continue;
-      if (blocked_vertices_.count(vertex)) continue;
+      if (blocked_vertices_.contains(vertex)) continue;
 
       // Expand edges based on direction
       auto expand_edges = [&](auto edges_result) {
         for (const auto &edge : edges_result.edges) {
-          if (blocked_edges_.count(edge)) continue;
+          if (blocked_edges_.contains(edge)) continue;
 
           VertexAccessor neighbor = (edge.From() == vertex) ? edge.To() : edge.From();
-          if (blocked_vertices_.count(neighbor)) continue;
+          if (blocked_vertices_.contains(neighbor)) continue;
 
-          double edge_weight = GetEdgeWeight(edge, evaluator);
-          double new_dist = dist + edge_weight;
+          double new_dist = dist + 1;
 
-          if (!distances_.count(neighbor) || new_dist < distances_[neighbor]) {
+          if (!distances_.contains(neighbor) || new_dist < distances_[neighbor]) {
             distances_[neighbor] = new_dist;
             predecessors_[neighbor] = edge;
             pq.emplace(new_dist, neighbor);
@@ -3644,11 +3635,11 @@ class KShortestPathsCursor : public Cursor {
 
     // Reconstruct path
     PathInfo path(evaluator.GetMemoryResource());
-    if (distances_.count(target)) {
+    if (distances_.contains(target)) {
       utils::pmr::vector<EdgeAccessor> edges(evaluator.GetMemoryResource());
       VertexAccessor current = target;
 
-      while (predecessors_.count(current)) {
+      while (predecessors_.contains(current)) {
         const auto &edge_opt = predecessors_[current];
         if (edge_opt.has_value()) {
           const auto &edge = edge_opt.value();
@@ -3661,19 +3652,9 @@ class KShortestPathsCursor : public Cursor {
 
       std::reverse(edges.begin(), edges.end());
       path.edges = std::move(edges);
-      path.cost = distances_[target];
     }
 
     return path;
-  }
-
-  double GetEdgeWeight(const EdgeAccessor &edge, ExpressionEvaluator &evaluator) {
-    if (self_.weight_lambda_.has_value()) {
-      // Use custom weight function if provided
-      // For now, return 1.0 as default weight
-      return 1.0;
-    }
-    return 1.0;  // Default unit weight
   }
 
   void PushPathToFrame(const PathInfo &path, Frame *frame, utils::MemoryResource *memory) {
@@ -3689,7 +3670,7 @@ class KShortestPathsCursor : public Cursor {
     for (const auto &edge : path.edges) {
       path_gids.push_back(edge.Gid());
     }
-    return found_paths_set_.count(path_gids) > 0;
+    return found_paths_set_.contains(path_gids);
   }
 
   void AddPathToFoundSet(const PathInfo &path) {
