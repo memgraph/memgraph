@@ -1817,7 +1817,7 @@ ExpandVariable::ExpandVariable(const std::shared_ptr<LogicalOperator> &input, Sy
       total_weight_(std::move(total_weight)) {
   DMG_ASSERT(type_ == EdgeAtom::Type::DEPTH_FIRST || type_ == EdgeAtom::Type::BREADTH_FIRST ||
                  type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH || type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS ||
-                 type_ == EdgeAtom::Type::SHORTEST_FIRST,
+                 type_ == EdgeAtom::Type::KSHORTEST,
              "ExpandVariable can only be used with breadth first, depth first, "
              "weighted shortest path, all shortest paths or bfs all paths type");
   DMG_ASSERT(!(type_ == EdgeAtom::Type::BREADTH_FIRST && is_reverse), "Breadth first expansion can't be reversed");
@@ -3739,7 +3739,7 @@ UniqueCursorPtr ExpandVariable::MakeCursor(utils::MemoryResource *mem) const {
       return MakeUniqueCursorPtr<ExpandWeightedShortestPathCursor>(mem, *this, mem);
     case EdgeAtom::Type::ALL_SHORTEST_PATHS:
       return MakeUniqueCursorPtr<ExpandAllShortestPathsCursor>(mem, *this, mem);
-    case EdgeAtom::Type::SHORTEST_FIRST:
+    case EdgeAtom::Type::KSHORTEST:
       return MakeUniqueCursorPtr<KShortestPathsCursor>(mem, *this, mem);
     case EdgeAtom::Type::SINGLE:
       LOG_FATAL("ExpandVariable should not be planned for a single expansion!");
@@ -3788,8 +3788,8 @@ std::string_view ExpandVariable::OperatorName() const {
       return "WeightedShortestPath"sv;
     case Type::ALL_SHORTEST_PATHS:
       return "AllShortestPaths"sv;
-    case Type::SHORTEST_FIRST:
-      return "ShortestFirst"sv;
+    case Type::KSHORTEST:
+      return "KShortest"sv;
     case Type::SINGLE:
       LOG_FATAL("Unexpected ExpandVariable::type_");
     default:

@@ -840,8 +840,9 @@ class RuleBasedPlanner {
         total_weight.emplace(symbol_table.at(*edge->total_weight_));
       }
 
-      if (edge->type_ == EdgeAtom::Type::SHORTEST_FIRST && !existing_node) {
-        throw SemanticException("SHORTEST FIRST expansion requires matched nodes.");
+      if (edge->type_ == EdgeAtom::Type::KSHORTEST && !existing_node) {
+        throw SemanticException(
+            "KSHORTEST expansion requires matched nodes. Try capturing the pair of nodes using a WITH clause.");
       }
 
       ExpansionLambda filter_lambda;

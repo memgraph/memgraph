@@ -2717,8 +2717,8 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
         }
         break;
       case 1:
-        if (edge->type_ == EdgeAtom::Type::SHORTEST_FIRST) {
-          throw SemanticException("SHORTEST_FIRST expansion does not support filter lambda.");
+        if (edge->type_ == EdgeAtom::Type::KSHORTEST) {
+          throw SemanticException("KSHORTEST expansion does not support filter lambda.");
         }
         if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH ||
             edge->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS) {
@@ -2829,8 +2829,8 @@ antlrcpp::Any CypherMainVisitor::visitVariableExpansion(MemgraphCypher::Variable
     edge_type = EdgeAtom::Type::WEIGHTED_SHORTEST_PATH;
   else if (!ctx->getTokens(MemgraphCypher::ALLSHORTEST).empty())
     edge_type = EdgeAtom::Type::ALL_SHORTEST_PATHS;
-  else if (!ctx->getTokens(MemgraphCypher::SHORTESTFIRST).empty())
-    edge_type = EdgeAtom::Type::SHORTEST_FIRST;
+  else if (!ctx->getTokens(MemgraphCypher::KSHORTEST).empty())
+    edge_type = EdgeAtom::Type::KSHORTEST;
   Expression *lower = nullptr;
   Expression *upper = nullptr;
 

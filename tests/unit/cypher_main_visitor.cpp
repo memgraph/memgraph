@@ -2347,10 +2347,10 @@ TEST_P(CypherMainVisitorTest, SemanticExceptionOnWShortestWithoutLambda) {
   ASSERT_THROW(ast_generator.ParseQuery("MATCH ()-[r *wShortest]-() RETURN r"), SemanticException);
 }
 
-TEST_P(CypherMainVisitorTest, MatchShortestFirstReturn) {
+TEST_P(CypherMainVisitorTest, MatchKShortestReturn) {
   auto &ast_generator = *GetParam();
   auto *query =
-      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH ()-[r:type1|type2 *shortestFirst]->() RETURN r"));
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH ()-[r:type1|type2 *kShortest]->() RETURN r"));
   ASSERT_TRUE(query);
   ASSERT_TRUE(query->single_query_);
   auto *single_query = query->single_query_;
@@ -2362,7 +2362,7 @@ TEST_P(CypherMainVisitorTest, MatchShortestFirstReturn) {
   auto *shortest = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
   ASSERT_TRUE(shortest);
   EXPECT_TRUE(shortest->IsVariable());
-  EXPECT_EQ(shortest->type_, EdgeAtom::Type::SHORTEST_FIRST);
+  EXPECT_EQ(shortest->type_, EdgeAtom::Type::KSHORTEST);
   EXPECT_EQ(shortest->direction_, EdgeAtom::Direction::OUT);
   EXPECT_THAT(shortest->edge_types_,
               UnorderedElementsAre(ast_generator.EdgeType("type1"), ast_generator.EdgeType("type2")));
@@ -2375,33 +2375,32 @@ TEST_P(CypherMainVisitorTest, MatchShortestFirstReturn) {
   CheckRWType(query, kRead);
 }
 
-TEST_P(CypherMainVisitorTest, MatchShortestFirstWithFilterReturn) {
+TEST_P(CypherMainVisitorTest, MatchKShortestWithFilterReturn) {
   auto &ast_generator = *GetParam();
-  ASSERT_THROW(ast_generator.ParseQuery("MATCH ()-[r:type1 *shortestFirst (e, n | e.prop = 42)]->() RETURN r"),
+  ASSERT_THROW(ast_generator.ParseQuery("MATCH ()-[r:type1 *kShortest (e, n | e.prop = 42)]->() RETURN r"),
                SemanticException);
 }
 
-TEST_P(CypherMainVisitorTest, MatchShortestFirstFilterByPathReturn) {
+TEST_P(CypherMainVisitorTest, MatchKShortestFilterByPathReturn) {
   auto &ast_generator = *GetParam();
-  ASSERT_THROW(
-      ast_generator.ParseQuery("MATCH pth=()-[r:type1 *shortestFirst (e, n, p | startNode(relationships(e)[-1]) = "
-                               "c:type3)]->(:type2) RETURN pth"),
-      SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("MATCH pth=()-[r:type1 *kShortest (e, n, p | startNode(relationships(e)[-1]) = "
+                                        "c:type3)]->(:type2) RETURN pth"),
+               SemanticException);
 }
 
-TEST_P(CypherMainVisitorTest, MatchShortestFirstFilterByPathWeightReturn) {
+TEST_P(CypherMainVisitorTest, MatchKShortestFilterByPathWeightReturn) {
   auto &ast_generator = *GetParam();
-  ASSERT_THROW(ast_generator.ParseQuery("MATCH pth=()-[r:type1 *shortestFirst (e, n, p, w | "
+  ASSERT_THROW(ast_generator.ParseQuery("MATCH pth=()-[r:type1 *kShortest (e, n, p, w | "
                                         "startNode(relationships(e)[-1]) = c:type3 AND w < 50)]->(:type2) RETURN pth"),
                SemanticException);
 }
 
-TEST_P(CypherMainVisitorTest, SemanticExceptionOnShortestFirstWithRangeBounds) {
+TEST_P(CypherMainVisitorTest, SemanticExceptionOnKShortestWithRangeBounds) {
   auto &ast_generator = *GetParam();
 
   {
     const auto *query =
-        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH ()-[r *shortestFirst..10]->() RETURN r"));
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH ()-[r *kShortest..10]->() RETURN r"));
     ASSERT_TRUE(query);
     ASSERT_TRUE(query->single_query_);
     auto *single_query = query->single_query_;
@@ -2413,7 +2412,7 @@ TEST_P(CypherMainVisitorTest, SemanticExceptionOnShortestFirstWithRangeBounds) {
     auto *shortest = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
     ASSERT_TRUE(shortest);
     EXPECT_TRUE(shortest->IsVariable());
-    EXPECT_EQ(shortest->type_, EdgeAtom::Type::SHORTEST_FIRST);
+    EXPECT_EQ(shortest->type_, EdgeAtom::Type::KSHORTEST);
     EXPECT_EQ(shortest->direction_, EdgeAtom::Direction::OUT);
     EXPECT_TRUE(shortest->upper_bound_);
     EXPECT_FALSE(shortest->lower_bound_);
@@ -2426,7 +2425,7 @@ TEST_P(CypherMainVisitorTest, SemanticExceptionOnShortestFirstWithRangeBounds) {
 
   {
     const auto *query =
-        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH ()-[r *shortestFirst 5..10]->() RETURN r"));
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH ()-[r *kShortest 5..10]->() RETURN r"));
     ASSERT_TRUE(query);
     ASSERT_TRUE(query->single_query_);
     auto *single_query = query->single_query_;
@@ -2438,7 +2437,7 @@ TEST_P(CypherMainVisitorTest, SemanticExceptionOnShortestFirstWithRangeBounds) {
     auto *shortest = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
     ASSERT_TRUE(shortest);
     EXPECT_TRUE(shortest->IsVariable());
-    EXPECT_EQ(shortest->type_, EdgeAtom::Type::SHORTEST_FIRST);
+    EXPECT_EQ(shortest->type_, EdgeAtom::Type::KSHORTEST);
     EXPECT_EQ(shortest->direction_, EdgeAtom::Direction::OUT);
     EXPECT_TRUE(shortest->upper_bound_);
     EXPECT_TRUE(shortest->lower_bound_);
@@ -2450,8 +2449,7 @@ TEST_P(CypherMainVisitorTest, SemanticExceptionOnShortestFirstWithRangeBounds) {
   }
 
   {
-    const auto *query =
-        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH ()-[r *shortestFirst..]->() RETURN r"));
+    const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH ()-[r *kShortest..]->() RETURN r"));
     ASSERT_TRUE(query);
     ASSERT_TRUE(query->single_query_);
     auto *single_query = query->single_query_;
@@ -2463,7 +2461,7 @@ TEST_P(CypherMainVisitorTest, SemanticExceptionOnShortestFirstWithRangeBounds) {
     auto *shortest = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
     ASSERT_TRUE(shortest);
     EXPECT_TRUE(shortest->IsVariable());
-    EXPECT_EQ(shortest->type_, EdgeAtom::Type::SHORTEST_FIRST);
+    EXPECT_EQ(shortest->type_, EdgeAtom::Type::KSHORTEST);
     EXPECT_EQ(shortest->direction_, EdgeAtom::Direction::OUT);
     EXPECT_FALSE(shortest->upper_bound_);
     EXPECT_FALSE(shortest->lower_bound_);
