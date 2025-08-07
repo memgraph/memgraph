@@ -268,20 +268,21 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
 
   if (!current_main_uuid.has_value() || req.main_uuid != *current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::HeartbeatReq::kType.name);
-    const storage::replication::HeartbeatRes res{false, 0, ""};
+    const storage::replication::HeartbeatRes res{false, 0, "", 0};
     rpc::SendFinalResponse(res, res_builder);
     return;
   }
   // TODO: this handler is agnostic of InMemory, move to be reused by on-disk
   if (!db_acc.has_value()) {
     spdlog::warn("No database accessor");
-    storage::replication::HeartbeatRes const res{false, 0, ""};
+    storage::replication::HeartbeatRes const res{false, 0, "", 0};
     rpc::SendFinalResponse(res, res_builder);
     return;
   }
   // Move db acc
   auto const *storage = db_acc->get()->storage();
   auto const ldt = storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
+  auto const num_committed_txns = storage->repl_storage_state_.num_committed_txns_.load(std::memory_order_acquire);
 
   auto const last_epoch_with_commit = std::invoke([storage, ldt]() -> std::string {
     if (auto const &history = storage->repl_storage_state_.history; !history.empty()) {
@@ -291,7 +292,7 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
     return std::string{storage->repl_storage_state_.epoch_.id()};
   });
 
-  const storage::replication::HeartbeatRes res{true, ldt, last_epoch_with_commit};
+  const storage::replication::HeartbeatRes res{true, ldt, last_epoch_with_commit, num_committed_txns};
   rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
 }
 
@@ -479,7 +480,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
   auto const maybe_backup_dirs = CreateBackupDirectories(current_snapshot_dir, current_wal_directory);
   if (!maybe_backup_dirs.has_value()) {
     spdlog::error("Couldn't create backup directories. Replica won't be recovered.");
-    const storage::replication::SnapshotRes res{{}};
+    const storage::replication::SnapshotRes res{};
     rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
     return;
   }
@@ -541,6 +542,9 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
       storage->timestamp_ = std::max(storage->timestamp_, recovery_info.next_timestamp);
       storage->repl_storage_state_.last_durable_timestamp_.store(snapshot_info.durable_timestamp,
                                                                  std::memory_order_release);
+      storage->repl_storage_state_.num_committed_txns_.store(snapshot_info.num_committed_txns,
+                                                             std::memory_order_release);
+      spdlog::trace("Set num committed txns to {} after loading snapshot.", snapshot_info.num_committed_txns);
       // We are the only active transaction, so mark everything up to the next timestamp
       if (storage->timestamp_ > 0) storage->commit_log_->MarkFinishedInRange(0, storage->timestamp_ - 1);
 
@@ -553,7 +557,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
           "preserved so you can restore your data by restarting instance.",
           *maybe_recovery_snapshot_path, e.what());
       storage->Clear();
-      const storage::replication::SnapshotRes res{{}};
+      const storage::replication::SnapshotRes res{};
       rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
       return;
     }
@@ -561,7 +565,8 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
   spdlog::debug("Snapshot from {} loaded successfully.", *maybe_recovery_snapshot_path);
 
   const storage::replication::SnapshotRes res{
-      storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire)};
+      storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire),
+      storage->repl_storage_state_.num_committed_txns_.load(std::memory_order_acquire)};
   rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
 
   auto const not_recovery_snapshot = [&recovery_snapshot_path](auto const &snapshot_info) {
@@ -592,7 +597,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
   if (!db_acc) {
     spdlog::error("Couldn't get database accessor in wal files handler for request storage_uuid {}",
                   std::string{req.uuid});
-    const storage::replication::WalFilesRes res{{}};
+    const storage::replication::WalFilesRes res{};
     rpc::SendFinalResponse(res, res_builder);
     return;
   }
@@ -649,22 +654,25 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
   spdlog::debug("Received {} WAL files.", wal_file_number);
   storage::replication::Decoder decoder(req_reader);
 
-  uint32_t local_batch_counter = 0;
+  uint32_t local_batch_counter{0};
+  uint64_t num_committed_txns{0};
   for (auto i = 0; i < wal_file_number; ++i) {
-    auto const [success, current_batch_counter] = LoadWal(storage, &decoder, res_builder, local_batch_counter);
-    if (!success) {
+    auto const load_wal_res = LoadWal(storage, &decoder, res_builder, local_batch_counter);
+    if (!load_wal_res.success) {
       spdlog::debug("Replication recovery from WAL files failed while loading one of WAL files for db {}.",
                     storage->name());
-      const storage::replication::WalFilesRes res{{}};
+      const storage::replication::WalFilesRes res{};
       rpc::SendFinalResponse(res, res_builder);
       return;
     }
-    local_batch_counter = current_batch_counter;
+    local_batch_counter = load_wal_res.current_batch_counter;
+    num_committed_txns += load_wal_res.num_txns_committed;
   }
 
   spdlog::debug("Replication recovery from WAL files succeeded for db {}.", storage->name());
   const storage::replication::WalFilesRes res{
-      storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire)};
+      storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire), num_committed_txns};
+
   rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
 
   if (req.reset_needed) {
@@ -687,8 +695,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
   if (!db_acc) {
     spdlog::error("Couldn't get database accessor in current wal handler for request storage_uuid {}",
                   std::string{req.uuid});
-    const storage::replication::CurrentWalRes res{{}};
-    rpc::SendFinalResponse(res, res_builder);
+    rpc::SendFinalResponse(storage::replication::CurrentWalRes{}, res_builder);
     return;
   }
 
@@ -745,7 +752,8 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
 
   // Even if loading wal file failed, we return last_durable_timestamp to the main because it is not a fatal error
   // When loading a single WAL file, we don't care about saving number of deltas
-  if (!LoadWal(storage, &decoder, res_builder).first) {
+  auto const load_wal_res = LoadWal(storage, &decoder, res_builder);
+  if (!load_wal_res.success) {
     spdlog::debug(
         "Replication recovery from current WAL didn't end successfully but the error is non-fatal error. DB {}.",
         storage->name());
@@ -754,7 +762,9 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
   }
 
   const storage::replication::CurrentWalRes res{
-      storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire)};
+      storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire),
+      load_wal_res.num_txns_committed};
+
   rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
 
   if (req.reset_needed) {
@@ -770,22 +780,22 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
 // 4.) If reading WAL info fails
 // 5.) If applying some of the deltas failed
 // If WAL file doesn't contain any new changes, we ignore it and consider WAL file as successfully applied.
-std::pair<bool, uint32_t> InMemoryReplicationHandlers::LoadWal(storage::InMemoryStorage *storage,
-                                                               storage::replication::Decoder *decoder,
-                                                               slk::Builder *res_builder,
-                                                               uint32_t start_batch_counter) {
+InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(storage::InMemoryStorage *storage,
+                                                                                storage::replication::Decoder *decoder,
+                                                                                slk::Builder *res_builder,
+                                                                                uint32_t start_batch_counter) {
   const auto temp_wal_directory =
       std::filesystem::temp_directory_path() / "memgraph" / storage::durability::kWalDirectory;
 
   if (!utils::EnsureDir(temp_wal_directory)) {
     spdlog::error("Couldn't get access to the current tmp directory while loading WAL file.");
-    return {false, 0};
+    return LoadWalStatus{.success = false, .current_batch_counter = 0, .num_txns_committed = 0};
   }
 
   auto maybe_wal_path = decoder->ReadFile(temp_wal_directory);
   if (!maybe_wal_path) {
     spdlog::error("Failed to load WAL file from {}!", temp_wal_directory);
-    return {false, 0};
+    return LoadWalStatus{.success = false, .current_batch_counter = 0, .num_txns_committed = 0};
   }
   spdlog::trace("Received WAL saved to {}", *maybe_wal_path);
 
@@ -794,7 +804,7 @@ std::pair<bool, uint32_t> InMemoryReplicationHandlers::LoadWal(storage::InMemory
     maybe_wal_info.emplace(storage::durability::ReadWalInfo(*maybe_wal_path));
   } catch (const utils::BasicException &e) {
     spdlog::error("Loading WAL info from {} failed because of {}.", *maybe_wal_path, e.what());
-    return {false, 0};
+    return LoadWalStatus{.success = false, .current_batch_counter = 0, .num_txns_committed = 0};
   }
 
   auto const &wal_info = *maybe_wal_info;
@@ -807,7 +817,7 @@ std::pair<bool, uint32_t> InMemoryReplicationHandlers::LoadWal(storage::InMemory
   // If WAL file doesn't contain any changes that need to be applied, ignore it
   if (wal_info.to_timestamp <= storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire)) {
     spdlog::trace("WAL file won't be applied since all changes already exist.");
-    return {true, 0};
+    return LoadWalStatus{.success = true, .current_batch_counter = 0, .num_txns_committed = 0};
   }
 
   // We trust only WAL files which contain changes we are interested in (newer changes)
@@ -833,16 +843,17 @@ std::pair<bool, uint32_t> InMemoryReplicationHandlers::LoadWal(storage::InMemory
   spdlog::debug("WAL file {} loaded successfully", *maybe_wal_path);
   if (!version) {
     spdlog::error("Couldn't read WAL magic and/or version!");
-    return {false, 0};
+    return LoadWalStatus{.success = false, .current_batch_counter = 0, .num_txns_committed = 0};
   }
   if (!storage::durability::IsVersionSupported(*version)) {
     spdlog::error("Invalid WAL version!");
-    return {false, 0};
+    return LoadWalStatus{.success = false, .current_batch_counter = 0, .num_txns_committed = 0};
   }
 
   wal_decoder.SetPosition(wal_info.offset_deltas);
 
   uint32_t local_batch_counter = start_batch_counter;
+  uint64_t num_txns_committed{0};
   for (size_t local_delta_idx = 0; local_delta_idx < wal_info.num_deltas;) {
     // commit_txn_immediately is set true because when loading WAL files, we should commit immediately
     auto const deltas_res =
@@ -851,13 +862,15 @@ std::pair<bool, uint32_t> InMemoryReplicationHandlers::LoadWal(storage::InMemory
     if (deltas_res.has_value()) {
       local_delta_idx += deltas_res->current_delta_idx;
       local_batch_counter = deltas_res->current_batch_counter;
+      num_txns_committed += deltas_res->num_txns_committed;
     } else {
-      return {false, 0};
+      return LoadWalStatus{.success = false, .current_batch_counter = 0, .num_txns_committed = 0};
     }
   }
 
   spdlog::trace("Replication from WAL file {} successful!", *maybe_wal_path);
-  return {true, local_batch_counter};
+  return LoadWalStatus{
+      .success = true, .current_batch_counter = local_batch_counter, .num_txns_committed = num_txns_committed};
 }
 
 // The number of applied deltas also includes skipped deltas.
@@ -909,8 +922,9 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
     return commit_accessor.get();
   };
 
-  uint64_t current_delta_idx = 0;  // tracks over how many deltas we iterated, includes also skipped deltas.
-  uint64_t applied_deltas = 0;     // Non-skipped deltas
+  uint64_t num_committed_txns{0};
+  uint64_t current_delta_idx{0};  // tracks over how many deltas we iterated, includes also skipped deltas.
+  uint64_t applied_deltas{0};     // Non-skipped deltas
   uint32_t current_batch_counter = start_batch_counter;
   auto max_delta_timestamp = storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
 
@@ -1165,6 +1179,10 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           // If SYNC replica, reset the commit accessor immediately because the txn is considered committed
           if (commit_txn_immediately) {
             commit_accessor.reset();
+          }
+          // Used to return info to MAIN about how many txns were committed
+          if (loading_wal) {
+            num_committed_txns++;
           }
         },
         [&](WalLabelIndexCreate const &data) {
@@ -1517,10 +1535,11 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
     applied_deltas++;
   }
 
-  spdlog::debug("Applied {} deltas", applied_deltas);
+  spdlog::debug("Applied {} deltas. Committed {} txns.", applied_deltas, num_committed_txns);
 
   return storage::SingleTxnDeltasProcessingResult{.commit_acc = std::move(commit_accessor),
                                                   .current_delta_idx = current_delta_idx,
+                                                  .num_txns_committed = num_committed_txns,
                                                   .current_batch_counter = current_batch_counter};
 }
 }  // namespace memgraph::dbms

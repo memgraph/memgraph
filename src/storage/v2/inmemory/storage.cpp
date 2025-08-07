@@ -204,8 +204,10 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       edge_id_.store(info->next_edge_id, std::memory_order_release);
       timestamp_ = std::max(timestamp_, info->next_timestamp);
       repl_storage_state_.last_durable_timestamp_.store(info->last_durable_timestamp, std::memory_order_release);
-      spdlog::trace("Recovering last durable timestamp {}. Timestamp recovered to {}", info->last_durable_timestamp,
-                    timestamp_);
+      repl_storage_state_.num_committed_txns_.store(info->num_committed_txns, std::memory_order_release);
+      spdlog::trace(
+          "Recovering last durable timestamp {}. Timestamp recovered to {}. Num committed txns recovered to {}.",
+          info->last_durable_timestamp, timestamp_, info->num_committed_txns);
     }
   } else if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
              config_.durability.snapshot_on_exit) {

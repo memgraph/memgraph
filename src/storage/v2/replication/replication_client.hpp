@@ -250,6 +250,7 @@ class ReplicationStorageClient {
   mutable std::atomic<uint64_t> last_known_ts_{0};
   mutable utils::Synchronized<replication::ReplicaState, utils::SpinLock> replica_state_{
       replication::ReplicaState::MAYBE_BEHIND};
+  // Number of committed txns on replica. We cache the value on the MAIN side to avoid sending RPC when retrieving info
   mutable std::atomic<uint64_t> num_committed_txns_{0};
   const utils::UUID main_uuid_;
 };

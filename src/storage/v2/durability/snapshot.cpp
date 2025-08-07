@@ -437,6 +437,98 @@ SnapshotInfo ReadSnapshotInfoPreVersion23(const std::filesystem::path &path) {
 
   return info;
 }
+
+// Function used to read information about the snapshot file for versions smaller than version in which num committed
+// txns is included in the snapshot
+SnapshotInfo ReadSnapshotInfoPreVersionNumCommittedTxns(const std::filesystem::path &path) {
+  // Check magic and version.
+  Decoder snapshot;
+  auto version = snapshot.Initialize(path, kSnapshotMagic);
+  if (!version) throw RecoveryFailure("Couldn't read snapshot magic and/or version!");
+  if (!IsVersionSupported(*version)) throw RecoveryFailure("Invalid snapshot version!");
+
+  // Prepare return value.
+  SnapshotInfo info;
+
+  // Read offsets.
+  {
+    auto marker = snapshot.ReadMarker();
+    if (!marker || *marker != Marker::SECTION_OFFSETS)
+      throw RecoveryFailure("Couldn't read marker for section offsets!");
+
+    auto snapshot_size = snapshot.GetSize();
+    if (!snapshot_size) throw RecoveryFailure("Couldn't read snapshot size!");
+
+    auto read_offset = [&snapshot, snapshot_size] {
+      auto maybe_offset = snapshot.ReadUint();
+      if (!maybe_offset) throw RecoveryFailure("Invalid snapshot format!");
+      auto offset = *maybe_offset;
+      if (offset > *snapshot_size) throw RecoveryFailure("Invalid snapshot format!");
+      return offset;
+    };
+
+    info.offset_edges = read_offset();
+    info.offset_vertices = read_offset();
+    info.offset_indices = read_offset();
+    if (*version >= kEdgeIndicesVersion) {
+      info.offset_edge_indices = read_offset();
+    } else {
+      info.offset_edge_indices = 0U;
+    }
+    info.offset_constraints = read_offset();
+    info.offset_mapper = read_offset();
+    if (*version >= kEnumsVersion) {
+      info.offset_enums = read_offset();
+    } else {
+      info.offset_enums = 0U;
+    }
+    info.offset_epoch_history = read_offset();
+    info.offset_metadata = read_offset();
+    if (*version >= 15U) {
+      info.offset_edge_batches = read_offset();
+      info.offset_vertex_batches = read_offset();
+    } else {
+      info.offset_edge_batches = 0U;
+      info.offset_vertex_batches = 0U;
+    }
+  }
+
+  // Read metadata.
+  {
+    if (!snapshot.SetPosition(info.offset_metadata)) throw RecoveryFailure("Couldn't read metadata offset!");
+
+    auto marker = snapshot.ReadMarker();
+    if (!marker || *marker != Marker::SECTION_METADATA)
+      throw RecoveryFailure("Couldn't read marker for section metadata!");
+
+    auto maybe_uuid = snapshot.ReadString();
+    if (!maybe_uuid) throw RecoveryFailure("Couldn't read storage_uuid!");
+    info.uuid = std::move(*maybe_uuid);
+
+    auto maybe_epoch_id = snapshot.ReadString();
+    if (!maybe_epoch_id) throw RecoveryFailure("Couldn't read epoch id!");
+    info.epoch_id = std::move(*maybe_epoch_id);
+
+    auto maybe_timestamp = snapshot.ReadUint();
+    if (!maybe_timestamp) throw RecoveryFailure("Couldn't read start timestamp!");
+    info.start_timestamp = *maybe_timestamp;
+
+    auto maybe_durable_timestamp = snapshot.ReadUint();
+    if (!maybe_durable_timestamp) throw RecoveryFailure("Couldn't read durable timestamp!");
+    info.durable_timestamp = *maybe_durable_timestamp;
+
+    auto maybe_edges = snapshot.ReadUint();
+    if (!maybe_edges) throw RecoveryFailure("Couldn't read the number of edges!");
+    info.edges_count = *maybe_edges;
+
+    auto maybe_vertices = snapshot.ReadUint();
+    if (!maybe_vertices) throw RecoveryFailure("Couldn't read the number of vertices!");
+    info.vertices_count = *maybe_vertices;
+  }
+
+  return info;
+}
+
 // Function used to read information about the snapshot file.
 SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
   // Check magic and version.
@@ -447,6 +539,9 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
 
   if (version < kDurableTS) {
     return ReadSnapshotInfoPreVersion23(path);
+  }
+  if (version < kNumCommittedTxns) {
+    return ReadSnapshotInfoPreVersionNumCommittedTxns(path);
   }
 
   // Prepare return value.
@@ -526,6 +621,10 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
     auto maybe_vertices = snapshot.ReadUint();
     if (!maybe_vertices) throw RecoveryFailure("Couldn't read the number of vertices!");
     info.vertices_count = *maybe_vertices;
+
+    auto maybe_num_committed_txns = snapshot.ReadUint();
+    if (!maybe_num_committed_txns) throw RecoveryFailure("Couldn't read the number of committed txns!");
+    info.num_committed_txns = *maybe_num_committed_txns;
   }
 
   return info;
@@ -6967,6 +7066,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
   spdlog::info("Metadata recovered.");
   // Recover timestamp.
   recovery_info.next_timestamp = info.start_timestamp + 1;
+  recovery_info.num_committed_txns = info.num_committed_txns;
 
   // Set success flag (to disable cleanup).
   success = true;
@@ -7036,6 +7136,11 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                        edge_count, config, enum_store, schema_info, snapshot_info);
     }
     case 29U: {
+      // TODO: (andi) Change after you verify nothing got broken
+      return LoadCurrentVersionSnapshot(snapshot, path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
+                                        edge_count, config, enum_store, schema_info, snapshot_info);
+    }
+    case 30U: {
       return LoadCurrentVersionSnapshot(snapshot, path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
                                         edge_count, config, enum_store, schema_info, snapshot_info);
     }
@@ -7795,6 +7900,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
                                                      : transaction->start_timestamp);  // Fallback to start ts
     snapshot.WriteUint(edges_count);
     snapshot.WriteUint(vertices_count);
+    snapshot.WriteUint(storage->repl_storage_state_.num_committed_txns_.load(std::memory_order_acquire));
     if (snapshot_aborted()) {
       return std::nullopt;
     }
