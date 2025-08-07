@@ -27,10 +27,10 @@ using memgraph::utils::UUID;
 
 TEST(ReplicationDurability, V3Main) {
   auto const role_entry = ReplicationRoleEntry{.version = DurabilityVersion::V3, .role = MainRole{.main_uuid = UUID{}}};
-  nlohmann::json j;
-  to_json(j, role_entry);
+  nlohmann::json json_data;
+  to_json(json_data, role_entry);
   ReplicationRoleEntry deser;
-  from_json(j, deser);
+  from_json(json_data, deser);
   ASSERT_EQ(role_entry, deser);
 }
 
