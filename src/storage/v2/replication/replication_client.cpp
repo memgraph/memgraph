@@ -70,8 +70,9 @@ ReplicationStorageClient::ReplicationStorageClient(::memgraph::replication::Repl
                                                    utils::UUID const main_uuid)
     : client_{client}, main_uuid_(main_uuid) {}
 
-void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, DatabaseAccessProtector db_acc) {
-  auto &main_repl_state = main_storage->repl_storage_state_;
+void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, DatabaseAccessProtector db_acc,
+                                                  bool const start) {
+  auto const &main_repl_state = main_storage->repl_storage_state_;
   auto const &main_db_name = main_storage->name();
 
   // stream should be destroyed so that RPC lock is released before taking engine lock
@@ -111,8 +112,11 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
 
   auto const &heartbeat_res = *maybe_heartbeat_res;
 
-  if (heartbeat_res.success) {
-    last_known_ts_.store(heartbeat_res.current_commit_timestamp, std::memory_order_release);
+  if (heartbeat_res.success_) {
+    last_known_ts_.store(heartbeat_res.current_commit_timestamp_, std::memory_order_release);
+    if (start) {
+      num_committed_txns_.store(heartbeat_res.num_txns_committed_, std::memory_order_release);
+    }
   } else {
 #ifdef MG_ENTERPRISE  // Multi-tenancy is only supported in enterprise
     // Replica is missing the current database
@@ -129,32 +133,32 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
   // different epoch id, replica was main
   // In case there is no epoch transfer, and MAIN doesn't hold all the epochs as it could have been down and miss it
   // we need then just to check commit timestamp
-  if (heartbeat_res.epoch_id != main_repl_state.epoch_.id() &&
-      heartbeat_res.current_commit_timestamp != kTimestampInitialId) {
+  if (heartbeat_res.epoch_id_ != main_repl_state.epoch_.id() &&
+      heartbeat_res.current_commit_timestamp_ != kTimestampInitialId) {
     spdlog::trace(
         "DB: {} Replica {}: Epoch id: {}, last_durable_timestamp: {}; Main: Epoch id: {}, last_durable_timestamp: {}",
-        main_db_name, client_.name_, std::string(heartbeat_res.epoch_id), heartbeat_res.current_commit_timestamp,
+        main_db_name, client_.name_, std::string(heartbeat_res.epoch_id_), heartbeat_res.current_commit_timestamp_,
         std::string(main_repl_state.epoch_.id()),
         main_repl_state.last_durable_timestamp_.load(std::memory_order_acquire));
 
     auto const &main_history = main_repl_state.history;
     const auto epoch_info_iter =
         std::find_if(main_history.crbegin(), main_history.crend(),
-                     [&](const auto &main_epoch_info) { return main_epoch_info.first == heartbeat_res.epoch_id; });
+                     [&](const auto &main_epoch_info) { return main_epoch_info.first == heartbeat_res.epoch_id_; });
 
     if (epoch_info_iter == main_history.crend()) {
       branching_point = 0;
       spdlog::trace("Couldn't find epoch {} in main for db {}, setting branching point to 0.",
-                    std::string(heartbeat_res.epoch_id), main_db_name);
+                    std::string(heartbeat_res.epoch_id_), main_db_name);
     } else if (epoch_info_iter->second <
                heartbeat_res
-                   .current_commit_timestamp) {  // replica has larger commit ts associated with epoch than main
+                   .current_commit_timestamp_) {  // replica has larger commit ts associated with epoch than main
       spdlog::trace(
           "Found epoch {} on main for db {} with last_durable_timestamp {}, replica {} has last_durable_timestamp {}. "
           "Setting "
           "branching point to {}.",
           std::string(epoch_info_iter->first), main_db_name, epoch_info_iter->second, client_.name_,
-          heartbeat_res.current_commit_timestamp, epoch_info_iter->second);
+          heartbeat_res.current_commit_timestamp_, epoch_info_iter->second);
       branching_point = epoch_info_iter->second;
     } else {
       branching_point = std::nullopt;
@@ -211,21 +215,21 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
   // Lock engine lock in order to read main_storage timestamp and synchronize with any active commits
   auto engine_lock = std::unique_lock{main_storage->engine_lock_};
   spdlog::trace("Current timestamp on replica {} for db {} is {}.", client_.name_, main_db_name,
-                heartbeat_res.current_commit_timestamp);
+                heartbeat_res.current_commit_timestamp_);
   spdlog::trace("Current durable timestamp on main for db {} is {}", main_db_name,
                 main_repl_state.last_durable_timestamp_.load(std::memory_order_acquire));
 
   replica_state_.WithLock([&](auto &state) {
     // Recovered state didn't change in the meantime
     // ldt can be larger on replica due to snapshots
-    if (heartbeat_res.current_commit_timestamp >=
+    if (heartbeat_res.current_commit_timestamp_ >=
         main_repl_state.last_durable_timestamp_.load(std::memory_order_acquire)) {
       spdlog::debug("Replica {} up to date for db {}.", client_.name_, main_db_name);
       state = ReplicaState::READY;
     } else {
       spdlog::debug("Replica {} is behind for db {}.", client_.name_, main_db_name);
       state = ReplicaState::RECOVERY;
-      client_.thread_pool_.AddTask([main_storage, current_commit_timestamp = heartbeat_res.current_commit_timestamp,
+      client_.thread_pool_.AddTask([main_storage, current_commit_timestamp = heartbeat_res.current_commit_timestamp_,
                                     gk = std::move(db_acc),
                                     this] { this->RecoverReplica(current_commit_timestamp, main_storage); });
     }
@@ -263,9 +267,10 @@ void ReplicationStorageClient::ForceRecoverReplica(Storage *main_storage, Databa
   });
 }
 
-void ReplicationStorageClient::TryCheckReplicaStateSync(Storage *main_storage, DatabaseAccessProtector db_acc) {
+void ReplicationStorageClient::TryCheckReplicaStateSync(Storage *main_storage, DatabaseAccessProtector db_acc,
+                                                        bool const start) {
   try {
-    UpdateReplicaState(main_storage, std::move(db_acc));
+    UpdateReplicaState(main_storage, std::move(db_acc), start);
   } catch (const rpc::VersionMismatchRpcFailedException &) {
     replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
     spdlog::error(utils::MessageWithLink(
@@ -497,7 +502,14 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseAccessProt
       return replica_state_.WithLock([this, response, db_acc = std::move(db_acc), &replica_stream_obj,
                                       durability_commit_timestamp](auto &state) mutable {
         replica_stream_obj.reset();
-        // If we didn't receive successful response to AppendDeltas, or we got into MAYBE_BEHIND state since the
+
+        // It doesn't matter whether we started a new txn or not, we can increment here the number of known committed
+        // txns for replica
+        if (response.success) {
+          num_committed_txns_.fetch_add(1, std::memory_order_release);
+        }
+
+        // If we didn't receive successful response to PrepareCommitReq, or we got into MAYBE_BEHIND state since the
         // moment we started committing as ASYNC replica, we cannot set the ready state. We could have got into
         // MAYBE_BEHIND state if we missed next txn.
         if (state != ReplicaState::REPLICATING) {
@@ -511,7 +523,6 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseAccessProt
 
         last_known_ts_.store(durability_commit_timestamp, std::memory_order_release);
         state = ReplicaState::READY;
-        num_committed_txns_.fetch_add(1, std::memory_order_release);
         return true;
       });
     } catch (const rpc::RpcFailedException &) {
@@ -536,7 +547,7 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseAccessProt
 
 void ReplicationStorageClient::Start(Storage *storage, DatabaseAccessProtector db_acc) {
   spdlog::trace("Replication client started for database \"{}\"", storage->name());
-  TryCheckReplicaStateSync(storage, std::move(db_acc));
+  TryCheckReplicaStateSync(storage, std::move(db_acc), true);
 }
 
 // The function is finished by setting replica to READY state or by setting it to MAYBE_BEHIND state.
@@ -597,12 +608,13 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                   return;
                 }
 
-                if (auto const &response = *maybe_response; response.current_commit_timestamp.has_value()) {
-                  replica_last_commit_ts = *(response.current_commit_timestamp);
+                if (auto const &response = *maybe_response; response.current_commit_timestamp_.has_value()) {
+                  replica_last_commit_ts = *(response.current_commit_timestamp_);
+                  num_committed_txns_.store(response.num_txns_committed_, std::memory_order_release);
                   spdlog::debug(
                       "Successful reply to the snapshot file {} received from {} for db {}. Current replica commit is "
-                      "{}",
-                      snapshot, client_.name_, main_db_name, replica_last_commit_ts);
+                      "{}. Number of committed txns set to {}.",
+                      snapshot, client_.name_, main_db_name, replica_last_commit_ts, response.num_txns_committed_);
                 } else {
                   spdlog::debug(
                       "Unsuccessful reply to the snapshot file {} received from {} for db {}. Current replica commit "
@@ -631,11 +643,13 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                   return;
                 }
 
-                if (auto const &response = *maybe_response; response.current_commit_timestamp.has_value()) {
-                  replica_last_commit_ts = *(response.current_commit_timestamp);
+                if (auto const &response = *maybe_response; response.current_commit_timestamp_.has_value()) {
+                  replica_last_commit_ts = *(response.current_commit_timestamp_);
+                  num_committed_txns_.fetch_add(response.num_txns_committed_, std::memory_order_release);
                   spdlog::debug(
-                      "Successful reply to WAL files received from {} for db {}. Updating replica commit to {}",
-                      client_.name_, main_db_name, replica_last_commit_ts);
+                      "Successful reply to WAL files received from {} for db {}. Updating replica commit to {}. Number "
+                      "of committed txns increased by {}",
+                      client_.name_, main_db_name, replica_last_commit_ts, response.num_txns_committed_);
                 } else {
                   spdlog::debug(
                       "Unsuccessful reply to WAL files received from {} for db {}. Current replica commit is {}.",
@@ -664,11 +678,13 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                     return;
                   }
 
-                  if (auto const &response = *maybe_response; response.current_commit_timestamp.has_value()) {
-                    replica_last_commit_ts = *(response.current_commit_timestamp);
+                  if (auto const &response = *maybe_response; response.current_commit_timestamp_.has_value()) {
+                    replica_last_commit_ts = *(response.current_commit_timestamp_);
+                    num_committed_txns_.fetch_add(response.num_txns_committed_, std::memory_order_release);
                     spdlog::debug(
-                        "Successful reply to the current WAL received from {} for db {}. Current replica commit is {}",
-                        client_.name_, main_db_name, replica_last_commit_ts);
+                        "Successful reply to the current WAL received from {} for db {}. Current replica commit is {}. "
+                        "Number of committed txns increased by {}",
+                        client_.name_, main_db_name, replica_last_commit_ts, response.num_txns_committed_);
                   } else {
                     spdlog::debug(
                         "Unsuccessful reply to WAL files received from {} for db {}. Current replica commit is {}",

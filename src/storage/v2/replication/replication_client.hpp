@@ -229,8 +229,9 @@ class ReplicationStorageClient {
    *
    * @param main_storage pointer to the storage associated with the client
    * @param db_acc gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   * @param start If we are checking replica as part of the 1st start
    */
-  void UpdateReplicaState(Storage *main_storage, DatabaseAccessProtector db_acc);
+  void UpdateReplicaState(Storage *main_storage, DatabaseAccessProtector db_acc, bool start = false);
 
   /**
    * @brief Forcefully reset storage to as it is when started from scratch.
@@ -243,13 +244,15 @@ class ReplicationStorageClient {
    *
    * @param main_storage pointer to the storage associated with the client
    * @param db_acc gatekeeper access that protects the database; std::any to have separation between dbms and storage
+   * @param start If we are checking replica as part of the 1st start
    */
-  void TryCheckReplicaStateSync(Storage *main_storage, DatabaseAccessProtector db_acc);
+  void TryCheckReplicaStateSync(Storage *main_storage, DatabaseAccessProtector db_acc, bool start = false);
 
   ::memgraph::replication::ReplicationClient &client_;
   mutable std::atomic<uint64_t> last_known_ts_{0};
   mutable utils::Synchronized<replication::ReplicaState, utils::SpinLock> replica_state_{
       replication::ReplicaState::MAYBE_BEHIND};
+  // Number of committed txns on replica. We cache the value on the MAIN side to avoid sending RPC when retrieving info
   mutable std::atomic<uint64_t> num_committed_txns_{0};
   const utils::UUID main_uuid_;
 };
