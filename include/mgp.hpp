@@ -1343,6 +1343,12 @@ class Value {
   /// @note The behavior of accessing `duration` after performing this operation is undefined.
   explicit Value(Duration &&duration);
 
+  /// @brief Constructs a ZonedDateTime value from the copy of the given `zoned_date_time`.
+  explicit Value(const ZonedDateTime &zoned_date_time);
+  /// @brief Constructs a ZonedDateTime value and takes ownership of the given `zoned_date_time`.
+  /// @note The behavior of accessing `zoned_date_time` after performing this operation is undefined.
+  explicit Value(ZonedDateTime &&zoned_date_time);
+
   Value(const Value &other);
   Value(Value &&other) noexcept;
 
@@ -3662,8 +3668,18 @@ inline std::string Duration::ToString() const { return std::to_string(Microsecon
 
 // ZonedDateTime:
 
+inline ZonedDateTime::ZonedDateTime(mgp_zoned_date_time *ptr)
+    : ptr_(mgp::MemHandlerCallback(zoned_date_time_copy, ptr)) {}
+
+inline ZonedDateTime::ZonedDateTime(const mgp_zoned_date_time *const_ptr)
+    : ptr_(mgp::MemHandlerCallback(zoned_date_time_copy, const_cast<mgp_zoned_date_time *>(const_ptr))) {}
+
 inline ZonedDateTime::ZonedDateTime(std::string_view string)
     : ptr_(mgp::MemHandlerCallback(zoned_date_time_from_string, string.data())) {}
+
+inline ZonedDateTime::ZonedDateTime(const ZonedDateTime &other) : ZonedDateTime(other.ptr_) {}
+
+inline ZonedDateTime::ZonedDateTime(ZonedDateTime &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; };
 
 inline ZonedDateTime::~ZonedDateTime() {
   if (ptr_ != nullptr) {
@@ -3781,6 +3797,14 @@ inline Value::Value(const Duration &duration)
 inline Value::Value(Duration &&duration) {
   ptr_ = mgp::value_make_duration(duration.ptr_);
   duration.ptr_ = nullptr;
+}
+
+inline Value::Value(const ZonedDateTime &zoned_date_time)
+    : ptr_(mgp::value_make_zoned_date_time(mgp::MemHandlerCallback(zoned_date_time_copy, zoned_date_time.ptr_))) {}
+
+inline Value::Value(ZonedDateTime &&zoned_date_time) {
+  ptr_ = mgp::value_make_zoned_date_time(zoned_date_time.ptr_);
+  zoned_date_time.ptr_ = nullptr;
 }
 
 inline Value::Value(const Value &other) : Value(other.ptr()) {}

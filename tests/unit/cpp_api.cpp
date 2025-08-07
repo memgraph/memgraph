@@ -509,17 +509,17 @@ void test_TestZonedDateTime() {
 
   ASSERT_EQ(ldt_1, ldt_2);
 
-  // // Use copy assignment
-  // auto ldt_x = ldt_1;
+  // Use copy assignment
+  auto ldt_x = ldt_1;
 
-  // // Use move assignment
-  // std::vector<mgp::LocalDateTime> vector_x;
-  // vector_x.push_back(mgp::LocalDateTime("2021-10-05T14:15:00"));
+  // Use move assignment
+  std::vector<mgp::LocalDateTime> vector_x;
+  vector_x.push_back(mgp::LocalDateTime("2021-10-05T14:15:00"));
 
-  // // Use Value copy constructor
-  // auto value_x = mgp::Value(ldt_1);
-  // // Use Value move constructor
-  // auto value_y = mgp::Value(mgp::LocalDateTime("2021-10-05T14:15:00"));
+  // Use Value copy constructor
+  auto value_x = mgp::Value(ldt_1);
+  // Use Value move constructor
+  auto value_y = mgp::Value(mgp::LocalDateTime("2021-10-05T14:15:00"));
 }
 
 TYPED_TEST(CppApiTestFixture, TestZonedDateTime) { test_TestZonedDateTime(); }

@@ -1686,6 +1686,12 @@ mgp_error mgp_zoned_date_time_from_parameters(mgp_zoned_date_time_parameters *pa
                         zoned_date_time);
 }
 
+mgp_error mgp_zoned_date_time_copy(mgp_zoned_date_time *zoned_date_time, mgp_memory *memory,
+                                   mgp_zoned_date_time **result) {
+  return WrapExceptions(
+      [zoned_date_time, memory] { return NewRawMgpObject<mgp_zoned_date_time>(memory, *zoned_date_time); }, result);
+}
+
 void mgp_zoned_date_time_destroy(mgp_zoned_date_time *zoned_date_time) { DeleteRawMgpObject(zoned_date_time); }
 
 mgp_error mgp_zoned_date_time_equal(mgp_zoned_date_time *first, mgp_zoned_date_time *second, int *result) {

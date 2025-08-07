@@ -1364,6 +1364,12 @@ enum mgp_error mgp_zoned_date_time_from_parameters(struct mgp_zoned_date_time_pa
                                                    struct mgp_memory *memory,
                                                    struct mgp_zoned_date_time **zoned_date_time);
 
+/// Copy a mgp_zoned_date_time.
+/// Resulting pointer must be freed with mgp_zoned_date_time_destroy.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_zoned_date_time.
+enum mgp_error mgp_zoned_date_time_copy(struct mgp_zoned_date_time *zoned_date_time, struct mgp_memory *memory,
+                                        struct mgp_zoned_date_time **result);
+
 /// Free the memory used by a mgp_zoned_date_time.
 void mgp_zoned_date_time_destroy(struct mgp_zoned_date_time *zoned_date_time);
 
