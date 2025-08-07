@@ -1180,6 +1180,11 @@ class ZonedDateTime {
   ZonedDateTime(int year, int month, int day, int hour, int minute, int second, int millisecond, int microsecond,
                 int offset_in_minutes);
 
+  /// @brief Creates a ZonedDateTime object with the given `year`, `month`, `day`, `hour`, `minute`, `second`,
+  /// `millisecond`, `microsecond`, and `timezone_name` properties.
+  ZonedDateTime(int year, int month, int day, int hour, int minute, int second, int millisecond, int microsecond,
+                std::string_view timezone_name);
+
   ZonedDateTime(const ZonedDateTime &other);
   ZonedDateTime(ZonedDateTime &&other) noexcept;
 
@@ -3449,10 +3454,25 @@ inline ZonedDateTime::ZonedDateTime(int year, int month, int day, int hour, int 
   struct mgp_local_time_parameters local_time_params {
     .hour = hour, .minute = minute, .second = second, .millisecond = millisecond, .microsecond = microsecond
   };
-  mgp_zoned_date_time_parameters params{
-    .date_parameters = &date_params,
-    .local_time_parameters = &local_time_params/*
-    .offset = offset_in_minutes*/}; // @TODO support offset again...
+  mgp_zoned_date_time_parameters params{.date_parameters = &date_params,
+                                        .local_time_parameters = &local_time_params,
+                                        .timezone_info = {.offset_in_minutes = offset_in_minutes},
+                                        .is_named_timezone = 0};
+  ptr_ = mgp::MemHandlerCallback(zoned_date_time_from_parameters, &params);
+}
+
+inline ZonedDateTime::ZonedDateTime(int year, int month, int day, int hour, int minute, int second, int millisecond,
+                                    int microsecond, std::string_view timezone_name) {
+  struct mgp_date_parameters date_params {
+    .year = year, .month = month, .day = day
+  };
+  struct mgp_local_time_parameters local_time_params {
+    .hour = hour, .minute = minute, .second = second, .millisecond = millisecond, .microsecond = microsecond
+  };
+  mgp_zoned_date_time_parameters params{.date_parameters = &date_params,
+                                        .local_time_parameters = &local_time_params,
+                                        .timezone_info = {.timezone_name = timezone_name.data()},
+                                        .is_named_timezone = 1};
   ptr_ = mgp::MemHandlerCallback(zoned_date_time_from_parameters, &params);
 }
 
