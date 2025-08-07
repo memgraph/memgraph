@@ -2621,7 +2621,7 @@ void ValidateWeight(TypedValue current_weight) {
 }
 
 void ValidateWeightTypes(const TypedValue &lhs, const TypedValue &rhs) {
-  if ((lhs.IsNumeric() && rhs.IsNumeric()) || (lhs.IsDuration() && rhs.IsDuration())) {
+  if ((lhs.IsNumeric() && rhs.IsNumeric()) || (lhs.IsDuration() && rhs.IsDuration())) [[likely]] {
     return;
   }
   throw QueryRuntimeException(utils::MessageWithLink(
@@ -2933,12 +2933,16 @@ namespace {
 
 // Numerical error can only happen with doubles
 inline bool are_equal(const TypedValue &lhs, const TypedValue &rhs) {
-  if (!lhs.IsDouble() || !rhs.IsDouble()) return false;
-  auto l = lhs.ValueDouble();
-  auto r = rhs.ValueDouble();
+  if (lhs.type() == rhs.type() && lhs.type() != TypedValue::Type::Double) {
+    // Either both have to be integers or both have to be durations since we don't allow anything else
+    return lhs.IsInt() ? lhs.ValueInt() == rhs.ValueInt() : lhs.ValueDuration() == rhs.ValueDuration();
+  }
+  // they are both numeric, validated in ValidateWeightTypes
+  auto l = lhs.IsDouble() ? lhs.ValueDouble() : static_cast<double>(lhs.ValueInt());
+  auto r = rhs.IsDouble() ? rhs.ValueDouble() : static_cast<double>(rhs.ValueInt());
   auto diff = std::abs(l - r);
   if (diff < 1e-12) return true;  // relative comparison doesn't work well if numbers are near zero
-  return std::abs(lhs.ValueDouble() - rhs.ValueDouble()) < std::max(l, r) * 1e-12;
+  return std::abs(l - r) < std::max(l, r) * 1e-12;
 }
 }  // namespace
 
@@ -2979,12 +2983,6 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       frame[self_.weight_lambda_->inner_node_symbol] = next_vertex;
       TypedValue next_weight = CalculateNextWeight(self_.weight_lambda_, total_weight, evaluator);
 
-      if (next_vertex.Gid().AsInt() == 1) {
-        spdlog::debug("Expanding edge {} to vertex {} with weight {} at depth {}", edge.Gid().AsInt(),
-                      next_vertex.Gid().AsInt(),
-                      next_weight.IsDouble() ? next_weight.ValueDouble() : next_weight.ValueInt(), depth);
-      }
-
       // If filter expression exists, evaluate filter
       std::optional<Path> curr_acc_path = std::nullopt;
       if (self_.filter_lambda_.expression) {
@@ -3010,15 +3008,17 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       // Check if the vertex has already been processed.
       if (found_it != visited_cost_.end()) {
         auto &weights = found_it->second;
-        bool insert = std::ranges::none_of(weights, [depth, next_weight](const auto &entry) {
-          auto [old_weight, old_depth] = entry;
+        bool insert = std::ranges::none_of(weights, [&depth, &next_weight](const auto &entry) {
+          auto const &[old_weight, old_depth] = entry;
           return old_depth <= depth && (old_weight < next_weight).ValueBool() && !are_equal(old_weight, next_weight);
         });
 
         if (!insert) return;
+        // They cannot be equal since we checked for that above
+        // Its possible that some weights are worse because we update weights at the same time as expanding instead of
+        // later when popping from the queue
         std::erase_if(weights, [&next_weight, depth](const std::pair<TypedValue, int64_t> &p) {
-          return (p.first > next_weight).ValueBool() && p.second <= depth &&
-                 !are_equal(p.first, next_weight);  // allow same weight to allow multiple paths with same cost
+          return p.second >= depth && (p.first > next_weight).ValueBool();
         });
         weights.emplace_back(next_weight, depth);
 
@@ -3034,8 +3034,8 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         cheapest_cost_[next_vertex] = next_weight;
       }
 
-      DirectedEdge directed_edge = {edge, direction, next_weight};
-      pq_.emplace(next_weight, depth + 1, next_vertex, directed_edge, curr_acc_path);
+      pq_.emplace(std::move(next_weight), depth + 1, next_vertex, DirectedEdge{edge, direction, next_weight},
+                  std::move(curr_acc_path));
     };
 
     auto restore_frame_state_after_expansion = [this, &frame]() {
@@ -3112,12 +3112,14 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       frame[self_.total_weight_.value()] = current_weight;
 
       if (next_edges_.find({next_vertex, traversal_stack_.size()}) != next_edges_.end()) {
-        auto next_vertex_edges = next_edges_[{next_vertex, traversal_stack_.size()}];
-        traversal_stack_.emplace_back(std::move(next_vertex_edges));
+        auto [it, inserted] =
+            next_edges_.try_emplace({next_vertex, traversal_stack_.size()}, utils::pmr::list<DirectedEdge>(memory));
+
+        // Need to propagate the allocator
+        traversal_stack_.emplace_back(utils::pmr::list<DirectedEdge>(it->second, memory));
       } else {
         // Signal the end of iteration
-        utils::pmr::list<DirectedEdge> empty(memory);
-        traversal_stack_.emplace_back(std::move(empty));
+        traversal_stack_.emplace_back(utils::pmr::list<DirectedEdge>(memory));
       }
 
       auto cheapest_cost = cheapest_cost_.find(next_vertex)->second;
@@ -3163,8 +3165,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
         // Update the parent
         if (next_edges_.find({prev_vertex, current_depth - 1}) == next_edges_.end()) {
-          utils::pmr::list<DirectedEdge> empty(memory);
-          next_edges_[{prev_vertex, current_depth - 1}] = std::move(empty);
+          next_edges_[{prev_vertex, current_depth - 1}] = utils::pmr::list<DirectedEdge>(memory);
         }
         next_edges_.at({prev_vertex, current_depth - 1}).emplace_back(directed_edge);
       }
@@ -3208,6 +3209,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         if (vertex_value.IsNull()) continue;
 
         start_vertex = vertex_value.ValueVertex();
+
         if (self_.common_.existing_node) {
           const auto &node = frame[self_.common_.node_symbol];
           // Due to optional matching the existing node could be null.
@@ -3249,8 +3251,8 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
       // DFS traversal tree is create,
       if (start_vertex && next_edges_.find({*start_vertex, 0}) != next_edges_.end()) {
-        auto start_vertex_edges = next_edges_[{*start_vertex, 0}];
-        traversal_stack_.emplace_back(std::move(start_vertex_edges));
+        auto [it, inserted] = next_edges_.try_emplace({*start_vertex, 0}, utils::pmr::list<DirectedEdge>(memory));
+        traversal_stack_.emplace_back(utils::pmr::list<DirectedEdge>(it->second, memory));
       }
     }
   }
@@ -4084,13 +4086,15 @@ SetProperties::SetPropertiesCursor::SetPropertiesCursor(const SetProperties &sel
 namespace {
 
 template <typename T>
-concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
-                                          storage::PropertyValue property_value,
-                                          std::map<storage::PropertyId, storage::PropertyValue> properties) {
-  { value.ClearProperties() } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
-  {value.SetProperty(property_id, property_value)};
-  {value.UpdateProperties(properties)};
-};
+concept AccessorWithProperties =
+    requires(T value, storage::PropertyId property_id, storage::PropertyValue property_value,
+             std::map<storage::PropertyId, storage::PropertyValue> properties) {
+      {
+        value.ClearProperties()
+      } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
+      { value.SetProperty(property_id, property_value) };
+      { value.UpdateProperties(properties) };
+    };
 
 /// Helper function that sets the given values on either a Vertex or an Edge.
 ///
@@ -5127,7 +5131,7 @@ class AggregateCursor : public Cursor {
           value_it->ValueMap().emplace(key.ValueString(), std::move(input_value));
           break;
       }  // end switch over Aggregation::Op enum
-    }    // end loop over all aggregations
+    }  // end loop over all aggregations
   }
 
   /** Project a subgraph from lists of nodes and lists of edges. Any nulls in these lists are ignored.
@@ -5409,9 +5413,8 @@ class OrderByCursor : public Cursor {
       // sorting with range zip
       // we compare on just the projection of the 1st range (order_by)
       // this will also permute the 2nd range (output)
-      ranges::sort(
-          rv::zip(order_by, output), self_.compare_.lex_cmp(),
-          [](auto const &value) -> auto const & { return std::get<0>(value); });
+      ranges::sort(rv::zip(order_by, output), self_.compare_.lex_cmp(),
+                   [](auto const &value) -> auto const & { return std::get<0>(value); });
 
       // no longer need the order_by terms
       order_by.clear();
