@@ -321,3 +321,24 @@ Feature: All Shortest Path
       Then the result should be:
           | cnt |
           | 5   |
+
+    Scenario: Test match AllShortest with edge case 2
+      Given graph "graph_wsp_edge_case_2"
+      And with new index :Start
+      When executing query:
+          """
+          MATCH (n:Start) WHERE n.id = 1
+          MATCH p=(n)-[r*allshortest ..3 (e, v | e.cost) total_cost]->(k:Node {id:6}) return total_cost;
+          """
+      Then the result should be:
+          | total_cost |
+          | 11 |
+
+      When executing query:
+          """
+          MATCH (n:Start) WHERE n.id = 1
+          MATCH p=(n)-[r*allshortest ..4 (e, v | e.cost) total_cost]->(k:Node {id:6}) return total_cost;
+          """
+      Then the result should be:
+          | total_cost |
+          | 4 |
