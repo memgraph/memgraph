@@ -11,11 +11,9 @@
 
 #pragma once
 
-#include <chrono>
 #include <list>
 #include <memory>
 #include <mutex>
-#include <optional>
 #include "replication/state.hpp"
 #include "system/action.hpp"
 #include "system/state.hpp"
@@ -104,7 +102,7 @@ struct DoReplication {
     auto sync_status = AllSyncReplicaStatus::AllCommitsConfirmed;
 
     for (auto &client : main_data_.registered_replicas_) {
-      bool completed = action.DoReplication(client, main_data_.uuid_, main_data_.epoch_, system_tx);
+      auto const completed = action.DoReplication(client, main_data_.uuid_, system_tx);
       if (!completed && (client.mode_ == replication_coordination_glue::ReplicationMode::SYNC ||
                          client.mode_ == replication_coordination_glue::ReplicationMode::STRICT_SYNC)) {
         sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;

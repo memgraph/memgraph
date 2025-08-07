@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -27,23 +27,18 @@ struct UpdateAuthDataReq {
   static void Load(UpdateAuthDataReq *self, memgraph::slk::Reader *reader);
   static void Save(const UpdateAuthDataReq &self, memgraph::slk::Builder *builder);
   UpdateAuthDataReq() = default;
-  UpdateAuthDataReq(const utils::UUID &main_uuid, std::string epoch_id, uint64_t expected_ts, uint64_t new_ts,
-                    auth::User user)
+  UpdateAuthDataReq(const utils::UUID &main_uuid, uint64_t const expected_ts, uint64_t const new_ts, auth::User user)
       : main_uuid(main_uuid),
-        epoch_id{std::move(epoch_id)},
         expected_group_timestamp{expected_ts},
         new_group_timestamp{new_ts},
         user{std::move(user)} {}
-  UpdateAuthDataReq(const utils::UUID &main_uuid, std::string epoch_id, uint64_t expected_ts, uint64_t new_ts,
-                    auth::Role role)
+  UpdateAuthDataReq(const utils::UUID &main_uuid, uint64_t const expected_ts, uint64_t const new_ts, auth::Role role)
       : main_uuid(main_uuid),
-        epoch_id{std::move(epoch_id)},
         expected_group_timestamp{expected_ts},
         new_group_timestamp{new_ts},
         role{std::move(role)} {}
 
   utils::UUID main_uuid;
-  std::string epoch_id;
   uint64_t expected_group_timestamp;
   uint64_t new_group_timestamp;
   std::optional<auth::User> user;
@@ -74,17 +69,15 @@ struct DropAuthDataReq {
 
   enum class DataType { USER, ROLE };
 
-  DropAuthDataReq(const utils::UUID &main_uuid, std::string epoch_id, uint64_t expected_ts, uint64_t new_ts,
-                  DataType type, std::string_view name)
+  DropAuthDataReq(const utils::UUID &main_uuid, uint64_t const expected_ts, uint64_t const new_ts, DataType const type,
+                  std::string_view const name)
       : main_uuid(main_uuid),
-        epoch_id{std::move(epoch_id)},
         expected_group_timestamp{expected_ts},
         new_group_timestamp{new_ts},
         type{type},
         name{name} {}
 
   utils::UUID main_uuid;
-  std::string epoch_id;
   uint64_t expected_group_timestamp;
   uint64_t new_group_timestamp;
   DataType type;
