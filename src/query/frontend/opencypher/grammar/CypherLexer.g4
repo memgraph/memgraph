@@ -128,6 +128,7 @@ REGISTER       : R E G I S T E R;
 REMOVE         : R E M O V E ;
 RETURN         : R E T U R N ;
 SET            : S E T ;
+SHORTESTFIRST  : S H O R T E S T F I R S T ;
 SHOW           : S H O W ;
 SINGLE         : S I N G L E ;
 STARTS         : S T A R T S ;

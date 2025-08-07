@@ -1619,7 +1619,14 @@ class EdgeAtom : public memgraph::query::PatternAtom {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class Type : uint8_t { SINGLE, DEPTH_FIRST, BREADTH_FIRST, WEIGHTED_SHORTEST_PATH, ALL_SHORTEST_PATHS };
+  enum class Type : uint8_t {
+    SINGLE,
+    DEPTH_FIRST,
+    BREADTH_FIRST,
+    WEIGHTED_SHORTEST_PATH,
+    ALL_SHORTEST_PATHS,
+    SHORTEST_FIRST,
+  };
 
   enum class Direction : uint8_t { IN, OUT, BOTH };
 
@@ -1681,6 +1688,7 @@ class EdgeAtom : public memgraph::query::PatternAtom {
       case Type::BREADTH_FIRST:
       case Type::WEIGHTED_SHORTEST_PATH:
       case Type::ALL_SHORTEST_PATHS:
+      case Type::SHORTEST_FIRST:
         return true;
       case Type::SINGLE:
         return false;

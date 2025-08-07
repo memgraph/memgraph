@@ -359,6 +359,8 @@ std::string ToString(EdgeAtom::Type type) {
       return "wsp";
     case EdgeAtom::Type::ALL_SHORTEST_PATHS:
       return "asp";
+    case EdgeAtom::Type::SHORTEST_FIRST:
+      return "shortest_first";
     case EdgeAtom::Type::SINGLE:
       return "single";
   }
