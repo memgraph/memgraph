@@ -315,7 +315,7 @@ Feature: All Shortest Path
       And with new index :Node
       When executing query:
           """
-          MATCH (n:Start) WHERE n.id = 1
+          MATCH (n:Start)
           MATCH p=(n)-[r*allshortest ..3 (e, v | e.cost)]->(k:Node) return DISTINCT count(p) as cnt;
           """
       Then the result should be:
@@ -327,7 +327,7 @@ Feature: All Shortest Path
       And with new index :Start
       When executing query:
           """
-          MATCH (n:Start) WHERE n.id = 1
+          MATCH (n:Start)
           MATCH p=(n)-[r*allshortest ..3 (e, v | e.cost) total_cost]->(k:Node {id:6}) return total_cost;
           """
       Then the result should be:
@@ -336,7 +336,7 @@ Feature: All Shortest Path
 
       When executing query:
           """
-          MATCH (n:Start) WHERE n.id = 1
+          MATCH (n:Start)
           MATCH p=(n)-[r*allshortest ..4 (e, v | e.cost) total_cost]->(k:Node {id:6}) return total_cost;
           """
       Then the result should be:
