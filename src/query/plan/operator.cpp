@@ -3633,10 +3633,16 @@ class KShortestPathsCursor : public Cursor {
       // Expand edges based on direction
       auto expand_edges = [&](auto edges_result) {
         for (const auto &edge : edges_result.edges) {
-          if (blocked_edges_.contains(edge)) continue;
-
           VertexAccessor neighbor = (edge.From() == vertex) ? edge.To() : edge.From();
-          if (blocked_vertices_.contains(neighbor)) continue;
+#ifdef MG_ENTERPRISE
+          if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+              !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+                context.auth_checker->Has(neighbor, storage::View::OLD,
+                                          memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+            continue;
+          }
+#endif
+          if (blocked_edges_.contains(edge) || blocked_vertices_.contains(neighbor)) continue;
 
           double new_dist = dist + 1;
 
