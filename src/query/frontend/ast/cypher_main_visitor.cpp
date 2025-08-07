@@ -2861,10 +2861,6 @@ antlrcpp::Any CypherMainVisitor::visitVariableExpansion(MemgraphCypher::Variable
     throw SemanticException("Lower bound is not allowed in weighted or all shortest path expansion.");
   }
 
-  if ((lower || upper) && edge_type == EdgeAtom::Type::SHORTEST_FIRST) {
-    throw SemanticException("SHORTEST_FIRST expansion does not support range bounds.");
-  }
-
   return std::make_tuple(edge_type, lower, upper);
 }
 

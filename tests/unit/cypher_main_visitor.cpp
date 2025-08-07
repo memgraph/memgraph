@@ -2398,30 +2398,81 @@ TEST_P(CypherMainVisitorTest, MatchShortestFirstFilterByPathWeightReturn) {
 
 TEST_P(CypherMainVisitorTest, SemanticExceptionOnShortestFirstWithRangeBounds) {
   auto &ast_generator = *GetParam();
-  ASSERT_THROW(ast_generator.ParseQuery("MATCH ()-[r *shortestFirst..10]->() RETURN r"), SemanticException);
-  ASSERT_THROW(ast_generator.ParseQuery("MATCH ()-[r *shortestFirst 5..10]->() RETURN r"), SemanticException);
-  ASSERT_NO_THROW(ast_generator.ParseQuery("MATCH ()-[r *shortestFirst..]->() RETURN r"));
-  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH ()-[r *shortestFirst..]->() RETURN r"));
-  ASSERT_TRUE(query);
-  ASSERT_TRUE(query->single_query_);
-  auto *single_query = query->single_query_;
-  ASSERT_EQ(single_query->clauses_.size(), 2U);
-  auto *match = dynamic_cast<Match *>(single_query->clauses_[0]);
-  ASSERT_TRUE(match);
-  ASSERT_EQ(match->patterns_.size(), 1U);
-  ASSERT_EQ(match->patterns_[0]->atoms_.size(), 3U);
-  auto *shortest = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
-  ASSERT_TRUE(shortest);
-  EXPECT_TRUE(shortest->IsVariable());
-  EXPECT_EQ(shortest->type_, EdgeAtom::Type::SHORTEST_FIRST);
-  EXPECT_EQ(shortest->direction_, EdgeAtom::Direction::OUT);
-  EXPECT_FALSE(shortest->upper_bound_);
-  EXPECT_FALSE(shortest->lower_bound_);
-  EXPECT_EQ(shortest->identifier_->name_, "r");
-  EXPECT_FALSE(shortest->filter_lambda_.expression);
-  EXPECT_FALSE(shortest->filter_lambda_.inner_edge->user_declared_);
-  EXPECT_FALSE(shortest->filter_lambda_.inner_node->user_declared_);
-  CheckRWType(query, kRead);
+
+  {
+    const auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH ()-[r *shortestFirst..10]->() RETURN r"));
+    ASSERT_TRUE(query);
+    ASSERT_TRUE(query->single_query_);
+    auto *single_query = query->single_query_;
+    ASSERT_EQ(single_query->clauses_.size(), 2U);
+    auto *match = dynamic_cast<Match *>(single_query->clauses_[0]);
+    ASSERT_TRUE(match);
+    ASSERT_EQ(match->patterns_.size(), 1U);
+    ASSERT_EQ(match->patterns_[0]->atoms_.size(), 3U);
+    auto *shortest = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
+    ASSERT_TRUE(shortest);
+    EXPECT_TRUE(shortest->IsVariable());
+    EXPECT_EQ(shortest->type_, EdgeAtom::Type::SHORTEST_FIRST);
+    EXPECT_EQ(shortest->direction_, EdgeAtom::Direction::OUT);
+    EXPECT_TRUE(shortest->upper_bound_);
+    EXPECT_FALSE(shortest->lower_bound_);
+    EXPECT_EQ(shortest->identifier_->name_, "r");
+    EXPECT_FALSE(shortest->filter_lambda_.expression);
+    EXPECT_FALSE(shortest->filter_lambda_.inner_edge->user_declared_);
+    EXPECT_FALSE(shortest->filter_lambda_.inner_node->user_declared_);
+    CheckRWType(query, kRead);
+  }
+
+  {
+    const auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH ()-[r *shortestFirst 5..10]->() RETURN r"));
+    ASSERT_TRUE(query);
+    ASSERT_TRUE(query->single_query_);
+    auto *single_query = query->single_query_;
+    ASSERT_EQ(single_query->clauses_.size(), 2U);
+    auto *match = dynamic_cast<Match *>(single_query->clauses_[0]);
+    ASSERT_TRUE(match);
+    ASSERT_EQ(match->patterns_.size(), 1U);
+    ASSERT_EQ(match->patterns_[0]->atoms_.size(), 3U);
+    auto *shortest = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
+    ASSERT_TRUE(shortest);
+    EXPECT_TRUE(shortest->IsVariable());
+    EXPECT_EQ(shortest->type_, EdgeAtom::Type::SHORTEST_FIRST);
+    EXPECT_EQ(shortest->direction_, EdgeAtom::Direction::OUT);
+    EXPECT_TRUE(shortest->upper_bound_);
+    EXPECT_TRUE(shortest->lower_bound_);
+    EXPECT_EQ(shortest->identifier_->name_, "r");
+    EXPECT_FALSE(shortest->filter_lambda_.expression);
+    EXPECT_FALSE(shortest->filter_lambda_.inner_edge->user_declared_);
+    EXPECT_FALSE(shortest->filter_lambda_.inner_node->user_declared_);
+    CheckRWType(query, kRead);
+  }
+
+  {
+    const auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH ()-[r *shortestFirst..]->() RETURN r"));
+    ASSERT_TRUE(query);
+    ASSERT_TRUE(query->single_query_);
+    auto *single_query = query->single_query_;
+    ASSERT_EQ(single_query->clauses_.size(), 2U);
+    auto *match = dynamic_cast<Match *>(single_query->clauses_[0]);
+    ASSERT_TRUE(match);
+    ASSERT_EQ(match->patterns_.size(), 1U);
+    ASSERT_EQ(match->patterns_[0]->atoms_.size(), 3U);
+    auto *shortest = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
+    ASSERT_TRUE(shortest);
+    EXPECT_TRUE(shortest->IsVariable());
+    EXPECT_EQ(shortest->type_, EdgeAtom::Type::SHORTEST_FIRST);
+    EXPECT_EQ(shortest->direction_, EdgeAtom::Direction::OUT);
+    EXPECT_FALSE(shortest->upper_bound_);
+    EXPECT_FALSE(shortest->lower_bound_);
+    EXPECT_EQ(shortest->identifier_->name_, "r");
+    EXPECT_FALSE(shortest->filter_lambda_.expression);
+    EXPECT_FALSE(shortest->filter_lambda_.inner_edge->user_declared_);
+    EXPECT_FALSE(shortest->filter_lambda_.inner_node->user_declared_);
+    CheckRWType(query, kRead);
+  }
 }
 
 TEST_P(CypherMainVisitorTest, SemanticExceptionOnUnionTypeMix) {

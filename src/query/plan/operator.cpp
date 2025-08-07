@@ -3352,18 +3352,22 @@ class KShortestPathsCursor : public Cursor {
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::OLD, nullptr, &context.number_of_hops);
 
+    auto push_next_path = [&](Frame &frame, ExpressionEvaluator &evaluator) {
+      PushPathToFrame(shortest_paths_[current_path_index_++], &frame, evaluator.GetMemoryResource());
+    };
+
+    auto unsent_paths_count = [&]() { return shortest_paths_.size() - current_path_index_; };
+
     // If we have cached shortest paths, return the next one
     if (current_path_index_ < shortest_paths_.size()) {
-      PushPathToFrame(shortest_paths_[current_path_index_], &frame, evaluator.GetMemoryResource());
-      current_path_index_++;
+      push_next_path(frame, evaluator);
       return true;
     }
 
     // Try to compute the next shortest path for current input
     if (current_input_initialized_ && current_source_.has_value() && current_target_.has_value() &&
         ComputeNextShortestPath(current_source_.value(), current_target_.value(), evaluator, context)) {
-      PushPathToFrame(shortest_paths_.back(), &frame, evaluator.GetMemoryResource());
-      current_path_index_ = shortest_paths_.size();
+      push_next_path(frame, evaluator);
       return true;
     }
 
@@ -3371,6 +3375,10 @@ class KShortestPathsCursor : public Cursor {
     while (input_cursor_->Pull(frame, context)) {
       auto &source_vertex = frame[self_.input_symbol_].ValueVertex();
       auto &target_vertex = frame[self_.common_.node_symbol].ValueVertex();
+
+      lower_bound_ = self_.lower_bound_ ? EvaluateInt(evaluator, self_.lower_bound_, "Min depth in expansion") : 1;
+      upper_bound_ = self_.upper_bound_ ? EvaluateInt(evaluator, self_.upper_bound_, "Max depth in expansion")
+                                        : std::numeric_limits<int64_t>::max();
 
       if (source_vertex == target_vertex) {
         // Same vertex - return empty path
@@ -3382,15 +3390,24 @@ class KShortestPathsCursor : public Cursor {
       current_source_ = source_vertex;
       current_target_ = target_vertex;
       current_input_initialized_ = true;
-      InitializeKShortestPaths(source_vertex, target_vertex, evaluator, context);
 
-      if (!shortest_paths_.empty()) {
-        PushPathToFrame(shortest_paths_.back(), &frame, evaluator.GetMemoryResource());
-        current_path_index_ = shortest_paths_.size();
-        return true;
+      if (!InitializeKShortestPaths(source_vertex, target_vertex, evaluator, context)) {
+        // If no path found, continue to next input
+        continue;
       }
 
-      // If no path found, continue to next input
+      // Handle lower bound
+      auto *last_path = &shortest_paths_.back();
+      while (last_path->edges.size() < lower_bound_ &&
+             ComputeNextShortestPath(current_source_.value(), current_target_.value(), evaluator, context)) {
+        last_path = &shortest_paths_.back();
+        current_path_index_ = shortest_paths_.size() - 1;
+      }
+
+      if (unsent_paths_count() > 0) {
+        push_next_path(frame, evaluator);
+        return true;
+      }
     }
 
     return false;
@@ -3441,6 +3458,8 @@ class KShortestPathsCursor : public Cursor {
 
   const ExpandVariable &self_;
   UniqueCursorPtr input_cursor_;
+  int64_t lower_bound_{1};
+  int64_t upper_bound_{std::numeric_limits<int64_t>::max()};
 
   // State for K-shortest paths algorithm
   utils::pmr::vector<PathInfo> shortest_paths_;
@@ -3459,7 +3478,7 @@ class KShortestPathsCursor : public Cursor {
   utils::pmr::unordered_map<VertexAccessor, double, VertexAccessorHash> distances_;
   utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>, VertexAccessorHash> predecessors_;
 
-  void InitializeKShortestPaths(const VertexAccessor &source, const VertexAccessor &target,
+  bool InitializeKShortestPaths(const VertexAccessor &source, const VertexAccessor &target,
                                 ExpressionEvaluator &evaluator, ExecutionContext &context) {
     ResetState();
 
@@ -3468,7 +3487,9 @@ class KShortestPathsCursor : public Cursor {
     if (!shortest_path.edges.empty()) {
       shortest_paths_.emplace_back(std::move(shortest_path));
       AddPathToFoundSet(shortest_paths_.back());
+      return true;
     }
+    return false;
   }
 
   bool ComputeNextShortestPath(const VertexAccessor &source, const VertexAccessor &target,
@@ -3486,14 +3507,17 @@ class KShortestPathsCursor : public Cursor {
     while (!candidate_paths_.empty()) {
       PathInfo candidate = candidate_paths_.top();
       candidate_paths_.pop();
-
+      // Handle upper bound
+      if (candidate.edges.size() > upper_bound_) {
+        // Next path is too long, stop generating candidates
+        return false;
+      }
       if (!IsPathInFoundSet(candidate)) {
         shortest_paths_.emplace_back(std::move(candidate));
         AddPathToFoundSet(shortest_paths_.back());
         return true;
       }
     }
-
     return false;
   }
 
