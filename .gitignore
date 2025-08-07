@@ -35,6 +35,8 @@ src/query/frontend/opencypher/generated/
 tags
 ve/
 ve3/
+env/
+venv/
 perf.data*
 TAGS
 *.apollo_measurements
