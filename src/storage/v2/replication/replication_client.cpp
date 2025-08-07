@@ -113,7 +113,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
 
   if (heartbeat_res.success_) {
     last_known_ts_.store(heartbeat_res.current_commit_timestamp_, std::memory_order_release);
-    num_committed_txns_.store(heartbeat_res.num_txns_committed_, std::memory_order_release);\
+    num_committed_txns_.store(heartbeat_res.num_txns_committed_, std::memory_order_release);
   } else {
 #ifdef MG_ENTERPRISE  // Multi-tenancy is only supported in enterprise
     // Replica is missing the current database

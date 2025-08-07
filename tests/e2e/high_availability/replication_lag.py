@@ -300,37 +300,65 @@ def test_replication_lag_strict_sync(test_name):
 
     # 5. Restart MAIN instance without triggering a failover and check that it sees the same output as before
     # Force a recovery from snapshot+wals to test that part
-    # Failing test
-    # instance3_cursor = connect(host="localhost", port=7689).cursor()
-    # wait_until_main_writeable(instance3_cursor, "CREATE (:MyNode {embedding: [x IN range(1, 1024) | x]});")
-    # execute_and_fetch_all(instance3_cursor, "CREATE (:MyNode {embedding: [x IN range(1, 1024) | x]});")
-    # execute_and_fetch_all(instance3_cursor, "CREATE (:MyNode {embedding: [x IN range(1, 1024) | x]});")
-    # interactive_mg_runner.kill(inner_instances_description, "instance_3")
-    # interactive_mg_runner.start(inner_instances_description, "instance_3")
-    # leader_data = [
-    #     ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
-    #     ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
-    #     ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
-    #     ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
-    #     ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
-    #     ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
-    # ]
-    # mg_sleep_and_assert(leader_data, partial(show_instances, coord3_cursor))
-    # expected_data = [
-    #     (
-    #         "instance_1",
-    #         {"memgraph": {"num_committed_txns": 14, "num_txns_behind_main": 0}},
-    #     ),
-    #     (
-    #         "instance_2",
-    #         {"memgraph": {"num_committed_txns": 14, "num_txns_behind_main": 0}},
-    #     ),
-    #     (
-    #         "instance_3",
-    #         {"memgraph": {"num_committed_txns": 14, "num_txns_behind_main": 0}},
-    #     ),
-    # ]
-    # mg_sleep_and_assert_collection(expected_data, partial(retrieve_lag, coord3_cursor))
+    instance3_cursor = connect(host="localhost", port=7689).cursor()
+    wait_until_main_writeable(instance3_cursor, "CREATE (:MyNode {embedding: [x IN range(1, 1024) | x]});")
+    execute_and_fetch_all(instance3_cursor, "CREATE (:MyNode {embedding: [x IN range(1, 1024) | x]});")
+    execute_and_fetch_all(instance3_cursor, "CREATE (:MyNode {embedding: [x IN range(1, 1024) | x]});")
+    interactive_mg_runner.kill(inner_instances_description, "instance_3")
+    interactive_mg_runner.start(inner_instances_description, "instance_3")
+    leader_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "up", "main"),
+    ]
+    mg_sleep_and_assert(leader_data, partial(show_instances, coord3_cursor))
+    expected_data = [
+        (
+            "instance_1",
+            {"memgraph": {"num_committed_txns": 14, "num_txns_behind_main": 0}},
+        ),
+        (
+            "instance_2",
+            {"memgraph": {"num_committed_txns": 14, "num_txns_behind_main": 0}},
+        ),
+        (
+            "instance_3",
+            {"memgraph": {"num_committed_txns": 14, "num_txns_behind_main": 0}},
+        ),
+    ]
+    mg_sleep_and_assert_collection(expected_data, partial(retrieve_lag, coord3_cursor))
+
+    # 6. Check that the new MAIN will correct info after failover
+    interactive_mg_runner.kill(inner_instances_description, "instance_3")
+    # Instance 1 is new MAIN because by default we forbid failovering to ASYNC replica
+    leader_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "main"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
+    ]
+    mg_sleep_and_assert(leader_data, partial(show_instances, coord3_cursor))
+    interactive_mg_runner.start(inner_instances_description, "instance_3")
+    expected_data = [
+        (
+            "instance_1",
+            {"memgraph": {"num_committed_txns": 14, "num_txns_behind_main": 0}},
+        ),
+        (
+            "instance_2",
+            {"memgraph": {"num_committed_txns": 14, "num_txns_behind_main": 0}},
+        ),
+        (
+            "instance_3",
+            {"memgraph": {"num_committed_txns": 14, "num_txns_behind_main": 0}},
+        ),
+    ]
+    mg_sleep_and_assert_collection(expected_data, partial(retrieve_lag, coord3_cursor))
 
 
 if __name__ == "__main__":
