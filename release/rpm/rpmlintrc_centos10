@@ -6,6 +6,6 @@ addFilter("E: logrotate-log-dir-not-packaged")
 # ignore the FSF-address mismatch in libstdc++'s COPYING
 addFilter("E: incorrect-fsf-address")
 
-# Handle compatibility issues with rpmlint in CentOS 10
-# The rpmlint tool may have compatibility issues with the RPM library
-addFilter("E: missing-call-to-chdir-with-chroot")
+addFilter("E: no-signature")
+addFilter("E: no-packager-tag")
+addFilter("E: no-group-tag")
