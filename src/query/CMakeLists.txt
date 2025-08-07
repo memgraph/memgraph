@@ -161,7 +161,12 @@ set(antlr_opencypher_generated_include
     ${opencypher_generated}/MemgraphCypherVisitor.h
 )
 include_directories(${antlr4-runtime_INCLUDE_DIR})
-set(ANTLR4_GENERATOR_PATH "${antlr4_PACKAGE_FOLDER_RELWITHDEBINFO}/res/antlr-complete.jar")
+# Use the correct package folder variable based on build type
+if(CMAKE_BUILD_TYPE STREQUAL "Release")
+    set(ANTLR4_GENERATOR_PATH "${antlr4_PACKAGE_FOLDER_RELEASE}/res/antlr-complete.jar")
+else()
+    set(ANTLR4_GENERATOR_PATH "${antlr4_PACKAGE_FOLDER_RELWITHDEBINFO}/res/antlr-complete.jar")
+endif()
 
 add_custom_command(
     OUTPUT ${antlr_opencypher_generated_src} ${antlr_opencypher_generated_include}
