@@ -332,7 +332,7 @@ Feature: All Shortest Path
           """
       Then the result should be:
           | total_cost |
-          | 11 |
+          | 11.0 |
 
       When executing query:
           """
@@ -341,4 +341,4 @@ Feature: All Shortest Path
           """
       Then the result should be:
           | total_cost |
-          | 4 |
+          | 4.0 |
