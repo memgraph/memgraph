@@ -70,8 +70,7 @@ ReplicationStorageClient::ReplicationStorageClient(::memgraph::replication::Repl
                                                    utils::UUID const main_uuid)
     : client_{client}, main_uuid_(main_uuid) {}
 
-void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, DatabaseAccessProtector db_acc,
-                                                  bool const start) {
+void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, DatabaseAccessProtector db_acc) {
   auto const &main_repl_state = main_storage->repl_storage_state_;
   auto const &main_db_name = main_storage->name();
 
@@ -114,9 +113,8 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
 
   if (heartbeat_res.success_) {
     last_known_ts_.store(heartbeat_res.current_commit_timestamp_, std::memory_order_release);
-    if (start) {
-      num_committed_txns_.store(heartbeat_res.num_txns_committed_, std::memory_order_release);
-    }
+    num_committed_txns_.store(heartbeat_res.num_txns_committed_, std::memory_order_release);
+    spdlog::trace("Set num committed txns to {}", heartbeat_res.num_txns_committed_);
   } else {
 #ifdef MG_ENTERPRISE  // Multi-tenancy is only supported in enterprise
     // Replica is missing the current database
@@ -267,10 +265,9 @@ void ReplicationStorageClient::ForceRecoverReplica(Storage *main_storage, Databa
   });
 }
 
-void ReplicationStorageClient::TryCheckReplicaStateSync(Storage *main_storage, DatabaseAccessProtector db_acc,
-                                                        bool const start) {
+void ReplicationStorageClient::TryCheckReplicaStateSync(Storage *main_storage, DatabaseAccessProtector db_acc) {
   try {
-    UpdateReplicaState(main_storage, std::move(db_acc), start);
+    UpdateReplicaState(main_storage, std::move(db_acc));
   } catch (const rpc::VersionMismatchRpcFailedException &) {
     replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
     spdlog::error(utils::MessageWithLink(
@@ -547,7 +544,7 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseAccessProt
 
 void ReplicationStorageClient::Start(Storage *storage, DatabaseAccessProtector db_acc) {
   spdlog::trace("Replication client started for database \"{}\"", storage->name());
-  TryCheckReplicaStateSync(storage, std::move(db_acc), true);
+  TryCheckReplicaStateSync(storage, std::move(db_acc));
 }
 
 // The function is finished by setting replica to READY state or by setting it to MAYBE_BEHIND state.

@@ -229,9 +229,8 @@ class ReplicationStorageClient {
    *
    * @param main_storage pointer to the storage associated with the client
    * @param db_acc gatekeeper access that protects the database; std::any to have separation between dbms and storage
-   * @param start If we are checking replica as part of the 1st start
    */
-  void UpdateReplicaState(Storage *main_storage, DatabaseAccessProtector db_acc, bool start = false);
+  void UpdateReplicaState(Storage *main_storage, DatabaseAccessProtector db_acc);
 
   /**
    * @brief Forcefully reset storage to as it is when started from scratch.
@@ -244,9 +243,8 @@ class ReplicationStorageClient {
    *
    * @param main_storage pointer to the storage associated with the client
    * @param db_acc gatekeeper access that protects the database; std::any to have separation between dbms and storage
-   * @param start If we are checking replica as part of the 1st start
    */
-  void TryCheckReplicaStateSync(Storage *main_storage, DatabaseAccessProtector db_acc, bool start = false);
+  void TryCheckReplicaStateSync(Storage *main_storage, DatabaseAccessProtector db_acc);
 
   ::memgraph::replication::ReplicationClient &client_;
   mutable std::atomic<uint64_t> last_known_ts_{0};
