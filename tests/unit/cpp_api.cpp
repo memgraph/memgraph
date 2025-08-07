@@ -540,6 +540,7 @@ TYPED_TEST(CppApiTestFixture, ZonedDateTime_CanBeCreated) {
   EXPECT_EQ(zdt1.Microsecond() >= 0, true);
   EXPECT_EQ(zdt1.Timestamp() >= 0, true);
   EXPECT_STREQ(zdt1.Timezone(), "Etc/UTC");
+  EXPECT_EQ(zdt1.Offset(), 0);
 
   // Created from an ISO 8601 string with named timezone
   auto zdt2 = mgp::ZonedDateTime("2021-10-05T14:15:00[Europe/London]");
@@ -553,6 +554,7 @@ TYPED_TEST(CppApiTestFixture, ZonedDateTime_CanBeCreated) {
   EXPECT_EQ(zdt2.Microsecond() >= 0, true);
   EXPECT_EQ(zdt2.Timestamp() >= 0, true);
   EXPECT_STREQ(zdt2.Timezone(), "Europe/London");
+  EXPECT_EQ(zdt2.Offset(), 60);
 
   // Created from an ISO 8601 string with negative offset
   auto zdt3 = mgp::ZonedDateTime("2021-10-05T14:15:00-02:00");
@@ -566,6 +568,7 @@ TYPED_TEST(CppApiTestFixture, ZonedDateTime_CanBeCreated) {
   EXPECT_EQ(zdt3.Microsecond() >= 0, true);
   EXPECT_EQ(zdt3.Timestamp() >= 0, true);
   EXPECT_EQ(zdt3.Offset(), -120);
+  EXPECT_STREQ(zdt3.Timezone(), "");
 
   // Created from an ISO 8601 string with positive offset
   auto zdt4 = mgp::ZonedDateTime("2021-10-05T14:15:00+02:00");
@@ -579,6 +582,7 @@ TYPED_TEST(CppApiTestFixture, ZonedDateTime_CanBeCreated) {
   EXPECT_EQ(zdt4.Microsecond() >= 0, true);
   EXPECT_EQ(zdt4.Timestamp() >= 0, true);
   EXPECT_EQ(zdt4.Offset(), 120);
+  EXPECT_STREQ(zdt4.Timezone(), "");
 
   // Create from discrete parameters with named timezone
   auto zdt5 = mgp::ZonedDateTime(2021, 10, 5, 14, 15, 0, 0, 0, "Europe/Paris");
@@ -592,6 +596,7 @@ TYPED_TEST(CppApiTestFixture, ZonedDateTime_CanBeCreated) {
   EXPECT_EQ(zdt5.Microsecond() >= 0, true);
   EXPECT_EQ(zdt5.Timestamp() >= 0, true);
   EXPECT_STREQ(zdt5.Timezone(), "Europe/Paris");
+  EXPECT_EQ(zdt5.Offset(), 120);
 
   // Create from discrete parameters with offset (in minutes)
   auto zdt6 = mgp::ZonedDateTime(2021, 10, 5, 14, 15, 0, 0, 0, 120);
@@ -605,6 +610,7 @@ TYPED_TEST(CppApiTestFixture, ZonedDateTime_CanBeCreated) {
   EXPECT_EQ(zdt6.Microsecond() >= 0, true);
   EXPECT_EQ(zdt6.Timestamp() >= 0, true);
   EXPECT_EQ(zdt6.Offset(), 120);
+  EXPECT_STREQ(zdt6.Timezone(), "");
 }
 
 TYPED_TEST(CppApiTestFixture, ZonedDateTime_CannotBeCreatedWithInvalidParameters) {
