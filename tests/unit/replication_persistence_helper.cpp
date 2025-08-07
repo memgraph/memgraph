@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,11 +12,9 @@
 #include "formatters.hpp"
 #include "replication/state.hpp"
 #include "replication/status.hpp"
-#include "utils/logging.hpp"
 #include "utils/uuid.hpp"
 
 #include <gtest/gtest.h>
-#include <fstream>
 #include <iostream>
 #include <optional>
 #include <string>
@@ -28,13 +26,11 @@ using namespace memgraph::io::network;
 using memgraph::utils::UUID;
 
 TEST(ReplicationDurability, V3Main) {
-  auto const role_entry =
-      ReplicationRoleEntry{.version = DurabilityVersion::V3,
-                           .role = MainRole{.epoch = ReplicationEpoch{"TEST_STRING"}, .main_uuid = UUID{}}};
-  nlohmann::json j;
-  to_json(j, role_entry);
+  auto const role_entry = ReplicationRoleEntry{.version = DurabilityVersion::V3, .role = MainRole{.main_uuid = UUID{}}};
+  nlohmann::json json_data;
+  to_json(json_data, role_entry);
   ReplicationRoleEntry deser;
-  from_json(j, deser);
+  from_json(json_data, deser);
   ASSERT_EQ(role_entry, deser);
 }
 
@@ -108,7 +104,6 @@ TEST(ReplicationDurability, V4Replica) {
 TEST(ReplicationDurability, V4Main) {
   auto const role_entry = ReplicationRoleEntry{.version = DurabilityVersion::V4,
                                                .role = MainRole{
-                                                   .epoch = ReplicationEpoch{"TEST_STRING"},
                                                    .main_uuid = memgraph::utils::UUID{},
                                                }};
   nlohmann::json j;

@@ -637,7 +637,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
         } else if (wal_contains_changes) {  // Update history with new epochs that contain some timestamp changes
           epoch_history->emplace_back(wal_file.epoch_id, *last_loaded_timestamp);
           repl_storage_state.epoch_.SetEpoch(wal_file.epoch_id);
-          spdlog::trace("Set epoch to {} for db {}", wal_file.epoch_id, db_name);
+          spdlog::trace("Set epoch to {} for db {} with ldt {}", wal_file.epoch_id, db_name, *last_loaded_timestamp);
         }
 
       } catch (const RecoveryFailure &e) {
