@@ -490,8 +490,7 @@ TYPED_TEST(CppApiTestFixture, TestDuration) {
 
 void test_TestZonedDateTime() {
   auto ldt_1 = mgp::ZonedDateTime("2021-10-05T14:15:00");
-  // @TODO note this is testing without offset
-  auto ldt_2 = mgp::ZonedDateTime(2021, 10, 5, 14, 15, 0, 0, 0, 0);
+  auto ldt_2 = mgp::ZonedDateTime(2021, 10, 5, 14, 15, 0, 0, 0, "Etc/UTC");
 
   // @TODO test with illegal timezone too
   ASSERT_ANY_THROW(mgp::ZonedDateTime(
