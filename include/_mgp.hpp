@@ -872,6 +872,14 @@ inline int zoned_date_time_get_microsecond(mgp_zoned_date_time *zoned_date_time)
   return MgInvoke<int>(mgp_zoned_date_time_get_microsecond, zoned_date_time);
 }
 
+inline char const *zoned_date_time_get_timezone(mgp_zoned_date_time *zoned_date_time) {
+  return MgInvoke<char const *>(mgp_zoned_date_time_get_timezone, zoned_date_time);
+}
+
+inline int zoned_date_time_get_offset(mgp_zoned_date_time *zoned_date_time) {
+  return MgInvoke<int>(mgp_zoned_date_time_get_offset, zoned_date_time);
+}
+
 inline int64_t zoned_date_time_timestamp(mgp_zoned_date_time *zoned_date_time) {
   return MgInvoke<int64_t>(mgp_zoned_date_time_timestamp, zoned_date_time);
 }

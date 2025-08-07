@@ -279,8 +279,8 @@ struct mgp_local_date_time {
 };
 
 inline memgraph::utils::ZonedDateTime CreateZonedDateTimeFromString(const std::string_view string) {
-  const auto &[date_parameters, zoned_time_parameters] = memgraph::utils::ParseLocalDateTimeParameters(string);
-  auto timezone = memgraph::utils::DefaultTimezone();  // @TODO use ACTUAL timezone!
+  const auto &[date_parameters, zoned_time_parameters, timezone] =
+      memgraph::utils::ParseZonedDateTimeParameters(string);
   return memgraph::utils::ZonedDateTime{date_parameters, zoned_time_parameters, timezone};
 }
 

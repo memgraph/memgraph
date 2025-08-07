@@ -1212,6 +1212,10 @@ class ZonedDateTime {
   int Millisecond() const;
   /// @brief Returns the object’s `microsecond` property.
   int Microsecond() const;
+  /// @brief Returns the object’s `timezone` string property.
+  char const *Timezone() const;
+  /// @brief Returns the object’s `offset` property.
+  int Offset() const;
 
   /// @brief Returns the object’s timestamp (microseconds from the Unix epoch).
   int64_t Timestamp() const;
@@ -3704,6 +3708,10 @@ inline int ZonedDateTime::Millisecond() const { return mgp::zoned_date_time_get_
 inline int ZonedDateTime::Microsecond() const { return mgp::zoned_date_time_get_microsecond(ptr_); }
 
 inline int64_t ZonedDateTime::Timestamp() const { return mgp::zoned_date_time_timestamp(ptr_); }
+
+inline char const *ZonedDateTime::Timezone() const { return mgp::zoned_date_time_get_timezone(ptr_); }
+
+inline int ZonedDateTime::Offset() const { return mgp::zoned_date_time_get_offset(ptr_); }
 
 inline bool ZonedDateTime::operator==(const ZonedDateTime &other) const {
   return util::ZonedDateTimesEqual(ptr_, other.ptr_);

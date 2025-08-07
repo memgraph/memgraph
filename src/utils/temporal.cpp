@@ -768,17 +768,25 @@ ZonedDateTimeParameters ParseZonedDateTimeParameters(std::string_view string) {
 
   const auto timezone_designator_start_position = get_timezone_designator_start_position(string);
 
-  if (timezone_designator_start_position == std::string::npos) {
-    throw temporal::InvalidArgumentException("Timezone is not designated.");
+  // @TODO should be using a string_view here...
+  std::string ldt_substring;
+  if (timezone_designator_start_position != std::string::npos) {
+    ldt_substring = {string.data(), timezone_designator_start_position};
+    string.remove_prefix(timezone_designator_start_position);
+  } else {
+    ldt_substring = string;
+    string = "";
   }
-
-  const std::string ldt_substring = {string.data(), timezone_designator_start_position};
-  string.remove_prefix(timezone_designator_start_position);
 
   auto [date_parameters, local_time_parameters] = ParseLocalDateTimeParameters(ldt_substring);
 
+  // If no timezone is specified, assume UTC
   if (string.empty()) {
-    throw temporal::InvalidArgumentException("Timezone is not designated.");
+    return ZonedDateTimeParameters{
+        .date = date_parameters,
+        .local_time = local_time_parameters,
+        .timezone = Timezone(std::chrono::locate_zone("Etc/UTC")),
+    };
   }
 
   if (string.starts_with('Z')) {
