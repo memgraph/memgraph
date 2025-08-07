@@ -822,8 +822,55 @@ inline mgp_duration *duration_sub(mgp_duration *first, mgp_duration *second, mgp
 
 // mgp_zoned_date_time
 
+// @TODO ensure all methods from `local_date_time` are implemented
+
+inline mgp_zoned_date_time *zoned_date_time_from_string(const char *string, mgp_memory *memory) {
+  return MgInvoke<mgp_zoned_date_time *>(mgp_zoned_date_time_from_string, string, memory);
+}
+
 inline bool zoned_date_time_equal(mgp_zoned_date_time *first, mgp_zoned_date_time *second) {
   return MgInvoke<int>(mgp_zoned_date_time_equal, first, second);
+}
+
+inline mgp_zoned_date_time *zoned_date_time_from_parameters(mgp_zoned_date_time_parameters *parameters,
+                                                            mgp_memory *memory) {
+  return MgInvoke<mgp_zoned_date_time *>(mgp_zoned_date_time_from_parameters, parameters, memory);
+}
+
+inline int zoned_date_time_get_year(mgp_zoned_date_time *zoned_date_time) {
+  return MgInvoke<int>(mgp_zoned_date_time_get_year, zoned_date_time);
+}
+
+inline int zoned_date_time_get_month(mgp_zoned_date_time *zoned_date_time) {
+  return MgInvoke<int>(mgp_zoned_date_time_get_month, zoned_date_time);
+}
+
+inline int zoned_date_time_get_day(mgp_zoned_date_time *zoned_date_time) {
+  return MgInvoke<int>(mgp_zoned_date_time_get_day, zoned_date_time);
+}
+
+inline int zoned_date_time_get_hour(mgp_zoned_date_time *zoned_date_time) {
+  return MgInvoke<int>(mgp_zoned_date_time_get_hour, zoned_date_time);
+}
+
+inline int zoned_date_time_get_minute(mgp_zoned_date_time *zoned_date_time) {
+  return MgInvoke<int>(mgp_zoned_date_time_get_minute, zoned_date_time);
+}
+
+inline int zoned_date_time_get_second(mgp_zoned_date_time *zoned_date_time) {
+  return MgInvoke<int>(mgp_zoned_date_time_get_second, zoned_date_time);
+}
+
+inline int zoned_date_time_get_millisecond(mgp_zoned_date_time *zoned_date_time) {
+  return MgInvoke<int>(mgp_zoned_date_time_get_millisecond, zoned_date_time);
+}
+
+inline int zoned_date_time_get_microsecond(mgp_zoned_date_time *zoned_date_time) {
+  return MgInvoke<int>(mgp_zoned_date_time_get_microsecond, zoned_date_time);
+}
+
+inline int64_t zoned_date_time_timestamp(mgp_zoned_date_time *zoned_date_time) {
+  return MgInvoke<int64_t>(mgp_zoned_date_time_timestamp, zoned_date_time);
 }
 
 // Procedure

@@ -1156,6 +1156,76 @@ class Duration {
   mgp_duration *ptr_;
 };
 
+// @brief Wrapper class for @ref mgp_zoned_date_time.
+class ZonedDateTime {
+ private:
+  friend class Duration;
+  friend class Value;
+  friend class Record;
+  friend class Result;
+  friend class Parameter;
+
+ public:
+  /// @brief Creates a LocalDateTime object from the copy of the given @ref mgp_local_date_time.
+  explicit ZonedDateTime(mgp_zoned_date_time *ptr);
+  /// @brief Creates a LocalDateTime object from the copy of the given @ref mgp_local_date_time.
+  explicit ZonedDateTime(const mgp_zoned_date_time *const_ptr);
+
+  /// @brief Creates a ZonedDateTime object from the given string representing a date in the ISO 8601 format
+  /// (`YYYY-MM-DDThh:mm:ss`, `YYYY-MM-DDThh:mm`, `YYYYMMDDThhmmss`, `YYYYMMDDThhmm`, or `YYYYMMDDThh`).
+  explicit ZonedDateTime(std::string_view string);
+
+  /// @brief Creates a ZonedDateTime object with the given `year`, `month`, `day`, `hour`, `minute`, `second`,
+  /// `millisecond`, `microsecond`, and `offset_in_minutes` properties.
+  ZonedDateTime(int year, int month, int day, int hour, int minute, int second, int millisecond, int microsecond,
+                int offset_in_minutes);
+
+  ZonedDateTime(const ZonedDateTime &other);
+  ZonedDateTime(ZonedDateTime &&other) noexcept;
+
+  ZonedDateTime &operator=(const ZonedDateTime &other);
+  ZonedDateTime &operator=(ZonedDateTime &&other) noexcept;
+
+  ~ZonedDateTime();
+
+  /// @brief Returns the current ZonedDateTime.
+  static ZonedDateTime Now();
+
+  /// @brief Returns the object’s `year` property.
+  int Year() const;
+  /// @brief Returns the object’s `month` property.
+  int Month() const;
+  /// @brief Returns the object’s `day` property.
+  int Day() const;
+  /// @brief Returns the object’s `hour` property.
+  int Hour() const;
+  /// @brief Returns the object’s `minute` property.
+  int Minute() const;
+  /// @brief Returns the object’s `second` property.
+  int Second() const;
+  /// @brief Returns the object’s `millisecond` property.
+  int Millisecond() const;
+  /// @brief Returns the object’s `microsecond` property.
+  int Microsecond() const;
+
+  /// @brief Returns the object’s timestamp (microseconds from the Unix epoch).
+  int64_t Timestamp() const;
+
+  // @TODO ensure we have tests for all of these...
+  bool operator==(const ZonedDateTime &other) const;
+  ZonedDateTime operator+(const Duration &dur) const;
+  ZonedDateTime operator-(const Duration &dur) const;
+  Duration operator-(const ZonedDateTime &other) const;
+
+  bool operator<(const ZonedDateTime &other) const;
+
+  /// @brief returns the string representation
+  std::string ToString() const;
+
+ private:
+  mgp_zoned_date_time *ptr_;
+};
+
 /* #endregion */
 
 /* #endregion */
@@ -3370,6 +3440,22 @@ inline LocalDateTime::LocalDateTime(const LocalDateTime &other) : LocalDateTime(
 
 inline LocalDateTime::LocalDateTime(LocalDateTime &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; };
 
+// @TODO support all 4 constructors for ZonedDateTime
+inline ZonedDateTime::ZonedDateTime(int year, int month, int day, int hour, int minute, int second, int millisecond,
+                                    int microsecond, int offset_in_minutes) {
+  struct mgp_date_parameters date_params {
+    .year = year, .month = month, .day = day
+  };
+  struct mgp_local_time_parameters local_time_params {
+    .hour = hour, .minute = minute, .second = second, .millisecond = millisecond, .microsecond = microsecond
+  };
+  mgp_zoned_date_time_parameters params{
+    .date_parameters = &date_params,
+    .local_time_parameters = &local_time_params/*
+    .offset = offset_in_minutes*/}; // @TODO support offset again...
+  ptr_ = mgp::MemHandlerCallback(zoned_date_time_from_parameters, &params);
+}
+
 inline LocalDateTime &LocalDateTime::operator=(const LocalDateTime &other) {
   if (this != &other) {
     mgp::local_date_time_destroy(ptr_);
@@ -3553,6 +3639,39 @@ inline bool Duration::operator<(const Duration &other) const {
 }
 
 inline std::string Duration::ToString() const { return std::to_string(Microseconds()) + "ms"; }
+
+// ZonedDateTime:
+
+inline ZonedDateTime::ZonedDateTime(std::string_view string)
+    : ptr_(mgp::MemHandlerCallback(zoned_date_time_from_string, string.data())) {}
+
+inline ZonedDateTime::~ZonedDateTime() {
+  if (ptr_ != nullptr) {
+    mgp::zoned_date_time_destroy(ptr_);
+  }
+}
+
+inline int ZonedDateTime::Year() const { return mgp::zoned_date_time_get_year(ptr_); }
+
+inline int ZonedDateTime::Month() const { return mgp::zoned_date_time_get_month(ptr_); }
+
+inline int ZonedDateTime::Day() const { return mgp::zoned_date_time_get_day(ptr_); }
+
+inline int ZonedDateTime::Hour() const { return mgp::zoned_date_time_get_hour(ptr_); }
+
+inline int ZonedDateTime::Minute() const { return mgp::zoned_date_time_get_minute(ptr_); }
+
+inline int ZonedDateTime::Second() const { return mgp::zoned_date_time_get_second(ptr_); }
+
+inline int ZonedDateTime::Millisecond() const { return mgp::zoned_date_time_get_millisecond(ptr_); }
+
+inline int ZonedDateTime::Microsecond() const { return mgp::zoned_date_time_get_microsecond(ptr_); }
+
+inline int64_t ZonedDateTime::Timestamp() const { return mgp::zoned_date_time_timestamp(ptr_); }
+
+inline bool ZonedDateTime::operator==(const ZonedDateTime &other) const {
+  return util::ZonedDateTimesEqual(ptr_, other.ptr_);
+}
 
 /* #endregion */
 

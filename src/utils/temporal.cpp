@@ -836,6 +836,13 @@ std::chrono::local_time<std::chrono::microseconds> AsLocalTime(int64_t microseco
   return std::chrono::local_time<std::chrono::microseconds>{std::chrono::microseconds(microseconds)};
 }
 
+ZonedDateTime::ZonedDateTime(const DateParameters &date_parameters, const LocalTimeParameters &local_time_parameters,
+                             Timezone timezone) {
+  const std::chrono::local_time<std::chrono::microseconds> duration{
+      std::chrono::microseconds(LocalDateTime(date_parameters, local_time_parameters).MicrosecondsSinceEpoch())};
+  zoned_time = std::chrono::zoned_time(timezone, duration, std::chrono::choose::earliest);
+}
+
 ZonedDateTime::ZonedDateTime(const ZonedDateTimeParameters &zoned_date_time_parameters) {
   auto timezone = zoned_date_time_parameters.timezone;
   const std::chrono::local_time<std::chrono::microseconds> duration{std::chrono::microseconds(
