@@ -43,6 +43,32 @@ check_architecture() {
     exit 1
 }
 
+function check_custom_package() {
+    local pkg="$1"
+    
+    case "$pkg" in
+        custom-maven3.9.3)
+            if [ ! -f "/opt/apache-maven-3.9.3/bin/mvn" ]; then
+                echo "$pkg"
+            fi
+            ;;
+        custom-golang1.18.9)
+            if [ ! -f "/opt/go1.18.9/go/bin/go" ]; then
+                echo "$pkg"
+            fi
+            ;;
+        custom-rust)
+            if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
+                echo "$pkg"
+            fi
+            ;;
+        *)
+            return 1
+            ;;
+    esac
+    return 0
+}
+
 function check_all_yum() {
     local missing=""
     for pkg in $1; do

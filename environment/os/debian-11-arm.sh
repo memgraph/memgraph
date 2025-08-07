@@ -108,31 +108,17 @@ check() {
 
     # Check custom packages with bash logic
     for pkg in "${custom_packages[@]}"; do
-        case "$pkg" in
-            custom-maven3.9.3)
-                if [ ! -f "/opt/apache-maven-3.9.3/bin/mvn" ]; then
-                    missing_custom="$pkg $missing_custom"
-                fi
-                ;;
-            custom-golang1.18.9)
-                if [ ! -f "/opt/go1.18.9/go/bin/go" ]; then
-                    missing_custom="$pkg $missing_custom"
-                fi
-                ;;
-            custom-rust)
-                if [ ! -x "$HOME/.cargo/bin/rustup" ]; then
-                    missing_custom="$pkg $missing_custom"
-                fi
-                ;;
-        esac
+        missing_pkg=$(check_custom_package "$pkg")
+        if [ $? -eq 0 ]; then
+            # Custom package was handled, check if it's missing
+            if [ -n "$missing_pkg" ]; then
+                missing_custom="$missing_pkg $missing_custom"
+            fi
+        fi
     done
 
     # Combine missing packages
-    if [ -n "$missing" ] && [ -n "$missing_custom" ]; then
-        missing="$missing $missing_custom"
-    elif [ -n "$missing_custom" ]; then
-        missing="$missing_custom"
-    fi
+    [ -n "$missing_custom" ] && missing="${missing:+$missing }$missing_custom"
 
     if [ -n "$missing" ]; then
         echo "MISSING PACKAGES: $missing"
