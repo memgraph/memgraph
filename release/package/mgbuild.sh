@@ -501,9 +501,7 @@ package_memgraph() {
 
   if [[ "$os" == "centos-10" ]]; then
       # install much newer rpmlint than what ships with centos-10
-      docker exec -u root "$build_container" bash -c "dnf remove -y rpmlint"
-      # Install required system dependencies for rpmlint
-      docker exec -u root "$build_container" bash -c "dnf install -y enchant-devel libenchant"
+      docker exec -u root "$build_container" bash -c "dnf remove -y rpmlint --noautoremove"
       docker exec -u root "$build_container" bash -c "pip install rpmlint==2.8.0 --user"
       package_command=" cpack -G RPM --config ../CPackConfig.cmake"
   elif [[ "$os" =~ ^"fedora".* ]]; then
