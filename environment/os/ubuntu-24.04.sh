@@ -107,8 +107,9 @@ check() {
 
     # Check custom packages with bash logic
     for pkg in "${custom_packages[@]}"; do
-        missing_pkg=$(check_custom_package "$pkg")
-        if [ $? -eq 0 ]; then
+        missing_pkg=$(check_custom_package "$pkg" || true)
+        exit_code=$?
+        if [ $exit_code -eq 0 ]; then
             # Custom package was handled, check if it's missing
             if [ -n "$missing_pkg" ]; then
                 missing_custom="$missing_pkg $missing_custom"
@@ -173,7 +174,7 @@ install() {
 
     # Install custom packages with bash logic
     install_custom_packages "${custom_packages[@]}"
-    
+
     # Handle non-custom packages that need special installation
     for pkg in "${custom_packages[@]}"; do
         case "$pkg" in
@@ -198,5 +199,4 @@ install() {
     fi
 }
 
-deps=$2"[*]"
 "$1" "$2"

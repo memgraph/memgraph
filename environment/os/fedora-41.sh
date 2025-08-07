@@ -113,7 +113,7 @@ check() {
 
     # Check custom packages with bash logic
     for pkg in "${custom_packages[@]}"; do
-        missing_pkg=$(check_custom_package "$pkg")
+        missing_pkg=$(check_custom_package "$pkg" || true)
         if [ $? -eq 0 ]; then
             if [ -n "$missing_pkg" ]; then
                 missing_custom="$missing_pkg $missing_custom"
