@@ -3373,6 +3373,8 @@ class KShortestPathsCursor : public Cursor {
 
     // Need to pull new input
     while (input_cursor_->Pull(frame, context)) {
+      AbortCheck(context);
+
       auto &source_vertex = frame[self_.input_symbol_].ValueVertex();
       auto &target_vertex = frame[self_.common_.node_symbol].ValueVertex();
 
@@ -3619,6 +3621,8 @@ class KShortestPathsCursor : public Cursor {
     pq.emplace(0.0, source);
 
     while (!pq.empty()) {
+      AbortCheck(context);
+
       auto [dist, vertex] = pq.top();
       pq.pop();
 
@@ -3664,6 +3668,8 @@ class KShortestPathsCursor : public Cursor {
       VertexAccessor current = target;
 
       while (predecessors_.contains(current)) {
+        AbortCheck(context);
+
         const auto &edge_opt = predecessors_[current];
         if (edge_opt.has_value()) {
           const auto &edge = edge_opt.value();
