@@ -823,6 +823,9 @@ inline mgp_duration *duration_sub(mgp_duration *first, mgp_duration *second, mgp
 // mgp_zoned_date_time
 
 // @TODO ensure all methods from `local_date_time` are implemented
+inline mgp_zoned_date_time *zoned_date_time_copy(mgp_zoned_date_time *zoned_date_time, mgp_memory *memory) {
+  return MgInvoke<mgp_zoned_date_time *>(mgp_zoned_date_time_copy, zoned_date_time, memory);
+}
 
 inline mgp_zoned_date_time *zoned_date_time_from_string(const char *string, mgp_memory *memory) {
   return MgInvoke<mgp_zoned_date_time *>(mgp_zoned_date_time_from_string, string, memory);
