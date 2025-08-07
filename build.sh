@@ -1,0 +1,69 @@
+#!/bin/bash
+
+# Default values
+BUILD_TYPE="Release"
+TARGET=""
+CMAKE_ARGS=""
+
+# Parse command line arguments
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --build-type)
+            BUILD_TYPE="$2"
+            shift 2
+            ;;
+        --target)
+            TARGET="$2"
+            shift 2
+            ;;
+        *)
+            # Capture any other arguments to pass to cmake
+            CMAKE_ARGS="$CMAKE_ARGS $1"
+            shift
+            ;;
+    esac
+done
+
+# Validate build type
+if [[ "$BUILD_TYPE" != "Release" && "$BUILD_TYPE" != "RelWithDebInfo" ]]; then
+    echo "Error: --build-type must be either 'Release' or 'RelWithDebInfo'"
+    exit 1
+fi
+
+# run check for operating system dependencies
+./environment/os/install_deps.sh check TOOLCHAIN_RUN_DEPS
+./environment/os/install_deps.sh check MEMGRAPH_BUILD_DEPS
+
+# fetch libs that aren't provided by conan yet
+./init
+
+echo "Creating virtual environment and installing conan"
+python3 -m venv env
+source ./env/bin/activate
+pip install conan
+
+# check if a conan profile exists
+if [ ! -f "$HOME/.conan2/profiles/default" ]; then
+    echo "Creating conan profile"
+    conan profile detect
+fi
+
+# install conan dependencies
+MG_TOOLCHAIN_ROOT=/opt/toolchain-v7/ conan install . --build=missing -pr ./memgraph_template_profile -s build_type=$BUILD_TYPE
+source build/$BUILD_TYPE/generators/conanbuild.sh
+
+# Determine preset based on build type
+if [[ "$BUILD_TYPE" == "Release" ]]; then
+    PRESET="conan-release"
+else
+    PRESET="conan-relwithdebinfo"
+fi
+
+cmake --preset $PRESET
+
+# Build command with optional target and additional cmake arguments
+if [[ -n "$TARGET" ]]; then
+    cmake --build --preset $PRESET --target $TARGET $CMAKE_ARGS
+else
+    cmake --build --preset $PRESET $CMAKE_ARGS
+fi
