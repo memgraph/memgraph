@@ -61,8 +61,8 @@ MEMGRAPH_BUILD_DEPS=(
     libcurl-devel # mg-requests
     rpm-build rpmlint # for RPM package building
     doxygen graphviz # source documentation generators
-    which nodejs golang custom-golang1.18.9 # for driver tests
-    zip unzip java-17-openjdk java-17-openjdk-devel custom-maven3.9.3 # for driver tests
+    which nodejs golang custom-golang # for driver tests
+    zip unzip java-17-openjdk java-17-openjdk-devel custom-maven # for driver tests
     sbcl # for custom Lisp C++ preprocessing
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
@@ -182,20 +182,11 @@ install() {
     fi
 
     # Install custom packages with bash logic
+    install_custom_packages "${custom_packages[@]}"
+    
+    # Handle non-custom packages that need special installation
     for pkg in "${custom_packages[@]}"; do
         case "$pkg" in
-            custom-maven3.9.3)
-                install_custom_maven "3.9.3"
-                ;;
-            custom-golang1.18.9)
-                install_custom_golang "1.18.9"
-                ;;
-            custom-rust)
-                install_rust "1.80"
-                ;;
-            custom-node)
-                install_node "20"
-                ;;
             PyYAML)
                 if [ -z ${SUDO_USER+x} ]; then # Running as root (e.g. Docker).
                     pip3 install --user PyYAML
@@ -211,6 +202,9 @@ install() {
                     sudo -H -u "$SUDO_USER" bash -c "pip3 install virtualenv"
                     sudo -H -u "$SUDO_USER" bash -c "pip3 install virtualenvwrapper"
                 fi
+                ;;
+            *)
+                # Skip packages that don't need special handling
                 ;;
         esac
     done

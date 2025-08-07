@@ -47,12 +47,12 @@ function check_custom_package() {
     local pkg="$1"
     
     case "$pkg" in
-        custom-maven3.9.3)
+        custom-maven*)
             if [ ! -f "/opt/apache-maven-3.9.3/bin/mvn" ]; then
                 echo "$pkg"
             fi
             ;;
-        custom-golang1.18.9)
+        custom-golang*)
             if [ ! -f "/opt/go1.18.9/go/bin/go" ]; then
                 echo "$pkg"
             fi
@@ -67,6 +67,27 @@ function check_custom_package() {
             ;;
     esac
     return 0
+}
+
+function install_custom_packages() {
+    local packages=("$@")
+    
+    for pkg in "${packages[@]}"; do
+        case "$pkg" in
+            custom-maven*)
+                install_custom_maven "3.9.3"
+                ;;
+            custom-golang*)
+                install_custom_golang "1.18.9"
+                ;;
+            custom-rust)
+                install_rust "1.80"
+                ;;
+            custom-node)
+                install_node "20"
+                ;;
+        esac
+    done
 }
 
 function check_all_yum() {

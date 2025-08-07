@@ -56,7 +56,7 @@ MEMGRAPH_BUILD_DEPS=(
     libcurl-devel # mg-requests
     rpm-build rpmlint # for RPM package building
     doxygen graphviz # source documentation generators
-    which nodejs golang zip unzip java-11-openjdk-devel # for driver tests
+    which nodejs golang custom-golang zip unzip java-11-openjdk-devel custom-maven custom-node # for driver tests
     sbcl # for custom Lisp C++ preprocessing
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
@@ -178,16 +178,7 @@ install() {
     fi
 
     # Install custom packages with bash logic
-    for pkg in "${custom_packages[@]}"; do
-        case "$pkg" in
-            custom-rust)
-                install_rust "1.80"
-                ;;
-            custom-node)
-                install_node "20"
-                ;;
-        esac
-    done
+    install_custom_packages "${custom_packages[@]}"
 }
 
 deps=$2"[*]"

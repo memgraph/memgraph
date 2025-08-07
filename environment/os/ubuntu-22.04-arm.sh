@@ -57,8 +57,8 @@ MEMGRAPH_BUILD_DEPS=(
     libcurl4-openssl-dev # mg-requests
     sbcl # for custom Lisp C++ preprocessing
     doxygen graphviz # source documentation generators
-    mono-runtime mono-mcs zip unzip default-jdk-headless openjdk-17-jdk-headless custom-maven3.9.3 # for driver tests
-    dotnet-sdk-6.0 golang custom-golang1.18.9 nodejs npm
+    mono-runtime mono-mcs zip unzip default-jdk-headless openjdk-17-jdk-headless custom-maven # for driver tests
+    dotnet-sdk-6.0 golang custom-golang nodejs npm
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
     libsasl2-dev
@@ -178,20 +178,11 @@ install() {
     fi
 
     # Install custom packages with bash logic
+    install_custom_packages "${custom_packages[@]}"
+    
+    # Handle non-custom packages that need special installation
     for pkg in "${custom_packages[@]}"; do
         case "$pkg" in
-            custom-maven3.9.3)
-                install_custom_maven "3.9.3"
-                ;;
-            custom-golang1.18.9)
-                install_custom_golang "1.18.9"
-                ;;
-            custom-rust)
-                install_rust "1.80"
-                ;;
-            custom-node)
-                install_node "20"
-                ;;
             dotnet-sdk-6.0)
                 if ! dpkg -s dotnet-sdk-6.0 &>/dev/null; then
                     wget -nv https://packages.microsoft.com/config/ubuntu/22.04/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
@@ -207,6 +198,9 @@ install() {
                     update-alternatives --set java /usr/lib/jvm/java-11-openjdk-arm64/bin/java
                     update-alternatives --set javac /usr/lib/jvm/java-11-openjdk-arm64/bin/javac
                 fi
+                ;;
+            *)
+                # Skip packages that don't need special handling
                 ;;
         esac
     done

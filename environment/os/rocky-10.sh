@@ -57,8 +57,8 @@ MEMGRAPH_BUILD_DEPS=(
     libcurl-devel # mg-requests
     rpm-build rpmlint # for RPM package building
     doxygen graphviz # source documentation generators
-    which nodejs golang custom-golang1.18.9 # for driver tests
-    zip unzip custom-maven3.9.3 # for driver tests
+    which nodejs golang custom-golang # for driver tests
+    zip unzip custom-maven # for driver tests
     cl-asdf common-lisp-controller sbcl # for custom Lisp C++ preprocessing
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
@@ -199,20 +199,11 @@ install() {
     fi
 
     # Install custom packages with bash logic
+    install_custom_packages "${custom_packages[@]}"
+    
+    # Handle non-custom packages that need special installation
     for pkg in "${custom_packages[@]}"; do
         case "$pkg" in
-            custom-maven3.9.3)
-                install_custom_maven "3.9.3"
-                ;;
-            custom-golang1.18.9)
-                install_custom_golang "1.18.9"
-                ;;
-            custom-rust)
-                install_rust "1.80"
-                ;;
-            custom-node)
-                install_node "20"
-                ;;
             cl-asdf)
                 if ! dnf list installed cl-asdf >/dev/null 2>/dev/null; then
                     dnf install -y https://pkgs.sysadmins.ws/el8/base/x86_64/cl-asdf-20101028-18.el8.noarch.rpm
@@ -243,6 +234,9 @@ install() {
                     sudo -H -u "$SUDO_USER" bash -c "pip3 install virtualenv"
                     sudo -H -u "$SUDO_USER" bash -c "pip3 install virtualenvwrapper"
                 fi
+                ;;
+            *)
+                # Skip packages that don't need special handling
                 ;;
         esac
     done
