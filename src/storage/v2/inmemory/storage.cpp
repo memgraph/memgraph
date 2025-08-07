@@ -895,6 +895,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
 
   mem_storage->repl_storage_state_.last_durable_timestamp_.store(durability_commit_timestamp,
                                                                  std::memory_order_release);
+  mem_storage->repl_storage_state_.num_committed_txns_.fetch_add(1, std::memory_order_release);
 
   // Install the new point index, if needed
   mem_storage->indices_.point_index_.InstallNewPointIndex(transaction_.point_index_change_collector_,
