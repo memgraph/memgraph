@@ -152,7 +152,8 @@ auto ReplicationState::FetchReplicationData() -> FetchReplicationResult_t {
                 auto json_data = nlohmann::json::parse(replica_data, nullptr, false);
                 if (json_data.is_discarded()) return FetchReplicationError::PARSE_ERROR;
                 try {
-                  durability::ReplicationReplicaEntry local_data = json_data.get<durability::ReplicationReplicaEntry>();
+                  durability::ReplicationReplicaEntry const local_data =
+                      json_data.get<durability::ReplicationReplicaEntry>();
 
                   auto key_name = std::string_view{replica_name}.substr(strlen(durability::kReplicationReplicaPrefix));
                   if (key_name != local_data.config.name) {
