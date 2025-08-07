@@ -2937,6 +2937,7 @@ inline bool are_equal(const TypedValue &lhs, const TypedValue &rhs) {
     // Either both have to be integers or both have to be durations since we don't allow anything else
     return lhs.IsInt() ? lhs.ValueInt() == rhs.ValueInt() : lhs.ValueDuration() == rhs.ValueDuration();
   }
+  // they are both numeric, validated in ValidateWeightTypes
   auto l = lhs.IsDouble() ? lhs.ValueDouble() : static_cast<double>(lhs.ValueInt());
   auto r = rhs.IsDouble() ? rhs.ValueDouble() : static_cast<double>(rhs.ValueInt());
   auto diff = std::abs(l - r);
