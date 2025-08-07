@@ -1262,7 +1262,11 @@ struct mgp_local_date_time_parameters {
 struct mgp_zoned_date_time_parameters {
   struct mgp_date_parameters *date_parameters;
   struct mgp_local_time_parameters *local_time_parameters;
-  int32_t offset;
+  union {
+    int32_t offset_in_minutes;
+    const char *timezone_name;
+  } timezone_info;
+  int is_named_timezone;
 };
 
 /// Create a local date-time from a string following the ISO 8601 format.
