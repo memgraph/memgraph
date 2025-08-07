@@ -15,7 +15,10 @@ class Memgraph(ConanFile):
     exports_sources = "CMakeLists.txt", "src/*"
 
     def layout(self):
-        cmake_layout(self)
+        # Custom layout to put everything in build/ instead of build/Release or build/RelWithDebInfo
+        self.folders.build = "build"
+        self.folders.generators = "build/generators"
+        self.folders.package = "build/package"
 
     def generate(self):
         deps = CMakeDeps(self)

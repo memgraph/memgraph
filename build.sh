@@ -50,9 +50,9 @@ fi
 
 # install conan dependencies
 MG_TOOLCHAIN_ROOT=/opt/toolchain-v7/ conan install . --build=missing -pr ./memgraph_template_profile -s build_type=$BUILD_TYPE
-source build/$BUILD_TYPE/generators/conanbuild.sh
+source build/generators/conanbuild.sh
 
-# Determine preset based on build type
+# Determine preset name based on build type (Conan generates this automatically)
 if [[ "$BUILD_TYPE" == "Release" ]]; then
     PRESET="conan-release"
 else
