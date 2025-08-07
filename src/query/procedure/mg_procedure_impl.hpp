@@ -278,6 +278,12 @@ struct mgp_local_date_time {
   memgraph::utils::LocalDateTime local_date_time;
 };
 
+inline memgraph::utils::ZonedDateTime CreateZonedDateTimeFromString(const std::string_view string) {
+  const auto &[date_parameters, zoned_time_parameters] = memgraph::utils::ParseLocalDateTimeParameters(string);
+  auto timezone = memgraph::utils::DefaultTimezone();  // @TODO use ACTUAL timezone!
+  return memgraph::utils::ZonedDateTime{date_parameters, zoned_time_parameters, timezone};
+}
+
 struct mgp_zoned_date_time {
   /// Allocator type so that STL containers are aware that we need one.
   /// We don't actually need this, but it simplifies the C API, because we store
@@ -290,6 +296,9 @@ struct mgp_zoned_date_time {
 
   mgp_zoned_date_time(const memgraph::utils::ZonedDateTime &zoned_date_time, allocator_type alloc) noexcept
       : alloc(alloc), zoned_date_time(zoned_date_time) {}
+
+  mgp_zoned_date_time(const std::string_view string, allocator_type alloc) noexcept
+      : alloc(alloc), zoned_date_time(CreateZonedDateTimeFromString(string)) {}
 
   mgp_zoned_date_time(const mgp_zoned_date_time_parameters *parameters, allocator_type alloc)
       : alloc(alloc),

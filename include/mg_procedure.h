@@ -1345,6 +1345,13 @@ enum mgp_error mgp_local_date_time_sub_duration(struct mgp_local_date_time *loca
 enum mgp_error mgp_local_date_time_diff(struct mgp_local_date_time *first, struct mgp_local_date_time *second,
                                         struct mgp_memory *memory, struct mgp_duration **result);
 
+/// Create a zoned date-time from a string following the ISO 8601 format.
+/// Resulting zoned date-time must be freed with mgp_zoned_date_time_destroy.
+/// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if the string cannot be parsed correctly.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_zoned_date_time.
+enum mgp_error mgp_zoned_date_time_from_string(const char *string, struct mgp_memory *memory,
+                                               struct mgp_zoned_date_time **zoned_date_time);
+
 /// Create a zoned date-time from mgp_zoned_date_time_parameters.
 /// Resulting zoned date-time must be freed with mgp_zoned_date_time_destroy.
 /// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if the parameters cannot be parsed correctly.
@@ -1359,6 +1366,33 @@ void mgp_zoned_date_time_destroy(struct mgp_zoned_date_time *zoned_date_time);
 /// Result is non-zero if given zoned date-times are equal, otherwise 0.
 enum mgp_error mgp_zoned_date_time_equal(struct mgp_zoned_date_time *first, struct mgp_zoned_date_time *second,
                                          int *result);
+
+/// Get the year property of the zoned date-time
+enum mgp_error mgp_zoned_date_time_get_year(struct mgp_zoned_date_time *zoned_date_time, int *year);
+
+/// Get the month property of the zoned date-time.
+enum mgp_error mgp_zoned_date_time_get_month(struct mgp_zoned_date_time *zoned_date_time, int *month);
+
+/// Get the day property of the zoned date-time.
+enum mgp_error mgp_zoned_date_time_get_day(struct mgp_zoned_date_time *zoned_date_time, int *day);
+
+/// Get the hour property of the zoned date-time.
+enum mgp_error mgp_zoned_date_time_get_hour(struct mgp_zoned_date_time *zoned_date_time, int *hour);
+
+/// Get the minute property of the zoned date-time.
+enum mgp_error mgp_zoned_date_time_get_minute(struct mgp_zoned_date_time *zoned_date_time, int *minute);
+
+/// Get the second property of the zoned date-time.
+enum mgp_error mgp_zoned_date_time_get_second(struct mgp_zoned_date_time *zoned_date_time, int *second);
+
+/// Get the milisecond property of the zoned date-time.
+enum mgp_error mgp_zoned_date_time_get_millisecond(struct mgp_zoned_date_time *zoned_date_time, int *millisecond);
+
+/// Get the microsecond property of the zoned date-time.
+enum mgp_error mgp_zoned_date_time_get_microsecond(struct mgp_zoned_date_time *zoned_date_time, int *microsecond);
+
+/// Get the local date-time as microseconds from Unix epoch.
+enum mgp_error mgp_zoned_date_time_timestamp(struct mgp_zoned_date_time *zoned_date_time, int64_t *timestamp);
 
 struct mgp_duration_parameters {
   double day;

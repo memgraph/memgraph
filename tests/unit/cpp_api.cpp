@@ -488,6 +488,51 @@ TYPED_TEST(CppApiTestFixture, TestDuration) {
   auto value_y = mgp::Value(mgp::Duration("PT2M2.33S"));
 }
 
+void test_TestZonedDateTime() {
+  auto ldt_1 = mgp::ZonedDateTime("2021-10-05T14:15:00");
+  // @TODO note this is testing without offset
+  auto ldt_2 = mgp::ZonedDateTime(2021, 10, 5, 14, 15, 0, 0, 0, 0);
+
+  // @TODO test with illegal timezone too
+  ASSERT_ANY_THROW(mgp::ZonedDateTime(
+      2021, 10, 0, 14, 15, 0, 0, 0,
+      0));  // ...10, 0, 14... <- 0 is an illegal value for the `day` parameter; must throw an exception
+
+  ASSERT_EQ(ldt_1.Year(), 2021);
+  ASSERT_EQ(ldt_1.Month(), 10);
+  ASSERT_EQ(ldt_1.Day(), 5);
+  ASSERT_EQ(ldt_1.Hour(), 14);
+  ASSERT_EQ(ldt_1.Minute(), 15);
+  ASSERT_EQ(ldt_1.Second(), 0);
+  ASSERT_EQ(ldt_1.Millisecond() >= 0, true);
+  ASSERT_EQ(ldt_1.Microsecond() >= 0, true);
+  ASSERT_EQ(ldt_1.Timestamp() >= 0, true);
+
+  ASSERT_EQ(ldt_1, ldt_2);
+
+  // // Use copy assignment
+  // auto ldt_x = ldt_1;
+
+  // // Use move assignment
+  // std::vector<mgp::LocalDateTime> vector_x;
+  // vector_x.push_back(mgp::LocalDateTime("2021-10-05T14:15:00"));
+
+  // // Use Value copy constructor
+  // auto value_x = mgp::Value(ldt_1);
+  // // Use Value move constructor
+  // auto value_y = mgp::Value(mgp::LocalDateTime("2021-10-05T14:15:00"));
+}
+
+TYPED_TEST(CppApiTestFixture, TestZonedDateTime) { test_TestZonedDateTime(); }
+
+// TYPED_TEST(CppApiTestFixture, TestLocalDateTimeTZ) {
+//   HandleTimezone htz;
+//   htz.Set("Europe/Rome");
+//   test_TestLocalDateTime();
+//   htz.Set("America/Los_Angeles");
+//   test_TestLocalDateTime();
+// }
+
 TYPED_TEST(CppApiTestFixture, TestNodeProperties) {
   auto storage_acc = this->storage->Access(AccessorType::WRITE);
   auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());

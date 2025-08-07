@@ -524,6 +524,17 @@ struct ZonedDateTime {
   explicit ZonedDateTime(const std::chrono::local_time<std::chrono::microseconds> duration, const Timezone timezone);
   explicit ZonedDateTime(const std::chrono::zoned_time<std::chrono::microseconds, Timezone> &zoned_time);
 
+  /**
+   * @brief Construct a new LocalDateTime object using local/calendar date and time.
+   *
+   * This constructor will take in the calendar date-time and convert it to system time using the instance timezone.
+   *
+   * @param date_parameters
+   * @param local_time_parameters
+   */
+  explicit ZonedDateTime(const DateParameters &date_parameters, const LocalTimeParameters &local_time_parameters,
+                         Timezone timezone);
+
   std::chrono::sys_time<std::chrono::microseconds> SysTimeSinceEpoch() const;
   std::chrono::microseconds SysMicrosecondsSinceEpoch() const;
   std::chrono::seconds SysSecondsSinceEpoch() const;

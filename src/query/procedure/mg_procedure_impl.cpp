@@ -1692,6 +1692,50 @@ mgp_error mgp_zoned_date_time_equal(mgp_zoned_date_time *first, mgp_zoned_date_t
   return WrapExceptions([first, second] { return first->zoned_date_time == second->zoned_date_time; }, result);
 }
 
+mgp_error mgp_zoned_date_time_from_string(const char *string, mgp_memory *memory,
+                                          mgp_zoned_date_time **zoned_date_time) {
+  return WrapExceptions([string, memory] { return NewRawMgpObject<mgp_zoned_date_time>(memory, string); },
+                        zoned_date_time);
+}
+
+mgp_error mgp_zoned_date_time_get_year(mgp_zoned_date_time *zoned_date_time, int *year) {
+  return WrapExceptions([zoned_date_time] { return zoned_date_time->zoned_date_time.LocalYear(); }, year);
+}
+
+mgp_error mgp_zoned_date_time_get_month(mgp_zoned_date_time *zoned_date_time, int *month) {
+  return WrapExceptions([zoned_date_time] { return zoned_date_time->zoned_date_time.LocalMonth(); }, month);
+}
+
+mgp_error mgp_zoned_date_time_get_day(mgp_zoned_date_time *zoned_date_time, int *day) {
+  return WrapExceptions([zoned_date_time] { return zoned_date_time->zoned_date_time.LocalDay(); }, day);
+}
+
+mgp_error mgp_zoned_date_time_get_hour(mgp_zoned_date_time *zoned_date_time, int *hour) {
+  return WrapExceptions([zoned_date_time] { return zoned_date_time->zoned_date_time.LocalHour(); }, hour);
+}
+
+mgp_error mgp_zoned_date_time_get_minute(mgp_zoned_date_time *zoned_date_time, int *minute) {
+  return WrapExceptions([zoned_date_time] { return zoned_date_time->zoned_date_time.LocalMinute(); }, minute);
+}
+
+mgp_error mgp_zoned_date_time_get_second(mgp_zoned_date_time *zoned_date_time, int *second) {
+  return WrapExceptions([zoned_date_time] { return zoned_date_time->zoned_date_time.LocalSecond(); }, second);
+}
+
+mgp_error mgp_zoned_date_time_get_millisecond(mgp_zoned_date_time *zoned_date_time, int *millisecond) {
+  return WrapExceptions([zoned_date_time] { return zoned_date_time->zoned_date_time.LocalMillisecond(); }, millisecond);
+}
+
+mgp_error mgp_zoned_date_time_get_microsecond(mgp_zoned_date_time *zoned_date_time, int *microsecond) {
+  return WrapExceptions([zoned_date_time] { return zoned_date_time->zoned_date_time.LocalMicrosecond(); }, microsecond);
+}
+
+mgp_error mgp_zoned_date_time_timestamp(mgp_zoned_date_time *zoned_date_time, int64_t *timestamp) {
+  // Timestamps need to be in system time (UTC)
+  return WrapExceptions(
+      [zoned_date_time] { return zoned_date_time->zoned_date_time.SysMicrosecondsSinceEpoch().count(); }, timestamp);
+}
+
 mgp_error mgp_duration_from_string(const char *string, mgp_memory *memory, mgp_duration **duration) {
   return WrapExceptions([memory, string] { return NewRawMgpObject<mgp_duration>(memory, string); }, duration);
 }
