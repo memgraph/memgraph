@@ -492,10 +492,15 @@ void test_TestZonedDateTime() {
   auto ldt_1 = mgp::ZonedDateTime("2021-10-05T14:15:00");
   auto ldt_2 = mgp::ZonedDateTime(2021, 10, 5, 14, 15, 0, 0, 0, "Etc/UTC");
 
-  // @TODO test with illegal timezone too
   ASSERT_ANY_THROW(mgp::ZonedDateTime(
       2021, 10, 0, 14, 15, 0, 0, 0,
       0));  // ...10, 0, 14... <- 0 is an illegal value for the `day` parameter; must throw an exception
+
+  // Disallow any named timezone that is not in the tz database
+  ASSERT_ANY_THROW(mgp::ZonedDateTime(2021, 10, 1, 14, 15, 0, 0, 0, "Mars/Cydonia"));
+
+  // Disallow offset timezone that is out of range
+  ASSERT_ANY_THROW(mgp::ZonedDateTime(2021, 10, 1, 14, 15, 0, 0, 0, 1200));
 
   ASSERT_EQ(ldt_1.Year(), 2021);
   ASSERT_EQ(ldt_1.Month(), 10);
@@ -513,24 +518,106 @@ void test_TestZonedDateTime() {
   auto ldt_x = ldt_1;
 
   // Use move assignment
-  std::vector<mgp::LocalDateTime> vector_x;
-  vector_x.push_back(mgp::LocalDateTime("2021-10-05T14:15:00"));
+  std::vector<mgp::ZonedDateTime> vector_x;
+  vector_x.push_back(mgp::ZonedDateTime("2021-10-05T14:15:00"));
 
   // Use Value copy constructor
   auto value_x = mgp::Value(ldt_1);
   // Use Value move constructor
-  auto value_y = mgp::Value(mgp::LocalDateTime("2021-10-05T14:15:00"));
+  auto value_y = mgp::Value(mgp::ZonedDateTime("2021-10-05T14:15:00"));
 }
 
-TYPED_TEST(CppApiTestFixture, TestZonedDateTime) { test_TestZonedDateTime(); }
+TYPED_TEST(CppApiTestFixture, ZonedDateTime_CanBeCreated) {
+  // Created from an ISO 8601 string without timezone
+  auto zdt1 = mgp::ZonedDateTime("2021-10-05T14:15:00");
+  EXPECT_EQ(zdt1.Year(), 2021);
+  EXPECT_EQ(zdt1.Month(), 10);
+  EXPECT_EQ(zdt1.Day(), 5);
+  EXPECT_EQ(zdt1.Hour(), 14);
+  EXPECT_EQ(zdt1.Minute(), 15);
+  EXPECT_EQ(zdt1.Second(), 0);
+  EXPECT_EQ(zdt1.Millisecond() >= 0, true);
+  EXPECT_EQ(zdt1.Microsecond() >= 0, true);
+  EXPECT_EQ(zdt1.Timestamp() >= 0, true);
+  EXPECT_STREQ(zdt1.Timezone(), "Etc/UTC");
 
-// TYPED_TEST(CppApiTestFixture, TestLocalDateTimeTZ) {
-//   HandleTimezone htz;
-//   htz.Set("Europe/Rome");
-//   test_TestLocalDateTime();
-//   htz.Set("America/Los_Angeles");
-//   test_TestLocalDateTime();
-// }
+  // Created from an ISO 8601 string with named timezone
+  auto zdt2 = mgp::ZonedDateTime("2021-10-05T14:15:00[Europe/London]");
+  EXPECT_EQ(zdt2.Year(), 2021);
+  EXPECT_EQ(zdt2.Month(), 10);
+  EXPECT_EQ(zdt2.Day(), 5);
+  EXPECT_EQ(zdt2.Hour(), 14);
+  EXPECT_EQ(zdt2.Minute(), 15);
+  EXPECT_EQ(zdt2.Second(), 0);
+  EXPECT_EQ(zdt2.Millisecond() >= 0, true);
+  EXPECT_EQ(zdt2.Microsecond() >= 0, true);
+  EXPECT_EQ(zdt2.Timestamp() >= 0, true);
+  EXPECT_STREQ(zdt2.Timezone(), "Europe/London");
+
+  // Created from an ISO 8601 string with negative offset
+  auto zdt3 = mgp::ZonedDateTime("2021-10-05T14:15:00-02:00");
+  EXPECT_EQ(zdt3.Year(), 2021);
+  EXPECT_EQ(zdt3.Month(), 10);
+  EXPECT_EQ(zdt3.Day(), 5);
+  EXPECT_EQ(zdt3.Hour(), 14);
+  EXPECT_EQ(zdt3.Minute(), 15);
+  EXPECT_EQ(zdt3.Second(), 0);
+  EXPECT_EQ(zdt3.Millisecond() >= 0, true);
+  EXPECT_EQ(zdt3.Microsecond() >= 0, true);
+  EXPECT_EQ(zdt3.Timestamp() >= 0, true);
+  EXPECT_EQ(zdt3.Offset(), -120);
+
+  // Created from an ISO 8601 string with positive offset
+  auto zdt4 = mgp::ZonedDateTime("2021-10-05T14:15:00+02:00");
+  EXPECT_EQ(zdt4.Year(), 2021);
+  EXPECT_EQ(zdt4.Month(), 10);
+  EXPECT_EQ(zdt4.Day(), 5);
+  EXPECT_EQ(zdt4.Hour(), 14);
+  EXPECT_EQ(zdt4.Minute(), 15);
+  EXPECT_EQ(zdt4.Second(), 0);
+  EXPECT_EQ(zdt4.Millisecond() >= 0, true);
+  EXPECT_EQ(zdt4.Microsecond() >= 0, true);
+  EXPECT_EQ(zdt4.Timestamp() >= 0, true);
+  EXPECT_EQ(zdt4.Offset(), 120);
+
+  // Create from discrete parameters with named timezone
+  auto zdt5 = mgp::ZonedDateTime(2021, 10, 5, 14, 15, 0, 0, 0, "Europe/Paris");
+  EXPECT_EQ(zdt5.Year(), 2021);
+  EXPECT_EQ(zdt5.Month(), 10);
+  EXPECT_EQ(zdt5.Day(), 5);
+  EXPECT_EQ(zdt5.Hour(), 14);
+  EXPECT_EQ(zdt5.Minute(), 15);
+  EXPECT_EQ(zdt5.Second(), 0);
+  EXPECT_EQ(zdt5.Millisecond() >= 0, true);
+  EXPECT_EQ(zdt5.Microsecond() >= 0, true);
+  EXPECT_EQ(zdt5.Timestamp() >= 0, true);
+  EXPECT_STREQ(zdt5.Timezone(), "Europe/Paris");
+
+  // Create from discrete parameters with offset (in minutes)
+  auto zdt6 = mgp::ZonedDateTime(2021, 10, 5, 14, 15, 0, 0, 0, 120);
+  EXPECT_EQ(zdt6.Year(), 2021);
+  EXPECT_EQ(zdt6.Month(), 10);
+  EXPECT_EQ(zdt6.Day(), 5);
+  EXPECT_EQ(zdt6.Hour(), 14);
+  EXPECT_EQ(zdt6.Minute(), 15);
+  EXPECT_EQ(zdt6.Second(), 0);
+  EXPECT_EQ(zdt6.Millisecond() >= 0, true);
+  EXPECT_EQ(zdt6.Microsecond() >= 0, true);
+  EXPECT_EQ(zdt6.Timestamp() >= 0, true);
+  EXPECT_EQ(zdt6.Offset(), 120);
+}
+
+TYPED_TEST(CppApiTestFixture, ZonedDateTime_CannotBeCreatedWithInvalidParameters) {
+  // FAIL();
+}
+
+TYPED_TEST(CppApiTestFixture, ZonedDateTime_CanBeCompared) {
+  // FAIL();
+}
+
+TYPED_TEST(CppApiTestFixture, ZonedDateTime_CanBeCopyMoveAndValueConstructed) {
+  // FAIL();
+}
 
 TYPED_TEST(CppApiTestFixture, TestNodeProperties) {
   auto storage_acc = this->storage->Access(AccessorType::WRITE);

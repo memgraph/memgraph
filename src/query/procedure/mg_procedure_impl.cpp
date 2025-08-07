@@ -1736,6 +1736,15 @@ mgp_error mgp_zoned_date_time_get_microsecond(mgp_zoned_date_time *zoned_date_ti
   return WrapExceptions([zoned_date_time] { return zoned_date_time->zoned_date_time.LocalMicrosecond(); }, microsecond);
 }
 
+mgp_error mgp_zoned_date_time_get_timezone(mgp_zoned_date_time *zoned_date_time, char const **timezone) {
+  return WrapExceptions([zoned_date_time] { return zoned_date_time->zoned_date_time.TimezoneName().data(); }, timezone);
+}
+
+mgp_error mgp_zoned_date_time_get_offset(mgp_zoned_date_time *zoned_date_time, int *offset) {
+  return WrapExceptions([zoned_date_time] { return zoned_date_time->zoned_date_time.OffsetDuration().count(); },
+                        offset);
+}
+
 mgp_error mgp_zoned_date_time_timestamp(mgp_zoned_date_time *zoned_date_time, int64_t *timestamp) {
   // Timestamps need to be in system time (UTC)
   return WrapExceptions(

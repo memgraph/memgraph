@@ -1404,6 +1404,12 @@ enum mgp_error mgp_zoned_date_time_get_microsecond(struct mgp_zoned_date_time *z
 /// Get the local date-time as microseconds from Unix epoch.
 enum mgp_error mgp_zoned_date_time_timestamp(struct mgp_zoned_date_time *zoned_date_time, int64_t *timestamp);
 
+/// Get the timezone property of the zoned date-time.
+enum mgp_error mgp_zoned_date_time_get_timezone(struct mgp_zoned_date_time *zoned_date_time, char const **timezone);
+
+/// Get the offset of the zoned date-time.
+enum mgp_error mgp_zoned_date_time_get_offset(struct mgp_zoned_date_time *zoned_date_time, int *offset);
+
 struct mgp_duration_parameters {
   double day;
   double hour;
