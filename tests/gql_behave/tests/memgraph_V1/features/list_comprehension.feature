@@ -121,22 +121,28 @@ Feature: ListComprehension
       | (:X {prop: 43}) | false |
     And no side effects
 
-  Scenario: Pattern comprehension inside list comprehension - currently not supported
-    Given an empty graph
-    And having executed:
-      """
-      CREATE (n1:X {n: 1}), (m1:Y), (i1:Y), (i2:Y)
-      CREATE (n1)-[:T]->(m1),
-             (m1)-[:T]->(i1),
-             (m1)-[:T]->(i2)
-      CREATE (n2:X {n: 2}), (m2), (i3:L), (i4:Y)
-      CREATE (n2)-[:T]->(m2),
-             (m2)-[:T]->(i3),
-             (m2)-[:T]->(i4)
-      """
-    When executing query:
-      """
-      MATCH p = (n:X)-->(b)
-      RETURN n, [x IN nodes(p) | size([(x)-->(:Y) | 1])] AS list
-      """
-    Then an error should be raised
+   Scenario: Pattern comprehension in list comprehension - simple
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:N {id: 1}), (b:N {id: 2}), (a)-[:R]->(b)
+            """
+        When executing query:
+            """
+            MATCH (a) WHERE single(x in [(a)-[:R]->(b) WHERE b is not null | 1] WHERE true) RETURN a.id AS id
+            """
+        Then the result should be:
+            | id |
+            | 1  |
+
+   Scenario: Pattern comprehension in list comprehension - simple reversed
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:N {id: 1}), (b:N {id: 2}), (a)-[:R]->(b)
+            """
+        When executing query:
+            """
+            MATCH (a) WHERE single(x in [(a)-[:R]->(b) WHERE b is null | 1] WHERE true) RETURN a.id AS id
+            """
+        Then the result should be empty

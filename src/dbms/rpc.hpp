@@ -30,16 +30,14 @@ struct CreateDatabaseReq {
   static void Load(CreateDatabaseReq *self, memgraph::slk::Reader *reader);
   static void Save(const CreateDatabaseReq &self, memgraph::slk::Builder *builder);
   CreateDatabaseReq() = default;
-  CreateDatabaseReq(const utils::UUID &main_uuid, std::string epoch_id, uint64_t expected_group_timestamp,
-                    uint64_t new_group_timestamp, storage::SalientConfig config)
+  CreateDatabaseReq(const utils::UUID &main_uuid, uint64_t const expected_group_timestamp,
+                    uint64_t const new_group_timestamp, SalientConfig config)
       : main_uuid(main_uuid),
-        epoch_id(std::move(epoch_id)),
         expected_group_timestamp{expected_group_timestamp},
         new_group_timestamp(new_group_timestamp),
         config(std::move(config)) {}
 
   utils::UUID main_uuid;
-  std::string epoch_id;
   uint64_t expected_group_timestamp;
   uint64_t new_group_timestamp;
   storage::SalientConfig config;
@@ -68,16 +66,14 @@ struct DropDatabaseReq {
   static void Load(DropDatabaseReq *self, memgraph::slk::Reader *reader);
   static void Save(const DropDatabaseReq &self, memgraph::slk::Builder *builder);
   DropDatabaseReq() = default;
-  DropDatabaseReq(const utils::UUID &main_uuid, std::string epoch_id, uint64_t expected_group_timestamp,
-                  uint64_t new_group_timestamp, const utils::UUID &uuid)
+  DropDatabaseReq(const utils::UUID &main_uuid, uint64_t const expected_group_timestamp,
+                  uint64_t const new_group_timestamp, const utils::UUID &uuid)
       : main_uuid(main_uuid),
-        epoch_id(std::move(epoch_id)),
         expected_group_timestamp{expected_group_timestamp},
         new_group_timestamp(new_group_timestamp),
         uuid(uuid) {}
 
   utils::UUID main_uuid;
-  std::string epoch_id;
   uint64_t expected_group_timestamp;
   uint64_t new_group_timestamp;
   utils::UUID uuid;
