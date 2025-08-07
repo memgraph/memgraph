@@ -2933,12 +2933,15 @@ namespace {
 
 // Numerical error can only happen with doubles
 inline bool are_equal(const TypedValue &lhs, const TypedValue &rhs) {
-  if (!lhs.IsDouble() || !rhs.IsDouble()) return false;
-  auto l = lhs.ValueDouble();
-  auto r = rhs.ValueDouble();
+  if (lhs.type() == rhs.type() && lhs.type() != TypedValue::Type::Double) {
+    // Either both have to be integers or both have to be durations since we don't allow anything else
+    return lhs.IsInt() ? lhs.ValueInt() == rhs.ValueInt() : lhs.ValueDuration() == rhs.ValueDuration();
+  }
+  auto l = lhs.IsDouble() ? lhs.ValueDouble() : static_cast<double>(lhs.ValueInt());
+  auto r = rhs.IsDouble() ? rhs.ValueDouble() : static_cast<double>(rhs.ValueInt());
   auto diff = std::abs(l - r);
   if (diff < 1e-12) return true;  // relative comparison doesn't work well if numbers are near zero
-  return std::abs(lhs.ValueDouble() - rhs.ValueDouble()) < std::max(l, r) * 1e-12;
+  return std::abs(l - r) < std::max(l, r) * 1e-12;
 }
 }  // namespace
 
@@ -3010,8 +3013,11 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         });
 
         if (!insert) return;
+        // They cannot be equal since we checked for that above
+        // Its possible that some weights are worse because we update weights at the same time as expanding instead of
+        // later when popping from the queue
         std::erase_if(weights, [&next_weight, depth](const std::pair<TypedValue, int64_t> &p) {
-          return p.second >= depth && ((p.first > next_weight).ValueBool() || are_equal(p.first, next_weight));
+          return p.second >= depth && (p.first > next_weight).ValueBool();
         });
         weights.emplace_back(next_weight, depth);
 
@@ -4079,13 +4085,15 @@ SetProperties::SetPropertiesCursor::SetPropertiesCursor(const SetProperties &sel
 namespace {
 
 template <typename T>
-concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
-                                          storage::PropertyValue property_value,
-                                          std::map<storage::PropertyId, storage::PropertyValue> properties) {
-  { value.ClearProperties() } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
-  {value.SetProperty(property_id, property_value)};
-  {value.UpdateProperties(properties)};
-};
+concept AccessorWithProperties =
+    requires(T value, storage::PropertyId property_id, storage::PropertyValue property_value,
+             std::map<storage::PropertyId, storage::PropertyValue> properties) {
+      {
+        value.ClearProperties()
+      } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
+      { value.SetProperty(property_id, property_value) };
+      { value.UpdateProperties(properties) };
+    };
 
 /// Helper function that sets the given values on either a Vertex or an Edge.
 ///
@@ -5122,7 +5130,7 @@ class AggregateCursor : public Cursor {
           value_it->ValueMap().emplace(key.ValueString(), std::move(input_value));
           break;
       }  // end switch over Aggregation::Op enum
-    }    // end loop over all aggregations
+    }  // end loop over all aggregations
   }
 
   /** Project a subgraph from lists of nodes and lists of edges. Any nulls in these lists are ignored.
@@ -5404,9 +5412,8 @@ class OrderByCursor : public Cursor {
       // sorting with range zip
       // we compare on just the projection of the 1st range (order_by)
       // this will also permute the 2nd range (output)
-      ranges::sort(
-          rv::zip(order_by, output), self_.compare_.lex_cmp(),
-          [](auto const &value) -> auto const & { return std::get<0>(value); });
+      ranges::sort(rv::zip(order_by, output), self_.compare_.lex_cmp(),
+                   [](auto const &value) -> auto const & { return std::get<0>(value); });
 
       // no longer need the order_by terms
       order_by.clear();
