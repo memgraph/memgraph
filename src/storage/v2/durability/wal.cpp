@@ -268,8 +268,8 @@ constexpr bool IsMarkerTransactionEnd(const Marker marker, const uint64_t versio
 
 // ========== concrete type decoders start here ==========
 template <bool is_read>
-auto Decode(utils::tag_type<bool> /*unused*/, BaseDecoder *decoder,
-            const uint64_t /*version*/) -> std::conditional_t<is_read, bool, void> {
+auto Decode(utils::tag_type<bool> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, bool, void> {
   const auto flag = decoder->ReadBool();
   if (!flag) throw RecoveryFailure(kInvalidWalErrorMessage);
   if constexpr (is_read) {
@@ -278,8 +278,8 @@ auto Decode(utils::tag_type<bool> /*unused*/, BaseDecoder *decoder,
 }
 
 template <bool is_read>
-auto Decode(utils::tag_type<Gid> /*unused*/, BaseDecoder *decoder,
-            const uint64_t /*version*/) -> std::conditional_t<is_read, Gid, void> {
+auto Decode(utils::tag_type<Gid> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, Gid, void> {
   const auto gid = decoder->ReadUint();
   if (!gid) throw RecoveryFailure(kInvalidWalErrorMessage);
   if constexpr (is_read) {
@@ -288,8 +288,8 @@ auto Decode(utils::tag_type<Gid> /*unused*/, BaseDecoder *decoder,
 }
 
 template <bool is_read>
-auto Decode(utils::tag_type<std::string> /*unused*/, BaseDecoder *decoder,
-            const uint64_t /*version*/) -> std::conditional_t<is_read, std::string, void> {
+auto Decode(utils::tag_type<std::string> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, std::string, void> {
   if constexpr (is_read) {
     auto str = decoder->ReadString();
     if (!str) throw RecoveryFailure(kInvalidWalErrorMessage);
@@ -300,8 +300,8 @@ auto Decode(utils::tag_type<std::string> /*unused*/, BaseDecoder *decoder,
 }
 
 template <bool is_read>
-auto Decode(utils::tag_type<std::optional<std::string>> /*unused*/, BaseDecoder *decoder,
-            const uint64_t /*version*/) -> std::conditional_t<is_read, std::optional<std::string>, void> {
+auto Decode(utils::tag_type<std::optional<std::string>> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, std::optional<std::string>, void> {
   if constexpr (is_read) {
     auto has_value = decoder->ReadBool();
     if (!has_value) throw RecoveryFailure(kInvalidWalErrorMessage);
@@ -309,9 +309,9 @@ auto Decode(utils::tag_type<std::optional<std::string>> /*unused*/, BaseDecoder 
       auto str = decoder->ReadString();
       if (!str) throw RecoveryFailure(kInvalidWalErrorMessage);
       return std::make_optional(*std::move(str));
-    } else {
-      return std::nullopt;
     }
+    return std::nullopt;
+
   } else {
     auto has_value = decoder->ReadBool();
     if (!has_value) throw RecoveryFailure(kInvalidWalErrorMessage);
@@ -322,8 +322,8 @@ auto Decode(utils::tag_type<std::optional<std::string>> /*unused*/, BaseDecoder 
 }
 
 template <bool is_read>
-auto Decode(utils::tag_type<ExternalPropertyValue> /*unused*/, BaseDecoder *decoder,
-            const uint64_t /*version*/) -> std::conditional_t<is_read, ExternalPropertyValue, void> {
+auto Decode(utils::tag_type<ExternalPropertyValue> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, ExternalPropertyValue, void> {
   if constexpr (is_read) {
     auto str = decoder->ReadExternalPropertyValue();
     if (!str) throw RecoveryFailure(kInvalidWalErrorMessage);
@@ -356,8 +356,8 @@ auto Decode(utils::tag_type<std::set<std::string, std::less<>>> /*unused*/, Base
 }
 
 template <bool is_read, typename T>
-auto Decode(utils::tag_type<std::vector<T>> /*unused*/, BaseDecoder *decoder,
-            const uint64_t /*version*/) -> std::conditional_t<is_read, std::vector<T>, void> {
+auto Decode(utils::tag_type<std::vector<T>> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, std::vector<T>, void> {
   if constexpr (is_read) {
     const auto count = decoder->ReadUint();
     if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
@@ -378,8 +378,8 @@ auto Decode(utils::tag_type<std::vector<T>> /*unused*/, BaseDecoder *decoder,
 }
 
 template <bool is_read>
-auto Decode(utils::tag_type<TypeConstraintKind> /*unused*/, BaseDecoder *decoder,
-            const uint64_t /*version*/) -> std::conditional_t<is_read, TypeConstraintKind, void> {
+auto Decode(utils::tag_type<TypeConstraintKind> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, TypeConstraintKind, void> {
   if constexpr (is_read) {
     auto kind = decoder->ReadUint();
     if (!kind) throw RecoveryFailure(kInvalidWalErrorMessage);
@@ -390,8 +390,8 @@ auto Decode(utils::tag_type<TypeConstraintKind> /*unused*/, BaseDecoder *decoder
 }
 
 template <bool is_read>
-auto Decode(utils::tag_type<uint16_t> /*unused*/, BaseDecoder *decoder,
-            const uint64_t /*version*/) -> std::conditional_t<is_read, uint16_t, void> {
+auto Decode(utils::tag_type<uint16_t> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, uint16_t, void> {
   const auto uint16 = decoder->ReadUint();
   if (!uint16) throw RecoveryFailure(kInvalidWalErrorMessage);
   if constexpr (is_read) {
@@ -400,8 +400,8 @@ auto Decode(utils::tag_type<uint16_t> /*unused*/, BaseDecoder *decoder,
 }
 
 template <bool is_read>
-auto Decode(utils::tag_type<uint8_t> /*unused*/, BaseDecoder *decoder,
-            const uint64_t /*version*/) -> std::conditional_t<is_read, uint8_t, void> {
+auto Decode(utils::tag_type<uint8_t> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, uint8_t, void> {
   const auto uint8 = decoder->ReadUint();
   if (!uint8) throw RecoveryFailure(kInvalidWalErrorMessage);
 
@@ -411,8 +411,8 @@ auto Decode(utils::tag_type<uint8_t> /*unused*/, BaseDecoder *decoder,
 }
 
 template <bool is_read>
-auto Decode(utils::tag_type<TtlOperationType> /*unused*/, BaseDecoder *decoder,
-            const uint64_t /*version*/) -> std::conditional_t<is_read, TtlOperationType, void> {
+auto Decode(utils::tag_type<TtlOperationType> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, TtlOperationType, void> {
   const auto uint8 = decoder->ReadUint();
   if (!uint8) throw RecoveryFailure(kInvalidWalErrorMessage);
 
@@ -422,8 +422,8 @@ auto Decode(utils::tag_type<TtlOperationType> /*unused*/, BaseDecoder *decoder,
 }
 
 template <bool is_read>
-auto Decode(utils::tag_type<std::size_t> /*unused*/, BaseDecoder *decoder,
-            const uint64_t /*version*/) -> std::conditional_t<is_read, std::size_t, void> {
+auto Decode(utils::tag_type<std::size_t> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, std::size_t, void> {
   const auto size = decoder->ReadUint();
   if (!size) throw RecoveryFailure(kInvalidWalErrorMessage);
   if constexpr (is_read) {
@@ -445,8 +445,8 @@ auto Decode(utils::tag_type<std::pair<T, U>> /*unused*/, BaseDecoder *decoder, c
 }
 
 template <bool is_read>
-auto Decode(utils::tag_type<std::chrono::microseconds> /*unused*/, BaseDecoder *decoder,
-            const uint64_t /*version*/) -> std::conditional_t<is_read, std::chrono::microseconds, void> {
+auto Decode(utils::tag_type<std::chrono::microseconds> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, std::chrono::microseconds, void> {
   const auto count = decoder->ReadUint();
   if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
   if constexpr (is_read) {
@@ -472,9 +472,9 @@ auto Decode(utils::tag_type<std::optional<std::chrono::microseconds>> /*unused*/
   if constexpr (is_read) {
     if (*has_value) {
       return Decode<true>(utils::tag_t<std::chrono::microseconds>, decoder, version);
-    } else {
-      return std::nullopt;
     }
+    return std::nullopt;
+
   } else {
     if (*has_value) {
       Decode<false>(utils::tag_t<std::chrono::microseconds>, decoder, version);
@@ -491,9 +491,9 @@ auto Decode(utils::tag_type<std::optional<std::chrono::system_clock::time_point>
   if constexpr (is_read) {
     if (*has_value) {
       return Decode<true>(utils::tag_t<std::chrono::system_clock::time_point>, decoder, version);
-    } else {
-      return std::nullopt;
     }
+    return std::nullopt;
+
   } else {
     if (*has_value) {
       Decode<false>(utils::tag_t<std::chrono::system_clock::time_point>, decoder, version);
@@ -509,12 +509,14 @@ template <typename T>
 auto Skip(BaseDecoder *decoder, const uint64_t version) -> void;
 
 template <typename T>
-concept IsReadSkip = requires { typename T::ctr_types; };
+concept IsReadSkip = requires {
+  typename T::ctr_types;
+};
 
 // Generic helper decoder, please keep after the concrete type decoders
 template <bool is_read, IsReadSkip T>
-auto Decode(utils::tag_type<T> /*unused*/, BaseDecoder *decoder,
-            const uint64_t version) -> std::conditional_t<is_read, T, void> {
+auto Decode(utils::tag_type<T> /*unused*/, BaseDecoder *decoder, const uint64_t version)
+    -> std::conditional_t<is_read, T, void> {
   if constexpr (is_read) {
     return Read<T>(decoder, version);
   } else {
@@ -524,8 +526,8 @@ auto Decode(utils::tag_type<T> /*unused*/, BaseDecoder *decoder,
 
 // Generic helper decoder, please keep after the concrete type decoders
 template <bool is_read, auto MIN_VER, typename Type>
-auto Decode(utils::tag_type<VersionDependant<MIN_VER, Type>> /*unused*/, BaseDecoder *decoder,
-            const uint64_t version) -> std::conditional_t<is_read, std::optional<Type>, void> {
+auto Decode(utils::tag_type<VersionDependant<MIN_VER, Type>> /*unused*/, BaseDecoder *decoder, const uint64_t version)
+    -> std::conditional_t<is_read, std::optional<Type>, void> {
   if (MIN_VER <= version) {
     return Decode<is_read>(utils::tag_t<Type>, decoder, version);
   }
@@ -557,7 +559,8 @@ auto Read(BaseDecoder *decoder, const uint64_t version) -> T {
     // see [dcl.init.list] 9.4.5.4
     // Ordering of these constructor argument calls is well defined
     return T{Decode<true>(utils::tag_t<std::tuple_element_t<I, ctr_types>>, decoder, version)...};
-  }(std::make_index_sequence<std::tuple_size_v<ctr_types>>{});
+  }
+  (std::make_index_sequence<std::tuple_size_v<ctr_types>>{});
 }
 
 template <typename T>
@@ -566,7 +569,8 @@ auto Skip(BaseDecoder *decoder, const uint64_t version) -> void {
 
   [&]<auto... I>(std::index_sequence<I...>) {
     (Decode<false>(utils::tag_t<std::tuple_element_t<I, ctr_types>>, decoder, version), ...);
-  }(std::make_index_sequence<std::tuple_size_v<ctr_types>>{});
+  }
+  (std::make_index_sequence<std::tuple_size_v<ctr_types>>{});
 }
 
 // Function used to either read or skip the current WAL delta data. The WAL
@@ -576,8 +580,8 @@ auto Skip(BaseDecoder *decoder, const uint64_t version) -> void {
 // be used.
 // @throw RecoveryFailure
 template <bool read_data>
-auto ReadSkipWalDeltaData(BaseDecoder *decoder,
-                          const uint64_t version) -> std::conditional_t<read_data, WalDeltaData, bool> {
+auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
+    -> std::conditional_t<read_data, WalDeltaData, bool> {
   auto action = decoder->ReadMarker();
   if (!action) throw RecoveryFailure(kInvalidWalErrorMessage);
 

@@ -196,7 +196,7 @@ class ReplicationStorageClient {
 
   [[nodiscard]] bool SendFinalizeCommitRpc(bool const decision, utils::UUID const &storage_uuid,
                                            uint64_t const durability_commit_timestamp,
-                                           std::optional<ReplicaStream> &&replica_stream) noexcept;
+                                           std::optional<ReplicaStream> replica_stream) noexcept;
 
   /**
    * @brief Asynchronously try to check the replica state and start a recovery thread if necessary

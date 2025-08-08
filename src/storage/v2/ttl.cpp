@@ -20,7 +20,6 @@
 
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
-#include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/vertex_accessor.hpp"
@@ -204,13 +203,13 @@ void TTL::Configure(bool should_run_edge_ttl) {
         // This ensures TTL can work efficiently using range-based filtering
 
         std::vector<PropertyPath> ttl_property_path = {ttl_property};
-        bool missing_lp_index = !batch_accessor->LabelPropertyIndexExists(ttl_label, ttl_property_path);
-        bool missing_edge_index = !batch_accessor->EdgePropertyIndexExists(ttl_property);
+        bool const missing_lp_index = !batch_accessor->LabelPropertyIndexExists(ttl_label, ttl_property_path);
+        bool const missing_edge_index = !batch_accessor->EdgePropertyIndexExists(ttl_property);
 
         if (missing_lp_index) {
           spdlog::warn(
               "TTL requires label+property index on :TTL(ttl) but it doesn't exist. Will create it automatically.");
-          std::vector<PropertyPath> ttl_property_path = {storage_ptr_->NameToProperty("ttl")};
+          std::vector<PropertyPath> const ttl_property_path = {storage_ptr_->NameToProperty("ttl")};
 
           if (storage_ptr_->GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
             auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage_ptr_);
@@ -239,8 +238,8 @@ void TTL::Configure(bool should_run_edge_ttl) {
           }
         }
 
-        bool lp_index_ready = batch_accessor->LabelPropertyIndexReady(ttl_label, ttl_property_path);
-        bool edge_index_ready = info_.should_run_edge_ttl && batch_accessor->EdgePropertyIndexReady(ttl_property);
+        bool const lp_index_ready = batch_accessor->LabelPropertyIndexReady(ttl_label, ttl_property_path);
+        bool const edge_index_ready = info_.should_run_edge_ttl && batch_accessor->EdgePropertyIndexReady(ttl_property);
 
         // Process vertices with TTL label and ttl property using label+property index with range
         if (!finished_vertex && lp_index_ready) {

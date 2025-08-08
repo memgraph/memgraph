@@ -360,7 +360,7 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
 // ReSharper disable once CppMemberFunctionMayBeConst
 [[nodiscard]] bool ReplicationStorageClient::SendFinalizeCommitRpc(
     bool const decision, utils::UUID const &storage_uuid, uint64_t const durability_commit_timestamp,
-    std::optional<ReplicaStream> &&replica_stream) noexcept {
+    std::optional<ReplicaStream> replica_stream) noexcept {
   // Just skip instance which was down before voting
   if (!replica_stream.has_value()) {
     return true;

@@ -125,7 +125,7 @@ void AsyncIndexer::Clear() {
 }
 
 bool AsyncIndexer::IsIdle() const {
-  std::lock_guard lock(mutex_);
+  std::lock_guard const lock(mutex_);
   return request_queue_.size() == 0 && !is_processing_.load();
 }
 

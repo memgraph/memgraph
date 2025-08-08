@@ -1862,9 +1862,9 @@ void FreeMemory(DecodedBuffer const &buffer_info) {
   }
 }
 
-void SetSizeData(std::array<uint8_t, 12> &buffer, uint32_t size, uint8_t *data) {
+void SetSizeData(std::array<uint8_t, 12> &buffer, uint32_t size, const uint8_t *data) {
   memcpy(buffer.data(), &size, sizeof(size));
-  memcpy(buffer.data() + sizeof(size), &data, sizeof(uint8_t *));
+  memcpy(buffer.data() + sizeof(size), static_cast<void const *>(&data), sizeof(uint8_t *));
 }
 DecodedBuffer SetupLocalBuffer(std::array<uint8_t, 12> &buffer) {
   buffer[0] = kUseLocalBuffer;
@@ -1963,8 +1963,8 @@ void CompressBuffer(std::array<uint8_t, 12> &buffer, DecodedBuffer const &buffer
 auto GetDecodedBuffer(std::array<uint8_t, 12> &buffer) -> DecodedBuffer {
   uint32_t size = 0;
   uint8_t *data = nullptr;
-  memcpy(&size, buffer.data(), sizeof(uint32_t));
-  memcpy(&data, buffer.data() + sizeof(uint32_t), sizeof(uint8_t *));
+  memcpy(static_cast<void *>(&size), buffer.data(), sizeof(uint32_t));
+  memcpy(static_cast<void *>(&data), buffer.data() + sizeof(uint32_t), sizeof(uint8_t *));
 
   if (size == 0) {
     return {std::span<uint8_t>{}, StorageMode::EMPTY};
@@ -1994,8 +1994,8 @@ auto GetDecodedBuffer(std::array<uint8_t, 12> &buffer) -> DecodedBuffer {
 auto GetDecodedBuffer(std::array<uint8_t, 12> const &buffer) -> DecodedBufferConst {
   uint32_t size = 0;
   uint8_t *data = nullptr;
-  memcpy(&size, buffer.data(), sizeof(uint32_t));
-  memcpy(&data, buffer.data() + sizeof(uint32_t), sizeof(uint8_t *));
+  memcpy(static_cast<void *>(&size), buffer.data(), sizeof(uint32_t));
+  memcpy(static_cast<void *>(&data), static_cast<const uint8_t *>(buffer.data() + sizeof(uint32_t)), sizeof(uint8_t *));
 
   if (size == 0) {
     return {std::span<uint8_t>{}, StorageMode::EMPTY};
@@ -2026,9 +2026,9 @@ auto GetDecodedBuffer(std::array<uint8_t, 12> const &buffer) -> DecodedBufferCon
 
 PropertyStore::PropertyStore() = default;
 
-PropertyStore::PropertyStore(PropertyStore &&other) noexcept {
-  buffer_ = other.buffer_;  // std::array assignment
-  other.buffer_ = {};       // Zero-initialize
+PropertyStore::PropertyStore(PropertyStore &&other) noexcept : buffer_(other.buffer_) {
+  // std::array assignment
+  other.buffer_ = {};  // Zero-initialize
 }
 
 PropertyStore &PropertyStore::operator=(PropertyStore &&other) noexcept {

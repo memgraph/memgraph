@@ -813,7 +813,7 @@ utils::BasicResult<StorageManipulationError> InMemoryStorage::InMemoryAccessor::
 
   // If replica executes this
   bool const replica_write_was_applied =
-      commit_args.apply_if_replica_write([&](bool two_phase_commit, uint64_t desired_commit_timestamp) {
+      commit_args.apply_if_replica_write([&](bool two_phase_commit, uint64_t /*desired_commit_timestamp*/) {
         // If SYNC and ASYNC replica executes this, commit immediately while holding the engine lock
         if (!two_phase_commit) {
           // WAL file is already finalized

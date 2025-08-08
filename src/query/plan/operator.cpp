@@ -9,6 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+// NOLINTBEGIN(modernize-use-constraints)
+
 #include "query/plan/operator.hpp"
 
 #include <algorithm>
@@ -7599,3 +7601,5 @@ query::plan::Aggregate::Element query::plan::Aggregate::Element::Clone(query::As
 }
 
 }  // namespace memgraph::query::plan
+
+// NOLINTEND(modernize-use-constraints)
