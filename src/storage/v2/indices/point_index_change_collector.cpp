@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -46,9 +46,24 @@ void PointIndexChangeCollector::UpdateOnSetProperty(PropertyId prop_id, Property
 
 auto PointIndexChangeCollector::CurrentChanges() const -> TrackedChanges const & { return current_changes_; }
 
-auto PointIndexChangeCollector::PreviousChanges() const -> TrackedChanges const & { return previous_changes_; }
+auto PointIndexChangeCollector::PreviousChanges() const -> TrackedChanges const & {
+  if (!previous_changes_) {
+    // Lazy initialization - create empty sets for all current keys
+    auto rng = current_changes_ | std::views::keys | std::views::transform([](auto &key) {
+                 return std::pair{key, absl::flat_hash_set<Vertex const *>{}};
+               });
+    previous_changes_ = TrackedChanges{rng.begin(), rng.end()};
+  }
+  return *previous_changes_;
+}
 
-void PointIndexChangeCollector::ArchiveCurrentChanges() { previous_changes_.MergeIntoAndClearOther(current_changes_); }
+void PointIndexChangeCollector::ArchiveCurrentChanges() {
+  if (previous_changes_) {
+    previous_changes_->MergeIntoAndClearOther(current_changes_);
+  } else {
+    previous_changes_.emplace(std::move(current_changes_));
+  }
+}
 
 PointIndexChangeCollector::PointIndexChangeCollector(PointIndexContext &ctx)
     : current_changes_{std::invoke([&]() {
@@ -57,8 +72,8 @@ PointIndexChangeCollector::PointIndexChangeCollector(PointIndexContext &ctx)
                    });
         return TrackedChanges{rng.begin(), rng.end()};
       })},
-      /// Note: this is a copy of current_changes_ so that it has the same keys
-      previous_changes_{current_changes_} {}
+      /// Note: previous_changes_ will be lazy initialized when needed
+      previous_changes_{std::nullopt} {}
 
 void PointIndexChangeCollector::UpdateOnVertexDelete(Vertex *vertex) {
   if (current_changes_.empty()) return;
