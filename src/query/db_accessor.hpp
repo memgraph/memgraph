@@ -23,6 +23,7 @@
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/point_index.hpp"
+#include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/property_value.hpp"
@@ -696,9 +697,9 @@ class DbAccessor final {
     return accessor_->DropPointIndex(label, property);
   }
 
-  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateTextIndex(const std::string &index_name,
-                                                                                 storage::LabelId label) {
-    return accessor_->CreateTextIndex(index_name, label);
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateTextIndex(
+      const storage::TextIndexSpec &text_index_info) {
+    return accessor_->CreateTextIndex(text_index_info);
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> DropTextIndex(const std::string &index_name) {

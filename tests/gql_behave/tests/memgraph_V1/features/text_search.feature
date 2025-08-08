@@ -12,7 +12,7 @@ Feature: Text search related features
             """
         Then the result should be:
             | index type                  | label      | property | count |
-            | 'text (name: exampleIndex)' | 'Document' | null     | null  |
+            | 'text (name: exampleIndex)' | 'Document' | []       | null  |
 
     Scenario: Drop text index
         Given an empty graph
@@ -264,3 +264,80 @@ Feature: Text search related features
             ORDER BY version ASC, title ASC
             """
         Then an error should be raised
+
+    Scenario: Create text index with specific properties
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX titleContentIndex ON :Document(title, content)
+            """
+        When executing query:
+            """
+            SHOW INDEX INFO
+            """
+        Then the result should be:
+            | index type                        | label      | property            | count |
+            | 'text (name: titleContentIndex)'  | 'Document' | ['title','content'] | null  |
+
+    Scenario: Search in property-specific index with both properties
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX titleContentIndex ON :Document(title, content)
+            """
+        And having executed
+            """
+            CREATE (:Document {title: 'Manual2024', content: 'database operations guide'})
+            CREATE (:Document {title: 'Guide2024', content: 'user manual instructions'})
+            CREATE (:Document {title: 'Other', description: 'not indexed property'})
+            """
+        When executing query:
+            """
+            CALL text_search.search('titleContentIndex', 'data.title:Manual2024') YIELD node
+            RETURN node.title AS title, node.content AS content
+            ORDER BY title ASC
+            """
+        Then the result should be:
+            | title        | content                    |
+            | 'Manual2024' | 'database operations guide'|
+
+    Scenario: Search in property-specific index with only one required property
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX titleContentIndex ON :Document(title, content)
+            """
+        And having executed
+            """
+            CREATE (:Document {title: 'OnlyTitle', version: 1})
+            CREATE (:Document {content: 'only content here', version: 2})
+            CREATE (:Document {description: 'no indexed properties', version: 3})
+            """
+        When executing query:
+            """
+            CALL text_search.search('titleContentIndex', 'data.title:OnlyTitle') YIELD node
+            RETURN node.title AS title, node.version AS version
+            ORDER BY version ASC
+            """
+        Then the result should be:
+            | title       | version |
+            | 'OnlyTitle' | 1       |
+
+    Scenario: Verify nodes without indexed properties are not searchable
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX titleContentIndex ON :Document(title, content)
+            """
+        And having executed
+            """
+            CREATE (:Document {title: 'Findable', content: 'also findable'})
+            CREATE (:Document {description: 'not indexed property', summary: 'also not indexed'})
+            CREATE (:Document {other: 'completely different property'})
+            """
+        When executing query:
+            """
+            CALL text_search.search('titleContentIndex', 'data.description:indexed') YIELD node
+            RETURN node
+            """
+        Then the result should be empty

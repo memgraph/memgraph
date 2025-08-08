@@ -23,13 +23,13 @@
 #include <utility>
 #include <vector>
 
-#include "flags/all.hpp"
+#include "flags/experimental.hpp"
 #include "replication/epoch.hpp"
-#include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
+#include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/inmemory/edge_property_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
@@ -46,8 +46,6 @@
 #include "fmt/format.h"
 
 namespace r = ranges;
-namespace rv = r::views;
-
 struct PropertyPathFormatter {
   std::span<memgraph::storage::PropertyPath const> data;
   memgraph::storage::NameIdMapper *name_mapper;
@@ -309,15 +307,15 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     spdlog::info("Recreating {} text indices from metadata.", indices_metadata.text_indices.size());
     auto &mem_text_index = indices->text_index_;
-    for (const auto &[index_name, label] : indices_metadata.text_indices) {
+    for (const auto &text_index_info : indices_metadata.text_indices) {
       try {
         // TODO: parallel execution
-        mem_text_index.RecoverIndex(index_name, label, snapshot_info);
+        mem_text_index.RecoverIndex(text_index_info, snapshot_info);
       } catch (...) {
         throw RecoveryFailure("The text index must be created here!");
       }
-      spdlog::info("Text index {} on :{} is recreated from metadata", index_name,
-                   name_id_mapper->IdToName(label.AsUint()));
+      spdlog::info("Text index {} on :{} is recreated from metadata", text_index_info.index_name_,
+                   name_id_mapper->IdToName(text_index_info.label_.AsUint()));
     }
     spdlog::info("Text indices are recreated.");
   }

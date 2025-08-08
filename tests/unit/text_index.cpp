@@ -47,7 +47,7 @@ class TextIndexTest : public testing::Test {
     auto unique_acc = this->storage->UniqueAccess();
     const auto label = unique_acc->NameToLabel(test_label.data());
 
-    EXPECT_FALSE(unique_acc->CreateTextIndex(test_index.data(), label).HasError());
+    EXPECT_FALSE(unique_acc->CreateTextIndex(TextIndexSpec{test_index.data(), label, {}}).HasError());
     ASSERT_NO_ERROR(unique_acc->PrepareForCommitPhase());
   }
 
