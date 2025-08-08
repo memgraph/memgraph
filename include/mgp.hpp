@@ -3345,9 +3345,7 @@ inline bool Date::operator<(const Date &other) const {
   return is_less;
 }
 
-inline std::string Date::ToString() const {
-  return std::to_string(Year()) + "-" + std::to_string(Month()) + "-" + std::to_string(Day());
-}
+inline std::string Date::ToString() const { return std::format("{:04d}-{:02d}-{:02d}", Year(), Month(), Day()); }
 
 // LocalTime:
 
@@ -3449,8 +3447,7 @@ inline bool LocalTime::operator<(const LocalTime &other) const {
 }
 
 inline std::string LocalTime::ToString() const {
-  return std::to_string(Hour()) + ":" + std::to_string(Minute()) + ":" + std::to_string(Second()) + "," +
-         std::to_string(Millisecond()) + std::to_string(Microsecond());
+  return std::format("{:02d}:{:02d}:{:02d}.{:03d}{:03d}", Hour(), Minute(), Second(), Millisecond(), Microsecond());
 }
 
 // LocalDateTime:
@@ -3599,9 +3596,8 @@ inline bool LocalDateTime::operator<(const LocalDateTime &other) const {
 }
 
 inline std::string LocalDateTime::ToString() const {
-  return std::to_string(Year()) + "-" + std::to_string(Month()) + "-" + std::to_string(Day()) + "T" +
-         std::to_string(Hour()) + ":" + std::to_string(Minute()) + ":" + std::to_string(Second()) + "," +
-         std::to_string(Millisecond()) + std::to_string(Microsecond());
+  return std::format("{:04d}-{:02d}-{:02d}T{:02d}:{:02d}:{:02d}.{:03d}{:03d}", Year(), Month(), Day(), Hour(), Minute(),
+                     Second(), Millisecond(), Microsecond());
 }
 
 // Duration:
@@ -3693,7 +3689,7 @@ inline bool Duration::operator<(const Duration &other) const {
   return is_less;
 }
 
-inline std::string Duration::ToString() const { return std::to_string(Microseconds()) + "ms"; }
+inline std::string Duration::ToString() const { return std::format("{}ms", Microseconds()); }
 
 // ZonedDateTime:
 
