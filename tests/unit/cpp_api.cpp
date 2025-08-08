@@ -730,6 +730,34 @@ TYPED_TEST(CppApiTestFixture, ZonedDateTime_NowReturnsCurrentTime) {
   EXPECT_LE((now2 - now1).Microseconds(), 1'000'000);
 }
 
+TYPED_TEST(CppApiTestFixture, ZonedDateTime_CanBeStoredAsNodeProperty) {
+  auto storage_acc = this->storage->Access(AccessorType::WRITE);
+  auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+  mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+  auto graph = mgp::Graph(&raw_graph);
+
+  auto node = graph.CreateNode();
+
+  {
+    auto zdt = mgp::ZonedDateTime("2024-01-01T13:02:40.100050+01:00[Europe/Zagreb]");
+    node.SetProperty("created_at", mgp::Value(zdt));
+    auto retrieved = node.GetProperty("created_at");
+    ASSERT_TRUE(retrieved.IsZonedDateTime());
+    EXPECT_EQ(retrieved.ValueZonedDateTime().Offset(), 60);
+    EXPECT_EQ(retrieved.ValueZonedDateTime(), zdt);
+  }
+
+  {
+    auto zdt_without_timezone = mgp::ZonedDateTime("2024-01-01T13:02:40.100050+01:00");
+    node.SetProperty("modified_at", mgp::Value(zdt_without_timezone));
+    auto retrieved = node.GetProperty("modified_at");
+    ASSERT_TRUE(retrieved.IsZonedDateTime());
+    EXPECT_EQ(retrieved.ValueZonedDateTime(), zdt_without_timezone);
+    EXPECT_EQ(retrieved.ValueZonedDateTime().Offset(), 60);
+    EXPECT_STREQ(retrieved.ValueZonedDateTime().Timezone(), "");
+  }
+}
+
 TYPED_TEST(CppApiTestFixture, TestNodeProperties) {
   auto storage_acc = this->storage->Access(AccessorType::WRITE);
   auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());

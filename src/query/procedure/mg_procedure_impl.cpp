@@ -748,9 +748,16 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::stora
       }
       break;
     }
-    // TODO(zoneddatetime)
     case memgraph::storage::PropertyValue::Type::ZonedTemporalData: {
-      throw std::logic_error{"mgp_value for PropertyValue::Type::ZonedTemporalData doesn't exist."};
+      const auto &zoned_temporal_data = pv.ValueZonedTemporalData();
+      switch (zoned_temporal_data.type) {
+        case memgraph::storage::ZonedTemporalType::ZonedDateTime: {
+          type = MGP_VALUE_TYPE_ZONED_DATE_TIME;
+          auto zdt = memgraph::utils::ZonedDateTime(zoned_temporal_data.microseconds, zoned_temporal_data.timezone);
+          zoned_date_time_v = NewRawMgpObject<mgp_zoned_date_time>(alloc.resource(), zdt);
+          break;
+        }
+      }
       break;
     }
     case memgraph::storage::PropertyValue::Type::Enum: {
@@ -2052,7 +2059,10 @@ memgraph::storage::PropertyValue ToPropertyValue(const mgp_value &value,
       return memgraph::storage::PropertyValue{memgraph::storage::TemporalData{memgraph::storage::TemporalType::Duration,
                                                                               value.duration_v->duration.microseconds}};
     case MGP_VALUE_TYPE_ZONED_DATE_TIME:
-      throw ValueConversionException{"Not yet implemented"};  // TODO(zoneddatetime)
+      return memgraph::storage::PropertyValue{
+          memgraph::storage::ZonedTemporalData{memgraph::storage::ZonedTemporalType::ZonedDateTime,
+                                               value.zoned_date_time_v->zoned_date_time.SysTimeSinceEpoch(),
+                                               value.zoned_date_time_v->zoned_date_time.GetTimezone()}};
     case MGP_VALUE_TYPE_VERTEX:
       throw ValueConversionException{"A vertex is not a valid property value!"};
     case MGP_VALUE_TYPE_EDGE:
@@ -2113,7 +2123,10 @@ memgraph::storage::ExternalPropertyValue ToExternalPropertyValue(const mgp_value
       return memgraph::storage::ExternalPropertyValue{memgraph::storage::TemporalData{
           memgraph::storage::TemporalType::Duration, value.duration_v->duration.microseconds}};
     case MGP_VALUE_TYPE_ZONED_DATE_TIME:
-      throw ValueConversionException{"Not yet implemented"};  // TODO(zoneddatetime)
+      return memgraph::storage::ExternalPropertyValue{
+          memgraph::storage::ZonedTemporalData{memgraph::storage::ZonedTemporalType::ZonedDateTime,
+                                               value.zoned_date_time_v->zoned_date_time.SysTimeSinceEpoch(),
+                                               value.zoned_date_time_v->zoned_date_time.GetTimezone()}};
     case MGP_VALUE_TYPE_VERTEX:
       throw ValueConversionException{"A vertex is not a valid property value!"};
     case MGP_VALUE_TYPE_EDGE:
