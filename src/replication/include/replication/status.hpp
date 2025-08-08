@@ -41,8 +41,8 @@ struct MainRole {
 
 // fragment of key: "__replication_role"
 struct ReplicaRole {
-  ReplicationServerConfig config{};
-  std::optional<utils::UUID> main_uuid{};
+  ReplicationServerConfig config;
+  utils::UUID main_uuid;
   friend bool operator==(ReplicaRole const &, ReplicaRole const &) = default;
 };
 

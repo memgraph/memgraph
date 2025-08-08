@@ -35,11 +35,10 @@ TEST(ReplicationDurability, V3Main) {
 }
 
 TEST(ReplicationDurability, V1Replica) {
-  auto const role_entry =
-      ReplicationRoleEntry{.version = DurabilityVersion::V1,
-                           .role = ReplicaRole{
-                               .config = ReplicationServerConfig{.repl_server = Endpoint("000.123.456.789", 2023)},
-                           }};
+  auto const role_entry = ReplicationRoleEntry{
+      .version = DurabilityVersion::V1,
+      .role = ReplicaRole{.config = ReplicationServerConfig{.repl_server = Endpoint("000.123.456.789", 2023)},
+                          .main_uuid = UUID{}}};
   nlohmann::json j;
   to_json(j, role_entry);
   ReplicationRoleEntry deser;
@@ -48,11 +47,12 @@ TEST(ReplicationDurability, V1Replica) {
 }
 
 TEST(ReplicationDurability, V2Replica) {
-  auto const role_entry =
-      ReplicationRoleEntry{.version = DurabilityVersion::V2,
-                           .role = ReplicaRole{
-                               .config = ReplicationServerConfig{.repl_server = Endpoint("000.123.456.789", 2023)},
-                           }};
+  auto const role_entry = ReplicationRoleEntry{
+      .version = DurabilityVersion::V2,
+      .role = ReplicaRole{
+          .config = ReplicationServerConfig{.repl_server = Endpoint("000.123.456.789", 2023)}, .main_uuid = UUID{}
+
+      }};
   nlohmann::json j;
   to_json(j, role_entry);
   ReplicationRoleEntry deser;
@@ -61,11 +61,12 @@ TEST(ReplicationDurability, V2Replica) {
 }
 
 TEST(ReplicationDurability, V3ReplicaNoMain) {
-  auto const role_entry =
-      ReplicationRoleEntry{.version = DurabilityVersion::V3,
-                           .role = ReplicaRole{
-                               .config = ReplicationServerConfig{.repl_server = Endpoint("000.123.456.789", 2023)},
-                           }};
+  auto const role_entry = ReplicationRoleEntry{
+      .version = DurabilityVersion::V3,
+      .role = ReplicaRole{
+          .config = ReplicationServerConfig{.repl_server = Endpoint("000.123.456.789", 2023)}, .main_uuid = UUID{}
+
+      }};
   nlohmann::json j;
   to_json(j, role_entry);
   ReplicationRoleEntry deser;
@@ -78,7 +79,7 @@ TEST(ReplicationDurability, V3ReplicaMain) {
       ReplicationRoleEntry{.version = DurabilityVersion::V3,
                            .role = ReplicaRole{
                                .config = ReplicationServerConfig{.repl_server = Endpoint("000.123.456.789", 2023)},
-                               .main_uuid = memgraph::utils::UUID{},
+                               .main_uuid = UUID{},
                            }};
   nlohmann::json j;
   to_json(j, role_entry);
@@ -92,7 +93,7 @@ TEST(ReplicationDurability, V4Replica) {
       ReplicationRoleEntry{.version = DurabilityVersion::V4,
                            .role = ReplicaRole{
                                .config = ReplicationServerConfig{.repl_server = Endpoint("memgraph.dns.example", 2023)},
-                               .main_uuid = memgraph::utils::UUID{},
+                               .main_uuid = UUID{},
                            }};
   nlohmann::json j;
   to_json(j, role_entry);
