@@ -454,6 +454,21 @@ void test_TestLocalDateTime() {
   auto value_x = mgp::Value(ldt_1);
   // Use Value move constructor
   auto value_y = mgp::Value(mgp::LocalDateTime("2021-10-05T14:15:00"));
+
+  // Add and subtract durations, and get duration difference between
+  // two LocalDateTimes.
+  auto duration = mgp::Duration("PT1H30M");
+  auto future = ldt_1 + duration;
+  EXPECT_EQ(future.Hour(), 15);
+  EXPECT_EQ(future.Minute(), 45);
+
+  auto past = ldt_1 - duration;
+  EXPECT_EQ(past.Hour(), 12);
+  EXPECT_EQ(past.Minute(), 45);
+
+  auto diff = future - past;
+  static constexpr auto three_hours_in_microseconds = 10'800'000'000;
+  EXPECT_EQ(diff.Microseconds(), three_hours_in_microseconds);
 }
 
 TYPED_TEST(CppApiTestFixture, TestLocalDateTime) { test_TestLocalDateTime(); }
