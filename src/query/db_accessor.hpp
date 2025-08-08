@@ -34,6 +34,7 @@
 #include "storage/v2/view.hpp"
 #include "utils/bound.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/logging.hpp"
 #include "utils/pmr/unordered_set.hpp"
 #include "utils/result.hpp"
 #include "utils/variant_helpers.hpp"
@@ -289,12 +290,14 @@ class DbAccessor final {
   void FinalizeTransaction() { accessor_->FinalizeTransaction(); }
 
   void TrackCurrentThreadAllocations() {
-    memgraph::memory::StartTrackingCurrentThread(accessor_->GetQueryMemoryTracker().get());
+    auto *tracker = &accessor_->GetTransactionMemoryTracker();
+    DMG_ASSERT(tracker, "Query memory tracker must be set before tracking allocations");
+    memgraph::memory::StartTrackingCurrentThread(tracker);
   }
 
   void UntrackCurrentThreadAllocations() { memgraph::memory::StopTrackingCurrentThread(); }
 
-  auto &GetQueryMemoryTracker() { return accessor_->GetQueryMemoryTracker(); }
+  auto &GetTransactionMemoryTracker() { return accessor_->GetTransactionMemoryTracker(); }
 
   auto GetTransactionId() { return accessor_->GetTransactionId(); }
 

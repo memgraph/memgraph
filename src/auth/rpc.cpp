@@ -13,6 +13,7 @@
 
 #include <nlohmann/json.hpp>
 #include "auth/auth.hpp"
+#include "auth/profiles/user_profiles.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
 #include "utils/enum.hpp"
@@ -26,7 +27,8 @@ auth::Role LoadAuthRole(memgraph::slk::Reader *reader) {
   std::string tmp;
   memgraph::slk::Load(&tmp, reader);
   const auto json = nlohmann::json::parse(tmp);
-  return memgraph::auth::Role::Deserialize(json);
+  auto role = memgraph::auth::Role::Deserialize(json);
+  return role;
 }
 }  // namespace
 // Deserialize code for auth::Role
@@ -49,9 +51,11 @@ void Save(const auth::User &self, memgraph::slk::Builder *builder) {
   std::vector<auth::Role> roles{self.roles().cbegin(), self.roles().cend()};
   memgraph::slk::Save(roles, builder);
 #ifdef MG_ENTERPRISE
+  // MT roles
   memgraph::slk::Save(self.GetMultiTenantRoleMappings(), builder);
 #endif
 }
+
 // Deserialize code for auth::User
 void Load(auth::User *self, memgraph::slk::Reader *reader) {
   std::string tmp;
@@ -86,6 +90,10 @@ void Load(auth::User *self, memgraph::slk::Reader *reader) {
       continue;
     }
   }
+
+#ifdef MG_ENTERPRISE
+  // Profile management moved to UserProfiles class
+#endif
 }
 
 // Serialize code for auth::Auth::Config
@@ -114,6 +122,7 @@ void Save(const memgraph::replication::UpdateAuthDataReq &self, memgraph::slk::B
   memgraph::slk::Save(self.new_group_timestamp, builder);
   memgraph::slk::Save(self.user, builder);
   memgraph::slk::Save(self.role, builder);
+  memgraph::slk::Save(self.profile, builder);
 }
 void Load(memgraph::replication::UpdateAuthDataReq *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->main_uuid, reader);
@@ -121,6 +130,7 @@ void Load(memgraph::replication::UpdateAuthDataReq *self, memgraph::slk::Reader 
   memgraph::slk::Load(&self->new_group_timestamp, reader);
   memgraph::slk::Load(&self->user, reader);
   memgraph::slk::Load(&self->role, reader);
+  memgraph::slk::Load(&self->profile, reader);
 }
 
 // Serialize code for UpdateAuthDataRes
@@ -136,7 +146,7 @@ void Save(const memgraph::replication::DropAuthDataReq &self, memgraph::slk::Bui
   memgraph::slk::Save(self.main_uuid, builder);
   memgraph::slk::Save(self.expected_group_timestamp, builder);
   memgraph::slk::Save(self.new_group_timestamp, builder);
-  memgraph::slk::Save(utils::EnumToNum<2, uint8_t>(self.type), builder);
+  memgraph::slk::Save(utils::EnumToNum<3, uint8_t>(self.type), builder);
   memgraph::slk::Save(self.name, builder);
 }
 void Load(memgraph::replication::DropAuthDataReq *self, memgraph::slk::Reader *reader) {
@@ -145,7 +155,7 @@ void Load(memgraph::replication::DropAuthDataReq *self, memgraph::slk::Reader *r
   memgraph::slk::Load(&self->new_group_timestamp, reader);
   uint8_t type_tmp = 0;
   memgraph::slk::Load(&type_tmp, reader);
-  if (!utils::NumToEnum<2>(type_tmp, self->type)) {
+  if (!utils::NumToEnum<3>(type_tmp, self->type)) {
     throw SlkReaderException("Unexpected result line:{}!", __LINE__);
   }
   memgraph::slk::Load(&self->name, reader);

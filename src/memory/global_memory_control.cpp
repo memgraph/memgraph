@@ -12,6 +12,7 @@
 #include <cstdint>
 
 #include "global_memory_control.hpp"
+#include "memory/query_memory_control.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 

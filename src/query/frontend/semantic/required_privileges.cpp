@@ -179,6 +179,10 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(SessionTraceQuery & /*session_trace_query*/) override {}
 
+  void Visit(UserProfileQuery & /*user_profile_query*/) override {
+    AddPrivilege(AuthQuery::Privilege::PROFILE_RESTRICTION);
+  }
+
   bool PreVisit(Create & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::CREATE);
     return false;

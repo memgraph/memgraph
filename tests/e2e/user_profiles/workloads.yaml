@@ -1,0 +1,19 @@
+user_profiles_cluster: &user_profiles_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "user_profiles.log"
+      setup_queries: []
+      validation_queries: []
+
+
+workloads:
+  - name: "User profiles"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["user_profiles/user_profiles_e2e.py"]
+    <<: *user_profiles_cluster
+
+  - name: "Concurrent user profiles"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["user_profiles/concurrent_user_profiles_e2e.py"]
+    <<: *user_profiles_cluster

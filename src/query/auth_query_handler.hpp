@@ -17,8 +17,10 @@
 #include <vector>
 
 #include "query/frontend/ast/query/auth_query.hpp"
+#include "query/frontend/ast/query/user_profile.hpp"
 #include "query/typed_value.hpp"
 #include "system/system.hpp"
+#include "utils/resource_monitoring.hpp"
 
 namespace memgraph::query {
 
@@ -162,6 +164,25 @@ class AuthQueryHandler {
                                     system::Transaction *system_tx) = 0;
   virtual void DenyImpersonateUser(const std::string &user_or_role, const std::vector<std::string> &targets,
                                    system::Transaction *system_tx) = 0;
+#endif
+
+// User profiles
+#ifdef MG_ENTERPRISE
+  virtual void CreateProfile(const std::string &profile_name, const UserProfileQuery::limits_t &defined_limits,
+                             const std::unordered_set<std::string> &usernames, system::Transaction *system_tx) = 0;
+  virtual void UpdateProfile(const std::string &profile_name, const UserProfileQuery::limits_t &updated_limits,
+                             system::Transaction *system_tx) = 0;
+  virtual void DropProfile(const std::string &profile_name, system::Transaction *system_tx) = 0;
+  virtual UserProfileQuery::limits_t GetProfile(std::string_view name) = 0;
+  virtual std::vector<std::pair<std::string, UserProfileQuery::limits_t>> AllProfiles() = 0;
+  virtual void SetProfile(const std::string &profile_name, const std::string &user_or_role,
+                          system::Transaction *system_tx) = 0;
+  virtual void RevokeProfile(const std::string &user_or_role, system::Transaction *system_tx) = 0;
+  virtual std::optional<std::string> GetProfileForUser(const std::string &user_or_role) = 0;
+  virtual std::vector<std::string> GetUsernamesForProfile(const std::string &profile_name) = 0;
+  // Role-based profile management is no longer supported
+  virtual std::optional<std::string> GetProfileForRole(const std::string &user_or_role) = 0;
+  virtual std::vector<std::string> GetRolenamesForProfile(const std::string &profile_name) = 0;
 #endif
 };
 

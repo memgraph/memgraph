@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,7 @@
 #pragma once
 
 #include "auth/auth.hpp"
+#include "auth/profiles/user_profiles.hpp"
 #include "replication/state.hpp"
 #include "slk/streams.hpp"
 #include "system/state.hpp"
@@ -30,7 +31,9 @@ void DropAuthDataHandler(system::ReplicaHandlerAccessToState &system_state_acces
                          slk::Reader *req_reader, slk::Builder *res_builder);
 
 bool SystemRecoveryHandler(auth::SynchedAuth &auth, auth::Auth::Config auth_config,
-                           const std::vector<auth::User> &users, const std::vector<auth::Role> &roles);
+                           const std::vector<auth::User> &users, const std::vector<auth::Role> &roles,
+                           const std::vector<auth::UserProfiles::Profile> &profiles);
+
 void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAccessToState &system_state_access,
               auth::SynchedAuth &auth);
 #endif

@@ -126,7 +126,7 @@ struct Transaction {
 
   Transaction(const Transaction &) = delete;
   Transaction &operator=(const Transaction &) = delete;
-  Transaction &operator=(Transaction &&other) = default;
+  Transaction &operator=(Transaction &&other) = delete;
 
   ~Transaction() = default;
 
@@ -207,7 +207,7 @@ struct Transaction {
   SchemaInfoPostProcess post_process_;
 
   /// Query memory tracker
-  std::unique_ptr<utils::QueryMemoryTracker> query_memory_tracker_{};
+  utils::QueryMemoryTracker query_memory_tracker_{};
 
   /// Flag to track if any text index operations were performed during this transaction. Needed because text index
   /// commit can be expensive and we want to avoid it if no text index operations were performed.
