@@ -827,28 +827,61 @@ TYPED_TEST(CppApiTestFixture, TestRelationshipRemoveProperty) {
 }
 
 TYPED_TEST(CppApiTestFixture, TestValuePrint) {
-  std::string string_1{"abc"};
-  int64_t int_1{4};
-  mgp::Date date_1{"2020-12-12"};
+  {
+    mgp::Value string_value{std::string{"abc"}};
+    std::ostringstream oss_str;
+    oss_str << string_value;
+    ASSERT_EQ("abc", oss_str.str());
+  }
 
-  mgp::Value string_value{string_1};
-  mgp::Value int_value{int_1};
-  mgp::Value date_value{date_1};
+  {
+    mgp::Value int_value{int64_t(4)};
+    std::ostringstream oss_int;
+    oss_int << int_value;
+    ASSERT_EQ("4", oss_int.str());
+  }
 
-  std::ostringstream oss_str;
-  oss_str << string_value;
-  std::string str_test = oss_str.str();
-  ASSERT_EQ(string_1, str_test);
+  {
+    mgp::Value date_value{mgp::Date{"2020-12-12"}};
+    std::ostringstream oss_date;
+    oss_date << date_value;
+    ASSERT_EQ("2020-12-12", oss_date.str());
+  }
 
-  std::ostringstream oss_int;
-  oss_int << int_value;
-  std::string int_test = oss_int.str();
-  ASSERT_EQ("4", int_test);
+  {
+    mgp::Value local_time_value{mgp::LocalTime{"09:15:00.360"}};
+    std::ostringstream oss_local_time;
+    oss_local_time << local_time_value;
+    ASSERT_EQ("09:15:00.360000", oss_local_time.str());
+  }
 
-  std::ostringstream oss_date;
-  oss_date << date_value;
-  std::string date_test = oss_date.str();
-  ASSERT_EQ("2020-12-12", date_test);
+  {
+    mgp::Value local_date_time_value{mgp::LocalDateTime{"2021-02-05T14:15:00"}};
+    std::ostringstream oss_local_date_time;
+    oss_local_date_time << local_date_time_value;
+    ASSERT_EQ("2021-02-05T14:15:00.000000", oss_local_date_time.str());
+  }
+
+  {
+    mgp::Value duration_value{mgp::Duration{"P14DT17H2M45S"}};
+    std::ostringstream oss_duration;
+    oss_duration << duration_value;
+    ASSERT_EQ("1270965000000ms", oss_duration.str());
+  }
+
+  {
+    mgp::Value zoned_date_time_value{mgp::ZonedDateTime{"2024-01-01T13:02:40.100050+01:00[Europe/Zagreb]"}};
+    std::ostringstream oss_zoned_date_time;
+    oss_zoned_date_time << zoned_date_time_value;
+    ASSERT_EQ("2024-01-01T13:02:40.100050+01:00[Europe/Zagreb]", oss_zoned_date_time.str());
+  }
+
+  {
+    mgp::Value zoned_date_time_value{mgp::ZonedDateTime{"2024-01-01T13:02:40.100050+01:00"}};
+    std::ostringstream oss_zoned_date_time;
+    oss_zoned_date_time << zoned_date_time_value;
+    ASSERT_EQ("2024-01-01T13:02:40.100050+01:00", oss_zoned_date_time.str());
+  }
 }
 
 TYPED_TEST(CppApiTestFixture, TestValueToString) {
