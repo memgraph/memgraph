@@ -1166,9 +1166,9 @@ class ZonedDateTime {
   friend class Parameter;
 
  public:
-  /// @brief Creates a LocalDateTime object from the copy of the given @ref mgp_local_date_time.
+  /// @brief Creates a ZonedDateTime object from the copy of the given @ref mgp_zoned_date_time.
   explicit ZonedDateTime(mgp_zoned_date_time *ptr);
-  /// @brief Creates a LocalDateTime object from the copy of the given @ref mgp_local_date_time.
+  /// @brief Creates a ZonedDateTime object from the copy of the given @ref mgp_zoned_date_time.
   explicit ZonedDateTime(const mgp_zoned_date_time *const_ptr);
 
   /// @brief Creates a ZonedDateTime object from the given string representing a date in the ISO 8601 format
