@@ -2810,8 +2810,8 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
   return replicating_txn.ShipDeltas(durability_commit_timestamp, std::move(db_acc));
 }
 
-utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(
-    memgraph::replication_coordination_glue::ReplicationRole replication_role) {
+utils::BasicResult<InMemoryStorage::CreateSnapshotError, std::filesystem::path> InMemoryStorage::CreateSnapshot(
+    memgraph::replication_coordination_glue::ReplicationRole replication_role, bool force) {
   using memgraph::replication_coordination_glue::ReplicationRole;
   if (replication_role == ReplicationRole::REPLICA) {
     return CreateSnapshotError::DisabledForReplica;
@@ -2858,21 +2858,22 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
   // In memory analytical doesn't update last_durable_ts so digest isn't valid
   if (transaction->storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL) {
     auto current_digest = SnapshotDigest{epoch, epochHistory, storage_uuid, *transaction->last_durable_ts_};
-    if (last_snapshot_digest_ == current_digest) return CreateSnapshotError::NothingNewToWrite;
+    if (!force && last_snapshot_digest_ == current_digest) return CreateSnapshotError::NothingNewToWrite;
     last_snapshot_digest_ = std::move(current_digest);
   }
 
   // At the moment, the only way in which create snapshot can fail is if it got aborted
-  if (!durability::CreateSnapshot(this, transaction, recovery_.snapshot_directory_, recovery_.wal_directory_,
-                                  &vertices_, &edges_, storage_uuid, epoch, epochHistory, &file_retainer_,
-                                  &abort_snapshot_)) {
+  const auto snapshot_path =
+      durability::CreateSnapshot(this, transaction, recovery_.snapshot_directory_, recovery_.wal_directory_, &vertices_,
+                                 &edges_, storage_uuid, epoch, epochHistory, &file_retainer_, &abort_snapshot_);
+  if (!snapshot_path) {
     return CreateSnapshotError::AbortSnapshot;
   }
 
   memgraph::metrics::Measure(memgraph::metrics::SnapshotCreationLatency_us,
                              std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
 
-  return {};
+  return *snapshot_path;
 }
 
 // NOTE: Make sure this function is called while exclusively holding on to the main lock
