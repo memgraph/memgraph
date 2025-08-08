@@ -1412,6 +1412,9 @@ class Value {
   /// @pre Value type needs to be Type::Duration.
   Duration ValueDuration() const;
   Duration ValueDuration();
+  /// @pre Value type needs to be Type::LocalDateTime.
+  ZonedDateTime ValueZonedDateTime() const;
+  ZonedDateTime ValueZonedDateTime();
 
   /// @brief Returns whether the value is null.
   bool IsNull() const;
@@ -1443,6 +1446,8 @@ class Value {
   bool IsLocalDateTime() const;
   /// @brief Returns whether the value is a @ref Duration object.
   bool IsDuration() const;
+  /// @brief Returns whether the value is a @ref ZonedDateTime object.
+  bool IsZonedDateTime() const;
 
   /// @exception std::runtime_error Unknown value type.
   bool operator==(const Value &other) const;
@@ -2073,9 +2078,7 @@ inline Type ToAPIType(mgp_value_type type) {
     case MGP_VALUE_TYPE_DURATION:
       return Type::Duration;
     case MGP_VALUE_TYPE_ZONED_DATE_TIME:
-    // TODO(zoneddatetime) Type not fully supported yet.
-    default:
-      break;
+      return Type::ZonedDateTime;
   }
   throw ValueException("Unknown type error!");
 }
@@ -4044,6 +4047,19 @@ inline Duration Value::ValueDuration() {
   return Duration(mgp::value_get_duration(this->ptr()));
 }
 
+inline ZonedDateTime Value::ValueZonedDateTime() const {
+  if (Type() != Type::ZonedDateTime) {
+    throw ValueException("Type of value is wrong: expected ZonedDateTime.");
+  }
+  return ZonedDateTime(mgp::value_get_zoned_date_time(this->ptr()));
+}
+inline ZonedDateTime Value::ValueZonedDateTime() {
+  if (Type() != Type::ZonedDateTime) {
+    throw ValueException("Type of value is wrong: expected ZonedDateTime.");
+  }
+  return ZonedDateTime(mgp::value_get_zoned_date_time(this->ptr()));
+}
+
 inline bool Value::IsNull() const { return mgp::value_is_null(this->ptr()); }
 
 inline bool Value::IsBool() const { return mgp::value_is_bool(this->ptr()); }
@@ -4073,6 +4089,8 @@ inline bool Value::IsLocalTime() const { return mgp::value_is_local_time(this->p
 inline bool Value::IsLocalDateTime() const { return mgp::value_is_local_date_time(this->ptr()); }
 
 inline bool Value::IsDuration() const { return mgp::value_is_duration(this->ptr()); }
+
+inline bool Value::IsZonedDateTime() const { return mgp::value_is_zoned_date_time(this->ptr()); }
 
 inline bool Value::operator==(const Value &other) const { return util::ValuesEqual(this->ptr(), other.ptr()); }
 
