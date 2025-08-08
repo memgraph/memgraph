@@ -886,6 +886,20 @@ inline int64_t zoned_date_time_timestamp(mgp_zoned_date_time *zoned_date_time) {
   return MgInvoke<int64_t>(mgp_zoned_date_time_timestamp, zoned_date_time);
 }
 
+inline mgp_zoned_date_time *zoned_date_time_add_duration(mgp_zoned_date_time *zoned_date_time, mgp_duration *dur,
+                                                         mgp_memory *memory) {
+  return MgInvoke<mgp_zoned_date_time *>(mgp_zoned_date_time_add_duration, zoned_date_time, dur, memory);
+}
+
+inline mgp_zoned_date_time *zoned_date_time_sub_duration(mgp_zoned_date_time *zoned_date_time, mgp_duration *dur,
+                                                         mgp_memory *memory) {
+  return MgInvoke<mgp_zoned_date_time *>(mgp_zoned_date_time_sub_duration, zoned_date_time, dur, memory);
+}
+
+inline mgp_duration *zoned_date_time_diff(mgp_zoned_date_time *first, mgp_zoned_date_time *second, mgp_memory *memory) {
+  return MgInvoke<mgp_duration *>(mgp_zoned_date_time_diff, first, second, memory);
+}
+
 // Procedure
 
 inline mgp_proc *module_add_read_procedure(mgp_module *module, const char *name, mgp_proc_cb cb) {

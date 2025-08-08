@@ -701,6 +701,23 @@ TYPED_TEST(CppApiTestFixture, ZonedDateTime_CanBeCopyMoveAndValueConstructed) {
   }
 }
 
+TYPED_TEST(CppApiTestFixture, ZonedDateTime_CanPerformOperationsWithDurations) {
+  auto zdt = mgp::ZonedDateTime("2021-10-05T14:15:00[Europe/London]");
+
+  auto duration = mgp::Duration("PT1H30M");
+  auto future = zdt + duration;
+  EXPECT_EQ(future.Hour(), 15);
+  EXPECT_EQ(future.Minute(), 45);
+
+  auto past = zdt - duration;
+  EXPECT_EQ(past.Hour(), 12);
+  EXPECT_EQ(past.Minute(), 45);
+
+  auto diff = future - past;
+  static constexpr auto three_hours_in_microseconds = 10'800'000'000;
+  EXPECT_EQ(diff.Microseconds(), three_hours_in_microseconds);
+}
+
 TYPED_TEST(CppApiTestFixture, TestNodeProperties) {
   auto storage_acc = this->storage->Access(AccessorType::WRITE);
   auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());

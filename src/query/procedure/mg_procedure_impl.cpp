@@ -1752,6 +1752,33 @@ mgp_error mgp_zoned_date_time_timestamp(mgp_zoned_date_time *zoned_date_time, in
       [zoned_date_time] { return zoned_date_time->zoned_date_time.SysMicrosecondsSinceEpoch().count(); }, timestamp);
 }
 
+mgp_error mgp_zoned_date_time_add_duration(mgp_zoned_date_time *zoned_date_time, mgp_duration *dur, mgp_memory *memory,
+                                           mgp_zoned_date_time **result) {
+  return WrapExceptions(
+      [zoned_date_time, dur, memory] {
+        return NewRawMgpObject<mgp_zoned_date_time>(memory, zoned_date_time->zoned_date_time + dur->duration);
+      },
+      result);
+}
+
+mgp_error mgp_zoned_date_time_sub_duration(mgp_zoned_date_time *zoned_date_time, mgp_duration *dur, mgp_memory *memory,
+                                           mgp_zoned_date_time **result) {
+  return WrapExceptions(
+      [zoned_date_time, dur, memory] {
+        return NewRawMgpObject<mgp_zoned_date_time>(memory, zoned_date_time->zoned_date_time - dur->duration);
+      },
+      result);
+}
+
+mgp_error mgp_zoned_date_time_diff(mgp_zoned_date_time *first, mgp_zoned_date_time *second, mgp_memory *memory,
+                                   mgp_duration **result) {
+  return WrapExceptions(
+      [first, second, memory] {
+        return NewRawMgpObject<mgp_duration>(memory, first->zoned_date_time - second->zoned_date_time);
+      },
+      result);
+}
+
 mgp_error mgp_duration_from_string(const char *string, mgp_memory *memory, mgp_duration **duration) {
   return WrapExceptions([memory, string] { return NewRawMgpObject<mgp_duration>(memory, string); }, duration);
 }

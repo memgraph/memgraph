@@ -1414,6 +1414,26 @@ enum mgp_error mgp_zoned_date_time_get_timezone(struct mgp_zoned_date_time *zone
 /// Get the offset of the zoned date-time.
 enum mgp_error mgp_zoned_date_time_get_offset(struct mgp_zoned_date_time *zoned_date_time, int *offset);
 
+/// Add a duration to the zoned date-time.
+/// Resulting zoned date-time must be freed with mgp_zoned_date_time_destroy.
+/// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if the operation results in an invalid zoned date-time.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_zoned_date_time.
+enum mgp_error mgp_zoned_date_time_add_duration(struct mgp_zoned_date_time *zoned_date_time, struct mgp_duration *dur,
+                                                struct mgp_memory *memory, struct mgp_zoned_date_time **result);
+
+/// Subtract a duration from the zoned date-time.
+/// Resulting zoned date-time must be freed with mgp_zoned_date_time_destroy.
+/// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if the operation results in an invalid zoned date-time.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_zoned_date_time.
+enum mgp_error mgp_zoned_date_time_sub_duration(struct mgp_zoned_date_time *zoned_date_time, struct mgp_duration *dur,
+                                                struct mgp_memory *memory, struct mgp_zoned_date_time **result);
+
+/// Get a duration between two zoned date-times.
+/// Resulting duration must be freed with mgp_duration_destroy.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_zoned_date_time.
+enum mgp_error mgp_zoned_date_time_diff(struct mgp_zoned_date_time *first, struct mgp_zoned_date_time *second,
+                                        struct mgp_memory *memory, struct mgp_duration **result);
+
 struct mgp_duration_parameters {
   double day;
   double hour;
