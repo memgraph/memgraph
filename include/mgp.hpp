@@ -1110,6 +1110,7 @@ class Duration {
   friend class Date;
   friend class LocalTime;
   friend class LocalDateTime;
+  friend class ZonedDateTime;
   friend class Value;
   friend class Record;
   friend class Result;
@@ -3753,6 +3754,30 @@ inline std::string ZonedDateTime::ToString() const {
     auto offset_str = std::format("{:+03d}:{:02d}", hours, mins);
     return std::format("{0:%Y}-{0:%m}-{0:%d}T{0:%H}:{0:%M}:{0:%S}{1}", local_tp, offset_str);
   }
+}
+
+inline ZonedDateTime ZonedDateTime::operator+(const Duration &dur) const {
+  auto *mgp_sum = mgp::MemHandlerCallback(zoned_date_time_add_duration, ptr_, dur.ptr_);
+  auto sum = ZonedDateTime(mgp_sum);
+  mgp::zoned_date_time_destroy(mgp_sum);
+
+  return sum;
+}
+
+inline ZonedDateTime ZonedDateTime::operator-(const Duration &dur) const {
+  auto *mgp_difference = mgp::MemHandlerCallback(zoned_date_time_sub_duration, ptr_, dur.ptr_);
+  auto difference = ZonedDateTime(mgp_difference);
+  mgp::zoned_date_time_destroy(mgp_difference);
+
+  return difference;
+}
+
+inline Duration ZonedDateTime::operator-(const ZonedDateTime &other) const {
+  auto *mgp_difference = mgp::MemHandlerCallback(zoned_date_time_diff, ptr_, other.ptr_);
+  auto difference = Duration(mgp_difference);
+  mgp::duration_destroy(mgp_difference);
+
+  return difference;
 }
 
 /* #endregion */
