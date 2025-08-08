@@ -13,6 +13,8 @@
 
 #include <cstdint>
 #include <string>
+#include <unordered_set>
+#include <vector>
 
 #include <nlohmann/json_fwd.hpp>
 
@@ -26,13 +28,24 @@ struct MemoryInfo {
 struct CPUInfo {
   std::string cpu_model;
   uint64_t cpu_count;
+  uint8_t microarch_level;
 };
 
 std::string GetMachineId();
 
 MemoryInfo GetMemoryInfo();
 
-CPUInfo GetCPUInfo();
+CPUInfo GetCPUInfo(const std::string &machine);
+
+uint8_t DetectX86LevelFromFlags(const std::unordered_set<std::string> &flags);
+
+uint8_t DetectArmArchitectureLevel(const std::vector<std::string> &cpu_data);
+
+bool HasCPUFlag(const std::unordered_set<std::string> &flags, const std::string &flag);
+
+std::unordered_set<std::string> ExtractCPUFlags(const std::vector<std::string> &cpu_data);
+
+std::string ExtractArmCPUVariant(const std::vector<std::string> &cpu_data);
 
 /**
  * This function return a dictionary containing some basic system information
