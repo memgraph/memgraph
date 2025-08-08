@@ -59,7 +59,6 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
 #ifdef MG_ENTERPRISE
   if (flags::CoordinationSetupInstance().IsDataInstanceManagedByCoordinator() &&
       std::holds_alternative<RoleReplicaData>(replication_data)) {
-    // TODO: (andi) Do we still need that and if yes why?
     std::get<RoleReplicaData>(replication_data).uuid_ = utils::UUID{};
     spdlog::trace("Replica's replication uuid for replica has been reset");
   }
