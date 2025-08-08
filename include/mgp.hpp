@@ -3478,7 +3478,6 @@ inline LocalDateTime::LocalDateTime(const LocalDateTime &other) : LocalDateTime(
 
 inline LocalDateTime::LocalDateTime(LocalDateTime &&other) noexcept : ptr_(other.ptr_) { other.ptr_ = nullptr; };
 
-// @TODO support all 4 constructors for ZonedDateTime
 inline ZonedDateTime::ZonedDateTime(int year, int month, int day, int hour, int minute, int second, int millisecond,
                                     int microsecond, int offset_in_minutes) {
   struct mgp_date_parameters date_params {
