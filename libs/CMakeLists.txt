@@ -435,7 +435,7 @@ mg_create_linkable_if_no_cmake(nuraft STATIC "${MG_TOOLCHAIN_ROOT}/lib/libnuraft
 find_package(OpenSSL REQUIRED)
 target_link_libraries(nuraft INTERFACE ${OPENSSL_LIBRARIES})
 
-macro(build_mgcxx)
+function(build_mgcxx)
   # Setup mgcxx (provides: text search)
   set(MGCXX_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/include
     CACHE PATH "Path to mgcxx include directory" FORCE)
@@ -449,10 +449,10 @@ macro(build_mgcxx)
   mark_as_advanced(MGCXX_INCLUDE_DIR TANTIVY_TEXT_SEARCH_LIBRARY MGCXX_TEXT_SEARCH_LIBRARY)
   import_library(tantivy_text_search STATIC ${TANTIVY_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
   import_library(mgcxx_text_search STATIC ${MGCXX_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
-endmacro()
-mg_build_if_needed(build_mgcxx "mgcxx")
-mg_create_linkable_if_no_cmake(tantivy_text_search STATIC "${MG_TOOLCHAIN_ROOT}/lib/libtantivy_text_search.a" "${MG_TOOLCHAIN_ROOT}/include")
-mg_create_linkable_if_no_cmake(mgcxx_text_search STATIC "${MG_TOOLCHAIN_ROOT}/lib/libmgcxx_text_search.a" "${MG_TOOLCHAIN_ROOT}/include")
+endfunction()
+
+# Always build mgcxx locally (not from toolchain)
+build_mgcxx()
 target_link_libraries(tantivy_text_search INTERFACE ${CMAKE_DL_LIBS})
 target_link_libraries(mgcxx_text_search INTERFACE ${CMAKE_DL_LIBS})
 
