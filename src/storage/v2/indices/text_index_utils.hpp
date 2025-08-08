@@ -33,7 +33,7 @@ inline constexpr std::string_view kBooleanOr = "OR";
 inline constexpr std::string_view kBooleanNot = "NOT";
 
 struct TextIndexSpec {
-  inline bool operator==(const TextIndexSpec &other) const = default;
+  bool operator==(const TextIndexSpec &other) const = default;
 
   std::string index_name_;
   LabelId label_;

@@ -29,6 +29,7 @@
 #include <spdlog/spdlog.h>
 #include <optional>
 #include <range/v3/view/filter.hpp>
+#include <range/v3/view/join.hpp>
 #include <range/v3/view/transform.hpp>
 
 #include "storage/v2/durability/paths.hpp"
@@ -1294,10 +1295,16 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
             throw query::TextSearchDisabledException();
           }
-          spdlog::trace("   Delta {}. Create text search index {} on {}.", current_delta_idx, data.index_name,
-                        data.label);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto label_id = storage->NameToLabel(data.label);
+          const auto properties_str = std::invoke([&]() -> std::string {
+            if (data.properties && !data.properties->empty()) {
+              return fmt::format(" ({})", rv::join(*data.properties, ", ") | r::to<std::string>);
+            }
+            return {};
+          });
+          spdlog::trace("   Delta {}. Create text search index {} on :{}{}", current_delta_idx, data.index_name,
+                        data.label, properties_str);
           auto prop_ids = std::invoke([&]() -> std::vector<PropertyId> {
             if (!data.properties) {
               return {};
