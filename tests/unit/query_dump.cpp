@@ -273,10 +273,8 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
       label_properties_indices.insert({dba->LabelToName(label), std::move(properties_as_strings)});
     }
     for (const auto &[name, label, properties] : info.text_indices) {
-      auto prop_names = properties ? std::make_optional(*properties | rv::transform([&](auto prop_id) {
-        return dba->PropertyToName(prop_id);
-      }) | r::to_vector)
-                                   : std::nullopt;
+      auto prop_names =
+          properties | rv::transform([&](auto prop_id) { return dba->PropertyToName(prop_id); }) | r::to_vector;
       text_indices.insert({name, dba->LabelToName(label), std::move(prop_names)});
     }
     for (const auto &item : info.point_label_property) {
@@ -1277,16 +1275,16 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
     auto unique_acc = this->db->UniqueAccess();
     ASSERT_FALSE(unique_acc
                      ->CreateTextIndex(memgraph::storage::TextIndexSpec{
-                         "text_index_without_properties", this->db->storage()->NameToLabel("Person"), std::nullopt})
+                         "text_index_without_properties", this->db->storage()->NameToLabel("Person"), {}})
                      .HasError());
     ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
   }
   {
     auto unique_acc = this->db->UniqueAccess();
     ASSERT_FALSE(unique_acc
-                     ->CreateTextIndex(memgraph::storage::TextIndexSpec{
-                         "text_index_with_properties", this->db->storage()->NameToLabel("Person"),
-                         std::vector{this->db->storage()->NameToProperty("name")}})
+                     ->CreateTextIndex(memgraph::storage::TextIndexSpec{"text_index_with_properties",
+                                                                        this->db->storage()->NameToLabel("Person"),
+                                                                        {this->db->storage()->NameToProperty("name")}})
                      .HasError());
     ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
   }

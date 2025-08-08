@@ -698,7 +698,7 @@ class DbAccessor final {
   }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateTextIndex(
-      storage::TextIndexSpec text_index_info) {
+      const storage::TextIndexSpec &text_index_info) {
     return accessor_->CreateTextIndex(text_index_info);
   }
 

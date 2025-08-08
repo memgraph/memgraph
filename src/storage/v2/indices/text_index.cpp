@@ -55,12 +55,11 @@ std::vector<TextIndexData *> TextIndex::GetApplicableTextIndices(std::span<stora
   };
 
   auto matches_property = [&](const auto &text_index_data) {
-    if (!text_index_data.properties_ ||
-        text_index_data.properties_->empty()) {  // If no properties are specified, all properties match
+    if (text_index_data.properties_.empty()) {  // If no properties are specified, all properties match
       return true;
     }
     return r::any_of(properties,
-                     [&](auto property_id) { return r::contains(*text_index_data.properties_, property_id); });
+                     [&](auto property_id) { return r::contains(text_index_data.properties_, property_id); });
   };
 
   for (auto &[index_name, text_index_data] : index_) {
@@ -116,9 +115,9 @@ void TextIndex::AddNode(Vertex *vertex_after_update, NameIdMapper *name_id_mappe
                         std::span<TextIndexData *> applicable_text_indices) {
   for (auto *applicable_text_index : applicable_text_indices) {
     auto vertex_properties =
-        applicable_text_index->properties_
-            ? ExtractVertexProperties(vertex_after_update->properties, *applicable_text_index->properties_)
-            : vertex_after_update->properties.Properties();
+        applicable_text_index->properties_.empty()
+            ? vertex_after_update->properties.Properties()
+            : ExtractVertexProperties(vertex_after_update->properties, applicable_text_index->properties_);
     AddNodeToTextIndex(vertex_after_update->gid.AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
                        StringifyProperties(vertex_properties), applicable_text_index);
   }
@@ -176,9 +175,9 @@ void TextIndex::CreateIndex(const TextIndexSpec &index_info, storage::VerticesIt
       continue;
     }
     // If properties are specified, we serialize only those properties; otherwise, all properties of the vertex.
-    auto vertex_properties = index_info.properties_ && !index_info.properties_->empty()
-                                 ? v.PropertiesByPropertyIds(*index_info.properties_, View::NEW).GetValue()
-                                 : v.Properties(View::NEW).GetValue();
+    auto vertex_properties = index_info.properties_.empty()
+                                 ? v.Properties(View::NEW).GetValue()
+                                 : v.PropertiesByPropertyIds(index_info.properties_, View::NEW).GetValue();
     AddNodeToTextIndex(v.Gid().AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
                        StringifyProperties(vertex_properties), &index_.at(index_info.index_name_));
   }

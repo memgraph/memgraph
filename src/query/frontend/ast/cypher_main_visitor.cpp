@@ -491,12 +491,8 @@ antlrcpp::Any CypherMainVisitor::visitCreateTextIndex(MemgraphCypher::CreateText
   index_query->index_name_ = std::any_cast<std::string>(ctx->indexName()->accept(this));
   index_query->action_ = TextIndexQuery::Action::CREATE;
   index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
-  if (!ctx->propertyKeyName().empty()) {
-    index_query->properties_ = std::vector<PropertyIx>{};
-    index_query->properties_->reserve(ctx->propertyKeyName().size());
-    for (auto *property_key_name : ctx->propertyKeyName()) {
-      index_query->properties_->push_back(std::any_cast<PropertyIx>(property_key_name->accept(this)));
-    }
+  for (auto *property_key_name_ctx : ctx->propertyKeyName()) {
+    index_query->properties_.emplace_back(std::any_cast<PropertyIx>(property_key_name_ctx->accept(this)));
   }
   return index_query;
 }

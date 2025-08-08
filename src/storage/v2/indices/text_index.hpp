@@ -33,9 +33,9 @@ struct TextIndexData {
   // TODO(@DavIvek): Better approach would be to add locking on mgcxx side.
   utils::Synchronized<mgcxx::text_search::Context, std::shared_mutex> context_;
   LabelId scope_;
-  std::optional<std::vector<PropertyId>> properties_;
+  std::vector<PropertyId> properties_;
 
-  TextIndexData(mgcxx::text_search::Context context, LabelId scope, std::optional<std::vector<PropertyId>> properties)
+  TextIndexData(mgcxx::text_search::Context context, LabelId scope, std::vector<PropertyId> properties)
       : context_(std::move(context)), scope_(scope), properties_(std::move(properties)) {}
 };
 

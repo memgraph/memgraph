@@ -3875,12 +3875,9 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
   auto label_name = text_index_query->label_.name;
   auto label_id = storage->NameToLabel(label_name);
   auto &index_name = text_index_query->index_name_;
-  auto property_ids =
-      text_index_query->properties_
-          ? std::make_optional(*text_index_query->properties_ | rv::transform([&](const auto &property) {
-              return storage->NameToProperty(property.name);
-            }) | r::to_vector)
-          : std::nullopt;
+  auto property_ids = text_index_query->properties_ |
+                      rv::transform([&](const auto &property) { return storage->NameToProperty(property.name); }) |
+                      r::to_vector;
 
   Notification index_notification(SeverityLevel::INFO);
   switch (text_index_query->action_) {
@@ -5141,10 +5138,10 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
                              TypedValue(static_cast<int>(storage_acc->ApproximateEdgeCount(item)))});
         }
         for (const auto &[index_name, label, properties] : info.text_indices) {
-          auto prop_names = properties ? *properties | rv::transform([storage](auto prop_id) {
-            return TypedValue(storage->PropertyToName(prop_id));
-          }) | ranges::to_vector
-                                       : std::vector<TypedValue>{};
+          auto prop_names =
+              properties |
+              rv::transform([storage](auto prop_id) { return TypedValue(storage->PropertyToName(prop_id)); }) |
+              ranges::to_vector;
           results.push_back({TypedValue(fmt::format("{} (name: {})", text_index_mark, index_name)),
                              TypedValue(storage->LabelToName(label)), TypedValue(std::move(prop_names)), TypedValue()});
         }
@@ -6226,10 +6223,10 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       }
       // Vertex label text
       for (const auto &[str, label_id, properties] : index_info.text_indices) {
-        auto prop_names = properties ? *properties | rv::transform([storage](const storage::PropertyId &property) {
-          return storage->PropertyToName(property);
-        }) | r::to_vector
-                                     : std::vector<std::string>{};
+        auto prop_names = properties | rv::transform([storage](const storage::PropertyId &property) {
+                            return storage->PropertyToName(property);
+                          }) |
+                          r::to_vector;
         node_indexes.push_back(nlohmann::json::object({{"labels", {storage->LabelToName(label_id)}},
                                                        {"properties", prop_names},
                                                        {"count", -1},

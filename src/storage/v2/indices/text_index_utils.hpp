@@ -37,7 +37,7 @@ struct TextIndexSpec {
 
   std::string index_name_;
   LabelId label_;
-  std::optional<std::vector<PropertyId>> properties_;
+  std::vector<PropertyId> properties_;
 };
 
 // Convert text to lowercase while preserving boolean operators

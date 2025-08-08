@@ -150,19 +150,13 @@ bool DurableMetadata::PersistLabelPropertyIndexAndExistenceConstraintDeletion(La
 }
 
 bool DurableMetadata::PersistTextIndexCreation(const storage::TextIndexSpec &text_index) {
-  std::string properties_str;
-  if (text_index.properties_ && !text_index.properties_->empty()) {
-    properties_str = utils::Join(
-        *text_index.properties_ | rv::transform([](const auto &property_id) { return property_id.ToString(); }), ",");
-  }
-
+  const auto properties_str = utils::Join(
+      text_index.properties_ | rv::transform([](const auto &property_id) { return property_id.ToString(); }), ",");
   const auto index_name_label_properties =
-      text_index.index_name_ + "," + text_index.label_.ToString() + "," + properties_str;
-
+      fmt::format("{},{},{}", text_index.index_name_, text_index.label_.ToString(), properties_str);
   if (auto text_index_store = durability_kvstore_.Get(kTextIndexStr); text_index_store.has_value()) {
     auto &value = text_index_store.value();
-    value += "|";
-    value += index_name_label_properties;
+    value = fmt::format("{}|{}", value, index_name_label_properties);
     return durability_kvstore_.Put(kTextIndexStr, value);
   }
   return durability_kvstore_.Put(kTextIndexStr, index_name_label_properties);

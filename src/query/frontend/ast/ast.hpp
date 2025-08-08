@@ -2095,7 +2095,7 @@ class TextIndexQuery : public memgraph::query::Query {
 
   memgraph::query::TextIndexQuery::Action action_;
   memgraph::query::LabelIx label_;
-  std::optional<std::vector<memgraph::query::PropertyIx>> properties_;
+  std::vector<memgraph::query::PropertyIx> properties_;
   std::string index_name_;
 
   TextIndexQuery *Clone(AstStorage *storage) const override {
