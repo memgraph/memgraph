@@ -11,9 +11,16 @@
 
 #pragma once
 
-#include <cstdint>
+#include <concepts>
 #include <memory>
+#include <type_traits>
 
+#include "storage/v2/property_constants.hpp"
+#include "storage/v2/replication/serialization.hpp"
+
+namespace memgraph::storage::replication {
+struct FinalizeCommitRes;
+}
 namespace memgraph::rpc {
 
 using MessageSize = uint32_t;
@@ -37,5 +44,39 @@ concept IsRpc = requires {
   typename T::Request;
   typename T::Response;
 };
+
+// Option I: The user needs to remember for any request bump to also bump the response, not great.
+template <typename T>
+concept HasActiveVersion = requires {
+  std::same_as<decltype(T::kActiveVersion), const uint64_t>;
+};
+
+template <HasActiveVersion TRequest, HasActiveVersion TResponse>
+struct NewRequestResponse {
+  using Request = TRequest;
+  using Response = TResponse;
+};
+
+// Option II: This would require new TypeId for each version of the message, new Load and Save messages...
+template <typename TRequest, typename TResponse, uint64_t TVersion>
+struct RequestResponseV2 {
+  using Request = TRequest;
+  using Response = TResponse;
+  static constexpr uint64_t Version = TVersion;
+};
+
+template <typename TRequest, typename TResponse>
+struct ResponseFactory {
+  static TResponse make(uint64_t version) {
+    static_assert(sizeof(TResponse) == 0, "No ResponseFactory specialization for this response type");
+  }
+};
+
+// request ID, how to retrieve the correct request type?
+// Based on type ID or subtype
+// Search response type based on version and request id
+// What to do for each new modification of request?
+// I know exactly which request type I am handling and which response version I need to return
+// Somehow based on the type ID I need to create a concrete type
 
 }  // namespace memgraph::rpc
