@@ -892,11 +892,11 @@ TYPED_TEST(CppApiTestFixture, TestValueToString) {
 
   /*local time*/
   mgp::LocalTime local_time{"09:15:00.360"};
-  ASSERT_EQ(mgp::Value(local_time).ToString(), "9:15:0,3600");
+  ASSERT_EQ(mgp::Value(local_time).ToString(), "09:15:00.360000");
 
   /*local date time*/
-  mgp::LocalDateTime local_date_time{"2021-10-05T14:15:00"};
-  ASSERT_EQ(mgp::Value(local_date_time).ToString(), "2021-10-5T14:15:0,00");
+  mgp::LocalDateTime local_date_time{"2021-02-05T14:15:00"};
+  ASSERT_EQ(mgp::Value(local_date_time).ToString(), "2021-02-05T14:15:00.000000");
 
   /*duration*/
   mgp::Duration duration{"P14DT17H2M45S"};
