@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <cstdint>
 #include <string>
 #include <utility>
 
@@ -21,6 +20,21 @@
 #include "utils/uuid.hpp"
 
 namespace memgraph::storage::replication {
+
+struct FinalizeCommitReqV2 {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(FinalizeCommitReqV2 *self, slk::Reader *reader);
+  static void Save(const FinalizeCommitReqV2 &self, slk::Builder *builder);
+  FinalizeCommitReqV2() = default;
+
+  FinalizeCommitReqV2(bool const decision_arg, const utils::UUID &main_uuid_arg)
+      : decision(decision_arg), main_uuid(main_uuid_arg) {}
+
+  bool decision;
+  utils::UUID main_uuid;
+};
 
 struct FinalizeCommitReq {
   static const utils::TypeInfo kType;
@@ -58,6 +72,7 @@ struct FinalizeCommitRes {
 };
 
 using FinalizeCommitRpc = rpc::RequestResponse<FinalizeCommitReq, FinalizeCommitRes>;
+using FinalizeCommitRpcV2 = rpc::RequestResponseV2<FinalizeCommitReqV2, FinalizeCommitRes, 2>;
 
 struct PrepareCommitReq {
   static const utils::TypeInfo kType;
