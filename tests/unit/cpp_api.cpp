@@ -469,6 +469,12 @@ void test_TestLocalDateTime() {
   auto diff = future - past;
   static constexpr auto three_hours_in_microseconds = 10'800'000'000;
   EXPECT_EQ(diff.Microseconds(), three_hours_in_microseconds);
+
+  // Check that two discrete calls to `Now()` return times very close to
+  // one another. We'll just check they are within a second.
+  auto now1 = mgp::LocalDateTime::Now();
+  auto now2 = mgp::LocalDateTime::Now();
+  EXPECT_LE((now2 - now1).Microseconds(), 1'000'000);
 }
 
 TYPED_TEST(CppApiTestFixture, TestLocalDateTime) { test_TestLocalDateTime(); }
