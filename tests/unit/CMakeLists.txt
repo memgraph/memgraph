@@ -79,6 +79,9 @@ target_link_libraries(${test_prefix}bfs_single_node mg-query mg-glue)
 add_unit_test(bfs_fine_grained.cpp)
 target_link_libraries(${test_prefix}bfs_fine_grained mg-query mg-glue)
 
+add_unit_test(kshortest_fine_grained.cpp)
+target_link_libraries(${test_prefix}kshortest_fine_grained mg-query mg-glue)
+
 add_unit_test(cypher_main_visitor.cpp)
 target_link_libraries(${test_prefix}cypher_main_visitor mg-query)
 

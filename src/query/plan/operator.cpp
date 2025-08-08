@@ -3374,9 +3374,19 @@ class KShortestPathsCursor : public Cursor {
     // Need to pull new input
     while (input_cursor_->Pull(frame, context)) {
       AbortCheck(context);
+      if (context.hops_limit.IsLimitReached()) return false;
 
-      auto &source_vertex = frame[self_.input_symbol_].ValueVertex();
-      auto &target_vertex = frame[self_.common_.node_symbol].ValueVertex();
+      auto &source_tv = frame[self_.input_symbol_];
+      auto &target_tv = frame[self_.common_.node_symbol];
+
+      // It is possible that source or sink vertex is Null due to optional matching.
+      if (source_tv.IsNull() || target_tv.IsNull()) continue;
+
+      auto &source_vertex = source_tv.ValueVertex();
+      auto &target_vertex = target_tv.ValueVertex();
+
+      // Skip if source and target are the same vertex
+      if (source_vertex.Gid() == target_vertex.Gid()) continue;
 
       lower_bound_ = self_.lower_bound_ ? EvaluateInt(evaluator, self_.lower_bound_, "Min depth in expansion") : 1;
       upper_bound_ = self_.upper_bound_ ? EvaluateInt(evaluator, self_.upper_bound_, "Max depth in expansion")
@@ -3623,15 +3633,20 @@ class KShortestPathsCursor : public Cursor {
     while (!pq.empty()) {
       AbortCheck(context);
 
+      if (context.hops_limit.IsLimitReached()) return PathInfo(evaluator.GetMemoryResource());  // Empty path
+
       auto [dist, vertex] = pq.top();
       pq.pop();
 
       if (vertex == target) break;
-      if (dist > distances_[vertex]) continue;
+      const auto current_dist = distances_[vertex];
+      if (dist > current_dist) continue;
+      if (current_dist >= upper_bound_) continue;
       if (blocked_vertices_.contains(vertex)) continue;
 
       // Expand edges based on direction
       auto expand_edges = [&](auto edges_result) {
+        context.number_of_hops += edges_result.expanded_count;
         for (const auto &edge : edges_result.edges) {
           VertexAccessor neighbor = (edge.From() == vertex) ? edge.To() : edge.From();
 #ifdef MG_ENTERPRISE
