@@ -130,6 +130,13 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     auto et1 = store->NameToEdgeType("base_et1");
     auto et2 = store->NameToEdgeType("base_et2");
 
+    // Pre-create commonly used PropertyValue objects to reduce allocation overhead
+    const auto text_property_value = memgraph::storage::PropertyValue("text_value");
+    // Note: enum_property_value will be created after the enum is registered
+    // Pre-create vector property for edge optimization
+    const auto vector_property_value = memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{
+        memgraph::storage::PropertyValue(1.0), memgraph::storage::PropertyValue(1.0)});
+
     const auto property_vector = store->NameToProperty("vector");
     const auto vector_index_name = "vector_index"s;
     const auto vector_index_metric = unum::usearch::metric_kind_t::l2sq_k;
@@ -148,6 +155,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       ASSERT_FALSE(unique_acc->CreateEnum("enum1"s, std::vector{"v1"s, "v2"s}).HasError());
       ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
+
+    // Create enum property value after enum is registered
+    const auto enum_property_value = memgraph::storage::PropertyValue(*store->enum_store_.ToEnum("enum1", "v2"));
     {
       // alter enum.
       auto unique_acc = store->UniqueAccess();
@@ -265,7 +275,6 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     }
 
     // Create vertices.
-    auto enum_val = *store->enum_store_.ToEnum("enum1", "v2");
     for (uint64_t i = 0; i < kNumBaseVertices; ++i) {
       auto acc = store->Access();
       auto vertex = acc->CreateVertex();
@@ -305,16 +314,14 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
       // first 5 have vector values
       if (i < 5) {
-        memgraph::storage::PropertyValue property_value(std::vector<memgraph::storage::PropertyValue>{
-            memgraph::storage::PropertyValue(1.0), memgraph::storage::PropertyValue(1.0)});
-        ASSERT_TRUE(vertex.SetProperty(property_vector, property_value).HasValue());
+        ASSERT_TRUE(vertex.SetProperty(property_vector, vector_property_value).HasValue());
       }
 
       // lower 1/3 and top 1/2 have ids
       if (i < kNumBaseVertices / 3 || i >= kNumBaseVertices / 2) {
         // some are enums
         if (i % 5 == 0) {
-          ASSERT_TRUE(vertex.SetProperty(property_id, memgraph::storage::PropertyValue(enum_val)).HasValue());
+          ASSERT_TRUE(vertex.SetProperty(property_id, enum_property_value).HasValue());
         } else {
           // rest are ints
           ASSERT_TRUE(
@@ -332,7 +339,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
       // one node will have text property
       if (i == 0) {
-        ASSERT_TRUE(vertex.SetProperty(property_text, memgraph::storage::PropertyValue("text_value")).HasValue());
+        ASSERT_TRUE(vertex.SetProperty(property_text, text_property_value).HasValue());
       }
 
       ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError()) << i;
@@ -360,9 +367,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
             edge.SetProperty(property_id, memgraph::storage::PropertyValue(static_cast<int64_t>(i))).HasValue());
         // For the first 5 edges of et1, set a vector property for the vector edge index
         if (i < 5) {
-          memgraph::storage::PropertyValue property_value(std::vector<memgraph::storage::PropertyValue>{
-              memgraph::storage::PropertyValue(1.0), memgraph::storage::PropertyValue(1.0)});
-          ASSERT_TRUE(edge.SetProperty(property_vector, property_value).HasValue());
+          ASSERT_TRUE(edge.SetProperty(property_vector, vector_property_value).HasValue());
         }
       } else {
         auto ret = edge.SetProperty(property_id, memgraph::storage::PropertyValue(static_cast<int64_t>(i)));
@@ -865,7 +870,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           expected_size++;
           ASSERT_EQ(properties->size(), expected_size);
           if (i % 5 == 0) {
-            ASSERT_EQ((*properties)[property_id], memgraph::storage::PropertyValue(enum_val));
+            // Re-create enum property value for this scope
+            const auto enum_value = memgraph::storage::PropertyValue(*store->enum_store_.ToEnum("enum1", "v2"));
+            ASSERT_EQ((*properties)[property_id], enum_value);
           } else {
             ASSERT_EQ((*properties)[property_id], memgraph::storage::PropertyValue(static_cast<int64_t>(i)));
           }
@@ -875,25 +882,41 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         }
       }
 
-      // Verify edges.
-      for (uint64_t i = 0; i < kNumBaseEdges; ++i) {
-        auto find_edge = [&](auto &edges) -> std::optional<memgraph::storage::EdgeAccessor> {
-          for (auto &edge : edges) {
-            if (edge.Gid() == base_edge_gids_[i]) {
-              return edge;
-            }
-          }
-          return {};
-        };
-        const auto has_vector_property = i < 5 && i < kNumBaseEdges / 2;
+      // Verify edges with batch optimization to reduce FindVertex and OutEdges overhead
+      // Group edges by source vertex to minimize repeated vertex lookups and edge traversals
+      std::unordered_map<uint64_t, std::vector<uint64_t>> edges_by_source_vertex;
+      std::unordered_map<uint64_t, std::vector<uint64_t>> edges_by_target_vertex;
 
-        {
-          auto vertex1 = acc->FindVertex(base_vertex_gids_[(i / 2) % kNumBaseVertices], memgraph::storage::View::OLD);
-          ASSERT_TRUE(vertex1);
-          auto out_edges = vertex1->OutEdges(memgraph::storage::View::OLD);
-          ASSERT_TRUE(out_edges.HasValue());
-          auto edge1 = find_edge(out_edges->edges);
+      // Pre-group edges by their source/target vertices
+      for (uint64_t i = 0; i < kNumBaseEdges; ++i) {
+        uint64_t source_idx = (i / 2) % kNumBaseVertices;
+        uint64_t target_idx = (i / 3) % kNumBaseVertices;
+        edges_by_source_vertex[source_idx].push_back(i);
+        edges_by_target_vertex[target_idx].push_back(i);
+      }
+
+      auto find_edge = [&](auto &edges,
+                           memgraph::storage::Gid edge_gid) -> std::optional<memgraph::storage::EdgeAccessor> {
+        for (auto &edge : edges) {
+          if (edge.Gid() == edge_gid) {
+            return edge;
+          }
+        }
+        return {};
+      };
+
+      // Verify outgoing edges - batch process by source vertex
+      for (const auto &[vertex_idx, edge_indices] : edges_by_source_vertex) {
+        auto vertex1 = acc->FindVertex(base_vertex_gids_[vertex_idx], memgraph::storage::View::OLD);
+        ASSERT_TRUE(vertex1);
+        auto out_edges = vertex1->OutEdges(memgraph::storage::View::OLD);  // Single call per vertex instead of per edge
+        ASSERT_TRUE(out_edges.HasValue());
+
+        // Process all edges from this vertex in one batch
+        for (uint64_t i : edge_indices) {
+          auto edge1 = find_edge(out_edges->edges, base_edge_gids_[i]);
           ASSERT_TRUE(edge1);
+          const auto has_vector_property = i < 5 && i < kNumBaseEdges / 2;
           if (i < kNumBaseEdges / 2) {
             ASSERT_EQ(edge1->EdgeType(), et1);
           } else {
@@ -908,14 +931,20 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
             ASSERT_EQ(properties->size(), 0);
           }
         }
+      }
 
-        {
-          auto vertex2 = acc->FindVertex(base_vertex_gids_[(i / 3) % kNumBaseVertices], memgraph::storage::View::OLD);
-          ASSERT_TRUE(vertex2);
-          auto in_edges = vertex2->InEdges(memgraph::storage::View::OLD);
-          ASSERT_TRUE(in_edges.HasValue());
-          auto edge2 = find_edge(in_edges->edges);
+      // Verify incoming edges - batch process by target vertex
+      for (const auto &[vertex_idx, edge_indices] : edges_by_target_vertex) {
+        auto vertex2 = acc->FindVertex(base_vertex_gids_[vertex_idx], memgraph::storage::View::OLD);
+        ASSERT_TRUE(vertex2);
+        auto in_edges = vertex2->InEdges(memgraph::storage::View::OLD);  // Single call per vertex instead of per edge
+        ASSERT_TRUE(in_edges.HasValue());
+
+        // Process all edges to this vertex in one batch
+        for (uint64_t i : edge_indices) {
+          auto edge2 = find_edge(in_edges->edges, base_edge_gids_[i]);
           ASSERT_TRUE(edge2);
+          const auto has_vector_property = i < 5 && i < kNumBaseEdges / 2;
           if (i < kNumBaseEdges / 2) {
             ASSERT_EQ(edge2->EdgeType(), et1);
           } else {
