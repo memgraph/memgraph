@@ -1840,6 +1840,26 @@ struct HashCombine {
   }
 };
 
+/**
+ * Like FNV hashing for a collection, just specialized for three elements to avoid
+ * iteration overhead.
+ */
+template <typename TA, typename TB, typename TC, typename TAHash = std::hash<TA>, typename TBHash = std::hash<TB>,
+          typename TCHash = std::hash<TC>>
+struct HashCombine3 {
+  size_t operator()(const TA &a, const TB &b, const TC &c) const {
+    static constexpr size_t fnv_prime = 1099511628211UL;
+    static constexpr size_t fnv_offset = 14695981039346656037UL;
+    size_t ret = fnv_offset;
+    ret ^= TAHash()(a);
+    ret *= fnv_prime;
+    ret ^= TBHash()(b);
+    ret *= fnv_prime;
+    ret ^= TCHash()(c);
+    return ret;
+  }
+};
+
 // uint to int conversion in C++ is a bit tricky. Take a look here
 // https://stackoverflow.com/questions/14623266/why-cant-i-reinterpret-cast-uint-to-int
 // for more details.
@@ -4935,6 +4955,13 @@ struct hash<mgp::Duration> {
 };
 
 template <>
+struct hash<mgp::ZonedDateTime> {
+  size_t operator()(const mgp::ZonedDateTime &x) const {
+    return mgp::util::HashCombine3<int64_t, std::string_view, int64_t>{}(x.Timestamp(), x.Timezone(), x.Offset());
+  }
+};
+
+template <>
 struct hash<mgp::MapItem> {
   size_t operator()(const mgp::MapItem &x) const { return hash<std::string_view>()(x.key); };
 };
@@ -4983,9 +5010,7 @@ struct hash<mgp::Value> {
       case mgp::Type::Duration:
         return std::hash<mgp::Duration>{}(x.ValueDuration());
       case mgp::Type::ZonedDateTime:
-        // TODO(zoneddatetime) ZonedDateTime is not properly supported in the API
-        // yet.
-        return 0;
+        return std::hash<mgp::ZonedDateTime>{}(x.ValueZonedDateTime());
     }
     throw mg_exception::InvalidArgumentException();
   }
