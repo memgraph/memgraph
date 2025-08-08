@@ -1779,6 +1779,12 @@ mgp_error mgp_zoned_date_time_diff(mgp_zoned_date_time *first, mgp_zoned_date_ti
       result);
 }
 
+mgp_error mgp_zoned_date_time_now(mgp_memory *memory, mgp_zoned_date_time **zoned_date_time) {
+  return WrapExceptions(
+      [memory] { return NewRawMgpObject<mgp_zoned_date_time>(memory, memgraph::utils::CurrentZonedDateTime()); },
+      zoned_date_time);
+}
+
 mgp_error mgp_duration_from_string(const char *string, mgp_memory *memory, mgp_duration **duration) {
   return WrapExceptions([memory, string] { return NewRawMgpObject<mgp_duration>(memory, string); }, duration);
 }

@@ -3780,6 +3780,14 @@ inline Duration ZonedDateTime::operator-(const ZonedDateTime &other) const {
   return difference;
 }
 
+inline ZonedDateTime ZonedDateTime::Now() {
+  auto *mgp_zoned_date_time = mgp::MemHandlerCallback(zoned_date_time_now);
+  auto zoned_date_time = ZonedDateTime(mgp_zoned_date_time);
+  mgp::zoned_date_time_destroy(mgp_zoned_date_time);
+
+  return zoned_date_time;
+}
+
 /* #endregion */
 
 /* #endregion */

@@ -900,6 +900,10 @@ inline mgp_duration *zoned_date_time_diff(mgp_zoned_date_time *first, mgp_zoned_
   return MgInvoke<mgp_duration *>(mgp_zoned_date_time_diff, first, second, memory);
 }
 
+inline mgp_zoned_date_time *zoned_date_time_now(mgp_memory *memory) {
+  return MgInvoke<mgp_zoned_date_time *>(mgp_zoned_date_time_now, memory);
+}
+
 // Procedure
 
 inline mgp_proc *module_add_read_procedure(mgp_module *module, const char *name, mgp_proc_cb cb) {

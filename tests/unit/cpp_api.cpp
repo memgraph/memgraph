@@ -724,6 +724,12 @@ TYPED_TEST(CppApiTestFixture, ZonedDateTime_CanPerformOperationsWithDurations) {
   EXPECT_EQ(diff.Microseconds(), three_hours_in_microseconds);
 }
 
+TYPED_TEST(CppApiTestFixture, ZonedDateTime_NowReturnsCurrentTime) {
+  auto now1 = mgp::ZonedDateTime::Now();
+  auto now2 = mgp::ZonedDateTime::Now();
+  EXPECT_LE((now2 - now1).Microseconds(), 1'000'000);
+}
+
 TYPED_TEST(CppApiTestFixture, TestNodeProperties) {
   auto storage_acc = this->storage->Access(AccessorType::WRITE);
   auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
