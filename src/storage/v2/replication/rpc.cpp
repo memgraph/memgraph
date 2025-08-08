@@ -255,7 +255,6 @@ void Save(const storage::replication::FinalizeCommitRes &self, Builder *builder)
 void Load(storage::replication::FinalizeCommitRes *self, Reader *reader) { slk::Load(&self->success, reader); }
 
 // Serialize code for FinalizeCommitReq
-
 void Save(const memgraph::storage::replication::FinalizeCommitReq &self, memgraph::slk::Builder *builder) {
   slk::Save(self.decision, builder);
   slk::Save(self.main_uuid, builder);
