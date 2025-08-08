@@ -392,16 +392,16 @@ auto Decode(utils::tag_type<std::size_t> /*unused*/, BaseDecoder *decoder, const
   }
 }
 
-template <bool is_read, typename T>
-auto Decode(utils::tag_type<std::pair<T, T>> /*unused*/, BaseDecoder *decoder, const uint64_t version)
-    -> std::conditional_t<is_read, std::pair<T, T>, void> {
+template <bool is_read, typename T, typename U>
+auto Decode(utils::tag_type<std::pair<T, U>> /*unused*/, BaseDecoder *decoder, const uint64_t version)
+    -> std::conditional_t<is_read, std::pair<T, U>, void> {
   if constexpr (is_read) {
     auto first = Decode<true>(utils::tag_t<T>, decoder, version);
-    auto second = Decode<true>(utils::tag_t<T>, decoder, version);
+    auto second = Decode<true>(utils::tag_t<U>, decoder, version);
     return std::make_pair(std::move(first), std::move(second));
   } else {
     Decode<false>(utils::tag_t<T>, decoder, version);
-    Decode<false>(utils::tag_t<T>, decoder, version);
+    Decode<false>(utils::tag_t<U>, decoder, version);
   }
 }
 
