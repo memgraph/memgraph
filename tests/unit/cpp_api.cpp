@@ -902,6 +902,13 @@ TYPED_TEST(CppApiTestFixture, TestValueToString) {
   mgp::Duration duration{"P14DT17H2M45S"};
   ASSERT_EQ(mgp::Value(duration).ToString(), "1270965000000ms");
 
+  /*zoned date time*/
+  mgp::ZonedDateTime zoned_date_time_with_tz{"2024-01-01T13:02:40.100050+01:00[Europe/Zagreb]"};
+  ASSERT_EQ(mgp::Value(zoned_date_time_with_tz).ToString(), "2024-01-01T13:02:40.100050+01:00[Europe/Zagreb]");
+
+  mgp::ZonedDateTime zoned_date_time_without_tz{"2024-01-01T13:02:40.100050+01:00"};
+  ASSERT_EQ(mgp::Value(zoned_date_time_without_tz).ToString(), "2024-01-01T13:02:40.100050+01:00");
+
   /*node and relationship*/
   auto node1 = graph.CreateNode();
   node1.AddLabel("Label1");

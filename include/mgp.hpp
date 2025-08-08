@@ -11,8 +11,10 @@
 
 #pragma once
 
+#include <chrono>
 #include <cstdlib>
 #include <cstring>
+#include <format>
 #include <functional>
 #include <map>
 #include <memory>
@@ -3740,6 +3742,23 @@ inline bool ZonedDateTime::operator==(const ZonedDateTime &other) const {
   return util::ZonedDateTimesEqual(ptr_, other.ptr_);
 }
 
+inline std::string ZonedDateTime::ToString() const {
+  auto tp = std::chrono::sys_time<std::chrono::microseconds>{std::chrono::microseconds{Timestamp()}};
+  if (strlen(Timezone()) > 0) {
+    auto tz_ptr = std::chrono::locate_zone(Timezone());
+    auto zt = std::chrono::zoned_time{tz_ptr, tp};
+    return std::format("{0:%Y}-{0:%m}-{0:%d}T{0:%H}:{0:%M}:{0:%S}{0:%Ez}[{1}]", zt, Timezone());
+  } else {
+    auto local_tp = std::chrono::sys_time<std::chrono::microseconds>{std::chrono::microseconds{Timestamp()} +
+                                                                     std::chrono::minutes{Offset()}};
+    auto offset_mins = Offset();
+    auto hours = offset_mins / 60;
+    auto mins = std::abs(offset_mins % 60);
+    auto offset_str = std::format("{:+03d}:{:02d}", hours, mins);
+    return std::format("{0:%Y}-{0:%m}-{0:%d}T{0:%H}:{0:%M}:{0:%S}{1}", local_tp, offset_str);
+  }
+}
+
 /* #endregion */
 
 /* #endregion */
@@ -4260,6 +4279,8 @@ inline std::string Value::ToString() const {
       return ValueLocalTime().ToString();
     case Type::LocalDateTime:
       return ValueLocalDateTime().ToString();
+    case Type::ZonedDateTime:
+      return ValueZonedDateTime().ToString();
     case Type::Duration:
       return ValueDuration().ToString();
     case Type::List:
