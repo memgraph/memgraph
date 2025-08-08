@@ -4193,25 +4193,16 @@ inline std::ostream &operator<<(std::ostream &os, const mgp::Value &value) {
       return os << "Relationship[" + std::to_string(value.ValueRelationship().Id().AsInt()) + "]";
     case mgp::Type::Path:
       throw mgp::ValueException("Printing mgp::Path type currently not supported.");
-    case mgp::Type::Date: {
-      const auto date{value.ValueDate()};
-      return os << std::to_string(date.Year()) + "-" + std::to_string(date.Month()) + "-" + std::to_string(date.Day());
-    }
-    case mgp::Type::LocalTime: {
-      const auto localTime{value.ValueLocalTime()};
-      return os << std::to_string(localTime.Hour()) + ":" + std::to_string(localTime.Minute()) + ":" +
-                       std::to_string(localTime.Second()) + "," + std::to_string(localTime.Millisecond()) +
-                       std::to_string(localTime.Microsecond());
-    }
-    case mgp::Type::LocalDateTime: {
-      const auto localDateTime = value.ValueLocalDateTime();
-      return os << std::to_string(localDateTime.Year()) + "-" + std::to_string(localDateTime.Month()) + "-" +
-                       std::to_string(localDateTime.Day()) + "T" + std::to_string(localDateTime.Hour()) + ":" +
-                       std::to_string(localDateTime.Minute()) + ":" + std::to_string(localDateTime.Second()) + "," +
-                       std::to_string(localDateTime.Millisecond()) + std::to_string(localDateTime.Microsecond());
-    }
+    case mgp::Type::Date:
+      return os << value.ValueDate().ToString();
+    case mgp::Type::LocalTime:
+      return os << value.ValueLocalTime().ToString();
+    case mgp::Type::LocalDateTime:
+      return os << value.ValueLocalDateTime().ToString();
     case mgp::Type::Duration:
-      return os << std::to_string(value.ValueDuration().Microseconds()) + "ms";
+      return os << value.ValueDuration().ToString();
+    case mgp::Type::ZonedDateTime:
+      return os << value.ValueZonedDateTime().ToString();
     default:
       throw mgp::ValueException("Unknown value type");
   }
