@@ -20,6 +20,7 @@
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/schema_info.hpp"
@@ -28,6 +29,7 @@
 #include <spdlog/spdlog.h>
 #include <optional>
 #include <range/v3/view/filter.hpp>
+#include <range/v3/view/join.hpp>
 #include <range/v3/view/transform.hpp>
 
 #include "storage/v2/durability/paths.hpp"
@@ -1293,10 +1295,25 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
             throw query::TextSearchDisabledException();
           }
-          spdlog::trace("   Delta {}. Create text search index {} on {}.", current_delta_idx, data.index_name,
-                        data.label);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          auto ret = transaction->CreateTextIndex(data.index_name, storage->NameToLabel(data.label));
+          auto label_id = storage->NameToLabel(data.label);
+          const auto properties_str = std::invoke([&]() -> std::string {
+            if (data.properties && !data.properties->empty()) {
+              return fmt::format(" ({})", rv::join(*data.properties, ", ") | r::to<std::string>);
+            }
+            return {};
+          });
+          spdlog::trace("   Delta {}. Create text search index {} on :{}{}", current_delta_idx, data.index_name,
+                        data.label, properties_str);
+          auto prop_ids = std::invoke([&]() -> std::vector<PropertyId> {
+            if (!data.properties) {
+              return {};
+            }
+            return *data.properties |
+                   rv::transform([&](const auto &prop_name) { return storage->NameToProperty(prop_name); }) |
+                   r::to_vector;
+          });
+          auto ret = transaction->CreateTextIndex(storage::TextIndexSpec{data.index_name, label_id, prop_ids});
           if (ret.HasError()) {
             throw utils::BasicException("Failed to create text search index {} on {}.", data.index_name, data.label);
           }

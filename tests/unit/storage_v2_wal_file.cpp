@@ -22,6 +22,8 @@
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/indices/text_index.hpp"
+#include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/name_id_mapper.hpp"
@@ -197,7 +199,7 @@ class DeltaGenerator final {
 
   void AppendOperation(memgraph::storage::durability::StorageMetadataOperation operation, const std::string &label,
                        const std::vector<std::vector<std::string>> property_paths_as_str = {},
-                       const std::string &stats = {}, std::vector<std::string> constraint_properties = {},
+                       const std::string &stats = {}, std::vector<std::string> properties = {},
                        const std::string &edge_type = {}, const std::string &name = {},
                        std::string const &enum_val = {}, const std::string &enum_type = {},
                        const std::string &vector_index_name = {}, std::uint16_t vector_dimension = 2,
@@ -211,7 +213,7 @@ class DeltaGenerator final {
       }
     }
     auto property_ids =
-        ranges::views::transform(constraint_properties,
+        ranges::views::transform(properties,
                                  [&](const std::string &property) {
                                    return memgraph::storage::PropertyId::FromUint(mapper_.NameToId(property));
                                  }) |
@@ -340,11 +342,16 @@ class DeltaGenerator final {
         });
         break;
       }
-      case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_CREATE:
-      case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_DROP: {
+      case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_CREATE: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
-          EncodeTextIndex(encoder, mapper_, name, label_id);
+          EncodeTextIndex(encoder, mapper_, memgraph::storage::TextIndexSpec{name, label_id, property_ids});
         });
+        break;
+      }
+
+      case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_DROP: {
+        apply_encode(operation,
+                     [&](memgraph::storage::durability::BaseEncoder &encoder) { EncodeIndexName(encoder, name); });
         break;
       }
       case memgraph::storage::durability::StorageMetadataOperation::VECTOR_INDEX_CREATE:
@@ -354,7 +361,7 @@ class DeltaGenerator final {
         break;
       case memgraph::storage::durability::StorageMetadataOperation::VECTOR_INDEX_DROP:
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
-          EncodeVectorIndexName(encoder, vector_index_name);
+          EncodeIndexName(encoder, vector_index_name);
         });
         break;
       case memgraph::storage::durability::StorageMetadataOperation::VECTOR_EDGE_INDEX_CREATE:
@@ -436,19 +443,19 @@ class DeltaGenerator final {
           case GLOBAL_EDGE_PROPERTY_INDEX_DROP:
             return {WalEdgePropertyIndexDrop{first_property}};
           case TEXT_INDEX_CREATE:
-            return {WalTextIndexCreate{name, label}};
+            return {WalTextIndexCreate{name, label, properties}};
           case TEXT_INDEX_DROP:
-            return {WalTextIndexDrop{name, label}};
+            return {WalTextIndexDrop{name}};
           case EXISTENCE_CONSTRAINT_CREATE:
             return {WalExistenceConstraintCreate{label, first_property}};
           case EXISTENCE_CONSTRAINT_DROP:
             return {WalExistenceConstraintDrop{label, first_property}};
           case UNIQUE_CONSTRAINT_CREATE:
             return {WalUniqueConstraintCreate{
-                label, std::set<std::string, std::less<>>(constraint_properties.begin(), constraint_properties.end())}};
+                label, std::set<std::string, std::less<>>(properties.begin(), properties.end())}};
           case UNIQUE_CONSTRAINT_DROP:
-            return {WalUniqueConstraintDrop{
-                label, std::set<std::string, std::less<>>(constraint_properties.begin(), constraint_properties.end())}};
+            return {WalUniqueConstraintDrop{label,
+                                            std::set<std::string, std::less<>>(properties.begin(), properties.end())}};
           case TYPE_CONSTRAINT_CREATE:
             return {WalTypeConstraintCreate{label, first_property, memgraph::storage::TypeConstraintKind::STRING}};
           case TYPE_CONSTRAINT_DROP:
@@ -811,6 +818,8 @@ GENERATE_SIMPLE_TEST(AllGlobalOperations, {
   OPERATION_TX(TYPE_CONSTRAINT_DROP, "hello", {{"world"}});
   OPERATION_TX(VECTOR_INDEX_CREATE, "hello", {{"world"}}, {}, {}, {}, {}, {}, {}, "vector_index", 2, 100);
   OPERATION_TX(VECTOR_INDEX_DROP, "hello", {{"world"}}, {}, {}, {}, {}, {}, {}, "vector_index");
+  OPERATION_TX(TEXT_INDEX_CREATE, "hello", {}, {}, {"prop1", "prop2"}, {}, "index_name", {}, {}, {}, {});
+  OPERATION_TX(TEXT_INDEX_DROP, {}, {}, {}, {}, {}, "index_name", {}, {}, {}, {});
 });
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)

@@ -61,6 +61,7 @@ def test_durability_with_text_index(connection):
     # 1/
     # Create text index
     execute_and_fetch_all(cursor, "CREATE TEXT INDEX document_index ON :Document;")
+    execute_and_fetch_all(cursor, "CREATE TEXT INDEX document_index1 ON :Document(title, content);")
 
     # Add data that will be indexed
     execute_and_fetch_all(
@@ -82,9 +83,13 @@ def test_durability_with_text_index(connection):
 
     # Validate text index exists
     index_info = get_text_index_info(cursor)
-    assert len(index_info) == 1
-    assert index_info[0][0] == "text (name: document_index)"
-    assert index_info[0][1] == "Document"
+    assert len(index_info) == 2
+    assert sorted(index_info) == sorted(
+        [
+            ("text (name: document_index)", "Document", [], None),
+            ("text (name: document_index1)", "Document", ["title", "content"], None),
+        ]
+    )
 
     # Validate text search works before restart
     search_results = search_documents(cursor, "data.content:database")
@@ -99,6 +104,21 @@ def test_durability_with_text_index(connection):
     assert len(search_results) == 1
     assert search_results[0][0] == "Technical Documentation"
 
+    # Test the second index with specific properties
+    def search_documents1(cursor, query):
+        return execute_and_fetch_all(
+            cursor,
+            f"CALL text_search.search('document_index1', '{query}') YIELD node RETURN node.title AS title ORDER BY title;",
+        )
+
+    search_results = search_documents1(cursor, "data.title:Technical")
+    assert len(search_results) == 1
+    assert search_results[0][0] == "Technical Documentation"
+
+    search_results = search_documents1(cursor, "data.content:functionality")
+    assert len(search_results) == 1
+    assert search_results[0][0] == "User Manual"
+
     # 3/
     interactive_mg_runner.kill(MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL, "main")
 
@@ -109,9 +129,13 @@ def test_durability_with_text_index(connection):
     # 5/
     # Validate text index is restored
     index_info = get_text_index_info(cursor)
-    assert len(index_info) == 1
-    assert index_info[0][0] == "text (name: document_index)"
-    assert index_info[0][1] == "Document"
+    assert len(index_info) == 2
+    assert sorted(index_info) == sorted(
+        [
+            ("text (name: document_index)", "Document", [], None),
+            ("text (name: document_index1)", "Document", ["title", "content"], None),
+        ]
+    )
 
     # Validate all documents are restored
     all_documents = execute_and_fetch_all(cursor, "MATCH (d:Document) RETURN d.title ORDER BY d.title;")
@@ -131,6 +155,15 @@ def test_durability_with_text_index(connection):
     search_results = search_documents(cursor, "data.content:Memgraph")
     assert len(search_results) == 1
     assert search_results[0][0] == "Technical Documentation"
+
+    # Test the second index still works after restart
+    search_results = search_documents1(cursor, "data.title:Technical")
+    assert len(search_results) == 1
+    assert search_results[0][0] == "Technical Documentation"
+
+    search_results = search_documents1(cursor, "data.content:functionality")
+    assert len(search_results) == 1
+    assert search_results[0][0] == "User Manual"
 
     # Additional test: Verify we can add new data and search it after restart
     execute_and_fetch_all(
@@ -179,6 +212,7 @@ def test_durability_with_text_index_recovery_disabled(connection):
     # 1/
     # Create text index and add data
     execute_and_fetch_all(cursor, "CREATE TEXT INDEX document_index ON :Document;")
+    execute_and_fetch_all(cursor, "CREATE TEXT INDEX document_index1 ON :Document(title, content);")
     execute_and_fetch_all(
         cursor, "CREATE (:Document {title: 'Old Document', content: 'This should not be recovered'});"
     )
@@ -210,12 +244,17 @@ def test_durability_with_text_index_recovery_disabled(connection):
     # 5/
     # Create new empty text index
     execute_and_fetch_all(cursor, "CREATE TEXT INDEX new_document_index ON :Document;")
+    execute_and_fetch_all(cursor, "CREATE TEXT INDEX new_document_index1 ON :Document(title, content);")
 
     # Verify the new index exists
     index_info = execute_and_fetch_all(cursor, "SHOW INDEX INFO;")
-    assert len(index_info) == 1
-    assert index_info[0][0] == "text (name: new_document_index)"
-    assert index_info[0][1] == "Document"
+    assert len(index_info) == 2
+    assert sorted(index_info) == sorted(
+        [
+            ("text (name: new_document_index)", "Document", [], None),
+            ("text (name: new_document_index1)", "Document", ["title", "content"], None),
+        ]
+    )
 
     # 6/
     # Validate search returns empty results (no documents to index)
@@ -230,6 +269,13 @@ def test_durability_with_text_index_recovery_disabled(connection):
 
     search_results = execute_and_fetch_all(
         cursor, "CALL text_search.search('new_document_index', 'data.content:Fresh') YIELD node RETURN node.title;"
+    )
+    assert len(search_results) == 1
+    assert search_results[0][0] == "New Document"
+
+    # Test the second new index
+    search_results = execute_and_fetch_all(
+        cursor, "CALL text_search.search('new_document_index1', 'data.title:New') YIELD node RETURN node.title;"
     )
     assert len(search_results) == 1
     assert search_results[0][0] == "New Document"
@@ -324,12 +370,17 @@ def test_durability_with_text_index_experimental_disabled_to_enabled(connection)
     # 5/
     # Create text index on the existing label
     execute_and_fetch_all(cursor, "CREATE TEXT INDEX article_index ON :Article;")
+    execute_and_fetch_all(cursor, "CREATE TEXT INDEX article_index1 ON :Article(title, content);")
 
     # Verify the index exists
     index_info = execute_and_fetch_all(cursor, "SHOW INDEX INFO;")
-    assert len(index_info) == 1
-    assert index_info[0][0] == "text (name: article_index)"
-    assert index_info[0][1] == "Article"
+    assert len(index_info) == 2
+    assert sorted(index_info) == sorted(
+        [
+            ("text (name: article_index)", "Article", [], None),
+            ("text (name: article_index1)", "Article", ["title", "content"], None),
+        ]
+    )
 
     # 6/
     # Validate existing nodes are found in the new index
@@ -356,6 +407,22 @@ def test_durability_with_text_index_experimental_disabled_to_enabled(connection)
 
     # Search by title
     search_results = search_articles(cursor, "data.title:Database")
+    assert len(search_results) == 1
+    assert search_results[0][0] == "Database Systems"
+
+    # Test the second index with specific properties
+    def search_articles1(cursor, query):
+        return execute_and_fetch_all(
+            cursor,
+            f"CALL text_search.search('article_index1', '{query}') YIELD node RETURN node.title AS title ORDER BY title;",
+        )
+
+    # Search for content in specific properties
+    search_results = search_articles1(cursor, "data.title:Query")
+    assert len(search_results) == 1
+    assert search_results[0][0] == "Query Languages"
+
+    search_results = search_articles1(cursor, "data.content:applications")
     assert len(search_results) == 1
     assert search_results[0][0] == "Database Systems"
 
