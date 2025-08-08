@@ -614,15 +614,76 @@ TYPED_TEST(CppApiTestFixture, ZonedDateTime_CanBeCreated) {
 }
 
 TYPED_TEST(CppApiTestFixture, ZonedDateTime_CannotBeCreatedWithInvalidParameters) {
-  // FAIL();
+  // There is no 0th of October
+  EXPECT_ANY_THROW(mgp::ZonedDateTime(2021, 10, 0, 14, 15, 0, 0, 0, 0));
+
+  // Tz region is not recognised
+  EXPECT_ANY_THROW(mgp::ZonedDateTime(2021, 10, 0, 14, 15, 0, 0, 0, "Mars/Cydonia"));
+
+  // Offset is beyond acceptable range
+  EXPECT_ANY_THROW(mgp::ZonedDateTime(2021, 10, 0, 14, 15, 0, 0, 0, 2000));
 }
 
-TYPED_TEST(CppApiTestFixture, ZonedDateTime_CanBeCompared) {
-  // FAIL();
+TYPED_TEST(CppApiTestFixture, ZonedDateTime_CanBeTestedForEquality) {
+  auto zdt1 = mgp::ZonedDateTime("2021-10-05T14:15:00");
+  auto zdt2 = mgp::ZonedDateTime(2021, 10, 5, 14, 15, 0, 0, 0, "Etc/UTC");
+  auto zdt3 = mgp::ZonedDateTime("2021-11-05T14:15:00");
+  auto zdt4 = mgp::ZonedDateTime("2021-11-05T14:15:00[Europe/London]");
+
+  EXPECT_EQ(zdt1, zdt2);
+  EXPECT_NE(zdt1, zdt3);
+  EXPECT_NE(zdt1, zdt4);
+  EXPECT_NE(zdt2, zdt3);
+  EXPECT_NE(zdt3, zdt4);
 }
 
 TYPED_TEST(CppApiTestFixture, ZonedDateTime_CanBeCopyMoveAndValueConstructed) {
-  // FAIL();
+  // Copy assignment
+  {
+    auto zdt = mgp::ZonedDateTime("2021-10-05T14:15:00[Europe/London]");
+    auto copy = zdt;
+
+    EXPECT_EQ(copy.Year(), 2021);
+    EXPECT_EQ(copy.Month(), 10);
+    EXPECT_EQ(copy.Day(), 5);
+    EXPECT_EQ(copy.Hour(), 14);
+    EXPECT_EQ(copy.Minute(), 15);
+    EXPECT_EQ(copy.Second(), 0);
+    EXPECT_EQ(copy.Millisecond() >= 0, true);
+    EXPECT_EQ(copy.Microsecond() >= 0, true);
+    EXPECT_EQ(copy.Timestamp() >= 0, true);
+    EXPECT_STREQ(copy.Timezone(), "Europe/London");
+    EXPECT_EQ(copy.Offset(), 60);
+  }
+
+  // Use move assignment
+  {
+    std::vector<mgp::ZonedDateTime> vec;
+    vec.push_back(mgp::ZonedDateTime("2021-10-05T14:15:00"));
+    EXPECT_EQ(vec[0].Year(), 2021);
+    EXPECT_EQ(vec[0].Month(), 10);
+    EXPECT_EQ(vec[0].Day(), 5);
+    EXPECT_EQ(vec[0].Hour(), 14);
+    EXPECT_EQ(vec[0].Minute(), 15);
+    EXPECT_EQ(vec[0].Second(), 0);
+    EXPECT_EQ(vec[0].Millisecond() >= 0, true);
+    EXPECT_EQ(vec[0].Microsecond() >= 0, true);
+    EXPECT_EQ(vec[0].Timestamp() >= 0, true);
+    EXPECT_STREQ(vec[0].Timezone(), "Etc/UTC");
+    EXPECT_EQ(vec[0].Offset(), 0);
+  }
+
+  {
+    auto zdt = mgp::ZonedDateTime("2021-11-05T14:15:00[Europe/London]");
+    auto copied_value = mgp::Value(zdt);
+    ASSERT_TRUE(copied_value.IsZonedDateTime());
+    ASSERT_EQ(copied_value.Type(), mgp::Type::ZonedDateTime);
+    EXPECT_EQ(copied_value.ValueZonedDateTime(), zdt);
+    auto moved_value = mgp::Value(mgp::ZonedDateTime("2021-11-05T14:15:00[Europe/London]"));
+    ASSERT_TRUE(moved_value.IsZonedDateTime());
+    ASSERT_EQ(moved_value.Type(), mgp::Type::ZonedDateTime);
+    EXPECT_EQ(moved_value.ValueZonedDateTime(), zdt);
+  }
 }
 
 TYPED_TEST(CppApiTestFixture, TestNodeProperties) {

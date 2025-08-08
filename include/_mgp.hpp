@@ -210,6 +210,8 @@ inline bool value_is_local_date_time(mgp_value *val) { return MgInvoke<int>(mgp_
 
 inline bool value_is_duration(mgp_value *val) { return MgInvoke<int>(mgp_value_is_duration, val); }
 
+inline bool value_is_zoned_date_time(mgp_value *val) { return MgInvoke<int>(mgp_value_is_zoned_date_time, val); }
+
 // Get type
 
 inline mgp_type *type_any() { return MgInvoke<mgp_type *>(mgp_type_any); }

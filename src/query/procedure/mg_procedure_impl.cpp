@@ -1094,6 +1094,7 @@ DEFINE_MGP_VALUE_IS(date, DATE)
 DEFINE_MGP_VALUE_IS(local_time, LOCAL_TIME)
 DEFINE_MGP_VALUE_IS(local_date_time, LOCAL_DATE_TIME)
 DEFINE_MGP_VALUE_IS(duration, DURATION)
+DEFINE_MGP_VALUE_IS(zoned_date_time, ZONED_DATE_TIME)
 
 mgp_error mgp_value_get_bool(mgp_value *val, int *result) {
   *result = val->bool_v ? 1 : 0;

@@ -375,6 +375,10 @@ enum mgp_error mgp_value_is_local_date_time(struct mgp_value *val, int *result);
 /// Current implementation always returns without errors.
 enum mgp_error mgp_value_is_duration(struct mgp_value *val, int *result);
 
+/// Result is non-zero if the given mgp_value stores a zoned date-time.
+/// Current implementation always returns without errors.
+enum mgp_error mgp_value_is_zoned_date_time(struct mgp_value *val, int *result);
+
 /// Get the contained boolean value.
 /// Non-zero values represent `true`, while zero represents `false`.
 /// Result is undefined if mgp_value does not contain the expected type.
