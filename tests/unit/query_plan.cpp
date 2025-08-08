@@ -3482,4 +3482,32 @@ TYPED_TEST(TestPlanner, ExistsSubqueryWithUnion) {
   DeleteListContent(&exists_union_plan);
 }
 
+TYPED_TEST(TestPlanner, MatchKShortest) {
+  // Test MATCH (n), (m) WITH n, m MATCH (n) -[r:type *kshortest..10]-> (m) RETURN r
+  FakeDbAccessor dba;
+  auto edge_type = this->storage.GetEdgeTypeIx("type");
+  auto *kshortest = this->storage.template Create<memgraph::query::EdgeAtom>(
+      IDENT("r"), memgraph::query::EdgeAtom::Type::KSHORTEST, Direction::OUT,
+      std::vector<memgraph::query::QueryEdgeType>{edge_type});
+  kshortest->upper_bound_ = LITERAL(10);
+  kshortest->filter_lambda_.inner_edge =
+      this->storage.template Create<memgraph::query::Identifier>("anon_inner_e", false);
+  kshortest->filter_lambda_.inner_node =
+      this->storage.template Create<memgraph::query::Identifier>("anon_inner_n", false);
+  auto *as_r = NEXPR("r", IDENT("r"));
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n")), PATTERN(NODE("m"))), WITH("n", "m"),
+                                   MATCH(PATTERN(NODE("n"), kshortest, NODE("m"))), RETURN(as_r)));
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> left_cartesian_ops{new ExpectScanAll()};
+  std::list<BaseOpChecker *> right_cartesian_ops{new ExpectScanAll()};
+
+  CheckPlan(planner.plan(), symbol_table, ExpectCartesian(left_cartesian_ops, right_cartesian_ops), ExpectProduce(),
+            ExpectExpandKShortest(), ExpectProduce());
+
+  DeleteListContent(&left_cartesian_ops);
+  DeleteListContent(&right_cartesian_ops);
+}
+
 }  // namespace

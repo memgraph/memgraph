@@ -276,6 +276,11 @@ TEST(QueryStripper, LineComment5) {
     EXPECT_EQ(stripped.literals().size(), 0);
     EXPECT_EQ(stripped.stripped_query().str(), "MATCH ( n ) MATCH ( n ) - [ * bfs ] - > ( m ) RETURN n ;");
   }
+  {
+    StrippedQuery stripped("MATCH (n) MATCH (n)-[*kshortest]->(m) RETURN n;\n//");
+    EXPECT_EQ(stripped.literals().size(), 0);
+    EXPECT_EQ(stripped.stripped_query().str(), "MATCH ( n ) MATCH ( n ) - [ * kshortest ] - > ( m ) RETURN n ;");
+  }
 }
 
 TEST(QueryStripper, Spaces) {

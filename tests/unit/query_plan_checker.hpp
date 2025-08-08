@@ -317,6 +317,13 @@ class ExpectExpandBfs : public OpChecker<ExpandVariable> {
   }
 };
 
+class ExpectExpandKShortest : public OpChecker<ExpandVariable> {
+ public:
+  void ExpectOp(ExpandVariable &op, const SymbolTable &) override {
+    EXPECT_EQ(op.type_, memgraph::query::EdgeAtom::Type::KSHORTEST);
+  }
+};
+
 class ExpectAccumulate : public OpChecker<Accumulate> {
  public:
   explicit ExpectAccumulate(const std::unordered_set<Symbol> &symbols) : symbols_(symbols) {}

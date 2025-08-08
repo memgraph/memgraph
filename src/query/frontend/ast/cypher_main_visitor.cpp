@@ -2720,6 +2720,9 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
         }
         break;
       case 1:
+        if (edge->type_ == EdgeAtom::Type::KSHORTEST) {
+          throw SemanticException("KSHORTEST expansion does not support filter lambda.");
+        }
         if (edge->type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH ||
             edge->type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS) {
           // For wShortest and allShortest, the first (and required) lambda is
@@ -2829,6 +2832,8 @@ antlrcpp::Any CypherMainVisitor::visitVariableExpansion(MemgraphCypher::Variable
     edge_type = EdgeAtom::Type::WEIGHTED_SHORTEST_PATH;
   else if (!ctx->getTokens(MemgraphCypher::ALLSHORTEST).empty())
     edge_type = EdgeAtom::Type::ALL_SHORTEST_PATHS;
+  else if (!ctx->getTokens(MemgraphCypher::KSHORTEST).empty())
+    edge_type = EdgeAtom::Type::KSHORTEST;
   Expression *lower = nullptr;
   Expression *upper = nullptr;
 
@@ -2854,8 +2859,10 @@ antlrcpp::Any CypherMainVisitor::visitVariableExpansion(MemgraphCypher::Variable
     lower = std::any_cast<Expression *>(ctx->expression()[0]->accept(this));
     upper = std::any_cast<Expression *>(ctx->expression()[1]->accept(this));
   }
-  if (lower && (edge_type == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH || edge_type == EdgeAtom::Type::ALL_SHORTEST_PATHS))
+  if (lower &&
+      (edge_type == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH || edge_type == EdgeAtom::Type::ALL_SHORTEST_PATHS)) {
     throw SemanticException("Lower bound is not allowed in weighted or all shortest path expansion.");
+  }
 
   return std::make_tuple(edge_type, lower, upper);
 }

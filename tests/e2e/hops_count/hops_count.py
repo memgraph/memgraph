@@ -92,6 +92,17 @@ def test_hops_count_1():
     number_of_hops = get_summary("MATCH (a:Person)-[:KNOWS *BFS]-(e:Person) RETURN e")["number_of_hops"]
     assert number_of_hops == 40
 
+    # kshortest expand
+    number_of_hops = get_summary(
+        "MATCH (a:Person {name: 'Alice'}),(e:Person {name: 'Eve'}) WITH a, e MATCH (a)-[r:KNOWS *KSHORTEST]->(e) RETURN r"
+    )["number_of_hops"]
+    assert number_of_hops == 8
+
+    number_of_hops = get_summary(
+        "USING HOPS LIMIT 4 MATCH (a:Person {name: 'Alice'}),(e:Person {name: 'Eve'}) WITH a, e MATCH (a)-[r:KNOWS *KSHORTEST]->(e) RETURN r"
+    )["number_of_hops"]
+    assert number_of_hops == 4
+
     # expand
     number_of_hops = get_summary("MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(e:Person {name: 'Eve'}) RETURN e")[
         "number_of_hops"
@@ -184,6 +195,12 @@ def test_hops_count_3():
         "number_of_hops"
     ]
     assert number_of_hops == 2  # first does scan by a and then expand to e
+
+    # kshortest expand
+    number_of_hops = get_summary(
+        "MATCH (a:Person {name: 'Alice'}),(e:Person {name: 'Eve'}) WITH a, e MATCH (a)-[r:KNOWS *KSHORTEST ..1]->(e) RETURN r"
+    )["number_of_hops"]
+    assert number_of_hops == 2
 
     # expand
     number_of_hops = get_summary("MATCH (a:Person {name: 'Alice'})-[:KNOWS]->(e:Person) RETURN e")["number_of_hops"]
