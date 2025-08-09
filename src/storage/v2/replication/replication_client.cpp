@@ -140,7 +140,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
     auto const tr_func = [](std::pair<std::string, uint64_t> const &history_elem) -> std::string {
       return history_elem.first;
     };
-    auto const = main_repl_state.history | rv::transform(tr_func) | r::to_vector;
+    auto const main_history = main_repl_state.history | rv::transform(tr_func) | r::to_vector;
 
     auto const &repl_history = heartbeat_res.history_epochs_;
 
