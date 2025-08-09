@@ -160,7 +160,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
     }
 
     // Return main's ts
-    auto const &main_newest_history_elem = main_history[newest_common_epoch_idx];
+    auto const &main_newest_history_elem = main_repl_state.history[newest_common_epoch_idx];
     spdlog::trace("Newest common epoch is {} with main's ts of {}", main_newest_history_elem.first,
                   main_newest_history_elem.second);
     return main_newest_history_elem.second;
