@@ -15,6 +15,7 @@
 
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
+#include "tests/test_commit_args_helper.hpp"
 #include "utils/timer.hpp"
 
 using memgraph::replication_coordination_glue::ReplicationRole;
@@ -46,7 +47,7 @@ int main(int argc, char *argv[]) {
         auto acc = storage->Access();
         vertices[0] = acc->CreateVertex().Gid();
         pid = acc->NameToProperty("NEW_PROP");
-        MG_ASSERT(!acc->PrepareForCommitPhase().HasError());
+        MG_ASSERT(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
       }
 
       for (int iter = 0; iter != FLAGS_num_iterations; ++iter) {
@@ -55,7 +56,7 @@ int main(int argc, char *argv[]) {
         for (auto i = 0; i != FLAGS_num_poperties; ++i) {
           MG_ASSERT(!vertex1.value().SetProperty(pid, memgraph::storage::PropertyValue{i}).HasError());
         }
-        MG_ASSERT(!acc->PrepareForCommitPhase().HasError());
+        MG_ASSERT(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
       }
 
       end_bench = timer.Elapsed();

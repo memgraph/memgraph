@@ -18,11 +18,11 @@
 #include <utility>
 #include <vector>
 
+#include "dbms/database_access.hpp"
 #include "kvstore/kvstore.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/cypher_query_interpreter.hpp"
-#include "query/database_access.hpp"
 #include "query/trigger_context.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/rw_spin_lock.hpp"
@@ -39,7 +39,7 @@ struct Trigger {
                    const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> owner,
                    std::string_view db_name);
 
-  void Execute(DbAccessor *dba, DatabaseAccessProtector db_acc, utils::MemoryResource *execution_memory,
+  void Execute(DbAccessor *dba, memgraph::dbms::DatabaseAccess db_acc, utils::MemoryResource *execution_memory,
                double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
                std::atomic<TransactionStatus> *transaction_status, const TriggerContext &context) const;
 

@@ -82,6 +82,8 @@ class Scheduler {
 
   bool IsRunning();
 
+  bool IsPaused() const { return is_paused_; }
+
   void SpinOnce();
 
   using time_point = std::chrono::system_clock::time_point;

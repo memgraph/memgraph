@@ -52,6 +52,8 @@ class EdgePropertyIndex {
     virtual uint64_t ApproximateEdgeCount(PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower,
                                           const std::optional<utils::Bound<PropertyValue>> &upper) const = 0;
 
+    virtual bool IndexExists(PropertyId property) const = 0;
+
     virtual bool IndexReady(PropertyId property) const = 0;
 
     virtual std::vector<PropertyId> ListIndices(uint64_t start_timestamp) const = 0;

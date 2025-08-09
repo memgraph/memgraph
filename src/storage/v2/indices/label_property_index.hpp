@@ -87,8 +87,6 @@ struct LabelPropertiesIndicesInfo {
   std::vector<PropertyPath> properties_;
 };
 
-using PropertiesPaths = std::vector<PropertyPath>;
-
 struct IndexOrderedPropertyValues {
   IndexOrderedPropertyValues(std::vector<PropertyValue> value) : values_{std::move(value)} {}
 
@@ -207,6 +205,8 @@ class LabelPropertyIndex {
                                      const Transaction &tx) = 0;
 
     virtual bool IndexReady(LabelId label, std::span<PropertyPath const> properties) const = 0;
+
+    virtual bool IndexExists(LabelId label, std::span<PropertyPath const> properties) const = 0;
 
     virtual auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
                                                     std::span<PropertyPath const> properties) const

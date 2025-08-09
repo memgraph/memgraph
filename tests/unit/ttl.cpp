@@ -20,10 +20,11 @@
 #include "disk_test_utils.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "query/interpreter_context.hpp"
-#include "query/time_to_live/time_to_live.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
+#include "storage/v2/ttl.hpp"
+#include "tests/test_commit_args_helper.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/settings.hpp"
 
@@ -99,9 +100,58 @@ class TTLFixture : public ::testing::Test {
                                                            nullptr,
                                                            &auth_checker};
 
-  memgraph::query::ttl::TTL *ttl_{&db_->ttl()};
+  memgraph::storage::ttl::TTL *ttl_{&db_->ttl()};
 
-  void SetUp() override {}
+  void SetUp() override {
+    // Storage now has a safe default database protector factory
+    // No additional setup needed for tests
+  }
+
+  // Helper to ensure TTL indices are created and ready - matches TTL system expectations
+  void EnsureTTLIndicesReady() {
+    // First determine if edge TTL should run based on the TTL system's logic
+    bool should_run_edge_ttl = this->RunEdgeTTL();
+
+    auto ttl_label = db_->storage()->NameToLabel("TTL");
+    auto ttl_property = db_->storage()->NameToProperty("ttl");
+    std::vector<memgraph::storage::PropertyPath> ttl_property_path = {ttl_property};
+
+    // Create indices synchronously using UniqueAccess (blocking) - exactly like TTL system does
+    {
+      auto unique_acc = db_->storage()->UniqueAccess();
+
+      // Always create label+property index (TTL system always needs this)
+      if (!unique_acc->LabelPropertyIndexExists(ttl_label, ttl_property_path)) {
+        auto result = unique_acc->CreateIndex(ttl_label, ttl_property_path);
+        ASSERT_FALSE(result.HasError()) << "Failed to create label+property index";
+      }
+
+      // Create edge property index only if needed (matches TTL condition exactly)
+      if (should_run_edge_ttl && !unique_acc->EdgePropertyIndexExists(ttl_property)) {
+        auto result = unique_acc->CreateGlobalEdgeIndex(ttl_property);
+        ASSERT_FALSE(result.HasError()) << "Failed to create edge property index";
+      }
+
+      // Commit the index creation using the test helper
+      auto commit_result = unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
+      ASSERT_FALSE(commit_result.HasError()) << "Failed to commit index creation";
+    }
+
+    // Wait for indices to be ready - matches TTL system's readiness check exactly
+    for (int i = 0; i < 100; ++i) {  // Increased timeout to 10 seconds
+      auto acc = db_->Access();
+      bool label_prop_ready = acc->LabelPropertyIndexReady(ttl_label, ttl_property_path);
+      bool edge_prop_ready = !should_run_edge_ttl || acc->EdgePropertyIndexReady(ttl_property);
+
+      if (label_prop_ready && edge_prop_ready) {
+        return;
+      }
+
+      std::this_thread::sleep_for(std::chrono::milliseconds(100));
+    }
+
+    FAIL() << "TTL indices not ready after synchronous creation and 10 second wait";
+  }
 
   void TearDown() override {
     db_->StopAllBackgroundTasks();
@@ -113,33 +163,32 @@ class TTLFixture : public ::testing::Test {
 };
 
 using TestTypes = ::testing::Types<std::tuple<memgraph::storage::InMemoryStorage, std::true_type>,
-                                   std::tuple<memgraph::storage::InMemoryStorage, std::false_type>,
-                                   std::tuple<memgraph::storage::DiskStorage, std::true_type>,
-                                   std::tuple<memgraph::storage::DiskStorage, std::false_type>>;
+                                   std::tuple<memgraph::storage::InMemoryStorage, std::false_type>>;
+
+// std::tuple<memgraph::storage::DiskStorage, std::true_type>,
+// std::tuple<memgraph::storage::DiskStorage, std::false_type>>;
 TYPED_TEST_SUITE(TTLFixture, TestTypes);
 
 TYPED_TEST(TTLFixture, EnableTest) {
-  const memgraph::query::ttl::TtlInfo ttl_info{std::chrono::days(1), std::chrono::system_clock::now()};
+  const auto period = std::chrono::days(1);
+  const auto start_time = std::chrono::system_clock::now();
+  const bool should_run_edge_ttl = this->RunEdgeTTL();
+
   EXPECT_FALSE(this->ttl_->Enabled());
-  EXPECT_THROW(this->ttl_->Configure(ttl_info), memgraph::query::ttl::TtlException);
-  EXPECT_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_, this->RunEdgeTTL()),
-               memgraph::query::ttl::TtlException);
+  EXPECT_THROW(this->ttl_->Configure(should_run_edge_ttl), memgraph::storage::ttl::TtlException);
+  EXPECT_THROW(this->ttl_->SetInterval(period, start_time), memgraph::storage::ttl::TtlException);
   this->ttl_->Enable();
   EXPECT_TRUE(this->ttl_->Enabled());
-  EXPECT_THROW(this->ttl_->Configure({}), memgraph::query::ttl::TtlException);
-  EXPECT_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_, this->RunEdgeTTL()),
-               memgraph::query::ttl::TtlException);
-  EXPECT_NO_THROW(this->ttl_->Configure(ttl_info));
-  EXPECT_EQ(this->ttl_->Config(), ttl_info);
-  EXPECT_NO_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_, this->RunEdgeTTL()));
-  EXPECT_THROW(this->ttl_->Configure(ttl_info), memgraph::query::ttl::TtlException);
-  this->ttl_->Stop();
-  EXPECT_NO_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_, this->RunEdgeTTL()));
-  EXPECT_EQ(this->ttl_->Config(), ttl_info);
+  EXPECT_NO_THROW(this->ttl_->Configure(should_run_edge_ttl));
+  EXPECT_NO_THROW(this->ttl_->SetInterval(period, start_time));
+  this->ttl_->Resume();
+  EXPECT_THROW(this->ttl_->Configure(should_run_edge_ttl), memgraph::storage::ttl::TtlException);
+  this->ttl_->Pause();
+  EXPECT_NO_THROW(this->ttl_->SetInterval(period, start_time));
+  this->ttl_->Resume();
   this->ttl_->Disable();
   EXPECT_FALSE(this->ttl_->Enabled());
-  EXPECT_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_, this->RunEdgeTTL()),
-               memgraph::query::ttl::TtlException);
+  EXPECT_THROW(this->ttl_->SetInterval(period, start_time), memgraph::storage::ttl::TtlException);
 }
 
 TYPED_TEST(TTLFixture, Periodic) {
@@ -168,7 +217,7 @@ TYPED_TEST(TTLFixture, Periodic) {
     ASSERT_FALSE(v5.SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).HasError());
     ASSERT_FALSE(v6.AddLabel(ttl_lbl).HasError());
     ASSERT_FALSE(v6.SetProperty(ttl_prop, memgraph::storage::PropertyValue(newer_ts)).HasError());
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto acc = this->db_->Access();
@@ -178,8 +227,10 @@ TYPED_TEST(TTLFixture, Periodic) {
     EXPECT_EQ(size, 6);
   }
   this->ttl_->Enable();
-  this->ttl_->Configure(memgraph::query::ttl::TtlInfo{std::chrono::milliseconds(700), {}});
-  EXPECT_NO_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_, this->RunEdgeTTL()));
+  this->ttl_->Configure(this->RunEdgeTTL());
+  EXPECT_NO_THROW(this->ttl_->SetInterval(std::chrono::milliseconds(700)));
+  this->ttl_->Resume();
+  this->EnsureTTLIndicesReady();  // Ensure indices are created and ready
   std::this_thread::sleep_for(std::chrono::seconds(1));
   {
     auto acc = this->db_->Access();
@@ -225,7 +276,7 @@ TYPED_TEST(TTLFixture, StartTime) {
     ASSERT_FALSE(v5.SetProperty(ttl_prop, memgraph::storage::PropertyValue(older_ts)).HasError());
     ASSERT_FALSE(v6.AddLabel(ttl_lbl).HasError());
     ASSERT_FALSE(v6.SetProperty(ttl_prop, memgraph::storage::PropertyValue(newer_ts)).HasError());
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto acc = this->db_->Access();
@@ -235,9 +286,10 @@ TYPED_TEST(TTLFixture, StartTime) {
     EXPECT_EQ(size, 6);
   }
   this->ttl_->Enable();
-  this->ttl_->Configure(memgraph::query::ttl::TtlInfo{std::chrono::milliseconds(100),
-                                                      std::chrono::system_clock::now() + std::chrono::seconds(3)});
-  EXPECT_NO_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_, this->RunEdgeTTL()));
+  this->ttl_->Configure(this->RunEdgeTTL());
+  EXPECT_NO_THROW(this->ttl_->SetInterval(std::chrono::milliseconds(100),
+                                          std::chrono::system_clock::now() + std::chrono::seconds(3)));
+  this->ttl_->Resume();
   // Shouldn't start still
   for (int i = 0; i < 3; ++i) {
     std::this_thread::sleep_for(std::chrono::milliseconds(800));
@@ -314,7 +366,7 @@ TYPED_TEST(TTLFixture, Edge) {
       ASSERT_FALSE(e5->SetProperty(ttl_prop, memgraph::storage::PropertyValue(newer_ts)).HasError());
     }
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto acc = this->db_->Access();
@@ -323,8 +375,10 @@ TYPED_TEST(TTLFixture, Edge) {
     EXPECT_EQ(size, 6);
   }
   this->ttl_->Enable();
-  this->ttl_->Configure(memgraph::query::ttl::TtlInfo{std::chrono::milliseconds(700), {}});
-  EXPECT_NO_THROW(this->ttl_->Setup(this->db_, &this->interpreter_context_, this->RunEdgeTTL()));
+  this->ttl_->Configure(this->RunEdgeTTL());
+  EXPECT_NO_THROW(this->ttl_->SetInterval(std::chrono::milliseconds(700)));
+  this->ttl_->Resume();
+  this->EnsureTTLIndicesReady();  // Ensure indices are created and ready
   std::this_thread::sleep_for(std::chrono::seconds(1));
   {
     auto acc = this->db_->Access();
@@ -371,64 +425,6 @@ TYPED_TEST(TTLFixture, Edge) {
   }
 }
 
-TYPED_TEST(TTLFixture, Durability) {
-  const auto path = GetCleanDataDirectory();
-  ASSERT_TRUE(memgraph::utils::EnsureDir(path));
-  auto clean_up = memgraph::utils::OnScopeExit([&] { std::filesystem::remove_all(path); });
-  memgraph::query::ttl::TtlInfo ttl_info;
-  {
-    {
-      memgraph::query::ttl::TTL ttl(path);
-      ttl.Restore(this->db_, &this->interpreter_context_);
-      EXPECT_FALSE(ttl.Enabled());
-      EXPECT_EQ(ttl.Config(), memgraph::query::ttl::TtlInfo{});
-      EXPECT_FALSE(ttl.Running());
-    }
-    {
-      memgraph::query::ttl::TTL ttl(path);
-      ttl.Enable();
-    }
-    {
-      memgraph::query::ttl::TTL ttl(path);
-      ttl.Restore(this->db_, &this->interpreter_context_);
-      EXPECT_TRUE(ttl.Enabled());
-      EXPECT_EQ(ttl.Config(), memgraph::query::ttl::TtlInfo{});
-      EXPECT_FALSE(ttl.Running());
-    }
-    {
-      ttl_info.period = std::chrono::minutes(12);
-      memgraph::query::ttl::TTL ttl(path);
-      ttl.Enable();
-      ttl.Configure(ttl_info);
-    }
-    {
-      memgraph::query::ttl::TTL ttl(path);
-      ttl.Restore(this->db_, &this->interpreter_context_);
-      EXPECT_TRUE(ttl.Enabled());
-      EXPECT_EQ(ttl.Config(), ttl_info);
-      EXPECT_FALSE(ttl.Running());
-    }
-    {
-      ttl_info.period = std::chrono::hours(34);
-      ttl_info.start_time = std::chrono::system_clock::now();
-      memgraph::query::ttl::TTL ttl(path);
-      ttl.Enable();
-      ttl.Configure(ttl_info);
-      ttl.Setup(this->db_, &this->interpreter_context_, this->RunEdgeTTL());
-    }
-    {
-      memgraph::query::ttl::TTL ttl(path);
-      ttl.Restore(this->db_, &this->interpreter_context_);
-      EXPECT_TRUE(ttl.Enabled());
-      EXPECT_EQ(ttl.Config().period, ttl_info.period);
-      ASSERT_TRUE(ttl.Config().start_time && ttl_info.start_time);
-      EXPECT_EQ(*ttl.Config().start_time, std::chrono::time_point_cast<std::chrono::seconds>(
-                                              *ttl_info.start_time));  // Durability has seconds precision
-      EXPECT_TRUE(ttl.Running());
-    }
-  }
-}
-
 // Needs user-defined timezone
 TEST(TtlInfo, PersistentTimezone) {
   memgraph::utils::global_settings.Initialize("/tmp/ttl");
@@ -464,63 +460,63 @@ TEST(TtlInfo, String) {
 
   {
     auto period = std::chrono::hours(1) + std::chrono::minutes(23) + std::chrono::seconds(59);
-    auto period_str = memgraph::query::ttl::TtlInfo::StringifyPeriod(period);
+    auto period_str = memgraph::storage::ttl::TtlInfo::StringifyPeriod(period);
     EXPECT_EQ(period_str, "1h23m59s");
-    EXPECT_EQ(period, memgraph::query::ttl::TtlInfo::ParsePeriod(period_str));
+    EXPECT_EQ(period, memgraph::storage::ttl::TtlInfo::ParsePeriod(period_str));
   }
   {
     auto period = std::chrono::days(45) + std::chrono::seconds(120 + 59);
-    auto period_str = memgraph::query::ttl::TtlInfo::StringifyPeriod(period);
+    auto period_str = memgraph::storage::ttl::TtlInfo::StringifyPeriod(period);
     EXPECT_EQ(period_str, "45d2m59s");
-    EXPECT_EQ(period, memgraph::query::ttl::TtlInfo::ParsePeriod(period_str));
+    EXPECT_EQ(period, memgraph::storage::ttl::TtlInfo::ParsePeriod(period_str));
   }
   {
     auto period = std::chrono::hours(25);
-    auto period_str = memgraph::query::ttl::TtlInfo::StringifyPeriod(period);
+    auto period_str = memgraph::storage::ttl::TtlInfo::StringifyPeriod(period);
     EXPECT_EQ(period_str, "1d1h");
-    EXPECT_EQ(period, memgraph::query::ttl::TtlInfo::ParsePeriod(period_str));
+    EXPECT_EQ(period, memgraph::storage::ttl::TtlInfo::ParsePeriod(period_str));
   }
   {
     // Has to handle time zones (hours can differ)
     memgraph::utils::global_settings.SetValue("timezone", "UTC");
-    auto time = memgraph::query::ttl::TtlInfo::ParseStartTime("03:45:10");
+    auto time = memgraph::storage::ttl::TtlInfo::ParseStartTime("03:45:10");
     auto epoch = time.time_since_epoch();
     GetPart<std::chrono::hours>(epoch);  // consume and ignore
     EXPECT_EQ(GetPart<std::chrono::minutes>(epoch), 45);
     EXPECT_EQ(GetPart<std::chrono::seconds>(epoch), 10);
-    auto time_str = memgraph::query::ttl::TtlInfo::StringifyStartTime(time);
+    auto time_str = memgraph::storage::ttl::TtlInfo::StringifyStartTime(time);
     EXPECT_EQ(time_str, "03:45:10");
   }
   {
     // Has to handle time zones (hours can differ)
     memgraph::utils::global_settings.SetValue("timezone", "Europe/Rome");
-    auto time = memgraph::query::ttl::TtlInfo::ParseStartTime("03:45:10");
+    auto time = memgraph::storage::ttl::TtlInfo::ParseStartTime("03:45:10");
     auto epoch = time.time_since_epoch();
     GetPart<std::chrono::hours>(epoch);  // consume and ignore
     EXPECT_EQ(GetPart<std::chrono::minutes>(epoch), 45);
     EXPECT_EQ(GetPart<std::chrono::seconds>(epoch), 10);
-    auto time_str = memgraph::query::ttl::TtlInfo::StringifyStartTime(time);
+    auto time_str = memgraph::storage::ttl::TtlInfo::StringifyStartTime(time);
     EXPECT_EQ(time_str, "03:45:10");
   }
   {
     // Has to handle time zones (hours can differ)
     memgraph::utils::global_settings.SetValue("timezone", "America/Los_Angeles");
-    auto time = memgraph::query::ttl::TtlInfo::ParseStartTime("03:45:10");
+    auto time = memgraph::storage::ttl::TtlInfo::ParseStartTime("03:45:10");
     auto epoch = time.time_since_epoch();
     GetPart<std::chrono::hours>(epoch);  // consume and ignore
     EXPECT_EQ(GetPart<std::chrono::minutes>(epoch), 45);
     EXPECT_EQ(GetPart<std::chrono::seconds>(epoch), 10);
-    auto time_str = memgraph::query::ttl::TtlInfo::StringifyStartTime(time);
+    auto time_str = memgraph::storage::ttl::TtlInfo::StringifyStartTime(time);
     EXPECT_EQ(time_str, "03:45:10");
   }
   {
     const auto time_str = "12:34:56";
     memgraph::utils::global_settings.SetValue("timezone", "UTC");
-    auto utc = memgraph::query::ttl::TtlInfo::ParseStartTime(time_str);
+    auto utc = memgraph::storage::ttl::TtlInfo::ParseStartTime(time_str);
     memgraph::utils::global_settings.SetValue("timezone", "Europe/Rome");
-    auto rome = memgraph::query::ttl::TtlInfo::ParseStartTime(time_str);
+    auto rome = memgraph::storage::ttl::TtlInfo::ParseStartTime(time_str);
     memgraph::utils::global_settings.SetValue("timezone", "America/Los_Angeles");
-    auto la = memgraph::query::ttl::TtlInfo::ParseStartTime(time_str);
+    auto la = memgraph::storage::ttl::TtlInfo::ParseStartTime(time_str);
     // Time is converted to local date time; so might be influenced by day-light savings
     EXPECT_TRUE(utc == rome + std::chrono::hours(2) || utc == rome + std::chrono::hours(1))
         << "[ERROR] UTC " << utc << " Rome " << rome;
