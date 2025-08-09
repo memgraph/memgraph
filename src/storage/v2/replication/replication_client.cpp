@@ -155,7 +155,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
     }
 
     if (!newest_common_epoch_idx.has_value()) {
-      spdlog::trace("There is no common history with instance {}".client_.name_);
+      spdlog::trace("There is no common history with instance {}", client_.name_);
       return std::nullopt;
     }
 
@@ -163,7 +163,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
     auto const &main_newest_history_elem = main_history[newest_common_epoch_idx];
     spdlog::trace("Newest common epoch is {} with main's ts of {}", main_newest_history_elem.first,
                   main_newest_history_elem.second);
-    return main_history[newest_common_epoch_idx].second;
+    return main_newest_history_elem.second;
   });
 
   if (branching_point) {
