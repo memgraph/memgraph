@@ -268,14 +268,14 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
 
   if (!current_main_uuid.has_value() || req.main_uuid != *current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::HeartbeatReq::kType.name);
-    const storage::replication::HeartbeatRes res{false, 0, ""};
+    const storage::replication::HeartbeatRes res{false, 0, {}};
     rpc::SendFinalResponse(res, res_builder);
     return;
   }
   // TODO: this handler is agnostic of InMemory, move to be reused by on-disk
   if (!db_acc.has_value()) {
     spdlog::warn("No database accessor");
-    storage::replication::HeartbeatRes const res{false, 0, ""};
+    storage::replication::HeartbeatRes const res{false, 0, {}};
     rpc::SendFinalResponse(res, res_builder);
     return;
   }
@@ -283,15 +283,13 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
   auto const *storage = db_acc->get()->storage();
   auto const ldt = storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
 
-  auto const last_epoch_with_commit = std::invoke([storage, ldt]() -> std::string {
-    if (auto &history = storage->repl_storage_state_.history; !history.empty()) {
-      auto [history_epoch, history_ldt] = history.back();
-      return history_ldt != ldt ? std::string{storage->repl_storage_state_.epoch_.id()} : history_epoch;
-    }
-    return std::string{storage->repl_storage_state_.epoch_.id()};
-  });
+  auto const tr_func = [](std::pair<std::string, uint64_t> const &history_elem) -> std::string {
+    return history_elem.first;
+  };
 
-  const storage::replication::HeartbeatRes res{true, ldt, last_epoch_with_commit};
+  auto history_epochs = storage->repl_storage_state_.history | rv::transform(tr_func) | r::to_vector;
+
+  const storage::replication::HeartbeatRes res{true, ldt, std::move(history_epochs)};
   rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
 }
 

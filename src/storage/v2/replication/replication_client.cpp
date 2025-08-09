@@ -16,6 +16,7 @@
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/recovery.hpp"
 #include "storage/v2/storage.hpp"
+#include "utils/compile_time.hpp"
 #include "utils/event_histogram.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/metrics_timer.hpp"
@@ -24,10 +25,15 @@
 #include "utils/variant_helpers.hpp"
 
 #include <spdlog/spdlog.h>
+#include <range/v3/view/filter.hpp>
+#include <range/v3/view/join.hpp>
+#include <range/v3/view/transform.hpp>
 
 #include <algorithm>
 #include <atomic>
-#include "utils/compile_time.hpp"
+
+namespace r = ranges;
+namespace rv = r::views;
 
 namespace {
 constexpr auto kHeartbeatRpcTimeout = std::chrono::milliseconds(5000);
@@ -125,44 +131,40 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
 #endif
   }
 
-  std::optional<uint64_t> branching_point;
-  // different epoch id, replica was main
-  // In case there is no epoch transfer, and MAIN doesn't hold all the epochs as it could have been down and miss it
-  // we need then just to check commit timestamp
-  if (heartbeat_res.epoch_id != main_repl_state.epoch_.id() &&
-      heartbeat_res.current_commit_timestamp != kTimestampInitialId) {
-    spdlog::trace(
-        "DB: {} Replica {}: Epoch id: {}, last_durable_timestamp: {}; Main: Epoch id: {}, last_durable_timestamp: {}",
-        main_db_name, client_.name_, std::string(heartbeat_res.epoch_id), heartbeat_res.current_commit_timestamp,
-        std::string(main_repl_state.epoch_.id()),
-        main_repl_state.last_durable_timestamp_.load(std::memory_order_acquire));
+  // std::nullopt means we couldn't find continuous history between instances
+  // Concrete number means we found it and can recover up to that point.
+  auto const branching_point = std::invoke([&]() -> std::optional<uint64_t> {
+    // Default case
+    if (heartbeat_res.current_commit_timestamp == kTimestampInitialId) return std::nullopt;
 
-    auto const &main_history = main_repl_state.history;
-    const auto epoch_info_iter =
-        std::find_if(main_history.crbegin(), main_history.crend(),
-                     [&](const auto &main_epoch_info) { return main_epoch_info.first == heartbeat_res.epoch_id; });
+    auto const tr_func = [](std::pair<std::string, uint64_t> const &history_elem) -> std::string {
+      return history_elem.first;
+    };
+    auto const main_history = main_repl_state.history | rv::transform(tr_func) | r::to_vector;
 
-    if (epoch_info_iter == main_history.crend()) {
-      branching_point = 0;
-      spdlog::trace("Couldn't find epoch {} in main for db {}, setting branching point to 0.",
-                    std::string(heartbeat_res.epoch_id), main_db_name);
-    } else if (epoch_info_iter->second <
-               heartbeat_res
-                   .current_commit_timestamp) {  // replica has larger commit ts associated with epoch than main
-      spdlog::trace(
-          "Found epoch {} on main for db {} with last_durable_timestamp {}, replica {} has last_durable_timestamp {}. "
-          "Setting "
-          "branching point to {}.",
-          std::string(epoch_info_iter->first), main_db_name, epoch_info_iter->second, client_.name_,
-          heartbeat_res.current_commit_timestamp, epoch_info_iter->second);
-      branching_point = epoch_info_iter->second;
-    } else {
-      branching_point = std::nullopt;
-      spdlog::trace(
-          "Found continuous history between replica {} and main for db {}. Our commit timestamp for epoch {} was {}.",
-          client_.name_, main_db_name, epoch_info_iter->first, epoch_info_iter->second);
+    auto const &repl_history = heartbeat_res.history_epochs_;
+
+    auto const min_size = std::min(main_history.size(), repl_history.size());
+    std::optional<uint32_t> newest_common_epoch_idx;
+    for (uint32_t i = 0; i < min_size; i++) {
+      if (main_history[i] == repl_history[i]) {
+        newest_common_epoch_idx.emplace(i);
+      } else {
+        break;
+      }
     }
-  }
+
+    if (!newest_common_epoch_idx.has_value()) {
+      spdlog::trace("There is no common history with instance {}".client_.name_);
+      return std::nullopt;
+    }
+
+    // Return main's ts
+    auto const &main_newest_history_elem = main_history[newest_common_epoch_idx];
+    spdlog::trace("Newest common epoch is {} with main's ts of {}", main_newest_history_elem.first,
+                  main_newest_history_elem.second);
+    return main_history[newest_common_epoch_idx].second;
+  });
 
   if (branching_point) {
     auto log_error = [replica_name = client_.name_]() {
@@ -189,9 +191,10 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
                   client_.name_, main_db_name);
     replica_state_.WithLock([&](auto &state) {
       state = ReplicaState::RECOVERY;
-      client_.thread_pool_.AddTask([main_storage, gk = std::move(db_acc), this] {
-        this->RecoverReplica(/*replica_last_commit_ts*/ 0, main_storage,
-                             true);  // needs force reset so we need to recover from 0.
+      client_.thread_pool_.AddTask([&branching_point, main_storage, gk = std::move(db_acc), this] {
+        bool const reset_needed = !branching_point.has_value();
+        auto const ts_value = branching_point.has_value() ? *branching_point : 0;
+        this->RecoverReplica(ts_value, main_storage, reset_needed);
       });
     });
 #else

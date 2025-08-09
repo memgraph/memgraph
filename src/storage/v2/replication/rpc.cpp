@@ -191,13 +191,13 @@ void Load(memgraph::storage::replication::SnapshotReq *self, memgraph::slk::Read
 void Save(const memgraph::storage::replication::HeartbeatRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.success, builder);
   memgraph::slk::Save(self.current_commit_timestamp, builder);
-  memgraph::slk::Save(self.epoch_id, builder);
+  memgraph::slk::Save(self.history_epochs_, builder);
 }
 
 void Load(memgraph::storage::replication::HeartbeatRes *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->success, reader);
   memgraph::slk::Load(&self->current_commit_timestamp, reader);
-  memgraph::slk::Load(&self->epoch_id, reader);
+  memgraph::slk::Load(&self->history_epochs_, reader);
 }
 
 // Serialize code for HeartbeatReq

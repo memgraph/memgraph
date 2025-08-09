@@ -285,6 +285,7 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
 
     // All DBs should have the same epoch
     auto const new_epoch = ReplicationEpoch();
+    spdlog::trace("Generated new epoch: {}", new_epoch.id());
 
     // STEP 3) We are now MAIN, update storage local epoch
     dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
@@ -387,6 +388,7 @@ auto ReplicationHandler::GetDatabasesHistories() const -> replication_coordinati
 
   return results;
 }
+
 #endif
 
 bool ReplicationHandler::IsMain() const { return repl_state_.ReadLock()->IsMain(); }
