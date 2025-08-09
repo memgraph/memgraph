@@ -64,6 +64,23 @@ def list_directory_contents(directory):
     return os.listdir(directory)
 
 
+def wait_until_main_writeable(cursor, query):
+    """
+    After becoming main, the instance can be in non-writeable state at the beginning. Therefore, we try
+    to execute the query and if succeed, we return immediately. If an exception occurs, there are 3 possible situations.
+    If the error message is that write query is forbidden on the main, then we will try once again execute the query.
+    If not, we assert false and crash the program.
+    """
+    while True:
+        try:
+            execute_and_fetch_all(cursor, query)
+            break
+        except Exception as e:
+            if "Write queries currently forbidden on the main instance" in str(e):
+                continue
+            assert False
+
+
 def wait_until_main_writeable_assert_replica_down(cursor, query):
     """
     After becoming main, the instance can be in non-writeable state at the beginning. Therefore, we try

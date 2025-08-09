@@ -102,6 +102,7 @@ INTEGER                 : I N T E G E R ;
 ISOLATION               : I S O L A T I O N ;
 KAFKA                   : K A F K A ;
 LABELS                  : L A B E L S ;
+LAG                     : L A G ;
 LEADERSHIP              : L E A D E R S H I P ;
 LEVEL                   : L E V E L ;
 LICENSE                 : L I C E N S E ;

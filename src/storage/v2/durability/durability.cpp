@@ -626,6 +626,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
           recovery_info.last_durable_timestamp = info->last_durable_timestamp;
           last_loaded_timestamp.emplace(info->last_durable_timestamp);
           spdlog::trace("Set ldt to {} after loading from WAL", info->last_durable_timestamp);
+          recovery_info.num_committed_txns += info->num_committed_txns;
         }
 
         if (!epoch_history->empty() && epoch_history->back().first == wal_file.epoch_id) {

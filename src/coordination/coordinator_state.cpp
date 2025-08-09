@@ -161,6 +161,10 @@ auto CoordinatorState::ShowCoordinatorSettings() const -> std::vector<std::pair<
   return std::get<CoordinatorInstance>(data_).ShowCoordinatorSettings();
 }
 
+auto CoordinatorState::ShowReplicationLag() const -> std::map<std::string, std::map<std::string, ReplicaDBLagData>> {
+  return std::get<CoordinatorInstance>(data_).ShowReplicationLag();
+}
+
 auto CoordinatorState::GetRoutingTable() const -> RoutingTable {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot get routing table since variant holds wrong alternative");

@@ -21,7 +21,7 @@ namespace memgraph::storage::durability {
 // IMPORTANT: Please bump this version for every snapshot and/or WAL format
 // change!!!
 
-constexpr uint64_t kVersion{29};
+constexpr uint64_t kVersion{30};
 
 constexpr uint64_t kOldestSupportedVersion{14};
 constexpr uint64_t kUniqueConstraintVersion{13};
@@ -43,6 +43,7 @@ constexpr uint64_t kVectorIndexWithScalarKind{26};
 constexpr uint64_t kVectorIndexWithEdgeTypeProp{27};
 constexpr uint64_t kTxnStart{28};
 constexpr uint64_t kTextIndexWithProperties{29};
+constexpr uint64_t kNumCommittedTxns{30};
 
 // Magic values written to the start of a snapshot/WAL file to identify it.
 const std::string kSnapshotMagic{"MGsn"};

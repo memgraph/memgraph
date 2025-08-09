@@ -11,8 +11,6 @@
 
 #pragma once
 
-#include "utils/uuid.hpp"
-
 namespace memgraph::replication_coordination_glue {
 
 struct InstanceDBInfo {

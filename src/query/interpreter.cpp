@@ -598,6 +598,10 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
     return coordinator_handler_.ShowCoordinatorSettings();
   }
 
+  std::map<std::string, std::map<std::string, coordination::ReplicaDBLagData>> ShowReplicationLag() override {
+    return coordinator_handler_.ShowReplicationLag();
+  }
+
   void RegisterReplicationInstance(std::string_view bolt_server, std::string_view management_server,
                                    std::string_view replication_server, std::string_view instance_name,
                                    CoordinatorQuery::SyncMode sync_mode) override {
@@ -1950,6 +1954,44 @@ Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Param
           setting_info.emplace_back(k);
           setting_info.emplace_back(v);
           results.push_back(std::move(setting_info));
+        }
+        return results;
+      };
+      return callback;
+    }
+    case CoordinatorQuery::Action::SHOW_REPLICATION_LAG: {
+      if (!coordinator_state->IsCoordinator()) {
+        throw QueryRuntimeException("Only coordinator can run SHOW REPLICATION LAG query.");
+      }
+      callback.header = {"instance_name", "data_info"};
+      callback.fn = [handler = CoordQueryHandler{*coordinator_state}]() mutable {
+        auto const lag_info = handler.ShowReplicationLag();
+        std::vector<std::vector<TypedValue>> results;
+        results.reserve(lag_info.size());
+
+        auto const db_lag_data_to_tv = [](coordination::ReplicaDBLagData orig) {
+          auto info = std::map<std::string, TypedValue>{};
+          info.emplace("num_committed_txns", TypedValue{static_cast<int64_t>(orig.num_committed_txns_)});
+          info.emplace("num_txns_behind_main", TypedValue{static_cast<int64_t>(orig.num_txns_behind_main_)});
+          return TypedValue{std::move(info)};
+        };
+
+        auto const instance_info_to_tv =
+            [&db_lag_data_to_tv](std::map<std::string, coordination::ReplicaDBLagData> const &instance_info)
+            -> std::map<std::string, TypedValue> {
+          auto info = std::map<std::string, TypedValue>{};
+          for (auto const &[db_name, db_lag_data] : instance_info) {
+            info.emplace(db_name, db_lag_data_to_tv(db_lag_data));
+          }
+          return info;
+        };
+
+        for (auto const &[instance_name, data_info] : lag_info) {
+          std::vector<TypedValue> instance_out_info;
+          instance_out_info.reserve(2);
+          instance_out_info.emplace_back(instance_name);
+          instance_out_info.emplace_back(instance_info_to_tv(data_info));
+          results.push_back(std::move(instance_out_info));
         }
         return results;
       };

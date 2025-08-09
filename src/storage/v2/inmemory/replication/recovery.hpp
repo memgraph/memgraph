@@ -59,7 +59,7 @@ std::enable_if_t<std::is_same_v<T, std::vector<std::filesystem::path>>, bool> Wr
 
 template <rpc::IsRpc T, typename R, typename... Args>
 std::optional<typename T::Response> TransferDurabilityFiles(const R &files, rpc::Client &client,
-                                                            replication_coordination_glue::ReplicationMode mode,
+                                                            replication_coordination_glue::ReplicationMode const mode,
                                                             Args &&...args) {
   utils::MetricsTimer const timer{RpcInfo<T>::timerLabel};
   std::optional<rpc::Client::StreamHandler<T>> maybe_stream_result;
@@ -78,7 +78,7 @@ std::optional<typename T::Response> TransferDurabilityFiles(const R &files, rpc:
     return std::nullopt;
   }
 
-  // If writing files failed, fail the task by return std::nullopt
+  // If writing files failed, fail the task by returning empty optional
   if (replication::Encoder encoder(maybe_stream_result->GetBuilder()); !WriteFiles(files, encoder)) {
     return std::nullopt;
   }

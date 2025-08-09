@@ -298,6 +298,7 @@ coordinatorQuery : registerInstanceOnCoordinator
                  | yieldLeadership
                  | setCoordinatorSetting
                  | showCoordinatorSettings
+                 | showReplicationLag
                  ;
 
 triggerQuery : createTrigger
@@ -542,6 +543,8 @@ yieldLeadership : YIELD LEADERSHIP ;
 setCoordinatorSetting: SET COORDINATOR SETTING settingName TO settingValue ;
 
 showCoordinatorSettings: SHOW COORDINATOR SETTINGS ;
+
+showReplicationLag: SHOW REPLICATION LAG ;
 
 coordinatorServerId : literal ;
 

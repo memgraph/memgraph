@@ -11,14 +11,15 @@
 
 #pragma once
 
+#include <cstdint>
 #include <string>
 #include <string_view>
 
-using namespace std::string_view_literals;
-
 namespace memgraph::coordination {
 
-enum class LogStoreVersion : int {
+using namespace std::string_view_literals;
+
+enum class LogStoreVersion : uint8_t {
   kV1 = 1,  // current version
   kV2 = 2,  // added last_committed_idx_
   // kv3 = 3,  // when new version is added

@@ -1262,5 +1262,35 @@ auto CoordinatorInstance::ShowCoordinatorSettings() const -> std::vector<std::pa
   };
   return settings;
 }
+
+auto CoordinatorInstance::ShowReplicationLag() const -> std::map<std::string, std::map<std::string, ReplicaDBLagData>> {
+  for (auto &repl_instance : repl_instances_) {
+    auto const instance_name = repl_instance.InstanceName();
+    if (!raft_state_->IsCurrentMain(instance_name)) {
+      continue;
+    }
+
+    auto maybe_repl_lag_res = repl_instance.GetClient().SendGetReplicationLagRpc();
+    if (!maybe_repl_lag_res.has_value()) {
+      return {};
+    }
+    auto &replicas_res = maybe_repl_lag_res->replicas_info_;
+
+    auto const get_repl_db_lag_data =
+        [](std::pair<std::string, uint64_t> const &orig_data) -> std::pair<std::string, ReplicaDBLagData> {
+      return std::pair{orig_data.first,
+                       ReplicaDBLagData{.num_committed_txns_ = orig_data.second, .num_txns_behind_main_ = 0}};
+    };
+
+    auto main_data = maybe_repl_lag_res->dbs_main_committed_txns_ | ranges::views::transform(get_repl_db_lag_data) |
+                     ranges::to<std::map<std::string, ReplicaDBLagData>>();
+
+    replicas_res.emplace(instance_name, std::move(main_data));
+    return replicas_res;
+  }
+  spdlog::error("No instance is annotated as main in Raft logs");
+  return {};
+}
+
 }  // namespace memgraph::coordination
 #endif
