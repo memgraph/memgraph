@@ -601,10 +601,6 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     auto last_loaded_timestamp = snapshot_durable_timestamp;
     spdlog::info("Trying to load WAL files.");
 
-    if (last_loaded_timestamp) {
-      epoch_history->emplace_back(repl_storage_state.epoch_.id(), *last_loaded_timestamp);
-    }
-
     for (const auto &wal_file : wal_files) {
       if (previous_seq_num && (wal_file.seq_num - *previous_seq_num) > 1) {
         LOG_FATAL("You are missing a WAL file with the sequence number {}!", *previous_seq_num + 1);
