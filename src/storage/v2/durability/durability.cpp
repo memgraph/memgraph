@@ -617,21 +617,23 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
           recovery_info.next_vertex_id = std::max(recovery_info.next_vertex_id, info->next_vertex_id);
           recovery_info.next_edge_id = std::max(recovery_info.next_edge_id, info->next_edge_id);
           recovery_info.next_timestamp = std::max(recovery_info.next_timestamp, info->next_timestamp);
-          // WAL file is interesting only if it is new (different) ts
+          // WAL file is interesting only if it has a new (different) ldt
           wal_contains_changes = recovery_info.last_durable_timestamp != info->last_durable_timestamp;
           recovery_info.last_durable_timestamp = info->last_durable_timestamp;
           last_loaded_timestamp.emplace(info->last_durable_timestamp);
           spdlog::trace("Set ldt to {} after loading from WAL", info->last_durable_timestamp);
         }
 
-        if (!epoch_history->empty() && epoch_history->back().first == wal_file.epoch_id) {
-          epoch_history->back().second = *last_loaded_timestamp;
-          spdlog::trace("WAL file continuation from the epoch perspective. Updates epoch {} to ldt {}.",
-                        wal_file.epoch_id, *last_loaded_timestamp);
-        } else if (wal_contains_changes) {  // Update history with new epochs that contain some timestamp changes
-          epoch_history->emplace_back(wal_file.epoch_id, *last_loaded_timestamp);
-          repl_storage_state.epoch_.SetEpoch(wal_file.epoch_id);
-          spdlog::trace("Set epoch to {} for db {} with ldt {}", wal_file.epoch_id, db_name, *last_loaded_timestamp);
+        if (wal_contains_changes) {
+          if (!epoch_history->empty() && epoch_history->back().first == wal_file.epoch_id) {
+            epoch_history->back().second = *last_loaded_timestamp;
+            spdlog::trace("WAL file continuation from the epoch perspective. Updates epoch {} to ldt {}.",
+                          wal_file.epoch_id, *last_loaded_timestamp);
+          } else {  // Update history with new epoch that contains new timestamp
+            epoch_history->emplace_back(wal_file.epoch_id, *last_loaded_timestamp);
+            repl_storage_state.epoch_.SetEpoch(wal_file.epoch_id);
+            spdlog::trace("Set epoch to {} for db {} with ldt {}", wal_file.epoch_id, db_name, *last_loaded_timestamp);
+          }
         }
 
       } catch (const RecoveryFailure &e) {
