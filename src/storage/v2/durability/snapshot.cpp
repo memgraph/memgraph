@@ -5393,7 +5393,7 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
                  rv::join(". ") | r::_to_::to<std::string>;
         };
         auto properties_vec = property_paths | rv::transform(path_to_name) | r::to_vector;
-        auto properties_string = fmt::format("{}", fmt::join(properties_vec, ", "));
+        auto properties_string = memgraph::utils::JoinVector(properties_vec, ", ");
 
         AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties,
                                     {get_label_from_id(*label), std::move(property_paths)},
@@ -5974,7 +5974,7 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
                  rv::join(". ") | r::_to_::to<std::string>;
         };
         auto properties_vec = property_paths | rv::transform(path_to_name) | r::to_vector;
-        auto properties_string = fmt::format("{}", fmt::join(properties_vec, ", "));
+        auto properties_string = memgraph::utils::JoinVector(properties_vec, ", ");
 
         AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties,
                                     {get_label_from_id(*label), std::move(property_paths)},

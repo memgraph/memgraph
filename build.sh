@@ -34,9 +34,6 @@ fi
 ./environment/os/install_deps.sh check TOOLCHAIN_RUN_DEPS
 ./environment/os/install_deps.sh check MEMGRAPH_BUILD_DEPS
 
-# fetch libs that aren't provided by conan yet
-./init
-
 echo "Creating virtual environment and installing conan"
 python3 -m venv env
 source ./env/bin/activate
@@ -48,8 +45,12 @@ if [ ! -f "$HOME/.conan2/profiles/default" ]; then
     conan profile detect
 fi
 
+# fetch libs that aren't provided by conan yet
+./init
+
 # install conan dependencies
-MG_TOOLCHAIN_ROOT=/opt/toolchain-v7/ conan install . --build=missing -pr ./memgraph_template_profile -s build_type=$BUILD_TYPE
+export MG_TOOLCHAIN_ROOT=/opt/toolchain-v7/
+conan install . --build=missing -pr ./memgraph_template_profile -s build_type=$BUILD_TYPE
 source build/generators/conanbuild.sh
 
 # Determine preset name based on build type (Conan generates this automatically)

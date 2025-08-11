@@ -20,6 +20,7 @@
 #include "kvstore/kvstore.hpp"
 #include "license/license.hpp"
 #include "system/action.hpp"
+#include "utils/join_vector.hpp"
 #include "utils/settings.hpp"
 #include "utils/synchronized.hpp"
 

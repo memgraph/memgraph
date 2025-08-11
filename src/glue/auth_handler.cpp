@@ -457,7 +457,8 @@ std::vector<std::vector<memgraph::query::TypedValue>> AuthQueryHandler::GetDatab
     if (roles_obj) {
       return ShowDatabasePrivileges(roles_obj);
     }
-    throw memgraph::query::QueryRuntimeException("Missing user '{}' or one of role: {}.", user, fmt::join(roles, ", "));
+    throw memgraph::query::QueryRuntimeException("Missing user '{}' or one of role: {}.", user,
+                                                 memgraph::utils::JoinVector(roles, ", "));
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }

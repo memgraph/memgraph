@@ -49,6 +49,7 @@ endif ()
 # this reduces issues in build folders from inside containers
 # which are different locations than the host
 set(CMAKE_BUILD_RPATH_USE_ORIGIN ON)
+set(CMAKE_BUILD_RPATH "${MG_TOOLCHAIN_ROOT}/lib64")
 
 # Install licenses.
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/licenses/
@@ -267,6 +268,7 @@ set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
 add_link_options(-fuse-ld=lld)
 add_link_options(LINKER:--build-id)
 link_directories("${MG_TOOLCHAIN_ROOT}/lib")
+link_directories("${MG_TOOLCHAIN_ROOT}/lib64")
 
 # After linker is set, check we can use link-time optimization
 cmake_policy(SET CMP0138 NEW)
