@@ -1373,10 +1373,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
 
     // Cleanup INDICES
     index_abort_processor.Process(storage_->indices_, transaction_.active_indices_, transaction_.start_timestamp);
-    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH) &&
-        transaction_.text_index_change_collector_.TextIndexUpdateNeeded()) {
-      storage_->indices_.text_index_.Rollback();
-    }
 
     for (auto const &[label_prop, vertices] : vector_label_property_cleanup) {
       storage_->indices_.vector_index_.AbortEntries(label_prop, vertices);

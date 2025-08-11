@@ -63,10 +63,10 @@ nlohmann::json SerializeProperties(const std::map<PropertyId, PropertyValue> &pr
 std::string StringifyProperties(const std::map<PropertyId, PropertyValue> &properties);
 
 // Text index change tracking
-enum class TextIndexOp { ADD_OR_UPDATE, REMOVE };
+enum class TextIndexOp { ADD, UPDATE, REMOVE };
 
 struct TextIndexPending {
-  absl::flat_hash_set<Vertex const *> to_add_or_update;
+  absl::flat_hash_set<Vertex const *> to_add;
   absl::flat_hash_set<Vertex const *> to_remove;
 };
 

@@ -126,12 +126,16 @@ void TrackTextIndexChange(TextIndexChangeCollector &collector, std::span<TextInd
                           TextIndexOp op) {
   if (!vertex) return;
   for (auto *idx : indices) {
-    auto &entry = collector.changes[idx];  // default constructs both sets
-    if (op == TextIndexOp::ADD_OR_UPDATE) {
+    auto &entry = collector.changes[idx];
+    if (op == TextIndexOp::ADD) {
       entry.to_remove.erase(vertex);
-      entry.to_add_or_update.insert(vertex);
+      entry.to_add.insert(vertex);
+    } else if (op == TextIndexOp::UPDATE) {
+      // On update we have to firstly remove the vertex from index and then add it back
+      entry.to_remove.insert(vertex);
+      entry.to_add.insert(vertex);
     } else {  // REMOVE
-      entry.to_add_or_update.erase(vertex);
+      entry.to_add.erase(vertex);
       entry.to_remove.insert(vertex);
     }
   }

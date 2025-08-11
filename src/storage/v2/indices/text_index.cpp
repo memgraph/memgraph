@@ -122,7 +122,7 @@ void TextIndex::AddNode(Vertex *vertex_after_update, NameIdMapper *name_id_mappe
 void TextIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx) {
   auto applicable_text_indices = GetApplicableTextIndices(std::array{label}, vertex->properties.ExtractPropertyIds());
   if (applicable_text_indices.empty()) return;
-  TrackTextIndexChange(tx.text_index_change_collector_, applicable_text_indices, vertex, TextIndexOp::ADD_OR_UPDATE);
+  TrackTextIndexChange(tx.text_index_change_collector_, applicable_text_indices, vertex, TextIndexOp::ADD);
 }
 
 void TextIndex::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx) {
@@ -134,26 +134,13 @@ void TextIndex::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &
 void TextIndex::UpdateOnSetProperty(Vertex *vertex, Transaction &tx) {
   auto applicable_text_indices = GetApplicableTextIndices(vertex->labels, vertex->properties.ExtractPropertyIds());
   if (applicable_text_indices.empty()) return;
-  TrackTextIndexChange(tx.text_index_change_collector_, applicable_text_indices, vertex, TextIndexOp::ADD_OR_UPDATE);
+  TrackTextIndexChange(tx.text_index_change_collector_, applicable_text_indices, vertex, TextIndexOp::UPDATE);
 }
 
 void TextIndex::RemoveNode(Vertex *vertex, Transaction &tx) {
   auto applicable_text_indices = GetApplicableTextIndices(vertex->labels, vertex->properties.ExtractPropertyIds());
   if (applicable_text_indices.empty()) return;
   TrackTextIndexChange(tx.text_index_change_collector_, applicable_text_indices, vertex, TextIndexOp::REMOVE);
-}
-
-void TextIndex::RemoveNode(Vertex *vertex_after_update, std::span<TextIndexData *> applicable_text_indices) {
-  auto search_node_to_be_deleted =
-      mgcxx::text_search::SearchInput{.search_query = fmt::format("metadata.gid:{}", vertex_after_update->gid.AsInt())};
-  for (auto *applicable_text_index : applicable_text_indices) {
-    try {
-      auto context_ptr = applicable_text_index->context_.MutableSharedLock();
-      mgcxx::text_search::delete_document(*context_ptr, search_node_to_be_deleted, kDoSkipCommit);
-    } catch (const std::exception &e) {
-      throw query::TextSearchException("Tantivy error: {}", e.what());
-    }
-  }
 }
 
 void TextIndex::CreateIndex(const TextIndexSpec &index_info, storage::VerticesIterable vertices,
@@ -301,20 +288,6 @@ std::string TextIndex::Aggregate(const std::string &index_name, const std::strin
   return result_string;
 }
 
-void TextIndex::Commit() {
-  for (auto &[_, index_data] : index_) {
-    auto context_ptr = index_data.context_.Lock();
-    mgcxx::text_search::commit(*context_ptr);
-  }
-}
-
-void TextIndex::Rollback() {
-  for (auto &[_, index_data] : index_) {
-    auto context_ptr = index_data.context_.Lock();
-    mgcxx::text_search::rollback(*context_ptr);
-  }
-}
-
 std::vector<TextIndexSpec> TextIndex::ListIndices() const {
   std::vector<TextIndexSpec> ret;
   ret.reserve(index_.size());
@@ -349,8 +322,8 @@ void TextIndex::ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mappe
         mgcxx::text_search::delete_document(*context_ptr, search_node_to_be_deleted, kDoSkipCommit);
       }
 
-      // Then process additions/updates
-      for (const auto *vertex : pending.to_add_or_update) {
+      // Then process additions
+      for (const auto *vertex : pending.to_add) {
         auto vertex_properties = index_data_ptr->properties_.empty()
                                      ? vertex->properties.Properties()
                                      : ExtractVertexProperties(vertex->properties, index_data_ptr->properties_);

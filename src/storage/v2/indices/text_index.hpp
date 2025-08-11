@@ -18,6 +18,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/name_id_mapper.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertices_iterable.hpp"
@@ -82,8 +83,6 @@ class TextIndex {
 
   void RemoveNode(Vertex *vertex_after_update, Transaction &tx);
 
-  static void RemoveNode(Vertex *vertex, std::span<TextIndexData *> applicable_text_indices);
-
   void UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx);
 
   void UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx);
@@ -103,10 +102,6 @@ class TextIndex {
 
   std::string Aggregate(const std::string &index_name, const std::string &search_query,
                         const std::string &aggregation_query);
-
-  void Commit();
-
-  void Rollback();
 
   static void ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mapper);
 

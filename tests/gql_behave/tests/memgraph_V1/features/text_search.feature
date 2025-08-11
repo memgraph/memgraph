@@ -341,3 +341,44 @@ Feature: Text search related features
             RETURN node
             """
         Then the result should be empty
+
+    Scenario: Delete property from indexed node
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX testIndex ON :TestLabel
+            """
+        And having executed
+            """
+            CREATE (:TestLabel {title: 'Test Title', content: 'Test content'})
+            """
+        When executing query:
+            """
+            CALL text_search.search('testIndex', 'data.title:Test') YIELD node
+            RETURN count(node) AS count
+            """
+        Then the result should be:
+            | count |
+            | 1     |
+
+        And having executed
+            """
+            MATCH (n:TestLabel {title: 'Test Title'}) SET n.title = null
+            """
+        When executing query:
+            """
+            CALL text_search.search('testIndex', 'data.title:Test') YIELD node
+            RETURN count(node) AS count
+            """
+        Then the result should be:
+            | count |
+            | 0     |
+
+        When executing query:
+            """
+            CALL text_search.search('testIndex', 'data.content:Test') YIELD node
+            RETURN count(node) AS count
+            """
+        Then the result should be:
+            | count |
+            | 1     |
