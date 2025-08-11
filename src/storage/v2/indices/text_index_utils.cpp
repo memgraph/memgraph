@@ -9,14 +9,10 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/indices/text_index_utils.hpp"
-
-#include <cctype>
 #include <filesystem>
-#include <map>
-#include <span>
 
 #include <nlohmann/json.hpp>
+#include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/vertex.hpp"
