@@ -14,10 +14,12 @@
 #include <cctype>
 #include <filesystem>
 #include <map>
+#include <span>
 
 #include <nlohmann/json.hpp>
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/vertex.hpp"
 #include "utils/string.hpp"
 
 namespace r = ranges;
@@ -118,6 +120,21 @@ std::string StringifyProperties(const std::map<PropertyId, PropertyValue> &prope
     }
   }
   return utils::Join(indexable_properties_as_string, " ");
+}
+
+void TrackTextIndexChange(TextIndexChangeCollector &collector, std::span<TextIndexData *> indices, Vertex *vertex,
+                          TextIndexOp op) {
+  if (!vertex) return;
+  for (auto *idx : indices) {
+    auto &entry = collector.changes[idx];  // default constructs both sets
+    if (op == TextIndexOp::ADD_OR_UPDATE) {
+      entry.to_remove.erase(vertex);
+      entry.to_add_or_update.insert(vertex);
+    } else {  // REMOVE
+      entry.to_add_or_update.erase(vertex);
+      entry.to_remove.insert(vertex);
+    }
+  }
 }
 
 }  // namespace memgraph::storage

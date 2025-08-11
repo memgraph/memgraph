@@ -912,8 +912,9 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   CheckForFastDiscardOfDeltas();
 
-  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH) && transaction_.text_index_operations_performed_) {
-    mem_storage->indices_.text_index_.Commit();
+  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH) &&
+      transaction_.text_index_change_collector_.TextIndexUpdateNeeded()) {
+    memgraph::storage::TextIndex::ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
   }
   is_transaction_active_ = false;
 }
@@ -1373,7 +1374,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     // Cleanup INDICES
     index_abort_processor.Process(storage_->indices_, transaction_.active_indices_, transaction_.start_timestamp);
     if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH) &&
-        transaction_.text_index_operations_performed_) {
+        transaction_.text_index_change_collector_.TextIndexUpdateNeeded()) {
       storage_->indices_.text_index_.Rollback();
     }
 

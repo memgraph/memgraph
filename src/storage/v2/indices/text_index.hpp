@@ -49,7 +49,11 @@ class TextIndex {
                                                         std::span<PropertyId const> properties);
 
   static void AddNodeToTextIndex(std::int64_t gid, const nlohmann::json &properties,
-                                 const std::string &property_values_as_str, TextIndexData *applicable_text_index);
+                                 const std::string &property_values_as_str, LockedTextSearchContext &locked_context);
+
+  static void AddNodeToTextIndexWithLockedContext(std::int64_t gid, const nlohmann::json &properties,
+                                                  const std::string &property_values_as_str,
+                                                  LockedTextSearchContext &locked_context);
 
   static std::map<PropertyId, PropertyValue> ExtractVertexProperties(const PropertyStore &property_store,
                                                                      std::span<PropertyId const> properties);
@@ -80,11 +84,11 @@ class TextIndex {
 
   static void RemoveNode(Vertex *vertex, std::span<TextIndexData *> applicable_text_indices);
 
-  void UpdateOnAddLabel(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper, Transaction &tx);
+  void UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx);
 
   void UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx);
 
-  void UpdateOnSetProperty(Vertex *vertex, NameIdMapper *name_id_mapper, Transaction &tx);
+  void UpdateOnSetProperty(Vertex *vertex, Transaction &tx);
 
   void CreateIndex(const TextIndexSpec &index_info, VerticesIterable vertices, NameIdMapper *name_id_mapper);
 
@@ -103,6 +107,8 @@ class TextIndex {
   void Commit();
 
   void Rollback();
+
+  static void ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mapper);
 
   std::vector<TextIndexSpec> ListIndices() const;
 
