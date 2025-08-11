@@ -1804,7 +1804,7 @@ ExpandVariable::ExpandVariable(const std::shared_ptr<LogicalOperator> &input, Sy
                                const std::vector<storage::EdgeTypeId> &edge_types, bool is_reverse,
                                Expression *lower_bound, Expression *upper_bound, bool existing_node,
                                ExpansionLambda filter_lambda, std::optional<ExpansionLambda> weight_lambda,
-                               std::optional<Symbol> total_weight)
+                               std::optional<Symbol> total_weight, Expression *limit)
     : input_(input ? input : std::make_shared<Once>()),
       input_symbol_(std::move(input_symbol)),
       common_{node_symbol, edge_symbol, direction, edge_types, existing_node},
@@ -1814,13 +1814,16 @@ ExpandVariable::ExpandVariable(const std::shared_ptr<LogicalOperator> &input, Sy
       upper_bound_(upper_bound),
       filter_lambda_(std::move(filter_lambda)),
       weight_lambda_(std::move(weight_lambda)),
-      total_weight_(std::move(total_weight)) {
+      total_weight_(std::move(total_weight)),
+      limit_(limit) {
   DMG_ASSERT(type_ == EdgeAtom::Type::DEPTH_FIRST || type_ == EdgeAtom::Type::BREADTH_FIRST ||
                  type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH || type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS ||
                  type_ == EdgeAtom::Type::KSHORTEST,
              "ExpandVariable can only be used with breadth first, depth first, "
              "weighted shortest path, all shortest paths or bfs all paths type");
   DMG_ASSERT(!(type_ == EdgeAtom::Type::BREADTH_FIRST && is_reverse), "Breadth first expansion can't be reversed");
+  DMG_ASSERT(type_ == EdgeAtom::Type::KSHORTEST || limit_ == nullptr,
+             "Limit is only supported for KSHORTEST path expansion");
 }
 
 ACCEPT_WITH_INPUT(ExpandVariable)
@@ -3352,9 +3355,18 @@ class KShortestPathsCursor : public Cursor {
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::OLD, nullptr, &context.number_of_hops);
 
+    limit_ = self_.limit_ ? EvaluateInt(evaluator, self_.limit_, "Limit in KSHORTEST path expansion")
+                          : std::numeric_limits<int64_t>::max();
+
     auto push_next_path = [&](Frame &frame, ExpressionEvaluator &evaluator) {
       PushPathToFrame(shortest_paths_[current_path_index_++], &frame, evaluator.GetMemoryResource());
+      n_returned_paths_++;
     };
+
+    // Check if we reached the maximum number of paths to return
+    if (n_returned_paths_ >= limit_) {
+      return false;
+    }
 
     auto unsent_paths_count = [&]() { return shortest_paths_.size() - current_path_index_; };
 
@@ -3468,6 +3480,8 @@ class KShortestPathsCursor : public Cursor {
   UniqueCursorPtr input_cursor_;
   int64_t lower_bound_{1};
   int64_t upper_bound_{std::numeric_limits<int64_t>::max()};
+  int64_t limit_{0};
+  int64_t n_returned_paths_{0};
 
   // State for K-shortest paths algorithm
   utils::pmr::vector<PathInfo> shortest_paths_;

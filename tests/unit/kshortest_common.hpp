@@ -290,14 +290,15 @@ class Database {
       memgraph::query::Symbol source_sym, memgraph::query::Symbol sink_sym, memgraph::query::Symbol edge_sym,
       memgraph::query::EdgeAtom::Direction direction, const std::vector<memgraph::storage::EdgeTypeId> &edge_types,
       const std::shared_ptr<memgraph::query::plan::LogicalOperator> &input, bool existing_node,
-      memgraph::query::Expression *lower_bound, memgraph::query::Expression *upper_bound) = 0;
+      memgraph::query::Expression *lower_bound, memgraph::query::Expression *upper_bound,
+      memgraph::query::Expression *limit = nullptr) = 0;
   virtual std::pair<std::vector<memgraph::query::VertexAccessor>, std::vector<memgraph::query::EdgeAccessor>>
   BuildGraph(memgraph::query::DbAccessor *dba, const std::vector<int> &vertex_locations,
              const std::vector<std::tuple<int, int, std::string>> &edges) = 0;
   virtual ~Database() = default;
 
   void KShortestTest(Database *db, int lower_bound, int upper_bound, memgraph::query::EdgeAtom::Direction direction,
-                     std::vector<std::string> edge_types) {
+                     std::vector<std::string> edge_types, int limit = -1) {
     spdlog::info("KShortestTest: lower_bound={}, upper_bound={}, direction={}, edge_types={}", lower_bound, upper_bound,
                  static_cast<int>(direction),
                  edge_types.empty() ? "all" : fmt::format("{}", fmt::join(edge_types, ",")));
@@ -331,7 +332,8 @@ class Database {
 
     input_op = db->MakeKShortestOperator(source_sym, sink_sym, edges_sym, direction, storage_edge_types, input_op, true,
                                          lower_bound == -1 ? nullptr : LITERAL(lower_bound),
-                                         upper_bound == -1 ? nullptr : LITERAL(upper_bound));
+                                         upper_bound == -1 ? nullptr : LITERAL(upper_bound),
+                                         limit == -1 ? nullptr : LITERAL(limit));
 
     context.evaluation_context.properties = memgraph::query::NamesToProperties(storage.properties_, &dba);
     context.evaluation_context.labels = memgraph::query::NamesToLabels(storage.labels_, &dba);
@@ -339,6 +341,12 @@ class Database {
 
     results =
         PullResults(input_op.get(), &context, std::vector<memgraph::query::Symbol>{source_sym, sink_sym, edges_sym});
+
+    spdlog::info("KShortestTest: Pulled {} results", results.size());
+    if (limit != -1) {
+      spdlog::info("KShortestTest: Limit: {}", limit);
+      ASSERT_LE(results.size(), limit) << "Pulled more results than limit";
+    }
 
     // Group results based on source-sink pair and compare them to results
     // obtained by running Yen's algorithm.
@@ -383,8 +391,14 @@ class Database {
                          }),
           correct_paths.end());
 
-      // There should be exactly k successful pulls for each source-sink pair (or fewer if not enough paths exist).
       int expected_count = static_cast<int>(correct_paths.size());
+      // Converting from global limit to pair specific limit
+      if (limit != -1 && j == limit) {
+        spdlog::info("KShortestTest: Limit reached, expected count: {}, limit: {}, j: {}", expected_count, limit, j);
+        if (i == j) break;
+        expected_count = j - i;
+        correct_paths.resize(expected_count);
+      }
       EXPECT_EQ(j - i, expected_count);
 
       auto lengths = CheckPathsAndExtractLengths(

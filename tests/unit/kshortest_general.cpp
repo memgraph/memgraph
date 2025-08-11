@@ -47,10 +47,11 @@ class VertexDb : public Database {
                                                          const std::vector<memgraph::storage::EdgeTypeId> &edge_types,
                                                          const std::shared_ptr<LogicalOperator> &input,
                                                          bool existing_node, memgraph::query::Expression *lower_bound,
-                                                         memgraph::query::Expression *upper_bound) override {
-    return std::make_unique<ExpandVariable>(input, source_sym, sink_sym, edge_sym, EdgeAtom::Type::KSHORTEST, direction,
-                                            edge_types, false, lower_bound, upper_bound, existing_node,
-                                            memgraph::query::plan::ExpansionLambda{}, std::nullopt, std::nullopt);
+                                                         memgraph::query::Expression *upper_bound,
+                                                         memgraph::query::Expression *limit) override {
+    return std::make_unique<ExpandVariable>(
+        input, source_sym, sink_sym, edge_sym, EdgeAtom::Type::KSHORTEST, direction, edge_types, false, lower_bound,
+        upper_bound, existing_node, memgraph::query::plan::ExpansionLambda{}, std::nullopt, std::nullopt, limit);
   }
 
   std::pair<std::vector<memgraph::query::VertexAccessor>, std::vector<memgraph::query::EdgeAccessor>> BuildGraph(
@@ -121,6 +122,21 @@ INSTANTIATE_TEST_SUITE_P(
                                      std::vector<std::string>{"b"},
                                      std::vector<std::string>{"a", "b"})));  // Test different edge type filters
 
+// Test kshortest with limit functionality
+TEST_F(GeneralKShortestTestInMemory, KShortestWithLimit) {
+  // Test with limit 1
+  spdlog::info("KShortestTest: Testing with limit 1");
+  db_->KShortestTest(db_.get(), -1, -1, EdgeAtom::Direction::OUT, {}, 1);
+
+  // Test with limit 2
+  spdlog::info("KShortestTest: Testing with limit 2");
+  db_->KShortestTest(db_.get(), -1, -1, EdgeAtom::Direction::OUT, {}, 2);
+
+  // Test with limit 5 (more than available paths)
+  spdlog::info("KShortestTest: Testing with limit 5");
+  db_->KShortestTest(db_.get(), -1, -1, EdgeAtom::Direction::OUT, {}, 5);
+}
+
 class GeneralKShortestTestOnDisk
     : public ::testing::TestWithParam<std::tuple<int, int, EdgeAtom::Direction, std::vector<std::string>>> {
  public:
@@ -153,3 +169,15 @@ INSTANTIATE_TEST_SUITE_P(
                      testing::Values(std::vector<std::string>{}, std::vector<std::string>{"a"},
                                      std::vector<std::string>{"b"},
                                      std::vector<std::string>{"a", "b"})));  // Test different edge type filters
+
+// Test kshortest with limit functionality for disk storage
+TEST_F(GeneralKShortestTestOnDisk, KShortestWithLimit) {
+  // Test with limit 1
+  db_->KShortestTest(db_.get(), -1, -1, EdgeAtom::Direction::OUT, {}, 1);
+
+  // Test with limit 2
+  db_->KShortestTest(db_.get(), -1, -1, EdgeAtom::Direction::OUT, {}, 2);
+
+  // Test with limit 5 (more than available paths)
+  db_->KShortestTest(db_.get(), -1, -1, EdgeAtom::Direction::OUT, {}, 5);
+}

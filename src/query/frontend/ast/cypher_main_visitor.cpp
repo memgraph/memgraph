@@ -2629,8 +2629,9 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
   auto *variableExpansion = relationshipDetail ? relationshipDetail->variableExpansion() : nullptr;
   edge->type_ = EdgeAtom::Type::SINGLE;
   if (variableExpansion)
-    std::tie(edge->type_, edge->lower_bound_, edge->upper_bound_) =
-        std::any_cast<std::tuple<EdgeAtom::Type, Expression *, Expression *>>(variableExpansion->accept(this));
+    std::tie(edge->type_, edge->lower_bound_, edge->upper_bound_, edge->limit_) =
+        std::any_cast<std::tuple<EdgeAtom::Type, Expression *, Expression *, Expression *>>(
+            variableExpansion->accept(this));
 
   if (ctx->leftArrowHead() && !ctx->rightArrowHead()) {
     edge->direction_ = EdgeAtom::Direction::IN;
@@ -2756,6 +2757,9 @@ antlrcpp::Any CypherMainVisitor::visitRelationshipPattern(MemgraphCypher::Relati
       default:
         throw SemanticException("Only one filter lambda can be supplied.");
     }
+    if (edge->type_ != EdgeAtom::Type::KSHORTEST && edge->limit_ != nullptr) {
+      throw SemanticException("Number of paths limit is only supported with KSHORTEST path expansion.");
+    }
   } else if (!relationshipLambdas.empty()) {
     throw SemanticException("Filter lambda is only allowed in variable length expansion.");
   }
@@ -2834,9 +2838,16 @@ antlrcpp::Any CypherMainVisitor::visitVariableExpansion(MemgraphCypher::Variable
   Expression *lower = nullptr;
   Expression *upper = nullptr;
 
-  if (ctx->expression().size() == 0U) {
+  Expression *limit = nullptr;
+  size_t n_expressions = ctx->expression().size();
+  if (ctx->k) {
+    --n_expressions;  // Last expression is the limit
+    limit = std::any_cast<Expression *>(ctx->k->accept(this));
+  }
+
+  if (n_expressions == 0U) {
     // Case -[*]-
-  } else if (ctx->expression().size() == 1U) {
+  } else if (n_expressions == 1U) {
     auto dots_tokens = ctx->getTokens(MemgraphCypher::DOTS);
     auto *bound = std::any_cast<Expression *>(ctx->expression()[0]->accept(this));
     if (!dots_tokens.size()) {
@@ -2861,7 +2872,11 @@ antlrcpp::Any CypherMainVisitor::visitVariableExpansion(MemgraphCypher::Variable
     throw SemanticException("Lower bound is not allowed in weighted or all shortest path expansion.");
   }
 
-  return std::make_tuple(edge_type, lower, upper);
+  if (limit && edge_type != EdgeAtom::Type::KSHORTEST) {
+    throw SemanticException("Limit parameter is only supported with KSHORTEST path expansion.");
+  }
+
+  return std::make_tuple(edge_type, lower, upper, limit);
 }
 
 antlrcpp::Any CypherMainVisitor::visitExpression(MemgraphCypher::ExpressionContext *ctx) {

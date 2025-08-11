@@ -49,10 +49,11 @@ class VertexDb : public Database {
                                                          const std::vector<memgraph::storage::EdgeTypeId> &edge_types,
                                                          const std::shared_ptr<LogicalOperator> &input,
                                                          bool existing_node, memgraph::query::Expression *lower_bound,
-                                                         memgraph::query::Expression *upper_bound) override {
-    return std::make_unique<ExpandVariable>(input, source_sym, sink_sym, edge_sym, EdgeAtom::Type::KSHORTEST, direction,
-                                            edge_types, false, nullptr, upper_bound, existing_node,
-                                            memgraph::query::plan::ExpansionLambda{}, std::nullopt, std::nullopt);
+                                                         memgraph::query::Expression *upper_bound,
+                                                         memgraph::query::Expression *limit) override {
+    return std::make_unique<ExpandVariable>(
+        input, source_sym, sink_sym, edge_sym, EdgeAtom::Type::KSHORTEST, direction, edge_types, false, nullptr,
+        upper_bound, existing_node, memgraph::query::plan::ExpansionLambda{}, std::nullopt, std::nullopt, limit);
   }
 
   std::pair<std::vector<memgraph::query::VertexAccessor>, std::vector<memgraph::query::EdgeAccessor>> BuildGraph(

@@ -918,7 +918,7 @@ class RuleBasedPlanner {
       last_op = std::make_unique<ExpandVariable>(std::move(last_op), node1_symbol, node_symbol, edge_symbol,
                                                  edge->type_, expansion.direction, edge_types, expansion.is_flipped,
                                                  edge->lower_bound_, edge->upper_bound_, existing_node, filter_lambda,
-                                                 weight_lambda, total_weight);
+                                                 weight_lambda, total_weight, edge->limit_);
     } else {
       last_op = std::make_unique<Expand>(std::move(last_op), node1_symbol, node_symbol, edge_symbol,
                                          expansion.direction, edge_types, existing_node, view);

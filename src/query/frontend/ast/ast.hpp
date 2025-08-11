@@ -1678,6 +1678,9 @@ class EdgeAtom : public memgraph::query::PatternAtom {
       if (cont && total_weight_) {
         total_weight_->Accept(visitor);
       }
+      if (cont && limit_) {
+        cont = limit_->Accept(visitor);
+      }
     }
     return visitor.PostVisit(*this);
   }
@@ -1713,6 +1716,8 @@ class EdgeAtom : public memgraph::query::PatternAtom {
   memgraph::query::EdgeAtom::Lambda weight_lambda_;
   /// Variable where the total weight for weighted shortest path will be stored.
   memgraph::query::Identifier *total_weight_{nullptr};
+  /// Limit for the number of paths returned in kshortest path expansion.
+  memgraph::query::Expression *limit_{nullptr};
 
   EdgeAtom *Clone(AstStorage *storage) const override {
     EdgeAtom *object = storage->Create<EdgeAtom>();
@@ -1741,6 +1746,7 @@ class EdgeAtom : public memgraph::query::PatternAtom {
     object->filter_lambda_ = filter_lambda_.Clone(storage);
     object->weight_lambda_ = weight_lambda_.Clone(storage);
     object->total_weight_ = total_weight_ ? total_weight_->Clone(storage) : nullptr;
+    object->limit_ = limit_ ? limit_->Clone(storage) : nullptr;
     return object;
   }
 
