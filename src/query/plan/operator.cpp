@@ -3484,7 +3484,8 @@ class KShortestPathsCursor : public Cursor {
   utils::pmr::unordered_set<EdgeAccessor, EdgeAccessorHash> blocked_edges_;
   utils::pmr::unordered_set<VertexAccessor, VertexAccessorHash> blocked_vertices_;
   utils::pmr::unordered_map<VertexAccessor, double, VertexAccessorHash> distances_;
-  utils::pmr::unordered_map<VertexAccessor, EdgeVertexAccessorResult, VertexAccessorHash> edges_;
+  utils::pmr::unordered_map<VertexAccessor, EdgeVertexAccessorResult, VertexAccessorHash> in_edges_;
+  utils::pmr::unordered_map<VertexAccessor, EdgeVertexAccessorResult, VertexAccessorHash> out_edges_;
   utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>, VertexAccessorHash> predecessors_;
 
   // Bidirectional search state
@@ -3713,10 +3714,13 @@ class KShortestPathsCursor : public Cursor {
       for (const auto &vertex : source_frontier) {
         if (context.hops_limit.IsLimitReached()) break;
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
-          auto out_edges_result =
-              UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
-          context.number_of_hops += out_edges_result.expanded_count;
-          for (const auto &edge : out_edges_result.edges) {
+          if (!out_edges_.contains(vertex)) {
+            auto out_edges_result =
+                UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+            context.number_of_hops += out_edges_result.expanded_count;
+            out_edges_.emplace(vertex, out_edges_result);
+          }
+          for (const auto &edge : out_edges_.at(vertex).edges) {
             if (!ShouldExpand<kTo>(edge, context, in_edge, blocked_edges_, blocked_vertices_)) {
               continue;
             }
@@ -3728,10 +3732,13 @@ class KShortestPathsCursor : public Cursor {
           }
         }
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
-          auto in_edges_result =
-              UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
-          context.number_of_hops += in_edges_result.expanded_count;
-          for (const auto &edge : in_edges_result.edges) {
+          if (!in_edges_.contains(vertex)) {
+            auto in_edges_result =
+                UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+            context.number_of_hops += in_edges_result.expanded_count;
+            in_edges_.emplace(vertex, in_edges_result);
+          }
+          for (const auto &edge : in_edges_.at(vertex).edges) {
             if (!ShouldExpand<kFrom>(edge, context, in_edge, blocked_edges_, blocked_vertices_)) {
               continue;
             }
@@ -3758,10 +3765,13 @@ class KShortestPathsCursor : public Cursor {
       for (const auto &vertex : target_frontier) {
         if (context.hops_limit.IsLimitReached()) break;
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
-          auto out_edges_result =
-              UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
-          context.number_of_hops += out_edges_result.expanded_count;
-          for (const auto &edge : out_edges_result.edges) {
+          if (!out_edges_.contains(vertex)) {
+            auto out_edges_result =
+                UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+            context.number_of_hops += out_edges_result.expanded_count;
+            out_edges_.emplace(vertex, out_edges_result);
+          }
+          for (const auto &edge : out_edges_.at(vertex).edges) {
             if (!ShouldExpand<kTo>(edge, context, out_edge, blocked_edges_, blocked_vertices_)) {
               continue;
             }
@@ -3773,10 +3783,13 @@ class KShortestPathsCursor : public Cursor {
           }
         }
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
-          auto in_edges_result =
-              UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
-          context.number_of_hops += in_edges_result.expanded_count;
-          for (const auto &edge : in_edges_result.edges) {
+          if (!in_edges_.contains(vertex)) {
+            auto in_edges_result =
+                UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+            context.number_of_hops += in_edges_result.expanded_count;
+            in_edges_.emplace(vertex, in_edges_result);
+          }
+          for (const auto &edge : in_edges_.at(vertex).edges) {
             if (!ShouldExpand<kFrom>(edge, context, out_edge, blocked_edges_, blocked_vertices_)) {
               continue;
             }

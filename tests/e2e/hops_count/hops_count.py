@@ -96,7 +96,7 @@ def test_hops_count_1():
     number_of_hops = get_summary(
         "MATCH (a:Person {name: 'Alice'}),(e:Person {name: 'Eve'}) WITH a, e MATCH (a)-[r:KNOWS *KSHORTEST]->(e) RETURN r"
     )["number_of_hops"]
-    assert number_of_hops == 8
+    assert number_of_hops == 6
 
     number_of_hops = get_summary(
         "USING HOPS LIMIT 4 MATCH (a:Person {name: 'Alice'}),(e:Person {name: 'Eve'}) WITH a, e MATCH (a)-[r:KNOWS *KSHORTEST]->(e) RETURN r"
