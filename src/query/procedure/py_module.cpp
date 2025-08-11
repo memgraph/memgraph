@@ -3031,11 +3031,16 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
       }
 
       constexpr int SECONDS_PER_DAY = 86400;
+      constexpr int SECONDS_PER_MINUTE = 60;
       int32_t const offset_days = static_cast<int32_t>(PyDateTime_DELTA_GET_DAYS(offset.Ptr()));
       int32_t const offset_seconds = static_cast<int32_t>(PyDateTime_DELTA_GET_SECONDS(offset.Ptr()));
 
-      mgp_zoned_date_time_parameters parameters{&date_parameters, &local_time_parameters,
-                                                offset_days * SECONDS_PER_DAY + offset_seconds};
+      // Convert total offset to minutes
+      int32_t const total_offset_seconds = offset_days * SECONDS_PER_DAY + offset_seconds;
+      int32_t const offset_minutes = total_offset_seconds / SECONDS_PER_MINUTE;
+
+      mgp_zoned_date_time_parameters parameters{
+          &date_parameters, &local_time_parameters, {.offset_in_minutes = offset_minutes}, 0};
 
       MgpUniquePtr<mgp_zoned_date_time> zoned_date_time{nullptr, mgp_zoned_date_time_destroy};
 

@@ -26,6 +26,6 @@ def make_zdt(year, month, day, hour, minute, second, offset_minutes):
     )
 
 
-# @mgp.function
-# def make_dt(year, month, day, hour, min, second):
-#     return datetime(year=year, month=month, day=day, hour=hour, minute=min, second=second)
+@mgp.function
+def make_dt(year, month, day, hour, min, second):
+    return datetime(year=year, month=month, day=day, hour=hour, minute=min, second=second)
