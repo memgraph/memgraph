@@ -1600,6 +1600,10 @@ if false; then
 fi
 
 popd
+
+# copy toolchain.cmake to the prefix
+cp -v $DIR/toolchain.cmake $PREFIX/
+
 # NOTE: It's important/clean (e.g., easier upload to S3) to have a separated
 # folder to the output archive.
 mkdir -p output
