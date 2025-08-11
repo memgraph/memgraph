@@ -3359,7 +3359,7 @@ class KShortestPathsCursor : public Cursor {
     auto unsent_paths_count = [&]() { return shortest_paths_.size() - current_path_index_; };
 
     // If we have cached shortest paths, return the next one
-    if (current_path_index_ < shortest_paths_.size()) {
+    if (unsent_paths_count() > 0) {
       push_next_path(frame, evaluator);
       return true;
     }
@@ -3386,17 +3386,11 @@ class KShortestPathsCursor : public Cursor {
       auto &target_vertex = target_tv.ValueVertex();
 
       // Skip if source and target are the same vertex
-      if (source_vertex.Gid() == target_vertex.Gid()) continue;
+      if (source_vertex == target_vertex) continue;
 
       lower_bound_ = self_.lower_bound_ ? EvaluateInt(evaluator, self_.lower_bound_, "Min depth in expansion") : 1;
       upper_bound_ = self_.upper_bound_ ? EvaluateInt(evaluator, self_.upper_bound_, "Max depth in expansion")
                                         : std::numeric_limits<int64_t>::max();
-
-      if (source_vertex == target_vertex) {
-        // Same vertex - return empty path
-        frame[self_.common_.edge_symbol] = TypedValue::TVector(evaluator.GetMemoryResource());
-        return true;
-      }
 
       // Initialize for this new source-target pair
       current_source_ = source_vertex;
@@ -3488,6 +3482,7 @@ class KShortestPathsCursor : public Cursor {
   utils::pmr::unordered_set<EdgeAccessor, EdgeAccessorHash> blocked_edges_;
   utils::pmr::unordered_set<VertexAccessor, VertexAccessorHash> blocked_vertices_;
   utils::pmr::unordered_map<VertexAccessor, double, VertexAccessorHash> distances_;
+  utils::pmr::unordered_map<VertexAccessor, EdgeVertexAccessorResult, VertexAccessorHash> edges_;
   utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>, VertexAccessorHash> predecessors_;
 
   bool InitializeKShortestPaths(const VertexAccessor &source, const VertexAccessor &target,
@@ -3646,7 +3641,6 @@ class KShortestPathsCursor : public Cursor {
 
       // Expand edges based on direction
       auto expand_edges = [&](auto edges_result) {
-        context.number_of_hops += edges_result.expanded_count;
         for (const auto &edge : edges_result.edges) {
           VertexAccessor neighbor = (edge.From() == vertex) ? edge.To() : edge.From();
 #ifdef MG_ENTERPRISE
@@ -3660,8 +3654,8 @@ class KShortestPathsCursor : public Cursor {
           if (blocked_edges_.contains(edge) || blocked_vertices_.contains(neighbor)) continue;
 
           double new_dist = dist + 1;
-
-          if (!distances_.contains(neighbor) || new_dist < distances_[neighbor]) {
+          auto it = distances_.find(neighbor);
+          if (it == distances_.end() || new_dist < it->second) {
             distances_[neighbor] = new_dist;
             predecessors_[neighbor] = edge;
             pq.emplace(new_dist, neighbor);
@@ -3669,17 +3663,34 @@ class KShortestPathsCursor : public Cursor {
         }
       };
 
-      if (self_.common_.direction != EdgeAtom::Direction::IN) {
-        auto out_edges_result =
-            UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
-        expand_edges(out_edges_result);
+      auto it = edges_.find(vertex);
+      if (it == edges_.end()) {
+        if (self_.common_.direction != EdgeAtom::Direction::IN) {
+          auto [in_it, success] = edges_.emplace(
+              vertex,
+              UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit)));
+          if (!success) {
+            throw utils::BasicException("Failed to emplace vertex in edges_");
+          }
+          it = in_it;
+        }
+        if (self_.common_.direction != EdgeAtom::Direction::OUT) {
+          auto in_edges_result =
+              UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+          if (it == edges_.end()) {
+            auto [out_it, success] = edges_.emplace(vertex, std::move(in_edges_result));
+            if (!success) {
+              throw utils::BasicException("Failed to emplace vertex in edges_");
+            }
+            it = out_it;
+          } else {
+            it->second.edges.insert(it->second.edges.end(), in_edges_result.edges.begin(), in_edges_result.edges.end());
+            it->second.expanded_count = in_edges_result.expanded_count;
+          }
+        }
+        context.number_of_hops += edges_[vertex].expanded_count;
       }
-
-      if (self_.common_.direction != EdgeAtom::Direction::OUT) {
-        auto in_edges_result =
-            UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
-        expand_edges(in_edges_result);
-      }
+      expand_edges(it->second);
     }
 
     // Reconstruct path
@@ -4504,13 +4515,15 @@ SetProperties::SetPropertiesCursor::SetPropertiesCursor(const SetProperties &sel
 namespace {
 
 template <typename T>
-concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
-                                          storage::PropertyValue property_value,
-                                          std::map<storage::PropertyId, storage::PropertyValue> properties) {
-  { value.ClearProperties() } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
-  {value.SetProperty(property_id, property_value)};
-  {value.UpdateProperties(properties)};
-};
+concept AccessorWithProperties =
+    requires(T value, storage::PropertyId property_id, storage::PropertyValue property_value,
+             std::map<storage::PropertyId, storage::PropertyValue> properties) {
+      {
+        value.ClearProperties()
+      } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
+      { value.SetProperty(property_id, property_value) };
+      { value.UpdateProperties(properties) };
+    };
 
 /// Helper function that sets the given values on either a Vertex or an Edge.
 ///
@@ -5547,7 +5560,7 @@ class AggregateCursor : public Cursor {
           value_it->ValueMap().emplace(key.ValueString(), std::move(input_value));
           break;
       }  // end switch over Aggregation::Op enum
-    }    // end loop over all aggregations
+    }  // end loop over all aggregations
   }
 
   /** Project a subgraph from lists of nodes and lists of edges. Any nulls in these lists are ignored.
@@ -5830,9 +5843,8 @@ class OrderByCursor : public Cursor {
       // sorting with range zip
       // we compare on just the projection of the 1st range (order_by)
       // this will also permute the 2nd range (output)
-      ranges::sort(
-          rv::zip(order_by, output), self_.compare_.lex_cmp(),
-          [](auto const &value) -> auto const & { return std::get<0>(value); });
+      ranges::sort(rv::zip(order_by, output), self_.compare_.lex_cmp(),
+                   [](auto const &value) -> auto const & { return std::get<0>(value); });
 
       // no longer need the order_by terms
       order_by.clear();
