@@ -90,7 +90,7 @@ TEST(RpcTimeout, TimeoutNoFailure) {
     rpc_server.AwaitShutdown();
   }};
 
-  rpc_server.Register<Echo>([](auto *req_reader, auto *res_builder) {
+  rpc_server.Register<Echo>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
     EchoMessage req;
     Load(&req, req_reader);
 
@@ -121,7 +121,7 @@ TEST(RpcTimeout, TimeoutExecutionBlocks) {
     rpc_server.AwaitShutdown();
   }};
 
-  rpc_server.Register<Echo>([](auto *req_reader, auto *res_builder) {
+  rpc_server.Register<Echo>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
     EchoMessage req;
     Load(&req, req_reader);
 
@@ -152,7 +152,7 @@ TEST(RpcTimeout, TimeoutServerBusy) {
     rpc_server.AwaitShutdown();
   }};
 
-  rpc_server.Register<Sum>([](auto *req_reader, auto *res_builder) {
+  rpc_server.Register<Sum>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
     spdlog::trace("Received sum request.");
     SumReq req;
     Load(&req, req_reader);
@@ -161,7 +161,7 @@ TEST(RpcTimeout, TimeoutServerBusy) {
     memgraph::rpc::SendFinalResponse(res, res_builder);
   });
 
-  rpc_server.Register<Echo>([](auto *req_reader, auto *res_builder) {
+  rpc_server.Register<Echo>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
     spdlog::trace("Received echo request");
     EchoMessage req;
     Load(&req, req_reader);
@@ -201,7 +201,7 @@ TEST(RpcTimeout, SendingToWrongSocket) {
     rpc_server.AwaitShutdown();
   }};
 
-  rpc_server.Register<Echo>([](auto *req_reader, auto *res_builder) {
+  rpc_server.Register<Echo>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
     EchoMessage req;
     Load(&req, req_reader);
 
@@ -223,7 +223,7 @@ TEST(RpcTimeout, SendingToWrongSocket) {
 
 template <memgraph::rpc::IsRpc T>
 void RegisterRpcCallback(Server &rpc_server) {
-  rpc_server.Register<T>([](auto *req_reader, auto /* *res_builder */) {
+  rpc_server.Register<T>([](uint64_t const request_version, auto *req_reader, auto /* *res_builder */) {
     typename T::Request req;
     if constexpr (!std::is_same_v<T, EnableWritingOnMainRpc> && !std::is_same_v<T, GetDatabaseHistoriesRpc>) {
       Load(&req, req_reader);

@@ -170,7 +170,7 @@ class Client {
           throw SlkRpcFailedException();
         }
 
-        if (version != rpc::current_version) {
+        if (version != rpc::current_protocol_version) {
           // V1 we introduced versioning with, absolutely no backwards compatibility,
           // because it's impossible to provide backwards compatibility with pre versioning.
           // Future versions this may require mechanism for graceful version handling.
@@ -255,7 +255,7 @@ class Client {
         throw SlkRpcFailedException();
       }
 
-      if (version != rpc::current_version) {
+      if (version != rpc::current_protocol_version) {
         // V1 we introduced versioning with, absolutely no backwards compatibility,
         // because it's impossible to provide backwards compatibility with pre versioning.
         // Future versions this may require mechanism for graceful version handling.
@@ -415,7 +415,8 @@ class Client {
 
     // Build and send the request.
     slk::Save(req_type.id, handler.GetBuilder());
-    slk::Save(rpc::current_version, handler.GetBuilder());
+    slk::Save(current_protocol_version, handler.GetBuilder());
+    slk::Save(TRequestResponse::Request::kVersion, handler.GetBuilder());
     TRequestResponse::Request::Save(request, handler.GetBuilder());
 
     // Return the handler to the user.

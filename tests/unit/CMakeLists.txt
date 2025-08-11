@@ -497,6 +497,9 @@ target_link_libraries(${test_prefix}replication_rpc_progress mg-rpc)
 add_unit_test(snapshot_rpc_progress.cpp)
 target_link_libraries(${test_prefix}snapshot_rpc_progress mg-rpc)
 
+add_unit_test(rpc_versioning.cpp)
+target_link_libraries(${test_prefix}rpc_versioning mg-rpc)
+
 # Test websocket
 find_package(Boost REQUIRED CONFIG COMPONENTS headers filesystem)
 

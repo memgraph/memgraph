@@ -107,7 +107,7 @@ int main(int argc, char **argv) {
     server.emplace(memgraph::io::network::Endpoint(FLAGS_server_address, FLAGS_server_port), &server_context.value(),
                    kThreadsNum);
 
-    server->Register<Echo>([](const auto &req_reader, auto *res_builder) {
+    server->Register<Echo>([](uint64_t const request_version, const auto &req_reader, auto *res_builder) {
       EchoMessage res;
       Load(&res, req_reader);
       memgraph::rpc::SendFinalResponse(res, res_builder);

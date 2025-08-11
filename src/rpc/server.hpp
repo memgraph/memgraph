@@ -31,6 +31,7 @@ class Server {
   Server(Server &&) = delete;
   Server &operator=(const Server &) = delete;
   Server &operator=(Server &&) = delete;
+  ~Server() = default;
 
   bool Start();
   void Shutdown();
@@ -40,7 +41,7 @@ class Server {
   const io::network::Endpoint &endpoint() const;
 
   template <class TRequestResponse>
-  void Register(std::function<void(slk::Reader *, slk::Builder *)> callback) {
+  void Register(std::function<void(uint64_t request_version, slk::Reader *, slk::Builder *)> callback) {
     auto guard = std::lock_guard{lock_};
     MG_ASSERT(!server_.IsRunning(), "You can't register RPCs when the server is running!");
     RpcCallback rpc{.req_type = TRequestResponse::Request::kType, .callback = std::move(callback)};
@@ -57,7 +58,7 @@ class Server {
 
   struct RpcCallback {
     utils::TypeInfo req_type;
-    std::function<void(slk::Reader *, slk::Builder *)> callback;
+    std::function<void(uint64_t request_version, slk::Reader *, slk::Builder *)> callback;
   };
 
   std::mutex lock_;

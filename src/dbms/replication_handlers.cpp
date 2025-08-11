@@ -24,7 +24,7 @@ namespace memgraph::dbms {
 
 void CreateDatabaseHandler(system::ReplicaHandlerAccessToState &system_state_access,
                            const std::optional<utils::UUID> &current_main_uuid, DbmsHandler &dbms_handler,
-                           slk::Reader *req_reader, slk::Builder *res_builder) {
+                           uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) {
   using storage::replication::CreateDatabaseRes;
   CreateDatabaseRes res(CreateDatabaseRes::Result::FAILURE);
 
@@ -74,7 +74,7 @@ void CreateDatabaseHandler(system::ReplicaHandlerAccessToState &system_state_acc
 
 void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
                          const std::optional<utils::UUID> &current_main_uuid, DbmsHandler &dbms_handler,
-                         slk::Reader *req_reader, slk::Builder *res_builder) {
+                         uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) {
   using memgraph::storage::replication::DropDatabaseRes;
   DropDatabaseRes res(DropDatabaseRes::Result::FAILURE);
 
@@ -195,12 +195,14 @@ void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAc
               dbms::DbmsHandler &dbms_handler) {
   // NOTE: Register even without license as the user could add a license at run-time
   data.server->rpc_server_.Register<storage::replication::CreateDatabaseRpc>(
-      [&data, system_state_access, &dbms_handler](auto *req_reader, auto *res_builder) mutable {
-        CreateDatabaseHandler(system_state_access, data.uuid_, dbms_handler, req_reader, res_builder);
+      [&data, system_state_access, &dbms_handler](uint64_t const request_version, auto *req_reader,
+                                                  auto *res_builder) mutable {
+        CreateDatabaseHandler(system_state_access, data.uuid_, dbms_handler, request_version, req_reader, res_builder);
       });
   data.server->rpc_server_.Register<storage::replication::DropDatabaseRpc>(
-      [&data, system_state_access, &dbms_handler](auto *req_reader, auto *res_builder) mutable {
-        DropDatabaseHandler(system_state_access, data.uuid_, dbms_handler, req_reader, res_builder);
+      [&data, system_state_access, &dbms_handler](uint64_t const request_version, auto *req_reader,
+                                                  auto *res_builder) mutable {
+        DropDatabaseHandler(system_state_access, data.uuid_, dbms_handler, request_version, req_reader, res_builder);
       });
 }
 #endif

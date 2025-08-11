@@ -211,38 +211,45 @@ TwoPCCache InMemoryReplicationHandlers::two_pc_cache_;
 void InMemoryReplicationHandlers::Register(dbms::DbmsHandler *dbms_handler, replication::RoleReplicaData &data) {
   auto &server = *data.server;
   server.rpc_server_.Register<storage::replication::HeartbeatRpc>(
-      [&data, dbms_handler](auto *req_reader, auto *res_builder) {
-        InMemoryReplicationHandlers::HeartbeatHandler(dbms_handler, data.uuid_, req_reader, res_builder);
+      [&data, dbms_handler](uint64_t const request_version, auto *req_reader, auto *res_builder) {
+        InMemoryReplicationHandlers::HeartbeatHandler(dbms_handler, data.uuid_, request_version, req_reader,
+                                                      res_builder);
       });
   server.rpc_server_.Register<storage::replication::PrepareCommitRpc>(
-      [&data, dbms_handler](auto *req_reader, auto *res_builder) {
-        InMemoryReplicationHandlers::PrepareCommitHandler(dbms_handler, data.uuid_, req_reader, res_builder);
+      [&data, dbms_handler](uint64_t const request_version, auto *req_reader, auto *res_builder) {
+        InMemoryReplicationHandlers::PrepareCommitHandler(dbms_handler, data.uuid_, request_version, req_reader,
+                                                          res_builder);
       });
   server.rpc_server_.Register<storage::replication::FinalizeCommitRpc>(
-      [&data, dbms_handler](auto *req_reader, auto *res_builder) {
-        InMemoryReplicationHandlers::FinalizeCommitHandler(dbms_handler, data.uuid_, req_reader, res_builder);
+      [&data, dbms_handler](uint64_t const request_version, auto *req_reader, auto *res_builder) {
+        InMemoryReplicationHandlers::FinalizeCommitHandler(dbms_handler, data.uuid_, request_version, req_reader,
+                                                           res_builder);
       });
   server.rpc_server_.Register<storage::replication::SnapshotRpc>(
-      [&data, dbms_handler](auto *req_reader, auto *res_builder) {
-        InMemoryReplicationHandlers::SnapshotHandler(dbms_handler, data.uuid_, req_reader, res_builder);
+      [&data, dbms_handler](uint64_t const request_version, auto *req_reader, auto *res_builder) {
+        InMemoryReplicationHandlers::SnapshotHandler(dbms_handler, data.uuid_, request_version, req_reader,
+                                                     res_builder);
       });
   server.rpc_server_.Register<storage::replication::WalFilesRpc>(
-      [&data, dbms_handler](auto *req_reader, auto *res_builder) {
-        InMemoryReplicationHandlers::WalFilesHandler(dbms_handler, data.uuid_, req_reader, res_builder);
+      [&data, dbms_handler](uint64_t const request_version, auto *req_reader, auto *res_builder) {
+        InMemoryReplicationHandlers::WalFilesHandler(dbms_handler, data.uuid_, request_version, req_reader,
+                                                     res_builder);
       });
   server.rpc_server_.Register<storage::replication::CurrentWalRpc>(
-      [&data, dbms_handler](auto *req_reader, auto *res_builder) {
-        InMemoryReplicationHandlers::CurrentWalHandler(dbms_handler, data.uuid_, req_reader, res_builder);
+      [&data, dbms_handler](uint64_t const request_version, auto *req_reader, auto *res_builder) {
+        InMemoryReplicationHandlers::CurrentWalHandler(dbms_handler, data.uuid_, request_version, req_reader,
+                                                       res_builder);
       });
   server.rpc_server_.Register<replication_coordination_glue::SwapMainUUIDRpc>(
-      [&data, dbms_handler](auto *req_reader, auto *res_builder) {
-        InMemoryReplicationHandlers::SwapMainUUIDHandler(dbms_handler, data, req_reader, res_builder);
+      [&data, dbms_handler](uint64_t const request_version, auto *req_reader, auto *res_builder) {
+        InMemoryReplicationHandlers::SwapMainUUIDHandler(dbms_handler, data, request_version, req_reader, res_builder);
       });
 }
 
 void InMemoryReplicationHandlers::SwapMainUUIDHandler(dbms::DbmsHandler *dbms_handler,
                                                       replication::RoleReplicaData &role_replica_data,
-                                                      slk::Reader *req_reader, slk::Builder *res_builder) {
+                                                      uint64_t const request_version, slk::Reader *req_reader,
+                                                      slk::Builder *res_builder) {
   auto replica_state = dbms_handler->ReplicationState();
   if (!replica_state->IsReplica()) {
     spdlog::error("Setting main uuid must be performed on replica.");
@@ -261,7 +268,8 @@ void InMemoryReplicationHandlers::SwapMainUUIDHandler(dbms::DbmsHandler *dbms_ha
 
 void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handler,
                                                    const std::optional<utils::UUID> &current_main_uuid,
-                                                   slk::Reader *req_reader, slk::Builder *res_builder) {
+                                                   uint64_t const request_version, slk::Reader *req_reader,
+                                                   slk::Builder *res_builder) {
   storage::replication::HeartbeatReq req;
   slk::Load(&req, req_reader);
   auto const db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
@@ -298,7 +306,8 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
 
 void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_handler,
                                                        const std::optional<utils::UUID> &current_main_uuid,
-                                                       slk::Reader *req_reader, slk::Builder *res_builder) {
+                                                       uint64_t const request_version, slk::Reader *req_reader,
+                                                       slk::Builder *res_builder) {
   storage::replication::PrepareCommitReq req;
   slk::Load(&req, req_reader);
 
@@ -372,7 +381,8 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
 
 void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_handler,
                                                         const std::optional<utils::UUID> &current_main_uuid,
-                                                        slk::Reader *req_reader, slk::Builder *res_builder) {
+                                                        uint64_t const request_version, slk::Reader *req_reader,
+                                                        slk::Builder *res_builder) {
   storage::replication::FinalizeCommitReq req;
   slk::Load(&req, req_reader);
 
@@ -447,7 +457,8 @@ void InMemoryReplicationHandlers::AbortPrevTxnIfNeeded(storage::InMemoryStorage 
 // signal to the caller that it shouldn't update the commit timestamp value.
 void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
                                                   const std::optional<utils::UUID> &current_main_uuid,
-                                                  slk::Reader *req_reader, slk::Builder *res_builder) {
+                                                  uint64_t const request_version, slk::Reader *req_reader,
+                                                  slk::Builder *res_builder) {
   storage::replication::SnapshotReq req;
   Load(&req, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.storage_uuid);
@@ -588,7 +599,8 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
 // obtained.
 void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handler,
                                                   const std::optional<utils::UUID> &current_main_uuid,
-                                                  slk::Reader *req_reader, slk::Builder *res_builder) {
+                                                  uint64_t const request_version, slk::Reader *req_reader,
+                                                  slk::Builder *res_builder) {
   storage::replication::WalFilesReq req;
   slk::Load(&req, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
@@ -686,7 +698,8 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
 // main
 void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_handler,
                                                     const std::optional<utils::UUID> &current_main_uuid,
-                                                    slk::Reader *req_reader, slk::Builder *res_builder) {
+                                                    uint64_t const request_version, slk::Reader *req_reader,
+                                                    slk::Builder *res_builder) {
   storage::replication::CurrentWalReq req;
   slk::Load(&req, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);

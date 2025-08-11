@@ -39,6 +39,6 @@ constexpr auto v4 = Version{2024'07'02'0'2'18};
 // Moved coordinator section in TypeId.
 constexpr auto v5 = Version{2025'05'29'0'3'3};
 
-constexpr auto current_version = v5;
+constexpr auto current_protocol_version = v5;
 
 }  // namespace memgraph::rpc
