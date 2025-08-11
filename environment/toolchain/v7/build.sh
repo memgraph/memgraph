@@ -1052,6 +1052,7 @@ if [ ! -d $PREFIX/include/jemalloc ]; then
       --disable-cxx \
       --with-lg-page=12 \
       --with-lg-hugepage=21 \
+      --with-jemalloc-prefix=je_ \
       --enable-shared=no --prefix=$PREFIX \
       --with-malloc-conf="background_thread:true,retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000"
     ##### NOTE: Old jmalloc config (toolchain-v5)
