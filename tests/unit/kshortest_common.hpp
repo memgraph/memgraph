@@ -84,6 +84,8 @@ std::vector<std::pair<int, int>> GetEdgeList(const std::vector<std::tuple<int, i
 // shortest paths between source and target up to k paths.
 std::vector<std::vector<int>> YenKShortestPaths(int num_vertices, const std::vector<std::pair<int, int>> &edges,
                                                 int source, int target, int k) {
+  spdlog::info("YenKShortestPaths: source={}, target={}, k={}, edges_count={}", source, target, k, edges.size());
+
   // For simplicity, we'll use a basic implementation that finds all paths
   // and sorts them by length. In a real implementation, this would be
   // Yen's algorithm with Dijkstra's as the base.
@@ -126,6 +128,12 @@ std::vector<std::vector<int>> YenKShortestPaths(int num_vertices, const std::vec
   // Return only up to k paths
   if (all_paths.size() > static_cast<size_t>(k)) {
     all_paths.resize(k);
+  }
+
+  spdlog::info("YenKShortestPaths: Found {} paths total", all_paths.size());
+  for (size_t i = 0; i < all_paths.size(); ++i) {
+    spdlog::info("YenKShortestPaths: Path {}: length={}, vertices={}", i, all_paths[i].size() - 1,
+                 fmt::format("{}", fmt::join(all_paths[i], "->")));
   }
 
   return all_paths;
@@ -285,14 +293,18 @@ class Database {
       memgraph::query::Symbol source_sym, memgraph::query::Symbol sink_sym, memgraph::query::Symbol edge_sym,
       memgraph::query::EdgeAtom::Direction direction, const std::vector<memgraph::storage::EdgeTypeId> &edge_types,
       const std::shared_ptr<memgraph::query::plan::LogicalOperator> &input, bool existing_node,
-      memgraph::query::Expression *upper_bound) = 0;
+      memgraph::query::Expression *lower_bound, memgraph::query::Expression *upper_bound) = 0;
   virtual std::pair<std::vector<memgraph::query::VertexAccessor>, std::vector<memgraph::query::EdgeAccessor>>
   BuildGraph(memgraph::query::DbAccessor *dba, const std::vector<int> &vertex_locations,
              const std::vector<std::tuple<int, int, std::string>> &edges) = 0;
   virtual ~Database() = default;
 
-  void KShortestTest(Database *db, int upper_bound, memgraph::query::EdgeAtom::Direction direction,
+  void KShortestTest(Database *db, int lower_bound, int upper_bound, memgraph::query::EdgeAtom::Direction direction,
                      std::vector<std::string> edge_types, int k) {
+    spdlog::info("KShortestTest: lower_bound={}, upper_bound={}, direction={}, edge_types={}, k={}", lower_bound,
+                 upper_bound, static_cast<int>(direction),
+                 edge_types.empty() ? "all" : fmt::format("{}", fmt::join(edge_types, ",")), k);
+
     auto storage_dba = db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
     memgraph::query::ExecutionContext context{.db_accessor = &dba};
@@ -304,6 +316,7 @@ class Database {
     std::vector<memgraph::query::EdgeAccessor> edges;
 
     std::tie(vertices, edges) = db->BuildGraph(&dba, kVertexLocations, kEdges);
+    spdlog::info("KShortestTest: Built graph with {} vertices and {} edges", vertices.size(), edges.size());
 
     dba.AdvanceCommand();
 
@@ -317,8 +330,10 @@ class Database {
     for (const auto &t : edge_types) {
       storage_edge_types.push_back(dba.NameToEdgeType(t));
     }
+    spdlog::info("KShortestTest: Using {} edge types", storage_edge_types.size());
 
     input_op = db->MakeKShortestOperator(source_sym, sink_sym, edges_sym, direction, storage_edge_types, input_op, true,
+                                         lower_bound == -1 ? nullptr : LITERAL(lower_bound),
                                          upper_bound == -1 ? nullptr : LITERAL(upper_bound));
 
     context.evaluation_context.properties = memgraph::query::NamesToProperties(storage.properties_, &dba);
@@ -327,6 +342,8 @@ class Database {
 
     results =
         PullResults(input_op.get(), &context, std::vector<memgraph::query::Symbol>{source_sym, sink_sym, edges_sym});
+    if (results.size() > k) results.resize(k);
+    spdlog::info("KShortestTest: Got {} total results from query", results.size());
 
     // Group results based on source-sink pair and compare them to results
     // obtained by running Yen's algorithm.
@@ -342,6 +359,7 @@ class Database {
 
       auto source_id = GetProp(source.ValueVertex(), "id", &dba).ValueInt();
       auto sink_id = GetProp(sink.ValueVertex(), "id", &dba).ValueInt();
+      spdlog::info("KShortestTest: Processing source_id={}, sink_id={}", source_id, sink_id);
 
       // Skip same vertex pairs
       if (source_id == sink_id) {
@@ -350,20 +368,78 @@ class Database {
       }
 
       auto edges_filtered = GetEdgeList(kEdges, direction, edge_types);
+      spdlog::info("KShortestTest: Filtered edges count: {}", edges_filtered.size());
+      std::string edges_str;
+      for (size_t i = 0; i < edges_filtered.size(); ++i) {
+        if (i > 0) edges_str += ", ";
+        edges_str += fmt::format("{}->{}", edges_filtered[i].first, edges_filtered[i].second);
+      }
+      spdlog::info("KShortestTest: Filtered edges: {}", edges_str);
 
-      auto correct_paths = YenKShortestPaths(kVertexCount, edges_filtered, source_id, sink_id, k);
+      std::vector<std::vector<int>> correct_paths;
+      if (direction == memgraph::query::EdgeAtom::Direction::OUT) {
+        correct_paths = YenKShortestPaths(kVertexCount, edges_filtered, source_id, sink_id, k);
+      } else if (direction == memgraph::query::EdgeAtom::Direction::IN) {
+        correct_paths = YenKShortestPaths(kVertexCount, edges_filtered, sink_id, source_id, k);
+      } else {
+        // For BOTH direction, we need to find paths in both directions
+        correct_paths = YenKShortestPaths(kVertexCount, edges_filtered, source_id, sink_id, k);
+        auto correct_paths_reverse = YenKShortestPaths(kVertexCount, edges_filtered, sink_id, source_id, k);
+        correct_paths.insert(correct_paths.end(), correct_paths_reverse.begin(), correct_paths_reverse.end());
+        std::sort(correct_paths.begin(), correct_paths.end(),
+                  [](const std::vector<int> &a, const std::vector<int> &b) { return a.size() < b.size(); });
+      }
+      spdlog::info("KShortestTest: Yen algorithm found {} paths", correct_paths.size());
 
       if (upper_bound == -1) upper_bound = kVertexCount;
 
-      // Remove paths whose length doesn't satisfy given upper bound.
+      // Remove paths whose length doesn't satisfy given bounds.
+      size_t before_filter = correct_paths.size();
+
+      // correct_paths is a path of vertices, not edges, so we need to subtract 1 from the path length to get the number
+      // of edges.
       correct_paths.erase(std::remove_if(correct_paths.begin(), correct_paths.end(),
-                                         [upper_bound](const std::vector<int> &path) {
-                                           return path.size() > static_cast<size_t>(upper_bound);
+                                         [lower_bound, upper_bound](const std::vector<int> &path) {
+                                           return path.size() - 1 < static_cast<size_t>(lower_bound) ||
+                                                  path.size() - 1 > static_cast<size_t>(upper_bound);
                                          }),
                           correct_paths.end());
+      spdlog::info("KShortestTest: After bounds filtering: {} paths (removed {} paths)", correct_paths.size(),
+                   before_filter - correct_paths.size());
 
       // There should be exactly k successful pulls for each source-sink pair (or fewer if not enough paths exist).
-      EXPECT_EQ(j - i, std::min(static_cast<int>(correct_paths.size()), k));
+      int expected_count = std::min(static_cast<int>(correct_paths.size()), k);
+      spdlog::info("KShortestTest: Expected {} results, got {} results", expected_count, j - i);
+      if ((j - i) != expected_count) {
+        std::cerr << "Expected " << expected_count << " paths, but got " << (j - i) << ".\n";
+        std::cerr << "Source: " << source_id << ", Sink: " << sink_id << ", Direction: " << static_cast<int>(direction)
+                  << "\n";
+        std::cerr << "Returned paths:\n";
+        for (int idx = i; idx < j; ++idx) {
+          std::cerr << "  Path " << (idx - i) << ": ";
+          auto path_list = results[idx][2].ValueList();
+          std::cerr << "length=" << path_list.size() << ", edges=[";
+          for (size_t e = 0; e < path_list.size(); ++e) {
+            if (e > 0) std::cerr << ", ";
+            auto edge = path_list[e].ValueEdge();
+            auto from_id = GetProp(edge.From(), "id", &dba).ValueInt();
+            auto to_id = GetProp(edge.To(), "id", &dba).ValueInt();
+            std::cerr << from_id << "->" << to_id;
+          }
+          std::cerr << "]\n";
+        }
+        std::cerr << "Expected paths:\n";
+        for (size_t p = 0; p < correct_paths.size(); ++p) {
+          std::cerr << "  Path " << p << ": ";
+          std::cerr << "length=" << (correct_paths[p].size() - 1) << ", vertices=[";
+          for (size_t v = 0; v < correct_paths[p].size(); ++v) {
+            if (v > 0) std::cerr << "->";
+            std::cerr << correct_paths[p][v];
+          }
+          std::cerr << "]\n";
+        }
+      }
+      EXPECT_EQ(j - i, expected_count);
 
       auto lengths = CheckPathsAndExtractLengths(
           &dba, edges_filtered,
@@ -482,7 +558,7 @@ class Database {
 
     input_operator =
         db->MakeKShortestOperator(source_symbol, sink_symbol, edges_symbol, direction, storage_edge_types,
-                                  input_operator, true, upper_bound == -1 ? nullptr : LITERAL(upper_bound));
+                                  input_operator, true, nullptr, upper_bound == -1 ? nullptr : LITERAL(upper_bound));
 
     context.evaluation_context.properties = memgraph::query::NamesToProperties(storage.properties_, &db_accessor);
     context.evaluation_context.labels = memgraph::query::NamesToLabels(storage.labels_, &db_accessor);

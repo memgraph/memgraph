@@ -3485,6 +3485,9 @@ class KShortestPathsCursor : public Cursor {
   utils::pmr::unordered_map<VertexAccessor, EdgeVertexAccessorResult, VertexAccessorHash> edges_;
   utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>, VertexAccessorHash> predecessors_;
 
+  // Bidirectional search state
+  using VertexEdgeMapT = utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>>;
+
   bool InitializeKShortestPaths(const VertexAccessor &source, const VertexAccessor &target,
                                 ExpressionEvaluator &evaluator, ExecutionContext &context) {
     ResetState();
@@ -3603,120 +3606,213 @@ class KShortestPathsCursor : public Cursor {
     return current;
   }
 
+  PathInfo ReconstructPath(const VertexAccessor &midpoint, const VertexEdgeMapT &in_edge,
+                           const VertexEdgeMapT &out_edge, utils::MemoryResource *memory) {
+    utils::pmr::vector<EdgeAccessor> result(memory);
+    VertexAccessor current = midpoint;
+
+    // Reconstruct the path from midpoint to source
+    while (in_edge.contains(current)) {
+      const auto &edge_opt = in_edge.at(current);
+      if (edge_opt.has_value()) {
+        const auto &edge = edge_opt.value();
+        result.push_back(edge);
+        current = (edge.From() == current) ? edge.To() : edge.From();
+      } else {
+        break;
+      }
+    }
+
+    // Reverse the path from source to midpoint
+    std::reverse(result.begin(), result.end());
+
+    // Reconstruct the path from midpoint to target
+    current = midpoint;
+    while (out_edge.contains(current)) {
+      const auto &edge_opt = out_edge.at(current);
+      if (edge_opt.has_value()) {
+        const auto &edge = edge_opt.value();
+        result.push_back(edge);
+        current = (edge.From() == current) ? edge.To() : edge.From();
+      } else {
+        break;
+      }
+    }
+
+    return PathInfo(result, 0, memory);
+  }
+
   PathInfo ComputeShortestPath(const VertexAccessor &source, const VertexAccessor &target,
                                ExpressionEvaluator &evaluator, ExecutionContext &context) {
-    distances_.clear();
-    predecessors_.clear();
+    using utils::Contains;
 
-    // Custom comparator for priority queue (min-heap based on distance)
-    auto pq_comparator = [](const std::pair<double, VertexAccessor> &a, const std::pair<double, VertexAccessor> &b) {
-      if (std::abs(a.first - b.first) < 1e-9) {
-        // If distances are equal, compare by vertex GID for deterministic ordering
-        return a.second.Gid() > b.second.Gid();
-      }
-      return a.first > b.first;  // Min-heap: smaller distances have higher priority
-    };
+    if (source == target) return PathInfo(evaluator.GetMemoryResource());
 
-    // Dijkstra's algorithm with blocked edges/vertices
-    std::priority_queue<std::pair<double, VertexAccessor>, std::vector<std::pair<double, VertexAccessor>>,
-                        decltype(pq_comparator)>
-        pq(pq_comparator);
+    // We expand from both directions, both from the source and the target.
+    // Expansions meet at the middle of the path if it exists. This should
+    // perform better for real-world like graphs where the expansion front
+    // grows exponentially, effectively reducing the exponent by half.
 
-    distances_[source] = 0.0;
-    pq.emplace(0.0, source);
+    auto *pull_memory = evaluator.GetMemoryResource();
+    // Holds vertices at the current level of expansion from the source
+    // (target).
+    utils::pmr::vector<VertexAccessor> source_frontier(pull_memory);
+    utils::pmr::vector<VertexAccessor> target_frontier(pull_memory);
 
-    while (!pq.empty()) {
+    // Holds vertices we can expand to from `source_frontier`
+    // (`target_frontier`).
+    utils::pmr::vector<VertexAccessor> source_next(pull_memory);
+    utils::pmr::vector<VertexAccessor> target_next(pull_memory);
+
+    // Maps each vertex we visited expanding from the source (target) to the
+    // edge used. Necessary for path reconstruction.
+    VertexEdgeMapT in_edge(pull_memory);
+    VertexEdgeMapT out_edge(pull_memory);
+
+    size_t current_length = 0;
+
+    source_frontier.emplace_back(source);
+    in_edge[source] = std::nullopt;
+    target_frontier.emplace_back(target);
+    out_edge[target] = std::nullopt;
+
+    while (true) {
       AbortCheck(context);
+      // Top-down step (expansion from the source).
+      ++current_length;
+      if (current_length > upper_bound_) return PathInfo(evaluator.GetMemoryResource());
 
-      if (context.hops_limit.IsLimitReached()) return PathInfo(evaluator.GetMemoryResource());  // Empty path
-
-      auto [dist, vertex] = pq.top();
-      pq.pop();
-
-      if (vertex == target) break;
-      const auto current_dist = distances_[vertex];
-      if (dist > current_dist) continue;
-      if (current_dist >= upper_bound_) continue;
-      if (blocked_vertices_.contains(vertex)) continue;
-
-      // Expand edges based on direction
-      auto expand_edges = [&](auto edges_result) {
-        for (const auto &edge : edges_result.edges) {
-          VertexAccessor neighbor = (edge.From() == vertex) ? edge.To() : edge.From();
-#ifdef MG_ENTERPRISE
-          if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-              !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
-                context.auth_checker->Has(neighbor, storage::View::OLD,
-                                          memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
-            continue;
-          }
-#endif
-          if (blocked_edges_.contains(edge) || blocked_vertices_.contains(neighbor)) continue;
-
-          double new_dist = dist + 1;
-          auto it = distances_.find(neighbor);
-          if (it == distances_.end() || new_dist < it->second) {
-            distances_[neighbor] = new_dist;
-            predecessors_[neighbor] = edge;
-            pq.emplace(new_dist, neighbor);
-          }
-        }
-      };
-
-      auto it = edges_.find(vertex);
-      if (it == edges_.end()) {
+      for (const auto &vertex : source_frontier) {
+        if (context.hops_limit.IsLimitReached()) break;
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
-          auto [in_it, success] = edges_.emplace(
-              vertex,
-              UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit)));
-          if (!success) {
-            throw utils::BasicException("Failed to emplace vertex in edges_");
+          auto out_edges_result =
+              UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+          context.number_of_hops += out_edges_result.expanded_count;
+          for (const auto &edge : out_edges_result.edges) {
+#ifdef MG_ENTERPRISE
+            if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+                !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+                  context.auth_checker->Has(edge.To(), storage::View::OLD,
+                                            memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+              continue;
+            }
+#endif
+            if (!blocked_edges_.contains(edge) && !blocked_vertices_.contains(edge.To()) &&
+                !Contains(in_edge, edge.To())) {
+              in_edge.emplace(edge.To(), edge);
+              if (Contains(out_edge, edge.To())) {
+                if (current_length >= lower_bound_) {
+                  return ReconstructPath(edge.To(), in_edge, out_edge, evaluator.GetMemoryResource());
+                } else {
+                  return PathInfo(evaluator.GetMemoryResource());
+                }
+              }
+              source_next.push_back(edge.To());
+            }
           }
-          it = in_it;
         }
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
           auto in_edges_result =
               UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
-          if (it == edges_.end()) {
-            auto [out_it, success] = edges_.emplace(vertex, std::move(in_edges_result));
-            if (!success) {
-              throw utils::BasicException("Failed to emplace vertex in edges_");
+          context.number_of_hops += in_edges_result.expanded_count;
+          for (const auto &edge : in_edges_result.edges) {
+#ifdef MG_ENTERPRISE
+            if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+                !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+                  context.auth_checker->Has(edge.From(), storage::View::OLD,
+                                            memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+              continue;
             }
-            it = out_it;
-          } else {
-            it->second.edges.insert(it->second.edges.end(), in_edges_result.edges.begin(), in_edges_result.edges.end());
-            it->second.expanded_count = in_edges_result.expanded_count;
+#endif
+            if (!blocked_edges_.contains(edge) && !blocked_vertices_.contains(edge.From()) &&
+                !Contains(in_edge, edge.From())) {
+              in_edge.emplace(edge.From(), edge);
+              if (Contains(out_edge, edge.From())) {
+                if (current_length >= lower_bound_) {
+                  return ReconstructPath(edge.From(), in_edge, out_edge, evaluator.GetMemoryResource());
+                } else {
+                  return PathInfo(evaluator.GetMemoryResource());
+                }
+              }
+              source_next.push_back(edge.From());
+            }
           }
         }
-        context.number_of_hops += edges_[vertex].expanded_count;
       }
-      expand_edges(it->second);
-    }
 
-    // Reconstruct path
-    PathInfo path(evaluator.GetMemoryResource());
-    if (distances_.contains(target)) {
-      utils::pmr::vector<EdgeAccessor> edges(evaluator.GetMemoryResource());
-      VertexAccessor current = target;
+      if (source_next.empty()) return PathInfo(evaluator.GetMemoryResource());
+      source_frontier.clear();
+      std::swap(source_frontier, source_next);
 
-      while (predecessors_.contains(current)) {
-        AbortCheck(context);
+      // Bottom-up step (expansion from the target).
+      ++current_length;
+      if (current_length > upper_bound_) return PathInfo(evaluator.GetMemoryResource());
 
-        const auto &edge_opt = predecessors_[current];
-        if (edge_opt.has_value()) {
-          const auto &edge = edge_opt.value();
-          edges.push_back(edge);
-          current = (edge.From() == current) ? edge.To() : edge.From();
-        } else {
-          break;
+      // When expanding from the target we have to be careful which edge
+      // endpoint we pass to `should_expand`, because everything is
+      // reversed.
+      for (const auto &vertex : target_frontier) {
+        if (context.hops_limit.IsLimitReached()) break;
+        if (self_.common_.direction != EdgeAtom::Direction::OUT) {
+          auto out_edges_result =
+              UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+          context.number_of_hops += out_edges_result.expanded_count;
+          for (const auto &edge : out_edges_result.edges) {
+#ifdef MG_ENTERPRISE
+            if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+                !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+                  context.auth_checker->Has(edge.To(), storage::View::OLD,
+                                            memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+              continue;
+            }
+#endif
+            if (!blocked_edges_.contains(edge) && !blocked_vertices_.contains(edge.To()) &&
+                !Contains(out_edge, edge.To())) {
+              out_edge.emplace(edge.To(), edge);
+              if (Contains(in_edge, edge.To())) {
+                if (current_length >= lower_bound_) {
+                  return ReconstructPath(edge.To(), in_edge, out_edge, evaluator.GetMemoryResource());
+                } else {
+                  return PathInfo(evaluator.GetMemoryResource());
+                }
+              }
+              target_next.push_back(edge.To());
+            }
+          }
+        }
+        if (self_.common_.direction != EdgeAtom::Direction::IN) {
+          auto in_edges_result =
+              UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+          context.number_of_hops += in_edges_result.expanded_count;
+          for (const auto &edge : in_edges_result.edges) {
+#ifdef MG_ENTERPRISE
+            if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+                !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+                  context.auth_checker->Has(edge.From(), storage::View::OLD,
+                                            memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+              continue;
+            }
+#endif
+            if (!blocked_edges_.contains(edge) && !blocked_vertices_.contains(edge.From()) &&
+                !Contains(out_edge, edge.From())) {
+              out_edge.emplace(edge.From(), edge);
+              if (Contains(in_edge, edge.From())) {
+                if (current_length >= lower_bound_) {
+                  return ReconstructPath(edge.From(), in_edge, out_edge, evaluator.GetMemoryResource());
+                } else {
+                  return PathInfo(evaluator.GetMemoryResource());
+                }
+              }
+              target_next.push_back(edge.From());
+            }
+          }
         }
       }
 
-      std::reverse(edges.begin(), edges.end());
-      path.edges = std::move(edges);
+      if (target_next.empty()) return PathInfo(evaluator.GetMemoryResource());
+      target_frontier.clear();
+      std::swap(target_frontier, target_next);
     }
-
-    return path;
   }
 
   void PushPathToFrame(const PathInfo &path, Frame *frame, utils::MemoryResource *memory) {
@@ -4515,15 +4611,13 @@ SetProperties::SetPropertiesCursor::SetPropertiesCursor(const SetProperties &sel
 namespace {
 
 template <typename T>
-concept AccessorWithProperties =
-    requires(T value, storage::PropertyId property_id, storage::PropertyValue property_value,
-             std::map<storage::PropertyId, storage::PropertyValue> properties) {
-      {
-        value.ClearProperties()
-      } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
-      { value.SetProperty(property_id, property_value) };
-      { value.UpdateProperties(properties) };
-    };
+concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
+                                          storage::PropertyValue property_value,
+                                          std::map<storage::PropertyId, storage::PropertyValue> properties) {
+  { value.ClearProperties() } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
+  {value.SetProperty(property_id, property_value)};
+  {value.UpdateProperties(properties)};
+};
 
 /// Helper function that sets the given values on either a Vertex or an Edge.
 ///
@@ -5560,7 +5654,7 @@ class AggregateCursor : public Cursor {
           value_it->ValueMap().emplace(key.ValueString(), std::move(input_value));
           break;
       }  // end switch over Aggregation::Op enum
-    }  // end loop over all aggregations
+    }    // end loop over all aggregations
   }
 
   /** Project a subgraph from lists of nodes and lists of edges. Any nulls in these lists are ignored.
@@ -5843,8 +5937,9 @@ class OrderByCursor : public Cursor {
       // sorting with range zip
       // we compare on just the projection of the 1st range (order_by)
       // this will also permute the 2nd range (output)
-      ranges::sort(rv::zip(order_by, output), self_.compare_.lex_cmp(),
-                   [](auto const &value) -> auto const & { return std::get<0>(value); });
+      ranges::sort(
+          rv::zip(order_by, output), self_.compare_.lex_cmp(),
+          [](auto const &value) -> auto const & { return std::get<0>(value); });
 
       // no longer need the order_by terms
       order_by.clear();

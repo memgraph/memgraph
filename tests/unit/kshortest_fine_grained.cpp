@@ -48,7 +48,8 @@ class VertexDb : public Database {
                                                          EdgeAtom::Direction direction,
                                                          const std::vector<memgraph::storage::EdgeTypeId> &edge_types,
                                                          const std::shared_ptr<LogicalOperator> &input,
-                                                         bool existing_node, Expression *upper_bound) override {
+                                                         bool existing_node, memgraph::query::Expression *lower_bound,
+                                                         memgraph::query::Expression *upper_bound) override {
     return std::make_unique<ExpandVariable>(input, source_sym, sink_sym, edge_sym, EdgeAtom::Type::KSHORTEST, direction,
                                             edge_types, false, nullptr, upper_bound, existing_node,
                                             memgraph::query::plan::ExpansionLambda{}, std::nullopt, std::nullopt);
