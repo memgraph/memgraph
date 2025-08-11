@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,9 +24,10 @@ void LogWrongMain(const std::optional<utils::UUID> &current_main_uuid, const uti
 #ifdef MG_ENTERPRISE
 void UpdateAuthDataHandler(system::ReplicaHandlerAccessToState &system_state_access,
                            const std::optional<utils::UUID> &current_main_uuid, auth::SynchedAuth &auth,
-                           slk::Reader *req_reader, slk::Builder *res_builder);
+                           uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 void DropAuthDataHandler(system::ReplicaHandlerAccessToState &system_state_access,
                          const std::optional<utils::UUID> &current_main_uuid, auth::SynchedAuth &auth,
+
                          slk::Reader *req_reader, slk::Builder *res_builder);
 
 bool SystemRecoveryHandler(auth::SynchedAuth &auth, auth::Auth::Config auth_config,

@@ -15,6 +15,7 @@
 #include <memory>
 #include <type_traits>
 
+#include "messages.hpp"
 #include "storage/v2/property_constants.hpp"
 #include "storage/v2/replication/serialization.hpp"
 #include "utils/typeinfo.hpp"
@@ -53,6 +54,20 @@ struct RequestResponse {
   using Request = TRequest;
   using Response = TResponse;
 };
+
+template <typename Old, typename Target>
+Target UpgradeToTarget(Old const &old) {
+  if constexpr (std::is_same_v<Target, std::remove_cvref_t<Old>>) {
+    return old;
+  } else {
+    auto const intermediate = old.Upgrade();
+    using IntermediateType = decltype(intermediate);
+
+    static_assert(IntermediateType::kVersion == Old::kVersion + 1, "Upgrade needs to lead to the new type");
+
+    return UpgradeToTarget<decltype(intermediate), Target>(intermediate);
+  }
+}
 
 template <typename T>
 concept IsRpc = requires {

@@ -61,7 +61,7 @@ TEST(Rpc, Call) {
     server.Shutdown();
     server.AwaitShutdown();
   }};
-  server.Register<Sum>([](auto *req_reader, auto *res_builder) {
+  server.Register<Sum>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
     SumReq req;
     memgraph::slk::Load(&req, req_reader);
     SumRes res(req.x + req.y);
@@ -79,7 +79,7 @@ TEST(Rpc, Call) {
 TEST(Rpc, Abort) {
   memgraph::communication::ServerContext server_context;
   Server server({"127.0.0.1", 0}, &server_context);
-  server.Register<Sum>([](auto *req_reader, auto *res_builder) {
+  server.Register<Sum>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
     SumReq req;
     memgraph::slk::Load(&req, req_reader);
     std::this_thread::sleep_for(500ms);
@@ -111,7 +111,7 @@ TEST(Rpc, Abort) {
 TEST(Rpc, ClientPool) {
   memgraph::communication::ServerContext server_context;
   Server server({"127.0.0.1", 0}, &server_context);
-  server.Register<Sum>([](const auto &req_reader, auto *res_builder) {
+  server.Register<Sum>([](uint64_t const request_version, const auto &req_reader, auto *res_builder) {
     SumReq req;
     Load(&req, req_reader);
     std::this_thread::sleep_for(100ms);
@@ -169,7 +169,7 @@ TEST(Rpc, ClientPool) {
 TEST(Rpc, LargeMessage) {
   memgraph::communication::ServerContext server_context;
   Server server({"127.0.0.1", 0}, &server_context);
-  server.Register<Echo>([](auto *req_reader, auto *res_builder) {
+  server.Register<Echo>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
     EchoMessage res;
     memgraph::slk::Load(&res, req_reader);
     memgraph::rpc::SendFinalResponse(res, res_builder);
@@ -191,7 +191,7 @@ TEST(Rpc, LargeMessage) {
 TEST(Rpc, JumboMessage) {
   memgraph::communication::ServerContext server_context;
   Server server({"127.0.0.1", 0}, &server_context);
-  server.Register<Echo>([](auto *req_reader, auto *res_builder) {
+  server.Register<Echo>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
     EchoMessage res;
     memgraph::slk::Load(&res, req_reader);
     memgraph::rpc::SendFinalResponse(res, res_builder);
@@ -214,7 +214,7 @@ TEST(Rpc, JumboMessage) {
 TEST(Rpc, Stream) {
   memgraph::communication::ServerContext server_context;
   Server server({"127.0.0.1", 0}, &server_context);
-  server.Register<Echo>([](auto *req_reader, auto *res_builder) {
+  server.Register<Echo>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
     EchoMessage req;
     memgraph::slk::Load(&req, req_reader);
     std::string payload;
@@ -239,7 +239,7 @@ TEST(Rpc, Stream) {
 TEST(Rpc, StreamLarge) {
   memgraph::communication::ServerContext server_context;
   Server server({"127.0.0.1", 0}, &server_context);
-  server.Register<Echo>([](auto *req_reader, auto *res_builder) {
+  server.Register<Echo>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
     EchoMessage req;
     memgraph::slk::Load(&req, req_reader);
     std::string payload;
@@ -267,7 +267,7 @@ TEST(Rpc, StreamLarge) {
 TEST(Rpc, StreamJumbo) {
   memgraph::communication::ServerContext server_context;
   Server server({"127.0.0.1", 0}, &server_context);
-  server.Register<Echo>([](auto *req_reader, auto *res_builder) {
+  server.Register<Echo>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
     EchoMessage req;
     memgraph::slk::Load(&req, req_reader);
     std::string payload;

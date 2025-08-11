@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -36,6 +36,6 @@ constexpr auto v3 = Version{2024'02'02'0'2'14};
 // this is due to auto index creation
 constexpr auto v4 = Version{2024'07'02'0'2'18};
 
-constexpr auto current_version = v4;
+constexpr auto current_protocol_version = v4;
 
 }  // namespace memgraph::rpc

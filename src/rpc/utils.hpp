@@ -21,7 +21,7 @@ namespace memgraph::rpc {
 template <typename TResponse>
 void SendFinalResponse(TResponse const &res, slk::Builder *builder, std::string description = "") {
   slk::Save(TResponse::kType.id, builder);
-  slk::Save(rpc::current_version, builder);
+  slk::Save(rpc::current_protocol_version, builder);
   slk::Save(res, builder);
   builder->Finalize();
   spdlog::trace("[RpcServer] sent {}. {}", TResponse::kType.name, description);
@@ -32,7 +32,7 @@ inline void SendInProgressMsg(slk::Builder *builder) {
     throw slk::SlkBuilderException("InProgress RPC message can only be sent when the builder's buffer is empty.");
   }
   Save(storage::replication::InProgressRes::kType.id, builder);
-  Save(rpc::current_version, builder);
+  Save(rpc::current_protocol_version, builder);
   builder->Finalize();
   spdlog::trace("[RpcServer] sent {}", storage::replication::InProgressRes::kType.name);
 }

@@ -17,6 +17,19 @@
 #include "slk/serialization.hpp"
 #include "utils/typeinfo.hpp"
 
+struct SumReqV2 {
+  static constexpr memgraph::utils::TypeInfo kType{.id = memgraph::utils::TypeId::UNKNOWN, .name = "SumReq"};
+  static constexpr uint64_t kVersion{2};
+
+  SumReqV2() = default;  // Needed for serialization.
+  explicit SumReqV2(std::initializer_list<int> const nums) : nums_(nums) {}
+
+  static void Load(SumReqV2 *obj, memgraph::slk::Reader *reader);
+  static void Save(const SumReqV2 &obj, memgraph::slk::Builder *builder);
+
+  std::vector<int> nums_;
+};
+
 struct SumReq {
   static constexpr memgraph::utils::TypeInfo kType{.id = memgraph::utils::TypeId::UNKNOWN, .name = "SumReq"};
   static constexpr uint64_t kVersion{1};
@@ -26,6 +39,8 @@ struct SumReq {
 
   static void Load(SumReq *obj, memgraph::slk::Reader *reader);
   static void Save(const SumReq &obj, memgraph::slk::Builder *builder);
+
+  SumReqV2 Upgrade() const { return SumReqV2({x, y}); }
 
   int x;
   int y;
@@ -53,6 +68,7 @@ void Load(SumRes *res, Reader *reader);
 }  // namespace memgraph::slk
 
 using Sum = memgraph::rpc::RequestResponse<SumReq, SumRes>;
+using SumV2 = memgraph::rpc::RequestResponse<SumReqV2, SumRes>;
 
 struct EchoMessage {
   // Intentionally set to a random value to avoid polluting typeinfo.hpp
