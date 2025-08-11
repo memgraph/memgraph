@@ -56,12 +56,6 @@ void Load(memgraph::replication::SystemRecoveryRes *self, memgraph::slk::Reader 
 
 namespace memgraph::replication {
 
-constexpr utils::TypeInfo SystemRecoveryReq::kType{utils::TypeId::REP_SYSTEM_RECOVERY_REQ, "SystemRecoveryReq",
-                                                   nullptr};
-
-constexpr utils::TypeInfo SystemRecoveryRes::kType{utils::TypeId::REP_SYSTEM_RECOVERY_RES, "SystemRecoveryRes",
-                                                   nullptr};
-
 void SystemRecoveryReq::Save(const SystemRecoveryReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }

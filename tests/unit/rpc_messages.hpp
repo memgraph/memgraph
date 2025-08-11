@@ -18,7 +18,8 @@
 #include "utils/typeinfo.hpp"
 
 struct SumReq {
-  static const memgraph::utils::TypeInfo kType;
+  static constexpr memgraph::utils::TypeInfo kType{.id = memgraph::utils::TypeId::UNKNOWN, .name = "SumReq"};
+  static constexpr uint64_t kVersion{1};
 
   SumReq() = default;  // Needed for serialization.
   SumReq(int x, int y) : x(x), y(y) {}
@@ -30,10 +31,9 @@ struct SumReq {
   int y;
 };
 
-const memgraph::utils::TypeInfo SumReq::kType{memgraph::utils::TypeId::UNKNOWN, "SumReq"};
-
 struct SumRes {
-  static const memgraph::utils::TypeInfo kType;
+  static constexpr memgraph::utils::TypeInfo kType{.id = memgraph::utils::TypeId::UNKNOWN, .name = "SumRes"};
+  static constexpr uint64_t kVersion{1};
 
   SumRes() = default;  // Needed for serialization.
   explicit SumRes(int sum) : sum(sum) {}
@@ -43,8 +43,6 @@ struct SumRes {
 
   int sum;
 };
-
-const memgraph::utils::TypeInfo SumRes::kType{memgraph::utils::TypeId::UNKNOWN, "SumRes"};
 
 namespace memgraph::slk {
 void Save(const SumReq &sum, Builder *builder);
@@ -57,7 +55,10 @@ void Load(SumRes *res, Reader *reader);
 using Sum = memgraph::rpc::RequestResponse<SumReq, SumRes>;
 
 struct EchoMessage {
-  static const memgraph::utils::TypeInfo kType;
+  // Intentionally set to a random value to avoid polluting typeinfo.hpp
+  static constexpr memgraph::utils::TypeInfo kType{.id = memgraph::utils::TypeId::COORD_UNREGISTER_REPLICA_REQ,
+                                                   "EchoMessage"};
+  static constexpr uint64_t kVersion{1};
 
   EchoMessage() = default;  // Needed for serialization.
   explicit EchoMessage(std::string data) : data(std::move(data)) {}
@@ -67,10 +68,6 @@ struct EchoMessage {
 
   std::string data;
 };
-
-// Intentionally set to a random value to avoid polluting typeinfo.hpp
-const memgraph::utils::TypeInfo EchoMessage::kType{memgraph::utils::TypeId::COORD_UNREGISTER_REPLICA_REQ,
-                                                   "EchoMessage"};
 
 namespace memgraph::slk {
 void Save(const EchoMessage &echo, Builder *builder);
