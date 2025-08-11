@@ -3404,10 +3404,12 @@ class KShortestPathsCursor : public Cursor {
 
       // Handle lower bound
       auto *last_path = &shortest_paths_.back();
-      while (last_path->edges.size() < lower_bound_ &&
-             ComputeNextShortestPath(current_source_.value(), current_target_.value(), evaluator, context)) {
+      while (last_path->edges.size() < lower_bound_) {
+        current_path_index_ = shortest_paths_.size();
+        if (!ComputeNextShortestPath(current_source_.value(), current_target_.value(), evaluator, context)) {
+          break;
+        }
         last_path = &shortest_paths_.back();
-        current_path_index_ = shortest_paths_.size() - 1;
       }
 
       if (unsent_paths_count() > 0) {
@@ -3595,7 +3597,7 @@ class KShortestPathsCursor : public Cursor {
     }
   }
 
-  VertexAccessor GetVertexAtIndex(const VertexAccessor &source, const PathInfo &path, size_t index) {
+  static VertexAccessor GetVertexAtIndex(const VertexAccessor &source, const PathInfo &path, size_t index) {
     if (index == 0) return source;
 
     VertexAccessor current = source;
@@ -3606,8 +3608,8 @@ class KShortestPathsCursor : public Cursor {
     return current;
   }
 
-  PathInfo ReconstructPath(const VertexAccessor &midpoint, const VertexEdgeMapT &in_edge,
-                           const VertexEdgeMapT &out_edge, utils::MemoryResource *memory) {
+  static PathInfo ReconstructPath(const VertexAccessor &midpoint, const VertexEdgeMapT &in_edge,
+                                  const VertexEdgeMapT &out_edge, utils::MemoryResource *memory) {
     utils::pmr::vector<EdgeAccessor> result(memory);
     VertexAccessor current = midpoint;
 
@@ -3640,6 +3642,32 @@ class KShortestPathsCursor : public Cursor {
     }
 
     return PathInfo(result, 0, memory);
+  }
+
+  static constexpr bool kTo = true;
+  static constexpr bool kFrom = !kTo;
+
+  template <bool To>
+  static bool FineGrainedAccessCheck(const EdgeAccessor &edge, ExecutionContext &context) {
+#ifdef MG_ENTERPRISE
+    return (!license::global_license_checker.IsEnterpriseValidFast() || !context.auth_checker ||
+            (context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+             context.auth_checker->Has(To == kTo ? edge.To() : edge.From(), storage::View::OLD,
+                                       memgraph::query::AuthQuery::FineGrainedPrivilege::READ)));
+#else
+    (void)edge;
+    (void)context;
+    return true;
+#endif
+  }
+
+  template <bool To>
+  static bool ShouldExpand(const EdgeAccessor &edge, ExecutionContext &context, const VertexEdgeMapT &edges,
+                           const utils::pmr::unordered_set<EdgeAccessor, EdgeAccessorHash> &blocked_edges,
+                           const utils::pmr::unordered_set<VertexAccessor, VertexAccessorHash> &blocked_vertices) {
+    return FineGrainedAccessCheck<To>(edge, context) && !blocked_edges.contains(edge) &&
+           !blocked_vertices.contains(To == kTo ? edge.To() : edge.From()) &&
+           !edges.contains(To == kTo ? edge.To() : edge.From());
   }
 
   PathInfo ComputeShortestPath(const VertexAccessor &source, const VertexAccessor &target,
@@ -3689,26 +3717,14 @@ class KShortestPathsCursor : public Cursor {
               UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
           context.number_of_hops += out_edges_result.expanded_count;
           for (const auto &edge : out_edges_result.edges) {
-#ifdef MG_ENTERPRISE
-            if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-                !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
-                  context.auth_checker->Has(edge.To(), storage::View::OLD,
-                                            memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+            if (!ShouldExpand<kTo>(edge, context, in_edge, blocked_edges_, blocked_vertices_)) {
               continue;
             }
-#endif
-            if (!blocked_edges_.contains(edge) && !blocked_vertices_.contains(edge.To()) &&
-                !Contains(in_edge, edge.To())) {
-              in_edge.emplace(edge.To(), edge);
-              if (Contains(out_edge, edge.To())) {
-                if (current_length >= lower_bound_) {
-                  return ReconstructPath(edge.To(), in_edge, out_edge, evaluator.GetMemoryResource());
-                } else {
-                  return PathInfo(evaluator.GetMemoryResource());
-                }
-              }
-              source_next.push_back(edge.To());
+            in_edge.emplace(edge.To(), edge);
+            if (Contains(out_edge, edge.To())) {
+              return ReconstructPath(edge.To(), in_edge, out_edge, evaluator.GetMemoryResource());
             }
+            source_next.push_back(edge.To());
           }
         }
         if (self_.common_.direction != EdgeAtom::Direction::OUT) {
@@ -3716,26 +3732,14 @@ class KShortestPathsCursor : public Cursor {
               UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
           context.number_of_hops += in_edges_result.expanded_count;
           for (const auto &edge : in_edges_result.edges) {
-#ifdef MG_ENTERPRISE
-            if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-                !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
-                  context.auth_checker->Has(edge.From(), storage::View::OLD,
-                                            memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+            if (!ShouldExpand<kFrom>(edge, context, in_edge, blocked_edges_, blocked_vertices_)) {
               continue;
             }
-#endif
-            if (!blocked_edges_.contains(edge) && !blocked_vertices_.contains(edge.From()) &&
-                !Contains(in_edge, edge.From())) {
-              in_edge.emplace(edge.From(), edge);
-              if (Contains(out_edge, edge.From())) {
-                if (current_length >= lower_bound_) {
-                  return ReconstructPath(edge.From(), in_edge, out_edge, evaluator.GetMemoryResource());
-                } else {
-                  return PathInfo(evaluator.GetMemoryResource());
-                }
-              }
-              source_next.push_back(edge.From());
+            in_edge.emplace(edge.From(), edge);
+            if (Contains(out_edge, edge.From())) {
+              return ReconstructPath(edge.From(), in_edge, out_edge, evaluator.GetMemoryResource());
             }
+            source_next.push_back(edge.From());
           }
         }
       }
@@ -3758,26 +3762,14 @@ class KShortestPathsCursor : public Cursor {
               UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
           context.number_of_hops += out_edges_result.expanded_count;
           for (const auto &edge : out_edges_result.edges) {
-#ifdef MG_ENTERPRISE
-            if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-                !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
-                  context.auth_checker->Has(edge.To(), storage::View::OLD,
-                                            memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+            if (!ShouldExpand<kTo>(edge, context, out_edge, blocked_edges_, blocked_vertices_)) {
               continue;
             }
-#endif
-            if (!blocked_edges_.contains(edge) && !blocked_vertices_.contains(edge.To()) &&
-                !Contains(out_edge, edge.To())) {
-              out_edge.emplace(edge.To(), edge);
-              if (Contains(in_edge, edge.To())) {
-                if (current_length >= lower_bound_) {
-                  return ReconstructPath(edge.To(), in_edge, out_edge, evaluator.GetMemoryResource());
-                } else {
-                  return PathInfo(evaluator.GetMemoryResource());
-                }
-              }
-              target_next.push_back(edge.To());
+            out_edge.emplace(edge.To(), edge);
+            if (Contains(in_edge, edge.To())) {
+              return ReconstructPath(edge.To(), in_edge, out_edge, evaluator.GetMemoryResource());
             }
+            target_next.push_back(edge.To());
           }
         }
         if (self_.common_.direction != EdgeAtom::Direction::IN) {
@@ -3785,26 +3777,14 @@ class KShortestPathsCursor : public Cursor {
               UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
           context.number_of_hops += in_edges_result.expanded_count;
           for (const auto &edge : in_edges_result.edges) {
-#ifdef MG_ENTERPRISE
-            if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-                !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
-                  context.auth_checker->Has(edge.From(), storage::View::OLD,
-                                            memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+            if (!ShouldExpand<kFrom>(edge, context, out_edge, blocked_edges_, blocked_vertices_)) {
               continue;
             }
-#endif
-            if (!blocked_edges_.contains(edge) && !blocked_vertices_.contains(edge.From()) &&
-                !Contains(out_edge, edge.From())) {
-              out_edge.emplace(edge.From(), edge);
-              if (Contains(in_edge, edge.From())) {
-                if (current_length >= lower_bound_) {
-                  return ReconstructPath(edge.From(), in_edge, out_edge, evaluator.GetMemoryResource());
-                } else {
-                  return PathInfo(evaluator.GetMemoryResource());
-                }
-              }
-              target_next.push_back(edge.From());
+            out_edge.emplace(edge.From(), edge);
+            if (Contains(in_edge, edge.From())) {
+              return ReconstructPath(edge.From(), in_edge, out_edge, evaluator.GetMemoryResource());
             }
+            target_next.push_back(edge.From());
           }
         }
       }

@@ -83,8 +83,8 @@ std::vector<std::pair<int, int>> GetEdgeList(const std::vector<std::tuple<int, i
 // Yen's algorithm for finding k-shortest paths. Given a graph, returns all
 // shortest paths between source and target up to k paths.
 std::vector<std::vector<int>> YenKShortestPaths(int num_vertices, const std::vector<std::pair<int, int>> &edges,
-                                                int source, int target, int k) {
-  spdlog::info("YenKShortestPaths: source={}, target={}, k={}, edges_count={}", source, target, k, edges.size());
+                                                int source, int target) {
+  spdlog::info("YenKShortestPaths: source={}, target={}, edges_count={}", source, target, edges.size());
 
   // For simplicity, we'll use a basic implementation that finds all paths
   // and sorts them by length. In a real implementation, this would be
@@ -96,7 +96,7 @@ std::vector<std::vector<int>> YenKShortestPaths(int num_vertices, const std::vec
   std::queue<std::vector<int>> q;
   q.push({source});
 
-  while (!q.empty() && all_paths.size() < static_cast<size_t>(k)) {
+  while (!q.empty()) {
     auto path = q.front();
     q.pop();
 
@@ -124,11 +124,6 @@ std::vector<std::vector<int>> YenKShortestPaths(int num_vertices, const std::vec
   // Sort by path length
   std::sort(all_paths.begin(), all_paths.end(),
             [](const std::vector<int> &a, const std::vector<int> &b) { return a.size() < b.size(); });
-
-  // Return only up to k paths
-  if (all_paths.size() > static_cast<size_t>(k)) {
-    all_paths.resize(k);
-  }
 
   spdlog::info("YenKShortestPaths: Found {} paths total", all_paths.size());
   for (size_t i = 0; i < all_paths.size(); ++i) {
@@ -247,7 +242,8 @@ void CheckPath(memgraph::query::DbAccessor *dba, const memgraph::query::VertexAc
                const memgraph::query::VertexAccessor &sink,
                const std::vector<memgraph::query::TypedValue, TPathAllocator> &path,
                const std::vector<std::pair<int, int>> &edges) {
-  auto curr = source;
+  if (path.empty()) return;
+  memgraph::query::VertexAccessor curr = source;
   std::unordered_set<memgraph::storage::Gid> used_edges;
 
   for (const auto &edge_tv : path) {
@@ -262,7 +258,8 @@ void CheckPath(memgraph::query::DbAccessor *dba, const memgraph::query::VertexAc
 
     int from = GetProp(curr, "id", dba).ValueInt();
     int to = GetProp(next, "id", dba).ValueInt();
-    ASSERT_TRUE(memgraph::utils::Contains(edges, std::make_pair(from, to)));
+    ASSERT_TRUE(memgraph::utils::Contains(edges, std::make_pair(from, to)))
+        << "Edge " << from << "->" << to << " not found in edge list";
 
     curr = next;
   }
@@ -300,10 +297,10 @@ class Database {
   virtual ~Database() = default;
 
   void KShortestTest(Database *db, int lower_bound, int upper_bound, memgraph::query::EdgeAtom::Direction direction,
-                     std::vector<std::string> edge_types, int k) {
-    spdlog::info("KShortestTest: lower_bound={}, upper_bound={}, direction={}, edge_types={}, k={}", lower_bound,
-                 upper_bound, static_cast<int>(direction),
-                 edge_types.empty() ? "all" : fmt::format("{}", fmt::join(edge_types, ",")), k);
+                     std::vector<std::string> edge_types) {
+    spdlog::info("KShortestTest: lower_bound={}, upper_bound={}, direction={}, edge_types={}", lower_bound, upper_bound,
+                 static_cast<int>(direction),
+                 edge_types.empty() ? "all" : fmt::format("{}", fmt::join(edge_types, ",")));
 
     auto storage_dba = db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
@@ -342,8 +339,6 @@ class Database {
 
     results =
         PullResults(input_op.get(), &context, std::vector<memgraph::query::Symbol>{source_sym, sink_sym, edges_sym});
-    if (results.size() > k) results.resize(k);
-    spdlog::info("KShortestTest: Got {} total results from query", results.size());
 
     // Group results based on source-sink pair and compare them to results
     // obtained by running Yen's algorithm.
@@ -351,9 +346,11 @@ class Database {
       int j = i;
       auto source = results[j][0];
       auto sink = results[j][1];
+
       while (j < results.size() && memgraph::query::TypedValue::BoolEqual{}(results[j][0], source) &&
-             memgraph::query::TypedValue::BoolEqual{}(results[j][1], sink))
+             memgraph::query::TypedValue::BoolEqual{}(results[j][1], sink)) {
         ++j;
+      }
 
       SCOPED_TRACE(fmt::format("source = {}, sink = {}", ToString(source, dba), ToString(sink, dba)));
 
@@ -368,77 +365,26 @@ class Database {
       }
 
       auto edges_filtered = GetEdgeList(kEdges, direction, edge_types);
-      spdlog::info("KShortestTest: Filtered edges count: {}", edges_filtered.size());
-      std::string edges_str;
-      for (size_t i = 0; i < edges_filtered.size(); ++i) {
-        if (i > 0) edges_str += ", ";
-        edges_str += fmt::format("{}->{}", edges_filtered[i].first, edges_filtered[i].second);
-      }
-      spdlog::info("KShortestTest: Filtered edges: {}", edges_str);
-
-      std::vector<std::vector<int>> correct_paths;
-      if (direction == memgraph::query::EdgeAtom::Direction::OUT) {
-        correct_paths = YenKShortestPaths(kVertexCount, edges_filtered, source_id, sink_id, k);
-      } else if (direction == memgraph::query::EdgeAtom::Direction::IN) {
-        correct_paths = YenKShortestPaths(kVertexCount, edges_filtered, sink_id, source_id, k);
-      } else {
-        // For BOTH direction, we need to find paths in both directions
-        correct_paths = YenKShortestPaths(kVertexCount, edges_filtered, source_id, sink_id, k);
-        auto correct_paths_reverse = YenKShortestPaths(kVertexCount, edges_filtered, sink_id, source_id, k);
-        correct_paths.insert(correct_paths.end(), correct_paths_reverse.begin(), correct_paths_reverse.end());
-        std::sort(correct_paths.begin(), correct_paths.end(),
-                  [](const std::vector<int> &a, const std::vector<int> &b) { return a.size() < b.size(); });
-      }
+      auto correct_paths = YenKShortestPaths(kVertexCount, edges_filtered, source_id, sink_id);
       spdlog::info("KShortestTest: Yen algorithm found {} paths", correct_paths.size());
 
       if (upper_bound == -1) upper_bound = kVertexCount;
 
       // Remove paths whose length doesn't satisfy given bounds.
-      size_t before_filter = correct_paths.size();
-
       // correct_paths is a path of vertices, not edges, so we need to subtract 1 from the path length to get the number
       // of edges.
-      correct_paths.erase(std::remove_if(correct_paths.begin(), correct_paths.end(),
-                                         [lower_bound, upper_bound](const std::vector<int> &path) {
-                                           return path.size() - 1 < static_cast<size_t>(lower_bound) ||
-                                                  path.size() - 1 > static_cast<size_t>(upper_bound);
-                                         }),
-                          correct_paths.end());
-      spdlog::info("KShortestTest: After bounds filtering: {} paths (removed {} paths)", correct_paths.size(),
-                   before_filter - correct_paths.size());
+      correct_paths.erase(
+          std::remove_if(correct_paths.begin(), correct_paths.end(),
+                         [lower_bound = lower_bound != -1 ? lower_bound : 1,
+                          upper_bound = upper_bound != -1 ? upper_bound : std::numeric_limits<int>::max()](
+                             const std::vector<int> &path) {
+                           return path.size() - 1 < static_cast<size_t>(lower_bound) ||
+                                  path.size() - 1 > static_cast<size_t>(upper_bound);
+                         }),
+          correct_paths.end());
 
       // There should be exactly k successful pulls for each source-sink pair (or fewer if not enough paths exist).
-      int expected_count = std::min(static_cast<int>(correct_paths.size()), k);
-      spdlog::info("KShortestTest: Expected {} results, got {} results", expected_count, j - i);
-      if ((j - i) != expected_count) {
-        std::cerr << "Expected " << expected_count << " paths, but got " << (j - i) << ".\n";
-        std::cerr << "Source: " << source_id << ", Sink: " << sink_id << ", Direction: " << static_cast<int>(direction)
-                  << "\n";
-        std::cerr << "Returned paths:\n";
-        for (int idx = i; idx < j; ++idx) {
-          std::cerr << "  Path " << (idx - i) << ": ";
-          auto path_list = results[idx][2].ValueList();
-          std::cerr << "length=" << path_list.size() << ", edges=[";
-          for (size_t e = 0; e < path_list.size(); ++e) {
-            if (e > 0) std::cerr << ", ";
-            auto edge = path_list[e].ValueEdge();
-            auto from_id = GetProp(edge.From(), "id", &dba).ValueInt();
-            auto to_id = GetProp(edge.To(), "id", &dba).ValueInt();
-            std::cerr << from_id << "->" << to_id;
-          }
-          std::cerr << "]\n";
-        }
-        std::cerr << "Expected paths:\n";
-        for (size_t p = 0; p < correct_paths.size(); ++p) {
-          std::cerr << "  Path " << p << ": ";
-          std::cerr << "length=" << (correct_paths[p].size() - 1) << ", vertices=[";
-          for (size_t v = 0; v < correct_paths[p].size(); ++v) {
-            if (v > 0) std::cerr << "->";
-            std::cerr << correct_paths[p][v];
-          }
-          std::cerr << "]\n";
-        }
-      }
+      int expected_count = static_cast<int>(correct_paths.size());
       EXPECT_EQ(j - i, expected_count);
 
       auto lengths = CheckPathsAndExtractLengths(
@@ -501,6 +447,7 @@ class Database {
             "a", memgraph::auth::FineGrainedPermission::NOTHING);
 
         edges_in_result = GetEdgeList(kEdges, direction, {"b"});
+        edge_types.erase(std::remove(edge_types.begin(), edge_types.end(), "a"), edge_types.end());
         break;
       case FineGrainedTestType::EDGE_TYPE_B_DENIED:
         user.fine_grained_access_handler().label_permissions().Grant("*", memgraph::auth::FineGrainedPermission::READ);
@@ -510,6 +457,7 @@ class Database {
             "b", memgraph::auth::FineGrainedPermission::NOTHING);
 
         edges_in_result = GetEdgeList(kEdges, direction, {"a"});
+        edge_types.erase(std::remove(edge_types.begin(), edge_types.end(), "b"), edge_types.end());
         break;
       case FineGrainedTestType::LABEL_0_DENIED:
         user.fine_grained_access_handler().edge_type_permissions().Grant("*",
@@ -548,6 +496,11 @@ class Database {
 
     // We run k-shortest paths for all possible source-sink pairs
     std::shared_ptr<memgraph::query::plan::LogicalOperator> input_operator = nullptr;
+    if (fine_grained_test_type == FineGrainedTestType::LABEL_0_DENIED) {
+      vertices.erase(std::remove_if(vertices.begin(), vertices.end(),
+                                    [&](const auto &v) { return GetProp(v, "id", &db_accessor).ValueInt() == 0; }),
+                     vertices.end());
+    }
     input_operator = YieldVertices(&db_accessor, vertices, source_symbol, input_operator);
     input_operator = YieldVertices(&db_accessor, vertices, sink_symbol, input_operator);
 

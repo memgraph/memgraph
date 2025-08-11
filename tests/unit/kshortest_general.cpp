@@ -15,9 +15,7 @@
 #include <string>
 #include <unordered_map>
 
-#include "auth/models.hpp"
 #include "disk_test_utils.hpp"
-#include "license/license.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
@@ -29,7 +27,7 @@ using namespace memgraph::query::plan;
 template <typename StorageType>
 class VertexDb : public Database {
  public:
-  const std::string testSuite = "kshortest_fine_grained";
+  const std::string testSuite = "kshortest_general";
 
   VertexDb() {
     config_ = disk_test_utils::GenerateOnDiskConfig(testSuite);
@@ -51,7 +49,7 @@ class VertexDb : public Database {
                                                          bool existing_node, memgraph::query::Expression *lower_bound,
                                                          memgraph::query::Expression *upper_bound) override {
     return std::make_unique<ExpandVariable>(input, source_sym, sink_sym, edge_sym, EdgeAtom::Type::KSHORTEST, direction,
-                                            edge_types, false, nullptr, upper_bound, existing_node,
+                                            edge_types, false, lower_bound, upper_bound, existing_node,
                                             memgraph::query::plan::ExpansionLambda{}, std::nullopt, std::nullopt);
   }
 
@@ -90,82 +88,68 @@ class VertexDb : public Database {
   std::unique_ptr<memgraph::storage::Storage> db_;
 };
 
-#ifdef MG_ENTERPRISE
-class FineGrainedKShortestTestInMemory
-    : public ::testing::TestWithParam<
-          std::tuple<int, EdgeAtom::Direction, std::vector<std::string>, int, FineGrainedTestType>> {
+class GeneralKShortestTestInMemory
+    : public ::testing::TestWithParam<std::tuple<int, int, EdgeAtom::Direction, std::vector<std::string>>> {
  public:
   using StorageType = memgraph::storage::InMemoryStorage;
-  static void SetUpTestCase() {
-    memgraph::license::global_license_checker.EnableTesting();
-    db_ = std::make_unique<VertexDb<StorageType>>();
-  }
+  static void SetUpTestCase() { db_ = std::make_unique<VertexDb<StorageType>>(); }
   static void TearDownTestCase() { db_ = nullptr; }
 
  protected:
   static std::unique_ptr<VertexDb<StorageType>> db_;
 };
 
-TEST_P(FineGrainedKShortestTestInMemory, All) {
+TEST_P(GeneralKShortestTestInMemory, All) {
+  int lower_bound;
   int upper_bound;
   EdgeAtom::Direction direction;
   std::vector<std::string> edge_types;
-  int k;
-  FineGrainedTestType fine_grained_test_type;
 
-  std::tie(upper_bound, direction, edge_types, k, fine_grained_test_type) = GetParam();
+  std::tie(lower_bound, upper_bound, direction, edge_types) = GetParam();
 
-  this->db_->KShortestTestWithFineGrainedFiltering(db_.get(), upper_bound, direction, edge_types, k,
-                                                   fine_grained_test_type);
+  this->db_->KShortestTest(db_.get(), lower_bound, upper_bound, direction, edge_types);
 }
 
-std::unique_ptr<VertexDb<FineGrainedKShortestTestInMemory::StorageType>> FineGrainedKShortestTestInMemory::db_{nullptr};
+std::unique_ptr<VertexDb<GeneralKShortestTestInMemory::StorageType>> GeneralKShortestTestInMemory::db_{nullptr};
 
 INSTANTIATE_TEST_SUITE_P(
-    FineGrained, FineGrainedKShortestTestInMemory,
-    testing::Combine(testing::Values(3),
+    General, GeneralKShortestTestInMemory,
+    testing::Combine(testing::Values(-1, 2, 3),  // Test different lower bounds
+                     testing::Values(3, 5, -1),  // Test different upper bounds
                      testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN, EdgeAtom::Direction::BOTH),
-                     testing::Values(std::vector<std::string>{"a", "b"}), testing::Values(3),
-                     testing::Values(FineGrainedTestType::ALL_GRANTED, FineGrainedTestType::ALL_DENIED,
-                                     FineGrainedTestType::EDGE_TYPE_A_DENIED, FineGrainedTestType::EDGE_TYPE_B_DENIED,
-                                     FineGrainedTestType::LABEL_0_DENIED, FineGrainedTestType::LABEL_3_DENIED)));
+                     testing::Values(std::vector<std::string>{}, std::vector<std::string>{"a"},
+                                     std::vector<std::string>{"b"},
+                                     std::vector<std::string>{"a", "b"})));  // Test different edge type filters
 
-class FineGrainedKShortestTestOnDisk
-    : public ::testing::TestWithParam<
-          std::tuple<int, EdgeAtom::Direction, std::vector<std::string>, int, FineGrainedTestType>> {
+class GeneralKShortestTestOnDisk
+    : public ::testing::TestWithParam<std::tuple<int, int, EdgeAtom::Direction, std::vector<std::string>>> {
  public:
   using StorageType = memgraph::storage::DiskStorage;
-  static void SetUpTestCase() {
-    memgraph::license::global_license_checker.EnableTesting();
-    db_ = std::make_unique<VertexDb<StorageType>>();
-  }
+  static void SetUpTestCase() { db_ = std::make_unique<VertexDb<StorageType>>(); }
   static void TearDownTestCase() { db_ = nullptr; }
 
  protected:
   static std::unique_ptr<VertexDb<StorageType>> db_;
 };
 
-TEST_P(FineGrainedKShortestTestOnDisk, All) {
+TEST_P(GeneralKShortestTestOnDisk, All) {
+  int lower_bound;
   int upper_bound;
   EdgeAtom::Direction direction;
   std::vector<std::string> edge_types;
-  int k;
-  FineGrainedTestType fine_grained_test_type;
 
-  std::tie(upper_bound, direction, edge_types, k, fine_grained_test_type) = GetParam();
+  std::tie(lower_bound, upper_bound, direction, edge_types) = GetParam();
 
-  this->db_->KShortestTestWithFineGrainedFiltering(db_.get(), upper_bound, direction, edge_types, k,
-                                                   fine_grained_test_type);
+  this->db_->KShortestTest(db_.get(), lower_bound, upper_bound, direction, edge_types);
 }
 
-std::unique_ptr<VertexDb<FineGrainedKShortestTestOnDisk::StorageType>> FineGrainedKShortestTestOnDisk::db_{nullptr};
+std::unique_ptr<VertexDb<GeneralKShortestTestOnDisk::StorageType>> GeneralKShortestTestOnDisk::db_{nullptr};
 
 INSTANTIATE_TEST_SUITE_P(
-    FineGrained, FineGrainedKShortestTestOnDisk,
-    testing::Combine(testing::Values(3),
+    General, GeneralKShortestTestOnDisk,
+    testing::Combine(testing::Values(-1, 2, 3),  // Test different lower bounds
+                     testing::Values(3, 5, -1),  // Test different upper bounds
                      testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN, EdgeAtom::Direction::BOTH),
-                     testing::Values(std::vector<std::string>{"a", "b"}), testing::Values(3),
-                     testing::Values(FineGrainedTestType::ALL_GRANTED, FineGrainedTestType::ALL_DENIED,
-                                     FineGrainedTestType::EDGE_TYPE_A_DENIED, FineGrainedTestType::EDGE_TYPE_B_DENIED,
-                                     FineGrainedTestType::LABEL_0_DENIED, FineGrainedTestType::LABEL_3_DENIED)));
-#endif
+                     testing::Values(std::vector<std::string>{}, std::vector<std::string>{"a"},
+                                     std::vector<std::string>{"b"},
+                                     std::vector<std::string>{"a", "b"})));  // Test different edge type filters
