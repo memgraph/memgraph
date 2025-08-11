@@ -721,12 +721,6 @@ fi
 #   * extreme 1 -> move all libs + Memgraph compilation here, have one giant script
 #   * extreme 2 -> build a granular package manager, each lib (for all variable) separated
 
-# NOTE: pulsar v2.8.1 client can't be compield on 1.87+ of Boost -> both have to be upgraded.
-# BOOST_SHA256=205666dea9f6a7cfed87c7a6dfbeb52a2c1b9de55712c9c1a87735d7181452b6
-# BOOST_VERSION=1.81.0
-BOOST_SHA256=2575e74ffc3ef1cd0babac2c1ee8bdb5782a0ee672b1912da40e5b4b591ca01f
-BOOST_VERSION=1.86.0
-BOOST_VERSION_UNDERSCORES=`echo "${BOOST_VERSION//./_}"`
 BZIP2_SHA256=ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269
 BZIP2_VERSION=1.0.8
 DOUBLE_CONVERSION_SHA256=8a79e87d02ce1333c9d6c5e47f452596442a343d8c3e9b234e8a62fce1b1d49c
@@ -739,11 +733,6 @@ FIZZ_SHA256=32a60e78d41ea2682ce7e5d741b964f0ea83642656e42d4fea90c0936d6d0c7d
 FOLLY_SHA256=7b8d5dd2eb51757858247af0ad27af2e3e93823f84033a628722b01e06cd68a9
 PROXYGEN_SHA256=5360a8ccdfb2f5a6c7b3eed331ec7ab0e2c792d579c6fff499c85c516c11fe14
 WANGLE_SHA256=1002e9c32b6f4837f6a760016e3b3e22f3509880ef3eaad191c80dc92655f23f
-# NOTE: spdlog depends on exact fmt versions -> UPGRADE fmt and spdlog TOGETHER.
-FMT_SHA256=bc23066d87ab3168f27cef3e97d545fa63314f5c79df5ea444d41d56f962c6af
-FMT_VERSION=11.2.0
-SPDLOG_SHA256=15a04e69c222eb6c01094b5c7ff8a249b36bb22788d72519646fb85feb267e67
-SPDLOG_VERSION=1.15.3
 GFLAGS_COMMIT_HASH=b37ceb03a0e56c9f15ce80409438a555f8a67b7c
 GLOG_SHA256=eede71f28371bf39aa69b45de23b329d37214016e2055269b3b5e7cfd40b59f5
 GLOG_VERSION=0.5.0
@@ -752,10 +741,6 @@ LIBAIO_VERSION=0.3.112
 LIBEVENT_VERSION=2.1.12-stable
 LIBSODIUM_VERSION=1.0.20
 LIBUNWIND_VERSION=1.8.1
-# LZ4_SHA256=0b0e3aa07c8c063ddf40b082bdf7e37a1562bda40a0ff5272957f3e987e0e54b
-# LZ4_VERSION=1.9.4
-LZ4_SHA256=537512904744b35e232912055ccf8ec66d768639ff3abe5788d90d792ec5f48b
-LZ4_VERSION=1.10.0
 # SNAPPY_SHA256=75c1fbb3d618dd3a0483bff0e26d0a92b495bbe5059c8b4f1c962b478b6e06e7
 # SNAPPY_VERSION=1.1.9
 PYTHON_VERSION=3.12.9
@@ -767,11 +752,6 @@ ZLIB_VERSION=1.3.1
 ZSTD_VERSION=1.5.6
 
 pushd archives
-if [ ! -f boost_$BOOST_VERSION_UNDERSCORES.tar.gz ]; then
-    # do not redirect the download into a file, because it will download the file into a ".1" postfixed file
-    # I am not sure why this is happening, but I think because of some redirects that happens during the download
-    wget https://archives.boost.io/release/$BOOST_VERSION/source/boost_$BOOST_VERSION_UNDERSCORES.tar.gz -O boost_$BOOST_VERSION_UNDERSCORES.tar.gz
-fi
 if [ ! -f bzip2-$BZIP2_VERSION.tar.gz ]; then
     wget https://sourceware.org/pub/bzip2/bzip2-$BZIP2_VERSION.tar.gz -O bzip2-$BZIP2_VERSION.tar.gz
 fi
@@ -782,12 +762,6 @@ if [ ! -f fizz-$FBLIBS_VERSION.tar.gz ]; then
     wget https://github.com/facebookincubator/fizz/releases/download/v$FBLIBS_VERSION/fizz-v$FBLIBS_VERSION.tar.gz -O fizz-$FBLIBS_VERSION.tar.gz
 fi
 
-if [ ! -f fmt-$FMT_VERSION.tar.gz ]; then
-    wget https://github.com/fmtlib/fmt/archive/refs/tags/$FMT_VERSION.tar.gz -O fmt-$FMT_VERSION.tar.gz
-fi
-if [ ! -f spdlog-$SPDLOG_VERSION.tar.gz ]; then
-    wget https://github.com/gabime/spdlog/archive/refs/tags/v$SPDLOG_VERSION.tar.gz -O spdlog-$SPDLOG_VERSION.tar.gz
-fi
 if [ ! -d folly-$FBLIBS_VERSION ]; then
     git clone --depth 1 --branch v$FBLIBS_VERSION https://github.com/facebook/folly.git folly-$FBLIBS_VERSION
 fi
@@ -805,9 +779,6 @@ if [ ! -f libsodium-$LIBSODIUM_VERSION.tar.gz ]; then
 fi
 if [ ! -f libunwind-$LIBUNWIND_VERSION.tar.gz ]; then
     wget https://github.com/libunwind/libunwind/releases/download/v$LIBUNWIND_VERSION/libunwind-$LIBUNWIND_VERSION.tar.gz -O libunwind-$LIBUNWIND_VERSION.tar.gz
-fi
-if [ ! -f lz4-$LZ4_VERSION.tar.gz ]; then
-    wget https://github.com/lz4/lz4/archive/v$LZ4_VERSION.tar.gz -O lz4-$LZ4_VERSION.tar.gz
 fi
 if [ ! -f proxygen-$FBLIBS_VERSION.tar.gz ]; then
     wget https://github.com/facebook/proxygen/releases/download/v$FBLIBS_VERSION/proxygen-v$FBLIBS_VERSION.tar.gz -O proxygen-$FBLIBS_VERSION.tar.gz
@@ -831,18 +802,12 @@ if [ ! -f wangle-$FBLIBS_VERSION.tar.gz ]; then
     wget https://github.com/facebook/wangle/releases/download/v$FBLIBS_VERSION/wangle-v$FBLIBS_VERSION.tar.gz -O wangle-$FBLIBS_VERSION.tar.gz
 fi
 
-# verify boost
-echo "$BOOST_SHA256 boost_$BOOST_VERSION_UNDERSCORES.tar.gz" | sha256sum -c
 # verify bzip2
 echo "$BZIP2_SHA256 bzip2-$BZIP2_VERSION.tar.gz" | sha256sum -c
 # verify double-conversion
 echo "$DOUBLE_CONVERSION_SHA256 double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz" | sha256sum -c
 # verify fizz
 echo "$FIZZ_SHA256 fizz-$FBLIBS_VERSION.tar.gz" | sha256sum -c
-# verify fmt
-echo "$FMT_SHA256 fmt-$FMT_VERSION.tar.gz" | sha256sum -c
-# verify spdlog
-echo "$SPDLOG_SHA256 spdlog-$SPDLOG_VERSION.tar.gz" | sha256sum -c
 # verify folly
 # echo "$FOLLY_SHA256 folly-$FBLIBS_VERSION.tar.gz" | sha256sum -c
 # verify glog
@@ -876,8 +841,6 @@ if false; then
     $GPG --keyserver $KEYSERVER --recv-keys 0x75D2CFC56CC2E935A4143297015A268A17D55FA4
     $GPG --verify libunwind-$LIBUNWIND_VERSION.tar.gz.sig libunwind-$LIBUNWIND_VERSION.tar.gz
 fi
-# verify lz4
-echo "$LZ4_SHA256  lz4-$LZ4_VERSION.tar.gz" | sha256sum -c
 # verify proxygen
 echo "$PROXYGEN_SHA256 proxygen-$FBLIBS_VERSION.tar.gz" | sha256sum -c
 # verify python
@@ -944,43 +907,6 @@ if [ ! -f $PREFIX/include/bzlib.h ]; then
     fi
     tar -xzf ../archives/bzip2-$BZIP2_VERSION.tar.gz
     pushd bzip2-$BZIP2_VERSION
-    make $COMMON_MAKE_INSTALL_FLAGS
-    popd
-fi
-
-log_tool_name "fmt $FMT_VERSION"
-if [ ! -d $PREFIX/include/fmt ]; then
-    if [ -d fmt-$FMT_VERSION ]; then
-        rm -rf fmt-$FMT_VERSION
-    fi
-    tar -xzf ../archives/fmt-$FMT_VERSION.tar.gz
-    pushd fmt-$FMT_VERSION
-    mkdir build && pushd build
-    cmake .. $COMMON_CMAKE_FLAGS -DFMT_TEST=OFF
-    make -j$CPUS install
-    popd && popd
-fi
-
-log_tool_name "spdlog $SPDLOG_VERSION"
-if [ ! -d $PREFIX/include/spdlog ]; then
-    if [ -d spdlog-$SPDLOG_VERSION ]; then
-        rm -rf spdlog-$SPDLOG_VERSION
-    fi
-    tar -xzf ../archives/spdlog-$SPDLOG_VERSION.tar.gz
-    pushd spdlog-$SPDLOG_VERSION
-    mkdir build && pushd build
-    cmake .. $COMMON_CMAKE_FLAGS
-    make -j$CPUS install
-    popd && popd
-fi
-
-log_tool_name "lz4 $LZ4_VERSION"
-if [ ! -f $PREFIX/include/lz4.h ]; then
-    if [ -d lz4-$LZ4_VERSION ]; then
-        rm -rf lz4-$LZ4_VERSION
-    fi
-    tar -xzf ../archives/lz4-$LZ4_VERSION.tar.gz
-    pushd lz4-$LZ4_VERSION
     make $COMMON_MAKE_INSTALL_FLAGS
     popd
 fi
@@ -1068,32 +994,6 @@ if [ ! -d $PREFIX/include/jemalloc ]; then
     #     EXTRA_FLAGS="-DJEMALLOC_NO_PRIVATE_NAMESPACE -D_GNU_SOURCE -Wno-redundant-decls" \
     #     ./configure $COMMON_CONFIGURE_FLAGS --disable-cxx
     make -j$CPUS install
-    popd
-fi
-
-log_tool_name "BOOST $BOOST_VERSION"
-if [ ! -d $PREFIX/include/boost ]; then
-    if [ -d boost_$BOOST_VERSION_UNDERSCORES ]; then
-        rm -rf boost_$BOOST_VERSION_UNDERSCORES
-    fi
-    tar -xzf ../archives/boost_$BOOST_VERSION_UNDERSCORES.tar.gz
-    pushd boost_$BOOST_VERSION_UNDERSCORES
-    # TODO(gitbuda): Figure out why --with-libraries=python doesn't work for protobuf
-    ./bootstrap.sh --prefix=$PREFIX --with-toolset=clang --with-python=python3 --without-icu
-    if [ "$TOOLCHAIN_STDCXX" = "libstdc++" ]; then
-        ./b2 toolset=clang -j$CPUS install variant=release link=static cxxstd=20 --disable-icu \
-            -sZLIB_SOURCE="$PREFIX" -sZLIB_INCLUDE="$PREFIX/include" -sZLIB_LIBPATH="$PREFIX/lib" \
-            -sBZIP2_SOURCE="$PREFIX" -sBZIP2_INCLUDE="$PREFIX/include" -sBZIP2_LIBPATH="$PREFIX/lib" \
-            -sLZMA_SOURCE="$PREFIX" -sLZMA_INCLUDE="$PREFIX/include" -sLZMA_LIBPATH="$PREFIX/lib" \
-            -sZSTD_SOURCE="$PREFIX" -sZSTD_INCLUDE="$PREFIX/include" -sZSTD_LIBPATH="$PREFIX/lib"
-    else
-        ./b2 toolset=clang -j$CPUS install variant=release link=static cxxstd=20 --disable-icu \
-            cxxflags="-stdlib=libc++" linkflags="-stdlib=libc++" \
-            -sZLIB_SOURCE="$PREFIX" -sZLIB_INCLUDE="$PREFIX/include" -sZLIB_LIBPATH="$PREFIX/lib" \
-            -sBZIP2_SOURCE="$PREFIX" -sBZIP2_INCLUDE="$PREFIX/include" -sBZIP2_LIBPATH="$PREFIX/lib" \
-            -sLZMA_SOURCE="$PREFIX" -sLZMA_INCLUDE="$PREFIX/include" -sLZMA_LIBPATH="$PREFIX/lib" \
-            -sZSTD_SOURCE="$PREFIX" -sZSTD_INCLUDE="$PREFIX/include" -sZSTD_LIBPATH="$PREFIX/lib"
-    fi
     popd
 fi
 
@@ -1260,35 +1160,6 @@ if [ ! -f $PREFIX/lib/libnuraft.a ]; then
     popd
 fi
 
-ANTLR_TAG="4.13.2" # 2024-08-03
-log_tool_name "antlr4 $ANTLR_TAG"
-if [ ! -f $PREFIX/lib/libantlr4-runtime.a ]; then
-    if [ -d antlr4 ]; then
-        rm -rf antlr4
-    fi
-    git clone https://github.com/antlr/antlr4.git antlr4
-    pushd antlr4
-    git checkout $ANTLR_TAG
-    pushd runtime/Cpp
-    # NOTE: WITH_LIBCXX=OFF is because of the Debian bug.
-    cmake -DCMAKE_BUILD_TYPE=Release \
-      -DCMAKE_INSTALL_PREFIX=$PREFIX \
-      -DWITH_LIBCXX=OFF \
-      -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true \
-      -DCMAKE_CXX_STANDARD=20 \
-      -DANTLR_BUILD_CPP_TESTS=OFF \
-      -DANTLR_BUILD_SHARED=OFF \
-      .
-    make -j$CPUS antlr4_static install
-    popd && popd
-fi
-log_tool_name "antlr4-generator $ANTLR_TAG"
-antlr_generator_url="https://www.antlr.org/download/antlr-$ANTLR_TAG-complete.jar"
-antlr_generator_filename="$(basename "$antlr_generator_url")"
-if [ ! -f "$PREFIX/bin/$antlr_generator_filename" ]; then
-    timeout 15 wget -nv "$antlr_generator_url" -O "$PREFIX/bin/$antlr_generator_filename"
-fi
-
 PROTOBUF_TAG="v3.12.4"
 log_tool_name "protobuf $PROTOBUF_TAG"
 if [ ! -f $PREFIX/lib/libprotobuf.a ]; then
@@ -1393,54 +1264,6 @@ if [ ! -f $PREFIX/lib/bcrypt.a ]; then
     cp bcrypt.a $PREFIX/lib/
     mkdir -p $PREFIX/include/libbcrypt/
     cp bcrypt.h $PREFIX/include/libbcrypt/
-    popd
-fi
-
-GBENCH_TAG="v1.6.0"
-log_tool_name "gbenchmark $GBENCH_TAG"
-if [ ! -f $PREFIX/lib/libbenchmark.a ]; then
-    if [ -d gbenchmark ]; then
-        rm -rf gbenchmark
-    fi
-    git clone https://github.com/google/benchmark.git gbenchmark
-    pushd gbenchmark
-    git checkout $GBENCH_TAG
-    cmake -B build $COMMON_CMAKE_FLAGS \
-      -DCMAKE_INSTALL_LIBDIR=lib \
-      -DBENCHMARK_ENABLE_TESTING=OFF
-    cmake --build build -j$CPUS --target install
-    popd
-fi
-
-GTEST_TAG="v1.14.0"
-log_tool_name "gtest $GTEST_TAG"
-if [ ! -f $PREFIX/lib/libgtest.a ]; then
-    if [ -d googletest ]; then
-      rm -rf googletest
-    fi
-    git clone https://github.com/google/googletest.git googletest
-    pushd googletest
-    git checkout $GTEST_TAG
-    cmake -B build $COMMON_CMAKE_FLAGS \
-      -DCMAKE_INSTALL_LIBDIR="$PREFIX/lib"
-    cmake --build build -j$CPUS --target install
-    popd
-fi
-
-MGCLIENT_TAG="v1.4.4"
-log_tool_name "mgclient $MGCLIENT_TAG"
-if [ ! -f $PREFIX/lib/libmgclient.a ]; then
-    if [ -d mgclient ]; then
-      rm -rf mgclient
-    fi
-    git clone https://github.com/memgraph/mgclient.git mgclient
-    pushd mgclient
-    git checkout $MGCLIENT_TAG
-    sed -i 's/\${CMAKE_INSTALL_LIBDIR}/lib/' src/CMakeLists.txt
-    cmake -B build $COMMON_CMAKE_FLAGS \
-      -DBUILD_TESTING=OFF \
-      -DBUILD_CPP_BINDINGS=ON
-    cmake --build build -j$CPUS --target install
     popd
 fi
 
