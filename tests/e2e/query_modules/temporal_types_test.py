@@ -55,5 +55,18 @@ def test_pymodule_taking_zoneddatetime_with_negative_offset():
 # ZonedDateTimes. Also add tests to ensure that `datetime`s without a timezone
 # are treated as `LocalDateTime`s.
 
+
+def test_retrieve_zoneddatetime():
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(cursor, "RETURN temporal.make_zdt(2024, 1, 15, 10, 30, 45, 120)")
+    print(result)
+
+
+def test_datetime_without_timezone():
+    cursor = connect().cursor()
+    result = execute_and_fetch_all(cursor, "RETURN temporal.make_dt(2024, 1, 15, 10, 30, 45)")
+    print(result)
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
