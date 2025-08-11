@@ -41,11 +41,11 @@ inline bool SendSwapMainUUIDRpc(rpc::Client &rpc_client_, const utils::UUID &uui
   return false;
 }
 
-inline void FrequentHeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
+inline void FrequentHeartbeatHandler(uint64_t const request_version, slk::Reader *req_reader,
+                                     slk::Builder *res_builder) {
   FrequentHeartbeatReq req;
   FrequentHeartbeatReq::Load(&req, req_reader);
   memgraph::slk::Load(&req, req_reader);
-  FrequentHeartbeatRes const res{};
-  rpc::SendFinalResponse(res, res_builder);
+  rpc::SendFinalResponse(FrequentHeartbeatRes{}, res_builder);
 }
 }  // namespace memgraph::replication_coordination_glue

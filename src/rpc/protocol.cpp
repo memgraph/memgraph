@@ -48,21 +48,24 @@ void RpcMessageDeliverer::Execute() const {
 
   // Prepare SLK reader and builder.
   slk::Reader req_reader(input_stream_->data(), input_stream_->size());
-  slk::Builder res_builder(
-      [&](const uint8_t *data, size_t size, bool have_more) { output_stream_->Write(data, size, have_more); });
+  slk::Builder res_builder([&](const uint8_t *data, size_t const size, bool const have_more) {
+    output_stream_->Write(data, size, have_more);
+  });
 
   // Load the request ID.
-  utils::TypeId req_id{utils::TypeId::UNKNOWN};
+  auto req_id{utils::TypeId::UNKNOWN};
   // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
-  rpc::Version version;
+  rpc::Version rpc_protocol_version;
+  uint64_t req_version{0};
   try {
     slk::Load(&req_id, &req_reader);
-    slk::Load(&version, &req_reader);
+    slk::Load(&rpc_protocol_version, &req_reader);
+    slk::Load(&req_version, &req_reader);
   } catch (const slk::SlkReaderException &) {
     throw rpc::SlkRpcFailedException();
   }
 
-  if (version != rpc::current_version) {
+  if (rpc_protocol_version != rpc::current_protocol_version) {
     // V1 we introduced versioning with, absolutely no backwards compatibility,
     // because it's impossible to provide backwards compatibility with pre versioning.
     // Future versions this may require mechanism for graceful version handling.
@@ -81,7 +84,7 @@ void RpcMessageDeliverer::Execute() const {
 
   spdlog::trace("[RpcServer] received {}", it->second.req_type.name);
   try {
-    it->second.callback(&req_reader, &res_builder);
+    it->second.callback(req_version, &req_reader, &res_builder);
     // Finalize the SLK stream. It may fail because not all data has been read, that's fine.
     req_reader.Finalize();
   } catch (const slk::SlkReaderException &e) {

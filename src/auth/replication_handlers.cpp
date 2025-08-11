@@ -29,7 +29,7 @@ void LogWrongMain(const std::optional<utils::UUID> &current_main_uuid, const uti
 #ifdef MG_ENTERPRISE
 void UpdateAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
                            const std::optional<utils::UUID> &current_main_uuid, auth::SynchedAuth &auth,
-                           slk::Reader *req_reader, slk::Builder *res_builder) {
+                           uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::UpdateAuthDataReq req;
   memgraph::slk::Load(&req, req_reader);
 
@@ -84,7 +84,7 @@ void UpdateAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system
 
 void DropAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
                          const std::optional<utils::UUID> &current_main_uuid, auth::SynchedAuth &auth,
-                         slk::Reader *req_reader, slk::Builder *res_builder) {
+                         uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::DropAuthDataReq req;
   memgraph::slk::Load(&req, req_reader);
 
@@ -218,12 +218,12 @@ void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAc
               auth::SynchedAuth &auth) {
   // NOTE: Register even without license as the user could add a license at run-time
   data.server->rpc_server_.Register<replication::UpdateAuthDataRpc>(
-      [&data, system_state_access, &auth](auto *req_reader, auto *res_builder) mutable {
-        UpdateAuthDataHandler(system_state_access, data.uuid_, auth, req_reader, res_builder);
+      [&data, system_state_access, &auth](uint64_t const request_version, auto *req_reader, auto *res_builder) mutable {
+        UpdateAuthDataHandler(system_state_access, data.uuid_, auth, request_version, req_reader, res_builder);
       });
   data.server->rpc_server_.Register<replication::DropAuthDataRpc>(
-      [&data, system_state_access, &auth](auto *req_reader, auto *res_builder) mutable {
-        DropAuthDataHandler(system_state_access, data.uuid_, auth, req_reader, res_builder);
+      [&data, system_state_access, &auth](uint64_t const request_version, auto *req_reader, auto *res_builder) mutable {
+        DropAuthDataHandler(system_state_access, data.uuid_, auth, request_version, req_reader, res_builder);
       });
 }
 #endif

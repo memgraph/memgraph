@@ -19,13 +19,16 @@
 namespace memgraph::coordination {
 
 void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceManagementServer &server,
-                                                           CoordinatorInstance &coordinator_instance) {
-  server.Register<coordination::ShowInstancesRpc>([&](slk::Reader *req_reader, slk::Builder *res_builder) -> void {
-    CoordinatorInstanceManagementServerHandlers::ShowInstancesHandler(coordinator_instance, req_reader, res_builder);
-  });
+                                                           CoordinatorInstance const &coordinator_instance) {
+  server.Register<coordination::ShowInstancesRpc>(
+      [&](uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) -> void {
+        CoordinatorInstanceManagementServerHandlers::ShowInstancesHandler(coordinator_instance, request_version,
+                                                                          req_reader, res_builder);
+      });
 }
 
 void CoordinatorInstanceManagementServerHandlers::ShowInstancesHandler(CoordinatorInstance const &coordinator_instance,
+                                                                       uint64_t const request_version,
                                                                        slk::Reader *req_reader,
                                                                        slk::Builder *res_builder) {
   coordination::ShowInstancesReq req;

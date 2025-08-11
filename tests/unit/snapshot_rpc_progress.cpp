@@ -308,7 +308,7 @@ TEST_F(SnapshotRpcProgressTest, SnapshotRpcNoTimeout) {
     rpc_server.AwaitShutdown();
   }};
 
-  rpc_server.Register<SnapshotRpc>([](auto *req_reader, auto *res_builder) {
+  rpc_server.Register<SnapshotRpc>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
     SnapshotReq req;
     Load(&req, req_reader);
     SnapshotRes res{1, 2};
@@ -336,7 +336,7 @@ TEST_F(SnapshotRpcProgressTest, SnapshotRpcProgress) {
     rpc_server.AwaitShutdown();
   }};
 
-  rpc_server.Register<SnapshotRpc>([](auto *req_reader, auto *res_builder) {
+  rpc_server.Register<SnapshotRpc>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
     SnapshotReq req;
     Load(&req, req_reader);
     std::this_thread::sleep_for(10ms);
@@ -369,7 +369,7 @@ TEST_F(SnapshotRpcProgressTest, SnapshotRpcTimeout) {
     rpc_server.AwaitShutdown();
   }};
 
-  rpc_server.Register<SnapshotRpc>([](auto *req_reader, auto *res_builder) {
+  rpc_server.Register<SnapshotRpc>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
     SnapshotReq req;
     Load(&req, req_reader);
     std::this_thread::sleep_for(75ms);
