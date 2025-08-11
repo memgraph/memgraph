@@ -115,7 +115,6 @@ def _load_config_from_env(scheme: str):
         config["role_field"] = os.environ.get("MEMGRAPH_SSO_ENTRA_ID_OIDC_ROLE_FIELD", "roles")
         config["username"] = os.environ.get("MEMGRAPH_SSO_ENTRA_ID_OIDC_USERNAME", "id:sub")
         config["role_mapping"] = _load_role_mappings(os.environ.get("MEMGRAPH_SSO_ENTRA_ID_OIDC_ROLE_MAPPING", ""))
-
     elif scheme == "oidc-okta":
         config["client_id"] = os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_CLIENT_ID", "")
         config["id_issuer"] = os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_ISSUER", "")
@@ -123,7 +122,6 @@ def _load_config_from_env(scheme: str):
         config["role_field"] = os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_ROLE_FIELD", "groups")
         config["username"] = os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_USERNAME", "id:sub")
         config["role_mapping"] = _load_role_mappings(os.environ.get("MEMGRAPH_SSO_OKTA_OIDC_ROLE_MAPPING", ""))
-
     elif scheme == "oidc-custom":
         config["public_key_endpoint"] = os.environ.get("MEMGRAPH_SSO_CUSTOM_OIDC_PUBLIC_KEY_ENDPOINT", "")
         config["access_token_audience"] = os.environ.get("MEMGRAPH_SSO_CUSTOM_OIDC_ACCESS_TOKEN_AUDIENCE", "")
@@ -132,26 +130,32 @@ def _load_config_from_env(scheme: str):
         config["username"] = os.environ.get("MEMGRAPH_SSO_CUSTOM_OIDC_USERNAME", "")
         config["role_mapping"] = _load_role_mappings(os.environ.get("MEMGRAPH_SSO_CUSTOM_OIDC_ROLE_MAPPING", ""))
 
+    # if ID token is not used it won't be checked
+    config["use_id_token"] = config["username"].startswith("id:")
     return config
 
 
 def decode_tokens(scheme: str, config: dict, tokens: dict):
-    return (
-        validate_jwt_token(tokens["access_token"], scheme, config, "access"),
-        validate_jwt_token(tokens["id_token"], scheme, config, "id"),
-    )
+    if config["use_id_token"]:
+        return (
+            validate_jwt_token(tokens["access_token"], scheme, config, "access"),
+            validate_jwt_token(tokens["id_token"], scheme, config, "id"),
+        )
+
+    return (validate_jwt_token(tokens["access_token"], scheme, config, "access"),)
 
 
 def process_tokens(tokens: tuple, config: dict, scheme: str):
-    access_token, id_token = tokens
+    access_token = tokens[0]
+    id_token = tokens[1] if config["use_id_token"] else None
 
     if "errors" in access_token:
         return {"authenticated": False, "errors": f"Error while decoding access token: {access_token['errors']}"}
-    if "errors" in id_token:
+    if id_token is not None and "errors" in id_token:
         return {"authenticated": False, "errors": f"Error while decoding id token: {id_token['errors']}"}
 
     access_token = access_token["token"]
-    id_token = id_token["token"]
+    id_token = id_token["token"] if id_token is not None else None
     roles_field = config["role_field"]
 
     if roles_field not in access_token:
