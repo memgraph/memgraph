@@ -3,5 +3,9 @@
 # We are not packaging log dir
 addFilter("E: logrotate-log-dir-not-packaged")
 
-# ignore the FSF-address mismatch in libstdc++’s COPYING
+# ignore the FSF-address mismatch in libstdc++'s COPYING
 addFilter("E: incorrect-fsf-address")
+
+addFilter("E: no-signature")
+addFilter("E: no-packager-tag")
+addFilter("E: no-group-tag")

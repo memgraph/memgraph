@@ -3,27 +3,33 @@ set -Eeuo pipefail
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
-check_operating_system "centos-10"
+check_operating_system "fedora-42"
 check_architecture "x86_64"
 
 TOOLCHAIN_BUILD_DEPS=(
-    wget # used for archive download
     coreutils-common gcc gcc-c++ make # generic build tools
-    # NOTE: Pure libcurl conflicts with libcurl-minimal
-    libcurl-devel # cmake build requires it
+    wget2-wget # used for archive download
     gnupg2 # used for archive signature verification
     tar gzip bzip2 xz unzip # used for archive unpacking
+    # NOTE: https://discussion.fedoraproject.org/t/f40-change-proposal-transitioning-to-zlib-ng-as-a-compatible-replacement-for-zlib-system-wide/95807
     zlib-ng-compat-devel # zlib library used for all builds
     expat-devel xz-devel python3-devel texinfo libbabeltrace-devel # for gdb
+    curl libcurl-devel # for cmake
     readline-devel # for cmake and llvm
     libffi-devel libxml2-devel # for llvm
-    libedit-devel pcre2-devel automake bison # for swig
-    file gmp-devel gperf diffutils
+    libedit-devel pcre-devel pcre2-devel automake bison # for swig
+    file
+    openssl openssl-devel openssl-devel-engine # for pulsar
+    gmp-devel
+    gperf
+    diffutils
     libipt libipt-devel # intel
     patch
+    perl # for openssl
+    git
     custom-rust # for mgcxx
     libtool # for protobuf
-    openssl-devel pkgconf-pkg-config # for pulsar
+    pkgconf-pkg-config # for pulsar
     cyrus-sasl-devel # for librdkafka
 )
 
@@ -35,29 +41,28 @@ TOOLCHAIN_RUN_DEPS=(
     readline # for cmake and llvm
     libffi libxml2 # for llvm
     openssl-devel
-    perl # for openssl
 )
 
 MEMGRAPH_BUILD_DEPS=(
     git # source code control
     make cmake pkgconf-pkg-config # build system
     wget # for downloading libs
-    libuuid-devel java-11-openjdk-headless java-11-openjdk java-11-openjdk-devel # required by antlr
+    libuuid-devel java-11-openjdk java-11-openjdk-devel # required by antlr
     readline-devel # for memgraph console
     python3-devel # for query modules
     openssl-devel
     libseccomp-devel
     python3 python3-pip python3-virtualenv nmap-ncat # for qa, macro_benchmark and stress tests
     #
-    # IMPORTANT: python3-yaml does NOT exist on CentOS
+    # IMPORTANT: python3-yaml does NOT exist on Fedora
     # Install it manually using `pip3 install PyYAML`
     #
-    PyYAML # Package name here does not correspond to the yum package!
+    PyYAML # Package name here does not correspond to the dnf package!
     libcurl-devel # mg-requests
     rpm-build rpmlint # for RPM package building
     doxygen graphviz # source documentation generators
     which nodejs golang custom-golang # for driver tests
-    zip unzip java-17-openjdk-headless java-17-openjdk java-17-openjdk-devel custom-maven # for driver tests
+    zip unzip java-17-openjdk java-17-openjdk-devel custom-maven # for driver tests
     sbcl # for custom Lisp C++ preprocessing
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
@@ -101,7 +106,7 @@ check() {
 
     # Check standard packages with Python script
     if [ ${#standard_packages[@]} -gt 0 ]; then
-        missing=$(python3 "$DIR/check-packages.py" "check" "centos-10" "${standard_packages[@]}")
+        missing=$(python3 "$DIR/check-packages.py" "check" "fedora-42" "${standard_packages[@]}")
     fi
 
     # Check custom packages with bash logic
@@ -150,15 +155,8 @@ install() {
         echo "NOTE: export LANG=en_US.utf8"
     fi
 
-    # enable EPEL repo for rpmlint
-    sudo dnf install -y epel-release
-
+    dnf update -y
     dnf install -y wget git python3 python3-pip
-    # CRB repo is required for, e.g. texinfo, ninja-build
-    dnf config-manager --set-enabled crb
-
-    # Enable EPEL for additional packages
-    dnf install -y epel-release
 
     # Separate standard and custom packages
     local standard_packages=()
@@ -166,7 +164,7 @@ install() {
 
     for pkg in "${packages[@]}"; do
         case "$pkg" in
-            custom-*|PyYAML|python3-virtualenv|libipt|libipt-devel|java-11-openjdk-headless|java-11-openjdk|java-11-openjdk-devel|java-17-openjdk-headless|java-17-openjdk|java-17-openjdk-devel)
+            custom-*|PyYAML|python3-virtualenv)
                 custom_packages+=("$pkg")
                 ;;
             *)
@@ -177,7 +175,7 @@ install() {
 
     # Install standard packages with Python script
     if [ ${#standard_packages[@]} -gt 0 ]; then
-        if ! python3 "$DIR/check-packages.py" "install" "centos-10" "${standard_packages[@]}"; then
+        if ! python3 "$DIR/check-packages.py" "install" "fedora-42" "${standard_packages[@]}"; then
             echo "Failed to install standard packages"
             exit 1
         fi
@@ -189,46 +187,6 @@ install() {
     # Handle non-custom packages that need special installation
     for pkg in "${custom_packages[@]}"; do
         case "$pkg" in
-            libipt)
-                if ! dnf list installed libipt >/dev/null 2>/dev/null; then
-                    dnf install -y https://dl.fedoraproject.org/pub/fedora/linux/releases/41/Everything/x86_64/os/Packages/l/libipt-2.1.1-2.fc41.x86_64.rpm
-                fi
-                ;;
-            libipt-devel)
-                if ! dnf list installed libipt-devel >/dev/null 2>/dev/null; then
-                    dnf install -y https://dl.fedoraproject.org/pub/fedora/linux/releases/41/Everything/x86_64/os/Packages/l/libipt-devel-2.1.1-2.fc41.x86_64.rpm
-                fi
-                ;;
-            java-11-openjdk-headless)
-                if ! dnf list installed java-11-openjdk-headless >/dev/null 2>/dev/null; then
-                    dnf install -y https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/java-11-openjdk-headless-11.0.20.1.1-2.el9.x86_64.rpm
-                fi
-                ;;
-            java-11-openjdk)
-                if ! dnf list installed java-11-openjdk >/dev/null 2>/dev/null; then
-                    dnf install -y https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/java-11-openjdk-11.0.20.1.1-2.el9.x86_64.rpm
-                fi
-                ;;
-            java-11-openjdk-devel)
-                if ! dnf list installed java-11-openjdk-devel >/dev/null 2>/dev/null; then
-                    dnf install -y https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/java-11-openjdk-devel-11.0.20.1.1-2.el9.x86_64.rpm
-                fi
-                ;;
-            java-17-openjdk-headless)
-                if ! dnf list installed java-17-openjdk-headless >/dev/null 2>/dev/null; then
-                    dnf install -y https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/java-17-openjdk-headless-17.0.13.0.11-4.el9.x86_64.rpm
-                fi
-                ;;
-            java-17-openjdk)
-                if ! dnf list installed java-17-openjdk >/dev/null 2>/dev/null; then
-                    dnf install -y https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/java-17-openjdk-17.0.13.0.11-4.el9.x86_64.rpm
-                fi
-                ;;
-            java-17-openjdk-devel)
-                if ! dnf list installed java-17-openjdk-devel >/dev/null 2>/dev/null; then
-                    dnf install -y https://mirror.stream.centos.org/9-stream/AppStream/x86_64/os/Packages/java-17-openjdk-devel-17.0.13.0.11-4.el9.x86_64.rpm
-                fi
-                ;;
             PyYAML)
                 if [ -z ${SUDO_USER+x} ]; then # Running as root (e.g. Docker).
                     pip3 install --user PyYAML
