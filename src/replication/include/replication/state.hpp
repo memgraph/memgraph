@@ -43,7 +43,7 @@ struct RoleMainData {
   RoleMainData(RoleMainData &&) = default;
   RoleMainData &operator=(RoleMainData &&) = default;
 
-  std::list<ReplicationClient> registered_replicas_{};
+  std::list<ReplicationClient> registered_replicas_;
   utils::UUID uuid_;  // also used in ReplicationStorageClient but important thing is that at both places, the value is
   // immutable.
   bool writing_enabled_{false};
