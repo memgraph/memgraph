@@ -16,7 +16,7 @@
 #include <curl/curl.h>
 #include <fmt/format.h>
 #include <gflags/gflags.h>
-#include <ctre/ctre.hpp>
+#include <ctre.hpp>
 
 #include "utils/logging.hpp"
 

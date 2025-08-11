@@ -7,6 +7,7 @@ project(memgraph_query_modules)
 disallow_in_source_build()
 
 find_package(fmt REQUIRED)
+find_package(Boost REQUIRED CONFIG)
 
 # Everything that is installed here, should be under the "query_modules" component.
 set(CMAKE_INSTALL_DEFAULT_COMPONENT_NAME "query_modules")
@@ -46,7 +47,7 @@ endfunction()
 
 add_custom_library(example_c example.c)
 add_custom_library(example_cpp example.cpp)
-add_custom_library(schema schema.cpp)
+add_custom_library(schema schema.cpp Boost::boost)
 add_custom_library(text_search text_search_module.cpp fmt::fmt)
 add_custom_library(vector_search vector_search_module.cpp fmt::fmt)
 add_custom_library(convert convert.cpp fmt::fmt nlohmann_json::nlohmann_json)

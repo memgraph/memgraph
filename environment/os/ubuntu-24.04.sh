@@ -30,6 +30,8 @@ TOOLCHAIN_BUILD_DEPS=(
     libtool # for protobuf
     libssl-dev pkg-config # for pulsar
     libsasl2-dev # for librdkafka
+    gdb lcov libbz2-dev libgdbm-dev libgdbm-compat-dev libncurses-dev # for building python
+    libreadline-dev libsqlite3-dev lzma lzma-dev tk-dev uuid-dev # for building python
 )
 
 TOOLCHAIN_RUN_DEPS=(
@@ -64,6 +66,7 @@ MEMGRAPH_BUILD_DEPS=(
     libtool  # for protobuf code generation
     libsasl2-dev
     ninja-build
+    libopenblas-dev # required for building scipy
 )
 
 MEMGRAPH_TEST_DEPS="${MEMGRAPH_BUILD_DEPS[*]}"
