@@ -269,10 +269,30 @@ TYPED_TEST(OperatorToStringTest, ExpandVariable) {
       false, LITERAL(2), LITERAL(5), false,
       ExpansionLambda{this->GetSymbol("inner_node"), this->GetSymbol("inner_edge"),
                       PROPERTY_LOOKUP(this->dba, "inner_node", this->dba.NameToProperty("unblocked"))},
-      std::nullopt, std::nullopt);
+      std::nullopt, std::nullopt, nullptr);
   last_op->dba_ = &this->dba;
 
   std::string expected_string{"BFSExpand (node1)-[edge:EdgeType1|:EdgeType2]->(node2)"};
+  EXPECT_EQ(last_op->ToString(), expected_string);
+}
+
+TYPED_TEST(OperatorToStringTest, KShortestExpand) {
+  auto node1_sym = this->GetSymbol("node1");
+  auto node2_sym = this->GetSymbol("node2");
+  auto edge_sym = this->GetSymbol("edge");
+
+  std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node1_sym);
+  last_op = std::make_shared<ExpandVariable>(
+      last_op, node1_sym, node2_sym, edge_sym, EdgeAtom::Type::KSHORTEST, EdgeAtom::Direction::OUT,
+      std::vector<memgraph::storage::EdgeTypeId>{this->dba.NameToEdgeType("EdgeType1"),
+                                                 this->dba.NameToEdgeType("EdgeType2")},
+      false, nullptr, nullptr, false,
+      ExpansionLambda{this->GetSymbol("inner_node"), this->GetSymbol("inner_edge"),
+                      PROPERTY_LOOKUP(this->dba, "inner_node", this->dba.NameToProperty("unblocked"))},
+      std::nullopt, std::nullopt, nullptr);
+  last_op->dba_ = &this->dba;
+
+  std::string expected_string{"KShortest (node1)-[edge:EdgeType1|:EdgeType2]->(node2)"};
   EXPECT_EQ(last_op->ToString(), expected_string);
 }
 

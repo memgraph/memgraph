@@ -180,7 +180,7 @@ static memgraph::query::plan::ExpandVariable MakeExpandVariable(memgraph::query:
   filter_lambda.expression = nullptr;
   return memgraph::query::plan::ExpandVariable(nullptr, input_symbol, dest_symbol, edge_symbol, expand_type,
                                                memgraph::query::EdgeAtom::Direction::OUT, {}, false, nullptr, nullptr,
-                                               false, filter_lambda, std::nullopt, std::nullopt);
+                                               false, filter_lambda, std::nullopt, std::nullopt, nullptr);
 }
 
 template <class TMemory>

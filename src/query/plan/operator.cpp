@@ -1804,7 +1804,7 @@ ExpandVariable::ExpandVariable(const std::shared_ptr<LogicalOperator> &input, Sy
                                const std::vector<storage::EdgeTypeId> &edge_types, bool is_reverse,
                                Expression *lower_bound, Expression *upper_bound, bool existing_node,
                                ExpansionLambda filter_lambda, std::optional<ExpansionLambda> weight_lambda,
-                               std::optional<Symbol> total_weight)
+                               std::optional<Symbol> total_weight, Expression *limit)
     : input_(input ? input : std::make_shared<Once>()),
       input_symbol_(std::move(input_symbol)),
       common_{node_symbol, edge_symbol, direction, edge_types, existing_node},
@@ -1814,12 +1814,16 @@ ExpandVariable::ExpandVariable(const std::shared_ptr<LogicalOperator> &input, Sy
       upper_bound_(upper_bound),
       filter_lambda_(std::move(filter_lambda)),
       weight_lambda_(std::move(weight_lambda)),
-      total_weight_(std::move(total_weight)) {
+      total_weight_(std::move(total_weight)),
+      limit_(limit) {
   DMG_ASSERT(type_ == EdgeAtom::Type::DEPTH_FIRST || type_ == EdgeAtom::Type::BREADTH_FIRST ||
-                 type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH || type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS,
+                 type_ == EdgeAtom::Type::WEIGHTED_SHORTEST_PATH || type_ == EdgeAtom::Type::ALL_SHORTEST_PATHS ||
+                 type_ == EdgeAtom::Type::KSHORTEST,
              "ExpandVariable can only be used with breadth first, depth first, "
-             "weighted shortest path or all shortest paths type");
+             "weighted shortest path, all shortest paths or bfs all paths type");
   DMG_ASSERT(!(type_ == EdgeAtom::Type::BREADTH_FIRST && is_reverse), "Breadth first expansion can't be reversed");
+  DMG_ASSERT(type_ == EdgeAtom::Type::KSHORTEST || limit_ == nullptr,
+             "Limit is only supported for KSHORTEST path expansion");
 }
 
 ACCEPT_WITH_INPUT(ExpandVariable)
@@ -3171,8 +3175,8 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       }
     };
 
-    // upper_bound_set is used when storing visited edges, because with an upper bound we also consider suboptimal paths
-    // if they are shorter in depth
+    // upper_bound_set is used when storing visited edges, because with an upper bound we also consider suboptimal
+    // paths if they are shorter in depth
     if (self_.upper_bound_) {
       upper_bound_ = EvaluateInt(evaluator, self_.upper_bound_, "Max depth in all shortest path expansion");
       upper_bound_set_ = true;
@@ -3330,6 +3334,532 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
   }
 };
 
+// K-Shortest Paths Cursor using lazy-evaluated Yen's algorithm
+class KShortestPathsCursor : public Cursor {
+ public:
+  KShortestPathsCursor(const ExpandVariable &self, utils::MemoryResource *mem)
+      : self_(self),
+        input_cursor_(self.input_->MakeCursor(mem)),
+        shortest_paths_(mem),
+        candidate_paths_(mem),
+        found_paths_set_(mem),
+        current_source_(std::nullopt),
+        current_target_(std::nullopt),
+        blocked_edges_(mem),
+        blocked_vertices_(mem),
+        distances_(mem),
+        predecessors_(mem) {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
+    SCOPED_PROFILE_OP("KShortestPaths");
+
+    ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                  storage::View::OLD, nullptr, &context.number_of_hops);
+
+    limit_ = self_.limit_ ? EvaluateInt(evaluator, self_.limit_, "Limit in KSHORTEST path expansion")
+                          : std::numeric_limits<int64_t>::max();
+
+    auto push_next_path = [&](Frame &frame, ExpressionEvaluator &evaluator) {
+      PushPathToFrame(shortest_paths_[current_path_index_++], &frame, evaluator.GetMemoryResource());
+      n_returned_paths_++;
+    };
+
+    // Check if we reached the maximum number of paths to return
+    if (n_returned_paths_ >= limit_) {
+      return false;
+    }
+
+    auto unsent_paths_count = [&]() { return shortest_paths_.size() - current_path_index_; };
+
+    // If we have cached shortest paths, return the next one
+    if (unsent_paths_count() > 0) {
+      push_next_path(frame, evaluator);
+      return true;
+    }
+
+    // Try to compute the next shortest path for current input
+    if (current_input_initialized_ && current_source_.has_value() && current_target_.has_value() &&
+        ComputeNextShortestPath(current_source_.value(), current_target_.value(), evaluator, context)) {
+      push_next_path(frame, evaluator);
+      return true;
+    }
+
+    // Need to pull new input
+    while (input_cursor_->Pull(frame, context)) {
+      AbortCheck(context);
+      if (context.hops_limit.IsLimitReached()) return false;
+
+      auto &source_tv = frame[self_.input_symbol_];
+      auto &target_tv = frame[self_.common_.node_symbol];
+
+      // It is possible that source or sink vertex is Null due to optional matching.
+      if (source_tv.IsNull() || target_tv.IsNull()) continue;
+
+      auto &source_vertex = source_tv.ValueVertex();
+      auto &target_vertex = target_tv.ValueVertex();
+
+      // Skip if source and target are the same vertex
+      if (source_vertex == target_vertex) continue;
+
+      lower_bound_ = self_.lower_bound_ ? EvaluateInt(evaluator, self_.lower_bound_, "Min depth in expansion") : 1;
+      upper_bound_ = self_.upper_bound_ ? EvaluateInt(evaluator, self_.upper_bound_, "Max depth in expansion")
+                                        : std::numeric_limits<int64_t>::max();
+
+      // Initialize for this new source-target pair
+      current_source_ = source_vertex;
+      current_target_ = target_vertex;
+      current_input_initialized_ = true;
+
+      if (!InitializeKShortestPaths(source_vertex, target_vertex, evaluator, context)) {
+        // If no path found, continue to next input
+        continue;
+      }
+
+      // Handle lower bound
+      auto *last_path = &shortest_paths_.back();
+      while (last_path->edges.size() < lower_bound_) {
+        current_path_index_ = shortest_paths_.size();
+        if (!ComputeNextShortestPath(current_source_.value(), current_target_.value(), evaluator, context)) {
+          break;
+        }
+        last_path = &shortest_paths_.back();
+      }
+
+      if (unsent_paths_count() > 0) {
+        push_next_path(frame, evaluator);
+        return true;
+      }
+    }
+
+    return false;
+  }
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    ResetState();
+    current_input_initialized_ = false;
+  }
+
+ private:
+  struct PathInfo {
+    utils::pmr::vector<EdgeAccessor> edges;
+    size_t deviation_vertex_index;  // Index where this path deviates from parent
+
+    explicit PathInfo(utils::MemoryResource *mem) : edges(mem), deviation_vertex_index(0) {}
+
+    PathInfo(const utils::pmr::vector<EdgeAccessor> &path_edges, size_t deviation_idx, utils::MemoryResource *mem)
+        : edges(path_edges.begin(), path_edges.end(), mem), deviation_vertex_index(deviation_idx) {}
+  };
+
+  struct PathComparator {
+    bool operator()(const PathInfo &a, const PathInfo &b) const {
+      return a.edges.size() > b.edges.size();  // Min-heap: smaller costs have higher priority
+    }
+  };
+
+  struct EdgeAccessorHash {
+    size_t operator()(const EdgeAccessor &edge) const { return std::hash<storage::Gid>{}(edge.Gid()); }
+  };
+
+  struct VertexAccessorHash {
+    size_t operator()(const VertexAccessor &vertex) const { return std::hash<storage::Gid>{}(vertex.Gid()); }
+  };
+
+  struct PathGidsHash {
+    size_t operator()(const utils::pmr::vector<storage::Gid> &path_gids) const {
+      size_t hash = 0;
+      for (const auto &gid : path_gids) {
+        hash = utils::HashCombine<size_t, storage::Gid>{}(hash, gid);
+      }
+      return hash;
+    }
+  };
+
+  const ExpandVariable &self_;
+  UniqueCursorPtr input_cursor_;
+  int64_t lower_bound_{1};
+  int64_t upper_bound_{std::numeric_limits<int64_t>::max()};
+  int64_t limit_{0};
+  int64_t n_returned_paths_{0};
+
+  // State for K-shortest paths algorithm
+  utils::pmr::vector<PathInfo> shortest_paths_;
+  std::priority_queue<PathInfo, utils::pmr::vector<PathInfo>, PathComparator> candidate_paths_;
+  utils::pmr::unordered_set<utils::pmr::vector<storage::Gid>, PathGidsHash> found_paths_set_;
+  size_t current_path_index_ = 0;
+
+  // Re-entrant state
+  bool current_input_initialized_ = false;
+  std::optional<VertexAccessor> current_source_;
+  std::optional<VertexAccessor> current_target_;
+
+  // Dijkstra's algorithm state (reused for efficiency)
+  utils::pmr::unordered_set<EdgeAccessor, EdgeAccessorHash> blocked_edges_;
+  utils::pmr::unordered_set<VertexAccessor, VertexAccessorHash> blocked_vertices_;
+  utils::pmr::unordered_map<VertexAccessor, double, VertexAccessorHash> distances_;
+  utils::pmr::unordered_map<VertexAccessor, EdgeVertexAccessorResult, VertexAccessorHash> in_edges_;
+  utils::pmr::unordered_map<VertexAccessor, EdgeVertexAccessorResult, VertexAccessorHash> out_edges_;
+  utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>, VertexAccessorHash> predecessors_;
+
+  // Bidirectional search state
+  using VertexEdgeMapT = utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>>;
+
+  bool InitializeKShortestPaths(const VertexAccessor &source, const VertexAccessor &target,
+                                ExpressionEvaluator &evaluator, ExecutionContext &context) {
+    ResetState();
+
+    // Find the shortest path using Dijkstra's algorithm
+    auto shortest_path = ComputeShortestPath(source, target, evaluator, context);
+    if (!shortest_path.edges.empty()) {
+      shortest_paths_.emplace_back(std::move(shortest_path));
+      AddPathToFoundSet(shortest_paths_.back());
+      return true;
+    }
+    return false;
+  }
+
+  bool ComputeNextShortestPath(const VertexAccessor &source, const VertexAccessor &target,
+                               ExpressionEvaluator &evaluator, ExecutionContext &context) {
+    if (shortest_paths_.empty()) return false;
+
+    const auto &last_path = shortest_paths_.back();
+
+    // Generate candidate paths by deviating at each vertex of the last shortest path
+    for (size_t i = 0; i < last_path.edges.size(); ++i) {
+      GenerateCandidatesFromDeviation(source, target, last_path, i, evaluator, context);
+    }
+
+    // Find the best candidate path
+    while (!candidate_paths_.empty()) {
+      PathInfo candidate = candidate_paths_.top();
+      candidate_paths_.pop();
+      // Handle upper bound
+      if (candidate.edges.size() > upper_bound_) {
+        // Next path is too long, stop generating candidates
+        return false;
+      }
+      if (!IsPathInFoundSet(candidate)) {
+        shortest_paths_.emplace_back(std::move(candidate));
+        AddPathToFoundSet(shortest_paths_.back());
+        return true;
+      }
+    }
+    return false;
+  }
+
+  void GenerateCandidatesFromDeviation(const VertexAccessor &source, const VertexAccessor &target,
+                                       const PathInfo &base_path, size_t deviation_index,
+                                       ExpressionEvaluator &evaluator, ExecutionContext &context) {
+    // Set up blocked edges and vertices for this deviation
+    SetupBlockedElementsForDeviation(source, base_path, deviation_index);
+
+    // Get the deviation vertex
+    VertexAccessor deviation_vertex = GetVertexAtIndex(source, base_path, deviation_index);
+
+    // Compute shortest path from deviation vertex to target with blocked elements
+    auto spur_path = ComputeShortestPath(deviation_vertex, target, evaluator, context);
+
+    if (!spur_path.edges.empty()) {
+      // Combine the root path (up to deviation) with the spur path
+      PathInfo candidate_path(evaluator.GetMemoryResource());
+
+      // Add edges from source to deviation vertex
+      for (size_t i = 0; i < deviation_index; ++i) {
+        candidate_path.edges.push_back(base_path.edges[i]);
+      }
+
+      // Add spur path edges
+      for (const auto &edge : spur_path.edges) {
+        candidate_path.edges.push_back(edge);
+      }
+
+      candidate_path.deviation_vertex_index = deviation_index;
+
+      candidate_paths_.push(std::move(candidate_path));
+    }
+  }
+
+  void SetupBlockedElementsForDeviation(const VertexAccessor &source, const PathInfo &base_path,
+                                        size_t deviation_index) {
+    blocked_edges_.clear();
+    blocked_vertices_.clear();
+
+    // Block the edge at deviation index from all previously found paths that share the same prefix
+    for (const auto &path : shortest_paths_) {
+      if (deviation_index < path.edges.size()) {
+        // Check if the path prefix matches up to deviation index
+        bool prefix_matches = true;
+        for (size_t i = 0; i < deviation_index; ++i) {
+          if (i >= base_path.edges.size() || path.edges[i].Gid() != base_path.edges[i].Gid()) {
+            prefix_matches = false;
+            break;
+          }
+        }
+
+        if (prefix_matches) {
+          blocked_edges_.insert(path.edges[deviation_index]);
+        }
+      }
+    }
+
+    // Block vertices in the root path (except the deviation vertex)
+    VertexAccessor current_vertex = source;
+    for (size_t i = 0; i < deviation_index; ++i) {
+      blocked_vertices_.insert(current_vertex);
+      const auto &edge = base_path.edges[i];
+      current_vertex = (edge.From() == current_vertex) ? edge.To() : edge.From();
+    }
+  }
+
+  static VertexAccessor GetVertexAtIndex(const VertexAccessor &source, const PathInfo &path, size_t index) {
+    if (index == 0) return source;
+
+    VertexAccessor current = source;
+    for (size_t i = 0; i < index && i < path.edges.size(); ++i) {
+      const auto &edge = path.edges[i];
+      current = (edge.From() == current) ? edge.To() : edge.From();
+    }
+    return current;
+  }
+
+  static PathInfo ReconstructPath(const VertexAccessor &midpoint, const VertexEdgeMapT &in_edge,
+                                  const VertexEdgeMapT &out_edge, utils::MemoryResource *memory) {
+    utils::pmr::vector<EdgeAccessor> result(memory);
+    VertexAccessor current = midpoint;
+
+    // Reconstruct the path from midpoint to source
+    while (in_edge.contains(current)) {
+      const auto &edge_opt = in_edge.at(current);
+      if (edge_opt.has_value()) {
+        const auto &edge = edge_opt.value();
+        result.push_back(edge);
+        current = (edge.From() == current) ? edge.To() : edge.From();
+      } else {
+        break;
+      }
+    }
+
+    // Reverse the path from source to midpoint
+    std::reverse(result.begin(), result.end());
+
+    // Reconstruct the path from midpoint to target
+    current = midpoint;
+    while (out_edge.contains(current)) {
+      const auto &edge_opt = out_edge.at(current);
+      if (edge_opt.has_value()) {
+        const auto &edge = edge_opt.value();
+        result.push_back(edge);
+        current = (edge.From() == current) ? edge.To() : edge.From();
+      } else {
+        break;
+      }
+    }
+
+    return PathInfo(result, 0, memory);
+  }
+
+  static constexpr bool kTo = true;
+  static constexpr bool kFrom = !kTo;
+
+  template <bool To>
+  static bool FineGrainedAccessCheck(const EdgeAccessor &edge, ExecutionContext &context) {
+#ifdef MG_ENTERPRISE
+    return (!license::global_license_checker.IsEnterpriseValidFast() || !context.auth_checker ||
+            (context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+             context.auth_checker->Has(To == kTo ? edge.To() : edge.From(), storage::View::OLD,
+                                       memgraph::query::AuthQuery::FineGrainedPrivilege::READ)));
+#else
+    (void)edge;
+    (void)context;
+    return true;
+#endif
+  }
+
+  template <bool To>
+  static bool ShouldExpand(const EdgeAccessor &edge, ExecutionContext &context, const VertexEdgeMapT &edges,
+                           const utils::pmr::unordered_set<EdgeAccessor, EdgeAccessorHash> &blocked_edges,
+                           const utils::pmr::unordered_set<VertexAccessor, VertexAccessorHash> &blocked_vertices) {
+    return FineGrainedAccessCheck<To>(edge, context) && !blocked_edges.contains(edge) &&
+           !blocked_vertices.contains(To == kTo ? edge.To() : edge.From()) &&
+           !edges.contains(To == kTo ? edge.To() : edge.From());
+  }
+
+  PathInfo ComputeShortestPath(const VertexAccessor &source, const VertexAccessor &target,
+                               ExpressionEvaluator &evaluator, ExecutionContext &context) {
+    using utils::Contains;
+
+    if (source == target) return PathInfo(evaluator.GetMemoryResource());
+
+    // We expand from both directions, both from the source and the target.
+    // Expansions meet at the middle of the path if it exists. This should
+    // perform better for real-world like graphs where the expansion front
+    // grows exponentially, effectively reducing the exponent by half.
+
+    auto *pull_memory = evaluator.GetMemoryResource();
+    // Holds vertices at the current level of expansion from the source
+    // (target).
+    utils::pmr::vector<VertexAccessor> source_frontier(pull_memory);
+    utils::pmr::vector<VertexAccessor> target_frontier(pull_memory);
+
+    // Holds vertices we can expand to from `source_frontier`
+    // (`target_frontier`).
+    utils::pmr::vector<VertexAccessor> source_next(pull_memory);
+    utils::pmr::vector<VertexAccessor> target_next(pull_memory);
+
+    // Maps each vertex we visited expanding from the source (target) to the
+    // edge used. Necessary for path reconstruction.
+    VertexEdgeMapT in_edge(pull_memory);
+    VertexEdgeMapT out_edge(pull_memory);
+
+    size_t current_length = 0;
+
+    source_frontier.emplace_back(source);
+    in_edge[source] = std::nullopt;
+    target_frontier.emplace_back(target);
+    out_edge[target] = std::nullopt;
+
+    while (true) {
+      AbortCheck(context);
+      // Top-down step (expansion from the source).
+      ++current_length;
+      if (current_length > upper_bound_) return PathInfo(evaluator.GetMemoryResource());
+
+      for (const auto &vertex : source_frontier) {
+        if (context.hops_limit.IsLimitReached()) break;
+        if (self_.common_.direction != EdgeAtom::Direction::IN) {
+          if (!out_edges_.contains(vertex)) {
+            auto out_edges_result =
+                UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+            context.number_of_hops += out_edges_result.expanded_count;
+            out_edges_.emplace(vertex, out_edges_result);
+          }
+          for (const auto &edge : out_edges_.at(vertex).edges) {
+            if (!ShouldExpand<kTo>(edge, context, in_edge, blocked_edges_, blocked_vertices_)) {
+              continue;
+            }
+            in_edge.emplace(edge.To(), edge);
+            if (Contains(out_edge, edge.To())) {
+              return ReconstructPath(edge.To(), in_edge, out_edge, evaluator.GetMemoryResource());
+            }
+            source_next.push_back(edge.To());
+          }
+        }
+        if (self_.common_.direction != EdgeAtom::Direction::OUT) {
+          if (!in_edges_.contains(vertex)) {
+            auto in_edges_result =
+                UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+            context.number_of_hops += in_edges_result.expanded_count;
+            in_edges_.emplace(vertex, in_edges_result);
+          }
+          for (const auto &edge : in_edges_.at(vertex).edges) {
+            if (!ShouldExpand<kFrom>(edge, context, in_edge, blocked_edges_, blocked_vertices_)) {
+              continue;
+            }
+            in_edge.emplace(edge.From(), edge);
+            if (Contains(out_edge, edge.From())) {
+              return ReconstructPath(edge.From(), in_edge, out_edge, evaluator.GetMemoryResource());
+            }
+            source_next.push_back(edge.From());
+          }
+        }
+      }
+
+      if (source_next.empty()) return PathInfo(evaluator.GetMemoryResource());
+      source_frontier.clear();
+      std::swap(source_frontier, source_next);
+
+      // Bottom-up step (expansion from the target).
+      ++current_length;
+      if (current_length > upper_bound_) return PathInfo(evaluator.GetMemoryResource());
+
+      // When expanding from the target we have to be careful which edge
+      // endpoint we pass to `should_expand`, because everything is
+      // reversed.
+      for (const auto &vertex : target_frontier) {
+        if (context.hops_limit.IsLimitReached()) break;
+        if (self_.common_.direction != EdgeAtom::Direction::OUT) {
+          if (!out_edges_.contains(vertex)) {
+            auto out_edges_result =
+                UnwrapEdgesResult(vertex.OutEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+            context.number_of_hops += out_edges_result.expanded_count;
+            out_edges_.emplace(vertex, out_edges_result);
+          }
+          for (const auto &edge : out_edges_.at(vertex).edges) {
+            if (!ShouldExpand<kTo>(edge, context, out_edge, blocked_edges_, blocked_vertices_)) {
+              continue;
+            }
+            out_edge.emplace(edge.To(), edge);
+            if (Contains(in_edge, edge.To())) {
+              return ReconstructPath(edge.To(), in_edge, out_edge, evaluator.GetMemoryResource());
+            }
+            target_next.push_back(edge.To());
+          }
+        }
+        if (self_.common_.direction != EdgeAtom::Direction::IN) {
+          if (!in_edges_.contains(vertex)) {
+            auto in_edges_result =
+                UnwrapEdgesResult(vertex.InEdges(storage::View::OLD, self_.common_.edge_types, &context.hops_limit));
+            context.number_of_hops += in_edges_result.expanded_count;
+            in_edges_.emplace(vertex, in_edges_result);
+          }
+          for (const auto &edge : in_edges_.at(vertex).edges) {
+            if (!ShouldExpand<kFrom>(edge, context, out_edge, blocked_edges_, blocked_vertices_)) {
+              continue;
+            }
+            out_edge.emplace(edge.From(), edge);
+            if (Contains(in_edge, edge.From())) {
+              return ReconstructPath(edge.From(), in_edge, out_edge, evaluator.GetMemoryResource());
+            }
+            target_next.push_back(edge.From());
+          }
+        }
+      }
+
+      if (target_next.empty()) return PathInfo(evaluator.GetMemoryResource());
+      target_frontier.clear();
+      std::swap(target_frontier, target_next);
+    }
+  }
+
+  void PushPathToFrame(const PathInfo &path, Frame *frame, utils::MemoryResource *memory) {
+    auto edge_list = TypedValue::TVector(memory);
+    for (const auto &edge : path.edges) {
+      edge_list.emplace_back(edge);
+    }
+    (*frame)[self_.common_.edge_symbol] = std::move(edge_list);
+  }
+
+  bool IsPathInFoundSet(const PathInfo &path) {
+    utils::pmr::vector<storage::Gid> path_gids(found_paths_set_.get_allocator());
+    for (const auto &edge : path.edges) {
+      path_gids.push_back(edge.Gid());
+    }
+    return found_paths_set_.contains(path_gids);
+  }
+
+  void AddPathToFoundSet(const PathInfo &path) {
+    utils::pmr::vector<storage::Gid> path_gids(found_paths_set_.get_allocator());
+    for (const auto &edge : path.edges) {
+      path_gids.push_back(edge.Gid());
+    }
+    found_paths_set_.insert(std::move(path_gids));
+  }
+
+  void ResetState() {
+    shortest_paths_.clear();
+    while (!candidate_paths_.empty()) candidate_paths_.pop();
+    found_paths_set_.clear();
+    current_path_index_ = 0;
+    blocked_edges_.clear();
+    blocked_vertices_.clear();
+    distances_.clear();
+    predecessors_.clear();
+  }
+};
+
 UniqueCursorPtr ExpandVariable::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ExpandVariableOperator);
 
@@ -3346,6 +3876,8 @@ UniqueCursorPtr ExpandVariable::MakeCursor(utils::MemoryResource *mem) const {
       return MakeUniqueCursorPtr<ExpandWeightedShortestPathCursor>(mem, *this, mem);
     case EdgeAtom::Type::ALL_SHORTEST_PATHS:
       return MakeUniqueCursorPtr<ExpandAllShortestPathsCursor>(mem, *this, mem);
+    case EdgeAtom::Type::KSHORTEST:
+      return MakeUniqueCursorPtr<KShortestPathsCursor>(mem, *this, mem);
     case EdgeAtom::Type::SINGLE:
       LOG_FATAL("ExpandVariable should not be planned for a single expansion!");
   }
@@ -3393,6 +3925,8 @@ std::string_view ExpandVariable::OperatorName() const {
       return "WeightedShortestPath"sv;
     case Type::ALL_SHORTEST_PATHS:
       return "AllShortestPaths"sv;
+    case Type::KSHORTEST:
+      return "KShortest"sv;
     case Type::SINGLE:
       LOG_FATAL("Unexpected ExpandVariable::type_");
     default:
@@ -4086,15 +4620,13 @@ SetProperties::SetPropertiesCursor::SetPropertiesCursor(const SetProperties &sel
 namespace {
 
 template <typename T>
-concept AccessorWithProperties =
-    requires(T value, storage::PropertyId property_id, storage::PropertyValue property_value,
-             std::map<storage::PropertyId, storage::PropertyValue> properties) {
-      {
-        value.ClearProperties()
-      } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
-      { value.SetProperty(property_id, property_value) };
-      { value.UpdateProperties(properties) };
-    };
+concept AccessorWithProperties = requires(T value, storage::PropertyId property_id,
+                                          storage::PropertyValue property_value,
+                                          std::map<storage::PropertyId, storage::PropertyValue> properties) {
+  { value.ClearProperties() } -> std::same_as<storage::Result<std::map<storage::PropertyId, storage::PropertyValue>>>;
+  {value.SetProperty(property_id, property_value)};
+  {value.UpdateProperties(properties)};
+};
 
 /// Helper function that sets the given values on either a Vertex or an Edge.
 ///
@@ -5131,7 +5663,7 @@ class AggregateCursor : public Cursor {
           value_it->ValueMap().emplace(key.ValueString(), std::move(input_value));
           break;
       }  // end switch over Aggregation::Op enum
-    }  // end loop over all aggregations
+    }    // end loop over all aggregations
   }
 
   /** Project a subgraph from lists of nodes and lists of edges. Any nulls in these lists are ignored.
@@ -5167,7 +5699,8 @@ class AggregateCursor : public Cursor {
         return;
       default:
         throw QueryRuntimeException(
-            "Only boolean, numeric, string, and non-duration temporal values are allowed in MIN and MAX aggregations.");
+            "Only boolean, numeric, string, and non-duration temporal values are allowed in MIN and MAX "
+            "aggregations.");
     }
   }
 
@@ -5413,8 +5946,9 @@ class OrderByCursor : public Cursor {
       // sorting with range zip
       // we compare on just the projection of the 1st range (order_by)
       // this will also permute the 2nd range (output)
-      ranges::sort(rv::zip(order_by, output), self_.compare_.lex_cmp(),
-                   [](auto const &value) -> auto const & { return std::get<0>(value); });
+      ranges::sort(
+          rv::zip(order_by, output), self_.compare_.lex_cmp(),
+          [](auto const &value) -> auto const & { return std::get<0>(value); });
 
       // no longer need the order_by terms
       order_by.clear();

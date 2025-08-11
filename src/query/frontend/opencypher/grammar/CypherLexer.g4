@@ -107,6 +107,7 @@ INSTANCE       : I N S T A N C E ;
 IS             : I S ;
 KB             : K B ;
 KEY            : K E Y ;
+KSHORTEST      : K S H O R T E S T ;
 L_SKIP         : S K I P ;
 LIMIT          : L I M I T ;
 MATCH          : M A T C H ;
