@@ -23,7 +23,7 @@
 #include "utils/timer.hpp"
 
 struct EchoMessage {
-  static const memgraph::utils::TypeInfo kType;
+  static constexpr memgraph::utils::TypeInfo kType{.id = memgraph::utils::TypeId::UNKNOWN, .name = "EchoMessage"};
 
   EchoMessage() = default;  // Needed for serialization.
   explicit EchoMessage(std::string data) : data(std::move(data)) {}
@@ -41,8 +41,6 @@ void Load(EchoMessage *echo, Reader *reader) { Load(&echo->data, reader); }
 
 void EchoMessage::Load(EchoMessage *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
 void EchoMessage::Save(const EchoMessage &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
-
-const memgraph::utils::TypeInfo EchoMessage::kType{memgraph::utils::TypeId::UNKNOWN, "EchoMessage"};
 
 using Echo = memgraph::rpc::RequestResponse<EchoMessage, EchoMessage>;
 
