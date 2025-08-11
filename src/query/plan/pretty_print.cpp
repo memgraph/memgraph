@@ -359,6 +359,8 @@ std::string ToString(EdgeAtom::Type type) {
       return "wsp";
     case EdgeAtom::Type::ALL_SHORTEST_PATHS:
       return "asp";
+    case EdgeAtom::Type::KSHORTEST:
+      return "shortest_first";
     case EdgeAtom::Type::SINGLE:
       return "single";
   }
@@ -759,6 +761,9 @@ bool PlanToJsonVisitor::PreVisit(ExpandVariable &op) {
   self["is_reverse"] = op.is_reverse_;
   self["lower_bound"] = op.lower_bound_ ? ToJson(op.lower_bound_, *dba_) : json();
   self["upper_bound"] = op.upper_bound_ ? ToJson(op.upper_bound_, *dba_) : json();
+  if (op.type_ == EdgeAtom::Type::KSHORTEST) {
+    self["limit"] = op.limit_ ? ToJson(op.limit_, *dba_) : json();
+  }
   self["existing_node"] = op.common_.existing_node;
 
   self["filter_lambda"] = op.filter_lambda_.expression ? ToJson(op.filter_lambda_.expression, *dba_) : json();

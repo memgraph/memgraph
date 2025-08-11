@@ -312,7 +312,7 @@ TEST_F(QueryCostEstimator, Expand) {
 TEST_F(QueryCostEstimator, ExpandVariable) {
   MakeOp<ExpandVariable>(last_op_, NextSymbol(), NextSymbol(), NextSymbol(), EdgeAtom::Type::DEPTH_FIRST,
                          EdgeAtom::Direction::IN, std::vector<ms::EdgeTypeId>{}, false, nullptr, nullptr, false,
-                         ExpansionLambda{NextSymbol(), NextSymbol(), nullptr}, std::nullopt, std::nullopt);
+                         ExpansionLambda{NextSymbol(), NextSymbol(), nullptr}, std::nullopt, std::nullopt, nullptr);
   EXPECT_COST(CardParam::kExpandVariable * CostParam::kExpandVariable);
 }
 
