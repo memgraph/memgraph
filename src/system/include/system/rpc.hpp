@@ -25,14 +25,10 @@ struct FinalizeSystemTxReq {
   static void Load(FinalizeSystemTxReq *self, memgraph::slk::Reader *reader);
   static void Save(const FinalizeSystemTxReq &self, memgraph::slk::Builder *builder);
   FinalizeSystemTxReq() = default;
-  FinalizeSystemTxReq(const utils::UUID &main_uuid, std::string epoch_id, uint64_t expected_ts, uint64_t new_ts)
-      : main_uuid(main_uuid),
-        epoch_id{std::move(epoch_id)},
-        expected_group_timestamp{expected_ts},
-        new_group_timestamp{new_ts} {}
+  FinalizeSystemTxReq(const utils::UUID &main_uuid, uint64_t expected_ts, uint64_t new_ts)
+      : main_uuid(main_uuid), expected_group_timestamp{expected_ts}, new_group_timestamp{new_ts} {}
 
   utils::UUID main_uuid;
-  std::string epoch_id;
   uint64_t expected_group_timestamp;
   uint64_t new_group_timestamp;
 };
