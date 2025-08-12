@@ -24,6 +24,7 @@
 
 struct EchoMessage {
   static constexpr memgraph::utils::TypeInfo kType{.id = memgraph::utils::TypeId::UNKNOWN, .name = "EchoMessage"};
+  static constexpr uint64_t kVersion{1};
 
   EchoMessage() = default;  // Needed for serialization.
   explicit EchoMessage(std::string data) : data(std::move(data)) {}
