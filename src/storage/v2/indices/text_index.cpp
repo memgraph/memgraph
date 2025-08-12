@@ -69,23 +69,6 @@ std::vector<TextIndexData *> TextIndex::GetApplicableTextIndices(std::span<stora
   return applicable_text_indices;
 }
 
-std::map<PropertyId, PropertyValue> TextIndex::ExtractVertexProperties(const PropertyStore &property_store,
-                                                                       std::span<PropertyId const> properties) {
-  if (properties.empty()) {
-    return property_store.Properties();
-  }
-
-  auto property_paths = properties |
-                        rv::transform([](PropertyId property) { return storage::PropertyPath{property}; }) |
-                        r::to<std::vector<storage::PropertyPath>>();
-  auto property_values = property_store.ExtractPropertyValuesMissingAsNull(property_paths);
-
-  return rv::zip(properties, property_values) | rv::transform([](const auto &property_id_value_pair) {
-           return std::make_pair(property_id_value_pair.first, property_id_value_pair.second);
-         }) |
-         r::to<std::map<PropertyId, PropertyValue>>();
-}
-
 void TextIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx) {
   auto applicable_text_indices = GetApplicableTextIndices(std::array{label}, vertex->properties.ExtractPropertyIds());
   if (applicable_text_indices.empty()) return;
@@ -293,7 +276,7 @@ void TextIndex::ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mappe
       for (const auto *vertex : pending.to_add_) {
         auto vertex_properties = index_data_ptr->properties_.empty()
                                      ? vertex->properties.Properties()
-                                     : ExtractVertexProperties(vertex->properties, index_data_ptr->properties_);
+                                     : ExtractProperties(vertex->properties, index_data_ptr->properties_);
         AddEntryToTextIndex(vertex->gid.AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
                             StringifyProperties(vertex_properties), index_data_ptr->context_);
       }

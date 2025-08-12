@@ -45,9 +45,6 @@ class TextEdgeIndex {
   std::vector<TextEdgeIndexData *> GetApplicableTextIndices(EdgeTypeId edge_type,
                                                             std::span<PropertyId const> properties);
 
-  static std::map<PropertyId, PropertyValue> ExtractEdgeProperties(const PropertyStore &property_store,
-                                                                   std::span<PropertyId const> properties);
-
   mgcxx::text_search::SearchOutput SearchGivenProperties(const std::string &index_name,
                                                          const std::string &search_query);
 
@@ -68,11 +65,11 @@ class TextEdgeIndex {
 
   std::map<std::string, TextEdgeIndexData> index_;
 
-  void UpdateOnEdgeCreation(EdgeRef edge_ref, EdgeTypeId edge_type, Transaction &tx);
+  void UpdateOnEdgeCreation(Edge *edge, EdgeTypeId edge_type, Transaction &tx);
 
-  void RemoveEdge(EdgeRef edge_ref, EdgeTypeId edge_type, Transaction &tx);
+  void RemoveEdge(Edge *edge, EdgeTypeId edge_type, Transaction &tx);
 
-  void UpdateOnSetProperty(EdgeRef edge_ref, EdgeTypeId edge_type, Transaction &tx);
+  void UpdateOnSetProperty(Edge *edge, EdgeTypeId edge_type, Transaction &tx);
 
   void CreateIndex(const TextEdgeIndexSpec &index_info, VerticesIterable vertices, NameIdMapper *name_id_mapper);
 

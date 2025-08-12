@@ -19,6 +19,7 @@
 #include "absl/container/flat_hash_set.h"
 #include "nlohmann/json_fwd.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "text_search.hpp"
 
@@ -53,6 +54,9 @@ std::string StringifyProperties(const std::map<PropertyId, PropertyValue> &prope
 // Add a node or edge to the text index
 void AddEntryToTextIndex(std::int64_t gid, const nlohmann::json &properties, const std::string &property_values_as_str,
                          mgcxx::text_search::Context &context);
+
+std::map<PropertyId, PropertyValue> ExtractProperties(const PropertyStore &property_store,
+                                                      std::span<PropertyId const> properties);
 
 // Text index change tracking
 enum class TextIndexOp { ADD, UPDATE, REMOVE };

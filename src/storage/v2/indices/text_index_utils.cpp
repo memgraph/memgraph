@@ -13,6 +13,7 @@
 
 #include <nlohmann/json.hpp>
 #include "query/exceptions.hpp"
+#include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
@@ -20,7 +21,7 @@
 #include "utils/string.hpp"
 
 namespace r = ranges;
-
+namespace rv = r::views;
 namespace memgraph::storage {
 
 std::string ToLowerCasePreservingBooleanOperators(std::string_view input) {
@@ -136,6 +137,22 @@ void AddEntryToTextIndex(std::int64_t gid, const nlohmann::json &properties, con
   } catch (const std::exception &e) {
     throw query::TextSearchException("Tantivy error: {}", e.what());
   }
+}
+
+std::map<PropertyId, PropertyValue> ExtractProperties(const PropertyStore &property_store,
+                                                      std::span<PropertyId const> properties) {
+  if (properties.empty()) {
+    return property_store.Properties();
+  }
+
+  auto property_paths = properties | rv::transform([](PropertyId property) { return PropertyPath{property}; }) |
+                        r::to<std::vector<PropertyPath>>();
+  auto property_values = property_store.ExtractPropertyValuesMissingAsNull(property_paths);
+
+  return rv::zip(properties, property_values) | rv::transform([](const auto &property_id_value_pair) {
+           return std::make_pair(property_id_value_pair.first, property_id_value_pair.second);
+         }) |
+         r::to<std::map<PropertyId, PropertyValue>>();
 }
 
 void TrackTextIndexChange(TextIndexChangeCollector &collector, std::span<TextIndexData *> indices, Vertex *vertex,

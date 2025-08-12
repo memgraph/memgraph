@@ -45,9 +45,6 @@ class TextIndex {
   std::vector<TextIndexData *> GetApplicableTextIndices(std::span<storage::LabelId const> labels,
                                                         std::span<PropertyId const> properties);
 
-  static std::map<PropertyId, PropertyValue> ExtractVertexProperties(const PropertyStore &property_store,
-                                                                     std::span<PropertyId const> properties);
-
   mgcxx::text_search::SearchOutput SearchGivenProperties(const std::string &index_name,
                                                          const std::string &search_query);
 

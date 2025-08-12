@@ -15,10 +15,8 @@
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
-#include "storage/v2/property_value.hpp"
 
 namespace r = ranges;
-namespace rv = r::views;
 namespace memgraph::storage {
 
 void TextEdgeIndex::CreateTantivyIndex(const std::string &index_path, const TextEdgeIndexSpec &index_info) {
@@ -65,41 +63,22 @@ std::vector<TextEdgeIndexData *> TextEdgeIndex::GetApplicableTextIndices(EdgeTyp
   return applicable_text_indices;
 }
 
-std::map<PropertyId, PropertyValue> TextEdgeIndex::ExtractEdgeProperties(const PropertyStore &property_store,
-                                                                         std::span<PropertyId const> properties) {
-  if (properties.empty()) {
-    return property_store.Properties();
-  }
-
-  auto property_paths = properties |
-                        rv::transform([](PropertyId property) { return storage::PropertyPath{property}; }) |
-                        r::to<std::vector<storage::PropertyPath>>();
-  auto property_values = property_store.ExtractPropertyValuesMissingAsNull(property_paths);
-  return rv::zip(properties, property_values) | rv::transform([](const auto &property_id_value_pair) {
-           return std::make_pair(property_id_value_pair.first, property_id_value_pair.second);
-         }) |
-         r::to<std::map<PropertyId, PropertyValue>>();
+void TextEdgeIndex::UpdateOnEdgeCreation(Edge *edge, EdgeTypeId edge_type, Transaction &tx) {
+  auto applicable_text_indices = GetApplicableTextIndices(edge_type, edge->properties.ExtractPropertyIds());
+  if (applicable_text_indices.empty()) return;
+  TrackTextEdgeIndexChange(tx.text_edge_index_change_collector_, applicable_text_indices, edge, TextIndexOp::ADD);
 }
 
-void TextEdgeIndex::UpdateOnEdgeCreation(EdgeRef edge_ref, EdgeTypeId edge_type, Transaction &tx) {
-  auto applicable_text_indices = GetApplicableTextIndices(edge_type, edge_ref.ptr->properties.ExtractPropertyIds());
+void TextEdgeIndex::RemoveEdge(Edge *edge, EdgeTypeId edge_type, Transaction &tx) {
+  auto applicable_text_indices = GetApplicableTextIndices(edge_type, edge->properties.ExtractPropertyIds());
   if (applicable_text_indices.empty()) return;
-  TrackTextEdgeIndexChange(tx.text_edge_index_change_collector_, applicable_text_indices, edge_ref.ptr,
-                           TextIndexOp::ADD);
+  TrackTextEdgeIndexChange(tx.text_edge_index_change_collector_, applicable_text_indices, edge, TextIndexOp::REMOVE);
 }
 
-void TextEdgeIndex::RemoveEdge(EdgeRef edge_ref, EdgeTypeId edge_type, Transaction &tx) {
-  auto applicable_text_indices = GetApplicableTextIndices(edge_type, edge_ref.ptr->properties.ExtractPropertyIds());
+void TextEdgeIndex::UpdateOnSetProperty(Edge *edge, EdgeTypeId edge_type, Transaction &tx) {
+  auto applicable_text_indices = GetApplicableTextIndices(edge_type, edge->properties.ExtractPropertyIds());
   if (applicable_text_indices.empty()) return;
-  TrackTextEdgeIndexChange(tx.text_edge_index_change_collector_, applicable_text_indices, edge_ref.ptr,
-                           TextIndexOp::REMOVE);
-}
-
-void TextEdgeIndex::UpdateOnSetProperty(EdgeRef edge_ref, EdgeTypeId edge_type, Transaction &tx) {
-  auto applicable_text_indices = GetApplicableTextIndices(edge_type, edge_ref.ptr->properties.ExtractPropertyIds());
-  if (applicable_text_indices.empty()) return;
-  TrackTextEdgeIndexChange(tx.text_edge_index_change_collector_, applicable_text_indices, edge_ref.ptr,
-                           TextIndexOp::UPDATE);
+  TrackTextEdgeIndexChange(tx.text_edge_index_change_collector_, applicable_text_indices, edge, TextIndexOp::UPDATE);
 }
 
 void TextEdgeIndex::CreateIndex(const TextEdgeIndexSpec &index_info, VerticesIterable vertices,
@@ -273,7 +252,7 @@ void TextEdgeIndex::ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_m
       for (const auto *vertex : pending.to_add_) {
         auto vertex_properties = index_data_ptr->properties_.empty()
                                      ? vertex->properties.Properties()
-                                     : ExtractEdgeProperties(vertex->properties, index_data_ptr->properties_);
+                                     : ExtractProperties(vertex->properties, index_data_ptr->properties_);
         AddEntryToTextIndex(vertex->gid.AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
                             StringifyProperties(vertex_properties), index_data_ptr->context_);
       }

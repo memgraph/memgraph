@@ -382,6 +382,9 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
     for (auto *node : nodes_to_delete) {
       storage_->indices_.text_index_.RemoveNode(node, transaction_);
     }
+    for (auto *edge : edges) {
+      storage_->indices_.text_edge_index_.RemoveEdge(edge->edge_.ptr, edge->edge_type_, transaction_);
+    }
   }
 
   auto deleted_vertices = maybe_deleted_vertices.GetValue();
