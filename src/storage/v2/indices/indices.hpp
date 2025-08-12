@@ -77,14 +77,13 @@ struct Indices {
 
   /// This function should be called whenever a label is added to a vertex.
   /// @throw std::bad_alloc
-  void UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx, NameIdMapper *name_id_mapper) const;
+  void UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx) const;
 
   void UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx) const;
 
   /// This function should be called whenever a property is modified on a vertex.
   /// @throw std::bad_alloc
-  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, Transaction &tx,
-                           NameIdMapper *name_id_mapper) const;
+  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, Transaction &tx) const;
 
   /// This function should be called whenever a property is modified on an edge.
   /// @throw std::bad_alloc

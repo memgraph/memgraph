@@ -341,3 +341,67 @@ Feature: Text search related features
             RETURN node
             """
         Then the result should be empty
+
+    Scenario: Delete property from indexed node
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX testIndex ON :TestLabel
+            """
+        And having executed
+            """
+            CREATE (:TestLabel {title: 'Test Title', content: 'Test content'})
+            """
+        When executing query:
+            """
+            CALL text_search.search('testIndex', 'data.title:Test') YIELD node
+            RETURN count(node) AS count
+            """
+        Then the result should be:
+            | count |
+            | 1     |
+
+        And having executed
+            """
+            MATCH (n:TestLabel {title: 'Test Title'}) SET n.title = null
+            """
+        When executing query:
+            """
+            CALL text_search.search('testIndex', 'data.title:Test') YIELD node
+            RETURN count(node) AS count
+            """
+        Then the result should be:
+            | count |
+            | 0     |
+
+        When executing query:
+            """
+            CALL text_search.search('testIndex', 'data.content:Test') YIELD node
+            RETURN count(node) AS count
+            """
+        Then the result should be:
+            | count |
+            | 1     |
+
+    Scenario: Create index on existing nodes
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Article {title: 'Database Systems', content: 'Introduction to graph databases and their applications'})
+            CREATE (:Article {title: 'Query Languages', content: 'Cypher query language for graph database operations'})
+            """
+
+        And having executed
+            """
+            CREATE TEXT INDEX article_index ON :Article
+            """
+
+        When executing query:
+            """
+            CALL text_search.search('article_index', 'data.content:graph') YIELD node
+            RETURN node.title AS title ORDER BY title
+            """
+        Then the result should be:
+            | title              |
+            | 'Database Systems' |
+            | 'Query Languages'  |

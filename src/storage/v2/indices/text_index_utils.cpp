@@ -9,15 +9,13 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/indices/text_index_utils.hpp"
-
-#include <cctype>
 #include <filesystem>
-#include <map>
 
 #include <nlohmann/json.hpp>
+#include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/vertex.hpp"
 #include "utils/string.hpp"
 
 namespace r = ranges;
@@ -118,6 +116,25 @@ std::string StringifyProperties(const std::map<PropertyId, PropertyValue> &prope
     }
   }
   return utils::Join(indexable_properties_as_string, " ");
+}
+
+void TrackTextIndexChange(TextIndexChangeCollector &collector, std::span<TextIndexData *> indices, Vertex *vertex,
+                          TextIndexOp op) {
+  if (!vertex) return;
+  for (auto *idx : indices) {
+    auto &entry = collector[idx];
+    if (op == TextIndexOp::ADD) {
+      entry.to_remove_.erase(vertex);
+      entry.to_add_.insert(vertex);
+    } else if (op == TextIndexOp::UPDATE) {
+      // On update we have to firstly remove the vertex from index and then add it back
+      entry.to_remove_.insert(vertex);
+      entry.to_add_.insert(vertex);
+    } else {  // REMOVE
+      entry.to_add_.erase(vertex);
+      entry.to_remove_.insert(vertex);
+    }
+  }
 }
 
 }  // namespace memgraph::storage
