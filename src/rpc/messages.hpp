@@ -15,7 +15,6 @@
 #include <memory>
 #include <type_traits>
 
-#include "messages.hpp"
 #include "storage/v2/property_constants.hpp"
 #include "storage/v2/replication/serialization.hpp"
 #include "utils/typeinfo.hpp"
@@ -24,14 +23,14 @@ namespace memgraph::storage::replication {
 struct FinalizeCommitRes;
 }  // namespace memgraph::storage::replication
 
-namespace memgraph::rpc {
-
-using MessageSize = uint32_t;
-
 namespace memgraph::slk {
 class Reader;
 class Builder;
 }  // namespace memgraph::slk
+
+namespace memgraph::rpc {
+
+using MessageSize = uint32_t;
 
 template <typename T>
 concept RpcMessage = requires {
