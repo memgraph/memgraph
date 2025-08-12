@@ -114,7 +114,9 @@ Storage::Accessor::Accessor(SharedAccess /* tag */, Storage *storage, IsolationL
       unique_guard_(storage_->main_lock_, std::defer_lock),
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),
-      creation_storage_mode_(storage_mode) {}
+      creation_storage_mode_(storage_mode) {
+  storage_->transaction_dependencies_.RegisterTransaction(transaction_.transaction_id);
+}
 
 Storage::Accessor::Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
                             StorageMode storage_mode, const std::optional<std::chrono::milliseconds> timeout)
@@ -126,7 +128,9 @@ Storage::Accessor::Accessor(UniqueAccess /* tag */, Storage *storage, IsolationL
       unique_guard_(CreateUniqueGuard(storage, timeout)),
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),
-      creation_storage_mode_(storage_mode) {}
+      creation_storage_mode_(storage_mode) {
+  storage_->transaction_dependencies_.RegisterTransaction(transaction_.transaction_id);
+}
 
 Storage::Accessor::Accessor(ReadOnlyAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
                             StorageMode storage_mode, const std::optional<std::chrono::milliseconds> timeout)
@@ -138,7 +142,9 @@ Storage::Accessor::Accessor(ReadOnlyAccess /* tag */, Storage *storage, Isolatio
       unique_guard_(storage_->main_lock_, std::defer_lock),
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),
-      creation_storage_mode_(storage_mode) {}
+      creation_storage_mode_(storage_mode) {
+  storage_->transaction_dependencies_.RegisterTransaction(transaction_.transaction_id);
+}
 
 Storage::Accessor::Accessor(Accessor &&other) noexcept
     : storage_(other.storage_),
@@ -148,9 +154,15 @@ Storage::Accessor::Accessor(Accessor &&other) noexcept
       commit_timestamp_(other.commit_timestamp_),
       is_transaction_active_(other.is_transaction_active_),
       creation_storage_mode_(other.creation_storage_mode_) {
+  storage_->transaction_dependencies_.RegisterTransaction(transaction_.transaction_id);
+
   // Don't allow the other accessor to abort our transaction in destructor.
   other.is_transaction_active_ = false;
   other.commit_timestamp_.reset();
+}
+
+Storage::Accessor::~Accessor() {
+  storage_->transaction_dependencies_.UnregisterTransaction(transaction_.transaction_id);
 }
 
 StorageMode Storage::GetStorageMode() const noexcept { return storage_mode_; }
@@ -402,7 +414,8 @@ Result<std::optional<std::unordered_set<Vertex *>>> Storage::Accessor::PrepareDe
     {
       auto vertex_lock = std::unique_lock{vertex_ptr->lock};
 
-      if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
+      if (!PrepareForWriteWithRetry(&transaction_, vertex_ptr, storage_->transaction_dependencies_))
+        return Error::SERIALIZATION_ERROR;
 
       if (vertex_ptr->deleted) {
         continue;
@@ -499,10 +512,12 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
         auto edge_ptr = edge_ref.ptr;
         guard = std::unique_lock{edge_ptr->lock};
 
-        if (!PrepareForWrite(&transaction_, edge_ptr)) return Error::SERIALIZATION_ERROR;
+        if (!PrepareForWriteWithRetry(&transaction_, edge_ptr, storage_->transaction_dependencies_))
+          return Error::SERIALIZATION_ERROR;
       }
 
-      if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
+      if (!PrepareForWriteWithRetry(&transaction_, vertex_ptr, storage_->transaction_dependencies_))
+        return Error::SERIALIZATION_ERROR;
       MG_ASSERT(!vertex_ptr->deleted, "Invalid database state!");
 
       // MarkEdgeAsDeleted allocates additional memory
@@ -570,7 +585,8 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
                                             auto reverse_vertex_order) -> Result<std::optional<ReturnType>> {
     auto vertex_lock = std::unique_lock{vertex_ptr->lock};
 
-    if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
+    if (!PrepareForWriteWithRetry(&transaction_, vertex_ptr, storage_->transaction_dependencies_))
+      return Error::SERIALIZATION_ERROR;
     MG_ASSERT(!vertex_ptr->deleted, "Invalid database state!");
 
     auto mid = std::partition(
@@ -650,7 +666,8 @@ Result<std::vector<VertexAccessor>> Storage::Accessor::TryDeleteVertices(
   for (auto *vertex_ptr : vertices) {
     auto vertex_lock = std::unique_lock{vertex_ptr->lock};
 
-    if (!PrepareForWrite(&transaction_, vertex_ptr)) return Error::SERIALIZATION_ERROR;
+    if (!PrepareForWriteWithRetry(&transaction_, vertex_ptr, storage_->transaction_dependencies_))
+      return Error::SERIALIZATION_ERROR;
 
     MG_ASSERT(!vertex_ptr->deleted, "Invalid database state!");
 
