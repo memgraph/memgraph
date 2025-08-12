@@ -301,7 +301,7 @@ cd ..
 
 # abseil 20250512.1
 absl_ref="20250512.1"
-repo_clone_try_double "${primary_urls[absl]}" "${secondary_urls[absl]}" "absl" "$absl_ref"
+repo_clone_try_double "${primary_urls[absl]}" "${secondary_urls[absl]}" "absl" "$absl_ref" true
 
 # if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
 # jemalloc ea6b3e973b477b8061e0076bb257dbd7f3faa756
