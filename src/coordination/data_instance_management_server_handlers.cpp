@@ -76,7 +76,7 @@ void DataInstanceManagementServerHandlers::StateCheckHandler(const replication::
                                                              uint64_t const request_version, slk::Reader *req_reader,
                                                              slk::Builder *res_builder) {
   coordination::StateCheckReq req;
-  slk::Load(&req, req_reader);
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
 
   const auto locked_repl_state = replication_handler.GetReplState();
 
@@ -184,7 +184,7 @@ void DataInstanceManagementServerHandlers::SwapMainUUIDHandler(replication::Repl
                                                                uint64_t const request_version, slk::Reader *req_reader,
                                                                slk::Builder *res_builder) {
   replication_coordination_glue::SwapMainUUIDReq req;
-  slk::Load(&req, req_reader);
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
 
   auto locked_repl_state = replication_handler.GetReplState();
 
@@ -209,7 +209,7 @@ void DataInstanceManagementServerHandlers::DemoteMainToReplicaHandler(
     replication::ReplicationHandler &replication_handler, uint64_t const request_version, slk::Reader *req_reader,
     slk::Builder *res_builder) {
   coordination::DemoteMainToReplicaReq req;
-  slk::Load(&req, req_reader);
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
 
   // Use localhost as ip for creating ReplicationServer
   const replication::ReplicationServerConfig clients_config{
@@ -231,7 +231,7 @@ void DataInstanceManagementServerHandlers::PromoteToMainHandler(replication::Rep
                                                                 uint64_t const request_version, slk::Reader *req_reader,
                                                                 slk::Builder *res_builder) {
   coordination::PromoteToMainReq req;
-  slk::Load(&req, req_reader);
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
 
   // Main promotion, replica registration and main write enabling should all be performed
   // under the same lock. Currently, we take and release lock for all operations.
@@ -278,7 +278,7 @@ void DataInstanceManagementServerHandlers::RegisterReplicaOnMainHandler(
   }
 
   coordination::RegisterReplicaOnMainReq req;
-  slk::Load(&req, req_reader);
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
 
   // This can fail because of disk. If it does, the cluster state could get inconsistent.
   // We don't handle disk issues.
@@ -307,7 +307,7 @@ void DataInstanceManagementServerHandlers::UnregisterReplicaHandler(
     replication::ReplicationHandler &replication_handler, uint64_t const request_version, slk::Reader *req_reader,
     slk::Builder *res_builder) {
   coordination::UnregisterReplicaReq req;
-  slk::Load(&req, req_reader);
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
 
   switch (replication_handler.UnregisterReplica(req.instance_name)) {
     using enum query::UnregisterReplicaResult;
@@ -345,8 +345,8 @@ void DataInstanceManagementServerHandlers::UnregisterReplicaHandler(
 }
 
 void DataInstanceManagementServerHandlers::EnableWritingOnMainHandler(
-    replication::ReplicationHandler &replication_handler, uint64_t const request_version, slk::Reader * /*req_reader*/,
-    slk::Builder *res_builder) {
+    replication::ReplicationHandler &replication_handler, uint64_t const /*request_version*/,
+    slk::Reader * /*req_reader*/, slk::Builder *res_builder) {
   auto locked_repl_state = replication_handler.GetReplState();
 
   if (!locked_repl_state->IsMain()) {
