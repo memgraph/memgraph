@@ -135,6 +135,7 @@ target_link_libraries(mg-storage-v2
     usearch
     strong_type::strong_type
     rangev3
+    atomic
 )
 
 add_subdirectory(fuzz EXCLUDE_FROM_ALL)
