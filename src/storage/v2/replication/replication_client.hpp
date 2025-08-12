@@ -16,10 +16,6 @@
 #include "replication_coordination_glue/messages.hpp"
 #include "rpc/client.hpp"
 #include "storage/v2/database_access.hpp"
-#include "storage/v2/durability/storage_global_operation.hpp"
-#include "storage/v2/id_types.hpp"
-#include "storage/v2/indices/label_index_stats.hpp"
-#include "storage/v2/indices/label_property_index_stats.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/global.hpp"
 #include "storage/v2/replication/rpc.hpp"
@@ -29,7 +25,6 @@
 
 #include <concepts>
 #include <optional>
-#include <set>
 #include <string>
 
 namespace memgraph::storage {
@@ -39,6 +34,11 @@ struct Vertex;
 struct Edge;
 class Storage;
 class ReplicationStorageClient;
+
+struct alignas(16) CommitTsInfo {
+  uint64_t last_known_ts_{0};
+  uint64_t num_committed_txns_{0};
+};
 
 // Handler used for transferring the current transaction.
 // You need to acquire the RPC lock before creating ReplicaStream object
@@ -59,15 +59,6 @@ class ReplicaStream {
 
   /// @throw rpc::RpcFailedException
   void AppendTransactionEnd(uint64_t final_commit_timestamp);
-
-  /// @throw rpc::RpcFailedException
-  void AppendOperation(durability::StorageMetadataOperation operation, LabelId label,
-                       const std::set<PropertyId> &properties, const LabelIndexStats &stats,
-                       const LabelPropertyIndexStats &property_stats, uint64_t timestamp);
-
-  /// @throw rpc::RpcFailedException
-  void AppendOperation(durability::StorageMetadataOperation operation, EdgeTypeId edge_type,
-                       const std::set<PropertyId> &properties, uint64_t timestamp);
 
   /// @throw rpc::RpcFailedException
   replication::PrepareCommitRes Finalize();
@@ -210,7 +201,7 @@ class ReplicationStorageClient {
    * @param main_storage pointer to the storage associated with the client
    * @param db_acc gatekeeper access that protects the database; std::any to have separation between dbms and storage
    */
-  void ForceRecoverReplica(Storage *storage, DatabaseAccessProtector db_acc) const;
+  void ForceRecoverReplica(Storage *main_storage, DatabaseAccessProtector db_acc) const;
 
   auto GetNumCommittedTxns() const -> uint64_t;
 
@@ -247,11 +238,9 @@ class ReplicationStorageClient {
   void TryCheckReplicaStateSync(Storage *main_storage, DatabaseAccessProtector db_acc);
 
   ::memgraph::replication::ReplicationClient &client_;
-  mutable std::atomic<uint64_t> last_known_ts_{0};
   mutable utils::Synchronized<replication::ReplicaState, utils::SpinLock> replica_state_{
       replication::ReplicaState::MAYBE_BEHIND};
-  // Number of committed txns on replica. We cache the value on the MAIN side to avoid sending RPC when retrieving info
-  mutable std::atomic<uint64_t> num_committed_txns_{0};
+  mutable std::atomic<CommitTsInfo> commit_ts_info_;
   const utils::UUID main_uuid_;
 };
 

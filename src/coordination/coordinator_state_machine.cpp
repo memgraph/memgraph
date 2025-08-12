@@ -17,7 +17,7 @@
 #include "coordination/coordinator_cluster_state.hpp"
 #include "coordination/coordinator_exceptions.hpp"
 #include "coordination/coordinator_state_manager.hpp"
-#include "utils/atomic_max.hpp"
+#include "utils/atomic_utils.hpp"
 #include "utils/logging.hpp"
 
 #include <regex>

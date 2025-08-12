@@ -50,7 +50,7 @@
 #include "storage/v2/storage.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
-#include "utils/atomic_max.hpp"
+#include "utils/atomic_utils.hpp"
 #include "utils/file.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/logging.hpp"
