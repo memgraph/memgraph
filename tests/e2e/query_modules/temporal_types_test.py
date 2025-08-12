@@ -9,6 +9,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import datetime
 import sys
 
 import pytest
@@ -51,21 +52,19 @@ def test_pymodule_taking_zoneddatetime_with_negative_offset():
     assert result == "2024-04-21 14:15:16-05:00"
 
 
-# TODO(zoneddatetime) Add tests using `temporal.zdt` to ensure we can retrieve
-# ZonedDateTimes. Also add tests to ensure that `datetime`s without a timezone
-# are treated as `LocalDateTime`s.
-
-
+# TODO(zoneddatetime) Test with named timezone as well, such as America/New_York
 def test_retrieve_zoneddatetime():
     cursor = connect().cursor()
     result = execute_and_fetch_all(cursor, "RETURN temporal.make_zdt(2024, 1, 15, 10, 30, 45, 120)")
-    print(result)
+    assert result == [
+        (datetime.datetime(2024, 1, 15, 12, 30, 45, tzinfo=datetime.timezone(datetime.timedelta(seconds=7200))),)
+    ]
 
 
 def test_datetime_without_timezone():
     cursor = connect().cursor()
     result = execute_and_fetch_all(cursor, "RETURN temporal.make_dt(2024, 1, 15, 10, 30, 45)")
-    print(result)
+    assert result == [(datetime.datetime(2024, 1, 15, 10, 30, 45, tzinfo=None),)]
 
 
 if __name__ == "__main__":
