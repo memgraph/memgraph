@@ -24,6 +24,7 @@
 #include "query/plan/planner.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "typed_value.hpp"
 #include "utils/algorithm.hpp"
 
 #include "formatters.hpp"
@@ -335,6 +336,55 @@ TYPED_TEST(TestVariableStartPlanner, MatchBfs) {
   // We expect to get a single column with the following rows:
   TypedValue r1_list(std::vector<TypedValue>{TypedValue(r1)});  // [r1]
   CheckPlansProduce(3, query, this->storage, &dba, [&](const auto &results) { AssertRows(results, {{r1_list}}, dba); });
+}
+
+TYPED_TEST(TestVariableStartPlanner, MatchKShortest) {
+  auto storage_dba = this->db->Access();
+  memgraph::query::DbAccessor dba(storage_dba.get());
+  auto id = dba.NameToProperty("id");
+  // Graph
+  // (v1 {id:1}) -[:r1]-> (v2 {id: 2}) -[:r2]-> (v3 {id: 3})
+  //             ------------[:r3]------------>
+  auto v1 = dba.InsertVertex();
+  ASSERT_TRUE(v1.SetProperty(id, memgraph::storage::PropertyValue(1)).HasValue());
+  auto v2 = dba.InsertVertex();
+  ASSERT_TRUE(v2.SetProperty(id, memgraph::storage::PropertyValue(2)).HasValue());
+  auto v3 = dba.InsertVertex();
+  ASSERT_TRUE(v3.SetProperty(id, memgraph::storage::PropertyValue(3)).HasValue());
+  auto r1 = *dba.InsertEdge(&v1, &v2, dba.NameToEdgeType("r1"));
+  auto r2 = *dba.InsertEdge(&v2, &v3, dba.NameToEdgeType("r2"));
+  auto r3 = *dba.InsertEdge(&v1, &v3, dba.NameToEdgeType("r3"));
+  dba.AdvanceCommand();
+  // Test MATCH (n{id:1}), (m{id:3}) WITH n, m MATCH (n) -[r *kshortest..10]-> (m) RETURN r
+  auto *kshortest = this->storage.template Create<memgraph::query::EdgeAtom>(
+      IDENT("r"), EdgeAtom::Type::KSHORTEST, Direction::OUT, std::vector<memgraph::query::QueryEdgeType>{});
+  kshortest->upper_bound_ = LITERAL(10);
+  kshortest->filter_lambda_.inner_edge =
+      this->storage.template Create<memgraph::query::Identifier>("anon_inner_e", false);
+  kshortest->filter_lambda_.inner_node =
+      this->storage.template Create<memgraph::query::Identifier>("anon_inner_n", false);
+
+  auto node_n = NODE("n");
+  std::get<0>(node_n->properties_)[this->storage.GetPropertyIx("id")] = LITERAL(1);
+  auto node_m = NODE("m");
+  std::get<0>(node_m->properties_)[this->storage.GetPropertyIx("id")] = LITERAL(3);
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(node_n), PATTERN(node_m)), WITH("n", "m"),
+                                   MATCH(PATTERN(NODE("n"), kshortest, NODE("m"))), RETURN("r")));
+  // We expect to get a single column with the following rows:
+  const auto result = std::vector<TypedValue>{TypedValue{std::vector<TypedValue>{TypedValue(r3)}},
+                                              TypedValue{std::vector<TypedValue>{TypedValue(r1), TypedValue(r2)}}};
+  CheckPlansProduce(6, query, this->storage, &dba, [&](const auto &results) {
+    ASSERT_EQ(results.size(), 2);
+    ASSERT_EQ(results[0].size(), 1);
+    ASSERT_EQ(results[0][0].ValueList().size(), 1);
+    ASSERT_TRUE(TypedValue::BoolEqual()(results[0][0].ValueList()[0], result[0].ValueList()[0]));
+    ASSERT_EQ(results[1].size(), 1);
+    ASSERT_EQ(results[1][0].ValueList().size(), 2);
+    auto result_list = results[1][0].ValueList();
+    auto expected_result_list = result[1].ValueList();
+    ASSERT_TRUE(std::is_permutation(result_list.begin(), result_list.end(), expected_result_list.begin(),
+                                    expected_result_list.end(), TypedValue::BoolEqual()));
+  });
 }
 
 TYPED_TEST(TestVariableStartPlanner, TestBasicSubquery) {

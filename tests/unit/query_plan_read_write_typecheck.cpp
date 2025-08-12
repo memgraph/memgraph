@@ -143,7 +143,7 @@ TYPED_TEST(ReadWriteTypeCheckTest, ExpandVariable) {
       false, LITERAL(2), LITERAL(5), false,
       ExpansionLambda{this->GetSymbol("inner_node"), this->GetSymbol("inner_edge"),
                       PROPERTY_LOOKUP(this->dba, "inner_node", this->dba.NameToProperty("unblocked"))},
-      std::nullopt, std::nullopt);
+      std::nullopt, std::nullopt, nullptr);
 
   this->CheckPlanType(last_op.get(), RWType::R);
 }

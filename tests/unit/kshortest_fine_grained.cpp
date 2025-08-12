@@ -9,7 +9,7 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "bfs_common.hpp"
+#include "kshortest_common.hpp"
 
 #include <optional>
 #include <string>
@@ -29,7 +29,7 @@ using namespace memgraph::query::plan;
 template <typename StorageType>
 class VertexDb : public Database {
  public:
-  const std::string testSuite = "bfs_fine_grained";
+  const std::string testSuite = "kshortest_fine_grained";
 
   VertexDb() {
     config_ = disk_test_utils::GenerateOnDiskConfig(testSuite);
@@ -44,15 +44,16 @@ class VertexDb : public Database {
 
   std::unique_ptr<memgraph::storage::Storage::Accessor> Access() override { return db_->Access(); }
 
-  std::unique_ptr<LogicalOperator> MakeBfsOperator(Symbol source_sym, Symbol sink_sym, Symbol edge_sym,
-                                                   EdgeAtom::Direction direction,
-                                                   const std::vector<memgraph::storage::EdgeTypeId> &edge_types,
-                                                   const std::shared_ptr<LogicalOperator> &input, bool existing_node,
-                                                   Expression *lower_bound, Expression *upper_bound,
-                                                   const ExpansionLambda &filter_lambda) override {
-    return std::make_unique<ExpandVariable>(input, source_sym, sink_sym, edge_sym, EdgeAtom::Type::BREADTH_FIRST,
-                                            direction, edge_types, false, lower_bound, upper_bound, existing_node,
-                                            filter_lambda, std::nullopt, std::nullopt, nullptr);
+  std::unique_ptr<LogicalOperator> MakeKShortestOperator(Symbol source_sym, Symbol sink_sym, Symbol edge_sym,
+                                                         EdgeAtom::Direction direction,
+                                                         const std::vector<memgraph::storage::EdgeTypeId> &edge_types,
+                                                         const std::shared_ptr<LogicalOperator> &input,
+                                                         bool existing_node, memgraph::query::Expression *lower_bound,
+                                                         memgraph::query::Expression *upper_bound,
+                                                         memgraph::query::Expression *limit) override {
+    return std::make_unique<ExpandVariable>(
+        input, source_sym, sink_sym, edge_sym, EdgeAtom::Type::KSHORTEST, direction, edge_types, false, nullptr,
+        upper_bound, existing_node, memgraph::query::plan::ExpansionLambda{}, std::nullopt, std::nullopt, limit);
   }
 
   std::pair<std::vector<memgraph::query::VertexAccessor>, std::vector<memgraph::query::EdgeAccessor>> BuildGraph(
@@ -91,9 +92,9 @@ class VertexDb : public Database {
 };
 
 #ifdef MG_ENTERPRISE
-class FineGrainedBfsTestInMemory
+class FineGrainedKShortestTestInMemory
     : public ::testing::TestWithParam<
-          std::tuple<int, int, EdgeAtom::Direction, std::vector<std::string>, bool, FineGrainedTestType>> {
+          std::tuple<int, EdgeAtom::Direction, std::vector<std::string>, int, FineGrainedTestType>> {
  public:
   using StorageType = memgraph::storage::InMemoryStorage;
   static void SetUpTestCase() {
@@ -106,34 +107,33 @@ class FineGrainedBfsTestInMemory
   static std::unique_ptr<VertexDb<StorageType>> db_;
 };
 
-TEST_P(FineGrainedBfsTestInMemory, All) {
-  int lower_bound;
+TEST_P(FineGrainedKShortestTestInMemory, All) {
   int upper_bound;
   EdgeAtom::Direction direction;
   std::vector<std::string> edge_types;
-  bool known_sink;
+  int k;
   FineGrainedTestType fine_grained_test_type;
 
-  std::tie(lower_bound, upper_bound, direction, edge_types, known_sink, fine_grained_test_type) = GetParam();
+  std::tie(upper_bound, direction, edge_types, k, fine_grained_test_type) = GetParam();
 
-  this->db_->BfsTestWithFineGrainedFiltering(db_.get(), lower_bound, upper_bound, direction, edge_types, known_sink,
-                                             fine_grained_test_type);
+  this->db_->KShortestTestWithFineGrainedFiltering(db_.get(), upper_bound, direction, edge_types, k,
+                                                   fine_grained_test_type);
 }
 
-std::unique_ptr<VertexDb<FineGrainedBfsTestInMemory::StorageType>> FineGrainedBfsTestInMemory::db_{nullptr};
+std::unique_ptr<VertexDb<FineGrainedKShortestTestInMemory::StorageType>> FineGrainedKShortestTestInMemory::db_{nullptr};
 
 INSTANTIATE_TEST_SUITE_P(
-    FineGrained, FineGrainedBfsTestInMemory,
-    testing::Combine(testing::Values(3), testing::Values(-1),
+    FineGrained, FineGrainedKShortestTestInMemory,
+    testing::Combine(testing::Values(3),
                      testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN, EdgeAtom::Direction::BOTH),
-                     testing::Values(std::vector<std::string>{}), testing::Bool(),
+                     testing::Values(std::vector<std::string>{"a", "b"}), testing::Values(3),
                      testing::Values(FineGrainedTestType::ALL_GRANTED, FineGrainedTestType::ALL_DENIED,
                                      FineGrainedTestType::EDGE_TYPE_A_DENIED, FineGrainedTestType::EDGE_TYPE_B_DENIED,
                                      FineGrainedTestType::LABEL_0_DENIED, FineGrainedTestType::LABEL_3_DENIED)));
 
-class FineGrainedBfsTestOnDisk
+class FineGrainedKShortestTestOnDisk
     : public ::testing::TestWithParam<
-          std::tuple<int, int, EdgeAtom::Direction, std::vector<std::string>, bool, FineGrainedTestType>> {
+          std::tuple<int, EdgeAtom::Direction, std::vector<std::string>, int, FineGrainedTestType>> {
  public:
   using StorageType = memgraph::storage::DiskStorage;
   static void SetUpTestCase() {
@@ -146,27 +146,26 @@ class FineGrainedBfsTestOnDisk
   static std::unique_ptr<VertexDb<StorageType>> db_;
 };
 
-TEST_P(FineGrainedBfsTestOnDisk, All) {
-  int lower_bound;
+TEST_P(FineGrainedKShortestTestOnDisk, All) {
   int upper_bound;
   EdgeAtom::Direction direction;
   std::vector<std::string> edge_types;
-  bool known_sink;
+  int k;
   FineGrainedTestType fine_grained_test_type;
 
-  std::tie(lower_bound, upper_bound, direction, edge_types, known_sink, fine_grained_test_type) = GetParam();
+  std::tie(upper_bound, direction, edge_types, k, fine_grained_test_type) = GetParam();
 
-  this->db_->BfsTestWithFineGrainedFiltering(db_.get(), lower_bound, upper_bound, direction, edge_types, known_sink,
-                                             fine_grained_test_type);
+  this->db_->KShortestTestWithFineGrainedFiltering(db_.get(), upper_bound, direction, edge_types, k,
+                                                   fine_grained_test_type);
 }
 
-std::unique_ptr<VertexDb<FineGrainedBfsTestOnDisk::StorageType>> FineGrainedBfsTestOnDisk::db_{nullptr};
+std::unique_ptr<VertexDb<FineGrainedKShortestTestOnDisk::StorageType>> FineGrainedKShortestTestOnDisk::db_{nullptr};
 
 INSTANTIATE_TEST_SUITE_P(
-    FineGrained, FineGrainedBfsTestOnDisk,
-    testing::Combine(testing::Values(3), testing::Values(-1),
+    FineGrained, FineGrainedKShortestTestOnDisk,
+    testing::Combine(testing::Values(3),
                      testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN, EdgeAtom::Direction::BOTH),
-                     testing::Values(std::vector<std::string>{}), testing::Bool(),
+                     testing::Values(std::vector<std::string>{"a", "b"}), testing::Values(3),
                      testing::Values(FineGrainedTestType::ALL_GRANTED, FineGrainedTestType::ALL_DENIED,
                                      FineGrainedTestType::EDGE_TYPE_A_DENIED, FineGrainedTestType::EDGE_TYPE_B_DENIED,
                                      FineGrainedTestType::LABEL_0_DENIED, FineGrainedTestType::LABEL_3_DENIED)));
