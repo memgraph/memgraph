@@ -21,16 +21,12 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
 #include "text_search.hpp"
-#include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
 
 class NameIdMapper;
 struct Vertex;
 struct TextIndexData;
-
-// Convenient type alias for locked mgcxx::text_search::Context
-using LockedTextSearchContext = utils::Synchronized<mgcxx::text_search::Context, std::shared_mutex>::LockedPtr;
 
 inline constexpr std::string_view kTextIndicesDirectory = "text_indices";
 inline constexpr bool kDoSkipCommit = true;
