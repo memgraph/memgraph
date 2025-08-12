@@ -23,7 +23,6 @@
 
 #include <boost/preprocessor/cat.hpp>
 
-#include <support/Any.h>
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
@@ -41,7 +40,6 @@
 namespace memgraph::query::frontend {
 
 namespace r = ranges;
-namespace rv = r::views;
 // Need to use std::ranges::views transform because rv::transform does not
 // support rvalues as viewable ranges on the lhs of a pipe.
 namespace srv = std::ranges::views;
