@@ -1074,7 +1074,7 @@ void CoordinatorInstance::InstanceFailCallback(std::string_view instance_name,
     spdlog::trace("Cluster without main instance, trying failover.");
     switch (TryFailover()) {
       case FailoverStatus::SUCCESS: {
-        spdlog::trace("Failover successful after failing to promote main instance.");
+        spdlog::trace("Failover successful in the InstanceFailCallback");
         break;
       };
       case FailoverStatus::NO_INSTANCE_ALIVE: {
