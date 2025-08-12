@@ -284,7 +284,7 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
   auto const ldt = storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
 
   auto const last_epoch_with_commit = std::invoke([storage, ldt]() -> std::string {
-    if (auto &history = storage->repl_storage_state_.history; !history.empty()) {
+    if (auto const &history = storage->repl_storage_state_.history; !history.empty()) {
       auto [history_epoch, history_ldt] = history.back();
       return history_ldt != ldt ? std::string{storage->repl_storage_state_.epoch_.id()} : history_epoch;
     }
