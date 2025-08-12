@@ -303,7 +303,7 @@ void TextIndex::Clear() {
 void TextIndex::ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mapper) {
   for (const auto &[index_data_ptr, pending] : tx.text_index_change_collector_) {
     // Take exclusive lock to properly serialize all updates and hold it for the entire operation
-    std::lock_guard lock(index_data_ptr->write_mutex_);
+    const std::lock_guard lock(index_data_ptr->write_mutex_);
     try {
       for (const auto *vertex : pending.to_remove_) {
         auto search_node_to_be_deleted =
