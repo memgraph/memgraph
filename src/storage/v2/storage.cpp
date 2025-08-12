@@ -203,7 +203,7 @@ std::optional<uint64_t> Storage::Accessor::GetTransactionId() const {
   return {};
 }
 
-std::unique_ptr<utils::QueryMemoryTracker> &Storage::Accessor::GetQueryMemoryTracker() {
+utils::QueryMemoryTracker &Storage::Accessor::GetTransactionMemoryTracker() {
   return transaction_.query_memory_tracker_;
 }
 

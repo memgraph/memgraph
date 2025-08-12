@@ -104,6 +104,10 @@ void LocalHeap(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mg
 
   try {
     static std::vector<uint8_t> vec __attribute__((__used__));
+    memgraph::utils::OnScopeExit cleanup{[]() {
+      vec.clear();
+      vec.shrink_to_fit();
+    }};
     // Trying to always allocate new memory
     vec.resize(vec.size() + mb_size_268);
     for (int i = 0; i < vec.size(); i += 4096) {
