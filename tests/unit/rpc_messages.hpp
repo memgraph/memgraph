@@ -17,40 +17,52 @@
 #include "slk/serialization.hpp"
 #include "utils/typeinfo.hpp"
 
-struct SumReqV2 {
-  static constexpr memgraph::utils::TypeInfo kType{.id = memgraph::utils::TypeId::UNKNOWN, .name = "SumReq"};
-  static constexpr uint64_t kVersion{2};
-
-  SumReqV2() = default;  // Needed for serialization.
-  explicit SumReqV2(std::initializer_list<int> const nums) : nums_(nums) {}
-
-  static void Load(SumReqV2 *obj, memgraph::slk::Reader *reader);
-  static void Save(const SumReqV2 &obj, memgraph::slk::Builder *builder);
-
-  std::vector<int> nums_;
-};
-
-struct SumReq {
+struct SumReqV1 {
   static constexpr memgraph::utils::TypeInfo kType{.id = memgraph::utils::TypeId::UNKNOWN, .name = "SumReq"};
   static constexpr uint64_t kVersion{1};
 
-  SumReq() = default;  // Needed for serialization.
-  SumReq(int x, int y) : x(x), y(y) {}
+  SumReqV1() = default;  // Needed for serialization.
+  SumReqV1(int x, int y) : x(x), y(y) {}
 
-  static void Load(SumReq *obj, memgraph::slk::Reader *reader);
-  static void Save(const SumReq &obj, memgraph::slk::Builder *builder);
-
-  SumReqV2 Upgrade() const { return SumReqV2({x, y}); }
+  static void Load(SumReqV1 *obj, memgraph::slk::Reader *reader);
+  static void Save(const SumReqV1 &obj, memgraph::slk::Builder *builder);
 
   int x;
   int y;
 };
 
-using SumReqTypes = std::variant<SumReqV1, SumReq>;
+struct SumReq {
+  static constexpr memgraph::utils::TypeInfo kType{.id = memgraph::utils::TypeId::UNKNOWN, .name = "SumReq"};
+  static constexpr uint64_t kVersion{2};
 
-struct SumRes {
+  SumReq() = default;  // Needed for serialization.
+  explicit SumReq(std::initializer_list<int> const nums) : nums_(nums) {}
+
+  static void Load(SumReq *obj, memgraph::slk::Reader *reader);
+  static void Save(const SumReq &obj, memgraph::slk::Builder *builder);
+
+  static SumReq Upgrade(SumReqV1 const &prev) { return SumReq{{prev.x, prev.y}}; }
+
+  std::vector<int> nums_;
+};
+
+struct SumResV1 {
   static constexpr memgraph::utils::TypeInfo kType{.id = memgraph::utils::TypeId::UNKNOWN, .name = "SumRes"};
   static constexpr uint64_t kVersion{1};
+
+  SumResV1() = default;  // Needed for serialization.
+  explicit SumResV1(int sum) : sum(sum) {}
+
+  static void Load(SumResV1 *obj, memgraph::slk::Reader *reader);
+  static void Save(const SumResV1 &obj, memgraph::slk::Builder *builder);
+
+  int sum;
+};
+
+// If new version is exactly the same as old version
+struct SumRes {
+  static constexpr memgraph::utils::TypeInfo kType{.id = memgraph::utils::TypeId::UNKNOWN, .name = "SumRes"};
+  static constexpr uint64_t kVersion{2};
 
   SumRes() = default;  // Needed for serialization.
   explicit SumRes(int sum) : sum(sum) {}
@@ -61,53 +73,18 @@ struct SumRes {
   int sum;
 };
 
-// If new version is exactly the same as old version
-struct SumResV2 : SumRes {
-  static constexpr uint64_t kVersion{2};
-};
-
-using SumResTypes = std::variant<SumRes, SumResV2>;
-
 namespace memgraph::slk {
+void Save(const SumReqV1 &sum, Builder *builder);
+void Load(SumReqV1 *sum, Reader *reader);
 void Save(const SumReq &sum, Builder *builder);
 void Load(SumReq *sum, Reader *reader);
-void Save(const SumReqV2 &sum, Builder *builder);
-void Load(SumReqV2 *sum, Reader *reader);
 
 void Save(const SumRes &res, Builder *builder);
 void Load(SumRes *res, Reader *reader);
 }  // namespace memgraph::slk
 
 using Sum = memgraph::rpc::RequestResponse<SumReq, SumRes>;
-using SumV2 = memgraph::rpc::RequestResponse<SumReqV2, SumResV2>;
-
-using Func = std::function<SumReqTypes(memgraph::slk::Reader *reader)>;
-inline static const std::unordered_map<uint64_t, Func> sum_req_factory{
-    {SumReq::kVersion,
-     [](memgraph::slk::Reader *req_reader) {
-       auto local_req = SumReq{};
-       Load(&local_req, req_reader);
-       return local_req;
-     }},
-    {SumReqV2::kVersion, [](memgraph::slk::Reader *req_reader) {
-       auto local_req = SumReqV2{};
-       Load(&local_req, req_reader);
-       return local_req;
-     }}};
-
-auto SumReqFactory(uint64_t const request_version, memgraph::slk::Reader *req_reader) -> SumReqTypes {
-  if (request_version == SumReq::kVersion) {
-    auto local_req = SumReq{};
-    Load(&local_req, req_reader);
-    return local_req;
-  }
-  if (request_version == SumReqV2::kVersion) {
-    auto local_req = SumReqV2{};
-    Load(&local_req, req_reader);
-    return local_req;
-  }
-  LOG_FATAL("Unknown sum req type");
-}
+using SumV1 = memgraph::rpc::RequestResponse<SumReqV1, SumResV1>;
 
 struct EchoMessage {
   // Intentionally set to a random value to avoid polluting typeinfo.hpp

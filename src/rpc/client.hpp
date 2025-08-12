@@ -126,7 +126,8 @@ class Client {
 
       // Finalize the request.
       req_builder_.Finalize();
-      spdlog::trace("[RpcClient] sent {} to {}", req_type_name, self_->client_->endpoint().SocketAddress());
+      spdlog::trace("[RpcClient] sent {}, version {}, to {}", req_type_name, TRequestResponse::Request::kVersion,
+                    self_->client_->endpoint().SocketAddress());
 
       while (true) {
         // Receive the response.
@@ -213,7 +214,8 @@ class Client {
       // Finalize the request.
       req_builder_.Finalize();
 
-      spdlog::trace("[RpcClient] sent {} to {}", req_type_name, self_->client_->endpoint().SocketAddress());
+      spdlog::trace("[RpcClient] sent {}, version {}, to {}", req_type_name, TRequestResponse::Request::kVersion,
+                    self_->client_->endpoint().SocketAddress());
 
       // Receive the response.
       uint64_t response_data_size = 0;

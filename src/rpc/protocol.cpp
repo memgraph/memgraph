@@ -82,7 +82,7 @@ void RpcMessageDeliverer::Execute() const {
                            static_cast<uint64_t>(req_id));
   }
 
-  spdlog::trace("[RpcServer] received {}", it->second.req_type.name);
+  spdlog::trace("[RpcServer] received {}, version {}", it->second.req_type.name, req_version);
   try {
     it->second.callback(req_version, &req_reader, &res_builder);
     // Finalize the SLK stream. It may fail because not all data has been read, that's fine.

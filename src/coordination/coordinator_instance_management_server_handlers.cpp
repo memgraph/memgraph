@@ -31,9 +31,9 @@ void CoordinatorInstanceManagementServerHandlers::ShowInstancesHandler(Coordinat
                                                                        uint64_t const request_version,
                                                                        slk::Reader *req_reader,
                                                                        slk::Builder *res_builder) {
-  coordination::ShowInstancesReq req;
-  slk::Load(&req, req_reader);
-  coordination::ShowInstancesRes const rpc_res{coordinator_instance.ShowInstancesAsLeader()};
+  ShowInstancesReq req;
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
+  ShowInstancesRes const rpc_res{coordinator_instance.ShowInstancesAsLeader()};
   rpc::SendFinalResponse(rpc_res, res_builder);
 }
 

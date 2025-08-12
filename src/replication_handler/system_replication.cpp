@@ -15,7 +15,6 @@
 
 #include "auth/replication_handlers.hpp"
 #include "dbms/replication_handlers.hpp"
-#include "flags/experimental.hpp"
 #include "replication_handler/system_rpc.hpp"
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 #include "system/rpc.hpp"
@@ -34,7 +33,7 @@ void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system
   utils::OnScopeExit const send_on_exit([&]() { rpc::SendFinalResponse(res, res_builder); });
 
   memgraph::replication::SystemRecoveryReq req;
-  memgraph::slk::Load(&req, req_reader);
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
 
   // validate
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {

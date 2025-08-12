@@ -44,8 +44,7 @@ inline bool SendSwapMainUUIDRpc(rpc::Client &rpc_client_, const utils::UUID &uui
 inline void FrequentHeartbeatHandler(uint64_t const request_version, slk::Reader *req_reader,
                                      slk::Builder *res_builder) {
   FrequentHeartbeatReq req;
-  FrequentHeartbeatReq::Load(&req, req_reader);
-  memgraph::slk::Load(&req, req_reader);
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
   rpc::SendFinalResponse(FrequentHeartbeatRes{}, res_builder);
 }
 }  // namespace memgraph::replication_coordination_glue

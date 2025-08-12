@@ -13,6 +13,7 @@
 
 #include "rpc/version.hpp"
 #include "slk/serialization.hpp"
+#include "utils/function_traits.hpp"
 
 #include "spdlog/spdlog.h"
 
@@ -35,6 +36,23 @@ inline void SendInProgressMsg(slk::Builder *builder) {
   Save(rpc::current_protocol_version, builder);
   builder->Finalize();
   spdlog::trace("[RpcServer] sent {}", storage::replication::InProgressRes::kType.name);
+}
+
+// T must be the newest type in the sequence of requests
+template <typename T>
+void LoadWithUpgrade(T &in, uint64_t const request_version, slk::Reader *reader) {
+  if (request_version == T::kVersion) {
+    slk::Load(&in, reader);
+    return;
+  }
+  if constexpr (requires { &T::Upgrade; }) {
+    using prev_t = typename utils::function_traits<decltype(&T::Upgrade)>::template argument<0>;
+    prev_t prev{};
+    LoadWithUpgrade(prev, request_version, reader);
+    in = T::Upgrade(prev);
+  } else {
+    throw std::runtime_error("No upgrade path available for this type");
+  }
 }
 
 }  // namespace memgraph::rpc
