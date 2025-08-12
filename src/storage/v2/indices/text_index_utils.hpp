@@ -64,16 +64,12 @@ std::string StringifyProperties(const std::map<PropertyId, PropertyValue> &prope
 enum class TextIndexOp { ADD, UPDATE, REMOVE };
 
 struct TextIndexPending {
-  absl::flat_hash_set<Vertex const *> to_add;
-  absl::flat_hash_set<Vertex const *> to_remove;
+  absl::flat_hash_set<Vertex const *> to_add_;
+  absl::flat_hash_set<Vertex const *> to_remove_;
 };
 
 // Text index change collector for transaction-level batching
-struct TextIndexChangeCollector {
-  absl::flat_hash_map<TextIndexData *, TextIndexPending> changes;
-
-  bool TextIndexUpdateNeeded() const { return !changes.empty(); }
-};
+using TextIndexChangeCollector = absl::flat_hash_map<TextIndexData *, TextIndexPending>;
 
 void TrackTextIndexChange(TextIndexChangeCollector &collector, std::span<TextIndexData *> indices, Vertex *vertex,
                           TextIndexOp op);

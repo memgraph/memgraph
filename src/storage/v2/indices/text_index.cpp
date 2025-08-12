@@ -310,20 +310,17 @@ void TextIndex::Clear() {
 }
 
 void TextIndex::ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mapper) {
-  for (auto &[index_data_ptr, pending] : tx.text_index_change_collector_.changes) {
+  for (const auto &[index_data_ptr, pending] : tx.text_index_change_collector_) {
     // Take exclusive lock to properly serialize all updates and hold it for the entire operation
     auto context_ptr = index_data_ptr->context_.Lock();
 
     try {
-      // First process deletions
-      for (const auto *vertex : pending.to_remove) {
+      for (const auto *vertex : pending.to_remove_) {
         auto search_node_to_be_deleted =
             mgcxx::text_search::SearchInput{.search_query = fmt::format("metadata.gid:{}", vertex->gid.AsInt())};
         mgcxx::text_search::delete_document(*context_ptr, search_node_to_be_deleted, kDoSkipCommit);
       }
-
-      // Then process additions
-      for (const auto *vertex : pending.to_add) {
+      for (const auto *vertex : pending.to_add_) {
         auto vertex_properties = index_data_ptr->properties_.empty()
                                      ? vertex->properties.Properties()
                                      : ExtractVertexProperties(vertex->properties, index_data_ptr->properties_);
@@ -331,7 +328,6 @@ void TextIndex::ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mappe
                            StringifyProperties(vertex_properties), context_ptr);
       }
 
-      // Commit this index while still holding the exclusive lock
       mgcxx::text_search::commit(*context_ptr);
     } catch (const std::exception &e) {
       throw query::TextSearchException("Text search error: {}", e.what());

@@ -913,7 +913,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   CheckForFastDiscardOfDeltas();
 
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH) &&
-      transaction_.text_index_change_collector_.TextIndexUpdateNeeded()) {
+      !transaction_.text_index_change_collector_.empty()) {
     memgraph::storage::TextIndex::ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
   }
   is_transaction_active_ = false;
