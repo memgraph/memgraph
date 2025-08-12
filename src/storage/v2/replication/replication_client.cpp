@@ -71,7 +71,7 @@ ReplicationStorageClient::ReplicationStorageClient(::memgraph::replication::Repl
     : client_{client}, main_uuid_(main_uuid) {}
 
 void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, DatabaseAccessProtector db_acc) {
-  auto &main_repl_state = main_storage->repl_storage_state_;
+  auto const &main_repl_state = main_storage->repl_storage_state_;
   auto const &main_db_name = main_storage->name();
 
   // stream should be destroyed so that RPC lock is released before taking engine lock
@@ -125,7 +125,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
 #endif
   }
 
-  std::optional<uint64_t> branching_point;
+  bool branching_point{false};
   // different epoch id, replica was main
   // In case there is no epoch transfer, and MAIN doesn't hold all the epochs as it could have been down and miss it
   // we need then just to check commit timestamp
@@ -138,12 +138,11 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
         main_repl_state.last_durable_timestamp_.load(std::memory_order_acquire));
 
     auto const &main_history = main_repl_state.history;
-    const auto epoch_info_iter =
-        std::find_if(main_history.crbegin(), main_history.crend(),
-                     [&](const auto &main_epoch_info) { return main_epoch_info.first == heartbeat_res.epoch_id; });
+    const auto epoch_info_iter = std::ranges::find_if(
+        main_history, [&](const auto &main_epoch_info) { return main_epoch_info.first == heartbeat_res.epoch_id; });
 
-    if (epoch_info_iter == main_history.crend()) {
-      branching_point = 0;
+    if (epoch_info_iter == std::ranges::end(main_history)) {
+      branching_point = true;
       spdlog::trace("Couldn't find epoch {} in main for db {}, setting branching point to 0.",
                     std::string(heartbeat_res.epoch_id), main_db_name);
     } else if (epoch_info_iter->second <
@@ -155,9 +154,9 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
           "branching point to {}.",
           std::string(epoch_info_iter->first), main_db_name, epoch_info_iter->second, client_.name_,
           heartbeat_res.current_commit_timestamp, epoch_info_iter->second);
-      branching_point = epoch_info_iter->second;
+      branching_point = true;
     } else {
-      branching_point = std::nullopt;
+      branching_point = false;
       spdlog::trace(
           "Found continuous history between replica {} and main for db {}. Our commit timestamp for epoch {} was {}.",
           client_.name_, main_db_name, epoch_info_iter->first, epoch_info_iter->second);
