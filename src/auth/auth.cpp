@@ -153,8 +153,7 @@ struct UpdateAuthData : memgraph::system::ISystemAction {
     }
     if (profile_) {
       return client.StreamAndFinalizeDelta<replication::UpdateAuthDataRpc>(
-          check_response, main_uuid, std::string{epoch.id()}, txn.last_committed_system_timestamp(), txn.timestamp(),
-          *profile_);
+          check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), *profile_);
     }
     // Should never get here
     MG_ASSERT(false, "Trying to update auth data that is not a user nor a role");

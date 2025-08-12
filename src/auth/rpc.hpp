@@ -38,10 +38,9 @@ struct UpdateAuthDataReq {
         expected_group_timestamp{expected_ts},
         new_group_timestamp{new_ts},
         role{std::move(role)} {}
-  UpdateAuthDataReq(const utils::UUID &main_uuid, std::string epoch_id, uint64_t expected_ts, uint64_t new_ts,
+  UpdateAuthDataReq(const utils::UUID &main_uuid, uint64_t expected_ts, uint64_t new_ts,
                     auth::UserProfiles::Profile profile)
       : main_uuid(main_uuid),
-        epoch_id{std::move(epoch_id)},
         expected_group_timestamp{expected_ts},
         new_group_timestamp{new_ts},
         profile{std::move(profile)} {}

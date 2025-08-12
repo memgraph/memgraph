@@ -129,7 +129,7 @@ struct DoReplication {
     for (auto &client : main_data_.registered_replicas_) {
       const bool completed = client.StreamAndFinalizeDelta<replication::FinalizeSystemTxRpc>(
           [](const replication::FinalizeSystemTxRes &response) { return response.success; }, main_data_.uuid_,
-          std::string{main_data_.epoch_.id()}, system_tx.last_committed_system_timestamp(), system_tx.timestamp());
+          system_tx.last_committed_system_timestamp(), system_tx.timestamp());
       if (!completed && client.mode_ == replication_coordination_glue::ReplicationMode::SYNC) {
         sync_status = AllSyncReplicaStatus::SomeCommitsUnconfirmed;
       }
