@@ -26,7 +26,9 @@ namespace memgraph::storage {
 
 class NameIdMapper;
 struct Vertex;
+struct Edge;
 struct TextIndexData;
+struct TextEdgeIndexData;
 
 inline constexpr std::string_view kTextIndicesDirectory = "text_indices";
 inline constexpr bool kDoSkipCommit = true;
@@ -35,14 +37,6 @@ inline constexpr bool kDoSkipCommit = true;
 inline constexpr std::string_view kBooleanAnd = "AND";
 inline constexpr std::string_view kBooleanOr = "OR";
 inline constexpr std::string_view kBooleanNot = "NOT";
-
-struct TextIndexSpec {
-  bool operator==(const TextIndexSpec &other) const = default;
-
-  std::string index_name_;
-  LabelId label_;
-  std::vector<PropertyId> properties_;
-};
 
 // Convert text to lowercase while preserving boolean operators
 std::string ToLowerCasePreservingBooleanOperators(std::string_view input);
@@ -56,18 +50,44 @@ nlohmann::json SerializeProperties(const std::map<PropertyId, PropertyValue> &pr
 // Convert properties to string representation
 std::string StringifyProperties(const std::map<PropertyId, PropertyValue> &properties);
 
+// Add a node or edge to the text index
+void AddEntryToTextIndex(std::int64_t gid, const nlohmann::json &properties, const std::string &property_values_as_str,
+                         mgcxx::text_search::Context &context);
+
 // Text index change tracking
 enum class TextIndexOp { ADD, UPDATE, REMOVE };
+struct TextIndexSpec {
+  bool operator==(const TextIndexSpec &other) const = default;
+
+  std::string index_name_;
+  LabelId label_;
+  std::vector<PropertyId> properties_;
+};
+
+struct TextEdgeIndexSpec {
+  bool operator==(const TextEdgeIndexSpec &other) const = default;
+
+  std::string index_name_;
+  EdgeTypeId edge_type_;
+  std::vector<PropertyId> properties_;
+};
 
 struct TextIndexPending {
   absl::flat_hash_set<Vertex const *> to_add_;
   absl::flat_hash_set<Vertex const *> to_remove_;
 };
+struct TextEdgeIndexPending {
+  absl::flat_hash_set<Edge const *> to_add_;
+  absl::flat_hash_set<Edge const *> to_remove_;
+};
 
 // Text index change collector for transaction-level batching
 using TextIndexChangeCollector = absl::flat_hash_map<TextIndexData *, TextIndexPending>;
+using TextEdgeIndexChangeCollector = absl::flat_hash_map<TextEdgeIndexData *, TextEdgeIndexPending>;
 
 void TrackTextIndexChange(TextIndexChangeCollector &collector, std::span<TextIndexData *> indices, Vertex *vertex,
                           TextIndexOp op);
+void TrackTextEdgeIndexChange(TextEdgeIndexChangeCollector &collector, std::span<TextEdgeIndexData *> indices,
+                              Edge *edge, TextIndexOp op);
 
 }  // namespace memgraph::storage

@@ -12,6 +12,7 @@
 #include <filesystem>
 
 #include <nlohmann/json.hpp>
+#include "query/exceptions.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
@@ -118,6 +119,25 @@ std::string StringifyProperties(const std::map<PropertyId, PropertyValue> &prope
   return utils::Join(indexable_properties_as_string, " ");
 }
 
+void AddEntryToTextIndex(std::int64_t gid, const nlohmann::json &properties, const std::string &property_values_as_str,
+                         mgcxx::text_search::Context &context) {
+  nlohmann::json document = {};
+  document["data"] = properties;
+  document["all"] = property_values_as_str;
+  document["metadata"] = {};
+  document["metadata"]["gid"] = gid;
+
+  try {
+    mgcxx::text_search::add_document(
+        context,
+        mgcxx::text_search::DocumentInput{.data =
+                                              document.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace)},
+        kDoSkipCommit);
+  } catch (const std::exception &e) {
+    throw query::TextSearchException("Tantivy error: {}", e.what());
+  }
+}
+
 void TrackTextIndexChange(TextIndexChangeCollector &collector, std::span<TextIndexData *> indices, Vertex *vertex,
                           TextIndexOp op) {
   if (!vertex) return;
@@ -133,6 +153,25 @@ void TrackTextIndexChange(TextIndexChangeCollector &collector, std::span<TextInd
     } else {  // REMOVE
       entry.to_add_.erase(vertex);
       entry.to_remove_.insert(vertex);
+    }
+  }
+}
+
+void TrackTextEdgeIndexChange(TextEdgeIndexChangeCollector &collector, std::span<TextEdgeIndexData *> indices,
+                              Edge *edge, TextIndexOp op) {
+  if (!edge) return;
+  for (auto *idx : indices) {
+    auto &entry = collector[idx];
+    if (op == TextIndexOp::ADD) {
+      entry.to_remove_.erase(edge);
+      entry.to_add_.insert(edge);
+    } else if (op == TextIndexOp::UPDATE) {
+      // On update we have to firstly remove the edge from index and then add it back
+      entry.to_remove_.insert(edge);
+      entry.to_add_.insert(edge);
+    } else {  // REMOVE
+      entry.to_add_.erase(edge);
+      entry.to_remove_.insert(edge);
     }
   }
 }

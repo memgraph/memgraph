@@ -29,6 +29,9 @@
 #include "utils/memory_tracker.hpp"
 #include "utils/variant_helpers.hpp"
 
+namespace r = ranges;
+namespace rv = r::views;
+
 namespace memgraph::storage {
 std::optional<EdgeAccessor> EdgeAccessor::Create(EdgeRef edge, EdgeTypeId edge_type, Vertex *from_vertex,
                                                  Vertex *to_vertex, Storage *storage, Transaction *transaction,
@@ -435,6 +438,66 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::Properties(View view) 
   if (!exists) return Error::NONEXISTENT_OBJECT;
   if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return std::move(properties);
+}
+
+Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::PropertiesByPropertyIds(
+    std::span<PropertyId const> properties, View view) const {
+  bool exists = true;
+  bool deleted = false;
+  std::vector<PropertyValue> property_values;
+  property_values.reserve(properties.size());
+  Delta *delta = nullptr;
+  {
+    auto guard = std::shared_lock{edge_.ptr->lock};
+    deleted = edge_.ptr->deleted;
+    auto property_paths = properties |
+                          rv::transform([](PropertyId property) { return storage::PropertyPath{property}; }) |
+                          r::to<std::vector<storage::PropertyPath>>();
+    property_values = edge_.ptr->properties.ExtractPropertyValuesMissingAsNull(property_paths);
+    delta = edge_.ptr->delta;
+  }
+  auto properties_map =
+      rv::zip(properties, property_values) | rv::transform([](const auto &property_id_value_pair) {
+        return std::make_pair(std::get<0>(property_id_value_pair), std::get<1>(property_id_value_pair));
+      }) |
+      r::to<std::map<PropertyId, PropertyValue>>();
+
+  ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &properties_map](const Delta &delta) {
+    switch (delta.action) {
+      case Delta::Action::SET_PROPERTY: {
+        auto it = properties_map.find(delta.property.key);
+        if (it != properties_map.end()) {
+          if (delta.property.value->IsNull()) {
+            properties_map.erase(it);
+          } else {
+            it->second = *delta.property.value;
+          }
+        } else if (!delta.property.value->IsNull()) {
+          properties_map.emplace(delta.property.key, *delta.property.value);
+        }
+        break;
+      }
+      case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+      case Delta::Action::DELETE_OBJECT: {
+        exists = false;
+        break;
+      }
+      case Delta::Action::RECREATE_OBJECT: {
+        deleted = false;
+        break;
+      }
+      case Delta::Action::ADD_LABEL:
+      case Delta::Action::REMOVE_LABEL:
+      case Delta::Action::ADD_IN_EDGE:
+      case Delta::Action::ADD_OUT_EDGE:
+      case Delta::Action::REMOVE_IN_EDGE:
+      case Delta::Action::REMOVE_OUT_EDGE:
+        break;
+    }
+  });
+  if (!exists) return Error::NONEXISTENT_OBJECT;
+  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
+  return std::move(properties_map);
 }
 
 Gid EdgeAccessor::Gid() const noexcept {
