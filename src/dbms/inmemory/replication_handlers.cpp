@@ -258,7 +258,7 @@ void InMemoryReplicationHandlers::SwapMainUUIDHandler(dbms::DbmsHandler *dbms_ha
   }
 
   replication_coordination_glue::SwapMainUUIDReq req;
-  slk::Load(&req, req_reader);
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
   spdlog::info("Set replica data UUID to main uuid {}", std::string(req.uuid));
   replica_state->TryPersistRoleReplica(role_replica_data.config, req.uuid);
   role_replica_data.uuid_ = req.uuid;
@@ -271,7 +271,7 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
                                                    uint64_t const request_version, slk::Reader *req_reader,
                                                    slk::Builder *res_builder) {
   storage::replication::HeartbeatReq req;
-  slk::Load(&req, req_reader);
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
   auto const db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
 
   if (!current_main_uuid.has_value() || req.main_uuid != *current_main_uuid) [[unlikely]] {
@@ -309,7 +309,7 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
                                                        uint64_t const request_version, slk::Reader *req_reader,
                                                        slk::Builder *res_builder) {
   storage::replication::PrepareCommitReq req;
-  slk::Load(&req, req_reader);
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
 
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::PrepareCommitReq::kType.name);
@@ -384,7 +384,7 @@ void InMemoryReplicationHandlers::FinalizeCommitHandler(dbms::DbmsHandler *dbms_
                                                         uint64_t const request_version, slk::Reader *req_reader,
                                                         slk::Builder *res_builder) {
   storage::replication::FinalizeCommitReq req;
-  slk::Load(&req, req_reader);
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
 
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::FinalizeCommitReq::kType.name);
@@ -460,7 +460,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
                                                   uint64_t const request_version, slk::Reader *req_reader,
                                                   slk::Builder *res_builder) {
   storage::replication::SnapshotReq req;
-  Load(&req, req_reader);
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.storage_uuid);
   if (!db_acc) {
     spdlog::error("Couldn't get database accessor in snapshot handler for request with storage_uuid {}",
@@ -602,7 +602,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
                                                   uint64_t const request_version, slk::Reader *req_reader,
                                                   slk::Builder *res_builder) {
   storage::replication::WalFilesReq req;
-  slk::Load(&req, req_reader);
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
     spdlog::error("Couldn't get database accessor in wal files handler for request storage_uuid {}",
@@ -701,7 +701,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
                                                     uint64_t const request_version, slk::Reader *req_reader,
                                                     slk::Builder *res_builder) {
   storage::replication::CurrentWalReq req;
-  slk::Load(&req, req_reader);
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
   auto db_acc = GetDatabaseAccessor(dbms_handler, req.uuid);
   if (!db_acc) {
     spdlog::error("Couldn't get database accessor in current wal handler for request storage_uuid {}",

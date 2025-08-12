@@ -27,13 +27,13 @@ void LogWrongMain(const std::optional<utils::UUID> &current_main_uuid, const uti
 }
 
 #ifdef MG_ENTERPRISE
-void UpdateAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
+void UpdateAuthDataHandler(system::ReplicaHandlerAccessToState &system_state_access,
                            const std::optional<utils::UUID> &current_main_uuid, auth::SynchedAuth &auth,
                            uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::UpdateAuthDataReq req;
-  memgraph::slk::Load(&req, req_reader);
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
 
-  using memgraph::replication::UpdateAuthDataRes;
+  using replication::UpdateAuthDataRes;
   UpdateAuthDataRes res(false);
 
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
@@ -86,9 +86,9 @@ void DropAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
                          const std::optional<utils::UUID> &current_main_uuid, auth::SynchedAuth &auth,
                          uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::DropAuthDataReq req;
-  memgraph::slk::Load(&req, req_reader);
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
 
-  using memgraph::replication::DropAuthDataRes;
+  using replication::DropAuthDataRes;
   DropAuthDataRes res(false);
 
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {

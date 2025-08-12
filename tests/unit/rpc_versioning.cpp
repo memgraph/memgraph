@@ -34,61 +34,40 @@ using namespace std::string_view_literals;
 using namespace std::literals::chrono_literals;
 
 namespace memgraph::slk {
-void Save(const SumReq &sum, Builder *builder) {
+void Save(const SumReqV1 &sum, Builder *builder) {
   Save(sum.x, builder);
   Save(sum.y, builder);
 }
 
-void Load(SumReq *sum, Reader *reader) {
+void Load(SumReqV1 *sum, Reader *reader) {
   Load(&sum->x, reader);
   Load(&sum->y, reader);
 }
 
-void Save(const SumReqV2 &sum, Builder *builder) { Save(sum.nums_, builder); }
-
-void Load(SumReqV2 *sum, Reader *reader) { Load(&sum->nums_, reader); }
+void Save(const SumReq &sum, Builder *builder) { Save(sum.nums_, builder); }
+void Load(SumReq *sum, Reader *reader) { Load(&sum->nums_, reader); }
 
 void Save(const SumRes &res, Builder *builder) { Save(res.sum, builder); }
 void Load(SumRes *res, Reader *reader) { Load(&res->sum, reader); }
+
+void Save(const SumResV1 &res, Builder *builder) { Save(res.sum, builder); }
+void Load(SumResV1 *res, Reader *reader) { Load(&res->sum, reader); }
 }  // namespace memgraph::slk
 
 void SumReq::Load(SumReq *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
 void SumReq::Save(const SumReq &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
 
-void SumReqV2::Load(SumReqV2 *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
-void SumReqV2::Save(const SumReqV2 &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
+void SumReqV1::Load(SumReqV1 *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
+void SumReqV1::Save(const SumReqV1 &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
 
 void SumRes::Load(SumRes *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
 void SumRes::Save(const SumRes &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
 
+void SumResV1::Load(SumResV1 *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
+void SumResV1::Save(const SumResV1 &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
+
 namespace {
 constexpr int port{8182};
-
-template <typename Target, typename Old>
-Target UpgradeToTarget(Old const &old) {
-  if constexpr (std::is_same_v<Target, std::decay_t<Old>>) {
-    return old;
-  } else {
-    auto const intermediate = old.Upgrade();
-    using IntermediateType = decltype(intermediate);
-
-    static_assert(IntermediateType::kVersion == Old::kVersion + 1, "Upgrade needs to lead to the new type");
-
-    return UpgradeToTarget<Target>(intermediate);
-  }
-}
-
-template <typename V>
-using last_variant_type = std::variant_alternative_t<std::variant_size_v<V> - 1, V>;
-
-// You can use lambdas and write factory with the help of map instead of if-else
-template <typename V>
-auto GetLatestSumReqType(V const &types) -> last_variant_type<V> {
-  using TargetType = last_variant_type<V>;
-  return std::visit([](auto const &current_type) -> TargetType { return UpgradeToTarget<TargetType>(current_type); },
-                    types);
-}
-
 }  // namespace
 
 // RPC client is setup with timeout but shouldn't be triggered.
@@ -103,27 +82,8 @@ TEST(RpcVersioning, RequestUpgrade) {
   }};
 
   rpc_server.Register<Sum>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
-    // Option I:
-    // auto const var = SumReqFactory(request_version, req_reader);
-
-    // Option II: Map factory
-    auto const var = std::invoke(sum_req_factory.at(request_version), req_reader);
-    auto const req = GetLatestSumReqType(var);
-    /*
-    auto const req = std::invoke([&request_version, req_reader]()-> SumReqV2 {
-      if (request_version == SumReqV2::kVersion) {
-        auto local_req = SumReqV2{};
-        Load(&local_req, req_reader);
-        return local_req;
-      }
-      if (request_version == SumReq::kVersion) {
-        auto local_req = SumReq{};
-        Load(&local_req, req_reader);
-        return local_req.Upgrade();
-      }
-      LOG_FATAL("Unknown version request");
-    });
-    */
+    SumReq req;
+    memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
 
     auto const sum = std::accumulate(req.nums_.begin(), req.nums_.end(), 0);
 
@@ -138,12 +98,12 @@ TEST(RpcVersioning, RequestUpgrade) {
   ClientContext client_context;
   Client client{endpoint, &client_context, rpc_timeouts};
   {
-    auto stream = client.Stream<Sum>(10, 12);
+    auto stream = client.Stream<SumV1>(10, 12);
     auto reply = stream.SendAndWait();
     EXPECT_EQ(reply.sum, 22);
   }
   {
-    auto stream = client.Stream<SumV2>(std::initializer_list<int>{35, 30});
+    auto stream = client.Stream<Sum>(std::initializer_list<int>{35, 30});
     auto reply = stream.SendAndWait();
     EXPECT_EQ(reply.sum, 65);
   }
