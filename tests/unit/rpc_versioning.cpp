@@ -63,34 +63,33 @@ void SumRes::Save(const SumRes &obj, memgraph::slk::Builder *builder) { memgraph
 
 namespace {
 constexpr int port{8182};
-}  // namespace
 
-using SumReqTypes = std::variant<SumReq, SumReqV2>;
-// TODO: (andi) Improvements: You can get last element from the variant
+template <typename Target, typename Old>
+Target UpgradeToTarget(Old const &old) {
+  if constexpr (std::is_same_v<Target, std::decay_t<Old>>) {
+    return old;
+  } else {
+    auto const intermediate = old.Upgrade();
+    using IntermediateType = decltype(intermediate);
+
+    static_assert(IntermediateType::kVersion == Old::kVersion + 1, "Upgrade needs to lead to the new type");
+
+    return UpgradeToTarget<Target>(intermediate);
+  }
+}
+
+template <typename V>
+using last_variant_type = std::variant_alternative_t<std::variant_size_v<V> - 1, V>;
+
 // You can use lambdas and write factory with the help of map instead of if-else
-// Flip params so old is deduced in UpgradeToTarget
-auto GetLatestSumReqType(SumReqTypes types) -> SumReqV2 {
-  return std::visit(
-      [](auto const &type) -> SumReqV2 {
-        using Type = std::decay_t<decltype(type)>;
-        return memgraph::rpc::UpgradeToTarget<Type, SumReqV2>(type);
-      },
-      types);
+template <typename V>
+auto GetLatestSumReqType(V const &types) -> last_variant_type<V> {
+  using TargetType = last_variant_type<V>;
+  return std::visit([](auto const &current_type) -> TargetType { return UpgradeToTarget<TargetType>(current_type); },
+                    types);
 }
 
-auto SumReqFactory(uint64_t const request_version, memgraph::slk::Reader *req_reader) -> SumReqTypes {
-  if (request_version == SumReq::kVersion) {
-    auto local_req = SumReq{};
-    Load(&local_req, req_reader);
-    return local_req;
-  }
-  if (request_version == SumReqV2::kVersion) {
-    auto local_req = SumReqV2{};
-    Load(&local_req, req_reader);
-    return local_req;
-  }
-  LOG_FATAL("Unknown sum req type");
-}
+}  // namespace
 
 // RPC client is setup with timeout but shouldn't be triggered.
 TEST(RpcVersioning, RequestUpgrade) {
@@ -104,7 +103,12 @@ TEST(RpcVersioning, RequestUpgrade) {
   }};
 
   rpc_server.Register<Sum>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
-    auto const req = GetLatestSumReqType(SumReqFactory(request_version, req_reader));
+    // Option I:
+    // auto const var = SumReqFactory(request_version, req_reader);
+
+    // Option II: Map factory
+    auto const var = std::invoke(sum_req_factory.at(request_version), req_reader);
+    auto const req = GetLatestSumReqType(var);
     /*
     auto const req = std::invoke([&request_version, req_reader]()-> SumReqV2 {
       if (request_version == SumReqV2::kVersion) {

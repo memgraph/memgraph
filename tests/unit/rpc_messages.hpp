@@ -46,6 +46,8 @@ struct SumReq {
   int y;
 };
 
+using SumReqTypes = std::variant<SumReqV1, SumReq>;
+
 struct SumRes {
   static constexpr memgraph::utils::TypeInfo kType{.id = memgraph::utils::TypeId::UNKNOWN, .name = "SumRes"};
   static constexpr uint64_t kVersion{1};
@@ -59,16 +61,53 @@ struct SumRes {
   int sum;
 };
 
+// If new version is exactly the same as old version
+struct SumResV2 : SumRes {
+  static constexpr uint64_t kVersion{2};
+};
+
+using SumResTypes = std::variant<SumRes, SumResV2>;
+
 namespace memgraph::slk {
 void Save(const SumReq &sum, Builder *builder);
 void Load(SumReq *sum, Reader *reader);
+void Save(const SumReqV2 &sum, Builder *builder);
+void Load(SumReqV2 *sum, Reader *reader);
 
 void Save(const SumRes &res, Builder *builder);
 void Load(SumRes *res, Reader *reader);
 }  // namespace memgraph::slk
 
 using Sum = memgraph::rpc::RequestResponse<SumReq, SumRes>;
-using SumV2 = memgraph::rpc::RequestResponse<SumReqV2, SumRes>;
+using SumV2 = memgraph::rpc::RequestResponse<SumReqV2, SumResV2>;
+
+using Func = std::function<SumReqTypes(memgraph::slk::Reader *reader)>;
+inline static const std::unordered_map<uint64_t, Func> sum_req_factory{
+    {SumReq::kVersion,
+     [](memgraph::slk::Reader *req_reader) {
+       auto local_req = SumReq{};
+       Load(&local_req, req_reader);
+       return local_req;
+     }},
+    {SumReqV2::kVersion, [](memgraph::slk::Reader *req_reader) {
+       auto local_req = SumReqV2{};
+       Load(&local_req, req_reader);
+       return local_req;
+     }}};
+
+auto SumReqFactory(uint64_t const request_version, memgraph::slk::Reader *req_reader) -> SumReqTypes {
+  if (request_version == SumReq::kVersion) {
+    auto local_req = SumReq{};
+    Load(&local_req, req_reader);
+    return local_req;
+  }
+  if (request_version == SumReqV2::kVersion) {
+    auto local_req = SumReqV2{};
+    Load(&local_req, req_reader);
+    return local_req;
+  }
+  LOG_FATAL("Unknown sum req type");
+}
 
 struct EchoMessage {
   // Intentionally set to a random value to avoid polluting typeinfo.hpp
