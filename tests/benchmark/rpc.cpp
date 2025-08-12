@@ -20,7 +20,6 @@
 #include "rpc/messages.hpp"
 #include "rpc/server.hpp"
 #include "slk/serialization.hpp"
-#include "utils/timer.hpp"
 
 struct EchoMessage {
   static constexpr memgraph::utils::TypeInfo kType{.id = memgraph::utils::TypeId::UNKNOWN, .name = "EchoMessage"};
