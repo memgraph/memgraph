@@ -299,8 +299,8 @@ cd ctre
 file_get_try_double "${primary_urls[ctre]}" "${secondary_urls[ctre]}"
 cd ..
 
-# abseil 20240116.2
-absl_ref="20240116.2"
+# abseil 20250512.1
+absl_ref="20250512.1"
 repo_clone_try_double "${primary_urls[absl]}" "${secondary_urls[absl]}" "absl" "$absl_ref"
 
 # if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
