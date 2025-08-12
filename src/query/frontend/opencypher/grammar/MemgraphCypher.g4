@@ -691,6 +691,8 @@ dropTextIndex : DROP TEXT INDEX indexName ;
 
 textIndexQuery : createTextIndex | dropTextIndex;
 
+createTextEdgeIndex: CREATE TEXT EDGE INDEX indexName ON ':' labelName ( '(' propertyKeyName ( ',' propertyKeyName )* ')' )* ;
+
 createPointIndex : CREATE POINT INDEX ON ':' labelName '(' propertyKeyName ')';
 
 dropPointIndex : DROP POINT INDEX ON ':' labelName '(' propertyKeyName ')' ;

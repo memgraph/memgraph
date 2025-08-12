@@ -23,6 +23,7 @@
 
 #include <boost/preprocessor/cat.hpp>
 
+#include <support/Any.h>
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
@@ -501,6 +502,16 @@ antlrcpp::Any CypherMainVisitor::visitDropTextIndex(MemgraphCypher::DropTextInde
   auto *index_query = storage_->Create<TextIndexQuery>();
   index_query->index_name_ = std::any_cast<std::string>(ctx->indexName()->accept(this));
   index_query->action_ = TextIndexQuery::Action::DROP;
+  return index_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitCreateTextEdgeIndex(MemgraphCypher::CreateTextEdgeIndexContext *ctx) {
+  auto *index_query = storage_->Create<TextIndexQuery>();
+  index_query->index_name_ = std::any_cast<std::string>(ctx->indexName()->accept(this));
+  index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
+  for (auto *property_key_name_ctx : ctx->propertyKeyName()) {
+    index_query->properties_.emplace_back(std::any_cast<PropertyIx>(property_key_name_ctx->accept(this)));
+  }
   return index_query;
 }
 

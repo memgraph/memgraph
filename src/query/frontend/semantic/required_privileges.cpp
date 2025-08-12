@@ -33,6 +33,8 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(TextIndexQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
 
+  void Visit(CreateTextEdgeIndexQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
+
   void Visit(VectorIndexQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
 
   void Visit(CreateVectorEdgeIndexQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
