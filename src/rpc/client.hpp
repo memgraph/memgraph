@@ -162,16 +162,18 @@ class Client {
         auto res_id{utils::TypeId::UNKNOWN};
         // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
         rpc::Version version;
+        uint64_t res_version{0};
 
         try {
           slk::Load(&res_id, &res_reader);
           slk::Load(&version, &res_reader);
+          slk::Load(&res_version, &res_reader);
         } catch (const slk::SlkReaderException &) {
           self_->client_->ShiftData(response_data_size);
           throw SlkRpcFailedException();
         }
 
-        if (version != rpc::current_protocol_version) {
+        if (version != current_protocol_version) {
           // V1 we introduced versioning with, absolutely no backwards compatibility,
           // because it's impossible to provide backwards compatibility with pre versioning.
           // Future versions this may require mechanism for graceful version handling.
@@ -197,7 +199,7 @@ class Client {
           throw GenericRpcFailedException();
         }
 
-        spdlog::trace("[RpcClient] received {} from endpoint {}:{}.", final_res_type_name,
+        spdlog::trace("[RpcClient] received {}, version {}, from endpoint {}:{}.", final_res_type_name, res_version,
                       self_->endpoint_.GetAddress(), self_->endpoint_.GetPort());
         self_->client_->ShiftData(response_data_size);
         return res_load_(&res_reader);
@@ -249,10 +251,12 @@ class Client {
       utils::TypeId res_id{utils::TypeId::UNKNOWN};
       // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
       rpc::Version version;
+      uint64_t res_version{0};
 
       try {
         slk::Load(&res_id, &res_reader);
         slk::Load(&version, &res_reader);
+        slk::Load(&res_version, &res_reader);
       } catch (const slk::SlkReaderException &) {
         throw SlkRpcFailedException();
       }
@@ -274,8 +278,8 @@ class Client {
         throw GenericRpcFailedException();
       }
 
-      spdlog::trace("[RpcClient] received {} from endpoint {}:{}.", res_type_name, self_->endpoint_.GetAddress(),
-                    self_->endpoint_.GetPort());
+      spdlog::trace("[RpcClient] received {}, version {} from endpoint {}:{}.", res_type_name, res_version,
+                    self_->endpoint_.GetAddress(), self_->endpoint_.GetPort());
 
       return res_load_(&res_reader);
     }

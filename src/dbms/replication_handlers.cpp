@@ -33,7 +33,7 @@ void CreateDatabaseHandler(system::ReplicaHandlerAccessToState &system_state_acc
     spdlog::error(
         "Handling CreateDatabase, an enterprise RPC message, without license. Check your license status by running "
         "SHOW LICENSE INFO.");
-    rpc::SendFinalResponse(res, res_builder);
+    rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
@@ -42,7 +42,7 @@ void CreateDatabaseHandler(system::ReplicaHandlerAccessToState &system_state_acc
 
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::CreateDatabaseReq::kType.name);
-    rpc::SendFinalResponse(res, res_builder);
+    rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
@@ -54,7 +54,7 @@ void CreateDatabaseHandler(system::ReplicaHandlerAccessToState &system_state_acc
   if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
     spdlog::debug("CreateDatabaseHandler: bad expected timestamp {},{}", req.expected_group_timestamp,
                   system_state_access.LastCommitedTS());
-    rpc::SendFinalResponse(res, res_builder);
+    rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
@@ -69,7 +69,7 @@ void CreateDatabaseHandler(system::ReplicaHandlerAccessToState &system_state_acc
     // Failure
   }
 
-  rpc::SendFinalResponse(res, res_builder);
+  rpc::SendFinalResponse(res, request_version, res_builder);
 }
 
 void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
@@ -83,7 +83,7 @@ void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
     spdlog::error(
         "Handling DropDatabase, an enterprise RPC message, without license. Check your license status by running SHOW "
         "LICENSE INFO.");
-    rpc::SendFinalResponse(res, res_builder);
+    rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
@@ -92,7 +92,7 @@ void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
 
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, memgraph::storage::replication::DropDatabaseReq::kType.name);
-    rpc::SendFinalResponse(res, res_builder);
+    rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
@@ -104,7 +104,7 @@ void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
   if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
     spdlog::debug("DropDatabaseHandler: bad expected timestamp {},{}", req.expected_group_timestamp,
                   system_state_access.LastCommitedTS());
-    rpc::SendFinalResponse(res, res_builder);
+    rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
@@ -125,7 +125,7 @@ void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
     // Failure
   }
 
-  rpc::SendFinalResponse(res, res_builder);
+  rpc::SendFinalResponse(res, request_version, res_builder);
 }
 
 bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage::SalientConfig> &database_configs) {

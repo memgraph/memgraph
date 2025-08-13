@@ -45,6 +45,6 @@ inline void FrequentHeartbeatHandler(uint64_t const request_version, slk::Reader
                                      slk::Builder *res_builder) {
   FrequentHeartbeatReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
-  rpc::SendFinalResponse(FrequentHeartbeatRes{}, res_builder);
+  rpc::SendFinalResponse(FrequentHeartbeatRes{}, request_version, res_builder);
 }
 }  // namespace memgraph::replication_coordination_glue
