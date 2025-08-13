@@ -32,6 +32,7 @@ TOOLCHAIN_BUILD_DEPS=(
     libsasl2-dev # for librdkafka
     gdb lcov libbz2-dev libgdbm-dev libgdbm-compat-dev libncurses-dev # for building python
     libreadline-dev libsqlite3-dev lzma lzma-dev tk-dev uuid-dev # for building python
+    python3-pip # for conan
 )
 
 TOOLCHAIN_RUN_DEPS=(
@@ -55,7 +56,7 @@ MEMGRAPH_BUILD_DEPS=(
     libssl-dev
     libseccomp-dev
     netcat-traditional # tests are using nc to wait for memgraph
-    python3 python3-virtualenv python3-pip # for qa, macro_benchmark and stress tests
+    python3 python3-virtualenv python3-pip python3-venv # for qa, macro_benchmark and stress tests
     python3-yaml # for the configuration generator
     libcurl4-openssl-dev # mg-requests
     sbcl # for custom Lisp C++ preprocessing
@@ -152,7 +153,7 @@ install() {
 
     # check if python3 is installed
     if ! command -v python3 &>/dev/null; then
-        apt install -y python3 python3-pip python3-venv
+        apt install -y python3
     fi
 
     # If GitHub Actions runner is installed, append LANG to the environment.
