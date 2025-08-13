@@ -4,7 +4,7 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
 check_operating_system "fedora-42"
-check_architecture "x86_64"
+check_architecture "arm64" "aarch64"
 
 TOOLCHAIN_BUILD_DEPS=(
     coreutils-common gcc gcc-c++ make # generic build tools
@@ -111,6 +111,7 @@ check() {
         exit 1
     fi
 
+
     # Check standard packages with Python script
     if [ ${#standard_packages[@]} -gt 0 ]; then
         missing=$(python3 "$DIR/check-packages.py" "check" "fedora-42" "${standard_packages[@]}")
@@ -153,6 +154,7 @@ install() {
     fi
 
     local -n packages=$1
+
 
     # If GitHub Actions runner is installed, append LANG to the environment.
     # Python related tests doesn't work the LANG export.

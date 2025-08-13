@@ -31,6 +31,7 @@ TOOLCHAIN_BUILD_DEPS=(
     libtool # for protobuf
     pkgconf-pkg-config # for pulsar
     cyrus-sasl-devel # for librdkafka
+    python3-pip # for conan
 )
 
 TOOLCHAIN_RUN_DEPS=(
@@ -52,7 +53,7 @@ MEMGRAPH_BUILD_DEPS=(
     python3-devel # for query modules
     openssl-devel openssl
     libseccomp-devel
-    python3 python3-pip python3-virtualenv python3-virtualenvwrapper python3-pyyaml nmap-ncat # for tests
+    python3 python3-pip python3-virtualenv python3-virtualenvwrapper python3-venv python3-pyyaml nmap-ncat # for tests
     libcurl-devel # mg-requests
     rpm-build rpmlint # for RPM package building
     doxygen graphviz # source documentation generators
@@ -106,6 +107,12 @@ check() {
         esac
     done
 
+    # check if python3 is installed
+    if ! command -v python3 &>/dev/null; then
+        echo "python3 is not installed"
+        exit 1
+    fi
+
     # Check standard packages with Python script
     if [ ${#standard_packages[@]} -gt 0 ]; then
         missing=$(python3 "$DIR/check-packages.py" "check" "fedora-41" "${standard_packages[@]}")
@@ -153,6 +160,11 @@ install() {
 
     # Update package lists first
     dnf update -y
+
+    # check if python3 is installed
+    if ! command -v python3 &>/dev/null; then
+        dnf install -y python3
+    fi
 
     # Separate standard and custom packages
     local standard_packages=()
