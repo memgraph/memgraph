@@ -725,9 +725,10 @@ fi
 #   * extreme 2 -> build a granular package manager, each lib (for all variable) separated
 
 # Don't remove boost until pulsar can come from conan!
-BOOST_SHA256=3621533e820dcab1e8012afd583c0c73cf0f77694952b81352bf38c1488f9cb4
-BOOST_VERSION=1.88.0
+BOOST_SHA256=2575e74ffc3ef1cd0babac2c1ee8bdb5782a0ee672b1912da40e5b4b591ca01f
+BOOST_VERSION=1.86.0
 BOOST_VERSION_UNDERSCORES=`echo "${BOOST_VERSION//./_}"`
+# Also, check that `asio` references in pulsar are fixed before going past this version of boost
 
 BZIP2_SHA256=ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269
 BZIP2_VERSION=1.0.8
