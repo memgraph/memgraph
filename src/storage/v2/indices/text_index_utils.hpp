@@ -88,9 +88,9 @@ struct TextEdgeIndexPending {
 using TextIndexChangeCollector = absl::flat_hash_map<TextIndexData *, TextIndexPending>;
 using TextEdgeIndexChangeCollector = absl::flat_hash_map<TextEdgeIndexData *, TextEdgeIndexPending>;
 
-void TrackTextIndexChange(TextIndexChangeCollector &collector, std::span<TextIndexData *> indices, Vertex *vertex,
+void TrackTextIndexChange(TextIndexChangeCollector &collector, std::span<TextIndexData *> indices, const Vertex *vertex,
                           TextIndexOp op);
 void TrackTextEdgeIndexChange(TextEdgeIndexChangeCollector &collector, std::span<TextEdgeIndexData *> indices,
-                              Edge *edge, TextIndexOp op);
+                              const Edge *edge, TextIndexOp op);
 
 }  // namespace memgraph::storage

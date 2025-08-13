@@ -2138,21 +2138,21 @@ class CreateTextEdgeIndexQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  memgraph::query::LabelIx label_;
+  memgraph::query::EdgeTypeIx edge_type_;
   std::vector<memgraph::query::PropertyIx> properties_;
   std::string index_name_;
 
   CreateTextEdgeIndexQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<CreateTextEdgeIndexQuery>();
-    object->label_ = label_;
+    object->edge_type_ = edge_type_;
     object->index_name_ = index_name_;
     object->properties_ = properties_;
     return object;
   }
 
  protected:
-  CreateTextEdgeIndexQuery(LabelIx label, std::vector<PropertyIx> properties, std::string index_name)
-      : label_(std::move(label)), properties_(std::move(properties)), index_name_(std::move(index_name)) {}
+  CreateTextEdgeIndexQuery(EdgeTypeIx edge_type, std::vector<PropertyIx> properties, std::string index_name)
+      : edge_type_(std::move(edge_type)), properties_(std::move(properties)), index_name_(std::move(index_name)) {}
 
  private:
   friend class AstStorage;

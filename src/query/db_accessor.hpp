@@ -706,6 +706,11 @@ class DbAccessor final {
     return accessor_->DropTextIndex(index_name);
   }
 
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateTextEdgeIndex(
+      const storage::TextEdgeIndexSpec &text_edge_index_info) {
+    return accessor_->CreateTextEdgeIndex(text_edge_index_info);
+  }
+
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorIndex(storage::VectorIndexSpec spec) {
     return accessor_->CreateVectorIndex(std::move(spec));
   }

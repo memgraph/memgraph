@@ -504,9 +504,9 @@ antlrcpp::Any CypherMainVisitor::visitDropTextIndex(MemgraphCypher::DropTextInde
 }
 
 antlrcpp::Any CypherMainVisitor::visitCreateTextEdgeIndex(MemgraphCypher::CreateTextEdgeIndexContext *ctx) {
-  auto *index_query = storage_->Create<TextIndexQuery>();
+  auto *index_query = storage_->Create<CreateTextEdgeIndexQuery>();
   index_query->index_name_ = std::any_cast<std::string>(ctx->indexName()->accept(this));
-  index_query->label_ = AddLabel(std::any_cast<std::string>(ctx->labelName()->accept(this)));
+  index_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(ctx->labelName()->accept(this)));
   for (auto *property_key_name_ctx : ctx->propertyKeyName()) {
     index_query->properties_.emplace_back(std::any_cast<PropertyIx>(property_key_name_ctx->accept(this)));
   }

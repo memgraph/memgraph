@@ -32,6 +32,7 @@
 #include "utils/event_histogram.hpp"
 #include "utils/logging.hpp"
 #include "utils/resource_lock.hpp"
+#include "utils/result.hpp"
 #include "utils/small_vector.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -709,6 +710,20 @@ utils::BasicResult<storage::StorageIndexDefinitionError, void> Storage::Accessor
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::text_index_drop, index_name);
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTextIndices);
+  return {};
+}
+
+utils::BasicResult<storage::StorageIndexDefinitionError, void> Storage::Accessor::CreateTextEdgeIndex(
+    const TextEdgeIndexSpec &text_edge_index_info) {
+  MG_ASSERT(type() == UNIQUE, "Creating a text edge index requires unique access to storage!");
+  try {
+    storage_->indices_.text_edge_index_.CreateIndex(text_edge_index_info, Vertices(View::NEW),
+                                                    storage_->name_id_mapper_.get());
+  } catch (const query::TextSearchException &e) {
+    return storage::StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
+  // transaction_.md_deltas.emplace_back(MetadataDelta::text_index_create, text_edge_index_info);
+  // memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextIndices);
   return {};
 }
 

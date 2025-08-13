@@ -63,19 +63,19 @@ std::vector<TextEdgeIndexData *> TextEdgeIndex::GetApplicableTextIndices(EdgeTyp
   return applicable_text_indices;
 }
 
-void TextEdgeIndex::UpdateOnEdgeCreation(Edge *edge, EdgeTypeId edge_type, Transaction &tx) {
+void TextEdgeIndex::UpdateOnEdgeCreation(const Edge *edge, EdgeTypeId edge_type, Transaction &tx) {
   auto applicable_text_indices = GetApplicableTextIndices(edge_type, edge->properties.ExtractPropertyIds());
   if (applicable_text_indices.empty()) return;
   TrackTextEdgeIndexChange(tx.text_edge_index_change_collector_, applicable_text_indices, edge, TextIndexOp::ADD);
 }
 
-void TextEdgeIndex::RemoveEdge(Edge *edge, EdgeTypeId edge_type, Transaction &tx) {
+void TextEdgeIndex::RemoveEdge(const Edge *edge, EdgeTypeId edge_type, Transaction &tx) {
   auto applicable_text_indices = GetApplicableTextIndices(edge_type, edge->properties.ExtractPropertyIds());
   if (applicable_text_indices.empty()) return;
   TrackTextEdgeIndexChange(tx.text_edge_index_change_collector_, applicable_text_indices, edge, TextIndexOp::REMOVE);
 }
 
-void TextEdgeIndex::UpdateOnSetProperty(Edge *edge, EdgeTypeId edge_type, Transaction &tx) {
+void TextEdgeIndex::UpdateOnSetProperty(const Edge *edge, EdgeTypeId edge_type, Transaction &tx) {
   auto applicable_text_indices = GetApplicableTextIndices(edge_type, edge->properties.ExtractPropertyIds());
   if (applicable_text_indices.empty()) return;
   TrackTextEdgeIndexChange(tx.text_edge_index_change_collector_, applicable_text_indices, edge, TextIndexOp::UPDATE);

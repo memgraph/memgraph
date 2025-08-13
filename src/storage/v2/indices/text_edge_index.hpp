@@ -65,11 +65,11 @@ class TextEdgeIndex {
 
   std::map<std::string, TextEdgeIndexData> index_;
 
-  void UpdateOnEdgeCreation(Edge *edge, EdgeTypeId edge_type, Transaction &tx);
+  void UpdateOnEdgeCreation(const Edge *edge, EdgeTypeId edge_type, Transaction &tx);
 
-  void RemoveEdge(Edge *edge, EdgeTypeId edge_type, Transaction &tx);
+  void RemoveEdge(const Edge *edge, EdgeTypeId edge_type, Transaction &tx);
 
-  void UpdateOnSetProperty(Edge *edge, EdgeTypeId edge_type, Transaction &tx);
+  void UpdateOnSetProperty(const Edge *edge, EdgeTypeId edge_type, Transaction &tx);
 
   void CreateIndex(const TextEdgeIndexSpec &index_info, VerticesIterable vertices, NameIdMapper *name_id_mapper);
 

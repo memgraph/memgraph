@@ -155,7 +155,7 @@ std::map<PropertyId, PropertyValue> ExtractProperties(const PropertyStore &prope
          r::to<std::map<PropertyId, PropertyValue>>();
 }
 
-void TrackTextIndexChange(TextIndexChangeCollector &collector, std::span<TextIndexData *> indices, Vertex *vertex,
+void TrackTextIndexChange(TextIndexChangeCollector &collector, std::span<TextIndexData *> indices, const Vertex *vertex,
                           TextIndexOp op) {
   if (!vertex) return;
   for (auto *idx : indices) {
@@ -175,7 +175,7 @@ void TrackTextIndexChange(TextIndexChangeCollector &collector, std::span<TextInd
 }
 
 void TrackTextEdgeIndexChange(TextEdgeIndexChangeCollector &collector, std::span<TextEdgeIndexData *> indices,
-                              Edge *edge, TextIndexOp op) {
+                              const Edge *edge, TextIndexOp op) {
   if (!edge) return;
   for (auto *idx : indices) {
     auto &entry = collector[idx];

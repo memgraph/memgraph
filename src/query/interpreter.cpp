@@ -3783,8 +3783,8 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
       RWType::W};
 }
 
-PreparedQuery PrepareVectorEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                          std::vector<Notification> *notifications, CurrentDB &current_db) {
+PreparedQuery PrepareCreateVectorEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                                                std::vector<Notification> *notifications, CurrentDB &current_db) {
   if (in_explicit_transaction) {
     throw IndexInMulticommandTxException();
   }
@@ -3908,6 +3908,56 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
       break;
     }
   }
+
+  return PreparedQuery{
+      {},
+      std::move(parsed_query.required_privileges),
+      [handler = std::move(handler), notifications, index_notification = std::move(index_notification)](
+          AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
+        handler(index_notification);
+        notifications->push_back(index_notification);
+        return QueryHandlerResult::COMMIT;
+      },
+      RWType::W};
+}
+
+PreparedQuery PrepareCreateTextEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                                              std::vector<Notification> *notifications, CurrentDB &current_db) {
+  if (in_explicit_transaction) {
+    throw IndexInMulticommandTxException();
+  }
+
+  if (current_db.db_acc_->get()->config().salient.items.properties_on_edges) {
+    throw EdgeIndexDisabledPropertiesOnEdgesException();
+  }
+
+  auto *text_edge_index_query = utils::Downcast<CreateTextEdgeIndexQuery>(parsed_query.query);
+  std::function<void(Notification &)> handler;
+
+  MG_ASSERT(current_db.db_acc_, "Text index query expects a current DB");
+  auto &db_acc = *current_db.db_acc_;
+
+  MG_ASSERT(current_db.db_transactional_accessor_, "Text index query expects a current DB transaction");
+  auto *dba = &*current_db.execution_db_accessor_;
+
+  auto *storage = db_acc->storage();
+  auto edge_type_id = storage->NameToEdgeType(text_edge_index_query->edge_type_.name);
+  auto &index_name = text_edge_index_query->index_name_;
+  auto property_ids = text_edge_index_query->properties_ |
+                      rv::transform([&](const auto &property) { return storage->NameToProperty(property.name); }) |
+                      r::to_vector;
+  Notification index_notification(SeverityLevel::INFO);
+  index_notification.code = NotificationCode::CREATE_INDEX;
+  index_notification.title = fmt::format("Created text index on label {}.", text_edge_index_query->edge_type_.name);
+  handler = [dba, edge_type_id, index_name, edge_type_name = std::move(text_edge_index_query->edge_type_.name),
+             property_ids = std::move(property_ids)](Notification &index_notification) {
+    auto maybe_error = dba->CreateTextEdgeIndex(storage::TextEdgeIndexSpec{index_name, edge_type_id, property_ids});
+    if (maybe_error.HasError()) {
+      index_notification.code = NotificationCode::EXISTENT_INDEX;
+      index_notification.title =
+          fmt::format("Text index on label {} with name {} already exists.", edge_type_name, index_name);
+    }
+  };
 
   return PreparedQuery{
       {},
@@ -6742,12 +6792,15 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     } else if (utils::Downcast<TextIndexQuery>(parsed_query.query)) {
       prepared_query = PrepareTextIndexQuery(std::move(parsed_query), in_explicit_transaction_,
                                              &query_execution->notifications, current_db_);
+    } else if (utils::Downcast<CreateTextEdgeIndexQuery>(parsed_query.query)) {
+      prepared_query = PrepareCreateTextEdgeIndexQuery(std::move(parsed_query), in_explicit_transaction_,
+                                                       &query_execution->notifications, current_db_);
     } else if (utils::Downcast<VectorIndexQuery>(parsed_query.query)) {
       prepared_query = PrepareVectorIndexQuery(std::move(parsed_query), in_explicit_transaction_,
                                                &query_execution->notifications, current_db_);
     } else if (utils::Downcast<CreateVectorEdgeIndexQuery>(parsed_query.query)) {
-      prepared_query = PrepareVectorEdgeIndexQuery(std::move(parsed_query), in_explicit_transaction_,
-                                                   &query_execution->notifications, current_db_);
+      prepared_query = PrepareCreateVectorEdgeIndexQuery(std::move(parsed_query), in_explicit_transaction_,
+                                                         &query_execution->notifications, current_db_);
     } else if (utils::Downcast<TtlQuery>(parsed_query.query)) {
 #ifdef MG_ENTERPRISE
       prepared_query = PrepareTtlQuery(std::move(parsed_query), in_explicit_transaction_,

@@ -65,13 +65,13 @@ class TextIndex {
 
   std::map<std::string, TextIndexData> index_;
 
-  void RemoveNode(Vertex *vertex_after_update, Transaction &tx);
+  void RemoveNode(const Vertex *vertex_after_update, Transaction &tx);
 
-  void UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx);
+  void UpdateOnAddLabel(LabelId label, const Vertex *vertex, Transaction &tx);
 
-  void UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx);
+  void UpdateOnRemoveLabel(LabelId label, const Vertex *vertex, Transaction &tx);
 
-  void UpdateOnSetProperty(Vertex *vertex, Transaction &tx);
+  void UpdateOnSetProperty(const Vertex *vertex, Transaction &tx);
 
   void CreateIndex(const TextIndexSpec &index_info, VerticesIterable vertices, NameIdMapper *name_id_mapper);
 

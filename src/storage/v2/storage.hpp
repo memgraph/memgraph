@@ -469,6 +469,9 @@ class Storage {
 
     utils::BasicResult<storage::StorageIndexDefinitionError, void> DropTextIndex(const std::string &index_name);
 
+    utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateTextEdgeIndex(
+        const TextEdgeIndexSpec &text_edge_index_info);
+
     virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorIndex(VectorIndexSpec spec) = 0;
 
     virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> DropVectorIndex(
