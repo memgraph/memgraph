@@ -11,17 +11,16 @@
 
 #pragma once
 
+#include <mgcxx_text_search.hpp>
 #include <span>
 #include <string_view>
 #include <vector>
 
-#include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
 #include "nlohmann/json_fwd.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
-#include "text_search.hpp"
 
 namespace memgraph::storage {
 
