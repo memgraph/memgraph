@@ -33,39 +33,6 @@ using memgraph::storage::replication::HeartbeatRpc;
 using namespace std::string_view_literals;
 using namespace std::literals::chrono_literals;
 
-namespace memgraph::slk {
-void Save(const SumReqV1 &sum, Builder *builder) {
-  Save(sum.x, builder);
-  Save(sum.y, builder);
-}
-
-void Load(SumReqV1 *sum, Reader *reader) {
-  Load(&sum->x, reader);
-  Load(&sum->y, reader);
-}
-
-void Save(const SumReq &sum, Builder *builder) { Save(sum.nums_, builder); }
-void Load(SumReq *sum, Reader *reader) { Load(&sum->nums_, reader); }
-
-void Save(const SumRes &res, Builder *builder) { Save(res.sum, builder); }
-void Load(SumRes *res, Reader *reader) { Load(&res->sum, reader); }
-
-void Save(const SumResV1 &res, Builder *builder) { Save(res.sum, builder); }
-void Load(SumResV1 *res, Reader *reader) { Load(&res->sum, reader); }
-}  // namespace memgraph::slk
-
-void SumReq::Load(SumReq *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
-void SumReq::Save(const SumReq &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
-
-void SumReqV1::Load(SumReqV1 *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
-void SumReqV1::Save(const SumReqV1 &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
-
-void SumRes::Load(SumRes *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
-void SumRes::Save(const SumRes &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
-
-void SumResV1::Load(SumResV1 *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
-void SumResV1::Save(const SumResV1 &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
-
 namespace {
 constexpr int port{8182};
 }  // namespace
