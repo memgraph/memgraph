@@ -152,7 +152,7 @@ install() {
 
     # check if python3 is installed
     if ! command -v python3 &>/dev/null; then
-        apt install -y python3
+        apt install -y python3 python3-pip python3-venv
     fi
 
     # If GitHub Actions runner is installed, append LANG to the environment.
