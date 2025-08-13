@@ -116,4 +116,94 @@ with GraphDatabase.driver("bolt://localhost:7687", auth=None, encrypted=False) a
             failed = True
         assert failed
 
-    print("All ok!")
+    # Test database rename functionality
+    print("Testing database rename functionality...")
+
+    # Create a test database for renaming
+    with driver.session() as session:
+        try:
+            session.run("DROP DATABASE rename_test").consume()
+        except:
+            pass
+        session.run("CREATE DATABASE rename_test").consume()
+        session.run("USE DATABASE rename_test").consume()
+        session.run('CREATE (:Node{name:"rename_test_node", value:42})').consume()
+
+        # Verify initial state
+        assert_db(session, "rename_test")
+        results = session.run("MATCH (n:Node) RETURN n.name, n.value").values()
+        assert len(results) == 1
+        assert results[0] == ("rename_test_node", 42)
+
+        # Rename the database
+        session.run("RENAME DATABASE rename_test TO renamed_test").consume()
+
+        # Verify rename was successful
+        session.run("USE DATABASE renamed_test").consume()
+        assert_db(session, "renamed_test")
+        results = session.run("MATCH (n:Node) RETURN n.name, n.value").values()
+        assert len(results) == 1
+        assert results[0] == ("rename_test_node", 42)
+
+        # Verify old name no longer exists
+        failed = False
+        try:
+            session.run("USE DATABASE rename_test").consume()
+        except:
+            failed = True
+        assert failed
+
+        # Test error conditions
+        print("Testing rename error conditions...")
+
+        # Test renaming default database (should fail)
+        failed = False
+        try:
+            session.run("RENAME DATABASE memgraph TO new_name").consume()
+        except:
+            failed = True
+        assert failed
+
+        # Test renaming non-existent database (should fail)
+        failed = False
+        try:
+            session.run("RENAME DATABASE non_existent TO new_name").consume()
+        except:
+            failed = True
+        assert failed
+
+        # Test renaming to existing database name (should fail)
+        session.run("CREATE DATABASE conflict_db").consume()
+        failed = False
+        try:
+            session.run("RENAME DATABASE renamed_test TO conflict_db").consume()
+        except:
+            failed = True
+        assert failed
+
+        # Test renaming database in use (should fail)
+        session.run("USE DATABASE renamed_test").consume()
+        failed = False
+        try:
+            session.run("RENAME DATABASE renamed_test TO new_name").consume()
+        except:
+            failed = True
+        assert failed
+
+        # Test successful rename after stopping use
+        session.run("USE DATABASE memgraph").consume()
+        session.run("RENAME DATABASE renamed_test TO final_test").consume()
+
+        # Verify final state
+        session.run("USE DATABASE final_test").consume()
+        assert_db(session, "final_test")
+        results = session.run("MATCH (n:Node) RETURN n.name, n.value").values()
+        assert len(results) == 1
+        assert results[0] == ("rename_test_node", 42)
+
+        # Clean up
+        session.run("USE DATABASE memgraph").consume()
+        session.run("DROP DATABASE final_test").consume()
+        session.run("DROP DATABASE conflict_db").consume()
+
+    print("Database rename tests completed successfully!")

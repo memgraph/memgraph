@@ -148,7 +148,7 @@ struct Gatekeeper {
       return *this;
     }
 
-    [[nodiscard]] bool is_deleting() const { return owner_->is_deleting; }
+    [[nodiscard]] bool is_deleting() const { return owner_ && owner_->is_deleting; }
 
     void prepare_for_deletion() {
       if (owner_) {
@@ -177,6 +177,7 @@ struct Gatekeeper {
 
     template <typename Func>
     [[nodiscard]] auto try_exclusively(Func &&func) -> EvalResult<std::invoke_result_t<Func, T &>> {
+      if (!owner_) return {not_run_t{}};
       // Prevent new access
       auto guard = std::unique_lock{owner_->mutex_};
       // Only invoke if we have exclusive access
@@ -191,6 +192,7 @@ struct Gatekeeper {
     template <typename Func = decltype([](T &) { return true; })>
     [[nodiscard]] bool try_delete(std::chrono::milliseconds timeout = std::chrono::milliseconds(100),
                                   Func &&predicate = {}) {
+      if (!owner_) return false;
       // Prevent new access
       auto guard = std::unique_lock{owner_->mutex_};
       if (!owner_->cv_.wait_for(guard, timeout, [this] { return owner_->count_ == 1; })) {
