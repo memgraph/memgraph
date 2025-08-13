@@ -53,44 +53,40 @@ void RpcMessageDeliverer::Execute() const {
   });
 
   // Load the request ID.
-  auto req_id{utils::TypeId::UNKNOWN};
-  // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
-  rpc::Version rpc_protocol_version;
-  uint64_t req_version{0};
-  try {
-    slk::Load(&req_id, &req_reader);
-    slk::Load(&rpc_protocol_version, &req_reader);
-    slk::Load(&req_version, &req_reader);
-  } catch (const slk::SlkReaderException &) {
-    throw rpc::SlkRpcFailedException();
-  }
+  auto const maybe_message_header = std::invoke([&req_reader]() -> std::optional<ProtocolMessageHeader> {
+    try {
+      // Propagate UnsupportedRpcVersion Exception
+      return LoadMessageHeader(&req_reader);
+    } catch (const std::exception &e) {
+      spdlog::error("Error occurred while loading message header: {}", e.what());
+      return std::nullopt;
+    }
+  });
 
-  if (rpc_protocol_version != rpc::current_protocol_version) {
-    // V1 we introduced versioning with, absolutely no backwards compatibility,
-    // because it's impossible to provide backwards compatibility with pre versioning.
-    // Future versions this may require mechanism for graceful version handling.
-    throw SessionException("Session trying to execute a RPC call of an incorrect version!");
+  if (!maybe_message_header.has_value()) {
+    throw SlkRpcFailedException();
   }
 
   // Access to `callbacks_` and `extended_callbacks_` is done here without
   // acquiring the `mutex_` because we don't allow RPC registration after the
   // server was started so those two maps will never be updated when we `find`
   // over them.
-  auto const it = server_->callbacks_.find(req_id);
+  auto const it = server_->callbacks_.find(maybe_message_header->message_id);
   if (it == server_->callbacks_.end()) {
     throw SessionException("Session trying to execute an unregistered RPC call!. Request id: {}",
-                           static_cast<uint64_t>(req_id));
+                           static_cast<uint64_t>(maybe_message_header->message_id));
   }
 
-  spdlog::trace("[RpcServer] received {}, version {}", it->second.req_type.name, req_version);
+  spdlog::trace("[RpcServer] received {}, version {}", it->second.req_type.name, maybe_message_header->message_version);
   try {
-    it->second.callback(req_version, &req_reader, &res_builder);
+    it->second.callback(maybe_message_header->message_version, &req_reader, &res_builder);
     // Finalize the SLK stream. It may fail because not all data has been read, that's fine.
     req_reader.Finalize();
-  } catch (const slk::SlkReaderException &e) {
+  } catch (const std::exception &e) {
     spdlog::error("Error occurred in the callback: {}", e.what());
-    throw rpc::SlkRpcFailedException();
-  } catch (const slk::SlkReaderLeftoverDataException &) {
+    throw SlkRpcFailedException();
+  } catch (const slk::SlkReaderLeftoverDataException &e) {
+    spdlog::warn(e.what());
   }
 }
 
