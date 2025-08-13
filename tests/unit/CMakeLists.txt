@@ -1,7 +1,9 @@
 set(test_prefix memgraph__unit__)
 
+# Include conan-generated dependencies
+include(conandeps_legacy)
+
 find_package(fmt REQUIRED)
-find_package(gflags REQUIRED)
 find_package(Threads REQUIRED)
 find_package(antlr4-runtime REQUIRED)
 find_package(antlr4 REQUIRED)
@@ -12,7 +14,7 @@ include_directories(${antlr4-runtime_INCLUDE_DIR})
 add_custom_target(memgraph__unit)
 
 add_library(memgraph_unit_main OBJECT main.cpp)
-target_link_libraries(memgraph_unit_main mg-memory mg-utils gtest gmock Threads::Threads dl)
+target_link_libraries(memgraph_unit_main mg-memory mg-utils GTest::gtest GTest::gmock Threads::Threads dl)
 target_precompile_headers(memgraph_unit_main PRIVATE
     <gtest/gtest.h>
 )
@@ -39,7 +41,7 @@ function(_add_unit_test test_cpp custom_main)
   if(NOT ${custom_main})
     target_link_libraries(${target_name} memgraph_unit_main)
   else()
-    target_link_libraries(${target_name} gtest gmock Threads::Threads dl)
+    target_link_libraries(${target_name} GTest::gtest GTest::gmock Threads::Threads dl)
   endif()
 
   # OUTPUT_NAME sets the real name of a target when it is built and can be
@@ -67,7 +69,7 @@ find_package(OpenSSL REQUIRED)
 
 # Test integrations-kafka
 add_library(kafka-mock STATIC kafka_mock.cpp)
-target_link_libraries(kafka-mock mg-utils librdkafka++ librdkafka Threads::Threads gtest)
+target_link_libraries(kafka-mock mg-utils librdkafka++ librdkafka Threads::Threads GTest::gtest)
 
 # Include directories are intentionally not set, because kafka-mock isn't meant to be used apart from unit tests
 add_unit_test(integrations_kafka_consumer.cpp kafka_mock.cpp)
@@ -335,7 +337,7 @@ add_unit_test(exponential_backoff exponential_backoff.cpp)
 target_link_libraries(${test_prefix}exponential_backoff mg-utils range-v3::range-v3)
 
 add_unit_test(utils_compressor.cpp)
-target_link_libraries(${test_prefix}utils_compressor mg-utils)
+target_link_libraries(${test_prefix}utils_compressor mg-utils gflags)
 
 add_unit_test(utils_observer.cpp)
 target_link_libraries(${test_prefix}utils_observer mg-utils)

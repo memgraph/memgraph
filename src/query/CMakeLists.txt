@@ -184,6 +184,6 @@ add_custom_target(generate_opencypher_parser
 
 add_library(antlr_opencypher_parser_lib STATIC ${antlr_opencypher_generated_src})
 add_dependencies(antlr_opencypher_parser_lib generate_opencypher_parser)
-target_link_libraries(antlr_opencypher_parser_lib antlr4-runtime)
+target_link_libraries(antlr_opencypher_parser_lib antlr4_static)
 
 target_link_libraries(mg-query PUBLIC antlr_opencypher_parser_lib)

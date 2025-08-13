@@ -24,7 +24,7 @@ add_manual_test(antlr_parser.cpp)
 target_link_libraries(${test_prefix}antlr_parser antlr_opencypher_parser_lib)
 
 add_manual_test(antlr_sigsegv.cpp)
-target_link_libraries(${test_prefix}antlr_sigsegv gtest gtest_main
+target_link_libraries(${test_prefix}antlr_sigsegv GTest::gtest GTest::gtest_main
                       antlr_opencypher_parser_lib mg-utils)
 
 add_manual_test(antlr_tree_pretty_print.cpp)
