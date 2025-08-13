@@ -15,12 +15,10 @@
 #include "mgcxx_text_search.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
-#include "storage/v2/property_value.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/view.hpp"
 
 namespace r = ranges;
-namespace rv = r::views;
 namespace memgraph::storage {
 
 void TextIndex::CreateTantivyIndex(const std::string &index_path, const TextIndexSpec &index_info) {
@@ -67,23 +65,6 @@ std::vector<TextIndexData *> TextIndex::GetApplicableTextIndices(std::span<stora
     }
   }
   return applicable_text_indices;
-}
-
-std::map<PropertyId, PropertyValue> TextIndex::ExtractVertexProperties(const PropertyStore &property_store,
-                                                                       std::span<PropertyId const> properties) {
-  if (properties.empty()) {
-    return property_store.Properties();
-  }
-
-  auto property_paths = properties |
-                        rv::transform([](PropertyId property) { return storage::PropertyPath{property}; }) |
-                        r::to<std::vector<storage::PropertyPath>>();
-  auto property_values = property_store.ExtractPropertyValuesMissingAsNull(property_paths);
-
-  return rv::zip(properties, property_values) | rv::transform([](const auto &property_id_value_pair) {
-           return std::make_pair(std::get<0>(property_id_value_pair), std::get<1>(property_id_value_pair));
-         }) |
-         r::to<std::map<PropertyId, PropertyValue>>();
 }
 
 void TextIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx) {
