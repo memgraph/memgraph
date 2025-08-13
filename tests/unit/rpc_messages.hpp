@@ -14,7 +14,6 @@
 #include <utility>
 
 #include "rpc/messages.hpp"
-#include "slk/serialization.hpp"
 #include "utils/typeinfo.hpp"
 
 struct SumReqV1 {
@@ -81,6 +80,8 @@ void Load(SumReq *sum, Reader *reader);
 
 void Save(const SumRes &res, Builder *builder);
 void Load(SumRes *res, Reader *reader);
+void Save(const SumResV1 &res, Builder *builder);
+void Load(SumResV1 *res, Reader *reader);
 }  // namespace memgraph::slk
 
 using Sum = memgraph::rpc::RequestResponse<SumReq, SumRes>;
