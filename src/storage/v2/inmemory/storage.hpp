@@ -613,9 +613,6 @@ class InMemoryStorage final : public Storage {
 
   void UpdateEdgesMetadataOnModification(Edge *edge, Vertex *from_vertex);
 
-  template <typename Container>
-  const void *FindEntityPtr(const Container &container, Gid gid);
-
   using EdgeInfo = std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>;
 
   EdgeInfo FindEdge(Gid gid);

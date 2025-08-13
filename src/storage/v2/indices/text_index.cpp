@@ -143,9 +143,6 @@ void TextIndex::RecoverIndex(const TextIndexSpec &index_info,
 }
 
 void TextIndex::DropIndex(const std::string &index_name) {
-  if (!index_.contains(index_name)) {
-    throw query::TextSearchException("Text index \"{}\" doesn’t exist.", index_name);
-  }
   try {
     index_.erase(index_name);
     mgcxx::text_search::drop_index(MakeIndexPath(text_index_storage_dir_, index_name));

@@ -690,40 +690,57 @@ void Storage::Accessor::MarkEdgeAsDeleted(Edge *edge) {
 utils::BasicResult<storage::StorageIndexDefinitionError, void> Storage::Accessor::CreateTextIndex(
     const TextIndexSpec &text_index_info) {
   MG_ASSERT(type() == UNIQUE, "Creating a text index requires unique access to storage!");
+
+  // Check for name conflicts with existing text edge indexes
+  if (storage_->indices_.text_edge_index_.IndexExists(text_index_info.index_name_)) {
+    return storage::StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
+
   try {
     storage_->indices_.text_index_.CreateIndex(text_index_info, Vertices(View::NEW), storage_->name_id_mapper_.get());
   } catch (const query::TextSearchException &e) {
     return storage::StorageIndexDefinitionError{IndexDefinitionError{}};
   }
+
   transaction_.md_deltas.emplace_back(MetadataDelta::text_index_create, text_index_info);
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextIndices);
-  return {};
-}
-
-utils::BasicResult<storage::StorageIndexDefinitionError, void> Storage::Accessor::DropTextIndex(
-    const std::string &index_name) {
-  MG_ASSERT(type() == UNIQUE, "Dropping a text index requires unique access to storage!");
-  try {
-    storage_->indices_.text_index_.DropIndex(index_name);
-  } catch (const query::TextSearchException &e) {
-    return storage::StorageIndexDefinitionError{StorageIndexDefinitionError{}};
-  }
-  transaction_.md_deltas.emplace_back(MetadataDelta::text_index_drop, index_name);
-  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTextIndices);
   return {};
 }
 
 utils::BasicResult<storage::StorageIndexDefinitionError, void> Storage::Accessor::CreateTextEdgeIndex(
     const TextEdgeIndexSpec &text_edge_index_info) {
   MG_ASSERT(type() == UNIQUE, "Creating a text edge index requires unique access to storage!");
+
+  // Check for name conflicts with existing text node indexes
+  if (storage_->indices_.text_index_.IndexExists(text_edge_index_info.index_name_)) {
+    return storage::StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
+
   try {
     storage_->indices_.text_edge_index_.CreateIndex(text_edge_index_info, Vertices(View::NEW),
                                                     storage_->name_id_mapper_.get());
   } catch (const query::TextSearchException &e) {
     return storage::StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  // transaction_.md_deltas.emplace_back(MetadataDelta::text_index_create, text_edge_index_info);
-  // memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextIndices);
+
+  // TODO: Uncomment when metadata deltas and metrics are implemented for text edge indexes
+  // transaction_.md_deltas.emplace_back(MetadataDelta::text_edge_index_create, text_edge_index_info);
+  // memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextEdgeIndices);
+  return {};
+}
+
+utils::BasicResult<storage::StorageIndexDefinitionError, void> Storage::Accessor::DropTextIndex(
+    const std::string &index_name) {
+  MG_ASSERT(type() == UNIQUE, "Dropping a text index requires unique access to storage!");
+  if (storage_->indices_.text_index_.IndexExists(index_name)) {
+    storage_->indices_.text_index_.DropIndex(index_name);
+  } else if (storage_->indices_.text_edge_index_.IndexExists(index_name)) {
+    storage_->indices_.text_edge_index_.DropIndex(index_name);
+  } else {
+    return storage::StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
+  transaction_.md_deltas.emplace_back(MetadataDelta::text_index_drop, index_name);
+  memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTextIndices);
   return {};
 }
 

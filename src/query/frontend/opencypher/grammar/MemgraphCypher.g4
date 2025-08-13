@@ -204,6 +204,7 @@ query : cypherQuery
       | edgeIndexQuery
       | pointIndexQuery
       | textIndexQuery
+      | createTextEdgeIndex
       | vectorIndexQuery
       | createVectorEdgeIndex
       | explainQuery

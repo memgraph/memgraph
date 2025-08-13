@@ -3153,16 +3153,6 @@ void InMemoryStorage::CreateSnapshotHandler(
   });
 }
 
-template <typename Container>
-const void *InMemoryStorage::FindEntityPtr(const Container &container, Gid gid) {
-  auto acc = container.access();
-  auto it = acc.find(gid);
-  if (it == acc.end()) {
-    return nullptr;
-  }
-  return &(*it);
-}
-
 InMemoryStorage::EdgeInfo InMemoryStorage::ExtractEdgeInfo(Vertex *from_vertex, const void *edge_ptr) {
   for (auto &out_edge : from_vertex->out_edges) {
     const auto [edge_type, other_vertex, edge_ref] = out_edge;
@@ -3181,8 +3171,13 @@ InMemoryStorage::EdgeInfo InMemoryStorage::FindEdgeFromMetadata(Gid gid, const v
 }
 
 InMemoryStorage::EdgeInfo InMemoryStorage::FindEdge(Gid gid) {
-  const void *edge_ptr = FindEntityPtr(edges_, gid);
-  if (!edge_ptr) return std::nullopt;
+  auto edge_acc = edges_.access();
+  auto edge_it = edge_acc.find(gid);
+  if (edge_it == edge_acc.end()) {
+    return std::nullopt;
+  }
+
+  auto *edge_ptr = &(*edge_it);
 
   auto vertices_acc = vertices_.access();
   if (config_.salient.items.enable_edges_metadata) {
@@ -3198,8 +3193,13 @@ InMemoryStorage::EdgeInfo InMemoryStorage::FindEdge(Gid gid) {
 }
 
 InMemoryStorage::EdgeInfo InMemoryStorage::FindEdge(Gid edge_gid, Gid from_vertex_gid) {
-  const void *edge_ptr = FindEntityPtr(edges_, edge_gid);
-  if (!edge_ptr) return std::nullopt;
+  auto edge_acc = edges_.access();
+  auto edge_it = edge_acc.find(edge_gid);
+  if (edge_it == edge_acc.end()) {
+    return std::nullopt;
+  }
+
+  auto *edge_ptr = &(*edge_it);
 
   auto vertices_acc = vertices_.access();
   if (config_.salient.items.enable_edges_metadata) {
