@@ -724,6 +724,11 @@ fi
 #   * extreme 1 -> move all libs + Memgraph compilation here, have one giant script
 #   * extreme 2 -> build a granular package manager, each lib (for all variable) separated
 
+# Don't remove boost until pulsar can come from conan!
+BOOST_SHA256=3621533e820dcab1e8012afd583c0c73cf0f77694952b81352bf38c1488f9cb4
+BOOST_VERSION=1.88.0
+BOOST_VERSION_UNDERSCORES=`echo "${BOOST_VERSION//./_}"`
+
 BZIP2_SHA256=ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269
 BZIP2_VERSION=1.0.8
 DOUBLE_CONVERSION_SHA256=fe54901055c71302dcdc5c3ccbe265a6c191978f3761ce1414d0895d6b0ea90e
@@ -755,6 +760,11 @@ ZLIB_VERSION=1.3.1
 ZSTD_VERSION=1.5.6
 
 pushd archives
+if [ ! -f boost_$BOOST_VERSION_UNDERSCORES.tar.gz ]; then
+    # do not redirect the download into a file, because it will download the file into a ".1" postfixed file
+    # I am not sure why this is happening, but I think because of some redirects that happens during the download
+    wget https://archives.boost.io/release/$BOOST_VERSION/source/boost_$BOOST_VERSION_UNDERSCORES.tar.gz -O boost_$BOOST_VERSION_UNDERSCORES.tar.gz
+fi
 if [ ! -f bzip2-$BZIP2_VERSION.tar.gz ]; then
     wget https://sourceware.org/pub/bzip2/bzip2-$BZIP2_VERSION.tar.gz -O bzip2-$BZIP2_VERSION.tar.gz
 fi
@@ -805,6 +815,8 @@ if [ ! -f wangle-$FBLIBS_VERSION.tar.gz ]; then
     wget https://github.com/facebook/wangle/releases/download/v$FBLIBS_VERSION/wangle-v$FBLIBS_VERSION.tar.gz -O wangle-$FBLIBS_VERSION.tar.gz
 fi
 
+# verify boost
+echo "$BOOST_SHA256 boost_$BOOST_VERSION_UNDERSCORES.tar.gz" | sha256sum -c
 # verify bzip2
 echo "$BZIP2_SHA256 bzip2-$BZIP2_VERSION.tar.gz" | sha256sum -c
 # verify double-conversion
@@ -997,6 +1009,32 @@ if [ ! -d $PREFIX/include/jemalloc ]; then
     #     EXTRA_FLAGS="-DJEMALLOC_NO_PRIVATE_NAMESPACE -D_GNU_SOURCE -Wno-redundant-decls" \
     #     ./configure $COMMON_CONFIGURE_FLAGS --disable-cxx
     make -j$CPUS install
+    popd
+fi
+
+log_tool_name "BOOST $BOOST_VERSION"
+if [ ! -d $PREFIX/include/boost ]; then
+    if [ -d boost_$BOOST_VERSION_UNDERSCORES ]; then
+        rm -rf boost_$BOOST_VERSION_UNDERSCORES
+    fi
+    tar -xzf ../archives/boost_$BOOST_VERSION_UNDERSCORES.tar.gz
+    pushd boost_$BOOST_VERSION_UNDERSCORES
+    # TODO(gitbuda): Figure out why --with-libraries=python doesn't work for protobuf
+    ./bootstrap.sh --prefix=$PREFIX --with-toolset=clang --with-python=python3 --without-icu
+    if [ "$TOOLCHAIN_STDCXX" = "libstdc++" ]; then
+        ./b2 toolset=clang -j$CPUS install variant=release link=static cxxstd=20 --disable-icu \
+            -sZLIB_SOURCE="$PREFIX" -sZLIB_INCLUDE="$PREFIX/include" -sZLIB_LIBPATH="$PREFIX/lib" \
+            -sBZIP2_SOURCE="$PREFIX" -sBZIP2_INCLUDE="$PREFIX/include" -sBZIP2_LIBPATH="$PREFIX/lib" \
+            -sLZMA_SOURCE="$PREFIX" -sLZMA_INCLUDE="$PREFIX/include" -sLZMA_LIBPATH="$PREFIX/lib" \
+            -sZSTD_SOURCE="$PREFIX" -sZSTD_INCLUDE="$PREFIX/include" -sZSTD_LIBPATH="$PREFIX/lib"
+    else
+        ./b2 toolset=clang -j$CPUS install variant=release link=static cxxstd=20 --disable-icu \
+            cxxflags="-stdlib=libc++" linkflags="-stdlib=libc++" \
+            -sZLIB_SOURCE="$PREFIX" -sZLIB_INCLUDE="$PREFIX/include" -sZLIB_LIBPATH="$PREFIX/lib" \
+            -sBZIP2_SOURCE="$PREFIX" -sBZIP2_INCLUDE="$PREFIX/include" -sBZIP2_LIBPATH="$PREFIX/lib" \
+            -sLZMA_SOURCE="$PREFIX" -sLZMA_INCLUDE="$PREFIX/include" -sLZMA_LIBPATH="$PREFIX/lib" \
+            -sZSTD_SOURCE="$PREFIX" -sZSTD_INCLUDE="$PREFIX/include" -sZSTD_LIBPATH="$PREFIX/lib"
+    fi
     popd
 fi
 
