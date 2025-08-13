@@ -27,14 +27,14 @@ class RpcFailedException : public utils::BasicException {
   SPECIALIZE_GET_EXCEPTION_NAME(RpcFailedException);
 };
 
-class VersionMismatchRpcFailedException final : public RpcFailedException {
+class UnsupportedRpcVersionException final : public RpcFailedException {
  public:
-  VersionMismatchRpcFailedException()
+  UnsupportedRpcVersionException()
       : RpcFailedException(
-            "Couldn't communicate with the cluster! There was a version mismatch. "
+            "Couldn't communicate with the cluster! RPC protocol version not supported. "
             "Please contact your database administrator.") {}
 
-  SPECIALIZE_GET_EXCEPTION_NAME(VersionMismatchRpcFailedException);
+  SPECIALIZE_GET_EXCEPTION_NAME(UnsupportedRpcVersionException);
 };
 
 class GenericRpcFailedException final : public RpcFailedException {

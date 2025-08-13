@@ -11,34 +11,72 @@
 
 #pragma once
 
-#include <cstdint>
-
 namespace memgraph::rpc {
 
-using Version = uint64_t;
+// Extend this enum when changing protocol and if you need ProtocolMessageHeader
+enum ProtocolVersion : uint8_t {
+  // versioning of RPC was/will be introduced in 2.13
+  // We start the versioning with a strange number, to radically reduce the
+  // probability of accidental match/conformance with pre 2.13 versions
+  V1,
+  // TypeId has been changed, they were not stable
+  // Added stable numbering for replication types to be in
+  // 2000-2999 range. We shouldn't need to version bump again
+  // for any TypeIds that get added.
+  V2,
+  // To each RPC main uuid was added
+  V3,
+  // The order of metadata and data deltas has been changed
+  // It is now possible that both can be sent in one commit
+  // this is due to auto index creation
+  V4,
+  // Moved coordinator section in TypeId.
+  V5,
+  // Added RPC versioning support. Both request and response messages serialize kVersion. The goal is to enable
+  // no-downtime
+  // upgrade from v5 to new versions. Upgrade from v4 to v5 will be breaking in a sense that ISSU cannot be performed
+  // without downtime. When serializing request, we first write protocol version then request id, followed by request
+  // version. Same for response. If you change the request version, the response needs to be bumped too, i.e. you should
+  // always introduce both new response and new request even in situations when only request or response get changed.
+  V6
+};
 
-// versioning of RPC was/will be introduced in 2.13
-// We start the versioning with a strange number, to radically reduce the
-// probability of accidental match/conformance with pre 2.13 versions
-constexpr auto v1 = Version{2023'10'30'0'2'13};
+constexpr auto current_protocol_version = ProtocolVersion::V6;
 
-// TypeId has been changed, they were not stable
-// Added stable numbering for replication types to be in
-// 2000-2999 range. We shouldn't need to version bump again
-// for any TypeIds that get added.
-constexpr auto v2 = Version{2023'12'07'0'2'14};
+struct ProtocolMessageHeader {
+  // protocol version read in the message
+  ProtocolVersion protocol_version;
+  utils::TypeId message_id{utils::TypeId::UNKNOWN};
+  uint64_t message_version{
+      0};  // request/response version. 0 is safe default because 1 is the first version for all messages
+};
 
-// To each RPC main uuid was added
-constexpr auto v3 = Version{2024'02'02'0'2'14};
+// @throws UnsupportedRpcVersionException
+inline auto LoadMessageHeader(slk::Reader *reader) -> ProtocolMessageHeader {
+  ProtocolMessageHeader header;
+  slk::Load(&header.protocol_version, reader);
+  switch (header.protocol_version) {
+    case V1:
+    case V2:
+    case V3:
+    case V4:
+      slk::Load(&header.message_id, reader);
+      header.message_version = 1;  // default
+      break;
+    case V5:
+      slk::Load(&header.message_id, reader);
+      slk::Load(&header.message_version, reader);
+      break;
+    default:
+      throw UnsupportedRpcVersionException();
+  }
+  return header;
+}
 
-// The order of metadata and data deltas has been changed
-// It is now possible that both can be sent in one commit
-// this is due to auto index creation
-constexpr auto v4 = Version{2024'07'02'0'2'18};
-
-// Moved coordinator section in TypeId.
-constexpr auto v5 = Version{2025'05'29'0'3'3};
-
-constexpr auto current_protocol_version = v5;
+inline void SaveMessageHeader(ProtocolMessageHeader const &message_header, slk::Builder *builder) {
+  slk::Save(message_header.protocol_version, builder);
+  slk::Save(message_header.message_id, builder);
+  slk::Save(message_header.message_version, builder);
+}
 
 }  // namespace memgraph::rpc
