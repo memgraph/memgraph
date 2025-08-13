@@ -21,8 +21,8 @@ def zoneddatetime_to_string(val):
 
 @mgp.function
 def make_zdt(year, month, day, hour, minute, second, offset_minutes):
-    return datetime(year=year, month=month, day=day, hour=hour, minute=minute, second=second).astimezone(
-        timezone(timedelta(minutes=offset_minutes))
+    return datetime(year=year, month=month, day=day, hour=hour, minute=minute, second=second).replace(
+        tzinfo=timezone(timedelta(minutes=offset_minutes))
     )
 
 
