@@ -66,7 +66,7 @@ TEST(RpcTimeout, TimeoutNoFailure) {
     memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
 
     EchoMessage res{"Sending reply"};
-    memgraph::rpc::SendFinalResponse(res, res_builder);
+    memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
   });
 
   ASSERT_TRUE(rpc_server.Start());
@@ -98,7 +98,7 @@ TEST(RpcTimeout, TimeoutExecutionBlocks) {
 
     std::this_thread::sleep_for(1100ms);
     EchoMessage res{"Sending reply"};
-    memgraph::rpc::SendFinalResponse(res, res_builder);
+    memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
   });
 
   ASSERT_TRUE(rpc_server.Start());
@@ -129,8 +129,8 @@ TEST(RpcTimeout, TimeoutServerBusy) {
     memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
     std::this_thread::sleep_for(2500ms);
     auto const sum = std::accumulate(req.nums_.begin(), req.nums_.end(), 0);
-    SumRes res(sum);
-    memgraph::rpc::SendFinalResponse(res, res_builder);
+    SumRes res({sum});
+    memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
   });
 
   rpc_server.Register<Echo>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
@@ -139,7 +139,7 @@ TEST(RpcTimeout, TimeoutServerBusy) {
     memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
 
     EchoMessage res{"Sending reply"};
-    memgraph::rpc::SendFinalResponse(res, res_builder);
+    memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
   });
 
   ASSERT_TRUE(rpc_server.Start());
@@ -179,7 +179,7 @@ TEST(RpcTimeout, SendingToWrongSocket) {
 
     std::this_thread::sleep_for(1100ms);
     EchoMessage res{"Sending reply"};
-    memgraph::rpc::SendFinalResponse(res, res_builder);
+    memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
   });
 
   ASSERT_TRUE(rpc_server.Start());

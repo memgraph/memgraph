@@ -93,7 +93,7 @@ TEST_F(ReplicationRpcProgressTest, PrepareCommitNoTimeout) {
 
         // Simulate done
         PrepareCommitRes res{true};
-        memgraph::rpc::SendFinalResponse(res, res_builder);
+        memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
       });
 
   ASSERT_TRUE(rpc_server.Start());
@@ -132,7 +132,7 @@ TEST_F(ReplicationRpcProgressTest, PrepareCommitTimeout) {
         // Simulate done
         std::this_thread::sleep_for(150ms);
         PrepareCommitRes res{true};
-        memgraph::rpc::SendFinalResponse(res, res_builder);
+        memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
       });
 
   ASSERT_TRUE(rpc_server.Start());
@@ -173,7 +173,7 @@ TEST_F(ReplicationRpcProgressTest, PrepareCommitProgressTimeout) {
     memgraph::rpc::SendInProgressMsg(res_builder);
     std::this_thread::sleep_for(100ms);
     PrepareCommitRes res{true};
-    memgraph::rpc::SendFinalResponse(res, res_builder);
+    memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
   });
 
   ASSERT_TRUE(rpc_server.Start());
@@ -208,7 +208,7 @@ TEST_F(ReplicationRpcProgressTest, CurrentWalNoTimeout) {
     Load(&req, req_reader);
 
     memgraph::storage::replication::CurrentWalRes res{1, 1};
-    memgraph::rpc::SendFinalResponse(res, res_builder);
+    memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
   });
 
   ASSERT_TRUE(rpc_server.Start());
@@ -244,7 +244,7 @@ TEST_F(ReplicationRpcProgressTest, CurrentWalProgressTimeout) {
     memgraph::rpc::SendInProgressMsg(res_builder);
     std::this_thread::sleep_for(100ms);
     memgraph::storage::replication::CurrentWalRes res{1, 1};
-    memgraph::rpc::SendFinalResponse(res, res_builder);
+    memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
   });
 
   ASSERT_TRUE(rpc_server.Start());
@@ -275,9 +275,9 @@ TEST_F(ReplicationRpcProgressTest, WalFilesNoTimeout) {
         memgraph::storage::replication::WalFilesReq req;
         Load(&req, req_reader);
 
-    memgraph::storage::replication::WalFilesRes res{1, 1};
-    memgraph::rpc::SendFinalResponse(res, res_builder);
-  });
+        memgraph::storage::replication::WalFilesRes res{1, 1};
+        memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+      });
 
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
@@ -306,14 +306,14 @@ TEST_F(ReplicationRpcProgressTest, WalFilesProgressTimeout) {
         memgraph::storage::replication::WalFilesReq req;
         Load(&req, req_reader);
 
-    std::this_thread::sleep_for(100ms);
-    memgraph::rpc::SendInProgressMsg(res_builder);
-    std::this_thread::sleep_for(200ms);
-    memgraph::rpc::SendInProgressMsg(res_builder);
-    std::this_thread::sleep_for(100ms);
-    memgraph::storage::replication::WalFilesRes res{1, 1};
-    memgraph::rpc::SendFinalResponse(res, res_builder);
-  });
+        std::this_thread::sleep_for(100ms);
+        memgraph::rpc::SendInProgressMsg(res_builder);
+        std::this_thread::sleep_for(200ms);
+        memgraph::rpc::SendInProgressMsg(res_builder);
+        std::this_thread::sleep_for(100ms);
+        memgraph::storage::replication::WalFilesRes res{1, 1};
+        memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+      });
 
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
@@ -337,22 +337,24 @@ TEST_F(ReplicationRpcProgressTest, TestTTT) {
     rpc_server.AwaitShutdown();
   }};
 
-  rpc_server.Register<memgraph::storage::replication::CurrentWalRpc>([](auto *req_reader, auto *res_builder) {
-    memgraph::storage::replication::CurrentWalReq req;
-    Load(&req, req_reader);
-    std::this_thread::sleep_for(150ms);
-    memgraph::storage::replication::CurrentWalRes res{1, 1};
-    std::this_thread::sleep_for(500ms);
-    memgraph::rpc::SendFinalResponse(res, res_builder);
-  });
+  rpc_server.Register<memgraph::storage::replication::CurrentWalRpc>(
+      [](uint64_t const request_version, auto *req_reader, auto *res_builder) {
+        memgraph::storage::replication::CurrentWalReq req;
+        Load(&req, req_reader);
+        std::this_thread::sleep_for(150ms);
+        memgraph::storage::replication::CurrentWalRes res{1, 1};
+        std::this_thread::sleep_for(500ms);
+        memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+      });
 
-  rpc_server.Register<memgraph::storage::replication::WalFilesRpc>([](auto *req_reader, auto *res_builder) {
-    memgraph::storage::replication::WalFilesReq req;
-    Load(&req, req_reader);
-    std::this_thread::sleep_for(1s);
-    memgraph::storage::replication::WalFilesRes res{1, 1};
-    memgraph::rpc::SendFinalResponse(res, res_builder);
-  });
+  rpc_server.Register<memgraph::storage::replication::WalFilesRpc>(
+      [](uint64_t const request_version, auto *req_reader, auto *res_builder) {
+        memgraph::storage::replication::WalFilesReq req;
+        Load(&req, req_reader);
+        std::this_thread::sleep_for(1s);
+        memgraph::storage::replication::WalFilesRes res{1, 1};
+        memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+      });
 
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);

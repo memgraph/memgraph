@@ -19,13 +19,36 @@
 
 namespace memgraph::rpc {
 
-template <typename TResponse>
-void SendFinalResponse(TResponse const &res, slk::Builder *builder, std::string description = "") {
+template <typename T>
+concept HasDowngrade = requires(const std::remove_cvref_t<T> &res) {
+  {res.Downgrade()};
+  requires RpcMessage<T> && RpcMessage<std::remove_cvref_t<decltype(res.Downgrade())>>;
+};
+
+template <RpcMessage TResponse>
+void SaveWithUpgrade(TResponse const &res, uint64_t const response_version, slk::Builder *builder) {
+  if (response_version == TResponse::kVersion) {
+    slk::Save(res, builder);
+    return;
+  }
+  if constexpr (HasDowngrade<TResponse>) {
+    auto prev_res = res.Downgrade();
+    static_assert(decltype(prev_res)::kVersion == TResponse::kVersion - 1, "Wrong response version path");
+    SaveWithUpgrade(prev_res, response_version, builder);
+  } else {
+    throw std::runtime_error("No downgrade path available for this type of response");
+  }
+}
+
+template <RpcMessage TResponse>
+void SendFinalResponse(TResponse const &res, uint64_t const response_version, slk::Builder *builder,
+                       std::string description = "") {
   slk::Save(TResponse::kType.id, builder);
-  slk::Save(rpc::current_protocol_version, builder);
-  slk::Save(res, builder);
+  slk::Save(current_protocol_version, builder);
+  slk::Save(response_version, builder);
+  SaveWithUpgrade(res, response_version, builder);
   builder->Finalize();
-  spdlog::trace("[RpcServer] sent {}. {}", TResponse::kType.name, description);
+  spdlog::trace("[RpcServer] sent {}, version {}. {}", TResponse::kType.name, response_version, description);
 }
 
 inline void SendInProgressMsg(slk::Builder *builder) {
@@ -33,25 +56,27 @@ inline void SendInProgressMsg(slk::Builder *builder) {
     throw slk::SlkBuilderException("InProgress RPC message can only be sent when the builder's buffer is empty.");
   }
   Save(storage::replication::InProgressRes::kType.id, builder);
-  Save(rpc::current_protocol_version, builder);
+  Save(current_protocol_version, builder);
+  Save(storage::replication::InProgressRes::kVersion, builder);
   builder->Finalize();
   spdlog::trace("[RpcServer] sent {}", storage::replication::InProgressRes::kType.name);
 }
 
 // T must be the newest type in the sequence of requests
-template <typename T>
-void LoadWithUpgrade(T &in, uint64_t const request_version, slk::Reader *reader) {
-  if (request_version == T::kVersion) {
-    slk::Load(&in, reader);
+template <RpcMessage TRequest>
+void LoadWithUpgrade(TRequest &req, uint64_t const request_version, slk::Reader *reader) {
+  if (request_version == TRequest::kVersion) {
+    slk::Load(&req, reader);
     return;
   }
-  if constexpr (requires { &T::Upgrade; }) {
-    using prev_t = typename utils::function_traits<decltype(&T::Upgrade)>::template argument<0>;
-    prev_t prev{};
-    LoadWithUpgrade(prev, request_version, reader);
-    in = T::Upgrade(prev);
+  if constexpr (requires { &TRequest::Upgrade; }) {
+    using prev_req_t = typename utils::function_traits<decltype(&TRequest::Upgrade)>::template argument<0>;
+    static_assert(prev_req_t::kVersion == TRequest::kVersion - 1, "Wrong request version path");
+    prev_req_t prev_req{};
+    LoadWithUpgrade(prev_req, request_version, reader);
+    req = TRequest::Upgrade(prev_req);
   } else {
-    throw std::runtime_error("No upgrade path available for this type");
+    throw std::runtime_error("No upgrade path available for this type of request");
   }
 }
 

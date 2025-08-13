@@ -96,10 +96,10 @@ struct PrepareCommitRes {
 
 using PrepareCommitRpc = rpc::RequestResponse<PrepareCommitReq, PrepareCommitRes>;
 
+// Special type of RPC message
 struct InProgressRes {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_IN_PROGRESS_RES, .name = "InProgressRes"};
   static constexpr uint64_t kVersion{1};
-
 
   InProgressRes() = default;
 };
