@@ -1,0 +1,98 @@
+diff --git a/CMakeLists.txt b/CMakeLists.txt
+index 08abd4daf..5b8e35c46 100644
+--- a/CMakeLists.txt
++++ b/CMakeLists.txt
+@@ -1256,7 +1256,7 @@ if(NOT WIN32 OR ROCKSDB_INSTALL_ON_WINDOWS)
+
+   if(ROCKSDB_BUILD_SHARED)
+     install(
+-      TARGETS ${ROCKSDB_SHARED_LIB}
++      TARGETS ${ROCKSDB_SHARED_LIB} OPTIONAL
+       EXPORT RocksDBTargets
+       COMPONENT runtime
+       ARCHIVE DESTINATION "${CMAKE_INSTALL_LIBDIR}"
+diff --git a/db/version_builder.cc b/db/version_builder.cc
+index aa7510c97..202f1e296 100644
+--- a/db/version_builder.cc
++++ b/db/version_builder.cc
+@@ -36,6 +36,35 @@
+ #include "table/table_reader.h"
+ #include "util/string_util.h"
+
++
++namespace {
++
++  template <typename Callable,
++            typename = std::enable_if_t<std::is_invocable_v<Callable>>>
++  struct OnScopeExit {
++      template <typename U,
++                typename = std::enable_if_t<
++                    std::is_constructible_v<Callable, std::decay_t<U>>>>
++
++      OnScopeExit(U&& func) : func_{std::forward<U>(func)} {}
++
++      OnScopeExit(OnScopeExit const&) = delete;
++      OnScopeExit& operator=(OnScopeExit const&) = delete;
++      OnScopeExit(OnScopeExit&&) = default;
++      OnScopeExit& operator=(OnScopeExit&&) = default;
++      ~OnScopeExit() noexcept(std::is_nothrow_invocable_v<Callable>) {
++          std::invoke(std::move(func_));
++      }
++
++     private:
++      Callable func_;
++  };
++
++  template <typename Callable>
++  OnScopeExit(Callable) -> OnScopeExit<std::decay_t<Callable>>;
++
++}
++
+ namespace ROCKSDB_NAMESPACE {
+
+ class VersionBuilder::Rep {
+@@ -1703,6 +1732,8 @@ class VersionBuilder::Rep {
+       }
+     }
+
++    if (files_meta.empty()) return Status::OK();
++
+     std::atomic<size_t> next_file_meta_idx(0);
+     std::function<void()> load_handlers_func([&]() {
+       while (true) {
+@@ -1730,12 +1761,16 @@ class VersionBuilder::Rep {
+     });
+
+     std::vector<port::Thread> threads;
+-    for (int i = 1; i < max_threads; i++) {
+-      threads.emplace_back(load_handlers_func);
+-    }
+-    load_handlers_func();
+-    for (auto& t : threads) {
+-      t.join();
++    {
++      auto join_on_exit = OnScopeExit{[&](){
++        for (auto& t : threads) {
++          t.join();
++        }
++      }};
++      for (int i = 1; i < max_threads; i++) {
++        threads.emplace_back(load_handlers_func);
++      }
++      load_handlers_func();
+     }
+     Status ret;
+     for (const auto& s : statuses) {
+diff --git a/port/mmap.cc b/port/mmap.cc
+index 36e8f3261..36977f17b 100644
+--- a/port/mmap.cc
++++ b/port/mmap.cc
+@@ -43,7 +43,7 @@ MemMapping& MemMapping::operator=(MemMapping&& other) noexcept {
+     return *this;
+   }
+   this->~MemMapping();
+-  std::memcpy(this, &other, sizeof(*this));
++  std::memcpy(static_cast<void*>(this), &other, sizeof(*this));
+   new (&other) MemMapping();
+   return *this;
+ }

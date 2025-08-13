@@ -11,10 +11,10 @@ diff -ur a/CMakeLists.txt b/CMakeLists.txt
 +  # # Disable RTTI.
 +  # string(REGEX REPLACE "/GR" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 +  # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} /GR-")
- else(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+ else(MSVC)
    # Use -Wall for clang and gcc.
    if(NOT CMAKE_CXX_FLAGS MATCHES "-Wall")
-@@ -77,9 +77,9 @@
+@@ -82,9 +82,9 @@
    string(REGEX REPLACE "-fexceptions" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
    set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-exceptions")
 
@@ -24,6 +24,6 @@ diff -ur a/CMakeLists.txt b/CMakeLists.txt
 +  # # Disable RTTI.
 +  # string(REGEX REPLACE "-frtti" "" CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS}")
 +  # set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fno-rtti")
- endif(CMAKE_CXX_COMPILER_ID STREQUAL "MSVC")
+ endif(MSVC)
 
  # BUILD_SHARED_LIBS is a standard CMake variable, but we declare it here to make

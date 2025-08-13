@@ -723,8 +723,8 @@ fi
 
 BZIP2_SHA256=ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269
 BZIP2_VERSION=1.0.8
-DOUBLE_CONVERSION_SHA256=8a79e87d02ce1333c9d6c5e47f452596442a343d8c3e9b234e8a62fce1b1d49c
-DOUBLE_CONVERSION_VERSION=3.1.6
+DOUBLE_CONVERSION_SHA256=fe54901055c71302dcdc5c3ccbe265a6c191978f3761ce1414d0895d6b0ea90e
+DOUBLE_CONVERSION_VERSION=3.3.1
 # NOTE: At some point Folly stopped supporting OpenSSL 1.0 which is critical
 # for CentOS7. If you decide to bump FBLIBS_VERSION drop Folly of stop
 # supporting CentOS7.
@@ -745,8 +745,8 @@ LIBUNWIND_VERSION=1.8.1
 # SNAPPY_VERSION=1.1.9
 PYTHON_VERSION=3.12.9
 PYTHON_MD5=ce613c72fa9b32fb4f109762d61b249b
-SNAPPY_SHA256=736aeb64d86566d2236ddffa2865ee5d7a82d26c9016b36218fcc27ea4f09f86
-SNAPPY_VERSION=1.2.1
+SNAPPY_SHA256=90f74bc1fbf78a6c56b3c4a082a05103b3a56bb17bca1a27e052ea11723292dc
+SNAPPY_VERSION=1.2.2
 XZ_VERSION=5.6.3 # for LZMA
 ZLIB_VERSION=1.3.1
 ZSTD_VERSION=1.5.6
@@ -1007,11 +1007,12 @@ if [ ! -d $PREFIX/include/double-conversion ]; then
     # build is used by facebook builder
     mkdir build
     pushd build
-    cmake .. $COMMON_CMAKE_FLAGS
+    cmake .. $COMMON_CMAKE_FLAGS -DCMAKE_POLICY_VERSION_MINIMUM=3.5
     make -j$CPUS install
     popd && popd
 fi
 
+# NOTE: we have an 8 year old fork, can this be replaced with a newer version?
 log_tool_name "gflags (memgraph fork $GFLAGS_COMMIT_HASH)"
 if [ ! -d $PREFIX/include/gflags ]; then
     if [ -d gflags ]; then
@@ -1025,7 +1026,8 @@ if [ ! -d $PREFIX/include/gflags ]; then
     cmake .. $COMMON_CMAKE_FLAGS \
         -DREGISTER_INSTALL_PREFIX=OFF \
         -DBUILD_gflags_nothreads_LIB=OFF \
-        -DGFLAGS_NO_FILENAMES=1
+        -DGFLAGS_NO_FILENAMES=1 \
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5
     make -j$CPUS install
     popd && popd
 fi
@@ -1043,6 +1045,7 @@ if [ ! -f $PREFIX/include/libunwind.h ]; then
     popd
 fi
 
+# NOTE: this tool has been archived (Jun 2025) - does it need replacing?
 log_tool_name "glog $GLOG_VERSION"
 if [ ! -d $PREFIX/include/glog ]; then
     if [ -d glog-$GLOG_VERSION ]; then
@@ -1052,11 +1055,12 @@ if [ ! -d $PREFIX/include/glog ]; then
     pushd glog-$GLOG_VERSION
     mkdir build
     pushd build
-    cmake .. $COMMON_CMAKE_FLAGS -DGFLAGS_NOTHREADS=OFF
+    cmake .. $COMMON_CMAKE_FLAGS -DGFLAGS_NOTHREADS=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5
     make -j$CPUS install
     popd && popd
 fi
 
+# NOTE: this tool has not been updated since 2020 - is there a replacement?
 log_tool_name "libevent $LIBEVENT_VERSION"
 if [ ! -d $PREFIX/include/event2 ]; then
     if [ -d libevent-$LIBEVENT_VERSION ]; then
@@ -1071,7 +1075,8 @@ if [ ! -d $PREFIX/include/event2 ]; then
         -DEVENT__DISABLE_REGRESS=ON \
         -DEVENT__DISABLE_SAMPLES=ON \
         -DEVENT__DISABLE_TESTS=ON \
-        -DEVENT__LIBRARY_TYPE="STATIC"
+        -DEVENT__LIBRARY_TYPE="STATIC" \
+        -DCMAKE_POLICY_VERSION_MINIMUM=3.5
     make -j$CPUS install
     popd && popd
 fi
@@ -1117,7 +1122,7 @@ if [ ! -f $PREFIX/include/libaio.h ]; then
     popd
 fi
 
-ROCKSDB_TAG="v9.10.0"
+ROCKSDB_TAG="v10.5.1"
 log_tool_name "rocksdb $ROCKSDB_TAG"
 if [ ! -f $PREFIX/lib/librocksdb.a ]; then
     if [ -d rocksdb ]; then
@@ -1301,7 +1306,7 @@ if [ ! -f $PREFIX/lib/librdtsc.a ]; then
     popd
 fi
 
-MGCXX_TAG="v0.0.7"
+MGCXX_TAG="v0.0.8"
 log_tool_name "mgcxx $MGCXX_TAG"
 if [ ! -f $PREFIX/lib/libmgcxx_text_search.a ]; then
     if [ -d mgcxx ]; then
