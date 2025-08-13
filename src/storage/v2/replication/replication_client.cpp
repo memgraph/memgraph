@@ -88,7 +88,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
         if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
           auto hb_stream = client_.rpc_client_.TryStream<replication::HeartbeatRpc>(
               std::optional{kHeartbeatRpcTimeout}, main_uuid_, main_storage->uuid(),
-              main_repl_state.last_durable_timestamp_.load(std::memory_order_acquire),
+              main_repl_state.commit_ts_info_.load(std::memory_order_acquire).ldt_,
               std::string{main_repl_state.epoch_.id()});
 
           std::optional<replication::HeartbeatRes> res;
@@ -100,7 +100,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
 
         // If SYNC or STRICT_SYNC replica, block while waiting for RPC lock
         auto hb_stream = client_.rpc_client_.Stream<replication::HeartbeatRpc>(
-            main_uuid_, main_storage->uuid(), main_repl_state.last_durable_timestamp_.load(std::memory_order_acquire),
+            main_uuid_, main_storage->uuid(), main_repl_state.commit_ts_info_.load(std::memory_order_acquire).ldt_,
             std::string{main_repl_state.epoch_.id()});
         return hb_stream.SendAndWait();
       });
@@ -113,7 +113,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
   auto const &heartbeat_res = *maybe_heartbeat_res;
 
   if (heartbeat_res.success_) {
-    commit_ts_info_.store(CommitTsInfo{.last_known_ts_ = heartbeat_res.current_commit_timestamp_,
+    commit_ts_info_.store(CommitTsInfo{.ldt_ = heartbeat_res.current_commit_timestamp_,
                                        .num_committed_txns_ = heartbeat_res.num_txns_committed_},
                           std::memory_order_release);
 
@@ -139,8 +139,7 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
     spdlog::trace(
         "DB: {} Replica {}: Epoch id: {}, last_durable_timestamp: {}; Main: Epoch id: {}, last_durable_timestamp: {}",
         main_db_name, client_.name_, std::string(heartbeat_res.epoch_id_), heartbeat_res.current_commit_timestamp_,
-        std::string(main_repl_state.epoch_.id()),
-        main_repl_state.last_durable_timestamp_.load(std::memory_order_acquire));
+        std::string(main_repl_state.epoch_.id()), main_repl_state.commit_ts_info_.load(std::memory_order_acquire).ldt_);
 
     auto const &main_history = main_repl_state.history;
     const auto epoch_info_iter = std::ranges::find_if(
@@ -217,13 +216,13 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
   spdlog::trace("Current timestamp on replica {} for db {} is {}.", client_.name_, main_db_name,
                 heartbeat_res.current_commit_timestamp_);
   spdlog::trace("Current durable timestamp on main for db {} is {}", main_db_name,
-                main_repl_state.last_durable_timestamp_.load(std::memory_order_acquire));
+                main_repl_state.commit_ts_info_.load(std::memory_order_acquire).ldt_);
 
   replica_state_.WithLock([&](auto &state) {
     // Recovered state didn't change in the meantime
     // ldt can be larger on replica due to snapshots
     if (heartbeat_res.current_commit_timestamp_ >=
-        main_repl_state.last_durable_timestamp_.load(std::memory_order_acquire)) {
+        main_repl_state.commit_ts_info_.load(std::memory_order_acquire).ldt_) {
       spdlog::debug("Replica {} up to date for db {}.", client_.name_, main_db_name);
       state = ReplicaState::READY;
     } else {
@@ -237,8 +236,8 @@ void ReplicationStorageClient::UpdateReplicaState(Storage *main_storage, Databas
 }
 
 TimestampInfo ReplicationStorageClient::GetTimestampInfo(Storage const *storage) const {
-  auto const main_timestamp = storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
-  auto const replica_timestamp = commit_ts_info_.load(std::memory_order_acquire).last_known_ts_;
+  auto const main_timestamp = storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
+  auto const replica_timestamp = commit_ts_info_.load(std::memory_order_acquire).ldt_;
   // NOTE: Intentional negative value
   return {.current_timestamp_of_replica = replica_timestamp,
           .current_number_of_timestamp_behind_main = static_cast<int64_t>(replica_timestamp - main_timestamp)};
@@ -333,12 +332,12 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
         if (client_.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
           maybe_stream_handler = client_.rpc_client_.TryStream<replication::PrepareCommitRpc>(
               std::optional{kCommitRpcTimeout}, main_uuid_, storage->uuid(),
-              storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire), commit_immediately,
+              storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_, commit_immediately,
               durability_commit_timestamp);
         } else {  // Block for SYNC and STRICT_SYNC replica until we obtain the RPC lock
           maybe_stream_handler.emplace(client_.rpc_client_.Stream<replication::PrepareCommitRpc>(
               main_uuid_, storage->uuid(),
-              storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire), commit_immediately,
+              storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_, commit_immediately,
               durability_commit_timestamp));
         }
 
@@ -379,8 +378,7 @@ auto ReplicationStorageClient::StartTransactionReplication(Storage *storage, Dat
     auto const res = stream.SendAndWait().success;
     if (res) {
       auto update_func = [](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
-        return {.last_known_ts_ = commit_ts_info.last_known_ts_,
-                .num_committed_txns_ = commit_ts_info.num_committed_txns_ + 1};
+        return {.ldt_ = commit_ts_info.ldt_, .num_committed_txns_ = commit_ts_info.num_committed_txns_ + 1};
       };
       atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
     }
@@ -447,8 +445,7 @@ bool ReplicationStorageClient::FinalizePrepareCommitPhase(DatabaseAccessProtecto
           }
 
           auto update_func = [&durability_commit_timestamp](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
-            return {.last_known_ts_ = durability_commit_timestamp,
-                    .num_committed_txns_ = commit_ts_info.num_committed_txns_};
+            return {.ldt_ = durability_commit_timestamp, .num_committed_txns_ = commit_ts_info.num_committed_txns_};
           };
           atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
 
@@ -515,8 +512,7 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseAccessProt
         // txns for replica
         if (response.success) {
           auto update_func = [](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
-            return {.last_known_ts_ = commit_ts_info.last_known_ts_,
-                    .num_committed_txns_ = commit_ts_info.num_committed_txns_ + 1};
+            return {.ldt_ = commit_ts_info.ldt_, .num_committed_txns_ = commit_ts_info.num_committed_txns_ + 1};
           };
           atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
         }
@@ -534,8 +530,7 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseAccessProt
         }
 
         auto update_func = [durability_commit_timestamp](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
-          return {.last_known_ts_ = durability_commit_timestamp,
-                  .num_committed_txns_ = commit_ts_info.num_committed_txns_};
+          return {.ldt_ = durability_commit_timestamp, .num_committed_txns_ = commit_ts_info.num_committed_txns_};
         };
         atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
 
@@ -629,8 +624,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                   replica_last_commit_ts = *(response.current_commit_timestamp_);
                   auto update_func = [new_num_txns_committed = response.num_txns_committed_](
                                          CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
-                    return {.last_known_ts_ = commit_ts_info.last_known_ts_,
-                            .num_committed_txns_ = new_num_txns_committed};
+                    return {.ldt_ = commit_ts_info.ldt_, .num_committed_txns_ = new_num_txns_committed};
                   };
                   atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
                   spdlog::debug(
@@ -669,7 +663,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                   replica_last_commit_ts = *(response.current_commit_timestamp_);
                   auto update_func =
                       [operand = response.num_txns_committed_](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
-                    return {.last_known_ts_ = commit_ts_info.last_known_ts_,
+                    return {.ldt_ = commit_ts_info.ldt_,
                             .num_committed_txns_ = commit_ts_info.num_committed_txns_ + operand};
                   };
                   atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
@@ -709,7 +703,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                     replica_last_commit_ts = *(response.current_commit_timestamp_);
                     auto update_func =
                         [operand = response.num_txns_committed_](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
-                      return {.last_known_ts_ = commit_ts_info.last_known_ts_,
+                      return {.ldt_ = commit_ts_info.ldt_,
                               .num_committed_txns_ = commit_ts_info.num_committed_txns_ + operand};
                     };
                     atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
@@ -732,7 +726,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
           recovery_step);
     } catch (const rpc::RpcFailedException &) {
       auto update_func = [replica_last_commit_ts](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
-        return {.last_known_ts_ = replica_last_commit_ts, .num_committed_txns_ = commit_ts_info.num_committed_txns_};
+        return {.ldt_ = replica_last_commit_ts, .num_committed_txns_ = commit_ts_info.num_committed_txns_};
       };
       atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
       replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
@@ -744,7 +738,7 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
     if (recovery_failed) {
       spdlog::debug("One of recovery steps failed, setting replica state to MAYBE_BEHIND");
       auto update_func = [replica_last_commit_ts](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
-        return {.last_known_ts_ = replica_last_commit_ts, .num_committed_txns_ = commit_ts_info.num_committed_txns_};
+        return {.ldt_ = replica_last_commit_ts, .num_committed_txns_ = commit_ts_info.num_committed_txns_};
       };
       atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
       replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
@@ -763,11 +757,11 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
   // actually sending data to replica
   auto lock = std::lock_guard{main_storage->engine_lock_};
   const auto last_durable_timestamp =
-      main_storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
+      main_storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
   spdlog::info("Replica: {} DB: {} Timestamp: {}, Last main durable commit: {}", client_.name_, main_db_name,
                replica_last_commit_ts, last_durable_timestamp);
   auto update_func = [replica_last_commit_ts](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
-    return {.last_known_ts_ = replica_last_commit_ts, .num_committed_txns_ = commit_ts_info.num_committed_txns_};
+    return {.ldt_ = replica_last_commit_ts, .num_committed_txns_ = commit_ts_info.num_committed_txns_};
   };
   atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
 

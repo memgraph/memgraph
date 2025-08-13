@@ -38,7 +38,6 @@ concept AtomicStruct =
     std::is_copy_assignable_v<T> && std::is_move_assignable_v<T> && std::is_same_v<T, std::remove_cv_t<T>>;
 
 template <AtomicStruct T, typename F>
-requires std::is_trivially_copyable_v<T>
 void atomic_struct_update(std::atomic<T> &data, F &&func) {
   auto curr_info = data.load(std::memory_order_acquire);
   while (

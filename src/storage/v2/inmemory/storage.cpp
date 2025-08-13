@@ -203,8 +203,8 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       vertex_id_.store(info->next_vertex_id, std::memory_order_release);
       edge_id_.store(info->next_edge_id, std::memory_order_release);
       timestamp_ = std::max(timestamp_, info->next_timestamp);
-      repl_storage_state_.last_durable_timestamp_.store(info->last_durable_timestamp, std::memory_order_release);
-      repl_storage_state_.num_committed_txns_.store(info->num_committed_txns, std::memory_order_release);
+      CommitTsInfo new_info{.ldt_ = info->last_durable_timestamp, .num_committed_txns_ = info->num_committed_txns};
+      repl_storage_state_.commit_ts_info_.store(new_info, std::memory_order_release);
       spdlog::trace(
           "Recovering last durable timestamp {}. Timestamp recovered to {}. Num committed txns recovered to {}.",
           info->last_durable_timestamp, timestamp_, info->num_committed_txns);
@@ -891,13 +891,15 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
 
 #ifndef NDEBUG
-  auto const prev = mem_storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
+  auto const prev = mem_storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
   DMG_ASSERT(durability_commit_timestamp >= prev, "LDT not monotonically increasing");
 #endif
 
-  mem_storage->repl_storage_state_.last_durable_timestamp_.store(durability_commit_timestamp,
-                                                                 std::memory_order_release);
-  mem_storage->repl_storage_state_.num_committed_txns_.fetch_add(1, std::memory_order_release);
+  auto const update_func = [durability_commit_timestamp](CommitTsInfo const &old_ts_info) -> CommitTsInfo {
+    return CommitTsInfo{.ldt_ = durability_commit_timestamp,
+                        .num_committed_txns_ = old_ts_info.num_committed_txns_ + 1};
+  };
+  atomic_struct_update<CommitTsInfo>(mem_storage->repl_storage_state_.commit_ts_info_, update_func);
 
   // Install the new point index, if needed
   mem_storage->indices_.point_index_.InstallNewPointIndex(transaction_.point_index_change_collector_,
@@ -1949,7 +1951,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
     // IMPORTANT: this is retrieved while under the lock so that the index is consistant with the timestamp
     point_index_context = indices_.point_index_.CreatePointIndexContext();
     // Needed by snapshot to sync the durable and logical ts
-    last_durable_ts = repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
+    last_durable_ts = repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
     active_indices = GetActiveIndices();
   }
 
@@ -2913,7 +2915,7 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
   if (force) {
     Clear();
   } else {
-    if (repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire) != kTimestampInitialId) {
+    if (repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_ != kTimestampInitialId) {
       handler_error();
       return InMemoryStorage::RecoverSnapshotError::NonEmptyStorage;
     }
@@ -2940,8 +2942,13 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
     vertex_id_.store(recovery_info.next_vertex_id, std::memory_order_release);
     edge_id_.store(recovery_info.next_edge_id, std::memory_order_release);
     timestamp_ = std::max(timestamp_, recovery_info.next_timestamp);
-    repl_storage_state_.last_durable_timestamp_.store(recovered_snapshot.snapshot_info.durable_timestamp,
-                                                      std::memory_order_release);
+
+    auto const update_func =
+        [new_ldt = recovered_snapshot.snapshot_info.durable_timestamp](CommitTsInfo const &old_info) -> CommitTsInfo {
+      return CommitTsInfo{.ldt_ = new_ldt, .num_committed_txns_ = old_info.num_committed_txns_};
+    };
+    atomic_struct_update<CommitTsInfo>(repl_storage_state_.commit_ts_info_, update_func);
+
     // We are the only active transaction, so mark everything up to the next timestamp
     if (timestamp_ > 0) commit_log_->MarkFinishedInRange(0, timestamp_ - 1);
 
@@ -3247,7 +3254,8 @@ void InMemoryStorage::Clear() {
 
   // Replication epoch and timestamp reset
   repl_storage_state_.epoch_.SetEpoch(std::string(utils::UUID{}));
-  repl_storage_state_.last_durable_timestamp_.store(0, std::memory_order_release);
+  CommitTsInfo const new_info{.ldt_ = 0, .num_committed_txns_ = 0};
+  repl_storage_state_.commit_ts_info_.store(new_info, std::memory_order_release);
   repl_storage_state_.history.clear();
 
   last_snapshot_digest_ = std::nullopt;

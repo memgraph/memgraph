@@ -8536,7 +8536,8 @@ std::optional<std::filesystem::path> CreateSnapshot(
                                                      : transaction->start_timestamp);  // Fallback to start ts
     snapshot.WriteUint(edges_count);
     snapshot.WriteUint(vertices_count);
-    snapshot.WriteUint(storage->repl_storage_state_.num_committed_txns_.load(std::memory_order_acquire));
+    snapshot.WriteUint(
+        storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).num_committed_txns_);
     if (snapshot_aborted()) {
       return std::nullopt;
     }

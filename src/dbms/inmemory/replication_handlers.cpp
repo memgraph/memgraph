@@ -281,10 +281,9 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
   }
   // Move db acc
   auto const *storage = db_acc->get()->storage();
-  auto const ldt = storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
-  auto const num_committed_txns = storage->repl_storage_state_.num_committed_txns_.load(std::memory_order_acquire);
+  auto const commit_info = storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire);
 
-  auto const last_epoch_with_commit = std::invoke([storage, ldt]() -> std::string {
+  auto const last_epoch_with_commit = std::invoke([storage, ldt = commit_info.ldt_]() -> std::string {
     if (auto const &history = storage->repl_storage_state_.history; !history.empty()) {
       auto [history_epoch, history_ldt] = history.back();
       return history_ldt != ldt ? std::string{storage->repl_storage_state_.epoch_.id()} : history_epoch;
@@ -292,7 +291,8 @@ void InMemoryReplicationHandlers::HeartbeatHandler(dbms::DbmsHandler *dbms_handl
     return std::string{storage->repl_storage_state_.epoch_.id()};
   });
 
-  const storage::replication::HeartbeatRes res{true, ldt, last_epoch_with_commit, num_committed_txns};
+  const storage::replication::HeartbeatRes res{true, commit_info.ldt_, last_epoch_with_commit,
+                                               commit_info.num_committed_txns_};
   rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
 }
 
@@ -345,7 +345,7 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
   }
 
   // last_durable_timestamp could be set by snapshot; so we cannot guarantee exactly what's the previous timestamp
-  if (req.previous_commit_timestamp > repl_storage_state.last_durable_timestamp_.load(std::memory_order_acquire)) {
+  if (req.previous_commit_timestamp > repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).ldt_) {
     // Empty the stream
     bool transaction_complete{false};
     while (!transaction_complete) {
@@ -540,10 +540,9 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
       storage->vertex_id_ = recovery_info.next_vertex_id;
       storage->edge_id_ = recovery_info.next_edge_id;
       storage->timestamp_ = std::max(storage->timestamp_, recovery_info.next_timestamp);
-      storage->repl_storage_state_.last_durable_timestamp_.store(snapshot_info.durable_timestamp,
-                                                                 std::memory_order_release);
-      storage->repl_storage_state_.num_committed_txns_.store(snapshot_info.num_committed_txns,
-                                                             std::memory_order_release);
+      storage::CommitTsInfo new_info{.ldt_ = snapshot_info.durable_timestamp,
+                                     .num_committed_txns_ = snapshot_info.num_committed_txns};
+      storage->repl_storage_state_.commit_ts_info_.store(new_info, std::memory_order_release);
       spdlog::trace("Set num committed txns to {} after loading snapshot.", snapshot_info.num_committed_txns);
       // We are the only active transaction, so mark everything up to the next timestamp
       if (storage->timestamp_ > 0) storage->commit_log_->MarkFinishedInRange(0, storage->timestamp_ - 1);
@@ -564,9 +563,9 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
   }
   spdlog::debug("Snapshot from {} loaded successfully.", *maybe_recovery_snapshot_path);
 
-  const storage::replication::SnapshotRes res{
-      storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire),
-      storage->repl_storage_state_.num_committed_txns_.load(std::memory_order_acquire)};
+  auto const [ldt, num_committed_txns] = storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire);
+
+  const storage::replication::SnapshotRes res{ldt, num_committed_txns};
   rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
 
   auto const not_recovery_snapshot = [&recovery_snapshot_path](auto const &snapshot_info) {
@@ -671,7 +670,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
 
   spdlog::debug("Replication recovery from WAL files succeeded for db {}.", storage->name());
   const storage::replication::WalFilesRes res{
-      storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire), num_committed_txns};
+      storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_, num_committed_txns};
 
   rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
 
@@ -762,7 +761,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
   }
 
   const storage::replication::CurrentWalRes res{
-      storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire),
+      storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_,
       load_wal_res.num_txns_committed};
 
   rpc::SendFinalResponse(res, res_builder, fmt::format("db: {}", storage->name()));
@@ -815,7 +814,7 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
   }
 
   // If WAL file doesn't contain any changes that need to be applied, ignore it
-  if (wal_info.to_timestamp <= storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire)) {
+  if (wal_info.to_timestamp <= storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_) {
     spdlog::trace("WAL file won't be applied since all changes already exist.");
     return LoadWalStatus{.success = true, .current_batch_counter = 0, .num_txns_committed = 0};
   }
@@ -926,7 +925,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
   uint64_t current_delta_idx{0};  // tracks over how many deltas we iterated, includes also skipped deltas.
   uint64_t applied_deltas{0};     // Non-skipped deltas
   uint32_t current_batch_counter = start_batch_counter;
-  auto max_delta_timestamp = storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
+  auto max_delta_timestamp = storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
 
   auto current_durable_commit_timestamp = max_delta_timestamp;
   spdlog::trace("Current durable commit timestamp: {}", current_durable_commit_timestamp);

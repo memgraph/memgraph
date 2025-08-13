@@ -15,6 +15,7 @@
 #include "replication/replication_client.hpp"
 #include "replication_coordination_glue/messages.hpp"
 #include "rpc/client.hpp"
+#include "storage/v2/commit_ts_info.hpp"
 #include "storage/v2/database_access.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/global.hpp"
@@ -34,11 +35,6 @@ struct Vertex;
 struct Edge;
 class Storage;
 class ReplicationStorageClient;
-
-struct alignas(16) CommitTsInfo {
-  uint64_t last_known_ts_{0};
-  uint64_t num_committed_txns_{0};
-};
 
 // Handler used for transferring the current transaction.
 // You need to acquire the RPC lock before creating ReplicaStream object

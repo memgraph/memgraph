@@ -296,7 +296,7 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
 
       // Durability is tracking last durable timestamp from MAIN, whereas timestamp_ is dependent on MVCC
       // We need to take bigger timestamp not to lose durability ordering
-      if (auto const ldt = storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
+      if (auto const ldt = storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
           ldt >= storage->timestamp_) {
         // Mark all txns finished with IDs in range [old_storage_ts, global_ldt]
         static_cast<storage::InMemoryStorage *>(storage)->commit_log_->MarkFinishedInRange(storage->timestamp_, ldt);
@@ -381,7 +381,7 @@ auto ReplicationHandler::GetDatabasesHistories() const -> replication_coordinati
   dbms_handler_.ForEach([&results](dbms::DatabaseAccess db_acc) {
     auto const &repl_storage_state = db_acc->storage()->repl_storage_state_;
     results.dbs_info.emplace_back(std::string{db_acc->storage()->uuid()},
-                                  repl_storage_state.last_durable_timestamp_.load(std::memory_order_acquire));
+                                  repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).ldt_);
   });
 
   return results;
@@ -393,7 +393,8 @@ auto ReplicationHandler::GetReplicationLag() const -> coordination::ReplicationL
   dbms_handler_.ForEach([&lag_info](dbms::DatabaseAccess db_acc) {
     auto &repl_storage_state = db_acc->storage()->repl_storage_state_;
     auto const db_name = db_acc->name();
-    auto const num_main_committed_txns = repl_storage_state.num_committed_txns_.load(std::memory_order_acquire);
+    auto const num_main_committed_txns =
+        repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).num_committed_txns_;
     lag_info.dbs_main_committed_txns_.emplace(db_name, num_main_committed_txns);
 
     repl_storage_state.replication_storage_clients_.WithLock([&db_name, &lag_info,
