@@ -118,13 +118,16 @@ fi
 mkdir -p archives && pushd archives
 # download all archives
 if [ ! -f gcc-$GCC_VERSION.tar.gz ]; then
-    wget https://ftp.gnu.org/gnu/gcc/gcc-$GCC_VERSION/gcc-$GCC_VERSION.tar.gz
+    # wget https://ftp.gnu.org/gnu/gcc/gcc-$GCC_VERSION/gcc-$GCC_VERSION.tar.gz
+    wget https://mirrorservice.org/sites/sourceware.org/pub/gcc/releases/gcc-$GCC_VERSION/gcc-$GCC_VERSION.tar.gz
 fi
 if [ ! -f binutils-$BINUTILS_VERSION.tar.gz ]; then
-    wget https://ftp.gnu.org/gnu/binutils/binutils-$BINUTILS_VERSION.tar.gz
+    # wget https://ftp.gnu.org/gnu/binutils/binutils-$BINUTILS_VERSION.tar.gz
+    wget https://sourceware.org/pub/binutils/releases/binutils-$BINUTILS_VERSION.tar.gz
 fi
 if [ ! -f gdb-$GDB_VERSION.tar.gz ]; then
-    wget https://ftp.gnu.org/gnu/gdb/gdb-$GDB_VERSION.tar.gz
+    # wget https://ftp.gnu.org/gnu/gdb/gdb-$GDB_VERSION.tar.gz
+    wget https://sourceware.org/pub/gdb/releases/gdb-$GDB_VERSION.tar.gz
 fi
 if [ ! -f cmake-$CMAKE_VERSION.tar.gz ]; then
     wget https://github.com/Kitware/CMake/releases/download/v$CMAKE_VERSION/cmake-$CMAKE_VERSION.tar.gz
