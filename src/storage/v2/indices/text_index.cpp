@@ -67,6 +67,25 @@ std::vector<TextIndexData *> TextIndex::GetApplicableTextIndices(std::span<stora
   return applicable_text_indices;
 }
 
+void TextIndex::AddVertexToTextIndex(std::int64_t gid, nlohmann::json properties, std::string property_values_as_str,
+                                     mgcxx::text_search::Context &context) {
+  nlohmann::json document = {};
+  document["data"] = std::move(properties);
+  document["all"] = std::move(property_values_as_str);
+  document["metadata"] = {};
+  document["metadata"]["gid"] = gid;
+
+  try {
+    mgcxx::text_search::add_document(
+        context,
+        mgcxx::text_search::DocumentInput{.data =
+                                              document.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace)},
+        kDoSkipCommit);
+  } catch (const std::exception &e) {
+    throw query::TextSearchException("Tantivy error: {}", e.what());
+  }
+}
+
 void TextIndex::UpdateOnAddLabel(LabelId label, const Vertex *vertex, Transaction &tx) {
   auto applicable_text_indices = GetApplicableTextIndices(std::array{label}, vertex->properties.ExtractPropertyIds());
   if (applicable_text_indices.empty()) return;
@@ -105,8 +124,8 @@ void TextIndex::CreateIndex(const TextIndexSpec &index_info, storage::VerticesIt
     auto vertex_properties = index_info.properties_.empty()
                                  ? v.Properties(View::NEW).GetValue()
                                  : v.PropertiesByPropertyIds(index_info.properties_, View::NEW).GetValue();
-    AddEntryToTextIndex(v.Gid().AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
-                        StringifyProperties(vertex_properties), index_data.context_);
+    TextIndex::AddVertexToTextIndex(v.Gid().AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
+                                    StringifyProperties(vertex_properties), index_data.context_);
   }
   try {
     mgcxx::text_search::commit(index_data.context_);
@@ -275,8 +294,8 @@ void TextIndex::ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mappe
         auto vertex_properties = index_data_ptr->properties_.empty()
                                      ? vertex->properties.Properties()
                                      : ExtractProperties(vertex->properties, index_data_ptr->properties_);
-        AddEntryToTextIndex(vertex->gid.AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
-                            StringifyProperties(vertex_properties), index_data_ptr->context_);
+        TextIndex::AddVertexToTextIndex(vertex->gid.AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
+                                        StringifyProperties(vertex_properties), index_data_ptr->context_);
       }
       mgcxx::text_search::commit(index_data_ptr->context_);
     } catch (const std::exception &e) {

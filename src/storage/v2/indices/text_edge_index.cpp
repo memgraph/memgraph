@@ -63,22 +63,49 @@ std::vector<TextEdgeIndexData *> TextEdgeIndex::GetApplicableTextIndices(EdgeTyp
   return applicable_text_indices;
 }
 
-void TextEdgeIndex::UpdateOnEdgeCreation(const Edge *edge, EdgeTypeId edge_type, Transaction &tx) {
+void TextEdgeIndex::AddEdgeToTextIndex(std::int64_t edge_gid, std::int64_t from_vertex_gid, std::int64_t to_vertex_gid,
+                                       nlohmann::json properties, std::string property_values_as_str,
+                                       mgcxx::text_search::Context &context) {
+  nlohmann::json document = {};
+  document["data"] = std::move(properties);
+  document["all"] = std::move(property_values_as_str);
+  document["metadata"] = {};
+  document["metadata"]["edge_gid"] = edge_gid;
+  document["metadata"]["from_vertex_gid"] = from_vertex_gid;
+  document["metadata"]["to_vertex_gid"] = to_vertex_gid;
+
+  try {
+    mgcxx::text_search::add_document(
+        context,
+        mgcxx::text_search::DocumentInput{.data =
+                                              document.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace)},
+        kDoSkipCommit);
+  } catch (const std::exception &e) {
+    throw query::TextSearchException("Tantivy error: {}", e.what());
+  }
+}
+
+void TextEdgeIndex::UpdateOnEdgeCreation(const Edge *edge, const Vertex *from_vertex, const Vertex *to_vertex,
+                                         EdgeTypeId edge_type, Transaction &tx) {
   auto applicable_text_indices = GetApplicableTextIndices(edge_type, edge->properties.ExtractPropertyIds());
   if (applicable_text_indices.empty()) return;
-  TrackTextEdgeIndexChange(tx.text_edge_index_change_collector_, applicable_text_indices, edge, TextIndexOp::ADD);
+  TrackTextEdgeIndexChange(tx.text_edge_index_change_collector_, applicable_text_indices, edge, from_vertex, to_vertex,
+                           TextIndexOp::ADD);
 }
 
 void TextEdgeIndex::RemoveEdge(const Edge *edge, EdgeTypeId edge_type, Transaction &tx) {
   auto applicable_text_indices = GetApplicableTextIndices(edge_type, edge->properties.ExtractPropertyIds());
   if (applicable_text_indices.empty()) return;
-  TrackTextEdgeIndexChange(tx.text_edge_index_change_collector_, applicable_text_indices, edge, TextIndexOp::REMOVE);
+  TrackTextEdgeIndexChange(tx.text_edge_index_change_collector_, applicable_text_indices, edge, nullptr, nullptr,
+                           TextIndexOp::REMOVE);
 }
 
-void TextEdgeIndex::UpdateOnSetProperty(const Edge *edge, EdgeTypeId edge_type, Transaction &tx) {
+void TextEdgeIndex::UpdateOnSetProperty(const Edge *edge, const Vertex *from_vertex, const Vertex *to_vertex,
+                                        EdgeTypeId edge_type, Transaction &tx) {
   auto applicable_text_indices = GetApplicableTextIndices(edge_type, edge->properties.ExtractPropertyIds());
   if (applicable_text_indices.empty()) return;
-  TrackTextEdgeIndexChange(tx.text_edge_index_change_collector_, applicable_text_indices, edge, TextIndexOp::UPDATE);
+  TrackTextEdgeIndexChange(tx.text_edge_index_change_collector_, applicable_text_indices, edge, from_vertex, to_vertex,
+                           TextIndexOp::UPDATE);
 }
 
 void TextEdgeIndex::CreateIndex(const TextEdgeIndexSpec &index_info, VerticesIterable vertices,
@@ -93,8 +120,10 @@ void TextEdgeIndex::CreateIndex(const TextEdgeIndexSpec &index_info, VerticesIte
       auto edge_properties = index_info.properties_.empty()
                                  ? edge.Properties(View::NEW).GetValue()
                                  : edge.PropertiesByPropertyIds(index_info.properties_, View::NEW).GetValue();
-      AddEntryToTextIndex(edge.Gid().AsInt(), SerializeProperties(edge_properties, name_id_mapper),
-                          StringifyProperties(edge_properties), index_data.context_);
+      TextEdgeIndex::AddEdgeToTextIndex(edge.Gid().AsInt(), edge.FromVertex().Gid().AsInt(),
+                                        edge.ToVertex().Gid().AsInt(),
+                                        SerializeProperties(edge_properties, name_id_mapper),
+                                        StringifyProperties(edge_properties), index_data.context_);
     }
   }
 }
@@ -162,8 +191,8 @@ mgcxx::text_search::SearchOutput TextEdgeIndex::SearchAllProperties(const std::s
   return mgcxx::text_search::SearchOutput{};
 }
 
-std::vector<Gid> TextEdgeIndex::Search(const std::string &index_name, const std::string &search_query,
-                                       text_search_mode search_mode) {
+std::vector<EdgeTextSearchResult> TextEdgeIndex::Search(const std::string &index_name, const std::string &search_query,
+                                                        text_search_mode search_mode) {
   if (!index_.contains(index_name)) {
     throw query::TextSearchException("Text edge index \"{}\" doesn't exist.", index_name);
   }
@@ -185,13 +214,18 @@ std::vector<Gid> TextEdgeIndex::Search(const std::string &index_name, const std:
           "text_search.regex_search.");
   }
 
-  std::vector<Gid> found_edges;
+  std::vector<EdgeTextSearchResult> found_edges;
   for (const auto &doc : search_results.docs) {
     // Create string using both data pointer and length to avoid buffer overflow
     // The CXX .data() method may not null-terminate the string properly
     std::string doc_string(doc.data.data(), doc.data.length());
     auto doc_json = nlohmann::json::parse(doc_string);
-    found_edges.push_back(storage::Gid::FromString(doc_json["metadata"]["gid"].dump()));
+
+    Gid edge_gid = storage::Gid::FromString(doc_json["metadata"]["edge_gid"].dump());
+    Gid from_vertex_gid = storage::Gid::FromString(doc_json["metadata"]["from_vertex_gid"].dump());
+    Gid to_vertex_gid = storage::Gid::FromString(doc_json["metadata"]["to_vertex_gid"].dump());
+
+    found_edges.emplace_back(edge_gid, from_vertex_gid, to_vertex_gid);
   }
   return found_edges;
 }
@@ -244,17 +278,21 @@ void TextEdgeIndex::ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_m
     // Take exclusive lock to properly serialize all updates and hold it for the entire operation
     std::lock_guard lock(index_data_ptr->write_mutex_);
     try {
-      for (const auto *vertex : pending.to_remove_) {
-        auto search_node_to_be_deleted =
-            mgcxx::text_search::SearchInput{.search_query = fmt::format("metadata.gid:{}", vertex->gid.AsInt())};
-        mgcxx::text_search::delete_document(index_data_ptr->context_, search_node_to_be_deleted, kDoSkipCommit);
+      for (const auto *edge : pending.to_remove_) {
+        auto search_edge_to_be_deleted =
+            mgcxx::text_search::SearchInput{.search_query = fmt::format("metadata.edge_gid:{}", edge->gid.AsInt())};
+        mgcxx::text_search::delete_document(index_data_ptr->context_, search_edge_to_be_deleted, kDoSkipCommit);
       }
-      for (const auto *vertex : pending.to_add_) {
-        auto vertex_properties = index_data_ptr->properties_.empty()
-                                     ? vertex->properties.Properties()
-                                     : ExtractProperties(vertex->properties, index_data_ptr->properties_);
-        AddEntryToTextIndex(vertex->gid.AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
-                            StringifyProperties(vertex_properties), index_data_ptr->context_);
+      for (const auto &edge_with_vertices : pending.to_add_) {
+        auto edge_properties =
+            index_data_ptr->properties_.empty()
+                ? edge_with_vertices.edge->properties.Properties()
+                : ExtractProperties(edge_with_vertices.edge->properties, index_data_ptr->properties_);
+        // Now we have access to the vertex GIDs through the EdgeWithVertices structure
+        TextEdgeIndex::AddEdgeToTextIndex(
+            edge_with_vertices.edge->gid.AsInt(), edge_with_vertices.from_vertex->gid.AsInt(),
+            edge_with_vertices.to_vertex->gid.AsInt(), SerializeProperties(edge_properties, name_id_mapper),
+            StringifyProperties(edge_properties), index_data_ptr->context_);
       }
       mgcxx::text_search::commit(index_data_ptr->context_);
     } catch (const std::exception &e) {

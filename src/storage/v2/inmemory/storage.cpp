@@ -18,6 +18,7 @@
 #include <functional>
 #include <mutex>
 #include <optional>
+#include <range/v3/view/unique.hpp>
 #include <system_error>
 
 #include "dbms/constants.hpp"
@@ -28,6 +29,7 @@
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
+#include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/edge_property_index.hpp"
@@ -1927,6 +1929,15 @@ std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid gid,
   return EdgeAccessor::Create(edge_ref, edge_type, from, to, storage_, &transaction_, view);
 }
 
+std::optional<EdgeAccessor> InMemoryStorage::InMemoryAccessor::FindEdge(Gid edge_gid, Gid from_vertex_gid, View view) {
+  const auto maybe_edge_info = static_cast<InMemoryStorage *>(storage_)->FindEdge(edge_gid, from_vertex_gid);
+  if (!maybe_edge_info) {
+    return std::nullopt;
+  }
+  const auto &[edge_ref, edge_type, from, to] = *maybe_edge_info;
+  return EdgeAccessor::Create(edge_ref, edge_type, from, to, storage_, &transaction_, view);
+}
+
 Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) {
   // We acquire the transaction engine lock here because we access (and
   // modify) the transaction engine variables (`transaction_id` and
@@ -3142,50 +3153,64 @@ void InMemoryStorage::CreateSnapshotHandler(
   });
 }
 
-std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> InMemoryStorage::FindEdge(Gid gid) {
-  using EdgeInfo = std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>;
-
-  auto edge_acc = edges_.access();
-  auto edge_it = edge_acc.find(gid);
-  if (edge_it == edge_acc.end()) {
-    return std::nullopt;
+template <typename Container>
+const void *InMemoryStorage::FindEntityPtr(const Container &container, Gid gid) {
+  auto acc = container.access();
+  auto it = acc.find(gid);
+  if (it == acc.end()) {
+    return nullptr;
   }
+  return &(*it);
+}
 
-  auto *edge_ptr = &(*edge_it);
+InMemoryStorage::EdgeInfo InMemoryStorage::ExtractEdgeInfo(Vertex *from_vertex, const void *edge_ptr) {
+  for (auto &out_edge : from_vertex->out_edges) {
+    const auto [edge_type, other_vertex, edge_ref] = out_edge;
+    if (edge_ref.ptr == edge_ptr) {
+      return std::tuple(edge_ref, edge_type, from_vertex, other_vertex);
+    }
+  }
+  return std::nullopt;
+}
+
+InMemoryStorage::EdgeInfo InMemoryStorage::FindEdgeFromMetadata(Gid gid, const void *edge_ptr) {
+  auto edge_metadata_acc = edges_metadata_.access();
+  auto edge_metadata_it = edge_metadata_acc.find(gid);
+  MG_ASSERT(edge_metadata_it != edge_metadata_acc.end(), "Invalid database state!");
+  return ExtractEdgeInfo(edge_metadata_it->from_vertex, edge_ptr);
+}
+
+InMemoryStorage::EdgeInfo InMemoryStorage::FindEdge(Gid gid) {
+  const void *edge_ptr = FindEntityPtr(edges_, gid);
+  if (!edge_ptr) return std::nullopt;
+
   auto vertices_acc = vertices_.access();
-
-  auto extract_edge_info = [&](Vertex *from_vertex) -> EdgeInfo {
-    for (auto &out_edge : from_vertex->out_edges) {
-      const auto [edge_type, other_vertex, edge_ref] = out_edge;
-      if (edge_ref.ptr == edge_ptr) {
-        return std::tuple(edge_ref, edge_type, from_vertex, other_vertex);
-      }
-    }
-    return std::nullopt;
-  };
-
   if (config_.salient.items.enable_edges_metadata) {
-    auto edge_metadata_acc = edges_metadata_.access();
-    auto edge_metadata_it = edge_metadata_acc.find(gid);
-    MG_ASSERT(edge_metadata_it != edge_metadata_acc.end(), "Invalid database state!");
-
-    auto maybe_edge_info = extract_edge_info(edge_metadata_it->from_vertex);
-    return maybe_edge_info;
+    return FindEdgeFromMetadata(gid, edge_ptr);
   }
 
-  // If metadata on edges is not enabled we will have to do
-  // a full scan.
-  auto maybe_edge_info = std::invoke([&]() -> EdgeInfo {
-    for (auto &from_vertex : vertices_acc) {
-      auto maybe_edge_info = extract_edge_info(&from_vertex);
-      if (maybe_edge_info) {
-        return maybe_edge_info;
-      }
+  for (auto &from_vertex : vertices_acc) {
+    if (auto maybe_info = ExtractEdgeInfo(&from_vertex, edge_ptr)) {
+      return maybe_info;
     }
-    return std::nullopt;
-  });
+  }
+  return std::nullopt;
+}
 
-  return maybe_edge_info;
+InMemoryStorage::EdgeInfo InMemoryStorage::FindEdge(Gid edge_gid, Gid from_vertex_gid) {
+  const void *edge_ptr = FindEntityPtr(edges_, edge_gid);
+  if (!edge_ptr) return std::nullopt;
+
+  auto vertices_acc = vertices_.access();
+  if (config_.salient.items.enable_edges_metadata) {
+    return FindEdgeFromMetadata(edge_gid, edge_ptr);
+  }
+
+  auto vertex_it = vertices_acc.find(from_vertex_gid);
+  if (vertex_it == vertices_acc.end()) {
+    throw utils::BasicException("Vertex with GID {} not found in the database", from_vertex_gid.AsUint());
+  }
+  return ExtractEdgeInfo(&(*vertex_it), edge_ptr);
 }
 
 void InMemoryStorage::Clear() {

@@ -16,6 +16,7 @@
 #include <utility>
 #include "flags/run_time_configurable.hpp"
 #include "storage/v2/commit_log.hpp"
+#include "storage/v2/edge_ref.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
@@ -180,6 +181,8 @@ class InMemoryStorage final : public Storage {
                               std::span<storage::PropertyValueRange const> property_ranges, View view) override;
 
     std::optional<EdgeAccessor> FindEdge(Gid gid, View view) override;
+
+    std::optional<EdgeAccessor> FindEdge(Gid edge_gid, Gid from_vertex_gid, View view) override;
 
     EdgesIterable Edges(EdgeTypeId edge_type, View view) override;
 
@@ -610,7 +613,18 @@ class InMemoryStorage final : public Storage {
 
   void UpdateEdgesMetadataOnModification(Edge *edge, Vertex *from_vertex);
 
-  std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> FindEdge(Gid gid);
+  template <typename Container>
+  const void *FindEntityPtr(const Container &container, Gid gid);
+
+  using EdgeInfo = std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>;
+
+  EdgeInfo FindEdge(Gid gid);
+
+  EdgeInfo FindEdge(Gid edge_gid, Gid from_vertex_gid);
+
+  static EdgeInfo ExtractEdgeInfo(Vertex *from_vertex, const void *edge_ptr);
+
+  EdgeInfo FindEdgeFromMetadata(Gid gid, const void *edge_ptr);
 
   // Main object storage
   utils::SkipList<Vertex> vertices_;

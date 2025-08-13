@@ -10,13 +10,11 @@
 // licenses/APL.txt.
 
 #include "query/db_accessor.hpp"
-
-#include "query/graph.hpp"
-
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
+#include "query/graph.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/storage_mode.hpp"
-#include "utils/pmr/unordered_set.hpp"
 
 namespace memgraph::query {
 SubgraphDbAccessor::SubgraphDbAccessor(query::DbAccessor db_accessor, Graph *graph)
@@ -108,6 +106,15 @@ std::optional<VertexAccessor> SubgraphDbAccessor::FindVertex(storage::Gid gid, s
   std::optional<VertexAccessor> maybe_vertex = db_accessor_.FindVertex(gid, view);
   if (maybe_vertex && this->graph_->ContainsVertex(*maybe_vertex)) {
     return *maybe_vertex;
+  }
+  return std::nullopt;
+}
+
+std::optional<EdgeAccessor> SubgraphDbAccessor::FindEdge(storage::Gid edge_gid, storage::Gid from_vertex_gid,
+                                                         storage::View view) {
+  std::optional<EdgeAccessor> maybe_edge = db_accessor_.FindEdge(edge_gid, from_vertex_gid, view);
+  if (maybe_edge && this->graph_->ContainsEdge(*maybe_edge)) {
+    return maybe_edge;
   }
   return std::nullopt;
 }

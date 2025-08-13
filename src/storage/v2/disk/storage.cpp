@@ -981,6 +981,11 @@ std::optional<EdgeAccessor> DiskStorage::DiskAccessor::FindEdge(storage::Gid gid
                                  kErrorMessage);
 }
 
+std::optional<EdgeAccessor> DiskStorage::DiskAccessor::FindEdge(Gid edge_gid, Gid from_vertex_gid, View view) {
+  throw utils::NotYetImplemented("Id based lookup for on-disk storage mode is not yet implemented on edges. {}",
+                                 kErrorMessage);
+}
+
 Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>>
 DiskStorage::DiskAccessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges,
                                         bool detach) {

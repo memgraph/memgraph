@@ -120,25 +120,6 @@ std::string StringifyProperties(const std::map<PropertyId, PropertyValue> &prope
   return utils::Join(indexable_properties_as_string, " ");
 }
 
-void AddEntryToTextIndex(std::int64_t gid, const nlohmann::json &properties, const std::string &property_values_as_str,
-                         mgcxx::text_search::Context &context) {
-  nlohmann::json document = {};
-  document["data"] = properties;
-  document["all"] = property_values_as_str;
-  document["metadata"] = {};
-  document["metadata"]["gid"] = gid;
-
-  try {
-    mgcxx::text_search::add_document(
-        context,
-        mgcxx::text_search::DocumentInput{.data =
-                                              document.dump(-1, ' ', false, nlohmann::json::error_handler_t::replace)},
-        kDoSkipCommit);
-  } catch (const std::exception &e) {
-    throw query::TextSearchException("Tantivy error: {}", e.what());
-  }
-}
-
 std::map<PropertyId, PropertyValue> ExtractProperties(const PropertyStore &property_store,
                                                       std::span<PropertyId const> properties) {
   if (properties.empty()) {
@@ -175,19 +156,20 @@ void TrackTextIndexChange(TextIndexChangeCollector &collector, std::span<TextInd
 }
 
 void TrackTextEdgeIndexChange(TextEdgeIndexChangeCollector &collector, std::span<TextEdgeIndexData *> indices,
-                              const Edge *edge, TextIndexOp op) {
-  if (!edge) return;
+                              const Edge *edge, const Vertex *from_vertex, const Vertex *to_vertex, TextIndexOp op) {
+  if (!edge || !from_vertex || !to_vertex) return;
+  EdgeWithVertices edge_with_vertices(edge, from_vertex, to_vertex);
   for (auto *idx : indices) {
     auto &entry = collector[idx];
     if (op == TextIndexOp::ADD) {
       entry.to_remove_.erase(edge);
-      entry.to_add_.insert(edge);
+      entry.to_add_.insert(edge_with_vertices);
     } else if (op == TextIndexOp::UPDATE) {
       // On update we have to firstly remove the edge from index and then add it back
       entry.to_remove_.insert(edge);
-      entry.to_add_.insert(edge);
+      entry.to_add_.insert(edge_with_vertices);
     } else {  // REMOVE
-      entry.to_add_.erase(edge);
+      entry.to_add_.erase(edge_with_vertices);
       entry.to_remove_.insert(edge);
     }
   }

@@ -942,6 +942,10 @@ enum mgp_error mgp_graph_aggregate_over_text_index(struct mgp_graph *graph, cons
                                                    const char *search_query, const char *aggregation_query,
                                                    struct mgp_memory *memory, struct mgp_map **result);
 
+enum mgp_error mgp_graph_search_text_edge_index(struct mgp_graph *graph, const char *index_name,
+                                                const char *search_query, enum text_search_mode search_mode,
+                                                struct mgp_memory *memory, struct mgp_map **result);
+
 enum mgp_error mgp_graph_search_vector_index(struct mgp_graph *graph, const char *index_name, struct mgp_list *query,
                                              int result_size, struct mgp_memory *memory, struct mgp_map **result);
 

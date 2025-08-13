@@ -36,6 +36,12 @@ struct TextEdgeIndexData {
       : context_(std::move(context)), scope_(scope), properties_(std::move(properties)) {}
 };
 
+struct EdgeTextSearchResult {
+  Gid edge_gid;
+  Gid from_vertex_gid;
+  Gid to_vertex_gid;
+};
+
 class TextEdgeIndex {
  private:
   std::filesystem::path text_index_storage_dir_;
@@ -44,6 +50,10 @@ class TextEdgeIndex {
 
   std::vector<TextEdgeIndexData *> GetApplicableTextIndices(EdgeTypeId edge_type,
                                                             std::span<PropertyId const> properties);
+
+  static void AddEdgeToTextIndex(std::int64_t edge_gid, std::int64_t from_vertex_gid, std::int64_t to_vertex_gid,
+                                 nlohmann::json properties, std::string property_values_as_str,
+                                 mgcxx::text_search::Context &context);
 
   mgcxx::text_search::SearchOutput SearchGivenProperties(const std::string &index_name,
                                                          const std::string &search_query);
@@ -65,11 +75,13 @@ class TextEdgeIndex {
 
   std::map<std::string, TextEdgeIndexData> index_;
 
-  void UpdateOnEdgeCreation(const Edge *edge, EdgeTypeId edge_type, Transaction &tx);
+  void UpdateOnEdgeCreation(const Edge *edge, const Vertex *from_vertex, const Vertex *to_vertex, EdgeTypeId edge_type,
+                            Transaction &tx);
 
   void RemoveEdge(const Edge *edge, EdgeTypeId edge_type, Transaction &tx);
 
-  void UpdateOnSetProperty(const Edge *edge, EdgeTypeId edge_type, Transaction &tx);
+  void UpdateOnSetProperty(const Edge *edge, const Vertex *from_vertex, const Vertex *to_vertex, EdgeTypeId edge_type,
+                           Transaction &tx);
 
   void CreateIndex(const TextEdgeIndexSpec &index_info, VerticesIterable vertices, NameIdMapper *name_id_mapper);
 
@@ -80,7 +92,8 @@ class TextEdgeIndex {
 
   bool IndexExists(const std::string &index_name) const;
 
-  std::vector<Gid> Search(const std::string &index_name, const std::string &search_query, text_search_mode search_mode);
+  std::vector<EdgeTextSearchResult> Search(const std::string &index_name, const std::string &search_query,
+                                           text_search_mode search_mode);
 
   std::string Aggregate(const std::string &index_name, const std::string &search_query,
                         const std::string &aggregation_query);

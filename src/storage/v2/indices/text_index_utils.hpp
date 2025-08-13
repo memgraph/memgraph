@@ -50,10 +50,6 @@ nlohmann::json SerializeProperties(const std::map<PropertyId, PropertyValue> &pr
 // Convert properties to string representation
 std::string StringifyProperties(const std::map<PropertyId, PropertyValue> &properties);
 
-// Add a node or edge to the text index
-void AddEntryToTextIndex(std::int64_t gid, const nlohmann::json &properties, const std::string &property_values_as_str,
-                         mgcxx::text_search::Context &context);
-
 std::map<PropertyId, PropertyValue> ExtractProperties(const PropertyStore &property_store,
                                                       std::span<PropertyId const> properties);
 
@@ -76,12 +72,26 @@ struct TextEdgeIndexSpec {
 };
 
 struct TextIndexPending {
-  absl::flat_hash_set<Vertex const *> to_add_;
-  absl::flat_hash_set<Vertex const *> to_remove_;
+  absl::flat_hash_set<const Vertex *> to_add_;
+  absl::flat_hash_set<const Vertex *> to_remove_;
+};
+struct EdgeWithVertices {
+  const Edge *edge;
+  const Vertex *from_vertex;
+  const Vertex *to_vertex;
+
+  EdgeWithVertices(const Edge *e, const Vertex *from, const Vertex *to) : edge(e), from_vertex(from), to_vertex(to) {}
+
+  friend bool operator==(const EdgeWithVertices &a, const EdgeWithVertices &b) { return a.edge == b.edge; }
+
+  template <typename H>
+  friend H AbslHashValue(H h, const EdgeWithVertices &edge_with_vertices) {
+    return H::combine(std::move(h), edge_with_vertices.edge);
+  }
 };
 struct TextEdgeIndexPending {
-  absl::flat_hash_set<Edge const *> to_add_;
-  absl::flat_hash_set<Edge const *> to_remove_;
+  absl::flat_hash_set<EdgeWithVertices> to_add_;
+  absl::flat_hash_set<const Edge *> to_remove_;
 };
 
 // Text index change collector for transaction-level batching
@@ -91,6 +101,6 @@ using TextEdgeIndexChangeCollector = absl::flat_hash_map<TextEdgeIndexData *, Te
 void TrackTextIndexChange(TextIndexChangeCollector &collector, std::span<TextIndexData *> indices, const Vertex *vertex,
                           TextIndexOp op);
 void TrackTextEdgeIndexChange(TextEdgeIndexChangeCollector &collector, std::span<TextEdgeIndexData *> indices,
-                              const Edge *edge, TextIndexOp op);
+                              const Edge *edge, const Vertex *from_vertex, const Vertex *to_vertex, TextIndexOp op);
 
 }  // namespace memgraph::storage
