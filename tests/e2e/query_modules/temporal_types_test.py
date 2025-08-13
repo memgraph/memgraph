@@ -57,7 +57,7 @@ def test_retrieve_zoneddatetime():
     cursor = connect().cursor()
     result = execute_and_fetch_all(cursor, "RETURN temporal.make_zdt(2024, 1, 15, 10, 30, 45, 120)")
     assert result == [
-        (datetime.datetime(2024, 1, 15, 12, 30, 45, tzinfo=datetime.timezone(datetime.timedelta(seconds=7200))),)
+        (datetime.datetime(2024, 1, 15, 10, 30, 45, tzinfo=datetime.timezone(datetime.timedelta(seconds=7200))),)
     ]
 
 
