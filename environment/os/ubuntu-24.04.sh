@@ -103,6 +103,12 @@ check() {
         esac
     done
 
+    # check if python3 is installed
+    if ! command -v python3 &>/dev/null; then
+        echo "python3 is not installed"
+        exit 1
+    fi
+
     # Check standard packages with Python script
     if [ ${#standard_packages[@]} -gt 0 ]; then
         missing=$(python3 "$DIR/check-packages.py" "check" "ubuntu-24.04" "${standard_packages[@]}")
@@ -143,6 +149,11 @@ install() {
 
     # Update package lists first
     apt update -y
+
+    # check if python3 is installed
+    if ! command -v python3 &>/dev/null; then
+        apt install -y python3
+    fi
 
     # If GitHub Actions runner is installed, append LANG to the environment.
     # Python related tests doesn't work the LANG export.
