@@ -43,9 +43,10 @@ void SaveWithUpgrade(TResponse const &res, uint64_t const response_version, slk:
 template <RpcMessage TResponse>
 void SendFinalResponse(TResponse const &res, uint64_t const response_version, slk::Builder *builder,
                        std::string description = "") {
-  slk::Save(TResponse::kType.id, builder);
-  slk::Save(current_protocol_version, builder);
-  slk::Save(response_version, builder);
+  ProtocolMessageHeader const message_header{.protocol_version = current_protocol_version,
+                                             .message_id = TResponse::kType.id,
+                                             .message_version = response_version};
+  SaveMessageHeader(message_header, builder);
   SaveWithUpgrade(res, response_version, builder);
   builder->Finalize();
   spdlog::trace("[RpcServer] sent {}, version {}. {}", TResponse::kType.name, response_version, description);
