@@ -45,35 +45,6 @@ using memgraph::storage::replication::HeartbeatRpc;
 using namespace std::string_view_literals;
 using namespace std::literals::chrono_literals;
 
-namespace memgraph::slk {
-void Save(const SumReq &sum, Builder *builder) {
-  Save(sum.x, builder);
-  Save(sum.y, builder);
-}
-
-void Load(SumReq *sum, Reader *reader) {
-  Load(&sum->x, reader);
-  Load(&sum->y, reader);
-}
-
-void Save(const SumRes &res, Builder *builder) { Save(res.sum, builder); }
-
-void Load(SumRes *res, Reader *reader) { Load(&res->sum, reader); }
-
-void Save(const EchoMessage &echo, Builder *builder) { Save(echo.data, builder); }
-
-void Load(EchoMessage *echo, Reader *reader) { Load(&echo->data, reader); }
-}  // namespace memgraph::slk
-
-void SumReq::Load(SumReq *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
-void SumReq::Save(const SumReq &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
-
-void SumRes::Load(SumRes *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
-void SumRes::Save(const SumRes &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
-
-void EchoMessage::Load(EchoMessage *obj, memgraph::slk::Reader *reader) { memgraph::slk::Load(obj, reader); }
-void EchoMessage::Save(const EchoMessage &obj, memgraph::slk::Builder *builder) { memgraph::slk::Save(obj, builder); }
-
 namespace {
 constexpr int port{8181};
 std::atomic_bool rpc_akn{false};
@@ -92,7 +63,7 @@ TEST(RpcTimeout, TimeoutNoFailure) {
 
   rpc_server.Register<Echo>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
     EchoMessage req;
-    Load(&req, req_reader);
+    memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
 
     EchoMessage res{"Sending reply"};
     memgraph::rpc::SendFinalResponse(res, res_builder);
@@ -123,7 +94,7 @@ TEST(RpcTimeout, TimeoutExecutionBlocks) {
 
   rpc_server.Register<Echo>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
     EchoMessage req;
-    Load(&req, req_reader);
+    memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
 
     std::this_thread::sleep_for(1100ms);
     EchoMessage res{"Sending reply"};
@@ -155,16 +126,17 @@ TEST(RpcTimeout, TimeoutServerBusy) {
   rpc_server.Register<Sum>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
     spdlog::trace("Received sum request.");
     SumReq req;
-    Load(&req, req_reader);
+    memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
     std::this_thread::sleep_for(2500ms);
-    SumRes res(req.x + req.y);
+    auto const sum = std::accumulate(req.nums_.begin(), req.nums_.end(), 0);
+    SumRes res(sum);
     memgraph::rpc::SendFinalResponse(res, res_builder);
   });
 
   rpc_server.Register<Echo>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
     spdlog::trace("Received echo request");
     EchoMessage req;
-    Load(&req, req_reader);
+    memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
 
     EchoMessage res{"Sending reply"};
     memgraph::rpc::SendFinalResponse(res, res_builder);
@@ -182,7 +154,7 @@ TEST(RpcTimeout, TimeoutServerBusy) {
 
   // Sum request won't timeout but Echo should timeout because server has only one
   // processing thread.
-  auto sum_stream = sum_client.Stream<Sum>(10, 10);
+  auto sum_stream = sum_client.Stream<SumV1>(10, 10);
   auto echo_stream = echo_client.Stream<Echo>("Sending request");
   // Don't block main test thread so echo_stream could timeout
   auto sum_thread_ = std::jthread([&sum_stream]() { sum_stream.SendAndWait(); });
@@ -203,7 +175,7 @@ TEST(RpcTimeout, SendingToWrongSocket) {
 
   rpc_server.Register<Echo>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
     EchoMessage req;
-    Load(&req, req_reader);
+    memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
 
     std::this_thread::sleep_for(1100ms);
     EchoMessage res{"Sending reply"};
@@ -226,7 +198,7 @@ void RegisterRpcCallback(Server &rpc_server) {
   rpc_server.Register<T>([](uint64_t const request_version, auto *req_reader, auto /* *res_builder */) {
     typename T::Request req;
     if constexpr (!std::is_same_v<T, EnableWritingOnMainRpc> && !std::is_same_v<T, GetDatabaseHistoriesRpc>) {
-      Load(&req, req_reader);
+      memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
     }
     rpc_akn.wait(true);    // Wait for the timeout
     rpc_akn.store(false);  // Reset to signal handler is finished
