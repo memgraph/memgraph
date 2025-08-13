@@ -25,8 +25,8 @@ while [[ $# -gt 0 ]]; do
 done
 
 # Validate build type
-if [[ "$BUILD_TYPE" != "Release" && "$BUILD_TYPE" != "RelWithDebInfo" ]]; then
-    echo "Error: --build-type must be either 'Release' or 'RelWithDebInfo'"
+if [[ "$BUILD_TYPE" != "Release" && "$BUILD_TYPE" != "RelWithDebInfo" && "$BUILD_TYPE" != "Debug" ]]; then
+    echo "Error: --build-type must be either 'Release', 'RelWithDebInfo', or 'Debug'"
     exit 1
 fi
 
@@ -56,8 +56,13 @@ source build/generators/conanbuild.sh
 # Determine preset name based on build type (Conan generates this automatically)
 if [[ "$BUILD_TYPE" == "Release" ]]; then
     PRESET="conan-release"
-else
+elif [[ "$BUILD_TYPE" == "RelWithDebInfo" ]]; then
     PRESET="conan-relwithdebinfo"
+elif [[ "$BUILD_TYPE" == "Debug" ]]; then
+    PRESET="conan-debug"
+else
+    echo "Error: Unsupported build type: $BUILD_TYPE"
+    exit 1
 fi
 
 cmake --preset $PRESET
