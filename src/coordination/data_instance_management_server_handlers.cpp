@@ -96,7 +96,7 @@ void DataInstanceManagementServerHandlers::StateCheckHandler(const replication::
   });
 
   coordination::StateCheckRes const rpc_res{is_replica, uuid, writing_enabled};
-  rpc::SendFinalResponse(rpc_res, res_builder,
+  rpc::SendFinalResponse(rpc_res, request_version, res_builder,
                          fmt::format("is_replica = {}, uuid = {}, writing_enabled = {}", is_replica,
                                      uuid.has_value() ? std::string{*uuid} : "", writing_enabled));
 }
@@ -105,7 +105,7 @@ void DataInstanceManagementServerHandlers::GetDatabaseHistoriesHandler(
     replication::ReplicationHandler const &replication_handler, uint64_t const request_version,
     slk::Reader * /*req_reader*/, slk::Builder *res_builder) {
   coordination::GetDatabaseHistoriesRes const rpc_res{replication_handler.GetDatabasesHistories()};
-  rpc::SendFinalResponse(rpc_res, res_builder);
+  rpc::SendFinalResponse(rpc_res, request_version, res_builder);
 }
 
 void DataInstanceManagementServerHandlers::GetReplicationLagHandler(
@@ -191,7 +191,7 @@ void DataInstanceManagementServerHandlers::SwapMainUUIDHandler(replication::Repl
   if (!locked_repl_state->IsReplica()) {
     spdlog::error("Setting uuid must be performed on replica.");
     replication_coordination_glue::SwapMainUUIDRes const rpc_res{false};
-    rpc::SendFinalResponse(rpc_res, res_builder);
+    rpc::SendFinalResponse(rpc_res, request_version, res_builder);
     return;
   }
 
@@ -201,7 +201,7 @@ void DataInstanceManagementServerHandlers::SwapMainUUIDHandler(replication::Repl
   repl_data.uuid_ = req.uuid;
 
   replication_coordination_glue::SwapMainUUIDRes const rpc_res{true};
-  rpc::SendFinalResponse(rpc_res, res_builder);
+  rpc::SendFinalResponse(rpc_res, request_version, res_builder);
   spdlog::info("UUID successfully set to {}.", std::string(req.uuid));
 }
 
@@ -218,12 +218,12 @@ void DataInstanceManagementServerHandlers::DemoteMainToReplicaHandler(
   if (!replication_handler.SetReplicationRoleReplica(clients_config)) {
     spdlog::error("Demoting main to replica failed.");
     coordination::DemoteMainToReplicaRes const rpc_res{false};
-    rpc::SendFinalResponse(rpc_res, res_builder);
+    rpc::SendFinalResponse(rpc_res, request_version, res_builder);
     return;
   }
 
   coordination::DemoteMainToReplicaRes const rpc_res{true};
-  rpc::SendFinalResponse(rpc_res, res_builder);
+  rpc::SendFinalResponse(rpc_res, request_version, res_builder);
   spdlog::info("MAIN successfully demoted to REPLICA.");
 }
 
@@ -244,7 +244,7 @@ void DataInstanceManagementServerHandlers::PromoteToMainHandler(replication::Rep
   if (const bool success = replication_handler.DoToMainPromotion(req.main_uuid); !success) {
     spdlog::error("Promoting replica to main failed.");
     coordination::PromoteToMainRes const res{false};
-    rpc::SendFinalResponse(res, res_builder);
+    rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
@@ -253,7 +253,7 @@ void DataInstanceManagementServerHandlers::PromoteToMainHandler(replication::Rep
   for (auto const &config : req.replication_clients_info) {
     if (!DoRegisterReplica(replication_handler, config)) {
       coordination::PromoteToMainRes const res{false};
-      rpc::SendFinalResponse(res, res_builder);
+      rpc::SendFinalResponse(res, request_version, res_builder);
       return;
     }
   }
@@ -261,7 +261,7 @@ void DataInstanceManagementServerHandlers::PromoteToMainHandler(replication::Rep
   replication_handler.GetReplState()->GetMainRole().writing_enabled_ = true;
 
   coordination::PromoteToMainRes const res{true};
-  rpc::SendFinalResponse(res, res_builder);
+  rpc::SendFinalResponse(res, request_version, res_builder);
   spdlog::info("Promoting replica to main finished successfully. New MAIN's uuid: {}", std::string(req.main_uuid));
 }
 
@@ -273,7 +273,7 @@ void DataInstanceManagementServerHandlers::RegisterReplicaOnMainHandler(
   if (!replication_handler.IsMain()) {
     spdlog::error("Registering replica on main must be performed on main!");
     coordination::RegisterReplicaOnMainRes const res{false};
-    rpc::SendFinalResponse(res, res_builder);
+    rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
@@ -287,19 +287,19 @@ void DataInstanceManagementServerHandlers::RegisterReplicaOnMainHandler(
     spdlog::error("Registering replica to main failed because MAIN's uuid {} != from coordinator's uuid {}!",
                   std::string(req.main_uuid), std::string(main_uuid));
     coordination::RegisterReplicaOnMainRes const res{false};
-    rpc::SendFinalResponse(res, res_builder);
+    rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
   if (!DoRegisterReplica(replication_handler, req.replication_client_info)) {
     spdlog::error("Replica {} couldn't be registered.", req.replication_client_info.instance_name);
     coordination::RegisterReplicaOnMainRes const res{false};
-    rpc::SendFinalResponse(res, res_builder);
+    rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
   coordination::RegisterReplicaOnMainRes const res{true};
-  rpc::SendFinalResponse(res, res_builder);
+  rpc::SendFinalResponse(res, request_version, res_builder);
   spdlog::info("Registering replica {} to main finished successfully.", req.replication_client_info.instance_name);
 }
 
@@ -313,31 +313,31 @@ void DataInstanceManagementServerHandlers::UnregisterReplicaHandler(
     using enum query::UnregisterReplicaResult;
     case SUCCESS: {
       coordination::UnregisterReplicaRes const rpc_res{true};
-      rpc::SendFinalResponse(rpc_res, res_builder);
+      rpc::SendFinalResponse(rpc_res, request_version, res_builder);
       break;
     }
     case NOT_MAIN: {
       spdlog::error("Unregistering replica must be performed on main.");
       coordination::UnregisterReplicaRes const rpc_res{false};
-      rpc::SendFinalResponse(rpc_res, res_builder);
+      rpc::SendFinalResponse(rpc_res, request_version, res_builder);
       break;
     }
     case CANNOT_UNREGISTER: {
       spdlog::error("Could not unregister replica.");
       coordination::UnregisterReplicaRes const rpc_res{false};
-      rpc::SendFinalResponse(rpc_res, res_builder);
+      rpc::SendFinalResponse(rpc_res, request_version, res_builder);
       break;
     }
     case COULD_NOT_BE_PERSISTED: {
       spdlog::error("Could not persist replica unregistration.");
       coordination::UnregisterReplicaRes const rpc_res{false};
-      rpc::SendFinalResponse(rpc_res, res_builder);
+      rpc::SendFinalResponse(rpc_res, request_version, res_builder);
       break;
     }
     case NO_ACCESS: {
       spdlog::error("Couldn't get unique access to ReplicationState when unregistering replica.");
       coordination::UnregisterReplicaRes const rpc_res{false};
-      rpc::SendFinalResponse(rpc_res, res_builder);
+      rpc::SendFinalResponse(rpc_res, request_version, res_builder);
       break;
     }
   }
@@ -345,26 +345,26 @@ void DataInstanceManagementServerHandlers::UnregisterReplicaHandler(
 }
 
 void DataInstanceManagementServerHandlers::EnableWritingOnMainHandler(
-    replication::ReplicationHandler &replication_handler, uint64_t const /*request_version*/,
-    slk::Reader * /*req_reader*/, slk::Builder *res_builder) {
+    replication::ReplicationHandler &replication_handler, uint64_t const request_version, slk::Reader * /*req_reader*/,
+    slk::Builder *res_builder) {
   auto locked_repl_state = replication_handler.GetReplState();
 
   if (!locked_repl_state->IsMain()) {
     spdlog::error("Enable writing on main must be performed on main!");
     coordination::EnableWritingOnMainRes const rpc_res{false};
-    rpc::SendFinalResponse(rpc_res, res_builder);
+    rpc::SendFinalResponse(rpc_res, request_version, res_builder);
     return;
   }
 
   if (!locked_repl_state->EnableWritingOnMain()) {
     spdlog::error("Enabling writing on main failed!");
     coordination::EnableWritingOnMainRes const rpc_res{false};
-    rpc::SendFinalResponse(rpc_res, res_builder);
+    rpc::SendFinalResponse(rpc_res, request_version, res_builder);
     return;
   }
 
   coordination::EnableWritingOnMainRes const rpc_res{true};
-  rpc::SendFinalResponse(rpc_res, res_builder);
+  rpc::SendFinalResponse(rpc_res, request_version, res_builder);
   spdlog::info("Enabled writing on main.");
 }
 

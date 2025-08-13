@@ -29,7 +29,8 @@ struct SumReqV1 {
   int x;
   int y;
 };
-
+// v2 request accepts the vector of numbers
+// v2 response return the sum as a vector with the single-element (some random reason)
 struct SumReq {
   static constexpr memgraph::utils::TypeInfo kType{.id = memgraph::utils::TypeId::UNKNOWN, .name = "SumReq"};
   static constexpr uint64_t kVersion{2};
@@ -50,7 +51,7 @@ struct SumResV1 {
   static constexpr uint64_t kVersion{1};
 
   SumResV1() = default;  // Needed for serialization.
-  explicit SumResV1(int sum) : sum(sum) {}
+  explicit SumResV1(int const sum) : sum(sum) {}
 
   static void Load(SumResV1 *obj, memgraph::slk::Reader *reader);
   static void Save(const SumResV1 &obj, memgraph::slk::Builder *builder);
@@ -58,18 +59,19 @@ struct SumResV1 {
   int sum;
 };
 
-// If new version is exactly the same as old version
 struct SumRes {
   static constexpr memgraph::utils::TypeInfo kType{.id = memgraph::utils::TypeId::UNKNOWN, .name = "SumRes"};
   static constexpr uint64_t kVersion{2};
 
   SumRes() = default;  // Needed for serialization.
-  explicit SumRes(int sum) : sum(sum) {}
+  explicit SumRes(std::initializer_list<int> const sum) : sum(sum) {}
 
   static void Load(SumRes *obj, memgraph::slk::Reader *reader);
   static void Save(const SumRes &obj, memgraph::slk::Builder *builder);
 
-  int sum;
+  SumResV1 Downgrade() const { return SumResV1{sum[0]}; }
+
+  std::vector<int> sum;
 };
 
 namespace memgraph::slk {

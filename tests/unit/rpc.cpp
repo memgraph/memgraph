@@ -36,8 +36,8 @@ TEST(Rpc, Call) {
     SumReq req;
     memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
     auto const sum = std::accumulate(req.nums_.begin(), req.nums_.end(), 0);
-    SumRes const res(sum);
-    memgraph::rpc::SendFinalResponse(res, res_builder);
+    SumRes const res({sum});
+    memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
@@ -56,8 +56,8 @@ TEST(Rpc, Abort) {
     memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
     auto const sum = std::accumulate(req.nums_.begin(), req.nums_.end(), 0);
     std::this_thread::sleep_for(500ms);
-    SumRes const res(sum);
-    memgraph::rpc::SendFinalResponse(res, res_builder);
+    SumRes const res({sum});
+    memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
@@ -89,8 +89,8 @@ TEST(Rpc, ClientPool) {
     memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
     auto const sum = std::accumulate(req.nums_.begin(), req.nums_.end(), 0);
     std::this_thread::sleep_for(100ms);
-    SumRes const res(sum);
-    memgraph::rpc::SendFinalResponse(res, res_builder);
+    SumRes const res({sum});
+    memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
@@ -146,7 +146,7 @@ TEST(Rpc, LargeMessage) {
   server.Register<Echo>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
     EchoMessage req;
     memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
-    memgraph::rpc::SendFinalResponse(req, res_builder);
+    memgraph::rpc::SendFinalResponse(req, request_version, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
@@ -168,7 +168,7 @@ TEST(Rpc, JumboMessage) {
   server.Register<Echo>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
     EchoMessage req;
     memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
-    memgraph::rpc::SendFinalResponse(req, res_builder);
+    memgraph::rpc::SendFinalResponse(req, request_version, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
@@ -194,7 +194,7 @@ TEST(Rpc, Stream) {
     std::string payload;
     memgraph::slk::Load(&payload, req_reader);
     EchoMessage const res(req.data + payload);
-    memgraph::rpc::SendFinalResponse(res, res_builder);
+    memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
@@ -219,7 +219,7 @@ TEST(Rpc, StreamLarge) {
     std::string payload;
     memgraph::slk::Load(&payload, req_reader);
     EchoMessage const res(req.data + payload);
-    memgraph::rpc::SendFinalResponse(res, res_builder);
+    memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);
@@ -247,7 +247,7 @@ TEST(Rpc, StreamJumbo) {
     std::string payload;
     memgraph::slk::Load(&payload, req_reader);
     EchoMessage const res(req.data + payload);
-    memgraph::rpc::SendFinalResponse(res, res_builder);
+    memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
   });
   ASSERT_TRUE(server.Start());
   std::this_thread::sleep_for(100ms);

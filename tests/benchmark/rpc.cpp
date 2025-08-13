@@ -110,7 +110,7 @@ int main(int argc, char **argv) {
     server->Register<Echo>([](uint64_t const request_version, const auto &req_reader, auto *res_builder) {
       EchoMessage res;
       Load(&res, req_reader);
-      memgraph::rpc::SendFinalResponse(res, res_builder);
+      memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
     });
     server->Start();
   }

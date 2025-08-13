@@ -98,7 +98,7 @@ struct DropAuthDataRes {
   static void Load(DropAuthDataRes *self, memgraph::slk::Reader *reader);
   static void Save(const DropAuthDataRes &self, memgraph::slk::Builder *builder);
   DropAuthDataRes() = default;
-  explicit DropAuthDataRes(bool success) : success{success} {}
+  explicit DropAuthDataRes(bool const success) : success{success} {}
 
   bool success;
 };

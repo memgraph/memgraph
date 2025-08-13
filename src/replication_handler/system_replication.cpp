@@ -30,7 +30,7 @@ void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system
   using memgraph::replication::SystemRecoveryRes;
   SystemRecoveryRes res(SystemRecoveryRes::Result::FAILURE);
 
-  utils::OnScopeExit const send_on_exit([&]() { rpc::SendFinalResponse(res, res_builder); });
+  utils::OnScopeExit const send_on_exit([&]() { rpc::SendFinalResponse(res, request_version, res_builder); });
 
   memgraph::replication::SystemRecoveryReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);

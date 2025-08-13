@@ -59,7 +59,7 @@ TEST(RpcInProgress, SingleProgress) {
     // Simulate done
     std::this_thread::sleep_for(300ms);
     SumRes const res{5};
-    memgraph::rpc::SendFinalResponse(res, res_builder);
+    memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
     spdlog::trace("Saved SumRes response");
   });
 
@@ -111,7 +111,7 @@ TEST(RpcInProgress, MultipleProgresses) {
     // Simulate done
     std::this_thread::sleep_for(300ms);
     SumRes const res{5};
-    memgraph::rpc::SendFinalResponse(res, res_builder);
+    memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
     spdlog::trace("Saved SumRes response");
   });
 
@@ -152,7 +152,7 @@ TEST(RpcInProgress, Timeout) {
     // Simulate done
     std::this_thread::sleep_for(300ms);
     SumRes const res{5};
-    memgraph::rpc::SendFinalResponse(res, res_builder);
+    memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
     spdlog::trace("Saved SumRes response");
   });
 
@@ -184,7 +184,7 @@ TEST(RpcInProgress, NoTimeout) {
 
     spdlog::trace("Loaded sum req request");
     SumRes const res{5};
-    memgraph::rpc::SendFinalResponse(res, res_builder);
+    memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
     spdlog::trace("Saved SumRes response");
   });
 

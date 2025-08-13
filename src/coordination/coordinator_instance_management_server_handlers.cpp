@@ -34,7 +34,7 @@ void CoordinatorInstanceManagementServerHandlers::ShowInstancesHandler(Coordinat
   ShowInstancesReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
   ShowInstancesRes const rpc_res{coordinator_instance.ShowInstancesAsLeader()};
-  rpc::SendFinalResponse(rpc_res, res_builder);
+  rpc::SendFinalResponse(rpc_res, request_version, res_builder);
 }
 
 }  // namespace memgraph::coordination
