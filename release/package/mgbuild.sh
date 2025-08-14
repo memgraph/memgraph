@@ -448,7 +448,7 @@ build_memgraph () {
   local SETUP_MGDEPS_CACHE_ENDPOINT="export MGDEPS_CACHE_HOST_PORT=$mgdeps_cache_host:$mgdeps_cache_port"
   # Fix issue with git marking directory as not safe
   docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && git config --global --add safe.directory '*'"
-  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && $ACTIVATE_TOOLCHAIN && $SETUP_MGDEPS_CACHE_ENDPOINT && ./init $init_flags"
+  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && $SETUP_MGDEPS_CACHE_ENDPOINT && ./init $init_flags"
   if [[ "$init_only" == "true" ]]; then
     return
   fi
@@ -465,20 +465,26 @@ build_memgraph () {
     docker exec -u mg "$build_container" bash -c "ccache -z"
   fi
 
+  # use this because the commands get far too long!
+  CMD_START="cd $MGBUILD_ROOT_DIR"
+
   # Set up Conan environment
   echo "Setting up Conan environment..."
-  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && python3 -m venv env"
-  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && source ./env/bin/activate && pip install conan"
+  docker exec -u mg "$build_container" bash -c "$CMD_START && python3 -m venv env"
+  CMD_START="$CMD_START && source ./env/bin/activate"
+  docker exec -u mg "$build_container" bash -c "$CMD_START && pip install conan"
 
   # Check if a conan profile exists and create one if needed
-  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && source ./env/bin/activate && if [ ! -f \"\$HOME/.conan2/profiles/default\" ]; then conan profile detect; fi"
+  docker exec -u mg "$build_container" bash -c "$CMD_START && if [ ! -f \"\$HOME/.conan2/profiles/default\" ]; then conan profile detect; fi"
 
   # Install Conan dependencies
   echo "Installing Conan dependencies..."
-  local EXPORT_MG_TOOLCHAIN="export MG_TOOLCHAIN_ROOT=/opt/toolchain-${toolchain_version}/"
+  local EXPORT_MG_TOOLCHAIN="export MG_TOOLCHAIN_ROOT=/opt/toolchain-${toolchain_version}"
   local EXPORT_BUILD_TYPE="export BUILD_TYPE=$build_type"
-  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && source ./env/bin/activate && $EXPORT_MG_TOOLCHAIN && $EXPORT_BUILD_TYPE && conan install . --build=missing -pr ./memgraph_template_profile -s build_type=$build_type"
-  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && source ./env/bin/activate && source build/generators/conanbuild.sh"
+
+  CMD_START="$CMD_START && $EXPORT_MG_TOOLCHAIN && $EXPORT_BUILD_TYPE"
+  docker exec -u mg "$build_container" bash -c "$CMD_START && conan install . --build=missing -pr ./memgraph_template_profile -s build_type=$build_type"
+  CMD_START="$CMD_START && source build/generators/conanbuild.sh && $ACTIVATE_CARGO"
 
   # Determine preset name based on build type (Conan generates this automatically)
   local PRESET=""
@@ -526,12 +532,12 @@ build_memgraph () {
   fi
 
   echo "Running CMake with preset: $cmake_preset_cmd"
-  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && source ./env/bin/activate && $EXPORT_MG_TOOLCHAIN && $EXPORT_BUILD_TYPE && $ACTIVATE_CARGO && $cmake_preset_cmd"
+  docker exec -u mg "$build_container" bash -c "$CMD_START && $cmake_preset_cmd"
 
   if [[ "$cmake_only" == "true" ]]; then
     build_target(){
       target=$1
-      docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && source ./env/bin/activate && $EXPORT_MG_TOOLCHAIN && $EXPORT_BUILD_TYPE && $ACTIVATE_CARGO && cmake --build --preset $PRESET --target $target $additional_options -- -j"'$(nproc)'
+      docker exec -u mg "$build_container" bash -c "$CMD_START && cmake --build --preset $PRESET --target $target $additional_options -- -j"'$(nproc)'
     }
     # Force build that generate the header files needed by analysis (ie. clang-tidy)
     build_target generated_code
@@ -541,17 +547,10 @@ build_memgraph () {
   # Build using Conan preset
   echo "Building with Conan preset: $PRESET"
   if [[ "$threads" == "$DEFAULT_THREADS" ]]; then
-    docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && source ./env/bin/activate && $EXPORT_MG_TOOLCHAIN && $EXPORT_BUILD_TYPE && $ACTIVATE_CARGO && cmake --build --preset $PRESET $additional_options -- -j"'$(nproc)'
-    # NOTE: mgconsole comes with toolchain v6
-    if version_lt "$toolchain_version" "v6"; then
-      docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && source ./env/bin/activate && $EXPORT_MG_TOOLCHAIN && $EXPORT_BUILD_TYPE && $ACTIVATE_CARGO && cmake --build --preset $PRESET --target mgconsole $additional_options -- -j"'$(nproc)'
-    fi
+    docker exec -u mg "$build_container" bash -c "$CMD_START && cmake --build --preset $PRESET $additional_options -- -j"'$(nproc)'
   else
     local EXPORT_THREADS="export THREADS=$threads"
-    docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && source ./env/bin/activate && $EXPORT_MG_TOOLCHAIN && $EXPORT_BUILD_TYPE && $EXPORT_THREADS && $ACTIVATE_CARGO && cmake --build --preset $PRESET $additional_options-- -j\$THREADS"
-    if version_lt "$toolchain_version" "v6"; then
-      docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && source ./env/bin/activate && $EXPORT_MG_TOOLCHAIN && $EXPORT_BUILD_TYPE && $EXPORT_THREADS && $ACTIVATE_CARGO && cmake --build --preset $PRESET --target mgconsole $additional_options -- -j\$THREADS"
-    fi
+    docker exec -u mg "$build_container" bash -c "$CMD_START && $EXPORT_THREADS && cmake --build --preset $PRESET $additional_options-- -j\$THREADS"
   fi
 
   # Show ccache statistics if ccache is enabled
