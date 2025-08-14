@@ -1245,7 +1245,7 @@ fi
 #     popd
 # fi
 
-# Build OpenSSL from source for RPM distributions
+# Build OpenSSL and curl from source for RPM distributions
 if [[ "$DISTRO" =~ ^(rocky-|centos-|fedora-) ]]; then
     OPENSSL_TAG="openssl-3.5.2"
     log_tool_name "openssl $OPENSSL_TAG"
@@ -1270,6 +1270,22 @@ if [[ "$DISTRO" =~ ^(rocky-|centos-|fedora-) ]]; then
         
         make -j$CPUS
         make install_sw
+        popd
+    fi
+
+    CURL_TAG="curl-8_15_0"
+    log_tool_name "curl $CURL_TAG"
+    if [ ! -f $PREFIX/lib/libcurl.a ]; then
+        if [ -d curl ]; then
+            rm -rf curl
+        fi
+        git clone https://github.com/curl/curl.git curl
+        pushd curl
+        git checkout $CURL_TAG
+        ./buildconf
+        ./configure --prefix=$PREFIX --with-ssl --disable-shared
+        make -j$CPUS
+        make install
         popd
     fi
 fi
