@@ -196,7 +196,6 @@ std::vector<Gid> TextIndex::Search(const std::string &index_name, const std::str
     }
     throw query::TextSearchException("Text index \"{}\" doesn't exist.", index_name);
   });
-
   mgcxx::text_search::SearchOutput search_results;
   switch (search_mode) {
     case text_search_mode::SPECIFIED_PROPERTIES:
@@ -230,16 +229,18 @@ std::string TextIndex::Aggregate(const std::string &index_name, const std::strin
   if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     throw query::TextSearchDisabledException();
   }
-  if (!index_.contains(index_name)) {
-    throw query::TextSearchException("Text index \"{}\" doesn’t exist.", index_name);
-  }
 
+  auto &context = std::invoke([&]() -> mgcxx::text_search::Context & {
+    if (const auto it = index_.find(index_name); it != index_.end()) {
+      return it->second.context_;
+    }
+    throw query::TextSearchException("Text index \"{}\" doesn't exist.", index_name);
+  });
   mgcxx::text_search::DocumentOutput aggregation_result;
   try {
     aggregation_result = mgcxx::text_search::aggregate(
-        index_.at(index_name).context_,
-        mgcxx::text_search::SearchInput{
-            .search_fields = {"all"}, .search_query = search_query, .aggregation_query = aggregation_query});
+        context, mgcxx::text_search::SearchInput{
+                     .search_fields = {"all"}, .search_query = search_query, .aggregation_query = aggregation_query});
 
   } catch (const std::exception &e) {
     throw query::TextSearchException("Tantivy error: {}", e.what());
@@ -275,8 +276,8 @@ void TextIndex::Clear() {
       spdlog::error("Error removing text index directory '{}': {}", text_index_storage_dir_, ec.message());
       return;
     }
+    index_.clear();
   }
-  index_.clear();
 }
 
 void TextIndex::ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mapper) {

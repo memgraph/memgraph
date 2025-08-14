@@ -281,8 +281,7 @@ class InMemoryStorage final : public Storage {
     }
 
     std::optional<uint64_t> ApproximateVerticesTextCount(std::string_view index_name) const override {
-      // Text index does not exist for on disk
-      return std::nullopt;
+      return storage_->indices_.text_index_.ApproximateVerticesTextCount(index_name);
     }
 
     std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const override {
