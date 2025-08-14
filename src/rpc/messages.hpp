@@ -11,12 +11,34 @@
 
 #pragma once
 
-#include <cstdint>
+#include <concepts>
 #include <memory>
+#include <type_traits>
+
+#include "storage/v2/property_constants.hpp"
+#include "storage/v2/replication/serialization.hpp"
+#include "utils/typeinfo.hpp"
+
+namespace memgraph::storage::replication {
+struct FinalizeCommitRes;
+}  // namespace memgraph::storage::replication
+
+namespace memgraph::slk {
+class Reader;
+class Builder;
+}  // namespace memgraph::slk
 
 namespace memgraph::rpc {
 
 using MessageSize = uint32_t;
+
+template <typename T>
+concept RpcMessage = requires {
+  requires std::same_as<decltype(T::kType), const utils::TypeInfo>;
+  requires std::same_as<decltype(T::kVersion), const uint64_t>;
+  { T::Load(std::declval<T *>(), std::declval<slk::Reader *>()) } -> std::same_as<void>;
+  { T::Save(std::declval<const T &>(), std::declval<slk::Builder *>()) } -> std::same_as<void>;
+};
 
 /// Each RPC is defined via this struct.
 ///
@@ -26,7 +48,7 @@ using MessageSize = uint32_t;
 /// and `TResponse` are required to define the following serialization functions:
 ///   * static void Save(const TRequest|TResponse &, slk::Builder *, ...)
 ///   * static void Load(TRequest|TResponse *, slk::Reader *, ...)
-template <typename TRequest, typename TResponse>
+template <RpcMessage TRequest, RpcMessage TResponse>
 struct RequestResponse {
   using Request = TRequest;
   using Response = TResponse;

@@ -14,7 +14,6 @@
 #include "slk/streams.hpp"
 #include "storage/v2/replication/rpc.hpp"
 #include "utils/enum.hpp"
-#include "utils/typeinfo.hpp"
 
 namespace memgraph {
 
@@ -40,14 +39,6 @@ void DropDatabaseRes::Save(const DropDatabaseRes &self, memgraph::slk::Builder *
   memgraph::slk::Save(self, builder);
 }
 void DropDatabaseRes::Load(DropDatabaseRes *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
-
-const utils::TypeInfo CreateDatabaseReq::kType{utils::TypeId::REP_CREATE_DATABASE_REQ, "CreateDatabaseReq", nullptr};
-
-const utils::TypeInfo CreateDatabaseRes::kType{utils::TypeId::REP_CREATE_DATABASE_RES, "CreateDatabaseRes", nullptr};
-
-const utils::TypeInfo DropDatabaseReq::kType{utils::TypeId::REP_DROP_DATABASE_REQ, "DropDatabaseReq", nullptr};
-
-const utils::TypeInfo DropDatabaseRes::kType{utils::TypeId::REP_DROP_DATABASE_RES, "DropDatabaseRes", nullptr};
 
 }  // namespace storage::replication
 

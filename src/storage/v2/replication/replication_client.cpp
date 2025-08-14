@@ -269,7 +269,7 @@ void ReplicationStorageClient::ForceRecoverReplica(Storage *main_storage, Databa
 void ReplicationStorageClient::TryCheckReplicaStateSync(Storage *main_storage, DatabaseAccessProtector db_acc) {
   try {
     UpdateReplicaState(main_storage, std::move(db_acc));
-  } catch (const rpc::VersionMismatchRpcFailedException &) {
+  } catch (const rpc::UnsupportedRpcVersionException &) {
     replica_state_.WithLock([](auto &val) { val = ReplicaState::MAYBE_BEHIND; });
     spdlog::error(utils::MessageWithLink(
         "Failed to connect to replica {} at the endpoint {}. Because the replica "

@@ -13,7 +13,6 @@
 
 #include <map>
 #include <mutex>
-#include <vector>
 
 #include "communication/server.hpp"
 #include "io/network/endpoint.hpp"
@@ -32,6 +31,7 @@ class Server {
   Server(Server &&) = delete;
   Server &operator=(const Server &) = delete;
   Server &operator=(Server &&) = delete;
+  ~Server() = default;
 
   bool Start();
   void Shutdown();
@@ -41,13 +41,12 @@ class Server {
   const io::network::Endpoint &endpoint() const;
 
   template <class TRequestResponse>
-  void Register(std::function<void(slk::Reader *, slk::Builder *)> callback) {
+  void Register(std::function<void(uint64_t request_version, slk::Reader *, slk::Builder *)> callback) {
     auto guard = std::lock_guard{lock_};
     MG_ASSERT(!server_.IsRunning(), "You can't register RPCs when the server is running!");
-    RpcCallback rpc{.req_type = TRequestResponse::Request::kType,
-                    .callback = std::move(callback),
-                    .res_type = TRequestResponse::Response::kType};
+    RpcCallback rpc{.req_type = TRequestResponse::Request::kType, .callback = std::move(callback)};
 
+    // Here I could retrieve the type of the response needed
     auto got = callbacks_.insert({TRequestResponse::Request::kType.id, std::move(rpc)});
     MG_ASSERT(got.second, "Callback for that message type already registered");
     spdlog::trace("[RpcServer] register {} -> {}", TRequestResponse::Request::kType.name,
@@ -59,8 +58,7 @@ class Server {
 
   struct RpcCallback {
     utils::TypeInfo req_type;
-    std::function<void(slk::Reader *, slk::Builder *)> callback;
-    utils::TypeInfo res_type;
+    std::function<void(uint64_t request_version, slk::Reader *, slk::Builder *)> callback;
   };
 
   std::mutex lock_;

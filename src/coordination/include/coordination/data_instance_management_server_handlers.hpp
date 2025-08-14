@@ -28,27 +28,28 @@ class DataInstanceManagementServerHandlers {
                        replication::ReplicationHandler &replication_handler);
 
  private:
-  static void StateCheckHandler(const replication::ReplicationHandler &replication_handler, slk::Reader *req_reader,
-                                slk::Builder *res_builder);
+  static void StateCheckHandler(const replication::ReplicationHandler &replication_handler, uint64_t request_version,
+                                slk::Reader *req_reader, slk::Builder *res_builder);
 
-  static void PromoteToMainHandler(replication::ReplicationHandler &replication_handler, slk::Reader *req_reader,
-                                   slk::Builder *res_builder);
+  static void PromoteToMainHandler(replication::ReplicationHandler &replication_handler, uint64_t request_version,
+                                   slk::Reader *req_reader, slk::Builder *res_builder);
   static void RegisterReplicaOnMainHandler(replication::ReplicationHandler &replication_handler,
-                                           slk::Reader *req_reader, slk::Builder *res_builder);
-  static void DemoteMainToReplicaHandler(replication::ReplicationHandler &replication_handler, slk::Reader *req_reader,
-                                         slk::Builder *res_builder);
-  static void SwapMainUUIDHandler(replication::ReplicationHandler &replication_handler, slk::Reader *req_reader,
-                                  slk::Builder *res_builder);
+                                           uint64_t request_version, slk::Reader *req_reader,
+                                           slk::Builder *res_builder);
+  static void DemoteMainToReplicaHandler(replication::ReplicationHandler &replication_handler, uint64_t request_version,
+                                         slk::Reader *req_reader, slk::Builder *res_builder);
+  static void SwapMainUUIDHandler(replication::ReplicationHandler &replication_handler, uint64_t request_version,
+                                  slk::Reader *req_reader, slk::Builder *res_builder);
 
-  static void UnregisterReplicaHandler(replication::ReplicationHandler &replication_handler, slk::Reader *req_reader,
-                                       slk::Builder *res_builder);
-  static void EnableWritingOnMainHandler(replication::ReplicationHandler &replication_handler, slk::Reader *req_reader,
-                                         slk::Builder *res_builder);
+  static void UnregisterReplicaHandler(replication::ReplicationHandler &replication_handler, uint64_t request_version,
+                                       slk::Reader *req_reader, slk::Builder *res_builder);
+  static void EnableWritingOnMainHandler(replication::ReplicationHandler &replication_handler, uint64_t request_version,
+                                         slk::Reader *req_reader, slk::Builder *res_builder);
 
   static void GetDatabaseHistoriesHandler(replication::ReplicationHandler const &replication_handler,
-                                          slk::Reader *req_reader, slk::Builder *res_builder);
+                                          uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 
-  static void GetReplicationLagHandler(replication::ReplicationHandler const &replication_handler,
+  static void GetReplicationLagHandler(replication::ReplicationHandler const &replication_handler, uint64_t request_version,
                                        slk::Reader *req_reader, slk::Builder *res_builder);
 
   static auto DoRegisterReplica(replication::ReplicationHandler &replication_handler,
