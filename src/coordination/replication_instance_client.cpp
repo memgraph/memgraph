@@ -115,5 +115,16 @@ auto ReplicationInstanceClient::SendGetDatabaseHistoriesRpc() const
   }
 }
 
+auto ReplicationInstanceClient::SendGetReplicationLagRpc() const -> std::optional<ReplicationLagInfo> {
+  try {
+    auto stream{rpc_client_.Stream<ReplicationLagRpc>()};
+    auto res = stream.SendAndWait();
+    return res.lag_info_;
+  } catch (const rpc::RpcFailedException &e) {
+    spdlog::error("Failed to receive response to ReplicationLagRpc. Error occurred: {}", e.what());
+    return {};
+  }
+}
+
 }  // namespace memgraph::coordination
 #endif

@@ -51,6 +51,7 @@ struct SnapshotInfo {
   uint64_t durable_timestamp;
   uint64_t edges_count;
   uint64_t vertices_count;
+  uint64_t num_committed_txns;
 };
 
 /// Structure used to hold information about the snapshot that has been

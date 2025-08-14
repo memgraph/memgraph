@@ -311,7 +311,7 @@ TEST_F(SnapshotRpcProgressTest, SnapshotRpcNoTimeout) {
   rpc_server.Register<SnapshotRpc>([](auto *req_reader, auto *res_builder) {
     SnapshotReq req;
     Load(&req, req_reader);
-    SnapshotRes res{true};
+    SnapshotRes res{1, 2};
     memgraph::rpc::SendFinalResponse(res, res_builder);
   });
 
@@ -344,7 +344,7 @@ TEST_F(SnapshotRpcProgressTest, SnapshotRpcProgress) {
     std::this_thread::sleep_for(10ms);
     memgraph::rpc::SendInProgressMsg(res_builder);
     std::this_thread::sleep_for(10ms);
-    SnapshotRes res{true};
+    SnapshotRes res{1, 1};
     memgraph::rpc::SendFinalResponse(res, res_builder);
   });
 
@@ -375,7 +375,7 @@ TEST_F(SnapshotRpcProgressTest, SnapshotRpcTimeout) {
     std::this_thread::sleep_for(75ms);
     memgraph::rpc::SendInProgressMsg(res_builder);
     std::this_thread::sleep_for(10ms);
-    SnapshotRes res{true};
+    SnapshotRes res{1, 1};
     memgraph::rpc::SendFinalResponse(res, res_builder);
   });
 
