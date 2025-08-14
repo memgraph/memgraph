@@ -280,6 +280,11 @@ class InMemoryStorage final : public Storage {
       return storage_->indices_.vector_edge_index_.ApproximateEdgesVectorCount(edge_type, property);
     }
 
+    std::optional<uint64_t> ApproximateVerticesTextCount(std::string_view index_name) const override {
+      // Text index does not exist for on disk
+      return std::nullopt;
+    }
+
     std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const override {
       return static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get())->GetIndexStats(label);
     }

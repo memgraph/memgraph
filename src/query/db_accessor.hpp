@@ -44,6 +44,7 @@
 
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
+#include <string_view>
 
 namespace memgraph::query {
 
@@ -593,6 +594,10 @@ class DbAccessor final {
 
   std::optional<uint64_t> VerticesVectorCount(storage::LabelId label, storage::PropertyId property) const {
     return accessor_->ApproximateVerticesVectorCount(label, property);
+  }
+
+  std::optional<uint64_t> VerticesTextCount(std::string_view index_name) const {
+    return accessor_->ApproximateVerticesTextCount(index_name);
   }
 
   int64_t EdgesCount() const { return accessor_->ApproximateEdgeCount(); }

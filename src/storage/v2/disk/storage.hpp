@@ -29,6 +29,7 @@
 
 #include <rocksdb/db.h>
 #include <rocksdb/slice.h>
+#include <sys/types.h>
 #include <cstdint>
 #include <unordered_set>
 #include "utils/small_vector.hpp"
@@ -155,6 +156,10 @@ class DiskStorage final : public Storage {
 
     std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId /*label*/, PropertyId /*property*/) const override {
       // Vector index does not exist for on disk
+      return std::nullopt;
+    }
+
+    std::optional<uint64_t> ApproximateVerticesTextCount(std::string_view /*index_name*/) const override {
       return std::nullopt;
     }
 

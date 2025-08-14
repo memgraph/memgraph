@@ -13,6 +13,7 @@
 
 #include <mutex>
 #include <nlohmann/json_fwd.hpp>
+#include <string_view>
 
 #include "mg_procedure.h"
 #include "storage/v2/id_types.hpp"
@@ -26,7 +27,7 @@
 namespace memgraph::storage {
 
 struct TextIndexData {
-  mgcxx::text_search::Context context_;
+  mutable mgcxx::text_search::Context context_;
   LabelId scope_;
   std::vector<PropertyId> properties_;
   std::mutex write_mutex_;  // Only used for exclusive locking during writes. IndexReader and IndexWriter are
@@ -51,13 +52,6 @@ class TextIndex {
   static std::map<PropertyId, PropertyValue> ExtractVertexProperties(const PropertyStore &property_store,
                                                                      std::span<PropertyId const> properties);
 
-  mgcxx::text_search::SearchOutput SearchGivenProperties(const std::string &index_name,
-                                                         const std::string &search_query);
-
-  mgcxx::text_search::SearchOutput RegexSearch(const std::string &index_name, const std::string &search_query);
-
-  mgcxx::text_search::SearchOutput SearchAllProperties(const std::string &index_name, const std::string &search_query);
-
  public:
   explicit TextIndex(const std::filesystem::path &storage_dir)
       : text_index_storage_dir_(storage_dir / kTextIndicesDirectory) {}
@@ -68,8 +62,6 @@ class TextIndex {
   TextIndex &operator=(TextIndex &&) = delete;
 
   ~TextIndex() = default;
-
-  std::map<std::string, TextIndexData> index_;
 
   void RemoveNode(Vertex *vertex_after_update, Transaction &tx);
 
@@ -97,7 +89,11 @@ class TextIndex {
 
   std::vector<TextIndexSpec> ListIndices() const;
 
+  std::optional<uint64_t> ApproximateVerticesTextCount(std::string_view index_name) const;
+
   void Clear();
+
+  std::map<std::string, TextIndexData, std::less<>> index_;
 };
 
 }  // namespace memgraph::storage

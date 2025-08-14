@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <cstdint>
 #include "common_function_signatures.hpp"
 #include "mg_procedure.h"
 #include "storage/v2/auto_indexer.hpp"
@@ -330,6 +331,8 @@ class Storage {
     virtual std::optional<uint64_t> ApproximateVerticesVectorCount(LabelId label, PropertyId property) const = 0;
 
     virtual std::optional<uint64_t> ApproximateEdgesVectorCount(EdgeTypeId edge_type, PropertyId property) const = 0;
+
+    virtual std::optional<uint64_t> ApproximateVerticesTextCount(std::string_view index_name) const = 0;
 
     virtual auto GetIndexStats(const storage::LabelId &label) const -> std::optional<storage::LabelIndexStats> = 0;
 
