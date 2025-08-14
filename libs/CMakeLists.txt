@@ -54,7 +54,12 @@ function(import_library name type location include_dir)
   # as an include directory. The header files in the include directory will be
   # generated later during the build process.
   file(MAKE_DIRECTORY ${include_dir})
-  target_include_directories(${name} INTERFACE ${include_dir})
+  # For mgcxx libraries, use BEFORE to prioritize local headers over system headers
+  if(${name} MATCHES "mgcxx.*")
+    target_include_directories(${name} BEFORE INTERFACE ${include_dir})
+  else()
+    target_include_directories(${name} INTERFACE ${include_dir})
+  endif()
 endfunction(import_library)
 
 macro(add_external_project_arg_parse pos prefix)
