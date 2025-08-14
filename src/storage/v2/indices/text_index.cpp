@@ -36,12 +36,11 @@ void TextIndex::CreateTantivyIndex(const std::string &index_path, const TextInde
         mgcxx::text_search::create_index(index_path, mgcxx::text_search::IndexConfig{.mappings = mappings.dump()}),
         index_info.label_, index_info.properties_);
     if (!success) {
-      spdlog::error("Text index \"{}\" already exists at path: {}.", index_info.index_name_, index_path);
-      throw query::TextSearchException("Text index \"{}\" already exists at path: {}.", index_info.index_name_,
-                                       index_path);
+      spdlog::error("Text index {} already exists at path: {}.", index_info.index_name_, index_path);
+      throw query::TextSearchException("Text index {} already exists at path: {}.", index_info.index_name_, index_path);
     }
   } catch (const std::exception &e) {
-    spdlog::error("Failed to create text index \"{}\" at path: {}. Error: {}", index_info.index_name_, index_path,
+    spdlog::error("Failed to create text index {} at path: {}. Error: {}", index_info.index_name_, index_path,
                   e.what());
     throw query::TextSearchException("Tantivy error: {}", e.what());
   }
@@ -163,21 +162,18 @@ void TextIndex::RecoverIndex(const TextIndexSpec &index_info,
 }
 
 void TextIndex::DropIndex(const std::string &index_name) {
-  auto it = index_.find(index_name);
-  if (it == index_.end()) {
-    throw query::TextSearchException("Text index \"{}\" doesn’t exist.", index_name);
+  auto node = index_.extract(index_name);
+  if (node.empty()) {
+    throw query::TextSearchException("Text index {} doesn't exist.", index_name);
   }
 
-  auto &&index_data = std::move(it->second);
-  index_.erase(it);
+  auto &entry = node.mapped();
   try {
-    mgcxx::text_search::drop_index(std::move(index_data.context_));
+    mgcxx::text_search::drop_index(std::move(entry.context_));
   } catch (const std::exception &e) {
-    // Recover the index if drop failed
     CreateTantivyIndex(
         MakeIndexPath(text_index_storage_dir_, index_name),
-        TextIndexSpec{
-            .index_name_ = index_name, .label_ = index_data.scope_, .properties_ = std::move(index_data.properties_)});
+        TextIndexSpec{.index_name_ = index_name, .label_ = entry.scope_, .properties_ = std::move(entry.properties_)});
     throw query::TextSearchException("Text index error on drop: {}", e.what());
   }
 }
@@ -194,7 +190,7 @@ std::vector<Gid> TextIndex::Search(const std::string &index_name, const std::str
     if (const auto it = index_.find(index_name); it != index_.end()) {
       return it->second.context_;
     }
-    throw query::TextSearchException("Text index \"{}\" doesn't exist.", index_name);
+    throw query::TextSearchException("Text index {} doesn't exist.", index_name);
   });
   mgcxx::text_search::SearchOutput search_results;
   switch (search_mode) {
@@ -234,7 +230,7 @@ std::string TextIndex::Aggregate(const std::string &index_name, const std::strin
     if (const auto it = index_.find(index_name); it != index_.end()) {
       return it->second.context_;
     }
-    throw query::TextSearchException("Text index \"{}\" doesn't exist.", index_name);
+    throw query::TextSearchException("Text index {} doesn't exist.", index_name);
   });
   mgcxx::text_search::DocumentOutput aggregation_result;
   try {
