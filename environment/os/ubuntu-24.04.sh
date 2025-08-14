@@ -68,6 +68,8 @@ MEMGRAPH_BUILD_DEPS=(
     libsasl2-dev
     ninja-build
     libopenblas-dev # required for building scipy
+    # Pulsar dependencies
+    libnghttp2-dev libpsl-dev libkrb5-dev librtmp-dev libldap2-dev liblber-dev libbrotli-dev libidn2-dev libssh-dev
 )
 
 MEMGRAPH_TEST_DEPS="${MEMGRAPH_BUILD_DEPS[*]}"
