@@ -38,9 +38,9 @@ TOOLCHAIN_RUN_DEPS=(
     tar gzip bzip2 xz-utils # used for archive unpacking
     zlib1g # zlib library used for all builds
     libexpat1 libipt2 libbabeltrace1 liblzma5 python3 # for gdb
-    libcurl4 # for cmake
+    libcurl4t64 # for cmake
     file # for CPack
-    libreadline8 # for cmake and llvm
+    libreadline8t64 # for cmake and llvm
     libffi8 libxml2 # for llvm
     libssl-dev # for libevent
 )
