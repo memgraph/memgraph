@@ -1262,11 +1262,9 @@ if [[ "$DISTRO" =~ ^(rocky-|centos-|fedora-) ]]; then
           --openssldir=$PREFIX/ssl \
           no-shared \
           no-dso \
-          no-engine \
-          no-hw \
-          no-weak-ssl-ciphers \
           enable-ec_nistp_64_gcc_128 \
-          enable-static-engine
+          enable-static-engine \
+          enable-deprecated
         
         make -j$CPUS
         make install_sw
