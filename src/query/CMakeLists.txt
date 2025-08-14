@@ -164,8 +164,12 @@ include_directories(${antlr4-runtime_INCLUDE_DIR})
 # Use the correct package folder variable based on build type
 if(CMAKE_BUILD_TYPE STREQUAL "Release")
     set(ANTLR4_GENERATOR_PATH "${antlr4_PACKAGE_FOLDER_RELEASE}/res/antlr-complete.jar")
-else()
+elseif(CMAKE_BUILD_TYPE STREQUAL "RelWithDebInfo")
     set(ANTLR4_GENERATOR_PATH "${antlr4_PACKAGE_FOLDER_RELWITHDEBINFO}/res/antlr-complete.jar")
+elseif(CMAKE_BUILD_TYPE STREQUAL "Debug")
+    set(ANTLR4_GENERATOR_PATH "${antlr4_PACKAGE_FOLDER_DEBUG}/res/antlr-complete.jar")
+else()
+    message(FATAL_ERROR "Unsupported build type: ${CMAKE_BUILD_TYPE}")
 endif()
 
 add_custom_command(

@@ -448,13 +448,14 @@ build_memgraph () {
   local SETUP_MGDEPS_CACHE_ENDPOINT="export MGDEPS_CACHE_HOST_PORT=$mgdeps_cache_host:$mgdeps_cache_port"
   # Fix issue with git marking directory as not safe
   docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && git config --global --add safe.directory '*'"
-  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && $ACTIVATE_TOOLCHAIN && $SETUP_MGDEPS_CACHE_ENDPOINT && ./init $init_flags"
+  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && $SETUP_MGDEPS_CACHE_ENDPOINT && ./init $init_flags"
   if [[ "$init_only" == "true" ]]; then
     return
   fi
 
-  echo "Building Memgraph for $os on $build_container..."
-  docker exec -u mg "$build_container" bash -c "cd $container_build_dir && rm -rf ./*"
+  echo "Building Memgraph for $os on $build_container using Conan..."
+  # Clean build directory
+  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && rm -rf build/*"
   # Fix cmake failing locally if remote is clone via ssh
   docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && git remote set-url origin https://github.com/memgraph/memgraph.git"
 
@@ -464,37 +465,92 @@ build_memgraph () {
     docker exec -u mg "$build_container" bash -c "ccache -z"
   fi
 
-  # Define cmake command
-  local cmake_cmd="cmake $build_type_flag $arm_flag $community_flag $telemetry_id_override_flag $coverage_flag $asan_flag $ubsan_flag $disable_jemalloc_flag .."
-  docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && $cmake_cmd"
+  # use this because the commands get far too long!
+  CMD_START="cd $MGBUILD_ROOT_DIR"
+
+  # Set up Conan environment
+  echo "Setting up Conan environment..."
+  docker exec -u mg "$build_container" bash -c "$CMD_START && python3 -m venv env"
+  CMD_START="$CMD_START && source ./env/bin/activate"
+  docker exec -u mg "$build_container" bash -c "$CMD_START && pip install conan"
+
+  # Check if a conan profile exists and create one if needed
+  docker exec -u mg "$build_container" bash -c "$CMD_START && if [ ! -f \"\$HOME/.conan2/profiles/default\" ]; then conan profile detect; fi"
+
+  # Install Conan dependencies
+  echo "Installing Conan dependencies..."
+  local EXPORT_MG_TOOLCHAIN="export MG_TOOLCHAIN_ROOT=/opt/toolchain-${toolchain_version}"
+  local EXPORT_BUILD_TYPE="export BUILD_TYPE=$build_type"
+
+  CMD_START="$CMD_START && $EXPORT_MG_TOOLCHAIN && $EXPORT_BUILD_TYPE"
+  docker exec -u mg "$build_container" bash -c "$CMD_START && conan install . --build=missing -pr ./memgraph_template_profile -s build_type=$build_type"
+  CMD_START="$CMD_START && source build/generators/conanbuild.sh && $ACTIVATE_CARGO"
+
+  # Determine preset name based on build type (Conan generates this automatically)
+  local PRESET=""
+  if [[ "$build_type" == "Release" ]]; then
+    PRESET="conan-release"
+  elif [[ "$build_type" == "RelWithDebInfo" ]]; then
+    PRESET="conan-relwithdebinfo"
+  elif [[ "$build_type" == "Debug" ]]; then
+    PRESET="conan-debug"
+  else
+    echo "Error: Unsupported build type: $build_type"
+    exit 1
+  fi
+
+  # Configure with CMake using Conan preset and additional options
+  echo "Configuring CMake with Conan preset: $PRESET"
+  local cmake_preset_cmd="cmake --preset $PRESET"
+
+  # Add additional CMake options if any are specified
+  local additional_options=""
+  if [[ -n "$arm_flag" || -n "$community_flag" || -n "$telemetry_id_override_flag" || -n "$coverage_flag" || -n "$asan_flag" || -n "$ubsan_flag" || -n "$disable_jemalloc_flag" ]]; then
+
+    if [[ -n "$arm_flag" ]]; then
+      additional_options="$additional_options $arm_flag"
+    fi
+    if [[ -n "$community_flag" ]]; then
+      additional_options="$additional_options $community_flag"
+    fi
+    if [[ -n "$telemetry_id_override_flag" ]]; then
+      additional_options="$additional_options $telemetry_id_override_flag"
+    fi
+    if [[ -n "$coverage_flag" ]]; then
+      additional_options="$additional_options $coverage_flag"
+    fi
+    if [[ -n "$asan_flag" ]]; then
+      additional_options="$additional_options $asan_flag"
+    fi
+    if [[ -n "$ubsan_flag" ]]; then
+      additional_options="$additional_options $ubsan_flag"
+    fi
+    if [[ -n "$disable_jemalloc_flag" ]]; then
+      additional_options="$additional_options $disable_jemalloc_flag"
+    fi
+    echo "Adding additional CMake options: $additional_options"
+  fi
+
+  echo "Running CMake with preset: $cmake_preset_cmd"
+  docker exec -u mg "$build_container" bash -c "$CMD_START && $cmake_preset_cmd"
+
   if [[ "$cmake_only" == "true" ]]; then
     build_target(){
       target=$1
-      docker exec -u mg "$build_container" bash -c "$ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && cmake --build $container_build_dir --target $target -- -j"'$(nproc)'
+      docker exec -u mg "$build_container" bash -c "$CMD_START && cmake --build --preset $PRESET --target $target $additional_options -- -j"'$(nproc)'
     }
     # Force build that generate the header files needed by analysis (ie. clang-tidy)
     build_target generated_code
     return
   fi
-  # ' is used instead of " because we need to run make within the allowed
-  # container resources.
-  # Default value for $threads is 0 instead of $(nproc) because macos
-  # doesn't support the nproc command.
-  # 0 is set for default value and checked here because mgbuild containers
-  # support nproc
-  # shellcheck disable=SC2016
+
+  # Build using Conan preset
+  echo "Building with Conan preset: $PRESET"
   if [[ "$threads" == "$DEFAULT_THREADS" ]]; then
-    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$(nproc)'
-    # NOTE: mgconsole comes with toolchain v6
-    if version_lt "$toolchain_version" "v6"; then
-      docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$(nproc) -B mgconsole'
-    fi
+    docker exec -u mg "$build_container" bash -c "$CMD_START && cmake --build --preset $PRESET $additional_options -- -j"'$(nproc)'
   else
     local EXPORT_THREADS="export THREADS=$threads"
-    docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $EXPORT_THREADS && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$THREADS'
-    if version_lt "$toolchain_version" "v6"; then
-      docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $EXPORT_THREADS && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$THREADS -B mgconsole'
-    fi
+    docker exec -u mg "$build_container" bash -c "$CMD_START && $EXPORT_THREADS && cmake --build --preset $PRESET $additional_options-- -j\$THREADS"
   fi
 
   # Show ccache statistics if ccache is enabled
@@ -505,6 +561,9 @@ build_memgraph () {
     echo "========================="
     echo ""
   fi
+
+  # Clean up virtual environment
+  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && source ./env/bin/activate && deactivate"
 }
 
 package_memgraph() {
