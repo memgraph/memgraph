@@ -13,7 +13,6 @@
 
 #include <mutex>
 #include <nlohmann/json_fwd.hpp>
-#include <string_view>
 
 #include "mg_procedure.h"
 #include "storage/v2/id_types.hpp"

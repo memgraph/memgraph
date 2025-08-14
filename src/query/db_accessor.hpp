@@ -44,7 +44,6 @@
 
 #include <cppitertools/filter.hpp>
 #include <cppitertools/imap.hpp>
-#include <string_view>
 
 namespace memgraph::query {
 

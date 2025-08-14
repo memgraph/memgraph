@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <cstdint>
 #include "common_function_signatures.hpp"
 #include "mg_procedure.h"
 #include "storage/v2/auto_indexer.hpp"
