@@ -138,6 +138,7 @@ struct ReplicationState {
 
   std::unique_ptr<kvstore::KVStore> durability_;
   ReplicationData_t replication_data_;
+  bool in_failover_{false};
   std::atomic<RolePersisted> role_persisted = RolePersisted::UNKNOWN_OR_NO;
 };
 

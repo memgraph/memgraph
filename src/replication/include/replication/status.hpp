@@ -30,7 +30,8 @@ enum class DurabilityVersion : uint8_t {
   V2,  // epoch, replica prefix introduced
   V3,  // version where main uuid was introduced
   V4,  // addresses as provided by users are saved to disk instead of eager evaluation
-  V5   // epoch from main role is removed
+  V5,  // epoch from main role is removed
+  V6   // added in_failover status check
 };
 
 // fragment of key: "__replication_role"
@@ -49,8 +50,9 @@ struct ReplicaRole {
 // from key: "__replication_role"
 struct ReplicationRoleEntry {
   DurabilityVersion version =
-      DurabilityVersion::V4;  // if not latest has been read then migration required to the latest
+      DurabilityVersion::V6;  // if not latest has been read then migration required to the latest
   std::variant<MainRole, ReplicaRole> role;
+  bool in_failover;
 
   friend bool operator==(ReplicationRoleEntry const &, ReplicationRoleEntry const &) = default;
 };
