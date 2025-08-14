@@ -56,9 +56,10 @@ inline void SendInProgressMsg(slk::Builder *builder) {
   if (!builder->IsEmpty()) {
     throw slk::SlkBuilderException("InProgress RPC message can only be sent when the builder's buffer is empty.");
   }
-  Save(storage::replication::InProgressRes::kType.id, builder);
-  Save(current_protocol_version, builder);
-  Save(storage::replication::InProgressRes::kVersion, builder);
+  constexpr ProtocolMessageHeader message_header{.protocol_version = current_protocol_version,
+                                                 .message_id = storage::replication::InProgressRes::kType.id,
+                                                 .message_version = storage::replication::InProgressRes::kVersion};
+  SaveMessageHeader(message_header, builder);
   builder->Finalize();
   spdlog::trace("[RpcServer] sent {}", storage::replication::InProgressRes::kType.name);
 }
