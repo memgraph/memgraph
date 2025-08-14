@@ -50,10 +50,11 @@ void DataInstanceManagementServerHandlers::Register(memgraph::coordination::Data
     UnregisterReplicaHandler(replication_handler, request_version, req_reader, res_builder);
   });
 
-  server.Register<coordination::ReplicationLagRpc>(
-      [&replication_handler](uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) -> void {
-        GetReplicationLagHandler(replication_handler, request_version, req_reader, res_builder);
-      });
+  server.Register<coordination::ReplicationLagRpc>([&replication_handler](uint64_t const request_version,
+                                                                          slk::Reader *req_reader,
+                                                                          slk::Builder *res_builder) -> void {
+    GetReplicationLagHandler(replication_handler, request_version, req_reader, res_builder);
+  });
   server.Register<coordination::EnableWritingOnMainRpc>([&replication_handler](uint64_t const request_version,
                                                                                slk::Reader *req_reader,
                                                                                slk::Builder *res_builder) -> void {
@@ -109,19 +110,19 @@ void DataInstanceManagementServerHandlers::GetDatabaseHistoriesHandler(
 }
 
 void DataInstanceManagementServerHandlers::GetReplicationLagHandler(
-    replication::ReplicationHandler const &replication_handler, uint64_t const /*request_version*/, slk::Reader * /*req_reader*/,
-    slk::Builder *res_builder) {
+    replication::ReplicationHandler const &replication_handler, uint64_t const request_version,
+    slk::Reader * /*req_reader*/, slk::Builder *res_builder) {
   auto locked_repl_state = replication_handler.GetReplState();
   if (locked_repl_state->IsReplica()) {
     spdlog::error("Replication lag can only be retrieved from the main instance");
     coordination::ReplicationLagRes const res{std::nullopt};
-    rpc::SendFinalResponse(res, res_builder);
+    rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
   auto repl_lag_info = replication_handler.GetReplicationLag();
   coordination::ReplicationLagRes const res{std::move(repl_lag_info)};
-  rpc::SendFinalResponse(res, res_builder);
+  rpc::SendFinalResponse(res, request_version, res_builder);
 }
 
 auto DataInstanceManagementServerHandlers::DoRegisterReplica(replication::ReplicationHandler &replication_handler,

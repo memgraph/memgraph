@@ -288,6 +288,16 @@ void Load(memgraph::coordination::StateCheckRes *self, memgraph::slk::Reader *re
   memgraph::slk::Load(&self->state, reader);
 }
 
+void Save(const coordination::ReplicationLagReq &self, slk::Builder *builder) { /*empty*/
+}
+
+void Load(coordination::ReplicationLagReq *self, slk::Reader *reader) { /*empty*/
+}
+
+void Save(const coordination::ReplicationLagRes &self, slk::Builder *builder) { slk::Save(self.lag_info_, builder); }
+
+void Load(coordination::ReplicationLagRes *self, slk::Reader *reader) { slk::Load(&self->lag_info_, reader); }
+
 }  // namespace slk
 
 }  // namespace memgraph
