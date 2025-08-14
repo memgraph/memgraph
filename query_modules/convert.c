@@ -63,10 +63,45 @@ typedef struct {
   bool has_rel_config;
 } filter_config_t;
 
+// Safe string length function
+static size_t safe_strlen(const char *str) { return str ? strlen(str) : 0; }
+
+// Safe string copy function
+static bool safe_strcpy(char *dest, const char *src, size_t dest_size) {
+  if (!dest || !src || dest_size == 0) {
+    return false;
+  }
+
+  size_t src_len = safe_strlen(src);
+  if (src_len >= dest_size) {
+    return false;  // Would overflow
+  }
+
+  strcpy(dest, src);
+  return true;
+}
+
+// Safe string copy with truncation
+static bool safe_strcpy_truncate(char *dest, const char *src, size_t dest_size) {
+  if (!dest || !src || dest_size == 0) {
+    return false;
+  }
+
+  size_t src_len = safe_strlen(src);
+  if (src_len >= dest_size) {
+    // Truncate to fit
+    strncpy(dest, src, dest_size - 1);
+    dest[dest_size - 1] = '\0';
+  } else {
+    strcpy(dest, src);
+  }
+  return true;
+}
+
 // Helper function to convert string to lowercase
 static char *to_lowercase(const char *str, struct mgp_memory *memory) {
   if (!str) return NULL;
-  size_t len = strlen(str);
+  size_t len = safe_strlen(str);
   void *ptr;
   // Align to 64 bytes
   size_t alloc_size = len + 1;
@@ -85,8 +120,8 @@ static char *to_lowercase(const char *str, struct mgp_memory *memory) {
 // Helper function to concatenate strings
 static char *concatenate_strings(const char *str1, const char *str2, struct mgp_memory *memory) {
   if (!str1 || !str2) return NULL;
-  size_t len1 = strlen(str1);
-  size_t len2 = strlen(str2);
+  size_t len1 = safe_strlen(str1);
+  size_t len2 = safe_strlen(str2);
   void *ptr;
   // Align to 64 bytes
   size_t alloc_size = len1 + len2 + 1;
@@ -95,9 +130,18 @@ static char *concatenate_strings(const char *str1, const char *str2, struct mgp_
     return NULL;
   }
   char *result = (char *)ptr;
-  strcpy(result, str1);
-  strcat(result, str2);
-  result[len1 + len2] = '\0';
+
+  // Safe string operations
+  if (!safe_strcpy(result, str1, alloc_size)) {
+    mgp_free(memory, ptr);
+    return NULL;
+  }
+
+  if (!safe_strcpy(result + len1, str2, alloc_size - len1)) {
+    mgp_free(memory, ptr);
+    return NULL;
+  }
+
   return result;
 }
 
@@ -160,13 +204,17 @@ static void parse_property_filter(property_filter_t *filter, struct mgp_list *pr
       if (mgp_list_at(props, i, &item) == MGP_ERROR_NO_ERROR) {
         const char *val_str;
         if (mgp_value_get_string(item, &val_str) == MGP_ERROR_NO_ERROR) {
-          strcpy(filter->properties[filter->property_count], val_str);
-          // Remove leading dash if present
-          if (filter->properties[filter->property_count][0] == '-') {
-            memmove(filter->properties[filter->property_count], filter->properties[filter->property_count] + 1,
-                    strlen(filter->properties[filter->property_count]));
+          if (safe_strcpy_truncate(filter->properties[filter->property_count], val_str, MAX_STRING_LENGTH)) {
+            // Remove leading dash if present
+            if (filter->properties[filter->property_count][0] == '-') {
+              size_t prop_len = safe_strlen(filter->properties[filter->property_count]);
+              if (prop_len > 1) {  // Ensure there's something after the dash
+                memmove(filter->properties[filter->property_count], filter->properties[filter->property_count] + 1,
+                        prop_len);
+              }
+            }
+            filter->property_count++;
           }
-          filter->property_count++;
         }
       }
     }
@@ -180,8 +228,9 @@ static void parse_property_filter(property_filter_t *filter, struct mgp_list *pr
     if (mgp_list_at(props, i, &item) == MGP_ERROR_NO_ERROR) {
       const char *val_str;
       if (mgp_value_get_string(item, &val_str) == MGP_ERROR_NO_ERROR) {
-        strcpy(filter->properties[filter->property_count], val_str);
-        filter->property_count++;
+        if (safe_strcpy_truncate(filter->properties[filter->property_count], val_str, MAX_STRING_LENGTH)) {
+          filter->property_count++;
+        }
       }
     }
   }
@@ -323,9 +372,10 @@ static void parse_node_property_filter_config(node_property_filter_config_t *con
       }
 
       if (config->filter_count < MAX_PROPERTIES) {
-        strcpy(config->labels[config->filter_count], key_str);
-        parse_property_filter(&config->filters[config->filter_count], props_list);
-        config->filter_count++;
+        if (safe_strcpy_truncate(config->labels[config->filter_count], key_str, MAX_STRING_LENGTH)) {
+          parse_property_filter(&config->filters[config->filter_count], props_list);
+          config->filter_count++;
+        }
       }
     } while (mgp_map_items_iterator_next(iter, &item) == MGP_ERROR_NO_ERROR && item != NULL);
   }
@@ -370,9 +420,10 @@ static void parse_rel_property_filter_config(rel_property_filter_config_t *confi
       }
 
       if (config->filter_count < MAX_PROPERTIES) {
-        strcpy(config->rel_types[config->filter_count], key_str);
-        parse_property_filter(&config->filters[config->filter_count], props_list);
-        config->filter_count++;
+        if (safe_strcpy_truncate(config->rel_types[config->filter_count], key_str, MAX_STRING_LENGTH)) {
+          parse_property_filter(&config->filters[config->filter_count], props_list);
+          config->filter_count++;
+        }
       }
     } while (mgp_map_items_iterator_next(iter, &item) == MGP_ERROR_NO_ERROR && item != NULL);
   }
