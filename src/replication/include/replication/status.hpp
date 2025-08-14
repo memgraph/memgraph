@@ -49,7 +49,7 @@ struct ReplicaRole {
 // from key: "__replication_role"
 struct ReplicationRoleEntry {
   DurabilityVersion version =
-      DurabilityVersion::V4;  // if not latest has been read then migration required to the latest
+      DurabilityVersion::V5;  // if not latest has been read then migration required to the latest
   std::variant<MainRole, ReplicaRole> role;
 
   friend bool operator==(ReplicationRoleEntry const &, ReplicationRoleEntry const &) = default;
