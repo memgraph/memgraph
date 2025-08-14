@@ -91,12 +91,16 @@ struct DemoteMainToReplicaReq {
   static void Load(DemoteMainToReplicaReq *self, memgraph::slk::Reader *reader);
   static void Save(const DemoteMainToReplicaReq &self, memgraph::slk::Builder *builder);
 
-  explicit DemoteMainToReplicaReq(ReplicationClientInfo replication_client_info)
-      : replication_client_info(std::move(replication_client_info)) {}
+  // main uuid is provided when Demote is called from InstanceSuccessCallback because at that point we already know
+  // what's next main uuid since the failover has already been done
+  explicit DemoteMainToReplicaReq(ReplicationClientInfo replication_client_info,
+                                  std::optional<utils::UUID> const &main_uuid = std::nullopt)
+      : replication_client_info_(std::move(replication_client_info)), main_uuid_(main_uuid) {}
 
   DemoteMainToReplicaReq() = default;
 
-  ReplicationClientInfo replication_client_info;
+  ReplicationClientInfo replication_client_info_;
+  std::optional<utils::UUID> main_uuid_;
 };
 
 struct DemoteMainToReplicaRes {

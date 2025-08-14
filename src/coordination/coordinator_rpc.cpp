@@ -220,11 +220,11 @@ void Load(memgraph::coordination::PromoteToMainReq *self, memgraph::slk::Reader 
 
 // DemoteMainToReplicaRpc
 void Save(const memgraph::coordination::DemoteMainToReplicaReq &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.replication_client_info, builder);
+  memgraph::slk::Save(self.replication_client_info_, builder);
 }
 
 void Load(memgraph::coordination::DemoteMainToReplicaReq *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->replication_client_info, reader);
+  memgraph::slk::Load(&self->replication_client_info_, reader);
 }
 
 void Save(const memgraph::coordination::DemoteMainToReplicaRes &self, memgraph::slk::Builder *builder) {
