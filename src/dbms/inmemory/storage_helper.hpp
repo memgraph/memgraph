@@ -29,6 +29,10 @@ inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(
   auto storage = std::make_unique<storage::InMemoryStorage>(std::move(config), std::nullopt, std::move(invalidator),
                                                             std::move(database_protector_factory));
 
+  // TODO: we want a better approach for controlling background works.
+  //       Idea:
+  //       During recovery - Should block these threads with a common `force_pause`
+  //       Here - Soft pause those threads if replica, release the force_pause
   // Set the main instance check function on TTL based on replication state
   storage->ttl_.SetUserCheck([&repl_state]() -> bool {
     const auto locked_repl_state = repl_state.ReadLock();
