@@ -1253,6 +1253,13 @@ if [ ! -f $PREFIX/lib/libpulsarwithdeps.a ]; then
     git clone https://github.com/apache/pulsar-client-cpp.git pulsar
     pushd pulsar
     git checkout $PULSAR_TAG
+    
+    # Add OpenSSL static libs flag for specific distributions
+    OPENSSL_FLAG=""
+    if [[ "$DISTRO" =~ ^(rocky-|centos-|fedora-) ]]; then
+        OPENSSL_FLAG="-DOPENSSL_USE_STATIC_LIBS=FALSE"
+    fi
+    
     cmake -B . $COMMON_CMAKE_FLAGS \
       -DBUILD_DYNAMIC_LIB=OFF \
       -DBUILD_STATIC_LIB=ON \
@@ -1261,7 +1268,8 @@ if [ ! -f $PREFIX/lib/libpulsarwithdeps.a ]; then
       -DPROTOC_PATH=$PREFIX/bin/protoc \
       -DBUILD_PYTHON_WRAPPER=OFF \
       -DBUILD_PERF_TOOLS=OFF \
-      -DUSE_LOG4CXX=OFF
+      -DUSE_LOG4CXX=OFF \
+      $OPENSSL_FLAG
     cmake --build . -j$CPUS --target pulsarStaticWithDeps
     # NOTE: For some reason the withdeps is not make installed...
     cp lib/libpulsarwithdeps.a $PREFIX/lib/
