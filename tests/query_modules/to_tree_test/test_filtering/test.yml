@@ -28,7 +28,7 @@ output:
     car_models: ["Toyota"]
     car_years: [null]
     car_colors: [null]
-    car_keys: [["_id", "_type", "model", "owns.since"]]
+    car_keys: [["_id", "_type", "model", "owns._id", "owns.since"]]
   - name: Bob
     age: 25
     city: null
@@ -36,4 +36,4 @@ output:
     car_models: ["Honda"]
     car_years: [null]
     car_colors: [null]
-    car_keys: [["_id", "_type", "model", "owns.since"]]
+    car_keys: [["_id", "_type", "model", "owns._id", "owns.since"]]

@@ -922,8 +922,9 @@ static struct mgp_value *convert_to_tree_impl(struct mgp_value *value, bool lowe
     }
 
     // Group paths by root node ID to build separate trees
-    // For simplicity, we'll merge all paths into a single tree
-    struct mgp_map *merged_tree = NULL;
+    struct mgp_map *root_groups[MAX_PROPERTIES];  // Map from root_id to tree
+    size_t root_group_count = 0;
+    int64_t root_ids[MAX_PROPERTIES];
 
     for (size_t i = 0; i < paths_size; i++) {
       struct mgp_value *path_value;
@@ -934,6 +935,37 @@ static struct mgp_value *convert_to_tree_impl(struct mgp_value *value, bool lowe
       struct mgp_path *path;
       if (mgp_value_get_path(path_value, &path) != MGP_ERROR_NO_ERROR) {
         continue;
+      }
+
+      // Get root node ID
+      struct mgp_vertex *root_node;
+      if (mgp_path_vertex_at(path, 0, &root_node) != MGP_ERROR_NO_ERROR) {
+        continue;
+      }
+
+      struct mgp_vertex_id root_id;
+      if (mgp_vertex_get_id(root_node, &root_id) != MGP_ERROR_NO_ERROR) {
+        continue;
+      }
+
+      // Find existing root group or create new one
+      size_t group_index = SIZE_MAX;
+      for (size_t j = 0; j < root_group_count; j++) {
+        if (root_ids[j] == root_id.as_int) {
+          group_index = j;
+          break;
+        }
+      }
+
+      if (group_index == SIZE_MAX) {
+        // New root group
+        if (root_group_count >= MAX_PROPERTIES) {
+          continue;  // Too many root groups
+        }
+        group_index = root_group_count;
+        root_ids[group_index] = root_id.as_int;
+        root_groups[group_index] = NULL;
+        root_group_count++;
       }
 
       // Convert this path to a tree
@@ -949,18 +981,18 @@ static struct mgp_value *convert_to_tree_impl(struct mgp_value *value, bool lowe
         continue;
       }
 
-      if (merged_tree == NULL) {
-        // First tree, use it as the base
-        merged_tree = tree_map;
+      if (root_groups[group_index] == NULL) {
+        // First tree for this root, use it as the base
+        root_groups[group_index] = tree_map;
         // Don't destroy tree_value here since we're keeping the map
       } else {
-        // Merge with existing tree
-        merge_trees(merged_tree, tree_map, memory);
+        // Merge with existing tree for this root
+        merge_trees(root_groups[group_index], tree_map, memory);
         mgp_value_destroy(tree_value);
       }
     }
 
-    if (merged_tree == NULL) {
+    if (root_group_count == 0) {
       // No valid paths found, return empty map
       struct mgp_map *empty_map;
       if (mgp_map_make_empty(memory, &empty_map) != MGP_ERROR_NO_ERROR) {
@@ -974,14 +1006,52 @@ static struct mgp_value *convert_to_tree_impl(struct mgp_value *value, bool lowe
       return result;
     }
 
-    // Convert merged tree back to value
-    struct mgp_value *result;
-    if (mgp_value_make_map(merged_tree, &result) != MGP_ERROR_NO_ERROR) {
-      mgp_map_destroy(merged_tree);
-      return NULL;
-    }
+    if (root_group_count == 1) {
+      // Single root: return the tree directly
+      struct mgp_value *result;
+      if (mgp_value_make_map(root_groups[0], &result) != MGP_ERROR_NO_ERROR) {
+        mgp_map_destroy(root_groups[0]);
+        return NULL;
+      }
+      return result;
+    } else {
+      // Multiple roots: return a list of all root trees
+      struct mgp_list *tree_list;
+      if (mgp_list_make_empty(root_group_count, memory, &tree_list) != MGP_ERROR_NO_ERROR) {
+        // Clean up on error
+        for (size_t i = 0; i < root_group_count; i++) {
+          if (root_groups[i]) {
+            mgp_map_destroy(root_groups[i]);
+          }
+        }
+        return NULL;
+      }
 
-    return result;
+      for (size_t i = 0; i < root_group_count; i++) {
+        if (root_groups[i]) {
+          struct mgp_value *tree_value;
+          if (mgp_value_make_map(root_groups[i], &tree_value) != MGP_ERROR_NO_ERROR) {
+            mgp_list_destroy(tree_list);
+            // Clean up remaining trees
+            for (size_t j = i; j < root_group_count; j++) {
+              if (root_groups[j]) {
+                mgp_map_destroy(root_groups[j]);
+              }
+            }
+            return NULL;
+          }
+          mgp_list_append_move(tree_list, tree_value);
+          mgp_value_destroy(tree_value);  // moved
+        }
+      }
+
+      struct mgp_value *result;
+      if (mgp_value_make_list(tree_list, &result) != MGP_ERROR_NO_ERROR) {
+        mgp_list_destroy(tree_list);
+        return NULL;
+      }
+      return result;
+    }
   } else {
     // For other types, return as-is
     struct mgp_value *result;
@@ -1055,18 +1125,63 @@ static void to_tree(struct mgp_list *args, struct mgp_graph *graph, struct mgp_r
     return;
   }
 
-  // Create a record and insert the result
-  struct mgp_result_record *record;
-  if (mgp_result_new_record(result, &record) != MGP_ERROR_NO_ERROR) {
+  // Handle multiple results (APOC behavior for multiple roots)
+  enum mgp_value_type result_type;
+  if (mgp_value_get_type(result_value, &result_type) != MGP_ERROR_NO_ERROR) {
     mgp_value_destroy(result_value);
-    mgp_result_set_error_msg(result, "Failed to create result record");
+    mgp_result_set_error_msg(result, "Failed to get result type");
     return;
   }
 
-  if (mgp_result_record_insert(record, kReturnValue, result_value) != MGP_ERROR_NO_ERROR) {
-    mgp_value_destroy(result_value);
-    mgp_result_set_error_msg(result, "Failed to insert result value");
-    return;
+  if (result_type == MGP_VALUE_TYPE_LIST) {
+    // Multiple roots: yield one record per root
+    struct mgp_list *result_list;
+    if (mgp_value_get_list(result_value, &result_list) != MGP_ERROR_NO_ERROR) {
+      mgp_value_destroy(result_value);
+      mgp_result_set_error_msg(result, "Failed to get result list");
+      return;
+    }
+
+    size_t list_size;
+    if (mgp_list_size(result_list, &list_size) != MGP_ERROR_NO_ERROR) {
+      mgp_value_destroy(result_value);
+      mgp_result_set_error_msg(result, "Failed to get list size");
+      return;
+    }
+
+    for (size_t i = 0; i < list_size; i++) {
+      struct mgp_value *tree_value;
+      if (mgp_list_at(result_list, i, &tree_value) != MGP_ERROR_NO_ERROR) {
+        continue;
+      }
+
+      struct mgp_result_record *record;
+      if (mgp_result_new_record(result, &record) != MGP_ERROR_NO_ERROR) {
+        mgp_value_destroy(result_value);
+        mgp_result_set_error_msg(result, "Failed to create result record");
+        return;
+      }
+
+      if (mgp_result_record_insert(record, kReturnValue, tree_value) != MGP_ERROR_NO_ERROR) {
+        mgp_value_destroy(result_value);
+        mgp_result_set_error_msg(result, "Failed to insert result value");
+        return;
+      }
+    }
+  } else {
+    // Single root: yield one record
+    struct mgp_result_record *record;
+    if (mgp_result_new_record(result, &record) != MGP_ERROR_NO_ERROR) {
+      mgp_value_destroy(result_value);
+      mgp_result_set_error_msg(result, "Failed to create result record");
+      return;
+    }
+
+    if (mgp_result_record_insert(record, kReturnValue, result_value) != MGP_ERROR_NO_ERROR) {
+      mgp_value_destroy(result_value);
+      mgp_result_set_error_msg(result, "Failed to insert result value");
+      return;
+    }
   }
 }
 
