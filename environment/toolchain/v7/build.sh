@@ -1244,6 +1244,36 @@ fi
 #     cmake --build build -j$CPUS --target install
 #     popd
 # fi
+
+# Build OpenSSL from source for RPM distributions
+if [[ "$DISTRO" =~ ^(rocky-|centos-|fedora-) ]]; then
+    OPENSSL_TAG="openssl-3.5.2"
+    log_tool_name "openssl $OPENSSL_TAG"
+    if [ ! -f $PREFIX/lib/libssl.a ] || [ ! -f $PREFIX/lib/libcrypto.a ]; then
+        if [ -d openssl ]; then
+            rm -rf openssl
+        fi
+        git clone https://github.com/openssl/openssl.git openssl
+        pushd openssl
+        git checkout $OPENSSL_TAG
+        
+        # Configure for static build
+        ./config --prefix=$PREFIX \
+          --openssldir=$PREFIX/ssl \
+          no-shared \
+          no-dso \
+          no-engine \
+          no-hw \
+          no-weak-ssl-ciphers \
+          enable-ec_nistp_64_gcc_128 \
+          enable-static-engine
+        
+        make -j$CPUS
+        make install_sw
+        popd
+    fi
+fi
+
 PULSAR_TAG="v3.7.1"
 log_tool_name "pulsar $PULSAR_TAG"
 if [ ! -f $PREFIX/lib/libpulsarwithdeps.a ]; then
@@ -1254,12 +1284,6 @@ if [ ! -f $PREFIX/lib/libpulsarwithdeps.a ]; then
     pushd pulsar
     git checkout $PULSAR_TAG
     
-    # Add OpenSSL static libs flag for specific distributions
-    OPENSSL_FLAG=""
-    if [[ "$DISTRO" =~ ^(rocky-|centos-|fedora-) ]]; then
-        OPENSSL_FLAG="-DOPENSSL_USE_STATIC_LIBS=FALSE"
-    fi
-    
     cmake -B . $COMMON_CMAKE_FLAGS \
       -DBUILD_DYNAMIC_LIB=OFF \
       -DBUILD_STATIC_LIB=ON \
@@ -1268,8 +1292,7 @@ if [ ! -f $PREFIX/lib/libpulsarwithdeps.a ]; then
       -DPROTOC_PATH=$PREFIX/bin/protoc \
       -DBUILD_PYTHON_WRAPPER=OFF \
       -DBUILD_PERF_TOOLS=OFF \
-      -DUSE_LOG4CXX=OFF \
-      $OPENSSL_FLAG
+      -DUSE_LOG4CXX=OFF
     cmake --build . -j$CPUS --target pulsarStaticWithDeps
     # NOTE: For some reason the withdeps is not make installed...
     cp lib/libpulsarwithdeps.a $PREFIX/lib/
