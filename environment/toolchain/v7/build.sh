@@ -1282,8 +1282,8 @@ if [[ "$DISTRO" =~ ^(rocky-|centos-|fedora-) ]]; then
         git clone https://github.com/curl/curl.git curl
         pushd curl
         git checkout $CURL_TAG
-        ./buildconf
-        ./configure --prefix=$PREFIX --with-ssl --disable-shared
+        autoreconf -fi
+        ./configure --prefix=$PREFIX --with-ssl --disable-shared --without-libpsl
         make -j$CPUS
         make install
         popd
