@@ -1,7 +1,7 @@
 query: >
   MATCH p = (person:Person)-[:OWNS]->(car:Car)
   WITH collect(p) AS paths
-  CALL convert.to_tree(paths, true, {
+  CALL convert_c.to_tree(paths, true, {
     nodes: {
       Person: ["-email", "-city"],
       Car: ["-price"]
