@@ -349,7 +349,7 @@ else
 fi
 
 # mgcxx (text search)
-mgcxx_tag="v0.0.8"
+mgcxx_tag="v0.0.9"
 repo_clone_try_double "${primary_urls[mgcxx]}" "${secondary_urls[mgcxx]}" "mgcxx" "$mgcxx_tag" true
 
 # strong_type v14
