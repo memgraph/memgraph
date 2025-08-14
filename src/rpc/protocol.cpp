@@ -82,7 +82,9 @@ void RpcMessageDeliverer::Execute() const {
     it->second.callback(maybe_message_header->message_version, &req_reader, &res_builder);
     // Finalize the SLK stream.
     req_reader.Finalize();
-  } catch (const slk::SlkReaderLeftoverDataException &e) {
+  }
+  // NOLINTNEXTLINE
+  catch (const slk::SlkReaderLeftoverDataException &) {
     // Skip, it may fail because not all data has been read, that's fine.
   } catch (const std::exception &e) {
     spdlog::error("Error occurred in the callback: {}", e.what());
