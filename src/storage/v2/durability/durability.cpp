@@ -622,6 +622,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
           recovery_info.last_durable_timestamp = info->last_durable_timestamp;
           last_loaded_timestamp.emplace(info->last_durable_timestamp);
           spdlog::trace("Set ldt to {} after loading from WAL", info->last_durable_timestamp);
+          recovery_info.num_committed_txns += info->num_committed_txns;
         }
 
         if (wal_contains_changes) {
@@ -673,7 +674,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
   memgraph::metrics::Measure(memgraph::metrics::SnapshotRecoveryLatency_us,
                              std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
   spdlog::trace("Epoch id: {}. Last durable commit timestamp: {}.", std::string(repl_storage_state.epoch_.id()),
-                repl_storage_state.last_durable_timestamp_.load(std::memory_order_acquire));
+                repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).ldt_);
 
   spdlog::trace("History with its epochs and attached commit timestamps.");
   r::for_each(repl_storage_state.history, [](auto &&history) {

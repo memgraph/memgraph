@@ -29,6 +29,7 @@
 #ifdef MG_ENTERPRISE
 #include "coordination/instance_status.hpp"
 #include "coordination/raft_state.hpp"
+#include "coordination/replication_lag_info.hpp"
 #endif
 
 namespace memgraph::metrics {
@@ -149,6 +150,8 @@ class CoordinatorQueryHandler {
   virtual void SetCoordinatorSetting(std::string_view setting_name, std::string_view setting_value) = 0;
 
   virtual std::vector<std::pair<std::string, std::string>> ShowCoordinatorSettings() = 0;
+
+  virtual std::map<std::string, std::map<std::string, coordination::ReplicaDBLagData>> ShowReplicationLag() = 0;
 };
 #endif
 

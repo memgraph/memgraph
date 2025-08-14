@@ -69,7 +69,7 @@ auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUI
 
   for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
     if (client->Mode() == replication_coordination_glue::ReplicationMode::STRICT_SYNC) {
-      const bool commit_res = client->SendFinalizeCommitRpc(decision, storage_uuid, db_acc, durability_commit_timestamp,
+      auto const commit_res = client->SendFinalizeCommitRpc(decision, storage_uuid, db_acc, durability_commit_timestamp,
                                                             std::move(replica_stream));
       strict_sync_replicas_succ &= commit_res;
     } else if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {

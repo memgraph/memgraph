@@ -11,15 +11,16 @@
 
 #pragma once
 
-#include "utils/uuid.hpp"
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/instance_state.hpp"
 #include "coordination/instance_status.hpp"
+#include "coordination/replication_lag_info.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "rpc/messages.hpp"
 #include "utils/typeinfo.hpp"
+#include "utils/uuid.hpp"
 
 namespace memgraph::coordination {
 
@@ -222,7 +223,7 @@ struct ShowInstancesRes {
 using ShowInstancesRpc = rpc::RequestResponse<ShowInstancesReq, ShowInstancesRes>;
 
 struct StateCheckReq {
-  static const utils::TypeInfo kType;  // TODO: make constexpr?
+  static const utils::TypeInfo kType;
   static const utils::TypeInfo &GetTypeInfo() { return kType; }
 
   static void Load(StateCheckReq *self, memgraph::slk::Reader *reader);
@@ -237,7 +238,7 @@ struct StateCheckRes {
   static void Load(StateCheckRes *self, memgraph::slk::Reader *reader);
   static void Save(const StateCheckRes &self, memgraph::slk::Builder *builder);
 
-  StateCheckRes(bool replica, std::optional<utils::UUID> req_uuid, bool writing_enabled)
+  StateCheckRes(bool const replica, std::optional<utils::UUID> const req_uuid, bool const writing_enabled)
       : state({.is_replica = replica, .uuid = req_uuid, .is_writing_enabled = writing_enabled}) {}
   StateCheckRes() = default;
 
@@ -245,6 +246,30 @@ struct StateCheckRes {
 };
 
 using StateCheckRpc = rpc::RequestResponse<StateCheckReq, StateCheckRes>;
+
+struct ReplicationLagReq {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(ReplicationLagReq *self, memgraph::slk::Reader *reader);
+  static void Save(const ReplicationLagReq &self, memgraph::slk::Builder *builder);
+  ReplicationLagReq() = default;
+};
+
+struct ReplicationLagRes {
+  static const utils::TypeInfo kType;
+  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+
+  static void Load(ReplicationLagRes *self, memgraph::slk::Reader *reader);
+  static void Save(const ReplicationLagRes &self, memgraph::slk::Builder *builder);
+
+  explicit ReplicationLagRes(std::optional<ReplicationLagInfo> lag_info) : lag_info_(std::move(lag_info)) {}
+  ReplicationLagRes() = default;
+
+  std::optional<ReplicationLagInfo> lag_info_;
+};
+
+using ReplicationLagRpc = rpc::RequestResponse<ReplicationLagReq, ReplicationLagRes>;
 
 }  // namespace memgraph::coordination
 
@@ -289,10 +314,17 @@ void Load(memgraph::coordination::ShowInstancesRes *self, memgraph::slk::Reader 
 void Save(memgraph::coordination::ShowInstancesReq const &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::ShowInstancesReq *self, memgraph::slk::Reader *reader);
 
+// StateCheckRpc
 void Save(memgraph::coordination::StateCheckRes const &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::StateCheckRes *self, memgraph::slk::Reader *reader);
 void Save(memgraph::coordination::StateCheckReq const &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::StateCheckReq *self, memgraph::slk::Reader *reader);
+
+// ReplicationLagRpc
+void Save(coordination::ReplicationLagRes const &self, slk::Builder *builder);
+void Load(coordination::ReplicationLagRes *self, slk::Reader *reader);
+void Save(coordination::ReplicationLagReq const &self, slk::Builder *builder);
+void Load(coordination::ReplicationLagReq *self, slk::Reader *reader);
 
 }  // namespace memgraph::slk
 

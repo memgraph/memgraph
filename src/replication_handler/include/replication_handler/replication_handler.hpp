@@ -158,6 +158,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
 
 #ifdef MG_ENTERPRISE
   auto GetDatabasesHistories() const -> replication_coordination_glue::InstanceInfo;
+  auto GetReplicationLag() const -> coordination::ReplicationLagInfo;
 #endif
 
  private:
