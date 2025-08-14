@@ -296,7 +296,7 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
 
       // Durability is tracking last durable timestamp from MAIN, whereas timestamp_ is dependent on MVCC
       // We need to take bigger timestamp not to lose durability ordering
-      if (auto const ldt = storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
+      if (auto const ldt = storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
           ldt >= storage->timestamp_) {
         // Mark all txns finished with IDs in range [old_storage_ts, global_ldt]
         static_cast<storage::InMemoryStorage *>(storage)->commit_log_->MarkFinishedInRange(storage->timestamp_, ldt);
@@ -381,11 +381,40 @@ auto ReplicationHandler::GetDatabasesHistories() const -> replication_coordinati
   dbms_handler_.ForEach([&results](dbms::DatabaseAccess db_acc) {
     auto const &repl_storage_state = db_acc->storage()->repl_storage_state_;
     results.dbs_info.emplace_back(std::string{db_acc->storage()->uuid()},
-                                  repl_storage_state.last_durable_timestamp_.load(std::memory_order_acquire));
+                                  repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).ldt_);
   });
 
   return results;
 }
+
+auto ReplicationHandler::GetReplicationLag() const -> coordination::ReplicationLagInfo {
+  coordination::ReplicationLagInfo lag_info;
+
+  dbms_handler_.ForEach([&lag_info](dbms::DatabaseAccess db_acc) {
+    auto &repl_storage_state = db_acc->storage()->repl_storage_state_;
+    auto const db_name = db_acc->name();
+    auto const num_main_committed_txns =
+        repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).num_committed_txns_;
+    lag_info.dbs_main_committed_txns_.emplace(db_name, num_main_committed_txns);
+
+    repl_storage_state.replication_storage_clients_.WithLock([&db_name, &lag_info,
+                                                              &num_main_committed_txns](auto &storage_clients) {
+      for (auto &repl_storage_client : storage_clients) {
+        auto const replica_name = repl_storage_client->Name();
+        auto const num_committed_txns_repl = repl_storage_client->GetNumCommittedTxns();
+        auto const replica_lag = num_main_committed_txns - num_committed_txns_repl;
+        // Insert or find the already inserted element
+        auto [replica_it, _] =
+            lag_info.replicas_info_.try_emplace(replica_name, std::map<std::string, coordination::ReplicaDBLagData>{});
+        replica_it->second.emplace(db_name,
+                                   coordination::ReplicaDBLagData{.num_committed_txns_ = num_committed_txns_repl,
+                                                                  .num_txns_behind_main_ = replica_lag});
+      }
+    });
+  });
+  return lag_info;
+}
+
 #endif
 
 bool ReplicationHandler::IsMain() const { return repl_state_.ReadLock()->IsMain(); }

@@ -7,7 +7,7 @@ find_package(Threads REQUIRED)
 add_custom_target(memgraph__unit)
 
 add_library(memgraph_unit_main OBJECT main.cpp)
-target_link_libraries(memgraph_unit_main mg-memory mg-utils gtest gmock Threads::Threads dl)
+target_link_libraries(memgraph_unit_main mg-memory mg-utils gtest gmock Threads::Threads dl atomic)
 target_precompile_headers(memgraph_unit_main PRIVATE
     <gtest/gtest.h>
 )

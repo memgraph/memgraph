@@ -40,7 +40,7 @@ void ReplicationStorageState::Reset() {
 
 // Don't save epochs in history for which ldt wasn't changed
 void ReplicationStorageState::SaveLatestHistory() {
-  auto const new_ldt = last_durable_timestamp_.load(std::memory_order_acquire);
+  auto const new_ldt = commit_ts_info_.load(std::memory_order_acquire).ldt_;
   if (!history.empty() && history.back().second == new_ldt) {
     return;
   }

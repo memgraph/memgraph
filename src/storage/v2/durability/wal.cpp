@@ -1023,7 +1023,7 @@ std::optional<RecoveryInfo> LoadWal(
         edge->properties.SetProperty(property_id, property_value);
       },
       [&](WalTransactionStart const &data) { should_commit = data.commit; },
-      [&](WalTransactionEnd const &) { /*Nothing to apply*/ },
+      [&](WalTransactionEnd const &) { ret->num_committed_txns++; },
       [&](WalLabelIndexCreate const &data) {
         const auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         AddRecoveredIndexConstraint(&indices_constraints->indices.label, label_id, "The label index already exists!");

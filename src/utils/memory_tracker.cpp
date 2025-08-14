@@ -14,7 +14,7 @@
 #include <atomic>
 #include <exception>
 
-#include "utils/atomic_max.hpp"
+#include "utils/atomic_utils.hpp"
 #include "utils/logging.hpp"
 #include "utils/readable_size.hpp"
 
