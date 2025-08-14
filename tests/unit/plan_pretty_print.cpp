@@ -595,7 +595,7 @@ TYPED_TEST(PrintToJsonTest, ExpandVariable) {
       false, LITERAL(2), LITERAL(5), false,
       ExpansionLambda{this->GetSymbol("inner_node"), this->GetSymbol("inner_edge"),
                       PROPERTY_LOOKUP(this->dba, "inner_node", this->dba.NameToProperty("unblocked"))},
-      std::nullopt, std::nullopt);
+      std::nullopt, std::nullopt, nullptr);
 
   this->Check(last_op.get(), R"sep(
           {
@@ -631,7 +631,7 @@ TYPED_TEST(PrintToJsonTest, ExpandVariableWsp) {
       ExpansionLambda{this->GetSymbol("inner_node"), this->GetSymbol("inner_edge"), nullptr},
       ExpansionLambda{this->GetSymbol("inner_node"), this->GetSymbol("inner_edge"),
                       PROPERTY_LOOKUP(this->dba, "inner_edge", this->dba.NameToProperty("weight"))},
-      this->GetSymbol("total"));
+      this->GetSymbol("total"), nullptr);
 
   this->Check(last_op.get(), R"sep(
           {

@@ -741,7 +741,7 @@ class QueryPlanExpandVariable : public testing::Test {
                                               direction, edge_types, is_reverse, convert(lower), convert(upper), false,
                                               ExpansionLambda{symbol_table.CreateSymbol("inner_edge", false),
                                                               symbol_table.CreateSymbol("inner_node", false), nullptr},
-                                              std::nullopt, std::nullopt);
+                                              std::nullopt, std::nullopt, nullptr);
     } else
       return std::make_shared<Expand>(filter_op, n_from.sym_, n_to_sym, edge_sym, direction, edge_types, false, view);
   }
@@ -1420,7 +1420,7 @@ TYPED_TEST(QueryPlanExpandVariable, ExpandToSameSymbol) {
                                          /* existing = */ true,
                                          ExpansionLambda{this->symbol_table.CreateSymbol("inner_edge", false),
                                                          this->symbol_table.CreateSymbol("inner_node", false), nullptr},
-                                         std::nullopt, std::nullopt),
+                                         std::nullopt, std::nullopt, nullptr),
         e);
   };
 
@@ -1613,7 +1613,7 @@ TYPED_TEST(QueryPlanExpandVariable, FineGrainedExpandToSameSymbol) {
                                          /* existing = */ true,
                                          ExpansionLambda{this->symbol_table.CreateSymbol("inner_edge", false),
                                                          this->symbol_table.CreateSymbol("inner_node", false), nullptr},
-                                         std::nullopt, std::nullopt),
+                                         std::nullopt, std::nullopt, nullptr),
         e, &user);
   };
 
@@ -1887,7 +1887,7 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
         last_op, n.sym_, node_sym, edge_list_sym, EdgeAtom::Type::WEIGHTED_SHORTEST_PATH, direction,
         std::vector<memgraph::storage::EdgeTypeId>{}, false, nullptr, max_depth ? LITERAL(max_depth.value()) : nullptr,
         existing_node_input != nullptr, ExpansionLambda{filter_edge, filter_node, where},
-        ExpansionLambda{weight_edge, weight_node, PROPERTY_LOOKUP(dba, ident_e, prop)}, total_weight);
+        ExpansionLambda{weight_edge, weight_node, PROPERTY_LOOKUP(dba, ident_e, prop)}, total_weight, nullptr);
 
     Frame frame(symbol_table.max_position());
     auto cursor = last_op->MakeCursor(memgraph::utils::NewDeleteResource());
@@ -2331,7 +2331,7 @@ class QueryPlanExpandAllShortestPaths : public testing::Test {
         last_op, n.sym_, node_sym, edge_list_sym, EdgeAtom::Type::ALL_SHORTEST_PATHS, direction,
         std::vector<memgraph::storage::EdgeTypeId>{}, false, nullptr, max_depth ? LITERAL(max_depth.value()) : nullptr,
         existing_node_input != nullptr, ExpansionLambda{filter_edge, filter_node, where},
-        ExpansionLambda{weight_edge, weight_node, PROPERTY_LOOKUP(dba, ident_e, prop)}, total_weight);
+        ExpansionLambda{weight_edge, weight_node, PROPERTY_LOOKUP(dba, ident_e, prop)}, total_weight, nullptr);
 
     Frame frame(symbol_table.max_position());
     auto cursor = last_op->MakeCursor(memgraph::utils::NewDeleteResource());

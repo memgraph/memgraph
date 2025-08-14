@@ -912,8 +912,9 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   CheckForFastDiscardOfDeltas();
 
-  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    mem_storage->indices_.text_index_.Commit();
+  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH) &&
+      !transaction_.text_index_change_collector_.empty()) {
+    memgraph::storage::TextIndex::ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
   }
   is_transaction_active_ = false;
 }
@@ -1372,9 +1373,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
 
     // Cleanup INDICES
     index_abort_processor.Process(storage_->indices_, transaction_.active_indices_, transaction_.start_timestamp);
-    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-      storage_->indices_.text_index_.Rollback();
-    }
 
     for (auto const &[label_prop, vertices] : vector_label_property_cleanup) {
       storage_->indices_.vector_index_.AbortEntries(label_prop, vertices);
@@ -2565,12 +2563,14 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
         });
         break;
       }
-      case MetadataDelta::Action::TEXT_INDEX_CREATE:
-      case MetadataDelta::Action::TEXT_INDEX_DROP: {
+      case MetadataDelta::Action::TEXT_INDEX_CREATE: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeTextIndex(encoder, *mem_storage->name_id_mapper_, md_delta.text_index.index_name,
-                          md_delta.text_index.label);
+          EncodeTextIndex(encoder, *mem_storage->name_id_mapper_, md_delta.text_index);
         });
+        break;
+      }
+      case MetadataDelta::Action::TEXT_INDEX_DROP: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) { EncodeIndexName(encoder, md_delta.index_name); });
         break;
       }
       case MetadataDelta::Action::VECTOR_INDEX_CREATE: {
@@ -2586,8 +2586,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
         break;
       }
       case MetadataDelta::Action::VECTOR_INDEX_DROP: {
-        apply_encode(
-            op, [&](durability::BaseEncoder &encoder) { EncodeVectorIndexName(encoder, md_delta.vector_index_name); });
+        apply_encode(op, [&](durability::BaseEncoder &encoder) { EncodeIndexName(encoder, md_delta.index_name); });
         break;
       }
       case MetadataDelta::Action::UNIQUE_CONSTRAINT_CREATE:

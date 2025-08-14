@@ -16,6 +16,7 @@
 #include <optional>
 
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "utils/memory.hpp"
 #include "utils/query_memory_tracker.hpp"
@@ -208,6 +209,9 @@ struct Transaction {
 
   /// Query memory tracker
   std::unique_ptr<utils::QueryMemoryTracker> query_memory_tracker_{};
+
+  /// Text index change tracking (batched apply on commit)
+  TextIndexChangeCollector text_index_change_collector_;
 
   /// Last durable timestamp at the moment of transaction creation
   std::optional<uint64_t> last_durable_ts_;

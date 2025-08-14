@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -52,7 +52,7 @@ class VertexDb : public Database {
                                                    const ExpansionLambda &filter_lambda) override {
     return std::make_unique<ExpandVariable>(input, source_sym, sink_sym, edge_sym, EdgeAtom::Type::BREADTH_FIRST,
                                             direction, edge_types, false, lower_bound, upper_bound, existing_node,
-                                            filter_lambda, std::nullopt, std::nullopt);
+                                            filter_lambda, std::nullopt, std::nullopt, nullptr);
   }
 
   std::pair<std::vector<memgraph::query::VertexAccessor>, std::vector<memgraph::query::EdgeAccessor>> BuildGraph(

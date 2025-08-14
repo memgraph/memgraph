@@ -196,8 +196,7 @@ ReplicationHandler::ReplicationHandler(utils::Synchronized<ReplicationState, uti
 
 bool ReplicationHandler::SetReplicationRoleMain() { return DoToMainPromotion({}, false); }
 
-bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig &config,
-                                                   const std::optional<utils::UUID> &main_uuid) {
+bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig &config) {
   try {
     auto locked_repl_state = repl_state_.TryLock();
 
@@ -231,17 +230,16 @@ bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig
       });
     }
 
-    return SetReplicationRoleReplica_<true>(locked_repl_state, config, main_uuid);
+    return SetReplicationRoleReplica_<true>(locked_repl_state, config);
   } catch (const utils::TryLockException & /* unused */) {
     return false;
   }
 }
 
-bool ReplicationHandler::TrySetReplicationRoleReplica(const ReplicationServerConfig &config,
-                                                      const std::optional<utils::UUID> &main_uuid) {
+bool ReplicationHandler::TrySetReplicationRoleReplica(const ReplicationServerConfig &config) {
   try {
     auto locked_repl_state = repl_state_.TryLock();
-    return SetReplicationRoleReplica_<false>(locked_repl_state, config, main_uuid);
+    return SetReplicationRoleReplica_<false>(locked_repl_state, config);
   } catch (const utils::TryLockException & /* unused */) {
     return false;
   }
@@ -285,6 +283,7 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
 
     // All DBs should have the same epoch
     auto const new_epoch = ReplicationEpoch();
+    spdlog::trace("Generated new epoch {}", new_epoch.id());
 
     // STEP 3) We are now MAIN, update storage local epoch
     dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {

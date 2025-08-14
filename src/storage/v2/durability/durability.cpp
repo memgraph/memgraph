@@ -23,13 +23,13 @@
 #include <utility>
 #include <vector>
 
-#include "flags/all.hpp"
+#include "flags/experimental.hpp"
 #include "replication/epoch.hpp"
-#include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
+#include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/inmemory/edge_property_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
@@ -46,8 +46,6 @@
 #include "fmt/format.h"
 
 namespace r = ranges;
-namespace rv = r::views;
-
 struct PropertyPathFormatter {
   std::span<memgraph::storage::PropertyPath const> data;
   memgraph::storage::NameIdMapper *name_mapper;
@@ -309,15 +307,15 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     spdlog::info("Recreating {} text indices from metadata.", indices_metadata.text_indices.size());
     auto &mem_text_index = indices->text_index_;
-    for (const auto &[index_name, label] : indices_metadata.text_indices) {
+    for (const auto &text_index_info : indices_metadata.text_indices) {
       try {
         // TODO: parallel execution
-        mem_text_index.RecoverIndex(index_name, label, snapshot_info);
+        mem_text_index.RecoverIndex(text_index_info, snapshot_info);
       } catch (...) {
         throw RecoveryFailure("The text index must be created here!");
       }
-      spdlog::info("Text index {} on :{} is recreated from metadata", index_name,
-                   name_id_mapper->IdToName(label.AsUint()));
+      spdlog::info("Text index {} on :{} is recreated from metadata", text_index_info.index_name_,
+                   name_id_mapper->IdToName(text_index_info.label_.AsUint()));
     }
     spdlog::info("Text indices are recreated.");
   }
@@ -603,10 +601,6 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     auto last_loaded_timestamp = snapshot_durable_timestamp;
     spdlog::info("Trying to load WAL files.");
 
-    if (last_loaded_timestamp) {
-      epoch_history->emplace_back(repl_storage_state.epoch_.id(), *last_loaded_timestamp);
-    }
-
     for (const auto &wal_file : wal_files) {
       if (previous_seq_num && (wal_file.seq_num - *previous_seq_num) > 1) {
         LOG_FATAL("You are missing a WAL file with the sequence number {}!", *previous_seq_num + 1);
@@ -623,21 +617,23 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
           recovery_info.next_vertex_id = std::max(recovery_info.next_vertex_id, info->next_vertex_id);
           recovery_info.next_edge_id = std::max(recovery_info.next_edge_id, info->next_edge_id);
           recovery_info.next_timestamp = std::max(recovery_info.next_timestamp, info->next_timestamp);
-          // WAL file is interesting only if it is new (different) ts
+          // WAL file is interesting only if it has a new (different) ldt
           wal_contains_changes = recovery_info.last_durable_timestamp != info->last_durable_timestamp;
           recovery_info.last_durable_timestamp = info->last_durable_timestamp;
           last_loaded_timestamp.emplace(info->last_durable_timestamp);
           spdlog::trace("Set ldt to {} after loading from WAL", info->last_durable_timestamp);
         }
 
-        if (!epoch_history->empty() && epoch_history->back().first == wal_file.epoch_id) {
-          epoch_history->back().second = *last_loaded_timestamp;
-          spdlog::trace("WAL file continuation from the epoch perspective. Updates epoch {} to ldt {}.",
-                        wal_file.epoch_id, *last_loaded_timestamp);
-        } else if (wal_contains_changes) {  // Update history with new epochs that contain some timestamp changes
-          epoch_history->emplace_back(wal_file.epoch_id, *last_loaded_timestamp);
-          repl_storage_state.epoch_.SetEpoch(wal_file.epoch_id);
-          spdlog::trace("Set epoch to {} for db {} with ldt {}", wal_file.epoch_id, db_name, *last_loaded_timestamp);
+        if (wal_contains_changes) {
+          if (!epoch_history->empty() && epoch_history->back().first == wal_file.epoch_id) {
+            epoch_history->back().second = *last_loaded_timestamp;
+            spdlog::trace("WAL file continuation from the epoch perspective. Updates epoch {} to ldt {}.",
+                          wal_file.epoch_id, *last_loaded_timestamp);
+          } else {  // Update history with new epoch that contains new timestamp
+            epoch_history->emplace_back(wal_file.epoch_id, *last_loaded_timestamp);
+            repl_storage_state.epoch_.SetEpoch(wal_file.epoch_id);
+            spdlog::trace("Set epoch to {} for db {} with ldt {}", wal_file.epoch_id, db_name, *last_loaded_timestamp);
+          }
         }
 
       } catch (const RecoveryFailure &e) {

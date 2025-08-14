@@ -381,7 +381,7 @@ class ReplQueryHandler {
           .repl_server = memgraph::io::network::Endpoint(memgraph::replication::kDefaultReplicationServerIp,
                                                          static_cast<uint16_t>(*port))};
 
-      if (!handler_->TrySetReplicationRoleReplica(config, std::nullopt)) {
+      if (!handler_->TrySetReplicationRoleReplica(config)) {
         throw QueryRuntimeException("Couldn't set role to replica!");
       }
     }
@@ -3875,14 +3875,18 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
   auto label_name = text_index_query->label_.name;
   auto label_id = storage->NameToLabel(label_name);
   auto &index_name = text_index_query->index_name_;
+  auto property_ids = text_index_query->properties_ |
+                      rv::transform([&](const auto &property) { return storage->NameToProperty(property.name); }) |
+                      r::to_vector;
 
   Notification index_notification(SeverityLevel::INFO);
   switch (text_index_query->action_) {
     case TextIndexQuery::Action::CREATE: {
       index_notification.code = NotificationCode::CREATE_INDEX;
       index_notification.title = fmt::format("Created text index on label {}.", label_name);
-      handler = [dba, label_id, index_name, label_name = std::move(label_name)](Notification &index_notification) {
-        auto maybe_error = dba->CreateTextIndex(index_name, label_id);
+      handler = [dba, label_id, index_name, label_name = std::move(label_name),
+                 property_ids = std::move(property_ids)](Notification &index_notification) {
+        auto maybe_error = dba->CreateTextIndex(storage::TextIndexSpec{index_name, label_id, property_ids});
         if (maybe_error.HasError()) {
           index_notification.code = NotificationCode::EXISTENT_INDEX;
           index_notification.title =
@@ -5146,9 +5150,13 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
                              TypedValue(storage->PropertyToName(item)),
                              TypedValue(static_cast<int>(storage_acc->ApproximateEdgeCount(item)))});
         }
-        for (const auto &[index_name, label] : info.text_indices) {
+        for (const auto &[index_name, label, properties] : info.text_indices) {
+          auto prop_names =
+              properties |
+              rv::transform([storage](auto prop_id) { return TypedValue(storage->PropertyToName(prop_id)); }) |
+              ranges::to_vector;
           results.push_back({TypedValue(fmt::format("{} (name: {})", text_index_mark, index_name)),
-                             TypedValue(storage->LabelToName(label)), TypedValue(), TypedValue()});
+                             TypedValue(storage->LabelToName(label)), TypedValue(std::move(prop_names)), TypedValue()});
         }
         for (const auto &[label_id, prop_id] : info.point_label_property) {
           results.push_back({TypedValue(point_label_property_index_mark), TypedValue(storage->LabelToName(label_id)),
@@ -6227,9 +6235,13 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
         }));
       }
       // Vertex label text
-      for (const auto &[str, label_id] : index_info.text_indices) {
+      for (const auto &[str, label_id, properties] : index_info.text_indices) {
+        auto prop_names = properties | rv::transform([storage](const storage::PropertyId &property) {
+                            return storage->PropertyToName(property);
+                          }) |
+                          r::to_vector;
         node_indexes.push_back(nlohmann::json::object({{"labels", {storage->LabelToName(label_id)}},
-                                                       {"properties", nlohmann::json::array()},
+                                                       {"properties", prop_names},
                                                        {"count", -1},
                                                        {"type", "label_text"}}));
       }
