@@ -352,6 +352,15 @@ fi
 mgcxx_tag="v0.0.9"
 repo_clone_try_double "${primary_urls[mgcxx]}" "${secondary_urls[mgcxx]}" "mgcxx" "$mgcxx_tag" true
 
+# Remove the mgcxx header from toolchain if it exists (this should be removed once a new toolchain is built)
+if [[ -n "$MG_TOOLCHAIN_ROOT" ]]; then
+  TOOLCHAIN_MGCXX_HEADER="$MG_TOOLCHAIN_ROOT/include/mgcxx_text_search.hpp"
+
+  if [[ -f "$TOOLCHAIN_MGCXX_HEADER" ]]; then
+    sudo rm -f "$TOOLCHAIN_MGCXX_HEADER"
+  fi
+fi
+
 # strong_type v14
 strong_type_ref="v14"
 repo_clone_try_double "${primary_urls[strong_type]}" "${secondary_urls[strong_type]}" "strong_type" "$strong_type_ref"
