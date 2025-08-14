@@ -10,7 +10,7 @@ check_operating_system "debian-13"
 check_architecture "arm64" "aarch64"
 
 TOOLCHAIN_BUILD_DEPS=(
-    coreutils gcc g++ build-essential make # generic build tools
+    coreutils gcc g++ build-essential make binutils binutils-gold # generic build tools
     wget # used for archive download
     gnupg # used for archive signature verification
     tar gzip bzip2 xz-utils unzip # used for archive unpacking
