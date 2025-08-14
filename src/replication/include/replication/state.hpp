@@ -130,13 +130,15 @@ struct ReplicationState {
   utils::BasicResult<RegisterReplicaStatus, ReplicationClient *> RegisterReplica(const ReplicationClientConfig &config);
 
   bool SetReplicationRoleMain(const utils::UUID &main_uuid);
-  bool SetReplicationRoleReplica(const ReplicationServerConfig &config);
+  bool SetReplicationRoleReplica(const ReplicationServerConfig &config,
+                                 std::optional<utils::UUID> const &maybe_main_uuid);
 
  private:
   bool HandleVersionMigration(durability::ReplicationRoleEntry &data) const;
 
   std::unique_ptr<kvstore::KVStore> durability_;
   ReplicationData_t replication_data_;
+  bool in_failover_{false};
   std::atomic<RolePersisted> role_persisted = RolePersisted::UNKNOWN_OR_NO;
 };
 

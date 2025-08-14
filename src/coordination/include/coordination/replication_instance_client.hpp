@@ -88,7 +88,15 @@ class ReplicationInstanceClient {
   auto SendRpc(Args &&...args) const -> bool {
     utils::MetricsTimer const timer{RpcInfo<T>::timerLabel};
     try {
-      if (auto stream = rpc_client_.Stream<T>(std::forward<Args>(args)...); !stream.SendAndWait().success) {
+      auto stream = std::invoke([&]() {
+        if constexpr (std::same_as<T, DemoteMainToReplicaRpc>) {
+          return rpc_client_.Stream<T>(config_.replication_client_info, std::forward<Args>(args)...);
+        } else {
+          return rpc_client_.Stream<T>(std::forward<Args>(args)...);
+        }
+      });
+
+      if (!stream.SendAndWait().success) {
         spdlog::error("Received unsuccessful response to {}.", T::Request::kType.name);
         metrics::IncrementCounter(RpcInfo<T>::failCounter);
         return false;
@@ -99,27 +107,6 @@ class ReplicationInstanceClient {
     } catch (rpc::RpcFailedException const &e) {
       spdlog::error("Failed to receive response to {}. Error occurred: {}", T::Request::kType.name, e.what());
       metrics::IncrementCounter(RpcInfo<T>::failCounter);
-      return false;
-    }
-  }
-
-  template <>
-  bool SendRpc<DemoteMainToReplicaRpc>() const {
-    utils::MetricsTimer const timer{metrics::DemoteMainToReplicaRpc_us};
-    try {
-      // Specialize in order to send replication_client_info
-      if (auto stream = rpc_client_.Stream<DemoteMainToReplicaRpc>(config_.replication_client_info);
-          !stream.SendAndWait().success) {
-        spdlog::error("Received unsuccessful response to {}.", DemoteMainToReplicaRpc::Request::kType.name);
-        metrics::IncrementCounter(metrics::DemoteMainToReplicaRpcFail);
-        return false;
-      }
-      metrics::IncrementCounter(metrics::DemoteMainToReplicaRpcSuccess);
-      return true;
-    } catch (rpc::RpcFailedException const &e) {
-      spdlog::error("Failed to receive response to {}. Error occurred: {}", DemoteMainToReplicaRpc::Request::kType.name,
-                    e.what());
-      metrics::IncrementCounter(metrics::DemoteMainToReplicaRpcFail);
       return false;
     }
   }
