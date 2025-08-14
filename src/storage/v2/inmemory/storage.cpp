@@ -203,7 +203,8 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       vertex_id_.store(info->next_vertex_id, std::memory_order_release);
       edge_id_.store(info->next_edge_id, std::memory_order_release);
       timestamp_ = std::max(timestamp_, info->next_timestamp);
-      CommitTsInfo new_info{.ldt_ = info->last_durable_timestamp, .num_committed_txns_ = info->num_committed_txns};
+      CommitTsInfo const new_info{.ldt_ = info->last_durable_timestamp,
+                                  .num_committed_txns_ = info->num_committed_txns};
       repl_storage_state_.commit_ts_info_.store(new_info, std::memory_order_release);
       spdlog::trace(
           "Recovering last durable timestamp {}. Timestamp recovered to {}. Num committed txns recovered to {}.",

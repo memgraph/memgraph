@@ -1264,7 +1264,7 @@ auto CoordinatorInstance::ShowCoordinatorSettings() const -> std::vector<std::pa
 }
 
 auto CoordinatorInstance::ShowReplicationLag() const -> std::map<std::string, std::map<std::string, ReplicaDBLagData>> {
-  for (auto &repl_instance : repl_instances_) {
+  for (auto const &repl_instance : repl_instances_) {
     auto const instance_name = repl_instance.InstanceName();
     if (!raft_state_->IsCurrentMain(instance_name)) {
       continue;

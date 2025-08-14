@@ -759,7 +759,7 @@ antlrcpp::Any CypherMainVisitor::visitShowCoordinatorSettings(MemgraphCypher::Sh
   return coordinator_query;
 }
 
-antlrcpp::Any CypherMainVisitor::visitShowReplicationLag(MemgraphCypher::ShowReplicationLagContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitShowReplicationLag(MemgraphCypher::ShowReplicationLagContext * /*ctx*/) {
   auto *coordinator_query = storage_->Create<CoordinatorQuery>();
   coordinator_query->action_ = CoordinatorQuery::Action::SHOW_REPLICATION_LAG;
   return coordinator_query;

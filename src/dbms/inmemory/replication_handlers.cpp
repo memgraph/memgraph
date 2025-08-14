@@ -540,8 +540,8 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
       storage->vertex_id_ = recovery_info.next_vertex_id;
       storage->edge_id_ = recovery_info.next_edge_id;
       storage->timestamp_ = std::max(storage->timestamp_, recovery_info.next_timestamp);
-      storage::CommitTsInfo new_info{.ldt_ = snapshot_info.durable_timestamp,
-                                     .num_committed_txns_ = snapshot_info.num_committed_txns};
+      storage::CommitTsInfo const new_info{.ldt_ = snapshot_info.durable_timestamp,
+                                           .num_committed_txns_ = snapshot_info.num_committed_txns};
       storage->repl_storage_state_.commit_ts_info_.store(new_info, std::memory_order_release);
       spdlog::trace("Set num committed txns to {} after loading snapshot.", snapshot_info.num_committed_txns);
       // We are the only active transaction, so mark everything up to the next timestamp
