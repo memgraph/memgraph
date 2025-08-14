@@ -52,7 +52,7 @@ MEMGRAPH_BUILD_DEPS=(
     python3-devel # for query modules
     openssl-devel
     libseccomp-devel
-    python3 python3-pip python3-virtualenv python3-venv nmap-ncat # for qa, macro_benchmark and stress tests
+    python3 python3-pip python3-virtualenv nmap-ncat # for qa, macro_benchmark and stress tests
     #
     # IMPORTANT: python3-yaml does NOT exist on CentOS
     # Install it manually using `pip3 install PyYAML`
@@ -97,7 +97,7 @@ check() {
 
     for pkg in "${packages[@]}"; do
         case "$pkg" in
-            custom-*|PyYAML|python3-virtualenv)
+            custom-*|PyYAML|python3-virtualenv|sbcl|libipt|libipt-devel)
                 custom_packages+=("$pkg")
                 ;;
             *)
@@ -178,7 +178,7 @@ install() {
 
     for pkg in "${packages[@]}"; do
         case "$pkg" in
-            custom-*|PyYAML|python3-virtualenv|libipt|libipt-devel)
+            custom-*|PyYAML|python3-virtualenv|libipt|libipt-devel|sbcl)
                 custom_packages+=("$pkg")
                 ;;
             *)
@@ -211,11 +211,17 @@ install() {
                     dnf install -y http://repo.okay.com.mx/centos/8/x86_64/release/libipt-devel-1.6.1-8.el8.x86_64.rpm
                 fi
                 ;;
-            # Since there is no support for libipt-devel for CentOS 9 we install
-            # Fedoras version of same libs, they are the same version but released
-            # for different OS
-            # TODO Update when libipt-devel releases for CentOS 9
-            # SBCL packages are now available via EPEL repository
+            sbcl)
+                if ! dnf list installed cl-asdf >/dev/null 2>/dev/null; then
+                    dnf install -y http://www.nosuchhost.net/~cheese/fedora/packages/epel-9/x86_64/cl-asdf-20101028-27.el9.noarch.rpm
+                fi
+                if ! dnf list installed common-lisp-controller >/dev/null 2>/dev/null; then
+                    dnf install -y http://www.nosuchhost.net/~cheese/fedora/packages/epel-9/x86_64/common-lisp-controller-7.4-29.el9.noarch.rpm
+                fi
+                if ! dnf list installed sbcl >/dev/null 2>/dev/null; then
+                    dnf install -y http://www.nosuchhost.net/~cheese/fedora/packages/epel-9/x86_64/sbcl-2.3.11-3.el9~bootstrap.x86_64.rpm
+                fi
+                ;;
             PyYAML)
                 if [ -z ${SUDO_USER+x} ]; then # Running as root (e.g. Docker).
                     pip3 install --user PyYAML
