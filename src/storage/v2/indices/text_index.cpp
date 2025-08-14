@@ -169,6 +169,7 @@ void TextIndex::DropIndex(const std::string &index_name) {
 
   auto &entry = node.mapped();
   try {
+    // NOLINTNEXTLINE
     mgcxx::text_search::drop_index(std::move(entry.context_));
   } catch (const std::exception &e) {
     CreateTantivyIndex(
@@ -259,6 +260,7 @@ std::vector<TextIndexSpec> TextIndex::ListIndices() const {
 std::optional<uint64_t> TextIndex::ApproximateVerticesTextCount(std::string_view index_name) const {
   if (const auto it = index_.find(index_name); it != index_.end()) {
     const auto &index_data = it->second;
+    // NOLINTNEXTLINE
     return mgcxx::text_search::get_num_docs(index_data.context_);
   }
   return std::nullopt;

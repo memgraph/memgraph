@@ -54,12 +54,7 @@ function(import_library name type location include_dir)
   # as an include directory. The header files in the include directory will be
   # generated later during the build process.
   file(MAKE_DIRECTORY ${include_dir})
-  # For mgcxx libraries, use BEFORE to prioritize local headers over system headers
-  if(${name} MATCHES "mgcxx.*")
-    target_include_directories(${name} BEFORE INTERFACE ${include_dir})
-  else()
-    target_include_directories(${name} INTERFACE ${include_dir})
-  endif()
+  target_include_directories(${name} INTERFACE ${include_dir})
 endfunction(import_library)
 
 macro(add_external_project_arg_parse pos prefix)
@@ -440,24 +435,20 @@ mg_create_linkable_if_no_cmake(nuraft STATIC "${MG_TOOLCHAIN_ROOT}/lib/libnuraft
 find_package(OpenSSL REQUIRED)
 target_link_libraries(nuraft INTERFACE ${OPENSSL_LIBRARIES})
 
-function(build_mgcxx)
-  # Setup mgcxx (provides: text search)
-  set(MGCXX_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/include
-    CACHE PATH "Path to mgcxx include directory" FORCE)
-  set(TANTIVY_TEXT_SEARCH_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/lib/libtantivy_text_search.a
-    CACHE FILEPATH "Path to mgcxx tantivy library (internal one)" FORCE)
-  set(MGCXX_TEXT_SEARCH_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/lib/libmgcxx_text_search.a
-    CACHE FILEPATH "Path to mgcxx text search library" FORCE)
-  add_external_project(mgcxx
-    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx
-    CMAKE_ARGS -DENABLE_TESTS=OFF)
-  mark_as_advanced(MGCXX_INCLUDE_DIR TANTIVY_TEXT_SEARCH_LIBRARY MGCXX_TEXT_SEARCH_LIBRARY)
-  import_library(tantivy_text_search STATIC ${TANTIVY_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
-  import_library(mgcxx_text_search STATIC ${MGCXX_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
-endfunction()
-
 # Always build mgcxx locally (not from toolchain)
-build_mgcxx()
+set(MGCXX_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/include
+  CACHE PATH "Path to mgcxx include directory" FORCE)
+set(TANTIVY_TEXT_SEARCH_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/lib/libtantivy_text_search.a
+  CACHE FILEPATH "Path to mgcxx tantivy library (internal one)" FORCE)
+set(MGCXX_TEXT_SEARCH_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/lib/libmgcxx_text_search.a
+  CACHE FILEPATH "Path to mgcxx text search library" FORCE)
+add_external_project(mgcxx
+  SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx
+  CMAKE_ARGS -DENABLE_TESTS=OFF)
+mark_as_advanced(MGCXX_INCLUDE_DIR TANTIVY_TEXT_SEARCH_LIBRARY MGCXX_TEXT_SEARCH_LIBRARY)
+import_library(tantivy_text_search STATIC ${TANTIVY_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
+import_library(mgcxx_text_search STATIC ${MGCXX_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
+
 target_link_libraries(tantivy_text_search INTERFACE ${CMAKE_DL_LIBS})
 target_link_libraries(mgcxx_text_search INTERFACE ${CMAKE_DL_LIBS})
 
