@@ -357,7 +357,7 @@ if [[ -n "$MG_TOOLCHAIN_ROOT" ]]; then
   TOOLCHAIN_MGCXX_HEADER="$MG_TOOLCHAIN_ROOT/include/mgcxx_text_search.hpp"
 
   if [[ -f "$TOOLCHAIN_MGCXX_HEADER" ]]; then
-    sudo rm -f "$TOOLCHAIN_MGCXX_HEADER"
+    rm -f "$TOOLCHAIN_MGCXX_HEADER"
   fi
 fi
 
