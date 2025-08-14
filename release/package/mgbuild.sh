@@ -498,8 +498,9 @@ build_memgraph () {
   local cmake_preset_cmd="cmake --preset $PRESET"
 
   # Add additional CMake options if any are specified
+  local additional_options=""
   if [[ -n "$arm_flag" || -n "$community_flag" || -n "$telemetry_id_override_flag" || -n "$coverage_flag" || -n "$asan_flag" || -n "$ubsan_flag" || -n "$disable_jemalloc_flag" ]]; then
-    local additional_options=""
+
     if [[ -n "$arm_flag" ]]; then
       additional_options="$additional_options $arm_flag"
     fi
@@ -522,15 +523,15 @@ build_memgraph () {
       additional_options="$additional_options $disable_jemalloc_flag"
     fi
     echo "Adding additional CMake options: $additional_options"
-    cmake_preset_cmd="$cmake_preset_cmd $additional_options"
   fi
+
   echo "Running CMake with preset: $cmake_preset_cmd"
   docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && source ./env/bin/activate && $EXPORT_MG_TOOLCHAIN && $EXPORT_BUILD_TYPE && $ACTIVATE_CARGO && $cmake_preset_cmd"
 
   if [[ "$cmake_only" == "true" ]]; then
     build_target(){
       target=$1
-      docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && source ./env/bin/activate && $EXPORT_MG_TOOLCHAIN && $EXPORT_BUILD_TYPE && $ACTIVATE_CARGO && cmake --build --preset $PRESET --target $target -- -j"'$(nproc)'
+      docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && source ./env/bin/activate && $EXPORT_MG_TOOLCHAIN && $EXPORT_BUILD_TYPE && $ACTIVATE_CARGO && cmake --build --preset $PRESET --target $target $additional_options -- -j"'$(nproc)'
     }
     # Force build that generate the header files needed by analysis (ie. clang-tidy)
     build_target generated_code
@@ -540,16 +541,16 @@ build_memgraph () {
   # Build using Conan preset
   echo "Building with Conan preset: $PRESET"
   if [[ "$threads" == "$DEFAULT_THREADS" ]]; then
-    docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && source ./env/bin/activate && $EXPORT_MG_TOOLCHAIN && $EXPORT_BUILD_TYPE && $ACTIVATE_CARGO && cmake --build --preset $PRESET -- -j"'$(nproc)'
+    docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && source ./env/bin/activate && $EXPORT_MG_TOOLCHAIN && $EXPORT_BUILD_TYPE && $ACTIVATE_CARGO && cmake --build --preset $PRESET $additional_options -- -j"'$(nproc)'
     # NOTE: mgconsole comes with toolchain v6
     if version_lt "$toolchain_version" "v6"; then
-      docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && source ./env/bin/activate && $EXPORT_MG_TOOLCHAIN && $EXPORT_BUILD_TYPE && $ACTIVATE_CARGO && cmake --build --preset $PRESET --target mgconsole -- -j"'$(nproc)'
+      docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && source ./env/bin/activate && $EXPORT_MG_TOOLCHAIN && $EXPORT_BUILD_TYPE && $ACTIVATE_CARGO && cmake --build --preset $PRESET --target mgconsole $additional_options -- -j"'$(nproc)'
     fi
   else
     local EXPORT_THREADS="export THREADS=$threads"
-    docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && source ./env/bin/activate && $EXPORT_MG_TOOLCHAIN && $EXPORT_BUILD_TYPE && $EXPORT_THREADS && $ACTIVATE_CARGO && cmake --build --preset $PRESET -- -j\$THREADS"
+    docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && source ./env/bin/activate && $EXPORT_MG_TOOLCHAIN && $EXPORT_BUILD_TYPE && $EXPORT_THREADS && $ACTIVATE_CARGO && cmake --build --preset $PRESET $additional_options-- -j\$THREADS"
     if version_lt "$toolchain_version" "v6"; then
-      docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && source ./env/bin/activate && $EXPORT_MG_TOOLCHAIN && $EXPORT_BUILD_TYPE && $EXPORT_THREADS && $ACTIVATE_CARGO && cmake --build --preset $PRESET --target mgconsole -- -j\$THREADS"
+      docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && source ./env/bin/activate && $EXPORT_MG_TOOLCHAIN && $EXPORT_BUILD_TYPE && $EXPORT_THREADS && $ACTIVATE_CARGO && cmake --build --preset $PRESET --target mgconsole $additional_options -- -j\$THREADS"
     fi
   fi
 
