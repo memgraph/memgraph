@@ -20,6 +20,7 @@
 #include "storage/v2/indices/label_index.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/indices/point_index.hpp"
+#include "storage/v2/indices/text_edge_index.hpp"
 #include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
@@ -77,31 +78,31 @@ struct Indices {
 
   /// This function should be called whenever a label is added to a vertex.
   /// @throw std::bad_alloc
-  void UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx) const;
+  void UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx);
 
-  void UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx) const;
+  void UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx);
 
   /// This function should be called whenever a property is modified on a vertex.
   /// @throw std::bad_alloc
-  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, Transaction &tx) const;
+  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, Transaction &tx);
 
   /// This function should be called whenever a property is modified on an edge.
   /// @throw std::bad_alloc
   void UpdateOnSetProperty(EdgeTypeId edge_type, PropertyId property, const PropertyValue &value, Vertex *from_vertex,
-                           Vertex *to_vertex, Edge *edge, const Transaction &tx) const;
+                           Vertex *to_vertex, Edge *edge, Transaction &tx);
 
-  void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
-                            const Transaction &tx) const;
+  void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type, Transaction &tx);
 
   std::unique_ptr<LabelIndex> label_index_;
   std::unique_ptr<LabelPropertyIndex> label_property_index_;
   std::unique_ptr<EdgeTypeIndex> edge_type_index_;
   std::unique_ptr<EdgeTypePropertyIndex> edge_type_property_index_;
   std::unique_ptr<EdgePropertyIndex> edge_property_index_;
-  mutable TextIndex text_index_;
+  TextIndex text_index_;
+  TextEdgeIndex text_edge_index_;
   PointIndexStorage point_index_;
-  mutable VectorIndex vector_index_;
-  mutable VectorEdgeIndex vector_edge_index_;
+  VectorIndex vector_index_;
+  VectorEdgeIndex vector_edge_index_;
 };
 
 }  // namespace memgraph::storage

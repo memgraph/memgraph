@@ -77,6 +77,8 @@ class DiskStorage final : public Storage {
 
     std::optional<EdgeAccessor> FindEdge(Gid gid, View view) override;
 
+    std::optional<EdgeAccessor> FindEdge(Gid edge_gid, Gid from_vertex_gid, View view) override;
+
     EdgesIterable Edges(EdgeTypeId edge_type, View view) override;
 
     EdgesIterable Edges(EdgeTypeId edge_type, PropertyId property, View view) override;

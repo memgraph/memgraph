@@ -40,7 +40,6 @@
 namespace memgraph::query::frontend {
 
 namespace r = ranges;
-namespace rv = r::views;
 // Need to use std::ranges::views transform because rv::transform does not
 // support rvalues as viewable ranges on the lhs of a pipe.
 namespace srv = std::ranges::views;
@@ -501,6 +500,16 @@ antlrcpp::Any CypherMainVisitor::visitDropTextIndex(MemgraphCypher::DropTextInde
   auto *index_query = storage_->Create<TextIndexQuery>();
   index_query->index_name_ = std::any_cast<std::string>(ctx->indexName()->accept(this));
   index_query->action_ = TextIndexQuery::Action::DROP;
+  return index_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitCreateTextEdgeIndex(MemgraphCypher::CreateTextEdgeIndexContext *ctx) {
+  auto *index_query = storage_->Create<CreateTextEdgeIndexQuery>();
+  index_query->index_name_ = std::any_cast<std::string>(ctx->indexName()->accept(this));
+  index_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(ctx->labelName()->accept(this)));
+  for (auto *property_key_name_ctx : ctx->propertyKeyName()) {
+    index_query->properties_.emplace_back(std::any_cast<PropertyIx>(property_key_name_ctx->accept(this)));
+  }
   return index_query;
 }
 

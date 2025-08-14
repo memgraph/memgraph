@@ -286,13 +286,19 @@ class DbAccessor final {
     return std::nullopt;
   }
 
+  std::optional<EdgeAccessor> FindEdge(storage::Gid edge_gid, storage::Gid from_vertex_gid, storage::View view) {
+    auto maybe_edge = accessor_->FindEdge(edge_gid, from_vertex_gid, view);
+    if (maybe_edge) return EdgeAccessor(*maybe_edge);
+    return std::nullopt;
+  }
+
   void FinalizeTransaction() { accessor_->FinalizeTransaction(); }
 
   void TrackCurrentThreadAllocations() {
     memgraph::memory::StartTrackingCurrentThread(accessor_->GetQueryMemoryTracker().get());
   }
 
-  void UntrackCurrentThreadAllocations() { memgraph::memory::StopTrackingCurrentThread(); }
+  static void UntrackCurrentThreadAllocations() { memgraph::memory::StopTrackingCurrentThread(); }
 
   auto &GetQueryMemoryTracker() { return accessor_->GetQueryMemoryTracker(); }
 
@@ -524,6 +530,12 @@ class DbAccessor final {
     return accessor_->TextIndexAggregate(index_name, search_query, aggregation_query);
   }
 
+  std::vector<storage::EdgeTextSearchResult> SearchEdgeTextIndex(const std::string &index_name,
+                                                                 const std::string &search_query,
+                                                                 text_search_mode search_mode) const {
+    return accessor_->SearchEdgeTextIndex(index_name, search_query, search_mode);
+  }
+
   bool PointIndexExists(storage::LabelId label, storage::PropertyId prop) const {
     return accessor_->PointIndexExists(label, prop);
   }
@@ -706,6 +718,11 @@ class DbAccessor final {
     return accessor_->DropTextIndex(index_name);
   }
 
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateTextEdgeIndex(
+      const storage::TextEdgeIndexSpec &text_edge_index_info) {
+    return accessor_->CreateTextEdgeIndex(text_edge_index_info);
+  }
+
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorIndex(storage::VectorIndexSpec spec) {
     return accessor_->CreateVectorIndex(std::move(spec));
   }
@@ -829,6 +846,8 @@ class SubgraphDbAccessor final {
   std::optional<VertexAccessor> FindVertex(storage::Gid gid, storage::View view);
 
   std::optional<EdgeAccessor> FindEdge(storage::Gid gid, storage::View view);
+
+  std::optional<EdgeAccessor> FindEdge(storage::Gid edge_gid, storage::Gid from_vertex_gid, storage::View view);
 
   Graph *getGraph();
 

@@ -15,12 +15,10 @@
 #include "mgcxx_text_search.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
-#include "storage/v2/property_value.hpp"
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/view.hpp"
 
 namespace r = ranges;
-namespace rv = r::views;
 namespace memgraph::storage {
 
 void TextIndex::CreateTantivyIndex(const std::string &index_path, const TextIndexSpec &index_info) {
@@ -36,7 +34,6 @@ void TextIndex::CreateTantivyIndex(const std::string &index_path, const TextInde
         mgcxx::text_search::create_index(index_path, mgcxx::text_search::IndexConfig{.mappings = mappings.dump()}),
         index_info.label_, index_info.properties_);
     if (!success) {
-      spdlog::error("Text index \"{}\" already exists at path: {}.", index_info.index_name_, index_path);
       throw query::TextSearchException("Text index \"{}\" already exists at path: {}.", index_info.index_name_,
                                        index_path);
     }
@@ -70,28 +67,11 @@ std::vector<TextIndexData *> TextIndex::GetApplicableTextIndices(std::span<stora
   return applicable_text_indices;
 }
 
-std::map<PropertyId, PropertyValue> TextIndex::ExtractVertexProperties(const PropertyStore &property_store,
-                                                                       std::span<PropertyId const> properties) {
-  if (properties.empty()) {
-    return property_store.Properties();
-  }
-
-  auto property_paths = properties |
-                        rv::transform([](PropertyId property) { return storage::PropertyPath{property}; }) |
-                        r::to<std::vector<storage::PropertyPath>>();
-  auto property_values = property_store.ExtractPropertyValuesMissingAsNull(property_paths);
-
-  return rv::zip(properties, property_values) | rv::transform([](const auto &property_id_value_pair) {
-           return std::make_pair(std::get<0>(property_id_value_pair), std::get<1>(property_id_value_pair));
-         }) |
-         r::to<std::map<PropertyId, PropertyValue>>();
-}
-
-void TextIndex::AddNodeToTextIndex(std::int64_t gid, const nlohmann::json &properties,
-                                   const std::string &property_values_as_str, mgcxx::text_search::Context &context) {
+void TextIndex::AddVertexToTextIndex(std::int64_t gid, nlohmann::json properties, std::string property_values_as_str,
+                                     mgcxx::text_search::Context &context) {
   nlohmann::json document = {};
-  document["data"] = properties;
-  document["all"] = property_values_as_str;
+  document["data"] = std::move(properties);
+  document["all"] = std::move(property_values_as_str);
   document["metadata"] = {};
   document["metadata"]["gid"] = gid;
 
@@ -106,25 +86,25 @@ void TextIndex::AddNodeToTextIndex(std::int64_t gid, const nlohmann::json &prope
   }
 }
 
-void TextIndex::UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx) {
+void TextIndex::UpdateOnAddLabel(LabelId label, const Vertex *vertex, Transaction &tx) {
   auto applicable_text_indices = GetApplicableTextIndices(std::array{label}, vertex->properties.ExtractPropertyIds());
   if (applicable_text_indices.empty()) return;
   TrackTextIndexChange(tx.text_index_change_collector_, applicable_text_indices, vertex, TextIndexOp::ADD);
 }
 
-void TextIndex::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx) {
+void TextIndex::UpdateOnRemoveLabel(LabelId label, const Vertex *vertex, Transaction &tx) {
   auto applicable_text_indices = GetApplicableTextIndices(std::array{label}, vertex->properties.ExtractPropertyIds());
   if (applicable_text_indices.empty()) return;
   TrackTextIndexChange(tx.text_index_change_collector_, applicable_text_indices, vertex, TextIndexOp::REMOVE);
 }
 
-void TextIndex::UpdateOnSetProperty(Vertex *vertex, Transaction &tx) {
+void TextIndex::UpdateOnSetProperty(const Vertex *vertex, Transaction &tx) {
   auto applicable_text_indices = GetApplicableTextIndices(vertex->labels, vertex->properties.ExtractPropertyIds());
   if (applicable_text_indices.empty()) return;
   TrackTextIndexChange(tx.text_index_change_collector_, applicable_text_indices, vertex, TextIndexOp::UPDATE);
 }
 
-void TextIndex::RemoveNode(Vertex *vertex, Transaction &tx) {
+void TextIndex::RemoveNode(const Vertex *vertex, Transaction &tx) {
   auto applicable_text_indices = GetApplicableTextIndices(vertex->labels, vertex->properties.ExtractPropertyIds());
   if (applicable_text_indices.empty()) return;
   TrackTextIndexChange(tx.text_index_change_collector_, applicable_text_indices, vertex, TextIndexOp::REMOVE);
@@ -144,8 +124,8 @@ void TextIndex::CreateIndex(const TextIndexSpec &index_info, storage::VerticesIt
     auto vertex_properties = index_info.properties_.empty()
                                  ? v.Properties(View::NEW).GetValue()
                                  : v.PropertiesByPropertyIds(index_info.properties_, View::NEW).GetValue();
-    AddNodeToTextIndex(v.Gid().AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
-                       StringifyProperties(vertex_properties), index_data.context_);
+    TextIndex::AddVertexToTextIndex(v.Gid().AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
+                                    StringifyProperties(vertex_properties), index_data.context_);
   }
   try {
     mgcxx::text_search::commit(index_data.context_);
@@ -163,9 +143,6 @@ void TextIndex::RecoverIndex(const TextIndexSpec &index_info,
 }
 
 void TextIndex::DropIndex(const std::string &index_name) {
-  if (!index_.contains(index_name)) {
-    throw query::TextSearchException("Text index \"{}\" doesn’t exist.", index_name);
-  }
   try {
     index_.erase(index_name);
     mgcxx::text_search::drop_index(MakeIndexPath(text_index_storage_dir_, index_name));
@@ -303,7 +280,7 @@ void TextIndex::Clear() {
 void TextIndex::ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mapper) {
   for (const auto &[index_data_ptr, pending] : tx.text_index_change_collector_) {
     // Take exclusive lock to properly serialize all updates and hold it for the entire operation
-    const std::lock_guard lock(index_data_ptr->write_mutex_);
+    std::lock_guard lock(index_data_ptr->write_mutex_);
     try {
       for (const auto *vertex : pending.to_remove_) {
         auto search_node_to_be_deleted =
@@ -313,9 +290,9 @@ void TextIndex::ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mappe
       for (const auto *vertex : pending.to_add_) {
         auto vertex_properties = index_data_ptr->properties_.empty()
                                      ? vertex->properties.Properties()
-                                     : ExtractVertexProperties(vertex->properties, index_data_ptr->properties_);
-        AddNodeToTextIndex(vertex->gid.AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
-                           StringifyProperties(vertex_properties), index_data_ptr->context_);
+                                     : ExtractProperties(vertex->properties, index_data_ptr->properties_);
+        TextIndex::AddVertexToTextIndex(vertex->gid.AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
+                                        StringifyProperties(vertex_properties), index_data_ptr->context_);
       }
       mgcxx::text_search::commit(index_data_ptr->context_);
     } catch (const std::exception &e) {

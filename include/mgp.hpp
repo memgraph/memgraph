@@ -4503,15 +4503,36 @@ inline List ListAllLabelPropertyIndices(mgp_graph *memgraph_graph) {
   return List(label_property_indices, StealType{});
 }
 
-namespace {
-constexpr std::string_view kErrorMsgKey = "error_msg";
-constexpr std::string_view kSearchResultsKey = "search_results";
-constexpr std::string_view kAggregationResultsKey = "aggregation_results";
-}  // namespace
+inline constexpr std::string_view kErrorMsgKey = "error_msg";
+inline constexpr std::string_view kSearchResultsKey = "search_results";
+inline constexpr std::string_view kAggregationResultsKey = "aggregation_results";
 
 inline List SearchTextIndex(mgp_graph *memgraph_graph, std::string_view index_name, std::string_view search_query,
                             text_search_mode search_mode) {
   auto results_or_error = Map(mgp::MemHandlerCallback(graph_search_text_index, memgraph_graph, index_name.data(),
+                                                      search_query.data(), search_mode),
+                              StealType{});
+  if (results_or_error.KeyExists(kErrorMsgKey)) {
+    if (!results_or_error.At(kErrorMsgKey).IsString()) {
+      throw TextSearchException{"The error message is not a string!"};
+    }
+    throw TextSearchException(results_or_error.At(kErrorMsgKey).ValueString().data());
+  }
+
+  if (!results_or_error.KeyExists(kSearchResultsKey)) {
+    return List();  // No results found, return empty list.
+  }
+
+  if (!results_or_error.At(kSearchResultsKey).IsList()) {
+    throw TextSearchException{"Text index search results have wrong type!"};
+  }
+
+  return results_or_error.At(kSearchResultsKey).ValueList();
+}
+
+inline List SearchTextEdgeIndex(mgp_graph *memgraph_graph, std::string_view index_name, std::string_view search_query,
+                                text_search_mode search_mode) {
+  auto results_or_error = Map(mgp::MemHandlerCallback(graph_search_text_edge_index, memgraph_graph, index_name.data(),
                                                       search_query.data(), search_mode),
                               StealType{});
   if (results_or_error.KeyExists(kErrorMsgKey)) {

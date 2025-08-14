@@ -15,7 +15,6 @@
 
 namespace memgraph::storage {
 
-// Forward declaration because we only store a pointer here.
 struct Edge;
 
 struct EdgeRef {

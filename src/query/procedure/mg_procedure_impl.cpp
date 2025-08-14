@@ -25,6 +25,7 @@
 #include <variant>
 
 #include "dbms/dbms_handler.hpp"
+#include "edge_accessor.hpp"
 #include "flags/experimental.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "glue/auth.hpp"
@@ -42,6 +43,7 @@
 #include "query/typed_value.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/text_edge_index.hpp"
 #include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
@@ -3396,6 +3398,24 @@ mgp_vertex *GetVertexByGid(mgp_graph *graph, memgraph::storage::Gid id, mgp_memo
   return std::visit(get_vertex_by_gid, graph->impl);
 }
 
+mgp_edge *GetEdgeByGid(mgp_graph *graph, memgraph::storage::Gid edge_gid, memgraph::storage::Gid from_vertex_gid,
+                       mgp_memory *memory) {
+  auto get_edge_by_gid = memgraph::utils::Overloaded{
+      [graph, edge_gid, from_vertex_gid, memory](memgraph::query::DbAccessor *impl) -> mgp_edge * {
+        auto maybe_edge = impl->FindEdge(edge_gid, from_vertex_gid, graph->view);
+        if (!maybe_edge) return nullptr;
+        return NewRawMgpObject<mgp_edge>(memory, *maybe_edge, graph);
+      },
+      [graph, edge_gid, from_vertex_gid, memory](memgraph::query::SubgraphDbAccessor *impl) -> mgp_edge * {
+        auto maybe_edge = impl->FindEdge(edge_gid, from_vertex_gid, graph->view);
+        if (!maybe_edge) return nullptr;
+        return NewRawMgpObject<mgp_edge>(
+            memory, *maybe_edge, memgraph::query::SubgraphVertexAccessor(maybe_edge->From(), impl->getGraph()),
+            memgraph::query::SubgraphVertexAccessor(maybe_edge->To(), impl->getGraph()), graph);
+      }};
+  return std::visit(get_edge_by_gid, graph->impl);
+}
+
 template <typename FoundElementRange, typename MakeElementValueFunc>
 void WrapVectorSearchResults(mgp_graph *graph, mgp_memory *memory, mgp_map **result, size_t found_elements_size,
                              MakeElementValueFunc make_element_value, const FoundElementRange &found_elements,
@@ -3699,7 +3719,7 @@ void WrapTextSearch(mgp_graph *graph, mgp_memory *memory, mgp_map **result,
   std::vector<mgp_vertex *> vertices;
   vertices.reserve(vertex_ids.size());
   for (const auto &vertex_id : vertex_ids) {
-    auto vertex_ptr = GetVertexByGid(graph, vertex_id, memory);
+    auto *vertex_ptr = GetVertexByGid(graph, vertex_id, memory);
     if (vertex_ptr) {
       vertices.push_back(vertex_ptr);
     }
@@ -3764,6 +3784,67 @@ void WrapTextIndexAggregation(mgp_memory *memory, mgp_map **result, const std::s
   mgp_value_destroy(aggregation_result_or_error_value);
 }
 
+void WrapEdgeTextSearchResults(mgp_graph *graph, mgp_memory *memory, mgp_map **result,
+                               const std::vector<memgraph::storage::EdgeTextSearchResult> &found_edges,
+                               const std::optional<std::string> &error_msg = std::nullopt) {
+  if (const auto err = mgp_map_make_empty(memory, result); err != mgp_error::MGP_ERROR_NO_ERROR) {
+    throw std::logic_error("Retrieving edge text search results failed during creation of a mgp_map");
+  }
+
+  mgp_value *error_value = nullptr;
+  if (error_msg.has_value()) {
+    if (const auto err = mgp_value_make_string(error_msg.value().data(), memory, &error_value);
+        err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error("Retrieving edge text search results failed during creation of a string mgp_value");
+    }
+    if (const auto err = mgp_map_insert(*result, "error_msg", error_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error("Retrieving edge text search error failed during insertion into mgp_map");
+    }
+    mgp_value_destroy(error_value);
+    return;
+  }
+
+  // first find edges by their GIDs because maybe not all edges exist in the graph anymore
+  std::vector<mgp_edge *> edges;
+  edges.reserve(found_edges.size());
+  for (const auto &[edge_gid, from_vertex_gid, _] : found_edges) {
+    auto *edge_ptr = GetEdgeByGid(graph, edge_gid, from_vertex_gid, memory);
+    if (edge_ptr) {
+      edges.push_back(edge_ptr);
+    }
+  }
+
+  mgp_list *search_results{};
+  if (const auto err = mgp_list_make_empty(edges.size(), memory, &search_results);
+      err != mgp_error::MGP_ERROR_NO_ERROR) {
+    throw std::logic_error("Retrieving text search results failed during creation of a mgp_list");
+  }
+
+  for (auto *edge_ptr : edges) {
+    mgp_value *edge = nullptr;
+    if (const auto err = mgp_value_make_edge(edge_ptr, &edge); err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error("Retrieving text search results failed during creation of an edge mgp_value");
+    }
+    if (const auto err = mgp_list_append(search_results, edge); err != mgp_error::MGP_ERROR_NO_ERROR) {
+      throw std::logic_error(
+          "Retrieving text search results failed during insertion of the mgp_value into the result list");
+    }
+    mgp_value_destroy(edge);
+  }
+
+  mgp_value *search_results_value = nullptr;
+  if (const auto err = mgp_value_make_list(search_results, &search_results_value);
+      err != mgp_error::MGP_ERROR_NO_ERROR) {
+    throw std::logic_error("Retrieving text search results failed during creation of a list mgp_value");
+  }
+
+  if (const auto err = mgp_map_insert(*result, "search_results", search_results_value);
+      err != mgp_error::MGP_ERROR_NO_ERROR) {
+    throw std::logic_error("Retrieving text index search results failed during insertion into mgp_map");
+  }
+  mgp_value_destroy(search_results_value);
+}
+
 mgp_error mgp_graph_search_text_index(mgp_graph *graph, const char *index_name, const char *search_query,
                                       text_search_mode search_mode, mgp_memory *memory, mgp_map **result) {
   return WrapExceptions([graph, memory, index_name, search_query, search_mode, result]() {
@@ -3789,6 +3870,21 @@ mgp_error mgp_graph_aggregate_over_text_index(mgp_graph *graph, const char *inde
       error_msg = e.what();
     }
     WrapTextIndexAggregation(memory, result, search_results, error_msg);
+  });
+}
+
+mgp_error mgp_graph_search_text_edge_index(struct mgp_graph *graph, const char *index_name, const char *search_query,
+                                           enum text_search_mode search_mode, struct mgp_memory *memory,
+                                           struct mgp_map **result) {
+  return WrapExceptions([graph, memory, index_name, search_query, search_mode, result]() {
+    std::vector<memgraph::storage::EdgeTextSearchResult> found_edges;
+    std::optional<std::string> error_msg = std::nullopt;
+    try {
+      found_edges = graph->getImpl()->SearchEdgeTextIndex(index_name, search_query, search_mode);
+    } catch (memgraph::query::QueryException &e) {
+      error_msg = e.what();
+    }
+    WrapEdgeTextSearchResults(graph, memory, result, found_edges, error_msg);
   });
 }
 

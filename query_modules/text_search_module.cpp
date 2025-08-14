@@ -19,17 +19,26 @@ namespace TextSearch {
 constexpr std::string_view kProcedureSearch = "search";
 constexpr std::string_view kProcedureRegexSearch = "regex_search";
 constexpr std::string_view kProcedureSearchAllProperties = "search_all";
+constexpr std::string_view kProcedureSearchEdges = "search_edges";
+constexpr std::string_view kProcedureRegexSearchEdges = "regex_search_edges";
+constexpr std::string_view kProcedureSearchAllPropertiesEdges = "search_all_edges";
 constexpr std::string_view kProcedureAggregate = "aggregate";
 constexpr std::string_view kParameterIndexName = "index_name";
 constexpr std::string_view kParameterSearchQuery = "search_query";
 constexpr std::string_view kParameterAggregationQuery = "aggregation_query";
 constexpr std::string_view kReturnNode = "node";
+constexpr std::string_view kReturnEdge = "edge";
+constexpr std::string_view kReturnFromVertex = "from_vertex";
+constexpr std::string_view kReturnToVertex = "to_vertex";
 constexpr std::string_view kReturnAggregation = "aggregation";
 const std::string kSearchAllPrefix = "all";
 
 void Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 void RegexSearch(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 void SearchAllProperties(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
+void SearchEdges(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
+void RegexSearchEdges(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
+void SearchAllPropertiesEdges(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 void Aggregate(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 }  // namespace TextSearch
 
@@ -105,6 +114,70 @@ void TextSearch::Aggregate(mgp_list *args, mgp_graph *memgraph_graph, mgp_result
   }
 }
 
+void TextSearch::SearchEdges(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
+  mgp::MemoryDispatcherGuard guard{memory};
+  const auto record_factory = mgp::RecordFactory(result);
+  auto arguments = mgp::List(args);
+
+  try {
+    const auto *index_name = arguments[0].ValueString().data();
+    const auto *search_query = arguments[1].ValueString().data();
+    for (const auto &edge_result :
+         mgp::SearchTextEdgeIndex(memgraph_graph, index_name, search_query, text_search_mode::SPECIFIED_PROPERTIES)) {
+      auto record = record_factory.NewRecord();
+      auto edge_list = edge_result.ValueList();
+      record.Insert(TextSearch::kReturnEdge.data(), edge_list[0].ValueRelationship());
+      record.Insert(TextSearch::kReturnFromVertex.data(), edge_list[1].ValueNode());
+      record.Insert(TextSearch::kReturnToVertex.data(), edge_list[2].ValueNode());
+    }
+  } catch (const std::exception &e) {
+    record_factory.SetErrorMessage(e.what());
+  }
+}
+
+void TextSearch::RegexSearchEdges(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
+  mgp::MemoryDispatcherGuard guard{memory};
+  const auto record_factory = mgp::RecordFactory(result);
+  auto arguments = mgp::List(args);
+
+  try {
+    const auto index_name = arguments[0].ValueString();
+    const auto search_query = arguments[1].ValueString();
+    for (const auto &edge_result :
+         mgp::SearchTextEdgeIndex(memgraph_graph, index_name, search_query, text_search_mode::REGEX)) {
+      auto record = record_factory.NewRecord();
+      auto edge_list = edge_result.ValueList();
+      record.Insert(TextSearch::kReturnEdge.data(), edge_list[0].ValueRelationship());
+      record.Insert(TextSearch::kReturnFromVertex.data(), edge_list[1].ValueNode());
+      record.Insert(TextSearch::kReturnToVertex.data(), edge_list[2].ValueNode());
+    }
+  } catch (const std::exception &e) {
+    record_factory.SetErrorMessage(e.what());
+  }
+}
+
+void TextSearch::SearchAllPropertiesEdges(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result,
+                                          mgp_memory *memory) {
+  mgp::MemoryDispatcherGuard guard{memory};
+  const auto record_factory = mgp::RecordFactory(result);
+  auto arguments = mgp::List(args);
+
+  try {
+    auto const index_name = arguments[0].ValueString();
+    auto const search_query = fmt::format("{}:{}", kSearchAllPrefix, arguments[1].ValueString());
+    for (const auto &edge_result :
+         mgp::SearchTextEdgeIndex(memgraph_graph, index_name, search_query, text_search_mode::ALL_PROPERTIES)) {
+      auto record = record_factory.NewRecord();
+      auto edge_list = edge_result.ValueList();
+      record.Insert(TextSearch::kReturnEdge.data(), edge_list[0].ValueRelationship());
+      record.Insert(TextSearch::kReturnFromVertex.data(), edge_list[1].ValueNode());
+      record.Insert(TextSearch::kReturnToVertex.data(), edge_list[2].ValueNode());
+    }
+  } catch (const std::exception &e) {
+    record_factory.SetErrorMessage(e.what());
+  }
+}
+
 extern "C" int mgp_init_module(struct mgp_module *query_module, struct mgp_memory *memory) {
   try {
     mgp::MemoryDispatcherGuard guard{memory};
@@ -137,6 +210,37 @@ extern "C" int mgp_init_module(struct mgp_module *query_module, struct mgp_memor
                      mgp::Parameter(TextSearch::kParameterAggregationQuery, mgp::Type::String),
                  },
                  {mgp::Return(TextSearch::kReturnAggregation, mgp::Type::String)}, query_module, memory);
+
+    AddProcedure(TextSearch::SearchEdges, TextSearch::kProcedureSearchEdges, mgp::ProcedureType::Read,
+                 {
+                     mgp::Parameter(TextSearch::kParameterIndexName, mgp::Type::String),
+                     mgp::Parameter(TextSearch::kParameterSearchQuery, mgp::Type::String),
+                 },
+                 {mgp::Return(TextSearch::kReturnEdge, mgp::Type::Relationship),
+                  mgp::Return(TextSearch::kReturnFromVertex, mgp::Type::Node),
+                  mgp::Return(TextSearch::kReturnToVertex, mgp::Type::Node)},
+                 query_module, memory);
+
+    AddProcedure(TextSearch::RegexSearchEdges, TextSearch::kProcedureRegexSearchEdges, mgp::ProcedureType::Read,
+                 {
+                     mgp::Parameter(TextSearch::kParameterIndexName, mgp::Type::String),
+                     mgp::Parameter(TextSearch::kParameterSearchQuery, mgp::Type::String),
+                 },
+                 {mgp::Return(TextSearch::kReturnEdge, mgp::Type::Relationship),
+                  mgp::Return(TextSearch::kReturnFromVertex, mgp::Type::Node),
+                  mgp::Return(TextSearch::kReturnToVertex, mgp::Type::Node)},
+                 query_module, memory);
+
+    AddProcedure(TextSearch::SearchAllPropertiesEdges, TextSearch::kProcedureSearchAllPropertiesEdges,
+                 mgp::ProcedureType::Read,
+                 {
+                     mgp::Parameter(TextSearch::kParameterIndexName, mgp::Type::String),
+                     mgp::Parameter(TextSearch::kParameterSearchQuery, mgp::Type::String),
+                 },
+                 {mgp::Return(TextSearch::kReturnEdge, mgp::Type::Relationship),
+                  mgp::Return(TextSearch::kReturnFromVertex, mgp::Type::Node),
+                  mgp::Return(TextSearch::kReturnToVertex, mgp::Type::Node)},
+                 query_module, memory);
   } catch (const std::exception &e) {
     std::cerr << "Error while initializing query module: " << e.what() << '\n';
     return 1;

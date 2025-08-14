@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <optional>
 #include "common_function_signatures.hpp"
 #include "mg_procedure.h"
 #include "storage/v2/auto_indexer.hpp"
@@ -268,6 +269,8 @@ class Storage {
 
     virtual std::optional<EdgeAccessor> FindEdge(Gid gid, View view) = 0;
 
+    virtual std::optional<EdgeAccessor> FindEdge(Gid edge_gid, Gid from_vertex_gid, View view) = 0;
+
     virtual EdgesIterable Edges(EdgeTypeId edge_type, View view) = 0;
 
     virtual EdgesIterable Edges(EdgeTypeId edge_type, PropertyId property, View view) = 0;
@@ -383,6 +386,12 @@ class Storage {
       return storage_->indices_.text_index_.Aggregate(index_name, search_query, aggregation_query);
     }
 
+    std::vector<EdgeTextSearchResult> SearchEdgeTextIndex(const std::string &index_name,
+                                                          const std::string &search_query,
+                                                          text_search_mode search_mode) const {
+      return storage_->indices_.text_edge_index_.Search(index_name, search_query, search_mode);
+    }
+
     virtual bool PointIndexExists(LabelId label, PropertyId property) const = 0;
 
     virtual IndicesInfo ListAllIndices() const = 0;
@@ -468,6 +477,9 @@ class Storage {
         const TextIndexSpec &text_index_info);
 
     utils::BasicResult<storage::StorageIndexDefinitionError, void> DropTextIndex(const std::string &index_name);
+
+    utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateTextEdgeIndex(
+        const TextEdgeIndexSpec &text_edge_index_info);
 
     virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorIndex(VectorIndexSpec spec) = 0;
 
