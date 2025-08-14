@@ -923,7 +923,8 @@ if [ ! -f $PREFIX/include/bzlib.h ]; then
     fi
     tar -xzf ../archives/bzip2-$BZIP2_VERSION.tar.gz
     pushd bzip2-$BZIP2_VERSION
-    make $COMMON_MAKE_INSTALL_FLAGS CFLAGS="$CFLAGS -fPIC"
+    # CentOS 9 build requires bzip to be built with -fPIC
+    make $COMMON_MAKE_INSTALL_FLAGS CFLAGS="$CFLAGS"
     popd
 fi
 
