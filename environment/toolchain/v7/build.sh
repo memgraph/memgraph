@@ -1249,7 +1249,7 @@ fi
 if [[ "$DISTRO" =~ ^(rocky-|centos-|fedora-) ]]; then
     OPENSSL_TAG="openssl-3.5.2"
     log_tool_name "openssl $OPENSSL_TAG"
-    if [ ! -f $PREFIX/lib/libssl.a ] || [ ! -f $PREFIX/lib/libcrypto.a ]; then
+    if [ ! -f $PREFIX/lib64/libssl.a ] || [ ! -f $PREFIX/lib64/libcrypto.a ]; then
         if [ -d openssl ]; then
             rm -rf openssl
         fi
