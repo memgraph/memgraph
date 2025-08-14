@@ -49,7 +49,14 @@ def load_args():
 
 def load_workloads(root_directory):
     workloads = []
-    for file in Path(root_directory).rglob("*.yaml"):
+    # Always search relative to the build directory
+    build_e2e_dir = os.path.join(BUILD_DIR, "tests", "e2e")
+    if root_directory == ".":
+        search_path = Path(build_e2e_dir)
+    else:
+        search_path = Path(os.path.join(build_e2e_dir, root_directory))
+
+    for file in search_path.rglob("workloads.yaml"):
         # 8.03.2024. - Skip streams e2e tests
         if str(file).endswith("/streams/workloads.yaml"):
             continue
