@@ -166,7 +166,7 @@ install() {
     fi
 
     # enable rpm fusion
-    dnf install https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-42.noarch.rpm
+    dnf install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-42.noarch.rpm
 
     dnf update -y
     dnf install -y wget git python3 python3-pip
