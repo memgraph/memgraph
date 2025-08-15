@@ -49,7 +49,7 @@ MEMGRAPH_BUILD_DEPS=(
     python3-devel # for query modules
     openssl-devel
     libseccomp-devel
-    python3 python3-pip python3-virtualenv python3-venv nmap-ncat # for qa, macro_benchmark and stress tests
+    python3 python3-pip python3-virtualenv nmap-ncat # for qa, macro_benchmark and stress tests
     #
     # IMPORTANT: python3-yaml does NOT exist on Rocky
     # Install it manually using `pip3 install PyYAML`
