@@ -26,6 +26,12 @@ function setup_virtualenv () {
     popd > /dev/null
 }
 
+function print_help () {
+  echo "Usage: $0 [--skip-prep-testing] [--ci]"
+  echo "  --skip-prep-testing: Skip the preparation of the testing environment"
+  echo "  --ci: Run the tests in CI mode"
+}
+
 ci=false
 prep_testing=true
 while(($#)); do
