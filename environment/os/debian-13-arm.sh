@@ -191,13 +191,7 @@ install() {
     for pkg in "${custom_packages[@]}"; do
         case "$pkg" in
             dotnet-sdk-8.0)
-                if ! dpkg -s dotnet-sdk-8.0 &>/dev/null; then
-                    # dotnet-sdk-8.0 is not available in debian-13 yet, so we use debian-12
-                    wget -nv https://packages.microsoft.com/config/debian/12/packages-microsoft-prod.deb -O packages-microsoft-prod.deb
-                    dpkg -i packages-microsoft-prod.deb
-                    apt update -y
-                    apt install -y apt-transport-https dotnet-sdk-8.0
-                fi
+                install_dotnet_sdk "8.0"
                 ;;
             *)
                 # Skip packages that don't need special handling
