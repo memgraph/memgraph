@@ -58,7 +58,7 @@ MEMGRAPH_BUILD_DEPS=(
     rpm-build rpmlint # for RPM package building
     doxygen graphviz # source documentation generators
     which nodejs golang custom-golang # for driver tests
-    zip unzip java-17-openjdk-headless java-17-openjdk java-17-openjdk-devel custom-maven # for driver tests
+    zip unzip java-21-openjdk-headless java-21-openjdk java-21-openjdk-devel custom-maven # for driver tests
     sbcl # for custom Lisp C++ preprocessing
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
