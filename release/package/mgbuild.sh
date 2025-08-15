@@ -569,7 +569,8 @@ build_memgraph () {
 
 init_tests() {
   echo "Initializing tests..."
-  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && ./init-test --ci"
+  # we need to add the ~/.local/bin to the path
+  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && export PATH=\$PATH:\$HOME/.local/bin && ./init-test --ci"
   echo "...Done"
 }
 
