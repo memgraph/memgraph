@@ -52,7 +52,7 @@ MEMGRAPH_BUILD_DEPS=(
     python3-devel # for query modules
     openssl-devel
     libseccomp-devel
-    python3 python3-pip python3-virtualenv python3-venv nmap-ncat # for qa, macro_benchmark and stress tests
+    python3 python3-pip python3-virtualenv nmap-ncat # for qa, macro_benchmark and stress tests
     #
     # IMPORTANT: python3-yaml does NOT exist on Fedora
     # Install it manually using `pip3 install PyYAML`
@@ -164,6 +164,9 @@ install() {
     else
         echo "NOTE: export LANG=en_US.utf8"
     fi
+
+    # enable rpm fusion
+    dnf install https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-42.noarch.rpm
 
     dnf update -y
     dnf install -y wget git python3 python3-pip

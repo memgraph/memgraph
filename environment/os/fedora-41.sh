@@ -53,7 +53,7 @@ MEMGRAPH_BUILD_DEPS=(
     python3-devel # for query modules
     openssl-devel openssl
     libseccomp-devel
-    python3 python3-pip python3-virtualenv python3-virtualenvwrapper python3-venv python3-pyyaml nmap-ncat # for tests
+    python3 python3-pip python3-virtualenv python3-virtualenvwrapper python3-pyyaml nmap-ncat # for tests
     libcurl-devel # mg-requests
     rpm-build rpmlint # for RPM package building
     doxygen graphviz # source documentation generators
@@ -159,6 +159,9 @@ install() {
     else
         echo "NOTE: export LANG=en_US.utf8"
     fi
+
+    # enable rpm fusion
+    dnf install https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-41.noarch.rpm
 
     # Update package lists first
     dnf update -y
