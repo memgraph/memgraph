@@ -66,7 +66,7 @@ MEMGRAPH_BUILD_DEPS=(
     cyrus-sasl-devel
     ninja-build
     # Pulsar dependencies
-    libnghttp2-devel libpsl-devel krb5-devel librtmp-devel openldap-devel libbrotli-devel libidn2-devel libssh-devel
+    libnghttp2-devel libpsl-devel krb5-devel librtmp-devel openldap-devel brotli-devel libidn2-devel libssh-devel
 )
 
 MEMGRAPH_TEST_DEPS="${MEMGRAPH_BUILD_DEPS[*]}"
@@ -179,7 +179,10 @@ install() {
     dnf install -y dnf-plugins-core
     dnf config-manager --set-enabled crb
     dnf config-manager --set-enabled devel
-    sudo dnf install -y epel-release
+    dnf install -y epel-release
+
+    # enable rpm fusion
+    dnf install --nogpgcheck -y https://mirrors.rpmfusion.org/free/el/rpmfusion-free-release-10.noarch.rpm
 
     dnf update -y
     dnf install -y wget git python3 python3-pip
