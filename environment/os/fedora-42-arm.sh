@@ -69,7 +69,7 @@ MEMGRAPH_BUILD_DEPS=(
     cyrus-sasl-devel
     ninja-build
     # Pulsar dependencies
-    libnghttp2-devel libpsl-devel krb5-devel librtmp-devel openldap-devel libbrotli-devel libidn2-devel libssh-devel
+    libnghttp2-devel libpsl-devel krb5-devel librtmp-devel openldap-devel brotli-devel libidn2-devel libssh-devel
 )
 
 MEMGRAPH_TEST_DEPS="${MEMGRAPH_BUILD_DEPS[*]}"
