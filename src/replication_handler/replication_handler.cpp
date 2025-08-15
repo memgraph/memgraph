@@ -196,7 +196,8 @@ ReplicationHandler::ReplicationHandler(utils::Synchronized<ReplicationState, uti
 
 bool ReplicationHandler::SetReplicationRoleMain() { return DoToMainPromotion({}, false); }
 
-bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig &config) {
+bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig &config,
+                                                   std::optional<utils::UUID> const &maybe_main_uuid) {
   try {
     auto locked_repl_state = repl_state_.TryLock();
 
@@ -230,7 +231,7 @@ bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig
       });
     }
 
-    return SetReplicationRoleReplica_<true>(locked_repl_state, config);
+    return SetReplicationRoleReplica_<true>(locked_repl_state, config, maybe_main_uuid);
   } catch (const utils::TryLockException & /* unused */) {
     return false;
   }

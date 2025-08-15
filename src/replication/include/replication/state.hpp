@@ -130,7 +130,8 @@ struct ReplicationState {
   utils::BasicResult<RegisterReplicaStatus, ReplicationClient *> RegisterReplica(const ReplicationClientConfig &config);
 
   bool SetReplicationRoleMain(const utils::UUID &main_uuid);
-  bool SetReplicationRoleReplica(const ReplicationServerConfig &config);
+  bool SetReplicationRoleReplica(const ReplicationServerConfig &config,
+                                 std::optional<utils::UUID> const &maybe_main_uuid);
 
  private:
   bool HandleVersionMigration(durability::ReplicationRoleEntry &data) const;
