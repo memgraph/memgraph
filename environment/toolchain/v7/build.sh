@@ -255,24 +255,22 @@ export LD_LIBRARY_PATH=$PREFIX/lib64
 log_tool_name "gmp (from gcc)"
 if [ ! -f $PREFIX/lib/libgmp.a ]; then
     pushd $DIR/build/gcc-$GCC_VERSION/gmp
+
     if [[ "$for_arm" = true ]]; then
-        if [[ "$DISTRO" =~ ^fedora- ]]; then
-            CFLAGS="$CFLAGS -std=gnu17" ./configure \
-                --build=aarch64-linux-gnu \
-                --host=aarch64-linux-gnu \
-                --prefix=$PREFIX
-        else
-            ./configure \
-                --build=aarch64-linux-gnu \
-                --host=aarch64-linux-gnu \
-                --prefix=$PREFIX
-        fi
+        gmp_build_host="--build=aarch64-linux-gnu --host=aarch64-linux-gnu"
+    else
+        gmp_build_host="--build=x86_64-linux-gnu --host=x86_64-linux-gnu"
+    fi
+    if [[ "$DISTRO" =~ ^fedora- ]]; then
+        CFLAGS="$CFLAGS -std=gnu17" ./configure \
+            $gmp_build_host \
+            --prefix=$PREFIX
     else
         ./configure \
-            --build=x86_64-linux-gnu \
-            --host=x86_64-linux-gnu \
+            $gmp_build_host \
             --prefix=$PREFIX
     fi
+
     make install
     popd
 fi
