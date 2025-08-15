@@ -705,7 +705,7 @@ static struct mgp_map *create_complete_node_map(struct mgp_vertex *node, const f
       struct mgp_label label;
       if (mgp_vertex_label_at(node, 0, &label) == MGP_ERROR_NO_ERROR) {
         struct mgp_value *type_value = NULL;
-        if (mgp_value_make_string(label.name, memory, &type_value) == MGP_ERROR_NO_ERROR || type_value == NULL) {
+        if (mgp_value_make_string(label.name, memory, &type_value) == MGP_ERROR_NO_ERROR && type_value != NULL) {
           mgp_map_insert_move(node_map, "_type", type_value);
           // Don't destroy type_value - it was moved
         }
@@ -713,19 +713,19 @@ static struct mgp_map *create_complete_node_map(struct mgp_vertex *node, const f
     } else {
       // Multiple labels - create a list
       struct mgp_list *label_list = NULL;
-      if (mgp_list_make_empty(label_count, memory, &label_list) == MGP_ERROR_NO_ERROR || label_list == NULL) {
+      if (mgp_list_make_empty(label_count, memory, &label_list) == MGP_ERROR_NO_ERROR && label_list != NULL) {
         for (size_t i = 0; i < label_count; i++) {
           struct mgp_label label;
           if (mgp_vertex_label_at(node, i, &label) == MGP_ERROR_NO_ERROR) {
             struct mgp_value *label_value = NULL;
-            if (mgp_value_make_string(label.name, memory, &label_value) == MGP_ERROR_NO_ERROR || label_value == NULL) {
+            if (mgp_value_make_string(label.name, memory, &label_value) == MGP_ERROR_NO_ERROR && label_value != NULL) {
               mgp_list_append_move(label_list, label_value);
               // Don't destroy label_value - it was moved
             }
           }
         }
         struct mgp_value *type_value = NULL;
-        if (mgp_value_make_list(label_list, &type_value) == MGP_ERROR_NO_ERROR || type_value == NULL) {
+        if (mgp_value_make_list(label_list, &type_value) == MGP_ERROR_NO_ERROR && type_value != NULL) {
           mgp_map_insert_move(node_map, "_type", type_value);
           // Don't destroy type_value - it was moved
         }
@@ -737,7 +737,7 @@ static struct mgp_map *create_complete_node_map(struct mgp_vertex *node, const f
   struct mgp_vertex_id id;
   if (mgp_vertex_get_id(node, &id) == MGP_ERROR_NO_ERROR) {
     struct mgp_value *id_value = NULL;
-    if (mgp_value_make_int(id.as_int, memory, &id_value) == MGP_ERROR_NO_ERROR || id_value == NULL) {
+    if (mgp_value_make_int(id.as_int, memory, &id_value) == MGP_ERROR_NO_ERROR && id_value != NULL) {
       mgp_map_insert_move(node_map, "_id", id_value);
       // Don't destroy id_value - it was moved
     }
@@ -825,10 +825,10 @@ static struct mgp_value *build_tree_from_path_recursive(struct mgp_path *path, s
     char *id_key = concatenate_strings(rel_type_processed, "._id", memory);
     if (id_key) {
       struct mgp_value *id_value = NULL;
-      if (mgp_value_make_int(edge_id.as_int, memory, &id_value) == MGP_ERROR_NO_ERROR || id_value == NULL) {
+      if (mgp_value_make_int(edge_id.as_int, memory, &id_value) == MGP_ERROR_NO_ERROR && id_value != NULL) {
         // Get the subtree map to add the ID
         struct mgp_map *subtree_map = NULL;
-        if (mgp_value_get_map(subtree_value, &subtree_map) == MGP_ERROR_NO_ERROR || subtree_map == NULL) {
+        if (mgp_value_get_map(subtree_value, &subtree_map) == MGP_ERROR_NO_ERROR && subtree_map != NULL) {
           mgp_map_insert_move(subtree_map, id_key, id_value);
           // Don't destroy id_value - it was moved
         }
@@ -856,7 +856,7 @@ static struct mgp_value *build_tree_from_path_recursive(struct mgp_path *path, s
           if (full_key) {
             // Get the subtree map to add properties
             struct mgp_map *subtree_map = NULL;
-            if (mgp_value_get_map(subtree_value, &subtree_map) == MGP_ERROR_NO_ERROR || subtree_map == NULL) {
+            if (mgp_value_get_map(subtree_value, &subtree_map) == MGP_ERROR_NO_ERROR && subtree_map != NULL) {
               mgp_map_insert(subtree_map, full_key, prop->value);  // TODO move? only if I can move from input
             }
             mgp_free(memory, full_key);
@@ -879,7 +879,7 @@ static struct mgp_value *build_tree_from_path_recursive(struct mgp_path *path, s
   }
 
   // Add the subtree to the relationship list
-  if (mgp_list_append_move(rel_list, subtree_value) != MGP_ERROR_NO_ERROR || rel_list == NULL) {
+  if (mgp_list_append_move(rel_list, subtree_value) != MGP_ERROR_NO_ERROR) {
     if (lower_case_rels && rel_type_processed != rel_type_str) {
       mgp_free(memory, rel_type_processed);
     }
