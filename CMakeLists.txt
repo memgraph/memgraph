@@ -220,11 +220,39 @@ set_property(GLOBAL PROPERTY MG_CUSTOM_LIBSTDCXX_PATH "${CUSTOM_LIBSTDCXX}")
 # setup CMake module path, defines path for include() and find_package()
 # https://cmake.org/cmake/help/latest/variable/CMAKE_MODULE_PATH.html
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+
 # custom function definitions
 include(functions)
 
 # Include conan-generated dependencies
 include(conandeps_legacy)
+
+# This appears to be a hack
+# Add fmt include directory globally from conan configuration
+# Handle different build types and architectures
+set(fmt_data_file_found FALSE)
+foreach(build_type release debug relwithdebinfo)
+    foreach(arch x86_64 arm64)
+        set(data_file "${CMAKE_CURRENT_BINARY_DIR}/generators/fmt-${build_type}-${arch}-data.cmake")
+        if(EXISTS "${data_file}")
+            include("${data_file}")
+            string(TOUPPER ${build_type} BUILD_TYPE_UPPER)
+            if(DEFINED fmt_INCLUDE_DIRS_${BUILD_TYPE_UPPER})
+                include_directories("${fmt_INCLUDE_DIRS_${BUILD_TYPE_UPPER}}")
+                message(STATUS "Added fmt include directory: ${fmt_INCLUDE_DIRS_${BUILD_TYPE_UPPER}}")
+                set(fmt_data_file_found TRUE)
+                break()
+            endif()
+        endif()
+    endforeach()
+    if(fmt_data_file_found)
+        break()
+    endif()
+endforeach()
+
+if(NOT fmt_data_file_found)
+    message(WARNING "Could not find fmt include directory from conan configuration")
+endif()
 # -----------------------------------------------------------------------------
 
 # We want out of source builds, so that cmake generated files don't get mixed
