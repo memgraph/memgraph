@@ -1,5 +1,5 @@
 query: >
-  CALL convert.to_tree([]) YIELD value RETURN value
+  CALL convert_c.to_tree([]) YIELD value RETURN value
 
 output:
   - value: {}

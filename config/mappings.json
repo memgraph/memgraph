@@ -24,7 +24,7 @@
 
     "apoc.convert.fromJsonList": "json_util.from_json_list",
     "apoc.convert.toJson": "json_util.to_json",
-    "apoc.convert.toTree": "convert.to_tree",
+    "apoc.convert.toTree": "convert_c.to_tree",
 
     "apoc.create.node": "create.node",
     "apoc.create.nodes": "create.nodes",
@@ -100,7 +100,6 @@
     "apoc.path.slice": "path.slice",
 
     "apoc.periodic.iterate": "periodic.iterate",
-
     "apoc.refactor.categorize": "refactor.categorize",
     "apoc.refactor.cloneNodes": "refactor.clone_nodes",
     "apoc.refactor.cloneSubgraph": "refactor.clone_subgraph",

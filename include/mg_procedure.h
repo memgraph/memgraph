@@ -462,6 +462,8 @@ enum mgp_error mgp_list_append(struct mgp_list *list, struct mgp_value *val);
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_value.
 enum mgp_error mgp_list_append_extend(struct mgp_list *list, struct mgp_value *val);
 
+enum mgp_error mgp_list_append_move(struct mgp_list *list, struct mgp_value *val);
+
 /// Ensure the underlying capacity of the mgp_list is at least n.
 /// Current implementation always returns without errors.
 enum mgp_error mgp_list_reserve(struct mgp_list *list, size_t n);
@@ -501,6 +503,8 @@ enum mgp_error mgp_map_contains_deleted(struct mgp_map *map, int *result);
 /// Return mgp_error::MGP_ERROR_KEY_ALREADY_EXISTS if a previous mapping already exists.
 enum mgp_error mgp_map_insert(struct mgp_map *map, const char *key, struct mgp_value *value);
 
+enum mgp_error mgp_map_insert_move(struct mgp_map *map, const char *key, struct mgp_value *value);
+
 /// Insert a mapping from a NULL terminated character string to a value.
 /// If a mapping with the same key already exists, it is replaced.
 /// In case of update, both the string and the value are copied into the map.
@@ -508,6 +512,8 @@ enum mgp_error mgp_map_insert(struct mgp_map *map, const char *key, struct mgp_v
 /// you still need to free their memory explicitly.
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate for insertion.
 enum mgp_error mgp_map_update(struct mgp_map *map, const char *key, struct mgp_value *value);
+
+enum mgp_error mgp_map_update_move(struct mgp_map *map, const char *key, struct mgp_value *value);
 
 // Erase a mapping by key.
 // If the key doesn't exist in the map nothing happens

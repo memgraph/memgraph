@@ -1131,6 +1131,10 @@ mgp_error mgp_list_append_extend(mgp_list *list, mgp_value *val) {
   return WrapExceptions([list, val] { list->elems.push_back(*val); });
 }
 
+mgp_error mgp_list_append_move(mgp_list *list, mgp_value *val) {
+  return WrapExceptions([list, val] { list->elems.emplace_back(std::move(*val)); });
+}
+
 mgp_error mgp_list_reserve(mgp_list *list, size_t n) {
   return WrapExceptions([list, n] { list->elems.reserve(n); });
 }
@@ -1181,9 +1185,28 @@ mgp_error mgp_map_insert(mgp_map *map, const char *key, mgp_value *value) {
   });
 }
 
+mgp_error mgp_map_insert_move(mgp_map *map, const char *key, mgp_value *value) {
+  return WrapExceptions([&] {
+    auto emplace_result = map->items.emplace(key, std::move(*value));
+    if (!emplace_result.second) {
+      throw KeyAlreadyExistsException{"Map already contains mapping for {}", key};
+    }
+  });
+}
+
 mgp_error mgp_map_update(mgp_map *map, const char *key, mgp_value *value) {
   return WrapExceptions([&] {
     auto emplace_result = map->items.emplace(key, *value);
+    if (!emplace_result.second) {
+      map->items.erase(emplace_result.first);
+      map->items.emplace(key, *value);
+    }
+  });
+}
+
+mgp_error mgp_map_update_move(mgp_map *map, const char *key, mgp_value *value) {
+  return WrapExceptions([&] {
+    auto emplace_result = map->items.emplace(key, std::move(*value));
     if (!emplace_result.second) {
       map->items.erase(emplace_result.first);
       map->items.emplace(key, *value);

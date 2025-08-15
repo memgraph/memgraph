@@ -1,7 +1,7 @@
 query: >
   MATCH p = (a:Student {name: 'Ana'})-[*]->(e:Student {name: 'Eve'})
   WITH collect(p) AS paths
-  CALL convert.to_tree(paths) YIELD value
+  CALL convert_c.to_tree(paths) YIELD value
   RETURN value.name AS name, value._type AS type, size(value.friend) AS friend_count, size(value.colleague) AS colleague_count
 
 output:
