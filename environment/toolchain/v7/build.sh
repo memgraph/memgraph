@@ -903,6 +903,17 @@ if [ "$TOOLCHAIN_STDCXX" = "libstdc++" ]; then
 else
     export CXXFLAGS="$CXXFLAGS -fPIC -stdlib=libc++"
 fi
+
+# possible fix for debian 13 arm
+if [[ "$for_arm" = true ]]; then
+    export EXTRA_CLANG_TOOLCHAIN_FLAGS="--gcc-toolchain=$PREFIX --target=aarch64-linux-gnu"
+else
+    export EXTRA_CLANG_TOOLCHAIN_FLAGS="--gcc-toolchain=$PREFIX --target=x86_64-linux-gnu"
+fi
+
+export CXXFLAGS="$CXXFLAGS $EXTRA_CLANG_TOOLCHAIN_FLAGS"
+export LDFLAGS="$LDFLAGS $EXTRA_CLANG_TOOLCHAIN_FLAGS"
+
 COMMON_CMAKE_FLAGS="-DCMAKE_INSTALL_PREFIX=$PREFIX
                     -DCMAKE_PREFIX_PATH=$PREFIX
                     -DCMAKE_BUILD_TYPE=Release
