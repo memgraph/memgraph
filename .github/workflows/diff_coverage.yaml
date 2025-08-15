@@ -11,10 +11,6 @@ on:
         type: string
         description: "Target os. Default value is ubuntu-24.04."
         default: 'ubuntu-24.04'
-      toolchain:
-        type: string
-        description: "Toolchain version (v4, v5, v6). Default value is v6."
-        default: 'v6'
       run_core:
         type: string
         description: "Should the core coverage build tests be run? Default is true."
@@ -34,7 +30,7 @@ env:
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
   OS: ${{ inputs.os }}
-  TOOLCHAIN: ${{ inputs.toolchain }}
+  TOOLCHAIN: v7
 
 jobs:
   core:

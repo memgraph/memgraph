@@ -30,12 +30,6 @@ on:
           - ubuntu-20.04
           - ubuntu-22.04
           - ubuntu-24.04
-      toolchain:
-        type: choice
-        description: "Toolchain version with which memgraph will be packaged."
-        default: 'v6'
-        options:
-          - v6
   push:
     tags:
       - "v*.*.*-rc*"
@@ -47,7 +41,6 @@ jobs:
     uses: ./.github/workflows/reusable_release_tests.yaml
     with:
       os: ${{ github.event.inputs.os || 'ubuntu-24.04' }}
-      toolchain: ${{ github.event.inputs.toolchain || 'v6' }}
       arch: "amd"
       threads: 24
       build_type: ${{ github.event.inputs.build_type || 'Release' }}
@@ -63,7 +56,6 @@ jobs:
     uses: ./.github/workflows/reusable_release_tests.yaml
     with:
       os: ${{ matrix.os }}
-      toolchain: ${{ github.event.inputs.toolchain || 'v6' }}
       arch: "amd"
       threads: 24
       build_type: ${{ github.event.inputs.build_type || 'Release' }}

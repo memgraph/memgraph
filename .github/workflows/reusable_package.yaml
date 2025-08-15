@@ -11,10 +11,6 @@ on:
         type: string
         description: "Target architecture. Default value is amd."
         default: amd
-      toolchain:
-        type: string
-        description: "Toolchain version. Default value is v6."
-        default: v6
       build_type:
         type: string
         description: "Memgraph Build type. Default value is Release."
@@ -47,6 +43,9 @@ on:
         type: string
         description: "Git ref to checkout. Default value is the current ref."
         default: ''
+
+env:
+  TOOLCHAIN: v7
 
 jobs:
   PackageAndUpload:
@@ -118,7 +117,7 @@ jobs:
       - name: "Spin up mgbuild container"
         run: |
           ./release/package/mgbuild.sh \
-          --toolchain ${{ inputs.toolchain }} \
+          --toolchain $TOOLCHAIN \
           --os ${{ inputs.os }} \
           --arch ${{ inputs.arch }} \
           run
@@ -126,7 +125,7 @@ jobs:
       - name: "Build Memgraph binaries"
         run: |
           ./release/package/mgbuild.sh \
-          --toolchain ${{ inputs.toolchain }} \
+          --toolchain $TOOLCHAIN \
           --os ${{ inputs.os }} \
           --arch ${{ inputs.arch }} \
           --build-type ${{ inputs.build_type }} \
@@ -136,7 +135,7 @@ jobs:
       - name: "Make package"
         run: |
           ./release/package/mgbuild.sh \
-          --toolchain ${{ inputs.toolchain }} \
+          --toolchain $TOOLCHAIN \
           --os ${{ inputs.os }} \
           --arch ${{ inputs.arch }} \
           --build-type ${{ inputs.build_type }} \
@@ -145,7 +144,7 @@ jobs:
       - name: "Copy package"
         run: |
           ./release/package/mgbuild.sh \
-          --toolchain ${{ inputs.toolchain }} \
+          --toolchain $TOOLCHAIN \
           --os ${{ inputs.os }} \
           --arch ${{ inputs.arch }} \
           copy \
@@ -156,7 +155,7 @@ jobs:
         if: always()
         run: |
           ./release/package/mgbuild.sh \
-          --toolchain ${{ inputs.toolchain }} \
+          --toolchain $TOOLCHAIN \
           --os ${{ inputs.os }} \
           --arch ${{ inputs.arch }} \
           stop --remove
@@ -165,7 +164,7 @@ jobs:
         if: ${{ env.FOR_DOCKER == 'true' }}
         run: |
           ./release/package/mgbuild.sh \
-          --toolchain ${{ inputs.toolchain }} \
+          --toolchain $TOOLCHAIN \
           --os ${{ inputs.os }} \
           --arch ${{ inputs.arch }} \
           --build-type ${{ inputs.build_type }} \

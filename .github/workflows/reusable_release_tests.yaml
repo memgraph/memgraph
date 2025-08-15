@@ -15,10 +15,6 @@ on:
         type: string
         description: "Runner architecture label. Amd is built on X64, arm on ARM64. Default value is X64."
         default: 'X64'
-      toolchain:
-        type: string
-        description: "Toolchain version. Default value is v6."
-        default: 'v6'
       build_type:
         type: string
         description: "Memgraph Build type. Default value is Release."
@@ -45,7 +41,7 @@ on:
         value: ${{ jobs.aggregate_results.outputs.test_status }}
 env:
   OS: ${{ inputs.os }}
-  TOOLCHAIN: ${{ inputs.toolchain }}
+  TOOLCHAIN: v7
   ARCH: ${{ inputs.arch }}
   THREADS: ${{ inputs.threads }}
   MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}

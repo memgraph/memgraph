@@ -41,7 +41,6 @@ jobs:
     uses: ./.github/workflows/reusable_release_tests.yaml
     with:
       os: 'ubuntu-24.04'
-      toolchain: v6
       arch: amd
       threads: 24
       build_type: 'Release'
@@ -90,7 +89,6 @@ jobs:
       os: ${{ matrix.os }}
       arch: ${{ matrix.arch }}
       build_type: ${{ matrix.build_type }}
-      toolchain: v6
       push_to_github: 'false'
       push_to_s3: 'true'
       s3_bucket: deps.memgraph.io
@@ -113,7 +111,6 @@ jobs:
       os: ${{ matrix.os }}
       arch: ${{ matrix.arch }}
       build_type: ${{ matrix.build_type }}
-      toolchain: v6
       additional_build_args: '--for-docker'
       push_to_github: 'false'
       push_to_s3: 'true'

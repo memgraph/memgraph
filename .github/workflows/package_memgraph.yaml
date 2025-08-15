@@ -31,9 +31,9 @@ on:
       toolchain:
         type: choice
         description: "Toolchain version with which memgraph will be packaged."
-        default: 'v6'
+        default: 'v7'
         options:
-          - v6
+          - v7
       push_to_github:
         type: boolean
         description: "Push final packages to GitHub?"
