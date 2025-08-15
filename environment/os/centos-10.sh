@@ -43,7 +43,7 @@ MEMGRAPH_BUILD_DEPS=(
     git # source code control
     make cmake pkgconf-pkg-config # build system
     wget # for downloading libs
-    libuuid-devel java-11-openjdk-headless java-11-openjdk java-11-openjdk-devel # required by antlr
+    libuuid-devel # required by antlr
     readline-devel # for memgraph console
     python3-devel # for query modules
     openssl-devel
