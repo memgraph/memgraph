@@ -112,6 +112,10 @@ inline mgp_value *value_make_local_date_time(mgp_local_date_time *val) {
   return MgInvoke<mgp_value *>(mgp_value_make_local_date_time, val);
 }
 
+inline mgp_value *value_make_zoned_date_time(mgp_zoned_date_time *val) {
+  return MgInvoke<mgp_value *>(mgp_value_make_zoned_date_time, val);
+}
+
 inline mgp_value *value_make_duration(mgp_duration *val) { return MgInvoke<mgp_value *>(mgp_value_make_duration, val); }
 
 // Copy value
@@ -166,6 +170,10 @@ inline mgp_local_date_time *value_get_local_date_time(mgp_value *val) {
   return MgInvoke<mgp_local_date_time *>(mgp_value_get_local_date_time, val);
 }
 
+inline mgp_zoned_date_time *value_get_zoned_date_time(mgp_value *val) {
+  return MgInvoke<mgp_zoned_date_time *>(mgp_value_get_zoned_date_time, val);
+}
+
 inline mgp_duration *value_get_duration(mgp_value *val) {
   return MgInvoke<mgp_duration *>(mgp_value_get_duration, val);
 }
@@ -201,6 +209,8 @@ inline bool value_is_local_time(mgp_value *val) { return MgInvoke<int>(mgp_value
 inline bool value_is_local_date_time(mgp_value *val) { return MgInvoke<int>(mgp_value_is_local_date_time, val); }
 
 inline bool value_is_duration(mgp_value *val) { return MgInvoke<int>(mgp_value_is_duration, val); }
+
+inline bool value_is_zoned_date_time(mgp_value *val) { return MgInvoke<int>(mgp_value_is_zoned_date_time, val); }
 
 // Get type
 
@@ -710,6 +720,10 @@ inline void local_date_time_destroy(mgp_local_date_time *local_date_time) {
   mgp_local_date_time_destroy(local_date_time);
 }
 
+inline void zoned_date_time_destroy(mgp_zoned_date_time *zoned_date_time) {
+  mgp_zoned_date_time_destroy(zoned_date_time);
+}
+
 inline bool local_date_time_equal(mgp_local_date_time *first, mgp_local_date_time *second) {
   return MgInvoke<int>(mgp_local_date_time_equal, first, second);
 }
@@ -806,6 +820,87 @@ inline mgp_duration *duration_add(mgp_duration *first, mgp_duration *second, mgp
 
 inline mgp_duration *duration_sub(mgp_duration *first, mgp_duration *second, mgp_memory *memory) {
   return MgInvoke<mgp_duration *>(mgp_duration_sub, first, second, memory);
+}
+
+// mgp_zoned_date_time
+
+inline mgp_zoned_date_time *zoned_date_time_copy(mgp_zoned_date_time *zoned_date_time, mgp_memory *memory) {
+  return MgInvoke<mgp_zoned_date_time *>(mgp_zoned_date_time_copy, zoned_date_time, memory);
+}
+
+inline mgp_zoned_date_time *zoned_date_time_from_string(const char *string, mgp_memory *memory) {
+  return MgInvoke<mgp_zoned_date_time *>(mgp_zoned_date_time_from_string, string, memory);
+}
+
+inline bool zoned_date_time_equal(mgp_zoned_date_time *first, mgp_zoned_date_time *second) {
+  return MgInvoke<int>(mgp_zoned_date_time_equal, first, second);
+}
+
+inline mgp_zoned_date_time *zoned_date_time_from_parameters(mgp_zoned_date_time_parameters *parameters,
+                                                            mgp_memory *memory) {
+  return MgInvoke<mgp_zoned_date_time *>(mgp_zoned_date_time_from_parameters, parameters, memory);
+}
+
+inline int zoned_date_time_get_year(mgp_zoned_date_time *zoned_date_time) {
+  return MgInvoke<int>(mgp_zoned_date_time_get_year, zoned_date_time);
+}
+
+inline int zoned_date_time_get_month(mgp_zoned_date_time *zoned_date_time) {
+  return MgInvoke<int>(mgp_zoned_date_time_get_month, zoned_date_time);
+}
+
+inline int zoned_date_time_get_day(mgp_zoned_date_time *zoned_date_time) {
+  return MgInvoke<int>(mgp_zoned_date_time_get_day, zoned_date_time);
+}
+
+inline int zoned_date_time_get_hour(mgp_zoned_date_time *zoned_date_time) {
+  return MgInvoke<int>(mgp_zoned_date_time_get_hour, zoned_date_time);
+}
+
+inline int zoned_date_time_get_minute(mgp_zoned_date_time *zoned_date_time) {
+  return MgInvoke<int>(mgp_zoned_date_time_get_minute, zoned_date_time);
+}
+
+inline int zoned_date_time_get_second(mgp_zoned_date_time *zoned_date_time) {
+  return MgInvoke<int>(mgp_zoned_date_time_get_second, zoned_date_time);
+}
+
+inline int zoned_date_time_get_millisecond(mgp_zoned_date_time *zoned_date_time) {
+  return MgInvoke<int>(mgp_zoned_date_time_get_millisecond, zoned_date_time);
+}
+
+inline int zoned_date_time_get_microsecond(mgp_zoned_date_time *zoned_date_time) {
+  return MgInvoke<int>(mgp_zoned_date_time_get_microsecond, zoned_date_time);
+}
+
+inline char const *zoned_date_time_get_timezone(mgp_zoned_date_time *zoned_date_time) {
+  return MgInvoke<char const *>(mgp_zoned_date_time_get_timezone, zoned_date_time);
+}
+
+inline int zoned_date_time_get_offset(mgp_zoned_date_time *zoned_date_time) {
+  return MgInvoke<int>(mgp_zoned_date_time_get_offset, zoned_date_time);
+}
+
+inline int64_t zoned_date_time_timestamp(mgp_zoned_date_time *zoned_date_time) {
+  return MgInvoke<int64_t>(mgp_zoned_date_time_timestamp, zoned_date_time);
+}
+
+inline mgp_zoned_date_time *zoned_date_time_add_duration(mgp_zoned_date_time *zoned_date_time, mgp_duration *dur,
+                                                         mgp_memory *memory) {
+  return MgInvoke<mgp_zoned_date_time *>(mgp_zoned_date_time_add_duration, zoned_date_time, dur, memory);
+}
+
+inline mgp_zoned_date_time *zoned_date_time_sub_duration(mgp_zoned_date_time *zoned_date_time, mgp_duration *dur,
+                                                         mgp_memory *memory) {
+  return MgInvoke<mgp_zoned_date_time *>(mgp_zoned_date_time_sub_duration, zoned_date_time, dur, memory);
+}
+
+inline mgp_duration *zoned_date_time_diff(mgp_zoned_date_time *first, mgp_zoned_date_time *second, mgp_memory *memory) {
+  return MgInvoke<mgp_duration *>(mgp_zoned_date_time_diff, first, second, memory);
+}
+
+inline mgp_zoned_date_time *zoned_date_time_now(mgp_memory *memory) {
+  return MgInvoke<mgp_zoned_date_time *>(mgp_zoned_date_time_now, memory);
 }
 
 // Procedure

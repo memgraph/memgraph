@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -575,6 +575,78 @@ TEST(TemporalTest, ZonedDateTimeParsing) {
 
   check_timezone_parsing_cases(timezone_parsing_cases);
   check_faulty_timezones(faulty_timezone_cases);
+}
+
+TEST(TemporalTest, ZonedDateTimeSupportsLocalTimeAndDate_UTC) {
+  memgraph::utils::ZonedDateTime datetime{memgraph::utils::ZonedDateTimeParameters{
+      memgraph::utils::DateParameters{2020, 11, 22}, memgraph::utils::LocalTimeParameters{13, 21, 40, 123, 456},
+      memgraph::utils::Timezone{"UTC"}}};
+
+  auto const local_time = datetime.AsLocalTime();
+  auto const date = datetime.AsLocalDate();
+
+  EXPECT_EQ(local_time.hour, 13);
+  EXPECT_EQ(local_time.minute, 21);
+  EXPECT_EQ(local_time.second, 40);
+  EXPECT_EQ(local_time.millisecond, 123);
+  EXPECT_EQ(local_time.microsecond, 456);
+  EXPECT_EQ(date.year, 2020);
+  EXPECT_EQ(date.month, 11);
+  EXPECT_EQ(date.day, 22);
+}
+
+TEST(TemporalTest, ZonedDateTimeSupportsLocalTimeAndDate_NamedTimezone) {
+  memgraph::utils::ZonedDateTime datetime{memgraph::utils::ZonedDateTimeParameters{
+      memgraph::utils::DateParameters{2020, 11, 22}, memgraph::utils::LocalTimeParameters{13, 21, 40, 123, 456},
+      memgraph::utils::Timezone{"Europe/Prague"}}};
+
+  auto const local_time = datetime.AsLocalTime();
+  auto const date = datetime.AsLocalDate();
+
+  EXPECT_EQ(local_time.hour, 13);
+  EXPECT_EQ(local_time.minute, 21);
+  EXPECT_EQ(local_time.second, 40);
+  EXPECT_EQ(local_time.millisecond, 123);
+  EXPECT_EQ(local_time.microsecond, 456);
+  EXPECT_EQ(date.year, 2020);
+  EXPECT_EQ(date.month, 11);
+  EXPECT_EQ(date.day, 22);
+}
+
+TEST(TemporalTest, ZonedDateTimeSupportsLocalTimeAndDate_PositiveOffset) {
+  memgraph::utils::ZonedDateTime datetime{memgraph::utils::ZonedDateTimeParameters{
+      memgraph::utils::DateParameters{2020, 11, 22}, memgraph::utils::LocalTimeParameters{13, 21, 40, 123, 456},
+      memgraph::utils::Timezone{std::chrono::minutes{60}}}};
+
+  auto const local_time = datetime.AsLocalTime();
+  auto const date = datetime.AsLocalDate();
+
+  EXPECT_EQ(local_time.hour, 13);
+  EXPECT_EQ(local_time.minute, 21);
+  EXPECT_EQ(local_time.second, 40);
+  EXPECT_EQ(local_time.millisecond, 123);
+  EXPECT_EQ(local_time.microsecond, 456);
+  EXPECT_EQ(date.year, 2020);
+  EXPECT_EQ(date.month, 11);
+  EXPECT_EQ(date.day, 22);
+}
+
+TEST(TemporalTest, ZonedDateTimeSupportsLocalTimeAndDate_NegativeOffset) {
+  memgraph::utils::ZonedDateTime datetime{memgraph::utils::ZonedDateTimeParameters{
+      memgraph::utils::DateParameters{2020, 11, 22}, memgraph::utils::LocalTimeParameters{13, 21, 40, 123, 456},
+      memgraph::utils::Timezone{std::chrono::minutes{-60}}}};
+
+  auto const local_time = datetime.AsLocalTime();
+  auto const date = datetime.AsLocalDate();
+
+  EXPECT_EQ(local_time.hour, 13);
+  EXPECT_EQ(local_time.minute, 21);
+  EXPECT_EQ(local_time.second, 40);
+  EXPECT_EQ(local_time.millisecond, 123);
+  EXPECT_EQ(local_time.microsecond, 456);
+  EXPECT_EQ(date.year, 2020);
+  EXPECT_EQ(date.month, 11);
+  EXPECT_EQ(date.day, 22);
 }
 
 void CheckDurationParameters(const auto &values, const auto &expected) {

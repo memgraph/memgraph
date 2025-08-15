@@ -345,7 +345,7 @@ struct LocalDateTime {
   /**
    * @brief Return calendar time (local/user timezone)
    *
-   * @return Date
+   * @return LocalTime
    */
   LocalTime local_time() const;
 
@@ -524,6 +524,17 @@ struct ZonedDateTime {
   explicit ZonedDateTime(const std::chrono::local_time<std::chrono::microseconds> duration, const Timezone timezone);
   explicit ZonedDateTime(const std::chrono::zoned_time<std::chrono::microseconds, Timezone> &zoned_time);
 
+  /**
+   * @brief Construct a new LocalDateTime object using local/calendar date and time.
+   *
+   * This constructor will take in the calendar date-time and convert it to system time using the instance timezone.
+   *
+   * @param date_parameters
+   * @param local_time_parameters
+   */
+  explicit ZonedDateTime(const DateParameters &date_parameters, const LocalTimeParameters &local_time_parameters,
+                         Timezone timezone);
+
   std::chrono::sys_time<std::chrono::microseconds> SysTimeSinceEpoch() const;
   std::chrono::microseconds SysMicrosecondsSinceEpoch() const;
   std::chrono::seconds SysSecondsSinceEpoch() const;
@@ -536,6 +547,10 @@ struct ZonedDateTime {
   std::strong_ordering operator<=>(const ZonedDateTime &other) const;
 
   std::chrono::minutes OffsetDuration() const {
+    return zoned_time.get_time_zone().OffsetDuration(zoned_time.get_sys_time());
+  }
+
+  std::chrono::seconds OffsetSeconds() const {
     return zoned_time.get_time_zone().OffsetDuration(zoned_time.get_sys_time());
   }
 
@@ -572,6 +587,20 @@ struct ZonedDateTime {
     const auto subseconds = LocalHMS().subseconds();
     return (subseconds - std::chrono::duration_cast<std::chrono::milliseconds>(subseconds)).count();
   }
+
+  /**
+   * @brief Return local date (local to the `zoned_time` timezone)
+   *
+   * @return Date
+   */
+  Date AsLocalDate() const;
+
+  /**
+   * @brief Return calendar time (local to the `zoned_time` timezone)
+   *
+   * @return LocalTime
+   */
+  LocalTime AsLocalTime() const;
 
   std::chrono::zoned_time<std::chrono::microseconds, Timezone> zoned_time;
 };
