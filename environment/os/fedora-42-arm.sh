@@ -23,7 +23,6 @@ TOOLCHAIN_BUILD_DEPS=(
     gmp-devel
     gperf
     diffutils
-    libipt libipt-devel # intel
     patch
     perl # for openssl
     git
