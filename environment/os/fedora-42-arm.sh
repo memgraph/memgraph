@@ -47,7 +47,7 @@ MEMGRAPH_BUILD_DEPS=(
     git # source code control
     make cmake pkgconf-pkg-config # build system
     wget # for downloading libs
-    libuuid-devel java-11-openjdk java-11-openjdk-devel # required by antlr
+    libuuid-devel java-25-openjdk java-25-openjdk-devel # required by antlr
     readline-devel # for memgraph console
     python3-devel # for query modules
     openssl-devel
@@ -62,7 +62,7 @@ MEMGRAPH_BUILD_DEPS=(
     rpm-build rpmlint # for RPM package building
     doxygen graphviz # source documentation generators
     which nodejs golang custom-golang # for driver tests
-    zip unzip java-17-openjdk java-17-openjdk-devel custom-maven # for driver tests
+    zip unzip custom-maven # for driver tests
     sbcl # for custom Lisp C++ preprocessing
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
