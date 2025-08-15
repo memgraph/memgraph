@@ -74,6 +74,7 @@ print_help () {
   echo -e "\nCommands:"
   echo -e "  build [OPTIONS]               Build mgbuild image"
   echo -e "  build-memgraph [OPTIONS]      Build memgraph binary inside mgbuild container"
+  echo -e "  init-tests                    Initialize tests inside mgbuild container"
   echo -e "  copy [OPTIONS]                Copy an artifact from mgbuild container to host"
   echo -e "  package-memgraph              Create memgraph package from built binary inside mgbuild container"
   echo -e "  package-docker [OPTIONS]      Create memgraph docker image and pack it as .tar.gz"
@@ -492,6 +493,12 @@ build_memgraph () {
     echo "========================="
     echo ""
   fi
+}
+
+init_tests() {
+  echo "Initializing tests..."
+  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && ./init-test --ci"
+  echo "...Done"
 }
 
 package_memgraph() {
@@ -1016,6 +1023,9 @@ case $command in
       else
         $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build $git_ref_flag $rust_version_flag $node_version_flag $build_container
       fi
+    ;;
+    init-tests)
+      init_tests
     ;;
     run)
       cd $SCRIPT_DIR

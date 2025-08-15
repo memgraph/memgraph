@@ -26,12 +26,17 @@ function setup_virtualenv () {
     popd > /dev/null
 }
 
+ci=false
 prep_testing=true
 while(($#)); do
     case "$1" in
       --skip-prep-testing)
           shift
           prep_testing=false
+      ;;
+      --ci)
+          shift
+          ci=true
       ;;
       *)
           # unknown option
