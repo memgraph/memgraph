@@ -1864,6 +1864,7 @@ void FreeMemory(DecodedBuffer const &buffer_info) {
 
 void SetSizeData(std::array<uint8_t, 12> &buffer, uint32_t size, const uint8_t *data) {
   memcpy(buffer.data(), &size, sizeof(size));
+  // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
   memcpy(buffer.data() + sizeof(size), static_cast<void const *>(&data), sizeof(uint8_t *));
 }
 DecodedBuffer SetupLocalBuffer(std::array<uint8_t, 12> &buffer) {
@@ -1964,6 +1965,7 @@ auto GetDecodedBuffer(std::array<uint8_t, 12> &buffer) -> DecodedBuffer {
   uint32_t size = 0;
   uint8_t *data = nullptr;
   memcpy(static_cast<void *>(&size), buffer.data(), sizeof(uint32_t));
+  // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
   memcpy(static_cast<void *>(&data), buffer.data() + sizeof(uint32_t), sizeof(uint8_t *));
 
   if (size == 0) {
@@ -1995,6 +1997,7 @@ auto GetDecodedBuffer(std::array<uint8_t, 12> const &buffer) -> DecodedBufferCon
   uint32_t size = 0;
   uint8_t *data = nullptr;
   memcpy(static_cast<void *>(&size), buffer.data(), sizeof(uint32_t));
+  // NOLINTNEXTLINE(bugprone-multi-level-implicit-pointer-conversion)
   memcpy(static_cast<void *>(&data), static_cast<const uint8_t *>(buffer.data() + sizeof(uint32_t)), sizeof(uint8_t *));
 
   if (size == 0) {
