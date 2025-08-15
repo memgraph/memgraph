@@ -67,19 +67,6 @@ def wait_for_status_change(
         result = function_to_retrieve_data()
 
 
-def mg_assert_until(expected_value, function_to_retrieve_data, max_duration=20, time_between_attempt=0.2) -> None:
-    """
-    Assert for max_duration that the function_to_retrieve_data returns the expected_value
-    """
-    start_time = time.time()
-    duration = time.time() - start_time
-    while duration < max_duration:
-        result = function_to_retrieve_data()
-        assert result == expected_value, f"Expected result {expected_value}, got {result}"
-        time.sleep(time_between_attempt)
-        duration = time.time() - start_time
-
-
 def mg_sleep_and_assert_multiple(
     expected_values, functions_to_retrieve_data, max_duration=20, time_between_attempt=0.2
 ):

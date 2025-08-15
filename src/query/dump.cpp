@@ -345,21 +345,17 @@ void DumpPointIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId l
 void DumpVectorIndex(std::ostream *os, query::DbAccessor *dba, const storage::VectorIndexSpec &spec) {
   *os << "CREATE VECTOR INDEX " << EscapeName(spec.index_name) << " ON :" << EscapeName(dba->LabelToName(spec.label_id))
       << "(" << EscapeName(dba->PropertyToName(spec.property)) << ") WITH CONFIG { "
-      << "\"dimension\": " << spec.dimension << ", "
-      << R"("metric": ")" << storage::NameFromMetric(spec.metric_kind) << "\", "
-      << "\"capacity\": " << spec.capacity << ", "
-      << "\"resize_coefficient\": " << spec.resize_coefficient << ", "
-      << R"("scalar_kind": ")" << storage::NameFromScalar(spec.scalar_kind) << "\" };";
+      << "\"dimension\": " << spec.dimension << ", " << R"("metric": ")" << storage::NameFromMetric(spec.metric_kind)
+      << "\", " << "\"capacity\": " << spec.capacity << ", " << "\"resize_coefficient\": " << spec.resize_coefficient
+      << ", " << R"("scalar_kind": ")" << storage::NameFromScalar(spec.scalar_kind) << "\" };";
 }
 
 void DumpVectorEdgeIndex(std::ostream *os, query::DbAccessor *dba, const storage::VectorEdgeIndexSpec &spec) {
   *os << "CREATE VECTOR EDGE INDEX " << EscapeName(spec.index_name)
       << " ON :" << EscapeName(dba->EdgeTypeToName(spec.edge_type_id)) << "("
-      << EscapeName(dba->PropertyToName(spec.property)) << ") WITH CONFIG { "
-      << "\"dimension\": " << spec.dimension << ", "
-      << R"("metric": ")" << storage::NameFromMetric(spec.metric_kind) << "\", "
-      << "\"capacity\": " << spec.capacity << ", "
-      << "\"resize_coefficient\": " << spec.resize_coefficient << ", "
+      << EscapeName(dba->PropertyToName(spec.property)) << ") WITH CONFIG { " << "\"dimension\": " << spec.dimension
+      << ", " << R"("metric": ")" << storage::NameFromMetric(spec.metric_kind) << "\", "
+      << "\"capacity\": " << spec.capacity << ", " << "\"resize_coefficient\": " << spec.resize_coefficient << ", "
       << R"("scalar_kind": ")" << storage::NameFromScalar(spec.scalar_kind) << "\" };";
 }
 
@@ -402,7 +398,7 @@ PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc)
       pull_chunks_{/*
                     * IMPORTANT: the order here must reflex the order in `src/storage/v2/durability/snapshot.cpp`
                     * this is so that we have a stable order
-                    */
+                    */ //TODO(ivan): REVIEWER -> what? I don't think this is respected
 
                    /// User defined Datatype Info
                    // Dump all enums
@@ -451,7 +447,9 @@ PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc)
                    CreateEdgePropertyIndicesPullChunk(),
 
                    // Dump all triggers
-                   CreateTriggersPullChunk()} {}
+                   CreateTriggersPullChunk(),
+                   // Dump all TTL configuration
+                   CreateTTLConfigPullChunk()} {}
 
 bool PullPlanDump::Pull(AnyStream *stream, std::optional<int> n) {
   // Iterate all functions that stream some results.
@@ -614,6 +612,41 @@ PullPlanDump::PullChunk PullPlanDump::CreateEdgePropertyIndicesPullChunk() {
     }
 
     return std::nullopt;
+  };
+}
+
+PullPlanDump::PullChunk PullPlanDump::CreateTTLConfigPullChunk() {
+  // Dump all TTL config if enabled
+  return [this](AnyStream *stream, std::optional<int> /*n*/) mutable -> std::optional<size_t> {
+#ifdef MG_ENTERPRISE
+    auto const &ttl = dba_->GetTtlConfig();
+    if (!ttl) {
+      return 0;
+    }
+
+    std::ostringstream os;
+    os << "ENABLE TTL";
+    if (ttl.period) {
+      os << " EVERY \"" << std::chrono::duration_cast<std::chrono::seconds>(*ttl.period).count() << "s\"";
+    }
+    if (ttl.start_time) {
+      // TODO: need to verify
+      //  Format ttl.start_time to a specific time string: "HH:MM:SS"
+      auto start_time_t = std::chrono::system_clock::to_time_t(*ttl.start_time);
+      auto start_time_tm = *std::localtime(&start_time_t);
+
+      std::ostringstream time_str;
+      time_str << std::put_time(&start_time_tm, "%T");
+
+      os << " AT \"" << time_str.str() << "\"";
+    }
+    os << ";";
+    stream->Result({TypedValue(os.str())});
+    return 1;
+#else
+    (void)stream;
+    return 0;
+#endif
   };
 }
 

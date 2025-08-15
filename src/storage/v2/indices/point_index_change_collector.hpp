@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,6 +15,7 @@
 #include "storage/v2/property_value.hpp"
 
 #include <functional>
+#include <optional>
 #include <ranges>
 #include <unordered_map>
 #include <unordered_set>
@@ -39,14 +40,14 @@ struct TrackedChanges {
   }
 
   void MergeIntoAndClearOther(TrackedChanges &other) {
-    for (auto &[k, v] : data) {
-      auto it = other.data.find(k);
-      if (it == other.data.end()) continue;
-      if (v.empty()) {
-        v.swap(it->second);
+    // Iterate over other's keys to allow dynamic key insertion into this
+    for (auto &[k, other_set] : other.data) {
+      auto &my_set = data[k];  // Insert key if missing
+      if (my_set.empty()) {
+        my_set.swap(other_set);
       } else {
-        v.merge(it->second);
-        it->second.clear();
+        my_set.merge(other_set);
+        other_set.clear();
       }
     }
   }
@@ -81,6 +82,6 @@ struct PointIndexChangeCollector {
 
  private:
   TrackedChanges current_changes_;
-  TrackedChanges previous_changes_;
+  mutable std::optional<TrackedChanges> previous_changes_;  // Lazy initialization
 };
 }  // namespace memgraph::storage

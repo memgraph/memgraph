@@ -67,7 +67,7 @@ class InMemoryReplicationHandlers {
 
   static std::optional<storage::SingleTxnDeltasProcessingResult> ReadAndApplyDeltasSingleTxn(
       storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder, uint64_t version, slk::Builder *,
-      bool commit_txn_immediately, bool loading_wal, uint32_t start_batch_counter = 0);
+      bool two_phase_commit, bool loading_wal, uint32_t start_batch_counter = 0);
 
   static TwoPCCache two_pc_cache_;
 };

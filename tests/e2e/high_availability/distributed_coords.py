@@ -33,7 +33,6 @@ from common import (
   wait_until_main_writeable_assert_replica_down,
 )
 from mg_utils import (
-  mg_assert_until,
   mg_sleep_and_assert,
   mg_sleep_and_assert_collection,
   mg_sleep_and_assert_eval_function,
@@ -2399,7 +2398,7 @@ def test_coordinator_user_action_demote_instance_to_replica(test_name):
         execute_and_fetch_all(instance_3_cursor, "SHOW REPLICAS;")
     assert str(e.value) == "Show replicas query should only be run on the main instance."
 
-    mg_assert_until(data, partial(show_instances, coord_cursor_3), FAILOVER_PERIOD + 1)
+    mg_sleep_and_assert(data, partial(show_instances, coord_cursor_3), FAILOVER_PERIOD + 1)
     mg_sleep_and_assert(data, partial(show_instances, coord_cursor_1))
     mg_sleep_and_assert(data, partial(show_instances, coord_cursor_2))
 

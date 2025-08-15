@@ -32,7 +32,8 @@ auto BuildReplicaKey(std::string_view name) -> std::string {
   return key;
 }
 
-ReplicationState::ReplicationState(std::optional<std::filesystem::path> durability_dir) {
+ReplicationState::ReplicationState(std::optional<std::filesystem::path> durability_dir, bool part_of_ha_cluster)
+    : part_of_ha_cluster_(part_of_ha_cluster) {
   if (!durability_dir) return;
   auto repl_dir = *std::move(durability_dir);
   repl_dir /= kReplicationDirectory;

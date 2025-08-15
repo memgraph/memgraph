@@ -21,6 +21,7 @@
 #include "query_plan_common.hpp"
 #include "replication/state.hpp"
 #include "storage/v2/view.hpp"
+#include "tests/test_commit_args_helper.hpp"
 
 std::filesystem::path storage_directory{std::filesystem::temp_directory_path() / "MG_test_unit_dbms_database"};
 
@@ -172,7 +173,7 @@ TEST_F(DBMS_Database, DeleteAndRecover) {
       memgraph::query::VertexAccessor v2{dba.InsertVertex()};
       ASSERT_TRUE(v1.AddLabel(dba.NameToLabel("l11")).HasValue());
       ASSERT_TRUE(v2.AddLabel(dba.NameToLabel("l12")).HasValue());
-      ASSERT_FALSE(dba.Commit().HasError());
+      ASSERT_FALSE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
     {
       auto storage_dba = db3.GetValue()->Access();
@@ -183,7 +184,7 @@ TEST_F(DBMS_Database, DeleteAndRecover) {
       ASSERT_TRUE(v1.AddLabel(dba.NameToLabel("l31")).HasValue());
       ASSERT_TRUE(v2.AddLabel(dba.NameToLabel("l32")).HasValue());
       ASSERT_TRUE(v3.AddLabel(dba.NameToLabel("l33")).HasValue());
-      ASSERT_FALSE(dba.Commit().HasError());
+      ASSERT_FALSE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
   }
 

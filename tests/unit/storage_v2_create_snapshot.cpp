@@ -21,6 +21,7 @@
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage_test_utils.hpp"
+#include "tests/test_commit_args_helper.hpp"
 
 using memgraph::replication_coordination_glue::ReplicationRole;
 
@@ -63,7 +64,7 @@ TEST_F(CreateSnapshotTest, CreateSnapshotReturnsPathOnSuccess) {
   {
     auto acc = mem_storage->Access();
     auto vertex = acc->CreateVertex();
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Test CreateSnapshot returns path on success
@@ -112,7 +113,7 @@ TEST_F(CreateSnapshotTest, CreateSnapshotReturnsErrorWhenNothingNewToWrite) {
   {
     auto acc = mem_storage->Access();
     auto vertex = acc->CreateVertex();
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   auto result1 = mem_storage->CreateSnapshot(ReplicationRole::MAIN);
@@ -141,7 +142,7 @@ TEST_F(CreateSnapshotTest, CreateSnapshotPathFormat) {
   {
     auto acc = mem_storage->Access();
     auto vertex = acc->CreateVertex();
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Create snapshot and verify path format
@@ -198,7 +199,7 @@ TEST_F(CreateSnapshotTest, SuccessCaseWithPathRetrieval) {
   {
     auto acc = mem_storage->Access();
     auto vertex = acc->CreateVertex();
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Test the new functionality - getting the path on success
