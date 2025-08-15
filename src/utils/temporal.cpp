@@ -761,15 +761,14 @@ ZonedDateTimeParameters ParseZonedDateTimeParameters(std::string_view string) {
   auto get_timezone_designator_start_position = [&get_offset_sign](std::string_view string) {
     const auto utc_position = string.find('Z');
     const auto offset_sign_position = get_offset_sign(string);
-    const auto timezone_name_position = string.find('[');  // Timezone names are enclosed by '[' ']'
+    const auto timezone_name_position = string.find('[');
 
     return std::min({utc_position, offset_sign_position, timezone_name_position});
   };
 
   const auto timezone_designator_start_position = get_timezone_designator_start_position(string);
 
-  // @TODO should be using a string_view here...
-  std::string ldt_substring;
+  std::string_view ldt_substring;
   if (timezone_designator_start_position != std::string::npos) {
     ldt_substring = {string.data(), timezone_designator_start_position};
     string.remove_prefix(timezone_designator_start_position);
