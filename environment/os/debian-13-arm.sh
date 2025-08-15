@@ -15,7 +15,7 @@ TOOLCHAIN_BUILD_DEPS=(
     gnupg # used for archive signature verification
     tar gzip bzip2 xz-utils unzip # used for archive unpacking
     zlib1g-dev # zlib library used for all builds
-    libexpat1-dev libipt-dev libbabeltrace-dev liblzma-dev python3-dev texinfo # for gdb
+    libexpat1-dev libbabeltrace-dev liblzma-dev python3-dev texinfo # for gdb
     libcurl4-openssl-dev # for cmake
     libreadline-dev # for cmake and llvm
     libffi-dev libxml2-dev # for llvm
@@ -37,7 +37,7 @@ TOOLCHAIN_RUN_DEPS=(
     make # generic build tools
     tar gzip bzip2 xz-utils # used for archive unpacking
     zlib1g # zlib library used for all builds
-    libexpat1 libipt2 libbabeltrace1 liblzma5 python3 # for gdb
+    libexpat1 libbabeltrace1 liblzma5 python3 # for gdb
     libcurl4t64 # for cmake
     file # for CPack
     libreadline8t64 # for cmake and llvm
