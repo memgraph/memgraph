@@ -39,7 +39,7 @@ class Memgraph(ConanFile):
         self.requires("bzip2/1.0.8")  # MG currently uses 1.0.6
         self.requires("zlib/1.3.1")
         self.requires("fmt/11.2.0")
-        self.requires("gflags/2.2.2")
+        # self.requires("gflags/2.2.2") # we cannot use this gflags because we have a custom one!
         self.requires("benchmark/1.9.1")
         self.requires("gtest/1.16.0")
         self.requires("spdlog/1.15.3")
