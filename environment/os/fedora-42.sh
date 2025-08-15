@@ -7,7 +7,7 @@ check_operating_system "fedora-42"
 check_architecture "x86_64"
 
 TOOLCHAIN_BUILD_DEPS=(
-    coreutils-common gcc gcc-c++ make # generic build tools
+    coreutils-common gcc gcc-c++ make binutils-gold # generic build tools
     wget2-wget # used for archive download
     gnupg2 # used for archive signature verification
     tar gzip bzip2 xz unzip # used for archive unpacking
