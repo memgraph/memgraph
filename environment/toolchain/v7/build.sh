@@ -256,10 +256,17 @@ log_tool_name "gmp (from gcc)"
 if [ ! -f $PREFIX/lib/libgmp.a ]; then
     pushd $DIR/build/gcc-$GCC_VERSION/gmp
     if [[ "$for_arm" = true ]]; then
-        ./configure \
-            --build=aarch64-linux-gnu \
-            --host=aarch64-linux-gnu \
-            --prefix=$PREFIX
+        if [[ "$DISTRO" =~ ^fedora- ]]; then
+            CFLAGS="$CFLAGS -std=gnu17" ./configure \
+                --build=aarch64-linux-gnu \
+                --host=aarch64-linux-gnu \
+                --prefix=$PREFIX
+        else
+            ./configure \
+                --build=aarch64-linux-gnu \
+                --host=aarch64-linux-gnu \
+                --prefix=$PREFIX
+        fi
     else
         ./configure \
             --build=x86_64-linux-gnu \
@@ -1267,7 +1274,7 @@ if [[ "$DISTRO" =~ ^(rocky-|centos-|fedora-) ]]; then
         git clone https://github.com/openssl/openssl.git openssl
         pushd openssl
         git checkout $OPENSSL_TAG
-        
+
         # Configure for static build
         ./config --prefix=$PREFIX \
           --openssldir=$PREFIX/ssl \
@@ -1276,7 +1283,7 @@ if [[ "$DISTRO" =~ ^(rocky-|centos-|fedora-) ]]; then
           enable-ec_nistp_64_gcc_128 \
           enable-static-engine \
           enable-deprecated
-        
+
         make -j$CPUS
         make install_sw
         popd
@@ -1308,7 +1315,7 @@ if [ ! -f $PREFIX/lib/libpulsarwithdeps.a ]; then
     git clone https://github.com/apache/pulsar-client-cpp.git pulsar
     pushd pulsar
     git checkout $PULSAR_TAG
-    
+
     cmake -B . $COMMON_CMAKE_FLAGS \
       -DBUILD_DYNAMIC_LIB=OFF \
       -DBUILD_STATIC_LIB=ON \
