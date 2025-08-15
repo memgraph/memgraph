@@ -12,7 +12,7 @@ TOOLCHAIN_BUILD_DEPS=(
     gnupg2 # used for archive signature verification
     tar gzip bzip2 xz unzip # used for archive unpacking
     # NOTE: https://discussion.fedoraproject.org/t/f40-change-proposal-transitioning-to-zlib-ng-as-a-compatible-replacement-for-zlib-system-wide/95807
-    zlib-ng-compat-devel # zlib library used for all builds
+    zlib-ng-compat-devel zlib-static # zlib library used for all builds
     expat-devel xz-devel python3-devel texinfo libbabeltrace-devel # for gdb
     curl libcurl-devel # for cmake
     readline-devel # for cmake and llvm
