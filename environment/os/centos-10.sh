@@ -48,7 +48,7 @@ MEMGRAPH_BUILD_DEPS=(
     python3-devel # for query modules
     openssl-devel
     libseccomp-devel
-    python3 python3-pip python3-virtualenv python3-venv nmap-ncat # for qa, macro_benchmark and stress tests
+    python3 python3-pip python3-virtualenv nmap-ncat # for qa, macro_benchmark and stress tests
     #
     # IMPORTANT: python3-yaml does NOT exist on CentOS
     # Install it manually using `pip3 install PyYAML`
@@ -169,13 +169,16 @@ install() {
     # Enable EPEL for additional packages
     dnf install -y epel-release
 
+    # enable rpm fusion
+    dnf install --nogpgcheck -y https://mirrors.rpmfusion.org/free/el/rpmfusion-free-release-10.noarch.rpm
+
     # Separate standard and custom packages
     local standard_packages=()
     local custom_packages=()
 
     for pkg in "${packages[@]}"; do
         case "$pkg" in
-            custom-*|PyYAML|python3-virtualenv|libipt|libipt-devel|java-11-openjdk-headless|java-11-openjdk|java-11-openjdk-devel|java-17-openjdk-headless|java-17-openjdk|java-17-openjdk-devel)
+            custom-*|PyYAML|python3-virtualenv|libipt|libipt-devel|java-11-openjdk-headless|java-11-openjdk|java-11-openjdk-devel|java-17-openjdk-headless|java-17-openjdk|java-17-openjdk-devel|sbcl)
                 custom_packages+=("$pkg")
                 ;;
             *)
@@ -252,6 +255,17 @@ install() {
                 else # Running using sudo.
                     sudo -H -u "$SUDO_USER" bash -c "pip3 install virtualenv"
                     sudo -H -u "$SUDO_USER" bash -c "pip3 install virtualenvwrapper"
+                fi
+                ;;
+            sbcl)
+                if ! dnf list installed cl-asdf >/dev/null 2>/dev/null; then
+                    dnf install -y http://www.nosuchhost.net/~cheese/fedora/packages/epel-9/x86_64/cl-asdf-20101028-27.el9.noarch.rpm
+                fi
+                if ! dnf list installed common-lisp-controller >/dev/null 2>/dev/null; then
+                    dnf install -y http://www.nosuchhost.net/~cheese/fedora/packages/epel-9/x86_64/common-lisp-controller-7.4-29.el9.noarch.rpm
+                fi
+                if ! dnf list installed sbcl >/dev/null 2>/dev/null; then
+                    dnf install -y http://www.nosuchhost.net/~cheese/fedora/packages/epel-9/x86_64/sbcl-2.3.11-3.el9~bootstrap.x86_64.rpm
                 fi
                 ;;
             *)
