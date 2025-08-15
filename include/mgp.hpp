@@ -1220,10 +1220,9 @@ class ZonedDateTime {
   /// @brief Returns the object’s `offset` property.
   int Offset() const;
 
-  /// @brief Returns the object’s timestamp (microseconds from the Unix epoch).
+  /// @brief Returns the object's timestamp (microseconds from the Unix epoch).
   int64_t Timestamp() const;
 
-  // @TODO ensure we have tests for all of these...
   bool operator==(const ZonedDateTime &other) const;
   ZonedDateTime operator+(const Duration &dur) const;
   ZonedDateTime operator-(const Duration &dur) const;
