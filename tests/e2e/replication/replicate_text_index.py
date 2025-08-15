@@ -148,8 +148,8 @@ def test_text_index_replication(connection, test_name):
         return connection(BOLT_PORTS[name], "replica").cursor()
 
     expected_result = [
-        ("text (name: test_index)", "Node", [], None),
-        ("text (name: test_index1)", "Node", ["prop1", "prop2"], None),
+        ("text (name: test_index)", "Node", [], 0),
+        ("text (name: test_index1)", "Node", ["prop1", "prop2"], 0),
     ]
     replica_1_info = get_show_index_info(get_replica_cursor("replica_1"))
     assert sorted(replica_1_info) == sorted(expected_result)

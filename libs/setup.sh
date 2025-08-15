@@ -349,8 +349,8 @@ else
 fi
 
 # mgcxx (text search)
-mgcxx_tag="v0.0.7"
-skip_if_under_toolchain "mgcxx" repo_clone_try_double "${primary_urls[mgcxx]}" "${secondary_urls[mgcxx]}" "mgcxx" "$mgcxx_tag" true
+mgcxx_tag="v0.0.9"
+repo_clone_try_double "${primary_urls[mgcxx]}" "${secondary_urls[mgcxx]}" "mgcxx" "$mgcxx_tag" true
 
 # strong_type v14
 strong_type_ref="v14"

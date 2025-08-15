@@ -12,7 +12,7 @@ Feature: Text search related features
             """
         Then the result should be:
             | index type                  | label      | property | count |
-            | 'text (name: exampleIndex)' | 'Document' | []       | null  |
+            | 'text (name: exampleIndex)' | 'Document' | []       | 0     |
 
     Scenario: Drop text index
         Given an empty graph
@@ -277,7 +277,7 @@ Feature: Text search related features
             """
         Then the result should be:
             | index type                        | label      | property            | count |
-            | 'text (name: titleContentIndex)'  | 'Document' | ['title','content'] | null  |
+            | 'text (name: titleContentIndex)'  | 'Document' | ['title','content'] | 0     |
 
     Scenario: Search in property-specific index with both properties
         Given an empty graph
@@ -390,12 +390,10 @@ Feature: Text search related features
             CREATE (:Article {title: 'Database Systems', content: 'Introduction to graph databases and their applications'})
             CREATE (:Article {title: 'Query Languages', content: 'Cypher query language for graph database operations'})
             """
-
         And having executed
             """
             CREATE TEXT INDEX article_index ON :Article
             """
-
         When executing query:
             """
             CALL text_search.search('article_index', 'data.content:graph') YIELD node
@@ -405,3 +403,22 @@ Feature: Text search related features
             | title              |
             | 'Database Systems' |
             | 'Query Languages'  |
+
+    Scenario: Show index info test
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Article {title: 'Database Systems', content: 'Introduction to graph databases and their applications'})
+            CREATE (:Article {title: 'Query Languages', content: 'Cypher query language for graph database operations'})
+            """
+        And having executed
+            """
+            CREATE TEXT INDEX article_index ON :Article
+            """
+        When executing query:
+            """
+            SHOW INDEX INFO
+            """
+        Then the result should be:
+            | index type                    | label      | property  | count |
+            | 'text (name: article_index)'  | 'Article'  | []        | 2     |
