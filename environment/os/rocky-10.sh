@@ -14,7 +14,7 @@ TOOLCHAIN_BUILD_DEPS=(
     libcurl-devel # cmake build requires it
     gnupg2 # used for archive signature verification
     tar gzip bzip2 xz unzip # used for archive unpacking
-    zlib-ng-compat-devel # zlib library used for all builds
+    zlib-ng-compat-devel zlib-ng-compat-static # zlib library used for all builds
     expat-devel xz-devel python3-devel texinfo libbabeltrace-devel # for gdb
     readline-devel # for cmake and llvm
     libffi-devel libxml2-devel # for llvm
