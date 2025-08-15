@@ -161,7 +161,7 @@ install() {
     fi
 
     # enable rpm fusion
-    dnf install https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-41.noarch.rpm
+    dnf install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-41.noarch.rpm
 
     # Update package lists first
     dnf update -y
