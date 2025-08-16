@@ -1044,7 +1044,8 @@ if [ ! -d $PREFIX/include/boost ]; then
             -sZLIB_SOURCE="$PREFIX" -sZLIB_INCLUDE="$PREFIX/include" -sZLIB_LIBPATH="$PREFIX/lib" \
             -sBZIP2_SOURCE="$PREFIX" -sBZIP2_INCLUDE="$PREFIX/include" -sBZIP2_LIBPATH="$PREFIX/lib" \
             -sLZMA_SOURCE="$PREFIX" -sLZMA_INCLUDE="$PREFIX/include" -sLZMA_LIBPATH="$PREFIX/lib" \
-            -sZSTD_SOURCE="$PREFIX" -sZSTD_INCLUDE="$PREFIX/include" -sZSTD_LIBPATH="$PREFIX/lib"
+            -sZSTD_SOURCE="$PREFIX" -sZSTD_INCLUDE="$PREFIX/include" -sZSTD_LIBPATH="$PREFIX/lib" \
+            -I$PREFIX/include/c++/$GCC_VERSION
     else
         ./b2 toolset=clang -j$CPUS install variant=release link=static cxxstd=20 --disable-icu \
             cxxflags="-stdlib=libc++" linkflags="-stdlib=libc++" \
