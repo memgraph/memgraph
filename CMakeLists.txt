@@ -227,11 +227,33 @@ list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_BINARY_DIR}/generators")
 # custom function definitions
 include(functions)
 
-# Find OpenSSL first to ensure it's available for other packages
-find_package(OpenSSL REQUIRED)
+# Load conan dependencies in the correct order using explicit find_package calls
+# Load dependencies that don't depend on others first
+find_package(benchmark)
+find_package(GTest)
+find_package(spdlog)
+find_package(fmt)
+find_package(strong_type)
+find_package(Boost)
+find_package(BZip2)
+find_package(antlr4-runtime)
+find_package(antlr4)
+find_package(cppitertools)
+find_package(ctre)
+find_package(abseil)
+find_package(croncpp)
+find_package(range-v3)
+find_package(asio)
+find_package(ZLIB)
 
-# Include conan-generated dependencies
-include(conandeps_legacy)
+# Load OpenSSL before mgclient since mgclient depends on it
+# TODO(matt): OpenSSL requires manual include due to conan CMakeDeps generator issue
+# The standard find_package(OpenSSL) approach fails to create the openssl::openssl target
+# This appears to be a bug in conan's handling of OpenSSL specifically
+include(${CMAKE_CURRENT_BINARY_DIR}/generators/FindOpenSSL.cmake)
+
+# Now load mgclient which depends on OpenSSL
+find_package(mgclient)
 
 # This appears to be a hack
 # Add fmt include directory globally from conan configuration
