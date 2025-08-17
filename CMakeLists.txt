@@ -521,8 +521,8 @@ endif()
 
 # All targets which generate code, useful as a single target to build for clang-tidy analysis to work
 # NOTE: It's big because https://stackoverflow.com/questions/74870212/how-to-add-dependencies-to-a-custom-target-after-the-fact
-if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
-  if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
+if(DEFINED MG_TOOLCHAIN_VERSION)
+  if(${MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
     # NOTE: The rest of the generated code should already under toolchain.
     add_custom_target(generated_code DEPENDS
         generate_opencypher_parser
@@ -546,8 +546,8 @@ else()
   )
 endif()
 
-if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
-  if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
+if(DEFINED MG_TOOLCHAIN_VERSION)
+  if(${MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
     install(FILES ${MG_TOOLCHAIN_ROOT}/bin/mgconsole
       PERMISSIONS OWNER_EXECUTE OWNER_READ OWNER_WRITE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
       TYPE BIN)
