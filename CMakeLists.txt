@@ -221,6 +221,9 @@ set_property(GLOBAL PROPERTY MG_CUSTOM_LIBSTDCXX_PATH "${CUSTOM_LIBSTDCXX}")
 # https://cmake.org/cmake/help/latest/variable/CMAKE_MODULE_PATH.html
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
 
+# Add conan generators to module path to ensure conan packages are found first
+list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_BINARY_DIR}/generators")
+
 # custom function definitions
 include(functions)
 
