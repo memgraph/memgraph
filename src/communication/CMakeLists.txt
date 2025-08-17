@@ -29,5 +29,4 @@ target_sources(mg-communication
 target_link_libraries(mg-communication Boost::headers Threads::Threads mg-utils mg-io mg-auth fmt::fmt gflags mg-communication-metrics mg-events mg-storage-v2)
 
 find_package(OpenSSL REQUIRED)
-target_link_libraries(mg-communication ${OPENSSL_LIBRARIES})
-target_include_directories(mg-communication SYSTEM PUBLIC ${OPENSSL_INCLUDE_DIR})
+target_link_libraries(mg-communication openssl::openssl)
