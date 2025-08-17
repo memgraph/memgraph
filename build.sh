@@ -65,6 +65,7 @@ else
     exit 1
 fi
 
+# Configure cmake
 cmake --preset $PRESET
 
 # Build command with optional target and additional cmake arguments

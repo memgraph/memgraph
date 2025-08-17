@@ -31,7 +31,12 @@ endif(CCACHE_FOUND AND USE_CCACHE)
 
 # -----------------------------------------------------------------------------
 
-project(memgraph LANGUAGES C CXX)
+# Capture MG_TOOLCHAIN_ROOT from environment variable if not already set
+if (NOT MG_TOOLCHAIN_ROOT)
+    if (DEFINED ENV{MG_TOOLCHAIN_ROOT})
+        set(MG_TOOLCHAIN_ROOT $ENV{MG_TOOLCHAIN_ROOT})
+    endif()
+endif()
 
 if (NOT MG_TOOLCHAIN_ROOT)
     # This is used to so that 3rd party libs can find the
@@ -40,11 +45,21 @@ if (NOT MG_TOOLCHAIN_ROOT)
 endif ()
 
 message(STATUS "MG_TOOLCHAIN_ROOT = ${MG_TOOLCHAIN_ROOT}")
-if (NOT MG_TOOLCHAIN_ROOT)
-    # This is used to so that 3rd party libs can find the
-    # correct libraries from our toolchain
-    message(FATAL "Need toolchain")
-endif ()
+
+# Add toolchain to CMAKE_PREFIX_PATH so that find_package can locate libraries
+list(APPEND CMAKE_PREFIX_PATH "${MG_TOOLCHAIN_ROOT}")
+
+# Manually configure gflags if find_package fails
+if(NOT TARGET gflags)
+  add_library(gflags STATIC IMPORTED)
+  set_target_properties(gflags PROPERTIES
+    IMPORTED_LOCATION "${MG_TOOLCHAIN_ROOT}/lib/libgflags.a"
+    INTERFACE_INCLUDE_DIRECTORIES "${MG_TOOLCHAIN_ROOT}/include"
+    INTERFACE_COMPILE_DEFINITIONS "GFLAGS_IS_A_DLL=0"
+  )
+endif()
+
+project(memgraph LANGUAGES C CXX)
 
 # this reduces issues in build folders from inside containers
 # which are different locations than the host
@@ -560,4 +575,25 @@ else()
   install(FILES ${CMAKE_BINARY_DIR}/bin/mgconsole
     PERMISSIONS OWNER_EXECUTE OWNER_READ OWNER_WRITE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
     TYPE BIN)
+endif()
+
+# Manually configure gflags to override the broken toolchain configuration
+# This must be done after all find_package calls have been processed
+if(TARGET gflags)
+  # Update the existing gflags target with correct paths
+  set_target_properties(gflags PROPERTIES
+    IMPORTED_LOCATION "${MG_TOOLCHAIN_ROOT}/lib/libgflags.a"
+    INTERFACE_INCLUDE_DIRECTORIES "${MG_TOOLCHAIN_ROOT}/include"
+    INTERFACE_COMPILE_DEFINITIONS "GFLAGS_IS_A_DLL=0"
+  )
+  message(STATUS "Updated gflags target with correct paths: ${MG_TOOLCHAIN_ROOT}")
+else()
+  # Create the gflags target if it doesn't exist
+  add_library(gflags STATIC IMPORTED)
+  set_target_properties(gflags PROPERTIES
+    IMPORTED_LOCATION "${MG_TOOLCHAIN_ROOT}/lib/libgflags.a"
+    INTERFACE_INCLUDE_DIRECTORIES "${MG_TOOLCHAIN_ROOT}/include"
+    INTERFACE_COMPILE_DEFINITIONS "GFLAGS_IS_A_DLL=0"
+  )
+  message(STATUS "Created gflags target with correct paths: ${MG_TOOLCHAIN_ROOT}")
 endif()
