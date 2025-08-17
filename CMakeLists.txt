@@ -227,6 +227,9 @@ list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_BINARY_DIR}/generators")
 # custom function definitions
 include(functions)
 
+# Find OpenSSL first to ensure it's available for other packages
+find_package(OpenSSL REQUIRED)
+
 # Include conan-generated dependencies
 include(conandeps_legacy)
 
