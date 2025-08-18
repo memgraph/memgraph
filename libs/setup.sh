@@ -366,10 +366,3 @@ popd
 # croncpp
 croncpp_ref="v2023.03.30"
 repo_clone_try_double "${primary_urls[croncpp]}" "${secondary_urls[croncpp]}" "croncpp" "$croncpp_ref"
-
-# Clean up conflicting mgcxx files from toolchain to avoid clang-tidy issues
-# TODO (@DavIvek): Remove this once toolchain is updated with latest mgcxx
-echo "Removing conflicting mgcxx files from toolchain..."
-if [ -f "/opt/toolchain-v6/include/cxx.hpp" ]; then
-    sudo rm -f "/opt/toolchain-v6/include/cxx.hpp" 2>/dev/null || echo "Could not remove (permission denied or file not found)"
-fi
