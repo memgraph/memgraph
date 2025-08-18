@@ -326,6 +326,8 @@ void HandlePeriodicCommitError(const storage::StorageManipulationError &error) {
           throw QueryException("PeriodicCommit failed: Unable to commit due to serialization error.");
         } else if constexpr (std::is_same_v<ErrorType, storage::PersistenceError>) {
           throw QueryException("PeriodicCommit failed: Unable to commit due to persistence error.");
+        } else if constexpr (std::is_same_v<ErrorType, storage::ReplicaShouldNotWriteError>) {
+          throw QueryException("PeriodicCommit failed: Queries on replica shouldn't write.");
         } else {
           static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
         }
@@ -7781,11 +7783,11 @@ class PeriodicCommitCursor : public Cursor {
     utils::BasicResult<storage::StorageManipulationError, void> commit_result;
     if (pulled_ >= commit_frequency_) {
       // do periodic commit since we pulled that many times
-      commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
+      commit_result = context.db_accessor->PeriodicCommit(context.commit_args());
       pulled_ = 0;
     } else if (!pull_value && pulled_ > 0) {
       // do periodic commit for the rest of pulled items
-      commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
+      commit_result = context.db_accessor->PeriodicCommit(context.commit_args());
     }
 
     if (commit_result.HasError()) {
@@ -7879,7 +7881,7 @@ class PeriodicSubqueryCursor : public Cursor {
         } else {
           if (pulled_ > 0) {
             // do periodic commit for the rest of pulled items
-            const auto commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
+            const auto commit_result = context.db_accessor->PeriodicCommit(context.commit_args());
             if (commit_result.HasError()) {
               HandlePeriodicCommitError(commit_result.GetError());
             }
@@ -7896,7 +7898,7 @@ class PeriodicSubqueryCursor : public Cursor {
 
       if (pulled_ >= commit_frequency_) {
         // do periodic commit since we pulled that many times
-        const auto commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
+        const auto commit_result = context.db_accessor->PeriodicCommit(context.commit_args());
         if (commit_result.HasError()) {
           HandlePeriodicCommitError(commit_result.GetError());
         }

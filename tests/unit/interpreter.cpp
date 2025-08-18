@@ -36,6 +36,7 @@
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage_mode.hpp"
+#include "tests/test_commit_args_helper.hpp"
 #include "utils/logging.hpp"
 #include "utils/lru_cache.hpp"
 #include "utils/synchronized.hpp"
@@ -418,7 +419,7 @@ TYPED_TEST(InterpreterTest, Bfs) {
       add_edge(node1, node2, false);
     }
 
-    ASSERT_FALSE(dba.Commit().HasError());
+    ASSERT_FALSE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   auto stream = this->Interpret(

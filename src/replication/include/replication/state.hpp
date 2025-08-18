@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "flags/coordination.hpp"
 #include "kvstore/kvstore.hpp"
 #include "replication/config.hpp"
 #include "replication/replication_client.hpp"
@@ -58,7 +59,7 @@ struct RoleReplicaData {
 
 // Global (instance) level object
 struct ReplicationState {
-  explicit ReplicationState(std::optional<std::filesystem::path> durability_dir);
+  explicit ReplicationState(std::optional<std::filesystem::path> durability_dir, bool ha_cluster = false);
   ~ReplicationState() = default;
 
   ReplicationState(ReplicationState const &) = delete;
@@ -85,7 +86,7 @@ struct ReplicationState {
 
   auto IsMainWriteable() const -> bool {
     if (auto const *main = std::get_if<RoleMainData>(&replication_data_)) {
-      return main->writing_enabled_;
+      return !part_of_ha_cluster_ || main->writing_enabled_;
     }
     return false;
   }
@@ -138,6 +139,7 @@ struct ReplicationState {
   std::unique_ptr<kvstore::KVStore> durability_;
   ReplicationData_t replication_data_;
   std::atomic<RolePersisted> role_persisted = RolePersisted::UNKNOWN_OR_NO;
+  bool part_of_ha_cluster_{false};
 };
 
 }  // namespace memgraph::replication

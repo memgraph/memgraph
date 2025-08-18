@@ -14,6 +14,8 @@
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
 
+#include <memory>
+
 template struct memgraph::utils::Gatekeeper<memgraph::dbms::Database>;
 
 namespace memgraph::dbms {
@@ -50,24 +52,31 @@ struct PlanInvalidatorForDatabase : storage::PlanInvalidator {
 };
 
 Database::Database(storage::Config config,
-                   utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &repl_state)
+                   utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &repl_state,
+                   std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
     : trigger_store_(config.durability.storage_directory / "triggers"),
       streams_{config.durability.storage_directory / "streams"},
-      time_to_live_{config.durability.storage_directory / "ttl"},
       plan_cache_{FLAGS_query_plan_cache_max_size} {
   std::unique_ptr<storage::PlanInvalidator> invalidator = std::make_unique<PlanInvalidatorForDatabase>(plan_cache_);
+
   if (config.salient.storage_mode == memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL || config.force_on_disk ||
       utils::DirExists(config.disk.main_storage_directory)) {
     config.salient.storage_mode = memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL;
-    storage_ = std::make_unique<storage::DiskStorage>(std::move(config), std::move(invalidator));
-    ;
+    storage_ =
+        std::make_unique<storage::DiskStorage>(std::move(config), std::move(invalidator), database_protector_factory);
   } else {
-    storage_ = dbms::CreateInMemoryStorage(std::move(config), repl_state, std::move(invalidator));
+    storage_ =
+        dbms::CreateInMemoryStorage(std::move(config), repl_state, std::move(invalidator), database_protector_factory);
   }
 }
 
 void Database::SwitchToOnDisk() {
-  storage_ = std::make_unique<memgraph::storage::DiskStorage>(std::move(storage_->config_));
+  // Preserve the database protector factory from the previous storage
+  // This ensures consistent behavior for async operations (indexer, TTL) across storage transitions
+  auto preserved_factory = storage_->get_database_protector_factory();
+
+  storage_ = std::make_unique<memgraph::storage::DiskStorage>(
+      std::move(storage_->config_), std::make_unique<storage::PlanInvalidatorDefault>(), preserved_factory);
 }
 
 }  // namespace memgraph::dbms

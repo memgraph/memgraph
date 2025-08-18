@@ -10,31 +10,33 @@
 // licenses/APL.txt.
 
 #include "storage/v2/transaction.hpp"
+#include "storage/v2/async_indexer.hpp"
 
 namespace memgraph::storage {
 
-AutoIndexHelper::AutoIndexHelper(Config const &config, ActiveIndices const &active_indices, uint64_t start_timestamp) {
+AsyncIndexHelper::AsyncIndexHelper(Config const &config, ActiveIndices const &active_indices,
+                                   uint64_t start_timestamp) {
   if (config.salient.items.enable_label_index_auto_creation) {
-    label_index_.emplace(AutoIndexHelper::LabelIndexInfo{
+    label_index_.emplace(AsyncIndexHelper::LabelIndexInfo{
         .existing_ = active_indices.label_->ListIndices(start_timestamp) | ranges::to<absl::flat_hash_set>});
   }
   if (config.salient.items.enable_edge_type_index_auto_creation) {
-    edgetype_index_.emplace(AutoIndexHelper::EdgeTypeIndexInfo{
+    edgetype_index_.emplace(AsyncIndexHelper::EdgeTypeIndexInfo{
         .existing_ = active_indices.edge_type_->ListIndices(start_timestamp) | ranges::to<absl::flat_hash_set>});
   }
 }
 
-void AutoIndexHelper::DispatchRequests(AutoIndexer &auto_indexer) {
+void AsyncIndexHelper::DispatchRequests(AsyncIndexer &async_indexer) {
   // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
   if (label_index_ && !label_index_->requested_.empty()) {
     for (auto label : label_index_->requested_) {
-      auto_indexer.Enqueue(label);
+      async_indexer.Enqueue(label);
     }
   }
   // NOLINTNEXTLINE(clang-analyzer-optin.core.EnumCastOutOfRange)
   if (edgetype_index_ && !edgetype_index_->requested_.empty()) {
     for (auto edge_type : edgetype_index_->requested_) {
-      auto_indexer.Enqueue(edge_type);
+      async_indexer.Enqueue(edge_type);
     }
   }
 }

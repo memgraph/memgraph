@@ -383,14 +383,14 @@ SnapshotInfo ReadSnapshotInfoPreVersion23(const std::filesystem::path &path) {
     if (*version >= kEdgeIndicesVersion) {
       info.offset_edge_indices = read_offset();
     } else {
-      info.offset_edge_indices = 0U;
+      info.offset_edge_indices = SnapshotInfo::kInvalidOffset;
     }
     info.offset_constraints = read_offset();
     info.offset_mapper = read_offset();
     if (*version >= kEnumsVersion) {
       info.offset_enums = read_offset();
     } else {
-      info.offset_enums = 0U;
+      info.offset_enums = SnapshotInfo::kInvalidOffset;
     }
     info.offset_epoch_history = read_offset();
     info.offset_metadata = read_offset();
@@ -398,8 +398,8 @@ SnapshotInfo ReadSnapshotInfoPreVersion23(const std::filesystem::path &path) {
       info.offset_edge_batches = read_offset();
       info.offset_vertex_batches = read_offset();
     } else {
-      info.offset_edge_batches = 0U;
-      info.offset_vertex_batches = 0U;
+      info.offset_edge_batches = SnapshotInfo::kInvalidOffset;
+      info.offset_vertex_batches = SnapshotInfo::kInvalidOffset;
     }
   }
 
@@ -471,14 +471,14 @@ SnapshotInfo ReadSnapshotInfoPreVersionNumCommittedTxns(const std::filesystem::p
     if (*version >= kEdgeIndicesVersion) {
       info.offset_edge_indices = read_offset();
     } else {
-      info.offset_edge_indices = 0U;
+      info.offset_edge_indices = SnapshotInfo::kInvalidOffset;
     }
     info.offset_constraints = read_offset();
     info.offset_mapper = read_offset();
     if (*version >= kEnumsVersion) {
       info.offset_enums = read_offset();
     } else {
-      info.offset_enums = 0U;
+      info.offset_enums = SnapshotInfo::kInvalidOffset;
     }
     info.offset_epoch_history = read_offset();
     info.offset_metadata = read_offset();
@@ -486,8 +486,8 @@ SnapshotInfo ReadSnapshotInfoPreVersionNumCommittedTxns(const std::filesystem::p
       info.offset_edge_batches = read_offset();
       info.offset_vertex_batches = read_offset();
     } else {
-      info.offset_edge_batches = 0U;
-      info.offset_vertex_batches = 0U;
+      info.offset_edge_batches = SnapshotInfo::kInvalidOffset;
+      info.offset_vertex_batches = SnapshotInfo::kInvalidOffset;
     }
   }
 
@@ -568,14 +568,14 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
     if (*version >= kEdgeIndicesVersion) {
       info.offset_edge_indices = read_offset();
     } else {
-      info.offset_edge_indices = 0U;
+      info.offset_edge_indices = SnapshotInfo::kInvalidOffset;
     }
     info.offset_constraints = read_offset();
     info.offset_mapper = read_offset();
     if (*version >= kEnumsVersion) {
       info.offset_enums = read_offset();
     } else {
-      info.offset_enums = 0U;
+      info.offset_enums = SnapshotInfo::kInvalidOffset;
     }
     info.offset_epoch_history = read_offset();
     info.offset_metadata = read_offset();
@@ -583,8 +583,13 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
       info.offset_edge_batches = read_offset();
       info.offset_vertex_batches = read_offset();
     } else {
-      info.offset_edge_batches = 0U;
-      info.offset_vertex_batches = 0U;
+      info.offset_edge_batches = SnapshotInfo::kInvalidOffset;
+      info.offset_vertex_batches = SnapshotInfo::kInvalidOffset;
+    }
+    if (*version >= kTtlSupport) {
+      info.offset_ttl = read_offset();
+    } else {
+      info.offset_ttl = SnapshotInfo::kInvalidOffset;
     }
   }
 
@@ -7076,7 +7081,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
                                              std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                              NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
                                              Config const &config, EnumStore *enum_store,
-                                             SharedSchemaTracking *schema_info,
+                                             SharedSchemaTracking *schema_info, memgraph::storage::ttl::TTL *ttl,
                                              std::optional<SnapshotObserverInfo> const &snapshot_info) {
   // Cleanup of loaded data in case of failure.
 
@@ -7337,10 +7342,8 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
           return path | rv::transform([&](const auto &property_id) {
                    return name_id_mapper->IdToName(property_id.AsUint());
                  }) |
-                 rv::join(". ") | r::_to_::to<std::string>;
+                 rv::join(". ") | r::to<std::string>;
         };
-
-        // NOLINTBEGIN(bugprone-unused-local-non-trivial-variable)
         auto properties_vec = property_paths | rv::transform(path_to_name) | r::to_vector;
         auto properties_string = fmt::format("{}", fmt::join(properties_vec, ", "));
 
@@ -7349,7 +7352,6 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
                                     "The label+property index already exists!");
         SPDLOG_TRACE("Recovered metadata of label+property index for :{}({})",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)), properties_string);
-        // NOLINTEND(bugprone-unused-local-non-trivial-variable)
       }
       spdlog::info("Metadata of label+property indices are recovered.");
     }
@@ -7567,15 +7569,17 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
         if (!index_name.has_value()) throw RecoveryFailure("Couldn't read text index name!");
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read text index label!");
+        // Read properties
         auto n_props = snapshot.ReadUint();
-        if (!n_props) throw RecoveryFailure("Couldn't read text index properties size!");
+        if (!n_props.has_value()) throw RecoveryFailure("Couldn't read text index properties count!");
         std::vector<PropertyId> properties;
         properties.reserve(*n_props);
         for (uint64_t j = 0; j < *n_props; ++j) {
           auto property = snapshot.ReadUint();
-          if (!property) throw RecoveryFailure("Couldn't read text index property!");
+          if (!property.has_value()) throw RecoveryFailure("Couldn't read text index property!");
           properties.emplace_back(get_property_from_id(*property));
         }
+
         AddRecoveredIndexConstraint(&indices_constraints.indices.text_indices,
                                     TextIndexSpec{index_name.value(), get_label_from_id(*label), std::move(properties)},
                                     "The text index already exists!");
@@ -7701,6 +7705,67 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
     }
   }
 
+  // Recover TTL data if available
+  if (info.offset_ttl != SnapshotInfo::kInvalidOffset) {
+    spdlog::info("Recovering TTL data.");
+    if (!snapshot.SetPosition(info.offset_ttl)) throw RecoveryFailure("Couldn't read TTL data from snapshot!");
+
+    auto marker = snapshot.ReadMarker();
+    if (!marker || *marker != Marker::SECTION_TTL) {
+      throw RecoveryFailure("Couldn't read section TTL marker!");
+    }
+
+    // Read TTL enabled state
+    auto ttl_enabled = snapshot.ReadBool();
+    if (!ttl_enabled.has_value()) throw RecoveryFailure("Couldn't read TTL enabled state!");
+
+    if (*ttl_enabled) {
+      // Running
+      auto ttl_running = snapshot.ReadBool();
+      if (!ttl_running.has_value()) throw RecoveryFailure("Couldn't read TTL running state!");
+
+      // Read period
+      auto has_period = snapshot.ReadBool();
+      if (!has_period.has_value()) throw RecoveryFailure("Couldn't read TTL period flag!");
+
+      std::optional<std::chrono::microseconds> period;
+      if (*has_period) {
+        auto period_count = snapshot.ReadUint();
+        if (!period_count.has_value()) throw RecoveryFailure("Couldn't read TTL period count!");
+        period = std::chrono::microseconds(*period_count);
+      }
+
+      // Read start_time
+      auto has_start_time = snapshot.ReadBool();
+      if (!has_start_time.has_value()) throw RecoveryFailure("Couldn't read TTL start_time flag!");
+
+      std::optional<std::chrono::system_clock::time_point> start_time;
+      if (*has_start_time) {
+        auto start_time_count = snapshot.ReadUint();
+        if (!start_time_count.has_value()) throw RecoveryFailure("Couldn't read TTL start_time count!");
+        start_time = std::chrono::system_clock::time_point(std::chrono::system_clock::duration(*start_time_count));
+      }
+
+      // Read should_run_edge_ttl
+      auto should_run_edge_ttl = snapshot.ReadBool();
+      if (!should_run_edge_ttl.has_value()) throw RecoveryFailure("Couldn't read TTL should_run_edge_ttl!");
+
+      // Create TtlInfo and store it in recovery_info;
+      ttl->Enable();
+      ttl->Configure(*should_run_edge_ttl);
+      ttl->SetInterval(period, start_time);
+      if (ttl_running.value()) {
+        ttl->Resume();
+      } else {
+        ttl->Pause();
+      }
+    } else {
+      ttl->Disable();
+    }
+
+    spdlog::info("TTL data recovered.");
+  }
+
   spdlog::info("Metadata recovered.");
   // Recover timestamp.
   recovery_info.next_timestamp = info.start_timestamp + 1;
@@ -7717,6 +7782,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
                                std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, const Config &config,
                                memgraph::storage::EnumStore *enum_store, SharedSchemaTracking *schema_info,
+                               memgraph::storage::ttl::TTL *ttl,
                                std::optional<SnapshotObserverInfo> const &snapshot_info) {
   Decoder snapshot;
   const auto version = snapshot.Initialize(path, kSnapshotMagic);
@@ -7779,7 +7845,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
     }
     case 30U: {
       return LoadCurrentVersionSnapshot(snapshot, path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
-                                        edge_count, config, enum_store, schema_info, snapshot_info);
+                                        edge_count, config, enum_store, schema_info, ttl, snapshot_info);
     }
     default: {
       // `IsVersionSupported` checks that the version is within the supported
@@ -7924,6 +7990,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
   uint64_t offset_epoch_history = 0;
   uint64_t offset_edge_batches = 0;
   uint64_t offset_vertex_batches = 0;
+  uint64_t offset_ttl = 0;
 
   auto write_offsets = [&] {
     snapshot.WriteUint(offset_edges);
@@ -7937,6 +8004,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
     snapshot.WriteUint(offset_metadata);
     snapshot.WriteUint(offset_edge_batches);
     snapshot.WriteUint(offset_vertex_batches);
+    snapshot.WriteUint(offset_ttl);
   };
 
   {
@@ -8567,6 +8635,45 @@ std::optional<std::filesystem::path> CreateSnapshot(
   {
     offset_vertex_batches = snapshot.GetPosition();
     if (!write_batch_infos(vertex_batch_infos)) {
+      return std::nullopt;
+    }
+  }
+
+  // Write TTL data
+  {
+    offset_ttl = snapshot.GetPosition();
+    snapshot.WriteMarker(Marker::SECTION_TTL);
+
+#ifdef MG_ENTERPRISE
+    // Write TTL enabled state
+    snapshot.WriteBool(storage->ttl_.Enabled());
+
+    // Write TTL info if configured
+    if (storage->ttl_.Enabled() && storage->ttl_.Config()) {
+      snapshot.WriteBool(storage->ttl_.Running() && !storage->ttl_.Paused());
+      const auto &info = storage->ttl_.Config();
+
+      // Write period
+      snapshot.WriteBool(info.period.has_value());
+      if (info.period) {
+        snapshot.WriteUint(info.period->count());
+      }
+
+      // Write start_time
+      snapshot.WriteBool(info.start_time.has_value());
+      if (info.start_time) {
+        snapshot.WriteUint(info.start_time->time_since_epoch().count());
+      }
+
+      // Write should_run_edge_ttl
+      snapshot.WriteBool(info.should_run_edge_ttl);
+    }
+#else
+    // Write TTL always disabled in community edition
+    snapshot.WriteBool(false);
+#endif
+
+    if (snapshot_aborted()) {
       return std::nullopt;
     }
   }
