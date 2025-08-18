@@ -7406,9 +7406,8 @@ auto make_commit_arg(bool is_main, dbms::DatabaseAccess const &db_acc) {
   if (is_main) {
     auto protector = dbms::DatabaseProtector{db_acc};
     return storage::CommitArgs::make_main(protector.clone());
-  } else {
-    return storage::CommitArgs::make_replica_read();
   }
+  return storage::CommitArgs::make_replica_read();
 }
 
 void RunTriggersAfterCommit(dbms::DatabaseAccess db_acc, InterpreterContext *interpreter_context,

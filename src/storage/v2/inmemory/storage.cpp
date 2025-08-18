@@ -835,7 +835,7 @@ utils::BasicResult<StorageManipulationError> InMemoryStorage::InMemoryAccessor::
     return {};
   }
 
-  auto [main_was_applied, res] = commit_args.apply_if_main(
+  auto res = commit_args.apply_if_main(
       [&](DatabaseProtector const &protector) -> utils::BasicResult<StorageManipulationError> {
         // From this point on, only main executes this
         // If there are no STRICT_SYNC replicas for the current txn
@@ -874,7 +874,7 @@ utils::BasicResult<StorageManipulationError> InMemoryStorage::InMemoryAccessor::
 
         return {};
       });
-  DMG_ASSERT(main_was_applied, "The commit was not applied!");
+  DMG_ASSERT(res, "The commit was not applied!");
   return *std::move(res);
 }
 

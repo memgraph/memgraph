@@ -61,16 +61,10 @@ struct CommitArgs {
   }
 
   template <typename Func>
-  auto apply_if_main(Func &&func) const
-      -> std::pair<bool, std::optional<std::invoke_result_t<Func, DatabaseProtector const &>>> {
-    // TODO: return just optional, not pair
-    using retult_t = std::optional<std::invoke_result_t<Func, DatabaseProtector const &>>;
-    auto const f = utils::Overloaded{[](auto const &) {
-                                       return std::pair{false, retult_t{}};
-                                     },
-                                     [&](Main const &main) {
-                                       return std::pair{true, std::optional{func(*main.db_acc)}};
-                                     }};
+  auto apply_if_main(Func &&func) const -> std::optional<std::invoke_result_t<Func, DatabaseProtector const &>> {
+    using result_t = std::optional<std::invoke_result_t<Func, DatabaseProtector const &>>;
+    auto const f = utils::Overloaded{[](auto const &) -> result_t { return {}; },
+                                     [&](Main const &main) -> result_t { return func(*main.db_acc); }};
     return std::visit(f, data);
   }
 

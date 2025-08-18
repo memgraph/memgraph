@@ -36,9 +36,8 @@ std::vector<storage::LabelId> NamesToLabels(std::vector<std::string> const &labe
 auto ExecutionContext::commit_args() -> storage::CommitArgs {
   if (is_main) {
     return storage::CommitArgs::make_main(protector->clone());
-  } else {
-    return storage::CommitArgs::make_replica_read();
   }
+  return storage::CommitArgs::make_replica_read();
 }
 
 }  // namespace memgraph::query
