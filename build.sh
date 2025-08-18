@@ -30,6 +30,12 @@ if [[ "$BUILD_TYPE" != "Release" && "$BUILD_TYPE" != "RelWithDebInfo" && "$BUILD
     exit 1
 fi
 
+# delete existing build directory
+if [ -d "build" ]; then
+    echo "Deleting existing build directory"
+    rm -rf build
+fi
+
 # run check for operating system dependencies
 ./environment/os/install_deps.sh check TOOLCHAIN_RUN_DEPS
 ./environment/os/install_deps.sh check MEMGRAPH_BUILD_DEPS
