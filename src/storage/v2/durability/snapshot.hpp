@@ -34,18 +34,20 @@ namespace memgraph::storage::durability {
 
 /// Structure used to hold information about a snapshot.
 struct SnapshotInfo {
+  static constexpr uint64_t kInvalidOffset = 0u;
+
   uint64_t offset_edges;
   uint64_t offset_vertices;
   uint64_t offset_indices;
-  uint64_t offset_edge_indices;
+  uint64_t offset_edge_indices{kInvalidOffset};
   uint64_t offset_constraints;
   uint64_t offset_mapper;
-  uint64_t offset_enums;
+  uint64_t offset_enums{kInvalidOffset};
   uint64_t offset_epoch_history;
   uint64_t offset_metadata;
-  uint64_t offset_edge_batches;
-  uint64_t offset_vertex_batches;
-  uint64_t offset_ttl;
+  uint64_t offset_edge_batches{kInvalidOffset};
+  uint64_t offset_vertex_batches{kInvalidOffset};
+  uint64_t offset_ttl{kInvalidOffset};
 
   std::string uuid;
   std::string epoch_id;

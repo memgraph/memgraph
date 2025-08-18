@@ -383,14 +383,14 @@ SnapshotInfo ReadSnapshotInfoPreVersion23(const std::filesystem::path &path) {
     if (*version >= kEdgeIndicesVersion) {
       info.offset_edge_indices = read_offset();
     } else {
-      info.offset_edge_indices = 0U;
+      info.offset_edge_indices = SnapshotInfo::kInvalidOffset;
     }
     info.offset_constraints = read_offset();
     info.offset_mapper = read_offset();
     if (*version >= kEnumsVersion) {
       info.offset_enums = read_offset();
     } else {
-      info.offset_enums = 0U;
+      info.offset_enums = SnapshotInfo::kInvalidOffset;
     }
     info.offset_epoch_history = read_offset();
     info.offset_metadata = read_offset();
@@ -398,8 +398,8 @@ SnapshotInfo ReadSnapshotInfoPreVersion23(const std::filesystem::path &path) {
       info.offset_edge_batches = read_offset();
       info.offset_vertex_batches = read_offset();
     } else {
-      info.offset_edge_batches = 0U;
-      info.offset_vertex_batches = 0U;
+      info.offset_edge_batches = SnapshotInfo::kInvalidOffset;
+      info.offset_vertex_batches = SnapshotInfo::kInvalidOffset;
     }
   }
 
@@ -471,14 +471,14 @@ SnapshotInfo ReadSnapshotInfoPreVersionNumCommittedTxns(const std::filesystem::p
     if (*version >= kEdgeIndicesVersion) {
       info.offset_edge_indices = read_offset();
     } else {
-      info.offset_edge_indices = 0U;
+      info.offset_edge_indices = SnapshotInfo::kInvalidOffset;
     }
     info.offset_constraints = read_offset();
     info.offset_mapper = read_offset();
     if (*version >= kEnumsVersion) {
       info.offset_enums = read_offset();
     } else {
-      info.offset_enums = 0U;
+      info.offset_enums = SnapshotInfo::kInvalidOffset;
     }
     info.offset_epoch_history = read_offset();
     info.offset_metadata = read_offset();
@@ -486,8 +486,8 @@ SnapshotInfo ReadSnapshotInfoPreVersionNumCommittedTxns(const std::filesystem::p
       info.offset_edge_batches = read_offset();
       info.offset_vertex_batches = read_offset();
     } else {
-      info.offset_edge_batches = 0U;
-      info.offset_vertex_batches = 0U;
+      info.offset_edge_batches = SnapshotInfo::kInvalidOffset;
+      info.offset_vertex_batches = SnapshotInfo::kInvalidOffset;
     }
   }
 
@@ -568,14 +568,14 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
     if (*version >= kEdgeIndicesVersion) {
       info.offset_edge_indices = read_offset();
     } else {
-      info.offset_edge_indices = 0U;
+      info.offset_edge_indices = SnapshotInfo::kInvalidOffset;
     }
     info.offset_constraints = read_offset();
     info.offset_mapper = read_offset();
     if (*version >= kEnumsVersion) {
       info.offset_enums = read_offset();
     } else {
-      info.offset_enums = 0U;
+      info.offset_enums = SnapshotInfo::kInvalidOffset;
     }
     info.offset_epoch_history = read_offset();
     info.offset_metadata = read_offset();
@@ -583,13 +583,13 @@ SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path) {
       info.offset_edge_batches = read_offset();
       info.offset_vertex_batches = read_offset();
     } else {
-      info.offset_edge_batches = 0U;
-      info.offset_vertex_batches = 0U;
+      info.offset_edge_batches = SnapshotInfo::kInvalidOffset;
+      info.offset_vertex_batches = SnapshotInfo::kInvalidOffset;
     }
     if (*version >= kTtlSupport) {
       info.offset_ttl = read_offset();
     } else {
-      info.offset_ttl = 0U;
+      info.offset_ttl = SnapshotInfo::kInvalidOffset;
     }
   }
 
@@ -7708,7 +7708,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
   }
 
   // Recover TTL data if available
-  if (info.offset_ttl != 0) {
+  if (info.offset_ttl != SnapshotInfo::kInvalidOffset) {
     spdlog::info("Recovering TTL data.");
     if (!snapshot.SetPosition(info.offset_ttl)) throw RecoveryFailure("Couldn't read TTL data from snapshot!");
 
