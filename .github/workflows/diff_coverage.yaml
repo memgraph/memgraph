@@ -187,6 +187,16 @@ jobs:
           --no-ccache \
           build-memgraph --cmake-only --community
 
+      - name: Build mgcxx to generate headers
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --build-type $BUILD_TYPE \
+          --no-ccache \
+          build-memgraph --target mgcxx-proj
+
       - name: Debug mgcxx headers
         run: |
           echo '=== Checking mgcxx header locations inside container ==='
