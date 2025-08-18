@@ -370,6 +370,6 @@ repo_clone_try_double "${primary_urls[croncpp]}" "${secondary_urls[croncpp]}" "c
 # Clean up conflicting mgcxx files from toolchain to avoid clang-tidy issues
 # TODO (@DavIvek): Remove this once toolchain is updated with latest mgcxx
 echo "Removing conflicting mgcxx files from toolchain..."
-if [ -f "/opt/toolchain-v6/lib/libmgcxx_text_search.a" ]; then
-    rm -f "/opt/toolchain-v6/lib/libmgcxx_text_search.a" 2>/dev/null || echo "Could not remove (permission denied or file not found)"
+if [ -f "/opt/toolchain-v6/include/cxx.hpp" ]; then
+    rm -f "/opt/toolchain-v6/include/cxx.hpp" 2>/dev/null || echo "Could not remove (permission denied or file not found)"
 fi
