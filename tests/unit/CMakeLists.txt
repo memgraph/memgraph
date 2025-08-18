@@ -296,13 +296,13 @@ add_unit_test(small_vector.cpp)
 target_link_libraries(${test_prefix}small_vector mg-utils)
 
 add_unit_test(utils_mask_sensitive_information.cpp)
-target_link_libraries(${test_prefix}utils_mask_sensitive_information mg-utils fmt)
+target_link_libraries(${test_prefix}utils_mask_sensitive_information mg-utils fmt::fmt)
 
 add_unit_test(utils_file_locker.cpp)
-target_link_libraries(${test_prefix}utils_file_locker mg-utils fmt)
+target_link_libraries(${test_prefix}utils_file_locker mg-utils fmt::fmt)
 
 add_unit_test(utils_thread_pool.cpp)
-target_link_libraries(${test_prefix}utils_thread_pool mg-utils fmt)
+target_link_libraries(${test_prefix}utils_thread_pool mg-utils fmt::fmt)
 
 add_unit_test(csv_csv_parsing.cpp)
 target_link_libraries(${test_prefix}csv_csv_parsing mg::csv)
@@ -398,13 +398,13 @@ add_unit_test(storage_v2_name_id_mapper.cpp)
 target_link_libraries(${test_prefix}storage_v2_name_id_mapper mg::storage)
 
 add_unit_test_with_custom_main(storage_v2_property_store.cpp)
-target_link_libraries(${test_prefix}storage_v2_property_store mg::storage fmt)
+target_link_libraries(${test_prefix}storage_v2_property_store mg::storage fmt::fmt)
 
 add_unit_test(storage_v2_wal_file.cpp)
-target_link_libraries(${test_prefix}storage_v2_wal_file mg::storage storage_test_utils fmt)
+target_link_libraries(${test_prefix}storage_v2_wal_file mg::storage storage_test_utils fmt::fmt)
 
 add_unit_test(storage_v2_replication.cpp)
-target_link_libraries(${test_prefix}storage_v2_replication mg::storage mg-dbms fmt mg-repl_coord_glue)
+target_link_libraries(${test_prefix}storage_v2_replication mg::storage mg-dbms fmt::fmt mg-repl_coord_glue)
 
 add_unit_test(storage_v2_isolation_level.cpp)
 target_link_libraries(${test_prefix}storage_v2_isolation_level mg::storage)
@@ -475,10 +475,10 @@ if(MG_ENTERPRISE)
 endif()
 
 add_unit_test(slk_core.cpp)
-target_link_libraries(${test_prefix}slk_core mg-slk gflags fmt)
+target_link_libraries(${test_prefix}slk_core mg-slk gflags fmt::fmt)
 
 add_unit_test(slk_streams.cpp)
-target_link_libraries(${test_prefix}slk_streams mg-slk gflags fmt)
+target_link_libraries(${test_prefix}slk_streams mg-slk gflags fmt::fmt)
 
 # Test mg-rpc
 add_unit_test(rpc.cpp)
