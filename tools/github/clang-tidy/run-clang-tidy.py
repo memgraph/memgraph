@@ -107,29 +107,6 @@ def get_tidy_invocation(
         (handle, name) = tempfile.mkstemp(suffix=".yaml", dir=tmpdir)
         os.close(handle)
         start.append(name)
-
-    # Prioritize local mgcxx headers over toolchain headers
-    # This fixes issues where clang-tidy uses old mgcxx headers from toolchain
-    # TODO (@DavIvek): This can be removed once the toolchain is updated
-    mgcxx_local_include = None
-    if build_path:
-        # Try to find the local mgcxx include directory relative to build path
-        build_parent = os.path.dirname(os.path.abspath(build_path))
-        potential_mgcxx_path = os.path.join(build_parent, "..", "libs", "mgcxx", "include")
-        if os.path.exists(potential_mgcxx_path):
-            mgcxx_local_include = potential_mgcxx_path
-
-    # Add local mgcxx headers with highest priority using -iquote
-    # -iquote has the highest priority for #include "..." directives
-    if mgcxx_local_include:
-        # Print debug info to stderr (will be visible in CI logs)
-        print(f"[MGCXX_FIX] Using local mgcxx headers: {mgcxx_local_include}", file=sys.stderr)
-        extra_arg_before = [
-            "-iquote",
-            mgcxx_local_include,
-            "-I" + mgcxx_local_include,
-        ] + list(extra_arg_before)
-
     for arg in extra_arg:
         start.append("-extra-arg=%s" % arg)
     for arg in extra_arg_before:
