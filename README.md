@@ -17,8 +17,8 @@
 </p>
 
 <p align="center">
-  <a href="https://github.com/memgraph/memgraph">
-     <img src="https://img.shields.io/github/actions/workflow/status/memgraph/memgraph/package_memgraph.yaml?branch=master&label=build%20and%20test&logo=github"/>
+  <a href="https://memgraph.github.io/daily-builds/">
+     <img src="https://img.shields.io/github/actions/workflow/status/memgraph/memgraph/daily_build.yml?branch=master&label=build%20and%20test&logo=github"/>
   </a>
   <a href="https://memgraph.com/docs/" alt="Documentation">
     <img src="https://img.shields.io/badge/documentation-Memgraph-orange" />
@@ -104,6 +104,16 @@ your browser.
 You can find the binaries and Docker images on the [Download
 Hub](https://memgraph.com/download) and the installation instructions in the
 [official documentation](https://memgraph.com/docs/memgraph/installation).
+
+
+## :rocket: Daily Builds
+
+Stay on the cutting edge with the latest features and improvements by using
+[Memgraph Daily Builds](https://memgraph.github.io/daily-builds/). Daily builds
+are updated frequently and allow you to test new capabilities before they reach
+stable releases.
+
+<p align="left"> <a href="https://memgraph.github.io/daily-builds/"> <img src="https://img.shields.io/badge/Daily%20Builds-latest-blue?style=for-the-badge" alt="Daily Builds" /> </a> </p>
 
 
 ## :cloud: Memgraph Cloud

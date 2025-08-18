@@ -1,5 +1,5 @@
 add_library(mg-utils STATIC
-        atomic_max.hpp)
+        atomic_utils.hpp)
 add_library(mg::utils ALIAS mg-utils)
 
 target_sources(mg-utils

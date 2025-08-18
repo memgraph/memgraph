@@ -20,6 +20,7 @@
 #include <vector>
 
 // TODO: remove once ast is split over multiple files
+#include "frontend/ast/query/pattern_comprehension.hpp"
 #include "query/frontend/ast/ast.hpp"
 
 #include "query/frontend/ast/ast_visitor.hpp"
@@ -83,10 +84,12 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   }
 
   bool Visit(Identifier &ident) override {
-    if (!in_exists || ident.user_declared_) {
+    const bool is_ordinary_flow = !in_exists && !in_pattern_comprehension;
+    if (is_ordinary_flow) {
+      symbols_.insert(symbol_table_.at(ident));
+    } else if (ident.user_declared_) {
       symbols_.insert(symbol_table_.at(ident));
     }
-
     return true;
   }
 
@@ -126,6 +129,18 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
     return true;
   }
 
+  bool PreVisit(PatternComprehension &pc) override {
+    in_pattern_comprehension = true;
+    pc.pattern_->Accept(*this);
+
+    return false;
+  }
+
+  bool PostVisit(PatternComprehension & /*pc*/) override {
+    in_pattern_comprehension = false;
+    return true;
+  }
+
   bool Visit(PrimitiveLiteral &) override { return true; }
   bool Visit(ParameterLookup &) override { return true; }
   bool Visit(EnumValueAccess &) override { return true; }
@@ -135,6 +150,7 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
 
  private:
   bool in_exists{false};
+  bool in_pattern_comprehension{false};
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
@@ -544,6 +560,7 @@ struct FilterInfo {
   /// Matchings for filters that include patterns
   /// NOTE: The vector is not defined here because FilterMatching is forward declared above.
   std::vector<FilterMatching> matchings;
+  std::vector<PatternComprehensionMatching> pattern_comprehension_matchings;
   /// Information for Type::Point filtering.
   std::optional<PointFilter> point_filter{};
 };

@@ -72,8 +72,8 @@ namespace memgraph::storage {
 
 namespace {
 
-auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex,
-               VertexAccessor *to_vertex) -> Result<EdgesVertexAccessorResult> {
+auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex, VertexAccessor *to_vertex)
+    -> Result<EdgesVertexAccessorResult> {
   auto use_out_edges = [](Vertex const *from_vertex, Vertex const *to_vertex) {
     // Obtain the locks by `gid` order to avoid lock cycles.
     auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
@@ -229,8 +229,8 @@ bool IsPropertyValueWithinInterval(const PropertyValue &value,
 
 }  // namespace
 
-DiskStorage::DiskStorage(Config config)
-    : Storage(config, StorageMode::ON_DISK_TRANSACTIONAL),
+DiskStorage::DiskStorage(Config config, PlanInvalidatorPtr invalidator)
+    : Storage(config, StorageMode::ON_DISK_TRANSACTIONAL, std::move(invalidator)),
       kvstore_(std::make_unique<RocksDBStorage>()),
       durable_metadata_(config) {
   LoadPersistingMetadataInfo();
@@ -1758,13 +1758,12 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Pr
         } break;
         case MetadataDelta::Action::TEXT_INDEX_CREATE: {
           const auto &info = md_delta.text_index;
-          if (!disk_storage->durable_metadata_.PersistTextIndexCreation(info.index_name, info.label)) {
+          if (!disk_storage->durable_metadata_.PersistTextIndexCreation(info)) {
             return StorageManipulationError{PersistenceError{}};
           }
         } break;
         case MetadataDelta::Action::TEXT_INDEX_DROP: {
-          const auto &info = md_delta.text_index;
-          if (!disk_storage->durable_metadata_.PersistTextIndexDeletion(info.index_name, info.label)) {
+          if (!disk_storage->durable_metadata_.PersistTextIndexDeletion(md_delta.index_name)) {
             return StorageManipulationError{PersistenceError{}};
           }
         } break;
@@ -1890,7 +1889,7 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Pr
 
   spdlog::trace("rocksdb: Commit successful");
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    disk_storage->indices_.text_index_.Commit();
+    memgraph::storage::TextIndex::ApplyTrackedChanges(transaction_, disk_storage->name_id_mapper_.get());
   }
   disk_storage->durable_metadata_.UpdateMetaData(disk_storage->timestamp_, disk_storage->vertex_count_,
                                                  disk_storage->edge_count_);
@@ -2017,9 +2016,7 @@ void DiskStorage::DiskAccessor::Abort() {
   // query_plan_accumulate_aggregate.cpp
   transaction_.disk_transaction_->Rollback();
   transaction_.disk_transaction_->ClearSnapshot();
-  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    storage_->indices_.text_index_.Rollback();
-  }
+
   delete transaction_.disk_transaction_;
   transaction_.disk_transaction_ = nullptr;
   is_transaction_active_ = false;
@@ -2040,10 +2037,8 @@ void DiskStorage::DiskAccessor::FinalizeTransaction() {
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(
-    LabelId label, bool check_access, CheckCancelFunction cancel_check, PublishIndexWrapper wrapper) {
-  if (check_access) {
-    MG_ASSERT(type() == UNIQUE, "Create index requires unique access to the storage!");
-  }
+    LabelId label, CheckCancelFunction /*cancel_check*/) {
+  MG_ASSERT(type() == UNIQUE, "Create index requires unique access to the storage!");
 
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
@@ -2053,8 +2048,8 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 
   // disk is under unique lock, no need to publish
   // but we still need to call the outer publisher to ensure plan cache is cleared
-  auto publish_index_callback = wrapper(always_invalidate_plan_cache);
-  publish_index_callback(0 /*timestamp is ignored*/);
+  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(always_invalidate_plan_cache);
+  publisher(0 /*timestamp is ignored*/);
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_create, label);
   // We don't care if there is a replication error because on main node the change will go through
@@ -2063,7 +2058,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(
-    LabelId label, PropertiesPaths properties, CheckCancelFunction cancel_check, PublishIndexWrapper wrapper) {
+    LabelId label, PropertiesPaths properties, CheckCancelFunction /*cancel_check*/) {
   MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
 
   if (properties.size() != 1) {
@@ -2083,8 +2078,8 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 
   // disk is under unique lock, no need to publish
   // but we still need to call the outer publisher to ensure plan cache is cleared
-  auto publish_index_callback = wrapper(always_invalidate_plan_cache);
-  publish_index_callback(0 /*timestamp is ignored*/);
+  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(always_invalidate_plan_cache);
+  publisher(0 /*timestamp is ignored*/);
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
@@ -2093,27 +2088,24 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(
-    EdgeTypeId /*edge_type*/, bool /*unique_access_needed*/, CheckCancelFunction /*cancel_check*/,
-    PublishIndexWrapper /*wrapper*/) {
+    EdgeTypeId /*edge_type*/, CheckCancelFunction /*cancel_check*/) {
   throw utils::NotYetImplemented(
       "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(
-    EdgeTypeId /*edge_type*/, PropertyId /*property*/, CheckCancelFunction /*cancel_check*/,
-    PublishIndexWrapper /*wrapper*/) {
+    EdgeTypeId /*edge_type*/, PropertyId /*property*/, CheckCancelFunction /*cancel_check*/) {
   throw utils::NotYetImplemented(
       "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateGlobalEdgeIndex(
-    PropertyId /*property*/, CheckCancelFunction /*cancel_check*/, PublishIndexWrapper /*wrapper*/) {
+    PropertyId /*property*/, CheckCancelFunction /*cancel_check*/) {
   throw utils::NotYetImplemented(
       "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(LabelId label,
-                                                                                           DropIndexWrapper wrapper) {
+utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(LabelId label) {
   MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
@@ -2123,8 +2115,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 
   // disk is under unique lock, no need to publish
   // but we still need to call the outer publisher to ensure plan cache is cleared
-  auto drop_index_callback = wrapper(always_invalidate_plan_cache);
-  drop_index_callback();
+  storage_->invalidator_->invalidate_now(always_invalidate_plan_cache);
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_drop, label);
   // We don't care if there is a replication error because on main node the change will go through
@@ -2133,7 +2124,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(
-    LabelId label, std::vector<storage::PropertyPath> &&properties, DropIndexWrapper wrapper) {
+    LabelId label, std::vector<storage::PropertyPath> &&properties) {
   MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
 
   if (properties.size() != 1) {
@@ -2152,8 +2143,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 
   // disk is under unique lock, no need to publish
   // but we still need to call the outer publisher to ensure plan cache is cleared
-  auto drop_index_callback = wrapper(always_invalidate_plan_cache);
-  drop_index_callback();
+  storage_->invalidator_->invalidate_now(always_invalidate_plan_cache);
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
@@ -2161,20 +2151,19 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
   return {};
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(
-    EdgeTypeId /*edge_type*/, DropIndexWrapper /*wrapper*/) {
+utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(EdgeTypeId /*edge_type*/) {
   throw utils::NotYetImplemented(
       "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(
-    EdgeTypeId /*edge_type*/, PropertyId /*property*/, DropIndexWrapper /*wrapper*/) {
+utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(EdgeTypeId /*edge_type*/,
+                                                                                           PropertyId /*property*/) {
   throw utils::NotYetImplemented(
       "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropGlobalEdgeIndex(
-    PropertyId /*property*/, DropIndexWrapper /*wrapper*/) {
+    PropertyId /*property*/) {
   throw utils::NotYetImplemented(
       "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
@@ -2312,8 +2301,8 @@ std::vector<VectorEdgeIndexInfo> DiskStorage::DiskAccessor::ListAllVectorEdgeInd
 
 auto DiskStorage::DiskAccessor::PointVertices(LabelId /*label*/, PropertyId /*property*/,
                                               CoordinateReferenceSystem /*crs*/, PropertyValue const & /*bottom_left*/,
-                                              PropertyValue const & /*top_right*/,
-                                              WithinBBoxCondition /*condition*/) -> PointIterable {
+                                              PropertyValue const & /*top_right*/, WithinBBoxCondition /*condition*/)
+    -> PointIterable {
   throw utils::NotYetImplemented("Point Vertices is not yet implemented for on-disk storage. {}", kErrorMessage);
 };
 

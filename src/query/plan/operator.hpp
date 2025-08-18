@@ -1069,7 +1069,7 @@ class ExpandVariable : public memgraph::query::plan::LogicalOperator {
                  Symbol edge_symbol, EdgeAtom::Type type, EdgeAtom::Direction direction,
                  const std::vector<storage::EdgeTypeId> &edge_types, bool is_reverse, Expression *lower_bound,
                  Expression *upper_bound, bool existing_node, ExpansionLambda filter_lambda,
-                 std::optional<ExpansionLambda> weight_lambda, std::optional<Symbol> total_weight);
+                 std::optional<ExpansionLambda> weight_lambda, std::optional<Symbol> total_weight, Expression *limit);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
@@ -1092,6 +1092,9 @@ class ExpandVariable : public memgraph::query::plan::LogicalOperator {
   memgraph::query::plan::ExpansionLambda filter_lambda_;
   std::optional<memgraph::query::plan::ExpansionLambda> weight_lambda_;
   std::optional<Symbol> total_weight_;
+
+  /// Limit for the number of paths returned in kshortest path expansion.
+  Expression *limit_;
 
   std::string_view OperatorName() const;
 
@@ -2466,7 +2469,7 @@ class RollUpApply : public memgraph::query::plan::LogicalOperator {
 
   RollUpApply() = default;
   RollUpApply(std::shared_ptr<LogicalOperator> &&input, std::shared_ptr<LogicalOperator> &&list_collection_branch,
-              const std::vector<Symbol> &list_collection_symbols, Symbol result_symbol);
+              const std::vector<Symbol> &list_collection_symbols, Symbol result_symbol, bool pass_input = false);
 
   bool HasSingleInput() const override { return false; }
   std::shared_ptr<LogicalOperator> input() const override { return input_; }
@@ -2482,6 +2485,7 @@ class RollUpApply : public memgraph::query::plan::LogicalOperator {
   std::shared_ptr<memgraph::query::plan::LogicalOperator> list_collection_branch_;
   Symbol result_symbol_;
   Symbol list_collection_symbol_;
+  bool pass_input_{false};
 };
 
 class PeriodicCommit : public memgraph::query::plan::LogicalOperator {

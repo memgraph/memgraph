@@ -137,6 +137,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
+          --no-ccache \
           run
 
       - name: Build coverage binaries
@@ -147,6 +148,7 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --threads $THREADS \
+          --no-ccache \
           build-memgraph --coverage
 
       - name: Run unit tests
@@ -182,6 +184,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
+          --no-ccache \
           stop --remove
 
   debug_build:
@@ -816,15 +819,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          copy --binary --dest-dir build
-
-      - name: Copy libmemgraph_module_support.so
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          copy --libs --dest-dir build/src/query
+          copy --binary --use-make-install --dest-dir build
 
       - name: Run unit tests for Jepsen code
         run: |

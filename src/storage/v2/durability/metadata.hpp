@@ -22,6 +22,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
+#include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 
@@ -33,7 +34,8 @@ struct RecoveryInfo {
   uint64_t next_edge_id{0};
   uint64_t next_timestamp{0};
   // last timestamp read from a WAL file
-  std::optional<uint64_t> last_durable_timestamp;
+  uint64_t last_durable_timestamp{0};
+  uint64_t num_committed_txns{0};
 
   std::vector<std::pair<Gid /*first vertex gid*/, uint64_t /*batch size*/>> vertex_batches;
 };
@@ -49,7 +51,7 @@ struct RecoveredIndicesAndConstraints {
     std::vector<EdgeTypeId> edge;
     std::vector<std::pair<EdgeTypeId, PropertyId>> edge_type_property;
     std::vector<PropertyId> edge_property;
-    std::vector<std::pair<std::string, LabelId>> text_indices;
+    std::vector<TextIndexSpec> text_indices;
     std::vector<VectorIndexSpec> vector_indices;
     std::vector<VectorEdgeIndexSpec> vector_edge_indices;
   } indices;

@@ -58,22 +58,31 @@ void Indices::DropGraphClearIndices() {
   }
 }
 
-void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, const Transaction &tx) const {
+void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx) const {
   tx.active_indices_.label_->UpdateOnAddLabel(label, vertex, tx);
   tx.active_indices_.label_properties_->UpdateOnAddLabel(label, vertex, tx);
   vector_index_.UpdateOnAddLabel(label, vertex);
+  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    text_index_.UpdateOnAddLabel(label, vertex, tx);
+  }
 }
 
-void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, const Transaction &tx) const {
+void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx) const {
   tx.active_indices_.label_->UpdateOnRemoveLabel(label, vertex, tx);
   tx.active_indices_.label_properties_->UpdateOnRemoveLabel(label, vertex, tx);
   vector_index_.UpdateOnRemoveLabel(label, vertex);
+  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    text_index_.UpdateOnRemoveLabel(label, vertex, tx);
+  }
 }
 
 void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                                  const Transaction &tx) const {
+                                  Transaction &tx) const {
   tx.active_indices_.label_properties_->UpdateOnSetProperty(property, value, vertex, tx);
   vector_index_.UpdateOnSetProperty(property, value, vertex);
+  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    text_index_.UpdateOnSetProperty(vertex, tx);
+  }
 }
 
 void Indices::UpdateOnSetProperty(EdgeTypeId edge_type, PropertyId property, const PropertyValue &value,

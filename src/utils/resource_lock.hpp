@@ -154,6 +154,7 @@ struct ResourceLock {
     if (state != SHARED) return false;
     unlock_state_updater<Req>();
     lock_state_updater<LockReq::READ>();
+    maybe_notify<Req>(lock, unlock_should_notify<Req>());
     return true;
   }
 

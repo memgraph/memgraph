@@ -1282,6 +1282,7 @@ bool IsTemporalType(const TypedValue::Type type) {
 };
 }  // namespace
 
+// TODO: make it faster
 TypedValue operator<(const TypedValue &a, const TypedValue &b) {
   auto is_legal = [](TypedValue::Type type) {
     switch (type) {
@@ -1507,35 +1508,35 @@ namespace {
 std::optional<TypedValue> MaybeDoTemporalTypeAddition(const TypedValue &a, const TypedValue &b) {
   // Duration
   if (a.IsDuration() && b.IsDuration()) {
-    return TypedValue(a.ValueDuration() + b.ValueDuration());
+    return TypedValue(a.ValueDuration() + b.ValueDuration(), a.get_allocator());
   }
   // Date
   if (a.IsDate() && b.IsDuration()) {
-    return TypedValue(a.ValueDate() + b.ValueDuration());
+    return TypedValue(a.ValueDate() + b.ValueDuration(), a.get_allocator());
   }
   if (a.IsDuration() && b.IsDate()) {
-    return TypedValue(a.ValueDuration() + b.ValueDate());
+    return TypedValue(a.ValueDuration() + b.ValueDate(), a.get_allocator());
   }
   // LocalTime
   if (a.IsLocalTime() && b.IsDuration()) {
-    return TypedValue(a.ValueLocalTime() + b.ValueDuration());
+    return TypedValue(a.ValueLocalTime() + b.ValueDuration(), a.get_allocator());
   }
   if (a.IsDuration() && b.IsLocalTime()) {
-    return TypedValue(a.ValueDuration() + b.ValueLocalTime());
+    return TypedValue(a.ValueDuration() + b.ValueLocalTime(), a.get_allocator());
   }
   // LocalDateTime
   if (a.IsLocalDateTime() && b.IsDuration()) {
-    return TypedValue(a.ValueLocalDateTime() + b.ValueDuration());
+    return TypedValue(a.ValueLocalDateTime() + b.ValueDuration(), a.get_allocator());
   }
   if (a.IsDuration() && b.IsLocalDateTime()) {
-    return TypedValue(a.ValueDuration() + b.ValueLocalDateTime());
+    return TypedValue(a.ValueDuration() + b.ValueLocalDateTime(), a.get_allocator());
   }
   // ZonedDateTime
   if (a.IsZonedDateTime() && b.IsDuration()) {
-    return TypedValue(a.ValueZonedDateTime() + b.ValueDuration());
+    return TypedValue(a.ValueZonedDateTime() + b.ValueDuration(), a.get_allocator());
   }
   if (a.IsDuration() && b.IsZonedDateTime()) {
-    return TypedValue(a.ValueDuration() + b.ValueZonedDateTime());
+    return TypedValue(a.ValueDuration() + b.ValueZonedDateTime(), a.get_allocator());
   }
   return std::nullopt;
 }
@@ -1577,6 +1578,7 @@ std::optional<TypedValue> MaybeDoTemporalTypeSubtraction(const TypedValue &a, co
 }
 }  // namespace
 
+// TODO: move to switch
 TypedValue operator+(const TypedValue &a, const TypedValue &b) {
   if (a.IsNull() || b.IsNull()) return TypedValue(a.alloc_);
 

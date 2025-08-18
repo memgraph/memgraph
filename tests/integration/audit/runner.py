@@ -106,13 +106,13 @@ def execute_test(memgraph_binary, tester_binary):
     # Register cleanup function
     @atexit.register
     def cleanup():
-        pid = memgraph.pid
+        memgraph.terminate()
         try:
-            os.kill(pid, SIGNAL_SIGTERM)
-        except os.OSError:
-            assert False
-
-        time.sleep(1)
+            memgraph.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            memgraph.kill()
+            memgraph.wait()
+            assert False, "Memgraph process did not terminate in time"
 
     def execute_queries(queries, username=None, imp_user=None):
         for db, query, params in queries:
@@ -156,12 +156,8 @@ def execute_test(memgraph_binary, tester_binary):
         execute_queries([(DEFAULT_DB, IMP_USER_QUERY, {})], "admin", user)
     print("\033[1;36m~~ Finished query execution with user impersonation ~~\033[0m\n")
 
-    pid = memgraph.pid
-    try:
-        os.kill(pid, SIGNAL_SIGTERM)
-    except os.OSError:
-        assert False
-    time.sleep(1)
+    # Close the memgraph process (flush the audit log)
+    cleanup()
 
     # Verify the written log
     print("\033[1;36m~~ Starting log verification ~~\033[0m")
@@ -182,6 +178,7 @@ def execute_test(memgraph_binary, tester_binary):
         for line in reader:
             timestamp, address, username, database, query, params = line
             params = json.loads(params)
+            print(database, query, params)
             # Skip all databases switching queries
             if query.startswith("USE DATABASE"):
                 continue
@@ -194,7 +191,6 @@ def execute_test(memgraph_binary, tester_binary):
                 continue
             # Append to list of all queries
             queries.append((database, query, params))
-            print(database, query, params)
 
         assert user_i == len(users), f"Expected to impersonate {len(users)} users, actually logged {user_i}"
         # Combine all queries executed

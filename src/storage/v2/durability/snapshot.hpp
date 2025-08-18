@@ -51,6 +51,7 @@ struct SnapshotInfo {
   uint64_t durable_timestamp;
   uint64_t edges_count;
   uint64_t vertices_count;
+  uint64_t num_committed_txns;
 };
 
 /// Structure used to hold information about the snapshot that has been
@@ -77,11 +78,11 @@ RecoveredSnapshot LoadSnapshot(std::filesystem::path const &path, utils::SkipLis
                                memgraph::storage::SharedSchemaTracking *schema_info,
                                std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
-bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::filesystem::path &snapshot_directory,
-                    const std::filesystem::path &wal_directory, utils::SkipList<Vertex> *vertices,
-                    utils::SkipList<Edge> *edges, utils::UUID const &uuid,
-                    const memgraph::replication::ReplicationEpoch &epoch,
-                    const std::deque<std::pair<std::string, uint64_t>> &epoch_history,
-                    utils::FileRetainer *file_retainer, std::atomic_bool *abort_snapshot = nullptr);
+std::optional<std::filesystem::path> CreateSnapshot(
+    Storage *storage, Transaction *transaction, const std::filesystem::path &snapshot_directory,
+    const std::filesystem::path &wal_directory, utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+    utils::UUID const &uuid, const memgraph::replication::ReplicationEpoch &epoch,
+    const std::deque<std::pair<std::string, uint64_t>> &epoch_history, utils::FileRetainer *file_retainer,
+    std::atomic_bool *abort_snapshot = nullptr);
 
 }  // namespace memgraph::storage::durability

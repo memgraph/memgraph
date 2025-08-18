@@ -24,6 +24,7 @@
 #include "dbms/constants.hpp"
 #include "dbms/database.hpp"
 #include "disk_test_utils.hpp"
+#include "flags/experimental.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/dump.hpp"
@@ -82,6 +83,7 @@ struct DatabaseState {
   struct TextItem {
     std::string index_name;
     std::string label;
+    std::optional<std::vector<std::string>> properties;
   };
 
   struct LabelPropertiesItem {
@@ -266,13 +268,14 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
     }
     for (const auto &[label, properties] : info.label_properties) {
       using namespace std::string_literals;
-      auto properties_as_strings = properties |
-                                   ranges::views::transform([&](auto &&path) { return ToString(path, dba.get()); }) |
-                                   ranges::to_vector;
+      auto properties_as_strings =
+          properties | rv::transform([&](auto &&path) { return ToString(path, dba.get()); }) | r::to_vector;
       label_properties_indices.insert({dba->LabelToName(label), std::move(properties_as_strings)});
     }
-    for (const auto &item : info.text_indices) {
-      text_indices.insert({item.first, dba->LabelToName(item.second)});
+    for (const auto &[name, label, properties] : info.text_indices) {
+      auto prop_names =
+          properties | rv::transform([&](auto prop_id) { return dba->PropertyToName(prop_id); }) | r::to_vector;
+      text_indices.insert({name, dba->LabelToName(label), std::move(prop_names)});
     }
     for (const auto &item : info.point_label_property) {
       point_indices.insert({dba->LabelToName(item.first), dba->PropertyToName(item.second)});
@@ -1182,6 +1185,7 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
+  memgraph::flags::SetExperimental(memgraph::flags::Experiments::TEXT_SEARCH);
   {
     auto dba = this->db->Access();
     auto name_id = dba->NameToProperty("name");
@@ -1264,6 +1268,23 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
     ASSERT_FALSE(unique_acc
                      ->CreateIndex(this->db->storage()->NameToLabel("Person"),
                                    {this->db->storage()->NameToProperty("unexisting_property")})
+                     .HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
+  }
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    ASSERT_FALSE(unique_acc
+                     ->CreateTextIndex(memgraph::storage::TextIndexSpec{
+                         "text_index_without_properties", this->db->storage()->NameToLabel("Person"), {}})
+                     .HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
+  }
+  {
+    auto unique_acc = this->db->UniqueAccess();
+    ASSERT_FALSE(unique_acc
+                     ->CreateTextIndex(memgraph::storage::TextIndexSpec{"text_index_with_properties",
+                                                                        this->db->storage()->NameToLabel("Person"),
+                                                                        {this->db->storage()->NameToProperty("name")}})
                      .HasError());
     ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
   }

@@ -1514,7 +1514,7 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionInReturn) {
   pc->Accept(collector);
 
   // n, edge, m, Path
-  ASSERT_EQ(collector.symbols_.size(), 4);
+  ASSERT_EQ(collector.symbols_.size(), 1);
 }
 
 TYPED_TEST(TestSymbolGenerator, PatternComprehensionInWith) {
@@ -1539,7 +1539,7 @@ TYPED_TEST(TestSymbolGenerator, PatternComprehensionInWith) {
   pc->Accept(collector);
 
   // n, edge, m, Path
-  ASSERT_EQ(collector.symbols_.size(), 4);
+  ASSERT_EQ(collector.symbols_.size(), 1);
 }
 
 TYPED_TEST(TestSymbolGenerator, ListComprehensionInReturn) {

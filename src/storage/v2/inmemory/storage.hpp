@@ -121,7 +121,8 @@ class InMemoryStorage final : public Storage {
 
   /// @throw std::system_error
   /// @throw std::bad_alloc
-  explicit InMemoryStorage(Config config = Config(), std::optional<free_mem_fn> free_mem_fn_override = std::nullopt);
+  explicit InMemoryStorage(Config config = Config(), std::optional<free_mem_fn> free_mem_fn_override = std::nullopt,
+                           PlanInvalidatorPtr invalidator = std::make_unique<PlanInvalidatorDefault>());
 
   InMemoryStorage(const InMemoryStorage &) = delete;
   InMemoryStorage(InMemoryStorage &&) = delete;
@@ -334,13 +335,10 @@ class InMemoryStorage final : public Storage {
 
     ConstraintsInfo ListAllConstraints() const override;
 
-    /// Represents the 1st phase of 2PC protocol.
-    /// Returns void if the transaction has been committed.
-    /// Returns `StorageDataManipulationError` if an error occurred. Error can be:
-    /// * `ReplicationError`: there is at least one SYNC replica that has not confirmed receiving the transaction.
-    /// * `ConstraintViolation`: the changes made by this transaction violate an existence or unique constraint. In this
-    /// case the transaction is automatically aborted.
-    /// @throw std::bad_alloc
+    // Represents the 1st phase of 2PC protocol.
+    // If there is only a single MG instance, this method serves as commit method. The method itself calls
+    // finalize commit method which will bump ldt, update commit ts etc.
+    // @throw std::bad_alloc
     // NOLINTNEXTLINE(google-default-arguments)
     utils::BasicResult<StorageManipulationError, void> PrepareForCommitPhase(
         CommitReplicationArgs repl_args = {}, DatabaseAccessProtector db_acc = {}) override;
@@ -350,8 +348,10 @@ class InMemoryStorage final : public Storage {
 
     void AbortAndResetCommitTs();
 
-    /// Represents the 2nd phase of the 2PC protocol
-    /// Needs to be called while holding the engine lock
+    // Represents the 2nd phase of the 2PC protocol
+    // NOTE: Needs to be called while holding the engine lock
+    // NOTE: If there is a single instance, PrepareForCommitPhase will call this method, you shouldn't call this method
+    // independently of PrepareForCommitPhase.
     void FinalizeCommitPhase(uint64_t durability_commit_timestamp);
 
     /// @throw std::bad_alloc
@@ -366,8 +366,7 @@ class InMemoryStorage final : public Storage {
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// @throw std::bad_alloc
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        LabelId label, bool check_access = true, CheckCancelFunction cancel_check = neverCancel,
-        PublishIndexWrapper wrapper = publish_no_wrap) override;
+        LabelId label, CheckCancelFunction cancel_check = neverCancel) override;
 
     /// Create an index.
     /// Returns void if the index has been created.
@@ -376,8 +375,7 @@ class InMemoryStorage final : public Storage {
     /// * `IndexDefinitionError`: the index already exists.
     /// @throw std::bad_alloc
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        LabelId label, PropertiesPaths properties, CheckCancelFunction cancel_check = neverCancel,
-        PublishIndexWrapper wrapper = publish_no_wrap) override;
+        LabelId label, PropertiesPaths properties, CheckCancelFunction cancel_check = neverCancel) override;
 
     /// Create an index.
     /// Returns void if the index has been created.
@@ -386,8 +384,7 @@ class InMemoryStorage final : public Storage {
     /// * `IndexDefinitionError`: the index already exists.
     /// @throw std::bad_alloc
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        EdgeTypeId edge_type, bool unique_access_needed = true, CheckCancelFunction cancel_check = neverCancel,
-        PublishIndexWrapper wrapper = publish_no_wrap) override;
+        EdgeTypeId edge_type, CheckCancelFunction cancel_check = neverCancel) override;
 
     /// Create an index.
     /// Returns void if the index has been created.
@@ -396,8 +393,7 @@ class InMemoryStorage final : public Storage {
     /// * `IndexDefinitionError`: the index already exists.
     /// @throw std::bad_alloc
     utils::BasicResult<StorageIndexDefinitionError, void> CreateIndex(
-        EdgeTypeId edge_type, PropertyId property, CheckCancelFunction cancel_check = neverCancel,
-        PublishIndexWrapper wrapper = publish_no_wrap) override;
+        EdgeTypeId edge_type, PropertyId property, CheckCancelFunction cancel_check = neverCancel) override;
 
     /// Create an index.
     /// Returns void if the index has been created.
@@ -406,49 +402,43 @@ class InMemoryStorage final : public Storage {
     /// * `IndexDefinitionError`: the index already exists.
     /// @throw std::bad_alloc
     utils::BasicResult<StorageIndexDefinitionError, void> CreateGlobalEdgeIndex(
-        PropertyId property, CheckCancelFunction cancel_check = neverCancel,
-        PublishIndexWrapper wrapper = publish_no_wrap) override;
+        PropertyId property, CheckCancelFunction cancel_check = neverCancel) override;
 
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index does not exist.
-    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label,
-                                                                    DropIndexWrapper wrapper = drop_no_wrap) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label) override;
 
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index does not exist.
-    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(LabelId label,
-                                                                    std::vector<storage::PropertyPath> &&properties,
-                                                                    DropIndexWrapper wrapper = drop_no_wrap) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(
+        LabelId label, std::vector<storage::PropertyPath> &&properties) override;
 
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index does not exist.
-    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type,
-                                                                    DropIndexWrapper wrapper = drop_no_wrap) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type) override;
 
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index does not exist.
-    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type, PropertyId property,
-                                                                    DropIndexWrapper wrapper = drop_no_wrap) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> DropIndex(EdgeTypeId edge_type, PropertyId property) override;
 
     /// Drop an existing index.
     /// Returns void if the index has been dropped.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
     /// * `ReplicationError`:  there is at least one SYNC replica that has not confirmed receiving the transaction.
     /// * `IndexDefinitionError`: the index does not exist.
-    utils::BasicResult<StorageIndexDefinitionError, void> DropGlobalEdgeIndex(
-        PropertyId property, DropIndexWrapper wrapper = drop_no_wrap) override;
+    utils::BasicResult<StorageIndexDefinitionError, void> DropGlobalEdgeIndex(PropertyId property) override;
 
     utils::BasicResult<StorageIndexDefinitionError, void> CreatePointIndex(storage::LabelId label,
                                                                            storage::PropertyId property) override;
@@ -574,14 +564,16 @@ class InMemoryStorage final : public Storage {
   utils::FileRetainer::FileLockerAccessor::ret_type LockPath();
   utils::FileRetainer::FileLockerAccessor::ret_type UnlockPath();
 
-  utils::BasicResult<InMemoryStorage::CreateSnapshotError> CreateSnapshot(
-      memgraph::replication_coordination_glue::ReplicationRole replication_role);
+  utils::BasicResult<InMemoryStorage::CreateSnapshotError, std::filesystem::path> CreateSnapshot(
+      memgraph::replication_coordination_glue::ReplicationRole replication_role, bool force = false);
 
   utils::BasicResult<InMemoryStorage::RecoverSnapshotError> RecoverSnapshot(
       std::filesystem::path path, bool force,
       memgraph::replication_coordination_glue::ReplicationRole replication_role);
 
   std::vector<SnapshotFileInfo> ShowSnapshots();
+
+  std::optional<SnapshotFileInfo> ShowNextSnapshot();
 
   void CreateSnapshotHandler(std::function<utils::BasicResult<InMemoryStorage::CreateSnapshotError>()> cb);
 
@@ -709,6 +701,9 @@ class InMemoryStorage final : public Storage {
 
     friend bool operator==(SnapshotDigest const &, SnapshotDigest const &) = default;
   };
+
+  std::optional<AutoIndexer> auto_indexer_;
+
   std::optional<SnapshotDigest> last_snapshot_digest_;
 
   void Clear();
@@ -744,6 +739,7 @@ static_assert(std::is_move_constructible_v<ReplicationAccessor>, "Replication ac
 struct SingleTxnDeltasProcessingResult {
   std::unique_ptr<ReplicationAccessor> commit_acc;
   uint64_t current_delta_idx;
+  uint64_t num_txns_committed;
   uint32_t current_batch_counter;
 };
 

@@ -96,6 +96,10 @@ class VertexAccessor final {
   /// @throw std::bad_alloc
   Result<std::map<PropertyId, PropertyValue>> Properties(View view) const;
 
+  /// @throw std::bad_alloc
+  Result<std::map<PropertyId, PropertyValue>> PropertiesByPropertyIds(std::span<PropertyId const> properties,
+                                                                      View view) const;
+
   auto BuildResultOutEdges(edge_store const &out_edges) const;
 
   auto BuildResultInEdges(edge_store const &out_edges) const;

@@ -1084,6 +1084,7 @@ void AddMatching(const Match &match, SymbolTable &symbol_table, AstStorage &stor
 
     filter.expression->Accept(visitor);
     filter.matchings = visitor.getFilterMatchings();
+    filter.pattern_comprehension_matchings = visitor.getPatternComprehensionMatchings();
   }
 }
 
@@ -1151,6 +1152,15 @@ void PatternVisitor::Visit(NamedExpression &op) { op.expression_->Accept(*this);
 void PatternVisitor::Visit(PatternComprehension &op) {
   PatternComprehensionMatching matching;
   AddMatching({op.pattern_}, op.filter_, symbol_table_, storage_, matching);
+
+  for (auto &filter : matching.filters) {
+    PatternVisitor nested_visitor(symbol_table_, storage_);
+
+    filter.expression->Accept(nested_visitor);
+    filter.matchings = nested_visitor.getFilterMatchings();
+    filter.pattern_comprehension_matchings = nested_visitor.getPatternComprehensionMatchings();
+  }
+
   matching.result_expr = storage_.Create<NamedExpression>(symbol_table_.at(op).name(), op.resultExpr_);
   matching.result_expr->MapTo(symbol_table_.at(op));
   matching.result_symbol = symbol_table_.at(op);

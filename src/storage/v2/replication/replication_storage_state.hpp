@@ -46,8 +46,7 @@ struct ReplicationStorageState {
   auto GetReplicaState(std::string_view name) const -> std::optional<replication::ReplicaState>;
 
   // History
-  void TrackLatestHistory();
-  void AddEpochToHistoryForce(std::string prev_epoch);
+  void SaveLatestHistory();
 
   void Reset();
 
@@ -72,7 +71,8 @@ struct ReplicationStorageState {
   // Each value consists of the epoch id along the last commit belonging to that
   // epoch.
   EpochHistory history;
-  std::atomic<uint64_t> last_durable_timestamp_{kTimestampInitialId};
+  mutable std::atomic<CommitTsInfo> commit_ts_info_{
+      CommitTsInfo{.ldt_ = kTimestampInitialId, .num_committed_txns_ = 0}};
 
   // We create ReplicationClient using unique_ptr so we can move
   // newly created client into the vector.

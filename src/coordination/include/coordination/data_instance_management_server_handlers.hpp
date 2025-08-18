@@ -48,6 +48,9 @@ class DataInstanceManagementServerHandlers {
   static void GetDatabaseHistoriesHandler(replication::ReplicationHandler const &replication_handler,
                                           slk::Reader *req_reader, slk::Builder *res_builder);
 
+  static void GetReplicationLagHandler(replication::ReplicationHandler const &replication_handler,
+                                       slk::Reader *req_reader, slk::Builder *res_builder);
+
   static auto DoRegisterReplica(replication::ReplicationHandler &replication_handler,
                                 coordination::ReplicationClientInfo const &config) -> bool;
 };

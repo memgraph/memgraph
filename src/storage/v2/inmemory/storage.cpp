@@ -49,8 +49,8 @@
 #include "storage/v2/schema_info.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
-#include "utils/atomic_max.hpp"
 #include "utils/atomic_memory_block.hpp"
+#include "utils/atomic_utils.hpp"
 #include "utils/event_gauge.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
@@ -157,8 +157,9 @@ class PeriodicSnapshotObserver : public memgraph::utils::Observer<memgraph::util
 
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
-InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_mem_fn_override)
-    : Storage(config, config.salient.storage_mode),
+InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_mem_fn_override,
+                                 PlanInvalidatorPtr invalidator)
+    : Storage(config, config.salient.storage_mode, std::move(invalidator)),
       recovery_{config.durability.storage_directory / durability::kSnapshotDirectory,
                 config.durability.storage_directory / durability::kWalDirectory},
       lock_file_path_(config.durability.storage_directory / durability::kLockFile),
@@ -202,11 +203,12 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       vertex_id_.store(info->next_vertex_id, std::memory_order_release);
       edge_id_.store(info->next_edge_id, std::memory_order_release);
       timestamp_ = std::max(timestamp_, info->next_timestamp);
-      if (info->last_durable_timestamp) {
-        repl_storage_state_.last_durable_timestamp_.store(*info->last_durable_timestamp, std::memory_order_release);
-        spdlog::trace("Recovering last durable timestamp {}. Timestamp recovered to {}", *info->last_durable_timestamp,
-                      timestamp_);
-      }
+      CommitTsInfo const new_info{.ldt_ = info->last_durable_timestamp,
+                                  .num_committed_txns_ = info->num_committed_txns};
+      repl_storage_state_.commit_ts_info_.store(new_info, std::memory_order_release);
+      spdlog::trace(
+          "Recovering last durable timestamp {}. Timestamp recovered to {}. Num committed txns recovered to {}.",
+          info->last_durable_timestamp, timestamp_, info->num_committed_txns);
     }
   } else if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
              config_.durability.snapshot_on_exit) {
@@ -259,6 +261,11 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       vertices_.run_gc();
       edges_.run_gc();
 
+      // Auto-indexer also has a skiplist
+      if (auto_indexer_) {
+        auto_indexer_->RunGC();
+      }
+
       // AsyncTimer resources are global, not particularly storage related, more query related
       // At some point in the future this should be scheduled by something else
       utils::AsyncTimer::GCRun();
@@ -276,11 +283,17 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     commit_log_.emplace(timestamp_);
   }
 
+  if (config_.salient.items.enable_edge_type_index_auto_creation ||
+      config_.salient.items.enable_label_index_auto_creation) {
+    auto_indexer_.emplace(stop_source.get_token(), this);
+  }
+
   flags::run_time::SnapshotPeriodicAttach(snapshot_periodic_observer_);
 }
 
 InMemoryStorage::~InMemoryStorage() {
   flags::run_time::SnapshotPeriodicDetach(snapshot_periodic_observer_);
+
   stop_source.request_stop();
 
   if (config_.gc.type == Config::Gc::Type::PERIODIC) {
@@ -460,13 +473,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
     guard_from.lock();
   }
 
-  if (storage_->config_.salient.items.enable_edge_type_index_auto_creation &&
-      !transaction_.active_indices_.edge_type_->IndexRegistered(edge_type)) {
-    auto [_, inserted] = transaction_.introduced_new_edge_type_index_.insert(edge_type);
-    if (inserted) {
-      storage_->edge_types_to_auto_index_.WithLock([&](auto &edge_type_indices) { ++edge_type_indices[edge_type]; });
-    }
-  }
+  transaction_.auto_index_helper_.Track(edge_type);
 
   if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
   if (from_vertex->deleted) return Error::DELETED_OBJECT;
@@ -689,7 +696,11 @@ std::optional<ConstraintViolation> InMemoryStorage::InMemoryAccessor::UniqueCons
     }
 
     auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+
+    // Hold accessor to prevent deletion of vertices while validating unique constraints. Otherwise, some previously
+    // aborted txn could delete one of vertices being deleted.
     auto acc = mem_storage->vertices_.access();
+
     for (auto const *vertex : vertices_to_update) {
       // No need to take any locks here because we modified this vertex and no
       // one else can touch it until we commit.
@@ -754,47 +765,6 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     }
 
     auto engine_guard = std::unique_lock{storage_->engine_lock_};
-
-    // LabelIndex auto-creation block.
-    if (!transaction_.introduced_new_label_index_.empty()) {
-      storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) {
-        for (auto label : transaction_.introduced_new_label_index_) {
-          auto it = label_indices.find(label);
-          auto &[_, count] = *it;
-          --count;
-          // If there are multiple transactions that would like to create an
-          // auto-created index on a specific label, we only build the index
-          // when the last one commits.
-          if (count == 0) {
-            // TODO: (andi) Handle auto-creation issue
-            // NOLINTNEXTLINE(clang-diagnostic-unused-result)
-            CreateIndex(label, false);
-            label_indices.erase(it);
-          }
-        }
-      });
-    }
-
-    // EdgeIndex auto-creation block.
-    if (!transaction_.introduced_new_edge_type_index_.empty()) {
-      storage_->edge_types_to_auto_index_.WithLock([&](auto &edge_type_indices) {
-        for (auto edge_type : transaction_.introduced_new_edge_type_index_) {
-          auto it = edge_type_indices.find(edge_type);
-          auto &[_, count] = *it;
-          --count;
-          // If there are multiple transactions that would like to create an
-          // auto-created index on a specific edge-type, we only build the index
-          // when the last one commits.
-          if (count == 0) {
-            // TODO: (andi) Handle silent failure
-            // NOLINTNEXTLINE(clang-diagnostic-unused-result)
-            CreateIndex(edge_type, false);
-            edge_type_indices.erase(it);
-          }
-        }
-      });
-    }
-
     commit_timestamp_.emplace(mem_storage->GetCommitTimestamp());
 
     // Unique constraints violated
@@ -817,47 +787,45 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     // written before actually committing the transaction (before setting
     // the commit timestamp) so that no other transaction can see the
     // modifications before they are written to disk.
-    // Replica can log only the write transaction received from Main
+    // Replica can log only the write transaction received from main
     // so the wal files are consistent
-
     if (repl_args.is_main || repl_args.desired_commit_timestamp.has_value()) {
       auto const durability_commit_timestamp =
           repl_args.desired_commit_timestamp.has_value() ? *repl_args.desired_commit_timestamp : *commit_timestamp_;
 
-      // Don't write things to WAL and replicate only if needed
+      // Specific case in which durability mode is != PERIODIC_SNAPSHOT_WITH_WAL
       if (!mem_storage->InitializeWalFile(mem_storage->repl_storage_state_.epoch_)) {
-        // No need to finalize WAL
         FinalizeCommitPhase(durability_commit_timestamp);
+        // No WAL file, hence no need to finalize it
         return {};
       }
 
-      // Handle durability and replication
-      // This will block until we retrieve RPC streams for all replicas or until the moment one stream for an instance
-      // couldn't be retrieved. As long as this object is alive, RPC streams are held. We use recursive mutex because
-      // this thread will lock the RPC lock twice: once for PrepareCommitRpc and 2nd time for FinalizeCommitRpc
+      // If replica executes this, it will return immediately because it doesn't have any replicas registered (no
+      // streams to obtain)
       auto replicating_txn =
           mem_storage->repl_storage_state_.StartPrepareCommitPhase(durability_commit_timestamp, mem_storage, db_acc);
 
-      // This will block until we receive OK votes from all replicas if we are main
-      // If we are replica, we will make durable our deltas and return
+      // If main executes this: Block until we receive votes from all replicas.
+      // If replica executes this:,
       bool const repl_prepare_phase_status = HandleDurabilityAndReplicate(
           durability_commit_timestamp, db_acc, replicating_txn, repl_args.commit_immediately);
 
-      // If I am STRICT_SYNC replica with write txn return because the 2nd phase will be executed once we receive
-      // FinalizeCommitRpc If SYNC replica, commit immediately
+      // If replica executes this
       if (!repl_args.is_main && repl_args.desired_commit_timestamp.has_value()) {
-        // It is important to commit while holding the engine lock
-        // This part executed by SYNC and ASYNC replicas
+        // If SYNC and ASYNC replica executes this, commit immediately while holding the engine lock
         if (repl_args.commit_immediately.has_value() && *repl_args.commit_immediately) {
-          // WAL file already finalized
+          // WAL file is already finalized
           FinalizeCommitPhase(*repl_args.desired_commit_timestamp);
         }
+        // If STRICT_SYNC replica with write txn executes this: return because the 2nd phase will be executed once we
+        // receive FinalizeCommitRpc.
         return {};
       }
 
-      // There are no STRICT_SYNC replicas currently in the commit
+      // From this point on, only main executes this
+      // If there are no STRICT_SYNC replicas for the current txn
       if (!replicating_txn.ShouldRunTwoPC()) {
-        // WAL file already finalized
+        // WAL file is already finalized
         FinalizeCommitPhase(durability_commit_timestamp);
         // Throw exception if we couldn't commit on one of SYNC replica
         if (!repl_prepare_phase_status) {
@@ -869,24 +837,23 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
       // If we are here, it means we are the main executing the commit and there are some STRICT_SYNC replicas in the
       // cluster.
       if (repl_prepare_phase_status) {
+        // All replicas voted yes, hence they want to commit the current transaction
         FinalizeCommitPhase(durability_commit_timestamp);
-        // Important that WAL file gets finalize after the finalize commit phase finished because we are still modifying
-        // WAL file
+        // We need to finalize WAL file after running FinalizeCommitPhase because we update there commit value in WAL
+        // (commit_flag_wal_position_
         if (mem_storage->wal_file_) {
           mem_storage->FinalizeWalFile();
         }
-
+        // Send to all replicas they can finalize a transaction
         replicating_txn.FinalizeTransaction(true, mem_storage->uuid(), std::move(db_acc), durability_commit_timestamp);
       } else {
+        // One of replica didn't vote for committing, you can finalize WAL file freely here because WAL file doesn't
+        // need to be updated since by default we write to WAL that the txn should be aborted
         if (mem_storage->wal_file_) {
           mem_storage->FinalizeWalFile();
         }
-
-        // This is currently done as SYNC communication but in reality we don't need to wait for response by replicas
-        // because their in-memory state shouldn't show that there is some data and also durability should be
-        // automatically handled
-        // Aborting on replica before than on main should't be a problem. Even if MAIN goes down, by default it will
-        // not load the current txn. When commiting, the situation is different
+        // Aborting on replica before than on main shouldn't be a problem. Even if MAIN goes down, by default it will
+        // not load the current txn. When commiting, the situation is different as explained above.
         replicating_txn.FinalizeTransaction(false, mem_storage->uuid(), std::move(db_acc), durability_commit_timestamp);
 
         // Release engine lock because we don't have to hold it anymore for abort
@@ -914,6 +881,8 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
                                                  mem_storage->config_.salient.items.properties_on_edges);
   }
 
+  // We only need to update commit flag from false->true if we are running 2PC. In all other situations, the default
+  // is fine.
   if (commit_flag_wal_position_ != 0 && needs_wal_update_) {
     constexpr bool commit{true};
     mem_storage->wal_file_->UpdateCommitStatus(commit_flag_wal_position_, commit);
@@ -923,12 +892,15 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
 
 #ifndef NDEBUG
-  auto const prev = mem_storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
+  auto const prev = mem_storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
   DMG_ASSERT(durability_commit_timestamp >= prev, "LDT not monotonically increasing");
 #endif
 
-  mem_storage->repl_storage_state_.last_durable_timestamp_.store(durability_commit_timestamp,
-                                                                 std::memory_order_release);
+  auto const update_func = [durability_commit_timestamp](CommitTsInfo const &old_ts_info) -> CommitTsInfo {
+    return CommitTsInfo{.ldt_ = durability_commit_timestamp,
+                        .num_committed_txns_ = old_ts_info.num_committed_txns_ + 1};
+  };
+  atomic_struct_update<CommitTsInfo>(mem_storage->repl_storage_state_.commit_ts_info_, update_func);
 
   // Install the new point index, if needed
   mem_storage->indices_.point_index_.InstallNewPointIndex(transaction_.point_index_change_collector_,
@@ -937,14 +909,19 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   // Call other callbacks that publish/install upon commit
   transaction_.commit_callbacks_.RunAll(*commit_timestamp_);
 
+  // Dispatch to another async work to create requested auto-indexes in their own transaction
+  if (mem_storage->auto_indexer_) {
+    transaction_.auto_index_helper_.DispatchRequests(*mem_storage->auto_indexer_);
+  }
+
   // TODO: can and should this be moved earlier?
   mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   CheckForFastDiscardOfDeltas();
 
-  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    mem_storage->indices_.text_index_.Commit();
+  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH) &&
+      !transaction_.text_index_change_collector_.empty()) {
+    memgraph::storage::TextIndex::ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
   }
-
   is_transaction_active_ = false;
 }
 
@@ -1400,41 +1377,9 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     /// before we unlink (aka. remove) vertices from storage
     /// this is because they point into vertices skip_list
 
-    // auto index creation cleanup
-    if (storage_->config_.salient.items.enable_label_index_auto_creation &&
-        !transaction_.introduced_new_label_index_.empty()) {
-      storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) {
-        for (const auto label : transaction_.introduced_new_label_index_) {
-          auto it = label_indices.find(label);
-          auto &[_, count] = *it;
-          --count;
-          if (count == 0) {
-            label_indices.erase(it);
-          }
-        }
-      });
-    }
-
-    if (storage_->config_.salient.items.enable_edge_type_index_auto_creation &&
-        !transaction_.introduced_new_edge_type_index_.empty()) {
-      storage_->edge_types_to_auto_index_.WithLock([&](auto &edge_type_indices) {
-        for (const auto edge_type : transaction_.introduced_new_edge_type_index_) {
-          auto it = edge_type_indices.find(edge_type);
-          auto &[_, count] = *it;
-          --count;
-          if (count == 0) {
-            edge_type_indices.erase(it);
-          }
-        }
-      });
-    }
-
     // Cleanup INDICES
     index_abort_processor.Process(storage_->indices_, transaction_.active_indices_, transaction_.start_timestamp);
 
-    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-      storage_->indices_.text_index_.Rollback();
-    }
     for (auto const &[label_prop, vertices] : vector_label_property_cleanup) {
       storage_->indices_.vector_index_.AbortEntries(label_prop, vertices);
     }
@@ -1492,12 +1437,10 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
-    LabelId label, bool check_access, CheckCancelFunction cancel_check, PublishIndexWrapper wrapper) {
-  if (check_access) {
-    MG_ASSERT(type() == UNIQUE || type() == READ_ONLY,
-              "Creating label index requires a unique or read only access to the storage!");
-  }
+    LabelId label, CheckCancelFunction cancel_check) {
   // UNIQUE access is also required by schema.assert
+  MG_ASSERT(type() == UNIQUE || type() == READ_ONLY,
+            "Creating label index requires a unique or read only access to the storage!");
 
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get());
@@ -1512,8 +1455,10 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
     return StorageIndexDefinitionError{IndexDefinitionCancelationError{}};
   }
   // Wrapper will make sure plan cache is cleared
-  auto publisher =
-      wrapper([=](uint64_t commit_timestamp) { return mem_label_index->PublishIndex(label, commit_timestamp); });
+
+  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
+      [=](uint64_t commit_timestamp) { return mem_label_index->PublishIndex(label, commit_timestamp); });
+
   transaction_.commit_callbacks_.Add(std::move(publisher));
 
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_create, label);
@@ -1522,7 +1467,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPaths properties,
-                                                    CheckCancelFunction cancel_check, PublishIndexWrapper wrapper)
+                                                    CheckCancelFunction cancel_check)
     -> utils::BasicResult<StorageIndexDefinitionError, void> {
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY,
             "Creating label-property index requires a unique or read only access to the storage!");
@@ -1540,7 +1485,7 @@ auto InMemoryStorage::InMemoryAccessor::CreateIndex(LabelId label, PropertiesPat
     return StorageIndexDefinitionError{IndexDefinitionCancelationError{}};
   }
   // Wrapper will make sure plan cache is cleared
-  auto publisher = wrapper([=](uint64_t commit_timestamp) {
+  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper([=](uint64_t commit_timestamp) {
     return mem_label_property_index->PublishIndex(label, properties, commit_timestamp);
   });
   transaction_.commit_callbacks_.Add(std::move(publisher));
@@ -1557,10 +1502,9 @@ void InMemoryStorage::InMemoryAccessor::DowngradeToReadIfValid() {
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
-    EdgeTypeId edge_type, bool unique_access_needed, CheckCancelFunction cancel_check, PublishIndexWrapper wrapper) {
-  if (unique_access_needed) {
-    MG_ASSERT(type() == UNIQUE || type() == READ_ONLY, "Create index requires a unique access to the storage!");
-  }
+    EdgeTypeId edge_type, CheckCancelFunction cancel_check) {
+  MG_ASSERT(type() == UNIQUE || type() == READ_ONLY,
+            "Create index requires a unique or readonly access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
   if (!mem_edge_type_index->RegisterIndex(edge_type)) {
@@ -1574,7 +1518,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
     return StorageIndexDefinitionError{IndexDefinitionCancelationError{}};
   }
   // Wrapper will make sure plan cache is cleared
-  auto publisher = wrapper(
+  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
       [=](uint64_t commit_timestamp) { return mem_edge_type_index->PublishIndex(edge_type, commit_timestamp); });
   transaction_.commit_callbacks_.Add(std::move(publisher));
 
@@ -1583,7 +1527,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateIndex(
-    EdgeTypeId edge_type, PropertyId property, CheckCancelFunction cancel_check, PublishIndexWrapper wrapper) {
+    EdgeTypeId edge_type, PropertyId property, CheckCancelFunction cancel_check) {
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY, "Create index requires a unique access to the storage!");
 
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
@@ -1604,7 +1548,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
     return StorageIndexDefinitionError{IndexDefinitionCancelationError{}};
   }
   // Wrapper will make sure plan cache is cleared
-  auto publisher = wrapper([=](uint64_t commit_timestamp) {
+  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper([=](uint64_t commit_timestamp) {
     return mem_edge_type_property_index->PublishIndex(edge_type, property, commit_timestamp);
   });
   transaction_.commit_callbacks_.Add(std::move(publisher));
@@ -1614,7 +1558,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateGlobalEdgeIndex(
-    PropertyId property, CheckCancelFunction cancel_check, PublishIndexWrapper wrapper) {
+    PropertyId property, CheckCancelFunction cancel_check) {
   MG_ASSERT(type() == UNIQUE || type() == READ_ONLY,
             "Create index requires a unique or read-only access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
@@ -1622,29 +1566,35 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
     // Not possible to create the index, no properties on edges
     return StorageIndexDefinitionError{IndexDefinitionConfigError{}};
   }
-
   auto *mem_edge_property_index =
       static_cast<InMemoryEdgePropertyIndex *>(in_memory->indices_.edge_property_index_.get());
-  if (!mem_edge_property_index->CreateIndexOnePass(property, in_memory->vertices_.access())) {
+  if (!mem_edge_property_index->RegisterIndex(property)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  // TODO: concurrent index creation need to publish
-  auto publish_index_callback = wrapper(always_invalidate_plan_cache);
-  publish_index_callback(0);  // ensures plan cache is cleared
+  DowngradeToReadIfValid();
+  if (mem_edge_property_index
+          ->PopulateIndex(property, in_memory->vertices_.access(), std::nullopt, &transaction_, std::move(cancel_check))
+          .HasError()) {
+    return StorageIndexDefinitionError{IndexDefinitionCancelationError{}};
+  }
+  // Wrapper will make sure plan cache is cleared
+  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(
+      [=](uint64_t commit_timestamp) { return mem_edge_property_index->PublishIndex(property, commit_timestamp); });
+  transaction_.commit_callbacks_.Add(std::move(publisher));
+
   transaction_.md_deltas.emplace_back(MetadataDelta::global_edge_property_index_create, property);
   return {};
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
-    LabelId label, DropIndexWrapper wrapper) {
+utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(LabelId label) {
   MG_ASSERT(type() == UNIQUE || type() == READ,
             "Dropping label index requires a unique or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(in_memory->indices_.label_index_.get());
 
   // Done inside the wrapper to ensure plan cache invalidation is safe
-  auto drop_index_callback = wrapper([&]() { return mem_label_index->DropIndex(label); });
-  if (!drop_index_callback()) {
+  auto was_dropped = storage_->invalidator_->invalidate_now([&] { return mem_label_index->DropIndex(label); });
+  if (!was_dropped) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
 
@@ -1654,7 +1604,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
-    LabelId label, std::vector<storage::PropertyPath> &&properties, DropIndexWrapper wrapper) {
+    LabelId label, std::vector<storage::PropertyPath> &&properties) {
   // Because of replication we still use UNIQUE ATM
   MG_ASSERT(type() == UNIQUE || type() == READ,
             "Dropping label-property index requires a unique or read access to the storage!");
@@ -1663,8 +1613,9 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
       static_cast<InMemoryLabelPropertyIndex *>(in_memory->indices_.label_property_index_.get());
 
   // Done inside the wrapper to ensure plan cache invalidation is safe
-  auto drop_index_callback = wrapper([&]() { return mem_label_property_index->DropIndex(label, properties); });
-  if (!drop_index_callback()) {
+  auto was_dropped =
+      storage_->invalidator_->invalidate_now([&] { return mem_label_property_index->DropIndex(label, properties); });
+  if (!was_dropped) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
 
@@ -1675,15 +1626,15 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
-    EdgeTypeId edge_type, DropIndexWrapper wrapper) {
+    EdgeTypeId edge_type) {
   // Because of replication we still use UNIQUE ATM
   MG_ASSERT(type() == UNIQUE || type() == READ,
             "Dropping edge-type index requires a unique or read access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   auto *mem_edge_type_index = static_cast<InMemoryEdgeTypeIndex *>(in_memory->indices_.edge_type_index_.get());
   // Done inside the wrapper to ensure plan cache invalidation is safe
-  auto drop_index_callback = wrapper([&]() { return mem_edge_type_index->DropIndex(edge_type); });
-  if (!drop_index_callback()) {
+  auto was_dropped = storage_->invalidator_->invalidate_now([&] { return mem_edge_type_index->DropIndex(edge_type); });
+  if (!was_dropped) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::edge_index_drop, edge_type);
@@ -1691,7 +1642,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropIndex(
-    EdgeTypeId edge_type, PropertyId property, DropIndexWrapper wrapper) {
+    EdgeTypeId edge_type, PropertyId property) {
   // Because of replication we still use UNIQUE ATM
   MG_ASSERT(type() == UNIQUE || type() == READ,
             "Dropping edge-type property index requires a unique or read access to the storage!");
@@ -1700,11 +1651,12 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
     // Not possible to drop the index, no properties on edges
     return StorageIndexDefinitionError{IndexDefinitionConfigError{}};
   }
-  auto *mem_edge_type_index =
+  auto *mem_edge_type_property_index =
       static_cast<InMemoryEdgeTypePropertyIndex *>(in_memory->indices_.edge_type_property_index_.get());
   // Done inside the wrapper to ensure plan cache invalidation is safe
-  auto drop_index_callback = wrapper([&]() { return mem_edge_type_index->DropIndex(edge_type, property); });
-  if (!drop_index_callback()) {
+  auto was_dropped = storage_->invalidator_->invalidate_now(
+      [&] { return mem_edge_type_property_index->DropIndex(edge_type, property); });
+  if (!was_dropped) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
   transaction_.md_deltas.emplace_back(MetadataDelta::edge_property_index_drop, edge_type, property);
@@ -1712,7 +1664,7 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::DropGlobalEdgeIndex(
-    PropertyId property, DropIndexWrapper wrapper) {
+    PropertyId property) {
   MG_ASSERT(type() == UNIQUE || type() == READ, "Drop index requires a unique access to the storage!");
   auto *in_memory = static_cast<InMemoryStorage *>(storage_);
   if (!in_memory->config_.salient.items.properties_on_edges) {
@@ -1722,12 +1674,12 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
 
   auto *mem_edge_property_index =
       static_cast<InMemoryEdgePropertyIndex *>(in_memory->indices_.edge_property_index_.get());
-  if (!mem_edge_property_index->DropIndex(property)) {
+  auto was_dropped =
+      storage_->invalidator_->invalidate_now([&] { return mem_edge_property_index->DropIndex(property); });
+  if (!was_dropped) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
-  // TODO: concurrent index drop
-  auto drop_index_callback = wrapper(always_invalidate_plan_cache);
-  drop_index_callback();
+
   transaction_.md_deltas.emplace_back(MetadataDelta::global_edge_property_index_drop, property);
   return {};
 }
@@ -1997,9 +1949,12 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
     // IMPORTANT: this is retrieved while under the lock so that the index is consistant with the timestamp
     point_index_context = indices_.point_index_.CreatePointIndexContext();
     // Needed by snapshot to sync the durable and logical ts
-    last_durable_ts = repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
+    last_durable_ts = repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
     active_indices = GetActiveIndices();
   }
+
+  auto auto_index_helper = AutoIndexHelper{config_, *active_indices, start_timestamp};
+
   DMG_ASSERT(point_index_context.has_value(), "Expected a value, even if got 0 point indexes");
   return {transaction_id,
           start_timestamp,
@@ -2009,6 +1964,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
           !constraints_.empty(),
           *std::move(point_index_context),
           *std::move(active_indices),
+          std::move(auto_index_helper),
           last_durable_ts};
 }
 
@@ -2504,16 +2460,26 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
                                                                      std::optional<bool> const &commit_immediately) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
+  // If replica executes this:
+  //   STRICT_SYNC: commit_immediately is false because such replica needs to commit only after receiving
+  //   FinalizeCommitRpc SYNC/ASYNC:  commit_immediately is true because such replica needs to commit immediately
+  // If main executes this:
+  //   Any STRICT_SYNC replica registered -> need to run 2PC, don't commit immediately
+  // else:
+  //   All SYNC/ASYNC replicas -> commit immediately
   bool const commit_flag = std::invoke([&commit_immediately, &replicating_txn]() {
     // Replica
     if (commit_immediately.has_value()) {
       return *commit_immediately;
     }
     // MAIN
-    // If there are no strict sync replicas in the cluster, write immediately to WAL: flag 'commit' = true
     return !replicating_txn.ShouldRunTwoPC();
   });
+
+  // Both main and replica append txn start delta and remember the position in the WAL file in which this delta is
+  // saved.
   commit_flag_wal_position_ = mem_storage->wal_file_->AppendTransactionStart(durability_commit_timestamp, commit_flag);
+  // The WAL file needs to be updated only if we don't commit immediately.
   needs_wal_update_ = !commit_flag;
 
   // IMPORTANT: In most transactions there can only be one, either data or metadata deltas.
@@ -2603,12 +2569,14 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
         });
         break;
       }
-      case MetadataDelta::Action::TEXT_INDEX_CREATE:
-      case MetadataDelta::Action::TEXT_INDEX_DROP: {
+      case MetadataDelta::Action::TEXT_INDEX_CREATE: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeTextIndex(encoder, *mem_storage->name_id_mapper_, md_delta.text_index.index_name,
-                          md_delta.text_index.label);
+          EncodeTextIndex(encoder, *mem_storage->name_id_mapper_, md_delta.text_index);
         });
+        break;
+      }
+      case MetadataDelta::Action::TEXT_INDEX_DROP: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) { EncodeIndexName(encoder, md_delta.index_name); });
         break;
       }
       case MetadataDelta::Action::VECTOR_INDEX_CREATE: {
@@ -2624,8 +2592,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
         break;
       }
       case MetadataDelta::Action::VECTOR_INDEX_DROP: {
-        apply_encode(
-            op, [&](durability::BaseEncoder &encoder) { EncodeVectorIndexName(encoder, md_delta.vector_index_name); });
+        apply_encode(op, [&](durability::BaseEncoder &encoder) { EncodeIndexName(encoder, md_delta.index_name); });
         break;
       }
       case MetadataDelta::Action::UNIQUE_CONSTRAINT_CREATE:
@@ -2835,19 +2802,19 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
   // Add a delta that indicates that the transaction is fully written to the WAL
   mem_storage->wal_file_->AppendTransactionEnd(durability_commit_timestamp);
 
-  // SYNC/ASYNC replica part of cluster without STRICT SYNC replica
-  // MAIN without STRICT SYNC replicas
+  // If main executes this and committing immediately we need to finalize wal file before sending deltas to replicas
+  // If replica executes this and committing immediately, it is OK to finalize wal here
   if (commit_flag) {
     mem_storage->FinalizeWalFile();
   }
 
   // Ships deltas to instances and waits for the reply
-  // Returns only the status of SYNC replicas.
+  // Returns only the status of SYNC and STRICT_SYNC replicas.
   return replicating_txn.ShipDeltas(durability_commit_timestamp, std::move(db_acc));
 }
 
-utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::CreateSnapshot(
-    memgraph::replication_coordination_glue::ReplicationRole replication_role) {
+utils::BasicResult<InMemoryStorage::CreateSnapshotError, std::filesystem::path> InMemoryStorage::CreateSnapshot(
+    memgraph::replication_coordination_glue::ReplicationRole replication_role, bool force) {
   using memgraph::replication_coordination_glue::ReplicationRole;
   if (replication_role == ReplicationRole::REPLICA) {
     return CreateSnapshotError::DisabledForReplica;
@@ -2894,21 +2861,22 @@ utils::BasicResult<InMemoryStorage::CreateSnapshotError> InMemoryStorage::Create
   // In memory analytical doesn't update last_durable_ts so digest isn't valid
   if (transaction->storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL) {
     auto current_digest = SnapshotDigest{epoch, epochHistory, storage_uuid, *transaction->last_durable_ts_};
-    if (last_snapshot_digest_ == current_digest) return CreateSnapshotError::NothingNewToWrite;
+    if (!force && last_snapshot_digest_ == current_digest) return CreateSnapshotError::NothingNewToWrite;
     last_snapshot_digest_ = std::move(current_digest);
   }
 
   // At the moment, the only way in which create snapshot can fail is if it got aborted
-  if (!durability::CreateSnapshot(this, transaction, recovery_.snapshot_directory_, recovery_.wal_directory_,
-                                  &vertices_, &edges_, storage_uuid, epoch, epochHistory, &file_retainer_,
-                                  &abort_snapshot_)) {
+  const auto snapshot_path =
+      durability::CreateSnapshot(this, transaction, recovery_.snapshot_directory_, recovery_.wal_directory_, &vertices_,
+                                 &edges_, storage_uuid, epoch, epochHistory, &file_retainer_, &abort_snapshot_);
+  if (!snapshot_path) {
     return CreateSnapshotError::AbortSnapshot;
   }
 
   memgraph::metrics::Measure(memgraph::metrics::SnapshotCreationLatency_us,
                              std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
 
-  return {};
+  return *snapshot_path;
 }
 
 // NOTE: Make sure this function is called while exclusively holding on to the main lock
@@ -2945,7 +2913,7 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
   if (force) {
     Clear();
   } else {
-    if (repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire) != kTimestampInitialId) {
+    if (repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_ != kTimestampInitialId) {
       handler_error();
       return InMemoryStorage::RecoverSnapshotError::NonEmptyStorage;
     }
@@ -2972,8 +2940,13 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
     vertex_id_.store(recovery_info.next_vertex_id, std::memory_order_release);
     edge_id_.store(recovery_info.next_edge_id, std::memory_order_release);
     timestamp_ = std::max(timestamp_, recovery_info.next_timestamp);
-    repl_storage_state_.last_durable_timestamp_.store(recovered_snapshot.snapshot_info.durable_timestamp,
-                                                      std::memory_order_release);
+
+    auto const update_func =
+        [new_ldt = recovered_snapshot.snapshot_info.durable_timestamp](CommitTsInfo const &old_info) -> CommitTsInfo {
+      return CommitTsInfo{.ldt_ = new_ldt, .num_committed_txns_ = old_info.num_committed_txns_};
+    };
+    atomic_struct_update<CommitTsInfo>(repl_storage_state_.commit_ts_info_, update_func);
+
     // We are the only active transaction, so mark everything up to the next timestamp
     if (timestamp_ > 0) commit_log_->MarkFinishedInRange(0, timestamp_ - 1);
 
@@ -3040,7 +3013,15 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
   return {};
 }
 
-// Note:
+std::optional<SnapshotFileInfo> InMemoryStorage::ShowNextSnapshot() {
+  auto lock = std::unique_lock{snapshot_lock_};
+  auto next = snapshot_runner_.NextExecution();
+  if (next) {
+    return SnapshotFileInfo{recovery_.snapshot_directory_, 0, utils::LocalDateTime{*next}, 0};
+  }
+  return std::nullopt;
+}
+
 std::vector<SnapshotFileInfo> InMemoryStorage::ShowSnapshots() {
   auto lock = std::unique_lock{snapshot_lock_};
 
@@ -3070,12 +3051,6 @@ std::vector<SnapshotFileInfo> InMemoryStorage::ShowSnapshots() {
     res.emplace_back(snapshot_path, start_timestamp, write_time_ldt, size);
   }
 
-  // Add next
-  auto next = snapshot_runner_.NextExecution();
-  if (next) {
-    res.emplace_back(recovery_.snapshot_directory_, 0, utils::LocalDateTime{*next}, 0);
-  }
-
   std::sort(res.begin(), res.end(),
             [](const auto &lhs, const auto &rhs) { return lhs.creation_time > rhs.creation_time; });
 
@@ -3094,7 +3069,7 @@ void InMemoryStorage::PrepareForNewEpoch() {
     wal_file_->FinalizeWal();
     wal_file_.reset();
   }
-  repl_storage_state_.TrackLatestHistory();
+  repl_storage_state_.SaveLatestHistory();
 }
 
 utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::IsPathLocked() {
@@ -3267,8 +3242,9 @@ void InMemoryStorage::Clear() {
   edges_metadata_.run_gc();
   stored_node_labels_.clear();
   stored_edge_types_.clear();
-  labels_to_auto_index_->clear();
-  edge_types_to_auto_index_->clear();
+  if (auto_indexer_) {
+    auto_indexer_->Clear();
+  }
 
   // Reset helper classes
   enum_store_.clear();
@@ -3276,7 +3252,8 @@ void InMemoryStorage::Clear() {
 
   // Replication epoch and timestamp reset
   repl_storage_state_.epoch_.SetEpoch(std::string(utils::UUID{}));
-  repl_storage_state_.last_durable_timestamp_.store(0, std::memory_order_release);
+  CommitTsInfo const new_info{.ldt_ = 0, .num_committed_txns_ = 0};
+  repl_storage_state_.commit_ts_info_.store(new_info, std::memory_order_release);
   repl_storage_state_.history.clear();
 
   last_snapshot_digest_ = std::nullopt;
@@ -3287,10 +3264,6 @@ bool InMemoryStorage::InMemoryAccessor::PointIndexExists(LabelId label, Property
 }
 
 IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
-  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
-  auto *mem_edge_property_index =
-      static_cast<InMemoryEdgePropertyIndex *>(in_memory->indices_.edge_property_index_.get());
-
   return {transaction_.active_indices_.label_->ListIndices(transaction_.start_timestamp),
           transaction_.active_indices_.label_properties_->ListIndices(transaction_.start_timestamp),
           transaction_.active_indices_.edge_type_->ListIndices(transaction_.start_timestamp),
@@ -3349,6 +3322,10 @@ void InMemoryStorage::InMemoryAccessor::DropGraph() {
   // also, we're the only transaction running, so we can safely remove the data as well
   mem_storage->indices_.DropGraphClearIndices();
   mem_storage->constraints_.DropGraphClearConstraints();
+
+  if (mem_storage->auto_indexer_) {
+    mem_storage->auto_indexer_->Clear();
+  }
 
   if (mem_storage->config_.salient.items.enable_schema_info) mem_storage->schema_info_.Clear();
 

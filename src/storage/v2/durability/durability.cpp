@@ -23,13 +23,13 @@
 #include <utility>
 #include <vector>
 
-#include "flags/all.hpp"
+#include "flags/experimental.hpp"
 #include "replication/epoch.hpp"
-#include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
+#include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/inmemory/edge_property_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
@@ -46,8 +46,6 @@
 #include "fmt/format.h"
 
 namespace r = ranges;
-namespace rv = r::views;
-
 struct PropertyPathFormatter {
   std::span<memgraph::storage::PropertyPath const> data;
   memgraph::storage::NameIdMapper *name_mapper;
@@ -178,7 +176,7 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
                       item.path(), uuid, info.uuid, current_seq_num, info.seq_num);
       }
     } catch (const RecoveryFailure &e) {
-      spdlog::warn("Failed to read WAL file {}.", item.path());
+      spdlog::warn("Failed to read WAL file {}. Error: {}", item.path(), e.what());
     }
   }
   MG_ASSERT(!error_code, "Couldn't recover data because an error occurred: {}!", error_code.message());
@@ -207,7 +205,6 @@ void RecoverConstraints(const RecoveredIndicesAndConstraints::ConstraintsMetadat
 void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata, Indices *indices,
                             utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper, bool properties_on_edges,
                             const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info,
-                            const std::optional<std::filesystem::path> &storage_dir,
                             std::optional<SnapshotObserverInfo> const &snapshot_info) {
   auto *mem_label_index = static_cast<InMemoryLabelIndex *>(indices->label_index_.get());
   // Recover label indices.
@@ -308,21 +305,17 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
 
   // Text idx
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    // Recover text indices.
     spdlog::info("Recreating {} text indices from metadata.", indices_metadata.text_indices.size());
     auto &mem_text_index = indices->text_index_;
-    for (const auto &[index_name, label] : indices_metadata.text_indices) {
+    for (const auto &text_index_info : indices_metadata.text_indices) {
       try {
-        if (!storage_dir.has_value()) {
-          throw RecoveryFailure("There must exist a storage directory in order to recover text indices!");
-        }
         // TODO: parallel execution
-        mem_text_index.RecoverIndex(index_name, label, vertices->access(), name_id_mapper, snapshot_info);
+        mem_text_index.RecoverIndex(text_index_info, snapshot_info);
       } catch (...) {
         throw RecoveryFailure("The text index must be created here!");
       }
-      spdlog::info("Text index {} on :{} is recreated from metadata", index_name,
-                   name_id_mapper->IdToName(label.AsUint()));
+      spdlog::info("Text index {} on :{} is recreated from metadata", text_index_info.index_name_,
+                   name_id_mapper->IdToName(text_index_info.label_.AsUint()));
     }
     spdlog::info("Text indices are recreated.");
   }
@@ -449,13 +442,8 @@ void RecoverIndicesStatsAndConstraints(utils::SkipList<Vertex> *vertices, NameId
                                        RecoveredIndicesAndConstraints const &indices_constraints,
                                        bool properties_on_edges,
                                        std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  auto storage_dir = std::optional<std::filesystem::path>{};
-  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    storage_dir = config.durability.storage_directory;
-  }
-
   RecoverIndicesAndStats(indices_constraints.indices, indices, vertices, name_id_mapper, properties_on_edges,
-                         GetParallelExecInfo(recovery_info, config), storage_dir, snapshot_info);
+                         GetParallelExecInfo(recovery_info, config), snapshot_info);
   RecoverConstraints(indices_constraints.constraints, constraints, vertices, name_id_mapper,
                      GetParallelExecInfo(recovery_info, config), snapshot_info);
 }
@@ -527,7 +515,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     snapshot_durable_timestamp = recovered_snapshot->snapshot_info.durable_timestamp;
     spdlog::trace("Recovered epoch {} for db {}", recovered_snapshot->snapshot_info.epoch_id, db_name);
     repl_storage_state.epoch_.SetEpoch(std::move(recovered_snapshot->snapshot_info.epoch_id));
-    recovery_info.last_durable_timestamp = snapshot_durable_timestamp;
+    recovery_info.last_durable_timestamp = *snapshot_durable_timestamp;
   } else {
     // UUID couldn't be recovered from the snapshot; recovering it from WALs
     spdlog::info("No snapshot file was found, collecting information from WAL directory {}.", wal_directory_);
@@ -613,10 +601,6 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     auto last_loaded_timestamp = snapshot_durable_timestamp;
     spdlog::info("Trying to load WAL files.");
 
-    if (last_loaded_timestamp) {
-      epoch_history->emplace_back(repl_storage_state.epoch_.id(), *last_loaded_timestamp);
-    }
-
     for (const auto &wal_file : wal_files) {
       if (previous_seq_num && (wal_file.seq_num - *previous_seq_num) > 1) {
         LOG_FATAL("You are missing a WAL file with the sequence number {}!", *previous_seq_num + 1);
@@ -627,25 +611,30 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
         auto info = LoadWal(wal_file.path, &indices_constraints, last_loaded_timestamp, vertices, edges, name_id_mapper,
                             edge_count, config.salient.items, enum_store, schema_info, find_edge);
         // Update recovery info data only if WAL file was used and its deltas loaded
+
+        bool wal_contains_changes{false};
         if (info.has_value()) {
           recovery_info.next_vertex_id = std::max(recovery_info.next_vertex_id, info->next_vertex_id);
           recovery_info.next_edge_id = std::max(recovery_info.next_edge_id, info->next_edge_id);
           recovery_info.next_timestamp = std::max(recovery_info.next_timestamp, info->next_timestamp);
+          // WAL file is interesting only if it has a new (different) ldt
+          wal_contains_changes = recovery_info.last_durable_timestamp != info->last_durable_timestamp;
           recovery_info.last_durable_timestamp = info->last_durable_timestamp;
-          MG_ASSERT(info->last_durable_timestamp.has_value(),
-                    "RecoveryInfo has value but ldt not after loading from WAL");
-          last_loaded_timestamp.emplace(*info->last_durable_timestamp);
-          spdlog::trace("Set ldt to {} after loading from WAL", *info->last_durable_timestamp);
+          last_loaded_timestamp.emplace(info->last_durable_timestamp);
+          spdlog::trace("Set ldt to {} after loading from WAL", info->last_durable_timestamp);
+          recovery_info.num_committed_txns += info->num_committed_txns;
         }
 
-        if (epoch_history->empty() || epoch_history->back().first != wal_file.epoch_id) {
-          // no history or new epoch, add it
-          epoch_history->emplace_back(wal_file.epoch_id, *last_loaded_timestamp);
-          repl_storage_state.epoch_.SetEpoch(wal_file.epoch_id);
-          spdlog::trace("Set epoch to {} for db {}", wal_file.epoch_id, db_name);
-        } else if (epoch_history->back().second < *last_loaded_timestamp) {
-          // existing epoch, update with newer timestamp
-          epoch_history->back().second = *last_loaded_timestamp;
+        if (wal_contains_changes) {
+          if (!epoch_history->empty() && epoch_history->back().first == wal_file.epoch_id) {
+            epoch_history->back().second = *last_loaded_timestamp;
+            spdlog::trace("WAL file continuation from the epoch perspective. Updates epoch {} to ldt {}.",
+                          wal_file.epoch_id, *last_loaded_timestamp);
+          } else {  // Update history with new epoch that contains new timestamp
+            epoch_history->emplace_back(wal_file.epoch_id, *last_loaded_timestamp);
+            repl_storage_state.epoch_.SetEpoch(wal_file.epoch_id);
+            spdlog::trace("Set epoch to {} for db {} with ldt {}", wal_file.epoch_id, db_name, *last_loaded_timestamp);
+          }
         }
 
       } catch (const RecoveryFailure &e) {
@@ -685,7 +674,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
   memgraph::metrics::Measure(memgraph::metrics::SnapshotRecoveryLatency_us,
                              std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
   spdlog::trace("Epoch id: {}. Last durable commit timestamp: {}.", std::string(repl_storage_state.epoch_.id()),
-                repl_storage_state.last_durable_timestamp_.load(std::memory_order_acquire));
+                repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).ldt_);
 
   spdlog::trace("History with its epochs and attached commit timestamps.");
   r::for_each(repl_storage_state.history, [](auto &&history) {

@@ -7,7 +7,7 @@ find_package(Threads REQUIRED)
 add_custom_target(memgraph__unit)
 
 add_library(memgraph_unit_main OBJECT main.cpp)
-target_link_libraries(memgraph_unit_main mg-memory mg-utils gtest gmock Threads::Threads dl)
+target_link_libraries(memgraph_unit_main mg-memory mg-utils gtest gmock Threads::Threads dl atomic)
 target_precompile_headers(memgraph_unit_main PRIVATE
     <gtest/gtest.h>
 )
@@ -78,6 +78,12 @@ target_link_libraries(${test_prefix}bfs_single_node mg-query mg-glue)
 
 add_unit_test(bfs_fine_grained.cpp)
 target_link_libraries(${test_prefix}bfs_fine_grained mg-query mg-glue)
+
+add_unit_test(kshortest_fine_grained.cpp)
+target_link_libraries(${test_prefix}kshortest_fine_grained mg-query mg-glue)
+
+add_unit_test(kshortest_general.cpp)
+target_link_libraries(${test_prefix}kshortest_general mg-query mg-glue)
 
 add_unit_test(cypher_main_visitor.cpp)
 target_link_libraries(${test_prefix}cypher_main_visitor mg-query)
@@ -359,6 +365,9 @@ target_link_libraries(${test_prefix}storage_v2_decoder_encoder mg::storage)
 add_unit_test(storage_v2_durability_inmemory.cpp)
 target_link_libraries(${test_prefix}storage_v2_durability_inmemory mg::storage mg-dbms)
 
+add_unit_test(storage_v2_create_snapshot.cpp)
+target_link_libraries(${test_prefix}storage_v2_create_snapshot mg::storage mg-dbms)
+
 add_unit_test(storage_rocks.cpp)
 target_link_libraries(${test_prefix}storage_rocks mg::storage)
 
@@ -436,6 +445,9 @@ target_link_libraries(${test_prefix}vector_index mg::storage)
 
 add_unit_test(vector_edge_index.cpp)
 target_link_libraries(${test_prefix}vector_edge_index mg::storage)
+
+add_unit_test(text_index.cpp)
+target_link_libraries(${test_prefix}text_index mg::storage)
 
 # Test mg-auth
 if(MG_ENTERPRISE)

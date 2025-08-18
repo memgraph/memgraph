@@ -30,7 +30,7 @@ function(add_custom_library NAME SRC)
     add_library(${NAME} SHARED ${SRC})
     target_include_directories(${NAME} PRIVATE ${CMAKE_SOURCE_DIR}/include ${CMAKE_SOURCE_DIR}/libs)
     target_compile_options(${NAME} PRIVATE -Wall)
-    target_link_libraries(${NAME} PRIVATE -static-libgcc -static-libstdc++ ${optional_libs})
+    target_link_libraries(${NAME} PRIVATE ${optional_libs})
 
     # Apply post-build strip in release mode
     add_post_build_strip_in_release(${NAME} CMAKE_BUILD_TYPE)
@@ -50,6 +50,7 @@ add_custom_library(schema schema.cpp)
 add_custom_library(text_search text_search_module.cpp fmt::fmt)
 add_custom_library(vector_search vector_search_module.cpp fmt::fmt)
 add_custom_library(convert convert.cpp fmt::fmt nlohmann_json::nlohmann_json)
+add_custom_library(convert_c convert.c)
 
 
 set(QUERY_MODULES_BUILD_DIR "${CMAKE_CURRENT_BINARY_DIR}" CACHE INTERNAL "Build directory for QMs in folders")
@@ -64,10 +65,6 @@ function(add_query_module target_name version src)
   )
 
   target_compile_options(${target_name} PRIVATE -Wall)
-  target_link_libraries(${target_name} PRIVATE
-      -static-libgcc
-      -static-libstdc++
-  )
 
   add_post_build_strip_in_release(${target_name} CMAKE_BUILD_TYPE)
 
@@ -105,7 +102,7 @@ add_custom_target(copy_python_query_modules ALL
 )
 
 # Install C++ query modules
-install(TARGETS convert example_c example_cpp schema text_search vector_search pagerank_online
+install(TARGETS convert convert_c example_c example_cpp schema text_search vector_search pagerank_online
     community_detection_online katz_centrality_online
     DESTINATION lib/memgraph/query_modules
 )

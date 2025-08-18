@@ -306,6 +306,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitShowCoordinatorSettings(MemgraphCypher::ShowCoordinatorSettingsContext *ctx) override;
 
   /**
+   * @return CoordinatorQuery*
+   */
+  antlrcpp::Any visitShowReplicationLag(MemgraphCypher::ShowReplicationLagContext *ctx) override;
+
+  /**
    * @return LockPathQuery*
    */
   antlrcpp::Any visitLockPathQuery(MemgraphCypher::LockPathQueryContext *ctx) override;
@@ -364,6 +369,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return ShowSnapshotsQuery*
    */
   antlrcpp::Any visitShowSnapshotsQuery(MemgraphCypher::ShowSnapshotsQueryContext *ctx) override;
+
+  /**
+   * @return ShowNextSnapshotQuery*
+   */
+  antlrcpp::Any visitShowNextSnapshotQuery(MemgraphCypher::ShowNextSnapshotQueryContext *ctx) override;
 
   /**
    * @return StreamQuery*
@@ -888,7 +898,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitRelationshipTypes(MemgraphCypher::RelationshipTypesContext *ctx) override;
 
   /**
-   * @return std::tuple<EdgeAtom::Type, int64_t, int64_t>.
+   * @return std::tuple<EdgeAtom::Type, Expression*, Expression*, Expression*>.
    */
   antlrcpp::Any visitVariableExpansion(MemgraphCypher::VariableExpansionContext *ctx) override;
 

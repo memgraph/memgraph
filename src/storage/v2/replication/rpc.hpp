@@ -125,15 +125,20 @@ struct HeartbeatRes {
   static const utils::TypeInfo kType;
   static const utils::TypeInfo &GetTypeInfo() { return kType; }
 
-  static void Load(HeartbeatRes *self, memgraph::slk::Reader *reader);
-  static void Save(const HeartbeatRes &self, memgraph::slk::Builder *builder);
+  static void Load(HeartbeatRes *self, slk::Reader *reader);
+  static void Save(const HeartbeatRes &self, slk::Builder *builder);
   HeartbeatRes() = default;
-  HeartbeatRes(bool success, uint64_t current_commit_timestamp, std::string epoch_id)
-      : success(success), current_commit_timestamp(current_commit_timestamp), epoch_id(std::move(epoch_id)) {}
+  HeartbeatRes(bool const success, uint64_t const current_commit_timestamp, std::string epoch_id,
+               uint64_t const num_txns_committed)
+      : success_(success),
+        current_commit_timestamp_(current_commit_timestamp),
+        epoch_id_(std::move(epoch_id)),
+        num_txns_committed_(num_txns_committed) {}
 
-  bool success;
-  uint64_t current_commit_timestamp;
-  std::string epoch_id;
+  bool success_;
+  uint64_t current_commit_timestamp_;
+  std::string epoch_id_;
+  uint64_t num_txns_committed_;
 };
 
 using HeartbeatRpc = rpc::RequestResponse<HeartbeatReq, HeartbeatRes>;
@@ -160,10 +165,11 @@ struct SnapshotRes {
   static void Save(const SnapshotRes &self, slk::Builder *builder);
   SnapshotRes() = default;
 
-  explicit SnapshotRes(std::optional<uint64_t> current_commit_timestamp)
-      : current_commit_timestamp(std::move(current_commit_timestamp)) {}
+  explicit SnapshotRes(std::optional<uint64_t> const current_commit_timestamp, uint64_t const num_txns_committed)
+      : current_commit_timestamp_(current_commit_timestamp), num_txns_committed_(num_txns_committed) {}
 
-  std::optional<uint64_t> current_commit_timestamp;
+  std::optional<uint64_t> current_commit_timestamp_;
+  uint64_t num_txns_committed_;
 };
 
 using SnapshotRpc = rpc::RequestResponse<SnapshotReq, SnapshotRes>;
@@ -192,10 +198,11 @@ struct WalFilesRes {
   static void Load(WalFilesRes *self, memgraph::slk::Reader *reader);
   static void Save(const WalFilesRes &self, memgraph::slk::Builder *builder);
   WalFilesRes() = default;
-  explicit WalFilesRes(std::optional<uint64_t> current_commit_timestamp)
-      : current_commit_timestamp(current_commit_timestamp) {}
+  explicit WalFilesRes(std::optional<uint64_t> const current_commit_timestamp, uint64_t const num_txns_committed)
+      : current_commit_timestamp_(current_commit_timestamp), num_txns_committed_(num_txns_committed) {}
 
-  std::optional<uint64_t> current_commit_timestamp;
+  std::optional<uint64_t> current_commit_timestamp_;
+  uint64_t num_txns_committed_;
 };
 
 using WalFilesRpc = rpc::RequestResponse<WalFilesReq, WalFilesRes>;
@@ -222,10 +229,11 @@ struct CurrentWalRes {
   static void Load(CurrentWalRes *self, memgraph::slk::Reader *reader);
   static void Save(const CurrentWalRes &self, memgraph::slk::Builder *builder);
   CurrentWalRes() = default;
-  explicit CurrentWalRes(std::optional<uint64_t> current_commit_timestamp)
-      : current_commit_timestamp(current_commit_timestamp) {}
+  explicit CurrentWalRes(std::optional<uint64_t> const current_commit_timestamp, uint64_t const num_txns_committed)
+      : current_commit_timestamp_(current_commit_timestamp), num_txns_committed_(num_txns_committed) {}
 
-  std::optional<uint64_t> current_commit_timestamp;
+  std::optional<uint64_t> current_commit_timestamp_;
+  uint64_t num_txns_committed_;
 };
 
 using CurrentWalRpc = rpc::RequestResponse<CurrentWalReq, CurrentWalRes>;

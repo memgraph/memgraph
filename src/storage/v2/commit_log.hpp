@@ -12,8 +12,6 @@
 /// @file commit_log.hpp
 #pragma once
 
-#include <cstdint>
-
 #include "utils/memory.hpp"
 #include "utils/spin_lock.hpp"
 

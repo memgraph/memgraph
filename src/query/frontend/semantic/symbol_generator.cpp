@@ -328,8 +328,9 @@ bool SymbolGenerator::PostVisit(Merge &) {
 }
 
 bool SymbolGenerator::PostVisit(Unwind &unwind) {
+  auto &scope = scopes_.back();
   const auto &name = unwind.named_expression_->name_;
-  if (HasSymbol(name)) {
+  if (FindSymbolInScope(name, scope, Symbol::Type::ANY).has_value()) {
     throw RedeclareVariableError(name);
   }
   unwind.named_expression_->MapTo(CreateSymbol(name, true));
@@ -382,8 +383,11 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     }
   }
 
+  const bool is_in_pattern_comprehension_filter =
+      scope.in_pattern_comprehension && scopes_.size() > 1 && scopes_[scopes_.size() - 2].in_where;
+
   Symbol symbol;
-  if (scope.in_exists_subquery && (scope.visiting_edge || scope.in_node_atom)) {
+  if ((scope.in_exists_subquery || is_in_pattern_comprehension_filter) && (scope.visiting_edge || scope.in_node_atom)) {
     auto has_symbol = HasSymbol(ident.name_);
     if (!has_symbol) {
       ident.user_declared_ = false;
@@ -868,15 +872,6 @@ bool SymbolGenerator::PostVisit(EdgeAtom &) {
 }
 
 bool SymbolGenerator::PreVisit(PatternComprehension &pc) {
-  auto &scope = scopes_.back();
-
-  if (!scope.in_with && !scope.in_return) {
-    throw utils::NotYetImplemented("Pattern comprehension can only be used within With and Return clauses!");
-  }
-  if (scope.in_list_comprehension) {
-    throw utils::NotYetImplemented("Pattern comprehension inside list comprehension!");
-  }
-
   scopes_.emplace_back(Scope{.in_pattern_comprehension = true});
 
   const auto &symbol = CreateAnonymousSymbol();

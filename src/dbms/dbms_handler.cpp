@@ -19,7 +19,6 @@
 #include "flags/experimental.hpp"
 #include "query/db_accessor.hpp"
 #include "spdlog/spdlog.h"
-#include "system/include/system/system.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/rw_spin_lock.hpp"
@@ -198,6 +197,15 @@ DbmsHandler::DbmsHandler(storage::Config config,
       locked_auth->DeleteDatabase(name);
       durability_->Delete(key);
     }
+    // When data recovery is disabled, we need to remove all text indices to ensure a clean state.
+    // Text indices use Tantivy files, and removing them prevents
+    // stale index data from being present in the system.
+    auto text_indices_dir = root / storage::kTextIndicesDirectory;
+    std::error_code ec;
+    std::filesystem::remove_all(text_indices_dir, ec);
+    if (ec) {
+      LOG_FATAL("Failed to remove text indices directory {}: {}", text_indices_dir.string(), ec.message());
+    }
   }
 
   /*
@@ -230,15 +238,13 @@ struct DropDatabase : memgraph::system::ISystemAction {
   }
 
   bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
-                     replication::ReplicationEpoch const &epoch,
                      memgraph::system::Transaction const &txn) const override {
     auto check_response = [](const storage::replication::DropDatabaseRes &response) {
       return response.result != storage::replication::DropDatabaseRes::Result::FAILURE;
     };
 
     return client.StreamAndFinalizeDelta<storage::replication::DropDatabaseRpc>(
-        check_response, main_uuid, std::string(epoch.id()), txn.last_committed_system_timestamp(), txn.timestamp(),
-        uuid_);
+        check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), uuid_);
   }
   void PostReplication(replication::RoleMainData &mainData) const override {}
 
@@ -316,15 +322,13 @@ struct CreateDatabase : memgraph::system::ISystemAction {
   }
 
   bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
-                     replication::ReplicationEpoch const &epoch,
                      memgraph::system::Transaction const &txn) const override {
     auto check_response = [](const storage::replication::CreateDatabaseRes &response) {
       return response.result != storage::replication::CreateDatabaseRes::Result::FAILURE;
     };
 
     return client.StreamAndFinalizeDelta<storage::replication::CreateDatabaseRpc>(
-        check_response, main_uuid, std::string(epoch.id()), txn.last_committed_system_timestamp(), txn.timestamp(),
-        config_);
+        check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), config_);
   }
 
   void PostReplication(replication::RoleMainData &mainData) const override {

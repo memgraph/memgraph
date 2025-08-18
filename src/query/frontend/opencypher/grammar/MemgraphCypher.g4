@@ -224,6 +224,7 @@ query : cypherQuery
       | createSnapshotQuery
       | recoverSnapshotQuery
       | showSnapshotsQuery
+      | showNextSnapshotQuery
       | streamQuery
       | settingQuery
       | versionQuery
@@ -297,6 +298,7 @@ coordinatorQuery : registerInstanceOnCoordinator
                  | yieldLeadership
                  | setCoordinatorSetting
                  | showCoordinatorSettings
+                 | showReplicationLag
                  ;
 
 triggerQuery : createTrigger
@@ -542,6 +544,8 @@ setCoordinatorSetting: SET COORDINATOR SETTING settingName TO settingValue ;
 
 showCoordinatorSettings: SHOW COORDINATOR SETTINGS ;
 
+showReplicationLag: SHOW REPLICATION LAG ;
+
 coordinatorServerId : literal ;
 
 addCoordinatorInstance : ADD COORDINATOR coordinatorServerId WITH CONFIG configsMap=configMap ;
@@ -569,7 +573,7 @@ createTrigger : CREATE TRIGGER triggerName ( ON ( emptyVertex | emptyEdge ) ? ( 
 
 dropTrigger : DROP TRIGGER triggerName ;
 
-showTriggers : SHOW TRIGGERS ;
+showTriggers : SHOW TRIGGERS | SHOW TRIGGER INFO ;
 
 isolationLevel : SNAPSHOT ISOLATION | READ COMMITTED | READ UNCOMMITTED ;
 
@@ -586,6 +590,8 @@ createSnapshotQuery : CREATE SNAPSHOT ;
 recoverSnapshotQuery : RECOVER SNAPSHOT path=literal ( FORCE )? ;
 
 showSnapshotsQuery : SHOW SNAPSHOTS ;
+
+showNextSnapshotQuery : SHOW NEXT SNAPSHOT ;
 
 streamName : symbolicName ;
 
@@ -664,7 +670,7 @@ dropDatabase : DROP DATABASE databaseName ;
 
 useDatabase : USE DATABASE databaseName ;
 
-showDatabase : SHOW DATABASE ;
+showDatabase : SHOW ( CURRENT )? DATABASE ;
 
 showDatabases : SHOW DATABASES ;
 
@@ -682,7 +688,7 @@ edgeIndexQuery : createEdgeIndex | dropEdgeIndex | createGlobalEdgeIndex | dropG
 
 indexName : symbolicName ;
 
-createTextIndex : CREATE TEXT INDEX indexName ON ':' labelName ;
+createTextIndex : CREATE TEXT INDEX indexName ON ':' labelName ( '(' propertyKeyName ( ',' propertyKeyName )* ')' )* ;
 
 dropTextIndex : DROP TEXT INDEX indexName ;
 

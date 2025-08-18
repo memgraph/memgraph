@@ -30,6 +30,7 @@
 #include <utility>
 
 #include "dbms/database.hpp"
+#include "flags/experimental.hpp"
 #include "flags/general.hpp"
 #include "license/license.hpp"
 #include "replication/state.hpp"
@@ -46,6 +47,7 @@
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
@@ -104,7 +106,10 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         extended_edge_gids_(kNumExtendedEdges, memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max())) {
   }
 
-  void SetUp() override { Clear(); }
+  void SetUp() override {
+    Clear();
+    memgraph::flags::SetExperimental(memgraph::flags::Experiments::TEXT_SEARCH);
+  }
 
   void TearDown() override { Clear(); }
 
@@ -117,6 +122,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     auto property_c = store->NameToProperty("prop_c");
     auto property_extra = store->NameToProperty("extra");
     auto property_point = store->NameToProperty("point");
+    auto property_text = store->NameToProperty("text");
     auto nested1_property = store->NameToProperty("nested1");
     auto nested2_property = store->NameToProperty("nested2");
     auto nested3_property = store->NameToProperty("nested3");
@@ -227,6 +233,16 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     }
 
     {
+      // Create text index.
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc
+                       ->CreateTextIndex(
+                           memgraph::storage::TextIndexSpec{"text_index", label_indexed, std::vector{property_text}})
+                       .HasError());
+      ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
+    }
+
+    {
       // Create existence constraint.
       auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateExistenceConstraint(label_unindexed, property_id).HasError());
@@ -311,6 +327,11 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
             {nested2_property, memgraph::storage::PropertyValue(memgraph::storage::PropertyValue::map_t{
                                    {nested3_property, memgraph::storage::PropertyValue(1)}})}};
         ASSERT_TRUE(vertex.SetProperty(nested1_property, memgraph::storage::PropertyValue(map_value)).HasValue());
+      }
+
+      // one node will have text property
+      if (i == 0) {
+        ASSERT_TRUE(vertex.SetProperty(property_text, memgraph::storage::PropertyValue("text_value")).HasValue());
       }
 
       ASSERT_FALSE(acc->PrepareForCommitPhase().HasError()) << i;
@@ -496,6 +517,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     auto property_c = store->NameToProperty("prop_c");
     auto property_extra = store->NameToProperty("extra");
     auto property_point = store->NameToProperty("point");
+    auto property_text = store->NameToProperty("text");
     auto property_nested1 = store->NameToProperty("nested1");
     auto property_nested2 = store->NameToProperty("nested2");
     auto property_nested3 = store->NameToProperty("nested3");
@@ -555,6 +577,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_TRUE(std::ranges::all_of(info.vector_indices_spec, [&vector_index_spec](const auto &index) {
             return index == vector_index_spec;
           }));
+          ASSERT_EQ(info.text_indices.size(), 1);
+          ASSERT_EQ(info.text_indices[0],
+                    (memgraph::storage::TextIndexSpec{"text_index", base_label_indexed, std::vector{property_text}}));
           break;
         case DatasetType::ONLY_EXTENDED:
           ASSERT_THAT(info.label, UnorderedElementsAre(extended_label_unused));
@@ -582,6 +607,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_TRUE(std::ranges::all_of(info.vector_indices_spec, [&vector_index_spec](const auto &index) {
             return index == vector_index_spec;
           }));
+          ASSERT_EQ(info.text_indices.size(), 1);
+          ASSERT_EQ(info.text_indices[0],
+                    (memgraph::storage::TextIndexSpec{"text_index", base_label_indexed, std::vector{property_text}}));
           break;
         case DatasetType::BASE_WITH_EDGE_TYPE_INDEXED:
           ASSERT_THAT(info.label, UnorderedElementsAre(base_label_unindexed));
@@ -598,6 +626,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_TRUE(std::ranges::all_of(info.vector_indices_spec, [&vector_index_spec](const auto &index) {
             return index == vector_index_spec;
           }));
+          ASSERT_EQ(info.text_indices.size(), 1);
+          ASSERT_EQ(info.text_indices[0],
+                    (memgraph::storage::TextIndexSpec{"text_index", base_label_indexed, std::vector{property_text}}));
           break;
         case DatasetType::BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED:
           ASSERT_THAT(info.label, UnorderedElementsAre(base_label_unindexed));
@@ -617,6 +648,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_TRUE(std::ranges::any_of(info.vector_edge_indices_spec, [&vector_edge_index_spec](const auto &index) {
             return index == vector_edge_index_spec;
           }));
+          ASSERT_EQ(info.text_indices.size(), 1);
+          ASSERT_EQ(info.text_indices[0],
+                    (memgraph::storage::TextIndexSpec{"text_index", base_label_indexed, std::vector{property_text}}));
           break;
       }
     }
@@ -805,6 +839,10 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
                                      {property_nested3, memgraph::storage::PropertyValue(1)}})}};
           ASSERT_EQ((*properties)[property_nested1], memgraph::storage::PropertyValue(map_value));
         }
+        auto has_property_text = i == 0;
+        if (has_property_text) {
+          ASSERT_EQ((*properties)[property_text], memgraph::storage::PropertyValue("text_value"));
+        }
 
         std::size_t expected_size = 0;
         if (has_property_point) {
@@ -816,6 +854,10 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         if (has_property_nested) {
           expected_size++;
         }
+        if (has_property_text) {
+          expected_size++;
+        }
+
         if (i < kNumBaseVertices / 3 || i >= kNumBaseVertices / 2) {
           expected_size++;
           ASSERT_EQ(properties->size(), expected_size);
@@ -1128,22 +1170,22 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         case ONLY_BASE: {
           if (properties_on_edges) {
             static const auto expected_schema = nlohmann::json::parse(
-                R"({"edges":[{"count":500,"end_node_labels":["base_unindexed"],"properties":[{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1000,"end_node_labels":["base_unindexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":5,"filling_factor":0.3333333333333333,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]},{"count":500,"labels":["base_indexed"],"properties":[{"count":5,"filling_factor":1.0,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":10,"filling_factor":2.0,"key":"nested1","types":[{"count":10,"type":"Map"}]},{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]},{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]}]}]})");
+                R"({"edges":[{"count":500,"end_node_labels":["base_unindexed"],"properties":[{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1000,"end_node_labels":["base_unindexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":5,"filling_factor":0.3333333333333333,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]},{"count":500,"labels":["base_indexed"],"properties":[{"count":5,"filling_factor":1.0,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":10,"filling_factor":2.0,"key":"nested1","types":[{"count":10,"type":"Map"}]},{"count":1,"filling_factor":0.2,"key":"text","types":[{"count":1,"type":"String"}]},{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]},{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]}]}]})");
             ASSERT_TRUE(ConfrontJSON(schema_json, expected_schema));
           } else {
             static const auto expected_schema = nlohmann::json::parse(
-                R"({"edges":[{"count":500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1000,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]},{"count":500,"labels":["base_indexed"],"properties":[{"count":5,"filling_factor":1.0,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":10,"filling_factor":2.0,"key":"nested1","types":[{"count":10,"type":"Map"}]},{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]},{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]}]}]})");
+                R"({"edges":[{"count":500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1000,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]},{"count":500,"labels":["base_indexed"],"properties":[{"count":5,"filling_factor":1.0,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":10,"filling_factor":2.0,"key":"nested1","types":[{"count":10,"type":"Map"}]},{"count":1,"filling_factor":0.2,"key":"text","types":[{"count":1,"type":"String"}]},{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]},{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]}]}]})");
             ASSERT_TRUE(ConfrontJSON(schema_json, expected_schema));
           }
         } break;
         case ONLY_BASE_WITH_EXTENDED_INDICES_AND_CONSTRAINTS: {
           if (properties_on_edges) {
             static const auto expected_schema = nlohmann::json::parse(
-                R"({"edges":[{"count":1000,"end_node_labels":["base_unindexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":500,"end_node_labels":["base_unindexed"],"properties":[{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":5,"filling_factor":0.3333333333333333,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":500,"labels":["base_indexed"],"properties":[{"count":10,"filling_factor":2.0,"key":"nested1","types":[{"count":10,"type":"Map"}]},{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]},{"count":5,"filling_factor":1.0,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]}]},{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]}]})");
+                R"({"edges":[{"count":1000,"end_node_labels":["base_unindexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":500,"end_node_labels":["base_unindexed"],"properties":[{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":5,"filling_factor":0.3333333333333333,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":500,"labels":["base_indexed"],"properties":[{"count":1,"filling_factor":0.2,"key":"text","types":[{"count":1,"type":"String"}]},{"count":10,"filling_factor":2.0,"key":"nested1","types":[{"count":10,"type":"Map"}]},{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]},{"count":5,"filling_factor":1.0,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]}]},{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]}]})");
             ASSERT_TRUE(ConfrontJSON(schema_json, expected_schema));
           } else {
             static const auto expected_schema = nlohmann::json::parse(
-                R"({"edges":[{"count":1000,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":500,"labels":["base_indexed"],"properties":[{"count":10,"filling_factor":2.0,"key":"nested1","types":[{"count":10,"type":"Map"}]},{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]},{"count":5,"filling_factor":1.0,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]}]},{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]}]})");
+                R"({"edges":[{"count":1000,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":500,"labels":["base_indexed"],"properties":[{"count":1,"filling_factor":0.2,"key":"text","types":[{"count":1,"type":"String"}]},{"count":10,"filling_factor":2.0,"key":"nested1","types":[{"count":10,"type":"Map"}]},{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]},{"count":5,"filling_factor":1.0,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]}]},{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]}]})");
             ASSERT_TRUE(ConfrontJSON(schema_json, expected_schema));
           }
         } break;
@@ -1164,11 +1206,11 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         case BASE_WITH_EXTENDED: {
           if (properties_on_edges) {
             static const auto expected_schema = nlohmann::json::parse(
-                R"({"edges":[{"count":150,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et4"},{"count":250,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et3"},{"count":100,"end_node_labels":[],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et4"},{"count":500,"end_node_labels":["base_unindexed"],"properties":[{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":200,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":[],"type":"extended_et4"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1000,"end_node_labels":["base_unindexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":300,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"extended_et4"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":5,"filling_factor":0.3333333333333333,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":50,"labels":["extended_indexed"],"properties":[{"count":33,"filling_factor":66.0,"key":"count","types":[{"count":33,"type":"String"}]}]},{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]},{"count":50,"labels":[],"properties":[{"count":50,"filling_factor":100.0,"key":"count","types":[{"count":50,"type":"String"}]}]},{"count":500,"labels":["base_indexed"],"properties":[{"count":5,"filling_factor":1.0,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":10,"filling_factor":2.0,"key":"nested1","types":[{"count":10,"type":"Map"}]},{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]},{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]}]}]})");
+                R"({"edges":[{"count":300,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"extended_et4"},{"count":250,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et3"},{"count":500,"end_node_labels":["base_unindexed"],"properties":[{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":150,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et4"},{"count":100,"end_node_labels":[],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et4"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":200,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":[],"type":"extended_et4"},{"count":1000,"end_node_labels":["base_unindexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":5,"filling_factor":0.3333333333333333,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":50,"labels":["extended_indexed"],"properties":[{"count":33,"filling_factor":66.0,"key":"count","types":[{"count":33,"type":"String"}]}]},{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]},{"count":50,"labels":[],"properties":[{"count":50,"filling_factor":100.0,"key":"count","types":[{"count":50,"type":"String"}]}]},{"count":500,"labels":["base_indexed"],"properties":[{"count":5,"filling_factor":1.0,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":10,"filling_factor":2.0,"key":"nested1","types":[{"count":10,"type":"Map"}]},{"count":1,"filling_factor":0.2,"key":"text","types":[{"count":1,"type":"String"}]},{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]},{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]}]}]})");
             ASSERT_TRUE(ConfrontJSON(schema_json, expected_schema));
           } else {
             static const auto expected_schema = nlohmann::json::parse(
-                R"({"edges":[{"count":150,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et4"},{"count":250,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et3"},{"count":100,"end_node_labels":[],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et4"},{"count":500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":200,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":[],"type":"extended_et4"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1000,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":300,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"extended_et4"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":50,"labels":["extended_indexed"],"properties":[{"count":33,"filling_factor":66.0,"key":"count","types":[{"count":33,"type":"String"}]}]},{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]},{"count":50,"labels":[],"properties":[{"count":50,"filling_factor":100.0,"key":"count","types":[{"count":50,"type":"String"}]}]},{"count":500,"labels":["base_indexed"],"properties":[{"count":5,"filling_factor":1.0,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":10,"filling_factor":2.0,"key":"nested1","types":[{"count":10,"type":"Map"}]},{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]},{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]}]}]})");
+                R"({"edges":[{"count":300,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"extended_et4"},{"count":250,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et3"},{"count":500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":150,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et4"},{"count":100,"end_node_labels":[],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et4"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":200,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":[],"type":"extended_et4"},{"count":1000,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":50,"labels":["extended_indexed"],"properties":[{"count":33,"filling_factor":66.0,"key":"count","types":[{"count":33,"type":"String"}]}]},{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]},{"count":50,"labels":[],"properties":[{"count":50,"filling_factor":100.0,"key":"count","types":[{"count":50,"type":"String"}]}]},{"count":500,"labels":["base_indexed"],"properties":[{"count":5,"filling_factor":1.0,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":10,"filling_factor":2.0,"key":"nested1","types":[{"count":10,"type":"Map"}]},{"count":1,"filling_factor":0.2,"key":"text","types":[{"count":1,"type":"String"}]},{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]},{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]}]}]})");
             ASSERT_TRUE(ConfrontJSON(schema_json, expected_schema));
           }
         } break;
@@ -3867,4 +3909,69 @@ TEST_P(DurabilityTest, EdgeMetadataRecovered) {
 
     ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
   }
+}
+
+TEST_P(DurabilityTest, CreateSnapshotReturnsPath) {
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory,
+                     .recover_on_startup = false,
+                     .snapshot_on_exit = false,
+                     .items_per_batch = 13,
+                     .allow_parallel_schema_creation = true},
+      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+  };
+
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::dbms::Database db{config, repl_state};
+
+  auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
+
+  // Create some data to ensure snapshot has content
+  {
+    auto acc = mem_storage->Access();
+    auto vertex = acc->CreateVertex();
+    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+  }
+
+  // Test CreateSnapshot returns path on success
+  auto result = mem_storage->CreateSnapshot(memgraph::replication_coordination_glue::ReplicationRole::MAIN);
+
+  ASSERT_FALSE(result.HasError()) << "CreateSnapshot should succeed with some data";
+
+  auto snapshot_path = result.GetValue();
+  ASSERT_TRUE(std::filesystem::exists(snapshot_path)) << "Snapshot file should exist at returned path";
+  ASSERT_TRUE(std::filesystem::is_regular_file(snapshot_path)) << "Snapshot should be a regular file";
+
+  // Verify the path is in the expected directory
+  auto expected_dir = config.durability.storage_directory / memgraph::storage::durability::kSnapshotDirectory;
+  ASSERT_EQ(snapshot_path.parent_path(), expected_dir) << "Snapshot should be in the snapshots directory";
+
+  // Verify the filename format (should contain timestamp)
+  auto filename = snapshot_path.filename().string();
+  ASSERT_TRUE(filename.find("timestamp_") != std::string::npos) << "Snapshot filename should contain timestamp";
+}
+
+TEST_P(DurabilityTest, CreateSnapshotReturnsErrorForReplica) {
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory,
+                     .recover_on_startup = false,
+                     .snapshot_on_exit = false,
+                     .items_per_batch = 13,
+                     .allow_parallel_schema_creation = true},
+      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+  };
+
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::dbms::Database db{config, repl_state};
+
+  auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
+
+  // Test CreateSnapshot returns error for replica role
+  auto result = mem_storage->CreateSnapshot(memgraph::replication_coordination_glue::ReplicationRole::REPLICA);
+
+  ASSERT_TRUE(result.HasError()) << "CreateSnapshot should fail for replica role";
+  ASSERT_EQ(result.GetError(), memgraph::storage::InMemoryStorage::CreateSnapshotError::DisabledForReplica)
+      << "Should return DisabledForReplica error";
 }

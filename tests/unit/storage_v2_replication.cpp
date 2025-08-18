@@ -155,7 +155,7 @@ TEST_F(ReplicationTest, BasicSynchronousReplicationTest) {
 
   auto replica_store_handler = replica.repl_handler;
   replica_store_handler.TrySetReplicationRoleReplica(
-      ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])}, std::nullopt);
+      ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])});
 
   const auto &reg = main.repl_handler.TryRegisterReplica(ReplicationClientConfig{
       .name = "REPLICA",
@@ -548,16 +548,12 @@ TEST_F(ReplicationTest, MultipleSynchronousReplicationTest) {
   MinMemgraph replica1(repl_conf);
   MinMemgraph replica2(repl2_conf);
 
-  replica1.repl_handler.TrySetReplicationRoleReplica(
-      ReplicationServerConfig{
-          .repl_server = Endpoint(local_host, ports[0]),
-      },
-      std::nullopt);
-  replica2.repl_handler.TrySetReplicationRoleReplica(
-      ReplicationServerConfig{
-          .repl_server = Endpoint(local_host, ports[1]),
-      },
-      std::nullopt);
+  replica1.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
+      .repl_server = Endpoint(local_host, ports[0]),
+  });
+  replica2.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
+      .repl_server = Endpoint(local_host, ports[1]),
+  });
 
   ASSERT_FALSE(main.repl_handler
                    .TryRegisterReplica(ReplicationClientConfig{
@@ -698,11 +694,9 @@ TEST_F(ReplicationTest, RecoveryProcess) {
     MinMemgraph replica(repl_conf);
     auto replica_store_handler = replica.repl_handler;
 
-    replica_store_handler.TrySetReplicationRoleReplica(
-        ReplicationServerConfig{
-            .repl_server = Endpoint(local_host, ports[0]),
-        },
-        std::nullopt);
+    replica_store_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
+        .repl_server = Endpoint(local_host, ports[0]),
+    });
     ASSERT_FALSE(main.repl_handler
                      .TryRegisterReplica(ReplicationClientConfig{
                          .name = replicas[0],
@@ -773,11 +767,9 @@ TEST_F(ReplicationTest, BasicAsynchronousReplicationTest) {
   MinMemgraph replica_async(repl_conf);
 
   auto replica_store_handler = replica_async.repl_handler;
-  replica_store_handler.TrySetReplicationRoleReplica(
-      ReplicationServerConfig{
-          .repl_server = Endpoint(local_host, ports[1]),
-      },
-      std::nullopt);
+  replica_store_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
+      .repl_server = Endpoint(local_host, ports[1]),
+  });
 
   ASSERT_FALSE(main.repl_handler
                    .TryRegisterReplica(ReplicationClientConfig{
@@ -820,18 +812,14 @@ TEST_F(ReplicationTest, EpochTest) {
   MinMemgraph main(main_conf);
   MinMemgraph replica1(repl_conf);
 
-  replica1.repl_handler.TrySetReplicationRoleReplica(
-      ReplicationServerConfig{
-          .repl_server = Endpoint(local_host, ports[0]),
-      },
-      std::nullopt);
+  replica1.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
+      .repl_server = Endpoint(local_host, ports[0]),
+  });
 
   MinMemgraph replica2(repl2_conf);
-  replica2.repl_handler.TrySetReplicationRoleReplica(
-      ReplicationServerConfig{
-          .repl_server = Endpoint(local_host, 10001),
-      },
-      std::nullopt);
+  replica2.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
+      .repl_server = Endpoint(local_host, 10001),
+  });
 
   ASSERT_FALSE(main.repl_handler
                    .TryRegisterReplica(ReplicationClientConfig{
@@ -901,11 +889,9 @@ TEST_F(ReplicationTest, EpochTest) {
     ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
   }
 
-  replica1.repl_handler.TrySetReplicationRoleReplica(
-      ReplicationServerConfig{
-          .repl_server = Endpoint(local_host, ports[0]),
-      },
-      std::nullopt);
+  replica1.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
+      .repl_server = Endpoint(local_host, ports[0]),
+  });
   ASSERT_TRUE(main.repl_handler
                   .TryRegisterReplica(ReplicationClientConfig{
                       .name = replicas[0],
@@ -935,19 +921,15 @@ TEST_F(ReplicationTest, ReplicationInformation) {
   MinMemgraph replica1(repl_conf);
 
   uint16_t replica1_port = 10001;
-  replica1.repl_handler.TrySetReplicationRoleReplica(
-      ReplicationServerConfig{
-          .repl_server = Endpoint(local_host, replica1_port),
-      },
-      std::nullopt);
+  replica1.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
+      .repl_server = Endpoint(local_host, replica1_port),
+  });
 
   uint16_t replica2_port = 10002;
   MinMemgraph replica2(repl2_conf);
-  replica2.repl_handler.TrySetReplicationRoleReplica(
-      ReplicationServerConfig{
-          .repl_server = Endpoint(local_host, replica2_port),
-      },
-      std::nullopt);
+  replica2.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
+      .repl_server = Endpoint(local_host, replica2_port),
+  });
 
   ASSERT_FALSE(main.repl_handler
                    .TryRegisterReplica(ReplicationClientConfig{
@@ -990,19 +972,15 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingName) {
   MinMemgraph replica1(repl_conf);
 
   uint16_t replica1_port = 10001;
-  replica1.repl_handler.TrySetReplicationRoleReplica(
-      ReplicationServerConfig{
-          .repl_server = Endpoint(local_host, replica1_port),
-      },
-      std::nullopt);
+  replica1.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
+      .repl_server = Endpoint(local_host, replica1_port),
+  });
 
   uint16_t replica2_port = 10002;
   MinMemgraph replica2(repl2_conf);
-  replica2.repl_handler.TrySetReplicationRoleReplica(
-      ReplicationServerConfig{
-          .repl_server = Endpoint(local_host, replica2_port),
-      },
-      std::nullopt);
+  replica2.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
+      .repl_server = Endpoint(local_host, replica2_port),
+  });
   ASSERT_FALSE(main.repl_handler
                    .TryRegisterReplica(ReplicationClientConfig{
                        .name = replicas[0],
@@ -1025,18 +1003,14 @@ TEST_F(ReplicationTest, ReplicationReplicaWithExistingEndPoint) {
 
   MinMemgraph main(main_conf);
   MinMemgraph replica1(repl_conf);
-  replica1.repl_handler.TrySetReplicationRoleReplica(
-      ReplicationServerConfig{
-          .repl_server = Endpoint(local_host, common_port),
-      },
-      std::nullopt);
+  replica1.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
+      .repl_server = Endpoint(local_host, common_port),
+  });
 
   MinMemgraph replica2(repl2_conf);
-  replica2.repl_handler.TrySetReplicationRoleReplica(
-      ReplicationServerConfig{
-          .repl_server = Endpoint(local_host, common_port),
-      },
-      std::nullopt);
+  replica2.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
+      .repl_server = Endpoint(local_host, common_port),
+  });
 
   ASSERT_FALSE(main.repl_handler
                    .TryRegisterReplica(ReplicationClientConfig{
@@ -1074,18 +1048,14 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartupAfterDroppingReplica) {
   std::optional<MinMemgraph> main(main_config);
   MinMemgraph replica1(replica1_config);
 
-  replica1.repl_handler.TrySetReplicationRoleReplica(
-      ReplicationServerConfig{
-          .repl_server = Endpoint(local_host, ports[0]),
-      },
-      std::nullopt);
+  replica1.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
+      .repl_server = Endpoint(local_host, ports[0]),
+  });
 
   MinMemgraph replica2(replica2_config);
-  replica2.repl_handler.TrySetReplicationRoleReplica(
-      ReplicationServerConfig{
-          .repl_server = Endpoint(local_host, ports[1]),
-      },
-      std::nullopt);
+  replica2.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
+      .repl_server = Endpoint(local_host, ports[1]),
+  });
 
   auto res = main->repl_handler.TryRegisterReplica(ReplicationClientConfig{
       .name = replicas[0],
@@ -1135,19 +1105,15 @@ TEST_F(ReplicationTest, RestoringReplicationAtStartup) {
   std::optional<MinMemgraph> main(main_config);
   MinMemgraph replica1(repl_conf);
 
-  replica1.repl_handler.TrySetReplicationRoleReplica(
-      ReplicationServerConfig{
-          .repl_server = Endpoint(local_host, ports[0]),
-      },
-      std::nullopt);
+  replica1.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
+      .repl_server = Endpoint(local_host, ports[0]),
+  });
 
   MinMemgraph replica2(repl2_conf);
 
-  replica2.repl_handler.TrySetReplicationRoleReplica(
-      ReplicationServerConfig{
-          .repl_server = Endpoint(local_host, ports[1]),
-      },
-      std::nullopt);
+  replica2.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
+      .repl_server = Endpoint(local_host, ports[1]),
+  });
   auto res = main->repl_handler.TryRegisterReplica(ReplicationClientConfig{
       .name = replicas[0],
       .mode = ReplicationMode::SYNC,
@@ -1488,7 +1454,7 @@ TEST_F(ReplicationTest, SchemaReplication) {
   std::optional<MinMemgraph> replica(repl_conf);
 
   replica->repl_handler.TrySetReplicationRoleReplica(
-      ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])}, std::nullopt);
+      ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])});
 
   const auto &reg = main->repl_handler.TryRegisterReplica(ReplicationClientConfig{
       .name = "REPLICA",
@@ -1627,7 +1593,7 @@ TEST_F(ReplicationTest, SchemaReplication) {
   auto start_replica = [&]() {
     replica.emplace(repl_conf);
     replica->repl_handler.TrySetReplicationRoleReplica(
-        ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])}, std::nullopt);
+        ReplicationServerConfig{.repl_server = Endpoint(local_host, ports[0])});
     {
       int tries = 0;
       while (main->repl_handler.ShowReplicas().GetValue().entries_[0].data_info_.at("memgraph").state_ !=
