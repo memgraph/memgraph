@@ -757,8 +757,8 @@ LIBSODIUM_VERSION=1.0.20
 LIBUNWIND_VERSION=1.8.1
 # SNAPPY_SHA256=75c1fbb3d618dd3a0483bff0e26d0a92b495bbe5059c8b4f1c962b478b6e06e7
 # SNAPPY_VERSION=1.1.9
-PYTHON_VERSION=3.12.9
-PYTHON_MD5=ce613c72fa9b32fb4f109762d61b249b
+# PYTHON_VERSION=3.12.9
+# PYTHON_MD5=ce613c72fa9b32fb4f109762d61b249b
 SNAPPY_SHA256=90f74bc1fbf78a6c56b3c4a082a05103b3a56bb17bca1a27e052ea11723292dc
 SNAPPY_VERSION=1.2.2
 XZ_VERSION=5.6.3 # for LZMA
@@ -802,9 +802,9 @@ fi
 if [ ! -f proxygen-$FBLIBS_VERSION.tar.gz ]; then
     wget https://github.com/facebook/proxygen/releases/download/v$FBLIBS_VERSION/proxygen-v$FBLIBS_VERSION.tar.gz -O proxygen-$FBLIBS_VERSION.tar.gz
 fi
-if [ ! -f Python-$PYTHON_VERSION.tgz ]; then
-    wget https://www.python.org/ftp/python/$PYTHON_VERSION/Python-$PYTHON_VERSION.tgz -O Python-$PYTHON_VERSION.tgz
-fi
+# if [ ! -f Python-$PYTHON_VERSION.tgz ]; then
+#     wget https://www.python.org/ftp/python/$PYTHON_VERSION/Python-$PYTHON_VERSION.tgz -O Python-$PYTHON_VERSION.tgz
+# fi
 if [ ! -f snappy-$SNAPPY_VERSION.tar.gz ]; then
     wget https://github.com/google/snappy/archive/refs/tags/$SNAPPY_VERSION.tar.gz -O snappy-$SNAPPY_VERSION.tar.gz
 fi
@@ -865,7 +865,7 @@ fi
 # verify proxygen
 echo "$PROXYGEN_SHA256 proxygen-$FBLIBS_VERSION.tar.gz" | sha256sum -c
 # verify python
-echo "$PYTHON_MD5 Python-$PYTHON_VERSION.tgz" | md5sum -c
+# echo "$PYTHON_MD5 Python-$PYTHON_VERSION.tgz" | md5sum -c
 # verify snappy
 echo "$SNAPPY_SHA256  snappy-$SNAPPY_VERSION.tar.gz" | sha256sum -c
 # verify xz
@@ -944,18 +944,18 @@ if [ ! -f $PREFIX/include/bzlib.h ]; then
     popd
 fi
 
-log_tool_name "python $PYTHON_VERSION"
-if [ ! -f $PREFIX/include/python${PYTHON_VERSION%.*}/Python.h ]; then
-    if [ -d python3-$PYTHON_VERSION ]; then
-        rm -rf Python-$PYTHON_VERSION
-    fi
-    tar -xzf ../archives/Python-$PYTHON_VERSION.tgz
-    pushd Python-$PYTHON_VERSION
-    ./configure --enable-shared=yes --prefix=$PREFIX --enable-optimizations --with-ensurepip=install --with-virtualenv=yes
-    make -j$CPUS CFLAGS="$CFLAGS"
-    make install
-    popd
-fi
+# log_tool_name "python $PYTHON_VERSION"
+# if [ ! -f $PREFIX/include/python${PYTHON_VERSION%.*}/Python.h ]; then
+#     if [ -d python3-$PYTHON_VERSION ]; then
+#         rm -rf Python-$PYTHON_VERSION
+#     fi
+#     tar -xzf ../archives/Python-$PYTHON_VERSION.tgz
+#     pushd Python-$PYTHON_VERSION
+#     ./configure --enable-shared=yes --prefix=$PREFIX --enable-optimizations --with-ensurepip=install --with-virtualenv=yes
+#     make -j$CPUS CFLAGS="$CFLAGS"
+#     make install
+#     popd
+# fi
 
 log_tool_name "xz $XZ_VERSION"
 if [ ! -f $PREFIX/include/lzma.h ]; then
