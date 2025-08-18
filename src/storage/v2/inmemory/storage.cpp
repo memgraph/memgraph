@@ -166,8 +166,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
                 config.durability.storage_directory / durability::kWalDirectory},
       lock_file_path_(config.durability.storage_directory / durability::kLockFile),
       snapshot_periodic_observer_(std::make_shared<PeriodicSnapshotObserver>(snapshot_runner_)),
-      global_locker_(file_retainer_.AddLocker()),
-      async_indexer_{stop_source.get_token(), this} {
+      global_locker_(file_retainer_.AddLocker()) {
   MG_ASSERT(config.salient.storage_mode != StorageMode::ON_DISK_TRANSACTIONAL,
             "Invalid storage mode sent to InMemoryStorage constructor!");
   if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
@@ -246,6 +245,8 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     }
   }
 
+  /// ###### From here onwards it is now safe to actually run async tasks ######
+
   if (free_mem_fn_override) {
     free_memory_func_ = *std::move(free_mem_fn_override);
   } else {
@@ -288,6 +289,8 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
   }
 
   flags::run_time::SnapshotPeriodicAttach(snapshot_periodic_observer_);
+
+  async_indexer_.Start(stop_source.get_token(), this);
 }
 
 InMemoryStorage::~InMemoryStorage() {

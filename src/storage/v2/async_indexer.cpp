@@ -17,7 +17,47 @@
 
 namespace memgraph::storage {
 
-AsyncIndexer::AsyncIndexer(std::stop_token stop_token, Storage *storage) {
+AsyncIndexer::~AsyncIndexer() { cv_.notify_one(); }
+
+void AsyncIndexer::Enqueue(LabelId label) {
+  request_queue_.access().insert(label);
+  cv_.notify_one();
+}
+
+void AsyncIndexer::Enqueue(EdgeTypeId edge_type) {
+  request_queue_.access().insert(edge_type);
+  cv_.notify_one();
+}
+
+void AsyncIndexer::Enqueue(LabelId label, PropertiesPaths properties) {
+  request_queue_.access().insert(LabelProperties{label, std::move(properties)});
+  cv_.notify_one();
+}
+
+void AsyncIndexer::Enqueue(PropertyId property) {
+  request_queue_.access().insert(property);
+  cv_.notify_one();
+}
+
+void AsyncIndexer::RunGC() { request_queue_.run_gc(); }
+
+void AsyncIndexer::Clear() {
+  // SkipList clear is not thread safe
+  // need to make sure it is not being scanned
+  auto lock = std::unique_lock{mutex_};
+  request_queue_.clear();
+}
+
+bool AsyncIndexer::IsIdle() const {
+  std::lock_guard const lock(mutex_);
+  // no work to pickup and not currently working
+  // OR we have stopped the worker thread
+  return (request_queue_.size() == 0 && !is_processing_.load()) || HasThreadStopped();
+}
+
+bool AsyncIndexer::HasThreadStopped() const { return thread_has_stopped_.load(); }
+
+void AsyncIndexer::Start(std::stop_token stop_token, Storage *storage) {
   index_creator_thread_ = std::jthread{[this, stop_token, storage]() {
     auto on_exit = utils::OnScopeExit{[this] { thread_has_stopped_ = true; }};
 
@@ -92,43 +132,4 @@ AsyncIndexer::AsyncIndexer(std::stop_token stop_token, Storage *storage) {
   }};
 }
 
-AsyncIndexer::~AsyncIndexer() { cv_.notify_one(); }
-
-void AsyncIndexer::Enqueue(LabelId label) {
-  request_queue_.access().insert(label);
-  cv_.notify_one();
-}
-
-void AsyncIndexer::Enqueue(EdgeTypeId edge_type) {
-  request_queue_.access().insert(edge_type);
-  cv_.notify_one();
-}
-
-void AsyncIndexer::Enqueue(LabelId label, PropertiesPaths properties) {
-  request_queue_.access().insert(LabelProperties{label, std::move(properties)});
-  cv_.notify_one();
-}
-
-void AsyncIndexer::Enqueue(PropertyId property) {
-  request_queue_.access().insert(property);
-  cv_.notify_one();
-}
-
-void AsyncIndexer::RunGC() { request_queue_.run_gc(); }
-
-void AsyncIndexer::Clear() {
-  // SkipList clear is not thread safe
-  // need to make sure it is not being scanned
-  auto lock = std::unique_lock{mutex_};
-  request_queue_.clear();
-}
-
-bool AsyncIndexer::IsIdle() const {
-  std::lock_guard const lock(mutex_);
-  // no work to pickup and not currently working
-  // OR we have stopped the worker thread
-  return (request_queue_.size() == 0 && !is_processing_.load()) || HasThreadStopped();
-}
-
-bool AsyncIndexer::HasThreadStopped() const { return thread_has_stopped_.load(); }
 }  // namespace memgraph::storage

@@ -671,8 +671,6 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
   RecoverIndicesStatsAndConstraints(vertices, name_id_mapper, indices, constraints, config, recovery_info,
                                     indices_constraints, config.salient.items.properties_on_edges);
 
-  // TODO Recover TTL here (after IndicesStatsAndConstraints)
-
   memgraph::metrics::Measure(memgraph::metrics::SnapshotRecoveryLatency_us,
                              std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
   spdlog::trace("Epoch id: {}. Last durable commit timestamp: {}.", std::string(repl_storage_state.epoch_.id()),

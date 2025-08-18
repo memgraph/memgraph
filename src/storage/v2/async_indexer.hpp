@@ -24,7 +24,7 @@ namespace memgraph::storage {
 class Storage;
 
 struct AsyncIndexer {
-  AsyncIndexer(std::stop_token stop_token, Storage *storage);
+  AsyncIndexer() = default;
 
   ~AsyncIndexer();
 
@@ -47,6 +47,9 @@ struct AsyncIndexer {
   /// Check if the async indexer thread has stopped (due to null protector or stop request)
   /// @return true if the background thread is no longer running, false otherwise
   bool HasThreadStopped() const;
+
+  /// After storage recovery we can Start then async task
+  void Start(std::stop_token stop_token, Storage *storage);
 
  private:
   struct LabelProperties {
