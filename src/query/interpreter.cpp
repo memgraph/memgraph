@@ -238,18 +238,14 @@ constexpr std::string_view kSocketErrorExplanation =
     "The socket address must be a string defining the address and port, delimited by a "
     "single colon. The address must be valid and the port must be an integer.";
 
-/**
- * @brief Helper function to ensure the instance is MAIN, not REPLICA
- * @param interpreter_context The interpreter context containing replication state
- * @param operation_name The name of the operation being attempted (for error message)
- * @throws QueryException if the instance is a REPLICA
- */
+#ifdef MG_ENTERPRISE
 void EnsureMainInstance(InterpreterContext *interpreter_context, const std::string &operation_name) {
   if (interpreter_context->repl_state.ReadLock()->IsReplica()) {
     throw QueryException(
         fmt::format("{} forbidden on REPLICA! This operation must be executed on the MAIN instance.", operation_name));
   }
 }
+#endif
 
 template <typename T, typename K>
 void Sort(std::vector<T, K> &vec) {
