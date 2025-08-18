@@ -951,7 +951,7 @@ if [ ! -f $PREFIX/include/python${PYTHON_VERSION%.*}/Python.h ]; then
     fi
     tar -xzf ../archives/Python-$PYTHON_VERSION.tgz
     pushd Python-$PYTHON_VERSION
-    ./configure $COMMON_CONFIGURE_FLAGS --enable-optimizations --with-ensurepip=install --with-virtualenv=yes
+    ./configure --enable-shared=yes --prefix=$PREFIX --enable-optimizations --with-ensurepip=install --with-virtualenv=yes
     make -j$CPUS
     make install
     popd
