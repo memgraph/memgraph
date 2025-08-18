@@ -20,6 +20,7 @@
 #include "replication/status.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
+#include "tests/test_commit_args_helper.hpp"
 #include "utils/logging.hpp"
 #include "utils/synchronized.hpp"
 
@@ -68,7 +69,7 @@ class ExpansionBenchFixture : public benchmark::Fixture {
         auto dest = dba->CreateVertex();
         MG_ASSERT(dba->CreateEdge(&start, &dest, edge_type).HasValue());
       }
-      MG_ASSERT(!dba->PrepareForCommitPhase().HasError());
+      MG_ASSERT(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
 
     {

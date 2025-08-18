@@ -3781,18 +3781,22 @@ antlrcpp::Any CypherMainVisitor::visitTtlQuery(MemgraphCypher::TtlQueryContext *
       DMG_ASSERT(false, "Unknown TTL command");
     }
   } else if (auto *execute = ctx->startTtlQuery()) {
-    ttl_query->type_ = TtlQuery::Type::ENABLE;
-    if (execute->AT()) {
-      if (!execute->time || !execute->time->StringLiteral()) {
-        throw SemanticException("Time has to be defined using a string literal. Ex: '12:32:07'");
+    if (!execute->AT() && !execute->EVERY()) {
+      ttl_query->type_ = TtlQuery::Type::START;
+    } else {
+      ttl_query->type_ = TtlQuery::Type::CONFIGURE;
+      if (execute->AT()) {
+        if (!execute->time || !execute->time->StringLiteral()) {
+          throw SemanticException("Time has to be defined using a string literal. Ex: '12:32:07'");
+        }
+        ttl_query->specific_time_ = std::any_cast<Expression *>(execute->time->accept(this));
       }
-      ttl_query->specific_time_ = std::any_cast<Expression *>(execute->time->accept(this));
-    }
-    if (execute->EVERY()) {
-      if (!execute->period || !execute->period->StringLiteral()) {
-        throw SemanticException("Period has to be defined using a string literal. Ex: '3m5s'");
+      if (execute->EVERY()) {
+        if (!execute->period || !execute->period->StringLiteral()) {
+          throw SemanticException("Period has to be defined using a string literal. Ex: '3m5s'");
+        }
+        ttl_query->period_ = std::any_cast<Expression *>(execute->period->accept(this));
       }
-      ttl_query->period_ = std::any_cast<Expression *>(execute->period->accept(this));
     }
   } else {
     DMG_ASSERT(false, "Unknown ttl query type");

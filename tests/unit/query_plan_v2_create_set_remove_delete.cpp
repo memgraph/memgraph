@@ -18,6 +18,7 @@
 #include "query/plan/operator.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "tests/test_commit_args_helper.hpp"
 using memgraph::replication_coordination_glue::ReplicationRole;
 
 template <typename StorageType>
@@ -103,7 +104,7 @@ TYPED_TEST(QueryPlan, ScanAll) {
   {
     auto dba = this->db->Access();
     for (int i = 0; i < 42; ++i) dba->CreateVertex();
-    EXPECT_FALSE(dba->PrepareForCommitPhase().HasError());
+    EXPECT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   memgraph::query::AstStorage ast;
   memgraph::query::SymbolTable symbol_table;
@@ -124,7 +125,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabel) {
   {
     auto unique_acc = this->db->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateIndex(label).HasError());
-    ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto dba = this->db->Access();
@@ -135,7 +136,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabel) {
       auto v = dba->CreateVertex();
       ASSERT_TRUE(v.AddLabel(label).HasValue());
     }
-    EXPECT_FALSE(dba->PrepareForCommitPhase().HasError());
+    EXPECT_FALSE(dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   auto dba = this->db->Access();
   memgraph::query::AstStorage ast;

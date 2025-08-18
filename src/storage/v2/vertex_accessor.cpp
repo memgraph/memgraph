@@ -169,7 +169,7 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
     storage_->stored_node_labels_.try_insert(label);
   }
 
-  transaction_->auto_index_helper_.Track(label);
+  transaction_->async_index_helper_.Track(label);
 
   /// TODO: some by pointers, some by reference => not good, make it better
   storage_->constraints_.unique_constraints_->UpdateOnAddLabel(label, *vertex_, transaction_->start_timestamp);

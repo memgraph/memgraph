@@ -25,6 +25,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
+#include "tests/test_commit_args_helper.hpp"
 #include "utils/exceptions.hpp"
 
 using memgraph::replication_coordination_glue::ReplicationRole;
@@ -190,7 +191,7 @@ TYPED_TEST(TriggerContextTest, ValidObjectsTest) {
     CheckTypedValueSize(trigger_context, memgraph::query::TriggerIdentifierTag::CREATED_OBJECTS,
                         vertex_count + edge_count, dba);
 
-    ASSERT_FALSE(dba.Commit().HasError());
+    ASSERT_FALSE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
@@ -257,7 +258,7 @@ TYPED_TEST(TriggerContextTest, ValidObjectsTest) {
     }
 
     dba.AdvanceCommand();
-    ASSERT_FALSE(dba.Commit().HasError());
+    ASSERT_FALSE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
 
     trigger_context = std::move(trigger_context_collector).TransformToTriggerContext();
     trigger_context_collector = memgraph::query::TriggerContextCollector{kAllEventTypes};
@@ -302,7 +303,7 @@ TYPED_TEST(TriggerContextTest, ValidObjectsTest) {
     --vertex_count;
     --edge_count;
 
-    ASSERT_FALSE(dba.Commit().HasError());
+    ASSERT_FALSE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {

@@ -20,12 +20,17 @@ bool DiskEdgePropertyIndex::DropIndex(PropertyId /*property*/) {
   return true;
 }
 
-bool DiskEdgePropertyIndex::ActiveIndices::IndexReady(PropertyId property) const {
+bool DiskEdgePropertyIndex::ActiveIndices::IndexExists(PropertyId /*property*/) const {
   spdlog::warn("Edge index related operations are not yet supported using on-disk storage mode.");
   return false;
 }
 
-std::vector<PropertyId> DiskEdgePropertyIndex::ActiveIndices::ListIndices(uint64_t start_timestamp) const {
+bool DiskEdgePropertyIndex::ActiveIndices::IndexReady(PropertyId /*property*/) const {
+  spdlog::warn("Edge index related operations are not yet supported using on-disk storage mode.");
+  return false;
+}
+
+std::vector<PropertyId> DiskEdgePropertyIndex::ActiveIndices::ListIndices(uint64_t /*start_timestamp*/) const {
   spdlog::warn("Edge index related operations are not yet supported using on-disk storage mode.");
   return {};
 }

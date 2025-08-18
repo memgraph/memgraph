@@ -133,6 +133,8 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
     uint64_t ApproximateEdgeCount(PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower,
                                   const std::optional<utils::Bound<PropertyValue>> &upper) const override;
 
+    bool IndexExists(PropertyId property) const override;
+
     bool IndexReady(PropertyId property) const override;
 
     std::vector<PropertyId> ListIndices(uint64_t start_timestamp) const override;
@@ -157,8 +159,8 @@ class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
   bool RegisterIndex(PropertyId property);
   auto PopulateIndex(PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
-                     Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
-      -> utils::BasicResult<IndexPopulateError>;
+                     Transaction const *tx = nullptr,
+                     CheckCancelFunction cancel_check = neverCancel) -> utils::BasicResult<IndexPopulateError>;
   bool PublishIndex(PropertyId property, uint64_t commit_timestamp);
 
   /// Returns false if there was no index to drop

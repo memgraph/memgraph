@@ -146,7 +146,7 @@ struct Recovery {
       NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints, Config const &config,
       uint64_t *wal_seq_num, EnumStore *enum_store, SharedSchemaTracking *schema_info,
       std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
-      std::string const &db_name);
+      std::string const &db_name, memgraph::storage::ttl::TTL *ttl);
 
   const std::filesystem::path snapshot_directory_;
   const std::filesystem::path wal_directory_;

@@ -462,7 +462,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints, Config const &config,
     uint64_t *wal_seq_num, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
-    std::string const &db_name) {
+    std::string const &db_name, memgraph::storage::ttl::TTL *ttl) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   spdlog::info("Recovering persisted data using snapshot ({}) and WAL directory ({}).", snapshot_directory_,
                wal_directory_);
@@ -499,7 +499,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
       spdlog::info("Starting snapshot recovery from {}.", path);
       try {
         recovered_snapshot = LoadSnapshot(path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
-                                          edge_count, config, enum_store, schema_info);
+                                          edge_count, config, enum_store, schema_info, ttl);
         spdlog::info("Snapshot recovery successful!");
         break;
       } catch (const RecoveryFailure &e) {
@@ -609,7 +609,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
 
       try {
         auto info = LoadWal(wal_file.path, &indices_constraints, last_loaded_timestamp, vertices, edges, name_id_mapper,
-                            edge_count, config.salient.items, enum_store, schema_info, find_edge);
+                            edge_count, config.salient.items, enum_store, schema_info, find_edge, ttl);
         // Update recovery info data only if WAL file was used and its deltas loaded
 
         bool wal_contains_changes{false};
