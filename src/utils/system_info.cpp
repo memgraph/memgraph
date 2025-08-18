@@ -109,7 +109,7 @@ uint8_t DetectX86LevelFromFlags(const std::unordered_set<std::string> &flags) {
 }
 
 uint8_t DetectArmArchitectureLevel(const std::vector<std::string> &cpu_data) {
-  for (auto &row : cpu_data) {
+  for (const auto &row : cpu_data) {
     auto tmp = utils::Trim(row);
     if (utils::StartsWith(tmp, "CPU architecture")) {
       auto split = utils::Split(tmp, ":");
@@ -123,7 +123,7 @@ uint8_t DetectArmArchitectureLevel(const std::vector<std::string> &cpu_data) {
 std::string ExtractArmCPUVariant(const std::vector<std::string> &cpu_data) {
   std::string variant;
   std::string implementer;
-  for (auto &row : cpu_data) {
+  for (const auto &row : cpu_data) {
     auto tmp = utils::Trim(row);
     if (utils::StartsWith(tmp, "CPU implementer")) {
       auto split = utils::Split(tmp, ":");
