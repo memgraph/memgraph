@@ -1517,7 +1517,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
             throw utils::BasicException("Failed to drop vector index {}", data.index_name);
           }
         },
-        [&](WalTtlOperation const &data) {
+        [&]([[maybe_unused]] WalTtlOperation const &data) {
 #ifdef MG_ENTERPRISE
           spdlog::trace("   Delta {}. TTL operation type {}", current_delta_idx, static_cast<int>(data.operation_type));
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);

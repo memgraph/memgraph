@@ -345,17 +345,21 @@ void DumpPointIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId l
 void DumpVectorIndex(std::ostream *os, query::DbAccessor *dba, const storage::VectorIndexSpec &spec) {
   *os << "CREATE VECTOR INDEX " << EscapeName(spec.index_name) << " ON :" << EscapeName(dba->LabelToName(spec.label_id))
       << "(" << EscapeName(dba->PropertyToName(spec.property)) << ") WITH CONFIG { "
-      << "\"dimension\": " << spec.dimension << ", " << R"("metric": ")" << storage::NameFromMetric(spec.metric_kind)
-      << "\", " << "\"capacity\": " << spec.capacity << ", " << "\"resize_coefficient\": " << spec.resize_coefficient
-      << ", " << R"("scalar_kind": ")" << storage::NameFromScalar(spec.scalar_kind) << "\" };";
+      << "\"dimension\": " << spec.dimension << ", "
+      << R"("metric": ")" << storage::NameFromMetric(spec.metric_kind) << "\", "
+      << "\"capacity\": " << spec.capacity << ", "
+      << "\"resize_coefficient\": " << spec.resize_coefficient << ", "
+      << R"("scalar_kind": ")" << storage::NameFromScalar(spec.scalar_kind) << "\" };";
 }
 
 void DumpVectorEdgeIndex(std::ostream *os, query::DbAccessor *dba, const storage::VectorEdgeIndexSpec &spec) {
   *os << "CREATE VECTOR EDGE INDEX " << EscapeName(spec.index_name)
       << " ON :" << EscapeName(dba->EdgeTypeToName(spec.edge_type_id)) << "("
-      << EscapeName(dba->PropertyToName(spec.property)) << ") WITH CONFIG { " << "\"dimension\": " << spec.dimension
-      << ", " << R"("metric": ")" << storage::NameFromMetric(spec.metric_kind) << "\", "
-      << "\"capacity\": " << spec.capacity << ", " << "\"resize_coefficient\": " << spec.resize_coefficient << ", "
+      << EscapeName(dba->PropertyToName(spec.property)) << ") WITH CONFIG { "
+      << "\"dimension\": " << spec.dimension << ", "
+      << R"("metric": ")" << storage::NameFromMetric(spec.metric_kind) << "\", "
+      << "\"capacity\": " << spec.capacity << ", "
+      << "\"resize_coefficient\": " << spec.resize_coefficient << ", "
       << R"("scalar_kind": ")" << storage::NameFromScalar(spec.scalar_kind) << "\" };";
 }
 
@@ -617,6 +621,7 @@ PullPlanDump::PullChunk PullPlanDump::CreateEdgePropertyIndicesPullChunk() {
 
 PullPlanDump::PullChunk PullPlanDump::CreateTTLConfigPullChunk() {
   // Dump all TTL config if enabled
+  // NOLINTNEXTLINE(clang-diagnostic-unused-lambda-capture)
   return [this](AnyStream *stream, std::optional<int> /*n*/) mutable -> std::optional<size_t> {
 #ifdef MG_ENTERPRISE
     auto const &ttl = dba_->GetTtlConfig();
