@@ -108,22 +108,27 @@ def get_tidy_invocation(
         os.close(handle)
         start.append(name)
 
-    # Auto-detect and prioritize local mgcxx headers over toolchain headers
+    # Prioritize local mgcxx headers over toolchain headers
     # This fixes issues where clang-tidy uses old mgcxx headers from toolchain
     # TODO (@DavIvek): This can be removed once the toolchain is updated
     mgcxx_local_include = None
     if build_path:
         # Try to find the local mgcxx include directory relative to build path
-        # For both relative ("build") and absolute ("/path/to/memgraph/build") paths,
-        # we need to go to the parent directory and then to libs/mgcxx/include
         build_parent = os.path.dirname(os.path.abspath(build_path))
         potential_mgcxx_path = os.path.join(build_parent, "libs", "mgcxx", "include")
         if os.path.exists(potential_mgcxx_path):
             mgcxx_local_include = potential_mgcxx_path
 
-    # Add mgcxx include as regular include
+    # Add local mgcxx headers with highest priority using -iquote
+    # -iquote has the highest priority for #include "..." directives
     if mgcxx_local_include:
-        extra_arg_before = ["-I" + mgcxx_local_include] + list(extra_arg_before)
+        # Print debug info to stderr (will be visible in CI logs)
+        print(f"[MGCXX_FIX] Using local mgcxx headers: {mgcxx_local_include}", file=sys.stderr)
+        extra_arg_before = [
+            "-iquote",
+            mgcxx_local_include,
+            "-I" + mgcxx_local_include,
+        ] + list(extra_arg_before)
 
     for arg in extra_arg:
         start.append("-extra-arg=%s" % arg)
