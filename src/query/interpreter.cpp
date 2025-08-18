@@ -238,6 +238,19 @@ constexpr std::string_view kSocketErrorExplanation =
     "The socket address must be a string defining the address and port, delimited by a "
     "single colon. The address must be valid and the port must be an integer.";
 
+/**
+ * @brief Helper function to ensure the instance is MAIN, not REPLICA
+ * @param interpreter_context The interpreter context containing replication state
+ * @param operation_name The name of the operation being attempted (for error message)
+ * @throws QueryException if the instance is a REPLICA
+ */
+void EnsureMainInstance(InterpreterContext *interpreter_context, const std::string &operation_name) {
+  if (interpreter_context->repl_state.ReadLock()->IsReplica()) {
+    throw QueryException(
+        fmt::format("{} forbidden on REPLICA! This operation must be executed on the MAIN instance.", operation_name));
+  }
+}
+
 template <typename T, typename K>
 void Sort(std::vector<T, K> &vec) {
   std::sort(vec.begin(), vec.end());
@@ -4023,6 +4036,9 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
         license::LicenseCheckErrorToString(license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "TTL"));
   }
 
+  // Ensure TTL operations are only performed on MAIN instance
+  EnsureMainInstance(interpreter_context, "TTL operations");
+
   if (in_explicit_transaction) {
     throw TtlInMulticommandTxException();
   }
@@ -4062,19 +4078,14 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
         bool run_edge_ttl = db_acc->config().salient.items.properties_on_edges &&
                             db_acc->GetStorageMode() != storage::StorageMode::ON_DISK_TRANSACTIONAL;
         auto ttl_info = storage::ttl::TtlInfo{period, start_time, run_edge_ttl};
-        if (interpreter_context->repl_state.ReadLock()->IsReplica()) {
-          // Special case for REPLICA
-          info = "TTL configured. Background job will not run, since instance is REPLICA.";
-        } else {
-          // TTL could already be configured; use the present config if no user-defined config
-          info = "Starting time-to-live worker. Will be executed";
-          if (ttl_info)
-            info += ttl_info.ToString();
-          else {
-            // Get current TTL config through DbAccessor
-            auto current_ttl_config = dba->GetTtlConfig();
-            if (current_ttl_config) info += current_ttl_config.ToString();
-          }
+        // TTL could already be configured; use the present config if no user-defined config
+        info = "Starting time-to-live worker. Will be executed";
+        if (ttl_info)
+          info += ttl_info.ToString();
+        else {
+          // Get current TTL config through DbAccessor
+          auto current_ttl_config = dba->GetTtlConfig();
+          if (current_ttl_config) info += current_ttl_config.ToString();
         }
 
         handler = [db_acc = std::move(db_acc), dba, ttl_info,
@@ -4090,7 +4101,6 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
       break;
     }
     case TtlQuery::Type::DISABLE: {
-      // TODO: not just storage. Need a DB transaction (for replication)
       handler = [db_acc = std::move(db_acc), dba](Notification &notification) mutable {
         dba->DisableTtl();
         notification.code = NotificationCode::DISABLE_TTL;
