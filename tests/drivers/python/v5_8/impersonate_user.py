@@ -803,38 +803,37 @@ with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted
         assert memory_limit == "UNLIMITED", f"Expected memory limit UNLIMITED, got {memory_limit}"
 
 # Test role-based profile inheritance with impersonation
-with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted=False) as driver:
-    with driver.session() as session:
-        # Create role and assign profile
-        session.run("CREATE ROLE limit_role;").consume()
-        session.run("CREATE PROFILE role_profile LIMIT SESSIONS 5, TRANSACTIONS_MEMORY 300MB;").consume()
-        session.run("SET PROFILE FOR limit_role TO role_profile;").consume()
-        session.run("SET ROLE FOR limit_user2 TO limit_role;").consume()
+# NOTE Role based profiles are currently disabled
+# with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted=False) as driver:
+#     with driver.session() as session:
+#         # Create role and assign profile
+#         session.run("CREATE ROLE limit_role;").consume()
+#         session.run("CREATE PROFILE role_profile LIMIT SESSIONS 5, TRANSACTIONS_MEMORY 300MB;").consume()
+#         session.run("SET PROFILE FOR limit_role TO role_profile;").consume()
+#         session.run("SET ROLE FOR limit_user2 TO limit_role;").consume()
 
-    # Test that impersonated user inherits role profile when no direct profile
-    with driver.session(impersonated_user="limit_user2") as session:
-        resource_usage = session.run("SHOW RESOURCE USAGE FOR limit_user2;").values()
-        sessions_limit = None
-        memory_limit = None
-        for row in resource_usage:
-            if row[0] == "sessions":
-                sessions_limit = row[2]
-            elif row[0] == "transactions_memory":
-                memory_limit = row[2]
+#     # Test that impersonated user inherits role profile when no direct profile
+#     with driver.session(impersonated_user="limit_user2") as session:
+#         resource_usage = session.run("SHOW RESOURCE USAGE FOR limit_user2;").values()
+#         sessions_limit = None
+#         memory_limit = None
+#         for row in resource_usage:
+#             if row[0] == "sessions":
+#                 sessions_limit = row[2]
+#             elif row[0] == "transactions_memory":
+#                 memory_limit = row[2]
 
-        # Should inherit from role profile (5 sessions, 300MB)
-        assert sessions_limit == 5, f"Expected sessions limit 5, got {sessions_limit}"
-        assert memory_limit == "300.00MiB", f"Expected memory limit 300.00MiB, got {memory_limit}"
+#         # Should inherit from role profile (5 sessions, 300MB)
+#         assert sessions_limit == 5, f"Expected sessions limit 5, got {sessions_limit}"
+#         assert memory_limit == "300.00MiB", f"Expected memory limit 300.00MiB, got {memory_limit}"
 
 # Cleanup limit test users and profiles
 with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted=False) as driver:
     with driver.session() as session:
         session.run("DROP USER limit_user1;").consume()
         session.run("DROP USER limit_user2;").consume()
-        session.run("DROP ROLE limit_role;").consume()
         session.run("DROP PROFILE limit_profile1;").consume()
         session.run("DROP PROFILE limit_profile2;").consume()
-        session.run("DROP PROFILE role_profile;").consume()
         session.run("DROP PROFILE admin_profile;").consume()
 
 
