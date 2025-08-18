@@ -299,6 +299,10 @@ TEST_F(DatabaseProtectorTest, AsyncIndexerCompletesBeforeShutdown) {
   // Now simulate database drop
   notifier.simulate_database_drop = true;
 
+  // Even if we enqueue more work, the async indexer should stop after the database drop
+  auto label2 = storage->NameToLabel("TestLabel2");
+  CreateVerticesWithLabel(storage.get(), label2, 5);
+
   // Wait for the async indexer thread to detect the database drop and become idle
   EXPECT_TRUE(WaitForAsyncIndexerIdle(storage.get()))
       << "Async indexer should become idle within 2 seconds after database drop";

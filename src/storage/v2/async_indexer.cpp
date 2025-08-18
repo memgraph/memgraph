@@ -126,7 +126,9 @@ void AsyncIndexer::Clear() {
 
 bool AsyncIndexer::IsIdle() const {
   std::lock_guard const lock(mutex_);
-  return request_queue_.size() == 0 && !is_processing_.load();
+  // no work to pickup and not currently working
+  // OR we have stopped the worker thread
+  return (request_queue_.size() == 0 && !is_processing_.load()) || HasThreadStopped();
 }
 
 bool AsyncIndexer::HasThreadStopped() const { return thread_has_stopped_.load(); }

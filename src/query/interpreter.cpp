@@ -7268,6 +7268,8 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
 
     bool const write_query = IsQueryWrite(rw_type);
     if (write_query) {
+      // TODO: This is a catch all for operations that should not be allowed to run via user query on REPLICA
+      //       prefer more explicit EnsureMainInstance(interpreter_context, "XYZ operations");
       if (interpreter_context_->repl_state.ReadLock()->IsReplica()) {
         query_execution = nullptr;
         throw WriteQueryOnReplicaException();
