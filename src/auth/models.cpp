@@ -83,6 +83,7 @@ const std::vector<Permission> kPermissionsAll = {
     Permission::MULTI_DATABASE_USE,
     Permission::COORDINATOR,
     Permission::IMPERSONATE_USER,
+    Permission::PROFILE_RESTRICTION,
 };
 
 #ifdef MG_ENTERPRISE
@@ -165,6 +166,8 @@ std::string PermissionToString(Permission permission) {
       return "COORDINATOR";
     case Permission::IMPERSONATE_USER:
       return "IMPERSONATE_USER";
+    case Permission::PROFILE_RESTRICTION:
+      return "PROFILE_RESTRICTION";
   }
 }
 
@@ -904,6 +907,7 @@ FineGrainedAccessHandler &User::fine_grained_access_handler() { return fine_grai
 #endif
 
 nlohmann::json User::Serialize() const {
+  // NOTE: Role and Profile are stored as links to the role and profile lists.
   nlohmann::json data = nlohmann::json::object();
   data[kUsername] = username_;
   data[kUUID] = uuid_;
