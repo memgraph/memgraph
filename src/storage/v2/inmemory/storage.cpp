@@ -475,7 +475,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
     guard_from.lock();
   }
 
-  transaction_.auto_index_helper_.Track(edge_type);
+  transaction_.async_index_helper_.Track(edge_type);
 
   if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
   if (from_vertex->deleted) return Error::DELETED_OBJECT;
@@ -917,7 +917,7 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
 
   // Dispatch to another async work to create requested auto-indexes in their own transaction
   if (mem_storage->storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) {
-    transaction_.auto_index_helper_.DispatchRequests(mem_storage->async_indexer_);
+    transaction_.async_index_helper_.DispatchRequests(mem_storage->async_indexer_);
   }
   // TODO: can and should this be moved earlier?
   mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
@@ -1959,7 +1959,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
     active_indices = GetActiveIndices();
   }
 
-  auto auto_index_helper = AutoIndexHelper{config_, *active_indices, start_timestamp};
+  auto async_index_helper = AsyncIndexHelper{config_, *active_indices, start_timestamp};
 
   DMG_ASSERT(point_index_context.has_value(), "Expected a value, even if got 0 point indexes");
   return {transaction_id,
@@ -1970,7 +1970,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
           !constraints_.empty(),
           *std::move(point_index_context),
           *std::move(active_indices),
-          std::move(auto_index_helper),
+          std::move(async_index_helper),
           last_durable_ts};
 }
 
