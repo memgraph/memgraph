@@ -17,6 +17,7 @@
 #include "query/interpreter.hpp"
 
 #include "system/include/system/system.hpp"
+#include "utils/resource_monitoring.hpp"
 namespace memgraph::query {
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
@@ -27,6 +28,7 @@ InterpreterContext::InterpreterContext(
     utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> &rs, memgraph::system::System &system,
 #ifdef MG_ENTERPRISE
     std::optional<std::reference_wrapper<memgraph::coordination::CoordinatorState>> const &coordinator_state,
+    utils::ResourceMonitoring *resource_monitoring,
 #endif
     AuthQueryHandler *ah, AuthChecker *ac, ReplicationQueryHandler *replication_handler)
     : dbms_handler(dbms_handler),
@@ -34,6 +36,7 @@ InterpreterContext::InterpreterContext(
       repl_state(rs),
 #ifdef MG_ENTERPRISE
       coordinator_state_(coordinator_state),
+      resource_monitoring(resource_monitoring),
 #endif
       auth(ah),
       auth_checker(ac),

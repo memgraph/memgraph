@@ -227,3 +227,7 @@ workloads:
     proc: "tests/e2e/memory/procedures/"
     args: ["--bolt-port", *bolt_port]
     <<: *in_memory_limited_global_limit_cluster
+
+  - name: "User profile test"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["memory/user_limits.py"]

@@ -403,7 +403,7 @@ class Storage {
 
     std::optional<uint64_t> GetTransactionId() const;
 
-    std::unique_ptr<utils::QueryMemoryTracker> &GetQueryMemoryTracker();
+    utils::QueryMemoryTracker &GetTransactionMemoryTracker();
 
     void AdvanceCommand();
 
