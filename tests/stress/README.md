@@ -13,13 +13,13 @@ memgraph:
     # Specifies the path to the deployment script
     # Deployment script needs to setup and cleanup the Memgraph ecosystem it is run on.
     # Script needs to have methods for start, stop and status, since continuous integration
-    # calls the script with these arguments. Optionally, the script can have an additional 
+    # calls the script with these arguments. Optionally, the script can have an additional
     # argument to pass memgraph flags to the cluster, which will override the existing cluster
-    # flags. Stopping of the cluster needs to guarantee the cleanup of the resources so that 
+    # flags. Stopping of the cluster needs to guarantee the cleanup of the resources so that
     # no files or directories are left behind. Check binary_standalone.sh for more info.
     script: <path to script>
   args:
-    # Additional memgraph arguments that are passed. Overrides the arguments from the 
+    # Additional memgraph arguments that are passed. Overrides the arguments from the
     # deployment script.
     - "--telemetry-enabled=false"  # Disables telemetry.
     - "--bolt-server-name-for-init=Neo4j/"  # Specifies the Bolt server name.
@@ -90,6 +90,10 @@ customWorkloads:
           # (Optional) Step number for phased executions. If nothing is specified, worker will have step of value (1), which means
           # it will be executed first. For phased execution, you can specify different non-negative integer numbers. Each step
           # will execute the set of workers that apply to the step one after other.
+          metrics: <list> # Metrics that will be displayed
+          # Values for metrics:
+          # "duration" -> will display how long the worker took to finish
+          # "throughput" -> will display the throughput in amount of queries per second after the execution is done
       timeout_min: <int>
       # Maximum execution time for the workload in minutes. Failing to execute the workload in this amount of minutes
       # will result in a failure of the stress test
