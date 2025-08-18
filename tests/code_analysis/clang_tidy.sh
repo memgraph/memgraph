@@ -22,12 +22,20 @@ cd $PROJECT_ROOT
 
 # Debug: Show include paths that clang-tidy will use
 echo "=== DEBUG: Checking clang-tidy include paths ==="
-echo "Testing clang-tidy on text_index.cpp to show include resolution..."
-./tools/github/clang-tidy/clang-tidy-diff.py -p 1 -j 1 -path build -extra-arg=-v -regex "text_index\.cpp" < <(echo "--- a/src/storage/v2/indices/text_index.cpp
-+++ b/src/storage/v2/indices/text_index.cpp
-@@ -1 +1 @@
--// dummy diff to trigger clang-tidy
-+// dummy diff to trigger clang-tidy") 2>&1 | head -100 || true
+echo "Compile command for text_index.cpp:"
+if [ -f "build/compile_commands.json" ]; then
+  grep -A5 -B5 "text_index.cpp" build/compile_commands.json | head -20 || echo "text_index.cpp not found in compile_commands.json"
+else
+  echo "compile_commands.json not found"
+fi
+echo ""
+echo "Running clang-tidy directly on text_index.cpp to show include resolution..."
+if [ -f "src/storage/v2/indices/text_index.cpp" ]; then
+  # Run clang-tidy directly with verbose output
+  clang-tidy -p build --extra-arg=-v src/storage/v2/indices/text_index.cpp 2>&1 | head -50 || true
+else
+  echo "text_index.cpp not found"
+fi
 echo "=== END DEBUG ==="
 
 git diff -U0 $BASE_BRANCH... -- src | ./tools/github/clang-tidy/clang-tidy-diff.py -p 1 -j $THREADS -path build  -regex ".+\.cpp" | tee ./build/clang_tidy_output.txt
