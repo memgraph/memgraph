@@ -189,13 +189,8 @@ jobs:
 
       - name: Debug mgcxx headers
         run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          --no-ccache \
-          exec -- bash -c "
-          echo '=== Checking mgcxx header locations ==='
+          echo '=== Checking mgcxx header locations inside container ==='
+          docker exec mgbuild_v6_ubuntu-24.04 bash -c "
           echo 'Local mgcxx headers:'
           ls -la /home/mg/memgraph/libs/mgcxx/include/ || echo 'Local mgcxx include dir not found'
           echo 'Toolchain mgcxx headers:'
