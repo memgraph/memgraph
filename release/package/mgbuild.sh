@@ -415,7 +415,13 @@ build_memgraph () {
 
   # TODO(matt): remove this hack!
   # need to remove python from the toolchain within the container before build
-  RM_COMMAND="rm -rf /opt/toolchain-${toolchain_version}/lib/python3.12 && rm -rf /opt/toolchain-${toolchain_version}/lib64/python3.12 && rm -rf /opt/toolchain-${toolchain_version}/include/python3.12"
+  RM_COMMAND="rm -rfv /opt/toolchain-${toolchain_version}/lib/python3.12 || true"
+  RM_COMMAND="${RM_COMMAND} && rm -rfv /opt/toolchain-${toolchain_version}/lib64/python3.12 || true"
+  RM_COMMAND="${RM_COMMAND} && rm -rfv /opt/toolchain-${toolchain_version}/include/python3.12 || true"
+  RM_COMMAND="${RM_COMMAND} && rm -rfv /opt/toolchain-${toolchain_version}/lib/libpython3.12.so || true"
+  RM_COMMAND="${RM_COMMAND} && rm -rfv /opt/toolchain-${toolchain_version}/lib/libpython3.12.a || true"
+  RM_COMMAND="${RM_COMMAND} && rm -rfv /opt/toolchain-${toolchain_version}/lib64/libpython3.12.so || true"
+  RM_COMMAND="${RM_COMMAND} && rm -rfv /opt/toolchain-${toolchain_version}/lib64/libpython3.12.a || true"
   docker exec -u root "$build_container" bash -c "$RM_COMMAND"
 
   echo "Initializing deps ..."
