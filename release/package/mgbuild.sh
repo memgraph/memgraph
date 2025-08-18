@@ -74,6 +74,7 @@ DEFAULT_BENCH_GRAPH_PORT="9001"
 DEFAULT_MGDEPS_CACHE_HOST="mgdeps-cache"
 DEFAULT_MGDEPS_CACHE_PORT="8000"
 DEFAULT_CCACHE_ENABLED="true"
+DEFAULT_CONAN_CACHE_ENABLED="true"
 
 print_help () {
   echo -e "\nUsage:  $SCRIPT_NAME [GLOBAL OPTIONS] COMMAND [COMMAND OPTIONS]"
@@ -108,6 +109,7 @@ print_help () {
   echo -e "  --threads int                 Specify the number of threads a command will use (default \"\$(nproc)\" for container)"
   echo -e "  --toolchain string            Specify toolchain version (\"${SUPPORTED_TOOLCHAINS[*]}\") (default \"$DEFAULT_TOOLCHAIN\")"
   echo -e "  --no-ccache                   Disable ccache volume mounting (default \"$DEFAULT_CCACHE_ENABLED\") -> this is required for run, stop and build-memgraph commands on the coverage build"
+  echo -e "  --no-conan-cache              Disable conan cache volume mounting (default \"$DEFAULT_CONAN_CACHE_ENABLED\") -> this allows sharing conan cache between containers"
 
   echo -e "\nbuild options:"
   echo -e "  --git-ref string              Specify git ref from which the environment deps will be installed (default \"master\")"
@@ -279,42 +281,52 @@ version_lt() {
 ######## BUILD, COPY AND PACKAGE MEMGRAPH ########
 ##################################################
 
-# Function to handle ccache override file creation and cleanup
-setup_ccache_override() {
+# Function to handle cache override file creation and cleanup
+setup_cache_override() {
   local compose_files="-f ${arch}-builders-${toolchain_version}.yml"
 
-  if [[ "$ccache_enabled" == "true" ]]; then
-    cat > ccache-override.yml << EOF
+  if [[ "$ccache_enabled" == "true" ]] || [[ "$conan_cache_enabled" == "true" ]]; then
+    cat > cache-override.yml << EOF
 services:
 EOF
-    # Add ccache volumes for all services in the compose file
+    # Add cache volumes for all services in the compose file
     if [[ "$os" == "all" ]]; then
       # For all OS, we need to add volumes to all services
       grep "^  mgbuild_" ${arch}-builders-${toolchain_version}.yml | while read -r line; do
         service_name=$(echo "$line" | sed 's/://')
-        echo "  $service_name:" >> ccache-override.yml
-        echo "    volumes:" >> ccache-override.yml
-        echo "      - ~/.cache/ccache:/home/mg/.cache/ccache" >> ccache-override.yml
+        echo "  $service_name:" >> cache-override.yml
+        echo "    volumes:" >> cache-override.yml
+        if [[ "$ccache_enabled" == "true" ]]; then
+          echo "      - ~/.cache/ccache:/home/mg/.cache/ccache" >> cache-override.yml
+        fi
+        if [[ "$conan_cache_enabled" == "true" ]]; then
+          echo "      - ~/.conan2:/home/mg/.conan2" >> cache-override.yml
+        fi
       done
     else
       # For specific OS, only add volume to the target service
-      echo "  $build_container:" >> ccache-override.yml
-      echo "    volumes:" >> ccache-override.yml
-      echo "      - ~/.cache/ccache:/home/mg/.cache/ccache" >> ccache-override.yml
+      echo "  $build_container:" >> cache-override.yml
+      echo "    volumes:" >> cache-override.yml
+      if [[ "$ccache_enabled" == "true" ]]; then
+        echo "      - ~/.cache/ccache:/home/mg/.cache/ccache" >> cache-override.yml
+      fi
+      if [[ "$conan_cache_enabled" == "true" ]]; then
+        echo "      - ~/.conan2:/home/mg/.conan2" >> cache-override.yml
+      fi
     fi
-    compose_files="$compose_files -f ccache-override.yml"
+    compose_files="$compose_files -f cache-override.yml"
   fi
 
   echo "$compose_files"
 }
 
-cleanup_ccache_override() {
-  if [[ "$ccache_enabled" == "true" ]]; then
-    rm -f ccache-override.yml
+cleanup_cache_override() {
+  if [[ "$ccache_enabled" == "true" ]] || [[ "$conan_cache_enabled" == "true" ]]; then
+    rm -f cache-override.yml
   fi
 }
 
-setup_host_ccache_permissions() {
+setup_host_cache_permissions() {
   if [[ "$ccache_enabled" == "true" ]]; then
     echo "Setting up host ccache directory permissions..."
     mkdir -p ~/.cache/ccache
@@ -324,6 +336,17 @@ setup_host_ccache_permissions() {
     chmod -R a+rwX ~/.cache 2>/dev/null || true
 
     echo "Host cache directory permissions set to a+rwX (open access)"
+  fi
+
+  if [[ "$conan_cache_enabled" == "true" ]]; then
+    echo "Setting up host conan cache directory permissions..."
+    mkdir -p ~/.conan2
+
+    # Set open permissions on the conan cache directory to allow cross-container access
+    # Suppress both errors and warnings about operations not permitted
+    chmod -R a+rwX ~/.conan2 2>/dev/null || true
+
+    echo "Host conan cache directory permissions set to a+rwX (open access)"
   fi
 }
 
@@ -477,6 +500,14 @@ build_memgraph () {
     docker exec -u mg "$build_container" bash -c "ccache -z"
   fi
 
+  # Clean conan cache before build if conan cache is enabled (optional, can be commented out if not needed)
+  if [[ "$conan_cache_enabled" == "true" ]]; then
+    echo "Conan cache is enabled - packages will be shared between builds"
+    # Uncomment the following lines if you want to clean conan cache before each build
+    # echo "Cleaning conan cache for this build..."
+    # docker exec -u mg "$build_container" bash -c "conan cache clean"
+  fi
+
   # use this because the commands get far too long!
   CMD_START="cd $MGBUILD_ROOT_DIR"
 
@@ -571,6 +602,16 @@ build_memgraph () {
     echo "=== Ccache Statistics ==="
     docker exec -u mg "$build_container" bash -c "ccache -s"
     echo "========================="
+    echo ""
+  fi
+
+  # Show conan cache statistics if conan cache is enabled
+  if [[ "$conan_cache_enabled" == "true" ]]; then
+    echo ""
+    echo "=== Conan Cache Statistics ==="
+    docker exec -u mg "$build_container" bash -c "conan cache path"
+    docker exec -u mg "$build_container" bash -c "conan cache list"
+    echo "=============================="
     echo ""
   fi
 
@@ -976,6 +1017,7 @@ bench_graph_port=$DEFAULT_BENCH_GRAPH_PORT
 mgdeps_cache_host=$DEFAULT_MGDEPS_CACHE_HOST
 mgdeps_cache_port=$DEFAULT_MGDEPS_CACHE_PORT
 ccache_enabled=$DEFAULT_CCACHE_ENABLED
+conan_cache_enabled=$DEFAULT_CONAN_CACHE_ENABLED
 command=""
 build_container=""
 while [[ $# -gt 0 ]]; do
@@ -1030,6 +1072,10 @@ while [[ $# -gt 0 ]]; do
     ;;
     --no-ccache)
         ccache_enabled="false"
+        shift 1
+    ;;
+    --no-conan-cache)
+        conan_cache_enabled="false"
         shift 1
     ;;
     *)
@@ -1129,10 +1175,10 @@ case $command in
       done
 
       # Create ccache override file if ccache is enabled
-      compose_files=$(setup_ccache_override)
+      compose_files=$(setup_cache_override)
 
       # Set up host ccache permissions
-      setup_host_ccache_permissions
+      setup_host_cache_permissions
 
       if [[ "$os" == "all" ]]; then
         if [[ "$pull" == "true" ]]; then
@@ -1225,8 +1271,19 @@ case $command in
         echo '.cache directory permissions set for all tools'
       "
 
+      # Set up conan cache directory permissions if conan cache is enabled
+      if [[ "$conan_cache_enabled" == "true" ]]; then
+        echo "Setting up conan cache directory permissions for cross-container access..."
+        docker exec -u root $build_container bash -c "
+          mkdir -p /home/mg/.conan2
+          chown -R mg:mg /home/mg/.conan2
+          chmod -R a+rwX /home/mg/.conan2
+          echo 'Conan cache directory permissions set for cross-container access'
+        "
+      fi
+
       # Clean up override file if it was created
-      cleanup_ccache_override
+      cleanup_cache_override
     ;;
     stop)
       cd $SCRIPT_DIR
@@ -1246,7 +1303,7 @@ case $command in
       done
 
       # Create ccache override file if ccache is enabled (same logic as run command)
-      compose_files=$(setup_ccache_override)
+      compose_files=$(setup_cache_override)
 
       if [[ "$os" == "all" ]]; then
         $docker_compose_cmd $compose_files down
@@ -1258,13 +1315,13 @@ case $command in
       fi
 
       # Clean up override file if it was created
-      cleanup_ccache_override
+      cleanup_cache_override
     ;;
     pull)
       cd $SCRIPT_DIR
 
       # Create ccache override file if ccache is enabled (same logic as run command)
-      compose_files=$(setup_ccache_override)
+      compose_files=$(setup_cache_override)
 
       if [[ "$os" == "all" ]]; then
         $docker_compose_cmd $compose_files pull --ignore-pull-failures
@@ -1273,7 +1330,7 @@ case $command in
       fi
 
       # Clean up override file if it was created
-      cleanup_ccache_override
+      cleanup_cache_override
     ;;
     push)
       docker login $@
