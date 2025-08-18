@@ -32,7 +32,7 @@ struct AsyncIndexer {
 
   void Enqueue(EdgeTypeId edge_type);
 
-  void Enqueue(std::pair<LabelId, PropertiesPaths> composite);
+  void Enqueue(LabelId label, PropertiesPaths properties);
 
   void Enqueue(PropertyId property);
 
@@ -49,8 +49,15 @@ struct AsyncIndexer {
   bool HasThreadStopped() const;
 
  private:
+  struct LabelProperties {
+    LabelId label;
+    PropertiesPaths properties;
+
+    friend auto operator<=>(LabelProperties const &, LabelProperties const &) = default;
+  };
+
   // Label, EdgeType, Composite, Edge Property
-  utils::SkipList<std::variant<LabelId, EdgeTypeId, std::pair<LabelId, PropertiesPaths>, PropertyId>> request_queue_{};
+  utils::SkipList<std::variant<LabelId, EdgeTypeId, LabelProperties, PropertyId>> request_queue_{};
   mutable std::mutex mutex_{};
   std::condition_variable cv_{};
   std::jthread index_creator_thread_{};

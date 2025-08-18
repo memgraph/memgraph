@@ -572,8 +572,7 @@ class InMemoryStorage final : public Storage {
             // Use non-blocking async indexer
             auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
             // Async index creation -> happens in separate transaction
-            mem_storage->async_indexer_.Enqueue(
-                std::make_pair(ttl_label, std::vector<storage::PropertyPath>{{ttl_property}}));
+            mem_storage->async_indexer_.Enqueue(ttl_label, std::vector<storage::PropertyPath>{{ttl_property}});
             if (ttl_info.should_run_edge_ttl) {
               mem_storage->async_indexer_.Enqueue(ttl_property);
             }

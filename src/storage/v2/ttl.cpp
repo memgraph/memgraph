@@ -212,15 +212,15 @@ void TTL::Configure(bool should_run_edge_ttl) {
         if (missing_lp_index) {
           spdlog::warn(
               "TTL requires label+property index on :TTL(ttl) but it doesn't exist. Will create it automatically.");
-          std::vector<PropertyPath> const ttl_property_path = {storage_ptr_->NameToProperty("ttl")};
+          std::vector<PropertyPath> ttl_property_path = {storage_ptr_->NameToProperty("ttl")};
 
           if (storage_ptr_->GetStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
             auto *mem_storage = static_cast<storage::InMemoryStorage *>(storage_ptr_);
-            mem_storage->GetAsyncIndexer().Enqueue(std::make_pair(ttl_label, ttl_property_path));
+            mem_storage->GetAsyncIndexer().Enqueue(ttl_label, std::move(ttl_property_path));
           } else {
             batch_accessor.reset();
             batch_accessor = storage_ptr_->UniqueAccess();  // ATM no timeout/backoff
-            (void)batch_accessor->CreateIndex(ttl_label, ttl_property_path);
+            (void)batch_accessor->CreateIndex(ttl_label, std::move(ttl_property_path));
             batch_accessor.reset();
             batch_accessor = storage_ptr_->Access(storage::Storage::Accessor::Type::WRITE);
           }

@@ -63,9 +63,8 @@ AsyncIndexer::AsyncIndexer(std::stop_token stop_token, Storage *storage) {
               [&](EdgeTypeId edge_type) {
                 [[maybe_unused]] auto result = storage_acc->CreateIndex(edge_type, cancel_check);
               },
-              [&](std::pair<LabelId, PropertiesPaths> composite) {
-                [[maybe_unused]] auto result =
-                    storage_acc->CreateIndex(composite.first, composite.second, cancel_check);
+              [&](LabelProperties &lp) {
+                [[maybe_unused]] auto result = storage_acc->CreateIndex(lp.label, lp.properties, cancel_check);
               },
               [&](PropertyId property) {
                 [[maybe_unused]] auto result = storage_acc->CreateGlobalEdgeIndex(property, cancel_check);
@@ -105,8 +104,8 @@ void AsyncIndexer::Enqueue(EdgeTypeId edge_type) {
   cv_.notify_one();
 }
 
-void AsyncIndexer::Enqueue(std::pair<LabelId, PropertiesPaths> composite) {
-  request_queue_.access().insert(composite);
+void AsyncIndexer::Enqueue(LabelId label, PropertiesPaths properties) {
+  request_queue_.access().insert(LabelProperties{label, std::move(properties)});
   cv_.notify_one();
 }
 
