@@ -185,7 +185,9 @@ void PrintObject(std::ostream *out, storage::Point2d const &value) { *out << que
 
 void PrintObject(std::ostream *out, storage::Point3d const &value) { *out << query::CypherConstructionFor(value); }
 
-void PrintObject(std::ostream *out, const DbAccessor *dba, const PropertyIx &property) { PrintObject(out, property); }
+void PrintObject(std::ostream *out, const DbAccessor * /*dba*/, const PropertyIx &property) {
+  PrintObject(out, property);
+}
 
 void PrintObject(std::ostream *out, PropertyIx const &property) { *out << property.name; }
 

@@ -3461,19 +3461,19 @@ antlrcpp::Any CypherMainVisitor::visitSetItem(MemgraphCypher::SetItemContext *ct
     auto *set_property = storage_->Create<SetProperty>();
     set_property->property_lookup_ = std::any_cast<PropertyLookup *>(ctx->propertyExpression()->accept(this));
     set_property->expression_ = std::any_cast<Expression *>(ctx->expression()->accept(this));
-    if (ctx->getTokens(MemgraphCypher::PLUS_EQ).size()) {
+    if (!ctx->getTokens(MemgraphCypher::PLUS_EQ).empty()) {
       set_property->property_lookup_->lookup_mode_ = PropertyLookup::LookupMode::APPEND;
     }
     return static_cast<Clause *>(set_property);
   }
 
   // SetProperties either assignment or update
-  if (ctx->getTokens(MemgraphCypher::EQ).size() || ctx->getTokens(MemgraphCypher::PLUS_EQ).size()) {
+  if (!ctx->getTokens(MemgraphCypher::EQ).empty() || !ctx->getTokens(MemgraphCypher::PLUS_EQ).empty()) {
     auto *set_properties = storage_->Create<SetProperties>();
     set_properties->identifier_ =
         storage_->Create<Identifier>(std::any_cast<std::string>(ctx->variable()->accept(this)));
     set_properties->expression_ = std::any_cast<Expression *>(ctx->expression()->accept(this));
-    if (ctx->getTokens(MemgraphCypher::PLUS_EQ).size()) {
+    if (!ctx->getTokens(MemgraphCypher::PLUS_EQ).empty()) {
       set_properties->update_ = true;
     }
     return static_cast<Clause *>(set_properties);
