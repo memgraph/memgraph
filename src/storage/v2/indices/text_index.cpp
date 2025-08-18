@@ -162,6 +162,7 @@ void TextIndex::RecoverIndex(const TextIndexSpec &index_info,
 }
 
 void TextIndex::DropIndex(const std::string &index_name) {
+  // NOLINTBEGIN
   auto node = index_.extract(index_name);
   if (node.empty()) {
     throw query::TextSearchException("Text index {} doesn't exist.", index_name);
@@ -169,7 +170,6 @@ void TextIndex::DropIndex(const std::string &index_name) {
 
   auto &entry = node.mapped();
   try {
-    // NOLINTNEXTLINE
     mgcxx::text_search::drop_index(std::move(entry.context_));
   } catch (const std::exception &e) {
     CreateTantivyIndex(
@@ -177,6 +177,7 @@ void TextIndex::DropIndex(const std::string &index_name) {
         TextIndexSpec{.index_name_ = index_name, .label_ = entry.scope_, .properties_ = std::move(entry.properties_)});
     throw query::TextSearchException("Text index error on drop: {}", e.what());
   }
+  // NOLINTEND
 }
 
 bool TextIndex::IndexExists(const std::string &index_name) const { return index_.contains(index_name); }
@@ -258,12 +259,13 @@ std::vector<TextIndexSpec> TextIndex::ListIndices() const {
 }
 
 std::optional<uint64_t> TextIndex::ApproximateVerticesTextCount(std::string_view index_name) const {
+  // NOLINTBEGIN
   if (const auto it = index_.find(index_name); it != index_.end()) {
     const auto &index_data = it->second;
-    // NOLINTNEXTLINE
     return mgcxx::text_search::get_num_docs(index_data.context_);
   }
   return std::nullopt;
+  // NOLINTEND
 }
 
 void TextIndex::Clear() {
