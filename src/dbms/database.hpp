@@ -177,7 +177,7 @@ class Database {
   void StopAllBackgroundTasks() {
     streams()->Shutdown();
     thread_pool()->ShutDown();
-    ttl().Shutdown();
+    storage_->StopAllBackgroundTasks();
   }
 
  private:

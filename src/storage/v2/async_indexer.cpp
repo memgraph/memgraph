@@ -132,4 +132,10 @@ void AsyncIndexer::Start(std::stop_token stop_token, Storage *storage) {
   }};
 }
 
+void AsyncIndexer::Shutdown() {
+  index_creator_thread_.request_stop();
+  auto guard = std::unique_lock{mutex_};
+  cv_.wait(guard, [this] { return !index_creator_thread_.joinable() || thread_has_stopped_.load(); });
+}
+
 }  // namespace memgraph::storage

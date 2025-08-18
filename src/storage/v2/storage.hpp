@@ -705,6 +705,8 @@ class Storage {
   /// @note For storage types without async indexing, this always returns true
   virtual bool HasAsyncIndexerStopped() const = 0;
 
+  virtual void StopAllBackgroundTasks() { ttl_.Shutdown(); }
+
   // TODO: make non-public
   ReplicationStorageState repl_storage_state_;
 

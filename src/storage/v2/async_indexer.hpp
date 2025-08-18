@@ -51,6 +51,8 @@ struct AsyncIndexer {
   /// After storage recovery we can Start then async task
   void Start(std::stop_token stop_token, Storage *storage);
 
+  void Shutdown();
+
  private:
   struct LabelProperties {
     LabelId label;

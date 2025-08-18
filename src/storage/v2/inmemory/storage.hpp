@@ -681,6 +681,11 @@ class InMemoryStorage final : public Storage {
 
   bool HasAsyncIndexerStopped() const override { return async_indexer_.HasThreadStopped(); }
 
+  void StopAllBackgroundTasks() override {
+    async_indexer_.Shutdown();
+    Storage::StopAllBackgroundTasks();
+  }
+
  private:
   /// The force parameter determines the behaviour of the garbage collector.
   /// If it's set to true, it will behave as a global operation, i.e. it can't
