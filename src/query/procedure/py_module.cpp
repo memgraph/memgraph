@@ -3057,7 +3057,7 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
       } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
         throw std::runtime_error{"Unexpected error while creating mgp_value"};
       }
-      static_cast<void>(zoned_date_time.release());
+      [[maybe_unused]] auto ptr = zoned_date_time.release();
     } else {
       mgp_local_date_time_parameters parameters{&date_parameters, &local_time_parameters};
 
@@ -3075,7 +3075,7 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
       } else if (err != mgp_error::MGP_ERROR_NO_ERROR) {
         throw std::runtime_error{"Unexpected error while creating mgp_value"};
       }
-      static_cast<void>(local_date_time.release());
+      [[maybe_unused]] auto ptr = local_date_time.release();
     }
   } else if (PyDelta_CheckExact(o)) {
     static constexpr int64_t microseconds_in_days =
