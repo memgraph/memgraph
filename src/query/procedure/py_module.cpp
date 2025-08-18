@@ -2745,7 +2745,8 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
     case MGP_VALUE_TYPE_ZONED_DATE_TIME: {
       auto const local_time = value.zoned_date_time_v->zoned_date_time.AsLocalTime();
       auto const date = value.zoned_date_time_v->zoned_date_time.AsLocalDate();
-      int32_t offset_seconds = value.zoned_date_time_v->zoned_date_time.OffsetSeconds().count();
+      auto const offset_seconds =
+          static_cast<int32_t>(value.zoned_date_time_v->zoned_date_time.OffsetSeconds().count());
 
       // Python's `timedelta` cannot be constructed with -negative values,
       // so convert a negative second offset to a positive one.
@@ -2756,13 +2757,13 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
         --days;
       }
 
-      py::Object datetime_module{PyImport_ImportModule("datetime")};
+      py::Object const datetime_module{PyImport_ImportModule("datetime")};
       if (!datetime_module) return nullptr;
-      py::Object datetime_class{PyObject_GetAttrString(datetime_module.Ptr(), "datetime")};
+      py::Object const datetime_class{PyObject_GetAttrString(datetime_module.Ptr(), "datetime")};
       if (!datetime_class) return nullptr;
 
-      py::Object offset_delta{PyDelta_FromDSU(days, seconds, 0)};
-      py::Object tz{PyTimeZone_FromOffset(offset_delta.Ptr())};
+      py::Object const offset_delta{PyDelta_FromDSU(days, seconds, 0)};
+      py::Object const tz{PyTimeZone_FromOffset(offset_delta.Ptr())};
 
       py::Object py_zoned_date_time(PyObject_CallFunction(
           datetime_class.Ptr(), "iiiiiiiO", date.year, date.month, date.day, local_time.hour, local_time.minute,
@@ -3025,15 +3026,15 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
             1000};
 
     if (PyObject *tzinfo = PyDateTime_DATE_GET_TZINFO(o); !Py_IsNone(tzinfo)) {
-      py::Object offset{PyObject_CallMethod(tzinfo, const_cast<char *>("utcoffset"), const_cast<char *>("O"), o)};
+      py::Object const offset{PyObject_CallMethod(tzinfo, "utcoffset", "O", o)};
       if (!offset) {
         throw std::runtime_error{"Cannot read timezone offset"};
       }
 
       constexpr int SECONDS_PER_DAY = 86400;
       constexpr int SECONDS_PER_MINUTE = 60;
-      int32_t const offset_days = static_cast<int32_t>(PyDateTime_DELTA_GET_DAYS(offset.Ptr()));
-      int32_t const offset_seconds = static_cast<int32_t>(PyDateTime_DELTA_GET_SECONDS(offset.Ptr()));
+      auto const offset_days = static_cast<int32_t>(PyDateTime_DELTA_GET_DAYS(offset.Ptr()));
+      auto const offset_seconds = static_cast<int32_t>(PyDateTime_DELTA_GET_SECONDS(offset.Ptr()));
 
       // Convert total offset to minutes
       int32_t const total_offset_seconds = offset_days * SECONDS_PER_DAY + offset_seconds;
