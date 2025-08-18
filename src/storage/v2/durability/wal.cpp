@@ -1368,7 +1368,6 @@ std::optional<RecoveryInfo> LoadWal(
             ttl->Disable();
             break;
           case TtlOperationType::CONFIGURE:
-            // TODO create index logic currently done via index deltas
             ttl->Enable();
             if (!ttl->Running()) ttl->Configure(data.should_run_edge_ttl);
             ttl->SetInterval(data.period, data.start_time);

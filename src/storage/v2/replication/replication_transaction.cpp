@@ -44,7 +44,7 @@ auto TransactionReplication::ShipDeltas(uint64_t durability_commit_timestamp, Co
       }
       // If there are no STRICT_SYNC replicas, shipping deltas means finalizing the transaction
       // RPC stream gets destroyed => RPC lock released.
-      if (!should_run_2pc) {  // TODO: ask andi...any STRICT_SYNC will cause us to skip Finalize for any ASYNC/SYNC
+      if (!should_run_2pc) {
         // NOLINTNEXTLINE
         bool const res =
             client->FinalizeTransactionReplication(db_acc, std::move(replica_stream), durability_commit_timestamp);
@@ -74,8 +74,8 @@ auto TransactionReplication::FinalizeTransaction(bool const decision, utils::UUI
 
   for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
     if (client->Mode() == replication_coordination_glue::ReplicationMode::STRICT_SYNC) {
-      auto const commit_res = client->SendFinalizeCommitRpc(decision, storage_uuid, durability_commit_timestamp,
-                                                            std::move(replica_stream));
+      auto const commit_res =
+          client->SendFinalizeCommitRpc(decision, storage_uuid, durability_commit_timestamp, std::move(replica_stream));
       strict_sync_replicas_succ &= commit_res;
     } else if (client->Mode() == replication_coordination_glue::ReplicationMode::ASYNC) {
       if (decision) {

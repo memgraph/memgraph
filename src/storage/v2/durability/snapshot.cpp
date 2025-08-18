@@ -7083,8 +7083,6 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
                                              Config const &config, EnumStore *enum_store,
                                              SharedSchemaTracking *schema_info, memgraph::storage::ttl::TTL *ttl,
                                              std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  // HAS TTL changes but not Andi's
-
   // Cleanup of loaded data in case of failure.
 
   RecoveryInfo recovery_info;
@@ -7341,12 +7339,12 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
         if (!label) throw RecoveryFailure("Couldn't read label for label properties index.");
         auto property_paths = get_property_paths("label properties index");
         auto path_to_name = [&](const PropertyPath &path) {
-          return path | ranges::views::transform([&](const auto &property_id) {
+          return path | rv::transform([&](const auto &property_id) {
                    return name_id_mapper->IdToName(property_id.AsUint());
                  }) |
-                 ranges::views::join(". ") | ranges::_to_::to<std::string>;
+                 rv::join(". ") | r::to<std::string>;
         };
-        auto properties_vec = property_paths | ranges::views::transform(path_to_name) | r::to_vector;
+        auto properties_vec = property_paths | rv::transform(path_to_name) | r::to_vector;
         auto properties_string = fmt::format("{}", fmt::join(properties_vec, ", "));
 
         AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties,
@@ -7572,14 +7570,14 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read text index label!");
         // Read properties
-        auto prop_count = snapshot.ReadUint();
-        if (!prop_count.has_value()) throw RecoveryFailure("Couldn't read text index properties count!");
+        auto n_props = snapshot.ReadUint();
+        if (!n_props.has_value()) throw RecoveryFailure("Couldn't read text index properties count!");
         std::vector<PropertyId> properties;
-        properties.reserve(*prop_count);
-        for (uint64_t j = 0; j < *prop_count; ++j) {
-          auto property_id = snapshot.ReadUint();
-          if (!property_id.has_value()) throw RecoveryFailure("Couldn't read text index property!");
-          properties.emplace_back(get_property_from_id(*property_id));
+        properties.reserve(*n_props);
+        for (uint64_t j = 0; j < *n_props; ++j) {
+          auto property = snapshot.ReadUint();
+          if (!property.has_value()) throw RecoveryFailure("Couldn't read text index property!");
+          properties.emplace_back(get_property_from_id(*property));
         }
 
         AddRecoveredIndexConstraint(&indices_constraints.indices.text_indices,
@@ -7753,8 +7751,6 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
       if (!should_run_edge_ttl.has_value()) throw RecoveryFailure("Couldn't read TTL should_run_edge_ttl!");
 
       // Create TtlInfo and store it in recovery_info;
-      // TODO Index independent of TTL recovery
-      // TODO: defer TTL enable till after index recovery
       ttl->Enable();
       ttl->Configure(*should_run_edge_ttl);
       ttl->SetInterval(period, start_time);
