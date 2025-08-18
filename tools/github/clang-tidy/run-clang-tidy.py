@@ -115,7 +115,7 @@ def get_tidy_invocation(
     if build_path:
         # Try to find the local mgcxx include directory relative to build path
         build_parent = os.path.dirname(os.path.abspath(build_path))
-        potential_mgcxx_path = os.path.join(build_parent, "libs", "mgcxx", "include")
+        potential_mgcxx_path = os.path.join(build_parent, "..", "libs", "mgcxx", "include")
         if os.path.exists(potential_mgcxx_path):
             mgcxx_local_include = potential_mgcxx_path
 
