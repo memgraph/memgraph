@@ -113,6 +113,7 @@ struct ExecutionContext {
   std::unique_ptr<FineGrainedAuthChecker> auth_checker{nullptr};
 #endif
   std::shared_ptr<storage::DatabaseProtector> protector;
+  bool is_main{true};
   auto commit_args() -> storage::CommitArgs;
 };
 

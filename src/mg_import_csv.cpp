@@ -32,7 +32,7 @@
 #include "utils/timer.hpp"
 #include "version.hpp"
 
-// Simple test-only implementation of DatabaseProtector for mg_import_csv
+// Simple fake implementation of DatabaseProtector for mg_import_csv
 struct ImportDatabaseProtector : memgraph::storage::DatabaseProtector {
   auto clone() const -> memgraph::storage::DatabaseProtectorPtr override {
     return std::make_unique<ImportDatabaseProtector>();
