@@ -402,7 +402,7 @@ PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc)
       pull_chunks_{/*
                     * IMPORTANT: the order here must reflex the order in `src/storage/v2/durability/snapshot.cpp`
                     * this is so that we have a stable order
-                    */ //TODO(ivan): REVIEWER -> what? I don't think this is respected
+                    */
 
                    /// User defined Datatype Info
                    // Dump all enums
@@ -450,10 +450,13 @@ PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc)
                    // Dump all global edge property indices
                    CreateEdgePropertyIndicesPullChunk(),
 
-                   // Dump all triggers
-                   CreateTriggersPullChunk(),
                    // Dump all TTL configuration
-                   CreateTTLConfigPullChunk()} {}
+                   CreateTTLConfigPullChunk(),
+
+                   // IMPORTANT NOTE: After this point stuff is restored from their owne KVStore not from our snapshot
+
+                   // Dump all triggers
+                   CreateTriggersPullChunk()} {}
 
 bool PullPlanDump::Pull(AnyStream *stream, std::optional<int> n) {
   // Iterate all functions that stream some results.
