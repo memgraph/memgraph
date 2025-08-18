@@ -138,4 +138,9 @@ void AsyncIndexer::Shutdown() {
   cv_.wait(guard, [this] { return !index_creator_thread_.joinable() || thread_has_stopped_.load(); });
 }
 
+void AsyncIndexer::CompleteRemaining() {
+  auto guard = std::unique_lock{mutex_};
+  cv_.wait(guard, [this] { return IsIdle(); });
+}
+
 }  // namespace memgraph::storage

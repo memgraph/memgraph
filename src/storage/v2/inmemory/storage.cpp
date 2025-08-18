@@ -1983,11 +1983,12 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
   if (storage_mode_ != new_storage_mode) {
     // Snapshot thread is already running, but setup periodic execution only if enabled
     if (new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
-      // TODO: wait for async operation to finish
-      // do something with async_indexer_ to ensure queue is empty then Pause
+      // Ensure all pending work has been completed before changing to IN_MEMORY_ANALYTICAL
+      async_indexer_.CompleteRemaining();
       snapshot_runner_.Pause();
     } else {
-      // TODO: Resume async_indexer_
+      // No need to resume async indexer, it is always running.
+      // As IN_MEMORY_TRANSACTIONAL we will now start giving it new work
       snapshot_runner_.Resume();
     }
     storage_mode_ = new_storage_mode;

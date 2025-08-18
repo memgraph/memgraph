@@ -53,6 +53,8 @@ struct AsyncIndexer {
 
   void Shutdown();
 
+  void CompleteRemaining();
+
  private:
   struct LabelProperties {
     LabelId label;
