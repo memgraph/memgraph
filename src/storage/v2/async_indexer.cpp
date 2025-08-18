@@ -52,10 +52,14 @@ bool AsyncIndexer::IsIdle() const {
   std::lock_guard const lock(mutex_);
   // no work to pickup and not currently working
   // OR we have stopped the worker thread
+  return IsIdle_();
+}
+
+bool AsyncIndexer::IsIdle_() const {
   return (request_queue_.size() == 0 && !is_processing_.load()) || HasThreadStopped();
 }
 
-bool AsyncIndexer::HasThreadStopped() const { return thread_has_stopped_.load(); }
+bool AsyncIndexer::HasThreadStopped() const { return !index_creator_thread_.joinable() || thread_has_stopped_.load(); }
 
 void AsyncIndexer::Start(std::stop_token stop_token, Storage *storage) {
   index_creator_thread_ = std::jthread{[this, stop_token, storage](std::stop_token thread_stop_token) mutable {
@@ -141,12 +145,12 @@ void AsyncIndexer::Shutdown() {
   index_creator_thread_.request_stop();
   cv_.notify_all();
   auto guard = std::unique_lock{mutex_};
-  cv_.wait(guard, [this] { return !index_creator_thread_.joinable() || thread_has_stopped_.load(); });
+  cv_.wait(guard, [this] { return HasThreadStopped(); });
 }
 
 void AsyncIndexer::CompleteRemaining() {
   auto guard = std::unique_lock{mutex_};
-  cv_.wait(guard, [this] { return IsIdle(); });
+  cv_.wait(guard, [this] { return IsIdle_(); });
 }
 
 }  // namespace memgraph::storage

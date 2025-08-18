@@ -56,6 +56,8 @@ struct AsyncIndexer {
   void CompleteRemaining();
 
  private:
+  bool IsIdle_() const;
+
   struct LabelProperties {
     LabelId label;
     PropertiesPaths properties;
