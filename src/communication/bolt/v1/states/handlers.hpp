@@ -27,9 +27,14 @@
 #include "communication/exceptions.hpp"
 #include "license/license_sender.hpp"
 #include "storage/v2/property_value.hpp"
+#include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
+
+namespace memgraph::metrics {
+extern const Event TransientExceptions;
+}  // namespace memgraph::metrics
 
 namespace memgraph::communication::bolt {
 // TODO: Revise these error messages
@@ -60,6 +65,7 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::ex
     // database probably aborted transaction because of some timeout,
     // deadlock, serialization error or something similar. We return
     // TransientError since retry of same transaction could succeed.
+    metrics::IncrementCounter(memgraph::metrics::TransientExceptions);
     return {"Memgraph.TransientError.MemgraphError.MemgraphError", e.what()};
   }
   if (dynamic_cast<const std::bad_alloc *>(&e)) {

@@ -43,7 +43,9 @@
   GenerateRpcTimer(WalFilesRpc)                                                                                   \
   GenerateRpcTimer(FrequentHeartbeatRpc)                                                                          \
   GenerateRpcTimer(SystemRecoveryRpc)                                                                             \
-  M(GetHistories_us, HighAvailability, "Latency of retrieving instances' history in microseconds", 50, 90, 99)
+  M(GCCleanupLatency_us, GC, "Latency of garbage collection in microseconds", 50, 90, 99)                         \
+  M(GCDeltaReleaseLatency_us, GC, "Latency of GC delta release in microseconds", 50, 90, 99)                      \
+  M(GCIndexCleanupLatency_us, GC, "Latency of GC index cleanup in microseconds", 50, 90, 99)
 // clang-format on
 
 namespace memgraph::metrics {

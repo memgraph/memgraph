@@ -109,6 +109,8 @@
   M(FailedQuery, Transaction, "Number of times executing a query failed.")                                             \
   M(FailedPrepare, Transaction, "Number of times preparing a query failed.")                                           \
   M(FailedPull, Transaction, "Number of times executing a prepared query failed.")                                     \
+  M(WriteWriteConflictExceptions, Transaction, "Number of times a write-write conflict exception occurred.")           \
+  M(TransientExceptions, Transaction, "Number of times a transient exception occurred.")                               \
   M(SuccessfulQuery, Transaction, "Number of successful queries.")                                                     \
   M(UnreleasedDeltaObjects, Memory, "Total number of unreleased delta objects in memory.")                             \
                                                                                                                        \
