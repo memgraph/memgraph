@@ -25,11 +25,11 @@ class UserProfiles {
  public:
   enum class Limits : uint8_t { kSessions = 0, kTransactionsMemory };
   static constexpr std::array<std::string_view, 2> kLimits = {"sessions", "transactions_memory"};
-  static_assert(kLimits.size() == (int)Limits::kTransactionsMemory + 1, "kLimits size mismatch");
+  static_assert(kLimits.size() == static_cast<int>(Limits::kTransactionsMemory) + 1, "kLimits size mismatch");
   static auto AllLimits() { return fmt::format("{}, {}", kLimits[0], kLimits[1]); }
 
   static constexpr std::string_view kUserProfilesPrefix = "user_profile:";
-  static constexpr std::string_view kUserProfilesVersionkey = "user_profile_version";
+  static constexpr std::string_view kUserProfilesVersionKey = "user_profile_version";
   static constexpr std::string_view kUserProfilesV1 = "V1";
   static constexpr std::string_view kUserProfilesVersion = kUserProfilesV1;
 
@@ -61,30 +61,7 @@ class UserProfiles {
   std::unordered_set<std::string> GetUsernames(std::string_view profile_name) const;
   std::optional<std::string> GetProfileForUsername(std::string_view username) const;
 
-  static std::optional<Profile> Merge(const std::optional<Profile> &user, const std::optional<Profile> &role) {
-    if (!user && !role) return std::nullopt;
-    if (!user) return role;
-    if (!role) return user;
-    Profile merged = *user;
-    merged.name = fmt::format("{}\n{}", user->name, role->name);
-    for (const auto &[limit, value] : role->limits) {
-      const auto [it, succ] = merged.limits.try_emplace(limit, value);
-      if (!succ) {
-        // Limit already present, merge (take the lower value)
-        if (std::holds_alternative<unlimitted_t>(it->second)) {
-          // If the existing limit is unlimited, we overwrite it with the role's limit
-          it->second = value;
-        } else if (std::holds_alternative<unlimitted_t>(value)) {
-          // If the role's limit is unlimited, we keep the existing one
-          continue;
-        } else {
-          // Otherwise, we keep the lower value
-          it->second = std::min(std::get<uint64_t>(it->second), std::get<uint64_t>(value));
-        }
-      }
-    }
-    return merged;
-  }
+  static std::optional<Profile> Merge(const std::optional<Profile> &user, const std::optional<Profile> &role);
 
  private:
   struct profile_hash {

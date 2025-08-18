@@ -60,7 +60,9 @@ void from_json(const nlohmann::json &data, memgraph::auth::UserProfiles::Profile
 
 UserProfiles::UserProfiles(kvstore::KVStore &durability) : durability_{&durability} {
   // No migration at the moment
-  durability_->Put(kUserProfilesVersionkey, kUserProfilesVersion);
+  if (!durability_->Put(kUserProfilesVersionKey, kUserProfilesVersion)) {
+    spdlog::error("Failed to put user profiles version");
+  }
 
   // Populate local storage
   for (auto it = durability_->begin(kUserProfilesPrefix.data()); it != durability_->end(kUserProfilesPrefix.data());
@@ -245,6 +247,32 @@ std::optional<std::string> UserProfiles::GetProfileForUsername(std::string_view 
     }
   }
   return std::nullopt;
+}
+
+std::optional<UserProfiles::Profile> UserProfiles::Merge(const std::optional<Profile> &user,
+                                                         const std::optional<Profile> &role) {
+  if (!user && !role) return std::nullopt;
+  if (!user) return role;
+  if (!role) return user;
+  Profile merged = *user;
+  merged.name = fmt::format("{}\n{}", user->name, role->name);
+  for (const auto &[limit, value] : role->limits) {
+    const auto [it, succ] = merged.limits.try_emplace(limit, value);
+    if (!succ) {
+      // Limit already present, merge (take the lower value)
+      if (std::holds_alternative<unlimitted_t>(it->second)) {
+        // If the existing limit is unlimited, we overwrite it with the role's limit
+        it->second = value;
+      } else if (std::holds_alternative<unlimitted_t>(value)) {
+        // If the role's limit is unlimited, we keep the existing one
+        continue;
+      } else {
+        // Otherwise, we keep the lower value
+        it->second = std::min(std::get<uint64_t>(it->second), std::get<uint64_t>(value));
+      }
+    }
+  }
+  return merged;
 }
 
 }  // namespace memgraph::auth

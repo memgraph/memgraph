@@ -149,6 +149,7 @@ class ResourceMonitoring {
       }
     }
     // Phase 2: get unique access and create if not found
+    // if profile already exists, we don't need to create a new one and just return the existing one
     {
       auto lock = std::unique_lock(mtx_);
       auto [it, _] = per_user_resources.try_emplace(name, std::make_shared<UserResources>());

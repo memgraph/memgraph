@@ -858,6 +858,39 @@ std::optional<UserProfiles::Profile> Auth::UpdateProfile(const std::string &prof
   return res;
 }
 
+bool Auth::CreateOrUpdateProfile(const std::string &profile_name, UserProfiles::limits_t defined_limits,
+                                 const std::unordered_set<std::string> &usernames, system::Transaction *system_tx) {
+  if (!CreateProfile(profile_name, defined_limits, usernames, system_tx)) {
+    // Profile already exists, update it
+    // Figure out the difference between the existing users and the new ones
+    const auto existing_users = GetUsernamesForProfile(profile_name);
+    const auto &new_users = usernames;
+    for (const auto &user : existing_users) {
+      if (!new_users.contains(user)) {
+        try {
+          RevokeProfile(user, system_tx);
+        } catch (const AuthException &e) {
+          spdlog::warn("Failed to revoke profile for user '{}': {}", user, e.what());
+        }
+      }
+    }
+    for (const auto &user : new_users) {
+      if (!existing_users.contains(user)) {
+        try {
+          SetProfile(profile_name, user, system_tx);
+        } catch (const AuthException &e) {
+          spdlog::warn("Failed to set profile for user '{}': {}", user, e.what());
+        }
+      }
+    }
+    if (!UpdateProfile(profile_name, defined_limits, system_tx)) {
+      spdlog::debug("SystemRecoveryHandler: Failed to save profile");
+      return false;
+    }
+  }
+  return true;
+}
+
 bool Auth::DropProfile(const std::string &profile_name, system::Transaction *system_tx) {
   std::unordered_set<std::string> users;
   if (user_resources_) {

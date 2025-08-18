@@ -295,16 +295,13 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowFineGrainedRolePrivile
 
 // Converting values from query to user profile framework
 memgraph::auth::UserProfiles::Limits name_to_limit(const auto &name) {
-  uint8_t enum_i = 0;
-  for (const auto &limit : memgraph::auth::UserProfiles::kLimits) {
-    if (name == limit) break;
-    ++enum_i;
-  }
-  if (enum_i == memgraph::auth::UserProfiles::kLimits.size()) {
+  auto it = std::find(memgraph::auth::UserProfiles::kLimits.begin(), memgraph::auth::UserProfiles::kLimits.end(), name);
+  if (it == memgraph::auth::UserProfiles::kLimits.end()) {
     throw memgraph::query::QueryRuntimeException("Unknown limit '{}'. Currently implemented limits: {}", name,
                                                  memgraph::auth::UserProfiles::AllLimits());
   }
-  return memgraph::auth::UserProfiles::Limits{enum_i};
+  return static_cast<memgraph::auth::UserProfiles::Limits>(
+      std::distance(memgraph::auth::UserProfiles::kLimits.begin(), it));
 }
 
 void is_limit_supported(memgraph::query::UserProfileQuery::LimitValueResult::Type value_type,
@@ -346,7 +343,7 @@ auto convert_limit_value(const memgraph::auth::UserProfiles::Profile &profile) {
         limit_value_result.mem_limit.scale = 1024;
       }
     }
-    query_profile.emplace_back(memgraph::auth::UserProfiles::kLimits[(int)limit_type], limit_value_result);
+    query_profile.emplace_back(memgraph::auth::UserProfiles::kLimits[static_cast<int>(limit_type)], limit_value_result);
   }
   return query_profile;
 }
@@ -1142,7 +1139,7 @@ std::vector<std::pair<std::string, query::UserProfileQuery::limits_t>> AuthQuery
     // Fill missing/unlimited limits
     for (size_t e_id = 0; e_id < auth::UserProfiles::kLimits.size(); ++e_id) {
       const auto limit = static_cast<auth::UserProfiles::Limits>(e_id);
-      if (profile.limits.find(limit) == profile.limits.end()) {
+      if (!profile.limits.contains(limit)) {
         profile.limits.emplace(limit, auth::UserProfiles::unlimitted_t{});
       }
     }

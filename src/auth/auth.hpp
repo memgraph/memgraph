@@ -415,9 +415,15 @@ class Auth final {
 #ifdef MG_ENTERPRISE
   bool CreateProfile(const std::string &profile_name, UserProfiles::limits_t defined_limits,
                      const std::unordered_set<std::string> &usernames = {}, system::Transaction *system_tx = nullptr);
+
   std::optional<UserProfiles::Profile> UpdateProfile(const std::string &profile_name,
                                                      const UserProfiles::limits_t &updated_limits,
                                                      system::Transaction *system_tx = nullptr);
+
+  bool CreateOrUpdateProfile(const std::string &profile_name, UserProfiles::limits_t defined_limits,
+                             const std::unordered_set<std::string> &usernames = {},
+                             system::Transaction *system_tx = nullptr);
+
   bool DropProfile(const std::string &profile_name, system::Transaction *system_tx = nullptr);
 
   std::optional<UserProfiles::Profile> GetProfile(std::string_view name) const;
