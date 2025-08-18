@@ -26,7 +26,7 @@ PIP_DEPS=(
 if [ -d ve3 ]; then
     rm -rf ve3
 fi
-virtualenv -p python3 ve3
+python3 -m venv ve3
 set +u
 source "ve3/bin/activate"
 set -u
