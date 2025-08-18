@@ -4729,9 +4729,6 @@ bool SetNestedProperty::SetNestedPropertyCursor::Pull(Frame &frame, ExecutionCon
       }
 #endif
       set_nested_property(&lhs.ValueVertex());
-      if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-        context.db_accessor->TextIndexUpdateVertex(lhs.ValueVertex());
-      }
       break;
     }
     case TypedValue::Type::Edge: {
@@ -5251,9 +5248,6 @@ bool RemoveNestedProperty::RemoveNestedPropertyCursor::Pull(Frame &frame, Execut
       }
 #endif
       remove_nested_property(&lhs.ValueVertex());
-      if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-        context.db_accessor->TextIndexUpdateVertex(lhs.ValueVertex());
-      }
       break;
     }
     case TypedValue::Type::Edge: {
