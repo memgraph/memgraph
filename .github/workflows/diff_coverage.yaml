@@ -187,7 +187,7 @@ jobs:
           --no-ccache \
           build-memgraph --cmake-only --community
 
-      - name: Build mgcxx to generate headers
+      - name: Build dependencies including mgcxx
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -195,27 +195,8 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --no-ccache \
-          build-memgraph --target mgcxx-proj
+          build-memgraph --init-only --community
 
-      - name: Debug mgcxx headers
-        run: |
-          echo '=== Checking mgcxx header locations inside container ==='
-          docker exec mgbuild_v6_ubuntu-24.04 bash -c "
-          echo 'Local mgcxx headers:'
-          ls -la /home/mg/memgraph/libs/mgcxx/include/ || echo 'Local mgcxx include dir not found'
-          echo 'Toolchain mgcxx headers:'
-          find /opt/toolchain-v6/include -name '*mgcxx*' -o -name '*text_search*' 2>/dev/null || echo 'No mgcxx headers in toolchain'
-          echo '=== Comparing drop_index signatures ==='
-          echo 'Local header drop_index:'
-          grep -n 'drop_index' /home/mg/memgraph/libs/mgcxx/include/mgcxx_text_search.hpp || echo 'Not found in local'
-          echo 'Toolchain header drop_index:'
-          find /opt/toolchain-v6/include -name '*mgcxx*' -exec grep -n 'drop_index' {} + 2>/dev/null || echo 'Not found in toolchain'
-          echo '=== Checking get_num_docs ==='
-          echo 'Local header get_num_docs:'
-          grep -n 'get_num_docs' /home/mg/memgraph/libs/mgcxx/include/mgcxx_text_search.hpp || echo 'Not found in local'
-          echo 'Toolchain header get_num_docs:'
-          find /opt/toolchain-v6/include -name '*mgcxx*' -exec grep -n 'get_num_docs' {} + 2>/dev/null || echo 'Not found in toolchain'
-          "
 
       - name: Run clang-tidy
         run: |
