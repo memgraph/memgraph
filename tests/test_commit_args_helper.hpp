@@ -12,7 +12,7 @@
 #pragma once
 
 #include "storage/v2/commit_args.hpp"
-#include "storage/v2/database_access.hpp"
+#include "storage/v2/database_protector.hpp"
 
 namespace memgraph::tests {
 

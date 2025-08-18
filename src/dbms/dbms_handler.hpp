@@ -36,7 +36,7 @@
 #include "coordination/coordinator_state.hpp"
 #include "dbms/database_handler.hpp"
 #endif
-#include "dbms/database_access.hpp"
+#include "dbms/database_protector.hpp"
 #include "global.hpp"
 #include "query/interpreter_context.hpp"
 #include "spdlog/spdlog.h"

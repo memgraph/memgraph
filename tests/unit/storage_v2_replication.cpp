@@ -24,7 +24,7 @@
 #include <storage/v2/replication/enums.hpp>
 #include "auth/auth.hpp"
 #include "dbms/database.hpp"
-#include "dbms/database_access.hpp"
+#include "dbms/database_protector.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "query/interpreter_context.hpp"
 #include "replication/config.hpp"

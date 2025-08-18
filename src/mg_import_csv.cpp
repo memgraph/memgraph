@@ -23,7 +23,7 @@
 #include "replication/state.hpp"
 #include "storage/v2/commit_args.hpp"
 #include "storage/v2/config.hpp"
-#include "storage/v2/database_access.hpp"
+#include "storage/v2/database_protector.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"

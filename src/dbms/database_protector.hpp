@@ -9,13 +9,26 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "dbms/database_access.hpp"
-#include "dbms/database.hpp"
+#pragma once
+
+#include "storage/v2/database_protector.hpp"
+#include "utils/gatekeeper.hpp"
 
 namespace memgraph::dbms {
-DatabaseProtector::DatabaseProtector(DatabaseAccess access) : access_(std::move(access)) {}
-
-auto DatabaseProtector::clone() const -> storage::DatabaseProtectorPtr {
-  return std::unique_ptr<storage::DatabaseProtector>{new DatabaseProtector{access_}};
+class Database;
 }
+
+extern template struct memgraph::utils::Gatekeeper<memgraph::dbms::Database>;
+
+namespace memgraph::dbms {
+using DatabaseAccess = memgraph::utils::Gatekeeper<memgraph::dbms::Database>::Accessor;
+
+struct DatabaseProtector : storage::DatabaseProtector {
+  explicit DatabaseProtector(DatabaseAccess access);
+  auto clone() const -> storage::DatabaseProtectorPtr override;
+
+ private:
+  DatabaseAccess access_;
+};
+
 }  // namespace memgraph::dbms

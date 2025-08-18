@@ -11,7 +11,7 @@
 
 #pragma once
 
-#include "storage/v2/database_access.hpp"
+#include "storage/v2/database_protector.hpp"
 #include "utils/logging.hpp"
 #include "utils/variant_helpers.hpp"
 

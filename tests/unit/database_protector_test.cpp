@@ -17,7 +17,7 @@
 #include <thread>
 
 #include "storage/v2/config.hpp"
-#include "storage/v2/database_access.hpp"
+#include "storage/v2/database_protector.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
 

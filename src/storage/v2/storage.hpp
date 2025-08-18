@@ -16,7 +16,7 @@
 #include "storage/v2/async_indexer.hpp"
 #include "storage/v2/commit_args.hpp"
 #include "storage/v2/config.hpp"
-#include "storage/v2/database_access.hpp"
+#include "storage/v2/database_protector.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edges_iterable.hpp"
 #include "storage/v2/id_types.hpp"

@@ -23,7 +23,7 @@
 /// REPLICATION ///
 #include "replication/epoch.hpp"
 #include "replication/state.hpp"
-#include "storage/v2/database_access.hpp"
+#include "storage/v2/database_protector.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/replication_transaction.hpp"
 #include "storage/v2/replication/serialization.hpp"

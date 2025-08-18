@@ -18,7 +18,7 @@
 #include <utility>
 #include <vector>
 
-#include "dbms/database_access.hpp"
+#include "dbms/database_protector.hpp"
 #include "kvstore/kvstore.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"

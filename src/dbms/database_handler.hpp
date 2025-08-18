@@ -22,7 +22,7 @@
 #include <unordered_map>
 
 #include "dbms/database.hpp"
-#include "dbms/database_access.hpp"
+#include "dbms/database_protector.hpp"
 
 #include "handler.hpp"
 

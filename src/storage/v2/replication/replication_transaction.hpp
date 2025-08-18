@@ -13,7 +13,7 @@
 
 #include <optional>
 
-#include "storage/v2/database_access.hpp"
+#include "storage/v2/database_protector.hpp"
 #include "storage/v2/replication/replication_client.hpp"
 #include "utils/rw_spin_lock.hpp"
 #include "utils/synchronized.hpp"

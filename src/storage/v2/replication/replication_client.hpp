@@ -16,7 +16,7 @@
 #include "replication_coordination_glue/messages.hpp"
 #include "rpc/client.hpp"
 #include "storage/v2/commit_ts_info.hpp"
-#include "storage/v2/database_access.hpp"
+#include "storage/v2/database_protector.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/global.hpp"
 #include "storage/v2/replication/rpc.hpp"

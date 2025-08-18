@@ -88,6 +88,7 @@ target_sources(mg-storage-v2
         constraints/type_constraints.hpp
         constraints/type_constraints_kind.hpp
         constraints/type_constraints_validator.hpp
+        database_protector.hpp
         delta_container.hpp
         disk/storage.hpp
         durability/ttl_operation_type.hpp
