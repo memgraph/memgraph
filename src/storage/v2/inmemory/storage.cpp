@@ -3247,6 +3247,9 @@ void InMemoryStorage::Clear() {
   garbage_undo_buffers_->clear();
   committed_transactions_->clear();
 
+  // Clear incoming async index creation requests
+  async_indexer_.Clear();
+
   // Clear indices, constraints and metadata
   indices_.DropGraphClearIndices();
   constraints_.DropGraphClearConstraints();
@@ -3254,9 +3257,6 @@ void InMemoryStorage::Clear() {
   edges_metadata_.run_gc();
   stored_node_labels_.clear();
   stored_edge_types_.clear();
-
-  // Clear incoming async index creation requests
-  async_indexer_.Clear();
 
   // Reset helper classes
   enum_store_.clear();
@@ -3331,11 +3331,12 @@ void InMemoryStorage::InMemoryAccessor::DropGraph() {
   mem_storage->garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) { garbage_undo_buffers.clear(); });
   mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) { committed_transactions.clear(); });
 
+  mem_storage->async_indexer_.Clear();
+
   // also, we're the only transaction running, so we can safely remove the data as well
   mem_storage->indices_.DropGraphClearIndices();
   mem_storage->constraints_.DropGraphClearConstraints();
 
-  mem_storage->async_indexer_.Clear();
   if (mem_storage->config_.salient.items.enable_schema_info) mem_storage->schema_info_.Clear();
 
   mem_storage->vertices_.clear();
