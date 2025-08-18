@@ -296,15 +296,28 @@ jobs:
           --build-type $BUILD_TYPE \
           build-memgraph
 
-      # This step will be skipped because the e2e stream tests have been disabled
-      # We need to fix this as soon as possible
       - name: Ensure Kafka and Pulsar are up
-        if: false
         run: |
+          # Check if docker-compose exists, otherwise use docker compose
+          if command -v docker-compose >/dev/null 2>&1; then
+            DOCKER_COMPOSE_CMD="docker-compose"
+          else
+            DOCKER_COMPOSE_CMD="docker compose"
+          fi
+
+          # Export to GITHUB_ENV for use in subsequent steps
+          echo "DOCKER_COMPOSE_CMD=$DOCKER_COMPOSE_CMD" >> $GITHUB_ENV
+
+          # TODO: stop cleanup process on CI machines
+          # These pull commands are needed because the cleanup process often cleans up the networks
+          # while compose is pulling down the images, causing this step to fail.
           cd tests/e2e/streams/kafka
-          docker-compose up -d
+          docker pull bitnami/kafka:3.9.0
+          docker pull bitnami/zookeeper:3.9.3
+          $DOCKER_COMPOSE_CMD up -d
           cd ../pulsar
-          docker-compose up -d
+          docker pull apachepulsar/pulsar:2.8.1
+          $DOCKER_COMPOSE_CMD up -d
 
       - name: Run e2e tests
         run: |
@@ -316,14 +329,12 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph e2e
 
-      # Same as two steps prior
       - name: Ensure Kafka and Pulsar are down
-        if: false
         run: |
           cd tests/e2e/streams/kafka
-          docker-compose down
+          $DOCKER_COMPOSE_CMD down
           cd ../pulsar
-          docker-compose down
+          $DOCKER_COMPOSE_CMD down
 
       - name: Copy build logs
         if: always()

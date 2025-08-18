@@ -12,6 +12,7 @@ services:
       - "mgdeps-cache:10.42.16.10"
       - "bench-graph-api:10.42.16.10"
     container_name: "mgbuild_v6_debian-11-arm"
+    network_mode: host
 
   mgbuild_v6_debian-12-arm:
     image: "memgraph/mgbuild:v6_debian-12-arm"
@@ -23,6 +24,7 @@ services:
       - "mgdeps-cache:10.42.16.10"
       - "bench-graph-api:10.42.16.10"
     container_name: "mgbuild_v6_debian-12-arm"
+    network_mode: host
 
   mgbuild_v6_ubuntu-24.04-arm:
     image: "memgraph/mgbuild:v6_ubuntu-24.04-arm"
@@ -34,3 +36,4 @@ services:
       - "mgdeps-cache:10.42.16.10"
       - "bench-graph-api:10.42.16.10"
     container_name: "mgbuild_v6_ubuntu-24.04-arm"
+    network_mode: host

@@ -9,12 +9,17 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import re
+
 # import os
+import time
+
 import pulsar
 import pytest
 from common import NAME, PULSAR_SERVICE_URL, connect, execute_and_fetch_all
 from kafka import KafkaProducer
 from kafka.admin import KafkaAdminClient, NewTopic
+from kafka.errors import TopicAlreadyExistsError
 
 import requests
 
@@ -45,22 +50,32 @@ def get_topics(num):
 
 
 @pytest.fixture(scope="function")
-def kafka_topics():
-    admin_client = KafkaAdminClient(bootstrap_servers="localhost:29092", client_id="test")
-    # The issue arises if we remove default kafka topics, e.g.
-    # "__consumer_offsets"
-    previous_topics = [topic for topic in admin_client.list_topics() if topic != "__consumer_offsets"]
-    if previous_topics:
-        admin_client.delete_topics(topics=previous_topics, timeout_ms=5000)
+def kafka_topics(request):
+    admin = KafkaAdminClient(bootstrap_servers="localhost:29092", client_id="test")
 
-    topics = get_topics(3)
-    topics_to_create = []
-    for topic in topics:
-        topics_to_create.append(NewTopic(name=topic, num_partitions=1, replication_factor=1))
+    # generate a safe, unique prefix from the test name
+    raw = request.node.name  # e.g. "test_separate_consumers[kafka_transform.with_parameters]"
+    safe = re.sub(r"[^\w]", "_", raw)  # now underscores only
 
-    admin_client.create_topics(new_topics=topics_to_create, timeout_ms=5000)
+    # build 3 new topics
+    topics = [f"{safe}_topic_{i}" for i in range(3)]
+    new_topics = [NewTopic(name=t, num_partitions=1, replication_factor=1) for t in topics]
+
+    # create with retry in case of lingering deletions
+    deadline = time.time() + 30
+    while True:
+        try:
+            admin.create_topics(new_topics=new_topics, timeout_ms=5000)
+            break
+        except TopicAlreadyExistsError:
+            if time.time() > deadline:
+                pytest.fail(f"Could not create topics (still marked for deletion): {topics}")
+            time.sleep(1)
+
     yield topics
-    admin_client.delete_topics(topics=topics, timeout_ms=5000)
+
+    # teardown
+    admin.delete_topics(topics, timeout_ms=5000)
 
 
 @pytest.fixture(scope="function")
