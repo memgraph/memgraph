@@ -187,7 +187,7 @@ jobs:
           --no-ccache \
           build-memgraph --cmake-only --community
 
-      - name: Build dependencies for clang-tidy
+      - name: Build memgraph community for clang-tidy
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -195,7 +195,7 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           --no-ccache \
-          build-memgraph --init-only --community
+          build-memgraph --community
 
 
       - name: Run clang-tidy
