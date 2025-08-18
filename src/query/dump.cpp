@@ -12,7 +12,6 @@
 #include "query/dump.hpp"
 
 #include <algorithm>
-#include <iomanip>
 #include <limits>
 #include <map>
 #include <optional>
@@ -638,15 +637,8 @@ PullPlanDump::PullChunk PullPlanDump::CreateTTLConfigPullChunk() {
       os << " EVERY \"" << std::chrono::duration_cast<std::chrono::seconds>(*ttl.period).count() << "s\"";
     }
     if (ttl.start_time) {
-      // TODO: need to verify
-      //  Format ttl.start_time to a specific time string: "HH:MM:SS"
-      auto start_time_t = std::chrono::system_clock::to_time_t(*ttl.start_time);
-      auto start_time_tm = *std::localtime(&start_time_t);
-
-      std::ostringstream time_str;
-      time_str << std::put_time(&start_time_tm, "%T");
-
-      os << " AT \"" << time_str.str() << "\"";
+      // Use TtlInfo::StringifyStartTime to ensure consistent timezone handling
+      os << " AT \"" << storage::ttl::TtlInfo::StringifyStartTime(*ttl.start_time) << "\"";
     }
     os << ";";
     stream->Result({TypedValue(os.str())});
