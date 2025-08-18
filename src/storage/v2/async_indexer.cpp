@@ -17,26 +17,26 @@
 
 namespace memgraph::storage {
 
-AsyncIndexer::~AsyncIndexer() { cv_.notify_one(); }
+AsyncIndexer::~AsyncIndexer() { cv_.notify_all(); }
 
 void AsyncIndexer::Enqueue(LabelId label) {
   request_queue_.access().insert(label);
-  cv_.notify_one();
+  cv_.notify_all();
 }
 
 void AsyncIndexer::Enqueue(EdgeTypeId edge_type) {
   request_queue_.access().insert(edge_type);
-  cv_.notify_one();
+  cv_.notify_all();
 }
 
 void AsyncIndexer::Enqueue(LabelId label, PropertiesPaths properties) {
   request_queue_.access().insert(LabelProperties{label, std::move(properties)});
-  cv_.notify_one();
+  cv_.notify_all();
 }
 
 void AsyncIndexer::Enqueue(PropertyId property) {
   request_queue_.access().insert(property);
-  cv_.notify_one();
+  cv_.notify_all();
 }
 
 void AsyncIndexer::RunGC() { request_queue_.run_gc(); }
@@ -58,15 +58,20 @@ bool AsyncIndexer::IsIdle() const {
 bool AsyncIndexer::HasThreadStopped() const { return thread_has_stopped_.load(); }
 
 void AsyncIndexer::Start(std::stop_token stop_token, Storage *storage) {
-  index_creator_thread_ = std::jthread{[this, stop_token, storage]() {
-    auto on_exit = utils::OnScopeExit{[this] { thread_has_stopped_ = true; }};
-
-    auto const cancel_check = [&]() { return stop_token.stop_requested(); };
+  index_creator_thread_ = std::jthread{[this, stop_token, storage](std::stop_token thread_stop_token) mutable {
+    auto on_exit = utils::OnScopeExit{[this] {
+      thread_has_stopped_ = true;
+      cv_.notify_all();
+    }};
+    auto const cancel_check = [&]() { return thread_stop_token.stop_requested() || stop_token.stop_requested(); };
     std::unique_lock<std::mutex> lock(mutex_);
-
-    while (!stop_token.stop_requested()) {
-      cv_.wait(lock, [&, this] { return request_queue_.size() != 0 || stop_token.stop_requested(); });
-      if (stop_token.stop_requested()) {
+    while (!cancel_check()) {
+      cv_.wait(lock, [&, this] {
+        auto empty = request_queue_.size() != 0;
+        auto stopped = cancel_check();
+        return empty || stopped;
+      });
+      if (cancel_check()) {
         return;
       }
 
@@ -134,6 +139,7 @@ void AsyncIndexer::Start(std::stop_token stop_token, Storage *storage) {
 
 void AsyncIndexer::Shutdown() {
   index_creator_thread_.request_stop();
+  cv_.notify_all();
   auto guard = std::unique_lock{mutex_};
   cv_.wait(guard, [this] { return !index_creator_thread_.joinable() || thread_has_stopped_.load(); });
 }
