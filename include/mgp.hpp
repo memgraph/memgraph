@@ -3739,7 +3739,7 @@ inline bool ZonedDateTime::operator==(const ZonedDateTime &other) const {
 
 inline std::string ZonedDateTime::ToString() const {
   auto tp = std::chrono::sys_time<std::chrono::microseconds>{std::chrono::microseconds{Timestamp()}};
-  if (strlen(Timezone()) > 0) {
+  if (!std::string_view{Timezone()}.empty()) {
     auto tz_ptr = std::chrono::locate_zone(Timezone());
     auto zt = std::chrono::zoned_time{tz_ptr, tp};
     return std::format("{0:%Y}-{0:%m}-{0:%d}T{0:%H}:{0:%M}:{0:%S}{0:%Ez}[{1}]", zt, Timezone());
