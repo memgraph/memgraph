@@ -605,15 +605,7 @@ build_memgraph () {
     echo ""
   fi
 
-  # Show conan cache statistics if conan cache is enabled
-  if [[ "$conan_cache_enabled" == "true" ]]; then
-    echo ""
-    echo "=== Conan Cache Statistics ==="
-    docker exec -u mg "$build_container" bash -c "conan cache path"
-    docker exec -u mg "$build_container" bash -c "conan cache list"
-    echo "=============================="
-    echo ""
-  fi
+
 
   # Clean up virtual environment
   docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && source ./env/bin/activate && deactivate"
