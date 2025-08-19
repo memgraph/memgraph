@@ -2,7 +2,6 @@ function(copy_user_changing_its_own_password_e2e_python_files FILE_NAME)
     copy_e2e_python_files(user_changing_its_own_password ${FILE_NAME})
 endfunction()
 
-copy_user_changing_its_own_password_e2e_python_files(common.py)
 copy_user_changing_its_own_password_e2e_python_files(user_changing_its_own_password.py)
 
 copy_e2e_files(user_changing_its_own_password workloads.yaml)
