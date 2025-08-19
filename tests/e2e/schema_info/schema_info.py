@@ -94,7 +94,7 @@ def test_spec(connect):
             assert index["labels"] == ["Person"]
             if index.get("type", {}) == "label_text":
                 assert index["properties"] == []
-                assert index["count"] == -1  # TODO Set to 4 once text index has an approximate count
+                assert index["count"] == 4
             else:
                 assert index["properties"] == ["name"]
                 assert index["count"] == 4
