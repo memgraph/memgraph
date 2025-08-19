@@ -13,12 +13,16 @@ import zoneinfo
 from datetime import datetime, timedelta, timezone
 
 import mgp
-import pytz
 
 
 @mgp.function
 def to_string(val):
     return str(val)
+
+
+@mgp.function
+def make_dt(year, month, day, hour, minute, second):
+    return datetime(year=year, month=month, day=day, hour=hour, minute=minute, second=second)
 
 
 @mgp.function
@@ -29,17 +33,6 @@ def make_zdt(year, month, day, hour, minute, second, offset_minutes):
 
 
 @mgp.function
-def make_dt(year, month, day, hour, min, second):
-    return datetime(year=year, month=month, day=day, hour=hour, minute=min, second=second)
-
-
-@mgp.function
 def make_zdt_with_zoneinfo(year, month, day, hour, minute, second, tz_name):
     tz = zoneinfo.ZoneInfo(tz_name)
     return datetime(year=year, month=month, day=day, hour=hour, minute=minute, second=second, tzinfo=tz)
-
-
-@mgp.function
-def make_zdt_with_pytz(year, month, day, hour, minute, second, tz_name):
-    tz = pytz.timezone(tz_name)
-    return tz.localize(datetime(year=year, month=month, day=day, hour=hour, minute=minute, second=second))

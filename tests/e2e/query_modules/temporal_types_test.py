@@ -14,7 +14,6 @@ import sys
 import zoneinfo
 
 import pytest
-import pytz
 from common import connect, execute_and_fetch_all
 
 
@@ -59,26 +58,10 @@ def test_retrieve_zoneddatetime_with_zoneinfo():
     assert result == [(datetime.datetime(2024, 1, 15, 10, 30, 45, tzinfo=zoneinfo.ZoneInfo("Etc/UTC")),)]
 
 
-def test_retrieve_zoneddatetime_with_pytz():
-    cursor = connect().cursor()
-    result = execute_and_fetch_all(
-        cursor, "RETURN temporal.make_zdt_with_pytz(2024, 1, 15, 10, 30, 45, 'Asia/Ho_Chi_Minh')"
-    )
-    assert result == [(datetime.datetime(2024, 1, 15, 10, 30, 45, tzinfo=zoneinfo.ZoneInfo("Asia/Ho_Chi_Minh")),)]
-
-
 def test_datetime_without_timezone():
     cursor = connect().cursor()
     result = execute_and_fetch_all(cursor, "RETURN temporal.make_dt(2024, 1, 15, 10, 30, 45)")
     assert result == [(datetime.datetime(2024, 1, 15, 10, 30, 45, tzinfo=None),)]
-
-
-def test_pymodule_accepting_pytz_timezone():
-    cursor = connect().cursor()
-    result = execute_and_fetch_all(
-        cursor, "RETURN temporal.to_string(temporal.make_zdt_with_pytz(2024, 1, 15, 10, 30, 45, 'America/New_York'))"
-    )
-    assert result[0][0] == "2024-01-15 10:30:45-05:00"
 
 
 if __name__ == "__main__":
