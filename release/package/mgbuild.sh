@@ -457,8 +457,6 @@ build_memgraph () {
   if [[ "$cmake_only" == "true" ]]; then
     build_target(){
       target=$1
-      docker exec -u root $build_container bash -c "rm -v /opt/toolchain-${toolchain_version}/include/cxx.hpp"
-      docker exec -u root $build_container bash -c "rm -v /opt/toolchain-${toolchain_version}/include/text_search.hpp"
       docker exec -u mg "$build_container" bash -c "$ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && cmake --build $container_build_dir --target $target -- -j"'$(nproc)'
     }
     # Force build that generate the header files needed by analysis (ie. clang-tidy)
