@@ -29,6 +29,7 @@
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/transaction.hpp"
 #include "storage_test_utils.hpp"
 #include "utils/file.hpp"
 #include "utils/file_locker.hpp"
@@ -160,7 +161,8 @@ class DeltaGenerator final {
       gen_->wal_file_.AppendTransactionStart(timestamp, commit, memgraph::storage::StorageAccessType::UNIQUE);
       if (gen_->valid_) {
         gen_->UpdateStats(timestamp, 1);
-        memgraph::storage::durability::WalDeltaData data{memgraph::storage::durability::WalTransactionStart{true}};
+        memgraph::storage::durability::WalDeltaData data{memgraph::storage::durability::WalTransactionStart{
+            true, memgraph::storage::durability::TransactionAccessType::UNIQUE}};
         gen_->data_.emplace_back(timestamp, data);
       }
     }

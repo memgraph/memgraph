@@ -15,6 +15,7 @@
 #include <type_traits>
 #include <usearch/index_plugins.hpp>
 
+#include "storage/v2/access_type.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/delta.hpp"
 #include "storage/v2/durability/exceptions.hpp"
@@ -896,6 +897,23 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, const Delta
   }
 }
 
+namespace {
+auto convert_to_transaction_access_type(StorageAccessType access_type) -> TransactionAccessType {
+  switch (access_type) {
+    case StorageAccessType::UNIQUE:
+      return TransactionAccessType::UNIQUE;
+    case StorageAccessType::WRITE:
+      return TransactionAccessType::WRITE;
+    case StorageAccessType::READ:
+      return TransactionAccessType::READ;
+    case StorageAccessType::READ_ONLY:
+      return TransactionAccessType::READ_ONLY;
+    default:
+      throw RecoveryFailure("Invalid access type for transaction start delta!");
+  }
+}
+}  // namespace
+
 uint64_t EncodeTransactionStart(Encoder<utils::OutputFile> *encoder, uint64_t const timestamp, bool const commit,
                                 StorageAccessType access_type) {
   encoder->WriteMarker(Marker::SECTION_DELTA);
@@ -903,7 +921,7 @@ uint64_t EncodeTransactionStart(Encoder<utils::OutputFile> *encoder, uint64_t co
   encoder->WriteMarker(Marker::DELTA_TRANSACTION_START);
   auto const flag_pos = encoder->GetPosition();
   encoder->WriteBool(commit);
-  encoder->WriteUint(access_type);
+  encoder->WriteUint(static_cast<uint8_t>(convert_to_transaction_access_type(access_type)));
   return flag_pos;
 }
 
