@@ -2205,20 +2205,24 @@ mgp_error mgp_vertex_equal(mgp_vertex *v1, mgp_vertex *v2, int *result) {
 mgp_error mgp_vertex_labels_count(mgp_vertex *v, size_t *result) {
   return WrapExceptions(
       [v]() -> size_t {
-        auto maybe_labels = std::visit([v](const auto &impl) { return impl.Labels(v->graph->view); }, v->impl);
-        if (maybe_labels.HasError()) {
-          switch (maybe_labels.GetError()) {
-            case memgraph::storage::Error::DELETED_OBJECT:
-              throw DeletedObjectException{"Cannot get the labels of a deleted vertex!"};
-            case memgraph::storage::Error::NONEXISTENT_OBJECT:
-              LOG_FATAL("Query modules shouldn't have access to nonexistent objects when getting vertex labels!");
-            case memgraph::storage::Error::PROPERTIES_DISABLED:
-            case memgraph::storage::Error::VERTEX_HAS_EDGES:
-            case memgraph::storage::Error::SERIALIZATION_ERROR:
-              LOG_FATAL("Unexpected error when getting vertex labels.");
-          }
-        }
-        return maybe_labels->size();
+        return std::visit(
+            [v](const auto &impl) {
+              const auto maybe_labels = impl.Labels(v->graph->view);
+              if (maybe_labels.HasError()) {
+                switch (maybe_labels.GetError()) {
+                  case memgraph::storage::Error::DELETED_OBJECT:
+                    throw DeletedObjectException{"Cannot get the labels of a deleted vertex!"};
+                  case memgraph::storage::Error::NONEXISTENT_OBJECT:
+                    LOG_FATAL("Query modules shouldn't have access to nonexistent objects when getting vertex labels!");
+                  case memgraph::storage::Error::PROPERTIES_DISABLED:
+                  case memgraph::storage::Error::VERTEX_HAS_EDGES:
+                  case memgraph::storage::Error::SERIALIZATION_ERROR:
+                    LOG_FATAL("Unexpected error when getting vertex labels.");
+                }
+              }
+              return maybe_labels->size();
+            },
+            v->impl);
       },
       result);
 }
