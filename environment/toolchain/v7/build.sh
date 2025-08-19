@@ -1182,7 +1182,7 @@ if [ ! -f $PREFIX/include/libaio.h ]; then
     popd
 fi
 
-ROCKSDB_TAG="v10.5.1"
+ROCKSDB_TAG="v8.1.1"
 log_tool_name "rocksdb $ROCKSDB_TAG"
 if [ ! -f $PREFIX/lib/librocksdb.a ]; then
     if [ -d rocksdb ]; then
