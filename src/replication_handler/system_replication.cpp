@@ -61,12 +61,12 @@ void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system
 }
 
 void FinalizeSystemTxHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
-                             const std::optional<utils::UUID> &current_main_uuid, slk::Reader *req_reader,
-                             slk::Builder *res_builder) {
+                             const std::optional<utils::UUID> &current_main_uuid, uint64_t const request_version,
+                             slk::Reader *req_reader, slk::Builder *res_builder) {
   using memgraph::replication::FinalizeSystemTxRes;
   FinalizeSystemTxRes res(false);
 
-  utils::OnScopeExit const send_on_exit([&]() { rpc::SendFinalResponse(res, res_builder); });
+  utils::OnScopeExit const send_on_exit([&]() { rpc::SendFinalResponse(res, request_version, res_builder); });
 
   memgraph::replication::FinalizeSystemTxReq req;
   memgraph::slk::Load(&req, req_reader);
@@ -109,8 +109,8 @@ void Register(replication::RoleReplicaData const &data, system::System &system, 
 
   // Generic finalize message
   data.server->rpc_server_.Register<replication::FinalizeSystemTxRpc>(
-      [&data, system_state_access](auto *req_reader, auto *res_builder) mutable {
-        FinalizeSystemTxHandler(system_state_access, data.uuid_, req_reader, res_builder);
+      [&data, system_state_access](uint64_t const request_version, auto *req_reader, auto *res_builder) mutable {
+        FinalizeSystemTxHandler(system_state_access, data.uuid_, request_version, req_reader, res_builder);
       });
 
   // DBMS

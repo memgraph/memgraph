@@ -60,10 +60,11 @@ inline auto LoadMessageHeader(slk::Reader *reader) -> ProtocolMessageHeader {
     case V2:
     case V3:
     case V4:
+    case V5:
       slk::Load(&header.message_id, reader);
       header.message_version = 1;  // default
       break;
-    case V5:
+    case V6:
       slk::Load(&header.message_id, reader);
       slk::Load(&header.message_version, reader);
       break;
