@@ -1201,6 +1201,7 @@ if [ ! -f $PREFIX/lib/librocksdb.a ]; then
       -DGFLAGS_NOTHREADS=OFF \
       -DCMAKE_INSTALL_LIBDIR=lib \
       -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true \
+      -DCMAKE_CXX_FLAGS="-include stdint.h" \
       -DPORTABLE=ON \
       ..
     make -j$CPUS rocksdb rocksdb-shared install
