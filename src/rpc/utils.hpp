@@ -26,7 +26,7 @@ concept HasDowngrade = requires(const std::remove_cvref_t<T> &res) {
 };
 
 template <RpcMessage TResponse>
-void SaveWithUpgrade(TResponse const &res, uint64_t const response_version, slk::Builder *builder) {
+void SaveWithDowngrade(TResponse const &res, uint64_t const response_version, slk::Builder *builder) {
   if (response_version == TResponse::kVersion) {
     slk::Save(res, builder);
     return;
@@ -34,7 +34,7 @@ void SaveWithUpgrade(TResponse const &res, uint64_t const response_version, slk:
   if constexpr (HasDowngrade<TResponse>) {
     auto prev_res = res.Downgrade();
     static_assert(decltype(prev_res)::kVersion == TResponse::kVersion - 1, "Wrong response version path");
-    SaveWithUpgrade(prev_res, response_version, builder);
+    SaveWithDowngrade(prev_res, response_version, builder);
   } else {
     throw std::runtime_error("No downgrade path available for this type of response");
   }
@@ -47,7 +47,7 @@ void SendFinalResponse(TResponse const &res, uint64_t const response_version, sl
                                              .message_id = TResponse::kType.id,
                                              .message_version = response_version};
   SaveMessageHeader(message_header, builder);
-  SaveWithUpgrade(res, response_version, builder);
+  SaveWithDowngrade(res, response_version, builder);
   builder->Finalize();
   spdlog::trace("[RpcServer] sent {}, version {}. {}", TResponse::kType.name, response_version, description);
 }
