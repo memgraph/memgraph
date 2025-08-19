@@ -30,8 +30,8 @@ void SystemRecoveryHandler(system::ReplicaHandlerAccessToState &system_state_acc
                            slk::Builder *res_builder);
 
 void FinalizeSystemTxHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
-                             std::optional<utils::UUID> &current_main_uuid, slk::Reader *req_reader,
-                             slk::Builder *res_builder);
+                             std::optional<utils::UUID> &current_main_uuid, uint64_t request_version,
+                             slk::Reader *req_reader, slk::Builder *res_builder);
 
 void Register(RoleReplicaData const &data, system::System &system, dbms::DbmsHandler &dbms_handler,
               auth::SynchedAuth &auth);
