@@ -1009,7 +1009,7 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
                              ranges::views::transform(&ReplicationInstanceConnector::GetReplicationClientInfo) |
                              ranges::to<ReplicationClientsInfo>();
 
-    if (!instance.SendRpc<PromoteToMainRpc>(curr_main_uuid, std::move(repl_clients_info))) {
+    if (!instance.SendRpc<PromoteToMainRpc>(curr_main_uuid, std::move(repl_clients_info), true)) {
       spdlog::error("Failed to promote instance to main with new uuid {}. Trying to do failover again.",
                     std::string{curr_main_uuid});
       switch (TryFailover()) {
@@ -1033,14 +1033,14 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
     if (!instance_state->is_replica) {
       // If instance is not replica, demote it to become replica. If request for demotion failed, return,
       // and you will simply retry on the next ping.
-      if (!instance.SendRpc<DemoteMainToReplicaRpc>(curr_main_uuid)) {
+      if (!instance.SendRpc<DemoteMainToReplicaRpc>(curr_main_uuid, true)) {
         spdlog::error("Couldn't demote instance {} to replica.", instance_name);
         return;
       }
     }
 
     if (!instance_state->uuid || *instance_state->uuid != curr_main_uuid) {
-      if (!instance.SendSwapAndUpdateUUID(curr_main_uuid)) {
+      if (!instance.SendSwapAndUpdateUUID(curr_main_uuid, true)) {
         spdlog::error("Failed to set new uuid for replica instance {} to {}.", instance_name,
                       std::string{curr_main_uuid});
       } else {

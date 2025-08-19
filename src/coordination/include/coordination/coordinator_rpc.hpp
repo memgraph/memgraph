@@ -30,13 +30,17 @@ struct PromoteToMainReq {
   static void Load(PromoteToMainReq *self, memgraph::slk::Reader *reader);
   static void Save(const PromoteToMainReq &self, memgraph::slk::Builder *builder);
 
-  explicit PromoteToMainReq(const utils::UUID &uuid, std::vector<ReplicationClientInfo> replication_clients_info)
-      : main_uuid(uuid), replication_clients_info(std::move(replication_clients_info)) {}
+  explicit PromoteToMainReq(const utils::UUID &uuid, std::vector<ReplicationClientInfo> replication_clients_info,
+                            bool const update_in_failover_status = false)
+      : main_uuid(uuid),
+        replication_clients_info(std::move(replication_clients_info)),
+        update_in_failover_status_(update_in_failover_status) {}
   PromoteToMainReq() = default;
 
   // get uuid here
   utils::UUID main_uuid;
   std::vector<ReplicationClientInfo> replication_clients_info;
+  bool update_in_failover_status_;
 };
 
 struct PromoteToMainRes {
@@ -94,13 +98,17 @@ struct DemoteMainToReplicaReq {
   // main uuid is provided when Demote is called from InstanceSuccessCallback because at that point we already know
   // what's next main uuid since the failover has already been done
   explicit DemoteMainToReplicaReq(ReplicationClientInfo replication_client_info,
-                                  std::optional<utils::UUID> const &main_uuid = std::nullopt)
-      : replication_client_info_(std::move(replication_client_info)), main_uuid_(main_uuid) {}
+                                  std::optional<utils::UUID> const &main_uuid = std::nullopt,
+                                  bool const update_in_failover_status = false)
+      : replication_client_info_(std::move(replication_client_info)),
+        main_uuid_(main_uuid),
+        update_in_failover_status_(update_in_failover_status) {}
 
   DemoteMainToReplicaReq() = default;
 
   ReplicationClientInfo replication_client_info_;
   std::optional<utils::UUID> main_uuid_;
+  bool update_in_failover_status_;
 };
 
 struct DemoteMainToReplicaRes {

@@ -196,7 +196,7 @@ bool ReplicationState::HandleVersionMigration(durability::ReplicationRoleEntry &
         auto old_json = nlohmann::json::parse(old_data, nullptr, false);
         if (old_json.is_discarded()) return false;  // Can not read old_data as json
         try {
-          durability::ReplicationReplicaEntry new_data = old_json.get<durability::ReplicationReplicaEntry>();
+          durability::ReplicationReplicaEntry const new_data = old_json.get<durability::ReplicationReplicaEntry>();
 
           // Migrate to using new key
           to_put.emplace(BuildReplicaKey(old_key), nlohmann::json(new_data).dump());
@@ -248,6 +248,11 @@ bool ReplicationState::HandleVersionMigration(durability::ReplicationRoleEntry &
       break;
     }
     case durability::DurabilityVersion::V5: {
+      data.in_failover = false;
+      if (!durability_->Put(durability::kReplicationRoleName, nlohmann::json(data).dump())) return false;
+      break;
+    }
+    case durability::DurabilityVersion::V6: {
       // do nothing - add code if V6 ever happens
       break;
     }

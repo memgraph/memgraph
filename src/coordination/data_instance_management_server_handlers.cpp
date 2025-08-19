@@ -89,8 +89,11 @@ void DataInstanceManagementServerHandlers::StateCheckHandler(const replication::
 }
 
 void DataInstanceManagementServerHandlers::GetDatabaseHistoriesHandler(
-    replication::ReplicationHandler const &replication_handler, slk::Reader * /*req_reader*/,
-    slk::Builder *res_builder) {
+    replication::ReplicationHandler &replication_handler, slk::Reader * /*req_reader*/, slk::Builder *res_builder) {
+  auto locked_repl_state = replication_handler.GetReplState();
+  locked_repl_state->UpdateInFailoverStatus(true);
+  spdlog::trace("Set in failover status to true");
+
   coordination::GetDatabaseHistoriesRes const rpc_res{replication_handler.GetDatabasesHistories()};
   rpc::SendFinalResponse(rpc_res, res_builder);
 }
@@ -166,13 +169,18 @@ void DataInstanceManagementServerHandlers::SwapMainUUIDHandler(replication::Repl
   }
 
   auto &repl_data = std::get<replication::RoleReplicaData>(locked_repl_state->ReplicationData());
-  spdlog::info("Set replica data UUID to main uuid {}", std::string(req.uuid));
-  locked_repl_state->TryPersistRoleReplica(repl_data.config, req.uuid);
-  repl_data.uuid_ = req.uuid;
+  spdlog::info("Set replica data UUID to main uuid {}", std::string(req.uuid_));
+  locked_repl_state->TryPersistRoleReplica(repl_data.config, req.uuid_);
+  repl_data.uuid_ = req.uuid_;
+
+  if (req.update_in_failover_status_) {
+    locked_repl_state->UpdateInFailoverStatus(false);
+    spdlog::trace("Set in failover status to false");
+  }
 
   replication_coordination_glue::SwapMainUUIDRes const rpc_res{true};
   rpc::SendFinalResponse(rpc_res, res_builder);
-  spdlog::info("UUID successfully set to {}.", std::string(req.uuid));
+  spdlog::info("UUID successfully set to {}.", std::string(req.uuid_));
 }
 
 void DataInstanceManagementServerHandlers::DemoteMainToReplicaHandler(
@@ -184,7 +192,7 @@ void DataInstanceManagementServerHandlers::DemoteMainToReplicaHandler(
   const replication::ReplicationServerConfig clients_config{
       .repl_server = io::network::Endpoint("0.0.0.0", req.replication_client_info_.replication_server.GetPort())};
 
-  if (!replication_handler.SetReplicationRoleReplica(clients_config, req.main_uuid_)) {
+  if (!replication_handler.SetReplicationRoleReplica(clients_config, req.main_uuid_, req.update_in_failover_status_)) {
     spdlog::error("Demoting main to replica failed.");
     coordination::DemoteMainToReplicaRes const rpc_res{false};
     rpc::SendFinalResponse(rpc_res, res_builder);
@@ -225,8 +233,13 @@ void DataInstanceManagementServerHandlers::PromoteToMainHandler(replication::Rep
       return;
     }
   }
+  auto locked_repl_state = replication_handler.GetReplState();
+  locked_repl_state->GetMainRole().writing_enabled_ = true;
 
-  replication_handler.GetReplState()->GetMainRole().writing_enabled_ = true;
+  if (req.update_in_failover_status_) {
+    locked_repl_state->UpdateInFailoverStatus(false);
+    spdlog::trace("Set in failover status to false");
+  }
 
   coordination::PromoteToMainRes const res{true};
   rpc::SendFinalResponse(res, res_builder);

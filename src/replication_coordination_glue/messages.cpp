@@ -41,11 +41,11 @@ void Load(memgraph::replication_coordination_glue::SwapMainUUIDRes *self, memgra
 
 // Serialize code for SwapMainUUIDReq
 void Save(const memgraph::replication_coordination_glue::SwapMainUUIDReq &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.uuid, builder);
+  memgraph::slk::Save(self.uuid_, builder);
 }
 
 void Load(memgraph::replication_coordination_glue::SwapMainUUIDReq *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->uuid, reader);
+  memgraph::slk::Load(&self->uuid_, reader);
 }
 
 }  // namespace memgraph::slk

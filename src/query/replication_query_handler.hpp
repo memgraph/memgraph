@@ -95,7 +95,8 @@ struct ReplicationQueryHandler {
 
   // as MAIN, become REPLICA
   virtual bool SetReplicationRoleReplica(const replication::ReplicationServerConfig &config,
-                                         std::optional<utils::UUID> const &maybe_main_uuid) = 0;
+                                         std::optional<utils::UUID> const &maybe_main_uuid,
+                                         bool update_in_failover_status) = 0;
 
   virtual bool TrySetReplicationRoleReplica(const replication::ReplicationServerConfig &config) = 0;
 

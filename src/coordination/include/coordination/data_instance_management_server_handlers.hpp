@@ -45,8 +45,8 @@ class DataInstanceManagementServerHandlers {
   static void EnableWritingOnMainHandler(replication::ReplicationHandler &replication_handler, slk::Reader *req_reader,
                                          slk::Builder *res_builder);
 
-  static void GetDatabaseHistoriesHandler(replication::ReplicationHandler const &replication_handler,
-                                          slk::Reader *req_reader, slk::Builder *res_builder);
+  static void GetDatabaseHistoriesHandler(replication::ReplicationHandler &replication_handler, slk::Reader *req_reader,
+                                          slk::Builder *res_builder);
 
   static auto DoRegisterReplica(replication::ReplicationHandler &replication_handler,
                                 coordination::ReplicationClientInfo const &config) -> bool;

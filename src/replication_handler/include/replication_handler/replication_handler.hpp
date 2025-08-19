@@ -130,7 +130,8 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
 
   // as MAIN, become REPLICA, can be called on MAIN and REPLICA
   bool SetReplicationRoleReplica(const ReplicationServerConfig &config,
-                                 std::optional<utils::UUID> const &maybe_main_uuid) override;
+                                 std::optional<utils::UUID> const &maybe_main_uuid,
+                                 bool update_in_failover_status) override;
 
   // as MAIN, become REPLICA, can be called only on MAIN
   bool TrySetReplicationRoleReplica(const ReplicationServerConfig &config) override;

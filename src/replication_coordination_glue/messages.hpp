@@ -44,11 +44,13 @@ struct SwapMainUUIDReq {
   static void Load(SwapMainUUIDReq *self, memgraph::slk::Reader *reader);
   static void Save(const SwapMainUUIDReq &self, memgraph::slk::Builder *builder);
 
-  explicit SwapMainUUIDReq(const utils::UUID &uuid) : uuid(uuid) {}
+  explicit SwapMainUUIDReq(const utils::UUID &uuid, bool update_in_failover_status = false)
+      : uuid_(uuid), update_in_failover_status_(update_in_failover_status) {}
 
   SwapMainUUIDReq() = default;
 
-  utils::UUID uuid;
+  utils::UUID uuid_;
+  bool update_in_failover_status_;
 };
 
 struct SwapMainUUIDRes {

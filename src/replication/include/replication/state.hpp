@@ -93,10 +93,16 @@ struct ReplicationState {
   auto EnableWritingOnMain() -> bool {
     if (auto *main = std::get_if<RoleMainData>(&replication_data_)) {
       main->writing_enabled_ = true;
+      // NOTE: It's not necessary to modify here in_failover_ because even if main went down and came back up,
+      // SwapMainUUID will enable writing again.
       return true;
     }
     return false;
   }
+
+  auto IsFailoverActive() const -> bool { return in_failover_; }
+
+  void UpdateInFailoverStatus(bool const new_status) { in_failover_ = new_status; }
 
   auto GetMainRole() -> RoleMainData & {
     MG_ASSERT(IsMain(), "Instance is not MAIN");
