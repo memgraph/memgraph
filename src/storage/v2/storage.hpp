@@ -13,6 +13,7 @@
 
 #include "common_function_signatures.hpp"
 #include "mg_procedure.h"
+#include "storage/v2/access_type.hpp"
 #include "storage/v2/async_indexer.hpp"
 #include "storage/v2/commit_args.hpp"
 #include "storage/v2/config.hpp"
@@ -210,16 +211,9 @@ class Storage {
     static constexpr struct ReadOnlyAccess {
     } read_only_access;
 
-    enum Type {
-      NO_ACCESS,  // Modifies nothing in the storage
-      UNIQUE,     // An operation that requires mutral exclusive access to the storage
-      WRITE,      // Writes to the data of storage
-      READ,       // Either reads the data of storage, or a metadata operation that doesn't require unique access
-      READ_ONLY,  // Ensures writers have gone
-    };
-
     Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
-             Type rw_type = Type::WRITE, std::optional<std::chrono::milliseconds> timeout = std::nullopt);
+             StorageAccessType rw_type = StorageAccessType::WRITE,
+             std::optional<std::chrono::milliseconds> timeout = std::nullopt);
     Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
              std::optional<std::chrono::milliseconds> timeout = std::nullopt);
     Accessor(ReadOnlyAccess /* tag */, Storage *storage, IsolationLevel isolation_level, StorageMode storage_mode,
@@ -232,7 +226,9 @@ class Storage {
 
     virtual ~Accessor() = default;
 
-    Type type() const {
+    StorageAccessType original_access_type() const { return original_access_type_; }
+
+    StorageAccessType type() const {
       if (unique_guard_.owns_lock()) {
         return UNIQUE;
       }
@@ -360,9 +356,8 @@ class Storage {
 
     virtual bool LabelPropertyIndexExists(LabelId label, std::span<PropertyPath const> properties) const = 0;
 
-    auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
-                                            std::span<PropertyPath const> properties) const
-        -> std::vector<LabelPropertiesIndicesInfo> {
+    auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels, std::span<PropertyPath const> properties)
+        const -> std::vector<LabelPropertiesIndicesInfo> {
       return transaction_.active_indices_.label_properties_->RelevantLabelPropertiesIndicesInfo(labels, properties);
     };
 
@@ -508,8 +503,8 @@ class Storage {
     }
     auto GetEnumStoreShared() const -> EnumStore const & { return storage_->enum_store_; }
 
-    auto CreateEnum(std::string_view name, std::span<std::string const> values)
-        -> memgraph::utils::BasicResult<EnumStorageError, EnumTypeId> {
+    auto CreateEnum(std::string_view name,
+                    std::span<std::string const> values) -> memgraph::utils::BasicResult<EnumStorageError, EnumTypeId> {
       auto res = storage_->enum_store_.RegisterEnum(name, values);
       if (res.HasValue()) {
         transaction_.md_deltas.emplace_back(MetadataDelta::enum_create, res.GetValue());
@@ -517,8 +512,8 @@ class Storage {
       return res;
     }
 
-    auto EnumAlterAdd(std::string_view name, std::string_view value)
-        -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+    auto EnumAlterAdd(std::string_view name,
+                      std::string_view value) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
       auto res = storage_->enum_store_.AddValue(name, value);
       if (res.HasValue()) {
         transaction_.md_deltas.emplace_back(MetadataDelta::enum_alter_add, res.GetValue());
@@ -526,8 +521,8 @@ class Storage {
       return res;
     }
 
-    auto EnumAlterUpdate(std::string_view name, std::string_view old_value, std::string_view new_value)
-        -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+    auto EnumAlterUpdate(std::string_view name, std::string_view old_value,
+                         std::string_view new_value) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
       auto res = storage_->enum_store_.UpdateValue(name, old_value, new_value);
       if (res.HasValue()) {
         transaction_.md_deltas.emplace_back(MetadataDelta::enum_alter_update, res.GetValue(), std::string{old_value});
@@ -537,8 +532,8 @@ class Storage {
 
     auto ShowEnums() { return storage_->enum_store_.AllRegistered(); }
 
-    auto GetEnumValue(std::string_view name, std::string_view value) const
-        -> utils::BasicResult<EnumStorageError, Enum> {
+    auto GetEnumValue(std::string_view name,
+                      std::string_view value) const -> utils::BasicResult<EnumStorageError, Enum> {
       return storage_->enum_store_.ToEnum(name, value);
     }
 
@@ -589,6 +584,7 @@ class Storage {
     Transaction transaction_;
     std::optional<uint64_t> commit_timestamp_;
     bool is_transaction_active_;
+    StorageAccessType original_access_type_;
 
     // Detach delete private methods
     Result<std::optional<std::unordered_set<Vertex *>>> PrepareDeletableNodes(
@@ -647,14 +643,14 @@ class Storage {
     }
   }
 
-  virtual std::unique_ptr<Accessor> Access(Accessor::Type rw_type,
+  virtual std::unique_ptr<Accessor> Access(StorageAccessType rw_type,
                                            std::optional<IsolationLevel> override_isolation_level,
                                            std::optional<std::chrono::milliseconds> timeout) = 0;
   std::unique_ptr<Accessor> Access(std::optional<IsolationLevel> override_isolation_level) {
-    return Access(Accessor::Type::WRITE, override_isolation_level, std::nullopt);
+    return Access(StorageAccessType::WRITE, override_isolation_level, std::nullopt);
   }
-  std::unique_ptr<Accessor> Access(Accessor::Type rw_type) { return Access(rw_type, std::nullopt, std::nullopt); }
-  std::unique_ptr<Accessor> Access() { return Access(Accessor::Type::WRITE, {}, std::nullopt); }
+  std::unique_ptr<Accessor> Access(StorageAccessType rw_type) { return Access(rw_type, std::nullopt, std::nullopt); }
+  std::unique_ptr<Accessor> Access() { return Access(StorageAccessType::WRITE, {}, std::nullopt); }
 
   virtual std::unique_ptr<Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
                                                  std::optional<std::chrono::milliseconds> timeout) = 0;
@@ -785,9 +781,9 @@ class Storage {
   }
 };
 
-inline std::ostream &operator<<(std::ostream &os, Storage::Accessor::Type type) {
+inline std::ostream &operator<<(std::ostream &os, StorageAccessType type) {
   switch (type) {
-    using enum Storage::Accessor::Type;
+    using enum StorageAccessType;
     case NO_ACCESS:
       return os << "NO_ACCESS";
     case UNIQUE:

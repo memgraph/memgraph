@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <optional>
 
+#include "storage/v2/access_type.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/exceptions.hpp"
 #include "storage/v2/durability/serialization.hpp"
@@ -156,7 +157,7 @@ class DeltaGenerator final {
     void StartTx() {
       auto timestamp = gen_->timestamp_;
       constexpr bool commit{true};
-      gen_->wal_file_.AppendTransactionStart(timestamp, commit);
+      gen_->wal_file_.AppendTransactionStart(timestamp, commit, memgraph::storage::StorageAccessType::UNIQUE);
       if (gen_->valid_) {
         gen_->UpdateStats(timestamp, 1);
         memgraph::storage::durability::WalDeltaData data{memgraph::storage::durability::WalTransactionStart{true}};

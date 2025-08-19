@@ -19,6 +19,7 @@
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/version.hpp"
+#include "storage/v2/durability/wal.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/indices/vector_index.hpp"
@@ -879,32 +880,46 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
   auto edge_acc = storage->edges_.access();
   auto vertex_acc = storage->vertices_.access();
 
-  constexpr auto kSharedAccess = storage::Storage::Accessor::Type::WRITE;
-  constexpr auto kUniqueAccess = storage::Storage::Accessor::Type::UNIQUE;
+  constexpr auto kSharedAccess = storage::StorageAccessType::WRITE;
+  constexpr auto kUniqueAccess = storage::StorageAccessType::UNIQUE;
   // TODO: add when concurrent index creation can actually replicate using READ_ONLY
-  // constexpr auto kReadOnlyAccess = storage::Storage::Accessor::Type::READ_ONLY;
+  // constexpr auto kReadOnlyAccess = storage::StorageAccessType::Type::READ_ONLY;
 
   uint64_t commit_timestamp{0};
   std::unique_ptr<storage::ReplicationAccessor> commit_accessor;
 
   bool should_commit{true};
+  std::optional<storage::StorageAccessType> access_type;
 
-  auto const get_replication_accessor = [storage, &commit_timestamp, &commit_accessor](
-                                            uint64_t const local_commit_timestamp,
-                                            storage::Storage::Accessor::Type acc_type =
-                                                kSharedAccess) -> storage::ReplicationAccessor * {
+  auto translate_access_type = [](storage::durability::TransactionAccessType access_type) {
+    switch (access_type) {
+      case storage::durability::TransactionAccessType::UNIQUE:
+        return storage::StorageAccessType::UNIQUE;
+      case storage::durability::TransactionAccessType::WRITE:
+        return storage::StorageAccessType::WRITE;
+      case storage::durability::TransactionAccessType::READ:
+        return storage::StorageAccessType::READ;
+      case storage::durability::TransactionAccessType::READ_ONLY:
+        return storage::StorageAccessType::READ_ONLY;
+    }
+  };
+
+  auto const get_replication_accessor = [&, storage](uint64_t const local_commit_timestamp,
+                                                     storage::StorageAccessType acc_type =
+                                                         kSharedAccess) -> storage::ReplicationAccessor * {
     if (!commit_accessor) {
       std::unique_ptr<storage::Storage::Accessor> acc = nullptr;
-      switch (acc_type) {
-        case storage::Storage::Accessor::Type::READ:
+      auto true_access_type = access_type.value_or(acc_type);
+      switch (true_access_type) {
+        case storage::StorageAccessType::READ:
           [[fallthrough]];
-        case storage::Storage::Accessor::Type::WRITE:
-          acc = storage->Access(acc_type);
+        case storage::StorageAccessType::WRITE:
+          acc = storage->Access(true_access_type);
           break;
-        case storage::Storage::Accessor::Type::UNIQUE:
+        case storage::StorageAccessType::UNIQUE:
           acc = storage->UniqueAccess();
           break;
-        case storage::Storage::Accessor::Type::READ_ONLY:
+        case storage::StorageAccessType::READ_ONLY:
           acc = storage->ReadOnlyAccess();
           break;
         default:
@@ -1162,7 +1177,8 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
         },
         [&](WalTransactionStart const &data) {
           spdlog::trace("   Delta {}. Transaction start. Commit txn? {}", current_delta_idx, data.commit);
-          should_commit = data.commit;
+          should_commit = data.commit.value_or(true);
+          access_type = data.access_type ? std::optional(translate_access_type(*data.access_type)) : std::nullopt;
         },
         [&](WalTransactionEnd const &) {
           spdlog::trace("   Delta {}. Transaction end", current_delta_idx);

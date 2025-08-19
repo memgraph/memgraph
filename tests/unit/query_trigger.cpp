@@ -25,6 +25,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "utils/exceptions.hpp"
 

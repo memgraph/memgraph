@@ -23,6 +23,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/property_value_utils.hpp"
+#include "storage/v2/storage.hpp"
 #include "storage/v2/temporal.hpp"
 #include "storage_test_utils.hpp"
 #include "tests/test_commit_args_helper.hpp"
@@ -63,7 +64,9 @@ using KVPair = std::tuple<PropertyId, PropertyValue>;
 /** Creates a map from a (possibly nested) list of `KVPair`s.
  */
 template <typename... Ts>
-auto MakeMap(Ts &&...values) -> PropertyValue requires(std::is_same_v<std::decay_t<Ts>, KVPair> &&...) {
+auto MakeMap(Ts &&...values) -> PropertyValue
+  requires(std::is_same_v<std::decay_t<Ts>, KVPair> && ...)
+{
   return PropertyValue{PropertyValue::map_t{
       {std::get<0>(values),
        std::forward<std::tuple_element_t<1, std::decay_t<Ts>>>(std::get<1>(std::forward<Ts>(values)))}...}};
@@ -110,7 +113,7 @@ class IndexTest : public testing::Test {
 
   auto DropIndexAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> {
     if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>) {
-      return this->storage->Access(memgraph::storage::Storage::Accessor::Type::READ);
+      return this->storage->Access(memgraph::storage::StorageAccessType::READ);
     } else {
       return this->storage->UniqueAccess();
     }

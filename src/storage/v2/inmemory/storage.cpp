@@ -113,8 +113,8 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action const action) -> d
 #undef add_case
 }
 
-auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex, VertexAccessor *to_vertex)
-    -> Result<EdgesVertexAccessorResult> {
+auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex,
+               VertexAccessor *to_vertex) -> Result<EdgesVertexAccessorResult> {
   auto use_out_edges = [](Vertex const *from_vertex, Vertex const *to_vertex) {
     // Obtain the locks by `gid` order to avoid lock cycles.
     auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
@@ -318,7 +318,7 @@ InMemoryStorage::~InMemoryStorage() {
 
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(SharedAccess tag, InMemoryStorage *storage,
                                                     IsolationLevel isolation_level, StorageMode storage_mode,
-                                                    Accessor::Type rw_type,
+                                                    StorageAccessType rw_type,
                                                     std::optional<std::chrono::milliseconds> timeout)
     : Accessor(tag, storage, isolation_level, storage_mode, rw_type, timeout),
       config_(storage->config_.salient.items) {}
@@ -2480,8 +2480,8 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
 
   // Both main and replica append txn start delta and remember the position in the WAL file in which this delta is
   // saved.
-  commit_flag_wal_position_ =
-      mem_storage->wal_file_->AppendTransactionStart(durability_commit_timestamp, !two_phase_commit);
+  commit_flag_wal_position_ = mem_storage->wal_file_->AppendTransactionStart(durability_commit_timestamp,
+                                                                             !two_phase_commit, original_access_type_);
   // The WAL file needs to be updated only if we don't commit immediately.
   needs_wal_update_ = two_phase_commit;
 
@@ -3109,7 +3109,7 @@ utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::UnlockPath() 
   return true;
 }
 
-std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(Accessor::Type rw_type,
+std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(StorageAccessType rw_type,
                                                            std::optional<IsolationLevel> override_isolation_level,
                                                            std::optional<std::chrono::milliseconds> timeout) {
   return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::shared_access, this,

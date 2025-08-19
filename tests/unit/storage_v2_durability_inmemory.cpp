@@ -2356,12 +2356,12 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
       return res;
     }();  // iile
     for (const auto &index : indices.label) {
-      auto acc = db.Access(memgraph::storage::Storage::Accessor::Type::READ);
+      auto acc = db.Access(memgraph::storage::StorageAccessType::READ);
       ASSERT_FALSE(acc->DropIndex(index).HasError());
       ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
     for (const auto &[label, properties] : indices.label_properties) {
-      auto acc = db.Access(memgraph::storage::Storage::Accessor::Type::READ);
+      auto acc = db.Access(memgraph::storage::StorageAccessType::READ);
       ASSERT_FALSE(acc->DropIndex(label, std::vector(properties)).HasError());
       ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
