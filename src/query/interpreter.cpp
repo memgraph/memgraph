@@ -5238,8 +5238,10 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
               properties |
               rv::transform([storage](auto prop_id) { return TypedValue(storage->PropertyToName(prop_id)); }) |
               ranges::to_vector;
-          results.push_back({TypedValue(fmt::format("{} (name: {})", text_index_mark, index_name)),
-                             TypedValue(storage->LabelToName(label)), TypedValue(std::move(prop_names)), TypedValue()});
+          results.push_back(
+              {TypedValue(fmt::format("{} (name: {})", text_index_mark, index_name)),
+               TypedValue(storage->LabelToName(label)), TypedValue(std::move(prop_names)),
+               TypedValue(static_cast<int>(storage_acc->ApproximateVerticesTextCount(index_name).value_or(0)))});
         }
         for (const auto &[label_id, prop_id] : info.point_label_property) {
           results.push_back({TypedValue(point_label_property_index_mark), TypedValue(storage->LabelToName(label_id)),
@@ -6318,15 +6320,17 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
         }));
       }
       // Vertex label text
-      for (const auto &[str, label_id, properties] : index_info.text_indices) {
+      for (const auto &[index_name, label_id, properties] : index_info.text_indices) {
         auto prop_names = properties | rv::transform([storage](const storage::PropertyId &property) {
                             return storage->PropertyToName(property);
                           }) |
                           r::to_vector;
-        node_indexes.push_back(nlohmann::json::object({{"labels", {storage->LabelToName(label_id)}},
-                                                       {"properties", prop_names},
-                                                       {"count", -1},
-                                                       {"type", "label_text"}}));
+        node_indexes.push_back(
+            nlohmann::json::object({{"labels", {storage->LabelToName(label_id)}},
+                                    {"properties", prop_names},
+                                    {"count", storage_acc->ApproximateVerticesTextCount(index_name).value_or(0)},
+                                    {"text", index_name},
+                                    {"type", "label_text"}}));
       }
       // Vertex label property_point
       for (const auto &[label_id, property] : index_info.point_label_property) {
