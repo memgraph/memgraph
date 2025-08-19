@@ -2451,10 +2451,10 @@ struct PullPlan {
   explicit PullPlan(
       std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, bool is_profile_query, DbAccessor *dba,
       InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
-      std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context, storage::DatabaseProtectorPtr protector,
-      std::optional<QueryLogger> &query_logger, TriggerContextCollector *trigger_context_collector = nullptr,
-      std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr,
-      std::optional<int64_t> hops_limit = {}
+      std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
+      storage::DatabaseProtectorPtr protector, std::optional<QueryLogger> &query_logger,
+      TriggerContextCollector *trigger_context_collector = nullptr, std::optional<size_t> memory_limit = {},
+      FrameChangeCollector *frame_change_collector_ = nullptr, std::optional<int64_t> hops_limit = {}
 #ifdef MG_ENTERPRISE
       ,
       std::shared_ptr<utils::UserResources> user_resource = {}
@@ -2885,8 +2885,8 @@ PreparedQuery PrepareCypherQuery(
       current_db.trigger_context_collector_ ? &*current_db.trigger_context_collector_ : nullptr;
   auto pull_plan = std::make_shared<PullPlan>(
       plan, parsed_query.parameters, is_profile_query, dba, interpreter_context, execution_memory,
-      std::move(user_or_role), std::move(stopping_context), dbms::DatabaseProtector{*current_db.db_acc_}.clone(), interpreter.query_logger_,
-      trigger_context_collector, memory_limit,
+      std::move(user_or_role), std::move(stopping_context), dbms::DatabaseProtector{*current_db.db_acc_}.clone(),
+      interpreter.query_logger_, trigger_context_collector, memory_limit,
       frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit
 #ifdef MG_ENTERPRISE
       ,
@@ -3058,8 +3058,9 @@ PreparedQuery PrepareProfileQuery(
         if (!stats_and_total_time) {
           stats_and_total_time =
               PullPlan(plan, parameters, true, dba, interpreter_context, execution_memory, std::move(user_or_role),
-                       std::move(stopping_context), dbms::DatabaseProtector{db_acc}.clone(), query_logger, nullptr, memory_limit,
-                       frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit
+                       std::move(stopping_context), dbms::DatabaseProtector{db_acc}.clone(), query_logger, nullptr,
+                       memory_limit, frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr,
+                       hops_limit
 #ifdef MG_ENTERPRISE
                        ,
                        user_resource
@@ -4139,10 +4140,11 @@ PreparedQuery PrepareAuthQuery(ParsedQuery parsed_query, bool in_explicit_transa
 
   auto *auth_query = utils::Downcast<AuthQuery>(parsed_query.query);
 
-  // Special case for SHOW CURRENT USER and SHOW CURRENT ROLE
+  // Special case for auth queries that don't require any privileges (those that work on the current user only)
   auto target_db = std::string{dbms::kSystemDB};
   if (auth_query->action_ == AuthQuery::Action::SHOW_CURRENT_USER ||
-      auth_query->action_ == AuthQuery::Action::SHOW_CURRENT_ROLE) {
+      auth_query->action_ == AuthQuery::Action::SHOW_CURRENT_ROLE ||
+      auth_query->action_ == AuthQuery::Action::CHANGE_PASSWORD) {
     target_db = db_acc ? db_acc->get()->name() : "";
   }
 
