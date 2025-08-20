@@ -384,10 +384,6 @@ build_memgraph () {
         copy_from_host=false
         shift 1
       ;;
-      --init-skip-prep-testing)
-        init_flags="$init_flags --skip-prep-testing"
-        shift 1
-      ;;
       --disable-jemalloc)
         disable_jemalloc_flag="-DENABLE_JEMALLOC=OFF"
         shift 1
