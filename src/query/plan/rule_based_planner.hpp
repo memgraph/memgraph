@@ -512,8 +512,7 @@ class RuleBasedPlanner {
     } else if (auto *del = utils::Downcast<query::Delete>(clause)) {
       return std::make_unique<plan::Delete>(std::move(input_op), del->expressions_, del->detach_);
     } else if (auto *set = utils::Downcast<query::SetProperty>(clause)) {
-      if (set->property_lookup_->property_path_.size() == 1 &&
-          set->property_lookup_->lookup_mode_ != PropertyLookup::LookupMode::APPEND) {
+      if (!set->property_lookup_->use_nested_property_update_) {
         return std::make_unique<plan::SetProperty>(std::move(input_op),
                                                    GetProperty(set->property_lookup_->GetBaseProperty()),
                                                    set->property_lookup_, set->expression_);

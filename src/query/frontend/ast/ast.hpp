@@ -997,6 +997,7 @@ class PropertyLookup : public memgraph::query::Expression {
   std::vector<PropertyIx> property_path_;
   memgraph::query::PropertyLookup::EvaluationMode evaluation_mode_{EvaluationMode::GET_OWN_PROPERTY};
   memgraph::query::PropertyLookup::LookupMode lookup_mode_{LookupMode::REPLACE};
+  bool use_nested_property_update_{false};
 
   PropertyIx GetBaseProperty() const { return property_path_[0]; }
 
@@ -1009,6 +1010,7 @@ class PropertyLookup : public memgraph::query::Expression {
     }
     object->evaluation_mode_ = evaluation_mode_;
     object->lookup_mode_ = lookup_mode_;
+    object->use_nested_property_update_ = use_nested_property_update_;
     return object;
   }
 
