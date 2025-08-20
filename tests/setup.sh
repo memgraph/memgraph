@@ -20,7 +20,7 @@ PIP_DEPS=(
    "pyyaml==6.0.1"
    "six==1.17.0"
    "networkx==2.5.1"
-   "gqlalchemy==1.6.0"
+   "gqlalchemy==1.8.0"
    "python3-saml==1.16.0"
    "setuptools==75.8.0"
    "pymgclient==1.3.1"
