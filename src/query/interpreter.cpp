@@ -6818,69 +6818,69 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   // case for use database which overwrites the current database)
 
   // No database access required (and current database is not needed)
-  void Visit(AuthQuery &) override {}
-  void Visit(UserProfileQuery &) override {}
-  void Visit(MultiDatabaseQuery &) override {}
-  void Visit(ReplicationQuery &) override {}
-  void Visit(ShowConfigQuery &) override {}
-  void Visit(SettingQuery &) override {}
-  void Visit(VersionQuery &) override {}
-  void Visit(TransactionQueueQuery &) override {}
-  void Visit(UseDatabaseQuery &) override {}
-  void Visit(ShowDatabaseQuery &) override {}
-  void Visit(ShowDatabasesQuery &) override {}
-  void Visit(ReplicationInfoQuery &) override {}
-  void Visit(CoordinatorQuery &) override {}
+  void Visit(AuthQuery & /*unused*/) override {}
+  void Visit(UserProfileQuery & /*unused*/) override {}
+  void Visit(MultiDatabaseQuery & /*unused*/) override {}
+  void Visit(ReplicationQuery & /*unused*/) override {}
+  void Visit(ShowConfigQuery & /*unused*/) override {}
+  void Visit(SettingQuery & /*unused*/) override {}
+  void Visit(VersionQuery & /*unused*/) override {}
+  void Visit(TransactionQueueQuery & /*unused*/) override {}
+  void Visit(UseDatabaseQuery & /*unused*/) override {}
+  void Visit(ShowDatabaseQuery & /*unused*/) override {}
+  void Visit(ShowDatabasesQuery & /*unused*/) override {}
+  void Visit(ReplicationInfoQuery & /*unused*/) override {}
+  void Visit(CoordinatorQuery & /*unused*/) override {}
 
   // No database access required (but need current database)
-  void Visit(SystemInfoQuery &info_query) override {}
-  void Visit(LockPathQuery &) override {}
-  void Visit(FreeMemoryQuery &) override {}
-  void Visit(StreamQuery &) override {}
-  void Visit(IsolationLevelQuery &) override {}
-  void Visit(StorageModeQuery &) override {}
-  void Visit(CreateSnapshotQuery &)
+  void Visit(SystemInfoQuery & /*unused*/) override {}
+  void Visit(LockPathQuery & /*unused*/) override {}
+  void Visit(FreeMemoryQuery & /*unused*/) override {}
+  void Visit(StreamQuery & /*unused*/) override {}
+  void Visit(IsolationLevelQuery & /*unused*/) override {}
+  void Visit(StorageModeQuery & /*unused*/) override {}
+  void Visit(CreateSnapshotQuery & /*unused*/)
       override { /*CreateSnapshot is also used in a periodic way so internally will arrange its own access*/ }
-  void Visit(ShowSnapshotsQuery &) override {}
+  void Visit(ShowSnapshotsQuery & /*unused*/) override {}
   void Visit(ShowNextSnapshotQuery & /* unused */) override {}
-  void Visit(EdgeImportModeQuery &) override {}
-  void Visit(AlterEnumRemoveValueQuery &) override { /* Not implemented yet */ }
-  void Visit(DropEnumQuery &) override { /* Not implemented yet */ }
-  void Visit(SessionTraceQuery &) override {}
+  void Visit(EdgeImportModeQuery & /*unused*/) override {}
+  void Visit(AlterEnumRemoveValueQuery & /*unused*/) override { /* Not implemented yet */ }
+  void Visit(DropEnumQuery & /*unused*/) override { /* Not implemented yet */ }
+  void Visit(SessionTraceQuery & /*unused*/) override {}
 
   // Some queries require an active transaction in order to be prepared.
   // Unique access required
-  void Visit(PointIndexQuery &) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
-  void Visit(TextIndexQuery &) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
-  void Visit(VectorIndexQuery &) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
-  void Visit(CreateVectorEdgeIndexQuery &) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
-  void Visit(ConstraintQuery &) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
-  void Visit(DropGraphQuery &) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
-  void Visit(CreateEnumQuery &) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
-  void Visit(AlterEnumAddValueQuery &) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
-  void Visit(AlterEnumUpdateValueQuery &) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
-  void Visit(TtlQuery &) override {
+  void Visit(PointIndexQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
+  void Visit(TextIndexQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
+  void Visit(VectorIndexQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
+  void Visit(CreateVectorEdgeIndexQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
+  void Visit(ConstraintQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
+  void Visit(DropGraphQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
+  void Visit(CreateEnumQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
+  void Visit(AlterEnumAddValueQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
+  void Visit(AlterEnumUpdateValueQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
+  void Visit(TtlQuery & /*unused*/) override {
     // TTLQuery is UNIQUE but indices it creates are created as READ_ONLY asynchronously
     // if using IN_MEMORY_TRANSACTIONAL otherwise UNIQUE
     accessor_type_ = storage::StorageAccessType::UNIQUE;
   }
-  void Visit(RecoverSnapshotQuery &) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
+  void Visit(RecoverSnapshotQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
 
   // Read access required
-  void Visit(ExplainQuery &) override { accessor_type_ = storage::StorageAccessType::READ; }
-  void Visit(DumpQuery &) override { accessor_type_ = storage::StorageAccessType::READ; }
-  void Visit(AnalyzeGraphQuery &) override { accessor_type_ = storage::StorageAccessType::READ; }
-  void Visit(DatabaseInfoQuery &) override { accessor_type_ = storage::StorageAccessType::READ; }
-  void Visit(ShowEnumsQuery &) override { accessor_type_ = storage::StorageAccessType::READ; }
-  void Visit(ShowSchemaInfoQuery &) override { accessor_type_ = storage::StorageAccessType::READ; }
+  void Visit(ExplainQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::READ; }
+  void Visit(DumpQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::READ; }
+  void Visit(AnalyzeGraphQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::READ; }
+  void Visit(DatabaseInfoQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::READ; }
+  void Visit(ShowEnumsQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::READ; }
+  void Visit(ShowSchemaInfoQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::READ; }
 
   // Write access required
-  void Visit(CypherQuery &) override {
+  void Visit(CypherQuery & /*unused*/) override {
     could_commit_ = true;
     accessor_type_ = cypher_access_type();
   }
-  void Visit(ProfileQuery &) override { accessor_type_ = cypher_access_type(); }
-  void Visit(TriggerQuery &) override { accessor_type_ = storage::StorageAccessType::WRITE; }
+  void Visit(ProfileQuery & /*unused*/) override { accessor_type_ = cypher_access_type(); }
+  void Visit(TriggerQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::WRITE; }
 
   // Complex access logic
   void Visit(IndexQuery &index_query) override {
@@ -6911,11 +6911,11 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
     using enum storage::StorageAccessType;
     if (is_schema_assert_query_) {
       return UNIQUE;
-    } else if (is_cypher_read_) {
-      return READ;
-    } else {
-      return WRITE;
     }
+    if (is_cypher_read_) {
+      return READ;
+    }
+    return WRITE;
   }
 
   bool const is_schema_assert_query_;
