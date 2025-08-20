@@ -3,7 +3,7 @@ matplotlib==2.0.2
 numpy==1.21
 pyparsing==2.2.0
 python-dateutil==2.6.1
-pytz>=2023.3
+pytz==2023.3
 six==1.11.0
 tabulate==0.8.1
 networkx==2.4
