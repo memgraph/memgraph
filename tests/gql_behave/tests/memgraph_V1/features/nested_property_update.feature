@@ -594,3 +594,21 @@ Feature: Nested property Update
             RETURN properties(r) as props
             """
         Then an error should be raised
+
+    Scenario: Vertex inside map base property update
+        Given an empty graph
+        And having executed
+            """
+            CREATE ()
+            """
+        When executing query:
+            """
+            MATCH (n)
+            WITH {vertex: n} as map
+            SET map.vertex.id = 1
+            WITH map
+            RETURN map;
+            """
+        Then the result should be:
+            | map                 |
+            | {vertex: ({id: 1})} |
