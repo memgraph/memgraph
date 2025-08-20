@@ -502,7 +502,7 @@ auto Decode(utils::tag_type<std::optional<std::chrono::system_clock::time_point>
   }
 }
 
-// ========== concrete type decoders end here ==<========
+// ========== concrete type decoders end here ==========
 
 template <typename T>
 auto Read(BaseDecoder *decoder, const uint64_t version) -> T;
@@ -519,7 +519,6 @@ auto Decode(utils::tag_type<T> /*unused*/, BaseDecoder *decoder,
   using underlying_type = std::underlying_type_t<T>;
   if constexpr (is_read) {
     auto decoded = static_cast<T>(Decode<is_read>(utils::tag_type<underlying_type>(), decoder, version));
-    spdlog::trace("Decoding enum to : {}", static_cast<uint64_t>(decoded));
     return decoded;
   } else {
     Decode<is_read>(utils::tag_type<underlying_type>(), decoder, version);
@@ -542,10 +541,7 @@ template <bool is_read, auto MIN_VER, typename Type>
 auto Decode(utils::tag_type<VersionDependant<MIN_VER, Type>> /*unused*/, BaseDecoder *decoder,
             const uint64_t version) -> std::conditional_t<is_read, std::optional<Type>, void> {
   if (MIN_VER <= version) {
-    spdlog::trace("Decoding type to : {}", typeid(Type).name());
     return Decode<is_read>(utils::tag_t<Type>, decoder, version);
-  } else {
-    spdlog::trace("Not decoding the type-> : {}", typeid(Type).name());
   }
   if constexpr (is_read) {
     return std::nullopt;

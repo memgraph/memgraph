@@ -889,7 +889,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
   bool should_commit{true};
   // Replica will use the same storage access type as main did when doing the transaction
   // It is passed through the WalTransactionStart delta
-  std::optional<storage::StorageAccessType> access_type{std::nullopt};
+  std::optional<storage::StorageAccessType> access_type;
 
   auto translate_access_type = [](storage::durability::TransactionAccessType access_type) {
     switch (access_type) {
@@ -905,11 +905,12 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
   };
 
   auto const get_replication_accessor = [&, storage](uint64_t const local_commit_timestamp,
-                                                     storage::StorageAccessType acc_type =
+                                                     storage::StorageAccessType acc_hint =
                                                          kSharedAccess) -> storage::ReplicationAccessor * {
     if (!commit_accessor) {
       std::unique_ptr<storage::Storage::Accessor> acc = nullptr;
-      auto true_access_type = access_type.value_or(acc_type);
+      // acc_hint only gets used if we are using an older version of WAL (before v3.5.0)
+      auto true_access_type = access_type.value_or(acc_hint);
       switch (true_access_type) {
         case storage::StorageAccessType::READ:
           [[fallthrough]];
@@ -1185,8 +1186,6 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
             should_commit = data.commit.value_or(true);
           }
           access_type = data.access_type ? std::optional(translate_access_type(*data.access_type)) : std::nullopt;
-          spdlog::trace("After processing->Delta {}. Access type: {}", current_delta_idx,
-                        static_cast<uint8_t>(*access_type));
         },
         [&](WalTransactionEnd const &) {
           spdlog::trace("   Delta {}. Transaction end", current_delta_idx);

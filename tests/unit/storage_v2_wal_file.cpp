@@ -29,7 +29,6 @@
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
-#include "storage/v2/transaction.hpp"
 #include "storage_test_utils.hpp"
 #include "utils/file.hpp"
 #include "utils/file_locker.hpp"
