@@ -772,6 +772,25 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
   }
 }
 
+namespace {
+auto to_string(std::optional<storage::durability::TransactionAccessType> access_type) {
+  if (!access_type) return "UNKNOWN";
+  switch (*access_type) {
+    using enum storage::durability::TransactionAccessType;
+    case UNIQUE:
+      return "UNIQUE";
+    case WRITE:
+      return "WRITE";
+    case READ:
+      return "READ";
+    case READ_ONLY:
+      return "READ_ONLY";
+    default:
+      return "UNKNOWN";
+  }
+};
+}  // namespace
+
 // The method will return false and hence signal the failure of completely loading the WAL file if:
 // 1.) It cannot open WAL file for reading from temporary WAL directory
 // 2.) If WAL magic and/or version wasn't loaded successfully
@@ -889,7 +908,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
   std::unique_ptr<storage::ReplicationAccessor> commit_accessor;
 
   bool should_commit{true};
-  std::optional<storage::StorageAccessType> access_type;
+  std::optional<storage::StorageAccessType> access_type{std::nullopt};
 
   auto translate_access_type = [](storage::durability::TransactionAccessType access_type) {
     switch (access_type) {
@@ -1176,9 +1195,14 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           }
         },
         [&](WalTransactionStart const &data) {
-          spdlog::trace("   Delta {}. Transaction start. Commit txn? {}", current_delta_idx, data.commit);
-          should_commit = data.commit.value_or(true);
+          spdlog::trace("   Delta {}. Transaction start. Commit txn: {}, Access type: {}", current_delta_idx,
+                        data.commit, data.access_type ? static_cast<uint64_t>(*data.access_type) : -1);
+          if (loading_wal) {
+            should_commit = data.commit.value_or(true);
+          }
           access_type = data.access_type ? std::optional(translate_access_type(*data.access_type)) : std::nullopt;
+          spdlog::trace("After processing->Delta {}. Access type: {}", current_delta_idx,
+                        static_cast<uint8_t>(*access_type));
         },
         [&](WalTransactionEnd const &) {
           spdlog::trace("   Delta {}. Transaction end", current_delta_idx);

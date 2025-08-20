@@ -2482,6 +2482,8 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
   // saved.
   commit_flag_wal_position_ = mem_storage->wal_file_->AppendTransactionStart(durability_commit_timestamp,
                                                                              !two_phase_commit, original_access_type_);
+  // Send transaction start to replicas with the correct access type
+  replicating_txn.AppendTransactionStart(durability_commit_timestamp, !two_phase_commit, original_access_type_);
   // The WAL file needs to be updated only if we don't commit immediately.
   needs_wal_update_ = two_phase_commit;
 

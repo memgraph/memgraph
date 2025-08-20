@@ -15,6 +15,7 @@
 #include "replication/replication_client.hpp"
 #include "replication_coordination_glue/messages.hpp"
 #include "rpc/client.hpp"
+#include "storage/v2/access_type.hpp"
 #include "storage/v2/commit_ts_info.hpp"
 #include "storage/v2/database_protector.hpp"
 #include "storage/v2/replication/enums.hpp"
@@ -52,6 +53,9 @@ class ReplicaStream {
 
   /// @throw rpc::RpcFailedException
   void AppendDelta(const Delta &delta, const Edge &edge, uint64_t final_commit_timestamp);
+
+  /// @throw rpc::RpcFailedException
+  void AppendTransactionStart(uint64_t final_commit_timestamp, bool commit, StorageAccessType access_type);
 
   /// @throw rpc::RpcFailedException
   void AppendTransactionEnd(uint64_t final_commit_timestamp);

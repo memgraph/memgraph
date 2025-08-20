@@ -443,9 +443,15 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, SalientConf
 void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, const Delta &delta, const Edge &edge,
                  uint64_t timestamp);
 
-// Function used to encode the transaction start
-// Returns the position in the WAL where the flag 'commit' is about to be written
-uint64_t EncodeTransactionStart(Encoder<utils::OutputFile> *encoder, uint64_t timestamp, bool commit);
+/// Function used to encode the transaction start
+/// Returns the position in the WAL where the flag 'commit' is about to be written
+uint64_t EncodeTransactionStart(Encoder<utils::OutputFile> *encoder, uint64_t timestamp, bool commit,
+                                StorageAccessType access_type);
+
+/// Function use to encode the transaction start
+/// Used for replication
+void EncodeTransactionStart(BaseEncoder *encoder, uint64_t timestamp, bool commit,
+                            StorageAccessType access_type);
 
 /// Function used to encode the transaction end.
 void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp);

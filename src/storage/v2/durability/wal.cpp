@@ -518,7 +518,9 @@ auto Decode(utils::tag_type<T> /*unused*/, BaseDecoder *decoder,
             const uint64_t version) -> std::conditional_t<is_read, T, void> {
   using underlying_type = std::underlying_type_t<T>;
   if constexpr (is_read) {
-    return static_cast<T>(Decode<is_read>(utils::tag_type<underlying_type>(), decoder, version));
+    auto decoded = static_cast<T>(Decode<is_read>(utils::tag_type<underlying_type>(), decoder, version));
+    spdlog::trace("Decoding enum to : {}", static_cast<uint64_t>(decoded));
+    return decoded;
   } else {
     Decode<is_read>(utils::tag_type<underlying_type>(), decoder, version);
   }
@@ -540,7 +542,10 @@ template <bool is_read, auto MIN_VER, typename Type>
 auto Decode(utils::tag_type<VersionDependant<MIN_VER, Type>> /*unused*/, BaseDecoder *decoder,
             const uint64_t version) -> std::conditional_t<is_read, std::optional<Type>, void> {
   if (MIN_VER <= version) {
+    spdlog::trace("Decoding type to : {}", typeid(Type).name());
     return Decode<is_read>(utils::tag_t<Type>, decoder, version);
+  } else {
+    spdlog::trace("Not decoding the type-> : {}", typeid(Type).name());
   }
   if constexpr (is_read) {
     return std::nullopt;
@@ -923,6 +928,15 @@ uint64_t EncodeTransactionStart(Encoder<utils::OutputFile> *encoder, uint64_t co
   encoder->WriteBool(commit);
   encoder->WriteUint(static_cast<uint8_t>(convert_to_transaction_access_type(access_type)));
   return flag_pos;
+}
+
+void EncodeTransactionStart(BaseEncoder *encoder, uint64_t const timestamp, bool const commit,
+                            StorageAccessType access_type) {
+  encoder->WriteMarker(Marker::SECTION_DELTA);
+  encoder->WriteUint(timestamp);
+  encoder->WriteMarker(Marker::DELTA_TRANSACTION_START);
+  encoder->WriteBool(commit);
+  encoder->WriteUint(static_cast<uint8_t>(convert_to_transaction_access_type(access_type)));
 }
 
 void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp) {

@@ -45,6 +45,16 @@ class TransactionReplication {
     }
   }
 
+  void AppendTransactionStart(uint64_t timestamp, bool commit, StorageAccessType access_type) {
+    for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
+      client->IfStreamingTransaction(
+          [timestamp, commit, access_type](auto &stream) {
+            stream.AppendTransactionStart(timestamp, commit, access_type);
+          },
+          replica_stream);
+    }
+  }
+
   template <typename Func>
   void EncodeToReplicas(Func &&func) {
     for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
