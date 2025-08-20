@@ -34,7 +34,7 @@ workloads:
 
   - name: "Edge cases query module test"
     binary: "tests/e2e/pytest_runner.sh"
-    proc: "query_modules/"
+    proc: "tests/e2e/query_modules/query_modules/"
     args: ["query_modules/edge_cases_test.py"]
     <<: *in_memory_cluster
 
