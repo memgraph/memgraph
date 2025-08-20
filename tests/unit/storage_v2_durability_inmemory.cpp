@@ -2356,12 +2356,12 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
       return res;
     }();  // iile
     for (const auto &index : indices.label) {
-      auto acc = db.Access(memgraph::storage::Storage::Accessor::Type::READ);
+      auto acc = db.Access(memgraph::storage::StorageAccessType::READ);
       ASSERT_FALSE(acc->DropIndex(index).HasError());
       ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
     for (const auto &[label, properties] : indices.label_properties) {
-      auto acc = db.Access(memgraph::storage::Storage::Accessor::Type::READ);
+      auto acc = db.Access(memgraph::storage::StorageAccessType::READ);
       ASSERT_FALSE(acc->DropIndex(label, std::vector(properties)).HasError());
       ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
@@ -2519,19 +2519,20 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
     // Verify transaction 3.
     using namespace memgraph::storage::durability;
     constexpr bool commit{true};
-    ASSERT_EQ(data[0].second, WalDeltaData{WalTransactionStart{commit}});
+    auto write_delta = WalTransactionStart{commit, TransactionAccessType::WRITE};
+    ASSERT_EQ(data[0].second, WalDeltaData{write_delta});
     ASSERT_EQ(data[1].second, WalDeltaData{WalVertexCreate{gid3}});
     ASSERT_EQ(data[2].second,
               WalDeltaData{WalVertexSetProperty(gid3, "id", memgraph::storage::ExternalPropertyValue(3))});
     ASSERT_EQ(data[3].second, WalDeltaData{WalTransactionEnd{}});
     // Verify transaction 1.
-    ASSERT_EQ(data[4].second, WalDeltaData{WalTransactionStart{commit}});
+    ASSERT_EQ(data[4].second, WalDeltaData{write_delta});
     ASSERT_EQ(data[5].second, WalDeltaData{WalVertexCreate{gid1}});
     ASSERT_EQ(data[6].second,
               WalDeltaData{WalVertexSetProperty(gid1, "id", memgraph::storage::ExternalPropertyValue(1))});
     ASSERT_EQ(data[7].second, WalDeltaData{WalTransactionEnd{}});
     // Verify transaction 2.
-    ASSERT_EQ(data[8].second, WalDeltaData{WalTransactionStart{commit}});
+    ASSERT_EQ(data[8].second, WalDeltaData{write_delta});
     ASSERT_EQ(data[9].second, WalDeltaData{WalVertexCreate{gid2}});
     ASSERT_EQ(data[10].second,
               WalDeltaData{WalVertexSetProperty(gid2, "id", memgraph::storage::ExternalPropertyValue(2))});

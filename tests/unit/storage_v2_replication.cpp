@@ -144,7 +144,7 @@ struct MinMemgraph {
   auto CreateIndexAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> { return db.ReadOnlyAccess(); }
 
   auto DropIndexAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> {
-    return db.Access(memgraph::storage::Storage::Accessor::Type::READ);
+    return db.Access(memgraph::storage::StorageAccessType::READ);
   }
 
   memgraph::auth::SynchedAuth auth;

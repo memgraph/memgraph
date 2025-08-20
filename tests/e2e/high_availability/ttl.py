@@ -335,6 +335,10 @@ def test_ttl_role_transition_ha(test_name):
     # Enable TTL on main
     execute_and_fetch_all(instance1_cursor, 'ENABLE TTL EVERY "1s";')
 
+    # Verify TTL index is present
+    mg_sleep_and_assert(True, partial(check_index, instance1_cursor))
+    mg_sleep_and_assert(True, partial(check_index, instance2_cursor))
+
     # Verify TTL is working on main
     v_checker_main = VertexChecker(instance1_cursor)
     mg_sleep_and_assert(True, v_checker_main.is_less_vertices, max_duration=5)

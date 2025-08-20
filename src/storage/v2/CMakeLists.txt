@@ -82,6 +82,7 @@ target_sources(mg-storage-v2
         FILE_SET HEADERS
         BASE_DIRS ../../
         FILES
+        access_type.hpp
         async_indexer.hpp
         commit_args.hpp
         config.hpp

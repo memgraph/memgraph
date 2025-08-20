@@ -152,23 +152,23 @@ extern const Event ShowSchema;
 // access
 void memgraph::query::CurrentDB::SetupDatabaseTransaction(
     std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit,
-    storage::Storage::Accessor::Type acc_type) {
+    storage::StorageAccessType acc_type) {
   if (!db_acc_) {
     throw DatabaseContextRequiredException("Database required for the transaction setup.");
   }
   auto &db_acc = *db_acc_;
   const auto timeout = std::chrono::seconds{FLAGS_storage_access_timeout_sec};
   switch (acc_type) {
-    case storage::Storage::Accessor::Type::READ:
+    case storage::StorageAccessType::READ:
       [[fallthrough]];
-    case storage::Storage::Accessor::Type::WRITE:
+    case storage::StorageAccessType::WRITE:
       db_transactional_accessor_ = db_acc->Access(acc_type, override_isolation_level,
                                                   /*allow timeout*/ timeout);
       break;
-    case storage::Storage::Accessor::Type::UNIQUE:
+    case storage::StorageAccessType::UNIQUE:
       db_transactional_accessor_ = db_acc->UniqueAccess(override_isolation_level, /*allow timeout*/ timeout);
       break;
-    case storage::Storage::Accessor::Type::READ_ONLY:
+    case storage::StorageAccessType::READ_ONLY:
       db_transactional_accessor_ = db_acc->ReadOnlyAccess(override_isolation_level, /*allow timeout*/ timeout);
       break;
     default:
@@ -883,21 +883,14 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         // If the license is not valid we create users with admin access
         if (!valid_enterprise_license) {
           spdlog::warn("Granting all the privileges to {}.", username);
-          auth->GrantPrivilege(
-              username, kPrivilegesAll
+          auth->GrantPrivilege(username, kPrivilegesAll
 #ifdef MG_ENTERPRISE
-              ,
-              {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
-              {
-                {
-                  {
-                    AuthQuery::FineGrainedPrivilege::CREATE_DELETE, { query::kAsterisk }
-                  }
-                }
-              }
+                               ,
+                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
+                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}}
 #endif
-              ,
-              &*interpreter->system_transaction_);
+                               ,
+                               &*interpreter->system_transaction_);
         }
 
         return std::vector<std::vector<TypedValue>>();
@@ -2448,16 +2441,16 @@ struct TxTimeout {
 };
 
 struct PullPlan {
-  explicit PullPlan(
-      std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, bool is_profile_query, DbAccessor *dba,
-      InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
-      std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
-      storage::DatabaseProtectorPtr protector, std::optional<QueryLogger> &query_logger,
-      TriggerContextCollector *trigger_context_collector = nullptr, std::optional<size_t> memory_limit = {},
-      FrameChangeCollector *frame_change_collector_ = nullptr, std::optional<int64_t> hops_limit = {}
+  explicit PullPlan(std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, bool is_profile_query,
+                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
+                    std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
+                    storage::DatabaseProtectorPtr protector, std::optional<QueryLogger> &query_logger,
+                    TriggerContextCollector *trigger_context_collector = nullptr,
+                    std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr,
+                    std::optional<int64_t> hops_limit = {}
 #ifdef MG_ENTERPRISE
-      ,
-      std::shared_ptr<utils::UserResources> user_resource = {}
+                    ,
+                    std::shared_ptr<utils::UserResources> user_resource = {}
 #endif
   );
 
@@ -2508,9 +2501,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
       query_logger_(query_logger)
 #ifdef MG_ENTERPRISE
       ,
-      user_resource_ {
-  std::move(user_resource)
-}
+      user_resource_{std::move(user_resource)}
 #endif
 {
   ctx_.hops_limit = query::HopsLimit{hops_limit};
@@ -2667,7 +2658,7 @@ bool IsQueryWrite(const query::plan::ReadWriteTypeChecker::RWType query_type) {
 void AccessorCompliance(PlanWrapper &plan, DbAccessor &dba) {
   const auto rw_type = plan.rw_type();
   if (rw_type == RWType::W || rw_type == RWType::RW) {
-    if (dba.type() != storage::Storage::Accessor::Type::WRITE) {
+    if (dba.type() != storage::StorageAccessType::WRITE) {
       throw QueryRuntimeException("Accessor type {} and query type {} are misaligned!", dba.type(), rw_type);
     }
   }
@@ -2702,8 +2693,8 @@ auto DetermineTxTimeout(std::optional<int64_t> tx_timeout_ms, InterpreterConfig 
   return TxTimeout{};
 }
 
-auto CreateTimeoutTimer(QueryExtras const &extras, InterpreterConfig const &config)
-    -> std::shared_ptr<utils::AsyncTimer> {
+auto CreateTimeoutTimer(QueryExtras const &extras,
+                        InterpreterConfig const &config) -> std::shared_ptr<utils::AsyncTimer> {
   if (auto const timeout = DetermineTxTimeout(extras.tx_timeout, config)) {
     return std::make_shared<utils::AsyncTimer>(timeout.ValueUnsafe().count());
   }
@@ -2730,7 +2721,7 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
         if (!current_db_.db_acc_)
           throw DatabaseContextRequiredException("No current database for transaction defined.");
         SetupDatabaseTransaction(true,
-                                 extras.is_read ? storage::Storage::Accessor::READ : storage::Storage::Accessor::WRITE);
+                                 extras.is_read ? storage::StorageAccessType::READ : storage::StorageAccessType::WRITE);
       };
     } break;
     case TransactionQuery::COMMIT: {
@@ -2800,14 +2791,14 @@ inline static void TryCaching(const AstStorage &ast_storage, FrameChangeCollecto
   }
 }
 
-PreparedQuery PrepareCypherQuery(
-    ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
-    CurrentDB &current_db, utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
-    std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context, Interpreter &interpreter,
-    FrameChangeCollector *frame_change_collector = nullptr
+PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
+                                 InterpreterContext *interpreter_context, CurrentDB &current_db,
+                                 utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
+                                 std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
+                                 Interpreter &interpreter, FrameChangeCollector *frame_change_collector = nullptr
 #ifdef MG_ENTERPRISE
-    ,
-    std::shared_ptr<utils::UserResources> user_resource = {}
+                                 ,
+                                 std::shared_ptr<utils::UserResources> user_resource = {}
 #endif
 ) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
@@ -2964,14 +2955,15 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
                        RWType::NONE};
 }
 
-PreparedQuery PrepareProfileQuery(
-    ParsedQuery parsed_query, bool in_explicit_transaction, std::map<std::string, TypedValue> *summary,
-    std::vector<Notification> *notifications, InterpreterContext *interpreter_context, Interpreter &interpreter,
-    CurrentDB &current_db, utils::MemoryResource *execution_memory, std::shared_ptr<QueryUserOrRole> user_or_role,
-    StoppingContext stopping_context, FrameChangeCollector *frame_change_collector
+PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                                  std::map<std::string, TypedValue> *summary, std::vector<Notification> *notifications,
+                                  InterpreterContext *interpreter_context, Interpreter &interpreter,
+                                  CurrentDB &current_db, utils::MemoryResource *execution_memory,
+                                  std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
+                                  FrameChangeCollector *frame_change_collector
 #ifdef MG_ENTERPRISE
-    ,
-    std::shared_ptr<utils::UserResources> user_resource = {}
+                                  ,
+                                  std::shared_ptr<utils::UserResources> user_resource = {}
 #endif
 ) {
   const std::string kProfileQueryStart = "profile ";
@@ -3394,11 +3386,11 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
   std::vector<std::vector<TypedValue>> results;
   results.reserve(label_results.size() + label_prop_results.size());
 
-  std::transform(
-      label_results.begin(), label_results.end(), std::back_inserter(results),
-      [execution_db_accessor](const auto &label_index) {
-        return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)), TypedValue("")};
-      });
+  std::transform(label_results.begin(), label_results.end(), std::back_inserter(results),
+                 [execution_db_accessor](const auto &label_index) {
+                   return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)),
+                                                  TypedValue("")};
+                 });
 
   auto const prop_path_to_name = [&](storage::PropertyPath const &property_path) {
     return TypedValue{PropertyPathToName(execution_db_accessor, property_path)};
@@ -6826,76 +6818,73 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   // case for use database which overwrites the current database)
 
   // No database access required (and current database is not needed)
-  void Visit(AuthQuery &) override {}
-  void Visit(UserProfileQuery &) override {}
-  void Visit(MultiDatabaseQuery &) override {}
-  void Visit(ReplicationQuery &) override {}
-  void Visit(ShowConfigQuery &) override {}
-  void Visit(SettingQuery &) override {}
-  void Visit(VersionQuery &) override {}
-  void Visit(TransactionQueueQuery &) override {}
-  void Visit(UseDatabaseQuery &) override {}
-  void Visit(ShowDatabaseQuery &) override {}
-  void Visit(ShowDatabasesQuery &) override {}
-  void Visit(ReplicationInfoQuery &) override {}
-  void Visit(CoordinatorQuery &) override {}
+  void Visit(AuthQuery & /*unused*/) override {}
+  void Visit(UserProfileQuery & /*unused*/) override {}
+  void Visit(MultiDatabaseQuery & /*unused*/) override {}
+  void Visit(ReplicationQuery & /*unused*/) override {}
+  void Visit(ShowConfigQuery & /*unused*/) override {}
+  void Visit(SettingQuery & /*unused*/) override {}
+  void Visit(VersionQuery & /*unused*/) override {}
+  void Visit(TransactionQueueQuery & /*unused*/) override {}
+  void Visit(UseDatabaseQuery & /*unused*/) override {}
+  void Visit(ShowDatabaseQuery & /*unused*/) override {}
+  void Visit(ShowDatabasesQuery & /*unused*/) override {}
+  void Visit(ReplicationInfoQuery & /*unused*/) override {}
+  void Visit(CoordinatorQuery & /*unused*/) override {}
 
   // No database access required (but need current database)
-  void Visit(SystemInfoQuery &info_query) override {}
-  void Visit(LockPathQuery &) override {}
-  void Visit(FreeMemoryQuery &) override {}
-  void Visit(StreamQuery &) override {}
-  void Visit(IsolationLevelQuery &) override {}
-  void Visit(StorageModeQuery &) override {}
-  void Visit(CreateSnapshotQuery &)
-      override { /*CreateSnapshot is also used in a periodic way so internally will arrange its own access*/
-  }
-  void Visit(ShowSnapshotsQuery &) override {}
+  void Visit(SystemInfoQuery & /*unused*/) override {}
+  void Visit(LockPathQuery & /*unused*/) override {}
+  void Visit(FreeMemoryQuery & /*unused*/) override {}
+  void Visit(StreamQuery & /*unused*/) override {}
+  void Visit(IsolationLevelQuery & /*unused*/) override {}
+  void Visit(StorageModeQuery & /*unused*/) override {}
+  void Visit(CreateSnapshotQuery & /*unused*/)
+      override { /*CreateSnapshot is also used in a periodic way so internally will arrange its own access*/ }
+  void Visit(ShowSnapshotsQuery & /*unused*/) override {}
   void Visit(ShowNextSnapshotQuery & /* unused */) override {}
-  void Visit(EdgeImportModeQuery &) override {}
-  void Visit(AlterEnumRemoveValueQuery &) override { /* Not implemented yet */
-  }
-  void Visit(DropEnumQuery &) override { /* Not implemented yet */
-  }
-  void Visit(SessionTraceQuery &) override {}
+  void Visit(EdgeImportModeQuery & /*unused*/) override {}
+  void Visit(AlterEnumRemoveValueQuery & /*unused*/) override { /* Not implemented yet */ }
+  void Visit(DropEnumQuery & /*unused*/) override { /* Not implemented yet */ }
+  void Visit(SessionTraceQuery & /*unused*/) override {}
 
   // Some queries require an active transaction in order to be prepared.
   // Unique access required
-  void Visit(PointIndexQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
-  void Visit(TextIndexQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
-  void Visit(VectorIndexQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
-  void Visit(CreateVectorEdgeIndexQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
-  void Visit(ConstraintQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
-  void Visit(DropGraphQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
-  void Visit(CreateEnumQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
-  void Visit(AlterEnumAddValueQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
-  void Visit(AlterEnumUpdateValueQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
-  void Visit(TtlQuery &) override {
+  void Visit(PointIndexQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
+  void Visit(TextIndexQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
+  void Visit(VectorIndexQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
+  void Visit(CreateVectorEdgeIndexQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
+  void Visit(ConstraintQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
+  void Visit(DropGraphQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
+  void Visit(CreateEnumQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
+  void Visit(AlterEnumAddValueQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
+  void Visit(AlterEnumUpdateValueQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
+  void Visit(TtlQuery & /*unused*/) override {
     // TTLQuery is UNIQUE but indices it creates are created as READ_ONLY asynchronously
     // if using IN_MEMORY_TRANSACTIONAL otherwise UNIQUE
-    accessor_type_ = storage::Storage::Accessor::Type::UNIQUE;
+    accessor_type_ = storage::StorageAccessType::UNIQUE;
   }
-  void Visit(RecoverSnapshotQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::UNIQUE; }
+  void Visit(RecoverSnapshotQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
 
   // Read access required
-  void Visit(ExplainQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::READ; }
-  void Visit(DumpQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::READ; }
-  void Visit(AnalyzeGraphQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::READ; }
-  void Visit(DatabaseInfoQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::READ; }
-  void Visit(ShowEnumsQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::READ; }
-  void Visit(ShowSchemaInfoQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::READ; }
+  void Visit(ExplainQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::READ; }
+  void Visit(DumpQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::READ; }
+  void Visit(AnalyzeGraphQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::READ; }
+  void Visit(DatabaseInfoQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::READ; }
+  void Visit(ShowEnumsQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::READ; }
+  void Visit(ShowSchemaInfoQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::READ; }
 
   // Write access required
-  void Visit(CypherQuery &) override {
+  void Visit(CypherQuery & /*unused*/) override {
     could_commit_ = true;
     accessor_type_ = cypher_access_type();
   }
-  void Visit(ProfileQuery &) override { accessor_type_ = cypher_access_type(); }
-  void Visit(TriggerQuery &) override { accessor_type_ = storage::Storage::Accessor::Type::WRITE; }
+  void Visit(ProfileQuery & /*unused*/) override { accessor_type_ = cypher_access_type(); }
+  void Visit(TriggerQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::WRITE; }
 
   // Complex access logic
   void Visit(IndexQuery &index_query) override {
-    using enum storage::Storage::Accessor::Type;
+    using enum storage::StorageAccessType;
     if (is_in_memory_transactional_) {
       // Concurrent population of index requires snapshot isolation
       isolation_level_override_ = storage::IsolationLevel::SNAPSHOT_ISOLATION;
@@ -6906,7 +6895,7 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
     }
   }
   void Visit(EdgeIndexQuery &edge_index_query) override {
-    using enum storage::Storage::Accessor::Type;
+    using enum storage::StorageAccessType;
     if (is_in_memory_transactional_) {
       // Concurrent population of index requires snapshot isolation
       isolation_level_override_ = storage::IsolationLevel::SNAPSHOT_ISOLATION;
@@ -6918,15 +6907,15 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   }
 
   // helper methods
-  auto cypher_access_type() const -> storage::Storage::Accessor::Type {
-    using enum storage::Storage::Accessor::Type;
+  auto cypher_access_type() const -> storage::StorageAccessType {
+    using enum storage::StorageAccessType;
     if (is_schema_assert_query_) {
       return UNIQUE;
-    } else if (is_cypher_read_) {
-      return READ;
-    } else {
-      return WRITE;
     }
+    if (is_cypher_read_) {
+      return READ;
+    }
+    return WRITE;
   }
 
   bool const is_schema_assert_query_;
@@ -6935,7 +6924,7 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
 
   bool could_commit_ = false;
   std::optional<storage::IsolationLevel> isolation_level_override_;
-  std::optional<storage::Storage::Accessor::Type> accessor_type_;
+  std::optional<storage::StorageAccessType> accessor_type_;
 };
 
 Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParameters_fn params_getter,
@@ -7323,7 +7312,7 @@ void Interpreter::CheckAuthorized(std::vector<AuthQuery::Privilege> const &privi
   }
 }
 
-void Interpreter::SetupDatabaseTransaction(bool couldCommit, storage::Storage::Accessor::Type acc_type) {
+void Interpreter::SetupDatabaseTransaction(bool couldCommit, storage::StorageAccessType acc_type) {
   current_db_.SetupDatabaseTransaction(GetIsolationLevelOverride(), couldCommit, acc_type);
 }
 
