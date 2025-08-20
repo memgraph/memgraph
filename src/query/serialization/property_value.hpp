@@ -21,13 +21,13 @@
 namespace memgraph::query::serialization {
 
 nlohmann::json SerializeExternalPropertyValue(const storage::ExternalPropertyValue &property_value,
-                                              memgraph::storage::Storage::Accessor *storage_acc);
+                                              storage::Storage::Accessor *storage_acc);
 
 nlohmann::json SerializeExternalPropertyValueVector(const std::vector<storage::ExternalPropertyValue> &values,
-                                                    memgraph::storage::Storage::Accessor *storage_acc);
+                                                    storage::Storage::Accessor *storage_acc);
 
 nlohmann::json SerializeExternalPropertyValueMap(storage::ExternalPropertyValue::map_t const &map,
-                                                 memgraph::storage::Storage::Accessor *storage_acc);
+                                                 storage::Storage::Accessor *storage_acc);
 
 storage::ExternalPropertyValue DeserializeExternalPropertyValue(const nlohmann::json &data,
                                                                 storage::Storage::Accessor *storage_acc);

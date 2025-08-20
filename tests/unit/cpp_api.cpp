@@ -50,7 +50,7 @@ struct CppApiTestFixture : public ::testing::Test {
 
   auto DropIndexAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> {
     if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>) {
-      return this->storage->Access(memgraph::storage::Storage::Accessor::Type::READ);
+      return this->storage->Access(memgraph::storage::StorageAccessType::READ);
     } else {
       return this->storage->UniqueAccess();
     }
@@ -67,7 +67,7 @@ struct CppApiTestFixture : public ::testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-using AccessorType = memgraph::storage::Storage::Accessor::Type;
+using AccessorType = memgraph::storage::StorageAccessType;
 TYPED_TEST_SUITE(CppApiTestFixture, StorageTypes);
 
 TYPED_TEST(CppApiTestFixture, TestGraph) {
