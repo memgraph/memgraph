@@ -40,6 +40,6 @@ workloads:
 
   - name: "Passing temporal types test"
     binary: "tests/e2e/pytest_runner.sh"
-    proc: "query_modules/"
+    proc: "tests/e2e/query_modules/query_modules/"
     args: ["query_modules/temporal_types_test.py"]
     <<: *in_memory_cluster
