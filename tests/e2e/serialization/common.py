@@ -65,7 +65,7 @@ class SerializationFixture:
 
     def _make_connection(self, **kwargs):
         connection = mgclient.connect(host="localhost", port=7687, **kwargs)
-        connection.autocommit = True
+        connection.autocommit = False
         return connection
 
     def _execute_phase_1(self, query, args, sleep_duration):
