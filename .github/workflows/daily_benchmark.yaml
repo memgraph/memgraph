@@ -47,6 +47,14 @@ jobs:
           --build-type $BUILD_TYPE \
           build-memgraph
 
+      - name: Initialize tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          init-tests
+
       - name: Run macro benchmarks
         run: |
           ./release/package/mgbuild.sh \

@@ -82,6 +82,14 @@ jobs:
           --build-type $BUILD_TYPE \
           build-memgraph
 
+      - name: Initialize tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          init-tests
+
       - name: Run GQL Behave tests
         run: |
           ./release/package/mgbuild.sh \
@@ -194,6 +202,14 @@ jobs:
           --build-type $BUILD_TYPE \
           build-memgraph
 
+      - name: Initialize tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          init-tests
+
       - name: Run macro benchmarks
         run: |
           ./release/package/mgbuild.sh \
@@ -296,6 +312,14 @@ jobs:
           --build-type $BUILD_TYPE \
           build-memgraph
 
+      - name: Initialize tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          init-tests
+
       # This step will be skipped because the e2e stream tests have been disabled
       # We need to fix this as soon as possible
       - name: Ensure Kafka and Pulsar are up
@@ -385,6 +409,14 @@ jobs:
           --build-type $BUILD_TYPE \
           build-memgraph
 
+      - name: Initialize tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          init-tests
+
       - name: Run stress test (plain)
         run: |
           ./release/package/mgbuild.sh \
@@ -467,6 +499,14 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           build-memgraph
+
+      - name: Initialize tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          init-tests
 
       - name: Run query modules e2e tests
         run: |

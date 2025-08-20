@@ -41,7 +41,7 @@ jobs:
     if: ${{ inputs.run_core == 'true' }}
     name: "Core tests"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
-    timeout-minutes: 70 
+    timeout-minutes: 70
     steps:
       - name: Set up repository
         uses: actions/checkout@v4
@@ -70,6 +70,14 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           build-memgraph
+
+      - name: Initialize tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          init-tests
 
       - name: Run leftover CTest tests
         run: |
@@ -168,6 +176,14 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           build-memgraph
+
+      - name: Initialize tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          init-tests
 
       - name: Run integration tests
         run: |
