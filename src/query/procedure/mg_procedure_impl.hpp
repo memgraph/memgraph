@@ -413,15 +413,88 @@ struct mgp_map {
   /// Allocator type so that STL containers are aware that we need one.
   using allocator_type = memgraph::utils::Allocator<mgp_map>;
 
-  explicit mgp_map(allocator_type alloc) : items(alloc) {}
+  // Transparent comparator for pmr::map
+  struct transparent_string_less {
+    using is_transparent = void;
 
-  mgp_map(memgraph::utils::pmr::map<memgraph::utils::pmr::string, mgp_value> &&items, allocator_type alloc)
-      : items(std::move(items), alloc) {}
+    template <class LHS, class RHS>
+    bool operator()(const LHS &lhs, const RHS &rhs) const noexcept {
+      return std::less<>()(std::string_view(lhs), std::string_view(rhs));
+    }
+  };
 
-  mgp_map(const mgp_map &other, allocator_type alloc) : items(other.items, alloc) {}
+  // Transparent hasher and equality for pmr::unordered_map
+  struct transparent_string_hash {
+    using is_transparent = void;
 
-  mgp_map(mgp_map &&other, allocator_type alloc) : items(std::move(other.items), alloc) {}
+    template <class T>
+    std::size_t operator()(const T &value) const noexcept {
+      return std::hash<std::string_view>{}(std::string_view(value));
+    }
+  };
 
+  struct transparent_string_equal {
+    using is_transparent = void;
+
+    template <class LHS, class RHS>
+    bool operator()(const LHS &lhs, const RHS &rhs) const noexcept {
+      return std::string_view(lhs) == rhs;
+    }
+  };
+
+  using map_type = memgraph::utils::pmr::map<memgraph::utils::pmr::string, mgp_value, transparent_string_less>;
+  using unordered_map_type = memgraph::utils::pmr::unordered_map<memgraph::utils::pmr::string, mgp_value,
+                                                                 transparent_string_hash, transparent_string_equal>;
+
+  static constexpr struct MapTag {
+  } map_tag_t;
+  static constexpr struct UnorderedMapTag {
+  } unordered_map_tag_t;
+
+  // Default to map type
+  explicit mgp_map(allocator_type alloc) : items(std::in_place_type<map_type>, alloc) {}
+
+  mgp_map(MapTag /*unused*/, allocator_type alloc) : items(std::in_place_type<map_type>, alloc) {}
+  mgp_map(UnorderedMapTag /*unused*/, allocator_type alloc) : items(std::in_place_type<unordered_map_type>, alloc) {}
+
+  mgp_map(map_type &&items, allocator_type alloc) : items(std::in_place_type<map_type>, std::move(items), alloc) {}
+
+  mgp_map(unordered_map_type &&items, allocator_type alloc)
+      : items(std::in_place_type<unordered_map_type>, std::move(items), alloc) {}
+
+  mgp_map(const mgp_map &other, allocator_type alloc) {
+    std::visit(
+        [&](const auto &arg) {
+          using T = std::decay_t<decltype(arg)>;
+          if constexpr (std::is_same_v<T, map_type>) {
+            // Reconstruct with allocator
+            items.emplace<map_type>(arg, alloc);
+          } else if constexpr (std::is_same_v<T, unordered_map_type>) {
+            items.emplace<unordered_map_type>(arg, alloc);
+          } else {
+            LOG_FATAL("Invalid map type");
+          }
+        },
+        other.items);
+  }
+
+  mgp_map(mgp_map &&other, allocator_type alloc) {
+    std::visit(
+        [&](auto &&arg) mutable {
+          using T = std::decay_t<decltype(arg)>;
+          if constexpr (std::is_same_v<T, map_type>) {
+            // Reconstruct with allocator
+            items.emplace<map_type>(std::forward<map_type>(arg), alloc);
+          } else if constexpr (std::is_same_v<T, unordered_map_type>) {
+            items.emplace<unordered_map_type>(std::forward<unordered_map_type>(arg), alloc);
+          } else {
+            LOG_FATAL("Invalid map type");
+          }
+        },
+        std::move(other.items));
+  }
+
+  // TODO Should this be allowed
   mgp_map(mgp_map &&other) noexcept : items(std::move(other.items)) {}
 
   /// Copy construction without memgraph::utils::MemoryResource is not allowed.
@@ -432,11 +505,14 @@ struct mgp_map {
 
   ~mgp_map() = default;
 
-  memgraph::utils::MemoryResource *GetMemoryResource() const noexcept { return items.get_allocator().resource(); }
+  memgraph::utils::MemoryResource *GetMemoryResource() const noexcept {
+    return std::visit(memgraph::utils::Overloaded{[](const auto &arg) { return arg.get_allocator().resource(); }},
+                      items);
+  }
 
   // Unfortunately using incomplete type with map is undefined, so mgp_map
   // needs to be defined after mgp_value.
-  memgraph::utils::pmr::map<memgraph::utils::pmr::string, mgp_value> items;
+  std::variant<map_type, unordered_map_type> items;
 };
 
 struct mgp_map_item {
@@ -447,11 +523,16 @@ struct mgp_map_item {
 struct mgp_map_items_iterator {
   using allocator_type = memgraph::utils::Allocator<mgp_map_items_iterator>;
 
-  mgp_map_items_iterator(mgp_map *map, allocator_type alloc) : alloc(alloc), map(map), current_it(map->items.begin()) {
-    if (current_it != map->items.end()) {
-      current.key = current_it->first.c_str();
-      current.value = &current_it->second;
-    }
+  mgp_map_items_iterator(mgp_map *map, allocator_type alloc) : alloc(alloc), map(map) {
+    // Initialize current item
+    std::visit(
+        [this](auto &items) {
+          auto itr = items.begin();
+          current.key = itr->first.c_str();
+          current.value = &itr->second;
+          current_it = itr;
+        },
+        map->items);
   }
 
   mgp_map_items_iterator(const mgp_map_items_iterator &) = delete;
@@ -463,9 +544,21 @@ struct mgp_map_items_iterator {
 
   memgraph::utils::MemoryResource *GetMemoryResource() const { return alloc.resource(); }
 
+  bool IsEnd() const {
+    return std::visit(memgraph::utils::Overloaded{[this](const mgp_map::map_type::const_iterator &itr) {
+                                                    return itr == std::get<mgp_map::map_type>(map->items).end();
+                                                  },
+                                                  [this](const mgp_map::unordered_map_type::const_iterator &itr) {
+                                                    return itr ==
+                                                           std::get<mgp_map::unordered_map_type>(map->items).end();
+                                                  }},
+                      current_it);
+  }
+
   allocator_type alloc;
   mgp_map *map;
-  decltype(map->items.begin()) current_it;
+  std::variant<typename mgp_map::map_type::const_iterator, typename mgp_map::unordered_map_type::const_iterator>
+      current_it;
   mgp_map_item current;
 };
 
