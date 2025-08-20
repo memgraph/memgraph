@@ -4575,11 +4575,6 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
       // Skip setting properties on Null (can occur in optional match).
       break;
     case TypedValue::Type::Map:
-    // Semantically modifying a map makes sense, but it's not supported due
-    // to all the copying we do (when PropertyValue -> TypedValue and in
-    // ExpressionEvaluator). So even though we set a map property here, that
-    // is never visible to the user and it's not stored.
-    // TODO: fix above described bug
     default:
       throw QueryRuntimeException("Properties can only be set on edges and vertices.");
   }
@@ -4645,8 +4640,6 @@ bool SetNestedProperty::SetNestedPropertyCursor::Pull(Frame &frame, ExecutionCon
     TypedValue old_value = TypedValue(evaluator.GetProperty(*record, self_.lhs_->GetBaseProperty()),
                                       evaluator.GetNameIdMapper(), context.evaluation_context.memory);
     if (old_value.IsNull()) {
-      TypedValue::TString key{context.db_accessor->GetStorageAccessor()->PropertyToName(self_.property_path_[0]),
-                              context.evaluation_context.memory};
       old_value = TypedValue(TypedValue::TMap{}, context.evaluation_context.memory);
     } else if (!old_value.IsMap()) {
       throw QueryRuntimeException("Nested property must be of type Map!");

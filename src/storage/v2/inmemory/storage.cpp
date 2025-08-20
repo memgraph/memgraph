@@ -2265,7 +2265,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // appears in an index, and we can safely remove the from the main storage
   // after the last currently active transaction is finished.
   // This operation is very expensive as it traverses through all of the items
-  // in every index every time.
+  // in every index every time.s
   if (auto token = stop_source.get_token(); !token.stop_requested()) {
     if (index_cleanup_vertex_needed || index_cleanup_vertex_performance) {
       indices_.RemoveObsoleteVertexEntries(oldest_active_start_timestamp, token);
