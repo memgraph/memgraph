@@ -687,7 +687,12 @@ export ORIG_CFLAGS=\$CFLAGS
 export PATH=\$PREFIX:\$PREFIX/bin:\$PATH
 export PS1="($NAME) \$PS1"
 export LD_LIBRARY_PATH=\$PREFIX/lib:\$PREFIX/lib64
-export CXXFLAGS="-isystem \$PREFIX/include  \$CXXFLAGS"
+case "\$(uname -m)" in
+    x86_64) TARGET_TRIPLET="x86_64-linux-gnu" ;;
+    aarch64) TARGET_TRIPLET="aarch64-linux-gnu" ;;
+    *) TARGET_TRIPLET="\$(uname -m)-linux-gnu" ;;
+esac
+export CXXFLAGS="-nostdinc -nostdinc++ -isystem \$PREFIX/include/c++/14.2.0 -isystem \$PREFIX/include/c++/14.2.0/\$TARGET_TRIPLET -isystem \$PREFIX/include \$CXXFLAGS"
 export CFLAGS="-isystem \$PREFIX/include \$CFLAGS"
 export MG_TOOLCHAIN_ROOT=\$PREFIX
 export MG_TOOLCHAIN_VERSION=$TOOLCHAIN_VERSION
