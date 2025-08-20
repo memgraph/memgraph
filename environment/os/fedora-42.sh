@@ -155,7 +155,6 @@ install() {
         echo "NOTE: export LANG=en_US.utf8"
     fi
 
-    dnf update -y
     dnf install -y wget git python3 python3-pip
 
     # Separate standard and custom packages
