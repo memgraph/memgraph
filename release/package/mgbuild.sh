@@ -66,6 +66,7 @@ DEFAULT_BENCH_GRAPH_PORT="9001"
 DEFAULT_MGDEPS_CACHE_HOST="mgdeps-cache"
 DEFAULT_MGDEPS_CACHE_PORT="8000"
 DEFAULT_CCACHE_ENABLED="true"
+DEFAULT_PYTHON_CACHE_ENABLED="true"
 
 print_help () {
   echo -e "\nUsage:  $SCRIPT_NAME [GLOBAL OPTIONS] COMMAND [COMMAND OPTIONS]"
@@ -100,6 +101,7 @@ print_help () {
   echo -e "  --threads int                 Specify the number of threads a command will use (default \"\$(nproc)\" for container)"
   echo -e "  --toolchain string            Specify toolchain version (\"${SUPPORTED_TOOLCHAINS[*]}\") (default \"$DEFAULT_TOOLCHAIN\")"
   echo -e "  --no-ccache                   Disable ccache volume mounting (default \"$DEFAULT_CCACHE_ENABLED\") -> this is required for run, stop and build-memgraph commands on the coverage build"
+  echo -e "  --no-python-cache             Disable Python package cache volume mounting (default \"$DEFAULT_PYTHON_CACHE_ENABLED\")"
 
   echo -e "\nbuild options:"
   echo -e "  --git-ref string              Specify git ref from which the environment deps will be installed (default \"master\")"
@@ -266,10 +268,11 @@ version_lt() {
 ######## BUILD, COPY AND PACKAGE MEMGRAPH ########
 ##################################################
 
-# Function to handle ccache override file creation and cleanup
-setup_ccache_override() {
+# Function to handle cache override file creation and cleanup
+setup_cache_override() {
   local compose_files="-f ${arch}-builders-${toolchain_version}.yml"
 
+  # Create ccache override if enabled
   if [[ "$ccache_enabled" == "true" ]]; then
     cat > ccache-override.yml << EOF
 services:
@@ -292,16 +295,45 @@ EOF
     compose_files="$compose_files -f ccache-override.yml"
   fi
 
+  # Create Python cache override if enabled
+  if [[ "$python_cache_enabled" == "true" ]]; then
+    cat > python-cache-override.yml << EOF
+services:
+EOF
+    # Add Python cache volumes for all services in the compose file
+    if [[ "$os" == "all" ]]; then
+      # For all OS, we need to add volumes to all services
+      grep "^  mgbuild_" ${arch}-builders-${toolchain_version}.yml | while read -r line; do
+        service_name=$(echo "$line" | sed 's/://')
+        echo "  $service_name:" >> python-cache-override.yml
+        echo "    volumes:" >> python-cache-override.yml
+        echo "      - $HOME/ci_cache/uv:/home/mg/.cache/uv" >> python-cache-override.yml
+        echo "      - $HOME/ci_cache/pip:/home/mg/.cache/pip" >> python-cache-override.yml
+      done
+    else
+      # For specific OS, only add volume to the target service
+      echo "  $build_container:" >> python-cache-override.yml
+      echo "    volumes:" >> python-cache-override.yml
+      echo "      - $HOME/ci_cache/uv:/home/mg/.cache/uv" >> python-cache-override.yml
+      echo "      - $HOME/ci_cache/pip:/home/mg/.cache/pip" >> python-cache-override.yml
+    fi
+    compose_files="$compose_files -f python-cache-override.yml"
+  fi
+
   echo "$compose_files"
 }
 
-cleanup_ccache_override() {
+cleanup_cache_override() {
   if [[ "$ccache_enabled" == "true" ]]; then
     rm -f ccache-override.yml
   fi
+  if [[ "$python_cache_enabled" == "true" ]]; then
+    rm -f python-cache-override.yml
+  fi
 }
 
-setup_host_ccache_permissions() {
+setup_host_cache_permissions() {
+  # Set up ccache permissions if enabled
   if [[ "$ccache_enabled" == "true" ]]; then
     echo "Setting up host ccache directory permissions..."
     mkdir -p ~/.cache/ccache
@@ -310,7 +342,20 @@ setup_host_ccache_permissions() {
     # Suppress both errors and warnings about operations not permitted
     chmod -R a+rwX ~/.cache 2>/dev/null || true
 
-    echo "Host cache directory permissions set to a+rwX (open access)"
+    echo "Host ccache directory permissions set to a+rwX (open access)"
+  fi
+
+  # Set up Python cache permissions if enabled
+  if [[ "$python_cache_enabled" == "true" ]]; then
+    echo "Setting up host Python cache directory permissions..."
+    mkdir -p "$HOME/ci_cache/uv"
+    mkdir -p "$HOME/ci_cache/pip"
+
+    # Set open permissions on the CI cache directories to allow cross-container access
+    # Suppress both errors and warnings about operations not permitted
+    chmod -R a+rwX "$HOME/ci_cache" 2>/dev/null || true
+
+    echo "Host Python cache directory permissions set to a+rwX (open access)"
   fi
 }
 
@@ -888,6 +933,7 @@ bench_graph_port=$DEFAULT_BENCH_GRAPH_PORT
 mgdeps_cache_host=$DEFAULT_MGDEPS_CACHE_HOST
 mgdeps_cache_port=$DEFAULT_MGDEPS_CACHE_PORT
 ccache_enabled=$DEFAULT_CCACHE_ENABLED
+python_cache_enabled=$DEFAULT_PYTHON_CACHE_ENABLED
 command=""
 build_container=""
 while [[ $# -gt 0 ]]; do
@@ -941,8 +987,12 @@ while [[ $# -gt 0 ]]; do
         shift 2
     ;;
     --no-ccache)
-        ccache_enabled="false"
-        shift 1
+      ccache_enabled="false"
+      shift 1
+    ;;
+    --no-python-cache)
+      python_cache_enabled="false"
+      shift 1
     ;;
     *)
       if [[ "$1" =~ ^--.* ]]; then
@@ -1040,11 +1090,11 @@ case $command in
         esac
       done
 
-      # Create ccache override file if ccache is enabled
-      compose_files=$(setup_ccache_override)
+      # Create cache override files
+      compose_files=$(setup_cache_override)
 
-      # Set up host ccache permissions
-      setup_host_ccache_permissions
+      # Set up host cache permissions
+      setup_host_cache_permissions
 
       if [[ "$os" == "all" ]]; then
         if [[ "$pull" == "true" ]]; then
@@ -1137,8 +1187,22 @@ case $command in
         echo '.cache directory permissions set for all tools'
       "
 
-      # Clean up override file if it was created
-      cleanup_ccache_override
+      # Set up Python cache directories and permissions for cross-container access if enabled
+      if [[ "$python_cache_enabled" == "true" ]]; then
+        echo "Setting up Python cache directories for cross-container access..."
+        docker exec -u root $build_container bash -c "
+          mkdir -p /home/mg/.cache/uv
+          mkdir -p /home/mg/.cache/pip
+          chown -R mg:mg /home/mg/.cache/uv
+          chown -R mg:mg /home/mg/.cache/pip
+          chmod -R a+rwX /home/mg/.cache/uv
+          chmod -R a+rwX /home/mg/.cache/pip
+          echo 'Python cache directories set up for cross-container access'
+        "
+      fi
+
+      # Clean up override files if they were created
+      cleanup_cache_override
     ;;
     stop)
       cd $SCRIPT_DIR
@@ -1157,8 +1221,8 @@ case $command in
         esac
       done
 
-      # Create ccache override file if ccache is enabled (same logic as run command)
-      compose_files=$(setup_ccache_override)
+      # Create cache override files (same logic as run command)
+      compose_files=$(setup_cache_override)
 
       if [[ "$os" == "all" ]]; then
         $docker_compose_cmd $compose_files down
@@ -1169,14 +1233,14 @@ case $command in
         fi
       fi
 
-      # Clean up override file if it was created
-      cleanup_ccache_override
+      # Clean up override files if they were created
+      cleanup_cache_override
     ;;
     pull)
       cd $SCRIPT_DIR
 
-      # Create ccache override file if ccache is enabled (same logic as run command)
-      compose_files=$(setup_ccache_override)
+      # Create cache override files (same logic as run command)
+      compose_files=$(setup_cache_override)
 
       if [[ "$os" == "all" ]]; then
         $docker_compose_cmd $compose_files pull --ignore-pull-failures
@@ -1184,8 +1248,8 @@ case $command in
         $docker_compose_cmd $compose_files pull $build_container
       fi
 
-      # Clean up override file if it was created
-      cleanup_ccache_override
+      # Clean up override files if they were created
+      cleanup_cache_override
     ;;
     push)
       docker login $@
