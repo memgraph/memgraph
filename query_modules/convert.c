@@ -680,7 +680,7 @@ static struct mgp_map *create_complete_node_map(struct mgp_vertex *node, const f
   }
 
   struct mgp_map *node_map = NULL;
-  if (mgp_map_make_empty(memory, &node_map) != MGP_ERROR_NO_ERROR || node_map == NULL) {
+  if (mgp_unordered_map_make_empty(memory, &node_map) != MGP_ERROR_NO_ERROR || node_map == NULL) {
     return NULL;
   }
 
@@ -693,7 +693,7 @@ static struct mgp_map *create_complete_node_map(struct mgp_vertex *node, const f
       do {
         // Check if property should be included based on filtering
         if (should_include_node_property(prop->name, filter_config, node)) {
-          mgp_map_insert(node_map, prop->name, prop->value);
+          mgp_map_insert_move(node_map, prop->name, prop->value);  // inputs are copied, so should be okay to move
         }
       } while (mgp_properties_iterator_next(iter, &prop) == MGP_ERROR_NO_ERROR && prop != NULL);
     }
@@ -857,7 +857,8 @@ static struct mgp_value *build_tree_from_path_recursive(struct mgp_path *path, s
               // Get the subtree map to add properties
               struct mgp_map *subtree_map = NULL;
               if (mgp_value_get_map(subtree_value, &subtree_map) == MGP_ERROR_NO_ERROR && subtree_map != NULL) {
-                mgp_map_insert(subtree_map, full_key, prop->value);  // TODO move? only if I can move from input
+                mgp_map_insert_move(subtree_map, full_key,
+                                    prop->value);  // inputs are copied, so should be okay to move
               }
               mgp_free(memory, full_key);
             }
@@ -934,7 +935,7 @@ static struct mgp_value *convert_to_tree_impl(struct mgp_value *value, bool lowe
   if (!value) {
     // Null input: return empty map
     struct mgp_map *empty_map = NULL;
-    if (mgp_map_make_empty(memory, &empty_map) != MGP_ERROR_NO_ERROR || empty_map == NULL) {
+    if (mgp_unordered_map_make_empty(memory, &empty_map) != MGP_ERROR_NO_ERROR || empty_map == NULL) {
       return NULL;
     }
     struct mgp_value *result = NULL;
@@ -953,7 +954,7 @@ static struct mgp_value *convert_to_tree_impl(struct mgp_value *value, bool lowe
   if (value_type == MGP_VALUE_TYPE_NULL) {
     // Null input: return empty map
     struct mgp_map *empty_map = NULL;
-    if (mgp_map_make_empty(memory, &empty_map) != MGP_ERROR_NO_ERROR || empty_map == NULL) {
+    if (mgp_unordered_map_make_empty(memory, &empty_map) != MGP_ERROR_NO_ERROR || empty_map == NULL) {
       return NULL;
     }
     struct mgp_value *result = NULL;
@@ -989,7 +990,7 @@ static struct mgp_value *convert_to_tree_impl(struct mgp_value *value, bool lowe
     if (paths_size == 0) {
       // Empty list: return empty map
       struct mgp_map *empty_map = NULL;
-      if (mgp_map_make_empty(memory, &empty_map) != MGP_ERROR_NO_ERROR || empty_map == NULL) {
+      if (mgp_unordered_map_make_empty(memory, &empty_map) != MGP_ERROR_NO_ERROR || empty_map == NULL) {
         return NULL;
       }
       struct mgp_value *result = NULL;
@@ -1074,7 +1075,7 @@ static struct mgp_value *convert_to_tree_impl(struct mgp_value *value, bool lowe
     if (root_group_count == 0) {
       // No valid paths found, return empty map
       struct mgp_map *empty_map = NULL;
-      if (mgp_map_make_empty(memory, &empty_map) != MGP_ERROR_NO_ERROR || empty_map == NULL) {
+      if (mgp_unordered_map_make_empty(memory, &empty_map) != MGP_ERROR_NO_ERROR || empty_map == NULL) {
         return NULL;
       }
       struct mgp_value *result = NULL;
@@ -1312,7 +1313,7 @@ int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   }
 
   struct mgp_map *empty_map = NULL;
-  if (mgp_map_make_empty(memory, &empty_map) != MGP_ERROR_NO_ERROR || empty_map == NULL) {
+  if (mgp_unordered_map_make_empty(memory, &empty_map) != MGP_ERROR_NO_ERROR || empty_map == NULL) {
     return 1;
   }
 

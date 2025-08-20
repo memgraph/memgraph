@@ -367,7 +367,11 @@ bool ContainsDeleted(const mgp_list *list) {
 }
 
 bool ContainsDeleted(const mgp_map *map) {
-  return std::ranges::any_of(map->items, [](const auto &item) { return ContainsDeleted(&item.second); });
+  return std::visit(
+      [](const auto &items) {
+        return std::ranges::any_of(items, [](const auto &item) { return ContainsDeleted(&item.second); });
+      },
+      map->items);
 }
 
 bool ContainsDeleted(const mgp_value *val) {
@@ -428,9 +432,13 @@ memgraph::query::TypedValue ToTypedValue(const mgp_value &val, memgraph::utils::
     case MGP_VALUE_TYPE_MAP: {
       const auto *map = val.map_v;
       memgraph::query::TypedValue::TMap tv_map(alloc);
-      for (const auto &item : map->items) {
-        tv_map.emplace(item.first, ToTypedValue(item.second, alloc));
-      }
+      std::visit(
+          [&tv_map, alloc](const auto &items) {
+            for (const auto &item : items) {
+              tv_map.emplace(item.first, ToTypedValue(item.second, alloc));
+            }
+          },
+          map->items);
       return memgraph::query::TypedValue(std::move(tv_map));
     }
     case MGP_VALUE_TYPE_VERTEX:
@@ -568,7 +576,7 @@ mgp_value::mgp_value(const memgraph::query::TypedValue &tv, mgp_graph *graph, al
       // value. This handles the case when filling the container throws
       // something and our destructor doesn't get called so member value isn't
       // released.
-      memgraph::utils::pmr::map<memgraph::utils::pmr::string, mgp_value> items(alloc);
+      mgp_map::map_type items(alloc);
       for (const auto &item : tv.ValueMap()) {
         items.emplace(item.first, mgp_value(item.second, graph, alloc));
       }
@@ -712,7 +720,7 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::stora
       // something and our destructor doesn't get called so member value isn't
       // released.
       type = MGP_VALUE_TYPE_MAP;
-      memgraph::utils::pmr::map<memgraph::utils::pmr::string, mgp_value> items(alloc);
+      mgp_map::map_type items(alloc);
       for (const auto &item : pv.ValueMap()) {
         auto key_as_name = name_id_mapper->IdToName(item.first.AsUint());
         auto value = mgp_value(item.second, name_id_mapper, alloc);
@@ -1208,6 +1216,10 @@ mgp_error mgp_map_make_empty(mgp_memory *memory, mgp_map **result) {
   return WrapExceptions([&memory] { return NewRawMgpObject<mgp_map>(memory); }, result);
 }
 
+mgp_error mgp_unordered_map_make_empty(mgp_memory *memory, mgp_map **result) {
+  return WrapExceptions([&memory] { return NewRawMgpObject<mgp_map>(memory, mgp_map::unordered_map_tag_t); }, result);
+}
+
 mgp_error mgp_map_copy(mgp_map *map, mgp_memory *memory, mgp_map **result) {
   return WrapExceptions([map, memory] { return NewRawMgpObject<mgp_map>(memory, *map); }, result);
 }
@@ -1220,77 +1232,96 @@ mgp_error mgp_map_contains_deleted(mgp_map *map, int *result) {
 
 mgp_error mgp_map_insert(mgp_map *map, const char *key, mgp_value *value) {
   return WrapExceptions([&] {
-    auto emplace_result = map->items.emplace(key, *value);
-    if (!emplace_result.second) {
-      throw KeyAlreadyExistsException{"Map already contains mapping for {}", key};
-    }
+    std::visit(
+        [key, value](auto &items) {
+          auto emplace_result = items.emplace(key, *value);
+          if (!emplace_result.second) {
+            throw KeyAlreadyExistsException{"Map already contains mapping for {}", key};
+          }
+        },
+        map->items);
   });
 }
 
 mgp_error mgp_map_insert_move(mgp_map *map, const char *key, mgp_value *value) {
   return WrapExceptions([&] {
-    auto emplace_result = map->items.emplace(key, std::move(*value));
-    if (!emplace_result.second) {
-      throw KeyAlreadyExistsException{"Map already contains mapping for {}", key};
-    }
+    std::visit(
+        [key, value](auto &items) {
+          auto emplace_result = items.emplace(key, std::move(*value));
+          if (!emplace_result.second) {
+            throw KeyAlreadyExistsException{"Map already contains mapping for {}", key};
+          }
+        },
+        map->items);
   });
 }
 
 mgp_error mgp_map_update(mgp_map *map, const char *key, mgp_value *value) {
   return WrapExceptions([&] {
-    auto emplace_result = map->items.emplace(key, *value);
-    if (!emplace_result.second) {
-      map->items.erase(emplace_result.first);
-      map->items.emplace(key, *value);
-    }
+    std::visit(
+        [key, value](auto &items) {
+          auto emplace_result = items.emplace(key, *value);
+          if (!emplace_result.second) {
+            items.erase(emplace_result.first);
+            items.emplace(key, *value);
+          }
+        },
+        map->items);
   });
 }
 
 mgp_error mgp_map_update_move(mgp_map *map, const char *key, mgp_value *value) {
   return WrapExceptions([&] {
-    auto emplace_result = map->items.emplace(key, std::move(*value));
-    if (!emplace_result.second) {
-      map->items.erase(emplace_result.first);
-      map->items.emplace(key, *value);
-    }
+    std::visit(
+        [key, value](auto &items) {
+          auto emplace_result = items.emplace(key, std::move(*value));
+          if (!emplace_result.second) {
+            items.erase(emplace_result.first);
+            items.emplace(key, *value);
+          }
+        },
+        map->items);
   });
 }
 
 mgp_error mgp_map_erase(mgp_map *map, const char *key) {
   return WrapExceptions([&] {
-    auto iterator = map->items.find(key);
-    if (iterator != map->items.end()) {
-      map->items.erase(iterator);
-    }
+    std::visit(
+        [key](auto &items) {
+          auto iterator = items.find(key);
+          if (iterator != items.end()) {
+            items.erase(iterator);
+          }
+        },
+        map->items);
   });
 }
 
 mgp_error mgp_map_size(mgp_map *map, size_t *result) {
-  static_assert(noexcept(map->items.size()));
-  *result = map->items.size();
+  *result = std::visit([](const auto &items) { return items.size(); }, map->items);
   return mgp_error::MGP_ERROR_NO_ERROR;
 }
 
 mgp_error mgp_map_at(mgp_map *map, const char *key, mgp_value **result) {
   return WrapExceptions(
-      [&map, &key]() -> mgp_value * {
-        auto found_it = map->items.find(key);
-        if (found_it == map->items.end()) {
-          return nullptr;
-        };
-        return &found_it->second;
+      [map, key]() -> mgp_value * {
+        return std::visit(
+            [key](const auto &items) -> mgp_value * {
+              auto found_it = items.find(key);
+              if (found_it == items.end()) {
+                return nullptr;
+              }
+              return const_cast<mgp_value *>(&found_it->second);
+            },
+            map->items);
       },
       result);
 }
 
 mgp_error mgp_key_exists(mgp_map *map, const char *key, int *result) {
   return WrapExceptions(
-      [&map, &key]() -> int {
-        auto found_it = map->items.find(key);
-        if (found_it == map->items.end()) {
-          return 0;
-        };
-        return 1;
+      [map, key]() -> int {
+        return std::visit([key](const auto &items) -> int { return items.contains(key); }, map->items);
       },
       result);
 }
@@ -1312,9 +1343,9 @@ void mgp_map_items_iterator_destroy(mgp_map_items_iterator *it) { DeleteRawMgpOb
 mgp_error mgp_map_items_iterator_get(mgp_map_items_iterator *it, mgp_map_item **result) {
   return WrapExceptions(
       [it]() -> mgp_map_item * {
-        if (it->current_it == it->map->items.end()) {
+        if (it->IsEnd()) {
           return nullptr;
-        };
+        }
         return &it->current;
       },
       result);
@@ -1323,14 +1354,24 @@ mgp_error mgp_map_items_iterator_get(mgp_map_items_iterator *it, mgp_map_item **
 mgp_error mgp_map_items_iterator_next(mgp_map_items_iterator *it, mgp_map_item **result) {
   return WrapExceptions(
       [it]() -> mgp_map_item * {
-        if (it->current_it == it->map->items.end()) {
+        if (it->IsEnd()) {
           return nullptr;
         }
-        if (++it->current_it == it->map->items.end()) {
+
+        std::visit([&](auto &itr) { ++itr; }, it->current_it);
+
+        if (it->IsEnd()) {
           return nullptr;
         }
-        it->current.key = it->current_it->first.c_str();
-        it->current.value = &it->current_it->second;
+
+        // Update current item
+        std::visit(
+            [&it](auto &itr) mutable {
+              it->current.key = itr->first.c_str();
+              it->current.value = const_cast<mgp_value *>(&itr->second);
+            },
+            it->current_it);
+
         return &it->current;
       },
       result);
@@ -2019,11 +2060,18 @@ memgraph::storage::PropertyValue ToPropertyValue(const mgp_list &list,
 
 memgraph::storage::PropertyValue ToPropertyValue(const mgp_map &map, memgraph::storage::NameIdMapper *name_id_mapper) {
   auto result_map = memgraph::storage::PropertyValue::map_t{};
-  do_reserve(result_map, map.items.size());
-  for (const auto &[key, value] : map.items) {
-    auto property_id = memgraph::storage::PropertyId::FromUint(name_id_mapper->NameToId(key));
-    result_map.insert_or_assign(property_id, ToPropertyValue(value, name_id_mapper));
-  }
+  size_t size = std::visit([](const auto &items) { return items.size(); }, map.items);
+  do_reserve(result_map, size);
+
+  std::visit(
+      [&result_map, name_id_mapper](const auto &items) {
+        for (const auto &[key, value] : items) {
+          auto property_id = memgraph::storage::PropertyId::FromUint(name_id_mapper->NameToId(key));
+          result_map.insert_or_assign(property_id, ToPropertyValue(value, name_id_mapper));
+        }
+      },
+      map.items);
+
   return memgraph::storage::PropertyValue{std::move(result_map)};
 }
 
@@ -2085,10 +2133,17 @@ memgraph::storage::ExternalPropertyValue ToExternalPropertyValue(const mgp_list 
 
 memgraph::storage::ExternalPropertyValue ToExternalPropertyValue(const mgp_map &map) {
   auto result_map = memgraph::storage::ExternalPropertyValue::map_t{};
-  do_reserve(result_map, map.items.size());
-  for (const auto &[key, value] : map.items) {
-    result_map.insert_or_assign(std::string{key}, ToExternalPropertyValue(value));
-  }
+  size_t size = std::visit([](const auto &items) { return items.size(); }, map.items);
+  do_reserve(result_map, size);
+
+  std::visit(
+      [&result_map](const auto &items) {
+        for (const auto &[key, value] : items) {
+          result_map.insert_or_assign(std::string{key}, ToExternalPropertyValue(value));
+        }
+      },
+      map.items);
+
   return memgraph::storage::ExternalPropertyValue{std::move(result_map)};
 }
 
@@ -2208,13 +2263,17 @@ mgp_error mgp_vertex_set_properties(struct mgp_vertex *v, struct mgp_map *proper
     }
 
     std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> props;
-    for (const auto &item : properties->items) {
-      props.insert(std::visit(
-          [&item, name_id_mapper = GetNameIdMapper(v->graph)](auto *impl) {
-            return std::make_pair(impl->NameToProperty(item.first), ToPropertyValue(item.second, name_id_mapper));
-          },
-          v->graph->impl));
-    }
+    std::visit(
+        [&props, v](const auto &items) {
+          for (const auto &item : items) {
+            props.insert(std::visit(
+                [&item, name_id_mapper = GetNameIdMapper(v->graph)](auto *impl) {
+                  return std::make_pair(impl->NameToProperty(item.first), ToPropertyValue(item.second, name_id_mapper));
+                },
+                v->graph->impl));
+          }
+        },
+        properties->items);
 
     const auto result = v->getImpl().UpdateProperties(props);
 
@@ -2233,7 +2292,7 @@ mgp_error mgp_vertex_set_properties(struct mgp_vertex *v, struct mgp_map *proper
     }
 
     ctx->execution_stats[memgraph::query::ExecutionStats::Key::UPDATED_PROPERTIES] +=
-        static_cast<int64_t>(properties->items.size());
+        static_cast<int64_t>(std::visit([](const auto &items) { return items.size(); }, properties->items));
 
     auto *trigger_ctx_collector = ctx->trigger_context_collector;
     if (!trigger_ctx_collector ||
@@ -2832,14 +2891,18 @@ mgp_error mgp_edge_set_properties(struct mgp_edge *e, struct mgp_map *properties
       throw ImmutableObjectException{"Cannot set properties of an immutable edge!"};
     }
     std::map<memgraph::storage::PropertyId, memgraph::storage::PropertyValue> props;
-    for (const auto &item : properties->items) {
-      props.insert(std::visit(
-          [&item, &e](auto *impl) {
-            return std::make_pair(impl->NameToProperty(item.first),
-                                  ToPropertyValue(item.second, GetNameIdMapper(e->from.graph)));
-          },
-          e->from.graph->impl));
-    }
+    std::visit(
+        [&props, &e](const auto &items) {
+          for (const auto &item : items) {
+            props.insert(std::visit(
+                [&item, &e](auto *impl) {
+                  return std::make_pair(impl->NameToProperty(item.first),
+                                        ToPropertyValue(item.second, GetNameIdMapper(e->from.graph)));
+                },
+                e->from.graph->impl));
+          }
+        },
+        properties->items);
 
     const auto result = e->impl.UpdateProperties(props);
     if (result.HasError()) {
@@ -2858,7 +2921,7 @@ mgp_error mgp_edge_set_properties(struct mgp_edge *e, struct mgp_map *properties
     }
 
     ctx->execution_stats[memgraph::query::ExecutionStats::Key::UPDATED_PROPERTIES] +=
-        static_cast<int64_t>(properties->items.size());
+        static_cast<int64_t>(std::visit([](const auto &items) { return items.size(); }, properties->items));
 
     auto *trigger_ctx_collector = ctx->trigger_context_collector;
     if (!trigger_ctx_collector ||
@@ -4780,7 +4843,7 @@ mgp_error mgp_untrack_current_thread_allocations(mgp_graph *graph) {
 }
 
 mgp_execution_headers::mgp_execution_headers(memgraph::utils::pmr::vector<memgraph::utils::pmr::string> &&storage)
-    : headers(std::move(storage)){};
+    : headers(std::move(storage)) {};
 
 mgp_error mgp_execution_headers_size(mgp_execution_headers *headers, size_t *result) {
   static_assert(noexcept(headers->headers.size()));
@@ -4827,10 +4890,16 @@ struct MgProcedureResultStream final {
 
 memgraph::storage::ExternalPropertyValue::map_t CreateQueryParams(mgp_map *params) {
   auto query_params = memgraph::storage::ExternalPropertyValue::map_t{};
-  do_reserve(query_params, params->items.size());
-  for (auto &[k, v] : params->items) {
-    query_params.emplace(k, ToExternalPropertyValue(v));
-  }
+  size_t size = std::visit([](const auto &items) { return items.size(); }, params->items);
+  do_reserve(query_params, size);
+
+  std::visit(
+      [&query_params](const auto &items) {
+        for (const auto &[k, v] : items) {
+          query_params.emplace(k, ToExternalPropertyValue(v));
+        }
+      },
+      params->items);
 
   return query_params;
 }
@@ -4907,7 +4976,7 @@ mgp_error mgp_pull_one(mgp_execution_result *exec_result, mgp_graph *graph, mgp_
         }
 
         const size_t headers_size = exec_result->pImpl->headers->headers.size();
-        memgraph::utils::pmr::map<memgraph::utils::pmr::string, mgp_value> items(memory->impl);
+        mgp_map::map_type items(memory->impl);
         for (size_t idx = 0; idx < headers_size; idx++) {
           items.emplace(exec_result->pImpl->headers->headers[idx], mgp_value{stream.rows[0][idx], graph, memory->impl});
         }
