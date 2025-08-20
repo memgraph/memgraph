@@ -576,6 +576,267 @@ with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted
         assert session.run("SHOW CURRENT USER;").values()[0][0] == "admin"
         assert session.run("SHOW DATABASE").values()[0][0] == "memgraph"
 
+print("Checking user limits with impersonated users...")
+
+# Setup users and profiles for limit testing
+with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted=False) as driver:
+    with driver.session() as session:
+        # Create users for limit testing
+        session.run("CREATE USER limit_user1;").consume()
+        session.run("GRANT MATCH, CREATE, PROFILE_RESTRICTION TO limit_user1;").consume()
+        session.run("CREATE USER limit_user2;").consume()
+        session.run("GRANT MATCH, CREATE, PROFILE_RESTRICTION TO limit_user2;").consume()
+
+        # Create profiles with different limits
+        session.run("CREATE PROFILE limit_profile1 LIMIT SESSIONS 2, TRANSACTIONS_MEMORY 100MB;").consume()
+        session.run("CREATE PROFILE limit_profile2 LIMIT SESSIONS 1, TRANSACTIONS_MEMORY 50MB;").consume()
+        session.run("CREATE PROFILE admin_profile LIMIT SESSIONS 10, TRANSACTIONS_MEMORY 500MB;").consume()
+
+        # Assign profiles to users
+        session.run("SET PROFILE FOR limit_user1 TO limit_profile1;").consume()
+        session.run("SET PROFILE FOR limit_user2 TO limit_profile2;").consume()
+        session.run("SET PROFILE FOR admin TO admin_profile;").consume()
+
+        # Grant impersonation permissions
+        session.run("GRANT IMPERSONATE_USER limit_user1,limit_user2 TO admin;").consume()
+
+# Test user limits with impersonated users
+with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted=False) as driver:
+    # Test that impersonated users inherit their profile limits
+    with driver.session(impersonated_user="limit_user1") as session:
+        assert session.run("SHOW CURRENT USER;").values()[0][0] == "limit_user1"
+
+        # Check resource usage shows the profile limits
+        resource_usage = session.run("SHOW RESOURCE USAGE FOR limit_user1;").values()
+        sessions_limit = None
+        memory_limit = None
+        for row in resource_usage:
+            if row[0] == "sessions":
+                sessions_limit = row[2]
+            elif row[0] == "transactions_memory":
+                memory_limit = row[2]
+
+        assert sessions_limit == 2, f"Expected sessions limit 2, got {sessions_limit}"
+        assert memory_limit == "100.00MiB", f"Expected memory limit 100.00MiB, got {memory_limit}"
+
+        # Test that we can perform operations within limits
+        assert_no_exception(lambda: session.run("CREATE ()").consume())
+        assert_exception(lambda: session.run("UNWIND range(1, 10000000) AS i CREATE ()").consume())
+
+        # Check that admin resources remain at 0 during impersonation
+        admin_usage = session.run("SHOW RESOURCE USAGE FOR admin;").values()
+        admin_sessions = None
+        admin_memory = None
+        for row in admin_usage:
+            if row[0] == "sessions":
+                admin_sessions = row[1]
+            elif row[0] == "transactions_memory":
+                admin_memory = row[1]
+
+        assert admin_sessions == 0, f"Admin sessions should be 0, got {admin_sessions}"
+        assert admin_memory == "0B", f"Admin memory should be 0B, got {admin_memory}"
+
+    with driver.session(impersonated_user="limit_user2") as session:
+        assert session.run("SHOW CURRENT USER;").values()[0][0] == "limit_user2"
+
+        # Check resource usage shows the profile limits
+        resource_usage = session.run("SHOW RESOURCE USAGE FOR limit_user2;").values()
+        sessions_limit = None
+        memory_limit = None
+        for row in resource_usage:
+            if row[0] == "sessions":
+                sessions_limit = row[2]
+            elif row[0] == "transactions_memory":
+                memory_limit = row[2]
+
+        assert sessions_limit == 1, f"Expected sessions limit 1, got {sessions_limit}"
+        assert memory_limit == "50.00MiB", f"Expected memory limit 50.00MiB, got {memory_limit}"
+
+        # Test that we can perform operations within limits
+        assert_no_exception(lambda: session.run("CREATE ()").consume())
+        assert_exception(lambda: session.run("UNWIND range(1, 10000000) AS i CREATE ()").consume())
+
+        # Check that admin resources remain at 0 during impersonation
+        admin_usage = session.run("SHOW RESOURCE USAGE FOR admin;").values()
+        admin_sessions = None
+        admin_memory = None
+        for row in admin_usage:
+            if row[0] == "sessions":
+                admin_sessions = row[1]
+            elif row[0] == "transactions_memory":
+                admin_memory = row[1]
+
+        assert admin_sessions == 0, f"Admin sessions should be 0, got {admin_sessions}"
+        assert admin_memory == "0B", f"Admin memory should be 0B, got {admin_memory}"
+
+
+# Test that multiple impersonated sessions respect user limits
+with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted=False) as driver:
+    # Create multiple sessions for limit_user1 (limit: 2 sessions)
+    session1 = driver.session(impersonated_user="limit_user1")
+    session2 = driver.session(impersonated_user="limit_user1")
+
+    # Both sessions should work (within 2 session limit)
+    assert_no_exception(lambda: session1.run("CREATE ()"))
+    assert_no_exception(lambda: session2.run("CREATE ()"))
+
+    # Check admin resources remain at 0 during multiple impersonated sessions
+    admin_usage = session1.run("SHOW RESOURCE USAGE FOR admin;").values()
+    admin_sessions = None
+    admin_memory = None
+    for row in admin_usage:
+        if row[0] == "sessions":
+            admin_sessions = row[1]
+        elif row[0] == "transactions_memory":
+            admin_memory = row[1]
+
+    assert admin_sessions == 0, f"Admin sessions should be 0, got {admin_sessions}"
+    assert admin_memory == "0B", f"Admin memory should be 0B, got {admin_memory}"
+
+    # Test that we can perform operations within limits using transactions
+    tx1 = session1.begin_transaction()
+    tx1.run("CREATE ()")
+    tx2 = session2.begin_transaction()
+    tx2.run("CREATE ()")
+
+    admin_session = driver.session()
+    admin_usage = admin_session.run("SHOW RESOURCE USAGE FOR admin;").values()
+    admin_sessions = None
+    admin_memory = None
+    for row in admin_usage:
+        if row[0] == "sessions":
+            admin_sessions = row[1]
+        elif row[0] == "transactions_memory":
+            admin_memory = row[1]
+    assert admin_sessions == 1, f"Admin sessions should be 1, got {admin_sessions}"
+    assert admin_memory == "0B", f"Admin memory should be 0B, got {admin_memory}"
+
+    usage = admin_session.run("SHOW RESOURCE USAGE FOR limit_user2;").values()
+    sessions = None
+    memory = None
+    for row in usage:
+        if row[0] == "sessions":
+            sessions = row[1]
+        elif row[0] == "transactions_memory":
+            memory = row[1]
+    assert sessions == 0, f"Sessions should be 0, got {sessions}"
+    assert memory == "0B", f"Memory should be 0B, got {memory}"
+
+    usage = admin_session.run("SHOW RESOURCE USAGE FOR limit_user1;").values()
+    sessions = None
+    memory = None
+    for row in usage:
+        if row[0] == "sessions":
+            sessions = row[1]
+        elif row[0] == "transactions_memory":
+            memory = row[1]
+    assert sessions == 2, f"Sessions should be 2, got {sessions}"
+    assert memory != "0B", f"Memory should be non-zero, got {memory}"
+
+    # Go over the sessions limit - this should fail when trying to create a session
+    try:
+        session3 = driver.session(impersonated_user="limit_user1")
+        session3.run("CREATE ()").consume()
+        session3.close()
+        assert False, "Should have failed due to session limit"
+    except Exception as e:
+        # Expected to fail due to session limit
+        pass
+
+    tx1.commit()
+    tx2.commit()
+
+    session1.close()
+    session2.close()
+    admin_session.close()
+
+# Test memory limits with impersonated users
+with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted=False) as driver:
+    with driver.session(impersonated_user="limit_user2") as session:  # 50MB limit
+        # Try to create data that might exceed the 50MB limit
+        try:
+            # Create a large number of nodes to test memory limit
+            for i in range(10000):
+                session.run(f"CREATE ()")
+        except Exception as e:
+            # Expected behavior - memory limit should be enforced
+            assert "memory" in str(e).lower() or "limit" in str(e).lower(), f"Unexpected error: {e}"
+
+# Test profile changes affect impersonated users
+with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted=False) as driver:
+    with driver.session() as session:
+        # Update profile limits
+        session.run("UPDATE PROFILE limit_profile1 LIMIT SESSIONS 3, TRANSACTIONS_MEMORY 200MB;").consume()
+
+    # Test that impersonated user gets updated limits
+    with driver.session(impersonated_user="limit_user1") as session:
+        resource_usage = session.run("SHOW RESOURCE USAGE FOR limit_user1;").values()
+        sessions_limit = None
+        memory_limit = None
+        for row in resource_usage:
+            if row[0] == "sessions":
+                sessions_limit = row[2]
+            elif row[0] == "transactions_memory":
+                memory_limit = row[2]
+
+        assert sessions_limit == 3, f"Expected sessions limit 3, got {sessions_limit}"
+        assert memory_limit == "200.00MiB", f"Expected memory limit 200.00MiB, got {memory_limit}"
+
+# Test that clearing profile affects impersonated users
+with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted=False) as driver:
+    with driver.session() as session:
+        # Clear profile for limit_user2
+        session.run("CLEAR PROFILE FOR limit_user2;").consume()
+
+    # Test that impersonated user gets unlimited limits
+    with driver.session(impersonated_user="limit_user2") as session:
+        resource_usage = session.run("SHOW RESOURCE USAGE FOR limit_user2;").values()
+        sessions_limit = None
+        memory_limit = None
+        for row in resource_usage:
+            if row[0] == "sessions":
+                sessions_limit = row[2]
+            elif row[0] == "transactions_memory":
+                memory_limit = row[2]
+
+        assert sessions_limit == "UNLIMITED", f"Expected sessions limit UNLIMITED, got {sessions_limit}"
+        assert memory_limit == "UNLIMITED", f"Expected memory limit UNLIMITED, got {memory_limit}"
+
+# Test role-based profile inheritance with impersonation
+# NOTE Role based profiles are currently disabled
+# with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted=False) as driver:
+#     with driver.session() as session:
+#         # Create role and assign profile
+#         session.run("CREATE ROLE limit_role;").consume()
+#         session.run("CREATE PROFILE role_profile LIMIT SESSIONS 5, TRANSACTIONS_MEMORY 300MB;").consume()
+#         session.run("SET PROFILE FOR limit_role TO role_profile;").consume()
+#         session.run("SET ROLE FOR limit_user2 TO limit_role;").consume()
+
+#     # Test that impersonated user inherits role profile when no direct profile
+#     with driver.session(impersonated_user="limit_user2") as session:
+#         resource_usage = session.run("SHOW RESOURCE USAGE FOR limit_user2;").values()
+#         sessions_limit = None
+#         memory_limit = None
+#         for row in resource_usage:
+#             if row[0] == "sessions":
+#                 sessions_limit = row[2]
+#             elif row[0] == "transactions_memory":
+#                 memory_limit = row[2]
+
+#         # Should inherit from role profile (5 sessions, 300MB)
+#         assert sessions_limit == 5, f"Expected sessions limit 5, got {sessions_limit}"
+#         assert memory_limit == "300.00MiB", f"Expected memory limit 300.00MiB, got {memory_limit}"
+
+# Cleanup limit test users and profiles
+with GraphDatabase.driver("bolt://localhost:7687", auth=("admin", ""), encrypted=False) as driver:
+    with driver.session() as session:
+        session.run("DROP USER limit_user1;").consume()
+        session.run("DROP USER limit_user2;").consume()
+        session.run("DROP PROFILE limit_profile1;").consume()
+        session.run("DROP PROFILE limit_profile2;").consume()
+        session.run("DROP PROFILE admin_profile;").consume()
+
+
 print("All ok!")
 
 # Cleanup

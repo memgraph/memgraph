@@ -15,7 +15,7 @@ from functools import partial
 
 import pytest
 from common import connect, execute_and_fetch_all
-from mg_utils import mg_assert_until, mg_sleep_and_assert
+from mg_utils import mg_sleep_and_assert
 
 
 def test_spec(connect):
@@ -94,7 +94,7 @@ def test_spec(connect):
             assert index["labels"] == ["Person"]
             if index.get("type", {}) == "label_text":
                 assert index["properties"] == []
-                assert index["count"] == -1  # TODO Set to 4 once text index has an approximate count
+                assert index["count"] == 4
             else:
                 assert index["properties"] == ["name"]
                 assert index["count"] == 4

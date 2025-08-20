@@ -25,6 +25,7 @@
 #include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
+#include "storage/v2/ttl.hpp"
 
 namespace memgraph::storage::durability {
 
@@ -38,6 +39,9 @@ struct RecoveryInfo {
   uint64_t num_committed_txns{0};
 
   std::vector<std::pair<Gid /*first vertex gid*/, uint64_t /*batch size*/>> vertex_batches;
+
+  // TTL info recovered from snapshot
+  std::optional<storage::ttl::TtlInfo> recovered_ttl_info;
 };
 
 /// Structure used to track indices and constraints during recovery.

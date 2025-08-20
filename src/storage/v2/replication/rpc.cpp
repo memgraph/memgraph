@@ -236,7 +236,7 @@ void Save(const memgraph::storage::replication::PrepareCommitReq &self, memgraph
   slk::Save(self.main_uuid, builder);
   slk::Save(self.storage_uuid, builder);
   slk::Save(self.previous_commit_timestamp, builder);
-  slk::Save(self.commit_immediately, builder);
+  slk::Save(self.two_phase_commit, builder);
   slk::Save(self.durability_commit_timestamp, builder);
 }
 
@@ -244,7 +244,7 @@ void Load(memgraph::storage::replication::PrepareCommitReq *self, memgraph::slk:
   slk::Load(&self->main_uuid, reader);
   slk::Load(&self->storage_uuid, reader);
   slk::Load(&self->previous_commit_timestamp, reader);
-  slk::Load(&self->commit_immediately, reader);
+  slk::Load(&self->two_phase_commit, reader);
   slk::Load(&self->durability_commit_timestamp, reader);
 }
 

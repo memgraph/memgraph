@@ -36,6 +36,7 @@
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage_mode.hpp"
+#include "tests/test_commit_args_helper.hpp"
 #include "utils/logging.hpp"
 #include "utils/lru_cache.hpp"
 #include "utils/synchronized.hpp"
@@ -102,7 +103,8 @@ class InterpreterTest : public ::testing::Test {
                                                           system_state
 #ifdef MG_ENTERPRISE
                                                           ,
-                                                          std::nullopt
+                                                          std::nullopt,
+                                                          nullptr
 #endif
   };
 
@@ -417,7 +419,7 @@ TYPED_TEST(InterpreterTest, Bfs) {
       add_edge(node1, node2, false);
     }
 
-    ASSERT_FALSE(dba.Commit().HasError());
+    ASSERT_FALSE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   auto stream = this->Interpret(
@@ -1175,7 +1177,8 @@ TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
                                                                 system_state
 #ifdef MG_ENTERPRISE
                                                                 ,
-                                                                std::nullopt
+                                                                std::nullopt,
+                                                                nullptr
 #endif
     };
     InterpreterFaker interpreter_faker{&csv_interpreter_context, db_acc};

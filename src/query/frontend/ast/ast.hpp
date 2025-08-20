@@ -3775,7 +3775,7 @@ class TtlQuery : public memgraph::query::Query {
 
   TtlQuery() = default;
 
-  enum class Type { UNKNOWN = 0, ENABLE, DISABLE, STOP } type_;
+  enum class Type { UNKNOWN = 0, START, CONFIGURE, DISABLE, STOP } type_;
   Expression *period_{};
   Expression *specific_time_{};
 

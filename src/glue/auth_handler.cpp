@@ -11,17 +11,23 @@
 
 #include "glue/auth_handler.hpp"
 
+#include <optional>
 #include <sstream>
 
 #include <fmt/format.h>
 
 #include "auth/auth.hpp"
 #include "auth/models.hpp"
+#include "auth/profiles/user_profiles.hpp"
 #include "dbms/constants.hpp"
+#include "frontend/ast/ast_visitor.hpp"
 #include "glue/auth.hpp"
 #include "license/license.hpp"
 #include "query/constants.hpp"
 #include "query/exceptions.hpp"
+#include "utils/logging.hpp"
+#include "utils/resource_monitoring.hpp"
+#include "utils/variant_helpers.hpp"
 
 namespace {
 
@@ -286,8 +292,62 @@ std::vector<std::vector<memgraph::query::TypedValue>> ShowFineGrainedRolePrivile
 
   return ConstructFineGrainedPrivilegesResult(all_fine_grained_permissions);
 }
-#endif
 
+// Converting values from query to user profile framework
+memgraph::auth::UserProfiles::Limits name_to_limit(const auto &name) {
+  auto it = std::find(memgraph::auth::UserProfiles::kLimits.begin(), memgraph::auth::UserProfiles::kLimits.end(), name);
+  if (it == memgraph::auth::UserProfiles::kLimits.end()) {
+    throw memgraph::query::QueryRuntimeException("Unknown limit '{}'. Currently implemented limits: {}", name,
+                                                 memgraph::auth::UserProfiles::AllLimits());
+  }
+  return static_cast<memgraph::auth::UserProfiles::Limits>(
+      std::distance(memgraph::auth::UserProfiles::kLimits.begin(), it));
+}
+
+void is_limit_supported(memgraph::query::UserProfileQuery::LimitValueResult::Type value_type,
+                        memgraph::auth::UserProfiles::Limits limit_type) {
+  // Unlimited is always supported
+  if (value_type == memgraph::query::UserProfileQuery::LimitValueResult::Type::UNLIMITED) return;
+  // Different limits support different values
+  switch (limit_type) {
+    case memgraph::auth::UserProfiles::Limits::kSessions:
+      if (value_type != memgraph::query::UserProfileQuery::LimitValueResult::Type::QUANTITY) {
+        throw memgraph::query::QueryRuntimeException("Limit 'sessions' only supports integer values.");
+      }
+      break;
+    case memgraph::auth::UserProfiles::Limits::kTransactionsMemory:
+      if (value_type != memgraph::query::UserProfileQuery::LimitValueResult::Type::MEMORY_LIMIT) {
+        throw memgraph::query::QueryRuntimeException(
+            "Limit 'sessions' only supports memory limit values. Example: 100MB");
+      }
+      break;
+  }
+}
+
+auto convert_limit_value(const memgraph::auth::UserProfiles::Profile &profile) {
+  memgraph::query::UserProfileQuery::limits_t query_profile;
+  for (const auto &[limit_type, limit_value] : profile.limits) {
+    memgraph::query::UserProfileQuery::LimitValueResult limit_value_result;
+    if (std::holds_alternative<memgraph::auth::UserProfiles::unlimitted_t>(limit_value)) {
+      limit_value_result.type = memgraph::query::UserProfileQuery::LimitValueResult::Type::UNLIMITED;
+    } else if (limit_type == memgraph::auth::UserProfiles::Limits::kSessions) {
+      limit_value_result.type = memgraph::query::UserProfileQuery::LimitValueResult::Type::QUANTITY;
+      limit_value_result.quantity.value = std::get<uint64_t>(limit_value);
+    } else if (limit_type == memgraph::auth::UserProfiles::Limits::kTransactionsMemory) {
+      limit_value_result.type = memgraph::query::UserProfileQuery::LimitValueResult::Type::MEMORY_LIMIT;
+      if (std::get<uint64_t>(limit_value) >= 1024UL * 1024UL) {  // Convert to MB
+        limit_value_result.mem_limit.value = std::get<uint64_t>(limit_value) / 1024 / 1024;
+        limit_value_result.mem_limit.scale = 1024UL * 1024UL;
+      } else {  // Convert to KB
+        limit_value_result.mem_limit.value = std::get<uint64_t>(limit_value) / 1024;
+        limit_value_result.mem_limit.scale = 1024;
+      }
+    }
+    query_profile.emplace_back(memgraph::auth::UserProfiles::kLimits[static_cast<int>(limit_type)], limit_value_result);
+  }
+  return query_profile;
+}
+#endif
 }  // namespace
 
 namespace memgraph::glue {
@@ -338,7 +398,8 @@ bool AuthQueryHandler::DropUser(const std::string &username, system::Transaction
     auto locked_auth = auth_->Lock();
     auto user = locked_auth->GetUser(username);
     if (!user) return false;
-    return locked_auth->RemoveUser(username, system_tx);
+    const auto res = locked_auth->RemoveUser(username, system_tx);
+    return res;
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
@@ -371,7 +432,7 @@ void AuthQueryHandler::ChangePassword(const std::string &username, const std::op
       locked_auth->UpdatePassword(*user, newPassword);
       locked_auth->SaveUser(*user, system_tx);
     } else {
-      throw memgraph::query::QueryRuntimeException("Old password is not corrrect.");
+      throw memgraph::query::QueryRuntimeException("Old password is not correct.");
     }
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
@@ -995,6 +1056,141 @@ void AuthQueryHandler::DenyImpersonateUser(const std::string &user_or_role, cons
   } catch (const memgraph::auth::AuthException &e) {
     throw memgraph::query::QueryRuntimeException(e.what());
   }
+}
+
+void AuthQueryHandler::CreateProfile(const std::string &profile_name,
+                                     const query::UserProfileQuery::limits_t &defined_limits,
+                                     const std::unordered_set<std::string> &usernames, system::Transaction *system_tx) {
+  auth::UserProfiles::limits_t limits;
+  for (const auto &[limit_name, limit_value] : defined_limits) {
+    const auto limit_type = name_to_limit(limit_name);
+    is_limit_supported(limit_value.type, limit_type);  // throw on failure
+    switch (limit_value.type) {
+      case query::UserProfileQuery::LimitValueResult::Type::UNLIMITED:
+        limits.emplace(limit_type, auth::UserProfiles::unlimitted_t{});
+        break;
+      case query::UserProfileQuery::LimitValueResult::Type::MEMORY_LIMIT: {
+        limits.emplace(limit_type, limit_value.mem_limit.value * limit_value.mem_limit.scale);
+      } break;
+      case query::UserProfileQuery::LimitValueResult::Type::QUANTITY: {
+        limits.emplace(limit_type, limit_value.quantity.value);
+      } break;
+    }
+  }
+  auto locked_auth = auth_->Lock();
+  if (!locked_auth->CreateProfile(profile_name, std::move(limits), usernames, system_tx)) {
+    throw memgraph::query::QueryRuntimeException("Profile '{}' already exists.", profile_name);
+  }
+}
+
+void AuthQueryHandler::UpdateProfile(const std::string &profile_name,
+                                     const query::UserProfileQuery::limits_t &updated_limits,
+                                     system::Transaction *system_tx) {
+  auth::UserProfiles::limits_t limits;
+  for (const auto &[limit_name, limit_value] : updated_limits) {
+    const auto limit_type = name_to_limit(limit_name);
+    is_limit_supported(limit_value.type, limit_type);  // throw on failure
+    switch (limit_value.type) {
+      case query::UserProfileQuery::LimitValueResult::Type::UNLIMITED:
+        limits.emplace(limit_type, auth::UserProfiles::unlimitted_t{});
+        break;
+      case query::UserProfileQuery::LimitValueResult::Type::MEMORY_LIMIT: {
+        limits.emplace(limit_type, limit_value.mem_limit.value * limit_value.mem_limit.scale);
+      } break;
+      case query::UserProfileQuery::LimitValueResult::Type::QUANTITY: {
+        limits.emplace(limit_type, limit_value.quantity.value);
+      } break;
+    }
+  }
+  auto locked_auth = auth_->Lock();
+  const auto &profile = locked_auth->UpdateProfile(profile_name, limits, system_tx);
+  if (!profile) {
+    throw memgraph::query::QueryRuntimeException("Profile '{}' does not exist.", profile_name);
+  }
+}
+
+void AuthQueryHandler::DropProfile(const std::string &profile_name, system::Transaction *system_tx) {
+  auto locked_auth = auth_->Lock();
+  if (!locked_auth->DropProfile(profile_name, system_tx)) {
+    throw memgraph::query::QueryRuntimeException("Profile '{}' does not exist.", profile_name);
+  }
+}
+
+query::UserProfileQuery::limits_t AuthQueryHandler::GetProfile(std::string_view profile_name) {
+  auto locked_auth = auth_->Lock();
+  auto profile = locked_auth->GetProfile(profile_name);
+  if (!profile) {
+    throw query::QueryRuntimeException("Profile '{}' does not exist.", profile_name);
+  }
+  // Fill missing/unlimited limits
+  for (size_t e_id = 0; e_id < auth::UserProfiles::kLimits.size(); ++e_id) {
+    const auto limit = static_cast<auth::UserProfiles::Limits>(e_id);
+    if (profile->limits.find(limit) == profile->limits.end()) {
+      profile->limits.emplace(limit, auth::UserProfiles::unlimitted_t{});
+    }
+  }
+  return convert_limit_value(*profile);
+}
+
+std::vector<std::pair<std::string, query::UserProfileQuery::limits_t>> AuthQueryHandler::AllProfiles() {
+  std::vector<std::pair<std::string, query::UserProfileQuery::limits_t>> res;
+  auto locked_auth = auth_->Lock();
+  for (const auto &profile : locked_auth->AllProfiles()) {
+    // Fill missing/unlimited limits
+    for (size_t e_id = 0; e_id < auth::UserProfiles::kLimits.size(); ++e_id) {
+      const auto limit = static_cast<auth::UserProfiles::Limits>(e_id);
+      if (!profile.limits.contains(limit)) {
+        profile.limits.emplace(limit, auth::UserProfiles::unlimitted_t{});
+      }
+    }
+    auto limits = convert_limit_value(profile);
+    res.emplace_back(profile.name, limits);
+  }
+  return res;
+}
+
+void AuthQueryHandler::SetProfile(const std::string &profile_name, const std::string &user_or_role,
+                                  system::Transaction *system_tx) {
+  try {
+    auto locked_auth = auth_->Lock();
+    const auto profile = locked_auth->SetProfile(profile_name, user_or_role, system_tx);
+    DMG_ASSERT(profile, "Missing profile");
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
+}
+
+void AuthQueryHandler::RevokeProfile(const std::string &user_or_role, system::Transaction *system_tx) {
+  try {
+    auto locked_auth = auth_->Lock();
+    locked_auth->RevokeProfile(user_or_role, system_tx);
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
+}
+
+std::optional<std::string> AuthQueryHandler::GetProfileForUser(const std::string &user_or_role) {
+  auto locked_auth = auth_->Lock();
+  return locked_auth->GetProfileForUsername(user_or_role);
+}
+
+std::vector<std::string> AuthQueryHandler::GetUsernamesForProfile(const std::string &profile_name) {
+  try {
+    auto locked_auth = auth_->Lock();
+    auto usernames_set = locked_auth->GetUsernamesForProfile(profile_name);
+    return {usernames_set.begin(), usernames_set.end()};
+  } catch (const memgraph::auth::AuthException &e) {
+    throw memgraph::query::QueryRuntimeException(e.what());
+  }
+}
+
+// Role-based profile management is no longer supported in the new architecture
+std::optional<std::string> AuthQueryHandler::GetProfileForRole(const std::string & /*user_or_role*/) {
+  throw memgraph::query::QueryRuntimeException("Role-based profile management is no longer supported.");
+}
+
+std::vector<std::string> AuthQueryHandler::GetRolenamesForProfile(const std::string & /*profile_name*/) {
+  throw memgraph::query::QueryRuntimeException("Role-based profile management is no longer supported.");
 }
 #endif
 

@@ -30,6 +30,8 @@ class DiskEdgePropertyIndex : public EdgePropertyIndex {
     uint64_t ApproximateEdgeCount(PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower,
                                   const std::optional<utils::Bound<PropertyValue>> &upper) const override;
 
+    bool IndexExists(PropertyId property) const override;
+
     bool IndexReady(PropertyId property) const override;
 
     std::vector<PropertyId> ListIndices(uint64_t start_timestamp) const override;

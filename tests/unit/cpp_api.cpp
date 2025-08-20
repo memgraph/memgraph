@@ -19,6 +19,7 @@
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/view.hpp"
+#include "tests/test_commit_args_helper.hpp"
 #include "tests/unit/timezone_handler.hpp"
 
 template <typename StorageType>
@@ -768,7 +769,7 @@ TYPED_TEST(CppApiTestFixture, TestLabelIndex) {
     mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
     ASSERT_TRUE(mgp::CreateLabelIndex(&raw_graph, "Person"));
-    ASSERT_FALSE(db_acc->Commit().HasError());
+    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
@@ -784,7 +785,7 @@ TYPED_TEST(CppApiTestFixture, TestLabelIndex) {
     auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
     mgp_graph raw_graph = this->CreateGraph(db_acc.get());
     ASSERT_TRUE(mgp::DropLabelIndex(&raw_graph, "Person"));
-    ASSERT_FALSE(db_acc->Commit().HasError());
+    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto storage_acc = this->storage->UniqueAccess();
@@ -798,7 +799,7 @@ TYPED_TEST(CppApiTestFixture, TestLabelIndex) {
     auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
     mgp_graph raw_graph = this->CreateGraph(db_acc.get());
     ASSERT_FALSE(mgp::DropLabelIndex(&raw_graph, "NonExistentLabel"));
-    ASSERT_FALSE(db_acc->Commit().HasError());
+    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -808,7 +809,7 @@ TYPED_TEST(CppApiTestFixture, TestLabelPropertyIndex) {
     auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
     mgp_graph raw_graph = this->CreateGraph(db_acc.get());
     ASSERT_TRUE(mgp::CreateLabelPropertyIndex(&raw_graph, "User", "name"));
-    ASSERT_FALSE(db_acc->Commit().HasError());
+    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto storage_acc = this->storage->UniqueAccess();
@@ -825,7 +826,7 @@ TYPED_TEST(CppApiTestFixture, TestLabelPropertyIndex) {
     auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
     mgp_graph raw_graph = this->CreateGraph(db_acc.get());
     ASSERT_TRUE(mgp::DropLabelPropertyIndex(&raw_graph, "User", "name"));
-    ASSERT_FALSE(db_acc->Commit().HasError());
+    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto storage_acc = this->storage->UniqueAccess();
@@ -839,7 +840,7 @@ TYPED_TEST(CppApiTestFixture, TestLabelPropertyIndex) {
     auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
     mgp_graph raw_graph = this->CreateGraph(db_acc.get());
     ASSERT_FALSE(mgp::DropLabelPropertyIndex(&raw_graph, "User", "nonexistent"));
-    ASSERT_FALSE(db_acc->Commit().HasError());
+    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -853,7 +854,7 @@ TYPED_TEST(CppApiTestFixture, TestNestedIndex) {
     mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
     ASSERT_TRUE(mgp::CreateLabelPropertyIndex(&raw_graph, "Label", "nested1.nested2.nested3"));
-    ASSERT_FALSE(db_acc->Commit().HasError());
+    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto storage_acc = this->storage->UniqueAccess();
@@ -869,7 +870,7 @@ TYPED_TEST(CppApiTestFixture, TestNestedIndex) {
     auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
     mgp_graph raw_graph = this->CreateGraph(db_acc.get());
     ASSERT_TRUE(mgp::DropLabelPropertyIndex(&raw_graph, "Label", "nested1.nested2.nested3"));
-    ASSERT_FALSE(db_acc->Commit().HasError());
+    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto storage_acc = this->storage->UniqueAccess();
@@ -948,7 +949,7 @@ TYPED_TEST(CppApiTestFixture, TestVectorSearch) {
     auto spec = memgraph::storage::VectorIndexSpec{index_name,         label,        property,   metric, dimension,
                                                    resize_coefficient, max_elements, scalar_kind};
     ASSERT_FALSE(db_acc->CreateVectorIndex(spec).HasError());
-    ASSERT_FALSE(db_acc->Commit().HasError());
+    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   auto storage_acc = this->storage->Access(AccessorType::WRITE);
@@ -1003,7 +1004,7 @@ TYPED_TEST(CppApiTestFixture, TestVectorSearchOnEdges) {
     auto spec = memgraph::storage::VectorEdgeIndexSpec{index_name,         edge,         property,   metric, dimension,
                                                        resize_coefficient, max_elements, scalar_kind};
     ASSERT_FALSE(db_acc->CreateVectorEdgeIndex(spec).HasError());
-    ASSERT_FALSE(db_acc->Commit().HasError());
+    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   auto storage_acc = this->storage->Access(AccessorType::WRITE);

@@ -15,6 +15,7 @@
 #include <utility>
 
 #include "kvstore/kvstore.hpp"
+#include "storage/v2/commit_args.hpp"
 #include "storage/v2/delta.hpp"
 #include "storage/v2/transaction.hpp"
 #include "utils/exceptions.hpp"
@@ -22,7 +23,7 @@
 /// REPLICATION ///
 #include "replication/epoch.hpp"
 #include "replication/state.hpp"
-#include "storage/v2/database_access.hpp"
+#include "storage/v2/database_protector.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/replication_transaction.hpp"
 #include "storage/v2/replication/serialization.hpp"
@@ -39,8 +40,8 @@ using EpochHistory = std::deque<std::pair<std::string, uint64_t>>;
 
 struct ReplicationStorageState {
   // Only MAIN can send
-  auto StartPrepareCommitPhase(uint64_t durability_commit_timestamp, Storage *storage, DatabaseAccessProtector db_acc)
-      -> TransactionReplication;
+  auto StartPrepareCommitPhase(uint64_t const durability_commit_timestamp, Storage *storage,
+                               CommitArgs const &commit_args) -> TransactionReplication;
 
   // Getters
   auto GetReplicaState(std::string_view name) const -> std::optional<replication::ReplicaState>;

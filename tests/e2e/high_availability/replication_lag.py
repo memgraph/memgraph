@@ -25,7 +25,6 @@ from common import (
   wait_until_main_writeable,
 )
 from mg_utils import (
-  mg_assert_until,
   mg_sleep_and_assert,
   mg_sleep_and_assert_collection,
   mg_sleep_and_assert_eval_function,

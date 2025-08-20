@@ -32,6 +32,7 @@
 #include "query/procedure/callable_alias_mapper.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/module.hpp"
+#include "query/user_profile.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
@@ -68,6 +69,36 @@ std::optional<std::pair<memgraph::query::Expression *, size_t>> VisitMemoryLimit
   }
 
   return std::make_pair(memory_limit, memory_scale);
+}
+
+template <typename TVisitor>
+UserProfileQuery::LimitValueResult VisitLimitValue(MemgraphCypher::LimitValueContext *limit_ctx, TVisitor *visitor) {
+  MG_ASSERT(limit_ctx);
+  UserProfileQuery::LimitValueResult result;
+
+  if (limit_ctx->UNLIMITED()) {
+    result.type = UserProfileQuery::LimitValueResult::Type::UNLIMITED;
+  } else if (limit_ctx->mem_limit) {
+    auto *memory_limit_ctx = limit_ctx->mem_limit;
+    auto *memory_limit = std::any_cast<Expression *>(memory_limit_ctx->literal()->accept(visitor));
+    size_t memory_scale = 1024U;
+    if (memory_limit_ctx->MB()) {
+      memory_scale = 1024UL * 1024UL;
+    } else {
+      MG_ASSERT(memory_limit_ctx->KB());
+      memory_scale = 1024UL;
+    }
+    result.mem_limit.type = UserProfileQuery::LimitValueResult::Type::MEMORY_LIMIT;
+    result.mem_limit.expr = memory_limit;
+    result.mem_limit.scale = memory_scale;
+  } else if (limit_ctx->quantity) {
+    auto *quantity_limit_ctx = limit_ctx->quantity;
+    auto *quantity = std::any_cast<Expression *>(quantity_limit_ctx->accept(visitor));
+    result.quantity.type = UserProfileQuery::LimitValueResult::Type::QUANTITY;
+    result.quantity.expr = quantity;
+  }
+
+  return result;
 }
 
 std::string JoinTokens(const auto &tokens, const auto &string_projection, const auto &separator) {
@@ -2184,6 +2215,7 @@ antlrcpp::Any CypherMainVisitor::visitPrivilege(MemgraphCypher::PrivilegeContext
   if (ctx->MULTI_DATABASE_USE()) return AuthQuery::Privilege::MULTI_DATABASE_USE;
   if (ctx->COORDINATOR()) return AuthQuery::Privilege::COORDINATOR;
   if (ctx->IMPERSONATE_USER()) return AuthQuery::Privilege::IMPERSONATE_USER;
+  if (ctx->PROFILE_RESTRICTION()) return AuthQuery::Privilege::PROFILE_RESTRICTION;
   LOG_FATAL("Should not get here - unknown privilege!");
 }
 
@@ -3752,18 +3784,22 @@ antlrcpp::Any CypherMainVisitor::visitTtlQuery(MemgraphCypher::TtlQueryContext *
       DMG_ASSERT(false, "Unknown TTL command");
     }
   } else if (auto *execute = ctx->startTtlQuery()) {
-    ttl_query->type_ = TtlQuery::Type::ENABLE;
-    if (execute->AT()) {
-      if (!execute->time || !execute->time->StringLiteral()) {
-        throw SemanticException("Time has to be defined using a string literal. Ex: '12:32:07'");
+    if (!execute->AT() && !execute->EVERY()) {
+      ttl_query->type_ = TtlQuery::Type::START;
+    } else {
+      ttl_query->type_ = TtlQuery::Type::CONFIGURE;
+      if (execute->AT()) {
+        if (!execute->time || !execute->time->StringLiteral()) {
+          throw SemanticException("Time has to be defined using a string literal. Ex: '12:32:07'");
+        }
+        ttl_query->specific_time_ = std::any_cast<Expression *>(execute->time->accept(this));
       }
-      ttl_query->specific_time_ = std::any_cast<Expression *>(execute->time->accept(this));
-    }
-    if (execute->EVERY()) {
-      if (!execute->period || !execute->period->StringLiteral()) {
-        throw SemanticException("Period has to be defined using a string literal. Ex: '3m5s'");
+      if (execute->EVERY()) {
+        if (!execute->period || !execute->period->StringLiteral()) {
+          throw SemanticException("Period has to be defined using a string literal. Ex: '3m5s'");
+        }
+        ttl_query->period_ = std::any_cast<Expression *>(execute->period->accept(this));
       }
-      ttl_query->period_ = std::any_cast<Expression *>(execute->period->accept(this));
     }
   } else {
     DMG_ASSERT(false, "Unknown ttl query type");
@@ -3779,6 +3815,104 @@ antlrcpp::Any CypherMainVisitor::visitSetSessionTraceQuery(MemgraphCypher::SetSe
   query_ = session_trace_query;
 
   return session_trace_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitLimitKV(MemgraphCypher::LimitKVContext *ctx) {
+  auto key = utils::ToLowerCase(std::any_cast<std::string>(ctx->key->accept(this)));
+  auto value = VisitLimitValue(ctx->val, this);
+  return std::pair{key, value};
+}
+
+antlrcpp::Any CypherMainVisitor::visitListOfLimits(MemgraphCypher::ListOfLimitsContext *ctx) {
+  UserProfileQuery::limits_t limits;
+  for (auto *limit : ctx->limitKV()) {
+    limits.push_back(std::any_cast<UserProfileQuery::limit_t>(limit->accept(this)));
+  }
+  return limits;
+}
+
+antlrcpp::Any CypherMainVisitor::visitCreateUserProfile(MemgraphCypher::CreateUserProfileContext *ctx) {
+  auto *profile_query = storage_->Create<UserProfileQuery>();
+  if (ctx->CREATE()) {
+    profile_query->action_ = UserProfileQuery::Action::CREATE;
+  } else if (ctx->UPDATE()) {
+    profile_query->action_ = UserProfileQuery::Action::UPDATE;
+  } else {
+    throw SemanticException("Unknown user profile action");
+  }
+  profile_query->profile_name_ = std::any_cast<std::string>(ctx->profile->accept(this));
+  if (ctx->LIMIT()) {
+    profile_query->limits_ =
+        std::any_cast<std::vector<std::pair<std::string, UserProfileQuery::LimitValueResult>>>(ctx->list->accept(this));
+  }
+
+  query_ = profile_query;
+  return query_;
+}
+
+antlrcpp::Any CypherMainVisitor::visitDropUserProfile(MemgraphCypher::DropUserProfileContext *ctx) {
+  auto *profile_query = storage_->Create<UserProfileQuery>();
+  profile_query->action_ = UserProfileQuery::Action::DROP;
+  profile_query->profile_name_ = std::any_cast<std::string>(ctx->profile->accept(this));
+  query_ = profile_query;
+  return query_;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowUserProfiles(MemgraphCypher::ShowUserProfilesContext * /* unused */) {
+  auto *profile_query = storage_->Create<UserProfileQuery>();
+  profile_query->action_ = UserProfileQuery::Action::SHOW_ALL;
+  query_ = profile_query;
+  return query_;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowUserProfile(MemgraphCypher::ShowUserProfileContext *ctx) {
+  auto *profile_query = storage_->Create<UserProfileQuery>();
+  profile_query->action_ = UserProfileQuery::Action::SHOW_ONE;
+  profile_query->profile_name_ = std::any_cast<std::string>(ctx->profile->accept(this));
+  query_ = profile_query;
+  return query_;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowUserProfileForUser(MemgraphCypher::ShowUserProfileForUserContext *ctx) {
+  auto *profile_query = storage_->Create<UserProfileQuery>();
+  profile_query->action_ = UserProfileQuery::Action::SHOW_FOR;
+  profile_query->user_or_role_ = std::any_cast<std::string>(ctx->user->accept(this));
+  query_ = profile_query;
+  return query_;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowUserProfileForProfile(MemgraphCypher::ShowUserProfileForProfileContext *ctx) {
+  auto *profile_query = storage_->Create<UserProfileQuery>();
+  profile_query->action_ = UserProfileQuery::Action::SHOW_USERS;
+  profile_query->show_user_.emplace(ctx->USERS());
+  profile_query->profile_name_ = std::any_cast<std::string>(ctx->profile->accept(this));
+  query_ = profile_query;
+  return query_;
+}
+
+antlrcpp::Any CypherMainVisitor::visitSetUserProfile(MemgraphCypher::SetUserProfileContext *ctx) {
+  auto *profile_query = storage_->Create<UserProfileQuery>();
+  profile_query->action_ = UserProfileQuery::Action::SET;
+  profile_query->profile_name_ = std::any_cast<std::string>(ctx->profile->accept(this));
+  profile_query->user_or_role_ = std::any_cast<std::string>(ctx->user->accept(this));
+  query_ = profile_query;
+  return query_;
+}
+
+antlrcpp::Any CypherMainVisitor::visitClearUserProfile(MemgraphCypher::ClearUserProfileContext *ctx) {
+  auto *profile_query = storage_->Create<UserProfileQuery>();
+  profile_query->action_ = UserProfileQuery::Action::CLEAR;
+  profile_query->user_or_role_ = std::any_cast<std::string>(ctx->user->accept(this));
+  query_ = profile_query;
+  return query_;
+}
+
+antlrcpp::Any CypherMainVisitor::visitShowResourceConsumption(MemgraphCypher::ShowResourceConsumptionContext *ctx) {
+  auto *profile_query = storage_->Create<UserProfileQuery>();
+  profile_query->action_ = UserProfileQuery::Action::SHOW_RESOURCE_USAGE;
+  profile_query->user_or_role_ = std::any_cast<std::string>(ctx->user->accept(this));
+  query_ = profile_query;
+  return query_;
 }
 
 Expression *CypherMainVisitor::CreateBinaryOperatorByToken(size_t token, Expression *e1, Expression *e2) {

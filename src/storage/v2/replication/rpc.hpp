@@ -67,18 +67,18 @@ struct PrepareCommitReq {
   static void Save(const PrepareCommitReq &self, slk::Builder *builder);
   PrepareCommitReq() = default;
   PrepareCommitReq(const utils::UUID &main_uuid_arg, const utils::UUID &storage_uuid_arg,
-                   uint64_t const previous_commit_timestamp_arg, bool const commit_immediately_arg,
+                   uint64_t const previous_commit_timestamp_arg, bool const two_phase_commit_arg,
                    uint64_t const durability_commit_timestamp_arg)
       : main_uuid{main_uuid_arg},
         storage_uuid{storage_uuid_arg},
         previous_commit_timestamp(previous_commit_timestamp_arg),
-        commit_immediately(commit_immediately_arg),
+        two_phase_commit(two_phase_commit_arg),
         durability_commit_timestamp(durability_commit_timestamp_arg) {}
 
   utils::UUID main_uuid;
   utils::UUID storage_uuid;
   uint64_t previous_commit_timestamp;
-  bool commit_immediately;
+  bool two_phase_commit;
   uint64_t durability_commit_timestamp;
 };
 

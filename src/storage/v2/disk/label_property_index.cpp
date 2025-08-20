@@ -12,7 +12,6 @@
 /// TODO: clear dependencies
 
 #include "storage/v2/disk/label_property_index.hpp"
-#include "storage/v2/transaction.hpp"
 #include "utils/disk_utils.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
@@ -169,6 +168,10 @@ void DiskLabelPropertyIndex::ActiveIndices::UpdateOnRemoveLabel(LabelId removed_
 
 bool DiskLabelPropertyIndex::DropIndex(LabelId label, std::vector<PropertyPath> const &properties) {
   return index_.erase({label, properties[0][0]}) > 0U;
+}
+
+bool DiskLabelPropertyIndex::ActiveIndices::IndexExists(LabelId label, std::span<PropertyPath const> properties) const {
+  return utils::Contains(index_, LabelProperty{label, properties[0][0]});
 }
 
 bool DiskLabelPropertyIndex::ActiveIndices::IndexReady(LabelId label, std::span<PropertyPath const> properties) const {

@@ -30,6 +30,7 @@
 #include "coordination/instance_status.hpp"
 #include "coordination/raft_state.hpp"
 #include "coordination/replication_lag_info.hpp"
+#include "utils/resource_monitoring.hpp"
 #endif
 
 namespace memgraph::metrics {
@@ -267,6 +268,9 @@ class Interpreter final {
   };
 
   std::shared_ptr<QueryUserOrRole> user_or_role_{};
+#ifdef MG_ENTERPRISE
+  std::shared_ptr<utils::UserResources> user_resource_;
+#endif
   SessionInfo session_info_;
   bool in_explicit_transaction_{false};
   CurrentDB current_db_;
@@ -405,7 +409,11 @@ class Interpreter final {
 
   void ResetUser();
 
+#ifdef MG_ENTERPRISE
+  void SetUser(std::shared_ptr<QueryUserOrRole> user, std::shared_ptr<utils::UserResources> user_resource = nullptr);
+#else
   void SetUser(std::shared_ptr<QueryUserOrRole> user);
+#endif
 
   void SetSessionInfo(std::string uuid, std::string username, std::string login_timestamp);
 

@@ -21,7 +21,9 @@
 #include "dbms/inmemory/storage_helper.hpp"
 #include "helpers.hpp"
 #include "replication/state.hpp"
+#include "storage/v2/commit_args.hpp"
 #include "storage/v2/config.hpp"
+#include "storage/v2/database_protector.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
@@ -29,6 +31,19 @@
 #include "utils/string.hpp"
 #include "utils/timer.hpp"
 #include "version.hpp"
+
+// Simple fake implementation of DatabaseProtector for mg_import_csv
+struct ImportDatabaseProtector : memgraph::storage::DatabaseProtector {
+  auto clone() const -> memgraph::storage::DatabaseProtectorPtr override {
+    return std::make_unique<ImportDatabaseProtector>();
+  }
+};
+
+// Helper function to create CommitArgs for import tool
+auto MakeImportCommitArgs() -> memgraph::storage::CommitArgs {
+  auto dummy_protector = std::make_unique<ImportDatabaseProtector>();
+  return memgraph::storage::CommitArgs::make_main(std::move(dummy_protector));
+}
 
 bool ValidateControlCharacter(const char *flagname, const std::string &value) {
   if (value.empty()) {
@@ -480,7 +495,7 @@ void ProcessNodeRow(memgraph::storage::Storage *store, const std::vector<std::st
     if (!node_label.HasValue()) throw LoadException("Couldn't add label '{}' to the node", label);
     if (!*node_label) throw LoadException("The label '{}' already exists", label);
   }
-  if (acc->PrepareForCommitPhase().HasError()) throw LoadException("Couldn't store the node");
+  if (acc->PrepareForCommitPhase(MakeImportCommitArgs()).HasError()) throw LoadException("Couldn't store the node");
 }
 
 void ProcessNodes(memgraph::storage::Storage *store, const std::string &nodes_path,
@@ -597,7 +612,8 @@ void ProcessRelationshipsRow(memgraph::storage::Storage *store, const std::vecto
     }
   }
 
-  if (acc->PrepareForCommitPhase().HasError()) throw LoadException("Couldn't store the relationship");
+  if (acc->PrepareForCommitPhase(MakeImportCommitArgs()).HasError())
+    throw LoadException("Couldn't store the relationship");
 }
 
 void ProcessRelationships(memgraph::storage::Storage *store, const std::string &relationships_path,
