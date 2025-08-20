@@ -6458,6 +6458,7 @@ TEST_P(CypherMainVisitorTest, UserProfiles) {
     try {
       (void)ast_generator.ParseQuery("SHOW RESOURCE USAGE FOR user user2");
       FAIL();
+    } catch (...) {
     }
   }
 }
