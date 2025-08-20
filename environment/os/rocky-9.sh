@@ -175,12 +175,6 @@ install() {
     dnf config-manager --set-enabled crb
     dnf config-manager --set-enabled devel
     sudo dnf install -y epel-release
-
-
-    # Try to install SBCL from standard repositories first
-    # If not available, we'll handle it in the custom package logic
-
-    dnf update -y
     dnf install -y wget git python3 python3-pip
 
     # Separate standard and custom packages
