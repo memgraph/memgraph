@@ -55,7 +55,8 @@ PyObject *INTERNAL_PyDateTime_DATE_GET_TZINFO(PyObject *obj) {
 
     if (PyDateTime_Check(obj)) {
       return (reinterpret_cast<PyDateTime_DateTime *>(obj))->tzinfo;
-    } else if (PyTime_Check(obj)) {
+    }
+    if (PyTime_Check(obj)) {
       return (reinterpret_cast<PyDateTime_Time *>(obj))->tzinfo;
     }
   }
