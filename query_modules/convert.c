@@ -19,6 +19,8 @@
 // Constants
 #define MAX_STRING_LENGTH 256
 #define MAX_PROPERTIES 16
+#define SMALL_MERGE_THRESHOLD 64
+#define HASH_TABLE_MIN_CAPACITY 8
 
 // Function names
 static const char *kProcedureToTree = "to_tree";
@@ -170,14 +172,46 @@ static char *concatenate_strings(const char *str1, const char *str2, struct mgp_
   return result;
 }
 
-static inline uint64_t fnv1a64(const void *data, size_t len, uint64_t seed) {
-  const uint8_t *p = (const uint8_t *)data;
-  uint64_t h = 1469598103934665603ULL ^ seed;
-  for (size_t i = 0; i < len; ++i) {
-    h ^= p[i];
+typedef struct {
+  int64_t id;
+  const char *type;
+  struct mgp_map *map; /* value map in the list */
+  bool used;
+} bucket_t;
+
+// Optimized hash function - combines type and id more efficiently
+static inline uint64_t optimized_hash(const char *type, int64_t id) {
+  if (!type) return (uint64_t)id;
+
+  // Use a faster hash combination
+  uint64_t h = 1469598103934665603ULL;
+  for (const char *p = type; *p; ++p) {
+    h ^= (uint8_t)*p;
     h *= 1099511628211ULL;
   }
+  // Mix in the id
+  h ^= (uint64_t)id;
+  h *= 1099511628211ULL;
   return h;
+}
+
+// Optimized probe function with better collision handling
+static inline ssize_t optimized_probe(bucket_t *tbl, size_t cap, int64_t id, const char *type, uint64_t h) {
+  size_t mask = cap - 1;
+  size_t pos = (size_t)h & mask;
+  size_t step = 1;
+
+  // Use quadratic probing for better distribution
+  while (true) {
+    if (!tbl[pos].used) return (ssize_t)pos;                    // empty slot
+    if (tbl[pos].id == id && strcmp(tbl[pos].type, type) == 0)  // match
+      return (ssize_t)pos;
+
+    // Quadratic probing: pos = (pos + step) & mask
+    pos = (pos + step) & mask;
+    step = (step + 1) & mask;  // increment step, but keep it within bounds
+    if (step == 0) step = 1;   // avoid step = 0
+  }
 }
 
 // Helper function to check if a string is in the properties array
@@ -540,6 +574,10 @@ static bool should_include_rel_property(const char *prop_name, const filter_conf
   }
 }
 
+// Forward declarations
+static void merge_list_into_list_hashed(struct mgp_list *existing_list, struct mgp_list *new_list,
+                                        struct mgp_memory *memory);
+
 static void merge_trees(struct mgp_map *target, struct mgp_map *source, struct mgp_memory *memory);
 
 typedef struct {
@@ -573,26 +611,7 @@ static inline merge_identity_t extract_identity(struct mgp_map *map) {
   return out;
 }
 
-typedef struct {
-  int64_t id;
-  const char *type;
-  struct mgp_map *map; /* value map in the list */
-  bool used;
-} bucket_t;
-
-/* Insert-or-find probe on open addressing table */
-static inline ssize_t probe_find_or_empty(bucket_t *tbl, size_t cap, int64_t id, const char *type, uint64_t h) {
-  size_t mask = cap - 1;
-  size_t pos = (size_t)h & mask;
-  while (true) {
-    if (!tbl[pos].used) return (ssize_t)pos;                   /* empty slot */
-    if (tbl[pos].id == id && strcmp(tbl[pos].type, type) == 0) /* match */
-      return (ssize_t)pos;
-    pos = (pos + 1) & mask;
-  }
-}
-
-/* Build a hash table over existing_list’s map items keyed by (_id,_type). cap is power-of-two. */
+/* Build a hash table over existing_list's map items keyed by (_id,_type). cap is power-of-two. */
 static bool index_existing_children(struct mgp_list *existing_list, bucket_t *tbl, size_t cap) {
   size_t n = 0;
   if (mgp_list_size(existing_list, &n) != MGP_ERROR_NO_ERROR) return false;
@@ -607,11 +626,10 @@ static bool index_existing_children(struct mgp_list *existing_list, bucket_t *tb
     merge_identity_t id = extract_identity(m);
     if (!id.valid) continue;
 
-    /* Hash combine: hash(type) then mix in id */
-    uint64_t h = fnv1a64(id.type, strlen(id.type), 0);
-    h = fnv1a64(&id.id, sizeof(id.id), h);
+    /* Use optimized hash function */
+    uint64_t h = optimized_hash(id.type, id.id);
 
-    ssize_t pos = probe_find_or_empty(tbl, cap, id.id, id.type, h);
+    ssize_t pos = optimized_probe(tbl, cap, id.id, id.type, h);
     if (pos < 0) return false;
     if (!tbl[pos].used) {
       tbl[pos].used = true;
@@ -624,6 +642,67 @@ static bool index_existing_children(struct mgp_list *existing_list, bucket_t *tb
   return true;
 }
 
+/* Optimized merge for small lists using stack-allocated hash table */
+static void merge_list_into_list_small(struct mgp_list *existing_list, struct mgp_list *new_list,
+                                       struct mgp_memory *memory) {
+  size_t exist_n = 0, new_n = 0;
+  if (mgp_list_size(existing_list, &exist_n) != MGP_ERROR_NO_ERROR) return;
+  if (mgp_list_size(new_list, &new_n) != MGP_ERROR_NO_ERROR) return;
+  if (new_n == 0) return;
+
+  // Use stack-allocated hash table for small merges
+  bucket_t small_table[SMALL_MERGE_THRESHOLD];
+  memset(small_table, 0, sizeof(small_table));
+
+  // Index existing children using small table
+  if (!index_existing_children(existing_list, small_table, SMALL_MERGE_THRESHOLD)) {
+    return;
+  }
+
+  // Process new items
+  for (size_t i = 0; i < new_n; ++i) {
+    struct mgp_value *new_item = NULL;
+    if (mgp_list_at(new_list, i, &new_item) != MGP_ERROR_NO_ERROR || !new_item) continue;
+
+    enum mgp_value_type tnew = MGP_VALUE_TYPE_NULL;
+    if (mgp_value_get_type(new_item, &tnew) != MGP_ERROR_NO_ERROR) continue;
+
+    if (tnew == MGP_VALUE_TYPE_MAP) {
+      struct mgp_map *new_map = NULL;
+      if (mgp_value_get_map(new_item, &new_map) != MGP_ERROR_NO_ERROR || !new_map) {
+        mgp_list_append_move(existing_list, new_item);
+        continue;
+      }
+
+      merge_identity_t nid = extract_identity(new_map);
+      if (!nid.valid) {
+        mgp_list_append_move(existing_list, new_item);
+        continue;
+      }
+
+      uint64_t h = optimized_hash(nid.type, nid.id);
+      ssize_t pos = optimized_probe(small_table, SMALL_MERGE_THRESHOLD, nid.id, nid.type, h);
+
+      if (pos >= 0 && small_table[pos].used) {
+        /* Merge into existing */
+        merge_trees(small_table[pos].map, new_map, memory);
+      } else {
+        /* Append and index */
+        mgp_list_append_move(existing_list, new_item);
+        if (pos >= 0) {
+          small_table[pos].used = true;
+          small_table[pos].id = nid.id;
+          small_table[pos].type = nid.type;
+          small_table[pos].map = new_map;
+        }
+      }
+    } else {
+      /* Non-map items: just append, as before. */
+      mgp_list_append_move(existing_list, new_item);
+    }
+  }
+}
+
 /* Merges new_list into existing_list by hashing existing_list.
    Average O(n) with low constants; preserves old behavior. */
 static void merge_list_into_list_hashed(struct mgp_list *existing_list, struct mgp_list *new_list,
@@ -633,49 +712,22 @@ static void merge_list_into_list_hashed(struct mgp_list *existing_list, struct m
   if (mgp_list_size(new_list, &new_n) != MGP_ERROR_NO_ERROR) return;
   if (new_n == 0) return;
 
+  // Use optimized small merge for small lists
+  if (exist_n < SMALL_MERGE_THRESHOLD) {
+    merge_list_into_list_small(existing_list, new_list, memory);
+    return;
+  }
+
   /* Capacity: next power of two >= 2*exist_n (at least 8). */
-  size_t cap = 8;
+  size_t cap = HASH_TABLE_MIN_CAPACITY;
   while (cap < (exist_n << 1)) cap <<= 1;
 
   bucket_t *tbl = NULL;
   size_t bytes = cap * sizeof(bucket_t);
   void *ptr = NULL;
   if (mgp_alloc(memory, bytes, &ptr) != MGP_ERROR_NO_ERROR || !ptr) {
-    /* Fallback to original O(n²) merge if allocation fails */
-    for (size_t i = 0; i < new_n; i++) {
-      struct mgp_value *new_item = NULL;
-      if (mgp_list_at(new_list, i, &new_item) != MGP_ERROR_NO_ERROR || !new_item) continue;
-      bool merged = false;
-
-      enum mgp_value_type tnew = MGP_VALUE_TYPE_NULL;
-      if (mgp_value_get_type(new_item, &tnew) != MGP_ERROR_NO_ERROR || tnew != MGP_VALUE_TYPE_MAP) {
-        mgp_list_append_move(existing_list, new_item);
-        continue;
-      }
-      struct mgp_map *new_map = NULL;
-      if (mgp_value_get_map(new_item, &new_map) != MGP_ERROR_NO_ERROR || !new_map) {
-        mgp_list_append_move(existing_list, new_item);
-        continue;
-      }
-      merge_identity_t nid = extract_identity(new_map);
-
-      for (size_t j = 0; j < exist_n; j++) {
-        struct mgp_value *old_item = NULL;
-        if (mgp_list_at(existing_list, j, &old_item) != MGP_ERROR_NO_ERROR || !old_item) continue;
-        enum mgp_value_type told = MGP_VALUE_TYPE_NULL;
-        if (mgp_value_get_type(old_item, &told) != MGP_ERROR_NO_ERROR || told != MGP_VALUE_TYPE_MAP) continue;
-        struct mgp_map *old_map = NULL;
-        if (mgp_value_get_map(old_item, &old_map) != MGP_ERROR_NO_ERROR || !old_map) continue;
-
-        merge_identity_t oid = extract_identity(old_map);
-        if (nid.valid && oid.valid && nid.id == oid.id && strcmp(nid.type, oid.type) == 0) {
-          merge_trees(old_map, new_map, memory);
-          merged = true;
-          break;
-        }
-      }
-      if (!merged) mgp_list_append_move(existing_list, new_item);
-    }
+    /* Fallback to optimized small merge instead of O(n²) */
+    merge_list_into_list_small(existing_list, new_list, memory);
     return;
   }
 
@@ -707,10 +759,9 @@ static void merge_list_into_list_hashed(struct mgp_list *existing_list, struct m
         continue;
       }
 
-      uint64_t h = fnv1a64(nid.type, strlen(nid.type), 0);
-      h = fnv1a64(&nid.id, sizeof(nid.id), h);
+      uint64_t h = optimized_hash(nid.type, nid.id);
+      ssize_t pos = optimized_probe(tbl, cap, nid.id, nid.type, h);
 
-      ssize_t pos = probe_find_or_empty(tbl, cap, nid.id, nid.type, h);
       if (pos >= 0 && tbl[pos].used) {
         /* Merge into existing */
         merge_trees(tbl[pos].map, new_map, memory);
@@ -718,10 +769,12 @@ static void merge_list_into_list_hashed(struct mgp_list *existing_list, struct m
         /* Append and index */
         /* NOTE: we need the map pointer after append, so keep it now. */
         mgp_list_append_move(existing_list, new_item);
-        tbl[pos].used = true;
-        tbl[pos].id = nid.id;
-        tbl[pos].type = nid.type;
-        tbl[pos].map = new_map;
+        if (pos >= 0) {
+          tbl[pos].used = true;
+          tbl[pos].id = nid.id;
+          tbl[pos].type = nid.type;
+          tbl[pos].map = new_map;
+        }
       }
     } else {
       /* Non-map items: just append, as before. */
