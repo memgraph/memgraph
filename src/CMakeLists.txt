@@ -47,9 +47,22 @@ target_include_directories(memgraph PUBLIC ${CMAKE_SOURCE_DIR}/include)
 
 # Link memgraph with custom libstdc++
 message(STATUS "Linking memgraph with custom libstdc++")
-target_link_libraries(memgraph "$<LINK_LIBRARY:WHOLE_ARCHIVE,mg-memory>" Threads::Threads
-        mg-telemetry mgcxx_text_search tantivy_text_search mg-communication mg-communication-metrics mg-utils mg-license mg-settings mg-glue mg-flags mg::system mg::replication_handler
-        libstdc++_custom)
+target_link_libraries(memgraph
+    mgcxx_text_search
+    tantivy_text_search
+    Threads::Threads
+    mg-telemetry
+    mg-communication
+    mg-communication-metrics
+    mg-utils
+    mg-license
+    mg-settings
+    mg-glue
+    mg-flags
+    "$<LINK_LIBRARY:WHOLE_ARCHIVE,mg-memory>"
+    mg::system
+    mg::replication_handler
+    libstdc++_custom)
 target_link_options(memgraph PRIVATE -nostdlib++)
 
 # NOTE: `include/mg_procedure.syms` describes a pattern match for symbols which

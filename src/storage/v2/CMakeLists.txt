@@ -133,6 +133,8 @@ find_package(Threads REQUIRED)
 target_include_directories(mg-storage-v2 PUBLIC ${CMAKE_SOURCE_DIR}/include)
 target_link_libraries(mg-storage-v2
     PUBLIC
+    mgcxx_text_search
+    tantivy_text_search
     mg::replication
     Threads::Threads
     mg-utils
@@ -144,8 +146,6 @@ target_link_libraries(mg-storage-v2
     mg-events
     mg-memory-utils
     lib::rangev3
-    mgcxx_text_search
-    tantivy_text_search
     usearch
     strong_type::strong_type
     rangev3
