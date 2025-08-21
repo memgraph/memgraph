@@ -33,6 +33,37 @@
 namespace memgraph::query::procedure {
 
 namespace {
+/**
+ * TODO(colinbarry) Python 3.9 doesn't support the PyDateTime_DATE_GET_TZINFO
+ * macro. Until we require Python 3.10, this shim function does exactly the
+ * same thing whilst keeping 3.9 compatibility.
+ */
+PyObject *INTERNAL_PyDateTime_DATE_GET_TZINFO(PyObject *obj) {
+  if (PyDateTime_Check(obj) || PyTime_Check(obj)) {
+    PyObject *tzinfo = PyObject_GetAttrString(obj, "tzinfo");
+    if (!tzinfo) {
+      PyErr_Clear();
+      return nullptr;
+    }
+
+    if (tzinfo == Py_None) {
+      Py_DECREF(tzinfo);
+      return nullptr;
+    }
+
+    Py_DECREF(tzinfo);
+
+    if (PyDateTime_Check(obj)) {
+      return (reinterpret_cast<PyDateTime_DateTime *>(obj))->tzinfo;
+    }
+    if (PyTime_Check(obj)) {
+      return (reinterpret_cast<PyDateTime_Time *>(obj))->tzinfo;
+    }
+  }
+
+  return nullptr;
+}
+
 // Set this as a __reduce__ special method on our types to prevent `pickle` and
 // `copy` module operations on our types.
 PyObject *DisallowPickleAndCopy(PyObject *self, PyObject *Py_UNUSED(ignored)) {
@@ -3025,7 +3056,7 @@ mgp_value *PyObjectToMgpValue(PyObject *o, mgp_memory *memory) {
             PyDateTime_DATE_GET_MICROSECOND(o) %  // NOLINT(cppcoreguidelines-pro-type-cstyle-cast,hicpp-signed-bitwise)
             1000};
 
-    if (PyObject *tzinfo = PyDateTime_DATE_GET_TZINFO(o); !Py_IsNone(tzinfo)) {
+    if (PyObject *tzinfo = INTERNAL_PyDateTime_DATE_GET_TZINFO(o); tzinfo && !Py_Is(tzinfo, Py_None)) {
       py::Object const offset{PyObject_CallMethod(tzinfo, "utcoffset", "O", o)};
       if (!offset) {
         throw std::runtime_error{"Cannot read timezone offset"};
