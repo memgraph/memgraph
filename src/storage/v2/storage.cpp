@@ -449,7 +449,8 @@ Result<std::optional<std::unordered_set<Vertex *>>> Storage::Accessor::PrepareDe
     {
       auto vertex_lock = std::unique_lock{vertex_ptr->lock};
 
-      if (!PrepareForWrite(&transaction_, vertex_ptr)) return std::unexpected{Error::SERIALIZATION_ERROR};
+      if (!PrepareForWriteWithRetry(&transaction_, vertex_ptr, storage_->transaction_dependencies_))
+        return std::unexpected{Error::SERIALIZATION_ERROR};
 
       if (vertex_ptr->deleted) {
         continue;
@@ -548,10 +549,12 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::ClearEdgesOn
         auto edge_ptr = edge_ref.ptr;
         guard = std::unique_lock{edge_ptr->lock};
 
-        if (!PrepareForWrite(&transaction_, edge_ptr)) return std::unexpected{Error::SERIALIZATION_ERROR};
+        if (!PrepareForWriteWithRetry(&transaction_, edge_ptr, storage_->transaction_dependencies_))
+          return std::unexpected{Error::SERIALIZATION_ERROR};
       }
 
-      if (!PrepareForWrite(&transaction_, vertex_ptr)) return std::unexpected{Error::SERIALIZATION_ERROR};
+      if (!PrepareForWriteWithRetry(&transaction_, vertex_ptr, storage_->transaction_dependencies_))
+        return std::unexpected{Error::SERIALIZATION_ERROR};
       MG_ASSERT(!vertex_ptr->deleted, "Invalid database state!");
 
       // MarkEdgeAsDeleted allocates additional memory
@@ -629,7 +632,8 @@ Result<std::optional<std::vector<EdgeAccessor>>> Storage::Accessor::DetachRemain
                                             auto reverse_vertex_order) -> Result<std::optional<ReturnType>> {
     auto vertex_lock = std::unique_lock{vertex_ptr->lock};
 
-    if (!PrepareForWrite(&transaction_, vertex_ptr)) return std::unexpected{Error::SERIALIZATION_ERROR};
+    if (!PrepareForWriteWithRetry(&transaction_, vertex_ptr, storage_->transaction_dependencies_))
+      return std::unexpected{Error::SERIALIZATION_ERROR};
     MG_ASSERT(!vertex_ptr->deleted, "Invalid database state!");
 
     auto mid = std::partition(
@@ -716,7 +720,8 @@ Result<std::vector<VertexAccessor>> Storage::Accessor::TryDeleteVertices(
   for (auto *vertex_ptr : vertices) {
     auto vertex_lock = std::unique_lock{vertex_ptr->lock};
 
-    if (!PrepareForWrite(&transaction_, vertex_ptr)) return std::unexpected{Error::SERIALIZATION_ERROR};
+    if (!PrepareForWriteWithRetry(&transaction_, vertex_ptr, storage_->transaction_dependencies_))
+      return std::unexpected{Error::SERIALIZATION_ERROR};
 
     MG_ASSERT(!vertex_ptr->deleted, "Invalid database state!");
 
