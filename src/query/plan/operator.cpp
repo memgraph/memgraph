@@ -3096,10 +3096,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       // Clean out the current stack
       if (current_level.empty()) {
         if (!edges_on_frame.empty()) {
-          if (!self_.is_reverse_)
-            edges_on_frame.erase(edges_on_frame.end());
-          else
-            edges_on_frame.erase(edges_on_frame.begin());
+          if (!self_.is_reverse_) edges_on_frame.pop else edges_on_frame.erase(edges_on_frame.begin());
         }
         traversal_stack_.pop_back();
         return false;
