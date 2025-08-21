@@ -3097,7 +3097,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       if (current_level.empty()) {
         if (!edges_on_frame.empty()) {
           if (!self_.is_reverse_) {
-            edges_on_frame.pop_back()
+            edges_on_frame.pop_back();
           } else {
             edges_on_frame.erase(edges_on_frame.begin());
           }
