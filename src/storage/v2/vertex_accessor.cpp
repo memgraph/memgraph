@@ -135,8 +135,7 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
   }
   auto guard = std::unique_lock{vertex_->lock};
 
-  if (!PrepareForWriteWithRetry(transaction_, vertex_, storage_->transaction_dependencies_))
-    return std::unexpected{Error::SERIALIZATION_ERROR};
+  if (!PrepareForWrite(transaction_, vertex_)) return std::unexpected{Error::SERIALIZATION_ERROR};
   if (vertex_->deleted) return std::unexpected{Error::DELETED_OBJECT};
 
   // Now that the vertex is locked, we can check if it has any edges and if it does, we can upgrade the accessor
@@ -150,9 +149,6 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
       // Need to re-check for serialization errors
       if (!PrepareForWrite(transaction_, vertex_)) return std::unexpected{Error::SERIALIZATION_ERROR};
       if (vertex_->deleted) return std::unexpected{Error::DELETED_OBJECT};
-      if (!PrepareForWriteWithRetry(transaction_, vertex_, storage_->transaction_dependencies_))
-        return Error::SERIALIZATION_ERROR;
-      if (vertex_->deleted) return Error::DELETED_OBJECT;
     }
   }
 
@@ -213,8 +209,7 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
   }
   auto guard = std::unique_lock{vertex_->lock};
 
-  if (!PrepareForWriteWithRetry(transaction_, vertex_, storage_->transaction_dependencies_))
-    return std::unexpected{Error::SERIALIZATION_ERROR};
+  if (!PrepareForWrite(transaction_, vertex_)) return std::unexpected{Error::SERIALIZATION_ERROR};
   if (vertex_->deleted) return std::unexpected{Error::DELETED_OBJECT};
 
   // Now that the vertex is locked, we can check if it has any edges and if it does, we can upgrade the accessor
@@ -226,8 +221,7 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
                  *SchemaInfoUniqueAccessor(storage_, transaction_));
       guard.lock();
       // Need to re-check for serialization errors
-      if (!PrepareForWriteWithRetry(transaction_, vertex_, storage_->transaction_dependencies_))
-        return std::unexpected{Error::SERIALIZATION_ERROR};
+      if (!PrepareForWrite(transaction_, vertex_)) return std::unexpected{Error::SERIALIZATION_ERROR};
       if (vertex_->deleted) return std::unexpected{Error::DELETED_OBJECT};
     }
   }
@@ -365,8 +359,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
   auto guard = std::unique_lock{vertex_->lock};
 
-  if (!PrepareForWriteWithRetry(transaction_, vertex_, storage_->transaction_dependencies_))
-    return std::unexpected{Error::SERIALIZATION_ERROR};
+  if (!PrepareForWrite(transaction_, vertex_)) return std::unexpected{Error::SERIALIZATION_ERROR};
 
   if (vertex_->deleted) return std::unexpected{Error::DELETED_OBJECT};
 
@@ -435,8 +428,7 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
   auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
   auto guard = std::unique_lock{vertex_->lock};
 
-  if (!PrepareForWriteWithRetry(transaction_, vertex_, storage_->transaction_dependencies_))
-    return std::unexpected{Error::SERIALIZATION_ERROR};
+  if (!PrepareForWrite(transaction_, vertex_)) return std::unexpected{Error::SERIALIZATION_ERROR};
 
   if (vertex_->deleted) return std::unexpected{Error::DELETED_OBJECT};
   bool result{false};
@@ -494,8 +486,7 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
   auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
   auto guard = std::unique_lock{vertex_->lock};
 
-  if (!PrepareForWriteWithRetry(transaction_, vertex_, storage_->transaction_dependencies_))
-    return std::unexpected{Error::SERIALIZATION_ERROR};
+  if (!PrepareForWrite(transaction_, vertex_)) return std::unexpected{Error::SERIALIZATION_ERROR};
 
   if (vertex_->deleted) return std::unexpected{Error::DELETED_OBJECT};
 
@@ -550,8 +541,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
   auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
   auto guard = std::unique_lock{vertex_->lock};
 
-  if (!PrepareForWriteWithRetry(transaction_, vertex_, storage_->transaction_dependencies_))
-    return std::unexpected{Error::SERIALIZATION_ERROR};
+  if (!PrepareForWrite(transaction_, vertex_)) return std::unexpected{Error::SERIALIZATION_ERROR};
 
   if (vertex_->deleted) return std::unexpected{Error::DELETED_OBJECT};
 
