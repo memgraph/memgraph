@@ -14,18 +14,16 @@
 
 namespace memgraph::storage {
 
-// @TODO add unit tests for this class.
-
-// static bool IsWaitingFor(std::unordered_map<uint64_t, uint64_t> const& deps, uint64_t from, uint64_t to) {
-//     auto const it = deps.find(from);
-//     if (it == deps.cend()) {
-//         return false;
-//     } else if (it->second == to) {
-//         return true;
-//     } else {
-//         return IsWaitingFor(it->second, to);
-//     }
-// }
+static bool IsWaitingFor(std::unordered_map<uint64_t, uint64_t> const &deps, uint64_t from, uint64_t to) {
+  auto const it = deps.find(from);
+  if (it == deps.cend()) {
+    return false;
+  } else if (it->second == to) {
+    return true;
+  } else {
+    return IsWaitingFor(deps, it->second, to);
+  }
+}
 
 void TransactionDependencies::RegisterTransaction(uint64_t transaction_id) {
   std::cout << "RegisterTransaction " << transaction_id << "\n";
@@ -41,19 +39,21 @@ void TransactionDependencies::UnregisterTransaction(uint64_t transaction_id) {
 }
 
 bool TransactionDependencies::WaitFor(uint64_t dependent_transaction_id, uint64_t prerequisite_transaction_id) {
-  std::cout << "WaitFor " << dependent_transaction_id << " on " << prerequisite_transaction_id << "\n";
-  // If there is no transitive dependency between prerequisite_transaction_id and depdendent_transaction_id,
-  // we can just wait on a condition variable. @TODO just assume that for now, as that is all that I
-  // am using in my test cases.
   std::unique_lock l{mutex_};
 
-  while (true) {
-    cv_.wait(l, [&]() {
-      puts("CHECKING");
-      return active_transactions_.count(prerequisite_transaction_id) == 0;
-    });
+  if (active_transactions_.count(prerequisite_transaction_id) == 0) {
+    return true;
   }
 
+  if (IsWaitingFor(dependencies_, prerequisite_transaction_id, dependent_transaction_id)) {
+    return false;
+  }
+
+  dependencies_[dependent_transaction_id] = prerequisite_transaction_id;
+
+  cv_.wait(l, [&]() { return active_transactions_.count(prerequisite_transaction_id) == 0; });
+
+  dependencies_.erase(dependent_transaction_id);
   return true;
 }
 

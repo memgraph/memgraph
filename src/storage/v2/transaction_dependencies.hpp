@@ -28,7 +28,7 @@ class TransactionDependencies {
  private:
   std::mutex mutex_;
   std::unordered_set<uint64_t> active_transactions_;
-  std::unordered_map<uint64_t, uint64_t> waitlist_;
+  std::unordered_map<uint64_t, uint64_t> dependencies_;
   std::condition_variable cv_;
 };
 
