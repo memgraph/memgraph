@@ -506,6 +506,7 @@ enum mgp_error mgp_list_at(struct mgp_list *list, size_t index, struct mgp_value
 /// You need to free the created instance with mgp_map_destroy.
 /// mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate a mgp_map.
 enum mgp_error mgp_map_make_empty(struct mgp_memory *memory, struct mgp_map **result);
+enum mgp_error mgp_unordered_map_make_empty(struct mgp_memory *memory, struct mgp_map **result);
 
 enum mgp_error mgp_map_copy(struct mgp_map *map, struct mgp_memory *memory, struct mgp_map **result);
 

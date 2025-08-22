@@ -301,7 +301,8 @@ void Streams::RegisterKafkaProcedures() {
                     if (!value_value) {
                       return configs_value;
                     }
-                    configs->items.emplace(key, std::move(*value_value));
+                    std::visit([key, &value_value](auto &items) { items.emplace(key, std::move(*value_value)); },
+                               configs->items);
                   }
 
                   if (!procedure::TryOrSetError(
