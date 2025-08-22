@@ -292,4 +292,27 @@ static_assert(std::is_trivially_destructible_v<Delta>,
 
 static_assert(alignof(Delta) >= 8, "The Delta should be aligned to at least 8!");
 
+static_assert(sizeof(Delta) == 56, "Delta size is 56 bytes");
+
+inline bool IsEdgeDeltaInterleaved(Delta const *delta) {
+  if (delta->action != Delta::Action::ADD_IN_EDGE && delta->action != Delta::Action::ADD_OUT_EDGE) {
+    return false;
+  }
+  return (reinterpret_cast<uintptr_t>(delta->vertex_edge.vertex) & 0x1UL) != 0;
+}
+
+inline void TagEdgeDeltaVertex(Delta *delta, Vertex *vertex, bool is_interleaved) {
+  uintptr_t vertex_ptr = reinterpret_cast<uintptr_t>(vertex);
+  MG_ASSERT(delta->action == Delta::Action::ADD_IN_EDGE || delta->action == Delta::Action::ADD_OUT_EDGE);
+  MG_ASSERT((vertex_ptr & 0x1UL) == 0, "Vertex pointer must be aligned");
+  if (is_interleaved) {
+    vertex_ptr |= 0x1UL;
+  }
+  delta->vertex_edge.vertex = reinterpret_cast<Vertex *>(vertex_ptr);
+}
+
+inline Vertex *UntagEdgeDeltaVertex(const Delta *delta) {
+  return reinterpret_cast<Vertex *>(reinterpret_cast<uintptr_t>(delta->vertex_edge.vertex) & ~0x1UL);
+}
+
 }  // namespace memgraph::storage
