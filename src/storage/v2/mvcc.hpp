@@ -87,59 +87,49 @@ inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delt
   return n_processed;
 }
 
-enum class PrepareWriteStatus { WRITABLE, NOT_WRITABLE_DUE_TO_VISIBILITY, NOT_WRITABLE_DUE_TO_CONFLICT };
-
-struct PrepareWriteResult {
-  PrepareWriteStatus status;
-  uint64_t conflicting_transaction_id{0};  // Only valid for NOT_WRITABLE_DUE_TO_CONFLICT
-};
-
 /// This function prepares the object for a write. It checks whether there are
 /// any serialization errors in the process (eg. the object can't be written to
 /// from this transaction because it is being written to from another
 /// transaction) and returns a `bool` value indicating whether the caller can
 /// proceed with a write operation.
 template <typename TObj>
-inline PrepareWriteResult PrepareForWrite(Transaction *transaction, TObj *object) {
-  if (object->delta == nullptr) return {PrepareWriteStatus::WRITABLE};
+inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
+  if (object->delta == nullptr) return true;
   auto ts = object->delta->timestamp->load(std::memory_order_acquire);
   if (ts == transaction->transaction_id || ts < transaction->start_timestamp) {
-    return {PrepareWriteStatus::WRITABLE};
+    return true;
   }
 
-  if (ts >= kTransactionInitialId) {
-    return {PrepareWriteStatus::NOT_WRITABLE_DUE_TO_CONFLICT, ts};
-  } else {
-    return {PrepareWriteStatus::NOT_WRITABLE_DUE_TO_VISIBILITY};
-  }
+  transaction->must_abort = true;
+  return false;
 }
 
 template <typename TObj>
 inline bool PrepareForWriteWithRetry(Transaction *transaction, TObj *object, TransactionDependencies &tx_deps) {
   while (true) {
-    auto const result = PrepareForWrite(transaction, object);
-    std::cout << "PrepareForWriteWithRetry: " << static_cast<int>(result.status) << "\n";
+    if (object->delta == nullptr) return true;
+    auto ts = object->delta->timestamp->load(std::memory_order_acquire);
+    if (ts == transaction->transaction_id || ts < transaction->start_timestamp) {
+      return true;
+    }
 
-    switch (result.status) {
-      case PrepareWriteStatus::WRITABLE:
-        return true;
+    std::cout << "PrepareForWriteWithRetry: 2\n";
 
-      case PrepareWriteStatus::NOT_WRITABLE_DUE_TO_VISIBILITY:
+    if (ts >= kTransactionInitialId) {
+      // This transaction cannot currently attach a new delta because another
+      // transaction has already added deltas that have not been committed.
+      // So, if possible, this transaction will just wait for the other to
+      // complete. The only situation where this is no possible is if there
+      // are circular dependencies between transactions: in that case, (for now),
+      // this will abort with a serialisation error. Otherwise, the loop
+      // will again check the object state.
+      if (!tx_deps.WaitFor(transaction->transaction_id, ts)) {
         transaction->has_serialization_error = true;
         return false;
-
-      case PrepareWriteStatus::NOT_WRITABLE_DUE_TO_CONFLICT:
-        // This transaction cannot currently attach a new delta because another
-        // transaction has already added deltas that have not been committed.
-        // So, if possible, this transaction will just wait for the other to
-        // complete. The only situation where this is no possible is if there
-        // are circular dependencies between transactions: in that case, (for now),
-        // this will abort with a serialisation error. Otherwise, the loop
-        // will again PrepareForWrite.
-        if (!tx_deps.WaitFor(transaction->transaction_id, result.conflicting_transaction_id)) {
-          transaction->has_serialization_error = true;
-          return false;
-        }
+      }
+    } else {
+      transaction->has_serialization_error = true;
+      return false;
     }
   }
 }
