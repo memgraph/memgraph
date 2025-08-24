@@ -704,7 +704,7 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
       &repl_instances_.emplace_back(config, this, instance_down_timeout_sec_, instance_health_check_frequency_sec_);
 
   // We do this here not under callbacks because we need to add replica to the current main.
-  if (!new_instance->SendRpc<DemoteMainToReplicaRpc>()) {
+  if (!new_instance->SendRpc<DemoteMainToReplicaRpc>(curr_main_uuid)) {
     spdlog::error("Failed to demote instance {} to replica.", config.instance_name);
     repl_instances_.pop_back();
     return RegisterInstanceCoordinatorStatus::RPC_FAILED;
@@ -1033,7 +1033,7 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
     if (!instance_state->is_replica) {
       // If instance is not replica, demote it to become replica. If request for demotion failed, return,
       // and you will simply retry on the next ping.
-      if (!instance.SendRpc<DemoteMainToReplicaRpc>()) {
+      if (!instance.SendRpc<DemoteMainToReplicaRpc>(curr_main_uuid)) {
         spdlog::error("Couldn't demote instance {} to replica.", instance_name);
         return;
       }
@@ -1043,7 +1043,8 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
       if (!instance.SendSwapAndUpdateUUID(curr_main_uuid)) {
         spdlog::error("Failed to set new uuid for replica instance {} to {}.", instance_name,
                       std::string{curr_main_uuid});
-        return;
+      } else {
+        spdlog::trace("Set UUID on instance {} to {}", instance_name, std::string{curr_main_uuid});
       }
     }
   }
