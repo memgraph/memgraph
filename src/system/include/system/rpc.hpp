@@ -19,7 +19,9 @@
 namespace memgraph::replication {
 
 struct FinalizeSystemTxReq {
-  static const utils::TypeInfo kType;
+  static constexpr utils::TypeInfo kType{
+      .id = utils::TypeId::REP_FINALIZE_SYS_TX_REQ, .name = "FinalizeSystemTxReq", .superclass = nullptr};
+  static constexpr uint64_t kVersion{1};
   static const utils::TypeInfo &GetTypeInfo() { return kType; }
 
   static void Load(FinalizeSystemTxReq *self, memgraph::slk::Reader *reader);
@@ -34,13 +36,14 @@ struct FinalizeSystemTxReq {
 };
 
 struct FinalizeSystemTxRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{
+      .id = utils::TypeId::REP_FINALIZE_SYS_TX_RES, .name = "FinalizeSystemTxRes", .superclass = nullptr};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(FinalizeSystemTxRes *self, memgraph::slk::Reader *reader);
   static void Save(const FinalizeSystemTxRes &self, memgraph::slk::Builder *builder);
   FinalizeSystemTxRes() = default;
-  explicit FinalizeSystemTxRes(bool success) : success{success} {}
+  explicit FinalizeSystemTxRes(bool const success) : success{success} {}
 
   bool success;
 };

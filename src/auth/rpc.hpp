@@ -17,13 +17,12 @@
 #include "auth/models.hpp"
 #include "auth/profiles/user_profiles.hpp"
 #include "rpc/messages.hpp"
-#include "slk/streams.hpp"
 
 namespace memgraph::replication {
 
 struct UpdateAuthDataReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_UPDATE_AUTH_DATA_REQ, .name = "UpdateAuthDataReq"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(UpdateAuthDataReq *self, memgraph::slk::Reader *reader);
   static void Save(const UpdateAuthDataReq &self, memgraph::slk::Builder *builder);
@@ -54,8 +53,8 @@ struct UpdateAuthDataReq {
 };
 
 struct UpdateAuthDataRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_UPDATE_AUTH_DATA_RES, .name = "UpdateAuthDataRes"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(UpdateAuthDataRes *self, memgraph::slk::Reader *reader);
   static void Save(const UpdateAuthDataRes &self, memgraph::slk::Builder *builder);
@@ -68,8 +67,8 @@ struct UpdateAuthDataRes {
 using UpdateAuthDataRpc = rpc::RequestResponse<UpdateAuthDataReq, UpdateAuthDataRes>;
 
 struct DropAuthDataReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_DROP_AUTH_DATA_REQ, .name = "DropAuthDataReq"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(DropAuthDataReq *self, memgraph::slk::Reader *reader);
   static void Save(const DropAuthDataReq &self, memgraph::slk::Builder *builder);
@@ -93,13 +92,13 @@ struct DropAuthDataReq {
 };
 
 struct DropAuthDataRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_DROP_AUTH_DATA_RES, .name = "DropAuthDataRes"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(DropAuthDataRes *self, memgraph::slk::Reader *reader);
   static void Save(const DropAuthDataRes &self, memgraph::slk::Builder *builder);
   DropAuthDataRes() = default;
-  explicit DropAuthDataRes(bool success) : success{success} {}
+  explicit DropAuthDataRes(bool const success) : success{success} {}
 
   bool success;
 };

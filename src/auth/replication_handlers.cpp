@@ -27,18 +27,18 @@ void LogWrongMain(const std::optional<utils::UUID> &current_main_uuid, const uti
 }
 
 #ifdef MG_ENTERPRISE
-void UpdateAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
+void UpdateAuthDataHandler(system::ReplicaHandlerAccessToState &system_state_access,
                            const std::optional<utils::UUID> &current_main_uuid, auth::SynchedAuth &auth,
-                           slk::Reader *req_reader, slk::Builder *res_builder) {
+                           uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::UpdateAuthDataReq req;
-  memgraph::slk::Load(&req, req_reader);
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
 
-  using memgraph::replication::UpdateAuthDataRes;
+  using replication::UpdateAuthDataRes;
   UpdateAuthDataRes res(false);
 
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, replication::UpdateAuthDataReq::kType.name);
-    rpc::SendFinalResponse(res, res_builder);
+    rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
@@ -50,7 +50,7 @@ void UpdateAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system
   if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
     spdlog::debug("UpdateAuthDataHandler: bad expected timestamp {},{}", req.expected_group_timestamp,
                   system_state_access.LastCommitedTS());
-    rpc::SendFinalResponse(res, res_builder);
+    rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
@@ -79,21 +79,21 @@ void UpdateAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system
     spdlog::trace("Saving role '{}' exception: {}", req.role->rolename(), e.what());
   }
 
-  rpc::SendFinalResponse(res, res_builder);
+  rpc::SendFinalResponse(res, request_version, res_builder);
 }
 
 void DropAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
                          const std::optional<utils::UUID> &current_main_uuid, auth::SynchedAuth &auth,
-                         slk::Reader *req_reader, slk::Builder *res_builder) {
+                         uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) {
   replication::DropAuthDataReq req;
-  memgraph::slk::Load(&req, req_reader);
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
 
-  using memgraph::replication::DropAuthDataRes;
+  using replication::DropAuthDataRes;
   DropAuthDataRes res(false);
 
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, replication::DropAuthDataRes::kType.name);
-    rpc::SendFinalResponse(res, res_builder);
+    rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
@@ -105,7 +105,7 @@ void DropAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
   if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
     spdlog::debug("DropAuthDataHandler: bad expected timestamp {},{}", req.expected_group_timestamp,
                   system_state_access.LastCommitedTS());
-    rpc::SendFinalResponse(res, res_builder);
+    rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
@@ -129,7 +129,7 @@ void DropAuthDataHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
     // Failure
   }
 
-  rpc::SendFinalResponse(res, res_builder);
+  rpc::SendFinalResponse(res, request_version, res_builder);
 }
 
 bool SystemRecoveryHandler(auth::SynchedAuth &auth, auth::Auth::Config auth_config,
@@ -218,12 +218,12 @@ void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAc
               auth::SynchedAuth &auth) {
   // NOTE: Register even without license as the user could add a license at run-time
   data.server->rpc_server_.Register<replication::UpdateAuthDataRpc>(
-      [&data, system_state_access, &auth](auto *req_reader, auto *res_builder) mutable {
-        UpdateAuthDataHandler(system_state_access, data.uuid_, auth, req_reader, res_builder);
+      [&data, system_state_access, &auth](uint64_t const request_version, auto *req_reader, auto *res_builder) mutable {
+        UpdateAuthDataHandler(system_state_access, data.uuid_, auth, request_version, req_reader, res_builder);
       });
   data.server->rpc_server_.Register<replication::DropAuthDataRpc>(
-      [&data, system_state_access, &auth](auto *req_reader, auto *res_builder) mutable {
-        DropAuthDataHandler(system_state_access, data.uuid_, auth, req_reader, res_builder);
+      [&data, system_state_access, &auth](uint64_t const request_version, auto *req_reader, auto *res_builder) mutable {
+        DropAuthDataHandler(system_state_access, data.uuid_, auth, request_version, req_reader, res_builder);
       });
 }
 #endif

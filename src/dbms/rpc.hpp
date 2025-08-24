@@ -11,8 +11,6 @@
 
 #pragma once
 
-#include <cstdint>
-#include <string>
 #include <utility>
 
 #include "rpc/messages.hpp"
@@ -24,8 +22,8 @@
 namespace memgraph::storage::replication {
 
 struct CreateDatabaseReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_CREATE_DATABASE_REQ, .name = "CreateDatabaseReq"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(CreateDatabaseReq *self, memgraph::slk::Reader *reader);
   static void Save(const CreateDatabaseReq &self, memgraph::slk::Builder *builder);
@@ -44,8 +42,8 @@ struct CreateDatabaseReq {
 };
 
 struct CreateDatabaseRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_CREATE_DATABASE_RES, .name = "CreateDatabaseRes"};
+  static constexpr uint64_t kVersion{1};
 
   enum class Result : uint8_t { SUCCESS, NO_NEED, FAILURE, /* Leave at end */ N };
 
@@ -60,8 +58,8 @@ struct CreateDatabaseRes {
 using CreateDatabaseRpc = rpc::RequestResponse<CreateDatabaseReq, CreateDatabaseRes>;
 
 struct DropDatabaseReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_DROP_DATABASE_REQ, .name = "DropDatabaseReq"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(DropDatabaseReq *self, memgraph::slk::Reader *reader);
   static void Save(const DropDatabaseReq &self, memgraph::slk::Builder *builder);
@@ -80,8 +78,8 @@ struct DropDatabaseReq {
 };
 
 struct DropDatabaseRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_DROP_DATABASE_RES, .name = "DropDatabaseRes"};
+  static constexpr uint64_t kVersion{1};
 
   enum class Result : uint8_t { SUCCESS, NO_NEED, FAILURE, /* Leave at end */ N };
 

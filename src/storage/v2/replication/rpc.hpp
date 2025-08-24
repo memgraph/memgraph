@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <cstdint>
 #include <string>
 #include <utility>
 
@@ -23,8 +22,8 @@
 namespace memgraph::storage::replication {
 
 struct FinalizeCommitReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::FINALIZE_COMMIT_REQ, .name = "FinalizeCommitReq"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(FinalizeCommitReq *self, slk::Reader *reader);
   static void Save(const FinalizeCommitReq &self, slk::Builder *builder);
@@ -45,8 +44,8 @@ struct FinalizeCommitReq {
 };
 
 struct FinalizeCommitRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::FINALIZE_COMMIT_RES, .name = "FinalizeCommitRes"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(FinalizeCommitRes *self, slk::Reader *reader);
   static void Save(const FinalizeCommitRes &self, slk::Builder *builder);
@@ -60,8 +59,8 @@ struct FinalizeCommitRes {
 using FinalizeCommitRpc = rpc::RequestResponse<FinalizeCommitReq, FinalizeCommitRes>;
 
 struct PrepareCommitReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::PREPARE_COMMIT_REQ, .name = "PrepareCommitReq"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(PrepareCommitReq *self, slk::Reader *reader);
   static void Save(const PrepareCommitReq &self, slk::Builder *builder);
@@ -83,8 +82,8 @@ struct PrepareCommitReq {
 };
 
 struct PrepareCommitRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::PREPARE_COMMIT_RES, .name = "PrepareCommitRes"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(PrepareCommitRes *self, slk::Reader *reader);
   static void Save(const PrepareCommitRes &self, slk::Builder *builder);
@@ -97,16 +96,17 @@ struct PrepareCommitRes {
 
 using PrepareCommitRpc = rpc::RequestResponse<PrepareCommitReq, PrepareCommitRes>;
 
+// Special type of RPC message
 struct InProgressRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_IN_PROGRESS_RES, .name = "InProgressRes"};
+  static constexpr uint64_t kVersion{1};
 
   InProgressRes() = default;
 };
 
 struct HeartbeatReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_HEARTBEAT_REQ, .name = "HeartbeatReq"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(HeartbeatReq *self, memgraph::slk::Reader *reader);
   static void Save(const HeartbeatReq &self, memgraph::slk::Builder *builder);
@@ -122,8 +122,8 @@ struct HeartbeatReq {
 };
 
 struct HeartbeatRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_HEARTBEAT_RES, .name = "HeartbeatRes"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(HeartbeatRes *self, slk::Reader *reader);
   static void Save(const HeartbeatRes &self, slk::Builder *builder);
@@ -144,8 +144,8 @@ struct HeartbeatRes {
 using HeartbeatRpc = rpc::RequestResponse<HeartbeatReq, HeartbeatRes>;
 
 struct SnapshotReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_SNAPSHOT_REQ, .name = "SnapshotReq"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(SnapshotReq *self, memgraph::slk::Reader *reader);
   static void Save(const SnapshotReq &self, memgraph::slk::Builder *builder);
@@ -158,8 +158,8 @@ struct SnapshotReq {
 };
 
 struct SnapshotRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_SNAPSHOT_RES, .name = "SnapshotRes"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(SnapshotRes *self, slk::Reader *reader);
   static void Save(const SnapshotRes &self, slk::Builder *builder);
@@ -175,8 +175,8 @@ struct SnapshotRes {
 using SnapshotRpc = rpc::RequestResponse<SnapshotReq, SnapshotRes>;
 
 struct WalFilesReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_WALFILES_REQ, .name = "WalFilesReq"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(WalFilesReq *self, slk::Reader *reader);
   static void Save(const WalFilesReq &self, slk::Builder *builder);
@@ -192,8 +192,8 @@ struct WalFilesReq {
 };
 
 struct WalFilesRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_WALFILES_RES, .name = "WalFilesRes"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(WalFilesRes *self, memgraph::slk::Reader *reader);
   static void Save(const WalFilesRes &self, memgraph::slk::Builder *builder);
@@ -208,8 +208,8 @@ struct WalFilesRes {
 using WalFilesRpc = rpc::RequestResponse<WalFilesReq, WalFilesRes>;
 
 struct CurrentWalReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_CURRENT_WAL_REQ, .name = "CurrentWalReq"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(CurrentWalReq *self, memgraph::slk::Reader *reader);
   static void Save(const CurrentWalReq &self, memgraph::slk::Builder *builder);
@@ -223,8 +223,8 @@ struct CurrentWalReq {
 };
 
 struct CurrentWalRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_CURRENT_WAL_RES, .name = "CurrentWalRes"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(CurrentWalRes *self, memgraph::slk::Reader *reader);
   static void Save(const CurrentWalRes &self, memgraph::slk::Builder *builder);

@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <cstdint>
 #include <vector>
 
 #include "auth/auth.hpp"
@@ -23,8 +22,8 @@
 namespace memgraph::replication {
 
 struct SystemRecoveryReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_SYSTEM_RECOVERY_REQ, .name = "SystemRecoveryReq"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(SystemRecoveryReq *self, memgraph::slk::Reader *reader);
   static void Save(const SystemRecoveryReq &self, memgraph::slk::Builder *builder);
@@ -51,8 +50,8 @@ struct SystemRecoveryReq {
 };
 
 struct SystemRecoveryRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_SYSTEM_RECOVERY_RES, .name = "SystemRecoveryRes"};
+  static constexpr uint64_t kVersion{1};
 
   enum class Result : uint8_t { SUCCESS, NO_NEED, FAILURE, /* Leave at end */ N };
 
