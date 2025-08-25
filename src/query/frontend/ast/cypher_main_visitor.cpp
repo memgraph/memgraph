@@ -3546,9 +3546,11 @@ antlrcpp::Any CypherMainVisitor::visitPropertyExpression(MemgraphCypher::Propert
   std::vector<PropertyIx> path;
   for (auto *lookup : ctx->propertyLookup()) {
     auto key = std::any_cast<PropertyIx>(lookup->accept(this));
+    auto *property_lookup = storage_->Create<PropertyLookup>(expression, key);
+    expression = property_lookup;
     path.push_back(key);
   }
-  // Use the new property path constructor
+
   return static_cast<PropertyLookup *>(storage_->Create<PropertyLookup>(expression, path));
 }
 

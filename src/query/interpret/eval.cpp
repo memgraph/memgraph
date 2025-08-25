@@ -212,7 +212,7 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
   TypedValue *expression_result_ptr = property_lookup.expression_->Accept(referenceExpressionEvaluator);
   TypedValue expression_result;
 
-  if (nullptr == expression_result_ptr) {
+  if (nullptr == expression_result_ptr && !property_lookup.use_nested_property_update_) {
     expression_result = property_lookup.expression_->Accept(*this);
     expression_result_ptr = &expression_result;
   }
