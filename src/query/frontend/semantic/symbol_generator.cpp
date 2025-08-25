@@ -643,9 +643,28 @@ bool SymbolGenerator::PreVisit(SetProperty & /*set_property*/) {
   return true;
 }
 
-bool SymbolGenerator::PostVisit(SetProperty & /*set_property*/) {
+bool SymbolGenerator::PostVisit(SetProperty &set_property) {
   auto &scope = scopes_.back();
   scope.in_set_property = false;
+
+  if (set_property.property_lookup_->property_path_.size() <= 1) {
+    return true;
+  }
+
+  if (set_property.property_lookup_->expression_->GetTypeInfo() != Identifier::kType) {
+    return true;
+  }
+
+  auto identifier_name = static_cast<Identifier *>(set_property.property_lookup_->expression_)->name_;
+  auto maybe_symbol = FindSymbolInScope(identifier_name, scope, Symbol::Type::ANY);
+
+  if (!maybe_symbol.has_value()) {
+    throw SemanticException("Symbol not found when setting property, please contact Memgraph support!");
+  }
+
+  if (auto type = maybe_symbol.value().type(); type == Symbol::Type::VERTEX || type == Symbol::Type::EDGE) {
+    set_property.property_lookup_->use_nested_property_update_ = true;
+  }
 
   return true;
 }

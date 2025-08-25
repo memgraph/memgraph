@@ -172,6 +172,32 @@ auto GetPropertyLookup(AstStorage &storage, TDbAccessor &, Expression *expr,
   return storage.Create<PropertyLookup>(expr, storage.GetPropertyIx(prop_pair.first));
 }
 
+template <class TDbAccessor>
+auto GetPropertyLookup(AstStorage &storage, TDbAccessor &dba, Expression *expr,
+                       std::vector<memgraph::storage::PropertyId> property_path) {
+  std::vector<PropertyIx> property_path_ix;
+  property_path_ix.reserve(property_path.size());
+  for (const auto &prop : property_path) {
+    property_path_ix.emplace_back(storage.GetPropertyIx(dba.PropertyToName(prop)));
+  }
+
+  return storage.Create<PropertyLookup>(expr, property_path_ix);
+}
+
+template <class TDbAccessor>
+auto GetPropertyLookup(AstStorage &storage, TDbAccessor &dba, Expression *expr,
+                       std::vector<memgraph::storage::PropertyId> property_path, PropertyLookup::LookupMode mode) {
+  std::vector<PropertyIx> property_path_ix;
+  property_path_ix.reserve(property_path.size());
+  for (const auto &prop : property_path) {
+    property_path_ix.emplace_back(storage.GetPropertyIx(dba.PropertyToName(prop)));
+  }
+
+  auto *property_lookup = storage.Create<PropertyLookup>(expr, property_path_ix);
+  property_lookup->lookup_mode_ = mode;
+  return property_lookup;
+}
+
 /// Create an AllPropertiesLookup from the given name.
 auto GetAllPropertiesLookup(AstStorage &storage, const std::string &name) {
   return storage.Create<AllPropertiesLookup>(storage.Create<Identifier>(name));

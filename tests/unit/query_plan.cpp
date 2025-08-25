@@ -3510,4 +3510,33 @@ TYPED_TEST(TestPlanner, MatchKShortest) {
   DeleteListContent(&right_cartesian_ops);
 }
 
+TYPED_TEST(TestPlanner, MatchNodeSetNestedReplace) {
+  // Test MATCH (n) SET n.prop.age = 21
+  FakeDbAccessor dba;
+  std::vector<memgraph::storage::PropertyId> props = {dba.Property("prop"), dba.Property("age")};
+  auto *query = QUERY(SINGLE_QUERY(
+      MATCH(PATTERN(NODE("n"))),
+      SET(PROPERTY_LOOKUP(dba, IDENT("n"), props, memgraph::query::PropertyLookup::LookupMode::APPEND), LITERAL(21))));
+  CheckPlan<TypeParam>(query, this->storage, ExpectScanAll(), ExpectSetNestedProperty(), ExpectEmptyResult());
+}
+
+TYPED_TEST(TestPlanner, MatchNodeSetNestedAppend) {
+  // Test MATCH (n) SET n.prop.details += {age: 21};
+  FakeDbAccessor dba;
+  std::vector<memgraph::storage::PropertyId> props = {dba.Property("prop"), dba.Property("age")};
+  auto *query = QUERY(
+      SINGLE_QUERY(MATCH(PATTERN(NODE("n"))),
+                   SET(PROPERTY_LOOKUP(dba, IDENT("n"), props, memgraph::query::PropertyLookup::LookupMode::APPEND),
+                       MAP({this->storage.GetPropertyIx("age"), LITERAL(21)}))));
+  CheckPlan<TypeParam>(query, this->storage, ExpectScanAll(), ExpectSetNestedProperty(), ExpectEmptyResult());
+}
+
+TYPED_TEST(TestPlanner, MatchRemoveNested) {
+  // Test MATCH (n) REMOVE n.prop.details;
+  FakeDbAccessor dba;
+  std::vector<memgraph::storage::PropertyId> props = {dba.Property("prop"), dba.Property("details")};
+  auto *query = QUERY(SINGLE_QUERY(MATCH(PATTERN(NODE("n"))), REMOVE(PROPERTY_LOOKUP(dba, IDENT("n"), props))));
+  CheckPlan<TypeParam>(query, this->storage, ExpectScanAll(), ExpectRemoveNestedProperty(), ExpectEmptyResult());
+}
+
 }  // namespace

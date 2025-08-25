@@ -384,13 +384,13 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
           property_lookup_cache_.emplace(symbol_pos, GetAllProperties(expression_result_ptr->ValueVertex()));
         }
 
-        auto property_id = ctx_->properties[property_lookup.property_.ix];
+        auto property_id = ctx_->properties[property_lookup.GetBaseProperty().ix];
         if (property_lookup_cache_[symbol_pos].contains(property_id)) {
           return {property_lookup_cache_[symbol_pos][property_id], GetNameIdMapper(), ctx_->memory};
         }
         return TypedValue(ctx_->memory);
       } else {
-        return {GetProperty(expression_result_ptr->ValueVertex(), property_lookup.property_), GetNameIdMapper(),
+        return {GetProperty(expression_result_ptr->ValueVertex(), property_lookup.GetBaseProperty()), GetNameIdMapper(),
                 ctx_->memory};
       }
     case TypedValue::Type::Edge:
@@ -400,23 +400,23 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
           property_lookup_cache_.emplace(symbol_pos, GetAllProperties(expression_result_ptr->ValueEdge()));
         }
 
-        auto property_id = ctx_->properties[property_lookup.property_.ix];
+        auto property_id = ctx_->properties[property_lookup.GetBaseProperty().ix];
         if (property_lookup_cache_[symbol_pos].contains(property_id)) {
           return {property_lookup_cache_[symbol_pos][property_id], GetNameIdMapper(), ctx_->memory};
         }
         return TypedValue(ctx_->memory);
       } else {
-        return {GetProperty(expression_result_ptr->ValueEdge(), property_lookup.property_), GetNameIdMapper(),
+        return {GetProperty(expression_result_ptr->ValueEdge(), property_lookup.GetBaseProperty()), GetNameIdMapper(),
                 ctx_->memory};
       }
     case TypedValue::Type::Map: {
       auto &map = expression_result_ptr->ValueMap();
-      auto found = map.find(property_lookup.property_.name.c_str());
+      auto found = map.find(property_lookup.GetBaseProperty().name.c_str());
       if (found == map.end()) return TypedValue(ctx_->memory);
       return {found->second, ctx_->memory};
     }
     case TypedValue::Type::Duration: {
-      const auto &prop_name = property_lookup.property_.name;
+      const auto &prop_name = property_lookup.GetBaseProperty().name;
       const auto &dur = expression_result_ptr->ValueDuration();
       if (auto dur_field = maybe_duration(dur, prop_name); dur_field) {
         return {*dur_field, ctx_->memory};
@@ -424,7 +424,7 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
       throw QueryRuntimeException("Invalid property name {} for Duration", prop_name);
     }
     case TypedValue::Type::Date: {
-      const auto &prop_name = property_lookup.property_.name;
+      const auto &prop_name = property_lookup.GetBaseProperty().name;
       const auto &date = expression_result_ptr->ValueDate();
       if (auto date_field = maybe_date(date, prop_name); date_field) {
         return {*date_field, ctx_->memory};
@@ -432,7 +432,7 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
       throw QueryRuntimeException("Invalid property name {} for Date", prop_name);
     }
     case TypedValue::Type::LocalTime: {
-      const auto &prop_name = property_lookup.property_.name;
+      const auto &prop_name = property_lookup.GetBaseProperty().name;
       const auto &lt = expression_result_ptr->ValueLocalTime();
       if (auto lt_field = maybe_local_time(lt, prop_name); lt_field) {
         return std::move(*lt_field);
@@ -440,7 +440,7 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
       throw QueryRuntimeException("Invalid property name {} for LocalTime", prop_name);
     }
     case TypedValue::Type::LocalDateTime: {
-      const auto &prop_name = property_lookup.property_.name;
+      const auto &prop_name = property_lookup.GetBaseProperty().name;
       const auto &ldt = expression_result_ptr->ValueLocalDateTime();
       if (auto date_field = maybe_date(ldt.date(), prop_name); date_field) {
         return std::move(*date_field);
@@ -451,7 +451,7 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
       throw QueryRuntimeException("Invalid property name {} for LocalDateTime", prop_name);
     }
     case TypedValue::Type::ZonedDateTime: {
-      const auto &prop_name = property_lookup.property_.name;
+      const auto &prop_name = property_lookup.GetBaseProperty().name;
       const auto &zdt = expression_result_ptr->ValueZonedDateTime();
       if (auto zdt_field = maybe_zoned_date_time(zdt, prop_name); zdt_field) {
         return {*zdt_field, ctx_->memory};
@@ -459,7 +459,7 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
       throw QueryRuntimeException("Invalid property name {} for ZonedDateTime", prop_name);
     }
     case TypedValue::Type::Point2d: {
-      const auto &prop_name = property_lookup.property_.name;
+      const auto &prop_name = property_lookup.GetBaseProperty().name;
       const auto &point_2d = expression_result_ptr->ValuePoint2d();
       if (auto point_2d_field = maybe_point2d(point_2d, prop_name); point_2d_field) {
         return {*point_2d_field, ctx_->memory};
@@ -467,7 +467,7 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
       throw QueryRuntimeException("Invalid property name {} for Point2d", prop_name);
     }
     case TypedValue::Type::Point3d: {
-      const auto &prop_name = property_lookup.property_.name;
+      const auto &prop_name = property_lookup.GetBaseProperty().name;
       const auto &point_3d = expression_result_ptr->ValuePoint3d();
       if (auto point_3d_field = maybe_point3d(point_3d, prop_name); point_3d_field) {
         return {*point_3d_field, ctx_->memory};
@@ -475,7 +475,7 @@ TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
       throw QueryRuntimeException("Invalid property name {} for Point3d", prop_name);
     }
     case TypedValue::Type::Graph: {
-      const auto &prop_name = property_lookup.property_.name;
+      const auto &prop_name = property_lookup.GetBaseProperty().name;
       const auto &graph = expression_result_ptr->ValueGraph();
       if (auto graph_field = maybe_graph(graph, prop_name); graph_field) {
         return {*graph_field, ctx_->memory};

@@ -26,7 +26,8 @@ struct ComparisonFilterInfo {
 
   bool Compatible(const ComparisonFilterInfo &rhs) const {
     if (*this && rhs && type != rhs.type) {
-      return prop_lookup->property_ == rhs.prop_lookup->property_ && ident->symbol_pos_ == rhs.ident->symbol_pos_;
+      return prop_lookup->GetBaseProperty() == rhs.prop_lookup->GetBaseProperty() &&
+             ident->symbol_pos_ == rhs.ident->symbol_pos_;
     }
     return false;
   }
@@ -188,7 +189,7 @@ FilterInfo RangeOpToFilter(RangeOperator *range, const SymbolTable &symbol_table
   UsedSymbolsCollector collector(symbol_table);
   range->Accept(collector);
   auto filter = FilterInfo{FilterInfo::Type::Property, range, collector.symbols_};
-  filter.property_filter.emplace(symbol_table, symbol_table.at(*ident), prop_lookup->property_, lower_bound,
+  filter.property_filter.emplace(symbol_table, symbol_table.at(*ident), prop_lookup->GetBaseProperty(), lower_bound,
                                  upper_bound);
   return filter;
 }

@@ -162,6 +162,8 @@ bool PlanPrinter::PreVisit(query::plan::Produce &op) {
 
 PRE_VISIT(ConstructNamedPath);
 PRE_VISIT(SetProperty);
+PRE_VISIT(SetNestedProperty);
+PRE_VISIT(RemoveNestedProperty);
 PRE_VISIT(SetProperties);
 PRE_VISIT(SetLabels);
 PRE_VISIT(RemoveProperty);
@@ -851,6 +853,20 @@ bool PlanToJsonVisitor::PreVisit(SetProperty &op) {
   return false;
 }
 
+bool PlanToJsonVisitor::PreVisit(SetNestedProperty &op) {
+  json self;
+  self["name"] = "SetNestedProperty";
+  self["property_path"] = ToJson(op.property_path_, *dba_);
+  self["lhs"] = ToJson(op.lhs_, *dba_);
+  self["rhs"] = ToJson(op.rhs_, *dba_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
 bool PlanToJsonVisitor::PreVisit(SetProperties &op) {
   json self;
   self["name"] = "SetProperties";
@@ -889,6 +905,19 @@ bool PlanToJsonVisitor::PreVisit(RemoveProperty &op) {
   json self;
   self["name"] = "RemoveProperty";
   self["property"] = ToJson(op.property_, *dba_);
+  self["lhs"] = ToJson(op.lhs_, *dba_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(RemoveNestedProperty &op) {
+  json self;
+  self["name"] = "RemoveNestedProperty";
+  self["property_path"] = ToJson(op.property_path_, *dba_);
   self["lhs"] = ToJson(op.lhs_, *dba_);
 
   op.input_->Accept(*this);
