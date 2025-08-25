@@ -12,6 +12,7 @@
 #pragma once
 
 #include "kvstore/kvstore.hpp"
+#include "storage/v2/access_type.hpp"
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/disk/durable_metadata.hpp"
@@ -54,7 +55,7 @@ class DiskStorage final : public Storage {
     friend class DiskStorage;
 
     explicit DiskAccessor(SharedAccess tag, DiskStorage *storage, IsolationLevel isolation_level,
-                          StorageMode storage_mode, Accessor::Type rw_type);
+                          StorageMode storage_mode, StorageAccessType rw_type);
     explicit DiskAccessor(auto tag, DiskStorage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
 
    public:
@@ -300,8 +301,8 @@ class DiskStorage final : public Storage {
                        PointDistanceCondition condition) -> PointIterable override;
 
     auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
-                       PropertyValue const &bottom_left, PropertyValue const &top_right, WithinBBoxCondition condition)
-        -> PointIterable override;
+                       PropertyValue const &bottom_left, PropertyValue const &top_right,
+                       WithinBBoxCondition condition) -> PointIterable override;
 
     std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearchOnNodes(
         const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) override;
@@ -381,7 +382,7 @@ class DiskStorage final : public Storage {
   };
 
   using Storage::Access;
-  std::unique_ptr<Accessor> Access(storage::Storage::Accessor::Type rw_type,
+  std::unique_ptr<Accessor> Access(storage::StorageAccessType rw_type,
                                    std::optional<IsolationLevel> override_isolation_level,
                                    std::optional<std::chrono::milliseconds> timeout) override;
 

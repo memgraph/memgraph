@@ -90,7 +90,7 @@ void *MonotonicBufferResource::do_allocate(size_t bytes, size_t alignment) {
   static_assert(std::is_same_v<size_t, uint64_t>);
   auto push_current_buffer = [this, bytes, alignment](size_t next_size) {
     // Set size so that the bytes fit.
-    const size_t size = next_size > bytes ? next_size : bytes;
+    const size_t size = std::max(next_size, bytes);
     // Simplify alignment by always using values greater or equal to max_align
     const size_t alloc_align = std::max(alignment, alignof(std::max_align_t));
     // Setup the Buffer area before `Buffer::data` such that `Buffer::data` is
@@ -106,6 +106,9 @@ void *MonotonicBufferResource::do_allocate(size_t bytes, size_t alignment) {
     if (!maybe_bytes_for_buffer) throw BadAlloc("Allocation size overflow");
     const size_t bytes_for_buffer = *maybe_bytes_for_buffer;
     // TODO : use better function than RoundUint64ToMultiple because we know alloc_align is a power of 2
+    if (size > std::numeric_limits<uint64_t>::max() - bytes_for_buffer) {
+      throw BadAlloc("Allocation size overflow");
+    }
     const auto alloc_size = RoundUint64ToMultiple(bytes_for_buffer + size, alloc_align);
     if (!alloc_size) throw BadAlloc("Allocation size overflow");
     void *ptr = memory_->allocate(*alloc_size, alloc_align);

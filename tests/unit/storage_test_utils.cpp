@@ -14,8 +14,7 @@
 size_t CountVertices(memgraph::storage::Storage::Accessor &storage_accessor, memgraph::storage::View view) {
   auto vertices = storage_accessor.Vertices(view);
   size_t count = 0U;
-  for (auto it = vertices.begin(); it != vertices.end(); ++it, ++count)
-    ;
+  for (auto it = vertices.begin(); it != vertices.end(); ++it, ++count);
   return count;
 }
 

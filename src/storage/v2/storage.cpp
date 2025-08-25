@@ -56,11 +56,11 @@ void TryLock(auto &guard, auto timeout) {
   }
 }
 
-auto CreateSharedGuard(Storage *storage, Storage::Accessor::Type rw_type,
+auto CreateSharedGuard(Storage *storage, StorageAccessType rw_type,
                        const std::optional<std::chrono::milliseconds> timeout) {
   utils::SharedResourceLockGuard::Type shared_type{};
   switch (rw_type) {
-    using enum Storage::Accessor::Type;
+    using enum StorageAccessType;
     case NO_ACCESS:
       [[fallthrough]];
     case UNIQUE:
@@ -117,7 +117,7 @@ Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr inv
 }
 
 Storage::Accessor::Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
-                            StorageMode storage_mode, Type rw_type,
+                            StorageMode storage_mode, StorageAccessType rw_type,
                             const std::optional<std::chrono::milliseconds> timeout)
     : storage_(storage),
       // The lock must be acquired before creating the transaction object to
@@ -127,6 +127,7 @@ Storage::Accessor::Accessor(SharedAccess /* tag */, Storage *storage, IsolationL
       unique_guard_(storage_->main_lock_, std::defer_lock),
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),
+      original_access_type_(rw_type),
       creation_storage_mode_(storage_mode) {}
 
 Storage::Accessor::Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
@@ -139,6 +140,7 @@ Storage::Accessor::Accessor(UniqueAccess /* tag */, Storage *storage, IsolationL
       unique_guard_(CreateUniqueGuard(storage, timeout)),
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),
+      original_access_type_(StorageAccessType::UNIQUE),
       creation_storage_mode_(storage_mode) {}
 
 Storage::Accessor::Accessor(ReadOnlyAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
@@ -151,6 +153,7 @@ Storage::Accessor::Accessor(ReadOnlyAccess /* tag */, Storage *storage, Isolatio
       unique_guard_(storage_->main_lock_, std::defer_lock),
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),
+      original_access_type_(StorageAccessType::READ_ONLY),
       creation_storage_mode_(storage_mode) {}
 
 Storage::Accessor::Accessor(Accessor &&other) noexcept
@@ -160,6 +163,7 @@ Storage::Accessor::Accessor(Accessor &&other) noexcept
       transaction_(std::move(other.transaction_)),
       commit_timestamp_(other.commit_timestamp_),
       is_transaction_active_(other.is_transaction_active_),
+      original_access_type_(other.original_access_type_),
       creation_storage_mode_(other.creation_storage_mode_) {
   // Don't allow the other accessor to abort our transaction in destructor.
   other.is_transaction_active_ = false;

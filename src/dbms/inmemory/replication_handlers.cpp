@@ -879,32 +879,47 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
   auto edge_acc = storage->edges_.access();
   auto vertex_acc = storage->vertices_.access();
 
-  constexpr auto kSharedAccess = storage::Storage::Accessor::Type::WRITE;
-  constexpr auto kUniqueAccess = storage::Storage::Accessor::Type::UNIQUE;
-  // TODO: add when concurrent index creation can actually replicate using READ_ONLY
-  // constexpr auto kReadOnlyAccess = storage::Storage::Accessor::Type::READ_ONLY;
+  constexpr auto kSharedAccess = storage::StorageAccessType::WRITE;
+  constexpr auto kUniqueAccess = storage::StorageAccessType::UNIQUE;
 
   uint64_t commit_timestamp{0};
   std::unique_ptr<storage::ReplicationAccessor> commit_accessor;
 
   bool should_commit{true};
+  // Replica will use the same storage access type as main did when doing the transaction
+  // It is passed through the WalTransactionStart delta
+  std::optional<storage::StorageAccessType> access_type;
 
-  auto const get_replication_accessor = [storage, &commit_timestamp, &commit_accessor](
-                                            uint64_t const local_commit_timestamp,
-                                            storage::Storage::Accessor::Type acc_type =
-                                                kSharedAccess) -> storage::ReplicationAccessor * {
+  auto translate_access_type = [](storage::durability::TransactionAccessType access_type) {
+    switch (access_type) {
+      case storage::durability::TransactionAccessType::UNIQUE:
+        return storage::StorageAccessType::UNIQUE;
+      case storage::durability::TransactionAccessType::WRITE:
+        return storage::StorageAccessType::WRITE;
+      case storage::durability::TransactionAccessType::READ:
+        return storage::StorageAccessType::READ;
+      case storage::durability::TransactionAccessType::READ_ONLY:
+        return storage::StorageAccessType::READ_ONLY;
+    }
+  };
+
+  auto const get_replication_accessor = [&, storage](uint64_t const local_commit_timestamp,
+                                                     storage::StorageAccessType acc_hint =
+                                                         kSharedAccess) -> storage::ReplicationAccessor * {
     if (!commit_accessor) {
       std::unique_ptr<storage::Storage::Accessor> acc = nullptr;
-      switch (acc_type) {
-        case storage::Storage::Accessor::Type::READ:
+      // acc_hint only gets used if we are using an older version of WAL (before v3.5.0)
+      auto true_access_type = access_type.value_or(acc_hint);
+      switch (true_access_type) {
+        case storage::StorageAccessType::READ:
           [[fallthrough]];
-        case storage::Storage::Accessor::Type::WRITE:
-          acc = storage->Access(acc_type);
+        case storage::StorageAccessType::WRITE:
+          acc = storage->Access(true_access_type);
           break;
-        case storage::Storage::Accessor::Type::UNIQUE:
+        case storage::StorageAccessType::UNIQUE:
           acc = storage->UniqueAccess();
           break;
-        case storage::Storage::Accessor::Type::READ_ONLY:
+        case storage::StorageAccessType::READ_ONLY:
           acc = storage->ReadOnlyAccess();
           break;
         default:
@@ -1161,8 +1176,15 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           }
         },
         [&](WalTransactionStart const &data) {
-          spdlog::trace("   Delta {}. Transaction start. Commit txn? {}", current_delta_idx, data.commit);
-          should_commit = data.commit;
+          spdlog::trace("   Delta {}. Transaction start. Commit txn: {}, Access type: {}", current_delta_idx,
+                        data.commit, data.access_type ? static_cast<uint64_t>(*data.access_type) : -1);
+
+          if (loading_wal) {
+            // This only gets used when loading a WAL from main
+            // Otherwise it doesn't matter what gets sent
+            should_commit = data.commit.value_or(true);
+          }
+          access_type = data.access_type ? std::optional(translate_access_type(*data.access_type)) : std::nullopt;
         },
         [&](WalTransactionEnd const &) {
           spdlog::trace("   Delta {}. Transaction end", current_delta_idx);
@@ -1185,7 +1207,6 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
         [&](WalLabelIndexCreate const &data) {
           spdlog::trace("   Delta {}. Create label index on :{}", current_delta_idx, data.label);
           // Need to send the timestamp
-          // TODO: For now kUniqueAccess, when everything is ready kReadOnlyAccess
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           if (transaction->CreateIndex(storage->NameToLabel(data.label)).HasError())
             throw utils::BasicException("Failed to create label index on :{}.", data.label);
@@ -1193,7 +1214,6 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
         [&](WalLabelIndexDrop const &data) {
           spdlog::trace("   Delta {}. Drop label index on :{}", current_delta_idx, data.label);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
-          // TODO: For now kUniqueAccess, when everything is ready kReadOnlyAccess
           if (transaction->DropIndex(storage->NameToLabel(data.label)).HasError())
             throw utils::BasicException("Failed to drop label index on :{}.", data.label);
         },
@@ -1219,7 +1239,6 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
         [&](WalLabelPropertyIndexCreate const &data) {
           spdlog::trace("   Delta {}. Create label+property index on :{} ({})", current_delta_idx, data.label,
                         data.composite_property_paths);
-          // TODO: For now kUniqueAccess, when everything is ready kReadOnlyAccess
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto property_paths = data.composite_property_paths.convert(mapper);
           if (transaction->CreateIndex(storage->NameToLabel(data.label), std::move(property_paths)).HasError())
@@ -1230,7 +1249,6 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
         [&](WalLabelPropertyIndexDrop const &data) {
           spdlog::trace("   Delta {}. Drop label+property index on :{} ({})", current_delta_idx, data.label,
                         data.composite_property_paths);
-          // TODO: For now kUniqueAccess, when everything is ready kReadOnlyAccess
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto property_paths = data.composite_property_paths.convert(mapper);
 
@@ -1258,7 +1276,6 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           transaction->DeleteLabelPropertyIndexStats(storage->NameToLabel(data.label));
         },
         [&](WalEdgeTypeIndexCreate const &data) {
-          // TODO: For now kUniqueAccess, when everything is ready kReadOnlyAccess
           spdlog::trace("   Delta {}. Create edge index on :{}", current_delta_idx, data.edge_type);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           if (transaction->CreateIndex(storage->NameToEdgeType(data.edge_type)).HasError()) {
@@ -1273,7 +1290,6 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           }
         },
         [&](WalEdgeTypePropertyIndexCreate const &data) {
-          // TODO: For now kUniqueAccess, when everything is ready kReadOnlyAccess
           spdlog::trace("   Delta {}. Create edge index on :{}({})", current_delta_idx, data.edge_type, data.property);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           if (transaction->CreateIndex(storage->NameToEdgeType(data.edge_type), storage->NameToProperty(data.property))
@@ -1292,7 +1308,6 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           }
         },
         [&](WalEdgePropertyIndexCreate const &data) {
-          // TODO: For now kUniqueAccess, when everything is ready kReadOnlyAccess
           spdlog::trace("       Create global edge index on ({})", data.property);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           if (transaction->CreateGlobalEdgeIndex(storage->NameToProperty(data.property)).HasError()) {

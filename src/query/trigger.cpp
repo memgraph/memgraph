@@ -231,8 +231,7 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
     frame[plan.symbol_table().at(identifier)] = context.GetTypedValue(tag, dba);
   }
 
-  while (cursor->Pull(frame, ctx))
-    ;
+  while (cursor->Pull(frame, ctx));
 
   cursor->Shutdown();
   memgraph::metrics::IncrementCounter(memgraph::metrics::TriggersExecuted);

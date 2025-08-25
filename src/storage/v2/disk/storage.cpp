@@ -72,8 +72,8 @@ namespace memgraph::storage {
 
 namespace {
 
-auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex, VertexAccessor *to_vertex)
-    -> Result<EdgesVertexAccessorResult> {
+auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex,
+               VertexAccessor *to_vertex) -> Result<EdgesVertexAccessorResult> {
   auto use_out_edges = [](Vertex const *from_vertex, Vertex const *to_vertex) {
     // Obtain the locks by `gid` order to avoid lock cycles.
     auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
@@ -291,7 +291,7 @@ DiskStorage::~DiskStorage() {
 
 DiskStorage::DiskAccessor::DiskAccessor(Accessor::SharedAccess tag, DiskStorage *storage,
                                         IsolationLevel isolation_level, StorageMode storage_mode,
-                                        Accessor::Type rw_type)
+                                        StorageAccessType rw_type)
     : Accessor(tag, storage, isolation_level, storage_mode, rw_type, /*no timeout*/ std::nullopt) {
   rocksdb::WriteOptions write_options;
   auto txOptions = rocksdb::TransactionOptions{.set_snapshot = true};
@@ -2305,8 +2305,8 @@ std::vector<VectorEdgeIndexInfo> DiskStorage::DiskAccessor::ListAllVectorEdgeInd
 
 auto DiskStorage::DiskAccessor::PointVertices(LabelId /*label*/, PropertyId /*property*/,
                                               CoordinateReferenceSystem /*crs*/, PropertyValue const & /*bottom_left*/,
-                                              PropertyValue const & /*top_right*/, WithinBBoxCondition /*condition*/)
-    -> PointIterable {
+                                              PropertyValue const & /*top_right*/,
+                                              WithinBBoxCondition /*condition*/) -> PointIterable {
   throw utils::NotYetImplemented("Point Vertices is not yet implemented for on-disk storage. {}", kErrorMessage);
 };
 
@@ -2341,7 +2341,7 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
 
 uint64_t DiskStorage::GetCommitTimestamp() { return timestamp_++; }
 
-std::unique_ptr<Storage::Accessor> DiskStorage::Access(Accessor::Type rw_type,
+std::unique_ptr<Storage::Accessor> DiskStorage::Access(StorageAccessType rw_type,
                                                        std::optional<IsolationLevel> override_isolation_level,
                                                        std::optional<std::chrono::milliseconds> /*timeout*/) {
   auto isolation_level = override_isolation_level.value_or(isolation_level_);
