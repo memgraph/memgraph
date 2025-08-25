@@ -20,6 +20,7 @@
 #include "rpc/messages.hpp"
 #include "rpc/protocol.hpp"
 #include "slk/streams.hpp"
+#include "utils/sysinfo/cpuinfo.hpp"
 #include "utils/typeinfo.hpp"
 
 namespace memgraph::rpc {
@@ -27,7 +28,7 @@ namespace memgraph::rpc {
 class Server {
  public:
   Server(io::network::Endpoint endpoint, communication::ServerContext *context,
-         size_t workers_count = std::thread::hardware_concurrency());
+         size_t workers_count = memgraph::utils::sysinfo::LogicalCPUCores().value_or(1U));
   Server(const Server &) = delete;
   Server(Server &&) = delete;
   Server &operator=(const Server &) = delete;
