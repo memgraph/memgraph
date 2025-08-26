@@ -157,6 +157,8 @@ static_assert(std::is_constructible_v<opt_str, std::optional<std::string_view>, 
 static_assert(std::is_trivially_destructible_v<opt_str>,
               "uses PageSlabMemoryResource, lifetime linked to that, dtr should be trivial");
 
+enum class DeltaInterleaving { NON_INTERLEAVED, INTERLEAVED };
+
 /**
  * By using a tagged pointer for the vertex in a vertex_edge `Delta`, we can
  * store a flag indicating whether the `Delta` is interleaved without increasing
@@ -170,7 +172,9 @@ class TaggedVertexPtr {
  public:
   TaggedVertexPtr() : ptr_(nullptr) {}
 
-  TaggedVertexPtr(Vertex *vertex, bool is_interleaved = false) { set(vertex, is_interleaved); }
+  TaggedVertexPtr(Vertex *vertex, DeltaInterleaving interleaving = DeltaInterleaving::NON_INTERLEAVED) {
+    set(vertex, interleaving == DeltaInterleaving::INTERLEAVED);
+  }
 
   Vertex *Get() const { return reinterpret_cast<Vertex *>(reinterpret_cast<uintptr_t>(ptr_) & ~0x1UL); }
 
@@ -254,33 +258,54 @@ struct Delta {
 
   Delta(AddInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
+      : Delta(AddInEdgeTag{}, edge_type, vertex, edge, DeltaInterleaving::NON_INTERLEAVED, timestamp, command_id) {}
+
+  Delta(AddInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaInterleaving interleaving,
+        std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : timestamp(timestamp),
         command_id(command_id),
-        vertex_edge{
-            .action = Action::ADD_IN_EDGE, .edge_type = edge_type, .vertex = TaggedVertexPtr(vertex), .edge = edge} {}
+        vertex_edge{.action = Action::ADD_IN_EDGE,
+                    .edge_type = edge_type,
+                    .vertex = TaggedVertexPtr(vertex, interleaving),
+                    .edge = edge} {}
 
   Delta(AddOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
+      : Delta(AddOutEdgeTag{}, edge_type, vertex, edge, DeltaInterleaving::NON_INTERLEAVED, timestamp, command_id) {}
+
+  Delta(AddOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaInterleaving interleaving,
+        std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : timestamp(timestamp),
         command_id(command_id),
-        vertex_edge{
-            .action = Action::ADD_OUT_EDGE, .edge_type = edge_type, .vertex = TaggedVertexPtr(vertex), .edge = edge} {}
+        vertex_edge{.action = Action::ADD_OUT_EDGE,
+                    .edge_type = edge_type,
+                    .vertex = TaggedVertexPtr(vertex, interleaving),
+                    .edge = edge} {}
 
   Delta(RemoveInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
+      : Delta(RemoveInEdgeTag{}, edge_type, vertex, edge, DeltaInterleaving::NON_INTERLEAVED, timestamp, command_id) {}
+
+  Delta(RemoveInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaInterleaving interleaving,
+        std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : timestamp(timestamp),
         command_id(command_id),
-        vertex_edge{
-            .action = Action::REMOVE_IN_EDGE, .edge_type = edge_type, .vertex = TaggedVertexPtr(vertex), .edge = edge} {
-  }
+        vertex_edge{.action = Action::REMOVE_IN_EDGE,
+                    .edge_type = edge_type,
+                    .vertex = TaggedVertexPtr(vertex, interleaving),
+                    .edge = edge} {}
 
   Delta(RemoveOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
+      : Delta(RemoveOutEdgeTag{}, edge_type, vertex, edge, DeltaInterleaving::NON_INTERLEAVED, timestamp, command_id) {}
+
+  Delta(RemoveOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, DeltaInterleaving interleaving,
+        std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : timestamp(timestamp),
         command_id(command_id),
         vertex_edge{.action = Action::REMOVE_OUT_EDGE,
                     .edge_type = edge_type,
-                    .vertex = TaggedVertexPtr(vertex),
+                    .vertex = TaggedVertexPtr(vertex, interleaving),
                     .edge = edge} {}
 
   Delta(const Delta &) = delete;

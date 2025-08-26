@@ -109,20 +109,22 @@ inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
   return false;
 }
 
+enum class WriteResult { SUCCESS, COMMUTATIVE, CONFLICT };
+
 template <typename TObj>
-inline bool PrepareForCommutativeWrite(Transaction *transaction, TObj *object) {
-  if (object->delta == nullptr) return true;
+inline WriteResult PrepareForCommutativeWrite(Transaction *transaction, TObj *object) {
+  if (object->delta == nullptr) return WriteResult::SUCCESS;
   auto ts = object->delta->timestamp->load(std::memory_order_acquire);
   if (ts == transaction->transaction_id || ts < transaction->start_timestamp) {
-    return true;
+    return WriteResult::SUCCESS;
   }
 
   if (AreOperationsCommutative(object)) {
-    return true;
+    return WriteResult::COMMUTATIVE;
   }
 
   transaction->has_serialization_error = true;
-  return false;
+  return WriteResult::CONFLICT;
 }
 
 /// This function creates a `DELETE_OBJECT` delta in the transaction and returns
