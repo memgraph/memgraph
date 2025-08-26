@@ -4640,7 +4640,7 @@ bool SetNestedProperty::SetNestedPropertyCursor::Pull(Frame &frame, ExecutionCon
                       rhs.type()));
     }
 
-    TypedValue old_value = TypedValue(evaluator.GetProperty(*record, self_.lhs_->GetBaseProperty()),
+    TypedValue old_value = TypedValue(evaluator.GetProperty(*record, self_.lhs_->property_path_[0]),
                                       evaluator.GetNameIdMapper(), context.evaluation_context.memory);
     if (old_value.IsNull()) {
       old_value = TypedValue(TypedValue::TMap{}, context.evaluation_context.memory);
@@ -5191,7 +5191,7 @@ bool RemoveNestedProperty::RemoveNestedPropertyCursor::Pull(Frame &frame, Execut
   TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
 
   auto remove_nested_property = [this, &context, &evaluator](auto *record) {
-    TypedValue old_value = TypedValue(evaluator.GetProperty(*record, self_.lhs_->GetBaseProperty()),
+    TypedValue old_value = TypedValue(evaluator.GetProperty(*record, self_.lhs_->property_path_[0]),
                                       evaluator.GetNameIdMapper(), context.evaluation_context.memory);
 
     if (!old_value.IsMap()) {

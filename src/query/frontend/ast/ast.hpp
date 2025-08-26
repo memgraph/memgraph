@@ -981,7 +981,8 @@ class PropertyLookup : public memgraph::query::Expression {
       : expression_(expression), property_path_(std::move(property_path)) {
     MG_ASSERT(property_path_.size() > 0, "Property path is empty!");
   }
-  PropertyLookup(Expression *expression, PropertyIx property) : expression_(expression), property_path_{property} {}
+  PropertyLookup(Expression *expression, PropertyIx property)
+      : expression_(expression), property_(property), property_path_{property} {}
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
@@ -994,16 +995,16 @@ class PropertyLookup : public memgraph::query::Expression {
   }
 
   memgraph::query::Expression *expression_{nullptr};
+  PropertyIx property_;
   std::vector<PropertyIx> property_path_;
   memgraph::query::PropertyLookup::EvaluationMode evaluation_mode_{EvaluationMode::GET_OWN_PROPERTY};
   memgraph::query::PropertyLookup::LookupMode lookup_mode_{LookupMode::REPLACE};
   bool use_nested_property_update_{false};
 
-  PropertyIx GetBaseProperty() const { return property_path_[0]; }
-
   PropertyLookup *Clone(AstStorage *storage) const override {
     PropertyLookup *object = storage->Create<PropertyLookup>();
     object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
+    object->property_ = property_;
     object->property_path_.resize(property_path_.size());
     for (size_t i = 0; i < property_path_.size(); ++i) {
       object->property_path_[i] = storage->GetPropertyIx(property_path_[i].name);

@@ -530,7 +530,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     auto *prev_expr = expr;
     auto nested_properties = std::vector<memgraph::query::PropertyIx>{};
     while (expr) {
-      nested_properties.emplace_back(expr->GetBaseProperty());
+      nested_properties.emplace_back(expr->property_);
       prev_expr = expr;
       expr = utils::Downcast<PropertyLookup>(expr->expression_);
     }
@@ -562,7 +562,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     if (get_property_lookup(maybe_lookup, prop_lookup, ident)) {
       auto filter = make_filter(FilterInfo::Type::Property);
       filter.property_filter =
-          PropertyFilter(symbol_table, symbol_table.at(*ident), prop_lookup->GetBaseProperty(), val_expr, type);
+          PropertyFilter(symbol_table, symbol_table.at(*ident), prop_lookup->property_, val_expr, type);
       all_filters_.emplace_back(filter);
       return true;
     }
@@ -614,7 +614,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       // if expr2 is also dependant on the same symbol then not possible to subsitute with a point index
       if (!is_independant(sym, expr2)) return false;
       auto filter = make_filter(FilterInfo::Type::Point);
-      filter.point_filter.emplace(sym, prop_lookup->GetBaseProperty(), other, kind, expr2);
+      filter.point_filter.emplace(sym, prop_lookup->property_, other, kind, expr2);
       all_filters_.emplace_back(filter);
       return true;
     }
@@ -659,7 +659,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       auto filter = make_filter(FilterInfo::Type::Point);
       if (!is_independant(sym, expr2)) return false;
       // have to figure out WithinbboxCondition from expr2
-      filter.point_filter.emplace(sym, prop_lookup->GetBaseProperty(), bottom_left, top_right, expr2);
+      filter.point_filter.emplace(sym, prop_lookup->property_, bottom_left, top_right, expr2);
       all_filters_.emplace_back(filter);
       return true;
     }
@@ -674,8 +674,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     if (get_point_withinbbox_function(expr1, prop_lookup, ident, bottom_left, top_right)) {
       // point.withinbbox(n.prop, bottom_left, top_right)
       auto filter = make_filter(FilterInfo::Type::Point);
-      filter.point_filter.emplace(symbol_table.at(*ident), prop_lookup->GetBaseProperty(), bottom_left, top_right,
-                                  condition);
+      filter.point_filter.emplace(symbol_table.at(*ident), prop_lookup->property_, bottom_left, top_right, condition);
       all_filters_.emplace_back(filter);
       return true;
     }
@@ -703,7 +702,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     } else if (get_property_lookup(expr1, prop_lookup, ident)) {
       // n.prop > value
       auto filter = make_filter(FilterInfo::Type::Property);
-      filter.property_filter.emplace(symbol_table, symbol_table.at(*ident), prop_lookup->GetBaseProperty(),
+      filter.property_filter.emplace(symbol_table, symbol_table.at(*ident), prop_lookup->property_,
                                      Bound(expr2, bound_type), std::nullopt);
       all_filters_.emplace_back(filter);
       is_prop_filter = true;
@@ -719,8 +718,8 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     } else if (get_property_lookup(expr2, prop_lookup, ident)) {
       // value > n.prop
       auto filter = make_filter(FilterInfo::Type::Property);
-      filter.property_filter.emplace(symbol_table, symbol_table.at(*ident), prop_lookup->GetBaseProperty(),
-                                     std::nullopt, Bound(expr1, bound_type));
+      filter.property_filter.emplace(symbol_table, symbol_table.at(*ident), prop_lookup->property_, std::nullopt,
+                                     Bound(expr1, bound_type));
       all_filters_.emplace_back(filter);
       is_prop_filter = true;
     }
@@ -764,8 +763,8 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     }
     if (get_property_lookup(maybe_lookup, prop_lookup, ident)) {
       auto filter = make_filter(FilterInfo::Type::Property);
-      filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), prop_lookup->GetBaseProperty(),
-                                              val_expr, PropertyFilter::Type::IN);
+      filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), prop_lookup->property_, val_expr,
+                                              PropertyFilter::Type::IN);
       all_filters_.emplace_back(filter);
       return true;
     }
@@ -792,7 +791,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     if (get_property_lookup(maybe_is_null_check->expression_, prop_lookup, ident)) {
       auto filter = make_filter(FilterInfo::Type::Property);
       filter.property_filter =
-          PropertyFilter(symbol_table.at(*ident), prop_lookup->GetBaseProperty(), PropertyFilter::Type::IS_NOT_NULL);
+          PropertyFilter(symbol_table.at(*ident), prop_lookup->property_, PropertyFilter::Type::IS_NOT_NULL);
       all_filters_.emplace_back(filter);
       return true;
     }

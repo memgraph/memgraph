@@ -3551,7 +3551,10 @@ antlrcpp::Any CypherMainVisitor::visitPropertyExpression(MemgraphCypher::Propert
     path.push_back(key);
   }
 
-  return static_cast<PropertyLookup *>(storage_->Create<PropertyLookup>(expression, path));
+  auto *property_lookup = static_cast<PropertyLookup *>(expression);
+  property_lookup->property_path_ = path;
+
+  return property_lookup;
 }
 
 antlrcpp::Any CypherMainVisitor::visitCaseExpression(MemgraphCypher::CaseExpressionContext *ctx) {

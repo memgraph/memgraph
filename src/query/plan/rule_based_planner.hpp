@@ -513,8 +513,7 @@ class RuleBasedPlanner {
       return std::make_unique<plan::Delete>(std::move(input_op), del->expressions_, del->detach_);
     } else if (auto *set = utils::Downcast<query::SetProperty>(clause)) {
       if (!set->property_lookup_->use_nested_property_update_) {
-        return std::make_unique<plan::SetProperty>(std::move(input_op),
-                                                   GetProperty(set->property_lookup_->GetBaseProperty()),
+        return std::make_unique<plan::SetProperty>(std::move(input_op), GetProperty(set->property_lookup_->property_),
                                                    set->property_lookup_, set->expression_);
       } else {
         return std::make_unique<plan::SetNestedProperty>(std::move(input_op),
@@ -531,7 +530,7 @@ class RuleBasedPlanner {
     } else if (auto *rem = utils::Downcast<query::RemoveProperty>(clause)) {
       if (rem->property_lookup_->property_path_.size() == 1) {
         return std::make_unique<plan::RemoveProperty>(
-            std::move(input_op), GetProperty(rem->property_lookup_->GetBaseProperty()), rem->property_lookup_);
+            std::move(input_op), GetProperty(rem->property_lookup_->property_), rem->property_lookup_);
       } else {
         return std::make_unique<plan::RemoveNestedProperty>(
             std::move(input_op), GetProperties(rem->property_lookup_->property_path_), rem->property_lookup_);

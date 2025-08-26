@@ -651,20 +651,25 @@ bool SymbolGenerator::PostVisit(SetProperty &set_property) {
     return true;
   }
 
-  if (set_property.property_lookup_->expression_->GetTypeInfo() != Identifier::kType) {
+  PropertyLookupBaseIdentifierVisitor visitor;
+  set_property.property_lookup_->Accept(visitor);
+
+  if (!visitor.base_identifier) {
     return true;
   }
 
-  auto identifier_name = static_cast<Identifier *>(set_property.property_lookup_->expression_)->name_;
-  auto maybe_symbol = FindSymbolInScope(identifier_name, scope, Symbol::Type::ANY);
+  auto maybe_symbol = FindSymbolInScope(visitor.base_identifier->name_, scope, Symbol::Type::ANY);
 
   if (!maybe_symbol.has_value()) {
     throw SemanticException("Symbol not found when setting property, please contact Memgraph support!");
   }
 
-  if (auto type = maybe_symbol.value().type(); type == Symbol::Type::VERTEX || type == Symbol::Type::EDGE) {
-    set_property.property_lookup_->use_nested_property_update_ = true;
+  if (auto type = maybe_symbol.value().type(); type != Symbol::Type::VERTEX && type != Symbol::Type::EDGE) {
+    return true;
   }
+
+  set_property.property_lookup_->expression_ = visitor.base_identifier;
+  set_property.property_lookup_->use_nested_property_update_ = true;
 
   return true;
 }
@@ -977,6 +982,14 @@ void PropertyLookupEvaluationModeVisitor::Visit(PropertyLookup &property_lookup)
     }
 
     return;
+  }
+}
+
+void PropertyLookupBaseIdentifierVisitor::Visit(PropertyLookup &property_lookup) {
+  if (property_lookup.expression_->GetTypeInfo() != Identifier::kType) {
+    property_lookup.expression_->Accept(*this);
+  } else {
+    base_identifier = static_cast<Identifier *>(property_lookup.expression_);
   }
 }
 
