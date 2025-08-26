@@ -23,8 +23,23 @@ class DiffSetup:
                 inputs = self._get_workflow_dispatch_inputs()
                 if inputs:
                     release = inputs.pop("release", "")
-                    for test in ["core", "benchmark", "e2e", "stress", "query_modules"]:
-                        self._gh_context["event"]["inputs"][f"release_{test}"] = "true" if test in release else "false"
+                    # Check for "none" to skip all release tests
+                    if release.lower() == "none":
+                        for test in ["core", "benchmark", "e2e", "stress", "query_modules"]:
+                            self._gh_context["event"]["inputs"][f"release_{test}"] = "false"
+                    else:
+                        for test in ["core", "benchmark", "e2e", "stress", "query_modules"]:
+                            self._gh_context["event"]["inputs"][f"release_{test}"] = "true" if test in release else "false"
+                    
+                    # reformat coverage key
+                    coverage = inputs.pop("coverage", "")
+                    # Check for "none" to skip all coverage tests
+                    if coverage.lower() == "none":
+                        for test in ["core", "clang_tidy"]:
+                            self._gh_context["event"]["inputs"][f"coverage_{test}"] = "false"
+                    else:
+                        for test in ["core", "clang_tidy"]:
+                            self._gh_context["event"]["inputs"][f"coverage_{test}"] = "true" if test in coverage else "false"
 
         except FileNotFoundError:
             print(f"Error: file not found {self._gh_context_path}")
@@ -51,7 +66,7 @@ class DiffSetup:
     def _get_default_test_suite(self, value: bool) -> None:
         self._test_suite = {
             "community": {"core": value},
-            "coverage": {"core": value},
+            "coverage": {"core": value, "clang_tidy": value},
             "debug": {"core": value, "integration": value},
             "jepsen": {"core": value},
             "release": {"core": value, "benchmark": value, "e2e": value, "stress": value, "query_modules": value},
