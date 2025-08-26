@@ -15,6 +15,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <forward_list>
 #include <memory>
 #include <tuple>
@@ -164,6 +165,111 @@ class MonotonicBufferResource final : public MemoryResource {
   void do_deallocate(void *, size_t, size_t) override {}
 
   bool do_is_equal(const MemoryResource &other) const noexcept override { return this == &other; }
+};
+
+/// Thread-safe version of MonotonicBufferResource using atomic head pointer.
+///
+/// This variant uses an atomic head pointer to the current block, where each block contains:
+/// - A pointer to the memory (constant)
+/// - The current allocation size (atomic)
+/// - The total capacity (constant)
+/// - A pointer to the next block (for cleanup)
+///
+/// Allocation works by:
+/// 1. Getting the head block atomically
+/// 2. Reserving space for the worst case (fetch_add)
+/// 3. Checking if there's enough space
+/// 4. On failure locking and allocating new block
+class ThreadSafeMonotonicBufferResource : public std::pmr::memory_resource {
+ public:
+  /// Construct with initial buffer and size
+  explicit ThreadSafeMonotonicBufferResource(void *buffer, size_t size, MemoryResource *memory = NewDeleteResource())
+      : memory_(memory) {
+    // Need to align to Block alignment
+    size_t alignment = alignof(Block);
+    void *aligned_buffer = reinterpret_cast<char *>(buffer);
+    size_t available = size;
+    if (!std::align(alignment, sizeof(Block), aligned_buffer, available)) {
+      throw BadAlloc("Buffer too small for initial block");
+    }
+
+    if (aligned_buffer != buffer) {
+      throw BadAlloc("Buffer not aligned");
+    }
+
+    // Create initial block at the beginning of the buffer
+    auto *initial_block = static_cast<Block *>(aligned_buffer);
+    initial_block->capacity = available;
+    initial_block->size.store(0, std::memory_order_relaxed);
+    head_.store(initial_block, std::memory_order_release);
+  }
+
+  explicit ThreadSafeMonotonicBufferResource(size_t initial_size = 1024, MemoryResource *memory = NewDeleteResource())
+      : memory_(memory), next_buffer_size_(initial_size) {
+    auto *new_block = allocate_new_block(nullptr, initial_size);
+    if (!new_block) {
+      throw BadAlloc("Failed to allocate new block");
+    }
+    head_.store(new_block, std::memory_order_release);
+  }
+
+  /// Destructor - releases all allocated memory
+  ~ThreadSafeMonotonicBufferResource() { Release(); }
+
+  // Non-copyable, non-movable
+  ThreadSafeMonotonicBufferResource(const ThreadSafeMonotonicBufferResource &) = delete;
+  ThreadSafeMonotonicBufferResource &operator=(const ThreadSafeMonotonicBufferResource &) = delete;
+  ThreadSafeMonotonicBufferResource(ThreadSafeMonotonicBufferResource &&other) noexcept
+      : memory_(std::exchange(other.memory_, nullptr)),
+        head_(std::atomic_exchange(&other.head_, nullptr)),
+        next_buffer_size_(std::exchange(other.next_buffer_size_, 0)) {}
+
+  ThreadSafeMonotonicBufferResource &operator=(ThreadSafeMonotonicBufferResource &&other) noexcept {
+    if (this != &other) {
+      Release();
+      memory_ = std::exchange(other.memory_, nullptr);
+      head_ = std::atomic_exchange(&other.head_, nullptr);
+      next_buffer_size_ = std::exchange(other.next_buffer_size_, 0);
+    }
+    return *this;
+  }
+
+  void Release();  // NOT THREAD SAFE!
+
+  /// Get the upstream memory resource
+  MemoryResource *GetUpstreamResource() const { return memory_; }
+
+ private:
+  /// Memory block structure - stored at the beginning of allocated memory
+  struct Block {
+    Block *next{nullptr};         // Next block (for cleanup)
+    std::atomic<size_t> size{0};  // Current allocation size (atomic)
+    size_t capacity;              // Total capacity (constant)
+
+    char *begin() { return reinterpret_cast<char *>(this) + sizeof(*this); }
+    char *data() { return begin() + size.load(std::memory_order_acquire); }
+
+    size_t total_size() const { return sizeof(*this) + capacity; }
+  };
+
+  MemoryResource *memory_{NewDeleteResource()};
+  std::atomic<Block *> head_{nullptr};  // Atomic head pointer
+  mutable std::mutex alloc_mutex_;      // For allocating new blocks
+  size_t next_buffer_size_{1024};       // Track next buffer size for exponential growth
+
+  // Resource methods
+  void *do_allocate(size_t bytes, size_t alignment) override;
+
+  void do_deallocate(void *, size_t, size_t) override {}
+
+  bool do_is_equal(const MemoryResource &other) const noexcept override { return this == &other; }
+
+  // Local methods
+  std::pair<Block *, void *> try_lock_free_allocation(size_t bytes, size_t alignment);
+
+  void *allocate_with_lock(Block *last_block, size_t bytes, size_t alignment);
+
+  Block *allocate_new_block(Block *current_head, size_t min_size);
 };
 
 namespace impl {

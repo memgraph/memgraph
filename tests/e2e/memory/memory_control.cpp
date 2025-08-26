@@ -65,7 +65,10 @@ int main(int argc, char **argv) {
     if (timer.Elapsed<std::chrono::duration<uint64_t>>().count() > FLAGS_timeout) {
       LOG_FATAL("The test timed out");
     }
-    client->Execute(create_query);
+    if (!client->Execute(create_query)) {
+      // NOTE: No way to know what error happened, so we just break
+      break;
+    }
     try {
       client->DiscardAll();
     } catch (const mg::TransientException & /*unused*/) {

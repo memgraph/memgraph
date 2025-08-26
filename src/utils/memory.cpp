@@ -147,6 +147,133 @@ void *MonotonicBufferResource::do_allocate(size_t bytes, size_t alignment) {
 
 // MonotonicBufferResource END
 
+// ThreadSafeMonotonicBufferResource implementation
+
+/// Release all allocated memory back to the upstream resource
+void ThreadSafeMonotonicBufferResource::Release() {
+  // Reset all memory
+  Block *current = head_.load(std::memory_order_acquire);
+  while (current) {
+    Block *next = current->next;
+    memory_->deallocate(current, current->total_size(), alignof(Block));
+    current = next;
+  }
+  head_.store(nullptr, std::memory_order_release);
+}
+
+void *ThreadSafeMonotonicBufferResource::do_allocate(size_t bytes, size_t alignment) {
+  // Try lock-free allocation first
+  const auto [block, ptr] = try_lock_free_allocation(bytes, alignment);
+  if (ptr) {
+    CheckAllocationSizeOverflow(ptr, bytes);
+    return ptr;
+  }
+
+  // Fallback to blocking allocation
+  return allocate_with_lock(block, bytes, alignment);
+}
+
+std::pair<ThreadSafeMonotonicBufferResource::Block *, void *>
+ThreadSafeMonotonicBufferResource::try_lock_free_allocation(size_t bytes, size_t alignment) {
+  // Get the head block
+  auto *block = head_.load(std::memory_order_acquire);
+  if (!block) {
+    return {nullptr, nullptr};  // No blocks available
+  }
+
+  // Try to reserve space in the block
+  // Since we can't know the exact current ptr, reserve for the worst case
+  auto size_to_reserve = bytes + alignment - 1;
+  if (size_to_reserve > block->capacity) {
+    return {block, nullptr};
+  }
+
+  const auto old_size = block->size.fetch_add(size_to_reserve, std::memory_order_acq_rel);
+  if (old_size + size_to_reserve > block->capacity) {
+    // Failure: remove the reserved space and return nullptr
+    // NOTE: Small optimization: don't pay the penalty of another atomic operation, block is full (move on to the next)
+    // block->size.fetch_sub(size_to_reserve, std::memory_order_acq_rel);
+    return {block, nullptr};
+  }
+  // Success: return the aligned pointer
+  void *aligned_void_ptr = block->begin() + old_size;
+  if (!std::align(alignment, bytes, aligned_void_ptr, size_to_reserve)) {
+    // Not enough space, return failure
+    return {block, nullptr};
+  }
+  return {block, aligned_void_ptr};
+}
+
+void *ThreadSafeMonotonicBufferResource::allocate_with_lock(Block *last_block, size_t bytes, size_t alignment) {
+  std::unique_lock<std::mutex> lock(alloc_mutex_);
+
+  // Double-check that we still need a new block
+  auto *current_block = head_.load(std::memory_order_acquire);
+  while (current_block && current_block != last_block) {
+    lock.unlock();
+    // Try lock-free allocation one more time
+    auto [block, ptr] = try_lock_free_allocation(bytes, alignment);
+    if (ptr) {
+      CheckAllocationSizeOverflow(ptr, bytes);
+      return ptr;
+    }
+    last_block = block;
+    lock.lock();  // Make sure to lock before loading head
+    current_block = head_.load(std::memory_order_acquire);
+  }
+
+  // Allocate new block with enough space for alignment
+  auto *const new_block = allocate_new_block(current_block, bytes + alignment - 1);
+  if (!new_block) {
+    throw BadAlloc("Failed to allocate new block");
+  }
+
+  // Try to align the pointer
+  void *aligned_ptr = new_block->begin();
+  size_t available = new_block->capacity;
+  if (!std::align(alignment, bytes, aligned_ptr, available)) {
+    throw BadAlloc("Failed to align pointer in new block");
+  }
+
+  CheckAllocationSizeOverflow(aligned_ptr, bytes);
+
+  // Update new size
+  const size_t new_size = new_block->capacity - available + bytes;
+  new_block->size.store(new_size, std::memory_order_release);
+
+  // Update the head atomically
+  head_.store(new_block, std::memory_order_release);
+  return aligned_ptr;
+}
+
+ThreadSafeMonotonicBufferResource::Block *ThreadSafeMonotonicBufferResource::allocate_new_block(Block *current_head,
+                                                                                                size_t min_size) {
+  // Use the next_buffer_size_ for exponential growth, but ensure it's at least min_size
+  const size_t block_size = std::max(next_buffer_size_, min_size);
+
+  // Allocate memory for block header + data
+  size_t total_size = sizeof(Block) + block_size;
+  // Size must be a multiple of alignof(Block)
+  if (const auto maybe_total_size = RoundUint64ToMultiple(total_size, alignof(Block))) {
+    total_size = *maybe_total_size;
+  } else {
+    throw BadAlloc("Allocation size overflow");
+  }
+  void *new_buffer = memory_->allocate(total_size, alignof(Block));
+
+  if (!new_buffer) {
+    throw BadAlloc("Failed to allocate new block");
+  }
+
+  // Create new block at the beginning of the allocated memory
+  auto *new_block = new (new_buffer) Block(current_head, 0, block_size);
+
+  // Grow the next buffer size for future allocations
+  next_buffer_size_ = GrowMonotonicBuffer(next_buffer_size_, std::numeric_limits<size_t>::max() - sizeof(Block));
+
+  return new_block;
+}
+
 // PoolResource
 //
 // Implementation is partially based on "Small Object Allocation" implementation
