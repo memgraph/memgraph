@@ -886,12 +886,6 @@ class Storage {
   auto get_database_protector_factory() const -> std::function<std::unique_ptr<DatabaseProtector>()> {
     return database_protector_factory_;
   }
-  struct ActiveTransactionInfo {
-    uint64_t transaction_id;
-  };
-
-  std::mutex active_transactions_mutex_;
-  std::unordered_map<uint64_t, ActiveTransactionInfo> active_transactions_;
 };
 
 inline std::ostream &operator<<(std::ostream &os, StorageAccessType type) {
