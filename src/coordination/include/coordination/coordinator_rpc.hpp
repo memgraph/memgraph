@@ -57,9 +57,8 @@ using PromoteToMainRpc = rpc::RequestResponse<PromoteToMainReq, PromoteToMainRes
 
 struct RegisterReplicaOnMainReq {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_REGISTER_REPLICA_ON_MAIN_REQ,
-                                          .name = "RegisterReplicaOnMainReq"};
+                                         .name = "RegisterReplicaOnMainReq"};
   static constexpr uint64_t kVersion{1};
-
 
   static void Load(RegisterReplicaOnMainReq *self, memgraph::slk::Reader *reader);
   static void Save(const RegisterReplicaOnMainReq &self, memgraph::slk::Builder *builder);
@@ -178,21 +177,50 @@ struct EnableWritingOnMainRes {
 
 using EnableWritingOnMainRpc = rpc::RequestResponse<EnableWritingOnMainReq, EnableWritingOnMainRes>;
 
-struct GetDatabaseHistoriesReq {
+struct GetDatabaseHistoriesReqV1 {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_GET_INSTANCE_DATABASES_REQ,
                                          .name = "GetDatabaseHistoriesReq"};
   static constexpr uint64_t kVersion{1};
 
+  static void Load(GetDatabaseHistoriesReqV1 *self, memgraph::slk::Reader *reader);
+  static void Save(const GetDatabaseHistoriesReqV1 &self, memgraph::slk::Builder *builder);
+
+  GetDatabaseHistoriesReqV1() = default;
+};
+
+struct GetDatabaseHistoriesReq {
+  // Type stays the same for all versions
+  static constexpr utils::TypeInfo kType{GetDatabaseHistoriesReqV1::kType};
+  static constexpr uint64_t kVersion{2};
+
   static void Load(GetDatabaseHistoriesReq *self, memgraph::slk::Reader *reader);
   static void Save(const GetDatabaseHistoriesReq &self, memgraph::slk::Builder *builder);
+
+  static GetDatabaseHistoriesReq Upgrade(GetDatabaseHistoriesReqV1 const & /*prev*/) {
+    return GetDatabaseHistoriesReq{};
+  }
 
   GetDatabaseHistoriesReq() = default;
 };
 
-struct GetDatabaseHistoriesRes {
+struct GetDatabaseHistoriesResV1 {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_GET_INSTANCE_DATABASES_RES,
                                          .name = "GetDatabaseHistoriesRes"};
   static constexpr uint64_t kVersion{1};
+
+  static void Load(GetDatabaseHistoriesResV1 *self, memgraph::slk::Reader *reader);
+  static void Save(const GetDatabaseHistoriesResV1 &self, memgraph::slk::Builder *builder);
+
+  explicit GetDatabaseHistoriesResV1(replication_coordination_glue::InstanceInfoV1 instance_info)
+      : instance_info(std::move(instance_info)) {}
+  GetDatabaseHistoriesResV1() = default;
+
+  replication_coordination_glue::InstanceInfoV1 instance_info;
+};
+
+struct GetDatabaseHistoriesRes {
+  static constexpr utils::TypeInfo kType{GetDatabaseHistoriesResV1::kType};
+  static constexpr uint64_t kVersion{2};
 
   static void Load(GetDatabaseHistoriesRes *self, memgraph::slk::Reader *reader);
   static void Save(const GetDatabaseHistoriesRes &self, memgraph::slk::Builder *builder);
@@ -200,6 +228,20 @@ struct GetDatabaseHistoriesRes {
   explicit GetDatabaseHistoriesRes(replication_coordination_glue::InstanceInfo instance_info)
       : instance_info(std::move(instance_info)) {}
   GetDatabaseHistoriesRes() = default;
+
+  GetDatabaseHistoriesResV1 Downgrade() {
+    replication_coordination_glue::InstanceInfoV1 prev_instance_info;
+    prev_instance_info.last_committed_system_timestamp = instance_info.last_committed_system_timestamp;
+    auto const compute_prev_version = [](replication_coordination_glue::InstanceDBInfo const &current_db_info)
+        -> replication_coordination_glue::InstanceDBInfoV1 {
+      return {.db_uuid = current_db_info.db_uuid, .latest_durable_timestamp = current_db_info.latest_durable_timestamp};
+    };
+
+    std::ranges::transform(instance_info.dbs_info, std::back_inserter(prev_instance_info.dbs_info),
+                           compute_prev_version);
+
+    return GetDatabaseHistoriesResV1{prev_instance_info};
+  }
 
   replication_coordination_glue::InstanceInfo instance_info;
 };
@@ -259,7 +301,8 @@ struct StateCheckRes {
 using StateCheckRpc = rpc::RequestResponse<StateCheckReq, StateCheckRes>;
 
 struct ReplicationLagReq {
-  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_GET_REPLICATION_LAG_REQ, .name = "ReplicationLagReq"};
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_GET_REPLICATION_LAG_REQ,
+                                         .name = "ReplicationLagReq"};
   static constexpr uint64_t kVersion{1};
 
   static void Load(ReplicationLagReq *self, memgraph::slk::Reader *reader);
@@ -268,7 +311,8 @@ struct ReplicationLagReq {
 };
 
 struct ReplicationLagRes {
-  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_GET_REPLICATION_LAG_RES, .name = "ReplicationLagRes"};
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_GET_REPLICATION_LAG_RES,
+                                         .name = "ReplicationLagRes"};
   static constexpr uint64_t kVersion{1};
 
   static void Load(ReplicationLagRes *self, memgraph::slk::Reader *reader);
@@ -316,6 +360,8 @@ void Save(memgraph::coordination::EnableWritingOnMainRes const &self, memgraph::
 void Load(memgraph::coordination::EnableWritingOnMainRes *self, memgraph::slk::Reader *reader);
 
 // GetDatabaseHistoriesRpc
+void Save(const memgraph::coordination::GetDatabaseHistoriesResV1 &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::GetDatabaseHistoriesResV1 *self, memgraph::slk::Reader *reader);
 void Save(const memgraph::coordination::GetDatabaseHistoriesRes &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::GetDatabaseHistoriesRes *self, memgraph::slk::Reader *reader);
 
