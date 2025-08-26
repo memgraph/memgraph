@@ -22,5 +22,5 @@ class fmt::formatter<memgraph::storage::PropertyValue> : public fmt::ostream_for
 template <>
 class fmt::formatter<memgraph::storage::PropertyValue::Type> : public fmt::ostream_formatter {};
 template <>
-class fmt::formatter<memgraph::storage::Storage::Accessor::Type> : public fmt::ostream_formatter {};
+class fmt::formatter<memgraph::storage::StorageAccessType> : public fmt::ostream_formatter {};
 #endif

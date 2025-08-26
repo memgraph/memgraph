@@ -171,8 +171,6 @@ install() {
     dnf config-manager --set-enabled crb
     dnf config-manager --set-enabled devel
     sudo dnf install -y epel-release
-
-    dnf update -y
     dnf install -y wget git python3 python3-pip
 
     # Separate standard and custom packages

@@ -60,7 +60,7 @@ class InfoTest : public testing::Test {
 
   auto DropIndexAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> {
     if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>) {
-      return this->storage->Access(memgraph::storage::Storage::Accessor::Type::READ);
+      return this->storage->Access(memgraph::storage::StorageAccessType::READ);
     } else {
       return this->storage->UniqueAccess();
     }
