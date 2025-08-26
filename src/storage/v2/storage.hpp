@@ -230,7 +230,7 @@ class Storage {
 
     Accessor(Accessor &&other) noexcept;
 
-    virtual ~Accessor();
+    virtual ~Accessor() = default;
 
     StorageAccessType original_access_type() const { return original_access_type_; }
 
@@ -771,10 +771,6 @@ class Storage {
 
     ttl_.Shutdown();
   }
-
- protected:
-  void RegisterTransaction(uint64_t transaction_id);
-  void UnregisterTransaction(uint64_t transaction_id);
 
  public:
   // TODO: make non-public
