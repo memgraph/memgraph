@@ -128,7 +128,7 @@ def print_test_suite(tests: dict, set_env_vars: bool = False) -> None:
         for test, run in tests.items():
             print(f"run_{build}_{test}={run}")
             if set_env_vars:
-                os.popen(f"echo run_{build}_{test}={run} >> $GITHUB_OUTPUT")
+                os.popen(f"echo run_{build}_{test}={str(run).lower()} >> $GITHUB_OUTPUT")
 
 
 def parse_args() -> argparse.Namespace:
