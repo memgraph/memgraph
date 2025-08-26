@@ -30,7 +30,6 @@
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
 #include "storage/v2/storage_error.hpp"
-#include "storage/v2/transaction_dependencies.hpp"
 #include "storage/v2/ttl.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/vertices_chunked_iterable.hpp"
@@ -897,7 +896,6 @@ class Storage {
 
   std::mutex active_transactions_mutex_;
   std::unordered_map<uint64_t, ActiveTransactionInfo> active_transactions_;
-  TransactionDependencies transaction_dependencies_;
 };
 
 inline std::ostream &operator<<(std::ostream &os, StorageAccessType type) {

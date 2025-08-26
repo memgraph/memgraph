@@ -18,47 +18,51 @@ from common import serialization
 def test_serialization_on_creating_edges(serialization):
     serialization.setup("CREATE (:L1), (:L2)")
 
-    serialization.run(
+    (passes, fails) = serialization.run(
         [{"query": "MATCH (m:L1), (n:L2) CREATE (m)-[:$edge_label]->(n)", "args": {"edge_label": "alfa"}, "delay": 3}],
         [{"query": "MATCH (m:L1), (n:L2) CREATE (m)-[:$edge_label]->(n)", "args": {"edge_label": "bravo"}}],
     )
+    assert passes == 2
+    assert fails == 0
 
 
 def test_edge_creation_shared_from_vertex(serialization):
-    """Test concurrent edge creation when sharing the same FROM vertex"""
     serialization.setup("CREATE (:V1), (:V2), (:V3)")
 
-    serialization.run(
+    (passes, fails) = serialization.run(
         [{"query": "MATCH (v1:V1), (v2:V2) CREATE (v1)-[:R1]->(v2)", "delay": 3}],
         [{"query": "MATCH (v1:V1), (v3:V3) CREATE (v1)-[:R2]->(v3)"}],
     )
+    assert passes == 2
+    assert fails == 0
 
 
 def test_edge_creation_shared_to_vertex(serialization):
-    """Test concurrent edge creation when sharing the same TO vertex"""
     serialization.setup("CREATE (:V1), (:V2), (:V3)")
 
-    serialization.run(
+    (passes, fails) = serialization.run(
         [{"query": "MATCH (v1:V1), (v2:V2) CREATE (v1)-[:R1]->(v2)", "delay": 3}],
         [{"query": "MATCH (v3:V3), (v2:V2) CREATE (v3)-[:R2]->(v2)"}],
     )
+    assert passes == 2
+    assert fails == 0
 
 
 def test_edge_creation_no_conflict(serialization):
-    """Test concurrent edge creation with no shared vertices - should never conflict"""
     serialization.setup("CREATE (:V1), (:V2), (:V3), (:V4)")
 
-    serialization.run(
+    (passes, fails) = serialization.run(
         [{"query": "MATCH (v1:V1), (v2:V2) CREATE (v1)-[:R1]->(v2)", "delay": 3}],
         [{"query": "MATCH (v3:V3), (v4:V4) CREATE (v3)-[:R2]->(v4)"}],
     )
+    assert passes == 2
+    assert fails == 0
 
 
 def test_supernode_concurrent_edges(serialization):
-    """Test supernode scenario with multiple concurrent edge operations on V1"""
     serialization.setup("CREATE (:V1), (:V2), (:V3), (:V4), (:V5), (:V6)")
 
-    serialization.run(
+    (passes, fails) = serialization.run(
         [{"query": "MATCH (v1:V1), (v2:V2) CREATE (v1)-[:R1]->(v2)", "delay": 3}],
         [
             {"query": "MATCH (v1:V1), (v3:V3) CREATE (v1)-[:R2]->(v3)"},
@@ -67,6 +71,8 @@ def test_supernode_concurrent_edges(serialization):
             {"query": "MATCH (v6:V6), (v1:V1) CREATE (v6)-[:R5]->(v1)"},
         ],
     )
+    assert passes == 5
+    assert fails == 0
 
 
 if __name__ == "__main__":

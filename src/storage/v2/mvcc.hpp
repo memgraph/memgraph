@@ -17,7 +17,6 @@
 
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/transaction_constants.hpp"
-#include "storage/v2/transaction_dependencies.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/string.hpp"
 
@@ -106,45 +105,24 @@ inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
     return true;
   }
 
-  transaction->must_abort = true;
+  transaction->has_serialization_error = true;
   return false;
 }
 
 template <typename TObj>
-inline bool PrepareForWriteWithRetry(Transaction *transaction, TObj *object, TransactionDependencies &tx_deps) {
-  while (true) {
-    if (object->delta == nullptr) return true;
-    auto ts = object->delta->timestamp->load(std::memory_order_acquire);
-    if (ts == transaction->transaction_id || ts < transaction->start_timestamp) {
-      return true;
-    }
-
-    if (ts >= kTransactionInitialId) {
-      // This transaction cannot currently attach a new delta because another
-      // transaction has already added deltas that have not been committed.
-      // So, if possible, this transaction will just wait for the other to
-      // complete. The only situation where this is no possible is if there
-      // are circular dependencies between transactions: in that case, (for now),
-      // this will abort with a serialisation error. Otherwise, the loop
-      // will again check the object state.
-      if (!tx_deps.WaitFor(transaction->transaction_id, ts)) {
-        transaction->has_serialization_error = true;
-        return false;
-      }
-
-      if (AreOperationsCommutative(object)) {
-        return true;
-      }
-      transaction->must_abort = true;
-      return false;
-    } else {
-      if (AreOperationsCommutative(object)) {
-        return true;
-      }
-      transaction->has_serialization_error = true;
-      return false;
-    }
+inline bool PrepareForCommutativeWrite(Transaction *transaction, TObj *object) {
+  if (object->delta == nullptr) return true;
+  auto ts = object->delta->timestamp->load(std::memory_order_acquire);
+  if (ts == transaction->transaction_id || ts < transaction->start_timestamp) {
+    return true;
   }
+
+  if (AreOperationsCommutative(object)) {
+    return true;
+  }
+
+  transaction->has_serialization_error = true;
+  return false;
 }
 
 /// This function creates a `DELETE_OBJECT` delta in the transaction and returns
