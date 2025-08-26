@@ -50,6 +50,9 @@ jobs:
 
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Spin up mgbuild container
         run: |
@@ -145,6 +148,9 @@ jobs:
 
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Spin up mgbuild container
         run: |
