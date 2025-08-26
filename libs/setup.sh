@@ -49,39 +49,43 @@ clone () {
       timeout $WGET_OR_CLONE_TIMEOUT git clone "$git_repo" "$dir_name" || return 1
     fi
   fi
-  pushd "$dir_name"
-  # Check whether we have any local changes which need to be preserved.
-  local local_changes=true
-  if git diff --no-ext-diff --quiet && git diff --no-ext-diff --cached --quiet; then
-    local_changes=false
-  fi
+  (
+    cd "$dir_name" || return 1
+    # Check whether we have any local changes which need to be preserved.
+    local local_changes=true
+    if git diff --no-ext-diff --quiet && git diff --no-ext-diff --cached --quiet; then
+      local_changes=false
+    fi
 
-  if [ "$shallow" = false ]; then
-    # Stash regardless of local_changes, so that a user gets a message on stdout.
-    git stash
-    # Just fetch new commits from remote repository. Don't merge/pull them in, so
-    # that we don't clobber local modifications.
-    git fetch
-    # Checkout the primary commit (there's no need to pull/merge).
-    # The checkout fail should exit this script immediately because the target
-    # commit is not there and that will most likely create build-time errors.
-    git checkout "$checkout_id" || exit 1
-    # Apply any optional cherry pick fixes.
-    while [[ $# -ne 0 ]]; do
-      local cherry_pick_id=$1
-      shift
-      # The cherry-pick fail should exit this script immediately because the
-      # target commit is not there and that will most likely create build-time
-      # errors.
-      git cherry-pick -n "$cherry_pick_id" || exit 1
-    done
-  fi
+    if [ "$shallow" = false ]; then
+      local needs_pop=false
+      # Stash regardless of local_changes, so that a user gets a message on stdout.
+      if git stash; then
+        needs_pop=true
+      fi
+      # Just fetch new commits from remote repository. Don't merge/pull them in, so
+      # that we don't clobber local modifications.
+      git fetch
+      # Checkout the primary commit (there's no need to pull/merge).
+      # The checkout fail should exit this script immediately because the target
+      # commit is not there and that will most likely create build-time errors.
+      git checkout "$checkout_id" || exit 1
+      # Apply any optional cherry pick fixes.
+      while [[ $# -ne 0 ]]; do
+        local cherry_pick_id=$1
+        shift
+        # The cherry-pick fail should exit this script immediately because the
+        # target commit is not there and that will most likely create build-time
+        # errors.
+        git cherry-pick -n "$cherry_pick_id" || exit 1
+      done
 
-  # Reapply any local changes.
-  if [[ $local_changes == true ]]; then
-    git stash pop
-  fi
-  popd
+      # Reapply any local changes - only pop if we actually stashed successfully.
+      if [[ $local_changes == true && $needs_pop == true ]]; then
+        git stash pop
+      fi
+    fi
+  )
 }
 
 file_get_try_double () {
