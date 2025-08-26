@@ -157,6 +157,29 @@ static_assert(std::is_constructible_v<opt_str, std::optional<std::string_view>, 
 static_assert(std::is_trivially_destructible_v<opt_str>,
               "uses PageSlabMemoryResource, lifetime linked to that, dtr should be trivial");
 
+class TaggedVertexPtr {
+ public:
+  TaggedVertexPtr() : ptr_(nullptr) {}
+
+  TaggedVertexPtr(Vertex *vertex, bool is_interleaved = false) { set(vertex, is_interleaved); }
+
+  Vertex *Get() const { return reinterpret_cast<Vertex *>(reinterpret_cast<uintptr_t>(ptr_) & ~0x1UL); }
+
+  bool IsInterleaved() const { return (reinterpret_cast<uintptr_t>(ptr_) & 0x1UL) != 0; }
+
+  void set(Vertex *vertex, bool is_interleaved = false) {
+    uintptr_t vertex_ptr = reinterpret_cast<uintptr_t>(vertex);
+    MG_ASSERT((vertex_ptr & 0x1UL) == 0, "Vertex pointer must be aligned");
+    if (is_interleaved) {
+      vertex_ptr |= 0x1UL;
+    }
+    ptr_ = reinterpret_cast<Vertex *>(vertex_ptr);
+  }
+
+ private:
+  Vertex *ptr_;
+};
+
 struct Delta {
   using Action = DeltaAction;
 
@@ -224,25 +247,32 @@ struct Delta {
         uint64_t command_id)
       : timestamp(timestamp),
         command_id(command_id),
-        vertex_edge{.action = Action::ADD_IN_EDGE, .edge_type = edge_type, vertex, edge} {}
+        vertex_edge{
+            .action = Action::ADD_IN_EDGE, .edge_type = edge_type, .vertex = TaggedVertexPtr(vertex), .edge = edge} {}
 
   Delta(AddOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
       : timestamp(timestamp),
         command_id(command_id),
-        vertex_edge{.action = Action::ADD_OUT_EDGE, .edge_type = edge_type, vertex, edge} {}
+        vertex_edge{
+            .action = Action::ADD_OUT_EDGE, .edge_type = edge_type, .vertex = TaggedVertexPtr(vertex), .edge = edge} {}
 
   Delta(RemoveInEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
       : timestamp(timestamp),
         command_id(command_id),
-        vertex_edge{.action = Action::REMOVE_IN_EDGE, .edge_type = edge_type, vertex, edge} {}
+        vertex_edge{
+            .action = Action::REMOVE_IN_EDGE, .edge_type = edge_type, .vertex = TaggedVertexPtr(vertex), .edge = edge} {
+  }
 
   Delta(RemoveOutEdgeTag /*tag*/, EdgeTypeId edge_type, Vertex *vertex, EdgeRef edge, std::atomic<uint64_t> *timestamp,
         uint64_t command_id)
       : timestamp(timestamp),
         command_id(command_id),
-        vertex_edge{.action = Action::REMOVE_OUT_EDGE, .edge_type = edge_type, vertex, edge} {}
+        vertex_edge{.action = Action::REMOVE_OUT_EDGE,
+                    .edge_type = edge_type,
+                    .vertex = TaggedVertexPtr(vertex),
+                    .edge = edge} {}
 
   Delta(const Delta &) = delete;
   Delta(Delta &&) = delete;
@@ -280,7 +310,7 @@ struct Delta {
     struct {
       Action action;
       EdgeTypeId edge_type;
-      Vertex *vertex;  // @TODO: now this is tagged, make it harder to misuse. Maybe rename, or make private?
+      TaggedVertexPtr vertex;
       EdgeRef edge;
     } vertex_edge;
   };
@@ -293,26 +323,5 @@ static_assert(std::is_trivially_destructible_v<Delta>,
 static_assert(alignof(Delta) >= 8, "The Delta should be aligned to at least 8!");
 
 static_assert(sizeof(Delta) == 56, "Delta size is 56 bytes");
-
-inline bool IsEdgeDeltaInterleaved(Delta const *delta) {
-  if (delta->action != Delta::Action::ADD_IN_EDGE && delta->action != Delta::Action::ADD_OUT_EDGE) {
-    return false;
-  }
-  return (reinterpret_cast<uintptr_t>(delta->vertex_edge.vertex) & 0x1UL) != 0;
-}
-
-inline void TagEdgeDeltaVertex(Delta *delta, Vertex *vertex, bool is_interleaved) {
-  uintptr_t vertex_ptr = reinterpret_cast<uintptr_t>(vertex);
-  MG_ASSERT(delta->action == Delta::Action::ADD_IN_EDGE || delta->action == Delta::Action::ADD_OUT_EDGE);
-  MG_ASSERT((vertex_ptr & 0x1UL) == 0, "Vertex pointer must be aligned");
-  if (is_interleaved) {
-    vertex_ptr |= 0x1UL;
-  }
-  delta->vertex_edge.vertex = reinterpret_cast<Vertex *>(vertex_ptr);
-}
-
-inline Vertex *UntagEdgeDeltaVertex(const Delta *delta) {
-  return reinterpret_cast<Vertex *>(reinterpret_cast<uintptr_t>(delta->vertex_edge.vertex) & ~0x1UL);
-}
 
 }  // namespace memgraph::storage
