@@ -439,7 +439,7 @@ jobs:
     name: "Release build"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
     timeout-minutes: 60
-
+    if: ${{ inputs.run_stress_large == 'false' }}
     steps:
       - name: Set up repository
         uses: actions/checkout@v4
