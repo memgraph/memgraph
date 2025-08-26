@@ -24,29 +24,47 @@ def test_serialization_on_creating_edges(serialization):
     )
 
 
-def test_serialization_on_updating_props(serialization):
-    serialization.setup("CREATE (:L1)")
+def test_edge_creation_shared_from_vertex(serialization):
+    """Test concurrent edge creation when sharing the same FROM vertex"""
+    serialization.setup("CREATE (:V1), (:V2), (:V3)")
 
     serialization.run(
-        [{"query": "MATCH (m:L1) SET m.prop = $prop", "args": {"prop": "first"}, "delay": 3}],
-        [{"query": "MATCH (m:L1) SET m.prop = $prop", "args": {"prop": "second"}}],
+        [{"query": "MATCH (v1:V1), (v2:V2) CREATE (v1)-[:R1]->(v2)", "delay": 3}],
+        [{"query": "MATCH (v1:V1), (v3:V3) CREATE (v1)-[:R2]->(v3)"}],
     )
 
 
-def test_serialization_chain_on_updating_props(serialization):
-    serialization.setup("CREATE (:A), (:B), (:C)")
+def test_edge_creation_shared_to_vertex(serialization):
+    """Test concurrent edge creation when sharing the same TO vertex"""
+    serialization.setup("CREATE (:V1), (:V2), (:V3)")
 
     serialization.run(
-        [{"query": "MATCH (c:C) SET c.prop = $prop", "args": {"prop": "C1"}, "delay": 3}],
+        [{"query": "MATCH (v1:V1), (v2:V2) CREATE (v1)-[:R1]->(v2)", "delay": 3}],
+        [{"query": "MATCH (v3:V3), (v2:V2) CREATE (v3)-[:R2]->(v2)"}],
+    )
+
+
+def test_edge_creation_no_conflict(serialization):
+    """Test concurrent edge creation with no shared vertices - should never conflict"""
+    serialization.setup("CREATE (:V1), (:V2), (:V3), (:V4)")
+
+    serialization.run(
+        [{"query": "MATCH (v1:V1), (v2:V2) CREATE (v1)-[:R1]->(v2)", "delay": 3}],
+        [{"query": "MATCH (v3:V3), (v4:V4) CREATE (v3)-[:R2]->(v4)"}],
+    )
+
+
+def test_supernode_concurrent_edges(serialization):
+    """Test supernode scenario with multiple concurrent edge operations on V1"""
+    serialization.setup("CREATE (:V1), (:V2), (:V3), (:V4), (:V5), (:V6)")
+
+    serialization.run(
+        [{"query": "MATCH (v1:V1), (v2:V2) CREATE (v1)-[:R1]->(v2)", "delay": 3}],
         [
-            {
-                "query": "MATCH (b:B), (c:C) SET b.prop = $prop_b SET c.prop = $prop_c",
-                "args": {"prop_b": "B1", "prop_c": "C2"},
-            },
-            {
-                "query": "MATCH (a:A), (b:B) SET a.prop = $prop_a SET b.prop = $prop_b",
-                "args": {"prop_a": "A1", "prop_b": "B2"},
-            },
+            {"query": "MATCH (v1:V1), (v3:V3) CREATE (v1)-[:R2]->(v3)"},
+            {"query": "MATCH (v1:V1), (v4:V4) CREATE (v1)-[:R3]->(v4)"},
+            {"query": "MATCH (v5:V5), (v1:V1) CREATE (v5)-[:R4]->(v1)"},
+            {"query": "MATCH (v6:V6), (v1:V1) CREATE (v6)-[:R5]->(v1)"},
         ],
     )
 

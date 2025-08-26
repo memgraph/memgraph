@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #include "transaction_dependencies.hpp"
-#include <iostream>
 
 namespace memgraph::storage {
 
@@ -26,13 +25,11 @@ static bool IsWaitingFor(std::unordered_map<uint64_t, uint64_t> const &deps, uin
 }
 
 void TransactionDependencies::RegisterTransaction(uint64_t transaction_id) {
-  std::cout << "RegisterTransaction " << transaction_id << "\n";
   std::unique_lock l{mutex_};
   active_transactions_.insert(transaction_id);
 }
 
 void TransactionDependencies::UnregisterTransaction(uint64_t transaction_id) {
-  std::cout << "UnregisterTransaction " << transaction_id << "\n";
   std::unique_lock l{mutex_};
   active_transactions_.erase(transaction_id);
   cv_.notify_all();

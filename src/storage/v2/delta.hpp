@@ -280,7 +280,7 @@ struct Delta {
     struct {
       Action action;
       EdgeTypeId edge_type;
-      Vertex *vertex;
+      Vertex *vertex;  // @TODO: now this is tagged, make it harder to misuse. Maybe rename, or make private?
       EdgeRef edge;
     } vertex_edge;
   };

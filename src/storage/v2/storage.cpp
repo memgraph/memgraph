@@ -226,8 +226,6 @@ void Storage::RegisterTransaction(uint64_t transaction_id) {
     std::unique_lock guard{active_transactions_mutex_};
     active_transactions_.emplace(transaction_id, ActiveTransactionInfo{transaction_id});
   }
-
-  std::cout << "RegisterTransaction " << transaction_id << "\n";
 }
 
 void Storage::UnregisterTransaction(uint64_t transaction_id) {
@@ -235,7 +233,6 @@ void Storage::UnregisterTransaction(uint64_t transaction_id) {
     std::unique_lock guard{active_transactions_mutex_};
     active_transactions_.erase(transaction_id);
   }
-  std::cout << "UnregisterTransaction " << transaction_id << "\n";
 }
 
 StorageMode Storage::Accessor::GetCreationStorageMode() const noexcept { return creation_storage_mode_; }
