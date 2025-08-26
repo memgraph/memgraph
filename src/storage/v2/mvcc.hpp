@@ -87,6 +87,12 @@ inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delt
   return n_processed;
 }
 
+template <typename TObj>
+inline bool AreOperationsCommutative(TObj *object) {
+  return (object->delta->action == Delta::Action::REMOVE_IN_EDGE ||
+          object->delta->action == Delta::Action::REMOVE_OUT_EDGE);
+}
+
 /// This function prepares the object for a write. It checks whether there are
 /// any serialization errors in the process (eg. the object can't be written to
 /// from this transaction because it is being written to from another
@@ -113,8 +119,6 @@ inline bool PrepareForWriteWithRetry(Transaction *transaction, TObj *object, Tra
       return true;
     }
 
-    std::cout << "PrepareForWriteWithRetry: 2\n";
-
     if (ts >= kTransactionInitialId) {
       // This transaction cannot currently attach a new delta because another
       // transaction has already added deltas that have not been committed.
@@ -127,7 +131,16 @@ inline bool PrepareForWriteWithRetry(Transaction *transaction, TObj *object, Tra
         transaction->has_serialization_error = true;
         return false;
       }
+
+      if (AreOperationsCommutative(object)) {
+        return true;
+      }
+      transaction->must_abort = true;
+      return false;
     } else {
+      if (AreOperationsCommutative(object)) {
+        return true;
+      }
       transaction->has_serialization_error = true;
       return false;
     }
