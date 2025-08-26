@@ -26,7 +26,8 @@ def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}
 
 class SerializationFixture:
     def __init__(self):
-        self.error = None
+        self.passes = 0
+        self.fails = 0
         self.primary_connection = mgclient.connect(host="localhost", port=7687)
         self.primary_connection.autocommit = True
 
@@ -59,9 +60,7 @@ class SerializationFixture:
         for thread in threads:
             thread.join()
 
-        if self.error:
-            print(self.error)
-        assert not self.error
+        return (self.passes, self.fails)
 
     def _make_connection(self, **kwargs):
         connection = mgclient.connect(host="localhost", port=7687, **kwargs)
@@ -80,8 +79,10 @@ class SerializationFixture:
             if sleep_duration:
                 time.sleep(sleep_duration)
             connection.commit()
+            self.passes += 1
         except Exception as e:
-            self.error = e
+            print(str(e))
+            self.fails += 1
 
     def _execute_phase_2(self, query, args):
         """Phase 2 transactions hit the barrier, and the execute the query"""
@@ -91,8 +92,10 @@ class SerializationFixture:
             cursor = connection.cursor()
             cursor.execute(query, args)
             connection.commit()
+            self.passes += 1
         except Exception as e:
-            self.error = e
+            print(str(e))
+            self.fails += 1
 
 
 @pytest.fixture
