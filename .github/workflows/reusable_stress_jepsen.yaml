@@ -44,6 +44,9 @@ jobs:
 
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Set Cluster File
         run: |

@@ -88,6 +88,9 @@ jobs:
       - name: Log in to Docker Hub
         if: ${{ inputs.push_to_dockerhub }}
         uses: ./.github/actions/docker-login
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
 
       - name: Create and push multi-arch manifest for version
         run: |
