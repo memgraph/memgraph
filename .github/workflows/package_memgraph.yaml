@@ -48,20 +48,20 @@ jobs:
   PackageSetup:
     runs-on: ubuntu-latest
     outputs:
-      run_package_centos-9: ${{ steps.setup.outputs.run_package_centos-9 }}
-      run_package_centos-10: ${{ steps.setup.outputs.run_package_centos-10 }}
-      run_package_debian-11: ${{ steps.setup.outputs.run_package_debian-11 }}
-      run_package_debian-11-arm: ${{ steps.setup.outputs.run_package_debian-11-arm }}
-      run_package_debian-12: ${{ steps.setup.outputs.run_package_debian-12 }}
-      run_package_debian-12-arm: ${{ steps.setup.outputs.run_package_debian-12-arm }}
+      run_package_centos_9: ${{ steps.setup.outputs.run_package_centos_9 }}
+      run_package_centos_10: ${{ steps.setup.outputs.run_package_centos_10 }}
+      run_package_debian_11: ${{ steps.setup.outputs.run_package_debian_11 }}
+      run_package_debian_11_arm: ${{ steps.setup.outputs.run_package_debian_11_arm }}
+      run_package_debian_12: ${{ steps.setup.outputs.run_package_debian_12 }}
+      run_package_debian_12_arm: ${{ steps.setup.outputs.run_package_debian_12_arm }}
       run_package_docker: ${{ steps.setup.outputs.run_package_docker }}
-      run_package_docker-arm: ${{ steps.setup.outputs.run_package_docker-arm }}
-      run_package_fedora-41: ${{ steps.setup.outputs.run_package_fedora-41 }}
-      run_package_rocky-9_3: ${{ steps.setup.outputs.run_package_rocky-9_3 }}
-      run_package_ubuntu-22_04: ${{ steps.setup.outputs.run_package_ubuntu-22_04 }}
-      run_package_ubuntu-24_04: ${{ steps.setup.outputs.run_package_ubuntu-24_04 }}
-      run_package_ubuntu-24_04-arm: ${{ steps.setup.outputs.run_package_ubuntu-24_04-arm }}
-      run_package_ubuntu-24_04-malloc: ${{ steps.setup.outputs.run_package_ubuntu-24_04-malloc }}
+      run_package_docker_arm: ${{ steps.setup.outputs.run_package_docker_arm }}
+      run_package_fedora_41: ${{ steps.setup.outputs.run_package_fedora_41 }}
+      run_package_rocky_9_3: ${{ steps.setup.outputs.run_package_rocky_9_3 }}
+      run_package_ubuntu_22_04: ${{ steps.setup.outputs.run_package_ubuntu_22_04 }}
+      run_package_ubuntu_24_04: ${{ steps.setup.outputs.run_package_ubuntu_24_04 }}
+      run_package_ubuntu_24_04_arm: ${{ steps.setup.outputs.run_package_ubuntu_24_04_arm }}
+      run_package_ubuntu_24_04_malloc: ${{ steps.setup.outputs.run_package_ubuntu-24_04_malloc }}
       workflow_input_build_type: ${{ steps.setup.outputs.workflow_input_build_type }}
       workflow_input_toolchain: ${{ steps.setup.outputs.workflow_input_toolchain }}
       workflow_input_push_to_s3: ${{ steps.setup.outputs.workflow_input_push_to_s3 }}
