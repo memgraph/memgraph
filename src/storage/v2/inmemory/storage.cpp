@@ -536,13 +536,11 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
 
   transaction_.async_index_helper_.Track(edge_type);
 
-  if (!PrepareForWriteWithRetry(&transaction_, from_vertex, storage_->transaction_dependencies_))
-    return std::unexpected{Error::SERIALIZATION_ERROR};
+  if (!PrepareForCommutativeWrite(&transaction_, from_vertex)) return std::unexpected{Error::SERIALIZATION_ERROR};
   if (from_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
 
   if (to_vertex != from_vertex) {
-    if (!PrepareForWriteWithRetry(&transaction_, to_vertex, storage_->transaction_dependencies_))
-      return std::unexpected{Error::SERIALIZATION_ERROR};
+    if (!PrepareForCommutativeWrite(&transaction_, to_vertex)) return std::unexpected{Error::SERIALIZATION_ERROR};
     if (to_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
   }
 
@@ -649,13 +647,11 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
     guard_from.lock();
   }
 
-  if (!PrepareForWriteWithRetry(&transaction_, from_vertex, storage_->transaction_dependencies_))
-    return std::unexpected{Error::SERIALIZATION_ERROR};
+  if (!PrepareForCommutativeWrite(&transaction_, from_vertex)) return std::unexpected{Error::SERIALIZATION_ERROR};
   if (from_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
 
   if (to_vertex != from_vertex) {
-    if (!PrepareForWriteWithRetry(&transaction_, to_vertex, storage_->transaction_dependencies_))
-      return std::unexpected{Error::SERIALIZATION_ERROR};
+    if (!PrepareForCommutativeWrite(&transaction_, to_vertex)) return std::unexpected{Error::SERIALIZATION_ERROR};
     if (to_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
   }
 
