@@ -1,3 +1,0 @@
-- name: magic_fields_lower_case
-  nodes: "nodes.csv"
-  import_should_fail: True
