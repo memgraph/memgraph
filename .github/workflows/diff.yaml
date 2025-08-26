@@ -11,9 +11,9 @@ on:
       community_core:
         type: boolean
         default: true
-      coverage_core:
-        type: boolean
-        default: true
+      coverage:
+        description: 'Comma-separated list of coverage tests to run (e.g. core,clang_tidy)'
+        default: 'core,clang_tidy'
       debug_core:
         type: boolean
         default: true
@@ -37,6 +37,7 @@ jobs:
     outputs:
       run_community_core: ${{ steps.setup.outputs.run_community_core }}
       run_coverage_core: ${{ steps.setup.outputs.run_coverage_core }}
+      run_coverage_clang_tidy: ${{ steps.setup.outputs.run_coverage_clang_tidy }}
       run_debug_core: ${{ steps.setup.outputs.run_debug_core }}
       run_debug_integration: ${{ steps.setup.outputs.run_debug_integration }}
       run_jepsen_core: ${{ steps.setup.outputs.run_jepsen_core }}
@@ -78,7 +79,7 @@ jobs:
       os: 'ubuntu-24.04'
       toolchain: 'v6'
       run_core: ${{ needs.DiffSetup.outputs.run_coverage_core }}
-      run_clang_tidy: ${{ needs.DiffSetup.outputs.run_coverage_core }}
+      run_clang_tidy: ${{ needs.DiffSetup.outputs.run_coverage_clang_tidy }}
     secrets: inherit
 
   Debug:
