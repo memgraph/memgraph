@@ -359,6 +359,11 @@ add_unit_test(utils_memory
     LINK_TARGETS mg-utils
 )
 
+add_unit_test(utils_memory_thread_safe
+    SOURCES utils_memory_thread_safe.cpp
+    LINK_TARGETS mg-utils
+)
+
 add_unit_test(utils_memory_tracker
     SOURCES utils_memory_tracker.cpp
     LINK_TARGETS mg-utils
