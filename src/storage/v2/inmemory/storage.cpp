@@ -113,8 +113,8 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action const action) -> d
 #undef add_case
 }
 
-auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex,
-               VertexAccessor *to_vertex) -> Result<EdgesVertexAccessorResult> {
+auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex, VertexAccessor *to_vertex)
+    -> Result<EdgesVertexAccessorResult> {
   auto use_out_edges = [](Vertex const *from_vertex, Vertex const *to_vertex) {
     // Obtain the locks by `gid` order to avoid lock cycles.
     auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
@@ -477,13 +477,11 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
 
   transaction_.async_index_helper_.Track(edge_type);
 
-  if (!PrepareForWriteWithRetry(&transaction_, from_vertex, storage_->transaction_dependencies_))
-    return Error::SERIALIZATION_ERROR;
+  if (!PrepareForCommutativeWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
   if (from_vertex->deleted) return Error::DELETED_OBJECT;
 
   if (to_vertex != from_vertex) {
-    if (!PrepareForWriteWithRetry(&transaction_, to_vertex, storage_->transaction_dependencies_))
-      return Error::SERIALIZATION_ERROR;
+    if (!PrepareForCommutativeWrite(&transaction_, to_vertex)) return Error::SERIALIZATION_ERROR;
     if (to_vertex->deleted) return Error::DELETED_OBJECT;
   }
 
@@ -585,13 +583,11 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
     guard_from.lock();
   }
 
-  if (!PrepareForWriteWithRetry(&transaction_, from_vertex, storage_->transaction_dependencies_))
-    return Error::SERIALIZATION_ERROR;
+  if (!PrepareForCommutativeWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
   if (from_vertex->deleted) return Error::DELETED_OBJECT;
 
   if (to_vertex != from_vertex) {
-    if (!PrepareForWriteWithRetry(&transaction_, to_vertex, storage_->transaction_dependencies_))
-      return Error::SERIALIZATION_ERROR;
+    if (!PrepareForCommutativeWrite(&transaction_, to_vertex)) return Error::SERIALIZATION_ERROR;
     if (to_vertex->deleted) return Error::DELETED_OBJECT;
   }
 
