@@ -24,7 +24,6 @@
 #include "query/typed_value.hpp"
 #include "replication/state.hpp"
 #include "storage/v2/config.hpp"
-#include "storage/v2/transaction.hpp"
 #include "system/state.hpp"
 #include "system/system.hpp"
 #include "utils/exceptions.hpp"

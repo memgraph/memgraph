@@ -19,16 +19,18 @@
 #include <unordered_set>
 #include <utility>
 
+#include "storage/v2/edge_ref.hpp"
 #include "storage/v2/enum_store.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
-#include "storage/v2/vertex.hpp"
 #include "utils/conccurent_unordered_map.hpp"
 #include "utils/small_vector.hpp"
 
 namespace memgraph::storage {
+
+struct Vertex;
 
 using VertexKey = utils::small_vector<LabelId>;
 

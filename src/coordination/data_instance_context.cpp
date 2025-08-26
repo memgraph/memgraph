@@ -14,6 +14,8 @@
 #include "coordination/data_instance_context.hpp"
 #include "coordination/constants.hpp"
 
+#include <nlohmann/json.hpp>
+
 namespace memgraph::coordination {
 
 void to_json(nlohmann::json &j, DataInstanceContext const &instance_state) {

@@ -19,11 +19,12 @@
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
-#include "storage/v2/vertex.hpp"
 #include "storage/v2/vertices_iterable.hpp"
 #include "text_search.hpp"
 
 namespace memgraph::storage {
+
+struct Vertex;
 
 struct TextIndexData {
   mutable mgcxx::text_search::Context context_;

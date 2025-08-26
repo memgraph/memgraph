@@ -15,18 +15,11 @@ endif()
 # need to be cleaned, set ADDITIONAL_MAKE_CLEAN_FILES property.
 set_directory_properties(PROPERTIES CLEAN_NO_CUSTOM TRUE)
 
-# ccache setup
-# ccache isn't enabled all the time because it makes some problem
-# during the code coverage process
-find_program(CCACHE_FOUND ccache)
-option(USE_CCACHE "ccache:" ON)
-if(CCACHE_FOUND AND USE_CCACHE)
-  set_property(GLOBAL PROPERTY RULE_LAUNCH_COMPILE ccache)
-  set_property(GLOBAL PROPERTY RULE_LAUNCH_LINK ccache)
-  message(STATUS "CCache: Used")
-else ()
-  message(STATUS "CCache: Not used")
-endif(CCACHE_FOUND AND USE_CCACHE)
+# ccache setup with optimized configuration
+option(USE_CCACHE "Use ccache for faster rebuilds" ON)
+if(USE_CCACHE)
+  include(${CMAKE_CURRENT_SOURCE_DIR}/cmake/ccache.cmake)
+endif()
 
 # choose a compiler
 # NOTE: must be choosen before use of project() or enable_language()
@@ -257,8 +250,7 @@ add_compile_options(
 )
 
 # Don't omit frame pointer in RelWithDebInfo, for additional callchain debug.
-set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
-    "${CMAKE_CXX_FLAGS_RELWITHDEBINFO} -fno-omit-frame-pointer")
+add_compile_options($<$<CONFIG:RelWithDebInfo>:-fno-omit-frame-pointer>)
 
 # Use lld linker to speedup build and use less memory.
 add_link_options(-fuse-ld=lld)
@@ -277,23 +269,24 @@ set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_Release TRUE)
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo TRUE)
 
 # release flags
-set(CMAKE_CXX_FLAGS_RELEASE "-O2 -DNDEBUG")
+add_compile_options($<$<CONFIG:Release>:-O2>)
+add_compile_definitions($<$<CONFIG:Release>:NDEBUG>)
 
-SET(CMAKE_CXX_LINK_FLAGS "${CMAKE_CXX_LINK_FLAGS} -pthread")
+add_link_options(-pthread)
 
 #debug flags
 set(PREFERRED_DEBUGGER "gdb" CACHE STRING
     "Tunes the debug output for your preferred debugger (gdb or lldb).")
 if ("${PREFERRED_DEBUGGER}" STREQUAL "gdb" AND
     "${CMAKE_CXX_COMPILER_ID}" MATCHES "Clang|GNU")
-    set(CMAKE_CXX_FLAGS_DEBUG "-ggdb")
+    add_compile_options($<$<CONFIG:Debug>:-ggdb>)
 elseif ("${PREFERRED_DEBUGGER}" STREQUAL "lldb" AND
         "${CMAKE_CXX_COMPILER_ID}" STREQUAL "Clang")
-    set(CMAKE_CXX_FLAGS_DEBUG "-glldb")
+    add_compile_options($<$<CONFIG:Debug>:-glldb>)
 else()
     message(WARNING "Unable to tune for PREFERRED_DEBUGGER: "
             "'${PREFERRED_DEBUGGER}' with compiler: '${CMAKE_CXX_COMPILER_ID}'")
-    set(CMAKE_CXX_FLAGS_DEBUG "-g")
+    add_compile_options($<$<CONFIG:Debug>:-g>)
 endif()
 
 # -----------------------------------------------------------------------------
@@ -350,8 +343,9 @@ if (TEST_COVERAGE)
   if (NOT lower_build_type STREQUAL "debug")
     message(FATAL_ERROR "Generating test coverage unsupported in non Debug builds. Current build type is '${CMAKE_BUILD_TYPE}'")
   endif()
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fprofile-instr-generate -fcoverage-mapping")
-  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fprofile-instr-generate -fcoverage-mapping")
+  # Use relative paths for coverage data to enable ccache sharing across directories
+  add_compile_options(-fprofile-instr-generate -fcoverage-mapping -fcoverage-prefix-map=${PROJECT_SOURCE_DIR}=.)
+  add_link_options(-fprofile-instr-generate -fcoverage-mapping)
 endif()
 
 if (MG_ENTERPRISE)
@@ -409,8 +403,8 @@ if (TSAN)
   # during compilation (and can only be intercepted during compilation).
   # ThreadSanitizer stack trace collection also relies on compiler instrumentation
   # (unwinding stack on each memory access is too expensive).
-  set(CMAKE_CXX_FLAGS "${CMAKE_CXX_FLAGS} -fsanitize=thread")
-  set(CMAKE_EXE_LINKER_FLAGS "${CMAKE_EXE_LINKER_FLAGS} -fsanitize=thread")
+  add_compile_options(-fsanitize=thread)
+  add_link_options(-fsanitize=thread)
   # By default ThreadSanitizer uses addr2line utility to symbolize reports.
   # llvm-symbolizer is faster, consumes less memory and produces much better
   # reports. To use it set runtime flag:

@@ -17,7 +17,6 @@
 #include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index.hpp"
-#include "storage/v2/vertex.hpp"
 #include "utils/rocksdb_serialization.hpp"
 #include "utils/synchronized.hpp"
 

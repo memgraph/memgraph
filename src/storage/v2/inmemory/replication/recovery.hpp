@@ -11,10 +11,10 @@
 #pragma once
 
 #include "rpc/messages.hpp"
-#include "storage/v2/durability/durability.hpp"
 #include "storage/v2/replication/recovery.hpp"
 #include "storage/v2/replication/replication_client.hpp"
 #include "utils/event_histogram.hpp"
+#include "utils/file_locker.hpp"
 #include "utils/metrics_timer.hpp"
 
 namespace memgraph::metrics {

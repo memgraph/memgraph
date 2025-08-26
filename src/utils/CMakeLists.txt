@@ -28,6 +28,7 @@ target_sources(mg-utils
     skip_list.cpp
     priority_thread_pool.cpp
     resource_monitoring.cpp
+    rocksdb_serialization.cpp
 
     PUBLIC
     FILE_SET HEADERS
@@ -47,6 +48,7 @@ target_sources(mg-utils
     transparent_compare.hpp
     compile_time.hpp
     resource_monitoring.hpp
+    atomic_utils.hpp
 )
 
 find_package(Boost REQUIRED CONFIG)
@@ -56,7 +58,7 @@ find_package(Threads REQUIRED)
 find_package(ZLIB REQUIRED)
 
 target_link_libraries(mg-utils PUBLIC Boost::headers fmt::fmt spdlog::spdlog nlohmann_json::nlohmann_json ZLIB::ZLIB croncpp::croncpp)
-target_link_libraries(mg-utils PRIVATE librdtsc stdc++fs Threads::Threads gflags uuid rt mg-flags)
+target_link_libraries(mg-utils PRIVATE librdtsc stdc++fs Threads::Threads gflags uuid rt mg-flags strong_type::strong_type lib::rangev3 absl::flat_hash_set absl::flat_hash_map)
 
 add_library(mg-settings STATIC)
 target_sources(mg-settings

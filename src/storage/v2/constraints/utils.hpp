@@ -12,7 +12,6 @@
 
 #include <vector>
 #include "storage/v2/snapshot_observer_info.hpp"
-#include "storage/v2/vertex.hpp"
 #include "utils/skip_list.hpp"
 
 namespace memgraph::storage {

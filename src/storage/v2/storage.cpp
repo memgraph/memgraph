@@ -13,19 +13,19 @@
 #include <shared_mutex>
 #include <tuple>
 
+#include <nlohmann/json.hpp>
 #include "spdlog/spdlog.h"
 
 #include "flags/experimental.hpp"
 #include "license/license.hpp"
-#include "storage/v2/async_indexer.hpp"
 #include "storage/v2/disk/name_id_mapper.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
+#include "storage/v2/mvcc.hpp"
 #include "storage/v2/schema_info_glue.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/transaction.hpp"
-#include "storage/v2/ttl.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/view.hpp"
@@ -724,6 +724,31 @@ utils::BasicResult<storage::StorageIndexDefinitionError, void> Storage::Accessor
   transaction_.md_deltas.emplace_back(MetadataDelta::text_index_drop, index_name);
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTextIndices);
   return {};
+}
+
+nlohmann::json ToJson(const StorageInfo &info) {
+  nlohmann::json res;
+
+  res["edges"] = info.edge_count;
+  res["vertices"] = info.vertex_count;
+  res["memory"] = info.memory_res;
+  res["disk"] = info.disk_usage;
+  res["label_indices"] = info.label_indices;
+  res["label_prop_indices"] = info.label_property_indices;
+  res["text_indices"] = info.text_indices;
+  res["vector_indices"] = info.vector_indices;
+  res["vector_edge_indices"] = info.vector_edge_indices;
+  res["existence_constraints"] = info.existence_constraints;
+  res["unique_constraints"] = info.unique_constraints;
+  res["storage_mode"] = storage::StorageModeToString(info.storage_mode);
+  res["isolation_level"] = storage::IsolationLevelToString(info.isolation_level);
+  res["durability"] = {{"snapshot_enabled", info.durability_snapshot_enabled},
+                       {"WAL_enabled", info.durability_wal_enabled}};
+  res["property_store_compression_enabled"] = info.property_store_compression_enabled;
+  res["property_store_compression_level"] = utils::CompressionLevelToString(info.property_store_compression_level);
+  res["schema_vertex_count"] = info.schema_vertex_count;
+  res["schema_edge_count"] = info.schema_edge_count;
+  return res;
 }
 
 }  // namespace memgraph::storage

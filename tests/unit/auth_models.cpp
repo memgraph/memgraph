@@ -22,7 +22,37 @@
 #include "license/license.hpp"
 #include "nlohmann/json.hpp"
 
+#include <fmt/core.h>
+#include <unistd.h>
+#include <chrono>
+
 namespace {
+
+// RAII class for temporary test directories
+class TempTestDir {
+ public:
+  explicit TempTestDir(const std::string &prefix)
+      : path_(std::filesystem::temp_directory_path() /
+              fmt::format("{}_{}_{}", prefix, getpid(), std::chrono::system_clock::now().time_since_epoch().count())) {
+    // Clean up any existing directory first
+    std::filesystem::remove_all(path_);
+  }
+
+  ~TempTestDir() {
+    std::error_code ec;
+    std::filesystem::remove_all(path_, ec);
+    // Ignore errors on cleanup - best effort
+  }
+
+  // Implicit conversion to filesystem::path for convenience
+  operator const std::filesystem::path &() const { return path_; }
+
+  // Explicit getter if needed
+  const std::filesystem::path &path() const { return path_; }
+
+ private:
+  std::filesystem::path path_;
+};
 constexpr auto kRoleName = "rolename";
 constexpr auto kPermissions = "permissions";
 constexpr auto kGrants = "grants";
@@ -1101,13 +1131,8 @@ TEST(AuthModule, UserProfiles) {
   ASSERT_TRUE(memgraph::license::global_license_checker.IsEnterpriseValidFast());
 
   // Test UserProfiles class directly since profile management is now centralized
-  auto temp_dir = std::filesystem::temp_directory_path() / "MG_test_user_profiles";
-
-  // Clean up any existing directory
-  if (std::filesystem::exists(temp_dir)) {
-    std::filesystem::remove_all(temp_dir);
-  }
-
+  // Use RAII temp directory that cleans up automatically
+  TempTestDir temp_dir("MG_test_user_profiles");
   memgraph::kvstore::KVStore kvstore{temp_dir};
   memgraph::auth::UserProfiles user_profiles{kvstore};
 
@@ -1184,10 +1209,5 @@ TEST(AuthModule, UserProfiles) {
   ASSERT_TRUE(user_profiles.Drop("profile"));
   profile = user_profiles.Get("profile");
   ASSERT_FALSE(profile.has_value());
-
-  // Clean up test directory
-  if (std::filesystem::exists(temp_dir)) {
-    std::filesystem::remove_all(temp_dir);
-  }
 }
 #endif

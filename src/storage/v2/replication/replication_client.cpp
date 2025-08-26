@@ -12,6 +12,8 @@
 #include "replication/replication_client.hpp"
 
 #include "flags/coord_flag_env_handler.hpp"
+#include "storage/v2/durability/wal.hpp"
+#include "storage/v2/inmemory/replication/recovery.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "storage/v2/replication/recovery.hpp"

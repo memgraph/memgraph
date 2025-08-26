@@ -13,11 +13,10 @@
 
 #include <optional>
 
-#include "storage/v2/vertex.hpp"
-
 #include "query/hops_limit.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/edge_direction.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/result.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/small_vector.hpp"
@@ -25,6 +24,10 @@
 namespace memgraph::storage {
 
 class EdgeAccessor;
+class EdgeTypeId;
+struct Vertex;
+struct EdgeRef;
+class LabelId;
 class Storage;
 struct Constraints;
 struct Indices;
@@ -125,7 +128,7 @@ class VertexAccessor final {
 
   Result<size_t> OutDegree(View view) const;
 
-  Gid Gid() const noexcept { return vertex_->gid; }
+  Gid Gid() const noexcept;
 
   bool operator==(const VertexAccessor &other) const noexcept {
     return vertex_ == other.vertex_ && transaction_ == other.transaction_;

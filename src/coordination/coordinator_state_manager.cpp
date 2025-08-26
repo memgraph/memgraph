@@ -19,6 +19,7 @@
 
 #include <spdlog/spdlog.h>
 
+#include <nlohmann/json.hpp>
 #include <range/v3/view.hpp>
 
 namespace memgraph::coordination {

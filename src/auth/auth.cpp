@@ -12,6 +12,7 @@
 #include <utility>
 
 #include <fmt/format.h>
+#include <nlohmann/json.hpp>
 
 #include "auth/crypto.hpp"
 #include "auth/exceptions.hpp"
