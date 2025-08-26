@@ -23,25 +23,23 @@ class DiffSetup:
                 inputs = self._get_workflow_dispatch_inputs()
                 if inputs:
                     release = inputs.pop("release", "")
-                    print(f"DEBUG: release value = '{release}' (type: {type(release)})")
-                    for test in ["core", "benchmark", "e2e", "stress", "query_modules"]:
-                        is_in_release = test in release
-                        print(f"DEBUG: '{test}' in '{release}' = {is_in_release}")
-                        self._gh_context["event"]["inputs"][f"release_{test}"] = "true" if is_in_release else "false"
+                    # Check for "none" to skip all release tests
+                    if release.lower() == "none":
+                        for test in ["core", "benchmark", "e2e", "stress", "query_modules"]:
+                            self._gh_context["event"]["inputs"][f"release_{test}"] = "false"
+                    else:
+                        for test in ["core", "benchmark", "e2e", "stress", "query_modules"]:
+                            self._gh_context["event"]["inputs"][f"release_{test}"] = "true" if test in release else "false"
                     
                     # reformat coverage key
                     coverage = inputs.pop("coverage", "")
-                    print(f"DEBUG: coverage value = '{coverage}' (type: {type(coverage)})")
-                    for test in ["core", "clang_tidy"]:
-                        is_in_coverage = test in coverage
-                        print(f"DEBUG: '{test}' in '{coverage}' = {is_in_coverage}")
-                        self._gh_context["event"]["inputs"][f"coverage_{test}"] = "true" if is_in_coverage else "false"
-                    
-                    # Remove the original keys from the inputs to prevent them from being processed as individual flags
-                    if "release" in self._gh_context["event"]["inputs"]:
-                        del self._gh_context["event"]["inputs"]["release"]
-                    if "coverage" in self._gh_context["event"]["inputs"]:
-                        del self._gh_context["event"]["inputs"]["coverage"]
+                    # Check for "none" to skip all coverage tests
+                    if coverage.lower() == "none":
+                        for test in ["core", "clang_tidy"]:
+                            self._gh_context["event"]["inputs"][f"coverage_{test}"] = "false"
+                    else:
+                        for test in ["core", "clang_tidy"]:
+                            self._gh_context["event"]["inputs"][f"coverage_{test}"] = "true" if test in coverage else "false"
 
         except FileNotFoundError:
             print(f"Error: file not found {self._gh_context_path}")
@@ -140,7 +138,7 @@ def print_test_suite(tests: dict, set_env_vars: bool = False) -> None:
         for test, run in tests.items():
             print(f"run_{build}_{test}={run}")
             if set_env_vars:
-                os.popen(f"echo run_{build}_{test}={str(run).lower()} >> $GITHUB_OUTPUT")
+                os.popen(f"echo run_{build}_{test}={run} >> $GITHUB_OUTPUT")
 
 
 def parse_args() -> argparse.Namespace:

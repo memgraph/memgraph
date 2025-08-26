@@ -12,7 +12,7 @@ on:
         type: boolean
         default: true
       coverage:
-        description: 'Comma-separated list of coverage tests to run (e.g. core,clang_tidy)'
+        description: 'Comma-separated list of coverage tests to run (e.g. core,clang_tidy). Use "none" to skip all coverage tests.'
         default: 'core,clang_tidy'
       debug_core:
         type: boolean
@@ -24,7 +24,7 @@ on:
         type: boolean
         default: true
       release:
-        description: 'Comma-separated list of release tests to run (e.g. core,benchmark,e2e,stress,query_modules)'
+        description: 'Comma-separated list of release tests to run (e.g. core,benchmark,e2e,stress,query_modules). Use "none" to skip all release tests.'
         default: 'core,benchmark,e2e,stress,query_modules'
       malloc_build:
         type: boolean
