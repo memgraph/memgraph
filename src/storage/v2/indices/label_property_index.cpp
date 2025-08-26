@@ -9,9 +9,9 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "label_property_index.hpp"
-
+#include "storage/v2/indices/label_property_index.hpp"
 #include <span>
+#include "storage/v2/vertex.hpp"
 
 namespace r = ranges;
 namespace rv = r::views;

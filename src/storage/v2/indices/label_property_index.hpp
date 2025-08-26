@@ -13,7 +13,7 @@
 
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/property_path.hpp"
-#include "storage/v2/vertex.hpp"
+#include "storage/v2/property_store.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 
 #include <cstdint>
@@ -146,8 +146,8 @@ struct PropertiesPermutationHelper {
    * values. This returns a vector of boolean flags indicating per-element
    * equality (in monotonic property id order.)
    */
-  auto MatchesValues(PropertyStore const &properties,
-                     IndexOrderedPropertyValues const &values) const -> std::vector<bool>;
+  auto MatchesValues(PropertyStore const &properties, IndexOrderedPropertyValues const &values) const
+      -> std::vector<bool>;
 
   /** Returns an augmented view over the values in the given vector, where each
    * element is a tuple comprising: (position, [property id path], and value).

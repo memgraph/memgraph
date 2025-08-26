@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 
 namespace memgraph::storage {

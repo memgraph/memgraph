@@ -17,7 +17,7 @@
 #include "kvstore/kvstore.hpp"
 #include "storage/v2/commit_args.hpp"
 #include "storage/v2/delta.hpp"
-#include "storage/v2/transaction.hpp"
+#include "storage/v2/transaction_constants.hpp"
 #include "utils/exceptions.hpp"
 
 /// REPLICATION ///

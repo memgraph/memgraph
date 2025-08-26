@@ -37,7 +37,6 @@
 #include "storage/v2/schema_info_types.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/transaction_constants.hpp"
-#include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_info_cache.hpp"
 #include "utils/pmr/list.hpp"
 

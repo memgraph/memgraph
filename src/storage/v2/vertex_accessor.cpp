@@ -33,6 +33,7 @@
 #include "storage/v2/schema_info_glue.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/transaction.hpp"
+#include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_info_cache.hpp"
 #include "storage/v2/vertex_info_helpers.hpp"
 #include "storage/v2/view.hpp"
@@ -1116,4 +1117,7 @@ int64_t VertexAccessor::HandleExpansionsWithEdgeTypes(edge_store &result_edges,
   }
   return expanded_count;
 }
+
+Gid VertexAccessor::Gid() const noexcept { return vertex_->gid; }
+
 }  // namespace memgraph::storage

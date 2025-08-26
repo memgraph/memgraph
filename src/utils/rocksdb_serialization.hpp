@@ -13,7 +13,6 @@
 
 #include "storage/v2/edge.hpp"
 #include "storage/v2/property_store.hpp"
-#include "storage/v2/vertex.hpp"
 
 namespace memgraph::utils {
 
@@ -155,10 +154,7 @@ inline storage::PropertyStore DeserializePropertiesFromAuxiliaryStorages(std::st
   return storage::PropertyStore::CreateFromBuffer(FindPartOfStringView(value, '|', 2));
 }
 
-inline std::string SerializeVertex(const storage::Vertex &vertex) {
-  std::string result = utils::SerializeLabels(TransformIDsToString(vertex.labels)) + "|";
-  return result + vertex.gid.ToString();
-}
+std::string SerializeVertex(const storage::Vertex &vertex);
 
 inline std::vector<storage::LabelId> DeserializeLabelsFromMainDiskStorage(std::string_view key) {
   std::string labels_str = std::string(key.substr(0, key.find('|')));

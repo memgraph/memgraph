@@ -13,6 +13,7 @@
 #include <range/v3/algorithm/find.hpp>
 
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/indices_utils.hpp"
 #include "storage/v2/indices/label_property_index.hpp"
 #include "storage/v2/inmemory/label_property_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -312,8 +313,8 @@ bool InMemoryLabelPropertyIndex::RegisterIndex(LabelId label, PropertiesPaths co
 auto InMemoryLabelPropertyIndex::PopulateIndex(
     LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
     const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
-    std::optional<SnapshotObserverInfo> const &snapshot_info, Transaction const *tx,
-    CheckCancelFunction cancel_check) -> utils::BasicResult<IndexPopulateError> {
+    std::optional<SnapshotObserverInfo> const &snapshot_info, Transaction const *tx, CheckCancelFunction cancel_check)
+    -> utils::BasicResult<IndexPopulateError> {
   auto index = GetIndividualIndex(label, properties);
   if (!index) {
     MG_ASSERT(false, "It should not be possible to remove the index before populating it.");
@@ -559,8 +560,8 @@ bool InMemoryLabelPropertyIndex::ActiveIndices::IndexReady(LabelId label,
 }
 
 auto InMemoryLabelPropertyIndex::ActiveIndices::RelevantLabelPropertiesIndicesInfo(
-    std::span<LabelId const> labels,
-    std::span<PropertyPath const> properties) const -> std::vector<LabelPropertiesIndicesInfo> {
+    std::span<LabelId const> labels, std::span<PropertyPath const> properties) const
+    -> std::vector<LabelPropertiesIndicesInfo> {
   auto res = std::vector<LabelPropertiesIndicesInfo>{};
   auto ppos_indices = rv::iota(size_t{}, properties.size()) | r::to_vector;
   auto properties_vec = properties | ranges::to_vector;

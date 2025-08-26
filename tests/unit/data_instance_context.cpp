@@ -12,6 +12,7 @@
 #include "coordination/data_instance_context.hpp"
 #include <gtest/gtest.h>
 #include <filesystem>
+#include <nlohmann/json.hpp>
 #include "utils/uuid.hpp"
 
 #ifdef MG_ENTERPRISE

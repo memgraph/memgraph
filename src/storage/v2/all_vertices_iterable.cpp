@@ -38,4 +38,11 @@ AllVerticesIterable::Iterator &AllVerticesIterable::Iterator::operator++() {
   return *this;
 }
 
+AllVerticesIterable::AllVerticesIterable(utils::SkipList<Vertex>::Accessor vertices_accessor, Storage *storage,
+                                         Transaction *transaction, View view)
+    : vertices_accessor_(std::move(vertices_accessor)), storage_(storage), transaction_(transaction), view_(view) {}
+
+AllVerticesIterable::Iterator AllVerticesIterable::begin() { return {this, vertices_accessor_.begin()}; }
+AllVerticesIterable::Iterator AllVerticesIterable::end() { return {this, vertices_accessor_.end()}; }
+
 }  // namespace memgraph::storage
