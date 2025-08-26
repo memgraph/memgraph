@@ -157,6 +157,15 @@ static_assert(std::is_constructible_v<opt_str, std::optional<std::string_view>, 
 static_assert(std::is_trivially_destructible_v<opt_str>,
               "uses PageSlabMemoryResource, lifetime linked to that, dtr should be trivial");
 
+/**
+ * By using a tagged pointer for the vertex in a vertex_edge `Delta`, we can
+ * store a flag indicating whether the `Delta` is interleaved without increasing
+ * the size of the overall `Delta`. An "interleaved" `Delta` is a non-conflicting
+ * commutative `Delta` operation. When reading `Delta`s, we don't stop traversing
+ * the `Delta` chain on interleaved operations as there may be relevant `Deltas`
+ * downstream. On a non-interleaved `Delta`, the previous conditions for
+ * bailing out of a read apply.
+ */
 class TaggedVertexPtr {
  public:
   TaggedVertexPtr() : ptr_(nullptr) {}
