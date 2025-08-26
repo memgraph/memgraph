@@ -27,7 +27,6 @@ jobs:
 
         - name: Log in to Docker Hub
           uses: ./.github/actions/docker-login
-          with:
 
         - name: Spin up mgbuild container
           run: |
