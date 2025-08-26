@@ -852,7 +852,7 @@ void EncodeDelta(BaseEncoder *encoder, Storage *storage, SalientConfig::Items it
       }
       encoder->WriteString(storage->name_id_mapper_->IdToName(delta.vertex_edge.edge_type.AsUint()));
       encoder->WriteUint(vertex->gid.AsUint());
-      encoder->WriteUint(delta.vertex_edge.vertex->gid.AsUint());
+      encoder->WriteUint(delta.vertex_edge.vertex.Get()->gid.AsUint());
       break;
     }
     case Delta::Action::ADD_IN_EDGE:

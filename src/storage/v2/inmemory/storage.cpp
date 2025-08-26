@@ -1285,16 +1285,16 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 break;
               }
               case Delta::Action::ADD_IN_EDGE: {
-                auto link =
-                    std::tuple{current->vertex_edge.edge_type, current->vertex_edge.vertex, current->vertex_edge.edge};
+                auto link = std::tuple{current->vertex_edge.edge_type, current->vertex_edge.vertex.Get(),
+                                       current->vertex_edge.edge};
                 DMG_ASSERT(std::find(vertex->in_edges.begin(), vertex->in_edges.end(), link) == vertex->in_edges.end(),
                            "Invalid database state!");
                 vertex->in_edges.push_back(link);
                 break;
               }
               case Delta::Action::ADD_OUT_EDGE: {
-                auto link =
-                    std::tuple{current->vertex_edge.edge_type, current->vertex_edge.vertex, current->vertex_edge.edge};
+                auto link = std::tuple{current->vertex_edge.edge_type, current->vertex_edge.vertex.Get(),
+                                       current->vertex_edge.edge};
                 DMG_ASSERT(
                     std::find(vertex->out_edges.begin(), vertex->out_edges.end(), link) == vertex->out_edges.end(),
                     "Invalid database state!");
@@ -1325,7 +1325,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 if (!mem_storage->config_.salient.items.properties_on_edges) break;
 
                 auto const &[_, edge_type, to_vertex, edge] = current->vertex_edge;
-                index_abort_processor.CollectOnEdgeRemoval(edge_type, vertex, to_vertex, edge.ptr);
+                index_abort_processor.CollectOnEdgeRemoval(edge_type, vertex, to_vertex.Get(), edge.ptr);
                 // TODO: ensure collector also processeses for edge_type+property index
 
                 break;
