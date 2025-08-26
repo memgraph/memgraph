@@ -550,8 +550,8 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
     }
   }
 
-  bool from_interleaved = (from_result == WriteResult::COMMUTATIVE);
-  bool to_interleaved = (to_result == WriteResult::COMMUTATIVE);
+  bool const from_interleaved = (from_result == WriteResult::COMMUTATIVE);
+  bool const to_interleaved = (to_result == WriteResult::COMMUTATIVE);
 
   utils::AtomicMemoryBlock([this, edge, from_vertex = from_vertex, edge_type = edge_type, to_vertex = to_vertex,
                             &schema_acc, from_interleaved, to_interleaved]() {
@@ -678,8 +678,8 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
     }
   }
 
-  bool from_interleaved = (from_result == WriteResult::COMMUTATIVE);
-  bool to_interleaved = (to_result == WriteResult::COMMUTATIVE);
+  bool const from_interleaved = (from_result == WriteResult::COMMUTATIVE);
+  bool const to_interleaved = (to_result == WriteResult::COMMUTATIVE);
 
   utils::AtomicMemoryBlock([this, edge, from_vertex = from_vertex, edge_type = edge_type, to_vertex = to_vertex,
                             &schema_acc, from_interleaved, to_interleaved]() {
