@@ -60,10 +60,7 @@ jobs:
           fetch-depth: 0
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+        uses: ./.github/actions/docker-login
 
       - name: Spin up mgbuild container
         run: |
@@ -172,10 +169,7 @@ jobs:
           fetch-depth: 0
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+        uses: ./.github/actions/docker-login
 
       - name: Spin up mgbuild container
         run: |
@@ -274,10 +268,7 @@ jobs:
           fetch-depth: 0
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+        uses: ./.github/actions/docker-login
 
       - name: Spin up mgbuild container
         run: |
@@ -363,10 +354,7 @@ jobs:
           fetch-depth: 0
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+        uses: ./.github/actions/docker-login
 
       - name: Spin up mgbuild container
         run: |
@@ -446,10 +434,7 @@ jobs:
           fetch-depth: 0
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
-        with:
-          username: ${{ secrets.DOCKERHUB_USERNAME }}
-          password: ${{ secrets.DOCKERHUB_TOKEN }}
+        uses: ./.github/actions/docker-login
 
       - name: Spin up mgbuild container
         run: |

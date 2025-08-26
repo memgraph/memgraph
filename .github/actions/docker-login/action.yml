@@ -1,0 +1,34 @@
+name: 'Docker Login with Retry'
+description: 'Login to Docker Hub with retry logic for network resilience'
+
+inputs:
+  max-retries:
+    description: 'Maximum number of retry attempts'
+    required: false
+    default: '3'
+  retry-delay:
+    description: 'Delay between retries in seconds'
+    required: false
+    default: '10'
+
+runs:
+  using: 'composite'
+  steps:
+    - name: Log in to Docker Hub with retry
+      shell: bash
+      run: |
+        for i in $(seq 1 ${{ inputs.max-retries }}); do
+          echo "Attempt $i of ${{ inputs.max-retries }}: Logging in to Docker Hub..."
+          if echo "${{ secrets.DOCKERHUB_TOKEN }}" | docker login -u "${{ secrets.DOCKERHUB_USERNAME }}" --password-stdin; then
+            echo "Successfully logged in to Docker Hub"
+            break
+          else
+            echo "Failed to log in to Docker Hub (attempt $i)"
+            if [ $i -eq ${{ inputs.max-retries }} ]; then
+              echo "All attempts failed"
+              exit 1
+            fi
+            echo "Waiting ${{ inputs.retry-delay }} seconds before retry..."
+            sleep ${{ inputs.retry-delay }}
+          fi
+        done 
