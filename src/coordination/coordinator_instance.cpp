@@ -948,20 +948,41 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const
 auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_name,
                                                 std::string_view const setting_value) const
     -> SetCoordinatorSettingStatus {
-  constexpr std::array settings{kEnabledReadsOnMain, kSyncFailoverOnly};
+  constexpr std::array settings{kEnabledReadsOnMain, kSyncFailoverOnly, kMaxLagOnReplica};
 
   if (std::ranges::find(settings, setting_name) == settings.end()) {
     return SetCoordinatorSettingStatus::UNKNOWN_SETTING;
   }
 
-  bool const value = utils::ToLowerCase(setting_value) == "true"sv;
-  CoordinatorClusterStateDelta delta_state;
+  auto const maybe_val_with_type =
+      std::invoke([setting_name, setting_value]() -> std::optional<std::variant<bool, uint32_t>> {
+        if (setting_name == kMaxLagOnReplica) {
+          try {
+            return static_cast<uint32_t>(std::stoul(setting_value.data()));
+          } catch (std::exception const &e) {
+            spdlog::error("Error occurred while trying to update max_lag_on_replica coordinator setting {}", e.what());
+            return std::nullopt;
+          }
+        }
+        // else: kEnabledReadsOnMain, kSyncFailoverOnly
+        return utils::ToLowerCase(setting_value) == "true"sv;
+      });
 
-  if (setting_name == kEnabledReadsOnMain) {
-    delta_state.enabled_reads_on_main_ = value;
-  } else {
-    delta_state.sync_failover_only_ = value;
+  if (!maybe_val_with_type.has_value()) {
+    return SetCoordinatorSettingStatus::INVALID_ARGUMENT;
   }
+
+  auto const delta_state = std::invoke([setting_name, val_with_type = *maybe_val_with_type]() {
+    CoordinatorClusterStateDelta ret_delta_state;
+    if (setting_name == kEnabledReadsOnMain) {
+      ret_delta_state.enabled_reads_on_main_ = std::get<bool>(val_with_type);
+    } else if (setting_name == kSyncFailoverOnly) {
+      ret_delta_state.sync_failover_only_ = std::get<bool>(val_with_type);
+    } else {
+      ret_delta_state.max_replica_lag_ = std::get<uint32_t>(val_with_type);
+    }
+    return ret_delta_state;
+  });
 
   if (!raft_state_->AppendClusterUpdate(delta_state)) {
     spdlog::error("Aborting the update of coordinator setting {}. Writing to Raft failed.", setting_name);
@@ -1260,7 +1281,7 @@ auto CoordinatorInstance::ShowCoordinatorSettings() const -> std::vector<std::pa
   std::vector<std::pair<std::string, std::string>> settings{
       std::pair{std::string(kEnabledReadsOnMain), raft_state_->GetEnabledReadsOnMain() ? "true" : "false"},
       std::pair{std::string(kSyncFailoverOnly), raft_state_->GetSyncFailoverOnly() ? "true" : "false"},
-  };
+      std::pair{std::string(kMaxLagOnReplica), std::to_string(raft_state_->GetMaxReplicaLag())}};
   return settings;
 }
 

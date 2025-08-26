@@ -39,6 +39,7 @@ struct CoordinatorClusterStateDelta {
   std::optional<utils::UUID> current_main_uuid_;
   std::optional<bool> enabled_reads_on_main_;
   std::optional<bool> sync_failover_only_;
+  std::optional<uint32_t> max_replica_lag_;
 
   bool operator==(const CoordinatorClusterStateDelta &other) const = default;
 };
@@ -80,6 +81,8 @@ class CoordinatorClusterState {
 
   auto GetSyncFailoverOnly() const -> bool;
 
+  auto GetMaxReplicaLag() const -> uint32_t;
+
   auto TryGetCurrentMainName() const -> std::optional<std::string>;
 
   // Setter function used on parsing data from json
@@ -96,24 +99,33 @@ class CoordinatorClusterState {
 
   void SetSyncFailoverOnly(bool sync_failover_only);
 
+  void SetMaxLagOnReplica(uint32_t max_replica_lag);
+
   friend bool operator==(const CoordinatorClusterState &lhs, const CoordinatorClusterState &rhs) {
     if (&lhs == &rhs) {
       return true;
     }
-    std::scoped_lock lock(lhs.app_lock_, rhs.app_lock_);
+    std::scoped_lock const lock(lhs.app_lock_, rhs.app_lock_);
 
     return std::tie(lhs.data_instances_, lhs.coordinator_instances_, lhs.current_main_uuid_, lhs.enabled_reads_on_main_,
-                    lhs.sync_failover_only_) == std::tie(rhs.data_instances_, rhs.coordinator_instances_,
-                                                         rhs.current_main_uuid_, rhs.enabled_reads_on_main_,
-                                                         rhs.sync_failover_only_);
+                    lhs.sync_failover_only_, lhs.max_replica_lag_) ==
+           std::tie(rhs.data_instances_, rhs.coordinator_instances_, rhs.current_main_uuid_, rhs.enabled_reads_on_main_,
+                    rhs.sync_failover_only_, rhs.max_replica_lag_);
   }
 
  private:
   std::vector<DataInstanceContext> data_instances_;
   std::vector<CoordinatorInstanceContext> coordinator_instances_;
   utils::UUID current_main_uuid_;
+  // The option controls whether reads are enabled from the main instance. The default is set to false so we don't
+  // overwhelm main with both read and write requests
   bool enabled_reads_on_main_{false};
+  // The option controls whether it is allowed to failover only on sync and strict_sync replicas or async replicas
+  // are also supported.
   bool sync_failover_only_{true};
+  // The option controls what is the maximum lag allowed on any replica's database so it could be considered a valid
+  // failover candidate
+  uint32_t max_replica_lag_{std::numeric_limits<uint32_t>::max()};
   mutable utils::ResourceLock app_lock_;
 };
 
