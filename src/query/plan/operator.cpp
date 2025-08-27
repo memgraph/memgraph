@@ -747,6 +747,13 @@ VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(Frame &frame, Exec
   }
 }
 
+// Thread Local Section
+namespace {
+thread_local int thread_id = -1;                                                           // NOLINT
+thread_local std::optional<utils::SkipList<storage::Vertex>::Chunk> chunk = std::nullopt;  // NOLINT
+// NOTE: For now testing only 4 threads (hardcoded)
+}  // namespace
+
 template <class TVerticesFun>
 class ScanAllCursor : public Cursor {
  public:
@@ -819,6 +826,88 @@ class ScanAllCursor : public Cursor {
   std::optional<decltype(vertices_.value().end())> vertices_end_it_;
   const char *op_name_;
 };
+
+thread_local int called = 0;
+template <>
+class ScanAllCursor<std::function<VerticesChunkCollection(Frame &, ExecutionContext &)>> : public Cursor {
+ public:
+  explicit ScanAllCursor(const ScanAll &self, Symbol output_symbol, UniqueCursorPtr input_cursor, storage::View view,
+                         std::function<VerticesChunkCollection(Frame &, ExecutionContext &)> get_vertices,
+                         const char *op_name)
+      : self_(self),
+        output_symbol_(std::move(output_symbol)),
+        input_cursor_(std::move(input_cursor)),
+        view_(view),
+        get_vertices_(std::move(get_vertices)),
+        op_name_(op_name) {
+    (void)op_name_;
+  }
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
+    SCOPED_PROFILE_OP_BY_REF(self_);
+
+    AbortCheck(context);
+
+    while (!vertices_ || vertices_it_.value() == vertices_end_it_.value()) {
+      if (!input_cursor_->Pull(frame, context)) return false;
+      // We need a getter function, because in case of exhausting a lazy
+      // iterable, we cannot simply reset it by calling begin().
+      auto next_vertices = get_vertices_(frame, context);  // TODO: Chunks need to be created once by the aggregator
+      if (next_vertices.empty() || (thread_id != -1 && next_vertices.size() <= thread_id)) continue;
+      vertices_ = std::move(next_vertices);
+      // Get the specific chunk for this thread
+      size_t chunk_index = thread_id != -1 ? thread_id : 0;
+      auto chunk = vertices_.value()[chunk_index];
+      vertices_it_.emplace(chunk.begin());
+      vertices_end_it_.emplace(chunk.end());
+    }
+#ifdef MG_ENTERPRISE
+    if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker && !FindNextVertex(context)) {
+      return false;
+    }
+#endif
+
+    frame[output_symbol_] = *vertices_it_.value();
+    ++vertices_it_.value();
+    ++called;
+    return true;
+  }
+
+#ifdef MG_ENTERPRISE
+  bool FindNextVertex(const ExecutionContext &context) {
+    while (vertices_it_.value() != vertices_end_it_.value()) {
+      if (context.auth_checker->Has(*vertices_it_.value(), view_,
+                                    memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
+        return true;
+      }
+      ++vertices_it_.value();
+    }
+    return false;
+  }
+#endif
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    vertices_ = std::nullopt;
+    vertices_it_ = std::nullopt;
+    vertices_end_it_ = std::nullopt;
+  }
+
+ private:
+  const ScanAll &self_;
+  const Symbol output_symbol_;
+  const UniqueCursorPtr input_cursor_;
+  storage::View view_;
+  std::function<VerticesChunkCollection(Frame &, ExecutionContext &)> get_vertices_;
+  std::optional<VerticesChunkCollection> vertices_;
+  std::optional<VerticesChunkCollection::ChunkIterator> vertices_it_;
+  std::optional<VerticesChunkCollection::ChunkIterator> vertices_end_it_;
+  const char *op_name_;
+};
+
 template <typename TEdgesFun>
 class ScanAllByEdgeCursor : public Cursor {
  public:
@@ -910,10 +999,12 @@ ACCEPT_WITH_INPUT(ScanAll)
 UniqueCursorPtr ScanAll::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);
 
-  auto vertices = [this](Frame &, ExecutionContext &context) {
-    auto *db = context.db_accessor;
-    return std::make_optional(db->Vertices(view_));
-  };
+  auto vertices = std::function<VerticesChunkCollection(Frame &, ExecutionContext &)>{
+      [this](Frame &, ExecutionContext &context) mutable {
+        auto *db = context.db_accessor;
+        // std::cout << "Creating chunks" << std::endl;
+        return db->VerticesChunks(view_, 4);
+      }};
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
                                                                 view_, std::move(vertices), "ScanAll");
 }
@@ -943,10 +1034,16 @@ ACCEPT_WITH_INPUT(ScanAllByLabel)
 UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByLabelOperator);
 
-  auto vertices = [this](Frame &, ExecutionContext &context) {
-    auto *db = context.db_accessor;
-    return std::make_optional(db->Vertices(view_, label_));
-  };
+  // auto vertices = [this](Frame &, ExecutionContext &context) {
+  //   auto *db = context.db_accessor;
+  //   return std::make_optional(db->Vertices(view_, label_));
+  // };
+  // Ignore label for now
+  auto vertices = std::function<VerticesChunkCollection(Frame &, ExecutionContext &)>{
+      [this](Frame &, ExecutionContext &context) mutable {
+        auto *db = context.db_accessor;
+        return db->VerticesChunks(view_, 4);
+      }};
   return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
                                                                 view_, std::move(vertices), "ScanAllByLabel");
 }
@@ -5610,6 +5707,16 @@ class AggregateCursor : public Cursor {
   AggregateCursor(const Aggregate &self, utils::MemoryResource *mem)
       : self_(self),
         input_cursor_(self_.input_->MakeCursor(mem)),
+        input_cursors_(std::invoke([&]() {
+          std::vector<UniqueCursorPtr> cursors;
+          // Hardcode for now
+          cursors.reserve(4);
+          for (int i = 0; i < 4; i++) {
+            // Make 4 parallel cursors (Pull will then section off the work)
+            cursors.emplace_back(self.input_->MakeCursor(mem));
+          }
+          return cursors;
+        })),
         aggregation_(mem),
         reused_group_by_(self.group_by_.size(), mem) {}
 
@@ -5696,6 +5803,7 @@ class AggregateCursor : public Cursor {
 
   const Aggregate &self_;
   const UniqueCursorPtr input_cursor_;
+  std::vector<UniqueCursorPtr> input_cursors_;
   // storage for aggregated data
   // map key is the vector of group-by values
   // map value is an AggregationValue struct
@@ -5724,15 +5832,108 @@ class AggregateCursor : public Cursor {
    * aggregation results, and not on the number of inputs.
    */
   bool ProcessAll(Frame *frame, ExecutionContext *context) {
-    ExpressionEvaluator evaluator(frame, context->symbol_table, context->evaluation_context, context->db_accessor,
-                                  storage::View::NEW, nullptr, &context->number_of_hops);
+    // ExpressionEvaluator evaluator(frame, context->symbol_table, context->evaluation_context, context->db_accessor,
+    //                               storage::View::NEW, nullptr, &context->number_of_hops);
+    // bool pulled = false;
+    // while (input_cursor_->Pull(*frame, *context)) {
+    //   ProcessOne(*frame, &evaluator, reused_group_by_, self_.group_by_, aggregation_, self_.aggregations_,
+    //              self_.remember_);
+    //   pulled = true;
+    // }
+    // if (!pulled) return false;
 
-    bool pulled = false;
-    while (input_cursor_->Pull(*frame, *context)) {
-      ProcessOne(*frame, &evaluator);
-      pulled = true;
+    std::vector<std::jthread> threads;
+    threads.reserve(4);
+    std::atomic<int> pulled = 0;
+
+    std::vector<decltype(aggregation_)> aggregation_threads(4);
+    std::vector<decltype(reused_group_by_)> reused_group_by_threads(4);
+
+    for (int i = 0; i < 4; i++) {
+      threads.emplace_back(
+          // TODO: context might not be thread safe
+          [this, i, frame = Frame{static_cast<int64_t>(frame->elems().size()), frame->get_allocator()}, context,
+           &pulled, &aggregation_threads, &reused_group_by_threads]() mutable {
+            ExpressionEvaluator evaluator(&frame, context->symbol_table, context->evaluation_context,
+                                          context->db_accessor, storage::View::NEW, nullptr, &context->number_of_hops);
+            // Set thread id
+            thread_id = i;
+            called = 0;
+            auto reset_thread_id_on_exit = utils::OnScopeExit([]() { thread_id = -1; });
+            while (input_cursors_[i]->Pull(frame, *context)) {
+              ProcessOne(frame, &evaluator, reused_group_by_threads[i], self_.group_by_, aggregation_threads[i],
+                         self_.aggregations_, self_.remember_);
+            }
+            // std::cout << "Thread " << i << " called " << called << " times" << std::endl;
+            pulled++;
+          });
     }
-    if (!pulled) return false;
+    for (auto &thread : threads) {
+      thread.join();
+    }
+
+    if (pulled != 4) return false;
+
+    // Combine the results from the threads
+    aggregation_ = std::move(aggregation_threads[0]);
+    for (int i = 1; i < 4; i++) {
+      auto &other_aggregation = aggregation_threads[i];
+      for (const auto &[other_key, other_value] : other_aggregation) {
+        auto it = aggregation_.find(other_key);
+        if (it != aggregation_.end()) {
+          // Key exists, merge the values
+          auto &value = it->second;
+          for (size_t pos = 0; pos < self_.aggregations_.size(); ++pos) {
+            switch (self_.aggregations_[pos].op) {
+              case Aggregation::Op::MIN: {
+                const auto is_min = other_value.values_[pos] < value.values_[pos];
+                if (is_min.IsBool() && is_min.ValueBool()) {
+                  value.values_[pos] = other_value.values_[pos];
+                }
+                break;
+              }
+              case Aggregation::Op::MAX: {
+                const auto is_max = other_value.values_[pos] > value.values_[pos];
+                if (is_max.IsBool() && is_max.ValueBool()) {
+                  value.values_[pos] = other_value.values_[pos];
+                }
+                break;
+              }
+              case Aggregation::Op::SUM:
+              case Aggregation::Op::AVG:
+                // For SUM and AVG, we need to add the values
+                // Note: AVG will be calculated in post-processing
+                value.values_[pos] = value.values_[pos] + other_value.values_[pos];
+                value.counts_[pos] += other_value.counts_[pos];
+                break;
+              case Aggregation::Op::COUNT:
+                value.counts_[pos] += other_value.counts_[pos];
+                break;
+              case Aggregation::Op::COLLECT_LIST:
+                // For COLLECT_LIST, we need to concatenate the lists
+                // This is a simplified implementation - in practice, you might need more sophisticated merging
+                break;
+              case Aggregation::Op::PROJECT_PATH: {
+                // PROJECT_PATH operations might need special handling
+                break;
+              }
+              case Aggregation::Op::PROJECT_LISTS: {
+                // PROJECT_LISTS operations might need special handling
+                break;
+              }
+              case Aggregation::Op::COLLECT_MAP: {
+                // For COLLECT_MAP, we need to merge the maps
+                // This is a simplified implementation - in practice, you might need more sophisticated merging
+                break;
+              }
+            }
+          }
+        } else {
+          // Key doesn't exist, insert the new entry
+          aggregation_.emplace(other_key, other_value);
+        }
+      }
+    }
 
     // post processing
     for (size_t pos = 0; pos < self_.aggregations_.size(); ++pos) {
@@ -5773,61 +5974,70 @@ class AggregateCursor : public Cursor {
   /**
    * Performs a single accumulation.
    */
-  void ProcessOne(const Frame &frame, ExpressionEvaluator *evaluator) {
+  void ProcessOne(
+      const Frame &frame, ExpressionEvaluator *evaluator, utils::pmr::vector<TypedValue> &reused_group_by,
+      const std::vector<Expression *> &group_by,
+      utils::pmr::unordered_map<utils::pmr::vector<TypedValue>, AggregationValue,
+                                utils::FnvCollection<utils::pmr::vector<TypedValue>, TypedValue, TypedValue::Hash>,
+                                TypedValueVectorEqual> &aggregation,
+      const std::vector<memgraph::query::plan::Aggregate::Element> &aggregations, const std::vector<Symbol> &remember) {
     // Preallocated group_by, since most of the time the aggregation key won't be unique
-    reused_group_by_.clear();
+    reused_group_by.clear();
     evaluator->ResetPropertyLookupCache();
 
-    // TODO: if self_.group_by_.size() == 0, aggregation_ -> there is only one (becasue we are doing *)
-    //       can this be optimised so we don't need to do aggregation_.try_emplace which has a hash cost
-    for (Expression *expression : self_.group_by_) {
-      reused_group_by_.emplace_back(expression->Accept(*evaluator));
+    // TODO: if group_by.size() == 0, aggregation -> there is only one (becasue we are doing *)
+    //       can this be optimised so we don't need to do aggregation.try_emplace which has a hash cost
+    for (Expression *expression : group_by) {
+      reused_group_by.emplace_back(expression->Accept(*evaluator));
     }
-    auto *mem = aggregation_.get_allocator().resource();
-    auto res = aggregation_.try_emplace(reused_group_by_, mem);
+    auto *mem = aggregation.get_allocator().resource();
+    auto res = aggregation.try_emplace(reused_group_by, mem);
     auto &agg_value = res.first->second;
-    if (res.second /*was newly inserted*/) EnsureInitialized(frame, &agg_value);
-    Update(evaluator, &agg_value);
+    if (res.second /*was newly inserted*/) EnsureInitialized(frame, &agg_value, aggregations, remember);
+    Update(evaluator, &agg_value, aggregations);
   }
 
   /** Ensures the new AggregationValue has been initialized. This means
    * that the value vectors are filled with an appropriate number of Nulls,
    * counts are set to 0 and remember values are remembered.
    */
-  void EnsureInitialized(const Frame &frame, AggregateCursor::AggregationValue *agg_value) const {
+  void EnsureInitialized(const Frame &frame, AggregateCursor::AggregationValue *agg_value,
+                         const std::vector<memgraph::query::plan::Aggregate::Element> &aggregations,
+                         const std::vector<Symbol> &remember) const {
     if (!agg_value->values_.empty()) return;
 
-    const auto num_of_aggregations = self_.aggregations_.size();
+    const auto num_of_aggregations = aggregations.size();
     agg_value->values_.reserve(num_of_aggregations);
     agg_value->unique_values_.reserve(num_of_aggregations);
 
     auto *mem = agg_value->values_.get_allocator().resource();
-    for (const auto &agg_elem : self_.aggregations_) {
+    for (const auto &agg_elem : aggregations) {
       agg_value->values_.emplace_back(DefaultAggregationOpValue(agg_elem, mem));
       agg_value->unique_values_.emplace_back(AggregationValue::TSet(mem));
     }
     agg_value->counts_.resize(num_of_aggregations, 0);
 
-    agg_value->remember_.reserve(self_.remember_.size());
-    for (const Symbol &remember_sym : self_.remember_) {
+    agg_value->remember_.reserve(remember.size());
+    for (const Symbol &remember_sym : remember) {
       agg_value->remember_.push_back(frame[remember_sym]);
     }
   }
 
   /** Updates the given AggregationValue with new data. Assumes that
    * the AggregationValue has been initialized */
-  void Update(ExpressionEvaluator *evaluator, AggregateCursor::AggregationValue *agg_value) {
-    DMG_ASSERT(self_.aggregations_.size() == agg_value->values_.size(),
+  void Update(ExpressionEvaluator *evaluator, AggregateCursor::AggregationValue *agg_value,
+              const std::vector<memgraph::query::plan::Aggregate::Element> &aggregations) {
+    DMG_ASSERT(aggregations.size() == agg_value->values_.size(),
                "Expected as much AggregationValue.values_ as there are "
                "aggregations.");
-    DMG_ASSERT(self_.aggregations_.size() == agg_value->counts_.size(),
+    DMG_ASSERT(aggregations.size() == agg_value->counts_.size(),
                "Expected as much AggregationValue.counts_ as there are "
                "aggregations.");
 
     auto count_it = agg_value->counts_.begin();
     auto value_it = agg_value->values_.begin();
     auto unique_values_it = agg_value->unique_values_.begin();
-    auto agg_elem_it = self_.aggregations_.begin();
+    auto agg_elem_it = aggregations.begin();
     const auto counts_end = agg_value->counts_.end();
     for (; count_it != counts_end; ++count_it, ++value_it, ++unique_values_it, ++agg_elem_it) {
       // COUNT(*) is the only case where input expression is optional
