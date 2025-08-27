@@ -24,7 +24,7 @@ namespace memgraph::dbms {
 
 void CreateDatabaseHandler(system::ReplicaHandlerAccessToState &system_state_access,
                            const std::optional<utils::UUID> &current_main_uuid, DbmsHandler &dbms_handler,
-                           slk::Reader *req_reader, slk::Builder *res_builder) {
+                           uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) {
   using storage::replication::CreateDatabaseRes;
   CreateDatabaseRes res(CreateDatabaseRes::Result::FAILURE);
 
@@ -33,16 +33,16 @@ void CreateDatabaseHandler(system::ReplicaHandlerAccessToState &system_state_acc
     spdlog::error(
         "Handling CreateDatabase, an enterprise RPC message, without license. Check your license status by running "
         "SHOW LICENSE INFO.");
-    rpc::SendFinalResponse(res, res_builder);
+    rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
   storage::replication::CreateDatabaseReq req;
-  Load(&req, req_reader);
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
 
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, storage::replication::CreateDatabaseReq::kType.name);
-    rpc::SendFinalResponse(res, res_builder);
+    rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
@@ -54,7 +54,7 @@ void CreateDatabaseHandler(system::ReplicaHandlerAccessToState &system_state_acc
   if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
     spdlog::debug("CreateDatabaseHandler: bad expected timestamp {},{}", req.expected_group_timestamp,
                   system_state_access.LastCommitedTS());
-    rpc::SendFinalResponse(res, res_builder);
+    rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
@@ -69,12 +69,12 @@ void CreateDatabaseHandler(system::ReplicaHandlerAccessToState &system_state_acc
     // Failure
   }
 
-  rpc::SendFinalResponse(res, res_builder);
+  rpc::SendFinalResponse(res, request_version, res_builder);
 }
 
 void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
                          const std::optional<utils::UUID> &current_main_uuid, DbmsHandler &dbms_handler,
-                         slk::Reader *req_reader, slk::Builder *res_builder) {
+                         uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) {
   using memgraph::storage::replication::DropDatabaseRes;
   DropDatabaseRes res(DropDatabaseRes::Result::FAILURE);
 
@@ -83,16 +83,16 @@ void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
     spdlog::error(
         "Handling DropDatabase, an enterprise RPC message, without license. Check your license status by running SHOW "
         "LICENSE INFO.");
-    rpc::SendFinalResponse(res, res_builder);
+    rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
   memgraph::storage::replication::DropDatabaseReq req;
-  memgraph::slk::Load(&req, req_reader);
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
 
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, memgraph::storage::replication::DropDatabaseReq::kType.name);
-    rpc::SendFinalResponse(res, res_builder);
+    rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
@@ -104,7 +104,7 @@ void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
   if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
     spdlog::debug("DropDatabaseHandler: bad expected timestamp {},{}", req.expected_group_timestamp,
                   system_state_access.LastCommitedTS());
-    rpc::SendFinalResponse(res, res_builder);
+    rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
@@ -125,7 +125,7 @@ void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
     // Failure
   }
 
-  rpc::SendFinalResponse(res, res_builder);
+  rpc::SendFinalResponse(res, request_version, res_builder);
 }
 
 bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage::SalientConfig> &database_configs) {
@@ -195,12 +195,14 @@ void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAc
               dbms::DbmsHandler &dbms_handler) {
   // NOTE: Register even without license as the user could add a license at run-time
   data.server->rpc_server_.Register<storage::replication::CreateDatabaseRpc>(
-      [&data, system_state_access, &dbms_handler](auto *req_reader, auto *res_builder) mutable {
-        CreateDatabaseHandler(system_state_access, data.uuid_, dbms_handler, req_reader, res_builder);
+      [&data, system_state_access, &dbms_handler](uint64_t const request_version, auto *req_reader,
+                                                  auto *res_builder) mutable {
+        CreateDatabaseHandler(system_state_access, data.uuid_, dbms_handler, request_version, req_reader, res_builder);
       });
   data.server->rpc_server_.Register<storage::replication::DropDatabaseRpc>(
-      [&data, system_state_access, &dbms_handler](auto *req_reader, auto *res_builder) mutable {
-        DropDatabaseHandler(system_state_access, data.uuid_, dbms_handler, req_reader, res_builder);
+      [&data, system_state_access, &dbms_handler](uint64_t const request_version, auto *req_reader,
+                                                  auto *res_builder) mutable {
+        DropDatabaseHandler(system_state_access, data.uuid_, dbms_handler, request_version, req_reader, res_builder);
       });
 }
 #endif
