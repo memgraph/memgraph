@@ -206,3 +206,81 @@ TEST(StorageV2Gc, Indices) {
     EXPECT_EQ(gids.size(), 1000);
   }
 }
+
+TEST(StorageV2Gc, InterleavedDeltas) {
+  std::unique_ptr<memgraph::storage::Storage> storage(
+      std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
+          .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(100)}}));
+
+  memgraph::storage::Gid supernode_gid;
+  std::vector<memgraph::storage::Gid> target_vertices;
+
+  {
+    auto acc = storage->Access();
+    auto supernode = acc->CreateVertex();
+    supernode_gid = supernode.Gid();
+
+    for (int i = 0; i < 10; ++i) {
+      auto target = acc->CreateVertex();
+      target_vertices.push_back(target.Gid());
+    }
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  std::vector<std::jthread> threads;
+  std::atomic<int> success_count{0};
+
+  for (int i = 0; i < 5; ++i) {
+    threads.emplace_back([&storage, &supernode_gid, &target_vertices, &success_count, i]() {
+      try {
+        auto acc = storage->Access();
+        auto supernode = acc->FindVertex(supernode_gid, memgraph::storage::View::OLD);
+        ASSERT_TRUE(supernode.has_value());
+
+        for (int j = 0; j < 2; ++j) {
+          auto target = acc->FindVertex(target_vertices[i * 2 + j], memgraph::storage::View::OLD);
+          ASSERT_TRUE(target.has_value());
+
+          auto edge_result =
+              acc->CreateEdge(&supernode.value(), &target.value(), memgraph::storage::EdgeTypeId::FromUint(i * 2 + j));
+          if (!edge_result.HasError()) {
+            success_count++;
+          }
+        }
+
+        if (!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError()) {
+        }
+      } catch (...) {
+      }
+    });
+  }
+
+  for (auto &thread : threads) {
+    thread.join();
+  }
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+  {
+    auto acc = storage->Access();
+    auto supernode = acc->FindVertex(supernode_gid, memgraph::storage::View::NEW);
+    ASSERT_TRUE(supernode.has_value());
+
+    auto out_edges = supernode->OutEdges(memgraph::storage::View::NEW);
+    ASSERT_TRUE(out_edges.HasValue());
+
+    EXPECT_GT(success_count.load(), 0);
+    EXPECT_EQ(out_edges->edges.size(), success_count.load());
+  }
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(300));
+
+  {
+    auto acc = storage->Access();
+    auto supernode = acc->FindVertex(supernode_gid, memgraph::storage::View::NEW);
+    ASSERT_TRUE(supernode.has_value());
+
+    auto out_edges = supernode->OutEdges(memgraph::storage::View::NEW);
+    ASSERT_TRUE(out_edges.HasValue());
+  }
+}
