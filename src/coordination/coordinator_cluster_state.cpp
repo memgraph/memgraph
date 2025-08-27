@@ -121,7 +121,7 @@ auto CoordinatorClusterState::Serialize(ptr<buffer> &data) const -> void {
   nlohmann::json json;
   to_json(json, *this);
   auto const log = json.dump();
-  data = buffer::alloc(sizeof(uint32_t) + log.size());
+  data = buffer::alloc(sizeof(uint64_t) + log.size());
   buffer_serializer bs(data);
   bs.put_str(log);
 }
@@ -169,7 +169,7 @@ auto CoordinatorClusterState::GetSyncFailoverOnly() const -> bool {
   return sync_failover_only_;
 }
 
-auto CoordinatorClusterState::GetMaxReplicaLag() const -> uint32_t {
+auto CoordinatorClusterState::GetMaxReplicaLag() const -> uint64_t {
   auto lock = std::shared_lock{app_lock_};
   return max_replica_lag_;
 }
@@ -199,7 +199,7 @@ void CoordinatorClusterState::SetSyncFailoverOnly(bool const sync_failover_only)
   sync_failover_only_ = sync_failover_only;
 }
 
-void CoordinatorClusterState::SetMaxLagOnReplica(uint32_t const max_replica_lag) {
+void CoordinatorClusterState::SetMaxLagOnReplica(uint64_t const max_replica_lag) {
   auto lock = std::lock_guard{app_lock_};
   max_replica_lag_ = max_replica_lag;
 }
@@ -234,7 +234,7 @@ void from_json(nlohmann::json const &j, CoordinatorClusterState &instance_state)
   instance_state.SetSyncFailoverOnly(sync_failover_only);
 
   // Max lag on replica is supported from the version 3.6.0 above
-  uint32_t const max_replica_lag = j.value(kMaxLagOnReplica.data(), std::numeric_limits<uint32_t>::max());
+  uint64_t const max_replica_lag = j.value(kMaxLagOnReplica.data(), std::numeric_limits<uint64_t>::max());
   instance_state.SetMaxLagOnReplica(max_replica_lag);
 }
 

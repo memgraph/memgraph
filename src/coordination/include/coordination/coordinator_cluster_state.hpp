@@ -39,7 +39,7 @@ struct CoordinatorClusterStateDelta {
   std::optional<utils::UUID> current_main_uuid_;
   std::optional<bool> enabled_reads_on_main_;
   std::optional<bool> sync_failover_only_;
-  std::optional<uint32_t> max_replica_lag_;
+  std::optional<uint64_t> max_replica_lag_;
 
   bool operator==(const CoordinatorClusterStateDelta &other) const = default;
 };
@@ -81,7 +81,7 @@ class CoordinatorClusterState {
 
   auto GetSyncFailoverOnly() const -> bool;
 
-  auto GetMaxReplicaLag() const -> uint32_t;
+  auto GetMaxReplicaLag() const -> uint64_t;
 
   auto TryGetCurrentMainName() const -> std::optional<std::string>;
 
@@ -99,7 +99,7 @@ class CoordinatorClusterState {
 
   void SetSyncFailoverOnly(bool sync_failover_only);
 
-  void SetMaxLagOnReplica(uint32_t max_replica_lag);
+  void SetMaxLagOnReplica(uint64_t max_replica_lag);
 
   friend bool operator==(const CoordinatorClusterState &lhs, const CoordinatorClusterState &rhs) {
     if (&lhs == &rhs) {
@@ -125,7 +125,7 @@ class CoordinatorClusterState {
   bool sync_failover_only_{true};
   // The option controls what is the maximum lag allowed on any replica's database so it could be considered a valid
   // failover candidate
-  uint32_t max_replica_lag_{std::numeric_limits<uint32_t>::max()};
+  uint64_t max_replica_lag_{std::numeric_limits<uint64_t>::max()};
   mutable utils::ResourceLock app_lock_;
 };
 

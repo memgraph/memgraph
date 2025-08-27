@@ -167,9 +167,9 @@ def get_sync_cluster():
         "ADD COORDINATOR 1 WITH CONFIG {'bolt_server': 'localhost:7690', 'coordinator_server': 'localhost:10111', 'management_server': 'localhost:10121'}",
         "ADD COORDINATOR 2 WITH CONFIG {'bolt_server': 'localhost:7691', 'coordinator_server': 'localhost:10112', 'management_server': 'localhost:10122'}",
         "ADD COORDINATOR 3 WITH CONFIG {'bolt_server': 'localhost:7692', 'coordinator_server': 'localhost:10113', 'management_server': 'localhost:10123'}",
-        "REGISTER INSTANCE instance_1 AS WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
+        "REGISTER INSTANCE instance_1 WITH CONFIG {'bolt_server': 'localhost:7687', 'management_server': 'localhost:10011', 'replication_server': 'localhost:10001'};",
         "REGISTER INSTANCE instance_2 AS ASYNC WITH CONFIG {'bolt_server': 'localhost:7688', 'management_server': 'localhost:10012', 'replication_server': 'localhost:10002'};",
-        "REGISTER INSTANCE instance_3 AS WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
+        "REGISTER INSTANCE instance_3 WITH CONFIG {'bolt_server': 'localhost:7689', 'management_server': 'localhost:10013', 'replication_server': 'localhost:10003'};",
         "SET INSTANCE instance_3 TO MAIN",
     ]
 
@@ -189,11 +189,15 @@ def retrieve_lag(cursor):
     return execute_and_fetch_all(cursor, "SHOW REPLICATION LAG;")
 
 
-# TODO: (andi) Run this test also for the other type of the cluster and test the recovery on restart using snapshots
-# and WALs.
-# After that, it also makes sense to test after the failover
-def test_replication_lag_strict_sync(test_name):
-    inner_instances_description = setup_cluster(test_name, get_strict_sync_cluster())
+@pytest.mark.parametrize("cluster", ["strict_sync", "sync"])
+def test_replication_lag_strict_sync(test_name, cluster):
+    func = None
+    if cluster == "strict_sync":
+        func = get_strict_sync_cluster
+    else:
+        func = get_sync_cluster
+
+    inner_instances_description = setup_cluster(test_name, func())
     instance3_cursor = connect(host="localhost", port=7689).cursor()
     coord3_cursor = connect(host="localhost", port=7692).cursor()
     # Commit a txn on main and assert that num_committed_txns is incremented. This will trigger sending PrepareCommit

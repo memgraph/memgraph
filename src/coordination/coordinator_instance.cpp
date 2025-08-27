@@ -955,10 +955,10 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
   }
 
   auto const maybe_val_with_type =
-      std::invoke([setting_name, setting_value]() -> std::optional<std::variant<bool, uint32_t>> {
+      std::invoke([setting_name, setting_value]() -> std::optional<std::variant<bool, uint64_t>> {
         if (setting_name == kMaxLagOnReplica) {
           try {
-            return static_cast<uint32_t>(std::stoul(setting_value.data()));
+            return static_cast<uint64_t>(std::stoul(setting_value.data()));
           } catch (std::exception const &e) {
             spdlog::error("Error occurred while trying to update max_lag_on_replica coordinator setting {}", e.what());
             return std::nullopt;
@@ -979,7 +979,7 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
     } else if (setting_name == kSyncFailoverOnly) {
       ret_delta_state.sync_failover_only_ = std::get<bool>(val_with_type);
     } else {
-      ret_delta_state.max_replica_lag_ = std::get<uint32_t>(val_with_type);
+      ret_delta_state.max_replica_lag_ = std::get<uint64_t>(val_with_type);
     }
     return ret_delta_state;
   });
@@ -991,8 +991,7 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
   return SetCoordinatorSettingStatus::SUCCESS;
 }
 
-void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name,
-                                                  const std::optional<InstanceState> &instance_state) {
+void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name, InstanceState const &instance_state) {
   utils::MetricsTimer const timer{metrics::InstanceSuccCallback_us};
 
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
@@ -1016,12 +1015,17 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
   auto const curr_main_uuid = raft_state_->GetCurrentMainUUID();
 
   if (raft_state_->IsCurrentMain(instance_name)) {
+    // Update cache if there is a value received
+    if (instance_state.main_num_txns.has_value()) {
+      main_num_txns_cache_ = *instance_state.main_num_txns;
+    }
+
     // According to raft, this is the current MAIN
     // Check if a promotion is needed:
     //  - instance is actually a replica
     //  - instance is main, but has stale state (missed a failover)
-    if (!instance_state->is_replica && instance_state->is_writing_enabled && instance_state->uuid &&
-        *instance_state->uuid == curr_main_uuid) {
+    if (!instance_state.is_replica && instance_state.is_writing_enabled && instance_state.uuid &&
+        *instance_state.uuid == curr_main_uuid) {
       // Promotion not needed
       return;
     }
@@ -1051,7 +1055,7 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
     }
   } else {
     // According to raft, the instance should be replica
-    if (!instance_state->is_replica) {
+    if (!instance_state.is_replica) {
       // If instance is not replica, demote it to become replica. If request for demotion failed, return,
       // and you will simply retry on the next ping.
       if (!instance.SendRpc<DemoteMainToReplicaRpc>(curr_main_uuid)) {
@@ -1060,7 +1064,7 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
       }
     }
 
-    if (!instance_state->uuid || *instance_state->uuid != curr_main_uuid) {
+    if (!instance_state.uuid || *instance_state.uuid != curr_main_uuid) {
       if (!instance.SendSwapAndUpdateUUID(curr_main_uuid)) {
         spdlog::error("Failed to set new uuid for replica instance {} to {}.", instance_name,
                       std::string{curr_main_uuid});
@@ -1071,8 +1075,7 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
   }
 }
 
-void CoordinatorInstance::InstanceFailCallback(std::string_view instance_name,
-                                               const std::optional<InstanceState> & /*instance_state*/) {
+void CoordinatorInstance::InstanceFailCallback(std::string_view instance_name) {
   utils::MetricsTimer const timer{metrics::InstanceFailCallback_us};
 
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
@@ -1245,8 +1248,12 @@ auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::s
   auto const sync_failover_only = raft_state_->GetSyncFailoverOnly();
   auto const data_instances = raft_state_->GetDataInstancesContext();
 
+  auto const max_allowed_lag = raft_state_->GetMaxReplicaLag();
+
   for (auto const &instance : repl_instances_) {
-    bool const skip_instance = [instance_name = instance.InstanceName(), sync_failover_only, &data_instances]() {
+    auto const instance_name = instance.InstanceName();
+
+    bool const skip_instance = [&instance_name, sync_failover_only, &data_instances]() {
       // if sync failover is false then ASYNC instances can also be used for failover
       if (!sync_failover_only) {
         return false;
@@ -1268,9 +1275,39 @@ auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::s
     }
 
     if (auto maybe_instance_info = get_instance_info(instance); maybe_instance_info.has_value()) {
-      instances_info.emplace(instance.InstanceName(), std::move(*maybe_instance_info));
+      auto instance_info = *maybe_instance_info;
+
+      bool replica_behind{false};
+      for (auto const &replica_db_info : instance_info.dbs_info) {
+        auto const main_db_info = main_num_txns_cache_.find(replica_db_info.db_uuid);
+        // If database got deleted on main but that change still isn't replicated, we cannot conclude that replica is
+        // too far behind using such a condition
+        if (main_db_info == main_num_txns_cache_.end()) {
+          continue;
+        }
+
+        if (main_db_info->second > replica_db_info.num_committed_txns + max_allowed_lag) {
+          spdlog::info(
+              "Instance {} won't be used in a failover because it's much behind the current main. Main has committed "
+              "{} txns, while instance {} has committed {} txns for the database {}",
+              instance_name, main_db_info->second, instance_name, replica_db_info.num_committed_txns,
+              main_db_info->first);
+          replica_behind = true;
+          break;
+        }
+      }
+
+      if (replica_behind) {
+        spdlog::info(
+            "Skipping instance {} for a failover because one of its databases is too much behind the main's database. "
+            "The current max replica lag is set to {}",
+            instance_name, max_allowed_lag);
+        continue;
+      }
+
+      instances_info.emplace(instance_name, std::move(instance_info));
     } else {
-      spdlog::error("Couldn't retrieve failover info for instance {}", instance.InstanceName());
+      spdlog::error("Couldn't retrieve failover info for the instance {}", instance_name);
     }
   }
 

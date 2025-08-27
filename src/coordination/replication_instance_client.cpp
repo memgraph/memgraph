@@ -70,10 +70,10 @@ void ReplicationInstanceClient::StartStateCheck() {
   instance_checker_.Run(config_.instance_name, [this, instance_name = config_.instance_name] {
     spdlog::trace("Sending state check message to instance {} on {}.", instance_name,
                   config_.ManagementSocketAddress());
-    if (auto const res = SendStateCheckRpc()) {
-      coord_instance_->InstanceSuccessCallback(instance_name, res);
+    if (auto const maybe_res = SendStateCheckRpc()) {
+      coord_instance_->InstanceSuccessCallback(instance_name, *maybe_res);
     } else {
-      coord_instance_->InstanceFailCallback(instance_name, res);
+      coord_instance_->InstanceFailCallback(instance_name);
     }
   });
 }
