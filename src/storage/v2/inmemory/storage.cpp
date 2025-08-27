@@ -2403,8 +2403,6 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     for (Delta &delta : linked_entry->deltas_) {
       index_impact.update(delta.action);
 
-      bool const is_interleaved{IsOperationInterleaved(delta)};
-
       while (true) {
         auto prev = delta.prev.Get();
         switch (prev.type) {

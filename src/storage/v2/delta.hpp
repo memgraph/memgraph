@@ -354,9 +354,12 @@ inline bool IsActionCommutative(Delta::Action action) {
   return action == Delta::Action::ADD_IN_EDGE || action == Delta::Action::ADD_OUT_EDGE;
 }
 
+inline bool IsResultOfCommutativeOperation(Delta::Action action) {
+  return action == Delta::Action::REMOVE_IN_EDGE || action == Delta::Action::REMOVE_OUT_EDGE;
+}
+
 inline bool IsOperationInterleaved(Delta const &delta) {
-  return (delta.action == Delta::Action::REMOVE_IN_EDGE || delta.action == Delta::Action::REMOVE_OUT_EDGE) &&
-         delta.vertex_edge.vertex.IsInterleaved();
+  return IsResultOfCommutativeOperation(delta.action) && delta.vertex_edge.vertex.IsInterleaved();
 }
 
 // This is important, we want fast discard of unlinked deltas,

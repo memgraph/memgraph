@@ -137,9 +137,9 @@ inline WriteResult PrepareForCommutativeWrite(Transaction *transaction, TObj *ob
     return WriteResult::SUCCESS;
   }
 
-  // If the head is a commutative action from another (as yet uncommited)
-  // transaction, we can prepend an interleaved delta.
-  if (IsActionCommutative(object->delta->action)) {
+  // If the head delta resulted from a commutative operation from another
+  // (as yet uncommited) transaction, we can prepend an interleaved delta.
+  if (IsResultOfCommutativeOperation(object->delta->action)) {
     return WriteResult::COMMUTATIVE;
   }
 
