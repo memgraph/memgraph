@@ -1283,6 +1283,7 @@ auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::s
         // If database got deleted on main but that change still isn't replicated, we cannot conclude that replica is
         // too far behind using such a condition
         if (main_db_info == main_num_txns_cache_.end()) {
+          spdlog::trace("No entry for db: {}", replica_db_info.db_uuid);
           continue;
         }
 
