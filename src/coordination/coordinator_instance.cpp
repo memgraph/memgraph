@@ -1135,13 +1135,13 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
 
   // Use only DBs from the instance with the largest committed system timestamps
   for (auto const &largest_sys_ts_instance_dbs_info = largest_sys_ts_instance->second.dbs_info;
-       auto const &[db_uuid, _] : largest_sys_ts_instance_dbs_info) {
+       auto const &[db_uuid, ldt, num_committed_txns] : largest_sys_ts_instance_dbs_info) {
     dbs_info.try_emplace(db_uuid);
   }
 
   // Pre-process received failover data
   for (auto const &[instance_name, instance_info] : instances_info) {
-    for (auto const &[db_uuid, ldt] : instance_info.dbs_info) {
+    for (auto const &[db_uuid, ldt, num_committed_txns] : instance_info.dbs_info) {
       if (auto db_it = dbs_info.find(db_uuid); db_it != dbs_info.end()) {
         db_it->second.emplace_back(instance_name, ldt);
       }
