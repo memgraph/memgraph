@@ -111,7 +111,7 @@ void DataInstanceManagementServerHandlers::StateCheckHandler(const replication::
 
   std::optional<std::map<std::string, uint64_t>> main_num_txns;
 
-  if (is_replica) {
+  if (!is_replica) {
     main_num_txns.emplace(replication_handler.GetMainNumCommittedTxns());
   }
 

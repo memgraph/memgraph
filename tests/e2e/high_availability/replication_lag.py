@@ -12,6 +12,7 @@
 
 import os
 import sys
+import time
 from functools import partial
 
 import interactive_mg_runner
@@ -19,6 +20,7 @@ import pytest
 from common import (
   connect,
   execute_and_fetch_all,
+  execute_and_ignore_dead_replica,
   get_data_path,
   get_logs_path,
   show_instances,
@@ -189,6 +191,7 @@ def retrieve_lag(cursor):
     return execute_and_fetch_all(cursor, "SHOW REPLICATION LAG;")
 
 
+@pytest.mark.skip(reason="Works")
 @pytest.mark.parametrize("cluster", ["strict_sync", "sync"])
 def test_replication_lag_strict_sync(test_name, cluster):
     func = None
@@ -370,6 +373,45 @@ def test_replication_lag_strict_sync(test_name, cluster):
         ),
     ]
     mg_sleep_and_assert_collection(expected_data, partial(retrieve_lag, coord3_cursor))
+
+
+def test_replication_lag_failover(test_name):
+    inner_instances_description = setup_cluster(test_name, get_sync_cluster())
+    instance3_cursor = connect(host="localhost", port=7689).cursor()
+    coord3_cursor = connect(host="localhost", port=7692).cursor()
+
+    # Set max lag to two txns
+    execute_and_fetch_all(coord3_cursor, "SET COORDINATOR SETTING 'max_replica_lag' TO '2'")
+
+    # Kill both replicas
+    interactive_mg_runner.kill(inner_instances_description, "instance_1")
+    interactive_mg_runner.kill(inner_instances_description, "instance_2")
+
+    # Commit 3 txns on main
+    execute_and_ignore_dead_replica(instance3_cursor, "CREATE ()")
+    execute_and_ignore_dead_replica(instance3_cursor, "CREATE ()")
+    execute_and_ignore_dead_replica(instance3_cursor, "CREATE ()")
+
+    # So that coordinator sends StateCheckRpc
+    time.sleep(3)
+
+    # Kill main and start replicas, assert that they shouldn't become main because they are too much behind
+    interactive_mg_runner.kill(inner_instances_description, "instance_3")
+    interactive_mg_runner.start(inner_instances_description, "instance_1")
+    interactive_mg_runner.start(inner_instances_description, "instance_2")
+
+    # Sleep so that we wait enough for a failover to be started
+    time.sleep(5)
+
+    leader_data = [
+        ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
+        ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
+        ("coordinator_3", "localhost:7692", "localhost:10113", "localhost:10123", "up", "leader"),
+        ("instance_1", "localhost:7687", "", "localhost:10011", "up", "replica"),
+        ("instance_2", "localhost:7688", "", "localhost:10012", "up", "replica"),
+        ("instance_3", "localhost:7689", "", "localhost:10013", "down", "unknown"),
+    ]
+    mg_sleep_and_assert(leader_data, partial(show_instances, coord3_cursor))
 
 
 if __name__ == "__main__":

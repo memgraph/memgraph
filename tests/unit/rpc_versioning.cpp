@@ -82,14 +82,14 @@ TEST(RpcVersioning, SumUpgrade) {
   }
 }
 
+#ifdef MG_ENTERPRISE
+
 namespace memgraph::coordination {
 using GetDatabaseHistoriesRpcV1 = rpc::RequestResponse<GetDatabaseHistoriesReqV1, GetDatabaseHistoriesResV1>;
 }  // namespace memgraph::coordination
 
-#ifdef MG_ENTERPRISE
-
 TEST(RpcVersioning, GetDBHistories) {
-  Endpoint const endpoint{"localhost", port + 1};
+  Endpoint const endpoint{"localhost", port};
 
   ServerContext server_context;
   Server rpc_server{endpoint, &server_context, /* workers */ 1};
@@ -159,7 +159,7 @@ using StateCheckRpcV1 = rpc::RequestResponse<StateCheckReqV1, StateCheckResV1>;
 }  // namespace memgraph::coordination
 
 TEST(RpcVersioning, StateCheckRpc) {
-  Endpoint const endpoint{"localhost", port + 1};
+  Endpoint const endpoint{"localhost", port};
 
   ServerContext server_context;
   Server rpc_server{endpoint, &server_context, /* workers */ 1};

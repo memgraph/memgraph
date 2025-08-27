@@ -253,6 +253,6 @@ TEST_F(CoordinatorClusterStateTest, RoutingPoliciesSwitch) {
   ASSERT_FALSE(deserialized_cluster_state.GetEnabledReadsOnMain());
   // by default read true
   ASSERT_TRUE(deserialized_cluster_state.GetSyncFailoverOnly());
-  // by default read uint32_t::max()
-  ASSERT_EQ(deserialized_cluster_state.GetMaxReplicaLag(), std::numeric_limits<uint32_t>::max());
+  // by default read uint64_t::max()
+  ASSERT_EQ(deserialized_cluster_state.GetMaxReplicaLag(), std::numeric_limits<uint64_t>::max());
 }
