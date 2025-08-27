@@ -81,13 +81,11 @@ inline void Load(replication_coordination_glue::InstanceDBInfoV1 *obj, Reader *r
 
 inline void Save(const replication_coordination_glue::InstanceDBInfo &obj, Builder *builder) {
   Save(obj.db_uuid, builder);
-  Save(obj.latest_durable_timestamp, builder);
   Save(obj.num_committed_txns, builder);
 }
 
 inline void Load(replication_coordination_glue::InstanceDBInfo *obj, Reader *reader) {
   Load(&obj->db_uuid, reader);
-  Load(&obj->latest_durable_timestamp, reader);
   Load(&obj->num_committed_txns, reader);
 }
 

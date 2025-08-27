@@ -14,16 +14,18 @@
 namespace memgraph::replication_coordination_glue {
 
 // Multiple versions because of changes in the RPC protocol, we need this in order to support ISSU
-
 struct InstanceDBInfoV1 {
   std::string db_uuid;
   uint64_t latest_durable_timestamp;
+
+  friend bool operator==(InstanceDBInfoV1 const &, InstanceDBInfoV1 const &) = default;
 };
 
 struct InstanceDBInfo {
   std::string db_uuid;
-  uint64_t latest_durable_timestamp;
   uint64_t num_committed_txns;
+
+  friend bool operator==(InstanceDBInfo const &, InstanceDBInfo const &) = default;
 };
 
 struct InstanceInfoV1 {
