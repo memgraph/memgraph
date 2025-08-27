@@ -90,6 +90,14 @@ jobs:
           --threads $THREADS \
           build-memgraph --community
 
+      - name: Initialize tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          init-tests
+
       - name: Run unit tests
         run: |
           ./release/package/mgbuild.sh \
@@ -150,6 +158,14 @@ jobs:
           --threads $THREADS \
           --no-ccache \
           build-memgraph --coverage
+
+      - name: Initialize tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          init-tests
 
       - name: Run unit tests
         run: |
@@ -225,6 +241,14 @@ jobs:
           --build-type $BUILD_TYPE \
           --threads $THREADS \
           build-memgraph
+
+      - name: Initialize tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          init-tests
 
       - name: Run leftover CTest tests
         run: |
@@ -324,6 +348,14 @@ jobs:
           --threads $THREADS \
           build-memgraph
 
+      - name: Initialize tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          init-tests
+
       - name: Run integration tests
         run: |
           ./release/package/mgbuild.sh \
@@ -381,6 +413,14 @@ jobs:
           --build-type $BUILD_TYPE \
           --threads $THREADS \
           build-memgraph --disable-jemalloc
+
+      - name: Initialize tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          init-tests
 
       - name: Run GQL Behave tests
         run: |
@@ -470,6 +510,14 @@ jobs:
           --build-type $BUILD_TYPE \
           --threads $THREADS \
           build-memgraph
+
+      - name: Initialize tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          init-tests
 
       - name: Run GQL Behave tests
         run: |
@@ -568,6 +616,14 @@ jobs:
           --threads $THREADS \
           build-memgraph
 
+      - name: Initialize tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          init-tests
+
       - name: Run micro benchmarks
         run: |
           ./release/package/mgbuild.sh \
@@ -644,6 +700,14 @@ jobs:
           --threads $THREADS \
           build-memgraph
 
+      - name: Initialize tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          init-tests
+
       # This step will be skipped because the e2e stream tests have been disabled
       # We need to fix this as soon as possible
       - name: Ensure Kafka and Pulsar are up
@@ -718,6 +782,14 @@ jobs:
           --build-type $BUILD_TYPE \
           --threads $THREADS \
           build-memgraph
+
+      - name: Initialize tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          init-tests
 
       - name: Run stress test (plain)
         run: |
@@ -918,6 +990,14 @@ jobs:
           --threads $THREADS \
           build-memgraph
 
+      - name: Initialize tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          init-tests
+
       - name: Run stress test (large)
         run: |
           ./release/package/mgbuild.sh \
@@ -973,6 +1053,14 @@ jobs:
           --build-type $BUILD_TYPE \
           --threads $THREADS \
           build-memgraph
+
+      - name: Initialize tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          init-tests
 
       - name: Run query modules e2e tests
         run: |
