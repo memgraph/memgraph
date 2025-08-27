@@ -39,13 +39,6 @@ void Load(memgraph::replication::FinalizeSystemTxRes *self, memgraph::slk::Reade
 }  // namespace memgraph::slk
 
 namespace memgraph::replication {
-
-constexpr utils::TypeInfo FinalizeSystemTxReq::kType{utils::TypeId::REP_FINALIZE_SYS_TX_REQ, "FinalizeSystemTxReq",
-                                                     nullptr};
-
-constexpr utils::TypeInfo FinalizeSystemTxRes::kType{utils::TypeId::REP_FINALIZE_SYS_TX_RES, "FinalizeSystemTxRes",
-                                                     nullptr};
-
 void FinalizeSystemTxReq::Save(const FinalizeSystemTxReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
