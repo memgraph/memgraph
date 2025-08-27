@@ -415,6 +415,11 @@ add_unit_test(small_vector
     LINK_TARGETS mg-utils
 )
 
+add_unit_test(skip_list_parallel_chunks
+    SOURCES skip_list_parallel_chunks.cpp
+    LINK_TARGETS mg-utils
+)
+
 add_unit_test(utils_mask_sensitive_information
     SOURCES utils_mask_sensitive_information.cpp
     LINK_TARGETS mg-utils fmt
