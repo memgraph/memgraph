@@ -10,12 +10,11 @@
 // licenses/APL.txt.
 
 #include "storage/v2/inmemory/replication/recovery.hpp"
-#include <algorithm>
 #include <cstdint>
 #include "storage/v2/durability/durability.hpp"
+#include "storage/v2/durability/wal.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/replication/recovery.hpp"
-#include "storage/v2/transaction.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/uuid.hpp"
 

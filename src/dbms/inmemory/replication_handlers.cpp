@@ -19,11 +19,12 @@
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/version.hpp"
+#include "storage/v2/durability/wal.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
-#include "storage/v2/schema_info.hpp"
+#include "storage/v2/mvcc.hpp"
 #include "utils/observer.hpp"
 
 #include <spdlog/spdlog.h>
