@@ -55,8 +55,6 @@ while(($#)); do
 done
 
 DISTRO=$(operating_system)
-ARCHITECTURE=$(architecture)
-
 
 # Fix for centos 7 during release
 if [[ "$ci" == "false" ]]; then
