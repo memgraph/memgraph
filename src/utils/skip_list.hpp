@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <spdlog/spdlog.h>
 #include "utils/bound.hpp"
 #include "utils/counter.hpp"
 #include "utils/math.hpp"
@@ -19,6 +20,7 @@
 #include "utils/stack.hpp"
 
 #include <random>
+#include <vector>
 
 // This code heavily depends on atomic operations. For a more detailed
 // description of how exactly atomic operations work, see:
@@ -725,6 +727,93 @@ class SkipList final : detail::SkipListNode_base {
     uint32_t level_{};
   };
 
+  struct Chunk;
+
+  /// Iterator for parallel chunk-based reading of the skip list.
+  /// This iterator provides a way to iterate over a specific chunk of the list
+  /// defined by start and end positions, allowing multiple threads to process
+  /// different sections concurrently.
+  class ChunkIterator final {
+   private:
+    friend class SkipList;
+
+    explicit ChunkIterator(TNode *node, TNode *node_end) : node_(node), node_end_(node_end) {}
+
+   public:
+    using value_type = TObj const;
+    using difference_type = std::ptrdiff_t;
+
+    ChunkIterator() = default;
+    ChunkIterator(ChunkIterator const &) = default;
+    ChunkIterator(ChunkIterator &&) = default;
+    ChunkIterator &operator=(ChunkIterator const &) = default;
+    ChunkIterator &operator=(ChunkIterator &&) = default;
+
+    value_type &operator*() const {
+      if (node_ == nullptr) {
+        throw std::runtime_error("Dereferencing null ChunkIterator");
+      }
+      return node_->obj;
+    }
+
+    value_type *operator->() const {
+      if (node_ == nullptr) {
+        throw std::runtime_error("Dereferencing null ChunkIterator");
+      }
+      return &node_->obj;
+    }
+
+    friend bool operator==(ChunkIterator const &lhs, ChunkIterator const &rhs) { return lhs.node_ == rhs.node_; }
+
+    ChunkIterator &operator++() {
+      if (node_ == nullptr || node_ == node_end_) {
+        return *this;  // Already at end or null
+      }
+
+      TNode *next = nullptr;
+      while (true) {
+        next = node_->nexts[0].load(std::memory_order_acquire);
+        if (next == nullptr || next == node_end_) {
+          node_ = next;
+          return *this;
+        }
+        if (!next->marked.load(std::memory_order_acquire)) {
+          node_ = next;
+          return *this;
+        }
+        // Skip invalid nodes (marked or not fully linked)
+      }
+    }
+
+    ChunkIterator operator++(int) {
+      ChunkIterator old = *this;
+      ++(*this);
+      return old;
+    }
+
+   private:
+    friend struct Chunk;
+
+    TNode *node_{nullptr};
+    TNode *node_end_{nullptr};  // End node is needed, because the end node could become marked and skipped otherwise
+  };
+
+  /// Represents a chunk of the skip list for parallel processing.
+  /// Contains iterators to the beginning and end of a specific section.
+  struct Chunk {
+    Chunk(TNode *node, TNode *node_end) : begin_(node, node_end), end_(node_end, nullptr) {}
+    auto begin() const -> ChunkIterator { return begin_; }
+    auto end() const -> ChunkIterator { return end_; }
+
+   private:
+    ChunkIterator begin_;
+    ChunkIterator end_;
+  };
+
+  /// Collection of chunks for parallel processing.
+  /// Provides access to all chunks and allows iteration over them.
+  using ChunkCollection = std::vector<Chunk>;
+
   struct SamplingRange {
     SamplingRange(SamplingIterator begin, SamplingIterator end) : begin_(begin), end_(end) {}
     auto begin() const -> SamplingIterator { return begin_; }
@@ -787,6 +876,14 @@ class SkipList final : detail::SkipListNode_base {
       auto const e = SamplingIterator{};
       return SamplingRange{b, e};
     };
+
+    /// Creates chunks for parallel processing of the skip list.
+    /// Each chunk contains approximately equal number of elements.
+    /// This method is thread-safe and can be called concurrently.
+    ///
+    /// @param num_chunks The number of chunks to create
+    /// @return ChunkCollection containing the chunks
+    ChunkCollection create_chunks(size_t num_chunks) const { return skiplist_->create_chunks(num_chunks); }
 
     std::pair<Iterator, bool> insert(const TObj &object) { return skiplist_->insert(object); }
 
@@ -947,6 +1044,14 @@ class SkipList final : detail::SkipListNode_base {
       auto const e = SamplingIterator{};
       return SamplingRange{b, e};
     };
+
+    /// Creates chunks for parallel processing of the skip list.
+    /// Each chunk contains approximately equal number of elements.
+    /// This method is thread-safe and can be called concurrently.
+    ///
+    /// @param num_chunks The number of chunks to create
+    /// @return ChunkCollection containing the chunks
+    ChunkCollection create_chunks(size_t num_chunks) const { return skiplist_->create_chunks(num_chunks); }
 
     template <typename TKey>
     bool contains(const TKey &key) const {
@@ -1493,6 +1598,78 @@ class SkipList final : detail::SkipListNode_base {
         return false;
       }
     }
+  }
+
+  /// Creates chunks for parallel processing of the skip list.
+  /// Uses the maximum layer for efficient chunking, splitting based on max-height elements.
+  /// Ensures complete coverage by making first chunk start from beginning and last chunk end at end.
+  /// This method is thread-safe and can be called concurrently.
+  ///
+  /// @param num_chunks The number of chunks to create
+  /// @return ChunkCollection containing the chunks
+  ChunkCollection create_chunks(size_t num_chunks) const {
+    if (num_chunks == 0) {
+      return ChunkCollection{};
+    }
+    if (head_ == nullptr) {
+      // Return one empty chunk for empty list
+      return ChunkCollection{std::vector<Chunk>{Chunk{nullptr, nullptr}}};
+    }
+
+    // Find the highest layer with enough elements for chunking
+    std::vector<TNode *> cached_layer_nodes;
+    int layer = SkipListLayerForCountEstimation(size()) - 1;
+    for (; layer >= 0; --layer) {
+      cached_layer_nodes.clear();
+      cached_layer_nodes.reserve(num_chunks * 2);  //  better reserve
+      // Count max-height elements (elements that appear at this layer)
+      TNode *current = head_->nexts[layer].load(std::memory_order_acquire);
+      while (current != nullptr) {
+        // Only count nodes that are both fully_linked and not marked
+        if (!current->marked.load(std::memory_order_acquire)) {
+          cached_layer_nodes.push_back(current);
+        }
+        while (!current->fully_linked.load(std::memory_order_acquire))
+          ;
+        current = current->nexts[layer].load(std::memory_order_acquire);
+      }
+
+      if (cached_layer_nodes.size() >= num_chunks) {
+        break;  // Found the layer with enough elements
+      }
+    }
+
+    if (cached_layer_nodes.empty()) {
+      // If there are no max-height elements, return the complete list as one chunk
+      return ChunkCollection{std::vector<Chunk>{Chunk{head_->nexts[0].load(std::memory_order_acquire), nullptr}}};
+    }
+
+    // If we have fewer max-height elements than chunks, adjust
+    if (cached_layer_nodes.size() < num_chunks) {
+      layer = 0;  // We got to the bottom layer
+      num_chunks = cached_layer_nodes.size();
+    }
+
+    std::vector<Chunk> chunks(num_chunks, Chunk{nullptr, nullptr});
+
+    uint64_t elements_per_chunk = cached_layer_nodes.size() / num_chunks;
+    uint64_t remainder = cached_layer_nodes.size() % num_chunks;
+
+    // First chunk starts from the very beginning of the list (head_->nexts[0])
+    // This ensures we capture any newly inserted elements at the beginning
+    auto start = head_->nexts[0].load(std::memory_order_acquire);
+    for (size_t i = 0; i < num_chunks; ++i) {
+      TNode *end = nullptr;
+      const auto next_pos = (i + 1);
+      const auto end_pos = next_pos * elements_per_chunk + (next_pos < remainder ? next_pos : remainder);
+      if (end_pos < cached_layer_nodes.size()) {
+        end = cached_layer_nodes[end_pos];
+      }
+      chunks[i] = Chunk{start, end};
+      start = end;
+    }
+
+    return ChunkCollection{std::move(chunks)};
   }
 
  private:
