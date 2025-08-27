@@ -75,6 +75,15 @@ class VerticesIterable final {
 
   Iterator begin();
   Iterator end();
+
+  /// Creates chunks for parallel processing of vertices.
+  /// Currently only supports chunking for AllVerticesIterable.
+  /// For other types, returns an empty collection.
+  /// This method is thread-safe and can be called concurrently.
+  ///
+  /// @param num_chunks The number of chunks to create
+  /// @return Collection of chunks for parallel processing
+  AllVerticesIterable::ChunkCollection create_chunks(size_t num_chunks) const;
 };
 
 }  // namespace memgraph::storage

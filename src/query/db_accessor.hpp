@@ -264,6 +264,73 @@ class EdgesIterable final {
 
 using PointIterable = query_iterable<storage::PointIterable>;
 
+/// Query-layer chunk collection that wraps storage layer chunk collection.
+/// This follows the same pattern as other query layer iterables.
+class VerticesChunkCollection final {
+  storage::AllVerticesIterable::ChunkCollection chunks_;
+
+ public:
+  class ChunkIterator final {
+    storage::AllVerticesIterable::ChunkIterator it_;
+
+   public:
+    explicit ChunkIterator(storage::AllVerticesIterable::ChunkIterator it) : it_(std::move(it)) {}
+
+    VertexAccessor operator*() const { return VertexAccessor(*it_); }
+
+    ChunkIterator &operator++() {
+      ++it_;
+      return *this;
+    }
+
+    bool operator==(const ChunkIterator &other) const { return it_ == other.it_; }
+
+    bool operator!=(const ChunkIterator &other) const { return !(*this == other); }
+  };
+
+  class Chunk final {
+    storage::AllVerticesIterable::Chunk chunk_;
+
+   public:
+    explicit Chunk(storage::AllVerticesIterable::Chunk chunk) : chunk_(std::move(chunk)) {}
+
+    ChunkIterator begin() const { return ChunkIterator(chunk_.begin()); }
+
+    ChunkIterator end() const { return ChunkIterator(chunk_.end()); }
+  };
+
+  class Iterator final {
+    storage::AllVerticesIterable::ChunkCollection::iterator it_;
+
+   public:
+    explicit Iterator(storage::AllVerticesIterable::ChunkCollection::iterator it) : it_(it) {}
+
+    Chunk operator*() const { return Chunk(*it_); }
+
+    Iterator &operator++() {
+      ++it_;
+      return *this;
+    }
+
+    bool operator==(const Iterator &other) const { return it_ == other.it_; }
+
+    bool operator!=(const Iterator &other) const { return !(*this == other); }
+  };
+
+  explicit VerticesChunkCollection(storage::AllVerticesIterable::ChunkCollection chunks) : chunks_(std::move(chunks)) {}
+
+  Iterator begin() { return Iterator(chunks_.begin()); }
+
+  Iterator end() { return Iterator(chunks_.end()); }
+
+  size_t size() const { return chunks_.size(); }
+
+  bool empty() const { return chunks_.empty(); }
+
+  // Random access support for chunk indexing
+  Chunk operator[](size_t index) const { return Chunk(chunks_[index]); }
+};
+
 class DbAccessor final {
   storage::Storage::Accessor *accessor_;
 
@@ -320,13 +387,38 @@ class DbAccessor final {
     return VerticesIterable(accessor_->Vertices(label, properties, property_ranges, view));
   }
 
+  /// Creates chunks for parallel processing of vertices.
+  /// This method creates chunks from the underlying storage layer's vertices iterable.
+  /// Each chunk can be processed in parallel by different threads.
+  /// This method is thread-safe and can be called concurrently.
+  ///
+  /// @param view The view to use for vertex visibility
+  /// @param num_chunks The number of chunks to create
+  /// @return Collection of chunks for parallel processing
+  VerticesChunkCollection VerticesChunks(storage::View view, size_t num_chunks) {
+    return VerticesChunkCollection(accessor_->Vertices(view).create_chunks(num_chunks));
+  }
+
+  /// Creates chunks for parallel processing of vertices with a specific label.
+  /// This method creates chunks from the underlying storage layer's vertices iterable.
+  /// Each chunk can be processed in parallel by different threads.
+  /// This method is thread-safe and can be called concurrently.
+  ///
+  /// @param view The view to use for vertex visibility
+  /// @param label The label to filter vertices by
+  /// @param num_chunks The number of chunks to create
+  /// @return Collection of chunks for parallel processing
+  VerticesChunkCollection VerticesChunks(storage::View view, storage::LabelId label, size_t num_chunks) {
+    return VerticesChunkCollection(accessor_->Vertices(label, view).create_chunks(num_chunks));
+  }
+
   auto PointVertices(storage::LabelId label, storage::PropertyId property, storage::CoordinateReferenceSystem crs,
                      TypedValue const &point_value, TypedValue const &boundary_value,
                      plan::PointDistanceCondition condition) -> PointIterable;
 
   auto PointVertices(storage::LabelId label, storage::PropertyId property, storage::CoordinateReferenceSystem crs,
-                     TypedValue const &bottom_left, TypedValue const &top_right,
-                     plan::WithinBBoxCondition condition) -> PointIterable;
+                     TypedValue const &bottom_left, TypedValue const &top_right, plan::WithinBBoxCondition condition)
+      -> PointIterable;
 
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type) {
     return EdgesIterable(accessor_->Edges(edge_type, view));
@@ -797,8 +889,8 @@ class DbAccessor final {
 
   auto ShowEnums() { return accessor_->ShowEnums(); }
 
-  auto GetEnumValue(std::string_view name,
-                    std::string_view value) const -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+  auto GetEnumValue(std::string_view name, std::string_view value) const
+      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
     return accessor_->GetEnumValue(name, value);
   }
   auto GetEnumValue(std::string_view enum_str) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
@@ -809,13 +901,13 @@ class DbAccessor final {
     return accessor_->GetEnumStoreShared().ToString(value);
   }
 
-  auto EnumAlterAdd(std::string_view name,
-                    std::string_view value) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+  auto EnumAlterAdd(std::string_view name, std::string_view value)
+      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
     return accessor_->EnumAlterAdd(name, value);
   }
 
-  auto EnumAlterUpdate(std::string_view name, std::string_view old_value,
-                       std::string_view new_value) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+  auto EnumAlterUpdate(std::string_view name, std::string_view old_value, std::string_view new_value)
+      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
     return accessor_->EnumAlterUpdate(name, old_value, new_value);
   }
 
