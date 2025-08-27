@@ -647,7 +647,8 @@ bool SymbolGenerator::PostVisit(SetProperty &set_property) {
   auto &scope = scopes_.back();
   scope.in_set_property = false;
 
-  if (set_property.property_lookup_->property_path_.size() <= 1) {
+  if (set_property.property_lookup_->property_path_.size() <= 1 &&
+      set_property.property_lookup_->lookup_mode_ == PropertyLookup::LookupMode::REPLACE) {
     return true;
   }
 
@@ -671,6 +672,34 @@ bool SymbolGenerator::PostVisit(SetProperty &set_property) {
   set_property.property_lookup_->expression_ = visitor.base_identifier;
   set_property.property_lookup_->use_nested_property_update_ = true;
 
+  return true;
+}
+
+bool SymbolGenerator::PostVisit(RemoveProperty &remove_property) {
+  auto &scope = scopes_.back();
+
+  if (remove_property.property_lookup_->property_path_.size() <= 1) {
+    return true;
+  }
+
+  PropertyLookupBaseIdentifierVisitor visitor;
+  remove_property.property_lookup_->Accept(visitor);
+
+  if (!visitor.base_identifier) {
+    return true;
+  }
+
+  auto maybe_symbol = FindSymbolInScope(visitor.base_identifier->name_, scope, Symbol::Type::ANY);
+
+  if (!maybe_symbol.has_value()) {
+    throw SemanticException("Symbol not found when removing property, please contact Memgraph support!");
+  }
+
+  if (auto type = maybe_symbol.value().type(); type != Symbol::Type::VERTEX && type != Symbol::Type::EDGE) {
+    return true;
+  }
+
+  remove_property.property_lookup_->expression_ = visitor.base_identifier;
   return true;
 }
 

@@ -72,6 +72,7 @@ class SymbolGenerator : public HierarchicalTreeVisitor {
   bool PostVisit(Foreach &) override;
   bool PreVisit(SetProperty & /*set_property*/) override;
   bool PostVisit(SetProperty & /*set_property*/) override;
+  bool PostVisit(RemoveProperty & /*remove_property*/) override;
   bool PreVisit(SetLabels &) override;
   bool PostVisit(SetLabels & /*set_labels*/) override;
   bool PreVisit(RemoveLabels &) override;
