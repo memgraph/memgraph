@@ -378,16 +378,31 @@ auto ReplicationHandler::GetRole() const -> replication_coordination_glue::Repli
 }
 
 #ifdef MG_ENTERPRISE
-auto ReplicationHandler::GetDatabasesHistories() const -> replication_coordination_glue::InstanceInfo {
+
+std::variant<coordination::GetDatabaseHistoriesResV1, coordination::GetDatabaseHistoriesRes>
+ReplicationHandler::GetDatabasesHistories(uint64_t const request_version) const {
+  if (request_version == coordination::GetDatabaseHistoriesReqV1::kVersion) {
+    replication_coordination_glue::InstanceInfoV1 results;
+    results.last_committed_system_timestamp = system_.LastCommittedSystemTimestamp();
+    dbms_handler_.ForEach([&results](dbms::DatabaseAccess db_acc) {
+      auto const &repl_storage_state = db_acc->storage()->repl_storage_state_;
+      results.dbs_info.emplace_back(std::string{db_acc->storage()->uuid()},
+                                    repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).ldt_);
+    });
+    return coordination::GetDatabaseHistoriesResV1{results};
+  }
+
+  // In the newest version we return num_committed_txns_ instead
   replication_coordination_glue::InstanceInfo results;
   results.last_committed_system_timestamp = system_.LastCommittedSystemTimestamp();
   dbms_handler_.ForEach([&results](dbms::DatabaseAccess db_acc) {
     auto const &repl_storage_state = db_acc->storage()->repl_storage_state_;
-    results.dbs_info.emplace_back(std::string{db_acc->storage()->uuid()},
-                                  repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).ldt_);
+    results.dbs_info.emplace_back(
+        std::string{db_acc->storage()->uuid()},
+        repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).num_committed_txns_);
   });
 
-  return results;
+  return coordination::GetDatabaseHistoriesRes{results};
 }
 
 auto ReplicationHandler::GetReplicationLag() const -> coordination::ReplicationLagInfo {
