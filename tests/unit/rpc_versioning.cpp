@@ -12,9 +12,8 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
-#include <atomic>
-
 #include "coordination/coordinator_rpc.hpp"
+#include "coordination/instance_state.hpp"
 #include "replication_coordination_glue/common.hpp"
 
 #include "rpc_messages.hpp"
@@ -86,6 +85,8 @@ TEST(RpcVersioning, SumUpgrade) {
 namespace memgraph::coordination {
 using GetDatabaseHistoriesRpcV1 = rpc::RequestResponse<GetDatabaseHistoriesReqV1, GetDatabaseHistoriesResV1>;
 }  // namespace memgraph::coordination
+
+#ifdef MG_ENTERPRISE
 
 TEST(RpcVersioning, GetDBHistories) {
   Endpoint const endpoint{"localhost", port + 1};
@@ -202,3 +203,4 @@ TEST(RpcVersioning, StateCheckRpc) {
     EXPECT_TRUE(reply.state.is_writing_enabled);
   }
 }
+#endif\
