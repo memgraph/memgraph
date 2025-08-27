@@ -109,9 +109,6 @@ jobs:
       - name: Set Additional Build Args
         run: |
           args="${{ inputs.additional_build_args }} --disable-testing"
-          if [[ "${{ inputs.os }}" == "centos-9" || "${{ inputs.os }}" == "centos-10" || "${{ inputs.os }}" == "fedora-41" ]]; then
-            args="$args --init-skip-prep-testing"
-          fi
           echo "ADDITIONAL_BUILD_ARGS=$args" >> $GITHUB_ENV
           echo "Final build args: $args"
 
