@@ -1004,7 +1004,7 @@ class PropertyLookup : public memgraph::query::Expression {
   PropertyLookup *Clone(AstStorage *storage) const override {
     PropertyLookup *object = storage->Create<PropertyLookup>();
     object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
-    object->property_ = property_;
+    object->property_ = storage->GetPropertyIx(property_.name);
     object->property_path_.resize(property_path_.size());
     for (size_t i = 0; i < property_path_.size(); ++i) {
       object->property_path_[i] = storage->GetPropertyIx(property_path_[i].name);
