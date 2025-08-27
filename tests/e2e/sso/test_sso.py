@@ -70,7 +70,7 @@ def test_sso_missing_username():
     MG_AUTH = Auth(scheme="saml-entra-id", credentials=response, principal="")
 
     with GraphDatabase.driver(MG_URI, auth=MG_AUTH) as client:
-        with pytest.raises(neo4j.exceptions.ServiceUnavailable, match=CLIENT_ERROR_MESSAGE) as _:
+        with pytest.raises(neo4j.exceptions.ClientError, match=CLIENT_ERROR_MESSAGE) as _:
             client.verify_connectivity()
 
 
