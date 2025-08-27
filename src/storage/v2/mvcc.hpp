@@ -95,7 +95,16 @@ template <typename TObj>
 inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
   if (object->delta == nullptr) return true;
   auto ts = object->delta->timestamp->load(std::memory_order_acquire);
-  if (ts == transaction->transaction_id || ts < transaction->start_timestamp) {
+  if (ts == transaction->transaction_id) {
+    // If head delta from same transaction is interleaved, cannot add non-commutative operation
+    if (IsOperationInterleaved(*object->delta)) {
+      transaction->has_serialization_error = true;
+      return false;
+    }
+    return true;
+  }
+
+  if (ts < transaction->start_timestamp) {
     return true;
   }
 
@@ -114,16 +123,12 @@ inline WriteResult PrepareForCommutativeWrite(Transaction *transaction, TObj *ob
   auto ts = object->delta->timestamp->load(std::memory_order_acquire);
   if (ts == transaction->transaction_id) {
     // If the head delta belongs to the same transaction and is interleaved,
-    // then only another commutative action delta (i.e., one that can be
-    // interleaved) can be prepended.
-    if ((object->delta->action == Delta::Action::ADD_IN_EDGE || object->delta->action == Delta::Action::ADD_OUT_EDGE) &&
-        object->delta->vertex_edge.vertex.IsInterleaved()) {
-      transaction->has_serialization_error = true;
-      return WriteResult::CONFLICT;
+    // then only another commutative action delta can be prepended.
+    if (IsOperationInterleaved(*object->delta)) {
+      return WriteResult::COMMUTATIVE;
     }
-
-    // Because the head is interleaved, the new head must also be interleaved.
-    return WriteResult::COMMUTATIVE;
+    // Head delta from same transaction is not interleaved - allow any new delta
+    return WriteResult::SUCCESS;
   }
 
   // Standard MVCC visibility rules: if the head delta was committed before
