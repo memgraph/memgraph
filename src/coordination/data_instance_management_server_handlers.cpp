@@ -118,8 +118,15 @@ void DataInstanceManagementServerHandlers::StateCheckHandler(const replication::
 void DataInstanceManagementServerHandlers::GetDatabaseHistoriesHandler(
     replication::ReplicationHandler const &replication_handler, uint64_t const request_version,
     slk::Reader * /*req_reader*/, slk::Builder *res_builder) {
-  coordination::GetDatabaseHistoriesRes const rpc_res{replication_handler.GetDatabasesHistories()};
-  rpc::SendFinalResponse(rpc_res, request_version, res_builder);
+  // We cannot perform response downgrade because versions are divergent, i.e. we cannot construct ldt by knowing
+  // num_committed_txn
+  auto const rpc_res_var{replication_handler.GetDatabasesHistories(request_version)};
+  if (request_version == coordination::GetDatabaseHistoriesReqV1::kVersion) {
+    rpc::SendFinalResponse(std::get<coordination::GetDatabaseHistoriesResV1>(rpc_res_var), request_version,
+                           res_builder);
+  } else {
+    rpc::SendFinalResponse(std::get<coordination::GetDatabaseHistoriesRes>(rpc_res_var), request_version, res_builder);
+  }
 }
 
 void DataInstanceManagementServerHandlers::GetReplicationLagHandler(
