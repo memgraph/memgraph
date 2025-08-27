@@ -2716,14 +2716,18 @@ py::Object MgpValueToPyObject(const mgp_value &value, PyGraph *py_graph) {
       if (!py_dict) {
         return nullptr;
       }
-      for (const auto &[key, val] : map->items) {
-        auto py_val = MgpValueToPyObject(val, py_graph);
-        if (!py_val) {
-          return nullptr;
-        }
-        // Unlike PyList_SET_ITEM, PyDict_SetItem does not steal the value.
-        if (PyDict_SetItemString(py_dict.Ptr(), key.c_str(), py_val.Ptr()) != 0) return nullptr;
-      }
+      std::visit(
+          [&py_dict, py_graph](const auto &items) {
+            for (const auto &[key, val] : items) {
+              auto py_val = MgpValueToPyObject(val, py_graph);
+              if (!py_val) {
+                return;
+              }
+              // Unlike PyList_SET_ITEM, PyDict_SetItem does not steal the value.
+              if (PyDict_SetItemString(py_dict.Ptr(), key.c_str(), py_val.Ptr()) != 0) return;
+            }
+          },
+          map->items);
       return py_dict;
     }
     case MGP_VALUE_TYPE_VERTEX: {

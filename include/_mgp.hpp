@@ -434,6 +434,9 @@ inline mgp_value *list_at(mgp_list *list, size_t index) { return MgInvoke<mgp_va
 // mgp_map
 
 inline mgp_map *map_make_empty(mgp_memory *memory) { return MgInvoke<mgp_map *>(mgp_map_make_empty, memory); }
+inline mgp_map *unordered_map_make_empty(mgp_memory *memory) {
+  return MgInvoke<mgp_map *>(mgp_unordered_map_make_empty, memory);
+}
 
 inline mgp_map *map_copy(mgp_map *map, mgp_memory *memory) { return MgInvoke<mgp_map *>(mgp_map_copy, map, memory); }
 
