@@ -207,7 +207,7 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> CoordinatorClusterState
     }
 
     if (json.contains(kMaxLagOnReplica.data())) {
-      auto const max_replica_lag = json.value(kMaxLagOnReplica.data(), std::numeric_limits<uint32_t>::max());
+      auto const max_replica_lag = json.value(kMaxLagOnReplica.data(), std::numeric_limits<uint64_t>::max());
       delta_state.max_replica_lag_ = max_replica_lag;
     }
 
@@ -394,7 +394,7 @@ auto CoordinatorStateMachine::GetEnabledReadsOnMain() const -> bool { return clu
 
 auto CoordinatorStateMachine::GetSyncFailoverOnly() const -> bool { return cluster_state_.GetSyncFailoverOnly(); }
 
-auto CoordinatorStateMachine::GetMaxReplicaLag() const -> uint32_t { return cluster_state_.GetMaxReplicaLag(); }
+auto CoordinatorStateMachine::GetMaxReplicaLag() const -> uint64_t { return cluster_state_.GetMaxReplicaLag(); }
 
 }  // namespace memgraph::coordination
 #endif
