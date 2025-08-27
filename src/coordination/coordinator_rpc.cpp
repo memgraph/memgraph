@@ -129,28 +129,12 @@ void ReplicationLagRes::Load(ReplicationLagRes *self, memgraph::slk::Reader *rea
 
 // GetDatabaseHistoriesRpc
 
-void GetDatabaseHistoriesReqV1::Save(const GetDatabaseHistoriesReqV1 & /*self*/, memgraph::slk::Builder * /*builder*/) {
-  /* nothing to serialize */
-}
-
-void GetDatabaseHistoriesReqV1::Load(GetDatabaseHistoriesReqV1 * /*self*/, memgraph::slk::Reader * /*reader*/) {
-  /* nothing to serialize */
-}
-
 void GetDatabaseHistoriesReq::Save(const GetDatabaseHistoriesReq & /*self*/, memgraph::slk::Builder * /*builder*/) {
   /* nothing to serialize */
 }
 
 void GetDatabaseHistoriesReq::Load(GetDatabaseHistoriesReq * /*self*/, memgraph::slk::Reader * /*reader*/) {
   /* nothing to serialize */
-}
-
-void GetDatabaseHistoriesResV1::Save(const GetDatabaseHistoriesResV1 &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self, builder);
-}
-
-void GetDatabaseHistoriesResV1::Load(GetDatabaseHistoriesResV1 *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(self, reader);
 }
 
 void GetDatabaseHistoriesRes::Save(const GetDatabaseHistoriesRes &self, memgraph::slk::Builder *builder) {
@@ -246,14 +230,6 @@ void Load(memgraph::coordination::EnableWritingOnMainRes *self, memgraph::slk::R
 }
 
 // GetDatabaseHistoriesRpc
-
-void Save(const memgraph::coordination::GetDatabaseHistoriesResV1 &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.instance_info, builder);
-}
-
-void Load(memgraph::coordination::GetDatabaseHistoriesResV1 *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->instance_info, reader);
-}
 
 void Save(const memgraph::coordination::GetDatabaseHistoriesRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.instance_info, builder);

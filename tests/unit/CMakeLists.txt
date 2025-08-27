@@ -502,7 +502,7 @@ add_unit_test(snapshot_rpc_progress.cpp)
 target_link_libraries(${test_prefix}snapshot_rpc_progress mg-rpc rpc_messages)
 
 add_unit_test(rpc_versioning.cpp)
-target_link_libraries(${test_prefix}rpc_versioning mg-coordination mg-repl_coord_glue mg-rpc rpc_messages)
+target_link_libraries(${test_prefix}rpc_versioning mg-rpc rpc_messages)
 
 # Test websocket
 find_package(Boost REQUIRED CONFIG COMPONENTS headers filesystem)
