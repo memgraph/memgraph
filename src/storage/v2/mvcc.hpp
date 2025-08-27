@@ -86,12 +86,6 @@ inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delt
   return n_processed;
 }
 
-template <typename TObj>
-inline bool AreOperationsCommutative(TObj *object) {
-  return (object->delta->action == Delta::Action::REMOVE_IN_EDGE ||
-          object->delta->action == Delta::Action::REMOVE_OUT_EDGE);
-}
-
 /// This function prepares the object for a write. It checks whether there are
 /// any serialization errors in the process (eg. the object can't be written to
 /// from this transaction because it is being written to from another
@@ -112,17 +106,39 @@ inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
 enum class WriteResult { SUCCESS, COMMUTATIVE, CONFLICT };
 
 template <typename TObj>
-inline WriteResult PrepareForCommutativeWrite(Transaction *transaction, TObj *object) {
-  if (object->delta == nullptr) return WriteResult::SUCCESS;
-  auto ts = object->delta->timestamp->load(std::memory_order_acquire);
-  if (ts == transaction->transaction_id || ts < transaction->start_timestamp) {
-    return WriteResult::SUCCESS;
-  }
+inline WriteResult PrepareForCommutativeWrite(Transaction *transaction, TObj *object, Delta::Action action) {
+  DMG_ASSERT(IsActionCommutative(action));
 
-  if (AreOperationsCommutative(object)) {
+  if (object->delta == nullptr) return WriteResult::SUCCESS;
+
+  auto ts = object->delta->timestamp->load(std::memory_order_acquire);
+  if (ts == transaction->transaction_id) {
+    // If the head delta belongs to the same transaction and is interleaved,
+    // then only another commutative action delta (i.e., one that can be
+    // interleaved) can be prepended.
+    if ((object->delta->action == Delta::Action::ADD_IN_EDGE || object->delta->action == Delta::Action::ADD_OUT_EDGE) &&
+        object->delta->vertex_edge.vertex.IsInterleaved()) {
+      transaction->has_serialization_error = true;
+      return WriteResult::CONFLICT;
+    }
+
+    // Because the head is interleaved, the new head must also be interleaved.
     return WriteResult::COMMUTATIVE;
   }
 
+  // Standard MVCC visibility rules: if the head delta was committed before
+  // this transaction started, any delta action can be prepended.
+  if (ts < transaction->start_timestamp) {
+    return WriteResult::SUCCESS;
+  }
+
+  // If the head is a commutative action from another (as yet uncommited)
+  // transaction, we can prepend an interleaved delta.
+  if (IsActionCommutative(object->delta->action)) {
+    return WriteResult::COMMUTATIVE;
+  }
+
+  // Standard MVCC serialization conflict.
   transaction->has_serialization_error = true;
   return WriteResult::CONFLICT;
 }
@@ -203,6 +219,7 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&..
   if (object->delta) {
     object->delta->prev.Set(delta);
   }
+
   // 4. Finally, we need to set the object's delta to the new delta. The garbage
   // collector and other transactions will acquire the object lock to read the
   // delta from the object. Because the lock is held during the whole time this
