@@ -23,9 +23,9 @@ class PlannerImprovements(Workload):
     FILE = None
 
     URL_FILE = {
-        "small": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/benchmark/pokec_small_import.cypher",
-        "medium": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/benchmark/pokec_medium_import.cypher",
-        "large": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/benchmark/pokec_large.setup.cypher.gz",
+        "small": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/planner_improvements/pokec_small_import.cypher",
+        "medium": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/planner_improvements/pokec_medium_import.cypher",
+        "large": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/planner_improvements/pokec_large.setup.cypher.gz",
     }
 
     SIZES = {
@@ -35,7 +35,7 @@ class PlannerImprovements(Workload):
     }
 
     URL_INDEX_FILE = {
-        GraphVendors.MEMGRAPH: "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/benchmark/memgraph.cypher",
+        GraphVendors.MEMGRAPH: "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/planner_improvements/memgraph.cypher",
     }
 
     PROPERTIES_ON_EDGES = False
@@ -78,11 +78,22 @@ class PlannerImprovements(Workload):
 
         return query, params
 
-    def benchmark__test__parallel_counting(self):
+    def benchmark__test__bfs_expand_from_source(self):
         # The query needs to facilitate source expand, and not ST Shortest path
         match self._vendor:
             case GraphVendors.MEMGRAPH:
                 query = f"MATCH p=(u:User {id: 1})-[*bfs]-(:User) RETURN count(p)"
+                params = {}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
+
+    def benchmark__test__starts_with(self):
+        # The query needs to facilitate index since STARTS WITH is an ordered filter
+        match self._vendor:
+            case GraphVendors.MEMGRAPH:
+                query = f"MATCH (u:User) WHERE u.gender STARTS WITH 'm' RETURN count(*)"
                 params = {}
             case _:
                 raise Exception(f"Unknown vendor {self._vendor}")
