@@ -229,19 +229,9 @@ struct GetDatabaseHistoriesRes {
       : instance_info(std::move(instance_info)) {}
   GetDatabaseHistoriesRes() = default;
 
-  GetDatabaseHistoriesResV1 Downgrade() {
-    replication_coordination_glue::InstanceInfoV1 prev_instance_info;
-    prev_instance_info.last_committed_system_timestamp = instance_info.last_committed_system_timestamp;
-    auto const compute_prev_version = [](replication_coordination_glue::InstanceDBInfo const &current_db_info)
-        -> replication_coordination_glue::InstanceDBInfoV1 {
-      return {.db_uuid = current_db_info.db_uuid, .latest_durable_timestamp = current_db_info.latest_durable_timestamp};
-    };
-
-    std::ranges::transform(instance_info.dbs_info, std::back_inserter(prev_instance_info.dbs_info),
-                           compute_prev_version);
-
-    return GetDatabaseHistoriesResV1{prev_instance_info};
-  }
+  // We cannot downgrade from GetDatabaseHistoriesRes, the caller should provide function for creating both responses
+  // independently
+  GetDatabaseHistoriesResV1 Downgrade() = delete;
 
   replication_coordination_glue::InstanceInfo instance_info;
 };

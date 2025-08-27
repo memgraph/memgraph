@@ -1129,27 +1129,27 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
 
   spdlog::trace("The instance with the newest system committed timestamp is {}", largest_sys_ts_instance->first);
 
-  // db_uuid -> vector<std::pair<instance_name, latest_durable_timestamp>>
+  // db_uuid -> vector<std::pair<instance_name, num_committed_txn>>
   std::map<std::string, std::vector<std::pair<std::string, uint64_t>>> dbs_info;
 
   // Use only DBs from the instance with the largest committed system timestamps
   for (auto const &largest_sys_ts_instance_dbs_info = largest_sys_ts_instance->second.dbs_info;
-       auto const &[db_uuid, ldt, num_committed_txns] : largest_sys_ts_instance_dbs_info) {
+       auto const &[db_uuid, _] : largest_sys_ts_instance_dbs_info) {
     dbs_info.try_emplace(db_uuid);
   }
 
   // Pre-process received failover data
   for (auto const &[instance_name, instance_info] : instances_info) {
-    for (auto const &[db_uuid, ldt, num_committed_txns] : instance_info.dbs_info) {
+    for (auto const &[db_uuid, num_committed_txns] : instance_info.dbs_info) {
       if (auto db_it = dbs_info.find(db_uuid); db_it != dbs_info.end()) {
-        db_it->second.emplace_back(instance_name, ldt);
+        db_it->second.emplace_back(instance_name, num_committed_txns);
       }
     }
   }
 
   // Instance name -> cnt on how many DBs is instance the newest
   std::map<std::string, uint64_t> total_instances_counter;
-  // Instance name -> sum of timestamps on all DBs
+  // Instance name -> sum of num_committed_txns on all DBs
   std::map<std::string, uint64_t> total_instances_sum;
 
   auto const find_newest_instances_for_db =
@@ -1157,26 +1157,26 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
       -> std::pair<std::vector<std::string>, uint64_t> {
     // There could be multiple instances with the same timestamp, that's why we are returning vector
     std::vector<std::string> newest_db_instances;
-    uint64_t curr_ldt{0};
+    uint64_t curr_num_committed_txns{0};
     // Loop through instances
-    for (auto const &[instance_name, latest_durable_timestamp] : db_info) {
+    for (auto const &[instance_name, num_committed_txns] : db_info) {
       // Sum timestamps for each instance
-      if (auto [instance_it, inserted] = total_instances_sum.try_emplace(instance_name, latest_durable_timestamp);
+      if (auto [instance_it, inserted] = total_instances_sum.try_emplace(instance_name, num_committed_txns);
           !inserted) {
-        instance_it->second += latest_durable_timestamp;
+        instance_it->second += num_committed_txns;
       }
 
-      // If no new instance exists, or instance has newer timestamp -> do the update
-      if (newest_db_instances.empty() || curr_ldt < latest_durable_timestamp) {
+      // If no new instance exists, or instance has larger num_committed_txns -> do the update
+      if (newest_db_instances.empty() || curr_num_committed_txns < num_committed_txns) {
         newest_db_instances.clear();
         newest_db_instances.emplace_back(instance_name);
-        curr_ldt = latest_durable_timestamp;
-      } else if (curr_ldt == latest_durable_timestamp) {
+        curr_num_committed_txns = num_committed_txns;
+      } else if (curr_num_committed_txns == num_committed_txns) {
         // Otherwise, we have more instances with the max timestamp, add it to the vector
         newest_db_instances.emplace_back(instance_name);
       }
     }
-    return {newest_db_instances, curr_ldt};
+    return {newest_db_instances, curr_num_committed_txns};
   };
 
   auto const update_instances_counter = [&total_instances_counter](
@@ -1191,12 +1191,12 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
   // Process each DB
   for (auto const &[db_uuid, db_info] : dbs_info) {
     spdlog::trace("Trying to find newest instance for db with uuid {}", db_uuid);
-    if (auto const [newest_db_instances, curr_ldt] = find_newest_instances_for_db(db_info);
+    if (auto const [newest_db_instances, curr_num_committed_txns] = find_newest_instances_for_db(db_info);
         newest_db_instances.empty()) {
       spdlog::error("Couldn't find newest instance for db with uuid {}", db_uuid);
     } else {
-      spdlog::info("The latest durable timestamp is {} for db with uuid {}. The following instances have it {}",
-                   curr_ldt, db_uuid, fmt::join(newest_db_instances, ", "));
+      spdlog::info("The number of committed txns is {} for db with uuid {}. The following instances have it {}",
+                   curr_num_committed_txns, db_uuid, fmt::join(newest_db_instances, ", "));
       update_instances_counter(newest_db_instances);
     }
   }
@@ -1211,7 +1211,7 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
       spdlog::info("Instances {} and {} are most up to date on the same number of instances.", instance_name,
                    newest_instance->first);
       if (total_instances_sum[instance_name] > total_instances_sum[newest_instance->first]) {
-        spdlog::info("Instance {} has the total sum of timestamps larger than {}. It will be considered newer.",
+        spdlog::info("Instance {} has the total sum of num_committed_txns larger than {}. It will be considered newer.",
                      instance_name, newest_instance->first);
         newest_instance.emplace(instance_name, cnt_newest_dbs);
       }
