@@ -350,6 +350,10 @@ struct Delta {
   };
 };
 
+inline bool IsActionCommutative(Delta::Action action) {
+  return action == Delta::Action::REMOVE_IN_EDGE || action == Delta::Action::REMOVE_OUT_EDGE;
+}
+
 // This is important, we want fast discard of unlinked deltas,
 static_assert(std::is_trivially_destructible_v<Delta>,
               "any allocations use PageSlabMemoryResource, lifetime linked to that, dtr should be trivial");
