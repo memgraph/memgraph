@@ -109,16 +109,30 @@ inline void Load(InstanceStatus *obj, Reader *reader) {
   Load(&obj->cluster_role, reader);
 }
 
+inline void Save(const coordination::InstanceStateV1 &obj, Builder *builder) {
+  Save(obj.is_replica, builder);
+  Save(obj.uuid, builder);
+  Save(obj.is_writing_enabled, builder);
+}
+
+inline void Load(coordination::InstanceStateV1 *obj, Reader *reader) {
+  Load(&obj->is_replica, reader);
+  Load(&obj->uuid, reader);
+  Load(&obj->is_writing_enabled, reader);
+}
+
 inline void Save(const coordination::InstanceState &obj, Builder *builder) {
   Save(obj.is_replica, builder);
   Save(obj.uuid, builder);
   Save(obj.is_writing_enabled, builder);
+  Save(obj.main_num_txns, builder);
 }
 
 inline void Load(coordination::InstanceState *obj, Reader *reader) {
   Load(&obj->is_replica, reader);
   Load(&obj->uuid, reader);
   Load(&obj->is_writing_enabled, reader);
+  Load(&obj->main_num_txns, reader);
 }
 
 inline void Save(const coordination::ReplicaDBLagData &obj, Builder *builder) {

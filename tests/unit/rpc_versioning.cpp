@@ -87,7 +87,7 @@ namespace memgraph::coordination {
 using GetDatabaseHistoriesRpcV1 = rpc::RequestResponse<GetDatabaseHistoriesReqV1, GetDatabaseHistoriesResV1>;
 }  // namespace memgraph::coordination
 
-TEST(RpcVersioning, GetDBHistoriesV1) {
+TEST(RpcVersioning, GetDBHistories) {
   Endpoint const endpoint{"localhost", port + 1};
 
   ServerContext server_context;
@@ -150,5 +150,55 @@ TEST(RpcVersioning, GetDBHistoriesV1) {
              .latest_durable_timestamp = 13,
          }}};
     EXPECT_EQ(reply.instance_info.dbs_info, dbs_info_res);
+  }
+}
+
+namespace memgraph::coordination {
+using StateCheckRpcV1 = rpc::RequestResponse<StateCheckReqV1, StateCheckResV1>;
+}  // namespace memgraph::coordination
+
+TEST(RpcVersioning, StateCheckRpc) {
+  Endpoint const endpoint{"localhost", port + 1};
+
+  ServerContext server_context;
+  Server rpc_server{endpoint, &server_context, /* workers */ 1};
+  auto const on_exit = memgraph::utils::OnScopeExit{[&rpc_server] {
+    rpc_server.Shutdown();
+    rpc_server.AwaitShutdown();
+  }};
+
+  std::map<std::string, uint64_t> const main_num_txns{{"a", 1}, {"b", 5}, {"c", 9}};
+
+  rpc_server.Register<memgraph::coordination::StateCheckRpc>(
+      [&main_num_txns](uint64_t const request_version, auto * /*req_reader*/, auto *res_builder) {
+        memgraph::coordination::InstanceState const instance_state{.is_replica = false,
+                                                                   .uuid = memgraph::utils::UUID{},
+                                                                   .is_writing_enabled = true,
+                                                                   .main_num_txns = main_num_txns};
+        memgraph::coordination::StateCheckRes const res{instance_state};
+        memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+      });
+
+  ASSERT_TRUE(rpc_server.Start());
+  std::this_thread::sleep_for(100ms);
+
+  ClientContext client_context;
+  Client client{endpoint, &client_context};
+  {
+    // Send new version request
+    auto stream = client.Stream<memgraph::coordination::StateCheckRpc>();
+    auto reply = stream.SendAndWait();
+
+    EXPECT_FALSE(reply.state.is_replica);
+    EXPECT_TRUE(reply.state.is_writing_enabled);
+    EXPECT_EQ(*reply.state.main_num_txns, main_num_txns);
+  }
+
+  {
+    // Send old version request
+    auto stream = client.Stream<memgraph::coordination::StateCheckRpcV1>();
+    auto reply = stream.SendAndWait();
+    EXPECT_FALSE(reply.state.is_replica);
+    EXPECT_TRUE(reply.state.is_writing_enabled);
   }
 }

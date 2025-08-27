@@ -269,25 +269,63 @@ struct ShowInstancesRes {
 
 using ShowInstancesRpc = rpc::RequestResponse<ShowInstancesReq, ShowInstancesRes>;
 
-struct StateCheckReq {
+struct StateCheckReqV1 {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_STATE_CHECK_REQ, .name = "StateCheckReq"};
   static constexpr uint64_t kVersion{1};
 
+  static void Load(StateCheckReqV1 *self, memgraph::slk::Reader *reader);
+  static void Save(const StateCheckReqV1 &self, memgraph::slk::Builder *builder);
+  StateCheckReqV1() = default;
+};
+
+struct StateCheckReq {
+  static constexpr utils::TypeInfo kType{StateCheckReqV1::kType};
+  static constexpr uint64_t kVersion{2};
+
   static void Load(StateCheckReq *self, memgraph::slk::Reader *reader);
   static void Save(const StateCheckReq &self, memgraph::slk::Builder *builder);
+
+  static StateCheckReq Upgrade(StateCheckReqV1 const &) { return StateCheckReq{}; }
+
   StateCheckReq() = default;
 };
 
-struct StateCheckRes {
+struct StateCheckResV1 {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_STATE_CHECK_RES, .name = "StateCheckRes"};
   static constexpr uint64_t kVersion{1};
+
+  static void Load(StateCheckResV1 *self, memgraph::slk::Reader *reader);
+  static void Save(const StateCheckResV1 &self, memgraph::slk::Builder *builder);
+
+  StateCheckResV1(bool const replica, std::optional<utils::UUID> const &req_uuid, bool const writing_enabled)
+      : state({.is_replica = replica, .uuid = req_uuid, .is_writing_enabled = writing_enabled}) {}
+
+  explicit StateCheckResV1(InstanceStateV1 const &rec_state) : state(rec_state) {}
+
+  StateCheckResV1() = default;
+
+  InstanceStateV1 state;
+};
+
+struct StateCheckRes {
+  static constexpr utils::TypeInfo kType{StateCheckResV1::kType};
+  static constexpr uint64_t kVersion{2};
 
   static void Load(StateCheckRes *self, memgraph::slk::Reader *reader);
   static void Save(const StateCheckRes &self, memgraph::slk::Builder *builder);
 
-  StateCheckRes(bool const replica, std::optional<utils::UUID> const &req_uuid, bool writing_enabled)
-      : state({.is_replica = replica, .uuid = req_uuid, .is_writing_enabled = writing_enabled}) {}
+  StateCheckRes(bool const replica, std::optional<utils::UUID> const &req_uuid, bool const writing_enabled,
+                std::optional<std::map<std::string, uint64_t>> const &maybe_main_num_txns)
+      : state({.is_replica = replica,
+               .uuid = req_uuid,
+               .is_writing_enabled = writing_enabled,
+               .main_num_txns = maybe_main_num_txns}) {}
+
+  explicit StateCheckRes(InstanceState const &rec_state) : state(rec_state) {}
+
   StateCheckRes() = default;
+
+  StateCheckResV1 Downgrade() const { return StateCheckResV1{state.Downgrade()}; }
 
   InstanceState state;
 };
@@ -366,8 +404,12 @@ void Save(memgraph::coordination::ShowInstancesReq const &self, memgraph::slk::B
 void Load(memgraph::coordination::ShowInstancesReq *self, memgraph::slk::Reader *reader);
 
 // StateCheckRpc
+void Save(memgraph::coordination::StateCheckResV1 const &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::StateCheckResV1 *self, memgraph::slk::Reader *reader);
 void Save(memgraph::coordination::StateCheckRes const &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::StateCheckRes *self, memgraph::slk::Reader *reader);
+void Save(memgraph::coordination::StateCheckReqV1 const &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::StateCheckReqV1 *self, memgraph::slk::Reader *reader);
 void Save(memgraph::coordination::StateCheckReq const &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::StateCheckReq *self, memgraph::slk::Reader *reader);
 

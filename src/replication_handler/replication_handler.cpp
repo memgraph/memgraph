@@ -434,6 +434,16 @@ auto ReplicationHandler::GetReplicationLag() const -> coordination::ReplicationL
   return lag_info;
 }
 
+std::map<std::string, uint64_t> ReplicationHandler::GetMainNumCommittedTxns() const {
+  std::map<std::string, uint64_t> result;
+  dbms_handler_.ForEach([&result](dbms::DatabaseAccess db_acc) {
+    auto const &repl_storage_state = db_acc->storage()->repl_storage_state_;
+    result.emplace(std::string{db_acc->storage()->uuid()},
+                   repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).num_committed_txns_);
+  });
+  return result;
+}
+
 #endif
 
 bool ReplicationHandler::IsMain() const { return repl_state_.ReadLock()->IsMain(); }

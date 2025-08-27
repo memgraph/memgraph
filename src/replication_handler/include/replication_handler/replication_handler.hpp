@@ -163,6 +163,9 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
       uint64_t request_version) const;
 
   auto GetReplicationLag() const -> coordination::ReplicationLagInfo;
+
+  std::map<std::string, uint64_t> GetMainNumCommittedTxns() const;
+
 #endif
 
  private:
