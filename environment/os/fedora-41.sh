@@ -151,9 +151,6 @@ install() {
         echo "NOTE: export LANG=en_US.utf8"
     fi
 
-    # Update package lists first
-    dnf update -y
-
     # Separate standard and custom packages
     local standard_packages=()
     local custom_packages=()

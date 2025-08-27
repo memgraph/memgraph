@@ -13,9 +13,11 @@
 
 #include <cstdint>
 #include <filesystem>
+#include <optional>
 #include <set>
 #include <string>
 
+#include "storage/v2/access_type.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/delta.hpp"
 #include "storage/v2/durability/metadata.hpp"
@@ -186,10 +188,18 @@ struct WalEdgeSetProperty {
 struct WalEdgeCreate : EdgeOpInfo {};
 struct WalEdgeDelete : EdgeOpInfo {};
 
+enum class TransactionAccessType : uint8_t {
+  UNIQUE = 0,
+  WRITE = 1,
+  READ = 2,
+  READ_ONLY = 3,
+};
+
 struct WalTransactionStart {
   friend bool operator==(const WalTransactionStart &lhs, const WalTransactionStart &rhs) = default;
-  using ctr_types = std::tuple<bool>;
-  bool commit;
+  using ctr_types = std::tuple<VersionDependant<kTxnStart, bool>, VersionDependant<kTtlSupport, TransactionAccessType>>;
+  std::optional<bool> commit;
+  std::optional<TransactionAccessType> access_type;
 };
 
 struct WalTransactionEnd {
@@ -433,9 +443,15 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, SalientConf
 void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, const Delta &delta, const Edge &edge,
                  uint64_t timestamp);
 
-// Function used to encode the transaction start
-// Returns the position in the WAL where the flag 'commit' is about to be written
-uint64_t EncodeTransactionStart(Encoder<utils::OutputFile> *encoder, uint64_t timestamp, bool commit);
+/// Function used to encode the transaction start
+/// Returns the position in the WAL where the flag 'commit' is about to be written
+uint64_t EncodeTransactionStart(Encoder<utils::OutputFile> *encoder, uint64_t timestamp, bool commit,
+                                StorageAccessType access_type);
+
+/// Function use to encode the transaction start
+/// Used for replication
+void EncodeTransactionStart(BaseEncoder *encoder, uint64_t timestamp, bool commit,
+                            StorageAccessType access_type);
 
 /// Function used to encode the transaction end.
 void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp);
@@ -506,7 +522,7 @@ class WalFile {
   // True means storage should use deltas associated with this txn, false means skip until
   // you find the next txn.
   // Returns the position in the WAL where the flag 'commit' is about to be written
-  uint64_t AppendTransactionStart(uint64_t timestamp, bool commit);
+  uint64_t AppendTransactionStart(uint64_t timestamp, bool commit, StorageAccessType access_type);
 
   // Updates the commit flag in the WAL file with the new decision whether deltas should be read or skipped upon the
   // recovery

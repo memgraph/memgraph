@@ -428,28 +428,27 @@ bool ReplicationStorageClient::FinalizePrepareCommitPhase(std::optional<ReplicaS
   try {
     auto response = replica_stream->Finalize();
     // NOLINTNEXTLINE
-    return replica_state_.WithLock(
-        [this, response, durability_commit_timestamp](auto &state) mutable {
-          // If we didn't receive successful response to PrepareCommit, or we got into MAYBE_BEHIND state since the
-          // moment we started committing as ASYNC replica, we cannot set the ready state. We could have got into
-          // MAYBE_BEHIND state if we missed next txn.
-          if (state != ReplicaState::REPLICATING) {
-            return false;
-          }
+    return replica_state_.WithLock([this, response, durability_commit_timestamp](auto &state) mutable {
+      // If we didn't receive successful response to PrepareCommit, or we got into MAYBE_BEHIND state since the
+      // moment we started committing as ASYNC replica, we cannot set the ready state. We could have got into
+      // MAYBE_BEHIND state if we missed next txn.
+      if (state != ReplicaState::REPLICATING) {
+        return false;
+      }
 
-          if (!response.success) {
-            state = ReplicaState::MAYBE_BEHIND;
-            return false;
-          }
+      if (!response.success) {
+        state = ReplicaState::MAYBE_BEHIND;
+        return false;
+      }
 
-          auto update_func = [&durability_commit_timestamp](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
-            return {.ldt_ = durability_commit_timestamp, .num_committed_txns_ = commit_ts_info.num_committed_txns_};
-          };
-          atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
+      auto update_func = [&durability_commit_timestamp](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
+        return {.ldt_ = durability_commit_timestamp, .num_committed_txns_ = commit_ts_info.num_committed_txns_};
+      };
+      atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
 
-          state = ReplicaState::READY;
-          return true;
-        });
+      state = ReplicaState::READY;
+      return true;
+    });
   } catch (const rpc::RpcFailedException &) {
     replica_state_.WithLock([&replica_stream](auto &state) {
       replica_stream.reset();
@@ -502,39 +501,39 @@ bool ReplicationStorageClient::FinalizeTransactionReplication(DatabaseProtector 
     try {
       auto response = replica_stream_obj->Finalize();
       // NOLINTNEXTLINE
-      return replica_state_.WithLock([this, response, &replica_stream_obj,
-                                      durability_commit_timestamp](auto &state) mutable {
-        replica_stream_obj.reset();
+      return replica_state_.WithLock(
+          [this, response, &replica_stream_obj, durability_commit_timestamp](auto &state) mutable {
+            replica_stream_obj.reset();
 
-        // It doesn't matter whether we started a new txn or not, we can increment here the number of known committed
-        // txns for replica
-        if (response.success) {
-          auto update_func = [](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
-            return {.ldt_ = commit_ts_info.ldt_, .num_committed_txns_ = commit_ts_info.num_committed_txns_ + 1};
-          };
-          atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
-        }
+            // It doesn't matter whether we started a new txn or not, we can increment here the number of known
+            // committed txns for replica
+            if (response.success) {
+              auto update_func = [](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
+                return {.ldt_ = commit_ts_info.ldt_, .num_committed_txns_ = commit_ts_info.num_committed_txns_ + 1};
+              };
+              atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
+            }
 
-        // If we didn't receive successful response to PrepareCommitReq, or we got into MAYBE_BEHIND state since the
-        // moment we started committing as ASYNC replica, we cannot set the ready state. We could have got into
-        // MAYBE_BEHIND state if we missed next txn.
-        if (state != ReplicaState::REPLICATING) {
-          return false;
-        }
+            // If we didn't receive successful response to PrepareCommitReq, or we got into MAYBE_BEHIND state since the
+            // moment we started committing as ASYNC replica, we cannot set the ready state. We could have got into
+            // MAYBE_BEHIND state if we missed next txn.
+            if (state != ReplicaState::REPLICATING) {
+              return false;
+            }
 
-        if (!response.success) {
-          state = ReplicaState::MAYBE_BEHIND;
-          return false;
-        }
+            if (!response.success) {
+              state = ReplicaState::MAYBE_BEHIND;
+              return false;
+            }
 
-        auto update_func = [durability_commit_timestamp](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
-          return {.ldt_ = durability_commit_timestamp, .num_committed_txns_ = commit_ts_info.num_committed_txns_};
-        };
-        atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
+            auto update_func = [durability_commit_timestamp](CommitTsInfo const &commit_ts_info) -> CommitTsInfo {
+              return {.ldt_ = durability_commit_timestamp, .num_committed_txns_ = commit_ts_info.num_committed_txns_};
+            };
+            atomic_struct_update<CommitTsInfo>(commit_ts_info_, std::move(update_func));
 
-        state = ReplicaState::READY;
-        return true;
-      });
+            state = ReplicaState::READY;
+            return true;
+          });
     } catch (const rpc::RpcFailedException &) {
       replica_state_.WithLock([&replica_stream_obj](auto &state) {
         replica_stream_obj.reset();
@@ -798,6 +797,12 @@ void ReplicaStream::AppendDelta(const Delta &delta, const Vertex &vertex, uint64
 auto ReplicaStream::AppendDelta(const Delta &delta, const Edge &edge, uint64_t const final_commit_timestamp) -> void {
   replication::Encoder encoder(stream_.GetBuilder());
   EncodeDelta(&encoder, storage_->name_id_mapper_.get(), delta, edge, final_commit_timestamp);
+}
+
+void ReplicaStream::AppendTransactionStart(uint64_t const final_commit_timestamp, bool const commit,
+                                           StorageAccessType access_type) {
+  replication::Encoder encoder(stream_.GetBuilder());
+  EncodeTransactionStart(&encoder, final_commit_timestamp, commit, access_type);
 }
 
 void ReplicaStream::AppendTransactionEnd(uint64_t const final_commit_timestamp) {

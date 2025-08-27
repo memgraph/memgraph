@@ -11,6 +11,7 @@
 
 #include "storage/v2/ttl.hpp"
 
+#include "storage/v2/access_type.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
 #ifdef MG_ENTERPRISE
@@ -200,7 +201,7 @@ void TTL::Configure(bool should_run_edge_ttl) {
 
         // Create a new transaction for this batch
         // This ensures each batch is isolated and can be retried independently
-        auto batch_accessor = storage_ptr_->Access(storage::Storage::Accessor::Type::WRITE);
+        auto batch_accessor = storage_ptr_->Access(storage::StorageAccessType::WRITE);
 
         // Verify required indices exist and are ready for TTL operations
         // This ensures TTL can work efficiently using range-based filtering
@@ -222,7 +223,7 @@ void TTL::Configure(bool should_run_edge_ttl) {
             batch_accessor = storage_ptr_->UniqueAccess();  // ATM no timeout/backoff
             (void)batch_accessor->CreateIndex(ttl_label, std::move(ttl_property_path));
             batch_accessor.reset();
-            batch_accessor = storage_ptr_->Access(storage::Storage::Accessor::Type::WRITE);
+            batch_accessor = storage_ptr_->Access(storage::StorageAccessType::WRITE);
           }
         }
 
@@ -237,7 +238,7 @@ void TTL::Configure(bool should_run_edge_ttl) {
             batch_accessor = storage_ptr_->UniqueAccess();  // ATM no timeout/backoff
             (void)batch_accessor->CreateGlobalEdgeIndex(ttl_property);
             batch_accessor.reset();
-            batch_accessor = storage_ptr_->Access(storage::Storage::Accessor::Type::WRITE);
+            batch_accessor = storage_ptr_->Access(storage::StorageAccessType::WRITE);
           }
         }
 
