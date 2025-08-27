@@ -127,12 +127,65 @@ cd ${neo4j_database_dir}
 echo "Converting CSV dataset to '${neo4j_database_dir}/graph.db'"
 ${neo4j_dir}/bin/neo4j-import --into graph.db ${csv_dataset} --delimiter "|" --array-delimiter ";"
 
-# Convert to memgraph internal format.
-# Note: mg_import_csv has been removed from the build
-# memgraph_snapshot_dir=${dataset_dir}/memgraph/snapshots
-# mkdir -p ${memgraph_snapshot_dir}
-# cd ${memgraph_snapshot_dir}
-# echo "Converting CSV dataset to '${memgraph_snapshot_dir}/snapshot'"
-# ${build_dir}/tools/src/mg_import_csv --out snapshot ${csv_dataset} --csv-delimiter "|" --array-delimiter ";"
+# Convert to memgraph internal format using LOAD CSV and CREATE SNAPSHOT
+memgraph_snapshot_dir=${dataset_dir}/memgraph/snapshots
+mkdir -p ${memgraph_snapshot_dir}
+cd ${memgraph_snapshot_dir}
+
+echo "Creating Memgraph snapshot using LOAD CSV and CREATE SNAPSHOT"
+
+# Create a temporary Memgraph instance for import
+temp_memgraph_dir=${dataset_dir}/memgraph/temp
+mkdir -p ${temp_memgraph_dir}
+
+# Start Memgraph in background for import
+memgraph_binary=${base_dir}/build/memgraph
+memgraph_pid_file=${temp_memgraph_dir}/memgraph.pid
+
+# Start Memgraph with temporary data directory
+${memgraph_binary} \
+    --data-directory ${temp_memgraph_dir} \
+    --data-recovery-on-startup false \
+    --storage-snapshot-interval-sec 0 \
+    --storage-wal-enabled false \
+    --storage-snapshot-on-exit false \
+    --bolt-port 7688 \
+    --log-level TRACE \
+    --also-log-to-stderr &
+echo $! > ${memgraph_pid_file}
+
+# Wait for Memgraph to start
+sleep 5
+
+# Use the separate import script
+import_script=${script_dir}/import_ldbc.cypherl
+
+# Copy CSV files to a location accessible by Memgraph
+csv_copy_dir=/tmp/ldbc_csv
+mkdir -p ${csv_copy_dir}
+cp ${dataset_dir}/csv/*.csv ${csv_copy_dir}/
+
+# Import data using mgconsole
+echo "Importing data into Memgraph..."
+mgconsole_binary=${base_dir}/build/mgconsole
+${mgconsole_binary} --host 127.0.0.1 --port 7688 < ${import_script}
+
+# Stop Memgraph
+if [ -f ${memgraph_pid_file} ]; then
+    kill $(cat ${memgraph_pid_file})
+    rm ${memgraph_pid_file}
+fi
+
+# Copy the created snapshot to the final location
+if [ -d ${temp_memgraph_dir}/snapshots ]; then
+    cp -r ${temp_memgraph_dir}/snapshots/* ${memgraph_snapshot_dir}/
+    echo "Memgraph snapshot created at '${memgraph_snapshot_dir}'"
+else
+    echo "Warning: No snapshot found in ${temp_memgraph_dir}/snapshots"
+fi
+
+# Clean up temporary files
+rm -rf ${temp_memgraph_dir}
+rm -rf ${csv_copy_dir}
 
 echo "Done!"
