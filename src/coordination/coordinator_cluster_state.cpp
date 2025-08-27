@@ -21,13 +21,14 @@ namespace memgraph::coordination {
 
 CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState const &other) {
   auto lock = std::lock_guard{other.app_lock_};
-
+  // NOLINTBEGIN
   data_instances_ = other.data_instances_;
   coordinator_instances_ = other.coordinator_instances_;
   current_main_uuid_ = other.current_main_uuid_;
   enabled_reads_on_main_ = other.enabled_reads_on_main_;
   sync_failover_only_ = other.sync_failover_only_;
   max_replica_lag_ = other.max_replica_lag_;
+  // NOLINTEND
 }
 
 CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterState const &other) {
@@ -211,7 +212,7 @@ void to_json(nlohmann::json &j, CoordinatorClusterState const &state) {
                      {kEnabledReadsOnMain.data(), state.GetEnabledReadsOnMain()},
                      {kSyncFailoverOnly.data(), state.GetSyncFailoverOnly()},
                      // Added in 3.6.0 version
-                     {kMaxLagOnReplica.data(), state.GetSyncFailoverOnly()}};
+                     {kMaxLagOnReplica.data(), state.GetMaxReplicaLag()}};
 }
 
 void from_json(nlohmann::json const &j, CoordinatorClusterState &instance_state) {
