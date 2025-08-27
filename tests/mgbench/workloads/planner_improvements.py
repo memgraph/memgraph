@@ -77,3 +77,14 @@ class PlannerImprovements(Workload):
                 raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
+
+    def benchmark__test__parallel_counting(self):
+        # The query needs to facilitate source expand, and not ST Shortest path
+        match self._vendor:
+            case GraphVendors.MEMGRAPH:
+                query = f"MATCH p=(u:User {id: 1})-[*bfs]-(:User) RETURN count(p)"
+                params = {}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
