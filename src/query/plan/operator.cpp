@@ -4591,7 +4591,7 @@ void SetProperty::SetPropertyCursor::Reset() { input_cursor_->Reset(); }
 SetNestedProperty::SetNestedProperty(const std::shared_ptr<LogicalOperator> &input,
                                      std::vector<storage::PropertyId> property_path, PropertyLookup *lhs,
                                      Expression *rhs)
-    : input_(input), property_path_(property_path), lhs_(lhs), rhs_(rhs) {}
+    : input_(input), property_path_(std::move(property_path)), lhs_(lhs), rhs_(rhs) {}
 
 ACCEPT_WITH_INPUT(SetNestedProperty)
 
@@ -4619,8 +4619,8 @@ SetNestedProperty::SetNestedPropertyCursor::SetNestedPropertyCursor(const SetNes
     : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
 
 bool SetNestedProperty::SetNestedPropertyCursor::Pull(Frame &frame, ExecutionContext &context) {
-  OOMExceptionEnabler oom_exception;
-  SCOPED_PROFILE_OP("SetNestedProperty");
+  const OOMExceptionEnabler oom_exception;
+  const SCOPED_PROFILE_OP("SetNestedProperty");
 
   AbortCheck(context);
 
@@ -5179,8 +5179,8 @@ RemoveNestedProperty::RemoveNestedPropertyCursor::RemoveNestedPropertyCursor(con
     : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
 
 bool RemoveNestedProperty::RemoveNestedPropertyCursor::Pull(Frame &frame, ExecutionContext &context) {
-  OOMExceptionEnabler oom_exception;
-  SCOPED_PROFILE_OP("RemoveNestedProperty");
+  const OOMExceptionEnabler oom_exception;
+  const SCOPED_PROFILE_OP("RemoveNestedProperty");
 
   AbortCheck(context);
 
@@ -5215,7 +5215,7 @@ bool RemoveNestedProperty::RemoveNestedPropertyCursor::Pull(Frame &frame, Execut
       current_map = &it->second.ValueMap();
     }
 
-    TypedValue::TString final_key{
+    const TypedValue::TString final_key{
         context.db_accessor->GetStorageAccessor()->PropertyToName(self_.property_path_.back()),
         context.evaluation_context.memory};
     auto it = current_map->find(final_key);
