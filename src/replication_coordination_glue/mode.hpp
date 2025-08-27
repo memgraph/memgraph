@@ -15,7 +15,7 @@
 #include <map>
 #include <string>
 
-#include <nlohmann/json.hpp>
+#include <nlohmann/json_fwd.hpp>
 
 using namespace std::string_view_literals;
 
@@ -23,9 +23,8 @@ namespace memgraph::replication_coordination_glue {
 
 enum class ReplicationMode : std::uint8_t { SYNC, ASYNC, STRICT_SYNC };
 
-// TODO: move to cpp
-NLOHMANN_JSON_SERIALIZE_ENUM(ReplicationMode, {{ReplicationMode::SYNC, "sync"sv},
-                                               {ReplicationMode::ASYNC, "async"sv},
-                                               {ReplicationMode::STRICT_SYNC, "strict_sync"sv}})
+// JSON serialization functions
+void to_json(nlohmann::json &j, const ReplicationMode &mode);
+void from_json(const nlohmann::json &j, ReplicationMode &mode);
 
 }  // namespace memgraph::replication_coordination_glue

@@ -13,13 +13,14 @@
 
 #include <cstdint>
 
-#include <nlohmann/json.hpp>
+#include <nlohmann/json_fwd.hpp>
 
 namespace memgraph::replication_coordination_glue {
 
 enum class ReplicationRole : uint8_t { MAIN, REPLICA };
 
-// TODO: move to cpp
-NLOHMANN_JSON_SERIALIZE_ENUM(ReplicationRole, {{ReplicationRole::MAIN, "main"}, {ReplicationRole::REPLICA, "replica"}})
+// JSON serialization functions
+void to_json(nlohmann::json &j, const ReplicationRole &role);
+void from_json(const nlohmann::json &j, ReplicationRole &role);
 
 }  // namespace memgraph::replication_coordination_glue

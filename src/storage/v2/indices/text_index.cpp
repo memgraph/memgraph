@@ -11,6 +11,8 @@
 
 #include "storage/v2/indices/text_index.hpp"
 
+#include <nlohmann/json.hpp>
+
 #include "flags/experimental.hpp"
 #include "mgcxx_text_search.hpp"
 #include "storage/v2/id_types.hpp"

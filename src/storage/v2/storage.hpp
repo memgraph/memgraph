@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include <nlohmann/json_fwd.hpp>
+
 #include "common_function_signatures.hpp"
 #include "mg_procedure.h"
 #include "storage/v2/access_type.hpp"
@@ -129,30 +131,7 @@ struct EventInfo {
   uint64_t value;
 };
 
-static inline nlohmann::json ToJson(const StorageInfo &info) {
-  nlohmann::json res;
-
-  res["edges"] = info.edge_count;
-  res["vertices"] = info.vertex_count;
-  res["memory"] = info.memory_res;
-  res["disk"] = info.disk_usage;
-  res["label_indices"] = info.label_indices;
-  res["label_prop_indices"] = info.label_property_indices;
-  res["text_indices"] = info.text_indices;
-  res["vector_indices"] = info.vector_indices;
-  res["vector_edge_indices"] = info.vector_edge_indices;
-  res["existence_constraints"] = info.existence_constraints;
-  res["unique_constraints"] = info.unique_constraints;
-  res["storage_mode"] = storage::StorageModeToString(info.storage_mode);
-  res["isolation_level"] = storage::IsolationLevelToString(info.isolation_level);
-  res["durability"] = {{"snapshot_enabled", info.durability_snapshot_enabled},
-                       {"WAL_enabled", info.durability_wal_enabled}};
-  res["property_store_compression_enabled"] = info.property_store_compression_enabled;
-  res["property_store_compression_level"] = utils::CompressionLevelToString(info.property_store_compression_level);
-  res["schema_vertex_count"] = info.schema_vertex_count;
-  res["schema_edge_count"] = info.schema_edge_count;
-  return res;
-}
+nlohmann::json ToJson(const StorageInfo &info);
 
 struct EdgeInfoForDeletion {
   std::unordered_set<Gid> partial_src_edge_ids{};
@@ -356,8 +335,9 @@ class Storage {
 
     virtual bool LabelPropertyIndexExists(LabelId label, std::span<PropertyPath const> properties) const = 0;
 
-    auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels, std::span<PropertyPath const> properties)
-        const -> std::vector<LabelPropertiesIndicesInfo> {
+    auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
+                                            std::span<PropertyPath const> properties) const
+        -> std::vector<LabelPropertiesIndicesInfo> {
       return transaction_.active_indices_.label_properties_->RelevantLabelPropertiesIndicesInfo(labels, properties);
     };
 
@@ -503,8 +483,8 @@ class Storage {
     }
     auto GetEnumStoreShared() const -> EnumStore const & { return storage_->enum_store_; }
 
-    auto CreateEnum(std::string_view name,
-                    std::span<std::string const> values) -> memgraph::utils::BasicResult<EnumStorageError, EnumTypeId> {
+    auto CreateEnum(std::string_view name, std::span<std::string const> values)
+        -> memgraph::utils::BasicResult<EnumStorageError, EnumTypeId> {
       auto res = storage_->enum_store_.RegisterEnum(name, values);
       if (res.HasValue()) {
         transaction_.md_deltas.emplace_back(MetadataDelta::enum_create, res.GetValue());
@@ -512,8 +492,8 @@ class Storage {
       return res;
     }
 
-    auto EnumAlterAdd(std::string_view name,
-                      std::string_view value) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+    auto EnumAlterAdd(std::string_view name, std::string_view value)
+        -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
       auto res = storage_->enum_store_.AddValue(name, value);
       if (res.HasValue()) {
         transaction_.md_deltas.emplace_back(MetadataDelta::enum_alter_add, res.GetValue());
@@ -521,8 +501,8 @@ class Storage {
       return res;
     }
 
-    auto EnumAlterUpdate(std::string_view name, std::string_view old_value,
-                         std::string_view new_value) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+    auto EnumAlterUpdate(std::string_view name, std::string_view old_value, std::string_view new_value)
+        -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
       auto res = storage_->enum_store_.UpdateValue(name, old_value, new_value);
       if (res.HasValue()) {
         transaction_.md_deltas.emplace_back(MetadataDelta::enum_alter_update, res.GetValue(), std::string{old_value});
@@ -532,8 +512,8 @@ class Storage {
 
     auto ShowEnums() { return storage_->enum_store_.AllRegistered(); }
 
-    auto GetEnumValue(std::string_view name,
-                      std::string_view value) const -> utils::BasicResult<EnumStorageError, Enum> {
+    auto GetEnumValue(std::string_view name, std::string_view value) const
+        -> utils::BasicResult<EnumStorageError, Enum> {
       return storage_->enum_store_.ToEnum(name, value);
     }
 

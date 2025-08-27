@@ -15,6 +15,7 @@
 
 #include <gflags/gflags.h>
 #include <gtest/gtest.h>
+#include <nlohmann/json.hpp>
 
 #include "auth/auth.hpp"
 #include "auth/crypto.hpp"
