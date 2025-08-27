@@ -480,13 +480,13 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
 
   transaction_.async_index_helper_.Track(edge_type);
 
-  auto from_result = PrepareForCommutativeWrite(&transaction_, from_vertex);
+  auto from_result = PrepareForCommutativeWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE);
   if (from_result == WriteResult::CONFLICT) return Error::SERIALIZATION_ERROR;
   if (from_vertex->deleted) return Error::DELETED_OBJECT;
 
   WriteResult to_result = WriteResult::SUCCESS;
   if (to_vertex != from_vertex) {
-    to_result = PrepareForCommutativeWrite(&transaction_, to_vertex);
+    to_result = PrepareForCommutativeWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE);
     if (to_result == WriteResult::CONFLICT) return Error::SERIALIZATION_ERROR;
     if (to_vertex->deleted) return Error::DELETED_OBJECT;
   }
@@ -595,13 +595,13 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
     guard_from.lock();
   }
 
-  auto from_result = PrepareForCommutativeWrite(&transaction_, from_vertex);
+  auto from_result = PrepareForCommutativeWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE);
   if (from_result == WriteResult::CONFLICT) return Error::SERIALIZATION_ERROR;
   if (from_vertex->deleted) return Error::DELETED_OBJECT;
 
   WriteResult to_result = WriteResult::SUCCESS;
   if (to_vertex != from_vertex) {
-    to_result = PrepareForCommutativeWrite(&transaction_, to_vertex);
+    to_result = PrepareForCommutativeWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE);
     if (to_result == WriteResult::CONFLICT) return Error::SERIALIZATION_ERROR;
     if (to_vertex->deleted) return Error::DELETED_OBJECT;
   }
@@ -2175,6 +2175,11 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
 
     for (Delta &delta : linked_entry->deltas_) {
       index_impact.update(delta.action);
+
+      bool const is_interleaved{
+          (delta.action == Delta::Action::ADD_IN_EDGE || delta.action == Delta::Action::ADD_OUT_EDGE) &&
+          delta.vertex_edge.vertex.IsInterleaved()};
+
       while (true) {
         auto prev = delta.prev.Get();
         switch (prev.type) {
