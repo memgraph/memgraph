@@ -16,7 +16,7 @@
 namespace memgraph::utils {
 
 std::string SerializeVertex(storage::Vertex const &vertex) {
-  std::string result = utils::SerializeLabels(TransformIDsToString(vertex.labels)) + "|";
+  const std::string result = utils::SerializeLabels(TransformIDsToString(vertex.labels)) + "|";
   return result + vertex.gid.ToString();
 }
 }  // namespace memgraph::utils

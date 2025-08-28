@@ -75,67 +75,67 @@ class PlanToJsonVisitor : public virtual HierarchicalLogicalOperatorVisitor {
   using HierarchicalLogicalOperatorVisitor::PreVisit;
   using HierarchicalLogicalOperatorVisitor::Visit;
 
-  bool PreVisit(CreateNode &) override;
-  bool PreVisit(CreateExpand &) override;
-  bool PreVisit(Delete &) override;
+  bool PreVisit(CreateNode & /*op*/) override;
+  bool PreVisit(CreateExpand & /*op*/) override;
+  bool PreVisit(Delete & /*op*/) override;
 
-  bool PreVisit(SetProperty &) override;
-  bool PreVisit(SetProperties &) override;
-  bool PreVisit(SetLabels &) override;
+  bool PreVisit(SetProperty & /*op*/) override;
+  bool PreVisit(SetProperties & /*op*/) override;
+  bool PreVisit(SetLabels & /*op*/) override;
 
-  bool PreVisit(RemoveProperty &) override;
-  bool PreVisit(RemoveLabels &) override;
+  bool PreVisit(RemoveProperty & /*op*/) override;
+  bool PreVisit(RemoveLabels & /*op*/) override;
 
-  bool PreVisit(Expand &) override;
-  bool PreVisit(ExpandVariable &) override;
+  bool PreVisit(Expand & /*op*/) override;
+  bool PreVisit(ExpandVariable & /*op*/) override;
 
-  bool PreVisit(ConstructNamedPath &) override;
+  bool PreVisit(ConstructNamedPath & /*op*/) override;
 
-  bool PreVisit(Merge &) override;
-  bool PreVisit(Optional &) override;
+  bool PreVisit(Merge & /*op*/) override;
+  bool PreVisit(Optional & /*op*/) override;
 
-  bool PreVisit(Filter &) override;
+  bool PreVisit(Filter & /*op*/) override;
   bool PreVisit(EvaluatePatternFilter & /*op*/) override;
-  bool PreVisit(EdgeUniquenessFilter &) override;
-  bool PreVisit(Cartesian &) override;
+  bool PreVisit(EdgeUniquenessFilter & /*op*/) override;
+  bool PreVisit(Cartesian & /*op*/) override;
   bool PreVisit(Apply & /*unused*/) override;
-  bool PreVisit(HashJoin &) override;
+  bool PreVisit(HashJoin & /*op*/) override;
   bool PreVisit(IndexedJoin & /*unused*/) override;
 
-  bool PreVisit(ScanAll &) override;
-  bool PreVisit(ScanAllByLabel &) override;
-  bool PreVisit(ScanAllByLabelProperties &) override;
-  bool PreVisit(ScanAllById &) override;
+  bool PreVisit(ScanAll & /*op*/) override;
+  bool PreVisit(ScanAllByLabel & /*op*/) override;
+  bool PreVisit(ScanAllByLabelProperties & /*op*/) override;
+  bool PreVisit(ScanAllById & /*op*/) override;
 
-  bool PreVisit(ScanAllByEdge &) override;
-  bool PreVisit(ScanAllByEdgeType &) override;
-  bool PreVisit(ScanAllByEdgeTypeProperty &) override;
-  bool PreVisit(ScanAllByEdgeTypePropertyValue &) override;
-  bool PreVisit(ScanAllByEdgeTypePropertyRange &) override;
-  bool PreVisit(ScanAllByEdgeProperty &) override;
-  bool PreVisit(ScanAllByEdgePropertyValue &) override;
-  bool PreVisit(ScanAllByEdgePropertyRange &) override;
-  bool PreVisit(ScanAllByEdgeId &) override;
+  bool PreVisit(ScanAllByEdge & /*op*/) override;
+  bool PreVisit(ScanAllByEdgeType & /*op*/) override;
+  bool PreVisit(ScanAllByEdgeTypeProperty & /*op*/) override;
+  bool PreVisit(ScanAllByEdgeTypePropertyValue & /*op*/) override;
+  bool PreVisit(ScanAllByEdgeTypePropertyRange & /*op*/) override;
+  bool PreVisit(ScanAllByEdgeProperty & /*op*/) override;
+  bool PreVisit(ScanAllByEdgePropertyValue & /*op*/) override;
+  bool PreVisit(ScanAllByEdgePropertyRange & /*op*/) override;
+  bool PreVisit(ScanAllByEdgeId & /*op*/) override;
 
-  bool PreVisit(EmptyResult &) override;
-  bool PreVisit(Produce &) override;
-  bool PreVisit(Accumulate &) override;
-  bool PreVisit(Aggregate &) override;
-  bool PreVisit(Skip &) override;
-  bool PreVisit(Limit &) override;
-  bool PreVisit(OrderBy &) override;
-  bool PreVisit(Distinct &) override;
-  bool PreVisit(Union &) override;
+  bool PreVisit(EmptyResult & /*op*/) override;
+  bool PreVisit(Produce & /*op*/) override;
+  bool PreVisit(Accumulate & /*op*/) override;
+  bool PreVisit(Aggregate & /*op*/) override;
+  bool PreVisit(Skip & /*op*/) override;
+  bool PreVisit(Limit & /*op*/) override;
+  bool PreVisit(OrderBy & /*op*/) override;
+  bool PreVisit(Distinct & /*op*/) override;
+  bool PreVisit(Union & /*op*/) override;
 
-  bool PreVisit(Unwind &) override;
-  bool PreVisit(Foreach &) override;
-  bool PreVisit(CallProcedure &) override;
-  bool PreVisit(LoadCsv &) override;
-  bool PreVisit(RollUpApply &) override;
-  bool PreVisit(PeriodicCommit &) override;
-  bool PreVisit(PeriodicSubquery &) override;
+  bool PreVisit(Unwind & /*op*/) override;
+  bool PreVisit(Foreach & /*op*/) override;
+  bool PreVisit(CallProcedure & /*op*/) override;
+  bool PreVisit(LoadCsv & /*op*/) override;
+  bool PreVisit(RollUpApply & /*op*/) override;
+  bool PreVisit(PeriodicCommit & /*op*/) override;
+  bool PreVisit(PeriodicSubquery & /*op*/) override;
 
-  bool Visit(Once &) override;
+  bool Visit(Once & /*unused*/) override;
 
   nlohmann::json output();
 
@@ -163,7 +163,7 @@ nlohmann::json PlanToJsonVisitor::output() { return output_; }
 // maintaining Memgraph Lab. Hopefully, one day integration tests will exist and
 // there will be no need to be super careful.
 
-bool PlanToJsonVisitor::Visit(Once &) {
+bool PlanToJsonVisitor::Visit(Once & /*unused*/) {
   nlohmann::json self;
   self["name"] = "Once";
 
@@ -1097,10 +1097,11 @@ nlohmann::json ToJson(const std::vector<T> &items, Args &&...args) {
 
 PlanPrinter::PlanPrinter(const DbAccessor *dba, std::ostream *out) : dba_(dba), out_(out) {}
 
-#define PRE_VISIT(TOp)                                   \
-  bool PlanPrinter::PreVisit(TOp &) {                    \
-    WithPrintLn([](auto &out) { out << "* " << #TOp; }); \
-    return true;                                         \
+// NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
+#define PRE_VISIT(TOp)                                                         \
+  bool PlanPrinter::PreVisit(TOp &) { /* NOLINT(bugprone-macro-parentheses) */ \
+    WithPrintLn([](auto &out) { out << "* " << #TOp; });                       \
+    return true;                                                               \
   }
 
 PRE_VISIT(CreateNode);
@@ -1385,12 +1386,14 @@ void PlanPrinter::Branch(query::plan::LogicalOperator &op, const std::string &br
 void PrettyPrint(const DbAccessor &dba, const LogicalOperator *plan_root, std::ostream *out) {
   PlanPrinter printer(&dba, out);
   // FIXME(mtomic): We should make visitors that take const arguments.
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
   const_cast<LogicalOperator *>(plan_root)->Accept(printer);
 }
 
 nlohmann::json PlanToJson(const DbAccessor &dba, const LogicalOperator *plan_root) {
   PlanToJsonVisitor visitor(&dba);
   // FIXME(mtomic): We should make visitors that take const arguments.
+  // NOLINTNEXTLINE(cppcoreguidelines-pro-type-const-cast)
   const_cast<LogicalOperator *>(plan_root)->Accept(visitor);
   return visitor.output();
 }

@@ -19,20 +19,20 @@
 namespace memgraph::replication_coordination_glue {
 
 namespace {
-static constexpr std::array<std::pair<ReplicationMode, std::string_view>, 3> kModeMapping{
+constexpr std::array<std::pair<ReplicationMode, std::string_view>, 3> kModeMapping{
     {{ReplicationMode::SYNC, "sync"},
      {ReplicationMode::ASYNC, "async"},
      {ReplicationMode::STRICT_SYNC, "strict_sync"}}};
 }  // namespace
 
 void to_json(nlohmann::json &j, const ReplicationMode &mode) {
-  auto it = ranges::find(kModeMapping, mode, &std::pair<ReplicationMode, std::string_view>::first);
+  const auto *it = ranges::find(kModeMapping, mode, &std::pair<ReplicationMode, std::string_view>::first);
   j = std::string(it != kModeMapping.end() ? it->second : kModeMapping.front().second);
 }
 
 void from_json(const nlohmann::json &j, ReplicationMode &mode) {
   const auto value = j.get<std::string>();
-  auto it = ranges::find(kModeMapping, value, &std::pair<ReplicationMode, std::string_view>::second);
+  const auto *it = ranges::find(kModeMapping, value, &std::pair<ReplicationMode, std::string_view>::second);
   mode = it != kModeMapping.end() ? it->first : kModeMapping.front().first;
 }
 

@@ -19,18 +19,18 @@
 namespace memgraph::replication_coordination_glue {
 
 namespace {
-static constexpr std::array<std::pair<ReplicationRole, std::string_view>, 2> kRoleMapping{
+constexpr std::array<std::pair<ReplicationRole, std::string_view>, 2> kRoleMapping{
     {{ReplicationRole::MAIN, "main"}, {ReplicationRole::REPLICA, "replica"}}};
 }  // namespace
 
 void to_json(nlohmann::json &j, const ReplicationRole &role) {
-  auto it = ranges::find(kRoleMapping, role, &std::pair<ReplicationRole, std::string_view>::first);
+  const auto *it = ranges::find(kRoleMapping, role, &std::pair<ReplicationRole, std::string_view>::first);
   j = std::string(it != kRoleMapping.end() ? it->second : kRoleMapping.front().second);
 }
 
 void from_json(const nlohmann::json &j, ReplicationRole &role) {
   const auto value = j.get<std::string>();
-  auto it = ranges::find(kRoleMapping, value, &std::pair<ReplicationRole, std::string_view>::second);
+  const auto *it = ranges::find(kRoleMapping, value, &std::pair<ReplicationRole, std::string_view>::second);
   role = it != kRoleMapping.end() ? it->first : kRoleMapping.front().first;
 }
 
