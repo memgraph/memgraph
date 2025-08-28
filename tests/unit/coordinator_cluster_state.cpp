@@ -214,7 +214,7 @@ TEST_F(CoordinatorClusterStateTest, Marshalling) {
   ASSERT_EQ(cluster_state, deserialized_cluster_state);
   ASSERT_TRUE(cluster_state.GetEnabledReadsOnMain());
   ASSERT_FALSE(cluster_state.GetSyncFailoverOnly());
-  ASSERT_EQ(cluster_state.GetMaxReplicaLag(), 25);
+  ASSERT_EQ(cluster_state.GetMaxFailoverReplicaLag(), 25);
 }
 
 TEST_F(CoordinatorClusterStateTest, RoutingPoliciesSwitch) {
@@ -254,5 +254,5 @@ TEST_F(CoordinatorClusterStateTest, RoutingPoliciesSwitch) {
   // by default read true
   ASSERT_TRUE(deserialized_cluster_state.GetSyncFailoverOnly());
   // by default read uint64_t::max()
-  ASSERT_EQ(deserialized_cluster_state.GetMaxReplicaLag(), std::numeric_limits<uint64_t>::max());
+  ASSERT_EQ(deserialized_cluster_state.GetMaxFailoverReplicaLag(), std::numeric_limits<uint64_t>::max());
 }

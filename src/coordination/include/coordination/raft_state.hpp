@@ -98,7 +98,7 @@ class RaftState {
 
   auto GetEnabledReadsOnMain() const -> bool;
   auto GetSyncFailoverOnly() const -> bool;
-  auto GetMaxReplicaLag() const -> uint64_t;
+  auto GetMaxFailoverReplicaLag() const -> uint64_t;
 
  private:
   uint16_t coordinator_port_;
