@@ -230,7 +230,7 @@ void to_json(nlohmann::json &j, CoordinatorClusterState const &state) {
                      {kEnabledReadsOnMain.data(), state.GetEnabledReadsOnMain()},
                      {kSyncFailoverOnly.data(), state.GetSyncFailoverOnly()},
                      // Added in 3.6.0 version
-                     {kMaxFailoverLagOnReplica.data(), state.GetMaxReplicaLag()},
+                     {kMaxFailoverLagOnReplica.data(), state.GetMaxFailoverReplicaLag()},
                      // Added in 3.6.0 version
                      {kMaxReplicaReadLag.data(), state.GetMaxReplicaReadLag()}};
 }

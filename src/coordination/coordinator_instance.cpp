@@ -962,6 +962,8 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
       delta_state.enabled_reads_on_main_ = utils::ToLowerCase(setting_value) == "true"sv;
     } else if (setting_name == kSyncFailoverOnly) {
       delta_state.sync_failover_only_ = utils::ToLowerCase(setting_value) == "true"sv;
+    } else if (setting_name == kMaxReplicaReadLag) {
+      delta_state.max_replica_read_lag_ = utils::ParseStringToUint64(setting_value);
     }
   } catch (std::exception const &e) {
     spdlog::error("Error occurred while trying to update {} to {}. Error: {}", setting_name, setting_value, e.what());
@@ -1217,7 +1219,9 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
   return std::nullopt;
 }
 
-auto CoordinatorInstance::GetRoutingTable() const -> RoutingTable { return raft_state_->GetRoutingTable(); }
+auto CoordinatorInstance::GetRoutingTable(std::string const &db) const -> RoutingTable {
+  return raft_state_->GetRoutingTable(db);
+}
 
 auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::string> {
   utils::MetricsTimer const timer{metrics::GetHistories_us};
@@ -1307,7 +1311,7 @@ auto CoordinatorInstance::ShowCoordinatorSettings() const -> std::vector<std::pa
   std::vector<std::pair<std::string, std::string>> settings{
       std::pair{std::string(kEnabledReadsOnMain), raft_state_->GetEnabledReadsOnMain() ? "true" : "false"},
       std::pair{std::string(kSyncFailoverOnly), raft_state_->GetSyncFailoverOnly() ? "true" : "false"},
-      std::pair{std::string(kMaxFailoverLagOnReplica), std::to_string(raft_state_->GetMaxReplicaLag())},
+      std::pair{std::string(kMaxFailoverLagOnReplica), std::to_string(raft_state_->GetMaxFailoverReplicaLag())},
       std::pair{std::string{kMaxReplicaReadLag}, std::to_string(raft_state_->GetMaxReplicaReadLag())}};
   return settings;
 }
