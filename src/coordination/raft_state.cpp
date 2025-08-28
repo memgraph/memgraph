@@ -419,14 +419,16 @@ auto RaftState::TryGetCurrentMainName() const -> std::optional<std::string> {
   return state_machine_->TryGetCurrentMainName();
 }
 
-auto RaftState::GetRoutingTable(std::string const &db) const -> RoutingTable {
+auto RaftState::GetRoutingTable(std::string const &db_name,
+                                std::map<std::string, std::map<std::string, int64_t>> const &replicas_lag) const
+    -> RoutingTable {
   auto const is_instance_main = [&](auto const &instance) { return IsCurrentMain(instance.config.instance_name); };
   // Fetch data instances from raft log
   auto const raft_log_data_instances = GetDataInstancesContext();
   auto const coord_servers = GetCoordinatorInstancesContext();
 
   return CreateRoutingTable(raft_log_data_instances, coord_servers, is_instance_main, GetEnabledReadsOnMain(),
-                            GetMaxReplicaReadLag(), db);
+                            GetMaxReplicaReadLag(), db_name, replicas_lag);
 }
 
 auto RaftState::GetLeaderId() const -> int32_t { return raft_server_->get_leader(); }

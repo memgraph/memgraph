@@ -31,7 +31,9 @@ using RoutingTable = std::vector<std::pair<std::vector<std::string>, std::string
 
 auto CreateRoutingTable(std::vector<DataInstanceContext> const &raft_log_data_instances,
                         std::vector<CoordinatorInstanceContext> const &coord_servers, auto const &is_instance_main_func,
-                        bool const enabled_reads_on_main, uint64_t const max_replica_read_lag, std::string const &db) {
+                        bool const enabled_reads_on_main, uint64_t const max_replica_read_lag,
+                        std::string const &db_name,
+                        std::map<std::string, std::map<std::string, int64_t>> const &replicas_lag) {
   auto res = RoutingTable{};
 
   auto const repl_instance_to_bolt = [](auto const &instance) {
@@ -46,6 +48,14 @@ auto CreateRoutingTable(std::vector<DataInstanceContext> const &raft_log_data_in
   for (auto const &writer : writers) {
     spdlog::trace("  {}", writer);
   }
+
+  auto const lag_filter = [&max_replica_read_lag, &replicas_lag, &db_name](auto const &instance) {
+    auto const replica_it = std::find(replicas_lag.begin(), replicas_lag.end(), instance.config.instance_name);
+    MG_ASSERT(replica_it != replicas_lag.end(), "Couldn't find instance {} in Raft log when creating the routing table",
+              instance.config.instance_name);
+
+    auto const db_it = std::find(replica_it.second.begin(), replica_it.second.end(), db_name);
+  };
 
   auto readers = raft_log_data_instances | ranges::views::filter(std::not_fn(is_instance_main_func)) |
                  ranges::views::transform(repl_instance_to_bolt) | ranges::to_vector;
