@@ -103,6 +103,7 @@ class CoordinatorStateMachine final : public state_machine {
   auto GetEnabledReadsOnMain() const -> bool;
   auto GetSyncFailoverOnly() const -> bool;
   auto GetMaxFailoverReplicaLag() const -> uint64_t;
+  auto GetMaxReplicaReadLag() const -> uint64_t;
 
  private:
   bool HandleMigration(LogStoreVersion stored_version);

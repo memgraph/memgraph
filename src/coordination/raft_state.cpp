@@ -436,6 +436,8 @@ auto RaftState::GetSyncFailoverOnly() const -> bool { return state_machine_->Get
 
 auto RaftState::GetMaxFailoverReplicaLag() const -> uint64_t { return state_machine_->GetMaxFailoverReplicaLag(); }
 
+auto RaftState::GetMaxReplicaReadLag() const -> uint64_t { return state_machine_->GetMaxReplicaReadLag(); }
+
 }  // namespace memgraph::coordination
 
 // namespace memgraph::coordination
