@@ -98,7 +98,7 @@ class CoordinatorInstance {
   auto SetCoordinatorSetting(std::string_view setting_name, std::string_view setting_value) const
       -> SetCoordinatorSettingStatus;
 
-  auto GetRoutingTable(std::string const &db) const -> RoutingTable;
+  auto GetRoutingTable(std::string const &db_name) const -> RoutingTable;
 
   auto GetInstanceForFailover() const -> std::optional<std::string>;
 

@@ -1219,8 +1219,8 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
   return std::nullopt;
 }
 
-auto CoordinatorInstance::GetRoutingTable(std::string const &db) const -> RoutingTable {
-  return raft_state_->GetRoutingTable(db);
+auto CoordinatorInstance::GetRoutingTable(std::string const &db_name) const -> RoutingTable {
+  return raft_state_->GetRoutingTable(db_name, replicas_num_txns_cache_);
 }
 
 auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::string> {
