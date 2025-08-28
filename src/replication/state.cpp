@@ -284,10 +284,16 @@ bool ReplicationState::SetReplicationRoleMain(const utils::UUID &main_uuid) {
   return true;
 }
 
-bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &config) {
+bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &config,
+                                                 std::optional<utils::UUID> const &maybe_main_uuid) {
   // False positive report for the std::make_unique
-  // Random UUID when first setting replica rol
-  auto const main_uuid = utils::UUID{};
+  // Random UUID when first setting replica role if main_uuid not provided already
+  auto const main_uuid = std::invoke([&maybe_main_uuid]() -> utils::UUID {
+    if (maybe_main_uuid.has_value()) {
+      return *maybe_main_uuid;
+    }
+    return utils::UUID{};
+  });
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
   if (!TryPersistRoleReplica(config, main_uuid)) {
     return false;
