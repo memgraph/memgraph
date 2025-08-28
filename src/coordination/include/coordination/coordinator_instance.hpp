@@ -146,6 +146,8 @@ class CoordinatorInstance {
   // Cache which stores information db->num_committed_txns from the current main. This gets updated through the
   // StateCheckRpc call which is only used on the leader
   std::map<std::string, uint64_t> main_num_txns_cache_;
+  // Cache which stores information about the number of committed txns of replicas
+  std::map<std::string, std::map<std::string, int64_t>> replicas_num_txns_cache_;
 
   // Raft updates leadership before callback is executed. IsLeader() can return true, but
   // leader callback or reconcile cluster state haven't yet be executed. This flag tracks if coordinator is set up to
