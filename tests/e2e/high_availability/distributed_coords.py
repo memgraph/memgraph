@@ -3069,13 +3069,13 @@ def test_coord_settings(test_name):
 
     enabled_reads_key = "enabled_reads_on_main"
     sync_failover_key = "sync_failover_only"
-    max_replica_lag = "max_replica_lag"
+    max_failover_replica_lag = "max_failover_replica_lag"
 
     settings = dict(execute_and_fetch_all(coord_cursor_3, "SHOW COORDINATOR SETTINGS"))
 
     assert enabled_reads_key in settings, f"Missing setting key: {enabled_reads_key}"
     assert sync_failover_key in settings, f"Missing setting key: {sync_failover_key}"
-    assert max_replica_lag in settings, f"Missing setting key: {max_replica_lag}"
+    assert max_failover_replica_lag in settings, f"Missing setting key: {max_failover_replica_lag}"
 
     assert settings[enabled_reads_key] == "false"
     assert settings[sync_failover_key] == "true"
@@ -3086,31 +3086,31 @@ def test_coord_settings(test_name):
     settings = dict(execute_and_fetch_all(coord_cursor_3, "SHOW COORDINATOR SETTINGS"))
     assert settings[enabled_reads_key] == "true"
     assert settings[sync_failover_key] == "true"
-    assert settings[max_replica_lag] == f"{2**64-1}"
+    assert settings[max_failover_replica_lag] == f"{2**64-1}"
     settings = dict(execute_and_fetch_all(coord_cursor_2, "SHOW COORDINATOR SETTINGS"))
     assert settings[enabled_reads_key] == "true"
     assert settings[sync_failover_key] == "true"
-    assert settings[max_replica_lag] == f"{2**64-1}"
+    assert settings[max_failover_replica_lag] == f"{2**64-1}"
     settings = dict(execute_and_fetch_all(coord_cursor_1, "SHOW COORDINATOR SETTINGS"))
     assert settings[enabled_reads_key] == "true"
     assert settings[sync_failover_key] == "true"
-    assert settings[max_replica_lag] == f"{2**64-1}"
+    assert settings[max_failover_replica_lag] == f"{2**64-1}"
 
     execute_and_fetch_all(coord_cursor_3, "SET COORDINATOR SETTING 'sync_failover_only' to 'false'")
     execute_and_fetch_all(coord_cursor_3, "SET COORDINATOR SETTING 'enabled_reads_on_main' to 'false'")
-    execute_and_fetch_all(coord_cursor_3, "SET COORDINATOR SETTING 'max_replica_lag' to '25'")
+    execute_and_fetch_all(coord_cursor_3, "SET COORDINATOR SETTING 'max_failover_replica_lag' to '25'")
     settings = dict(execute_and_fetch_all(coord_cursor_3, "SHOW COORDINATOR SETTINGS"))
     assert settings[enabled_reads_key] == "false"
     assert settings[sync_failover_key] == "false"
-    assert settings[max_replica_lag] == "25"
+    assert settings[max_failover_replica_lag] == "25"
     settings = dict(execute_and_fetch_all(coord_cursor_2, "SHOW COORDINATOR SETTINGS"))
     assert settings[enabled_reads_key] == "false"
     assert settings[sync_failover_key] == "false"
-    assert settings[max_replica_lag] == "25"
+    assert settings[max_failover_replica_lag] == "25"
     settings = dict(execute_and_fetch_all(coord_cursor_1, "SHOW COORDINATOR SETTINGS"))
     assert settings[enabled_reads_key] == "false"
     assert settings[sync_failover_key] == "false"
-    assert settings[max_replica_lag] == "25"
+    assert settings[max_failover_replica_lag] == "25"
 
 
 if __name__ == "__main__":

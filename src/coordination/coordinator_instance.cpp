@@ -948,7 +948,7 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const
 auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_name,
                                                 std::string_view const setting_value) const
     -> SetCoordinatorSettingStatus {
-  constexpr std::array settings{kEnabledReadsOnMain, kSyncFailoverOnly, kMaxLagOnReplica};
+  constexpr std::array settings{kEnabledReadsOnMain, kSyncFailoverOnly, kMaxFailoverLagOnReplica};
 
   if (std::ranges::find(settings, setting_name) == settings.end()) {
     return SetCoordinatorSettingStatus::UNKNOWN_SETTING;
@@ -956,7 +956,7 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
 
   auto const maybe_val_with_type =
       std::invoke([setting_name, setting_value]() -> std::optional<std::variant<bool, uint64_t>> {
-        if (setting_name == kMaxLagOnReplica) {
+        if (setting_name == kMaxFailoverLagOnReplica) {
           try {
             return static_cast<uint64_t>(std::stoul(setting_value.data()));
           } catch (std::exception const &e) {
@@ -979,7 +979,7 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
     } else if (setting_name == kSyncFailoverOnly) {
       ret_delta_state.sync_failover_only_ = std::get<bool>(val_with_type);
     } else {
-      ret_delta_state.max_replica_lag_ = std::get<uint64_t>(val_with_type);
+      ret_delta_state.max_failover_replica_lag_ = std::get<uint64_t>(val_with_type);
     }
     return ret_delta_state;
   });
@@ -1320,7 +1320,7 @@ auto CoordinatorInstance::ShowCoordinatorSettings() const -> std::vector<std::pa
   std::vector<std::pair<std::string, std::string>> settings{
       std::pair{std::string(kEnabledReadsOnMain), raft_state_->GetEnabledReadsOnMain() ? "true" : "false"},
       std::pair{std::string(kSyncFailoverOnly), raft_state_->GetSyncFailoverOnly() ? "true" : "false"},
-      std::pair{std::string(kMaxLagOnReplica), std::to_string(raft_state_->GetMaxReplicaLag())}};
+      std::pair{std::string(kMaxFailoverLagOnReplica), std::to_string(raft_state_->GetMaxReplicaLag())}};
   return settings;
 }
 
