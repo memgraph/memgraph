@@ -314,12 +314,16 @@ struct StateCheckRes {
   static void Load(StateCheckRes *self, memgraph::slk::Reader *reader);
   static void Save(const StateCheckRes &self, memgraph::slk::Builder *builder);
 
-  StateCheckRes(bool const replica, std::optional<utils::UUID> const &req_uuid, bool const writing_enabled,
-                std::optional<std::map<std::string, uint64_t>> const &maybe_main_num_txns)
+  StateCheckRes(
+      bool const replica, std::optional<utils::UUID> const &req_uuid, bool const writing_enabled,
+      std::optional<std::map<std::string, uint64_t>> const &maybe_main_num_txns,
+      // instance -> (db -> lag)
+      std::optional<std::map<std::string, std::map<std::string, int64_t>>> const &maybe_main_num_txns_replicas)
       : state({.is_replica = replica,
                .uuid = req_uuid,
                .is_writing_enabled = writing_enabled,
-               .main_num_txns = maybe_main_num_txns}) {}
+               .main_num_txns = maybe_main_num_txns,
+               .replicas_num_txns = maybe_main_num_txns_replicas}) {}
 
   explicit StateCheckRes(InstanceState const &rec_state) : state(rec_state) {}
 
