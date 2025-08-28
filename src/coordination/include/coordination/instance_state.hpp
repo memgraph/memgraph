@@ -30,6 +30,8 @@ struct InstanceState {
   std::optional<utils::UUID> uuid;                               // MAIN's UUID or the UUID which REPLICA listens
   bool is_writing_enabled;                                       // on replica it's never enabled. On main depends.
   std::optional<std::map<std::string, uint64_t>> main_num_txns;  // if main, returns db->num_committed_txns
+  std::optional<std::map<std::string, std::map<std::string, int64_t>>>
+      replicas_num_txns;  // if main, return num of committed txns for each instance
 
   // Follows the logic of other RPC versioning code. For responses, we downgrade newer version to the older version
   InstanceStateV1 Downgrade() const {

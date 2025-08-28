@@ -109,13 +109,16 @@ void DataInstanceManagementServerHandlers::StateCheckHandler(const replication::
     return locked_repl_state->IsMainWriteable();
   });
 
-  std::optional<std::map<std::string, uint64_t>> main_num_txns;
+  std::optional<replication::ReplicationHandler::MainResT> main_num_txns;
+  std::optional<replication::ReplicationHandler::ReplicasResT> replicas_num_txns;
 
   if (!is_replica) {
-    main_num_txns.emplace(replication_handler.GetMainNumCommittedTxns());
+    auto [main_res, replicas_res] = replication_handler.GetNumCommittedTxns();
+    main_num_txns.emplace(std::move(main_res));
+    replicas_num_txns.emplace(std::move(replicas_res));
   }
 
-  coordination::StateCheckRes const rpc_res{is_replica, uuid, writing_enabled, main_num_txns};
+  coordination::StateCheckRes const rpc_res{is_replica, uuid, writing_enabled, main_num_txns, replicas_num_txns};
   rpc::SendFinalResponse(rpc_res, request_version, res_builder,
                          fmt::format("is_replica = {}, uuid = {}, writing_enabled = {}", is_replica,
                                      uuid.has_value() ? std::string{*uuid} : "", writing_enabled));

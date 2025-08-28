@@ -169,13 +169,19 @@ TEST(RpcVersioning, StateCheckRpc) {
   }};
 
   std::map<std::string, uint64_t> const main_num_txns{{"a", 1}, {"b", 5}, {"c", 9}};
+  std::map<std::string, std::map<std::string, int64_t>> const replicas_num_txns{
+      {"instance_1", std::map<std::string, int64_t>{{"a", 1}, {"b", 4}, {"c", 6}}},
+      {"instance_2", std::map<std::string, int64_t>{{"a", 1}, {"b", 6}, {"c", 9}}}
+
+  };
 
   rpc_server.Register<memgraph::coordination::StateCheckRpc>(
-      [&main_num_txns](uint64_t const request_version, auto * /*req_reader*/, auto *res_builder) {
+      [&main_num_txns, &replicas_num_txns](uint64_t const request_version, auto * /*req_reader*/, auto *res_builder) {
         memgraph::coordination::InstanceState const instance_state{.is_replica = false,
                                                                    .uuid = memgraph::utils::UUID{},
                                                                    .is_writing_enabled = true,
-                                                                   .main_num_txns = main_num_txns};
+                                                                   .main_num_txns = main_num_txns,
+                                                                   .replicas_num_txns = replicas_num_txns};
         memgraph::coordination::StateCheckRes const res{instance_state};
         memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
       });
@@ -193,6 +199,7 @@ TEST(RpcVersioning, StateCheckRpc) {
     EXPECT_FALSE(reply.state.is_replica);
     EXPECT_TRUE(reply.state.is_writing_enabled);
     EXPECT_EQ(*reply.state.main_num_txns, main_num_txns);
+    EXPECT_EQ(*reply.state.replicas_num_txns, replicas_num_txns);
   }
 
   {
@@ -203,4 +210,4 @@ TEST(RpcVersioning, StateCheckRpc) {
     EXPECT_TRUE(reply.state.is_writing_enabled);
   }
 }
-#endif\
+#endif

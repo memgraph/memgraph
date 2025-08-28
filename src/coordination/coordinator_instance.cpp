@@ -1020,6 +1020,10 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
       main_num_txns_cache_ = *instance_state.main_num_txns;
     }
 
+    if (instance_state.replicas_num_txns.has_value()) {
+      replicas_num_txns_cache_ = *instance_state.replicas_num_txns;
+    }
+
     // According to raft, this is the current MAIN
     // Check if a promotion is needed:
     //  - instance is actually a replica

@@ -434,14 +434,32 @@ auto ReplicationHandler::GetReplicationLag() const -> coordination::ReplicationL
   return lag_info;
 }
 
-std::map<std::string, uint64_t> ReplicationHandler::GetMainNumCommittedTxns() const {
-  std::map<std::string, uint64_t> result;
-  dbms_handler_.ForEach([&result](dbms::DatabaseAccess db_acc) {
-    auto const &repl_storage_state = db_acc->storage()->repl_storage_state_;
-    result.emplace(std::string{db_acc->storage()->uuid()},
-                   repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).num_committed_txns_);
+std::pair<ReplicationHandler::MainResT, ReplicationHandler::ReplicasResT> ReplicationHandler::GetNumCommittedTxns()
+    const {
+  ReplicasResT replicas;
+  MainResT main;
+
+  dbms_handler_.ForEach([&replicas, &main](dbms::DatabaseAccess db_acc) {
+    auto &repl_storage_state = db_acc->storage()->repl_storage_state_;
+    auto const db_name = db_acc->name();
+    auto const num_main_committed_txns =
+        repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).num_committed_txns_;
+    main.emplace(std::string{db_acc->storage()->uuid()}, num_main_committed_txns);
+
+    repl_storage_state.replication_storage_clients_.WithLock(
+        [&db_name, &num_main_committed_txns, &replicas](auto &storage_clients) {
+          for (auto &repl_storage_client : storage_clients) {
+            auto const replica_name = repl_storage_client->Name();
+            auto const num_committed_txns_repl = repl_storage_client->GetNumCommittedTxns();
+            int64_t const replica_lag = num_main_committed_txns - num_committed_txns_repl;
+            // Insert or find the already inserted element
+            auto [replica_it, _] = replicas.try_emplace(replica_name, std::map<std::string, int64_t>{});
+            replica_it->second.emplace(db_name, replica_lag);
+          }
+        });
   });
-  return result;
+
+  return std::pair{main, replicas};
 }
 
 #endif

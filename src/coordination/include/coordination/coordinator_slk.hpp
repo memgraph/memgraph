@@ -126,6 +126,7 @@ inline void Save(const coordination::InstanceState &obj, Builder *builder) {
   Save(obj.uuid, builder);
   Save(obj.is_writing_enabled, builder);
   Save(obj.main_num_txns, builder);
+  Save(obj.replicas_num_txns, builder);
 }
 
 inline void Load(coordination::InstanceState *obj, Reader *reader) {
@@ -133,6 +134,7 @@ inline void Load(coordination::InstanceState *obj, Reader *reader) {
   Load(&obj->uuid, reader);
   Load(&obj->is_writing_enabled, reader);
   Load(&obj->main_num_txns, reader);
+  Load(&obj->replicas_num_txns, reader);
 }
 
 inline void Save(const coordination::ReplicaDBLagData &obj, Builder *builder) {
