@@ -25,6 +25,7 @@
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/priorities.hpp"
+#include "utils/sysinfo/cpuinfo.hpp"
 #include "utils/thread.hpp"
 #include "utils/yielder.hpp"
 
@@ -177,7 +178,7 @@ void PriorityThreadPool::ScheduledAddTask(TaskSignature new_task, const Priority
     // Limit the number of directly used threads when there are more workers than hw threads.
     // Gives better overall performance.
     static const auto max_wakeup_thread =
-        std::min(static_cast<TaskID>(std::thread::hardware_concurrency()), workers_.size());
+        std::min(static_cast<TaskID>(memgraph::utils::sysinfo::LogicalCPUCores().value_or(1U)), workers_.size());
     // If no hot thread found, give it to the next thread
     tid = last_wid_++ % max_wakeup_thread;
   }
