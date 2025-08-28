@@ -191,7 +191,6 @@ def retrieve_lag(cursor):
     return execute_and_fetch_all(cursor, "SHOW REPLICATION LAG;")
 
 
-@pytest.mark.skip(reason="Works")
 @pytest.mark.parametrize("cluster", ["strict_sync", "sync"])
 def test_replication_lag_strict_sync(test_name, cluster):
     func = None

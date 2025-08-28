@@ -1287,7 +1287,8 @@ auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::s
           continue;
         }
 
-        if (main_db_info->second > replica_db_info.num_committed_txns + max_allowed_lag) {
+        if (main_db_info->second > replica_db_info.num_committed_txns &&
+            main_db_info->second - replica_db_info.num_committed_txns > max_allowed_lag) {
           spdlog::info(
               "Instance {} won't be used in a failover because it's much behind the current main. Main has committed "
               "{} txns, while instance {} has committed {} txns for the database {}",

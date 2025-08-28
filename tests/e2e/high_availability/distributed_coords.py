@@ -3086,15 +3086,15 @@ def test_coord_settings(test_name):
     settings = dict(execute_and_fetch_all(coord_cursor_3, "SHOW COORDINATOR SETTINGS"))
     assert settings[enabled_reads_key] == "true"
     assert settings[sync_failover_key] == "true"
-    assert settings[max_replica_lag] == f"{2**32-1}"
+    assert settings[max_replica_lag] == f"{2**64-1}"
     settings = dict(execute_and_fetch_all(coord_cursor_2, "SHOW COORDINATOR SETTINGS"))
     assert settings[enabled_reads_key] == "true"
     assert settings[sync_failover_key] == "true"
-    assert settings[max_replica_lag] == f"{2**32-1}"
+    assert settings[max_replica_lag] == f"{2**64-1}"
     settings = dict(execute_and_fetch_all(coord_cursor_1, "SHOW COORDINATOR SETTINGS"))
     assert settings[enabled_reads_key] == "true"
     assert settings[sync_failover_key] == "true"
-    assert settings[max_replica_lag] == f"{2**32-1}"
+    assert settings[max_replica_lag] == f"{2**64-1}"
 
     execute_and_fetch_all(coord_cursor_3, "SET COORDINATOR SETTING 'sync_failover_only' to 'false'")
     execute_and_fetch_all(coord_cursor_3, "SET COORDINATOR SETTING 'enabled_reads_on_main' to 'false'")
