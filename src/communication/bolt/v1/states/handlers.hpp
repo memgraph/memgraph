@@ -528,10 +528,9 @@ State HandleRoute(TSession &session, const Marker marker) {
     spdlog::trace("Couldn't read db field!");
     return State::Close;
   }
-
 #ifdef MG_ENTERPRISE
   try {
-    auto res = session.Route(routing.ValueMap(), bookmarks.ValueList(), {});
+    auto res = session.Route(routing.ValueMap(), bookmarks.ValueList(), db.ValueString(), {});
     if (!session.encoder_.MessageSuccess(std::move(res))) {
       spdlog::trace("Couldn't send result of routing!");
       return State::Close;

@@ -31,7 +31,7 @@ using RoutingTable = std::vector<std::pair<std::vector<std::string>, std::string
 
 auto CreateRoutingTable(std::vector<DataInstanceContext> const &raft_log_data_instances,
                         std::vector<CoordinatorInstanceContext> const &coord_servers, auto const &is_instance_main_func,
-                        bool const enabled_reads_on_main) {
+                        bool const enabled_reads_on_main, uint64_t const max_replica_read_lag, std::string const &db) {
   auto res = RoutingTable{};
 
   auto const repl_instance_to_bolt = [](auto const &instance) {
