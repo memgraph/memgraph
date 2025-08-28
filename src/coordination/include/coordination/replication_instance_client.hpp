@@ -88,6 +88,9 @@ class ReplicationInstanceClient {
   auto SendRpc(Args &&...args) const -> bool {
     utils::MetricsTimer const timer{RpcInfo<T>::timerLabel};
     try {
+      // Instead of retrieving config_.replication_client_info and sending it again into this function, we have this
+      // compile-time switch which decides specifically to ship config_.replication_client_info for
+      // DemoteMainToReplicaRpc
       auto stream = std::invoke([&]() {
         if constexpr (std::same_as<T, DemoteMainToReplicaRpc>) {
           return rpc_client_.Stream<T>(config_.replication_client_info, std::forward<Args>(args)...);
