@@ -395,7 +395,9 @@ auto CoordinatorStateMachine::GetEnabledReadsOnMain() const -> bool { return clu
 
 auto CoordinatorStateMachine::GetSyncFailoverOnly() const -> bool { return cluster_state_.GetSyncFailoverOnly(); }
 
-auto CoordinatorStateMachine::GetMaxReplicaLag() const -> uint64_t { return cluster_state_.GetMaxReplicaLag(); }
+auto CoordinatorStateMachine::GetMaxFailoverReplicaLag() const -> uint64_t {
+  return cluster_state_.GetMaxFailoverReplicaLag();
+}
 
 }  // namespace memgraph::coordination
 #endif

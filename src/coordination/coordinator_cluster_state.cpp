@@ -170,7 +170,7 @@ auto CoordinatorClusterState::GetSyncFailoverOnly() const -> bool {
   return sync_failover_only_;
 }
 
-auto CoordinatorClusterState::GetMaxReplicaLag() const -> uint64_t {
+auto CoordinatorClusterState::GetMaxFailoverReplicaLag() const -> uint64_t {
   auto lock = std::shared_lock{app_lock_};
   return max_failover_replica_lag_;
 }
@@ -212,7 +212,7 @@ void to_json(nlohmann::json &j, CoordinatorClusterState const &state) {
                      {kEnabledReadsOnMain.data(), state.GetEnabledReadsOnMain()},
                      {kSyncFailoverOnly.data(), state.GetSyncFailoverOnly()},
                      // Added in 3.6.0 version
-                     {kMaxFailoverLagOnReplica.data(), state.GetMaxReplicaLag()}};
+                     {kMaxFailoverLagOnReplica.data(), state.GetMaxFailoverReplicaLag()}};
 }
 
 void from_json(nlohmann::json const &j, CoordinatorClusterState &instance_state) {
