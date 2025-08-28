@@ -81,7 +81,7 @@ class CoordinatorClusterState {
 
   auto GetSyncFailoverOnly() const -> bool;
 
-  auto GetMaxReplicaLag() const -> uint64_t;
+  auto GetMaxFailoverReplicaLag() const -> uint64_t;
 
   auto TryGetCurrentMainName() const -> std::optional<std::string>;
 

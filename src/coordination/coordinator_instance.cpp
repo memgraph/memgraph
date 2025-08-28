@@ -958,7 +958,7 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
       std::invoke([setting_name, setting_value]() -> std::optional<std::variant<bool, uint64_t>> {
         if (setting_name == kMaxFailoverLagOnReplica) {
           try {
-            return static_cast<uint64_t>(std::stoul(setting_value.data()));
+            return std::stoul(setting_value.data());
           } catch (std::exception const &e) {
             spdlog::error("Error occurred while trying to update max_lag_on_replica coordinator setting {}", e.what());
             return std::nullopt;
@@ -1248,7 +1248,7 @@ auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::s
   auto const sync_failover_only = raft_state_->GetSyncFailoverOnly();
   auto const data_instances = raft_state_->GetDataInstancesContext();
 
-  auto const max_allowed_lag = raft_state_->GetMaxReplicaLag();
+  auto const max_allowed_lag = raft_state_->GetMaxFailoverReplicaLag();
 
   for (auto const &instance : repl_instances_) {
     auto const instance_name = instance.InstanceName();
@@ -1320,7 +1320,7 @@ auto CoordinatorInstance::ShowCoordinatorSettings() const -> std::vector<std::pa
   std::vector<std::pair<std::string, std::string>> settings{
       std::pair{std::string(kEnabledReadsOnMain), raft_state_->GetEnabledReadsOnMain() ? "true" : "false"},
       std::pair{std::string(kSyncFailoverOnly), raft_state_->GetSyncFailoverOnly() ? "true" : "false"},
-      std::pair{std::string(kMaxFailoverLagOnReplica), std::to_string(raft_state_->GetMaxReplicaLag())}};
+      std::pair{std::string(kMaxFailoverLagOnReplica), std::to_string(raft_state_->GetMaxFailoverReplicaLag())}};
   return settings;
 }
 
