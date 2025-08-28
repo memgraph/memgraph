@@ -39,6 +39,16 @@ clone () {
 
   shift 4
   local fresh_clone=false
+  local clone_pid=""
+
+  # Setup trap for cleanup on interruption (only for fresh clones)
+  cleanup_on_interrupt() {
+    if [[ "$fresh_clone" == true && -n "$clone_pid" ]]; then
+      echo "Clone interrupted, cleaning up $dir_name"
+      kill "$clone_pid" 2>/dev/null || true
+      rm -rf "$dir_name"
+    fi
+  }
 
   # Clone if there's no repo.
   if [[ ! -d "$dir_name" ]]; then
@@ -48,19 +58,30 @@ clone () {
     # execution but the whole script should continue executing because we might
     # clone the same repo from a different source.
 
+    # Set trap for this fresh clone
+    trap cleanup_on_interrupt INT TERM
+
     if [ "$shallow" = true ]; then
-      if ! timeout $WGET_OR_CLONE_TIMEOUT git clone --depth 1 --branch "$checkout_id" "$git_repo" "$dir_name"; then
+      timeout $WGET_OR_CLONE_TIMEOUT git clone --depth 1 --branch "$checkout_id" "$git_repo" "$dir_name" &
+      clone_pid=$!
+      if ! wait $clone_pid; then
         # Clean up failed partial clone
         rm -rf "$dir_name"
+        trap - INT TERM  # Clear trap
         return 1
       fi
     else
-      if ! timeout $WGET_OR_CLONE_TIMEOUT git clone "$git_repo" "$dir_name"; then
+      timeout $WGET_OR_CLONE_TIMEOUT git clone "$git_repo" "$dir_name" &
+      clone_pid=$!
+      if ! wait $clone_pid; then
         # Clean up failed partial clone
         rm -rf "$dir_name"
+        trap - INT TERM  # Clear trap
         return 1
       fi
     fi
+    # Clear trap after successful clone
+    trap - INT TERM
   fi
 
   # Enter directory and perform git operations
@@ -86,7 +107,7 @@ clone () {
       git remote set-url origin "$git_repo"
       # Fetch all refs including tags from the new remote
       # Use --tags to ensure we get all tags, and --force to update refs that may differ
-      git fetch --tags --force
+      git fetch --tags --force || exit 1  # Retriable network failure
       # Checkout the primary commit (there's no need to pull/merge).
       # Critical failure if the target commit is not there (will cause build errors).
       # Fresh clones will be cleaned up to allow retry from secondary source.
@@ -102,7 +123,11 @@ clone () {
 
       # Reapply any local changes - only pop if we actually stashed successfully.
       if [[ $local_changes == true && $needs_pop == true ]]; then
-        git stash pop
+        if ! git stash pop; then
+          echo "ERROR: Failed to reapply local changes. Your changes are still in the stash."
+          echo "After resolving conflicts, run: cd libs/$dir_name && git stash pop"
+          exit 2
+        fi
       fi
     fi
   )
