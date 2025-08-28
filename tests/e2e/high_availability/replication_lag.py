@@ -380,7 +380,7 @@ def test_replication_lag_failover(test_name):
     coord3_cursor = connect(host="localhost", port=7692).cursor()
 
     # Set max lag to two txns
-    execute_and_fetch_all(coord3_cursor, "SET COORDINATOR SETTING 'max_replica_lag' TO '2'")
+    execute_and_fetch_all(coord3_cursor, "SET COORDINATOR SETTING 'max_failover_replica_lag' TO '2'")
 
     # Kill both replicas
     interactive_mg_runner.kill(inner_instances_description, "instance_1")

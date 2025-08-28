@@ -168,7 +168,7 @@ auto CoordinatorStateMachine::SerializeUpdateClusterState(CoordinatorClusterStat
   add_if_set(kUuid, delta_state.current_main_uuid_);
   add_if_set(kEnabledReadsOnMain, delta_state.enabled_reads_on_main_);
   add_if_set(kSyncFailoverOnly, delta_state.sync_failover_only_);
-  add_if_set(kMaxLagOnReplica, delta_state.max_replica_lag_);
+  add_if_set(kMaxFailoverLagOnReplica, delta_state.max_failover_replica_lag_);
 
   return CreateLog(delta_state_json);
 }
@@ -206,9 +206,10 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> CoordinatorClusterState
       delta_state.sync_failover_only_ = sync_failover_only;
     }
 
-    if (json.contains(kMaxLagOnReplica.data())) {
-      auto const max_replica_lag = json.value(kMaxLagOnReplica.data(), std::numeric_limits<uint64_t>::max());
-      delta_state.max_replica_lag_ = max_replica_lag;
+    if (json.contains(kMaxFailoverLagOnReplica.data())) {
+      auto const max_failover_replica_lag =
+          json.value(kMaxFailoverLagOnReplica.data(), std::numeric_limits<uint64_t>::max());
+      delta_state.max_failover_replica_lag_ = max_failover_replica_lag;
     }
 
     return delta_state;

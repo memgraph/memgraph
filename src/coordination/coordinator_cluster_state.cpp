@@ -27,7 +27,7 @@ CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState const &
   current_main_uuid_ = other.current_main_uuid_;
   enabled_reads_on_main_ = other.enabled_reads_on_main_;
   sync_failover_only_ = other.sync_failover_only_;
-  max_replica_lag_ = other.max_replica_lag_;
+  max_failover_replica_lag_ = other.max_failover_replica_lag_;
   // NOLINTEND
 }
 
@@ -42,7 +42,7 @@ CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterSt
   current_main_uuid_ = other.current_main_uuid_;
   enabled_reads_on_main_ = other.enabled_reads_on_main_;
   sync_failover_only_ = other.sync_failover_only_;
-  max_replica_lag_ = other.max_replica_lag_;
+  max_failover_replica_lag_ = other.max_failover_replica_lag_;
   return *this;
 }
 
@@ -52,7 +52,7 @@ CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState &&other
       current_main_uuid_{other.current_main_uuid_},
       enabled_reads_on_main_{other.enabled_reads_on_main_},
       sync_failover_only_{other.sync_failover_only_},
-      max_replica_lag_(other.max_replica_lag_) {}
+      max_failover_replica_lag_(other.max_failover_replica_lag_) {}
 
 CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterState &&other) noexcept {
   if (this == &other) {
@@ -66,7 +66,7 @@ CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterSt
   current_main_uuid_ = other.current_main_uuid_;
   enabled_reads_on_main_ = other.enabled_reads_on_main_;
   sync_failover_only_ = other.sync_failover_only_;
-  max_replica_lag_ = other.max_replica_lag_;
+  max_failover_replica_lag_ = other.max_failover_replica_lag_;
   return *this;
 }
 
@@ -112,8 +112,8 @@ auto CoordinatorClusterState::DoAction(CoordinatorClusterStateDelta delta_state)
     sync_failover_only_ = *delta_state.sync_failover_only_;
   }
 
-  if (delta_state.max_replica_lag_.has_value()) {
-    max_replica_lag_ = *delta_state.max_replica_lag_;
+  if (delta_state.max_failover_replica_lag_.has_value()) {
+    max_failover_replica_lag_ = *delta_state.max_failover_replica_lag_;
   }
 }
 
@@ -172,7 +172,7 @@ auto CoordinatorClusterState::GetSyncFailoverOnly() const -> bool {
 
 auto CoordinatorClusterState::GetMaxReplicaLag() const -> uint64_t {
   auto lock = std::shared_lock{app_lock_};
-  return max_replica_lag_;
+  return max_failover_replica_lag_;
 }
 
 void CoordinatorClusterState::SetCoordinatorInstances(std::vector<CoordinatorInstanceContext> coordinator_instances) {
@@ -200,9 +200,9 @@ void CoordinatorClusterState::SetSyncFailoverOnly(bool const sync_failover_only)
   sync_failover_only_ = sync_failover_only;
 }
 
-void CoordinatorClusterState::SetMaxLagOnReplica(uint64_t const max_replica_lag) {
+void CoordinatorClusterState::SetMaxFailoverLagOnReplica(uint64_t const max_failover_replica_lag) {
   auto lock = std::lock_guard{app_lock_};
-  max_replica_lag_ = max_replica_lag;
+  max_failover_replica_lag_ = max_failover_replica_lag;
 }
 
 void to_json(nlohmann::json &j, CoordinatorClusterState const &state) {
@@ -212,7 +212,7 @@ void to_json(nlohmann::json &j, CoordinatorClusterState const &state) {
                      {kEnabledReadsOnMain.data(), state.GetEnabledReadsOnMain()},
                      {kSyncFailoverOnly.data(), state.GetSyncFailoverOnly()},
                      // Added in 3.6.0 version
-                     {kMaxLagOnReplica.data(), state.GetMaxReplicaLag()}};
+                     {kMaxFailoverLagOnReplica.data(), state.GetMaxReplicaLag()}};
 }
 
 void from_json(nlohmann::json const &j, CoordinatorClusterState &instance_state) {
@@ -235,8 +235,9 @@ void from_json(nlohmann::json const &j, CoordinatorClusterState &instance_state)
   instance_state.SetSyncFailoverOnly(sync_failover_only);
 
   // Max lag on replica is supported from the version 3.6.0 above
-  uint64_t const max_replica_lag = j.value(kMaxLagOnReplica.data(), std::numeric_limits<uint64_t>::max());
-  instance_state.SetMaxLagOnReplica(max_replica_lag);
+  uint64_t const max_failover_replica_lag =
+      j.value(kMaxFailoverLagOnReplica.data(), std::numeric_limits<uint64_t>::max());
+  instance_state.SetMaxFailoverLagOnReplica(max_failover_replica_lag);
 }
 
 }  // namespace memgraph::coordination

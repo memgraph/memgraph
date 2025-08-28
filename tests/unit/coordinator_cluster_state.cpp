@@ -65,7 +65,7 @@ TEST_F(CoordinatorClusterStateTest, TestUpgrade) {
                                   {memgraph::coordination::kCoordinatorInstances.data(), coord_instances},
                                   {memgraph::coordination::kEnabledReadsOnMain.data(), true},
                                   {memgraph::coordination::kSyncFailoverOnly.data(), false},
-                                  {memgraph::coordination::kMaxLagOnReplica.data(), 20}};
+                                  {memgraph::coordination::kMaxFailoverLagOnReplica.data(), 20}};
 
     CoordinatorClusterState legacy_state;
     nlohmann::from_json(legacy_json, legacy_state);
@@ -77,7 +77,7 @@ TEST_F(CoordinatorClusterStateTest, TestUpgrade) {
                                   {memgraph::coordination::kCoordinatorInstances.data(), coord_instances},
                                   {memgraph::coordination::kEnabledReadsOnMain.data(), true},
                                   {memgraph::coordination::kSyncFailoverOnly.data(), false},
-                                  {memgraph::coordination::kMaxLagOnReplica.data(), 20}
+                                  {memgraph::coordination::kMaxFailoverLagOnReplica.data(), 20}
 
     };
     CoordinatorClusterState legacy_state;
@@ -204,7 +204,7 @@ TEST_F(CoordinatorClusterStateTest, Marshalling) {
                                                  .current_main_uuid_ = uuid,
                                                  .enabled_reads_on_main_ = true,
                                                  .sync_failover_only_ = false,
-                                                 .max_replica_lag_ = 25};
+                                                 .max_failover_replica_lag_ = 25};
   cluster_state.DoAction(delta_state);
 
   ptr<buffer> data;
