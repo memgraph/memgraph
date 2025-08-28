@@ -169,6 +169,7 @@ auto CoordinatorStateMachine::SerializeUpdateClusterState(CoordinatorClusterStat
   add_if_set(kEnabledReadsOnMain, delta_state.enabled_reads_on_main_);
   add_if_set(kSyncFailoverOnly, delta_state.sync_failover_only_);
   add_if_set(kMaxFailoverLagOnReplica, delta_state.max_failover_replica_lag_);
+  add_if_set(kMaxReplicaReadLag, delta_state.max_replica_read_lag_);
 
   return CreateLog(delta_state_json);
 }
@@ -176,7 +177,7 @@ auto CoordinatorStateMachine::SerializeUpdateClusterState(CoordinatorClusterStat
 auto CoordinatorStateMachine::DecodeLog(buffer &data) -> CoordinatorClusterStateDelta {
   buffer_serializer bs(data);
   try {
-    CoordinatorClusterStateDelta delta_state;
+    CoordinatorClusterStateDelta delta_state{};
     auto const json = nlohmann::json::parse(bs.get_str());
 
     if (json.contains(kClusterState.data())) {
@@ -210,6 +211,11 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> CoordinatorClusterState
       auto const max_failover_replica_lag =
           json.value(kMaxFailoverLagOnReplica.data(), std::numeric_limits<uint64_t>::max());
       delta_state.max_failover_replica_lag_ = max_failover_replica_lag;
+    }
+
+    if (json.contains(kMaxReplicaReadLag.data())) {
+      auto const max_replica_read_lag = json.value(kMaxReplicaReadLag.data(), std::numeric_limits<uint64_t>::max());
+      delta_state.max_replica_read_lag_ = max_replica_read_lag;
     }
 
     return delta_state;
@@ -329,7 +335,7 @@ auto CoordinatorStateMachine::last_snapshot() -> ptr<snapshot> {
     return nullptr;
   }
 
-  ptr<SnapshotCtx> ctx = entry->second;
+  ptr<SnapshotCtx> const ctx = entry->second;
   return ctx->snapshot_;
 }
 
@@ -340,7 +346,7 @@ auto CoordinatorStateMachine::last_commit_index() -> ulong {
 
 auto CoordinatorStateMachine::create_snapshot(snapshot &s, async_result<bool>::handler_type &when_done) -> void {
   logger_.Log(nuraft_log_level::TRACE, fmt::format("Create snapshot, last_log_idx={}", s.get_last_log_idx()));
-  ptr<buffer> snp_buf = s.serialize();
+  ptr<buffer> const snp_buf = s.serialize();
   ptr<snapshot> const ss = snapshot::deserialize(*snp_buf);
   CreateSnapshotInternal(ss);
 
@@ -398,6 +404,8 @@ auto CoordinatorStateMachine::GetSyncFailoverOnly() const -> bool { return clust
 auto CoordinatorStateMachine::GetMaxFailoverReplicaLag() const -> uint64_t {
   return cluster_state_.GetMaxFailoverReplicaLag();
 }
+
+auto CoordinatorStateMachine::GetMaxReplicaReadLag() const -> uint64_t { return cluster_state_.GetMaxReplicaReadLag(); }
 
 }  // namespace memgraph::coordination
 #endif

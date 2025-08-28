@@ -204,7 +204,8 @@ TEST_F(CoordinatorClusterStateTest, Marshalling) {
                                                  .current_main_uuid_ = uuid,
                                                  .enabled_reads_on_main_ = true,
                                                  .sync_failover_only_ = false,
-                                                 .max_failover_replica_lag_ = 25};
+                                                 .max_failover_replica_lag_ = 25,
+                                                 .max_replica_read_lag_ = 10};
   cluster_state.DoAction(delta_state);
 
   ptr<buffer> data;
@@ -215,10 +216,11 @@ TEST_F(CoordinatorClusterStateTest, Marshalling) {
   ASSERT_TRUE(cluster_state.GetEnabledReadsOnMain());
   ASSERT_FALSE(cluster_state.GetSyncFailoverOnly());
   ASSERT_EQ(cluster_state.GetMaxFailoverReplicaLag(), 25);
+  ASSERT_EQ(cluster_state.GetMaxReplicaReadLag(), 10);
 }
 
 TEST_F(CoordinatorClusterStateTest, RoutingPoliciesSwitch) {
-  CoordinatorClusterState cluster_state;
+  CoordinatorClusterState cluster_state{};
   std::vector<DataInstanceContext> data_instances;
 
   auto config = DataInstanceConfig{.instance_name = "instance2",
@@ -255,4 +257,5 @@ TEST_F(CoordinatorClusterStateTest, RoutingPoliciesSwitch) {
   ASSERT_TRUE(deserialized_cluster_state.GetSyncFailoverOnly());
   // by default read uint64_t::max()
   ASSERT_EQ(deserialized_cluster_state.GetMaxFailoverReplicaLag(), std::numeric_limits<uint64_t>::max());
+  ASSERT_EQ(deserialized_cluster_state.GetMaxReplicaReadLag(), std::numeric_limits<uint64_t>::max());
 }
