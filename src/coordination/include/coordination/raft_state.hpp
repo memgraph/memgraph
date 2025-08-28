@@ -88,7 +88,7 @@ class RaftState {
 
   auto GetLeaderCoordinatorData() const -> std::optional<LeaderCoordinatorData>;
   auto YieldLeadership() const -> void;
-  auto GetRoutingTable() const -> RoutingTable;
+  auto GetRoutingTable(std::string const &db) const -> RoutingTable;
 
   // Returns elapsed time in ms since last successful response from the coordinator with id srv_id
   auto CoordLastSuccRespMs(int32_t srv_id) const -> std::chrono::milliseconds;
