@@ -29,6 +29,8 @@ fi
 # Clones a git repository and optionally cherry picks additional commits. The
 # function will try to preserve any local changes in the repo.
 # clone GIT_REPO DIR_NAME CHECKOUT_ID [CHERRY_PICK_ID]...
+# Returns: 0 on success, 1 on retriable failure, 2 on critical failure
+# Automatically cleans up fresh clones on critical failures to allow retry
 clone () {
   local git_repo=$1
   local dir_name=$2
@@ -36,21 +38,35 @@ clone () {
   local shallow=$4
 
   shift 4
+  local fresh_clone=false
+
   # Clone if there's no repo.
   if [[ ! -d "$dir_name" ]]; then
+    fresh_clone=true
     echo "Cloning from $git_repo"
     # If the clone fails, it doesn't make sense to continue with the function
     # execution but the whole script should continue executing because we might
     # clone the same repo from a different source.
 
     if [ "$shallow" = true ]; then
-      timeout $WGET_OR_CLONE_TIMEOUT git clone --depth 1 --branch "$checkout_id" "$git_repo" "$dir_name" || return 1
+      if ! timeout $WGET_OR_CLONE_TIMEOUT git clone --depth 1 --branch "$checkout_id" "$git_repo" "$dir_name"; then
+        # Clean up failed partial clone
+        rm -rf "$dir_name"
+        return 1
+      fi
     else
-      timeout $WGET_OR_CLONE_TIMEOUT git clone "$git_repo" "$dir_name" || return 1
+      if ! timeout $WGET_OR_CLONE_TIMEOUT git clone "$git_repo" "$dir_name"; then
+        # Clean up failed partial clone
+        rm -rf "$dir_name"
+        return 1
+      fi
     fi
   fi
+
+  # Enter directory and perform git operations
+  local subshell_status
   (
-    cd "$dir_name" || return 1
+    cd "$dir_name" || exit 1
     # Check whether we have any local changes which need to be preserved.
     local local_changes=true
     if git diff --no-ext-diff --quiet && git diff --no-ext-diff --cached --quiet; then
@@ -65,19 +81,23 @@ clone () {
       fi
       # Just fetch new commits from remote repository. Don't merge/pull them in, so
       # that we don't clobber local modifications.
-      git fetch
+      # Update origin to point to the current git_repo URL in case we're retrying
+      # with a secondary URL on an existing clone
+      git remote set-url origin "$git_repo"
+      # Fetch all refs including tags from the new remote
+      # Use --tags to ensure we get all tags, and --force to update refs that may differ
+      git fetch --tags --force
       # Checkout the primary commit (there's no need to pull/merge).
-      # The checkout fail should exit this script immediately because the target
-      # commit is not there and that will most likely create build-time errors.
-      git checkout "$checkout_id" || exit 1
+      # Critical failure if the target commit is not there (will cause build errors).
+      # Fresh clones will be cleaned up to allow retry from secondary source.
+      git checkout "$checkout_id" || exit 2
       # Apply any optional cherry pick fixes.
       while [[ $# -ne 0 ]]; do
         local cherry_pick_id=$1
         shift
-        # The cherry-pick fail should exit this script immediately because the
-        # target commit is not there and that will most likely create build-time
-        # errors.
-        git cherry-pick -n "$cherry_pick_id" || exit 1
+        # Critical failure if cherry-pick fails (will cause build errors).
+        # Fresh clones will be cleaned up to allow retry from secondary source.
+        git cherry-pick -n "$cherry_pick_id" || exit 2
       done
 
       # Reapply any local changes - only pop if we actually stashed successfully.
@@ -86,6 +106,16 @@ clone () {
       fi
     fi
   )
+  subshell_status=$?
+
+  # If critical failure (exit code 2) and this was a fresh clone, clean up
+  if [[ $subshell_status -eq 2 && "$fresh_clone" == true ]]; then
+    echo "Critical failure during clone of $git_repo, cleaning up $dir_name"
+    rm -rf "$dir_name"
+    return 1
+  fi
+
+  return $subshell_status
 }
 
 file_get_try_double () {
