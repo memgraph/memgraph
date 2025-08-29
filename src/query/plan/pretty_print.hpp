@@ -103,6 +103,8 @@ class PlanPrinter : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(RollUpApply &) override;
   bool PreVisit(PeriodicCommit &) override;
   bool PreVisit(PeriodicSubquery &) override;
+  bool PreVisit(SetNestedProperty &) override;
+  bool PreVisit(RemoveNestedProperty &) override;
 
   bool PreVisit(Unwind &) override;
   bool PreVisit(CallProcedure &) override;
@@ -245,6 +247,8 @@ class PlanToJsonVisitor : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(RollUpApply &) override;
   bool PreVisit(PeriodicCommit &) override;
   bool PreVisit(PeriodicSubquery &) override;
+  bool PreVisit(SetNestedProperty &) override;
+  bool PreVisit(RemoveNestedProperty &) override;
 
   bool Visit(Once &) override;
 

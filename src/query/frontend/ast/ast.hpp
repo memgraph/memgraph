@@ -973,7 +973,16 @@ class PropertyLookup : public memgraph::query::Expression {
 
   enum class EvaluationMode { GET_OWN_PROPERTY, GET_ALL_PROPERTIES };
 
+  enum class LookupMode { REPLACE, APPEND };
+
   PropertyLookup() = default;
+
+  PropertyLookup(Expression *expression, std::vector<PropertyIx> property_path)
+      : expression_(expression), property_path_(std::move(property_path)) {
+    MG_ASSERT(property_path_.size() > 0, "Property path is empty!");
+  }
+  PropertyLookup(Expression *expression, PropertyIx property)
+      : expression_(expression), property_(property), property_path_{property} {}
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
@@ -986,20 +995,28 @@ class PropertyLookup : public memgraph::query::Expression {
   }
 
   memgraph::query::Expression *expression_{nullptr};
-  memgraph::query::PropertyIx property_;
+  PropertyIx property_;
+  std::vector<PropertyIx> property_path_;
   memgraph::query::PropertyLookup::EvaluationMode evaluation_mode_{EvaluationMode::GET_OWN_PROPERTY};
+  memgraph::query::PropertyLookup::LookupMode lookup_mode_{LookupMode::REPLACE};
+  bool use_nested_property_update_{false};
 
   PropertyLookup *Clone(AstStorage *storage) const override {
     PropertyLookup *object = storage->Create<PropertyLookup>();
     object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
     object->property_ = storage->GetPropertyIx(property_.name);
+    object->property_path_.resize(property_path_.size());
+    for (size_t i = 0; i < property_path_.size(); ++i) {
+      object->property_path_[i] = storage->GetPropertyIx(property_path_[i].name);
+    }
     object->evaluation_mode_ = evaluation_mode_;
+    object->lookup_mode_ = lookup_mode_;
+    object->use_nested_property_update_ = use_nested_property_update_;
     return object;
   }
 
  protected:
-  PropertyLookup(Expression *expression, PropertyIx property)
-      : expression_(expression), property_(std::move(property)) {}
+  // Constructors moved above
 
  private:
   friend class AstStorage;

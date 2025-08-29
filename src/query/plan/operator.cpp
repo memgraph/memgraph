@@ -153,6 +153,8 @@ extern const Event HashJoinOperator;
 extern const Event RollUpApplyOperator;
 extern const Event PeriodicCommitOperator;
 extern const Event PeriodicSubqueryOperator;
+extern const Event SetNestedPropertyOperator;
+extern const Event RemoveNestedPropertyOperator;
 }  // namespace memgraph::metrics
 
 namespace memgraph::query::plan {
@@ -1933,8 +1935,6 @@ class ExpandVariableCursor : public Cursor {
   const UniqueCursorPtr input_cursor_;
   // bounds. in the cursor they are not optional but set to
   // default values if missing in the ExpandVariable operator
-  // initialize to arbitrary values, they should only be used
-  // after a successful pull from the input
   int64_t upper_bound_{-1};
   int64_t lower_bound_{-1};
 
@@ -4578,11 +4578,6 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
       // Skip setting properties on Null (can occur in optional match).
       break;
     case TypedValue::Type::Map:
-    // Semantically modifying a map makes sense, but it's not supported due
-    // to all the copying we do (when PropertyValue -> TypedValue and in
-    // ExpressionEvaluator). So even though we set a map property here, that
-    // is never visible to the user and it's not stored.
-    // TODO: fix above described bug
     default:
       throw QueryRuntimeException("Properties can only be set on edges and vertices.");
   }
@@ -4592,6 +4587,169 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
 void SetProperty::SetPropertyCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void SetProperty::SetPropertyCursor::Reset() { input_cursor_->Reset(); }
+
+SetNestedProperty::SetNestedProperty(const std::shared_ptr<LogicalOperator> &input,
+                                     std::vector<storage::PropertyId> property_path, PropertyLookup *lhs,
+                                     Expression *rhs)
+    : input_(input), property_path_(std::move(property_path)), lhs_(lhs), rhs_(rhs) {}
+
+ACCEPT_WITH_INPUT(SetNestedProperty)
+
+UniqueCursorPtr SetNestedProperty::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::SetNestedPropertyOperator);
+
+  return MakeUniqueCursorPtr<SetNestedPropertyCursor>(mem, *this, mem);
+}
+
+std::vector<Symbol> SetNestedProperty::ModifiedSymbols(const SymbolTable &table) const {
+  return input_->ModifiedSymbols(table);
+}
+
+std::unique_ptr<LogicalOperator> SetNestedProperty::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<SetNestedProperty>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->property_path_ = property_path_;
+  object->lhs_ = lhs_ ? lhs_->Clone(storage) : nullptr;
+  object->rhs_ = rhs_ ? rhs_->Clone(storage) : nullptr;
+  return object;
+}
+
+SetNestedProperty::SetNestedPropertyCursor::SetNestedPropertyCursor(const SetNestedProperty &self,
+                                                                    utils::MemoryResource *mem)
+    : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
+
+bool SetNestedProperty::SetNestedPropertyCursor::Pull(Frame &frame, ExecutionContext &context) {
+  const OOMExceptionEnabler oom_exception;
+  const SCOPED_PROFILE_OP("SetNestedProperty");
+
+  AbortCheck(context);
+
+  if (!input_cursor_->Pull(frame, context)) return false;
+  // Set, just like Create needs to see the latest changes.
+  ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                storage::View::NEW);
+  TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
+  TypedValue rhs = self_.rhs_->Accept(evaluator);
+
+  auto set_nested_property = [this, &context, &evaluator, &rhs](auto *record) {
+    if (self_.lhs_->lookup_mode_ == PropertyLookup::LookupMode::APPEND && !rhs.IsMap()) {
+      throw QueryRuntimeException(
+          fmt::format("Trying to append to nested property with type {}. Setting of nested property by using the "
+                      "append operator (+=) is only allowed if the right expression is of "
+                      "type Map!",
+                      rhs.type()));
+    }
+
+    TypedValue old_value = TypedValue(evaluator.GetProperty(*record, self_.lhs_->property_path_[0]),
+                                      evaluator.GetNameIdMapper(), context.evaluation_context.memory);
+    if (old_value.IsNull()) {
+      old_value = TypedValue(TypedValue::TMap{}, context.evaluation_context.memory);
+    } else if (!old_value.IsMap()) {
+      throw QueryRuntimeException("Nested property must be of type Map!");
+    }
+
+    TypedValue::TMap &old_value_map = old_value.ValueMap();
+    // Traverse the property path, creating sub-maps as needed
+    TypedValue::TMap *current_map = &old_value_map;
+    for (size_t i = 1; i < self_.property_path_.size() - 1; ++i) {
+      // This part of the code is traversing through the nested structures, and creating empty maps if necessary
+      TypedValue::TString key{context.db_accessor->GetStorageAccessor()->PropertyToName(self_.property_path_[i]),
+                              context.evaluation_context.memory};
+      auto it = current_map->find(key);
+      if (it == current_map->end()) {
+        it = current_map->emplace(key, TypedValue(TypedValue::TMap{}, context.evaluation_context.memory)).first;
+      } else if (!it->second.IsMap()) {
+        throw QueryRuntimeException(
+            "Invalid set of nested properties! The property inside the nested structure already exists and is not of "
+            "type Map!");
+      }
+      current_map = &it->second.ValueMap();
+    }
+
+    // In the leaf structure, we need to set the property if the method is to replace
+    // If the method is to append, then we need a map property as we're adding to the current structure
+    TypedValue::TString final_key{
+        context.db_accessor->GetStorageAccessor()->PropertyToName(self_.property_path_.back()),
+        context.evaluation_context.memory};
+    switch (self_.lhs_->lookup_mode_) {
+      case PropertyLookup::LookupMode::REPLACE: {
+        // We don't care what's the value here, we just override
+        (*current_map)[final_key] = rhs;
+        break;
+      }
+      case PropertyLookup::LookupMode::APPEND: {
+        // Here we need to check if the left hand side is a map
+        // If the map is appended on top level, we skip the part of searching for leaf map as the top map is the leaf
+        // one If there is a property path larger than one, we get the leaf map and update that one
+        TypedValue::TMap *leaf_map = current_map;
+        if (self_.property_path_.size() > 1) {
+          auto it = current_map->find(final_key);
+          if (it == current_map->end()) {
+            it = current_map->emplace(final_key, TypedValue(TypedValue::TMap{}, context.evaluation_context.memory))
+                     .first;
+          } else if (!it->second.IsMap()) {
+            throw QueryRuntimeException(
+                "Invalid set of nested properties! The leaf property inside the nested structure already exists and is "
+                "not of "
+                "type Map!");
+          }
+          leaf_map = &it->second.ValueMap();
+        }
+        for (const auto &[k, v] : rhs.ValueMap()) {
+          leaf_map->emplace(k, v);
+        }
+        break;
+      }
+      default:
+        throw QueryRuntimeException("Unknown property lookup mode in set nested property!");
+    }
+
+    auto reconstructed_property_value = TypedValue(old_value_map, context.evaluation_context.memory);
+    auto old_stored_value = PropsSetChecked(record, self_.property_path_[0], reconstructed_property_value,
+                                            context.db_accessor->GetStorageAccessor()->GetNameIdMapper());
+    context.execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
+    if (context.trigger_context_collector) {
+      context.trigger_context_collector->RegisterSetObjectProperty(
+          *record, self_.property_path_[0], TypedValue{std::move(old_stored_value), evaluator.GetNameIdMapper()},
+          reconstructed_property_value);
+    }
+  };
+
+  switch (lhs.type()) {
+    case TypedValue::Type::Vertex: {
+#ifdef MG_ENTERPRISE
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+          !context.auth_checker->Has(lhs.ValueVertex(), storage::View::NEW,
+                                     memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+        throw QueryRuntimeException("Vertex nested property not set due to not having enough permission!");
+      }
+#endif
+      set_nested_property(&lhs.ValueVertex());
+      break;
+    }
+    case TypedValue::Type::Edge: {
+#ifdef MG_ENTERPRISE
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+          !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+        throw QueryRuntimeException("Edge nested property not set due to not having enough permission!");
+      }
+#endif
+      set_nested_property(&lhs.ValueEdge());
+      break;
+    }
+    case TypedValue::Type::Null:
+      // Skip setting properties on Null (can occur in optional match).
+      break;
+    case TypedValue::Type::Map:
+    default:
+      throw QueryRuntimeException("Nested properties can only be set on edges and vertices.");
+  }
+  return true;
+}
+
+void SetNestedProperty::SetNestedPropertyCursor::Shutdown() { input_cursor_->Shutdown(); }
+
+void SetNestedProperty::SetNestedPropertyCursor::Reset() { input_cursor_->Reset(); }
 
 SetProperties::SetProperties(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol, Expression *rhs, Op op)
     : input_(input), input_symbol_(std::move(input_symbol)), rhs_(rhs), op_(op) {}
@@ -4991,6 +5149,125 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
 void RemoveProperty::RemovePropertyCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void RemoveProperty::RemovePropertyCursor::Reset() { input_cursor_->Reset(); }
+
+RemoveNestedProperty::RemoveNestedProperty(const std::shared_ptr<LogicalOperator> &input,
+                                           std::vector<storage::PropertyId> property_path, PropertyLookup *lhs)
+    : input_(input), property_path_(std::move(property_path)), lhs_(lhs) {}
+
+ACCEPT_WITH_INPUT(RemoveNestedProperty)
+
+UniqueCursorPtr RemoveNestedProperty::MakeCursor(utils::MemoryResource *mem) const {
+  memgraph::metrics::IncrementCounter(memgraph::metrics::RemoveNestedPropertyOperator);
+
+  return MakeUniqueCursorPtr<RemoveNestedPropertyCursor>(mem, *this, mem);
+}
+
+std::vector<Symbol> RemoveNestedProperty::ModifiedSymbols(const SymbolTable &table) const {
+  return input_->ModifiedSymbols(table);
+}
+
+std::unique_ptr<LogicalOperator> RemoveNestedProperty::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<RemoveNestedProperty>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->property_path_ = property_path_;
+  object->lhs_ = lhs_ ? lhs_->Clone(storage) : nullptr;
+  return object;
+}
+
+RemoveNestedProperty::RemoveNestedPropertyCursor::RemoveNestedPropertyCursor(const RemoveNestedProperty &self,
+                                                                             utils::MemoryResource *mem)
+    : self_(self), input_cursor_(self.input_->MakeCursor(mem)) {}
+
+bool RemoveNestedProperty::RemoveNestedPropertyCursor::Pull(Frame &frame, ExecutionContext &context) {
+  const OOMExceptionEnabler oom_exception;
+  const SCOPED_PROFILE_OP("RemoveNestedProperty");
+
+  AbortCheck(context);
+
+  if (!input_cursor_->Pull(frame, context)) return false;
+
+  ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
+                                storage::View::NEW, nullptr, &context.number_of_hops);
+  TypedValue lhs = self_.lhs_->expression_->Accept(evaluator);
+
+  auto remove_nested_property = [this, &context, &evaluator](auto *record) {
+    TypedValue old_value = TypedValue(evaluator.GetProperty(*record, self_.lhs_->property_path_[0]),
+                                      evaluator.GetNameIdMapper(), context.evaluation_context.memory);
+
+    if (!old_value.IsMap()) {
+      throw QueryRuntimeException("Nested property must be of type Map!");
+    }
+
+    TypedValue::TMap &old_value_map = old_value.ValueMap();
+    // Traverse the property path, creating sub-maps as needed
+    TypedValue::TMap *current_map = &old_value_map;
+    for (size_t i = 1; i < self_.property_path_.size() - 1; ++i) {
+      // This part of the code is traversing through the nested structures, and creating empty maps if necessary
+      TypedValue::TString key{context.db_accessor->GetStorageAccessor()->PropertyToName(self_.property_path_[i]),
+                              context.evaluation_context.memory};
+      auto it = current_map->find(key);
+      if (it == current_map->end()) {
+        throw QueryRuntimeException(fmt::format("Nested property '{}' is nonexistent!", key));
+      }
+      if (!it->second.IsMap()) {
+        throw QueryRuntimeException("Nested structure is not of type map!");
+      }
+      current_map = &it->second.ValueMap();
+    }
+
+    const TypedValue::TString final_key{
+        context.db_accessor->GetStorageAccessor()->PropertyToName(self_.property_path_.back()),
+        context.evaluation_context.memory};
+    auto it = current_map->find(final_key);
+    if (it != current_map->end()) {
+      current_map->erase(it);
+    }
+
+    auto reconstructed_property_value = TypedValue(old_value_map, context.evaluation_context.memory);
+    auto old_stored_value = PropsSetChecked(record, self_.property_path_[0], reconstructed_property_value,
+                                            context.db_accessor->GetStorageAccessor()->GetNameIdMapper());
+    context.execution_stats[ExecutionStats::Key::UPDATED_PROPERTIES] += 1;
+    if (context.trigger_context_collector) {
+      context.trigger_context_collector->RegisterSetObjectProperty(
+          *record, self_.property_path_[0], TypedValue{std::move(old_stored_value), evaluator.GetNameIdMapper()},
+          reconstructed_property_value);
+    }
+  };
+
+  switch (lhs.type()) {
+    case TypedValue::Type::Vertex: {
+#ifdef MG_ENTERPRISE
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+          !context.auth_checker->Has(lhs.ValueVertex(), storage::View::NEW,
+                                     memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+        throw QueryRuntimeException("Vertex nested property not removed due to not having enough permission!");
+      }
+#endif
+      remove_nested_property(&lhs.ValueVertex());
+      break;
+    }
+    case TypedValue::Type::Edge: {
+#ifdef MG_ENTERPRISE
+      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+          !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+        throw QueryRuntimeException("Edge nested property not removed due to not having enough permission!");
+      }
+#endif
+      remove_nested_property(&lhs.ValueEdge());
+      break;
+    }
+    case TypedValue::Type::Null:
+      // Skip removing properties on Null (can occur in optional match).
+      break;
+    default:
+      throw QueryRuntimeException("Nested properties can only be removed from vertices and edges.");
+  }
+  return true;
+}
+
+void RemoveNestedProperty::RemoveNestedPropertyCursor::Shutdown() { input_cursor_->Shutdown(); }
+
+void RemoveNestedProperty::RemoveNestedPropertyCursor::Reset() { input_cursor_->Reset(); }
 
 RemoveLabels::RemoveLabels(const std::shared_ptr<LogicalOperator> &input, Symbol input_symbol,
                            std::vector<StorageLabelType> labels)
@@ -7540,7 +7817,7 @@ class HashJoinCursor : public Cursor {
     };
 
     if (!common_value_found_) {
-      // Pull from the right_op until there’s a mergeable frame
+      // Pull from the right_op until there's a mergeable frame
       while (true) {
         auto pulled = right_op_cursor_->Pull(frame, context);
         if (!pulled) return false;

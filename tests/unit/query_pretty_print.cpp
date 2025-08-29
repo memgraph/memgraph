@@ -117,7 +117,7 @@ TYPED_TEST(ExpressionPrettyPrinterTest, Literals) {
       {this->storage.GetPropertyIx("allPropertiesSelector"), ALL_PROPERTIES_LOOKUP("map")}};
   EXPECT_EQ(ToString(MAP_PROJECTION(IDENT("map"), elements)),
             "(Identifier \"map\"){\"allPropertiesSelector\": .*, \"literalEntry\": 10, \"propertySelector\": "
-            "(PropertyLookup (Identifier \"map\") \"hello\"), \"variableSelector\": (Identifier \"a\")}");
+            "(PropertyLookup (Identifier \"map\") [hello]), \"variableSelector\": (Identifier \"a\")}");
 }
 
 TYPED_TEST(ExpressionPrettyPrinterTest, Identifiers) {
@@ -134,7 +134,7 @@ TYPED_TEST(ExpressionPrettyPrinterTest, Reducing) {
   EXPECT_EQ(ToString(ALL("x", LITERAL(std::vector<memgraph::storage::ExternalPropertyValue>{}),
                          WHERE(EQ(PROPERTY_LOOKUP(this->dba, "x", prop), LITERAL(42))))),
             "(All (Identifier \"x\") [] (== (PropertyLookup "
-            "(Identifier \"x\") \"prop\") 42))");
+            "(Identifier \"x\") [prop]) 42))");
 
   // reduce(accumulator = initial_value, variable IN list | expression)
   EXPECT_EQ(ToString(REDUCE("accumulator", IDENT("initial_value"), "variable", IDENT("list"), IDENT("expression"))),
@@ -166,7 +166,7 @@ TYPED_TEST(ExpressionPrettyPrinterTest, BinaryOperators) {
                 LITERAL(5),
                 PROPERTY_LOOKUP(this->dba, MAP(std::make_pair(this->storage.GetPropertyIx("hello"), LITERAL("there"))),
                                 "hello"))),
-            "(Or 5 (PropertyLookup {\"hello\": \"there\"} \"hello\"))");
+            "(Or 5 (PropertyLookup {\"hello\": \"there\"} [hello]))");
 
   // and(coalesce(null, 1), {hello: "there"})
   EXPECT_EQ(ToString(AND(COALESCE(LITERAL(TypedValue()), LITERAL(1)),
@@ -206,7 +206,7 @@ TYPED_TEST(ExpressionPrettyPrinterTest, PropertyLookup) {
   // {hello: "there"}["hello"]
   EXPECT_EQ(ToString(PROPERTY_LOOKUP(
                 this->dba, MAP(std::make_pair(this->storage.GetPropertyIx("hello"), LITERAL("there"))), "hello")),
-            "(PropertyLookup {\"hello\": \"there\"} \"hello\")");
+            "(PropertyLookup {\"hello\": \"there\"} [hello])");
 }
 
 TYPED_TEST(ExpressionPrettyPrinterTest, NamedExpression) {
