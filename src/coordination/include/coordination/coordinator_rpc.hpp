@@ -17,6 +17,7 @@
 #include "coordination/instance_state.hpp"
 #include "coordination/instance_status.hpp"
 #include "coordination/replication_lag_info.hpp"
+#include "coordination/utils.hpp"
 #include "replication_coordination_glue/common.hpp"
 #include "rpc/messages.hpp"
 #include "utils/typeinfo.hpp"
@@ -265,6 +266,32 @@ struct ShowInstancesRes {
   ShowInstancesRes() = default;
 
   std::optional<std::vector<InstanceStatus>> instances_status_;
+};
+
+using ShowInstancesRpc = rpc::RequestResponse<ShowInstancesReq, ShowInstancesRes>;
+
+struct GetRoutingTableReq {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_SHOW_INSTANCES_REQ, .name = "ShowInstancesReq"};
+  static constexpr uint64_t kVersion{1};
+
+  static void Load(GetRoutingTableReq *self, memgraph::slk::Reader *reader);
+  static void Save(const GetRoutingTableReq &self, memgraph::slk::Builder *builder);
+
+  GetRoutingTableReq() = default;
+};
+
+struct GetRoutingTableRes {
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_SHOW_INSTANCES_RES, .name = "ShowInstancesRes"};
+  static constexpr uint64_t kVersion{1};
+
+  static void Load(GetRoutingTableRes *self, memgraph::slk::Reader *reader);
+  static void Save(const GetRoutingTableRes &self, memgraph::slk::Builder *builder);
+
+  explicit GetRoutingTableRes(RoutingTable routing_table) : routing_table_(std::move(routing_table)) {}
+
+  GetRoutingTableRes() = default;
+
+  RoutingTable routing_table_;
 };
 
 using ShowInstancesRpc = rpc::RequestResponse<ShowInstancesReq, ShowInstancesRes>;
