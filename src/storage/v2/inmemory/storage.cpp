@@ -536,13 +536,15 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
 
   transaction_.async_index_helper_.Track(edge_type);
 
-  auto from_result = PrepareForCommutativeWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE);
+  auto from_result = PrepareForWriteWithRetry(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE,
+                                              &storage_->transaction_dependencies_);
   if (from_result == WriteResult::CONFLICT) return std::unexpected{Error::SERIALIZATION_ERROR};
   if (from_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
 
   WriteResult to_result = WriteResult::SUCCESS;
   if (to_vertex != from_vertex) {
-    to_result = PrepareForCommutativeWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE);
+    to_result = PrepareForWriteWithRetry(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE,
+                                         &storage_->transaction_dependencies_);
     if (to_result == WriteResult::CONFLICT) return std::unexpected{Error::SERIALIZATION_ERROR};
     if (to_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
   }
@@ -656,13 +658,15 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
     guard_from.lock();
   }
 
-  auto from_result = PrepareForCommutativeWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE);
+  auto from_result = PrepareForWriteWithRetry(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE,
+                                              &storage_->transaction_dependencies_);
   if (from_result == WriteResult::CONFLICT) return std::unexpected{Error::SERIALIZATION_ERROR};
   if (from_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
 
   WriteResult to_result = WriteResult::SUCCESS;
   if (to_vertex != from_vertex) {
-    to_result = PrepareForCommutativeWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE);
+    to_result = PrepareForWriteWithRetry(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE,
+                                         &storage_->transaction_dependencies_);
     if (to_result == WriteResult::CONFLICT) return std::unexpected{Error::SERIALIZATION_ERROR};
     if (to_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
   }
