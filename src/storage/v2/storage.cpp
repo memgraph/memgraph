@@ -128,7 +128,9 @@ Storage::Accessor::Accessor(SharedAccess /* tag */, Storage *storage, IsolationL
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),
       original_access_type_(rw_type),
-      creation_storage_mode_(storage_mode) {}
+      creation_storage_mode_(storage_mode) {
+  storage_->RegisterTransaction(transaction_.transaction_id);
+}
 
 Storage::Accessor::Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
                             StorageMode storage_mode, const std::optional<std::chrono::milliseconds> timeout)
@@ -141,7 +143,9 @@ Storage::Accessor::Accessor(UniqueAccess /* tag */, Storage *storage, IsolationL
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),
       original_access_type_(StorageAccessType::UNIQUE),
-      creation_storage_mode_(storage_mode) {}
+      creation_storage_mode_(storage_mode) {
+  storage_->RegisterTransaction(transaction_.transaction_id);
+}
 
 Storage::Accessor::Accessor(ReadOnlyAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
                             StorageMode storage_mode, const std::optional<std::chrono::milliseconds> timeout)
@@ -154,7 +158,9 @@ Storage::Accessor::Accessor(ReadOnlyAccess /* tag */, Storage *storage, Isolatio
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),
       original_access_type_(StorageAccessType::READ_ONLY),
-      creation_storage_mode_(storage_mode) {}
+      creation_storage_mode_(storage_mode) {
+  storage_->RegisterTransaction(transaction_.transaction_id);
+}
 
 Storage::Accessor::Accessor(Accessor &&other) noexcept
     : storage_(other.storage_),
@@ -168,6 +174,12 @@ Storage::Accessor::Accessor(Accessor &&other) noexcept
   // Don't allow the other accessor to abort our transaction in destructor.
   other.is_transaction_active_ = false;
   other.commit_timestamp_.reset();
+}
+
+Storage::Accessor::~Accessor() {
+  if (is_transaction_active_) {
+    storage_->UnregisterTransaction(transaction_.transaction_id);
+  }
 }
 
 StorageMode Storage::GetStorageMode() const noexcept { return storage_mode_; }
@@ -776,6 +788,14 @@ std::expected<void, storage::StorageIndexDefinitionError> Storage::Accessor::Dro
   transaction_.md_deltas.emplace_back(MetadataDelta::text_index_drop, index_name);
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTextIndices);
   return {};
+}
+
+void Storage::RegisterTransaction(uint64_t transaction_id) {
+  transaction_dependencies_.RegisterTransaction(transaction_id);
+}
+
+void Storage::UnregisterTransaction(uint64_t transaction_id) {
+  transaction_dependencies_.UnregisterTransaction(transaction_id);
 }
 
 }  // namespace memgraph::storage
