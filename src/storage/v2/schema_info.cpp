@@ -851,6 +851,21 @@ void SchemaInfo::VertexModifyingAccessor::SetProperty(EdgeRef edge, EdgeTypeId t
   }
 }
 
+nlohmann::json SchemaInfo::ToJson(NameIdMapper &name_id_mapper, EnumStore const &enum_store) const {
+  auto lock = std::unique_lock{operation_ordering_mutex_};  // No snapshot guarantees for ANALYTICAL
+  return tracking_.ToJson(name_id_mapper, enum_store);
+}
+
+void SchemaInfo::ProcessTransaction(LocalSchemaTracking &tracking, SchemaInfoPostProcess &post_process,
+                                    uint64_t start_ts, uint64_t commit_ts, bool property_on_edges) {
+  auto lock = std::unique_lock{operation_ordering_mutex_};
+  tracking_.ProcessTransaction(tracking, post_process, start_ts, commit_ts, property_on_edges);
+}
+
+void SchemaInfo::Clear() {
+  auto lock = std::unique_lock{operation_ordering_mutex_};
+  tracking_.Clear();
+}
 }  // namespace memgraph::storage
 
 template struct memgraph::storage::SchemaTracking<std::unordered_map>;

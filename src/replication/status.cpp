@@ -10,7 +10,11 @@
 // licenses/APL.txt.
 
 #include "replication/status.hpp"
+
+#include <nlohmann/json.hpp>
+
 #include "io/network/endpoint.hpp"
+#include "replication_coordination_glue/mode.hpp"
 #include "replication_coordination_glue/role.hpp"
 #include "utils/logging.hpp"
 #include "utils/variant_helpers.hpp"
