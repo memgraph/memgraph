@@ -28,5 +28,13 @@ auto CoordinatorInstanceConnector::SendShowInstances() const -> std::optional<st
   }
 }
 
+auto CoordinatorInstanceConnector::SendGetRoutingTable() const -> std::optional<RoutingTable> {
+  try {
+  } catch (std::exception const &e) {
+    spdlog::error("Failed to receive response to GetRoutingTableRpc: {}", e.what());
+    return std::nullopt;
+  }
+}
+
 }  // namespace memgraph::coordination
 #endif
