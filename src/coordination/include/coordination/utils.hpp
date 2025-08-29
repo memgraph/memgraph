@@ -50,15 +50,25 @@ auto CreateRoutingTable(std::vector<DataInstanceContext> const &raft_log_data_in
   }
 
   auto const lag_filter = [&max_replica_read_lag, &replicas_lag, &db_name](auto const &instance) {
-    auto const replica_it = std::find(replicas_lag.begin(), replicas_lag.end(), instance.config.instance_name);
-    MG_ASSERT(replica_it != replicas_lag.end(), "Couldn't find instance {} in Raft log when creating the routing table",
-              instance.config.instance_name);
+    auto const replica_it = replicas_lag.find(instance.config.instance_name);
+    // We don't want to forbid routing to the replica if don't have any information cached
+    if (replica_it == replicas_lag.end()) {
+      return true;
+    }
 
-    auto const db_it = std::find(replica_it.second.begin(), replica_it.second.end(), db_name);
+    auto const db_it = replica_it->second.find(db_name);
+    // We don't want to forbid routing to the replica if don't have any information cached
+    if (db_it == replica_it->second.end()) {
+      return true;
+    }
+
+    // return true if cached lag is smaller than max_allowed_replica_read_lag
+    return db_it->second < max_replica_read_lag;
   };
 
   auto readers = raft_log_data_instances | ranges::views::filter(std::not_fn(is_instance_main_func)) |
-                 ranges::views::transform(repl_instance_to_bolt) | ranges::to_vector;
+                 ranges::views::filter(lag_filter) | ranges::views::transform(repl_instance_to_bolt) |
+                 ranges::to_vector;
 
   if (enabled_reads_on_main && writers.size() == 1) {
     readers.emplace_back(writers[0]);

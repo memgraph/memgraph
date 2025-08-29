@@ -125,8 +125,16 @@ TEST_P(RaftStateParamTest, GetMixedRoutingTable) {
 
   auto const is_instance_main = [](auto const &instance) { return instance.config.instance_name == "instance1"sv; };
 
+  constexpr uint64_t max_read_replica_lag = 10;
+  auto const target_db_name = "a";
+  std::map<std::string, std::map<std::string, int64_t>> replicas_lag{
+      {"instance2", std::map<std::string, int64_t>{{"a", 9}, {"b", 15}, {"c", 0}}},
+      {"instance3", std::map<std::string, int64_t>{{"a", 12}, {"b", 15}, {"c", 0}}},
+  };
+
   auto const routing_table =
-      CreateRoutingTable(data_instances, coord_instances, is_instance_main, enabled_reads_on_main);
+      CreateRoutingTable(data_instances, coord_instances, is_instance_main, enabled_reads_on_main, max_read_replica_lag,
+                         target_db_name, replicas_lag);
 
   ASSERT_EQ(routing_table.size(), 3);
 
@@ -137,10 +145,10 @@ TEST_P(RaftStateParamTest, GetMixedRoutingTable) {
   auto const &[replica_instances, replica_role] = routing_table[1];
   ASSERT_EQ(replica_role, "READ");
   if (enabled_reads_on_main) {
-    auto const expected_replicas = std::vector<std::string>{"0.0.0.0:7688", "0.0.0.0:7689", "0.0.0.0:7687"};
+    auto const expected_replicas = std::vector<std::string>{"0.0.0.0:7688", "0.0.0.0:7687"};
     ASSERT_EQ(replica_instances, expected_replicas);
   } else {
-    auto const expected_replicas = std::vector<std::string>{"0.0.0.0:7688", "0.0.0.0:7689"};
+    auto const expected_replicas = std::vector<std::string>{"0.0.0.0:7688"};
     ASSERT_EQ(replica_instances, expected_replicas);
   }
 
