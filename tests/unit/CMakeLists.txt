@@ -149,6 +149,8 @@ target_link_libraries(${test_prefix}transaction_queue mg-communication mg-query 
 add_unit_test(transaction_queue_multiple.cpp)
 target_link_libraries(${test_prefix}transaction_queue_multiple mg-communication mg-query mg-glue)
 
+add_unit_test(transaction_dependencies.cpp)
+target_link_libraries(${test_prefix}transaction_dependencies mg::storage)
 
 # Test query functions
 add_unit_test(query_function_mgp_module.cpp)
