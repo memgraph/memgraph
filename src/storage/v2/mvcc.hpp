@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,6 +17,7 @@
 
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/transaction.hpp"
+#include "storage/v2/transaction_dependencies.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/rocksdb_serialization.hpp"
 #include "utils/string.hpp"
@@ -96,12 +97,67 @@ template <typename TObj>
 inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
   if (object->delta == nullptr) return true;
   auto ts = object->delta->timestamp->load(std::memory_order_acquire);
-  if (ts == transaction->transaction_id || ts < transaction->start_timestamp) {
+  if (ts == transaction->transaction_id) {
+    // If head delta from same transaction is interleaved, cannot add non-commutative operation
+    if (IsOperationInterleaved(*object->delta)) {
+      transaction->must_abort = true;
+      return false;
+    }
     return true;
+  }
+
+  if (ts < transaction->start_timestamp) {
+    return true;
+  }
+
+  // If head delta is interleaved from another transaction, this is a serialization error
+  if (IsOperationInterleaved(*object->delta)) {
+    transaction->must_abort = true;
+    return false;
   }
 
   transaction->must_abort = true;
   return false;
+}
+
+enum class WriteResult { SUCCESS, COMMUTATIVE, CONFLICT };
+
+template <typename TObj>
+inline WriteResult PrepareForWriteWithRetry(Transaction *transaction, TObj *object, Delta::Action action,
+                                            TransactionDependencies *transaction_dependencies) {
+  DMG_ASSERT(IsActionCommutative(action));
+
+  while (true) {
+    if (object->delta == nullptr) return WriteResult::SUCCESS;
+
+    auto ts = object->delta->timestamp->load(std::memory_order_acquire);
+    if (ts == transaction->transaction_id) {
+      if (IsOperationInterleaved(*object->delta)) {
+        return WriteResult::COMMUTATIVE;
+      }
+      return WriteResult::SUCCESS;
+    }
+
+    if (ts < transaction->start_timestamp) {
+      return WriteResult::SUCCESS;
+    }
+
+    if (IsResultOfCommutativeOperation(object->delta->action)) {
+      return WriteResult::COMMUTATIVE;
+    }
+
+    if (ts < kTransactionInitialId) {
+      transaction->must_abort = true;
+      return WriteResult::CONFLICT;
+    }
+
+    bool wait_successful = transaction_dependencies->WaitFor(transaction->transaction_id, ts);
+
+    if (!wait_successful) {
+      transaction->must_abort = true;
+      return WriteResult::CONFLICT;
+    }
+  }
 }
 
 /// This function creates a `DELETE_OBJECT` delta in the transaction and returns
@@ -180,6 +236,7 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&..
   if (object->delta) {
     object->delta->prev.Set(delta);
   }
+
   // 4. Finally, we need to set the object's delta to the new delta. The garbage
   // collector and other transactions will acquire the object lock to read the
   // delta from the object. Because the lock is held during the whole time this
