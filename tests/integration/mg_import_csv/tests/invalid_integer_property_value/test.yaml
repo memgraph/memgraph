@@ -1,3 +1,0 @@
-- name: invalid_value
-  nodes: "nodes.csv"
-  import_should_fail: True

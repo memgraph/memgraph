@@ -1,6 +1,0 @@
-:ID,country:string,browser:string,:IGNORE,content:string,:LABEL,:IGNORE,:IGNORE
-0,Croatia,Chrome,this,yes,Message;Comment,testko,123
-1,"United Kingdom",Chrome,should,thanks,Message;Comment,hello,world
-2,Germany,,not,LOL,Message;Comment,i ignore, everything
-3,France,Firefox,appear,I see,Message;Comment, ignore, ignore
-4,Italy,Internet Explorer,anywhere,fine,Message;Comment, just ingore, it

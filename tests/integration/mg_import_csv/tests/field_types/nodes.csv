@@ -1,2 +1,0 @@
-id:ID,value_str:string,value_char:char,value_int:int,value_long:long,value_byte:byte,value_short:short,value_double:float,value_float:double,value_integer:integer,value_boolean:boolean,value_bool:bool
-0,hello,world,1,2,3,4,3.141,2.718,5,true,foo

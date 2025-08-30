@@ -45,8 +45,6 @@ DEFINE_string(init_file, "",
 DEFINE_string(init_data_file, "", "Path to cypherl file that is used for creating data after server starts.");
 
 // General purpose flags.
-// NOTE: The `data_directory` flag must be the same here and in
-// `mg_import_csv`. If you change it, make sure to change it there as well.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(data_directory, "mg_data", "Path to directory in which to save all permanent data.");
 
@@ -69,8 +67,7 @@ DEFINE_VALIDATED_uint64(storage_gc_cycle_sec, 30, "Storage garbage collector int
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_uint64(storage_python_gc_cycle_sec, 180,
                         "Storage python full garbage collection interval (in seconds).", FLAG_IN_RANGE(1, 24UL * 3600));
-// NOTE: The `storage_properties_on_edges` flag must be the same here and in
-// `mg_import_csv`. If you change it, make sure to change it there as well.
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_properties_on_edges, false, "Controls whether edges have properties.");
 

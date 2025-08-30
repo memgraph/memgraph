@@ -1,4 +1,0 @@
-:START_ID(COMMENT_ID),:END_ID(COMMENT_ID),:TYPE
-0,1,LIKES,this
-1,2,FOLLOWS,is
-0,2,VISITED,more,columns,than,expected

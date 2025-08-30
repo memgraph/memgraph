@@ -1,0 +1,124 @@
+// LDBC Social Network Benchmark Import Script
+// This script imports LDBC SNB data using LOAD CSV commands
+// Usage: cat import_ldbc.cypherl | mgconsole --host 127.0.0.1 --port 7688
+
+// Import nodes
+LOAD CSV FROM '/tmp/ldbc_csv/person_0_0.csv' WITH HEADER DELIMITER '|' AS row
+CREATE (:Person {id: row.id, firstName: row.firstName, lastName: row.lastName, gender: row.gender, birthday: row.birthday, creationDate: row.creationDate, locationIP: row.locationIP, browserUsed: row.browserUsed});
+
+LOAD CSV FROM '/tmp/ldbc_csv/post_0_0.csv' WITH HEADER DELIMITER '|' AS row
+CREATE (:Post {id: row.id, imageFile: row.imageFile, creationDate: row.creationDate, locationIP: row.locationIP, browserUsed: row.browserUsed, language: row.language, content: row.content, length: row.length});
+
+LOAD CSV FROM '/tmp/ldbc_csv/comment_0_0.csv' WITH HEADER DELIMITER '|' AS row
+CREATE (:Comment {id: row.id, creationDate: row.creationDate, locationIP: row.locationIP, browserUsed: row.browserUsed, content: row.content, length: row.length});
+
+LOAD CSV FROM '/tmp/ldbc_csv/forum_0_0.csv' WITH HEADER DELIMITER '|' AS row
+CREATE (:Forum {id: row.id, title: row.title, creationDate: row.creationDate});
+
+LOAD CSV FROM '/tmp/ldbc_csv/organisation_0_0.csv' WITH HEADER DELIMITER '|' AS row
+CREATE (:Organisation {id: row.id, type: row.type, name: row.name, url: row.url});
+
+LOAD CSV FROM '/tmp/ldbc_csv/place_0_0.csv' WITH HEADER DELIMITER '|' AS row
+CREATE (:Place {id: row.id, name: row.name, url: row.url, type: row.type});
+
+LOAD CSV FROM '/tmp/ldbc_csv/tag_0_0.csv' WITH HEADER DELIMITER '|' AS row
+CREATE (:Tag {id: row.id, name: row.name, url: row.url});
+
+LOAD CSV FROM '/tmp/ldbc_csv/tagclass_0_0.csv' WITH HEADER DELIMITER '|' AS row
+CREATE (:TagClass {id: row.id, name: row.name, url: row.url});
+
+// Import relationships
+LOAD CSV FROM '/tmp/ldbc_csv/person_knows_person_0_0.csv' WITH HEADER DELIMITER '|' AS row
+MATCH (a:Person {id: row.Person1Id}), (b:Person {id: row.Person2Id})
+CREATE (a)-[:KNOWS {creationDate: row.creationDate}]->(b);
+
+LOAD CSV FROM '/tmp/ldbc_csv/person_likes_post_0_0.csv' WITH HEADER DELIMITER '|' AS row
+MATCH (a:Person {id: row.PersonId}), (b:Post {id: row.PostId})
+CREATE (a)-[:LIKES {creationDate: row.creationDate}]->(b);
+
+LOAD CSV FROM '/tmp/ldbc_csv/person_likes_comment_0_0.csv' WITH HEADER DELIMITER '|' AS row
+MATCH (a:Person {id: row.PersonId}), (b:Comment {id: row.CommentId})
+CREATE (a)-[:LIKES {creationDate: row.creationDate}]->(b);
+
+LOAD CSV FROM '/tmp/ldbc_csv/post_hasCreator_person_0_0.csv' WITH HEADER DELIMITER '|' AS row
+MATCH (a:Post {id: row.PostId}), (b:Person {id: row.PersonId})
+CREATE (a)-[:HAS_CREATOR]->(b);
+
+LOAD CSV FROM '/tmp/ldbc_csv/comment_hasCreator_person_0_0.csv' WITH HEADER DELIMITER '|' AS row
+MATCH (a:Comment {id: row.CommentId}), (b:Person {id: row.PersonId})
+CREATE (a)-[:HAS_CREATOR]->(b);
+
+LOAD CSV FROM '/tmp/ldbc_csv/forum_hasModerator_person_0_0.csv' WITH HEADER DELIMITER '|' AS row
+MATCH (a:Forum {id: row.ForumId}), (b:Person {id: row.PersonId})
+CREATE (a)-[:HAS_MODERATOR]->(b);
+
+LOAD CSV FROM '/tmp/ldbc_csv/forum_containerOf_post_0_0.csv' WITH HEADER DELIMITER '|' AS row
+MATCH (a:Forum {id: row.ForumId}), (b:Post {id: row.PostId})
+CREATE (a)-[:CONTAINER_OF]->(b);
+
+LOAD CSV FROM '/tmp/ldbc_csv/comment_replyOf_post_0_0.csv' WITH HEADER DELIMITER '|' AS row
+MATCH (a:Comment {id: row.CommentId}), (b:Post {id: row.PostId})
+CREATE (a)-[:REPLY_OF]->(b);
+
+LOAD CSV FROM '/tmp/ldbc_csv/comment_replyOf_comment_0_0.csv' WITH HEADER DELIMITER '|' AS row
+MATCH (a:Comment {id: row.CommentId}), (b:Comment {id: row.ParentCommentId})
+CREATE (a)-[:REPLY_OF]->(b);
+
+LOAD CSV FROM '/tmp/ldbc_csv/comment_hasTag_tag_0_0.csv' WITH HEADER DELIMITER '|' AS row
+MATCH (a:Comment {id: row.CommentId}), (b:Tag {id: row.TagId})
+CREATE (a)-[:HAS_TAG]->(b);
+
+LOAD CSV FROM '/tmp/ldbc_csv/post_hasTag_tag_0_0.csv' WITH HEADER DELIMITER '|' AS row
+MATCH (a:Post {id: row.PostId}), (b:Tag {id: row.TagId})
+CREATE (a)-[:HAS_TAG]->(b);
+
+LOAD CSV FROM '/tmp/ldbc_csv/forum_hasTag_tag_0_0.csv' WITH HEADER DELIMITER '|' AS row
+MATCH (a:Forum {id: row.ForumId}), (b:Tag {id: row.TagId})
+CREATE (a)-[:HAS_TAG]->(b);
+
+LOAD CSV FROM '/tmp/ldbc_csv/person_hasInterest_tag_0_0.csv' WITH HEADER DELIMITER '|' AS row
+MATCH (a:Person {id: row.PersonId}), (b:Tag {id: row.TagId})
+CREATE (a)-[:HAS_INTEREST]->(b);
+
+LOAD CSV FROM '/tmp/ldbc_csv/person_isLocatedIn_place_0_0.csv' WITH HEADER DELIMITER '|' AS row
+MATCH (a:Person {id: row.PersonId}), (b:Place {id: row.PlaceId})
+CREATE (a)-[:IS_LOCATED_IN]->(b);
+
+LOAD CSV FROM '/tmp/ldbc_csv/post_isLocatedIn_place_0_0.csv' WITH HEADER DELIMITER '|' AS row
+MATCH (a:Post {id: row.PostId}), (b:Place {id: row.PlaceId})
+CREATE (a)-[:IS_LOCATED_IN]->(b);
+
+LOAD CSV FROM '/tmp/ldbc_csv/comment_isLocatedIn_place_0_0.csv' WITH HEADER DELIMITER '|' AS row
+MATCH (a:Comment {id: row.CommentId}), (b:Place {id: row.PlaceId})
+CREATE (a)-[:IS_LOCATED_IN]->(b);
+
+LOAD CSV FROM '/tmp/ldbc_csv/organisation_isLocatedIn_place_0_0.csv' WITH HEADER DELIMITER '|' AS row
+MATCH (a:Organisation {id: row.OrganisationId}), (b:Place {id: row.PlaceId})
+CREATE (a)-[:IS_LOCATED_IN]->(b);
+
+LOAD CSV FROM '/tmp/ldbc_csv/place_isPartOf_place_0_0.csv' WITH HEADER DELIMITER '|' AS row
+MATCH (a:Place {id: row.PlaceId}), (b:Place {id: row.PartOfPlaceId})
+CREATE (a)-[:IS_PART_OF]->(b);
+
+LOAD CSV FROM '/tmp/ldbc_csv/tag_hasType_tagclass_0_0.csv' WITH HEADER DELIMITER '|' AS row
+MATCH (a:Tag {id: row.TagId}), (b:TagClass {id: row.TagClassId})
+CREATE (a)-[:HAS_TYPE]->(b);
+
+LOAD CSV FROM '/tmp/ldbc_csv/tagclass_isSubclassOf_tagclass_0_0.csv' WITH HEADER DELIMITER '|' AS row
+MATCH (a:TagClass {id: row.TagClassId}), (b:TagClass {id: row.ParentTagClassId})
+CREATE (a)-[:IS_SUBCLASS_OF]->(b);
+
+LOAD CSV FROM '/tmp/ldbc_csv/person_studyAt_organisation_0_0.csv' WITH HEADER DELIMITER '|' AS row
+MATCH (a:Person {id: row.PersonId}), (b:Organisation {id: row.OrganisationId})
+CREATE (a)-[:STUDY_AT {classYear: row.classYear}]->(b);
+
+LOAD CSV FROM '/tmp/ldbc_csv/person_workAt_organisation_0_0.csv' WITH HEADER DELIMITER '|' AS row
+MATCH (a:Person {id: row.PersonId}), (b:Organisation {id: row.OrganisationId})
+CREATE (a)-[:WORK_AT {workFrom: row.workFrom}]->(b);
+
+LOAD CSV FROM '/tmp/ldbc_csv/forum_hasMember_person_0_0.csv' WITH HEADER DELIMITER '|' AS row
+MATCH (a:Forum {id: row.ForumId}), (b:Person {id: row.PersonId})
+CREATE (a)-[:HAS_MEMBER {joinDate: row.joinDate}]->(b);
+
+// Create snapshot
+CREATE SNAPSHOT;

@@ -35,8 +35,6 @@ DECLARE_string(init_file);
 DECLARE_string(init_data_file);
 
 // General purpose flags.
-// NOTE: The `data_directory` flag must be the same here and in
-// `mg_import_csv`. If you change it, make sure to change it there as well.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_string(data_directory);
 
@@ -54,8 +52,7 @@ DECLARE_bool(allow_load_csv);
 DECLARE_uint64(storage_gc_cycle_sec);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_uint64(storage_python_gc_cycle_sec);
-// NOTE: The `storage_properties_on_edges` flag must be the same here and in
-// `mg_import_csv`. If you change it, make sure to change it there as well.
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DECLARE_bool(storage_properties_on_edges);
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
