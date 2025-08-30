@@ -271,17 +271,22 @@ struct ShowInstancesRes {
 using ShowInstancesRpc = rpc::RequestResponse<ShowInstancesReq, ShowInstancesRes>;
 
 struct GetRoutingTableReq {
-  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_SHOW_INSTANCES_REQ, .name = "ShowInstancesReq"};
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_GET_ROUTING_TABLE_REQ,
+                                         .name = "GetRoutingTableReq"};
   static constexpr uint64_t kVersion{1};
 
   static void Load(GetRoutingTableReq *self, memgraph::slk::Reader *reader);
   static void Save(const GetRoutingTableReq &self, memgraph::slk::Builder *builder);
 
   GetRoutingTableReq() = default;
+  explicit GetRoutingTableReq(std::string db_name) : db_name_(std::move(db_name)) {}
+
+  std::string db_name_;
 };
 
 struct GetRoutingTableRes {
-  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_SHOW_INSTANCES_RES, .name = "ShowInstancesRes"};
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_GET_ROUTING_TABLE_RES,
+                                         .name = "GetRoutingTableRes"};
   static constexpr uint64_t kVersion{1};
 
   static void Load(GetRoutingTableRes *self, memgraph::slk::Reader *reader);
@@ -294,7 +299,7 @@ struct GetRoutingTableRes {
   RoutingTable routing_table_;
 };
 
-using ShowInstancesRpc = rpc::RequestResponse<ShowInstancesReq, ShowInstancesRes>;
+using GetRoutingTableRpc = rpc::RequestResponse<GetRoutingTableReq, GetRoutingTableRes>;
 
 struct StateCheckReqV1 {
   static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_STATE_CHECK_REQ, .name = "StateCheckReq"};
@@ -433,6 +438,12 @@ void Save(memgraph::coordination::ShowInstancesRes const &self, memgraph::slk::B
 void Load(memgraph::coordination::ShowInstancesRes *self, memgraph::slk::Reader *reader);
 void Save(memgraph::coordination::ShowInstancesReq const &self, memgraph::slk::Builder *builder);
 void Load(memgraph::coordination::ShowInstancesReq *self, memgraph::slk::Reader *reader);
+
+// GetRoutingTableRpc
+void Save(memgraph::coordination::GetRoutingTableRes const &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::GetRoutingTableRes *self, memgraph::slk::Reader *reader);
+void Save(memgraph::coordination::GetRoutingTableReq const &self, memgraph::slk::Builder *builder);
+void Load(memgraph::coordination::GetRoutingTableReq *self, memgraph::slk::Reader *reader);
 
 // StateCheckRpc
 void Save(memgraph::coordination::StateCheckResV1 const &self, memgraph::slk::Builder *builder);

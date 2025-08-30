@@ -7,7 +7,7 @@
 // As of the Change Date specified in that file, in accordance with
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
-// licenses/APL.txt.
+// licenses/APL.txt.\
 
 #ifdef MG_ENTERPRISE
 
@@ -39,6 +39,15 @@ void CoordinatorInstanceManagementServerHandlers::ShowInstancesHandler(Coordinat
   ShowInstancesReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
   ShowInstancesRes const rpc_res{coordinator_instance.ShowInstancesAsLeader()};
+  rpc::SendFinalResponse(rpc_res, request_version, res_builder);
+}
+
+void CoordinatorInstanceManagementServerHandlers::GetRoutingTableHandler(
+    CoordinatorInstance const &coordinator_instance, uint64_t request_version, slk::Reader *req_reader,
+    slk::Builder *res_builder) {
+  GetRoutingTableReq req;
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
+  GetRoutingTableRes const rpc_res{coordinator_instance.GetRoutingTable(req.db_name_)};
   rpc::SendFinalResponse(rpc_res, request_version, res_builder);
 }
 

@@ -1220,7 +1220,44 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
 }
 
 auto CoordinatorInstance::GetRoutingTable(std::string const &db_name) const -> RoutingTable {
+  auto const leader_id = raft_state_->GetLeaderId();
+
+  if (auto const my_id = raft_state_->GetMyCoordinatorId(); my_id == leader_id) {
+    return GetRoutingTableAsLeader(db_name);
+  }
+  return GetRoutingTableAsFollower(leader_id, db_name);
+}
+
+auto CoordinatorInstance::GetRoutingTableAsLeader(std::string const &db_name) const -> RoutingTable {
   return raft_state_->GetRoutingTable(db_name, replicas_num_txns_cache_);
+}
+auto CoordinatorInstance::GetRoutingTableAsFollower(auto const leader_id, std::string const &db_name) const
+    -> RoutingTable {
+  CoordinatorInstanceConnector *leader{nullptr};
+  {
+    auto connectors = coordinator_connectors_.Lock();
+
+    auto connector = std::ranges::find_if(
+        *connectors, [&leader_id](auto const &local_connector) { return local_connector.first == leader_id; });
+    if (connector != connectors->end()) {
+      leader = &connector->second;
+    }
+  }
+
+  if (leader == nullptr) {
+    spdlog::trace(
+        "Connection to leader was not found when routing table was requested. Returning empty routing table.");
+    return RoutingTable{};
+  }
+
+  auto maybe_res = leader->SendGetRoutingTable();
+
+  if (!maybe_res.has_value()) {
+    spdlog::trace("Couldn't get routing table from leader {}. Returning empty routing table.", leader_id);
+    return RoutingTable{};
+  }
+
+  return std::move(maybe_res.value());
 }
 
 auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::string> {

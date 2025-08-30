@@ -26,7 +26,7 @@ class CoordinatorInstanceConnector {
 
   auto SendShowInstances() const -> std::optional<std::vector<InstanceStatus>>;
 
-  auto SendGetRoutingTable() const -> RoutingTable;
+  auto SendGetRoutingTable() const -> std::optional<RoutingTable>;
 
  private:
   mutable CoordinatorInstanceClient client_;

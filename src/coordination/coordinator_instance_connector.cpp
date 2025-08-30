@@ -18,9 +18,7 @@ auto CoordinatorInstanceConnector::SendShowInstances() const -> std::optional<st
   try {
     spdlog::trace("Sending ShowInstancesRPC to endpoint {}", client_.RpcClient().Endpoint().SocketAddress());
     auto stream{client_.RpcClient().Stream<ShowInstancesRpc>()};
-    spdlog::trace("Waiting response to ShowInstancesRpc.");
     auto res = stream.SendAndWait();
-    spdlog::trace("Received ShowInstancesRPC response");
     return res.instances_status_;
   } catch (std::exception const &e) {
     spdlog::error("Failed to send ShowInstancesRPC: {}", e.what());
@@ -30,6 +28,9 @@ auto CoordinatorInstanceConnector::SendShowInstances() const -> std::optional<st
 
 auto CoordinatorInstanceConnector::SendGetRoutingTable() const -> std::optional<RoutingTable> {
   try {
+    auto stream{client_.RpcClient().Stream<GetRoutingTableRpc>()};
+    auto res = stream.SendAndWait();
+    return res.routing_table_;
   } catch (std::exception const &e) {
     spdlog::error("Failed to receive response to GetRoutingTableRpc: {}", e.what());
     return std::nullopt;
