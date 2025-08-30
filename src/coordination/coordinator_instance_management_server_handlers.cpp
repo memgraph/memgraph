@@ -37,5 +37,14 @@ void CoordinatorInstanceManagementServerHandlers::ShowInstancesHandler(Coordinat
   rpc::SendFinalResponse(rpc_res, request_version, res_builder);
 }
 
+void CoordinatorInstanceManagementServerHandlers::GetRoutingTableHandler(
+    CoordinatorInstance const &coordinator_instance, uint64_t request_version, slk::Reader *req_reader,
+    slk::Builder *res_builder) {
+  GetRoutingTableReq req;
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
+  GetRoutingTableRes const rpc_res{coordinator_instance.GetRoutingTable(req.db_name_)};
+  rpc::SendFinalResponse(rpc_res, request_version, res_builder);
+}
+
 }  // namespace memgraph::coordination
 #endif
