@@ -19,6 +19,8 @@
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/readable_size.hpp"
+#include "utils/stat.hpp"
 #include "utils/typeinfo.hpp"
 
 namespace memgraph::rpc {
@@ -31,11 +33,13 @@ RpcMessageDeliverer::RpcMessageDeliverer(Server *server, io::network::Endpoint c
     : server_(server), input_stream_(input_stream), output_stream_(output_stream) {}
 
 void RpcMessageDeliverer::Execute() const {
+  spdlog::trace("Memory at the start of execute: {}", utils::GetReadableSize(utils::GetMemoryRES()));
   auto ret = slk::CheckStreamComplete(input_stream_->data(), input_stream_->size());
   if (ret.status == slk::StreamStatus::INVALID) {
     throw SessionException("Received an invalid SLK stream!");
   }
   if (ret.status == slk::StreamStatus::PARTIAL) {
+    spdlog::trace("Memory partial stream received, size: {}", ret.stream_size);
     input_stream_->Resize(ret.stream_size);
     return;
   }
@@ -78,6 +82,8 @@ void RpcMessageDeliverer::Execute() const {
   }
 
   spdlog::trace("[RpcServer] received {}, version {}", it->second.req_type.name, maybe_message_header->message_version);
+  spdlog::trace("Memory when RPC {} received: {}", it->second.req_type.name,
+               utils::GetReadableSize(utils::GetMemoryRES()));
   try {
     it->second.callback(maybe_message_header->message_version, &req_reader, &res_builder);
     // Finalize the SLK stream.
