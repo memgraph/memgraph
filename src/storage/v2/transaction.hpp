@@ -174,6 +174,7 @@ struct Transaction {
   delta_container deltas;
   utils::pmr::list<MetadataDelta> md_deltas;
   bool must_abort{};
+  bool has_interleaved_deltas{};
   IsolationLevel isolation_level{};
   StorageMode storage_mode{};
   bool edge_import_mode_active{false};
