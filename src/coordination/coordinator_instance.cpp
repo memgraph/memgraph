@@ -1250,7 +1250,7 @@ auto CoordinatorInstance::GetRoutingTableAsFollower(auto const leader_id, std::s
     return RoutingTable{};
   }
 
-  auto maybe_res = leader->SendGetRoutingTable();
+  auto maybe_res = leader->SendGetRoutingTable(db_name);
 
   if (!maybe_res.has_value()) {
     spdlog::trace("Couldn't get routing table from leader {}. Returning empty routing table.", leader_id);
