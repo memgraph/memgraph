@@ -36,26 +36,26 @@ class InMemoryReplicationHandlers {
 
   // RPC handlers
   static void HeartbeatHandler(dbms::DbmsHandler *dbms_handler, const std::optional<utils::UUID> &current_main_uuid,
-                               slk::Reader *req_reader, slk::Builder *res_builder);
+                               uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 
   static void PrepareCommitHandler(dbms::DbmsHandler *dbms_handler, const std::optional<utils::UUID> &current_main_uuid,
-                                   slk::Reader *req_reader, slk::Builder *res_builder);
+                                   uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 
   static void FinalizeCommitHandler(dbms::DbmsHandler *dbms_handler,
-                                    const std::optional<utils::UUID> &current_main_uuid, slk::Reader *req_reader,
-                                    slk::Builder *res_builder);
+                                    const std::optional<utils::UUID> &current_main_uuid, uint64_t request_version,
+                                    slk::Reader *req_reader, slk::Builder *res_builder);
 
   static void SnapshotHandler(dbms::DbmsHandler *dbms_handler, const std::optional<utils::UUID> &current_main_uuid,
-                              slk::Reader *req_reader, slk::Builder *res_builder);
+                              uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 
   static void WalFilesHandler(dbms::DbmsHandler *dbms_handler, const std::optional<utils::UUID> &current_main_uuid,
-                              slk::Reader *req_reader, slk::Builder *res_builder);
+                              uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 
   static void CurrentWalHandler(dbms::DbmsHandler *dbms_handler, const std::optional<utils::UUID> &current_main_uuid,
-                                slk::Reader *req_reader, slk::Builder *res_builder);
+                                uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 
   static void SwapMainUUIDHandler(dbms::DbmsHandler *dbms_handler, replication::RoleReplicaData &role_replica_data,
-                                  slk::Reader *req_reader, slk::Builder *res_builder);
+                                  uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 
   static LoadWalStatus LoadWal(storage::InMemoryStorage *storage, storage::replication::Decoder *decoder,
                                slk::Builder *res_builder, uint32_t start_batch_counter = 0);

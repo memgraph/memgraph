@@ -475,27 +475,34 @@ target_link_libraries(${test_prefix}slk_core mg-slk gflags fmt)
 add_unit_test(slk_streams.cpp)
 target_link_libraries(${test_prefix}slk_streams mg-slk gflags fmt)
 
+# Test utilities
+add_library(rpc_messages rpc_messages.cpp)
+target_link_libraries(rpc_messages mg-rpc mg-slk)
+
 # Test mg-rpc
 add_unit_test(rpc.cpp)
-target_link_libraries(${test_prefix}rpc mg-rpc)
+target_link_libraries(${test_prefix}rpc mg-rpc rpc_messages)
 
 # Test rpc-timeouts
 if(MG_ENTERPRISE)
 add_unit_test(rpc_timeouts.cpp)
-target_link_libraries(${test_prefix}rpc_timeouts mg-rpc mg-coordination mg-replication mg-repl_coord_glue)
+target_link_libraries(${test_prefix}rpc_timeouts mg-rpc mg-coordination mg-replication mg-repl_coord_glue rpc_messages)
 endif()
 
 # Test rpc-in-progress
 add_unit_test(rpc_in_progress.cpp)
-target_link_libraries(${test_prefix}rpc_in_progress mg-rpc)
+target_link_libraries(${test_prefix}rpc_in_progress mg-rpc rpc_messages)
 
 # Test replication-rpc-progress
 add_unit_test(replication_rpc_progress.cpp)
-target_link_libraries(${test_prefix}replication_rpc_progress mg-rpc)
+target_link_libraries(${test_prefix}replication_rpc_progress mg-rpc rpc_messages)
 
 # Test snapshot-rpc-progress
 add_unit_test(snapshot_rpc_progress.cpp)
-target_link_libraries(${test_prefix}snapshot_rpc_progress mg-rpc)
+target_link_libraries(${test_prefix}snapshot_rpc_progress mg-rpc rpc_messages)
+
+add_unit_test(rpc_versioning.cpp)
+target_link_libraries(${test_prefix}rpc_versioning mg-rpc rpc_messages)
 
 # Test websocket
 find_package(Boost REQUIRED CONFIG COMPONENTS headers filesystem)

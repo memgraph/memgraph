@@ -80,7 +80,7 @@ jobs:
         run: security -v unlock-keychain -p ${{ secrets.SELF_HOSTED_RUNNER_PASSWORD }} ~/Library/Keychains/login.keychain-db
 
       - name: "Log in to Docker Hub"
-        uses: docker/login-action@v3
+        uses: ./.github/actions/docker-login
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -108,10 +108,7 @@ jobs:
 
       - name: Set Additional Build Args
         run: |
-          args="${{ inputs.additional_build_args }}"
-          if [[ "${{ inputs.os }}" == "centos-9" || "${{ inputs.os }}" == "centos-10" || "${{ inputs.os }}" == "fedora-41" ]]; then
-            args="$args --init-skip-prep-testing"
-          fi
+          args="${{ inputs.additional_build_args }} --disable-testing"
           echo "ADDITIONAL_BUILD_ARGS=$args" >> $GITHUB_ENV
           echo "Final build args: $args"
 

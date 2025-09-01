@@ -100,7 +100,6 @@ jobs:
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
-      additional_build_args: "--init-skip-prep-testing"
     secrets: inherit
 
   CentOS10:
@@ -117,7 +116,6 @@ jobs:
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
-      additional_build_args: "--init-skip-prep-testing"
     secrets: inherit
 
   Debian11:
@@ -232,7 +230,6 @@ jobs:
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
-      additional_build_args: "--init-skip-prep-testing"
     secrets: inherit
 
   RockyLinux9_3:
@@ -249,7 +246,6 @@ jobs:
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
-      additional_build_args: "--init-skip-prep-testing"
     secrets: inherit
 
   Ubuntu22_04:

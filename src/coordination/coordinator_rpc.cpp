@@ -164,61 +164,6 @@ void RegisterReplicaOnMainRes::Save(const RegisterReplicaOnMainRes &self, memgra
 
 }  // namespace coordination
 
-constexpr utils::TypeInfo coordination::PromoteToMainReq::kType{utils::TypeId::COORD_FAILOVER_REQ, "PromoteToMainReq",
-                                                                nullptr};
-
-constexpr utils::TypeInfo coordination::PromoteToMainRes::kType{utils::TypeId::COORD_FAILOVER_RES, "PromoteToMainRes",
-                                                                nullptr};
-
-constexpr utils::TypeInfo coordination::DemoteMainToReplicaReq::kType{utils::TypeId::COORD_SET_REPL_MAIN_REQ,
-                                                                      "DemoteMainToReplicaReq", nullptr};
-
-constexpr utils::TypeInfo coordination::DemoteMainToReplicaRes::kType{utils::TypeId::COORD_SET_REPL_MAIN_RES,
-
-                                                                      "DemoteMainToReplicaRes", nullptr};
-
-constexpr utils::TypeInfo coordination::UnregisterReplicaReq::kType{utils::TypeId::COORD_UNREGISTER_REPLICA_REQ,
-                                                                    "UnregisterReplicaReq", nullptr};
-
-constexpr utils::TypeInfo coordination::UnregisterReplicaRes::kType{utils::TypeId::COORD_UNREGISTER_REPLICA_RES,
-                                                                    "UnregisterReplicaRes", nullptr};
-
-constexpr utils::TypeInfo coordination::EnableWritingOnMainReq::kType{utils::TypeId::COORD_ENABLE_WRITING_ON_MAIN_REQ,
-                                                                      "EnableWritingOnMainReq", nullptr};
-
-constexpr utils::TypeInfo coordination::EnableWritingOnMainRes::kType{utils::TypeId::COORD_ENABLE_WRITING_ON_MAIN_RES,
-                                                                      "EnableWritingOnMainRes", nullptr};
-
-constexpr utils::TypeInfo coordination::GetDatabaseHistoriesReq::kType{utils::TypeId::COORD_GET_INSTANCE_DATABASES_REQ,
-                                                                       "GetDatabaseHistoriesReq", nullptr};
-
-constexpr utils::TypeInfo coordination::GetDatabaseHistoriesRes::kType{utils::TypeId::COORD_GET_INSTANCE_DATABASES_RES,
-                                                                       "GetDatabaseHistoriesRes", nullptr};
-
-constexpr utils::TypeInfo coordination::RegisterReplicaOnMainReq::kType{
-    utils::TypeId::COORD_REGISTER_REPLICA_ON_MAIN_REQ, "RegisterReplicaOnMainReq", nullptr};
-
-constexpr utils::TypeInfo coordination::RegisterReplicaOnMainRes::kType{
-    utils::TypeId::COORD_REGISTER_REPLICA_ON_MAIN_RES, "RegisterReplicaOnMainRes", nullptr};
-
-constexpr utils::TypeInfo coordination::ShowInstancesReq::kType{utils::TypeId::COORD_SHOW_INSTANCES_REQ,
-                                                                "ShowInstancesReq", nullptr};
-
-constexpr utils::TypeInfo coordination::ShowInstancesRes::kType{utils::TypeId::COORD_SHOW_INSTANCES_RES,
-                                                                "ShowInstancesRes", nullptr};
-
-constexpr utils::TypeInfo coordination::StateCheckReq::kType{utils::TypeId::COORD_STATE_CHECK_REQ, "StateCheckReq",
-                                                             nullptr};
-
-constexpr utils::TypeInfo coordination::StateCheckRes::kType{utils::TypeId::COORD_STATE_CHECK_RES, "StateCheckRes",
-                                                             nullptr};
-
-constexpr utils::TypeInfo coordination::ReplicationLagReq::kType{utils::TypeId::COORD_GET_REPLICATION_LAG_REQ,
-                                                                 "ReplicationLagReq", nullptr};
-
-constexpr utils::TypeInfo coordination::ReplicationLagRes::kType{utils::TypeId::COORD_GET_REPLICATION_LAG_RES,
-                                                                 "ReplicationLagRes", nullptr};
-
 namespace slk {
 
 // PromoteToMainRpc
@@ -243,11 +188,11 @@ void Load(memgraph::coordination::PromoteToMainReq *self, memgraph::slk::Reader 
 
 // DemoteMainToReplicaRpc
 void Save(const memgraph::coordination::DemoteMainToReplicaReq &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.replication_client_info, builder);
+  memgraph::slk::Save(self.replication_client_info_, builder);
 }
 
 void Load(memgraph::coordination::DemoteMainToReplicaReq *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->replication_client_info, reader);
+  memgraph::slk::Load(&self->replication_client_info_, reader);
 }
 
 void Save(const memgraph::coordination::DemoteMainToReplicaRes &self, memgraph::slk::Builder *builder) {
@@ -343,7 +288,6 @@ void Load(memgraph::coordination::StateCheckRes *self, memgraph::slk::Reader *re
   memgraph::slk::Load(&self->state, reader);
 }
 
-// ReplicationLagRpc
 void Save(const coordination::ReplicationLagReq &self, slk::Builder *builder) { /*empty*/
 }
 
