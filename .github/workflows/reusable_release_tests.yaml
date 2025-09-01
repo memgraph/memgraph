@@ -67,7 +67,7 @@ jobs:
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: ./.github/actions/docker-login
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -134,7 +134,7 @@ jobs:
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: ./.github/actions/docker-login
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -219,7 +219,7 @@ jobs:
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: ./.github/actions/docker-login
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -325,7 +325,7 @@ jobs:
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: ./.github/actions/docker-login
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -391,7 +391,7 @@ jobs:
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: ./.github/actions/docker-login
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -479,7 +479,7 @@ jobs:
     name: "Release build"
     runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
     timeout-minutes: 60
-
+    if: ${{ inputs.run_stress_large == 'false' }}
     steps:
       - name: Set up repository
         uses: actions/checkout@v4
@@ -488,7 +488,7 @@ jobs:
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: ./.github/actions/docker-login
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -593,7 +593,7 @@ jobs:
           ref:  ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: ./.github/actions/docker-login
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -677,7 +677,7 @@ jobs:
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: ./.github/actions/docker-login
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -760,7 +760,7 @@ jobs:
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: ./.github/actions/docker-login
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -854,7 +854,7 @@ jobs:
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: ./.github/actions/docker-login
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -967,7 +967,7 @@ jobs:
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: ./.github/actions/docker-login
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -1031,7 +1031,7 @@ jobs:
           ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: ./.github/actions/docker-login
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}

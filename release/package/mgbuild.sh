@@ -119,6 +119,7 @@ print_help () {
   echo -e "                                Use this option with caution, be sure that memgraph source code is in correct location inside mgbuild container"
   echo -e "  --ubsan                       Build with UBSAN"
   echo -e "  --disable-jemalloc            Build without jemalloc"
+  echo -e "  --disable-testing             Build without tests (faster build for packaging)"
 
   echo -e "\ncopy options (default \"--binary\"):"
   echo -e "  --artifact-name string        Specify a custom name for the copied artifact"
@@ -156,6 +157,7 @@ print_help () {
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd build --git-ref my-special-branch"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd run"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd --build-type RelWithDebInfo build-memgraph --community"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd --build-type RelWithDebInfo build-memgraph --disable-testing"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd --build-type RelWithDebInfo test-memgraph unit"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd package"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd copy --package"
@@ -388,6 +390,7 @@ build_memgraph () {
   local asan_flag=""
   local ubsan_flag=""
   local disable_jemalloc_flag=""
+  local disable_testing_flag=""
   local init_only=false
   local cmake_only=false
   local for_docker=false
@@ -431,6 +434,10 @@ build_memgraph () {
       ;;
       --disable-jemalloc)
         disable_jemalloc_flag="-DENABLE_JEMALLOC=OFF"
+        shift 1
+      ;;
+      --disable-testing)
+        disable_testing_flag="-DMG_ENABLE_TESTING=OFF"
         shift 1
       ;;
       *)
@@ -494,7 +501,7 @@ build_memgraph () {
   fi
 
   # Define cmake command
-  local cmake_cmd="cmake $build_type_flag $arm_flag $community_flag $telemetry_id_override_flag $coverage_flag $asan_flag $ubsan_flag $disable_jemalloc_flag .."
+  local cmake_cmd="cmake $build_type_flag $arm_flag $community_flag $telemetry_id_override_flag $coverage_flag $asan_flag $ubsan_flag $disable_jemalloc_flag $disable_testing_flag .."
   docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && $cmake_cmd"
   if [[ "$cmake_only" == "true" ]]; then
     build_target(){

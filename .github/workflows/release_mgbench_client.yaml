@@ -87,7 +87,7 @@ jobs:
     steps:
       - name: Log in to Docker Hub
         if: ${{ inputs.push_to_dockerhub }}
-        uses: docker/login-action@v2
+        uses: ./.github/actions/docker-login
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
