@@ -271,6 +271,12 @@ add_link_options(LINKER:--build-id)
 
 # After linker is set, check we can use link-time optimization
 cmake_policy(SET CMP0138 NEW)
+
+# Ensure we use the toolchain's LLVM tools for IPO support
+set(CMAKE_CXX_COMPILER_AR "${MG_TOOLCHAIN_ROOT}/bin/llvm-ar")
+set(CMAKE_CXX_COMPILER_RANLIB "${MG_TOOLCHAIN_ROOT}/bin/llvm-ranlib")
+message(STATUS "Using toolchain LLVM tools for IPO: ${CMAKE_CXX_COMPILER_AR}, ${CMAKE_CXX_COMPILER_RANLIB}")
+
 include(CheckIPOSupported)
 check_ipo_supported() # fatal error if IPO is not supported
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_Release TRUE)
