@@ -26,9 +26,9 @@ auto CoordinatorInstanceConnector::SendShowInstances() const -> std::optional<st
   }
 }
 
-auto CoordinatorInstanceConnector::SendGetRoutingTable() const -> std::optional<RoutingTable> {
+auto CoordinatorInstanceConnector::SendGetRoutingTable(std::string const &db_name) const -> std::optional<RoutingTable> {
   try {
-    auto stream{client_.RpcClient().Stream<GetRoutingTableRpc>()};
+    auto stream{client_.RpcClient().Stream<GetRoutingTableRpc>(db_name)};
     auto res = stream.SendAndWait();
     return res.routing_table_;
   } catch (std::exception const &e) {
