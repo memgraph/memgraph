@@ -1526,6 +1526,86 @@ TYPED_TEST(ConstraintsTest, TypeConstraintsSubtypeCheckForTemporalDataAddLabelLa
   }
 }
 
+TYPED_TEST(ConstraintsTest, TypeConstraintsTypedPropertyNullNotAnError) {
+  if (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Type constraints not implemented for on-disk";
+  }
+
+  {
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateTypeConstraint(this->label1, this->prop1, TypeConstraintKind::STRING);
+    ASSERT_NO_ERROR(res);
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+
+  // (label1)  Constrain prop1 TYPED STRING (see above), insert vertexA with prop1=Null.
+  {
+    auto acc = this->storage->Access();
+    auto vertexA = acc->CreateVertex();
+    ASSERT_NO_ERROR(vertexA.AddLabel(this->label1));
+    ASSERT_NO_ERROR(vertexA.SetProperty(this->prop1, PropertyValue()));
+    ASSERT_NO_ERROR(vertexA.SetProperty(this->prop2, PropertyValue(TemporalData{TemporalType::Date, 0})));
+    ASSERT_NO_ERROR(acc->Commit());
+  }
+
+  // (label1)  Constrain prop1 TYPED STRING (see above), insert vertexB with prop1=non-Null, update prop1=Null.
+  std::optional<VertexAccessor> holder_vertexB;
+  {
+    auto acc = this->storage->Access();
+    holder_vertexB = acc->CreateVertex();
+    auto &vertexB = *holder_vertexB;
+    ASSERT_NO_ERROR(vertexB.AddLabel(this->label1));
+    ASSERT_NO_ERROR(vertexB.SetProperty(this->prop1, PropertyValue("This is only a test.")));
+    ASSERT_NO_ERROR(vertexB.SetProperty(this->prop2, PropertyValue(-42)));
+    ASSERT_NO_ERROR(acc->Commit());
+  }
+  {
+    auto acc = this->storage->Access();
+    auto &vertexB = *holder_vertexB;
+    ASSERT_NO_ERROR(vertexB.SetProperty(this->prop1, PropertyValue()));
+    ASSERT_NO_ERROR(acc->Commit());
+  }
+
+  // (label2)  Insert vertexC with prop2=Null, constrain prop2 TYPED STRING (see below).
+  std::optional<VertexAccessor> holder_vertexC;
+  {
+    auto acc = this->storage->Access();
+    holder_vertexC = acc->CreateVertex();
+    auto &vertexC = *holder_vertexC;
+    ASSERT_NO_ERROR(vertexC.AddLabel(this->label2));
+    ASSERT_NO_ERROR(vertexC.SetProperty(this->prop1, PropertyValue(TemporalData{TemporalType::Date, 0})));
+    ASSERT_NO_ERROR(vertexC.SetProperty(this->prop2, PropertyValue()));
+    ASSERT_NO_ERROR(acc->Commit());
+  }
+
+  // (label2)  Insert vertexD with prop2=non-Null, constrain prop2 TYPED STRING (see below), update prop2=Null.
+  std::optional<VertexAccessor> holder_vertexD;
+  {
+    auto acc = this->storage->Access();
+    holder_vertexD = acc->CreateVertex();
+    auto &vertexD = *holder_vertexD;
+    ASSERT_NO_ERROR(vertexD.AddLabel(this->label2));
+    ASSERT_NO_ERROR(vertexD.SetProperty(this->prop1, PropertyValue(-42)));
+    ASSERT_NO_ERROR(vertexD.SetProperty(this->prop2, PropertyValue("This is only a test.")));
+    ASSERT_NO_ERROR(acc->Commit());
+  }
+
+  {
+    auto unique_acc = this->db_acc_->get()->UniqueAccess();
+    auto res = unique_acc->CreateTypeConstraint(this->label2, this->prop2, TypeConstraintKind::STRING);
+    ASSERT_NO_ERROR(res);
+    ASSERT_NO_ERROR(unique_acc->Commit());
+  }
+
+  // Finish dealing with vertexD.
+  {
+    auto acc = this->storage->Access();
+    auto &vertexD = *holder_vertexD;
+    ASSERT_NO_ERROR(vertexD.SetProperty(this->prop2, PropertyValue()));
+    ASSERT_NO_ERROR(acc->Commit());
+  }
+}
+
 TYPED_TEST(ConstraintsTest, TypeConstraintsDrop) {
   if (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
     GTEST_SKIP() << "Type constraints not implemented for on-disk";
