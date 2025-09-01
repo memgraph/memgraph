@@ -207,6 +207,9 @@ TEST(StorageV2Gc, Indices) {
   }
 }
 
+// @TODO(colinbarry) Are we actually testing anything here? I think the test
+// can be removed and replaced with test explcitly testing the contributor
+// logic.
 TEST(StorageV2Gc, InterleavedDeltas) {
   std::unique_ptr<memgraph::storage::Storage> storage(
       std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
