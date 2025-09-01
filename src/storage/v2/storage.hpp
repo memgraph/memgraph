@@ -30,7 +30,6 @@
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
 #include "storage/v2/storage_error.hpp"
-#include "storage/v2/transaction_dependencies.hpp"
 #include "storage/v2/ttl.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/vertices_chunked_iterable.hpp"
@@ -231,7 +230,7 @@ class Storage {
 
     Accessor(Accessor &&other) noexcept;
 
-    virtual ~Accessor();
+    virtual ~Accessor() = default;
 
     StorageAccessType original_access_type() const { return original_access_type_; }
 
@@ -840,13 +839,6 @@ class Storage {
   auto get_database_protector_factory() const -> std::function<std::unique_ptr<DatabaseProtector>()> {
     return database_protector_factory_;
   }
-
- protected:
-  void RegisterTransaction(uint64_t transaction_id);
-  void UnregisterTransaction(uint64_t transaction_id);
-
- public:
-  TransactionDependencies transaction_dependencies_;
 };
 
 inline std::ostream &operator<<(std::ostream &os, StorageAccessType type) {
