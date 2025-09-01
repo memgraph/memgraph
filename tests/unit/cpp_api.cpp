@@ -19,6 +19,7 @@
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/view.hpp"
+#include "tests/test_commit_args_helper.hpp"
 #include "tests/unit/timezone_handler.hpp"
 
 template <typename StorageType>
@@ -49,7 +50,7 @@ struct CppApiTestFixture : public ::testing::Test {
 
   auto DropIndexAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> {
     if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>) {
-      return this->storage->Access(memgraph::storage::Storage::Accessor::Type::READ);
+      return this->storage->Access(memgraph::storage::StorageAccessType::READ);
     } else {
       return this->storage->UniqueAccess();
     }
@@ -66,7 +67,7 @@ struct CppApiTestFixture : public ::testing::Test {
 };
 
 using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-using AccessorType = memgraph::storage::Storage::Accessor::Type;
+using AccessorType = memgraph::storage::StorageAccessType;
 TYPED_TEST_SUITE(CppApiTestFixture, StorageTypes);
 
 TYPED_TEST(CppApiTestFixture, TestGraph) {
@@ -453,6 +454,27 @@ void test_TestLocalDateTime() {
   auto value_x = mgp::Value(ldt_1);
   // Use Value move constructor
   auto value_y = mgp::Value(mgp::LocalDateTime("2021-10-05T14:15:00"));
+
+  // Add and subtract durations, and get duration difference between
+  // two LocalDateTimes.
+  auto duration = mgp::Duration("PT1H30M");
+  auto future = ldt_1 + duration;
+  EXPECT_EQ(future.Hour(), 15);
+  EXPECT_EQ(future.Minute(), 45);
+
+  auto past = ldt_1 - duration;
+  EXPECT_EQ(past.Hour(), 12);
+  EXPECT_EQ(past.Minute(), 45);
+
+  auto diff = future - past;
+  static constexpr auto three_hours_in_microseconds = 10'800'000'000;
+  EXPECT_EQ(diff.Microseconds(), three_hours_in_microseconds);
+
+  // Check that two discrete calls to `Now()` return times very close to
+  // one another. We'll just check they are within a second.
+  auto now1 = mgp::LocalDateTime::Now();
+  auto now2 = mgp::LocalDateTime::Now();
+  EXPECT_LE((now2 - now1).Microseconds(), 1'000'000);
 }
 
 TYPED_TEST(CppApiTestFixture, TestLocalDateTime) { test_TestLocalDateTime(); }
@@ -485,6 +507,255 @@ TYPED_TEST(CppApiTestFixture, TestDuration) {
   auto value_x = mgp::Value(duration_1);
   // Use Value move constructor
   auto value_y = mgp::Value(mgp::Duration("PT2M2.33S"));
+}
+
+void test_TestZonedDateTime() {
+  auto ldt_1 = mgp::ZonedDateTime("2021-10-05T14:15:00");
+  auto ldt_2 = mgp::ZonedDateTime(2021, 10, 5, 14, 15, 0, 0, 0, "Etc/UTC");
+
+  ASSERT_ANY_THROW(mgp::ZonedDateTime(
+      2021, 10, 0, 14, 15, 0, 0, 0,
+      0));  // ...10, 0, 14... <- 0 is an illegal value for the `day` parameter; must throw an exception
+
+  // Disallow any named timezone that is not in the tz database
+  ASSERT_ANY_THROW(mgp::ZonedDateTime(2021, 10, 1, 14, 15, 0, 0, 0, "Mars/Cydonia"));
+
+  // Disallow offset timezone that is out of range
+  ASSERT_ANY_THROW(mgp::ZonedDateTime(2021, 10, 1, 14, 15, 0, 0, 0, 1200));
+
+  ASSERT_EQ(ldt_1.Year(), 2021);
+  ASSERT_EQ(ldt_1.Month(), 10);
+  ASSERT_EQ(ldt_1.Day(), 5);
+  ASSERT_EQ(ldt_1.Hour(), 14);
+  ASSERT_EQ(ldt_1.Minute(), 15);
+  ASSERT_EQ(ldt_1.Second(), 0);
+  ASSERT_EQ(ldt_1.Millisecond() >= 0, true);
+  ASSERT_EQ(ldt_1.Microsecond() >= 0, true);
+  ASSERT_EQ(ldt_1.Timestamp() >= 0, true);
+
+  ASSERT_EQ(ldt_1, ldt_2);
+
+  // Use copy assignment
+  auto ldt_x = ldt_1;
+
+  // Use move assignment
+  std::vector<mgp::ZonedDateTime> vector_x;
+  vector_x.push_back(mgp::ZonedDateTime("2021-10-05T14:15:00"));
+
+  // Use Value copy constructor
+  auto value_x = mgp::Value(ldt_1);
+  // Use Value move constructor
+  auto value_y = mgp::Value(mgp::ZonedDateTime("2021-10-05T14:15:00"));
+}
+
+TYPED_TEST(CppApiTestFixture, ZonedDateTime_CanBeCreated) {
+  // Created from an ISO 8601 string without timezone
+  auto zdt1 = mgp::ZonedDateTime("2021-10-05T14:15:00");
+  EXPECT_EQ(zdt1.Year(), 2021);
+  EXPECT_EQ(zdt1.Month(), 10);
+  EXPECT_EQ(zdt1.Day(), 5);
+  EXPECT_EQ(zdt1.Hour(), 14);
+  EXPECT_EQ(zdt1.Minute(), 15);
+  EXPECT_EQ(zdt1.Second(), 0);
+  EXPECT_EQ(zdt1.Millisecond() >= 0, true);
+  EXPECT_EQ(zdt1.Microsecond() >= 0, true);
+  EXPECT_EQ(zdt1.Timestamp() >= 0, true);
+  EXPECT_STREQ(zdt1.Timezone(), "Etc/UTC");
+  EXPECT_EQ(zdt1.Offset(), 0);
+
+  // Created from an ISO 8601 string with named timezone
+  auto zdt2 = mgp::ZonedDateTime("2021-10-05T14:15:00[Europe/London]");
+  EXPECT_EQ(zdt2.Year(), 2021);
+  EXPECT_EQ(zdt2.Month(), 10);
+  EXPECT_EQ(zdt2.Day(), 5);
+  EXPECT_EQ(zdt2.Hour(), 14);
+  EXPECT_EQ(zdt2.Minute(), 15);
+  EXPECT_EQ(zdt2.Second(), 0);
+  EXPECT_EQ(zdt2.Millisecond() >= 0, true);
+  EXPECT_EQ(zdt2.Microsecond() >= 0, true);
+  EXPECT_EQ(zdt2.Timestamp() >= 0, true);
+  EXPECT_STREQ(zdt2.Timezone(), "Europe/London");
+  EXPECT_EQ(zdt2.Offset(), 60);
+
+  // Created from an ISO 8601 string with negative offset
+  auto zdt3 = mgp::ZonedDateTime("2021-10-05T14:15:00-02:00");
+  EXPECT_EQ(zdt3.Year(), 2021);
+  EXPECT_EQ(zdt3.Month(), 10);
+  EXPECT_EQ(zdt3.Day(), 5);
+  EXPECT_EQ(zdt3.Hour(), 14);
+  EXPECT_EQ(zdt3.Minute(), 15);
+  EXPECT_EQ(zdt3.Second(), 0);
+  EXPECT_EQ(zdt3.Millisecond() >= 0, true);
+  EXPECT_EQ(zdt3.Microsecond() >= 0, true);
+  EXPECT_EQ(zdt3.Timestamp() >= 0, true);
+  EXPECT_EQ(zdt3.Offset(), -120);
+  EXPECT_STREQ(zdt3.Timezone(), "");
+
+  // Created from an ISO 8601 string with positive offset
+  auto zdt4 = mgp::ZonedDateTime("2021-10-05T14:15:00+02:00");
+  EXPECT_EQ(zdt4.Year(), 2021);
+  EXPECT_EQ(zdt4.Month(), 10);
+  EXPECT_EQ(zdt4.Day(), 5);
+  EXPECT_EQ(zdt4.Hour(), 14);
+  EXPECT_EQ(zdt4.Minute(), 15);
+  EXPECT_EQ(zdt4.Second(), 0);
+  EXPECT_EQ(zdt4.Millisecond() >= 0, true);
+  EXPECT_EQ(zdt4.Microsecond() >= 0, true);
+  EXPECT_EQ(zdt4.Timestamp() >= 0, true);
+  EXPECT_EQ(zdt4.Offset(), 120);
+  EXPECT_STREQ(zdt4.Timezone(), "");
+
+  // Create from discrete parameters with named timezone
+  auto zdt5 = mgp::ZonedDateTime(2021, 10, 5, 14, 15, 0, 0, 0, "Europe/Paris");
+  EXPECT_EQ(zdt5.Year(), 2021);
+  EXPECT_EQ(zdt5.Month(), 10);
+  EXPECT_EQ(zdt5.Day(), 5);
+  EXPECT_EQ(zdt5.Hour(), 14);
+  EXPECT_EQ(zdt5.Minute(), 15);
+  EXPECT_EQ(zdt5.Second(), 0);
+  EXPECT_EQ(zdt5.Millisecond() >= 0, true);
+  EXPECT_EQ(zdt5.Microsecond() >= 0, true);
+  EXPECT_EQ(zdt5.Timestamp() >= 0, true);
+  EXPECT_STREQ(zdt5.Timezone(), "Europe/Paris");
+  EXPECT_EQ(zdt5.Offset(), 120);
+
+  // Create from discrete parameters with offset (in minutes)
+  auto zdt6 = mgp::ZonedDateTime(2021, 10, 5, 14, 15, 0, 0, 0, 120);
+  EXPECT_EQ(zdt6.Year(), 2021);
+  EXPECT_EQ(zdt6.Month(), 10);
+  EXPECT_EQ(zdt6.Day(), 5);
+  EXPECT_EQ(zdt6.Hour(), 14);
+  EXPECT_EQ(zdt6.Minute(), 15);
+  EXPECT_EQ(zdt6.Second(), 0);
+  EXPECT_EQ(zdt6.Millisecond() >= 0, true);
+  EXPECT_EQ(zdt6.Microsecond() >= 0, true);
+  EXPECT_EQ(zdt6.Timestamp() >= 0, true);
+  EXPECT_EQ(zdt6.Offset(), 120);
+  EXPECT_STREQ(zdt6.Timezone(), "");
+}
+
+TYPED_TEST(CppApiTestFixture, ZonedDateTime_CannotBeCreatedWithInvalidParameters) {
+  // There is no 0th of October
+  EXPECT_ANY_THROW(mgp::ZonedDateTime(2021, 10, 0, 14, 15, 0, 0, 0, 0));
+
+  // Tz region is not recognised
+  EXPECT_ANY_THROW(mgp::ZonedDateTime(2021, 10, 0, 14, 15, 0, 0, 0, "Mars/Cydonia"));
+
+  // Offset is beyond acceptable range
+  EXPECT_ANY_THROW(mgp::ZonedDateTime(2021, 10, 0, 14, 15, 0, 0, 0, 2000));
+}
+
+TYPED_TEST(CppApiTestFixture, ZonedDateTime_CanBeTestedForEquality) {
+  auto zdt1 = mgp::ZonedDateTime("2021-10-05T14:15:00");
+  auto zdt2 = mgp::ZonedDateTime(2021, 10, 5, 14, 15, 0, 0, 0, "Etc/UTC");
+  auto zdt3 = mgp::ZonedDateTime("2021-11-05T14:15:00");
+  auto zdt4 = mgp::ZonedDateTime("2021-11-05T14:15:00[Europe/London]");
+
+  EXPECT_EQ(zdt1, zdt2);
+  EXPECT_NE(zdt1, zdt3);
+  EXPECT_NE(zdt1, zdt4);
+  EXPECT_NE(zdt2, zdt3);
+  EXPECT_NE(zdt3, zdt4);
+}
+
+TYPED_TEST(CppApiTestFixture, ZonedDateTime_CanBeCopyMoveAndValueConstructed) {
+  // Copy assignment
+  {
+    auto zdt = mgp::ZonedDateTime("2021-10-05T14:15:00[Europe/London]");
+    auto copy = zdt;
+
+    EXPECT_EQ(copy.Year(), 2021);
+    EXPECT_EQ(copy.Month(), 10);
+    EXPECT_EQ(copy.Day(), 5);
+    EXPECT_EQ(copy.Hour(), 14);
+    EXPECT_EQ(copy.Minute(), 15);
+    EXPECT_EQ(copy.Second(), 0);
+    EXPECT_EQ(copy.Millisecond() >= 0, true);
+    EXPECT_EQ(copy.Microsecond() >= 0, true);
+    EXPECT_EQ(copy.Timestamp() >= 0, true);
+    EXPECT_STREQ(copy.Timezone(), "Europe/London");
+    EXPECT_EQ(copy.Offset(), 60);
+  }
+
+  // Use move assignment
+  {
+    std::vector<mgp::ZonedDateTime> vec;
+    vec.push_back(mgp::ZonedDateTime("2021-10-05T14:15:00"));
+    EXPECT_EQ(vec[0].Year(), 2021);
+    EXPECT_EQ(vec[0].Month(), 10);
+    EXPECT_EQ(vec[0].Day(), 5);
+    EXPECT_EQ(vec[0].Hour(), 14);
+    EXPECT_EQ(vec[0].Minute(), 15);
+    EXPECT_EQ(vec[0].Second(), 0);
+    EXPECT_EQ(vec[0].Millisecond() >= 0, true);
+    EXPECT_EQ(vec[0].Microsecond() >= 0, true);
+    EXPECT_EQ(vec[0].Timestamp() >= 0, true);
+    EXPECT_STREQ(vec[0].Timezone(), "Etc/UTC");
+    EXPECT_EQ(vec[0].Offset(), 0);
+  }
+
+  {
+    auto zdt = mgp::ZonedDateTime("2021-11-05T14:15:00[Europe/London]");
+    auto copied_value = mgp::Value(zdt);
+    ASSERT_TRUE(copied_value.IsZonedDateTime());
+    ASSERT_EQ(copied_value.Type(), mgp::Type::ZonedDateTime);
+    EXPECT_EQ(copied_value.ValueZonedDateTime(), zdt);
+    auto moved_value = mgp::Value(mgp::ZonedDateTime("2021-11-05T14:15:00[Europe/London]"));
+    ASSERT_TRUE(moved_value.IsZonedDateTime());
+    ASSERT_EQ(moved_value.Type(), mgp::Type::ZonedDateTime);
+    EXPECT_EQ(moved_value.ValueZonedDateTime(), zdt);
+  }
+}
+
+TYPED_TEST(CppApiTestFixture, ZonedDateTime_CanPerformOperationsWithDurations) {
+  auto zdt = mgp::ZonedDateTime("2021-10-05T14:15:00[Europe/London]");
+
+  auto duration = mgp::Duration("PT1H30M");
+  auto future = zdt + duration;
+  EXPECT_EQ(future.Hour(), 15);
+  EXPECT_EQ(future.Minute(), 45);
+
+  auto past = zdt - duration;
+  EXPECT_EQ(past.Hour(), 12);
+  EXPECT_EQ(past.Minute(), 45);
+
+  auto diff = future - past;
+  static constexpr auto three_hours_in_microseconds = 10'800'000'000;
+  EXPECT_EQ(diff.Microseconds(), three_hours_in_microseconds);
+}
+
+TYPED_TEST(CppApiTestFixture, ZonedDateTime_NowReturnsCurrentTime) {
+  auto now1 = mgp::ZonedDateTime::Now();
+  auto now2 = mgp::ZonedDateTime::Now();
+  EXPECT_LE((now2 - now1).Microseconds(), 1'000'000);
+}
+
+TYPED_TEST(CppApiTestFixture, ZonedDateTime_CanBeStoredAsNodeProperty) {
+  auto storage_acc = this->storage->Access(AccessorType::WRITE);
+  auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+  mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+  auto graph = mgp::Graph(&raw_graph);
+
+  auto node = graph.CreateNode();
+
+  {
+    auto zdt = mgp::ZonedDateTime("2024-01-01T13:02:40.100050+01:00[Europe/Zagreb]");
+    node.SetProperty("created_at", mgp::Value(zdt));
+    auto retrieved = node.GetProperty("created_at");
+    ASSERT_TRUE(retrieved.IsZonedDateTime());
+    EXPECT_EQ(retrieved.ValueZonedDateTime().Offset(), 60);
+    EXPECT_EQ(retrieved.ValueZonedDateTime(), zdt);
+  }
+
+  {
+    auto zdt_without_timezone = mgp::ZonedDateTime("2024-01-01T13:02:40.100050+01:00");
+    node.SetProperty("modified_at", mgp::Value(zdt_without_timezone));
+    auto retrieved = node.GetProperty("modified_at");
+    ASSERT_TRUE(retrieved.IsZonedDateTime());
+    EXPECT_EQ(retrieved.ValueZonedDateTime(), zdt_without_timezone);
+    EXPECT_EQ(retrieved.ValueZonedDateTime().Offset(), 60);
+    EXPECT_STREQ(retrieved.ValueZonedDateTime().Timezone(), "");
+  }
 }
 
 TYPED_TEST(CppApiTestFixture, TestNodeProperties) {
@@ -628,28 +899,61 @@ TYPED_TEST(CppApiTestFixture, TestRelationshipRemoveProperty) {
 }
 
 TYPED_TEST(CppApiTestFixture, TestValuePrint) {
-  std::string string_1{"abc"};
-  int64_t int_1{4};
-  mgp::Date date_1{"2020-12-12"};
+  {
+    mgp::Value string_value{std::string{"abc"}};
+    std::ostringstream oss_str;
+    oss_str << string_value;
+    ASSERT_EQ("abc", oss_str.str());
+  }
 
-  mgp::Value string_value{string_1};
-  mgp::Value int_value{int_1};
-  mgp::Value date_value{date_1};
+  {
+    mgp::Value int_value{int64_t(4)};
+    std::ostringstream oss_int;
+    oss_int << int_value;
+    ASSERT_EQ("4", oss_int.str());
+  }
 
-  std::ostringstream oss_str;
-  oss_str << string_value;
-  std::string str_test = oss_str.str();
-  ASSERT_EQ(string_1, str_test);
+  {
+    mgp::Value date_value{mgp::Date{"2020-12-12"}};
+    std::ostringstream oss_date;
+    oss_date << date_value;
+    ASSERT_EQ("2020-12-12", oss_date.str());
+  }
 
-  std::ostringstream oss_int;
-  oss_int << int_value;
-  std::string int_test = oss_int.str();
-  ASSERT_EQ("4", int_test);
+  {
+    mgp::Value local_time_value{mgp::LocalTime{"09:15:00.360"}};
+    std::ostringstream oss_local_time;
+    oss_local_time << local_time_value;
+    ASSERT_EQ("09:15:00.360000", oss_local_time.str());
+  }
 
-  std::ostringstream oss_date;
-  oss_date << date_value;
-  std::string date_test = oss_date.str();
-  ASSERT_EQ("2020-12-12", date_test);
+  {
+    mgp::Value local_date_time_value{mgp::LocalDateTime{"2021-02-05T14:15:00"}};
+    std::ostringstream oss_local_date_time;
+    oss_local_date_time << local_date_time_value;
+    ASSERT_EQ("2021-02-05T14:15:00.000000", oss_local_date_time.str());
+  }
+
+  {
+    mgp::Value duration_value{mgp::Duration{"P14DT17H2M45S"}};
+    std::ostringstream oss_duration;
+    oss_duration << duration_value;
+    ASSERT_EQ("1270965000000ms", oss_duration.str());
+  }
+
+  {
+    mgp::Value zoned_date_time_value{mgp::ZonedDateTime{"2024-01-01T13:02:40.100050+01:00[Europe/Zagreb]"}};
+    std::ostringstream oss_zoned_date_time;
+    oss_zoned_date_time << zoned_date_time_value;
+    ASSERT_EQ("2024-01-01T13:02:40.100050+01:00[Europe/Zagreb]", oss_zoned_date_time.str());
+  }
+
+  {
+    mgp::Value zoned_date_time_value{mgp::ZonedDateTime{"2024-01-01T13:02:40.100050+01:00"}};
+    std::ostringstream oss_zoned_date_time;
+    oss_zoned_date_time << zoned_date_time_value;
+    ASSERT_EQ("2024-01-01T13:02:40.100050+01:00", oss_zoned_date_time.str());
+  }
 }
 
 TYPED_TEST(CppApiTestFixture, TestValueToString) {
@@ -693,15 +997,22 @@ TYPED_TEST(CppApiTestFixture, TestValueToString) {
 
   /*local time*/
   mgp::LocalTime local_time{"09:15:00.360"};
-  ASSERT_EQ(mgp::Value(local_time).ToString(), "9:15:0,3600");
+  ASSERT_EQ(mgp::Value(local_time).ToString(), "09:15:00.360000");
 
   /*local date time*/
-  mgp::LocalDateTime local_date_time{"2021-10-05T14:15:00"};
-  ASSERT_EQ(mgp::Value(local_date_time).ToString(), "2021-10-5T14:15:0,00");
+  mgp::LocalDateTime local_date_time{"2021-02-05T14:15:00"};
+  ASSERT_EQ(mgp::Value(local_date_time).ToString(), "2021-02-05T14:15:00.000000");
 
   /*duration*/
   mgp::Duration duration{"P14DT17H2M45S"};
   ASSERT_EQ(mgp::Value(duration).ToString(), "1270965000000ms");
+
+  /*zoned date time*/
+  mgp::ZonedDateTime zoned_date_time_with_tz{"2024-01-01T13:02:40.100050+01:00[Europe/Zagreb]"};
+  ASSERT_EQ(mgp::Value(zoned_date_time_with_tz).ToString(), "2024-01-01T13:02:40.100050+01:00[Europe/Zagreb]");
+
+  mgp::ZonedDateTime zoned_date_time_without_tz{"2024-01-01T13:02:40.100050+01:00"};
+  ASSERT_EQ(mgp::Value(zoned_date_time_without_tz).ToString(), "2024-01-01T13:02:40.100050+01:00");
 
   /*node and relationship*/
   auto node1 = graph.CreateNode();
@@ -768,7 +1079,7 @@ TYPED_TEST(CppApiTestFixture, TestLabelIndex) {
     mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
     ASSERT_TRUE(mgp::CreateLabelIndex(&raw_graph, "Person"));
-    ASSERT_FALSE(db_acc->Commit().HasError());
+    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
@@ -784,7 +1095,7 @@ TYPED_TEST(CppApiTestFixture, TestLabelIndex) {
     auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
     mgp_graph raw_graph = this->CreateGraph(db_acc.get());
     ASSERT_TRUE(mgp::DropLabelIndex(&raw_graph, "Person"));
-    ASSERT_FALSE(db_acc->Commit().HasError());
+    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto storage_acc = this->storage->UniqueAccess();
@@ -798,7 +1109,7 @@ TYPED_TEST(CppApiTestFixture, TestLabelIndex) {
     auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
     mgp_graph raw_graph = this->CreateGraph(db_acc.get());
     ASSERT_FALSE(mgp::DropLabelIndex(&raw_graph, "NonExistentLabel"));
-    ASSERT_FALSE(db_acc->Commit().HasError());
+    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -808,7 +1119,7 @@ TYPED_TEST(CppApiTestFixture, TestLabelPropertyIndex) {
     auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
     mgp_graph raw_graph = this->CreateGraph(db_acc.get());
     ASSERT_TRUE(mgp::CreateLabelPropertyIndex(&raw_graph, "User", "name"));
-    ASSERT_FALSE(db_acc->Commit().HasError());
+    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto storage_acc = this->storage->UniqueAccess();
@@ -825,7 +1136,7 @@ TYPED_TEST(CppApiTestFixture, TestLabelPropertyIndex) {
     auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
     mgp_graph raw_graph = this->CreateGraph(db_acc.get());
     ASSERT_TRUE(mgp::DropLabelPropertyIndex(&raw_graph, "User", "name"));
-    ASSERT_FALSE(db_acc->Commit().HasError());
+    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto storage_acc = this->storage->UniqueAccess();
@@ -839,7 +1150,7 @@ TYPED_TEST(CppApiTestFixture, TestLabelPropertyIndex) {
     auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
     mgp_graph raw_graph = this->CreateGraph(db_acc.get());
     ASSERT_FALSE(mgp::DropLabelPropertyIndex(&raw_graph, "User", "nonexistent"));
-    ASSERT_FALSE(db_acc->Commit().HasError());
+    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -853,7 +1164,7 @@ TYPED_TEST(CppApiTestFixture, TestNestedIndex) {
     mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
     ASSERT_TRUE(mgp::CreateLabelPropertyIndex(&raw_graph, "Label", "nested1.nested2.nested3"));
-    ASSERT_FALSE(db_acc->Commit().HasError());
+    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto storage_acc = this->storage->UniqueAccess();
@@ -869,7 +1180,7 @@ TYPED_TEST(CppApiTestFixture, TestNestedIndex) {
     auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
     mgp_graph raw_graph = this->CreateGraph(db_acc.get());
     ASSERT_TRUE(mgp::DropLabelPropertyIndex(&raw_graph, "Label", "nested1.nested2.nested3"));
-    ASSERT_FALSE(db_acc->Commit().HasError());
+    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto storage_acc = this->storage->UniqueAccess();
@@ -948,7 +1259,7 @@ TYPED_TEST(CppApiTestFixture, TestVectorSearch) {
     auto spec = memgraph::storage::VectorIndexSpec{index_name,         label,        property,   metric, dimension,
                                                    resize_coefficient, max_elements, scalar_kind};
     ASSERT_FALSE(db_acc->CreateVectorIndex(spec).HasError());
-    ASSERT_FALSE(db_acc->Commit().HasError());
+    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   auto storage_acc = this->storage->Access(AccessorType::WRITE);
@@ -1003,7 +1314,7 @@ TYPED_TEST(CppApiTestFixture, TestVectorSearchOnEdges) {
     auto spec = memgraph::storage::VectorEdgeIndexSpec{index_name,         edge,         property,   metric, dimension,
                                                        resize_coefficient, max_elements, scalar_kind};
     ASSERT_FALSE(db_acc->CreateVectorEdgeIndex(spec).HasError());
-    ASSERT_FALSE(db_acc->Commit().HasError());
+    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   auto storage_acc = this->storage->Access(AccessorType::WRITE);

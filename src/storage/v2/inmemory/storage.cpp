@@ -51,8 +51,8 @@
 #include "storage/v2/schema_info.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/storage_mode.hpp"
-#include "utils/atomic_max.hpp"
 #include "utils/atomic_memory_block.hpp"
+#include "utils/atomic_utils.hpp"
 #include "utils/event_gauge.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/file.hpp"
@@ -108,6 +108,7 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action const action) -> d
     add_case(VECTOR_INDEX_CREATE);
     add_case(VECTOR_EDGE_INDEX_CREATE);
     add_case(VECTOR_INDEX_DROP);
+    add_case(TTL_OPERATION);
     default:
       LOG_FATAL("Unknown MetadataDelta::Action");
   }
@@ -160,8 +161,9 @@ class PeriodicSnapshotObserver : public memgraph::utils::Observer<memgraph::util
 using OOMExceptionEnabler = utils::MemoryTracker::OutOfMemoryExceptionEnabler;
 
 InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_mem_fn_override,
-                                 PlanInvalidatorPtr invalidator)
-    : Storage(config, config.salient.storage_mode, std::move(invalidator)),
+                                 PlanInvalidatorPtr invalidator,
+                                 std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
+    : Storage(config, config.salient.storage_mode, std::move(invalidator), std::move(database_protector_factory)),
       recovery_{config.durability.storage_directory / durability::kSnapshotDirectory,
                 config.durability.storage_directory / durability::kWalDirectory},
       lock_file_path_(config.durability.storage_directory / durability::kLockFile),
@@ -196,18 +198,24 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
   }
 
   if (config_.durability.recover_on_startup) {
+    // Disable ttl until after recovery and role switch / write enabled
+    ttl_.SetUserCheck([]() -> bool { return false; });
+    // Recover data
     auto info = recovery_.RecoverData(
         uuid(), repl_storage_state_, &vertices_, &edges_, &edges_metadata_, &edge_count_, name_id_mapper_.get(),
         &indices_, &constraints_, config_, &wal_seq_num_, &enum_store_,
         config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
-        [this](Gid edge_gid) { return FindEdge(edge_gid); }, name());
+        [this](Gid edge_gid) { return FindEdge(edge_gid); }, name(), &ttl_);
     if (info) {
       vertex_id_.store(info->next_vertex_id, std::memory_order_release);
       edge_id_.store(info->next_edge_id, std::memory_order_release);
       timestamp_ = std::max(timestamp_, info->next_timestamp);
-      repl_storage_state_.last_durable_timestamp_.store(info->last_durable_timestamp, std::memory_order_release);
-      spdlog::trace("Recovering last durable timestamp {}. Timestamp recovered to {}", info->last_durable_timestamp,
-                    timestamp_);
+      CommitTsInfo const new_info{.ldt_ = info->last_durable_timestamp,
+                                  .num_committed_txns_ = info->num_committed_txns};
+      repl_storage_state_.commit_ts_info_.store(new_info, std::memory_order_release);
+      spdlog::trace(
+          "Recovering last durable timestamp {}. Timestamp recovered to {}. Num committed txns recovered to {}.",
+          info->last_durable_timestamp, timestamp_, info->num_committed_txns);
     }
   } else if (config_.durability.snapshot_wal_mode != Config::Durability::SnapshotWalMode::DISABLED ||
              config_.durability.snapshot_on_exit) {
@@ -239,6 +247,8 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     }
   }
 
+  /// ###### From here onwards it is now safe to actually run async tasks ######
+
   if (free_mem_fn_override) {
     free_memory_func_ = *std::move(free_mem_fn_override);
   } else {
@@ -261,9 +271,7 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
       edges_.run_gc();
 
       // Auto-indexer also has a skiplist
-      if (auto_indexer_) {
-        auto_indexer_->RunGC();
-      }
+      async_indexer_.RunGC();
 
       // AsyncTimer resources are global, not particularly storage related, more query related
       // At some point in the future this should be scheduled by something else
@@ -282,12 +290,9 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
     commit_log_.emplace(timestamp_);
   }
 
-  if (config_.salient.items.enable_edge_type_index_auto_creation ||
-      config_.salient.items.enable_label_index_auto_creation) {
-    auto_indexer_.emplace(stop_source.get_token(), this);
-  }
-
   flags::run_time::SnapshotPeriodicAttach(snapshot_periodic_observer_);
+
+  async_indexer_.Start(stop_source.get_token(), this);
 }
 
 InMemoryStorage::~InMemoryStorage() {
@@ -315,7 +320,7 @@ InMemoryStorage::~InMemoryStorage() {
 
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(SharedAccess tag, InMemoryStorage *storage,
                                                     IsolationLevel isolation_level, StorageMode storage_mode,
-                                                    Accessor::Type rw_type,
+                                                    StorageAccessType rw_type,
                                                     std::optional<std::chrono::milliseconds> timeout)
     : Accessor(tag, storage, isolation_level, storage_mode, rw_type, timeout),
       config_(storage->config_.salient.items) {}
@@ -472,7 +477,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
     guard_from.lock();
   }
 
-  transaction_.auto_index_helper_.Track(edge_type);
+  transaction_.async_index_helper_.Track(edge_type);
 
   if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
   if (from_vertex->deleted) return Error::DELETED_OBJECT;
@@ -740,8 +745,8 @@ void InMemoryStorage::InMemoryAccessor::AbortAndResetCommitTs() {
 }
 
 // NOLINTNEXTLINE(google-default-arguments)
-utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAccessor::PrepareForCommitPhase(
-    CommitReplicationArgs const repl_args, DatabaseAccessProtector db_acc) {
+utils::BasicResult<StorageManipulationError> InMemoryStorage::InMemoryAccessor::PrepareForCommitPhase(
+    CommitArgs const commit_args) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
   MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
 
@@ -752,123 +757,127 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
     // We don't have to update the commit timestamp here because no one reads
     // it.
     mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
-  } else {
-    // This is usually done by the MVCC, but it does not handle the metadata deltas
-    transaction_.EnsureCommitTimestampExists();
+    return {};
+  }
 
-    if (auto const maybe_violation = ExistenceConstraintsViolation(); maybe_violation.has_value()) {
-      Abort();
-      // We have not started a commit timestamp no cleanup needed for that
-      DMG_ASSERT(!commit_timestamp_.has_value());
-      return StorageManipulationError{*maybe_violation};
-    }
+  // This is usually done by the MVCC, but it does not handle the metadata deltas
+  transaction_.EnsureCommitTimestampExists();
 
-    auto engine_guard = std::unique_lock{storage_->engine_lock_};
-    commit_timestamp_.emplace(mem_storage->GetCommitTimestamp());
+  // On REPLICA, user transactions shouldn't commit anything
+  if (!commit_args.durability_allowed()) [[unlikely]] {
+    Abort();
+    // We have not started a commit timestamp no cleanup needed for that
+    DMG_ASSERT(!commit_timestamp_.has_value());
+    return StorageManipulationError{ReplicaShouldNotWriteError{}};
+  }
 
-    // Unique constraints violated
-    if (auto const maybe_unique_constraint_violation = UniqueConstraintsViolation();
-        maybe_unique_constraint_violation.has_value()) {
-      // Release engine lock because we don't have to hold it anymore
-      engine_guard.unlock();
-      AbortAndResetCommitTs();
-      return StorageManipulationError{*maybe_unique_constraint_violation};
-    }
-    // Currently there are queries that write to some subsystem that are allowed on a replica
-    // ex. analyze graph stats
-    // There are probably others. We not to check all of them and figure out if they are allowed and what are
-    // they even doing here...
+  if (auto const maybe_violation = ExistenceConstraintsViolation(); maybe_violation.has_value()) {
+    Abort();
+    // We have not started a commit timestamp no cleanup needed for that
+    DMG_ASSERT(!commit_timestamp_.has_value());
+    return StorageManipulationError{*maybe_violation};
+  }
 
-    // Write transaction to WAL while holding the engine lock to make sure
-    // that committed transactions are sorted by the commit timestamp in the
-    // WAL files. We supply the new commit timestamp to the function so that
-    // it knows what will be the final commit timestamp. The WAL must be
-    // written before actually committing the transaction (before setting
-    // the commit timestamp) so that no other transaction can see the
-    // modifications before they are written to disk.
-    // Replica can log only the write transaction received from main
-    // so the wal files are consistent
-    if (repl_args.is_main || repl_args.desired_commit_timestamp.has_value()) {
-      auto const durability_commit_timestamp =
-          repl_args.desired_commit_timestamp.has_value() ? *repl_args.desired_commit_timestamp : *commit_timestamp_;
+  auto engine_guard = std::unique_lock{storage_->engine_lock_};
+  commit_timestamp_.emplace(mem_storage->GetCommitTimestamp());
 
-      // Specific case in which durability mode is != PERIODIC_SNAPSHOT_WITH_WAL
-      if (!mem_storage->InitializeWalFile(mem_storage->repl_storage_state_.epoch_)) {
-        FinalizeCommitPhase(durability_commit_timestamp);
-        // No WAL file, hence no need to finalize it
-        return {};
-      }
+  // Unique constraints violated
+  if (auto const maybe_unique_constraint_violation = UniqueConstraintsViolation();
+      maybe_unique_constraint_violation.has_value()) {
+    // Release engine lock because we don't have to hold it anymore
+    engine_guard.unlock();
+    AbortAndResetCommitTs();
+    return StorageManipulationError{*maybe_unique_constraint_violation};
+  }
+  // Currently there are queries that write to some subsystem that are allowed on a replica
+  // ex. analyze graph stats
+  // There are probably others. We not to check all of them and figure out if they are allowed and what are
+  // they even doing here...
 
-      // If replica executes this, it will return immediately because it doesn't have any replicas registered (no
-      // streams to obtain)
-      auto replicating_txn =
-          mem_storage->repl_storage_state_.StartPrepareCommitPhase(durability_commit_timestamp, mem_storage, db_acc);
+  // Write transaction to WAL while holding the engine lock to make sure
+  // that committed transactions are sorted by the commit timestamp in the
+  // WAL files. We supply the new commit timestamp to the function so that
+  // it knows what will be the final commit timestamp. The WAL must be
+  // written before actually committing the transaction (before setting
+  // the commit timestamp) so that no other transaction can see the
+  // modifications before they are written to disk.
+  // Replica can log only the write transaction received from main
+  // so the wal files are consistent
+  auto const durability_commit_timestamp = commit_args.durable_timestamp(*commit_timestamp_);
 
-      // If main executes this: Block until we receive votes from all replicas.
-      // If replica executes this:,
-      bool const repl_prepare_phase_status = HandleDurabilityAndReplicate(
-          durability_commit_timestamp, db_acc, replicating_txn, repl_args.commit_immediately);
+  // Specific case in which durability mode is != PERIODIC_SNAPSHOT_WITH_WAL
+  if (!mem_storage->InitializeWalFile(mem_storage->repl_storage_state_.epoch_)) {
+    FinalizeCommitPhase(durability_commit_timestamp);
+    // No WAL file, hence no need to finalize it
+    return {};
+  }
 
-      // If replica executes this
-      if (!repl_args.is_main && repl_args.desired_commit_timestamp.has_value()) {
+  // If replica executes this, it will return immediately because it doesn't have any replicas registered (no
+  // streams to obtain)
+  auto replicating_txn =
+      mem_storage->repl_storage_state_.StartPrepareCommitPhase(durability_commit_timestamp, mem_storage, commit_args);
+
+  // If main executes this: Block until we receive votes from all replicas.
+  // If replica executes this:,
+  bool const repl_prepare_phase_status =
+      HandleDurabilityAndReplicate(durability_commit_timestamp, replicating_txn, commit_args);
+
+  // If replica executes this
+  bool const replica_write_was_applied =
+      commit_args.apply_if_replica_write([&](bool two_phase_commit, uint64_t /*desired_commit_timestamp*/) {
         // If SYNC and ASYNC replica executes this, commit immediately while holding the engine lock
-        if (repl_args.commit_immediately.has_value() && *repl_args.commit_immediately) {
+        if (!two_phase_commit) {
           // WAL file is already finalized
-          FinalizeCommitPhase(*repl_args.desired_commit_timestamp);
+          FinalizeCommitPhase(durability_commit_timestamp);
         }
-        // If STRICT_SYNC replica with write txn executes this: return because the 2nd phase will be executed once we
-        // receive FinalizeCommitRpc.
-        return {};
-      }
+      });
+  if (replica_write_was_applied) {
+    // If STRICT_SYNC replica with write txn executes this: return because the 2nd phase will be executed once we
+    // receive FinalizeCommitRpc.
+    return {};
+  }
 
-      // From this point on, only main executes this
-      // If there are no STRICT_SYNC replicas for the current txn
-      if (!replicating_txn.ShouldRunTwoPC()) {
-        // WAL file is already finalized
-        FinalizeCommitPhase(durability_commit_timestamp);
-        // Throw exception if we couldn't commit on one of SYNC replica
-        if (!repl_prepare_phase_status) {
-          return StorageManipulationError{SyncReplicationError{}};
+  auto res = commit_args.apply_if_main(
+      [&](DatabaseProtector const &protector) -> utils::BasicResult<StorageManipulationError> {
+        // From this point on, only main executes this
+        // If there are no STRICT_SYNC replicas for the current txn
+        if (!replicating_txn.ShouldRunTwoPC()) {
+          // WAL file is already finalized
+          FinalizeCommitPhase(durability_commit_timestamp);
+          // Throw exception if we couldn't commit on one of SYNC replica
+          if (!repl_prepare_phase_status) {
+            return StorageManipulationError{SyncReplicationError{}};
+          }
+          return {};
         }
-        return {};
-      }
 
-      // If we are here, it means we are the main executing the commit and there are some STRICT_SYNC replicas in the
-      // cluster.
-      if (repl_prepare_phase_status) {
-        // All replicas voted yes, hence they want to commit the current transaction
-        FinalizeCommitPhase(durability_commit_timestamp);
+        // If we are here, it means we are the main executing the commit and there are some STRICT_SYNC replicas in the
+        // cluster.
+        if (repl_prepare_phase_status) {
+          // All replicas voted yes, hence they want to commit the current transaction
+          FinalizeCommitPhase(durability_commit_timestamp);
+        }
         // We need to finalize WAL file after running FinalizeCommitPhase because we update there commit value in WAL
-        // (commit_flag_wal_position_
+
         if (mem_storage->wal_file_) {
           mem_storage->FinalizeWalFile();
         }
         // Send to all replicas they can finalize a transaction
-        replicating_txn.FinalizeTransaction(true, mem_storage->uuid(), std::move(db_acc), durability_commit_timestamp);
-      } else {
-        // One of replica didn't vote for committing, you can finalize WAL file freely here because WAL file doesn't
-        // need to be updated since by default we write to WAL that the txn should be aborted
-        if (mem_storage->wal_file_) {
-          mem_storage->FinalizeWalFile();
+        replicating_txn.FinalizeTransaction(repl_prepare_phase_status, mem_storage->uuid(), protector,
+                                            durability_commit_timestamp);
+
+        if (!repl_prepare_phase_status) {
+          // Release engine lock because we don't have to hold it anymore for abort
+          engine_guard.unlock();
+          AbortAndResetCommitTs();
+
+          return StorageManipulationError{StrictSyncReplicationError{}};
         }
-        // Aborting on replica before than on main shouldn't be a problem. Even if MAIN goes down, by default it will
-        // not load the current txn. When commiting, the situation is different as explained above.
-        replicating_txn.FinalizeTransaction(false, mem_storage->uuid(), std::move(db_acc), durability_commit_timestamp);
 
-        // Release engine lock because we don't have to hold it anymore for abort
-        engine_guard.unlock();
-        AbortAndResetCommitTs();
-
-        return StorageManipulationError{StrictSyncReplicationError{}};
-      }
-
-      if (!repl_prepare_phase_status) {
-        return StorageManipulationError{SyncReplicationError{}};
-      }
-    }
-  }
-
-  return {};
+        return {};
+      });
+  DMG_ASSERT(res, "The commit was not applied!");
+  return *std::move(res);
 }
 
 void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durability_commit_timestamp) {
@@ -891,12 +900,15 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   transaction_.commit_timestamp->store(*commit_timestamp_, std::memory_order_release);
 
 #ifndef NDEBUG
-  auto const prev = mem_storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
+  auto const prev = mem_storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
   DMG_ASSERT(durability_commit_timestamp >= prev, "LDT not monotonically increasing");
 #endif
 
-  mem_storage->repl_storage_state_.last_durable_timestamp_.store(durability_commit_timestamp,
-                                                                 std::memory_order_release);
+  auto const update_func = [durability_commit_timestamp](CommitTsInfo const &old_ts_info) -> CommitTsInfo {
+    return CommitTsInfo{.ldt_ = durability_commit_timestamp,
+                        .num_committed_txns_ = old_ts_info.num_committed_txns_ + 1};
+  };
+  atomic_struct_update<CommitTsInfo>(mem_storage->repl_storage_state_.commit_ts_info_, update_func);
 
   // Install the new point index, if needed
   mem_storage->indices_.point_index_.InstallNewPointIndex(transaction_.point_index_change_collector_,
@@ -906,10 +918,9 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   transaction_.commit_callbacks_.RunAll(*commit_timestamp_);
 
   // Dispatch to another async work to create requested auto-indexes in their own transaction
-  if (mem_storage->auto_indexer_) {
-    transaction_.auto_index_helper_.DispatchRequests(*mem_storage->auto_indexer_);
+  if (mem_storage->storage_mode_ == StorageMode::IN_MEMORY_TRANSACTIONAL) {
+    transaction_.async_index_helper_.DispatchRequests(mem_storage->async_indexer_);
   }
-
   // TODO: can and should this be moved earlier?
   mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   CheckForFastDiscardOfDeltas();
@@ -923,8 +934,8 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
 
 // NOLINTNEXTLINE(google-default-arguments)
 utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAccessor::PeriodicCommit(
-    CommitReplicationArgs reparg, DatabaseAccessProtector db_acc) {
-  auto result = PrepareForCommitPhase(reparg, db_acc);
+    CommitArgs commit_args) {
+  auto result = PrepareForCommitPhase(std::move(commit_args));
 
   const auto fatal_error =
       result.HasError() &&
@@ -1356,7 +1367,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
 
     {
       auto engine_guard = std::unique_lock(storage_->engine_lock_);
-      uint64_t mark_timestamp = storage_->timestamp_;
+      uint64_t mark_timestamp = storage_->timestamp_;  // a timestamp no active transaction can currently have
+
       // Take garbage_undo_buffers lock while holding the engine lock to make
       // sure that entries are sorted by mark timestamp in the list.
       mem_storage->garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
@@ -1954,11 +1966,11 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
     // IMPORTANT: this is retrieved while under the lock so that the index is consistant with the timestamp
     point_index_context = indices_.point_index_.CreatePointIndexContext();
     // Needed by snapshot to sync the durable and logical ts
-    last_durable_ts = repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
+    last_durable_ts = repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
     active_indices = GetActiveIndices();
   }
 
-  auto auto_index_helper = AutoIndexHelper{config_, *active_indices, start_timestamp};
+  auto async_index_helper = AsyncIndexHelper{config_, *active_indices, start_timestamp};
 
   DMG_ASSERT(point_index_context.has_value(), "Expected a value, even if got 0 point indexes");
   return {transaction_id,
@@ -1969,7 +1981,7 @@ Transaction InMemoryStorage::CreateTransaction(IsolationLevel isolation_level, S
           !constraints_.empty(),
           *std::move(point_index_context),
           *std::move(active_indices),
-          std::move(auto_index_helper),
+          std::move(async_index_helper),
           last_durable_ts};
 }
 
@@ -1982,8 +1994,12 @@ void InMemoryStorage::SetStorageMode(StorageMode new_storage_mode) {
   if (storage_mode_ != new_storage_mode) {
     // Snapshot thread is already running, but setup periodic execution only if enabled
     if (new_storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
+      // Ensure all pending work has been completed before changing to IN_MEMORY_ANALYTICAL
+      async_indexer_.CompleteRemaining();
       snapshot_runner_.Pause();
     } else {
+      // No need to resume async indexer, it is always running.
+      // As IN_MEMORY_TRANSACTIONAL we will now start giving it new work
       snapshot_runner_.Resume();
     }
     storage_mode_ = new_storage_mode;
@@ -2151,7 +2167,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
             }
             vertex->delta = nullptr;
             if (vertex->deleted) {
-              DMG_ASSERT(delta.action == memgraph::storage::Delta::Action::RECREATE_OBJECT);
+              DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
               current_deleted_vertices.push_back(vertex->gid);
             }
             break;
@@ -2166,7 +2182,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
             }
             edge->delta = nullptr;
             if (edge->deleted) {
-              DMG_ASSERT(delta.action == memgraph::storage::Delta::Action::RECREATE_OBJECT);
+              DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
               current_deleted_edges.push_back(edge->gid);
             }
             break;
@@ -2460,9 +2476,8 @@ void InMemoryStorage::FinalizeWalFile() {
 }
 
 bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
-                                                                     DatabaseAccessProtector db_acc,
                                                                      TransactionReplication &replicating_txn,
-                                                                     std::optional<bool> const &commit_immediately) {
+                                                                     CommitArgs const &commit_args) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   // If replica executes this:
@@ -2472,20 +2487,18 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
   //   Any STRICT_SYNC replica registered -> need to run 2PC, don't commit immediately
   // else:
   //   All SYNC/ASYNC replicas -> commit immediately
-  bool const commit_flag = std::invoke([&commit_immediately, &replicating_txn]() {
-    // Replica
-    if (commit_immediately.has_value()) {
-      return *commit_immediately;
-    }
-    // MAIN
-    return !replicating_txn.ShouldRunTwoPC();
-  });
+  bool const two_phase_commit = commit_args.two_phase_commit(replicating_txn);
 
   // Both main and replica append txn start delta and remember the position in the WAL file in which this delta is
   // saved.
-  commit_flag_wal_position_ = mem_storage->wal_file_->AppendTransactionStart(durability_commit_timestamp, commit_flag);
+  commit_flag_wal_position_ = mem_storage->wal_file_->AppendTransactionStart(durability_commit_timestamp,
+                                                                             !two_phase_commit, original_access_type_);
+  // Send transaction start to replicas with the correct access type
+  // It does not matter what we send in the `commit` argument as it always gets ignored
+  // EXCEPT when loading from a WAL file which will use whatever the line above wrote
+  replicating_txn.AppendTransactionStart(durability_commit_timestamp, !two_phase_commit, original_access_type_);
   // The WAL file needs to be updated only if we don't commit immediately.
-  needs_wal_update_ = !commit_flag;
+  needs_wal_update_ = two_phase_commit;
 
   // IMPORTANT: In most transactions there can only be one, either data or metadata deltas.
   //            But since we introduced auto index creation, a data transaction can also introduce a metadata delta.
@@ -2632,6 +2645,14 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
           EncodeEnumAlterUpdate(encoder, mem_storage->enum_store_, md_delta.enum_alter_update_info.value,
                                 md_delta.enum_alter_update_info.old_value);
+        });
+        break;
+      }
+      case MetadataDelta::Action::TTL_OPERATION: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          durability::EncodeTtlOperation(encoder, md_delta.ttl_operation_info.operation_type,
+                                         md_delta.ttl_operation_info.period, md_delta.ttl_operation_info.start_time,
+                                         md_delta.ttl_operation_info.should_run_edge_ttl);
         });
         break;
       }
@@ -2809,13 +2830,13 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
 
   // If main executes this and committing immediately we need to finalize wal file before sending deltas to replicas
   // If replica executes this and committing immediately, it is OK to finalize wal here
-  if (commit_flag) {
+  if (!two_phase_commit) {
     mem_storage->FinalizeWalFile();
   }
 
   // Ships deltas to instances and waits for the reply
   // Returns only the status of SYNC and STRICT_SYNC replicas.
-  return replicating_txn.ShipDeltas(durability_commit_timestamp, std::move(db_acc));
+  return replicating_txn.ShipDeltas(durability_commit_timestamp, commit_args);
 }
 
 utils::BasicResult<InMemoryStorage::CreateSnapshotError, std::filesystem::path> InMemoryStorage::CreateSnapshot(
@@ -2918,7 +2939,7 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
   if (force) {
     Clear();
   } else {
-    if (repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire) != kTimestampInitialId) {
+    if (repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_ != kTimestampInitialId) {
       handler_error();
       return InMemoryStorage::RecoverSnapshotError::NonEmptyStorage;
     }
@@ -2934,7 +2955,8 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
     spdlog::debug("Recovering from a snapshot {}", local_path);
     auto recovered_snapshot = storage::durability::LoadSnapshot(
         local_path, &vertices_, &edges_, &edges_metadata_, &repl_storage_state_.history, name_id_mapper_.get(),
-        &edge_count_, config_, &enum_store_, config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr);
+        &edge_count_, config_, &enum_store_, config_.salient.items.enable_schema_info ? &schema_info_.Get() : nullptr,
+        &ttl_);
     spdlog::debug("Snapshot recovered successfully");
     // Instead of using the UUID from the snapshot, we will override the snapshot's UUID with our own
     // This snapshot creates a new state and cannot have any WALs associated with it at this point
@@ -2945,8 +2967,13 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
     vertex_id_.store(recovery_info.next_vertex_id, std::memory_order_release);
     edge_id_.store(recovery_info.next_edge_id, std::memory_order_release);
     timestamp_ = std::max(timestamp_, recovery_info.next_timestamp);
-    repl_storage_state_.last_durable_timestamp_.store(recovered_snapshot.snapshot_info.durable_timestamp,
-                                                      std::memory_order_release);
+
+    auto const update_func =
+        [new_ldt = recovered_snapshot.snapshot_info.durable_timestamp](CommitTsInfo const &old_info) -> CommitTsInfo {
+      return CommitTsInfo{.ldt_ = new_ldt, .num_committed_txns_ = old_info.num_committed_txns_};
+    };
+    atomic_struct_update<CommitTsInfo>(repl_storage_state_.commit_ts_info_, update_func);
+
     // We are the only active transaction, so mark everything up to the next timestamp
     if (timestamp_ > 0) commit_log_->MarkFinishedInRange(0, timestamp_ - 1);
 
@@ -3097,7 +3124,7 @@ utils::FileRetainer::FileLockerAccessor::ret_type InMemoryStorage::UnlockPath() 
   return true;
 }
 
-std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(Accessor::Type rw_type,
+std::unique_ptr<Storage::Accessor> InMemoryStorage::Access(StorageAccessType rw_type,
                                                            std::optional<IsolationLevel> override_isolation_level,
                                                            std::optional<std::chrono::milliseconds> timeout) {
   return std::unique_ptr<InMemoryAccessor>(new InMemoryAccessor{Storage::Accessor::shared_access, this,
@@ -3249,6 +3276,9 @@ void InMemoryStorage::Clear() {
   garbage_undo_buffers_->clear();
   committed_transactions_->clear();
 
+  // Clear incoming async index creation requests
+  async_indexer_.Clear();
+
   // Clear indices, constraints and metadata
   indices_.DropGraphClearIndices();
   constraints_.DropGraphClearConstraints();
@@ -3256,9 +3286,6 @@ void InMemoryStorage::Clear() {
   edges_metadata_.run_gc();
   stored_node_labels_.clear();
   stored_edge_types_.clear();
-  if (auto_indexer_) {
-    auto_indexer_->Clear();
-  }
 
   // Reset helper classes
   enum_store_.clear();
@@ -3266,7 +3293,8 @@ void InMemoryStorage::Clear() {
 
   // Replication epoch and timestamp reset
   repl_storage_state_.epoch_.SetEpoch(std::string(utils::UUID{}));
-  repl_storage_state_.last_durable_timestamp_.store(0, std::memory_order_release);
+  CommitTsInfo const new_info{.ldt_ = 0, .num_committed_txns_ = 0};
+  repl_storage_state_.commit_ts_info_.store(new_info, std::memory_order_release);
   repl_storage_state_.history.clear();
 
   last_snapshot_digest_ = std::nullopt;
@@ -3332,13 +3360,11 @@ void InMemoryStorage::InMemoryAccessor::DropGraph() {
   mem_storage->garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) { garbage_undo_buffers.clear(); });
   mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) { committed_transactions.clear(); });
 
+  mem_storage->async_indexer_.Clear();
+
   // also, we're the only transaction running, so we can safely remove the data as well
   mem_storage->indices_.DropGraphClearIndices();
   mem_storage->constraints_.DropGraphClearConstraints();
-
-  if (mem_storage->auto_indexer_) {
-    mem_storage->auto_indexer_->Clear();
-  }
 
   if (mem_storage->config_.salient.items.enable_schema_info) mem_storage->schema_info_.Clear();
 

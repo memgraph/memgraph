@@ -72,7 +72,6 @@ target_sources(mg-query
     auth_query_handler.cpp
     interpreter_context.cpp
     query_user.cpp
-    time_to_live/time_to_live.cpp
     query_logger.cpp
     vertex_accessor.cpp
     context.cpp

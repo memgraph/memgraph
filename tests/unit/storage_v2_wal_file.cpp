@@ -15,6 +15,7 @@
 #include <filesystem>
 #include <optional>
 
+#include "storage/v2/access_type.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/exceptions.hpp"
 #include "storage/v2/durability/serialization.hpp"
@@ -156,10 +157,11 @@ class DeltaGenerator final {
     void StartTx() {
       auto timestamp = gen_->timestamp_;
       constexpr bool commit{true};
-      gen_->wal_file_.AppendTransactionStart(timestamp, commit);
+      gen_->wal_file_.AppendTransactionStart(timestamp, commit, memgraph::storage::StorageAccessType::UNIQUE);
       if (gen_->valid_) {
         gen_->UpdateStats(timestamp, 1);
-        memgraph::storage::durability::WalDeltaData data{memgraph::storage::durability::WalTransactionStart{true}};
+        memgraph::storage::durability::WalDeltaData data{memgraph::storage::durability::WalTransactionStart{
+            true, memgraph::storage::durability::TransactionAccessType::UNIQUE}};
         gen_->data_.emplace_back(timestamp, data);
       }
     }
@@ -407,6 +409,13 @@ class DeltaGenerator final {
         });
         break;
       }
+      case memgraph::storage::durability::StorageMetadataOperation::TTL_OPERATION: {
+        apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
+          memgraph::storage::durability::EncodeTtlOperation(
+              encoder, memgraph::storage::durability::TtlOperationType::ENABLE, std::nullopt, std::nullopt, false);
+        });
+        break;
+      }
     }
     if (valid_) {
       UpdateStats(timestamp_, 1);
@@ -479,6 +488,8 @@ class DeltaGenerator final {
                                              static_cast<uint8_t>(kScalarKind)}};
           case VECTOR_INDEX_DROP:
             return {WalVectorIndexDrop{vector_index_name}};
+          case TTL_OPERATION:
+            return {WalTtlOperation{TtlOperationType::ENABLE, std::nullopt, std::nullopt, false}};
         }
       });
       data_.emplace_back(timestamp_, data);
@@ -820,6 +831,7 @@ GENERATE_SIMPLE_TEST(AllGlobalOperations, {
   OPERATION_TX(VECTOR_INDEX_DROP, "hello", {{"world"}}, {}, {}, {}, {}, {}, {}, "vector_index");
   OPERATION_TX(TEXT_INDEX_CREATE, "hello", {}, {}, {"prop1", "prop2"}, {}, "index_name", {}, {}, {}, {});
   OPERATION_TX(TEXT_INDEX_DROP, {}, {}, {}, {}, {}, "index_name", {}, {}, {}, {});
+  OPERATION_TX(TTL_OPERATION, "hello");
 });
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)

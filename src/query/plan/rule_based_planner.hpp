@@ -17,7 +17,6 @@
 #include <variant>
 
 #include "flags/run_time_configurable.hpp"
-#include "query/database_access.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"

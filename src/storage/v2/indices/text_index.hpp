@@ -26,7 +26,7 @@
 namespace memgraph::storage {
 
 struct TextIndexData {
-  mgcxx::text_search::Context context_;
+  mutable mgcxx::text_search::Context context_;
   LabelId scope_;
   std::vector<PropertyId> properties_;
   std::mutex write_mutex_;  // Only used for exclusive locking during writes. IndexReader and IndexWriter are
@@ -45,15 +45,11 @@ class TextIndex {
   std::vector<TextIndexData *> GetApplicableTextIndices(std::span<storage::LabelId const> labels,
                                                         std::span<PropertyId const> properties);
 
-  static void AddVertexToTextIndex(std::int64_t gid, nlohmann::json properties, std::string property_values_as_str,
-                                   mgcxx::text_search::Context &context);
+  static void AddNodeToTextIndex(std::int64_t gid, const nlohmann::json &properties,
+                                 const std::string &property_values_as_str, mgcxx::text_search::Context &context);
 
-  mgcxx::text_search::SearchOutput SearchGivenProperties(const std::string &index_name,
-                                                         const std::string &search_query);
-
-  mgcxx::text_search::SearchOutput RegexSearch(const std::string &index_name, const std::string &search_query);
-
-  mgcxx::text_search::SearchOutput SearchAllProperties(const std::string &index_name, const std::string &search_query);
+  static std::map<PropertyId, PropertyValue> ExtractVertexProperties(const PropertyStore &property_store,
+                                                                     std::span<PropertyId const> properties);
 
  public:
   explicit TextIndex(const std::filesystem::path &storage_dir)
@@ -66,15 +62,13 @@ class TextIndex {
 
   ~TextIndex() = default;
 
-  std::map<std::string, TextIndexData> index_;
+  void RemoveNode(Vertex *vertex_after_update, Transaction &tx);
 
-  void RemoveNode(const Vertex *vertex_after_update, Transaction &tx);
+  void UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx);
 
-  void UpdateOnAddLabel(LabelId label, const Vertex *vertex, Transaction &tx);
+  void UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx);
 
-  void UpdateOnRemoveLabel(LabelId label, const Vertex *vertex, Transaction &tx);
-
-  void UpdateOnSetProperty(const Vertex *vertex, Transaction &tx);
+  void UpdateOnSetProperty(Vertex *vertex, Transaction &tx);
 
   void CreateIndex(const TextIndexSpec &index_info, VerticesIterable vertices, NameIdMapper *name_id_mapper);
 
@@ -94,7 +88,11 @@ class TextIndex {
 
   std::vector<TextIndexSpec> ListIndices() const;
 
+  std::optional<uint64_t> ApproximateVerticesTextCount(std::string_view index_name) const;
+
   void Clear();
+
+  std::map<std::string, TextIndexData, std::less<>> index_;
 };
 
 }  // namespace memgraph::storage

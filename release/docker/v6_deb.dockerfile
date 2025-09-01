@@ -9,14 +9,14 @@ ARG CUSTOM_MIRROR
 # If CUSTOM_MIRROR is set, replace the default archive.ubuntu.com
 # and security.ubuntu.com URIs in your .sources file
 RUN if [ -n "$CUSTOM_MIRROR" ]; then \
-      sed -E -i \
-        -e '/^URIs:/ s#https?://[^ ]*archive\.ubuntu\.com#'"$CUSTOM_MIRROR"'#g' \
-        -e '/^URIs:/ s#https?://security\.ubuntu\.com#'"$CUSTOM_MIRROR"'#g' \
-        /etc/apt/sources.list.d/ubuntu.sources; \
-    fi
+  sed -E -i \
+  -e '/^URIs:/ s#https?://[^ ]*archive\.ubuntu\.com#'"$CUSTOM_MIRROR"'#g' \
+  -e '/^URIs:/ s#https?://security\.ubuntu\.com#'"$CUSTOM_MIRROR"'#g' \
+  /etc/apt/sources.list.d/ubuntu.sources; \
+  fi
 
 RUN apt-get update && apt-get install -y \
-  openssl libcurl4 libssl3 libseccomp2 python3 libpython3.12 python3-pip libatomic1 adduser \
+  openssl libcurl4 libssl3 libseccomp2 python3 libpython3.12 python3-pip python3.12-venv libatomic1 adduser \
   --no-install-recommends && \
   apt install -y libxmlsec1-dev xmlsec1 && \
   rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
@@ -27,7 +27,7 @@ RUN pip3 install --break-system-packages --no-cache-dir numpy==1.26.4 scipy==1.1
 
 # fix `memgraph` UID and GID for compatibility with previous Debian releases
 RUN groupadd -g 103 memgraph && \
-    useradd -u 101 -g memgraph -m -d /home/memgraph -s /bin/bash memgraph
+  useradd -u 101 -g memgraph -m -d /home/memgraph -s /bin/bash memgraph
 
 # Install memgraph package
 COPY "${BINARY_NAME}${TARGETARCH}.${EXTENSION}" /
@@ -40,11 +40,11 @@ RUN pip3 install --no-cache-dir --break-system-packages -r /usr/lib/memgraph/aut
 
 # revert to default mirror
 RUN if [ -n "$CUSTOM_MIRROR" ]; then \
-      sed -E -i \
-        -e "/^URIs:/ s#${CUSTOM_MIRROR}/ubuntu/#https://archive.ubuntu.com/ubuntu/#g" \
-        -e "/^URIs:/ s#${CUSTOM_MIRROR}/ubuntu/#https://security.ubuntu.com/ubuntu/#g" \
-        /etc/apt/sources.list.d/ubuntu.sources; \
-    fi
+  sed -E -i \
+  -e "/^URIs:/ s#${CUSTOM_MIRROR}/ubuntu/#https://archive.ubuntu.com/ubuntu/#g" \
+  -e "/^URIs:/ s#${CUSTOM_MIRROR}/ubuntu/#https://security.ubuntu.com/ubuntu/#g" \
+  /etc/apt/sources.list.d/ubuntu.sources; \
+  fi
 
 # Memgraph listens for Bolt Protocol on this port by default.
 EXPOSE 7687

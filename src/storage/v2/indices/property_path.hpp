@@ -58,13 +58,15 @@ struct PropertyPath {
   std::vector<PropertyId> properties_;
 };
 
+using PropertiesPaths = std::vector<PropertyPath>;
+
 /** Converts a PropertyPath to std::string using the given `context` object,
  * which must provide `PropertyToName(PropertyId)`
  */
 template <typename Context>
-requires requires(Context *context, PropertyId prop) {
-  { context->PropertyToName(prop) } -> std::convertible_to<std::string>;
-}
+  requires requires(Context *context, PropertyId prop) {
+    { context->PropertyToName(prop) } -> std::convertible_to<std::string>;
+  }
 std::string ToString(PropertyPath const &path, Context *context) {
   return utils::Join(
       path | std::ranges::views::transform([&](PropertyId prop) { return context->PropertyToName(prop); }), ".");

@@ -22,6 +22,7 @@
 #include <unordered_map>
 
 #include "dbms/database.hpp"
+#include "dbms/database_protector.hpp"
 
 #include "handler.hpp"
 
@@ -68,7 +69,17 @@ class DatabaseHandler : public Handler<Database> {
       spdlog::info("Tried to generate new storage using a claimed directory.");
       return NewError::EXISTS;
     }
-    return HandlerT::New(std::piecewise_construct, config.salient.name, config, repl_state);
+
+    // Create database protector factory that can look up this specific database by name
+    auto database_protector_factory = [this, db_name = config.salient.name]() -> storage::DatabaseProtectorPtr {
+      if (auto db_gatekeeper_opt = this->Get(db_name)) {
+        return std::make_unique<DatabaseProtector>(*db_gatekeeper_opt);
+      }
+      // Fallback: return null if database not found (shouldn't happen in normal operation)
+      return nullptr;
+    };
+
+    return HandlerT::New(std::piecewise_construct, config.salient.name, config, repl_state, database_protector_factory);
   }
 
   /**

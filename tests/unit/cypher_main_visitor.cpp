@@ -36,6 +36,7 @@
 
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
+#include "query/frontend/ast/query/user_profile.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/rw_checker.hpp"
 #include "query/frontend/stripped.hpp"
@@ -5834,14 +5835,14 @@ TEST_P(CypherMainVisitorTest, TtlQuery) {
   {
     const auto *query = dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("ENABLE TTL;"));
     ASSERT_NE(query, nullptr);
-    ASSERT_EQ(query->type_, TtlQuery::Type::ENABLE);
+    ASSERT_EQ(query->type_, TtlQuery::Type::START);
     ASSERT_EQ(query->period_, nullptr);
     ASSERT_EQ(query->specific_time_, nullptr);
   }
   {
     const auto *query = dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("ENABLE TTL AT \"01:23:45\";"));
     ASSERT_NE(query, nullptr);
-    ASSERT_EQ(query->type_, TtlQuery::Type::ENABLE);
+    ASSERT_EQ(query->type_, TtlQuery::Type::CONFIGURE);
     ASSERT_EQ(query->period_, nullptr);
     ASSERT_NE(query->specific_time_, nullptr);
     auto st = ast_generator.LiteralValue(query->specific_time_);
@@ -5851,7 +5852,7 @@ TEST_P(CypherMainVisitorTest, TtlQuery) {
     const auto *query =
         dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("ENABLE TTL AT \"21:09:53\" EVERY \"3h18s\";"));
     ASSERT_NE(query, nullptr);
-    ASSERT_EQ(query->type_, TtlQuery::Type::ENABLE);
+    ASSERT_EQ(query->type_, TtlQuery::Type::CONFIGURE);
     ASSERT_NE(query->period_, nullptr);
     ASSERT_NE(query->specific_time_, nullptr);
     auto p = ast_generator.LiteralValue(query->period_);
@@ -5862,7 +5863,7 @@ TEST_P(CypherMainVisitorTest, TtlQuery) {
   {
     const auto *query = dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("ENABLE TTL EVERY \"5m10s\";"));
     ASSERT_NE(query, nullptr);
-    ASSERT_EQ(query->type_, TtlQuery::Type::ENABLE);
+    ASSERT_EQ(query->type_, TtlQuery::Type::CONFIGURE);
     ASSERT_NE(query->period_, nullptr);
     ASSERT_EQ(query->specific_time_, nullptr);
     auto p = ast_generator.LiteralValue(query->period_);
@@ -5871,7 +5872,7 @@ TEST_P(CypherMainVisitorTest, TtlQuery) {
   {
     const auto *query = dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("ENABLE TTL EVERY \"56m\" AT \"16:45:00\";"));
     ASSERT_NE(query, nullptr);
-    ASSERT_EQ(query->type_, TtlQuery::Type::ENABLE);
+    ASSERT_EQ(query->type_, TtlQuery::Type::CONFIGURE);
     ASSERT_NE(query->period_, nullptr);
     ASSERT_NE(query->specific_time_, nullptr);
     auto p = ast_generator.LiteralValue(query->period_);
@@ -6264,5 +6265,161 @@ TEST_P(CypherMainVisitorTest, TestShowActiveUsersInfo) {
     auto *query = dynamic_cast<SystemInfoQuery *>(ast_generator.ParseQuery("SHOW ACTIVE USERS"));
     ASSERT_TRUE(query);
     EXPECT_EQ(query->info_type_, SystemInfoQuery::InfoType::ACTIVE_USERS);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, UserProfiles) {
+  auto &ast_generator = *GetParam();
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("CREATE PROFILE profile"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "profile");
+    ASSERT_EQ(query->limits_.size(), 0);
+    ASSERT_FALSE(query->user_or_role_);
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::CREATE);
+  }
+  {
+    auto *query =
+        dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("CREATE PROFILE profile LIMIT sessions 10"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "profile");
+    ASSERT_EQ(query->limits_.size(), 1);
+    ASSERT_FALSE(query->user_or_role_);
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::CREATE);
+  }
+  {
+    bool failed = false;
+    try {
+      (void)dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("CREATE PROFILE profile1 profile2"));
+    } catch (...) {
+      failed = true;
+    }
+    ASSERT_TRUE(failed);
+  }
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(
+        ast_generator.ParseQuery("UPDATE PROFILE profile"));  // TODO Should we support this?
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "profile");
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::UPDATE);
+  }
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(
+        ast_generator.ParseQuery("UPDATE PROFILE profile LIMIT session 1, transactions_memory 1MB"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "profile");
+    ASSERT_EQ(query->limits_.size(), 2);
+    ASSERT_FALSE(query->user_or_role_);
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::UPDATE);
+  }
+  {
+    bool failed = false;
+    try {
+      (void)ast_generator.ParseQuery("UPDATE PROFILE profile LIMIT session 1 transactions_memory 1MB");
+    } catch (...) {
+      failed = true;
+    }
+    ASSERT_TRUE(failed);
+  }
+  {
+    bool failed = false;
+    try {
+      (void)ast_generator.ParseQuery("UPDATE PROFILE profile LIMIT session 1 1MB");
+    } catch (...) {
+      failed = true;
+    }
+    ASSERT_TRUE(failed);
+  }
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("DROP PROFILE profile"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "profile");
+    ASSERT_EQ(query->limits_.size(), 0);
+    ASSERT_FALSE(query->user_or_role_);
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::DROP);
+  }
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("SHOW PROFILE profile"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "profile");
+    ASSERT_EQ(query->limits_.size(), 0);
+    ASSERT_FALSE(query->user_or_role_);
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::SHOW_ONE);
+  }
+  {
+    bool failed = false;
+    try {
+      (void)ast_generator.ParseQuery("SHOW PROFILE profile profile2");
+    } catch (...) {
+      failed = true;
+    }
+    ASSERT_TRUE(failed);
+  }
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("SHOW PROFILES"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "");
+    ASSERT_EQ(query->limits_.size(), 0);
+    ASSERT_FALSE(query->user_or_role_);
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::SHOW_ALL);
+  }
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("SHOW USERS FOR PROFILE profile"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "profile");
+    ASSERT_EQ(query->limits_.size(), 0);
+    ASSERT_FALSE(query->user_or_role_);
+    ASSERT_TRUE(query->show_user_);
+    ASSERT_TRUE(query->show_user_.value());
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::SHOW_USERS);
+  }
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("SHOW ROLES FOR PROFILE profile"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "profile");
+    ASSERT_EQ(query->limits_.size(), 0);
+    ASSERT_FALSE(query->user_or_role_);
+    ASSERT_TRUE(query->show_user_);
+    ASSERT_FALSE(query->show_user_.value());
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::SHOW_USERS);
+  }
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("SHOW PROFILE FOR user"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "");
+    ASSERT_EQ(query->limits_.size(), 0);
+    ASSERT_EQ(query->user_or_role_, "user");
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::SHOW_FOR);
+  }
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("SET PROFILE FOR user TO profile"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "profile");
+    ASSERT_EQ(query->limits_.size(), 0);
+    ASSERT_EQ(query->user_or_role_, "user");
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::SET);
+  }
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("CLEAR PROFILE FOR user"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "");
+    ASSERT_EQ(query->limits_.size(), 0);
+    ASSERT_EQ(query->user_or_role_, "user");
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::CLEAR);
+  }
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("SHOW RESOURCE USAGE FOR user"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "");
+    ASSERT_EQ(query->limits_.size(), 0);
+    ASSERT_EQ(query->user_or_role_, "user");
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::SHOW_RESOURCE_USAGE);
+  }
+  {
+    try {
+      (void)ast_generator.ParseQuery("SHOW RESOURCE USAGE FOR user user2");
+      FAIL();
+    } catch (...) {
+    }
   }
 }

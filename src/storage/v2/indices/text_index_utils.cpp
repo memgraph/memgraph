@@ -12,7 +12,6 @@
 #include <filesystem>
 
 #include <nlohmann/json.hpp>
-#include "query/exceptions.hpp"
 #include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/name_id_mapper.hpp"

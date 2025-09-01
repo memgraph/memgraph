@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <cstdint>
 #include <string>
 #include <utility>
 
@@ -23,8 +22,8 @@
 namespace memgraph::storage::replication {
 
 struct FinalizeCommitReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::FINALIZE_COMMIT_REQ, .name = "FinalizeCommitReq"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(FinalizeCommitReq *self, slk::Reader *reader);
   static void Save(const FinalizeCommitReq &self, slk::Builder *builder);
@@ -45,8 +44,8 @@ struct FinalizeCommitReq {
 };
 
 struct FinalizeCommitRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::FINALIZE_COMMIT_RES, .name = "FinalizeCommitRes"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(FinalizeCommitRes *self, slk::Reader *reader);
   static void Save(const FinalizeCommitRes &self, slk::Builder *builder);
@@ -60,31 +59,31 @@ struct FinalizeCommitRes {
 using FinalizeCommitRpc = rpc::RequestResponse<FinalizeCommitReq, FinalizeCommitRes>;
 
 struct PrepareCommitReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::PREPARE_COMMIT_REQ, .name = "PrepareCommitReq"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(PrepareCommitReq *self, slk::Reader *reader);
   static void Save(const PrepareCommitReq &self, slk::Builder *builder);
   PrepareCommitReq() = default;
   PrepareCommitReq(const utils::UUID &main_uuid_arg, const utils::UUID &storage_uuid_arg,
-                   uint64_t const previous_commit_timestamp_arg, bool const commit_immediately_arg,
+                   uint64_t const previous_commit_timestamp_arg, bool const two_phase_commit_arg,
                    uint64_t const durability_commit_timestamp_arg)
       : main_uuid{main_uuid_arg},
         storage_uuid{storage_uuid_arg},
         previous_commit_timestamp(previous_commit_timestamp_arg),
-        commit_immediately(commit_immediately_arg),
+        two_phase_commit(two_phase_commit_arg),
         durability_commit_timestamp(durability_commit_timestamp_arg) {}
 
   utils::UUID main_uuid;
   utils::UUID storage_uuid;
   uint64_t previous_commit_timestamp;
-  bool commit_immediately;
+  bool two_phase_commit;
   uint64_t durability_commit_timestamp;
 };
 
 struct PrepareCommitRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::PREPARE_COMMIT_RES, .name = "PrepareCommitRes"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(PrepareCommitRes *self, slk::Reader *reader);
   static void Save(const PrepareCommitRes &self, slk::Builder *builder);
@@ -97,16 +96,17 @@ struct PrepareCommitRes {
 
 using PrepareCommitRpc = rpc::RequestResponse<PrepareCommitReq, PrepareCommitRes>;
 
+// Special type of RPC message
 struct InProgressRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_IN_PROGRESS_RES, .name = "InProgressRes"};
+  static constexpr uint64_t kVersion{1};
 
   InProgressRes() = default;
 };
 
 struct HeartbeatReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_HEARTBEAT_REQ, .name = "HeartbeatReq"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(HeartbeatReq *self, memgraph::slk::Reader *reader);
   static void Save(const HeartbeatReq &self, memgraph::slk::Builder *builder);
@@ -122,25 +122,30 @@ struct HeartbeatReq {
 };
 
 struct HeartbeatRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_HEARTBEAT_RES, .name = "HeartbeatRes"};
+  static constexpr uint64_t kVersion{1};
 
-  static void Load(HeartbeatRes *self, memgraph::slk::Reader *reader);
-  static void Save(const HeartbeatRes &self, memgraph::slk::Builder *builder);
+  static void Load(HeartbeatRes *self, slk::Reader *reader);
+  static void Save(const HeartbeatRes &self, slk::Builder *builder);
   HeartbeatRes() = default;
-  HeartbeatRes(bool const success, uint64_t const current_commit_timestamp, std::string epoch_id)
-      : success(success), current_commit_timestamp(current_commit_timestamp), epoch_id(std::move(epoch_id)) {}
+  HeartbeatRes(bool const success, uint64_t const current_commit_timestamp, std::string epoch_id,
+               uint64_t const num_txns_committed)
+      : success_(success),
+        current_commit_timestamp_(current_commit_timestamp),
+        epoch_id_(std::move(epoch_id)),
+        num_txns_committed_(num_txns_committed) {}
 
-  bool success;
-  uint64_t current_commit_timestamp;
-  std::string epoch_id;
+  bool success_;
+  uint64_t current_commit_timestamp_;
+  std::string epoch_id_;
+  uint64_t num_txns_committed_;
 };
 
 using HeartbeatRpc = rpc::RequestResponse<HeartbeatReq, HeartbeatRes>;
 
 struct SnapshotReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_SNAPSHOT_REQ, .name = "SnapshotReq"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(SnapshotReq *self, memgraph::slk::Reader *reader);
   static void Save(const SnapshotReq &self, memgraph::slk::Builder *builder);
@@ -153,24 +158,25 @@ struct SnapshotReq {
 };
 
 struct SnapshotRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_SNAPSHOT_RES, .name = "SnapshotRes"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(SnapshotRes *self, slk::Reader *reader);
   static void Save(const SnapshotRes &self, slk::Builder *builder);
   SnapshotRes() = default;
 
-  explicit SnapshotRes(std::optional<uint64_t> current_commit_timestamp)
-      : current_commit_timestamp(std::move(current_commit_timestamp)) {}
+  explicit SnapshotRes(std::optional<uint64_t> const current_commit_timestamp, uint64_t const num_txns_committed)
+      : current_commit_timestamp_(current_commit_timestamp), num_txns_committed_(num_txns_committed) {}
 
-  std::optional<uint64_t> current_commit_timestamp;
+  std::optional<uint64_t> current_commit_timestamp_;
+  uint64_t num_txns_committed_;
 };
 
 using SnapshotRpc = rpc::RequestResponse<SnapshotReq, SnapshotRes>;
 
 struct WalFilesReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_WALFILES_REQ, .name = "WalFilesReq"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(WalFilesReq *self, slk::Reader *reader);
   static void Save(const WalFilesReq &self, slk::Builder *builder);
@@ -186,23 +192,24 @@ struct WalFilesReq {
 };
 
 struct WalFilesRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_WALFILES_RES, .name = "WalFilesRes"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(WalFilesRes *self, memgraph::slk::Reader *reader);
   static void Save(const WalFilesRes &self, memgraph::slk::Builder *builder);
   WalFilesRes() = default;
-  explicit WalFilesRes(std::optional<uint64_t> current_commit_timestamp)
-      : current_commit_timestamp(current_commit_timestamp) {}
+  explicit WalFilesRes(std::optional<uint64_t> const current_commit_timestamp, uint64_t const num_txns_committed)
+      : current_commit_timestamp_(current_commit_timestamp), num_txns_committed_(num_txns_committed) {}
 
-  std::optional<uint64_t> current_commit_timestamp;
+  std::optional<uint64_t> current_commit_timestamp_;
+  uint64_t num_txns_committed_;
 };
 
 using WalFilesRpc = rpc::RequestResponse<WalFilesReq, WalFilesRes>;
 
 struct CurrentWalReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_CURRENT_WAL_REQ, .name = "CurrentWalReq"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(CurrentWalReq *self, memgraph::slk::Reader *reader);
   static void Save(const CurrentWalReq &self, memgraph::slk::Builder *builder);
@@ -216,16 +223,17 @@ struct CurrentWalReq {
 };
 
 struct CurrentWalRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_CURRENT_WAL_RES, .name = "CurrentWalRes"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(CurrentWalRes *self, memgraph::slk::Reader *reader);
   static void Save(const CurrentWalRes &self, memgraph::slk::Builder *builder);
   CurrentWalRes() = default;
-  explicit CurrentWalRes(std::optional<uint64_t> current_commit_timestamp)
-      : current_commit_timestamp(current_commit_timestamp) {}
+  explicit CurrentWalRes(std::optional<uint64_t> const current_commit_timestamp, uint64_t const num_txns_committed)
+      : current_commit_timestamp_(current_commit_timestamp), num_txns_committed_(num_txns_committed) {}
 
-  std::optional<uint64_t> current_commit_timestamp;
+  std::optional<uint64_t> current_commit_timestamp_;
+  uint64_t num_txns_committed_;
 };
 
 using CurrentWalRpc = rpc::RequestResponse<CurrentWalReq, CurrentWalRes>;

@@ -12,7 +12,6 @@
 #include "query/dump.hpp"
 
 #include <algorithm>
-#include <iomanip>
 #include <limits>
 #include <map>
 #include <optional>
@@ -450,6 +449,11 @@ PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc)
                    // Dump all global edge property indices
                    CreateEdgePropertyIndicesPullChunk(),
 
+                   // Dump all TTL configuration
+                   CreateTTLConfigPullChunk(),
+
+                   // IMPORTANT NOTE: After this point stuff is restored from their owne KVStore not from our snapshot
+
                    // Dump all triggers
                    CreateTriggersPullChunk()} {}
 
@@ -614,6 +618,35 @@ PullPlanDump::PullChunk PullPlanDump::CreateEdgePropertyIndicesPullChunk() {
     }
 
     return std::nullopt;
+  };
+}
+
+PullPlanDump::PullChunk PullPlanDump::CreateTTLConfigPullChunk() {
+  // Dump all TTL config if enabled
+  // NOLINTNEXTLINE(clang-diagnostic-unused-lambda-capture)
+  return [this](AnyStream *stream, std::optional<int> /*n*/) mutable -> std::optional<size_t> {
+#ifdef MG_ENTERPRISE
+    auto const &ttl = dba_->GetTtlConfig();
+    if (!ttl) {
+      return 0;
+    }
+
+    std::ostringstream os;
+    os << "ENABLE TTL";
+    if (ttl.period) {
+      os << " EVERY \"" << std::chrono::duration_cast<std::chrono::seconds>(*ttl.period).count() << "s\"";
+    }
+    if (ttl.start_time) {
+      // Use TtlInfo::StringifyStartTime to ensure consistent timezone handling
+      os << " AT \"" << storage::ttl::TtlInfo::StringifyStartTime(*ttl.start_time) << "\"";
+    }
+    os << ";";
+    stream->Result({TypedValue(os.str())});
+    return 1;
+#else
+    (void)stream;
+    return 0;
+#endif
   };
 }
 

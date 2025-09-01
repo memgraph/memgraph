@@ -36,6 +36,7 @@
 #include "coordination/coordinator_state.hpp"
 #include "dbms/database_handler.hpp"
 #endif
+#include "dbms/database_protector.hpp"
 #include "global.hpp"
 #include "query/interpreter_context.hpp"
 #include "spdlog/spdlog.h"
@@ -124,7 +125,13 @@ class DbmsHandler {
                          config.salient.name = kDefaultDB;
                          return std::move(config);
                        }(),
-                       repl_state_} {}
+                       repl_state_,
+                       [this]() -> storage::DatabaseProtectorPtr {
+                         if (auto db_acc = db_gatekeeper_.access()) {
+                           return std::make_unique<DatabaseProtector>(*db_acc);
+                         }
+                         return nullptr;
+                       }} {}
 #endif
 
 #ifdef MG_ENTERPRISE
@@ -169,9 +176,9 @@ class DbmsHandler {
     // TODO: Fix this hack
     if (config.name == kDefaultDB) {
       spdlog::debug("Last commit timestamp for DB {} is {}", kDefaultDB,
-                    db->storage()->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire));
+                    db->storage()->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_);
       // This seems correct, if database made progress
-      if (db->storage()->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire) !=
+      if (db->storage()->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_ !=
           storage::kTimestampInitialId) {
         spdlog::debug("Default storage is not clean, cannot update UUID...");
         return NewError::GENERIC;  // Update error
@@ -383,25 +390,6 @@ class DbmsHandler {
       }
     }
   }
-
-#ifdef MG_ENTERPRISE
-  /**
-   * @brief Restore TTL of all currently defined databases.
-   *
-   * @param ic global InterpreterContext
-   */
-  void RestoreTTL(query::InterpreterContext *ic) {
-    auto wr = std::lock_guard{lock_};
-    for (auto &[_, db_gk] : db_handler_) {
-      auto db_acc = db_gk.access();
-      if (db_acc) {
-        auto *db = db_acc->get();
-        spdlog::debug("Restoring TTL for database \"{}\"", db->name());
-        db->ttl().Restore(*db_acc, ic);
-      }
-    }
-  }
-#endif
 
   /**
    * @brief todo

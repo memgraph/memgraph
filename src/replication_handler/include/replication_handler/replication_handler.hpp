@@ -13,6 +13,7 @@
 #include <utility>
 
 #include "auth/auth.hpp"
+#include "auth/profiles/user_profiles.hpp"
 #include "dbms/dbms_handler.hpp"
 #include "flags/experimental.hpp"
 #include "replication/include/replication/state.hpp"
@@ -90,14 +91,14 @@ void SystemRestore(ReplicationClient &client, system::System &system, dbms::Dbms
     auto stream = std::invoke([&]() {
       // Handle only default database is no license
       if (!is_enterprise) {
-        return client.rpc_client_.Stream<SystemRecoveryRpc>(main_uuid, db_info.last_committed_timestamp,
-                                                            std::move(db_info.configs), auth::Auth::Config{},
-                                                            std::vector<auth::User>{}, std::vector<auth::Role>{});
+        return client.rpc_client_.Stream<SystemRecoveryRpc>(
+            main_uuid, db_info.last_committed_timestamp, std::move(db_info.configs), auth::Auth::Config{},
+            std::vector<auth::User>{}, std::vector<auth::Role>{}, std::vector<auth::UserProfiles::Profile>{});
       }
       return auth.WithLock([&](auto &locked_auth) {
-        return client.rpc_client_.Stream<SystemRecoveryRpc>(main_uuid, db_info.last_committed_timestamp,
-                                                            std::move(db_info.configs), locked_auth.GetConfig(),
-                                                            locked_auth.AllUsers(), locked_auth.AllRoles());
+        return client.rpc_client_.Stream<SystemRecoveryRpc>(
+            main_uuid, db_info.last_committed_timestamp, std::move(db_info.configs), locked_auth.GetConfig(),
+            locked_auth.AllUsers(), locked_auth.AllRoles(), locked_auth.AllProfiles());
       });
     });
     if (const auto response = stream.SendAndWait(); response.result == SystemRecoveryRes::Result::FAILURE) {
@@ -129,7 +130,8 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
   bool SetReplicationRoleMain() override;
 
   // as MAIN, become REPLICA, can be called on MAIN and REPLICA
-  bool SetReplicationRoleReplica(const ReplicationServerConfig &config) override;
+  bool SetReplicationRoleReplica(const ReplicationServerConfig &config,
+                                 std::optional<utils::UUID> const &maybe_main_uuid) override;
 
   // as MAIN, become REPLICA, can be called only on MAIN
   bool TrySetReplicationRoleReplica(const ReplicationServerConfig &config) override;
@@ -158,6 +160,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
 
 #ifdef MG_ENTERPRISE
   auto GetDatabasesHistories() const -> replication_coordination_glue::InstanceInfo;
+  auto GetReplicationLag() const -> coordination::ReplicationLagInfo;
 #endif
 
  private:
@@ -229,8 +232,10 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
       auto *storage = db_acc->storage();
       if (storage->storage_mode_ != storage::StorageMode::IN_MEMORY_TRANSACTIONAL) return;
 
+      auto protector = dbms::DatabaseProtector{db_acc};
+
       auto client = std::make_unique<storage::ReplicationStorageClient>(*instance_client_ptr, main_uuid);
-      client->Start(storage, db_acc);
+      client->Start(storage, protector);
 
       all_clients_good &= storage->repl_storage_state_.replication_storage_clients_.WithLock(
           [client = std::move(client)](auto &storage_clients) mutable {  // NOLINT
@@ -238,10 +243,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
               // We force sync replicas in other situation
               // DIVERGED_FROM_MAIN is only valid state in enterprise and community replication. HA will immediately
               // set the state to RECOVERY
-              if (state == storage::replication::ReplicaState::DIVERGED_FROM_MAIN) {
-                return false;
-              }
-              return true;
+              return state != storage::replication::ReplicaState::DIVERGED_FROM_MAIN;
             });
 
             if (success) {
@@ -297,7 +299,8 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
   }
 
   template <bool AllowIdempotency>
-  bool SetReplicationRoleReplica_(auto &locked_repl_state, const ReplicationServerConfig &config) {
+  bool SetReplicationRoleReplica_(auto &locked_repl_state, const ReplicationServerConfig &config,
+                                  std::optional<utils::UUID> const &maybe_main_uuid = std::nullopt) {
     if (locked_repl_state->IsReplica()) {
       if (!AllowIdempotency) {
         return false;
@@ -307,7 +310,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
       if (replica_data.config == config) {
         return true;
       }
-      locked_repl_state->SetReplicationRoleReplica(config);
+      locked_repl_state->SetReplicationRoleReplica(config, maybe_main_uuid);
 #ifdef MG_ENTERPRISE
       return StartRpcServer(dbms_handler_, replica_data, auth_, system_);
 #else
@@ -318,7 +321,7 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
     // Shutdown any clients we might have had
     ClientsShutdown(locked_repl_state);
     // Creates the server
-    locked_repl_state->SetReplicationRoleReplica(config);
+    locked_repl_state->SetReplicationRoleReplica(config, maybe_main_uuid);
     spdlog::trace("Role set to replica, instance-level clients destroyed.");
 
     // Start

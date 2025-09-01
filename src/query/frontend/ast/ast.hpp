@@ -2992,7 +2992,8 @@ class CoordinatorQuery : public memgraph::query::Query {
     FORCE_RESET_CLUSTER_STATE,
     YIELD_LEADERSHIP,
     SET_COORDINATOR_SETTING,
-    SHOW_COORDINATOR_SETTINGS
+    SHOW_COORDINATOR_SETTINGS,
+    SHOW_REPLICATION_LAG
   };
 
   enum class SyncMode { SYNC, ASYNC, STRICT_SYNC };
@@ -3789,7 +3790,7 @@ class TtlQuery : public memgraph::query::Query {
 
   TtlQuery() = default;
 
-  enum class Type { UNKNOWN = 0, ENABLE, DISABLE, STOP } type_;
+  enum class Type { UNKNOWN = 0, START, CONFIGURE, DISABLE, STOP } type_;
   Expression *period_{};
   Expression *specific_time_{};
 

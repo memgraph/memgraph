@@ -15,6 +15,7 @@ import logging
 import os
 import shutil
 import subprocess
+import sys
 import time
 from argparse import ArgumentParser
 from pathlib import Path
@@ -33,6 +34,13 @@ def load_args():
     parser = ArgumentParser()
     parser.add_argument("--workloads-root-directory", required=True)
     parser.add_argument("--workload-name", default=None, required=False)
+    parser.add_argument(
+        "--workload-name-list",
+        default=False,
+        required=False,
+        action="store_true",
+        help="List all available workload names and exit",
+    )
     parser.add_argument("--debug", default=False, required=False)
     parser.add_argument("--save-data-dir", default=False, required=False, action="store_true")
     parser.add_argument("--clean-logs-dir", default=False, required=False, action="store_true")
@@ -41,13 +49,33 @@ def load_args():
 
 def load_workloads(root_directory):
     workloads = []
-    for file in Path(root_directory).rglob("*.yaml"):
+    # Always search relative to the build directory
+    build_e2e_dir = os.path.join(BUILD_DIR, "tests", "e2e")
+    if root_directory == ".":
+        search_path = Path(build_e2e_dir)
+    else:
+        search_path = Path(os.path.join(build_e2e_dir, root_directory))
+
+    for file in search_path.rglob("workloads.yaml"):
         # 8.03.2024. - Skip streams e2e tests
         if str(file).endswith("/streams/workloads.yaml"):
             continue
         with open(file, "r") as f:
             workloads.extend(yaml.load(f, Loader=yaml.FullLoader)["workloads"])
     return workloads
+
+
+def list_workload_names(root_directory):
+    """List all available workload names from the given root directory."""
+    workloads = load_workloads(root_directory)
+    workload_names = sorted(set(w["name"] for w in workloads))
+
+    print("Available workload names:")
+    print("-" * 30)
+    for name in workload_names:
+        print(f"  {name}")
+    print("-" * 30)
+    print(f"Total: {len(workload_names)} workloads")
 
 
 def cleanup(workload, keep_directories=True):
@@ -119,6 +147,12 @@ def run(args):
 
 if __name__ == "__main__":
     args = load_args()
+
+    # If --workload-name-list is specified, list workload names and exit
+    if args.workload_name_list:
+        list_workload_names(args.workloads_root_directory)
+        sys.exit(0)
+
     logging.basicConfig(level=logging.INFO, format="%(levelname)s %(asctime)s %(name)s] %(message)s")
     run(args)
     if not args.save_data_dir:

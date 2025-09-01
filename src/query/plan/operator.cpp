@@ -326,6 +326,8 @@ void HandlePeriodicCommitError(const storage::StorageManipulationError &error) {
           throw QueryException("PeriodicCommit failed: Unable to commit due to serialization error.");
         } else if constexpr (std::is_same_v<ErrorType, storage::PersistenceError>) {
           throw QueryException("PeriodicCommit failed: Unable to commit due to persistence error.");
+        } else if constexpr (std::is_same_v<ErrorType, storage::ReplicaShouldNotWriteError>) {
+          throw QueryException("PeriodicCommit failed: Queries on replica shouldn't write.");
         } else {
           static_assert(kAlwaysFalse<T>, "Missing type from variant visitor");
         }
@@ -3094,10 +3096,11 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
       // Clean out the current stack
       if (current_level.empty()) {
         if (!edges_on_frame.empty()) {
-          if (!self_.is_reverse_)
-            edges_on_frame.erase(edges_on_frame.end());
-          else
+          if (!self_.is_reverse_) {
+            edges_on_frame.pop_back();
+          } else {
             edges_on_frame.erase(edges_on_frame.begin());
+          }
         }
         traversal_stack_.pop_back();
         return false;
@@ -6800,7 +6803,7 @@ void CallCustomProcedure(const std::string_view fully_qualified_procedure_name, 
 
     mgp_memory proc_memory{&memory_tracking_resource};
 
-    // TODO: What about cross library boundary exceptions? OMG C++?!
+    // TODO: What about cross library boundary exceptions? OMG C++?! <- should be fine since moving to shared libstd
     proc.cb(&proc_args, &graph, result, &proc_memory);
 
     auto leaked_bytes = memory_tracking_resource.GetAllocatedBytes();
@@ -7781,11 +7784,11 @@ class PeriodicCommitCursor : public Cursor {
     utils::BasicResult<storage::StorageManipulationError, void> commit_result;
     if (pulled_ >= commit_frequency_) {
       // do periodic commit since we pulled that many times
-      commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
+      commit_result = context.db_accessor->PeriodicCommit(context.commit_args());
       pulled_ = 0;
     } else if (!pull_value && pulled_ > 0) {
       // do periodic commit for the rest of pulled items
-      commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
+      commit_result = context.db_accessor->PeriodicCommit(context.commit_args());
     }
 
     if (commit_result.HasError()) {
@@ -7879,7 +7882,7 @@ class PeriodicSubqueryCursor : public Cursor {
         } else {
           if (pulled_ > 0) {
             // do periodic commit for the rest of pulled items
-            const auto commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
+            const auto commit_result = context.db_accessor->PeriodicCommit(context.commit_args());
             if (commit_result.HasError()) {
               HandlePeriodicCommitError(commit_result.GetError());
             }
@@ -7896,7 +7899,7 @@ class PeriodicSubqueryCursor : public Cursor {
 
       if (pulled_ >= commit_frequency_) {
         // do periodic commit since we pulled that many times
-        const auto commit_result = context.db_accessor->PeriodicCommit({}, context.db_acc);
+        const auto commit_result = context.db_accessor->PeriodicCommit(context.commit_args());
         if (commit_result.HasError()) {
           HandlePeriodicCommitError(commit_result.GetError());
         }

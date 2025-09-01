@@ -86,8 +86,8 @@ def test_durability_with_text_index(connection):
     assert len(index_info) == 2
     assert sorted(index_info) == sorted(
         [
-            ("text (name: document_index)", "Document", [], None),
-            ("text (name: document_index1)", "Document", ["title", "content"], None),
+            ("text (name: document_index)", "Document", [], 2),
+            ("text (name: document_index1)", "Document", ["title", "content"], 2),
         ]
     )
 
@@ -132,8 +132,8 @@ def test_durability_with_text_index(connection):
     assert len(index_info) == 2
     assert sorted(index_info) == sorted(
         [
-            ("text (name: document_index)", "Document", [], None),
-            ("text (name: document_index1)", "Document", ["title", "content"], None),
+            ("text (name: document_index)", "Document", [], 2),
+            ("text (name: document_index1)", "Document", ["title", "content"], 2),
         ]
     )
 
@@ -251,8 +251,8 @@ def test_durability_with_text_index_recovery_disabled(connection):
     assert len(index_info) == 2
     assert sorted(index_info) == sorted(
         [
-            ("text (name: new_document_index)", "Document", [], None),
-            ("text (name: new_document_index1)", "Document", ["title", "content"], None),
+            ("text (name: new_document_index)", "Document", [], 0),
+            ("text (name: new_document_index1)", "Document", ["title", "content"], 0),
         ]
     )
 

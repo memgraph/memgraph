@@ -38,7 +38,7 @@ void TextIndex::CreateTantivyIndex(const std::string &index_path, const TextInde
                                        index_path);
     }
   } catch (const std::exception &e) {
-    spdlog::error("Failed to create text index \"{}\" at path: {}. Error: {}", index_info.index_name_, index_path,
+    spdlog::error("Failed to create text index {} at path: {}. Error: {}", index_info.index_name_, index_path,
                   e.what());
     throw query::TextSearchException("Tantivy error: {}", e.what());
   }
@@ -143,76 +143,46 @@ void TextIndex::RecoverIndex(const TextIndexSpec &index_info,
 }
 
 void TextIndex::DropIndex(const std::string &index_name) {
+  auto node = index_.extract(index_name);
+  if (node.empty()) {
+    throw query::TextSearchException("Text index {} doesn't exist.", index_name);
+  }
+
+  auto &entry = node.mapped();
   try {
-    index_.erase(index_name);
-    mgcxx::text_search::drop_index(MakeIndexPath(text_index_storage_dir_, index_name));
+    mgcxx::text_search::drop_index(std::move(entry.context_));
   } catch (const std::exception &e) {
-    throw query::TextSearchException("Tantivy error: {}", e.what());
+    CreateTantivyIndex(
+        MakeIndexPath(text_index_storage_dir_, index_name),
+        TextIndexSpec{.index_name_ = index_name, .label_ = entry.scope_, .properties_ = std::move(entry.properties_)});
+    throw query::TextSearchException("Text index error on drop: {}", e.what());
   }
 }
 
 bool TextIndex::IndexExists(const std::string &index_name) const { return index_.contains(index_name); }
-
-mgcxx::text_search::SearchOutput TextIndex::SearchGivenProperties(const std::string &index_name,
-                                                                  const std::string &search_query) {
-  try {
-    return mgcxx::text_search::search(
-        index_.at(index_name).context_,
-        mgcxx::text_search::SearchInput{.search_query = search_query, .return_fields = {"metadata"}});
-  } catch (const std::exception &e) {
-    throw query::TextSearchException("Tantivy error: {}", e.what());
-  }
-
-  return mgcxx::text_search::SearchOutput{};
-}
-
-mgcxx::text_search::SearchOutput TextIndex::RegexSearch(const std::string &index_name,
-                                                        const std::string &search_query) {
-  try {
-    return mgcxx::text_search::regex_search(
-        index_.at(index_name).context_,
-        mgcxx::text_search::SearchInput{
-            .search_fields = {"all"}, .search_query = search_query, .return_fields = {"metadata"}});
-  } catch (const std::exception &e) {
-    throw query::TextSearchException("Tantivy error: {}", e.what());
-  }
-
-  return mgcxx::text_search::SearchOutput{};
-}
-
-mgcxx::text_search::SearchOutput TextIndex::SearchAllProperties(const std::string &index_name,
-                                                                const std::string &search_query) {
-  try {
-    return mgcxx::text_search::search(
-        index_.at(index_name).context_,
-        mgcxx::text_search::SearchInput{
-            .search_fields = {"all"}, .search_query = search_query, .return_fields = {"metadata"}});
-  } catch (const std::exception &e) {
-    throw query::TextSearchException("Tantivy error: {}", e.what());
-  }
-
-  return mgcxx::text_search::SearchOutput{};
-}
 
 std::vector<Gid> TextIndex::Search(const std::string &index_name, const std::string &search_query,
                                    text_search_mode search_mode) {
   if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     throw query::TextSearchDisabledException();
   }
-  if (!index_.contains(index_name)) {
-    throw query::TextSearchException("Text index \"{}\" doesn’t exist.", index_name);
-  }
 
+  auto &context = std::invoke([&]() -> mgcxx::text_search::Context & {
+    if (const auto it = index_.find(index_name); it != index_.end()) {
+      return it->second.context_;
+    }
+    throw query::TextSearchException("Text index {} doesn't exist.", index_name);
+  });
   mgcxx::text_search::SearchOutput search_results;
   switch (search_mode) {
     case text_search_mode::SPECIFIED_PROPERTIES:
-      search_results = SearchGivenProperties(index_name, ToLowerCasePreservingBooleanOperators(search_query));
+      search_results = SearchGivenProperties(ToLowerCasePreservingBooleanOperators(search_query), context);
       break;
     case text_search_mode::REGEX:
-      search_results = RegexSearch(index_name, ToLowerCasePreservingBooleanOperators(search_query));
+      search_results = RegexSearch(ToLowerCasePreservingBooleanOperators(search_query), context);
       break;
     case text_search_mode::ALL_PROPERTIES:
-      search_results = SearchAllProperties(index_name, ToLowerCasePreservingBooleanOperators(search_query));
+      search_results = SearchAllProperties(ToLowerCasePreservingBooleanOperators(search_query), context);
       break;
     default:
       throw query::TextSearchException(
@@ -236,16 +206,18 @@ std::string TextIndex::Aggregate(const std::string &index_name, const std::strin
   if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     throw query::TextSearchDisabledException();
   }
-  if (!index_.contains(index_name)) {
-    throw query::TextSearchException("Text index \"{}\" doesn’t exist.", index_name);
-  }
 
+  auto &context = std::invoke([&]() -> mgcxx::text_search::Context & {
+    if (const auto it = index_.find(index_name); it != index_.end()) {
+      return it->second.context_;
+    }
+    throw query::TextSearchException("Text index {} doesn't exist.", index_name);
+  });
   mgcxx::text_search::DocumentOutput aggregation_result;
   try {
     aggregation_result = mgcxx::text_search::aggregate(
-        index_.at(index_name).context_,
-        mgcxx::text_search::SearchInput{
-            .search_fields = {"all"}, .search_query = search_query, .aggregation_query = aggregation_query});
+        context, mgcxx::text_search::SearchInput{
+                     .search_fields = {"all"}, .search_query = search_query, .aggregation_query = aggregation_query});
 
   } catch (const std::exception &e) {
     throw query::TextSearchException("Tantivy error: {}", e.what());
@@ -265,6 +237,14 @@ std::vector<TextIndexSpec> TextIndex::ListIndices() const {
   return ret;
 }
 
+std::optional<uint64_t> TextIndex::ApproximateVerticesTextCount(std::string_view index_name) const {
+  if (const auto it = index_.find(index_name); it != index_.end()) {
+    const auto &index_data = it->second;
+    return mgcxx::text_search::get_num_docs(index_data.context_);
+  }
+  return std::nullopt;
+}
+
 void TextIndex::Clear() {
   if (!index_.empty()) {
     std::error_code ec;
@@ -273,8 +253,8 @@ void TextIndex::Clear() {
       spdlog::error("Error removing text index directory '{}': {}", text_index_storage_dir_, ec.message());
       return;
     }
+    index_.clear();
   }
-  index_.clear();
 }
 
 void TextIndex::ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mapper) {

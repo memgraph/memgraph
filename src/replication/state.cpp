@@ -32,7 +32,8 @@ auto BuildReplicaKey(std::string_view name) -> std::string {
   return key;
 }
 
-ReplicationState::ReplicationState(std::optional<std::filesystem::path> durability_dir) {
+ReplicationState::ReplicationState(std::optional<std::filesystem::path> durability_dir, bool part_of_ha_cluster)
+    : part_of_ha_cluster_(part_of_ha_cluster) {
   if (!durability_dir) return;
   auto repl_dir = *std::move(durability_dir);
   repl_dir /= kReplicationDirectory;
@@ -283,10 +284,16 @@ bool ReplicationState::SetReplicationRoleMain(const utils::UUID &main_uuid) {
   return true;
 }
 
-bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &config) {
+bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &config,
+                                                 std::optional<utils::UUID> const &maybe_main_uuid) {
   // False positive report for the std::make_unique
-  // Random UUID when first setting replica rol
-  auto const main_uuid = utils::UUID{};
+  // Random UUID when first setting replica role if main_uuid not provided already
+  auto const main_uuid = std::invoke([&maybe_main_uuid]() -> utils::UUID {
+    if (maybe_main_uuid.has_value()) {
+      return *maybe_main_uuid;
+    }
+    return utils::UUID{};
+  });
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
   if (!TryPersistRoleReplica(config, main_uuid)) {
     return false;

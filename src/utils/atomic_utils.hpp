@@ -31,3 +31,16 @@ T atomic_fetch_max_explicit(std::atomic<T> *current, typename std::atomic<T>::va
   }
   return old;
 }
+
+template <typename T>
+concept AtomicStruct =
+    std::is_trivially_copyable_v<T> && std::is_copy_constructible_v<T> && std::is_move_constructible_v<T> &&
+    std::is_copy_assignable_v<T> && std::is_move_assignable_v<T> && std::is_same_v<T, std::remove_cv_t<T>>;
+
+template <AtomicStruct T, typename F>
+void atomic_struct_update(std::atomic<T> &data, F &&func) {
+  auto curr_info = data.load(std::memory_order_acquire);
+  while (
+      !data.compare_exchange_weak(curr_info, func(curr_info), std::memory_order_acq_rel, std::memory_order_acquire)) {
+  }
+}
