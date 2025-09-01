@@ -1463,8 +1463,10 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
   is_transaction_active_ = false;
 }
 
-std::set<uint64_t> InMemoryStorage::InMemoryAccessor::CollectContributingTransactions() const {
-  std::set<uint64_t> contributors;
+std::optional<uint64_t> InMemoryStorage::InMemoryAccessor::CollectContributingTransactions() const {
+  std::optional<uint64_t> max_contributor;
+  // @TODO(colinbarry): performance considerations of building this set
+  // to process a delta only once.
   std::unordered_set<const Delta *> visited;
 
   // @TODO use ranges + filter here
@@ -1475,8 +1477,12 @@ std::set<uint64_t> InMemoryStorage::InMemoryAccessor::CollectContributingTransac
       while (current_delta != nullptr && !visited.count(current_delta)) {
         visited.insert(current_delta);
         auto ts = current_delta->timestamp->load();
-        if (ts >= kTimestampInitialId) {
-          contributors.insert(ts);
+        if (ts >= kTransactionInitialId && ts != transaction_.transaction_id) {
+          if (max_contributor) {
+            max_contributor = std::max(*max_contributor, ts);
+          } else {
+            max_contributor = ts;
+          }
         }
 
         current_delta = current_delta->next.load();
@@ -1484,7 +1490,7 @@ std::set<uint64_t> InMemoryStorage::InMemoryAccessor::CollectContributingTransac
     }
   }
 
-  return contributors;
+  return max_contributor;
 }
 
 void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
@@ -1494,13 +1500,13 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
 
     if (!transaction_.deltas.empty()) {
       if (transaction_.has_interleaved_deltas) {
-        auto contributors = CollectContributingTransactions();
+        auto max_contributor = CollectContributingTransactions();
 
-        if (!contributors.empty()) {
+        if (max_contributor) {
           mem_storage->waiting_gc_deltas_.WithLock([&](auto &waiting_list) {
             waiting_list.emplace_back(
                 InMemoryStorage::GCDeltas(0, std::move(transaction_.deltas), std::move(transaction_.commit_timestamp)),
-                std::move(contributors));
+                max_contributor);
           });
         } else {
           mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) {
@@ -2355,22 +2361,11 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   uint64_t oldest_active_start_timestamp = commit_log_->OldestActive();
 
   // Process waiting list for interleaved delta chains ready to move to GC
-  // @TODO(colinbarry) Tidy this: prototype messy code!
   waiting_gc_deltas_.WithLock([&](auto &waiting_list) {
     auto it = waiting_list.begin();
     while (it != waiting_list.end()) {
-      // Remove committed transactions
-      auto tx_it = it->contributing_transactions_.begin();
-      while (tx_it != it->contributing_transactions_.end()) {
-        if (*tx_it < oldest_active_start_timestamp) {
-          tx_it = it->contributing_transactions_.erase(tx_it);
-        } else {
-          ++tx_it;
-        }
-      }
-
-      // If empty, move to GC
-      if (it->contributing_transactions_.empty()) {
+      // Check if max contributor has finished
+      if (!it->max_contributing_transaction_ || *it->max_contributing_transaction_ < oldest_active_start_timestamp) {
         committed_transactions_.WithLock(
             [&](auto &committed_transactions) { committed_transactions.emplace_back(std::move(it->deltas_)); });
         it = waiting_list.erase(it);

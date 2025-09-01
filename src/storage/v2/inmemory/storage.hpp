@@ -431,7 +431,7 @@ class InMemoryStorage final : public Storage {
     // Bring base class convenience overloads into scope (they provide default neverCancel)
     using Storage::Accessor::CreateGlobalEdgeIndex;
     using Storage::Accessor::CreateIndex;
-    std::set<uint64_t> CollectContributingTransactions() const;
+    std::optional<uint64_t> CollectContributingTransactions() const;
 
     /// Create an index.
     /// Returns void if the index has been created.
@@ -839,11 +839,11 @@ class InMemoryStorage final : public Storage {
 
   // Ownership of linked deltas is transferred to committed_transactions_ once transaction is commited
   struct WaitingGCDeltas {
-    WaitingGCDeltas(GCDeltas deltas, std::set<uint64_t> contributors)
-        : deltas_{std::move(deltas)}, contributing_transactions_{std::move(contributors)} {}
+    WaitingGCDeltas(GCDeltas deltas, std::optional<uint64_t> max_contributor)
+        : deltas_{std::move(deltas)}, max_contributing_transaction_{max_contributor} {}
 
     GCDeltas deltas_;
-    std::set<uint64_t> contributing_transactions_;
+    std::optional<uint64_t> max_contributing_transaction_;
   };
 
   utils::Synchronized<std::list<GCDeltas>, utils::SpinLock> committed_transactions_{};
