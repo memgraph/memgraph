@@ -541,6 +541,7 @@ antlrcpp::Any CypherMainVisitor::visitCreateTextEdgeIndex(MemgraphCypher::Create
   for (auto *property_key_name_ctx : ctx->propertyKeyName()) {
     index_query->properties_.emplace_back(std::any_cast<PropertyIx>(property_key_name_ctx->accept(this)));
   }
+  query_ = index_query;
   return index_query;
 }
 

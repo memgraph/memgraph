@@ -612,6 +612,10 @@ class DbAccessor final {
     return accessor_->ApproximateVerticesTextCount(index_name);
   }
 
+  std::optional<uint64_t> EdgesTextCount(std::string_view index_name) const {
+    return accessor_->ApproximateEdgesTextCount(index_name);
+  }
+
   int64_t EdgesCount() const { return accessor_->ApproximateEdgeCount(); }
 
   int64_t EdgesCount(storage::EdgeTypeId edge_type) const { return accessor_->ApproximateEdgeCount(edge_type); }

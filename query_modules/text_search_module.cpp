@@ -31,7 +31,7 @@ constexpr std::string_view kReturnEdge = "edge";
 constexpr std::string_view kReturnFromVertex = "from_vertex";
 constexpr std::string_view kReturnToVertex = "to_vertex";
 constexpr std::string_view kReturnAggregation = "aggregation";
-const std::string kSearchAllPrefix = "all";
+constexpr std::string_view kSearchAllPrefix = "all";
 
 void Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 void RegexSearch(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
@@ -125,10 +125,7 @@ void TextSearch::SearchEdges(mgp_list *args, mgp_graph *memgraph_graph, mgp_resu
     for (const auto &edge_result :
          mgp::SearchTextEdgeIndex(memgraph_graph, index_name, search_query, text_search_mode::SPECIFIED_PROPERTIES)) {
       auto record = record_factory.NewRecord();
-      auto edge_list = edge_result.ValueList();
-      record.Insert(TextSearch::kReturnEdge.data(), edge_list[0].ValueRelationship());
-      record.Insert(TextSearch::kReturnFromVertex.data(), edge_list[1].ValueNode());
-      record.Insert(TextSearch::kReturnToVertex.data(), edge_list[2].ValueNode());
+      record.Insert(TextSearch::kReturnEdge.data(), edge_result.ValueRelationship());
     }
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());

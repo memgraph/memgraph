@@ -471,7 +471,7 @@ Feature: Text search related features
             """
         When executing query:
             """
-            CALL text_search.search('complianceEdges', 'data.title:Rules2024') YIELD node
+            CALL text_search.search_edges('complianceEdges', 'data.title:Rules2024') YIELD node
             RETURN node AS edge
             ORDER BY edge.version ASC
             """

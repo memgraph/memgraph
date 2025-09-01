@@ -929,6 +929,10 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
       !transaction_.text_index_change_collector_.empty()) {
     memgraph::storage::TextIndex::ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
   }
+  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH) &&
+      !transaction_.text_edge_index_change_collector_.empty()) {
+    memgraph::storage::TextEdgeIndex::ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
+  }
   is_transaction_active_ = false;
 }
 
@@ -3311,6 +3315,7 @@ IndicesInfo InMemoryStorage::InMemoryAccessor::ListAllIndices() const {
           transaction_.active_indices_.edge_type_properties_->ListIndices(transaction_.start_timestamp),
           transaction_.active_indices_.edge_property_->ListIndices(transaction_.start_timestamp),
           storage_->indices_.text_index_.ListIndices(),
+          storage_->indices_.text_edge_index_.ListIndices(),
           storage_->indices_.point_index_.ListIndices(),
           storage_->indices_.vector_index_.ListIndices(),
           storage_->indices_.vector_edge_index_.ListIndices()};

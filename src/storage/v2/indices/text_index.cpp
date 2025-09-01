@@ -163,10 +163,6 @@ bool TextIndex::IndexExists(const std::string &index_name) const { return index_
 
 std::vector<Gid> TextIndex::Search(const std::string &index_name, const std::string &search_query,
                                    text_search_mode search_mode) {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    throw query::TextSearchDisabledException();
-  }
-
   auto &context = std::invoke([&]() -> mgcxx::text_search::Context & {
     if (const auto it = index_.find(index_name); it != index_.end()) {
       return it->second.context_;

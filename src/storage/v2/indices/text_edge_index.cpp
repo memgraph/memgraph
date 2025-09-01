@@ -32,11 +32,11 @@ void TextEdgeIndex::CreateTantivyIndex(const std::string &index_path, const Text
         mgcxx::text_search::create_index(index_path, mgcxx::text_search::IndexConfig{.mappings = mappings.dump()}),
         index_info.edge_type_, index_info.properties_);
     if (!success) {
-      throw query::TextSearchException("Text edge index \"{}\" already exists at path: {}.", index_info.index_name_,
+      throw query::TextSearchException("Text edge index {} already exists at path: {}.", index_info.index_name_,
                                        index_path);
     }
   } catch (const std::exception &e) {
-    spdlog::error("Failed to create text edge index \"{}\" at path: {}. Error: {}", index_info.index_name_, index_path,
+    spdlog::error("Failed to create text edge index {} at path: {}. Error: {}", index_info.index_name_, index_path,
                   e.what());
     throw query::TextSearchException("Tantivy error: {}", e.what());
   }
@@ -156,63 +156,24 @@ void TextEdgeIndex::DropIndex(const std::string &index_name) {
 
 bool TextEdgeIndex::IndexExists(const std::string &index_name) const { return index_.contains(index_name); }
 
-mgcxx::text_search::SearchOutput TextEdgeIndex::SearchGivenProperties(const std::string &index_name,
-                                                                      const std::string &search_query) {
-  try {
-    return mgcxx::text_search::search(
-        index_.at(index_name).context_,
-        mgcxx::text_search::SearchInput{.search_query = search_query, .return_fields = {"metadata"}});
-  } catch (const std::exception &e) {
-    throw query::TextSearchException("Tantivy error: {}", e.what());
-  }
-
-  return mgcxx::text_search::SearchOutput{};
-}
-
-mgcxx::text_search::SearchOutput TextEdgeIndex::RegexSearch(const std::string &index_name,
-                                                            const std::string &search_query) {
-  try {
-    return mgcxx::text_search::regex_search(
-        index_.at(index_name).context_,
-        mgcxx::text_search::SearchInput{
-            .search_fields = {"all"}, .search_query = search_query, .return_fields = {"metadata"}});
-  } catch (const std::exception &e) {
-    throw query::TextSearchException("Tantivy error: {}", e.what());
-  }
-
-  return mgcxx::text_search::SearchOutput{};
-}
-
-mgcxx::text_search::SearchOutput TextEdgeIndex::SearchAllProperties(const std::string &index_name,
-                                                                    const std::string &search_query) {
-  try {
-    return mgcxx::text_search::search(
-        index_.at(index_name).context_,
-        mgcxx::text_search::SearchInput{
-            .search_fields = {"all"}, .search_query = search_query, .return_fields = {"metadata"}});
-  } catch (const std::exception &e) {
-    throw query::TextSearchException("Tantivy error: {}", e.what());
-  }
-
-  return mgcxx::text_search::SearchOutput{};
-}
-
 std::vector<EdgeTextSearchResult> TextEdgeIndex::Search(const std::string &index_name, const std::string &search_query,
                                                         text_search_mode search_mode) {
-  if (!index_.contains(index_name)) {
-    throw query::TextSearchException("Text edge index \"{}\" doesn't exist.", index_name);
-  }
-
+  auto &context = std::invoke([&]() -> mgcxx::text_search::Context & {
+    if (const auto it = index_.find(index_name); it != index_.end()) {
+      return it->second.context_;
+    }
+    throw query::TextSearchException("Text index {} doesn't exist.", index_name);
+  });
   mgcxx::text_search::SearchOutput search_results;
   switch (search_mode) {
     case text_search_mode::SPECIFIED_PROPERTIES:
-      search_results = SearchGivenProperties(index_name, ToLowerCasePreservingBooleanOperators(search_query));
+      search_results = SearchGivenProperties(ToLowerCasePreservingBooleanOperators(search_query), context);
       break;
     case text_search_mode::REGEX:
-      search_results = RegexSearch(index_name, ToLowerCasePreservingBooleanOperators(search_query));
+      search_results = RegexSearch(ToLowerCasePreservingBooleanOperators(search_query), context);
       break;
     case text_search_mode::ALL_PROPERTIES:
-      search_results = SearchAllProperties(index_name, ToLowerCasePreservingBooleanOperators(search_query));
+      search_results = SearchAllProperties(ToLowerCasePreservingBooleanOperators(search_query), context);
       break;
     default:
       throw query::TextSearchException(
@@ -227,9 +188,9 @@ std::vector<EdgeTextSearchResult> TextEdgeIndex::Search(const std::string &index
     std::string doc_string(doc.data.data(), doc.data.length());
     auto doc_json = nlohmann::json::parse(doc_string);
 
-    Gid edge_gid = storage::Gid::FromString(doc_json["metadata"]["edge_gid"].dump());
-    Gid from_vertex_gid = storage::Gid::FromString(doc_json["metadata"]["from_vertex_gid"].dump());
-    Gid to_vertex_gid = storage::Gid::FromString(doc_json["metadata"]["to_vertex_gid"].dump());
+    const auto edge_gid = storage::Gid::FromString(doc_json["metadata"]["edge_gid"].dump());
+    const auto from_vertex_gid = storage::Gid::FromString(doc_json["metadata"]["from_vertex_gid"].dump());
+    const auto to_vertex_gid = storage::Gid::FromString(doc_json["metadata"]["to_vertex_gid"].dump());
 
     found_edges.emplace_back(edge_gid, from_vertex_gid, to_vertex_gid);
   }
@@ -239,7 +200,7 @@ std::vector<EdgeTextSearchResult> TextEdgeIndex::Search(const std::string &index
 std::string TextEdgeIndex::Aggregate(const std::string &index_name, const std::string &search_query,
                                      const std::string &aggregation_query) {
   if (!index_.contains(index_name)) {
-    throw query::TextSearchException("Text edge index \"{}\" doesn't exist.", index_name);
+    throw query::TextSearchException("Text edge index {} doesn't exist.", index_name);
   }
 
   mgcxx::text_search::DocumentOutput aggregation_result;
@@ -277,6 +238,14 @@ void TextEdgeIndex::Clear() {
     }
   }
   index_.clear();
+}
+
+std::optional<uint64_t> TextEdgeIndex::ApproximateEdgesTextCount(std::string_view index_name) const {
+  if (const auto it = index_.find(index_name); it != index_.end()) {
+    const auto &index_data = it->second;
+    return mgcxx::text_search::get_num_docs(index_data.context_);
+  }
+  return std::nullopt;
 }
 
 void TextEdgeIndex::ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mapper) {

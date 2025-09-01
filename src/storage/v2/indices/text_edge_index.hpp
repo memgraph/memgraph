@@ -26,7 +26,7 @@
 namespace memgraph::storage {
 
 struct TextEdgeIndexData {
-  mgcxx::text_search::Context context_;
+  mutable mgcxx::text_search::Context context_;
   EdgeTypeId scope_;
   std::vector<PropertyId> properties_;
   std::mutex write_mutex_;  // Only used for exclusive locking during writes. IndexReader and IndexWriter are
@@ -55,13 +55,6 @@ class TextEdgeIndex {
                                  nlohmann::json properties, std::string property_values_as_str,
                                  mgcxx::text_search::Context &context);
 
-  mgcxx::text_search::SearchOutput SearchGivenProperties(const std::string &index_name,
-                                                         const std::string &search_query);
-
-  mgcxx::text_search::SearchOutput RegexSearch(const std::string &index_name, const std::string &search_query);
-
-  mgcxx::text_search::SearchOutput SearchAllProperties(const std::string &index_name, const std::string &search_query);
-
  public:
   explicit TextEdgeIndex(const std::filesystem::path &storage_dir)
       : text_index_storage_dir_(storage_dir / kTextIndicesDirectory) {}
@@ -73,7 +66,7 @@ class TextEdgeIndex {
 
   ~TextEdgeIndex() = default;
 
-  std::map<std::string, TextEdgeIndexData> index_;
+  std::map<std::string, TextEdgeIndexData, std::less<>> index_;
 
   void UpdateOnEdgeCreation(const Edge *edge, const Vertex *from_vertex, const Vertex *to_vertex, EdgeTypeId edge_type,
                             Transaction &tx);
@@ -101,6 +94,8 @@ class TextEdgeIndex {
   static void ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mapper);
 
   std::vector<TextEdgeIndexSpec> ListIndices() const;
+
+  std::optional<uint64_t> ApproximateEdgesTextCount(std::string_view index_name) const;
 
   void Clear();
 };

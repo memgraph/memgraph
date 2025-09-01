@@ -2409,13 +2409,13 @@ bool DiskStorage::DiskAccessor::PointIndexExists(LabelId /*label*/, PropertyId /
 }
 
 IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
-  auto &text_index = storage_->indices_.text_index_;
   return {transaction_.active_indices_.label_->ListIndices(transaction_.start_timestamp),
           transaction_.active_indices_.label_properties_->ListIndices(transaction_.start_timestamp),
           {/* edge type indices */},
           {/* edge_type_property */},
           {/*edge property*/},
-          text_index.ListIndices(),
+          storage_->indices_.text_index_.ListIndices(),
+          storage_->indices_.text_edge_index_.ListIndices(),
           {/* point indices */},
           {/* vector indices */}};
 }

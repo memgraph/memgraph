@@ -4031,7 +4031,7 @@ PreparedQuery PrepareCreateTextEdgeIndexQuery(ParsedQuery parsed_query, bool in_
     throw IndexInMulticommandTxException();
   }
 
-  if (current_db.db_acc_->get()->config().salient.items.properties_on_edges) {
+  if (!current_db.db_acc_->get()->config().salient.items.properties_on_edges) {
     throw EdgeIndexDisabledPropertiesOnEdgesException();
   }
 
@@ -5250,7 +5250,8 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         const std::string_view edge_type_index_mark{"edge-type"};
         const std::string_view edge_type_property_index_mark{"edge-type+property"};
         const std::string_view edge_property_index_mark{"edge-property"};
-        const std::string_view text_index_mark{"text"};
+        const std::string_view text_label_property_index_mark{"label_text"};
+        const std::string_view text_edge_property_index_mark{"edge-type_text"};
         const std::string_view point_label_property_index_mark{"point"};
         const std::string_view vector_label_property_index_mark{"label+property_vector"};
         const std::string_view vector_edge_property_index_mark{"edge-type+property_vector"};
@@ -5291,9 +5292,19 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
               rv::transform([storage](auto prop_id) { return TypedValue(storage->PropertyToName(prop_id)); }) |
               ranges::to_vector;
           results.push_back(
-              {TypedValue(fmt::format("{} (name: {})", text_index_mark, index_name)),
+              {TypedValue(fmt::format("{} (name: {})", text_label_property_index_mark, index_name)),
                TypedValue(storage->LabelToName(label)), TypedValue(std::move(prop_names)),
                TypedValue(static_cast<int>(storage_acc->ApproximateVerticesTextCount(index_name).value_or(0)))});
+        }
+        for (const auto &[index_name, label, properties] : info.text_edge_indices) {
+          auto prop_names =
+              properties |
+              rv::transform([storage](auto prop_id) { return TypedValue(storage->PropertyToName(prop_id)); }) |
+              ranges::to_vector;
+          results.push_back(
+              {TypedValue(fmt::format("{} (name: {})", text_edge_property_index_mark, index_name)),
+               TypedValue(storage->EdgeTypeToName(label)), TypedValue(std::move(prop_names)),
+               TypedValue(static_cast<int>(storage_acc->ApproximateEdgesTextCount(index_name).value_or(0)))});
         }
         for (const auto &[label_id, prop_id] : info.point_label_property) {
           results.push_back({TypedValue(point_label_property_index_mark), TypedValue(storage->LabelToName(label_id)),
@@ -6402,15 +6413,6 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
              {"type", "label+property_vector"}}));
       }
 
-      // Vertex edge type property_vector
-      for (const auto &spec : index_info.vector_edge_indices_spec) {
-        node_indexes.push_back(nlohmann::json::object(
-            {{"edge_type", {storage->EdgeTypeToName(spec.edge_type_id)}},
-             {"properties", {storage->PropertyToName(spec.property)}},
-             {"count", storage_acc->ApproximateEdgesVectorCount(spec.edge_type_id, spec.property).value_or(0)},
-             {"type", "edge_type+property_vector"}}));
-      }
-
       // Edge type indices
       for (const auto type : index_info.edge_type) {
         edge_indexes.push_back(nlohmann::json::object({
@@ -6436,6 +6438,26 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
             {"count", storage_acc->ApproximateEdgeCount(property)},
             {"type", "edge_property"},
         }));
+      }
+      // Edge type property_vector
+      for (const auto &spec : index_info.vector_edge_indices_spec) {
+        node_indexes.push_back(nlohmann::json::object(
+            {{"edge_type", {storage->EdgeTypeToName(spec.edge_type_id)}},
+             {"properties", {storage->PropertyToName(spec.property)}},
+             {"count", storage_acc->ApproximateEdgesVectorCount(spec.edge_type_id, spec.property).value_or(0)},
+             {"type", "edge_type+property_vector"}}));
+      }
+      // Edge type text
+      for (const auto &[index_name, edge_type, properties] : index_info.text_edge_indices) {
+        auto prop_names =
+            properties |
+            rv::transform([storage](storage::PropertyId property_id) { return storage->PropertyToName(property_id); }) |
+            r::to_vector;
+        node_indexes.push_back(
+            nlohmann::json::object({{"edge_type", {storage->EdgeTypeToName(edge_type)}},
+                                    {"properties", std::move(prop_names)},
+                                    {"count", storage_acc->ApproximateEdgesTextCount(index_name).value_or(0)},
+                                    {"type", "edge_type_text"}}));
       }
       json.emplace("node_indexes", std::move(node_indexes));
       json.emplace("edge_indexes", std::move(edge_indexes));
