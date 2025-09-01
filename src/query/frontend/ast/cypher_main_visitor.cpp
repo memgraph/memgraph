@@ -3493,16 +3493,19 @@ antlrcpp::Any CypherMainVisitor::visitSetItem(MemgraphCypher::SetItemContext *ct
     auto *set_property = storage_->Create<SetProperty>();
     set_property->property_lookup_ = std::any_cast<PropertyLookup *>(ctx->propertyExpression()->accept(this));
     set_property->expression_ = std::any_cast<Expression *>(ctx->expression()->accept(this));
+    if (!ctx->getTokens(MemgraphCypher::PLUS_EQ).empty()) {
+      set_property->property_lookup_->lookup_mode_ = PropertyLookup::LookupMode::APPEND;
+    }
     return static_cast<Clause *>(set_property);
   }
 
   // SetProperties either assignment or update
-  if (ctx->getTokens(MemgraphCypher::EQ).size() || ctx->getTokens(MemgraphCypher::PLUS_EQ).size()) {
+  if (!ctx->getTokens(MemgraphCypher::EQ).empty() || !ctx->getTokens(MemgraphCypher::PLUS_EQ).empty()) {
     auto *set_properties = storage_->Create<SetProperties>();
     set_properties->identifier_ =
         storage_->Create<Identifier>(std::any_cast<std::string>(ctx->variable()->accept(this)));
     set_properties->expression_ = std::any_cast<Expression *>(ctx->expression()->accept(this));
-    if (ctx->getTokens(MemgraphCypher::PLUS_EQ).size()) {
+    if (!ctx->getTokens(MemgraphCypher::PLUS_EQ).empty()) {
       set_properties->update_ = true;
     }
     return static_cast<Clause *>(set_properties);
@@ -3540,13 +3543,18 @@ antlrcpp::Any CypherMainVisitor::visitRemoveItem(MemgraphCypher::RemoveItemConte
 
 antlrcpp::Any CypherMainVisitor::visitPropertyExpression(MemgraphCypher::PropertyExpressionContext *ctx) {
   auto *expression = std::any_cast<Expression *>(ctx->atom()->accept(this));
+  std::vector<PropertyIx> path;
   for (auto *lookup : ctx->propertyLookup()) {
     auto key = std::any_cast<PropertyIx>(lookup->accept(this));
-    auto property_lookup = storage_->Create<PropertyLookup>(expression, key);
+    auto *property_lookup = storage_->Create<PropertyLookup>(expression, key);
     expression = property_lookup;
+    path.push_back(key);
   }
-  // It is guaranteed by grammar that there is at least one propertyLookup.
-  return static_cast<PropertyLookup *>(expression);
+
+  auto *property_lookup = static_cast<PropertyLookup *>(expression);
+  property_lookup->property_path_ = path;
+
+  return property_lookup;
 }
 
 antlrcpp::Any CypherMainVisitor::visitCaseExpression(MemgraphCypher::CaseExpressionContext *ctx) {
