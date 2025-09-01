@@ -47,7 +47,7 @@ constexpr uint64_t kTextEdgeIndex{31};
 // change!!!
 
 // #### CURRENT VERSION vvv
-constexpr uint64_t kVersion{kTtlSupport};
+constexpr uint64_t kVersion{kTextEdgeIndex};
 // #### CURRENT VERSION ^^^
 
 // Magic values written to the start of a snapshot/WAL file to identify it.
