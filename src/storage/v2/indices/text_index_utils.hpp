@@ -50,8 +50,18 @@ nlohmann::json SerializeProperties(const std::map<PropertyId, PropertyValue> &pr
 // Convert properties to string representation
 std::string StringifyProperties(const std::map<PropertyId, PropertyValue> &properties);
 
+// Extract properties from the property store and return them as a map
 std::map<PropertyId, PropertyValue> ExtractProperties(const PropertyStore &property_store,
                                                       std::span<PropertyId const> properties);
+
+// Search functions for the text index
+mgcxx::text_search::SearchOutput SearchGivenProperties(const std::string &search_query,
+                                                       mgcxx::text_search::Context &context);
+
+mgcxx::text_search::SearchOutput RegexSearch(const std::string &search_query, mgcxx::text_search::Context &context);
+
+mgcxx::text_search::SearchOutput SearchAllProperties(const std::string &search_query,
+                                                     mgcxx::text_search::Context &context);
 
 // Text index change tracking
 enum class TextIndexOp { ADD, UPDATE, REMOVE };

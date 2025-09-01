@@ -12,6 +12,7 @@
 #include <filesystem>
 
 #include <nlohmann/json.hpp>
+#include "query/exceptions.hpp"
 #include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/name_id_mapper.hpp"
@@ -171,6 +172,37 @@ void TrackTextEdgeIndexChange(TextEdgeIndexChangeCollector &collector, std::span
       entry.to_add_.erase(edge_with_vertices);
       entry.to_remove_.insert(edge);
     }
+  }
+}
+
+mgcxx::text_search::SearchOutput SearchGivenProperties(const std::string &search_query,
+                                                       mgcxx::text_search::Context &context) {
+  try {
+    return mgcxx::text_search::search(
+        context, mgcxx::text_search::SearchInput{.search_query = search_query, .return_fields = {"metadata"}});
+  } catch (const std::exception &e) {
+    throw query::TextSearchException("Tantivy error: {}", e.what());
+  }
+}
+
+mgcxx::text_search::SearchOutput RegexSearch(const std::string &search_query, mgcxx::text_search::Context &context) {
+  try {
+    return mgcxx::text_search::regex_search(
+        context, mgcxx::text_search::SearchInput{
+                     .search_fields = {"all"}, .search_query = search_query, .return_fields = {"metadata"}});
+  } catch (const std::exception &e) {
+    throw query::TextSearchException("Tantivy error: {}", e.what());
+  }
+}
+
+mgcxx::text_search::SearchOutput SearchAllProperties(const std::string &search_query,
+                                                     mgcxx::text_search::Context &context) {
+  try {
+    return mgcxx::text_search::search(
+        context, mgcxx::text_search::SearchInput{
+                     .search_fields = {"all"}, .search_query = search_query, .return_fields = {"metadata"}});
+  } catch (const std::exception &e) {
+    throw query::TextSearchException("Tantivy error: {}", e.what());
   }
 }
 

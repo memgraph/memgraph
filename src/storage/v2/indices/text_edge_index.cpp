@@ -137,11 +137,20 @@ void TextEdgeIndex::RecoverIndex(const TextEdgeIndexSpec &index_info,
 }
 
 void TextEdgeIndex::DropIndex(const std::string &index_name) {
+  auto node = index_.extract(index_name);
+  if (node.empty()) {
+    throw query::TextSearchException("Text index {} doesn't exist.", index_name);
+  }
+
+  auto &entry = node.mapped();
   try {
-    index_.erase(index_name);
-    mgcxx::text_search::drop_index(MakeIndexPath(text_index_storage_dir_, index_name));
+    mgcxx::text_search::drop_index(std::move(entry.context_));
   } catch (const std::exception &e) {
-    throw query::TextSearchException("Tantivy error: {}", e.what());
+    CreateTantivyIndex(
+        MakeIndexPath(text_index_storage_dir_, index_name),
+        TextEdgeIndexSpec{
+            .index_name_ = index_name, .edge_type_ = entry.scope_, .properties_ = std::move(entry.properties_)});
+    throw query::TextSearchException("Text index error on drop: {}", e.what());
   }
 }
 
