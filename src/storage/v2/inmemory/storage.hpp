@@ -413,6 +413,8 @@ class InMemoryStorage final : public Storage {
 
     void FinalizeTransaction() override;
 
+    std::set<uint64_t> CollectContributingTransactions() const;
+
     /// Create an index.
     /// Returns void if the index has been created.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
@@ -818,7 +820,18 @@ class InMemoryStorage final : public Storage {
   };
 
   // Ownership of linked deltas is transferred to committed_transactions_ once transaction is commited
+  struct WaitingGCDeltas {
+    WaitingGCDeltas(GCDeltas deltas, std::set<uint64_t> contributors)
+        : deltas_{std::move(deltas)}, contributing_transactions_{std::move(contributors)} {}
+
+    GCDeltas deltas_;
+    std::set<uint64_t> contributing_transactions_;
+  };
+
   utils::Synchronized<std::list<GCDeltas>, utils::SpinLock> committed_transactions_{};
+
+  // Interleaved delta chains waiting for all contributors to commit
+  utils::Synchronized<std::list<WaitingGCDeltas>, utils::SpinLock> waiting_gc_deltas_{};
 
   // Ownership of unlinked deltas is transferred to garabage_undo_buffers once transaction is commited/aborted
   utils::Synchronized<std::list<GCDeltas>, utils::SpinLock> garbage_undo_buffers_{};
