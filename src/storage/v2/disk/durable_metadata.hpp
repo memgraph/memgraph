@@ -55,6 +55,8 @@ class DurableMetadata {
 
   bool PersistTextIndexCreation(const storage::TextIndexSpec &text_index);
 
+  bool PersistTextEdgeIndexCreation(const storage::TextEdgeIndexSpec &text_edge_index);
+
   bool PersistTextIndexDeletion(std::string_view index_name);
 
   bool PersistUniqueConstraintCreation(LabelId label, const std::set<PropertyId> &properties);

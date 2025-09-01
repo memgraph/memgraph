@@ -46,6 +46,7 @@ extern const Event ActiveEdgeTypePropertyIndices;
 extern const Event ActiveEdgePropertyIndices;
 extern const Event ActivePointIndices;
 extern const Event ActiveTextIndices;
+extern const Event ActiveTextEdgeIndices;
 extern const Event ActiveVectorIndices;
 extern const Event ActiveVectorEdgeIndices;
 }  // namespace memgraph::metrics

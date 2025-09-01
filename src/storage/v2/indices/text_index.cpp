@@ -30,16 +30,15 @@ void TextIndex::CreateTantivyIndex(const std::string &index_path, const TextInde
     mappings["properties"]["all"] = {{"type", "text"}, {"fast", true}, {"stored", true}, {"text", true}};
 
     auto [_, success] = index_.try_emplace(
-        index_info.index_name_,
+        index_info.index_name,
         mgcxx::text_search::create_index(index_path, mgcxx::text_search::IndexConfig{.mappings = mappings.dump()}),
-        index_info.label_, index_info.properties_);
+        index_info.label, index_info.properties);
     if (!success) {
-      throw query::TextSearchException("Text index \"{}\" already exists at path: {}.", index_info.index_name_,
+      throw query::TextSearchException("Text index \"{}\" already exists at path: {}.", index_info.index_name,
                                        index_path);
     }
   } catch (const std::exception &e) {
-    spdlog::error("Failed to create text index {} at path: {}. Error: {}", index_info.index_name_, index_path,
-                  e.what());
+    spdlog::error("Failed to create text index {} at path: {}. Error: {}", index_info.index_name, index_path, e.what());
     throw query::TextSearchException("Tantivy error: {}", e.what());
   }
 }
@@ -48,15 +47,15 @@ std::vector<TextIndexData *> TextIndex::GetApplicableTextIndices(std::span<stora
                                                                  std::span<PropertyId const> properties) {
   std::vector<TextIndexData *> applicable_text_indices;
   auto matches_label = [&](const auto &text_index_data) {
-    return r::any_of(labels, [&](auto label_id) { return label_id == text_index_data.scope_; });
+    return r::any_of(labels, [&](auto labelid) { return labelid == text_index_data.scope; });
   };
 
   auto matches_property = [&](const auto &text_index_data) {
-    if (text_index_data.properties_.empty()) {  // If no properties are specified, all properties match
+    if (text_index_data.properties.empty()) {  // If no properties are specified, all properties match
       return true;
     }
     return r::any_of(properties,
-                     [&](auto property_id) { return r::contains(text_index_data.properties_, property_id); });
+                     [&](auto property_id) { return r::contains(text_index_data.properties, property_id); });
   };
 
   for (auto &[index_name, text_index_data] : index_) {
@@ -112,23 +111,23 @@ void TextIndex::RemoveNode(const Vertex *vertex, Transaction &tx) {
 
 void TextIndex::CreateIndex(const TextIndexSpec &index_info, storage::VerticesIterable vertices,
                             NameIdMapper *name_id_mapper) {
-  CreateTantivyIndex(MakeIndexPath(text_index_storage_dir_, index_info.index_name_),
-                     {index_info.index_name_, index_info.label_, index_info.properties_});
+  CreateTantivyIndex(MakeIndexPath(text_index_storage_dir_, index_info.index_name),
+                     {index_info.index_name, index_info.label, index_info.properties});
 
-  auto &index_data = index_.at(index_info.index_name_);
+  auto &index_data = index_.at(index_info.index_name);
   for (const auto &v : vertices) {
-    if (!v.HasLabel(index_info.label_, View::NEW).GetValue()) {
+    if (!v.HasLabel(index_info.label, View::NEW).GetValue()) {
       continue;
     }
     // If properties are specified, we serialize only those properties; otherwise, all properties of the vertex.
-    auto vertex_properties = index_info.properties_.empty()
+    auto vertex_properties = index_info.properties.empty()
                                  ? v.Properties(View::NEW).GetValue()
-                                 : v.PropertiesByPropertyIds(index_info.properties_, View::NEW).GetValue();
+                                 : v.PropertiesByPropertyIds(index_info.properties, View::NEW).GetValue();
     TextIndex::AddNodeToTextIndex(v.Gid().AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
-                                  StringifyProperties(vertex_properties), index_data.context_);
+                                  StringifyProperties(vertex_properties), index_data.context);
   }
   try {
-    mgcxx::text_search::commit(index_data.context_);
+    mgcxx::text_search::commit(index_data.context);
   } catch (const std::exception &e) {
     throw query::TextSearchException("Text index commit error: {}", e.what());
   }
@@ -136,7 +135,7 @@ void TextIndex::CreateIndex(const TextIndexSpec &index_info, storage::VerticesIt
 
 void TextIndex::RecoverIndex(const TextIndexSpec &index_info,
                              std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  CreateTantivyIndex(MakeIndexPath(text_index_storage_dir_, index_info.index_name_), index_info);
+  CreateTantivyIndex(MakeIndexPath(text_index_storage_dir_, index_info.index_name), index_info);
   if (snapshot_info) {
     snapshot_info->Update(UpdateType::TEXT_IDX);
   }
@@ -150,11 +149,11 @@ void TextIndex::DropIndex(const std::string &index_name) {
 
   auto &entry = node.mapped();
   try {
-    mgcxx::text_search::drop_index(std::move(entry.context_));
+    mgcxx::text_search::drop_index(std::move(entry.context));
   } catch (const std::exception &e) {
     CreateTantivyIndex(
         MakeIndexPath(text_index_storage_dir_, index_name),
-        TextIndexSpec{.index_name_ = index_name, .label_ = entry.scope_, .properties_ = std::move(entry.properties_)});
+        TextIndexSpec{.index_name = index_name, .label = entry.scope, .properties = std::move(entry.properties)});
     throw query::TextSearchException("Text index error on drop: {}", e.what());
   }
 }
@@ -165,7 +164,7 @@ std::vector<Gid> TextIndex::Search(const std::string &index_name, const std::str
                                    text_search_mode search_mode) {
   auto &context = std::invoke([&]() -> mgcxx::text_search::Context & {
     if (const auto it = index_.find(index_name); it != index_.end()) {
-      return it->second.context_;
+      return it->second.context;
     }
     throw query::TextSearchException("Text index {} doesn't exist.", index_name);
   });
@@ -205,7 +204,7 @@ std::string TextIndex::Aggregate(const std::string &index_name, const std::strin
 
   auto &context = std::invoke([&]() -> mgcxx::text_search::Context & {
     if (const auto it = index_.find(index_name); it != index_.end()) {
-      return it->second.context_;
+      return it->second.context;
     }
     throw query::TextSearchException("Text index {} doesn't exist.", index_name);
   });
@@ -228,7 +227,7 @@ std::vector<TextIndexSpec> TextIndex::ListIndices() const {
   std::vector<TextIndexSpec> ret;
   ret.reserve(index_.size());
   for (const auto &[index_name, index_data] : index_) {
-    ret.emplace_back(index_name, index_data.scope_, index_data.properties_);
+    ret.emplace_back(index_name, index_data.scope, index_data.properties);
   }
   return ret;
 }
@@ -236,7 +235,7 @@ std::vector<TextIndexSpec> TextIndex::ListIndices() const {
 std::optional<uint64_t> TextIndex::ApproximateVerticesTextCount(std::string_view index_name) const {
   if (const auto it = index_.find(index_name); it != index_.end()) {
     const auto &index_data = it->second;
-    return mgcxx::text_search::get_num_docs(index_data.context_);
+    return mgcxx::text_search::get_num_docs(index_data.context);
   }
   return std::nullopt;
 }
@@ -256,21 +255,21 @@ void TextIndex::Clear() {
 void TextIndex::ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mapper) {
   for (const auto &[index_data_ptr, pending] : tx.text_index_change_collector_) {
     // Take exclusive lock to properly serialize all updates and hold it for the entire operation
-    std::lock_guard lock(index_data_ptr->write_mutex_);
+    std::lock_guard lock(index_data_ptr->write_mutex);
     try {
-      for (const auto *vertex : pending.to_remove_) {
+      for (const auto *vertex : pending.to_remove) {
         auto search_node_to_be_deleted =
             mgcxx::text_search::SearchInput{.search_query = fmt::format("metadata.gid:{}", vertex->gid.AsInt())};
-        mgcxx::text_search::delete_document(index_data_ptr->context_, search_node_to_be_deleted, kDoSkipCommit);
+        mgcxx::text_search::delete_document(index_data_ptr->context, search_node_to_be_deleted, kDoSkipCommit);
       }
-      for (const auto *vertex : pending.to_add_) {
-        auto vertex_properties = index_data_ptr->properties_.empty()
+      for (const auto *vertex : pending.to_add) {
+        auto vertex_properties = index_data_ptr->properties.empty()
                                      ? vertex->properties.Properties()
-                                     : ExtractProperties(vertex->properties, index_data_ptr->properties_);
+                                     : ExtractProperties(vertex->properties, index_data_ptr->properties);
         TextIndex::AddNodeToTextIndex(vertex->gid.AsInt(), SerializeProperties(vertex_properties, name_id_mapper),
-                                      StringifyProperties(vertex_properties), index_data_ptr->context_);
+                                      StringifyProperties(vertex_properties), index_data_ptr->context);
       }
-      mgcxx::text_search::commit(index_data_ptr->context_);
+      mgcxx::text_search::commit(index_data_ptr->context);
     } catch (const std::exception &e) {
       throw query::TextSearchException("Text search error: {}", e.what());
     }

@@ -93,6 +93,7 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action const action) -> d
     add_case(GLOBAL_EDGE_PROPERTY_INDEX_CREATE);
     add_case(GLOBAL_EDGE_PROPERTY_INDEX_DROP);
     add_case(TEXT_INDEX_CREATE);
+    add_case(TEXT_EDGE_INDEX_CREATE);
     add_case(TEXT_INDEX_DROP);
     add_case(EXISTENCE_CONSTRAINT_CREATE);
     add_case(EXISTENCE_CONSTRAINT_DROP);
@@ -2593,7 +2594,13 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
       }
       case MetadataDelta::Action::TEXT_INDEX_CREATE: {
         apply_encode(op, [&](durability::BaseEncoder &encoder) {
-          EncodeTextIndex(encoder, *mem_storage->name_id_mapper_, md_delta.text_index);
+          EncodeTextIndexSpec(encoder, *mem_storage->name_id_mapper_, md_delta.text_index);
+        });
+        break;
+      }
+      case MetadataDelta::Action::TEXT_EDGE_INDEX_CREATE: {
+        apply_encode(op, [&](durability::BaseEncoder &encoder) {
+          EncodeTextEdgeIndexSpec(encoder, *mem_storage->name_id_mapper_, md_delta.text_edge_index);
         });
         break;
       }

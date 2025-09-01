@@ -1774,6 +1774,12 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Pr
             return StorageManipulationError{PersistenceError{}};
           }
         } break;
+        case MetadataDelta::Action::TEXT_EDGE_INDEX_CREATE: {
+          const auto &info = md_delta.text_edge_index;
+          if (!disk_storage->durable_metadata_.PersistTextEdgeIndexCreation(info)) {
+            return StorageManipulationError{PersistenceError{}};
+          }
+        } break;
         case MetadataDelta::Action::EXISTENCE_CONSTRAINT_CREATE: {
           const auto &info = md_delta.label_property;
           if (!disk_storage->durable_metadata_.PersistLabelPropertyIndexAndExistenceConstraintCreation(

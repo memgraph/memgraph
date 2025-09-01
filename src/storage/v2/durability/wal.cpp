@@ -9,7 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "storage/v2/durability/wal.hpp"
 #include <algorithm>
 #include <cstdint>
 #include <type_traits>
@@ -24,7 +23,9 @@
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/serialization.hpp"
 #include "storage/v2/durability/version.hpp"
+#include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge.hpp"
+#include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
@@ -127,6 +128,7 @@ constexpr Marker OperationToMarker(StorageMetadataOperation operation) {
     add_case(LABEL_PROPERTIES_INDEX_STATS_CLEAR);
     add_case(LABEL_PROPERTIES_INDEX_STATS_SET);
     add_case(TEXT_INDEX_CREATE);
+    add_case(TEXT_EDGE_INDEX_CREATE);
     add_case(TEXT_INDEX_DROP);
     add_case(UNIQUE_CONSTRAINT_CREATE);
     add_case(UNIQUE_CONSTRAINT_DROP);
@@ -209,6 +211,7 @@ constexpr bool IsMarkerImplicitTransactionEndVersion15(Marker marker) {
     case DELTA_GLOBAL_EDGE_PROPERTY_INDEX_CREATE:
     case DELTA_GLOBAL_EDGE_PROPERTY_INDEX_DROP:
     case DELTA_TEXT_INDEX_CREATE:
+    case DELTA_TEXT_EDGE_INDEX_CREATE:
     case DELTA_TEXT_INDEX_DROP:
     case DELTA_EXISTENCE_CONSTRAINT_CREATE:
     case DELTA_EXISTENCE_CONSTRAINT_DROP:
@@ -269,8 +272,8 @@ constexpr bool IsMarkerTransactionEnd(const Marker marker, const uint64_t versio
 
 // ========== concrete type decoders start here ==========
 template <bool is_read>
-auto Decode(utils::tag_type<bool> /*unused*/, BaseDecoder *decoder,
-            const uint64_t /*version*/) -> std::conditional_t<is_read, bool, void> {
+auto Decode(utils::tag_type<bool> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, bool, void> {
   const auto flag = decoder->ReadBool();
   if (!flag) throw RecoveryFailure(kInvalidWalErrorMessage);
   if constexpr (is_read) {
@@ -279,8 +282,8 @@ auto Decode(utils::tag_type<bool> /*unused*/, BaseDecoder *decoder,
 }
 
 template <bool is_read>
-auto Decode(utils::tag_type<Gid> /*unused*/, BaseDecoder *decoder,
-            const uint64_t /*version*/) -> std::conditional_t<is_read, Gid, void> {
+auto Decode(utils::tag_type<Gid> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, Gid, void> {
   const auto gid = decoder->ReadUint();
   if (!gid) throw RecoveryFailure(kInvalidWalErrorMessage);
   if constexpr (is_read) {
@@ -289,8 +292,8 @@ auto Decode(utils::tag_type<Gid> /*unused*/, BaseDecoder *decoder,
 }
 
 template <bool is_read>
-auto Decode(utils::tag_type<std::string> /*unused*/, BaseDecoder *decoder,
-            const uint64_t /*version*/) -> std::conditional_t<is_read, std::string, void> {
+auto Decode(utils::tag_type<std::string> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, std::string, void> {
   if constexpr (is_read) {
     auto str = decoder->ReadString();
     if (!str) throw RecoveryFailure(kInvalidWalErrorMessage);
@@ -301,8 +304,8 @@ auto Decode(utils::tag_type<std::string> /*unused*/, BaseDecoder *decoder,
 }
 
 template <bool is_read>
-auto Decode(utils::tag_type<std::optional<std::string>> /*unused*/, BaseDecoder *decoder,
-            const uint64_t /*version*/) -> std::conditional_t<is_read, std::optional<std::string>, void> {
+auto Decode(utils::tag_type<std::optional<std::string>> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, std::optional<std::string>, void> {
   if constexpr (is_read) {
     auto has_value = decoder->ReadBool();
     if (!has_value) throw RecoveryFailure(kInvalidWalErrorMessage);
@@ -323,8 +326,8 @@ auto Decode(utils::tag_type<std::optional<std::string>> /*unused*/, BaseDecoder 
 }
 
 template <bool is_read>
-auto Decode(utils::tag_type<ExternalPropertyValue> /*unused*/, BaseDecoder *decoder,
-            const uint64_t /*version*/) -> std::conditional_t<is_read, ExternalPropertyValue, void> {
+auto Decode(utils::tag_type<ExternalPropertyValue> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, ExternalPropertyValue, void> {
   if constexpr (is_read) {
     auto str = decoder->ReadExternalPropertyValue();
     if (!str) throw RecoveryFailure(kInvalidWalErrorMessage);
@@ -357,8 +360,8 @@ auto Decode(utils::tag_type<std::set<std::string, std::less<>>> /*unused*/, Base
 }
 
 template <bool is_read, typename T>
-auto Decode(utils::tag_type<std::vector<T>> /*unused*/, BaseDecoder *decoder,
-            const uint64_t /*version*/) -> std::conditional_t<is_read, std::vector<T>, void> {
+auto Decode(utils::tag_type<std::vector<T>> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, std::vector<T>, void> {
   if constexpr (is_read) {
     const auto count = decoder->ReadUint();
     if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
@@ -379,8 +382,8 @@ auto Decode(utils::tag_type<std::vector<T>> /*unused*/, BaseDecoder *decoder,
 }
 
 template <bool is_read>
-auto Decode(utils::tag_type<TypeConstraintKind> /*unused*/, BaseDecoder *decoder,
-            const uint64_t /*version*/) -> std::conditional_t<is_read, TypeConstraintKind, void> {
+auto Decode(utils::tag_type<TypeConstraintKind> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, TypeConstraintKind, void> {
   if constexpr (is_read) {
     auto kind = decoder->ReadUint();
     if (!kind) throw RecoveryFailure(kInvalidWalErrorMessage);
@@ -391,8 +394,8 @@ auto Decode(utils::tag_type<TypeConstraintKind> /*unused*/, BaseDecoder *decoder
 }
 
 template <bool is_read>
-auto Decode(utils::tag_type<uint16_t> /*unused*/, BaseDecoder *decoder,
-            const uint64_t /*version*/) -> std::conditional_t<is_read, uint16_t, void> {
+auto Decode(utils::tag_type<uint16_t> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, uint16_t, void> {
   const auto uint16 = decoder->ReadUint();
   if (!uint16) throw RecoveryFailure(kInvalidWalErrorMessage);
   if constexpr (is_read) {
@@ -401,8 +404,8 @@ auto Decode(utils::tag_type<uint16_t> /*unused*/, BaseDecoder *decoder,
 }
 
 template <bool is_read>
-auto Decode(utils::tag_type<uint8_t> /*unused*/, BaseDecoder *decoder,
-            const uint64_t /*version*/) -> std::conditional_t<is_read, uint8_t, void> {
+auto Decode(utils::tag_type<uint8_t> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, uint8_t, void> {
   const auto uint8 = decoder->ReadUint();
   if (!uint8) throw RecoveryFailure(kInvalidWalErrorMessage);
 
@@ -412,8 +415,8 @@ auto Decode(utils::tag_type<uint8_t> /*unused*/, BaseDecoder *decoder,
 }
 
 template <bool is_read>
-auto Decode(utils::tag_type<TtlOperationType> /*unused*/, BaseDecoder *decoder,
-            const uint64_t /*version*/) -> std::conditional_t<is_read, TtlOperationType, void> {
+auto Decode(utils::tag_type<TtlOperationType> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, TtlOperationType, void> {
   const auto uint8 = decoder->ReadUint();
   if (!uint8) throw RecoveryFailure(kInvalidWalErrorMessage);
 
@@ -423,8 +426,8 @@ auto Decode(utils::tag_type<TtlOperationType> /*unused*/, BaseDecoder *decoder,
 }
 
 template <bool is_read>
-auto Decode(utils::tag_type<std::size_t> /*unused*/, BaseDecoder *decoder,
-            const uint64_t /*version*/) -> std::conditional_t<is_read, std::size_t, void> {
+auto Decode(utils::tag_type<std::size_t> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, std::size_t, void> {
   const auto size = decoder->ReadUint();
   if (!size) throw RecoveryFailure(kInvalidWalErrorMessage);
   if constexpr (is_read) {
@@ -433,8 +436,8 @@ auto Decode(utils::tag_type<std::size_t> /*unused*/, BaseDecoder *decoder,
 }
 
 template <bool is_read, typename T, typename U>
-auto Decode(utils::tag_type<std::pair<T, U>> /*unused*/, BaseDecoder *decoder,
-            const uint64_t version) -> std::conditional_t<is_read, std::pair<T, U>, void> {
+auto Decode(utils::tag_type<std::pair<T, U>> /*unused*/, BaseDecoder *decoder, const uint64_t version)
+    -> std::conditional_t<is_read, std::pair<T, U>, void> {
   if constexpr (is_read) {
     auto first = Decode<true>(utils::tag_t<T>, decoder, version);
     auto second = Decode<true>(utils::tag_t<U>, decoder, version);
@@ -446,8 +449,8 @@ auto Decode(utils::tag_type<std::pair<T, U>> /*unused*/, BaseDecoder *decoder,
 }
 
 template <bool is_read>
-auto Decode(utils::tag_type<std::chrono::microseconds> /*unused*/, BaseDecoder *decoder,
-            const uint64_t /*version*/) -> std::conditional_t<is_read, std::chrono::microseconds, void> {
+auto Decode(utils::tag_type<std::chrono::microseconds> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
+    -> std::conditional_t<is_read, std::chrono::microseconds, void> {
   const auto count = decoder->ReadUint();
   if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
   if constexpr (is_read) {
@@ -510,12 +513,13 @@ template <typename T>
 auto Skip(BaseDecoder *decoder, const uint64_t version) -> void;
 
 template <typename T>
-concept IsReadSkip = requires { typename T::ctr_types; };
+concept IsReadSkip = requires {
+  typename T::ctr_types;
+};
 
 template <bool is_read, typename T>
-  requires(std::is_enum_v<T>)
-auto Decode(utils::tag_type<T> /*unused*/, BaseDecoder *decoder,
-            const uint64_t version) -> std::conditional_t<is_read, T, void> {
+requires(std::is_enum_v<T>) auto Decode(utils::tag_type<T> /*unused*/, BaseDecoder *decoder, const uint64_t version)
+    -> std::conditional_t<is_read, T, void> {
   using underlying_type = std::underlying_type_t<T>;
   if constexpr (is_read) {
     auto decoded = static_cast<T>(Decode<is_read>(utils::tag_type<underlying_type>(), decoder, version));
@@ -527,8 +531,8 @@ auto Decode(utils::tag_type<T> /*unused*/, BaseDecoder *decoder,
 
 // Generic helper decoder, please keep after the concrete type decoders
 template <bool is_read, IsReadSkip T>
-auto Decode(utils::tag_type<T> /*unused*/, BaseDecoder *decoder,
-            const uint64_t version) -> std::conditional_t<is_read, T, void> {
+auto Decode(utils::tag_type<T> /*unused*/, BaseDecoder *decoder, const uint64_t version)
+    -> std::conditional_t<is_read, T, void> {
   if constexpr (is_read) {
     return Read<T>(decoder, version);
   } else {
@@ -538,8 +542,8 @@ auto Decode(utils::tag_type<T> /*unused*/, BaseDecoder *decoder,
 
 // Generic helper decoder, please keep after the concrete type decoders
 template <bool is_read, auto MIN_VER, typename Type>
-auto Decode(utils::tag_type<VersionDependant<MIN_VER, Type>> /*unused*/, BaseDecoder *decoder,
-            const uint64_t version) -> std::conditional_t<is_read, std::optional<Type>, void> {
+auto Decode(utils::tag_type<VersionDependant<MIN_VER, Type>> /*unused*/, BaseDecoder *decoder, const uint64_t version)
+    -> std::conditional_t<is_read, std::optional<Type>, void> {
   if (MIN_VER <= version) {
     return Decode<is_read>(utils::tag_t<Type>, decoder, version);
   }
@@ -571,7 +575,8 @@ auto Read(BaseDecoder *decoder, const uint64_t version) -> T {
     // see [dcl.init.list] 9.4.5.4
     // Ordering of these constructor argument calls is well defined
     return T{Decode<true>(utils::tag_t<std::tuple_element_t<I, ctr_types>>, decoder, version)...};
-  }(std::make_index_sequence<std::tuple_size_v<ctr_types>>{});
+  }
+  (std::make_index_sequence<std::tuple_size_v<ctr_types>>{});
 }
 
 template <typename T>
@@ -580,7 +585,8 @@ auto Skip(BaseDecoder *decoder, const uint64_t version) -> void {
 
   [&]<auto... I>(std::index_sequence<I...>) {
     (Decode<false>(utils::tag_t<std::tuple_element_t<I, ctr_types>>, decoder, version), ...);
-  }(std::make_index_sequence<std::tuple_size_v<ctr_types>>{});
+  }
+  (std::make_index_sequence<std::tuple_size_v<ctr_types>>{});
 }
 
 // Function used to either read or skip the current WAL delta data. The WAL
@@ -590,8 +596,8 @@ auto Skip(BaseDecoder *decoder, const uint64_t version) -> void {
 // be used.
 // @throw RecoveryFailure
 template <bool read_data>
-auto ReadSkipWalDeltaData(BaseDecoder *decoder,
-                          const uint64_t version) -> std::conditional_t<read_data, WalDeltaData, bool> {
+auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
+    -> std::conditional_t<read_data, WalDeltaData, bool> {
   auto action = decoder->ReadMarker();
   if (!action) throw RecoveryFailure(kInvalidWalErrorMessage);
 
@@ -640,6 +646,7 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder,
     read_skip(TYPE_CONSTRAINT_CREATE, WalTypeConstraintCreate);
     read_skip(TYPE_CONSTRAINT_DROP, WalTypeConstraintDrop);
     read_skip(TEXT_INDEX_CREATE, WalTextIndexCreate);
+    read_skip(TEXT_EDGE_INDEX_CREATE, WalTextEdgeIndexCreate);
     read_skip(TEXT_INDEX_DROP, WalTextIndexDrop);
     read_skip(ENUM_CREATE, WalEnumCreate);
     read_skip(ENUM_ALTER_ADD, WalEnumAlterAdd);
@@ -1258,6 +1265,12 @@ std::optional<RecoveryInfo> LoadWal(
                                   "The label index stats doesn't exist!");
       },
       [&](WalTextIndexCreate const &data) {
+        if (r::any_of(indices_constraints->indices.text_indices,
+                      [&](const auto &index) { return index.index_name == data.index_name; }) ||
+            r::any_of(indices_constraints->indices.text_edge_indices,
+                      [&](const auto &index) { return index.index_name == data.index_name; })) {
+          throw RecoveryFailure("The vector index already exists!");
+        }
         auto label = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         auto prop_ids = std::invoke([&]() -> std::vector<PropertyId> {
           if (!data.properties) {
@@ -1267,15 +1280,33 @@ std::optional<RecoveryInfo> LoadWal(
             return PropertyId::FromUint(name_id_mapper->NameToId(prop_name));
           }) | r::to_vector;
         });
-        AddRecoveredIndexConstraint(&indices_constraints->indices.text_indices,
-                                    TextIndexSpec{data.index_name, label, std::move(prop_ids)},
-                                    "The text index already exists!");
+        indices_constraints->indices.text_indices.emplace_back(data.index_name, label, std::move(prop_ids));
+      },
+      [&](WalTextEdgeIndexCreate const &data) {
+        if (r::any_of(indices_constraints->indices.text_indices,
+                      [&](const auto &index) { return index.index_name == data.index_name; }) ||
+            r::any_of(indices_constraints->indices.text_edge_indices,
+                      [&](const auto &index) { return index.index_name == data.index_name; })) {
+          throw RecoveryFailure("The vector index already exists!");
+        }
+        auto edge_type = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));
+        auto prop_ids = std::invoke([&]() -> std::vector<PropertyId> {
+          if (data.properties.empty()) {
+            return {};
+          }
+          return data.properties | rv::transform([&](const auto &prop_name) {
+                   return PropertyId::FromUint(name_id_mapper->NameToId(prop_name));
+                 }) |
+                 r::to_vector;
+        });
+        indices_constraints->indices.text_edge_indices.emplace_back(data.index_name, edge_type, std::move(prop_ids));
       },
       [&](WalTextIndexDrop const &data) {
-        std::erase_if(indices_constraints->indices.text_indices, [&](const auto &index_metadata) {
-          const auto &[index_name, label, properties] = index_metadata;
-          return index_name == data.index_name;
-        });
+        auto pred = [&](const auto &index_metadata) { return index_metadata.index_name == data.index_name; };
+        if (!std::erase_if(indices_constraints->indices.text_indices, pred)) {
+          // Only check the edge indices if nothing was erased from the text indices -> same name can't exist in both
+          std::erase_if(indices_constraints->indices.text_edge_indices, pred);
+        }
       },
       [&](WalExistenceConstraintCreate const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
@@ -1398,8 +1429,12 @@ std::optional<RecoveryInfo> LoadWal(
             data.capacity, scalar_kind);
       },
       [&](WalVectorIndexDrop const &data) {
-        std::erase_if(indices_constraints->indices.vector_indices,
-                      [&](const auto &index) { return index.index_name == data.index_name; });
+        auto pred = [&](const auto &index_metadata) { return index_metadata.index_name == data.index_name; };
+
+        if (!std::erase_if(indices_constraints->indices.vector_indices, pred)) {
+          // Only check the second container if nothing was erased from the first
+          std::erase_if(indices_constraints->indices.vector_edge_indices, pred);
+        }
       },
       [&](WalTtlOperation const &data) {
         switch (data.operation_type) {
@@ -1696,11 +1731,21 @@ void EncodeTypeConstraint(BaseEncoder &encoder, NameIdMapper &name_id_mapper, La
   encoder.WriteUint(static_cast<uint64_t>(type));
 }
 
-void EncodeTextIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const TextIndexSpec &text_index_info) {
-  encoder.WriteString(text_index_info.index_name_);
-  encoder.WriteString(name_id_mapper.IdToName(text_index_info.label_.AsUint()));
-  encoder.WriteUint(text_index_info.properties_.size());
-  for (const auto &property : text_index_info.properties_) {
+void EncodeTextIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const TextIndexSpec &text_index_info) {
+  encoder.WriteString(text_index_info.index_name);
+  encoder.WriteString(name_id_mapper.IdToName(text_index_info.label.AsUint()));
+  encoder.WriteUint(text_index_info.properties.size());
+  for (const auto &property : text_index_info.properties) {
+    encoder.WriteString(name_id_mapper.IdToName(property.AsUint()));
+  }
+}
+
+void EncodeTextEdgeIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper,
+                             const TextEdgeIndexSpec &text_edge_index_info) {
+  encoder.WriteString(text_edge_index_info.index_name);
+  encoder.WriteString(name_id_mapper.IdToName(text_edge_index_info.edge_type.AsUint()));
+  encoder.WriteUint(text_edge_index_info.properties.size());
+  for (const auto &property : text_edge_index_info.properties) {
     encoder.WriteString(name_id_mapper.IdToName(property.AsUint()));
   }
 }

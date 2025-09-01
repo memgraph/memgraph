@@ -142,15 +142,15 @@ void TrackTextIndexChange(TextIndexChangeCollector &collector, std::span<TextInd
   for (auto *idx : indices) {
     auto &entry = collector[idx];
     if (op == TextIndexOp::ADD) {
-      entry.to_remove_.erase(vertex);
-      entry.to_add_.insert(vertex);
+      entry.to_remove.erase(vertex);
+      entry.to_add.insert(vertex);
     } else if (op == TextIndexOp::UPDATE) {
       // On update we have to firstly remove the vertex from index and then add it back
-      entry.to_remove_.insert(vertex);
-      entry.to_add_.insert(vertex);
+      entry.to_remove.insert(vertex);
+      entry.to_add.insert(vertex);
     } else {  // REMOVE
-      entry.to_add_.erase(vertex);
-      entry.to_remove_.insert(vertex);
+      entry.to_add.erase(vertex);
+      entry.to_remove.insert(vertex);
     }
   }
 }
@@ -162,15 +162,15 @@ void TrackTextEdgeIndexChange(TextEdgeIndexChangeCollector &collector, std::span
   for (auto *idx : indices) {
     auto &entry = collector[idx];
     if (op == TextIndexOp::ADD) {
-      entry.to_remove_.erase(edge);
-      entry.to_add_.insert(edge_with_vertices);
+      entry.to_remove.erase(edge);
+      entry.to_add.insert(edge_with_vertices);
     } else if (op == TextIndexOp::UPDATE) {
       // On update we have to firstly remove the edge from index and then add it back
-      entry.to_remove_.insert(edge);
-      entry.to_add_.insert(edge_with_vertices);
+      entry.to_remove.insert(edge);
+      entry.to_add.insert(edge_with_vertices);
     } else {  // REMOVE
-      entry.to_add_.erase(edge_with_vertices);
-      entry.to_remove_.insert(edge);
+      entry.to_add.erase(edge_with_vertices);
+      entry.to_remove.insert(edge);
     }
   }
 }

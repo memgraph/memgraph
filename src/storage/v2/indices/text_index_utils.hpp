@@ -68,22 +68,22 @@ enum class TextIndexOp { ADD, UPDATE, REMOVE };
 struct TextIndexSpec {
   bool operator==(const TextIndexSpec &other) const = default;
 
-  std::string index_name_;
-  LabelId label_;
-  std::vector<PropertyId> properties_;
+  std::string index_name;
+  LabelId label;
+  std::vector<PropertyId> properties;
 };
 
 struct TextEdgeIndexSpec {
   bool operator==(const TextEdgeIndexSpec &other) const = default;
 
-  std::string index_name_;
-  EdgeTypeId edge_type_;
-  std::vector<PropertyId> properties_;
+  std::string index_name;
+  EdgeTypeId edge_type;
+  std::vector<PropertyId> properties;
 };
 
 struct TextIndexPending {
-  absl::flat_hash_set<const Vertex *> to_add_;
-  absl::flat_hash_set<const Vertex *> to_remove_;
+  absl::flat_hash_set<const Vertex *> to_add;
+  absl::flat_hash_set<const Vertex *> to_remove;
 };
 struct EdgeWithVertices {
   const Edge *edge;
@@ -100,8 +100,8 @@ struct EdgeWithVertices {
   }
 };
 struct TextEdgeIndexPending {
-  absl::flat_hash_set<EdgeWithVertices> to_add_;
-  absl::flat_hash_set<const Edge *> to_remove_;
+  absl::flat_hash_set<EdgeWithVertices> to_add;
+  absl::flat_hash_set<const Edge *> to_remove;
 };
 
 // Text index change collector for transaction-level batching

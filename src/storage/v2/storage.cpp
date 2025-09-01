@@ -709,7 +709,7 @@ utils::BasicResult<storage::StorageIndexDefinitionError, void> Storage::Accessor
   MG_ASSERT(type() == UNIQUE, "Creating a text index requires unique access to storage!");
 
   // Check for name conflicts with existing text edge indexes
-  if (storage_->indices_.text_edge_index_.IndexExists(text_index_info.index_name_)) {
+  if (storage_->indices_.text_edge_index_.IndexExists(text_index_info.index_name)) {
     return storage::StorageIndexDefinitionError{IndexDefinitionError{}};
   }
 
@@ -729,7 +729,7 @@ utils::BasicResult<storage::StorageIndexDefinitionError, void> Storage::Accessor
   MG_ASSERT(type() == UNIQUE, "Creating a text edge index requires unique access to storage!");
 
   // Check for name conflicts with existing text node indexes
-  if (storage_->indices_.text_index_.IndexExists(text_edge_index_info.index_name_)) {
+  if (storage_->indices_.text_index_.IndexExists(text_edge_index_info.index_name)) {
     return storage::StorageIndexDefinitionError{IndexDefinitionError{}};
   }
 
@@ -740,9 +740,8 @@ utils::BasicResult<storage::StorageIndexDefinitionError, void> Storage::Accessor
     return storage::StorageIndexDefinitionError{IndexDefinitionError{}};
   }
 
-  // TODO: Uncomment when metadata deltas and metrics are implemented for text edge indexes
-  // transaction_.md_deltas.emplace_back(MetadataDelta::text_edge_index_create, text_edge_index_info);
-  // memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextEdgeIndices);
+  transaction_.md_deltas.emplace_back(MetadataDelta::text_edge_index_create, text_edge_index_info);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextEdgeIndices);
   return {};
 }
 

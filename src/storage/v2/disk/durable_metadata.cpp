@@ -31,6 +31,7 @@ constexpr const char *kEdgeDountDescr = "edge_count";
 constexpr const char *kLabelIndexStr = "label_index";
 constexpr const char *kLabelPropertyIndexStr = "label_property_index";
 constexpr const char *kTextIndexStr = "text_index";
+constexpr const char *kTextEdgeIndexStr = "text_edge_index";
 constexpr const char *kExistenceConstraintsStr = "existence_constraints";
 constexpr const char *kUniqueConstraintsStr = "unique_constraints";
 }  // namespace
@@ -151,15 +152,28 @@ bool DurableMetadata::PersistLabelPropertyIndexAndExistenceConstraintDeletion(La
 
 bool DurableMetadata::PersistTextIndexCreation(const storage::TextIndexSpec &text_index) {
   const auto properties_str = utils::Join(
-      text_index.properties_ | rv::transform([](const auto &property_id) { return property_id.ToString(); }), ",");
+      text_index.properties | rv::transform([](const auto &property_id) { return property_id.ToString(); }), ",");
   const auto index_name_label_properties =
-      fmt::format("{},{},{}", text_index.index_name_, text_index.label_.ToString(), properties_str);
+      fmt::format("{},{},{}", text_index.index_name, text_index.label.ToString(), properties_str);
   if (auto text_index_store = durability_kvstore_.Get(kTextIndexStr); text_index_store.has_value()) {
     auto &value = text_index_store.value();
     value = fmt::format("{}|{}", value, index_name_label_properties);
     return durability_kvstore_.Put(kTextIndexStr, value);
   }
   return durability_kvstore_.Put(kTextIndexStr, index_name_label_properties);
+}
+
+bool DurableMetadata::PersistTextEdgeIndexCreation(const storage::TextEdgeIndexSpec &text_edge_index) {
+  const auto properties_str = utils::Join(
+      text_edge_index.properties | rv::transform([](const auto &property_id) { return property_id.ToString(); }), ",");
+  const auto index_name_label_properties =
+      fmt::format("{},{},{}", text_edge_index.index_name, text_edge_index.edge_type.ToString(), properties_str);
+  if (auto text_index_store = durability_kvstore_.Get(kTextEdgeIndexStr); text_index_store.has_value()) {
+    auto &value = text_index_store.value();
+    value = fmt::format("{}|{}", value, index_name_label_properties);
+    return durability_kvstore_.Put(kTextEdgeIndexStr, value);
+  }
+  return durability_kvstore_.Put(kTextEdgeIndexStr, index_name_label_properties);
 }
 
 bool DurableMetadata::PersistTextIndexDeletion(std::string_view index_name) {
