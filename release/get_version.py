@@ -128,9 +128,19 @@ def fetch_original_repo_version():
         # GitHub API endpoint for the original Memgraph repository tags
         api_url = "https://api.github.com/repos/memgraph/memgraph/tags"
 
+        # Check for GitHub token in environment variables
+        github_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GITHUB_API_TOKEN")
+
         # Make request to GitHub API
         req = urllib.request.Request(api_url)
         req.add_header("User-Agent", "Memgraph-Version-Script/1.0")
+
+        # Add authorization header if token is available
+        if github_token:
+            req.add_header("Authorization", f"token {github_token}")
+            print("Using GitHub API token for authenticated request", file=sys.stderr)
+        else:
+            print("No GitHub token found, using unauthenticated request (may be rate limited)", file=sys.stderr)
 
         with urllib.request.urlopen(req) as response:
             tags_data = json.loads(response.read().decode())
