@@ -86,12 +86,13 @@ fi
 # develop on them -> pre-commit hook not required -> we can use latest
 # packages.
 if [[ "$ci" == "false" ]]; then
-    python3 -m pip install --upgrade pip
-    pip install pre-commit \
-      pre_commit \  
-      black==23.1.* \
-      isort==5.12.*
-    pre_commit install
+  export PIP_BREAK_SYSTEM_PACKAGES=1
+  python3 -m pip install --upgrade pip
+  pip install pre-commit \
+    pre_commit \  
+    black==23.1.* \
+    isort==5.12.*
+  pre_commit install
 fi
 
 # Link `include/mgp.py` with `release/mgp/mgp.py`
