@@ -1381,3 +1381,49 @@ class Pokec(Workload):
                 raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
+
+    def benchmark__planner_optimizations__indexed_order_by(self):
+        # The query facilitates use of index for ORDER BY. Order
+        # by in this case can be ommitted because the index itself offers
+        # an ordered structure
+        match self._vendor:
+            case GraphVendors.MEMGRAPH:
+                query = "MATCH (u:User) RETURN u.id ORDER BY u.id"
+                params = {}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
+
+    def benchmark__planner_optimizations__parallel_counting(self):
+        # The query needs to facilitate the use of parallel runtime for counting
+        match self._vendor:
+            case GraphVendors.MEMGRAPH:
+                query = "MATCH (u) RETURN count(u)"
+                params = {}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
+
+    def benchmark__planner_optimizations__bfs_expand_from_source(self):
+        # The query needs to facilitate source expand, and not ST Shortest path
+        match self._vendor:
+            case GraphVendors.MEMGRAPH:
+                query = f"MATCH p=(u:User {id: 1})-[*bfs]-(:User) RETURN count(p)"
+                params = {}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
+
+    def benchmark__planner_optimizations__starts_with(self):
+        # The query needs to facilitate index since STARTS WITH is an ordered filter
+        match self._vendor:
+            case GraphVendors.MEMGRAPH:
+                query = f"MATCH (u:User) WHERE u.gender STARTS WITH 'm' RETURN count(*)"
+                params = {}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
