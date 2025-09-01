@@ -21,7 +21,6 @@
 #include "query/plan/operator.hpp"
 #include "query/query_user.hpp"
 #include "query/serialization/property_value.hpp"
-#include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/memory.hpp"
@@ -192,15 +191,16 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor, 
   return trigger_plan_;
 }
 
-void Trigger::Execute(DbAccessor *dba, DatabaseAccessProtector db_acc, utils::MemoryResource *execution_memory,
+void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::MemoryResource *execution_memory,
                       const double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
-                      std::atomic<TransactionStatus> *transaction_status, const TriggerContext &context) const {
+                      std::atomic<TransactionStatus> *transaction_status, const TriggerContext &context,
+                      bool is_main) const {
   if (!context.ShouldEventTrigger(event_type_)) {
     return;
   }
 
   spdlog::debug("Executing trigger '{}'", name_);
-  auto trigger_plan = GetPlan(dba, std::any_cast<dbms::DatabaseAccess>(db_acc)->name());
+  auto trigger_plan = GetPlan(dba, db_acc->name());
   MG_ASSERT(trigger_plan, "Invalid trigger plan received");
   auto &[plan, identifiers] = *trigger_plan;
 
@@ -218,7 +218,8 @@ void Trigger::Execute(DbAccessor *dba, DatabaseAccessProtector db_acc, utils::Me
   };
   ctx.is_profile_query = false;
   ctx.evaluation_context.memory = execution_memory;
-  ctx.db_acc = std::move(db_acc);
+  ctx.protector = dbms::DatabaseProtector{db_acc}.clone();
+  ctx.is_main = is_main;
 
   auto cursor = plan.plan().MakeCursor(execution_memory);
   Frame frame{plan.symbol_table().max_position(), execution_memory};
@@ -230,8 +231,7 @@ void Trigger::Execute(DbAccessor *dba, DatabaseAccessProtector db_acc, utils::Me
     frame[plan.symbol_table().at(identifier)] = context.GetTypedValue(tag, dba);
   }
 
-  while (cursor->Pull(frame, ctx))
-    ;
+  while (cursor->Pull(frame, ctx));
 
   cursor->Shutdown();
   memgraph::metrics::IncrementCounter(memgraph::metrics::TriggersExecuted);

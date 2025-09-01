@@ -4,8 +4,9 @@ add_library(mg::storage ALIAS mg-storage-v2)
 target_sources(mg-storage-v2
         PRIVATE
         all_vertices_iterable.cpp
-        auto_indexer.cpp
+        async_indexer.cpp
         commit_log.cpp
+        commit_args.cpp
         config.cpp
         constraint_verification_info.cpp
         constraints/constraints.cpp
@@ -41,6 +42,7 @@ target_sources(mg-storage-v2
         indices/point_index.cpp
         indices/point_index_change_collector.cpp
         indices/point_iterator.cpp
+        indices/text_index_utils.cpp
         indices/text_index.cpp
         indices/vector_edge_index.cpp
         indices/vector_index.cpp
@@ -69,18 +71,28 @@ target_sources(mg-storage-v2
         vertex_accessor.cpp
         vertex_info_cache.cpp
         vertices_iterable.cpp
+        edge_ref.cpp
+        indices/point_iterator.cpp
+        property_value_utils.cpp
+        config.cpp
+        id_types.cpp
+        ttl.cpp
 
         PUBLIC
         FILE_SET HEADERS
         BASE_DIRS ../../
         FILES
-        auto_indexer.hpp
+        access_type.hpp
+        async_indexer.hpp
+        commit_args.hpp
         config.hpp
         constraints/type_constraints.hpp
         constraints/type_constraints_kind.hpp
         constraints/type_constraints_validator.hpp
+        database_protector.hpp
         delta_container.hpp
         disk/storage.hpp
+        durability/ttl_operation_type.hpp
         edge_ref.hpp
         enum.hpp
         enum_store.hpp
@@ -90,6 +102,8 @@ target_sources(mg-storage-v2
         indices/point_index_change_collector.hpp
         indices/point_index_expensive_header.hpp
         indices/point_iterator.hpp
+        indices/text_index.hpp
+        indices/text_index_utils.hpp
         indices/vector_edge_index.hpp
         indices/vector_index.hpp
         indices/vector_index_utils.hpp
@@ -108,6 +122,7 @@ target_sources(mg-storage-v2
         storage.hpp
         transaction.hpp
         transaction_constants.hpp
+        ttl.hpp
         vertex_info_cache.hpp
         vertex_info_cache_fwd.hpp
 )
@@ -134,6 +149,7 @@ target_link_libraries(mg-storage-v2
     usearch
     strong_type::strong_type
     rangev3
+    atomic
 )
 
 add_subdirectory(fuzz EXCLUDE_FROM_ALL)

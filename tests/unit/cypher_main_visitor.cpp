@@ -36,6 +36,7 @@
 
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
+#include "query/frontend/ast/query/user_profile.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/frontend/semantic/rw_checker.hpp"
 #include "query/frontend/stripped.hpp"
@@ -2345,6 +2346,171 @@ TEST_P(CypherMainVisitorTest, SemanticExceptionOnWShortestLowerBound) {
 TEST_P(CypherMainVisitorTest, SemanticExceptionOnWShortestWithoutLambda) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("MATCH ()-[r *wShortest]-() RETURN r"), SemanticException);
+}
+
+TEST_P(CypherMainVisitorTest, MatchKShortestReturn) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH ()-[r:type1|type2 *kShortest]->() RETURN r"));
+  ASSERT_TRUE(query);
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  ASSERT_EQ(single_query->clauses_.size(), 2U);
+  auto *match = dynamic_cast<Match *>(single_query->clauses_[0]);
+  ASSERT_TRUE(match);
+  ASSERT_EQ(match->patterns_.size(), 1U);
+  ASSERT_EQ(match->patterns_[0]->atoms_.size(), 3U);
+  auto *shortest = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
+  ASSERT_TRUE(shortest);
+  EXPECT_TRUE(shortest->IsVariable());
+  EXPECT_EQ(shortest->type_, EdgeAtom::Type::KSHORTEST);
+  EXPECT_EQ(shortest->direction_, EdgeAtom::Direction::OUT);
+  EXPECT_THAT(shortest->edge_types_,
+              UnorderedElementsAre(ast_generator.EdgeType("type1"), ast_generator.EdgeType("type2")));
+  EXPECT_FALSE(shortest->upper_bound_);
+  EXPECT_FALSE(shortest->lower_bound_);
+  EXPECT_EQ(shortest->identifier_->name_, "r");
+  EXPECT_FALSE(shortest->filter_lambda_.expression);
+  EXPECT_FALSE(shortest->filter_lambda_.inner_edge->user_declared_);
+  EXPECT_FALSE(shortest->filter_lambda_.inner_node->user_declared_);
+  CheckRWType(query, kRead);
+}
+
+TEST_P(CypherMainVisitorTest, MatchKShortestWithFilterReturn) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("MATCH ()-[r:type1 *kShortest (e, n | e.prop = 42)]->() RETURN r"),
+               SemanticException);
+}
+
+TEST_P(CypherMainVisitorTest, MatchKShortestFilterByPathReturn) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("MATCH pth=()-[r:type1 *kShortest (e, n, p | startNode(relationships(e)[-1]) = "
+                                        "c:type3)]->(:type2) RETURN pth"),
+               SemanticException);
+}
+
+TEST_P(CypherMainVisitorTest, MatchKShortestFilterByPathWeightReturn) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("MATCH pth=()-[r:type1 *kShortest (e, n, p, w | "
+                                        "startNode(relationships(e)[-1]) = c:type3 AND w < 50)]->(:type2) RETURN pth"),
+               SemanticException);
+}
+
+TEST_P(CypherMainVisitorTest, SemanticExceptionOnKShortestWithRangeBounds) {
+  auto &ast_generator = *GetParam();
+
+  {
+    const auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH ()-[r *kShortest..10]->() RETURN r"));
+    ASSERT_TRUE(query);
+    ASSERT_TRUE(query->single_query_);
+    auto *single_query = query->single_query_;
+    ASSERT_EQ(single_query->clauses_.size(), 2U);
+    auto *match = dynamic_cast<Match *>(single_query->clauses_[0]);
+    ASSERT_TRUE(match);
+    ASSERT_EQ(match->patterns_.size(), 1U);
+    ASSERT_EQ(match->patterns_[0]->atoms_.size(), 3U);
+    auto *shortest = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
+    ASSERT_TRUE(shortest);
+    EXPECT_TRUE(shortest->IsVariable());
+    EXPECT_EQ(shortest->type_, EdgeAtom::Type::KSHORTEST);
+    EXPECT_EQ(shortest->direction_, EdgeAtom::Direction::OUT);
+    EXPECT_TRUE(shortest->upper_bound_);
+    EXPECT_FALSE(shortest->lower_bound_);
+    EXPECT_FALSE(shortest->limit_);
+    EXPECT_EQ(shortest->identifier_->name_, "r");
+    EXPECT_FALSE(shortest->filter_lambda_.expression);
+    EXPECT_FALSE(shortest->filter_lambda_.inner_edge->user_declared_);
+    EXPECT_FALSE(shortest->filter_lambda_.inner_node->user_declared_);
+    CheckRWType(query, kRead);
+  }
+
+  {
+    const auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH ()-[r *kShortest 5..10]->() RETURN r"));
+    ASSERT_TRUE(query);
+    ASSERT_TRUE(query->single_query_);
+    auto *single_query = query->single_query_;
+    ASSERT_EQ(single_query->clauses_.size(), 2U);
+    auto *match = dynamic_cast<Match *>(single_query->clauses_[0]);
+    ASSERT_TRUE(match);
+    ASSERT_EQ(match->patterns_.size(), 1U);
+    ASSERT_EQ(match->patterns_[0]->atoms_.size(), 3U);
+    auto *shortest = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
+    ASSERT_TRUE(shortest);
+    EXPECT_TRUE(shortest->IsVariable());
+    EXPECT_EQ(shortest->type_, EdgeAtom::Type::KSHORTEST);
+    EXPECT_EQ(shortest->direction_, EdgeAtom::Direction::OUT);
+    EXPECT_TRUE(shortest->upper_bound_);
+    EXPECT_TRUE(shortest->lower_bound_);
+    EXPECT_FALSE(shortest->limit_);
+    EXPECT_EQ(shortest->identifier_->name_, "r");
+    EXPECT_FALSE(shortest->filter_lambda_.expression);
+    EXPECT_FALSE(shortest->filter_lambda_.inner_edge->user_declared_);
+    EXPECT_FALSE(shortest->filter_lambda_.inner_node->user_declared_);
+    CheckRWType(query, kRead);
+  }
+
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH ()-[r *kShortest..]->() RETURN r"));
+    ASSERT_TRUE(query);
+    ASSERT_TRUE(query->single_query_);
+    auto *single_query = query->single_query_;
+    ASSERT_EQ(single_query->clauses_.size(), 2U);
+    auto *match = dynamic_cast<Match *>(single_query->clauses_[0]);
+    ASSERT_TRUE(match);
+    ASSERT_EQ(match->patterns_.size(), 1U);
+    ASSERT_EQ(match->patterns_[0]->atoms_.size(), 3U);
+    auto *shortest = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
+    ASSERT_TRUE(shortest);
+    EXPECT_TRUE(shortest->IsVariable());
+    EXPECT_EQ(shortest->type_, EdgeAtom::Type::KSHORTEST);
+    EXPECT_EQ(shortest->direction_, EdgeAtom::Direction::OUT);
+    EXPECT_FALSE(shortest->upper_bound_);
+    EXPECT_FALSE(shortest->lower_bound_);
+    EXPECT_EQ(shortest->identifier_->name_, "r");
+    EXPECT_FALSE(shortest->filter_lambda_.expression);
+    EXPECT_FALSE(shortest->filter_lambda_.inner_edge->user_declared_);
+    EXPECT_FALSE(shortest->filter_lambda_.inner_node->user_declared_);
+    EXPECT_FALSE(shortest->limit_);
+    CheckRWType(query, kRead);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, MatchKShortestWithLimitReturn) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH ()-[r:type1|type2 *kShortest|5]->() RETURN r"));
+  ASSERT_TRUE(query);
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  ASSERT_EQ(single_query->clauses_.size(), 2U);
+  auto *match = dynamic_cast<Match *>(single_query->clauses_[0]);
+  ASSERT_TRUE(match);
+  ASSERT_EQ(match->patterns_.size(), 1U);
+  ASSERT_EQ(match->patterns_[0]->atoms_.size(), 3U);
+  auto *shortest = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
+  ASSERT_TRUE(shortest);
+  EXPECT_TRUE(shortest->IsVariable());
+  EXPECT_EQ(shortest->type_, EdgeAtom::Type::KSHORTEST);
+  EXPECT_EQ(shortest->direction_, EdgeAtom::Direction::OUT);
+  EXPECT_THAT(shortest->edge_types_,
+              UnorderedElementsAre(ast_generator.EdgeType("type1"), ast_generator.EdgeType("type2")));
+  EXPECT_FALSE(shortest->upper_bound_);
+  EXPECT_FALSE(shortest->lower_bound_);
+  EXPECT_TRUE(shortest->limit_);
+  EXPECT_EQ(shortest->identifier_->name_, "r");
+  EXPECT_FALSE(shortest->filter_lambda_.expression);
+  EXPECT_FALSE(shortest->filter_lambda_.inner_edge->user_declared_);
+  EXPECT_FALSE(shortest->filter_lambda_.inner_node->user_declared_);
+  CheckRWType(query, kRead);
+}
+
+TEST_P(CypherMainVisitorTest, SemanticExceptionOnLimitWithNonKShortest) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("MATCH ()-[r:type1 *bfs|5]->() RETURN r"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("MATCH ()-[r:type1 *wshortest|5]->() RETURN r"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("MATCH ()-[r:type1 *allshortest|5]->() RETURN r"), SemanticException);
 }
 
 TEST_P(CypherMainVisitorTest, SemanticExceptionOnUnionTypeMix) {
@@ -5669,14 +5835,14 @@ TEST_P(CypherMainVisitorTest, TtlQuery) {
   {
     const auto *query = dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("ENABLE TTL;"));
     ASSERT_NE(query, nullptr);
-    ASSERT_EQ(query->type_, TtlQuery::Type::ENABLE);
+    ASSERT_EQ(query->type_, TtlQuery::Type::START);
     ASSERT_EQ(query->period_, nullptr);
     ASSERT_EQ(query->specific_time_, nullptr);
   }
   {
     const auto *query = dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("ENABLE TTL AT \"01:23:45\";"));
     ASSERT_NE(query, nullptr);
-    ASSERT_EQ(query->type_, TtlQuery::Type::ENABLE);
+    ASSERT_EQ(query->type_, TtlQuery::Type::CONFIGURE);
     ASSERT_EQ(query->period_, nullptr);
     ASSERT_NE(query->specific_time_, nullptr);
     auto st = ast_generator.LiteralValue(query->specific_time_);
@@ -5686,7 +5852,7 @@ TEST_P(CypherMainVisitorTest, TtlQuery) {
     const auto *query =
         dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("ENABLE TTL AT \"21:09:53\" EVERY \"3h18s\";"));
     ASSERT_NE(query, nullptr);
-    ASSERT_EQ(query->type_, TtlQuery::Type::ENABLE);
+    ASSERT_EQ(query->type_, TtlQuery::Type::CONFIGURE);
     ASSERT_NE(query->period_, nullptr);
     ASSERT_NE(query->specific_time_, nullptr);
     auto p = ast_generator.LiteralValue(query->period_);
@@ -5697,7 +5863,7 @@ TEST_P(CypherMainVisitorTest, TtlQuery) {
   {
     const auto *query = dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("ENABLE TTL EVERY \"5m10s\";"));
     ASSERT_NE(query, nullptr);
-    ASSERT_EQ(query->type_, TtlQuery::Type::ENABLE);
+    ASSERT_EQ(query->type_, TtlQuery::Type::CONFIGURE);
     ASSERT_NE(query->period_, nullptr);
     ASSERT_EQ(query->specific_time_, nullptr);
     auto p = ast_generator.LiteralValue(query->period_);
@@ -5706,7 +5872,7 @@ TEST_P(CypherMainVisitorTest, TtlQuery) {
   {
     const auto *query = dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("ENABLE TTL EVERY \"56m\" AT \"16:45:00\";"));
     ASSERT_NE(query, nullptr);
-    ASSERT_EQ(query->type_, TtlQuery::Type::ENABLE);
+    ASSERT_EQ(query->type_, TtlQuery::Type::CONFIGURE);
     ASSERT_NE(query->period_, nullptr);
     ASSERT_NE(query->specific_time_, nullptr);
     auto p = ast_generator.LiteralValue(query->period_);
@@ -6099,5 +6265,200 @@ TEST_P(CypherMainVisitorTest, TestShowActiveUsersInfo) {
     auto *query = dynamic_cast<SystemInfoQuery *>(ast_generator.ParseQuery("SHOW ACTIVE USERS"));
     ASSERT_TRUE(query);
     EXPECT_EQ(query->info_type_, SystemInfoQuery::InfoType::ACTIVE_USERS);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, TestNestedPropertyUpdate) {
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) SET n.details.age = 21"));
+    ASSERT_NE(query, nullptr);
+
+    ASSERT_EQ(query->single_query_->clauses_.size(), 2);
+    auto *set_property = dynamic_cast<SetProperty *>(query->single_query_->clauses_[1]);
+    ASSERT_NE(set_property, nullptr);
+
+    ASSERT_EQ(set_property->property_lookup_->property_path_.size(), 2);
+    ASSERT_EQ(set_property->property_lookup_->lookup_mode_, PropertyLookup::LookupMode::REPLACE);
+  }
+  {
+    auto &ast_generator = *GetParam();
+    auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) SET n.details.details2 += {age: 21}"));
+    ASSERT_NE(query, nullptr);
+
+    ASSERT_EQ(query->single_query_->clauses_.size(), 2);
+    auto *set_property = dynamic_cast<SetProperty *>(query->single_query_->clauses_[1]);
+    ASSERT_NE(set_property, nullptr);
+
+    ASSERT_EQ(set_property->property_lookup_->property_path_.size(), 2);
+    ASSERT_EQ(set_property->property_lookup_->lookup_mode_, PropertyLookup::LookupMode::APPEND);
+  }
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) REMOVE n.details.age"));
+    ASSERT_NE(query, nullptr);
+
+    ASSERT_EQ(query->single_query_->clauses_.size(), 2);
+    auto *remove_property = dynamic_cast<RemoveProperty *>(query->single_query_->clauses_[1]);
+    ASSERT_NE(remove_property, nullptr);
+
+    ASSERT_EQ(remove_property->property_lookup_->property_path_.size(), 2);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, UserProfiles) {
+  auto &ast_generator = *GetParam();
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("CREATE PROFILE profile"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "profile");
+    ASSERT_EQ(query->limits_.size(), 0);
+    ASSERT_FALSE(query->user_or_role_);
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::CREATE);
+  }
+  {
+    auto *query =
+        dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("CREATE PROFILE profile LIMIT sessions 10"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "profile");
+    ASSERT_EQ(query->limits_.size(), 1);
+    ASSERT_FALSE(query->user_or_role_);
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::CREATE);
+  }
+  {
+    bool failed = false;
+    try {
+      (void)dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("CREATE PROFILE profile1 profile2"));
+    } catch (...) {
+      failed = true;
+    }
+    ASSERT_TRUE(failed);
+  }
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(
+        ast_generator.ParseQuery("UPDATE PROFILE profile"));  // TODO Should we support this?
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "profile");
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::UPDATE);
+  }
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(
+        ast_generator.ParseQuery("UPDATE PROFILE profile LIMIT session 1, transactions_memory 1MB"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "profile");
+    ASSERT_EQ(query->limits_.size(), 2);
+    ASSERT_FALSE(query->user_or_role_);
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::UPDATE);
+  }
+  {
+    bool failed = false;
+    try {
+      (void)ast_generator.ParseQuery("UPDATE PROFILE profile LIMIT session 1 transactions_memory 1MB");
+    } catch (...) {
+      failed = true;
+    }
+    ASSERT_TRUE(failed);
+  }
+  {
+    bool failed = false;
+    try {
+      (void)ast_generator.ParseQuery("UPDATE PROFILE profile LIMIT session 1 1MB");
+    } catch (...) {
+      failed = true;
+    }
+    ASSERT_TRUE(failed);
+  }
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("DROP PROFILE profile"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "profile");
+    ASSERT_EQ(query->limits_.size(), 0);
+    ASSERT_FALSE(query->user_or_role_);
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::DROP);
+  }
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("SHOW PROFILE profile"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "profile");
+    ASSERT_EQ(query->limits_.size(), 0);
+    ASSERT_FALSE(query->user_or_role_);
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::SHOW_ONE);
+  }
+  {
+    bool failed = false;
+    try {
+      (void)ast_generator.ParseQuery("SHOW PROFILE profile profile2");
+    } catch (...) {
+      failed = true;
+    }
+    ASSERT_TRUE(failed);
+  }
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("SHOW PROFILES"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "");
+    ASSERT_EQ(query->limits_.size(), 0);
+    ASSERT_FALSE(query->user_or_role_);
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::SHOW_ALL);
+  }
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("SHOW USERS FOR PROFILE profile"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "profile");
+    ASSERT_EQ(query->limits_.size(), 0);
+    ASSERT_FALSE(query->user_or_role_);
+    ASSERT_TRUE(query->show_user_);
+    ASSERT_TRUE(query->show_user_.value());
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::SHOW_USERS);
+  }
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("SHOW ROLES FOR PROFILE profile"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "profile");
+    ASSERT_EQ(query->limits_.size(), 0);
+    ASSERT_FALSE(query->user_or_role_);
+    ASSERT_TRUE(query->show_user_);
+    ASSERT_FALSE(query->show_user_.value());
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::SHOW_USERS);
+  }
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("SHOW PROFILE FOR user"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "");
+    ASSERT_EQ(query->limits_.size(), 0);
+    ASSERT_EQ(query->user_or_role_, "user");
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::SHOW_FOR);
+  }
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("SET PROFILE FOR user TO profile"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "profile");
+    ASSERT_EQ(query->limits_.size(), 0);
+    ASSERT_EQ(query->user_or_role_, "user");
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::SET);
+  }
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("CLEAR PROFILE FOR user"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "");
+    ASSERT_EQ(query->limits_.size(), 0);
+    ASSERT_EQ(query->user_or_role_, "user");
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::CLEAR);
+  }
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("SHOW RESOURCE USAGE FOR user"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "");
+    ASSERT_EQ(query->limits_.size(), 0);
+    ASSERT_EQ(query->user_or_role_, "user");
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::SHOW_RESOURCE_USAGE);
+  }
+  {
+    try {
+      (void)ast_generator.ParseQuery("SHOW RESOURCE USAGE FOR user user2");
+      FAIL();
+    } catch (...) {
+    }
   }
 }

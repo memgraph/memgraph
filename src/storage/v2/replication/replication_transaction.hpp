@@ -13,7 +13,7 @@
 
 #include <optional>
 
-#include "storage/v2/database_access.hpp"
+#include "storage/v2/database_protector.hpp"
 #include "storage/v2/replication/replication_client.hpp"
 #include "utils/rw_spin_lock.hpp"
 #include "utils/synchronized.hpp"
@@ -22,23 +22,17 @@
 
 namespace memgraph::storage {
 
+struct CommitArgs;
+
+using ReplicationStorageClientList =
+    utils::Synchronized<std::vector<std::unique_ptr<ReplicationStorageClient>>, utils::RWSpinLock>;
+
 class TransactionReplication {
  public:
   // This will block until we retrieve RPC streams for all STRICT_SYNC and SYNC replicas. It is OK to not be able to
   // obtain the RPC lock for the ASYNC replica.
-  TransactionReplication(uint64_t const durability_commit_timestamp, Storage *storage, DatabaseAccessProtector db_acc,
-                         auto &clients)
-      : locked_clients{clients.ReadLock()} {
-    streams.reserve(locked_clients->size());
-    for (const auto &client : *locked_clients) {
-      // SYNC and ASYNC replicas should commit immediately when receiving deltas, that's why we pass
-      // `should_commit_immediately`
-      bool const should_commit_immediately =
-          client->Mode() != replication_coordination_glue::ReplicationMode::STRICT_SYNC;
-      streams.emplace_back(
-          client->StartTransactionReplication(storage, db_acc, should_commit_immediately, durability_commit_timestamp));
-    }
-  }
+  TransactionReplication(uint64_t const durability_commit_timestamp, Storage *storage, CommitArgs const &commit_args,
+                         ReplicationStorageClientList &clients);
 
   ~TransactionReplication() = default;
 
@@ -47,6 +41,16 @@ class TransactionReplication {
     for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
       client->IfStreamingTransaction(
           [&...args = std::forward<Args>(args)](auto &stream) { stream.AppendDelta(std::forward<Args>(args)...); },
+          replica_stream);
+    }
+  }
+
+  void AppendTransactionStart(uint64_t timestamp, bool commit, StorageAccessType access_type) {
+    for (auto &&[client, replica_stream] : ranges::views::zip(*locked_clients, streams)) {
+      client->IfStreamingTransaction(
+          [timestamp, commit, access_type](auto &stream) {
+            stream.AppendTransactionStart(timestamp, commit, access_type);
+          },
           replica_stream);
     }
   }
@@ -64,17 +68,18 @@ class TransactionReplication {
   }
 
   // RPC stream won't be destroyed at the end of this function
-  auto ShipDeltas(uint64_t durability_commit_timestamp, DatabaseAccessProtector db_acc) -> bool;
+  auto ShipDeltas(uint64_t durability_commit_timestamp, CommitArgs const &commit_args) -> bool;
 
-  auto FinalizeTransaction(bool decision, utils::UUID const &storage_uuid, DatabaseAccessProtector db_acc,
-                           uint64_t durability_commit_timestamp) -> bool;
+  auto FinalizeTransaction(bool const decision, utils::UUID const &storage_uuid, DatabaseProtector const &protector,
+                           uint64_t const durability_commit_timestamp) -> bool;
 
-  auto ShouldRunTwoPC() const -> bool;
+  auto ShouldRunTwoPC() const -> bool { return run_two_phase_commit; }
 
  private:
   std::vector<std::optional<ReplicaStream>> streams;
   utils::Synchronized<std::vector<std::unique_ptr<ReplicationStorageClient>>, utils::RWSpinLock>::ReadLockedPtr
       locked_clients;
+  bool run_two_phase_commit = false;
 };
 
 }  // namespace memgraph::storage

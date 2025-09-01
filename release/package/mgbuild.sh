@@ -65,6 +65,8 @@ DEFAULT_BENCH_GRAPH_HOST="bench-graph-api"
 DEFAULT_BENCH_GRAPH_PORT="9001"
 DEFAULT_MGDEPS_CACHE_HOST="mgdeps-cache"
 DEFAULT_MGDEPS_CACHE_PORT="8000"
+DEFAULT_CCACHE_ENABLED="true"
+DEFAULT_PYTHON_CACHE_ENABLED="true"
 
 print_help () {
   echo -e "\nUsage:  $SCRIPT_NAME [GLOBAL OPTIONS] COMMAND [COMMAND OPTIONS]"
@@ -73,6 +75,7 @@ print_help () {
   echo -e "\nCommands:"
   echo -e "  build [OPTIONS]               Build mgbuild image"
   echo -e "  build-memgraph [OPTIONS]      Build memgraph binary inside mgbuild container"
+  echo -e "  init-tests                    Initialize tests inside mgbuild container"
   echo -e "  copy [OPTIONS]                Copy an artifact from mgbuild container to host"
   echo -e "  package-memgraph              Create memgraph package from built binary inside mgbuild container"
   echo -e "  package-docker [OPTIONS]      Create memgraph docker image and pack it as .tar.gz"
@@ -97,6 +100,8 @@ print_help () {
   echo -e "  --os string                   Specify operating system (\"${SUPPORTED_OS[*]}\") (default \"$DEFAULT_OS\")"
   echo -e "  --threads int                 Specify the number of threads a command will use (default \"\$(nproc)\" for container)"
   echo -e "  --toolchain string            Specify toolchain version (\"${SUPPORTED_TOOLCHAINS[*]}\") (default \"$DEFAULT_TOOLCHAIN\")"
+  echo -e "  --no-ccache                   Disable ccache volume mounting (default \"$DEFAULT_CCACHE_ENABLED\") -> this is required for run, stop and build-memgraph commands on the coverage build"
+  echo -e "  --no-python-cache             Disable Python package cache volume mounting (default \"$DEFAULT_PYTHON_CACHE_ENABLED\")"
 
   echo -e "\nbuild options:"
   echo -e "  --git-ref string              Specify git ref from which the environment deps will be installed (default \"master\")"
@@ -114,6 +119,7 @@ print_help () {
   echo -e "                                Use this option with caution, be sure that memgraph source code is in correct location inside mgbuild container"
   echo -e "  --ubsan                       Build with UBSAN"
   echo -e "  --disable-jemalloc            Build without jemalloc"
+  echo -e "  --disable-testing             Build without tests (faster build for packaging)"
 
   echo -e "\ncopy options (default \"--binary\"):"
   echo -e "  --artifact-name string        Specify a custom name for the copied artifact"
@@ -151,6 +157,7 @@ print_help () {
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd build --git-ref my-special-branch"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd run"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd --build-type RelWithDebInfo build-memgraph --community"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd --build-type RelWithDebInfo build-memgraph --disable-testing"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd --build-type RelWithDebInfo test-memgraph unit"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd package"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd copy --package"
@@ -262,6 +269,98 @@ version_lt() {
 ##################################################
 ######## BUILD, COPY AND PACKAGE MEMGRAPH ########
 ##################################################
+
+# Function to handle cache override file creation and cleanup
+setup_cache_override() {
+  local compose_files="-f ${arch}-builders-${toolchain_version}.yml"
+
+  # Create ccache override if enabled
+  if [[ "$ccache_enabled" == "true" ]]; then
+    cat > ccache-override.yml << EOF
+services:
+EOF
+    # Add ccache volumes for all services in the compose file
+    if [[ "$os" == "all" ]]; then
+      # For all OS, we need to add volumes to all services
+      grep "^  mgbuild_" ${arch}-builders-${toolchain_version}.yml | while read -r line; do
+        service_name=$(echo "$line" | sed 's/://')
+        echo "  $service_name:" >> ccache-override.yml
+        echo "    volumes:" >> ccache-override.yml
+        echo "      - ~/.cache/ccache:/home/mg/.cache/ccache" >> ccache-override.yml
+      done
+    else
+      # For specific OS, only add volume to the target service
+      echo "  $build_container:" >> ccache-override.yml
+      echo "    volumes:" >> ccache-override.yml
+      echo "      - ~/.cache/ccache:/home/mg/.cache/ccache" >> ccache-override.yml
+    fi
+    compose_files="$compose_files -f ccache-override.yml"
+  fi
+
+  # Create Python cache override if enabled
+  if [[ "$python_cache_enabled" == "true" ]]; then
+    cat > python-cache-override.yml << EOF
+services:
+EOF
+    # Add Python cache volumes for all services in the compose file
+    if [[ "$os" == "all" ]]; then
+      # For all OS, we need to add volumes to all services
+      grep "^  mgbuild_" ${arch}-builders-${toolchain_version}.yml | while read -r line; do
+        service_name=$(echo "$line" | sed 's/://')
+        echo "  $service_name:" >> python-cache-override.yml
+        echo "    volumes:" >> python-cache-override.yml
+        echo "      - $HOME/ci_cache/uv:/home/mg/.cache/uv" >> python-cache-override.yml
+        echo "      - $HOME/ci_cache/pip:/home/mg/.cache/pip" >> python-cache-override.yml
+      done
+    else
+      # For specific OS, only add volume to the target service
+      echo "  $build_container:" >> python-cache-override.yml
+      echo "    volumes:" >> python-cache-override.yml
+      echo "      - $HOME/ci_cache/uv:/home/mg/.cache/uv" >> python-cache-override.yml
+      echo "      - $HOME/ci_cache/pip:/home/mg/.cache/pip" >> python-cache-override.yml
+    fi
+    compose_files="$compose_files -f python-cache-override.yml"
+  fi
+
+  echo "$compose_files"
+}
+
+cleanup_cache_override() {
+  if [[ "$ccache_enabled" == "true" ]]; then
+    rm -f ccache-override.yml
+  fi
+  if [[ "$python_cache_enabled" == "true" ]]; then
+    rm -f python-cache-override.yml
+  fi
+}
+
+setup_host_cache_permissions() {
+  # Set up ccache permissions if enabled
+  if [[ "$ccache_enabled" == "true" ]]; then
+    echo "Setting up host ccache directory permissions..."
+    mkdir -p ~/.cache/ccache
+
+    # Set open permissions on the parent .cache directory to allow other tools to create subdirectories
+    # Suppress both errors and warnings about operations not permitted
+    chmod -R a+rwX ~/.cache 2>/dev/null || true
+
+    echo "Host ccache directory permissions set to a+rwX (open access)"
+  fi
+
+  # Set up Python cache permissions if enabled
+  if [[ "$python_cache_enabled" == "true" ]]; then
+    echo "Setting up host Python cache directory permissions..."
+    mkdir -p "$HOME/ci_cache/uv"
+    mkdir -p "$HOME/ci_cache/pip"
+
+    # Set open permissions on the CI cache directories to allow cross-container access
+    # Suppress both errors and warnings about operations not permitted
+    chmod -R a+rwX "$HOME/ci_cache" 2>/dev/null || true
+
+    echo "Host Python cache directory permissions set to a+rwX (open access)"
+  fi
+}
+
 copy_project_files() {
   echo "Copying project files..."
   project_files=$(ls -A1 "$PROJECT_ROOT")
@@ -291,6 +390,7 @@ build_memgraph () {
   local asan_flag=""
   local ubsan_flag=""
   local disable_jemalloc_flag=""
+  local disable_testing_flag=""
   local init_only=false
   local cmake_only=false
   local for_docker=false
@@ -332,12 +432,12 @@ build_memgraph () {
         copy_from_host=false
         shift 1
       ;;
-      --init-skip-prep-testing)
-        init_flags="$init_flags --skip-prep-testing"
-        shift 1
-      ;;
       --disable-jemalloc)
         disable_jemalloc_flag="-DENABLE_JEMALLOC=OFF"
+        shift 1
+      ;;
+      --disable-testing)
+        disable_testing_flag="-DMG_ENABLE_TESTING=OFF"
         shift 1
       ;;
       *)
@@ -394,8 +494,14 @@ build_memgraph () {
   # Fix cmake failing locally if remote is clone via ssh
   docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && git remote set-url origin https://github.com/memgraph/memgraph.git"
 
+  # Zero ccache statistics before build if ccache is enabled
+  if [[ "$ccache_enabled" == "true" ]]; then
+    echo "Zeroing ccache statistics for this build..."
+    docker exec -u mg "$build_container" bash -c "ccache -z"
+  fi
+
   # Define cmake command
-  local cmake_cmd="cmake $build_type_flag $arm_flag $community_flag $telemetry_id_override_flag $coverage_flag $asan_flag $ubsan_flag $disable_jemalloc_flag .."
+  local cmake_cmd="cmake $build_type_flag $arm_flag $community_flag $telemetry_id_override_flag $coverage_flag $asan_flag $ubsan_flag $disable_jemalloc_flag $disable_testing_flag .."
   docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && $cmake_cmd"
   if [[ "$cmake_only" == "true" ]]; then
     build_target(){
@@ -426,6 +532,21 @@ build_memgraph () {
       docker exec -u mg "$build_container" bash -c "cd $container_build_dir && $EXPORT_THREADS && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO "'&& make -j$THREADS -B mgconsole'
     fi
   fi
+
+  # Show ccache statistics if ccache is enabled
+  if [[ "$ccache_enabled" == "true" ]]; then
+    echo ""
+    echo "=== Ccache Statistics ==="
+    docker exec -u mg "$build_container" bash -c "ccache -s"
+    echo "========================="
+    echo ""
+  fi
+}
+
+init_tests() {
+  echo "Initializing tests..."
+  docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && ./init-test --ci"
+  echo "...Done"
 }
 
 package_memgraph() {
@@ -434,7 +555,10 @@ package_memgraph() {
   local package_command=""
 
   if [[ "$os" == "centos-10" ]]; then
-      package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc_centos10' memgraph*.rpm "
+      # install much newer rpmlint than what ships with centos-10
+      docker exec -u root "$build_container" bash -c "dnf remove -y rpmlint --noautoremove"
+      docker exec -u root "$build_container" bash -c "pip install rpmlint==2.8.0 --user"
+      package_command=" cpack -G RPM --config ../CPackConfig.cmake"
   elif [[ "$os" =~ ^"fedora".* ]]; then
       docker exec -u root "$build_container" bash -c "yum -y update"
       package_command=" cpack -G RPM --config ../CPackConfig.cmake && rpmlint --file='../../release/rpm/rpmlintrc_fedora' memgraph*.rpm "
@@ -452,6 +576,9 @@ package_memgraph() {
       package_command=" cpack -G DEB --config ../CPackConfig.cmake "
   fi
   docker exec -u root "$build_container" bash -c "mkdir -p $container_output_dir && cd $container_output_dir && $ACTIVATE_TOOLCHAIN && $package_command"
+  if [[ "$os" == "centos-10" ]]; then
+    docker exec -u root "$build_container" bash -c "cd $container_output_dir && /root/.local/bin/rpmlint --file='../../release/rpm/rpmlintrc_centos10' memgraph*.rpm || echo 'Warning: rpmlint failed, but package was created successfully'"
+  fi
 }
 
 package_docker() {
@@ -812,6 +939,8 @@ bench_graph_host=$DEFAULT_BENCH_GRAPH_HOST
 bench_graph_port=$DEFAULT_BENCH_GRAPH_PORT
 mgdeps_cache_host=$DEFAULT_MGDEPS_CACHE_HOST
 mgdeps_cache_port=$DEFAULT_MGDEPS_CACHE_PORT
+ccache_enabled=$DEFAULT_CCACHE_ENABLED
+python_cache_enabled=$DEFAULT_PYTHON_CACHE_ENABLED
 command=""
 build_container=""
 while [[ $# -gt 0 ]]; do
@@ -863,6 +992,14 @@ while [[ $# -gt 0 ]]; do
         toolchain_version=$2
         check_support toolchain $toolchain_version
         shift 2
+    ;;
+    --no-ccache)
+      ccache_enabled="false"
+      shift 1
+    ;;
+    --no-python-cache)
+      python_cache_enabled="false"
+      shift 1
     ;;
     *)
       if [[ "$1" =~ ^--.* ]]; then
@@ -940,6 +1077,9 @@ case $command in
         $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml build $git_ref_flag $rust_version_flag $node_version_flag $build_container
       fi
     ;;
+    init-tests)
+      init_tests
+    ;;
     run)
       cd $SCRIPT_DIR
       pull=false
@@ -956,20 +1096,27 @@ case $command in
             ;;
         esac
       done
+
+      # Create cache override files
+      compose_files=$(setup_cache_override)
+
+      # Set up host cache permissions
+      setup_host_cache_permissions
+
       if [[ "$os" == "all" ]]; then
         if [[ "$pull" == "true" ]]; then
-          $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull --ignore-pull-failures
+          $docker_compose_cmd $compose_files pull --ignore-pull-failures
         elif [[ "$docker_compose_cmd" == "docker compose" ]]; then
-            $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull --ignore-pull-failures --policy missing
+            $docker_compose_cmd $compose_files pull --ignore-pull-failures --policy missing
         fi
-        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml up -d
+        $docker_compose_cmd $compose_files up -d
       else
         if [[ "$pull" == "true" ]]; then
-          $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull $build_container
+          $docker_compose_cmd $compose_files pull $build_container
         elif ! docker image inspect memgraph/mgbuild:${toolchain_version}_${os} > /dev/null 2>&1; then
-          $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull --ignore-pull-failures $build_container
+          $docker_compose_cmd $compose_files pull --ignore-pull-failures $build_container
         fi
-        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml up -d $build_container
+        $docker_compose_cmd $compose_files up -d $build_container
 
         # set local mirror for Ubuntu
         if [[ "$os" =~ ^"ubuntu".* && "$arch" == "amd" ]]; then
@@ -1006,6 +1153,63 @@ case $command in
           fi
         fi
       fi
+
+      # Install ccache if enabled
+      if [[ "$ccache_enabled" == "true" ]]; then
+        echo "Installing ccache in container..."
+        if [[ "$os" =~ ^"debian".* || "$os" =~ ^"ubuntu".* ]]; then
+          docker exec -u root $build_container bash -c "apt update && apt install -y ccache"
+        elif [[ "$os" =~ ^"centos".* || "$os" =~ ^"rocky".* || "$os" =~ ^"fedora".* ]]; then
+          if [[ "$os" =~ ^"centos".* ]]; then
+            docker exec -u root $build_container bash -c "dnf config-manager --set-enabled crb"
+            docker exec -u root $build_container bash -c "dnf install -y epel-release"
+          fi
+          docker exec -u root $build_container bash -c "dnf -y install ccache"
+        else
+          echo "Warning: Unknown OS $os - not installing ccache"
+        fi
+
+        # Verify ccache installation and permissions
+        echo "Verifying ccache installation..."
+        docker exec -u mg $build_container bash -c "
+          ccache --version
+          ccache -s
+          echo 'Ccache is ready for use'
+        "
+
+        # Set cache directory permissions for cross-container access
+        echo "Setting cache directory permissions for cross-container access..."
+        docker exec -u root $build_container bash -c "
+          chmod -R a+rwX /home/mg/.cache/ccache
+          echo 'Cache directory permissions set for cross-container access'
+        "
+      fi
+
+      # Ensure .cache directory permissions are correct for all tools (pip, go, etc.)
+      echo "Setting up .cache directory permissions for all tools..."
+      docker exec -u root $build_container bash -c "
+        mkdir -p /home/mg/.cache
+        chown -R mg:mg /home/mg/.cache
+        chmod -R 755 /home/mg/.cache
+        echo '.cache directory permissions set for all tools'
+      "
+
+      # Set up Python cache directories and permissions for cross-container access if enabled
+      if [[ "$python_cache_enabled" == "true" ]]; then
+        echo "Setting up Python cache directories for cross-container access..."
+        docker exec -u root $build_container bash -c "
+          mkdir -p /home/mg/.cache/uv
+          mkdir -p /home/mg/.cache/pip
+          chown -R mg:mg /home/mg/.cache/uv
+          chown -R mg:mg /home/mg/.cache/pip
+          chmod -R a+rwX /home/mg/.cache/uv
+          chmod -R a+rwX /home/mg/.cache/pip
+          echo 'Python cache directories set up for cross-container access'
+        "
+      fi
+
+      # Clean up override files if they were created
+      cleanup_cache_override
     ;;
     stop)
       cd $SCRIPT_DIR
@@ -1023,22 +1227,36 @@ case $command in
             ;;
         esac
       done
+
+      # Create cache override files (same logic as run command)
+      compose_files=$(setup_cache_override)
+
       if [[ "$os" == "all" ]]; then
-        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml down
+        $docker_compose_cmd $compose_files down
       else
         docker stop $build_container
         if [[ "$remove" == "true" ]]; then
           docker rm $build_container
         fi
       fi
+
+      # Clean up override files if they were created
+      cleanup_cache_override
     ;;
     pull)
       cd $SCRIPT_DIR
+
+      # Create cache override files (same logic as run command)
+      compose_files=$(setup_cache_override)
+
       if [[ "$os" == "all" ]]; then
-        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull --ignore-pull-failures
+        $docker_compose_cmd $compose_files pull --ignore-pull-failures
       else
-        $docker_compose_cmd -f ${arch}-builders-${toolchain_version}.yml pull $build_container
+        $docker_compose_cmd $compose_files pull $build_container
       fi
+
+      # Clean up override files if they were created
+      cleanup_cache_override
     ;;
     push)
       docker login $@

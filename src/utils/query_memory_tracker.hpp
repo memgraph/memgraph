@@ -13,6 +13,7 @@
 #include <optional>
 #include <unordered_map>
 #include <utility>
+#include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 
 namespace memgraph::utils {
@@ -29,7 +30,7 @@ class QueryMemoryTracker {
   QueryMemoryTracker() = default;
 
   QueryMemoryTracker(QueryMemoryTracker &&other) noexcept
-      : query_tracker_(std::move(other.query_tracker_)),
+      : transaction_tracker_(std::move(other.transaction_tracker_)),
         proc_memory_trackers_(std::move(other.proc_memory_trackers_)),
         active_proc_id(other.active_proc_id) {
     other.active_proc_id = NO_PROCEDURE;
@@ -60,11 +61,14 @@ class QueryMemoryTracker {
   // Stop procedure tracking
   void StopProcTracking();
 
+  // Currently tracked memory
+  int64_t Amount() const;
+
  private:
   static constexpr int64_t NO_PROCEDURE{-1};
-  void InitializeQueryTracker();
+  void InitializeTransactionTracker();
 
-  std::optional<memgraph::utils::MemoryTracker> query_tracker_{std::nullopt};
+  std::optional<memgraph::utils::MemoryTracker> transaction_tracker_{std::nullopt};
   std::unordered_map<int64_t, memgraph::utils::MemoryTracker> proc_memory_trackers_;
 
   // Procedure ids start from 1. Procedure id -1 means there is no procedure

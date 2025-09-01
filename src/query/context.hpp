@@ -20,6 +20,7 @@
 #include "query/parameters.hpp"
 #include "query/plan/profile.hpp"
 #include "query/trigger.hpp"
+#include "storage/v2/commit_args.hpp"
 #include "utils/async_timer.hpp"
 #include "utils/counter.hpp"
 
@@ -111,7 +112,9 @@ struct ExecutionContext {
 #ifdef MG_ENTERPRISE
   std::unique_ptr<FineGrainedAuthChecker> auth_checker{nullptr};
 #endif
-  DatabaseAccessProtector db_acc;
+  std::shared_ptr<storage::DatabaseProtector> protector;
+  bool is_main{true};
+  auto commit_args() -> storage::CommitArgs;
 };
 
 static_assert(std::is_move_assignable_v<ExecutionContext>, "ExecutionContext must be move assignable!");

@@ -299,9 +299,9 @@ cd ctre
 file_get_try_double "${primary_urls[ctre]}" "${secondary_urls[ctre]}"
 cd ..
 
-# abseil 20240116.2
-absl_ref="20240116.2"
-repo_clone_try_double "${primary_urls[absl]}" "${secondary_urls[absl]}" "absl" "$absl_ref"
+# abseil 20250512.1
+absl_ref="20250512.1"
+repo_clone_try_double "${primary_urls[absl]}" "${secondary_urls[absl]}" "absl" "$absl_ref" true
 
 # if [ -z "${MG_TOOLCHAIN_VERSION}" ]; then
 # jemalloc ea6b3e973b477b8061e0076bb257dbd7f3faa756
@@ -349,8 +349,8 @@ else
 fi
 
 # mgcxx (text search)
-mgcxx_tag="v0.0.7"
-skip_if_under_toolchain "mgcxx" repo_clone_try_double "${primary_urls[mgcxx]}" "${secondary_urls[mgcxx]}" "mgcxx" "$mgcxx_tag" true
+mgcxx_tag="v0.0.9"
+repo_clone_try_double "${primary_urls[mgcxx]}" "${secondary_urls[mgcxx]}" "mgcxx" "$mgcxx_tag" true
 
 # strong_type v14
 strong_type_ref="v14"

@@ -7,7 +7,7 @@ find_package(Threads REQUIRED)
 add_custom_target(memgraph__unit)
 
 add_library(memgraph_unit_main OBJECT main.cpp)
-target_link_libraries(memgraph_unit_main mg-memory mg-utils gtest gmock Threads::Threads dl)
+target_link_libraries(memgraph_unit_main mg-memory mg-utils gtest gmock Threads::Threads dl atomic)
 target_precompile_headers(memgraph_unit_main PRIVATE
     <gtest/gtest.h>
 )
@@ -78,6 +78,12 @@ target_link_libraries(${test_prefix}bfs_single_node mg-query mg-glue)
 
 add_unit_test(bfs_fine_grained.cpp)
 target_link_libraries(${test_prefix}bfs_fine_grained mg-query mg-glue)
+
+add_unit_test(kshortest_fine_grained.cpp)
+target_link_libraries(${test_prefix}kshortest_fine_grained mg-query mg-glue)
+
+add_unit_test(kshortest_general.cpp)
+target_link_libraries(${test_prefix}kshortest_general mg-query mg-glue)
 
 add_unit_test(cypher_main_visitor.cpp)
 target_link_libraries(${test_prefix}cypher_main_visitor mg-query)
@@ -359,6 +365,9 @@ target_link_libraries(${test_prefix}storage_v2_decoder_encoder mg::storage)
 add_unit_test(storage_v2_durability_inmemory.cpp)
 target_link_libraries(${test_prefix}storage_v2_durability_inmemory mg::storage mg-dbms)
 
+add_unit_test(storage_v2_create_snapshot.cpp)
+target_link_libraries(${test_prefix}storage_v2_create_snapshot mg::storage mg-dbms)
+
 add_unit_test(storage_rocks.cpp)
 target_link_libraries(${test_prefix}storage_rocks mg::storage)
 
@@ -466,27 +475,34 @@ target_link_libraries(${test_prefix}slk_core mg-slk gflags fmt)
 add_unit_test(slk_streams.cpp)
 target_link_libraries(${test_prefix}slk_streams mg-slk gflags fmt)
 
+# Test utilities
+add_library(rpc_messages rpc_messages.cpp)
+target_link_libraries(rpc_messages mg-rpc mg-slk)
+
 # Test mg-rpc
 add_unit_test(rpc.cpp)
-target_link_libraries(${test_prefix}rpc mg-rpc)
+target_link_libraries(${test_prefix}rpc mg-rpc rpc_messages)
 
 # Test rpc-timeouts
 if(MG_ENTERPRISE)
 add_unit_test(rpc_timeouts.cpp)
-target_link_libraries(${test_prefix}rpc_timeouts mg-rpc mg-coordination mg-replication mg-repl_coord_glue)
+target_link_libraries(${test_prefix}rpc_timeouts mg-rpc mg-coordination mg-replication mg-repl_coord_glue rpc_messages)
 endif()
 
 # Test rpc-in-progress
 add_unit_test(rpc_in_progress.cpp)
-target_link_libraries(${test_prefix}rpc_in_progress mg-rpc)
+target_link_libraries(${test_prefix}rpc_in_progress mg-rpc rpc_messages)
 
 # Test replication-rpc-progress
 add_unit_test(replication_rpc_progress.cpp)
-target_link_libraries(${test_prefix}replication_rpc_progress mg-rpc)
+target_link_libraries(${test_prefix}replication_rpc_progress mg-rpc rpc_messages)
 
 # Test snapshot-rpc-progress
 add_unit_test(snapshot_rpc_progress.cpp)
-target_link_libraries(${test_prefix}snapshot_rpc_progress mg-rpc)
+target_link_libraries(${test_prefix}snapshot_rpc_progress mg-rpc rpc_messages)
+
+add_unit_test(rpc_versioning.cpp)
+target_link_libraries(${test_prefix}rpc_versioning mg-rpc rpc_messages)
 
 # Test websocket
 find_package(Boost REQUIRED CONFIG COMPONENTS headers filesystem)
@@ -623,6 +639,10 @@ add_unit_test(ttl.cpp)
 target_link_libraries(${test_prefix}ttl mg-query)
 target_include_directories(${test_prefix}ttl PRIVATE ${CMAKE_SOURCE_DIR}/include)
 endif()
+
+# Test database protector factory system
+add_unit_test(database_protector_test.cpp)
+target_link_libraries(${test_prefix}database_protector_test mg-storage-v2)
 
 # Test community detection online
 # avoid linking with shared library due to missing symbols

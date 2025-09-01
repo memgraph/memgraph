@@ -15,9 +15,9 @@
 
 #include "auth/replication_handlers.hpp"
 #include "dbms/replication_handlers.hpp"
-#include "flags/experimental.hpp"
 #include "replication_handler/system_rpc.hpp"
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
+#include "system/rpc.hpp"
 
 namespace memgraph::replication {
 
@@ -25,14 +25,15 @@ namespace memgraph::replication {
 
 void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
                            const std::optional<utils::UUID> &current_main_uuid, dbms::DbmsHandler &dbms_handler,
-                           auth::SynchedAuth &auth, slk::Reader *req_reader, slk::Builder *res_builder) {
+                           auth::SynchedAuth &auth, uint64_t const request_version, slk::Reader *req_reader,
+                           slk::Builder *res_builder) {
   using memgraph::replication::SystemRecoveryRes;
   SystemRecoveryRes res(SystemRecoveryRes::Result::FAILURE);
 
-  utils::OnScopeExit const send_on_exit([&]() { rpc::SendFinalResponse(res, res_builder); });
+  utils::OnScopeExit const send_on_exit([&]() { rpc::SendFinalResponse(res, request_version, res_builder); });
 
   memgraph::replication::SystemRecoveryReq req;
-  memgraph::slk::Load(&req, req_reader);
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
 
   // validate
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
@@ -48,7 +49,8 @@ void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system
   /*
    * AUTH
    */
-  if (!auth::SystemRecoveryHandler(auth, req.auth_config, req.users, req.roles)) return;  // Failure sent on exit
+  if (!auth::SystemRecoveryHandler(auth, req.auth_config, req.users, req.roles, req.profiles))
+    return;  // Failure sent on exit
 
   /*
    * SUCCESSFUL RECOVERY
@@ -56,6 +58,39 @@ void SystemRecoveryHandler(memgraph::system::ReplicaHandlerAccessToState &system
   system_state_access.SetLastCommitedTS(req.forced_group_timestamp);
   spdlog::debug("SystemRecoveryHandler: SUCCESS updated LCTS to {}", req.forced_group_timestamp);
   res = SystemRecoveryRes(SystemRecoveryRes::Result::SUCCESS);
+}
+
+void FinalizeSystemTxHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
+                             const std::optional<utils::UUID> &current_main_uuid, uint64_t const request_version,
+                             slk::Reader *req_reader, slk::Builder *res_builder) {
+  using memgraph::replication::FinalizeSystemTxRes;
+  FinalizeSystemTxRes res(false);
+
+  utils::OnScopeExit const send_on_exit([&]() { rpc::SendFinalResponse(res, request_version, res_builder); });
+
+  memgraph::replication::FinalizeSystemTxReq req;
+  memgraph::slk::Load(&req, req_reader);
+
+  // validate MAIN
+  if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
+    LogWrongMain(current_main_uuid, req.main_uuid, SystemRecoveryReq::kType.name);
+    return;
+  }
+
+  // validate delta
+  // Note: No need to check epoch, recovery mechanism is done by a full uptodate snapshot
+  //       of the set of databases. Hence no history exists to maintain regarding epoch change.
+  //       If MAIN has changed we need to check this new group_timestamp is consistent with
+  //       what we have so far.
+  if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
+    spdlog::error("Received system delta with expected ts: {} != last commited ts: {}", req.expected_group_timestamp,
+                  system_state_access.LastCommitedTS());
+    return;
+  }
+
+  system_state_access.SetLastCommitedTS(req.new_group_timestamp);
+  spdlog::debug("FinalizeSystemTxHandler: SUCCESS updated LCTS to {}", req.new_group_timestamp);
+  res = FinalizeSystemTxRes(true);
 }
 
 void Register(replication::RoleReplicaData const &data, system::System &system, dbms::DbmsHandler &dbms_handler,
@@ -66,8 +101,16 @@ void Register(replication::RoleReplicaData const &data, system::System &system, 
 
   // need to tell REPLICA the uuid to use for "memgraph" default database
   data.server->rpc_server_.Register<replication::SystemRecoveryRpc>(
-      [&data, system_state_access, &dbms_handler, &auth](auto *req_reader, auto *res_builder) mutable {
-        SystemRecoveryHandler(system_state_access, data.uuid_, dbms_handler, auth, req_reader, res_builder);
+      [&data, system_state_access, &dbms_handler, &auth](uint64_t const request_version, auto *req_reader,
+                                                         auto *res_builder) mutable {
+        SystemRecoveryHandler(system_state_access, data.uuid_, dbms_handler, auth, request_version, req_reader,
+                              res_builder);
+      });
+
+  // Generic finalize message
+  data.server->rpc_server_.Register<replication::FinalizeSystemTxRpc>(
+      [&data, system_state_access](uint64_t const request_version, auto *req_reader, auto *res_builder) mutable {
+        FinalizeSystemTxHandler(system_state_access, data.uuid_, request_version, req_reader, res_builder);
       });
 
   // DBMS

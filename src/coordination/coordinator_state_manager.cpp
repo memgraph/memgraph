@@ -46,7 +46,6 @@ constexpr std::string_view kAsyncReplication = "async_replication";
 constexpr std::string_view kUserCtx = "user_ctx";
 }  // namespace
 
-// TODO: (andi) Wrong, don't deserialize into pointer
 void from_json(nlohmann::json const &json_cluster_config, std::shared_ptr<cluster_config> &config) {
   auto servers = json_cluster_config.at(kServers.data()).get<std::vector<std::tuple<int, std::string, std::string>>>();
 
@@ -64,7 +63,6 @@ void from_json(nlohmann::json const &json_cluster_config, std::shared_ptr<cluste
   config = new_cluster_config;
 }
 
-// TODO: (andi) cluster config has deserialize and serialize methods, maybe you can make use of them
 void to_json(nlohmann::json &j, cluster_config const &cluster_config) {
   auto const servers_vec =
       ranges::views::transform(

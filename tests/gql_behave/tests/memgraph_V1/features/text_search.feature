@@ -12,7 +12,7 @@ Feature: Text search related features
             """
         Then the result should be:
             | index type                  | label      | property | count |
-            | 'text (name: exampleIndex)' | 'Document' | null     | null  |
+            | 'text (name: exampleIndex)' | 'Document' | []       | 0     |
 
     Scenario: Drop text index
         Given an empty graph
@@ -264,3 +264,161 @@ Feature: Text search related features
             ORDER BY version ASC, title ASC
             """
         Then an error should be raised
+
+    Scenario: Create text index with specific properties
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX titleContentIndex ON :Document(title, content)
+            """
+        When executing query:
+            """
+            SHOW INDEX INFO
+            """
+        Then the result should be:
+            | index type                        | label      | property            | count |
+            | 'text (name: titleContentIndex)'  | 'Document' | ['title','content'] | 0     |
+
+    Scenario: Search in property-specific index with both properties
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX titleContentIndex ON :Document(title, content)
+            """
+        And having executed
+            """
+            CREATE (:Document {title: 'Manual2024', content: 'database operations guide'})
+            CREATE (:Document {title: 'Guide2024', content: 'user manual instructions'})
+            CREATE (:Document {title: 'Other', description: 'not indexed property'})
+            """
+        When executing query:
+            """
+            CALL text_search.search('titleContentIndex', 'data.title:Manual2024') YIELD node
+            RETURN node.title AS title, node.content AS content
+            ORDER BY title ASC
+            """
+        Then the result should be:
+            | title        | content                    |
+            | 'Manual2024' | 'database operations guide'|
+
+    Scenario: Search in property-specific index with only one required property
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX titleContentIndex ON :Document(title, content)
+            """
+        And having executed
+            """
+            CREATE (:Document {title: 'OnlyTitle', version: 1})
+            CREATE (:Document {content: 'only content here', version: 2})
+            CREATE (:Document {description: 'no indexed properties', version: 3})
+            """
+        When executing query:
+            """
+            CALL text_search.search('titleContentIndex', 'data.title:OnlyTitle') YIELD node
+            RETURN node.title AS title, node.version AS version
+            ORDER BY version ASC
+            """
+        Then the result should be:
+            | title       | version |
+            | 'OnlyTitle' | 1       |
+
+    Scenario: Verify nodes without indexed properties are not searchable
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX titleContentIndex ON :Document(title, content)
+            """
+        And having executed
+            """
+            CREATE (:Document {title: 'Findable', content: 'also findable'})
+            CREATE (:Document {description: 'not indexed property', summary: 'also not indexed'})
+            CREATE (:Document {other: 'completely different property'})
+            """
+        When executing query:
+            """
+            CALL text_search.search('titleContentIndex', 'data.description:indexed') YIELD node
+            RETURN node
+            """
+        Then the result should be empty
+
+    Scenario: Delete property from indexed node
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX testIndex ON :TestLabel
+            """
+        And having executed
+            """
+            CREATE (:TestLabel {title: 'Test Title', content: 'Test content'})
+            """
+        When executing query:
+            """
+            CALL text_search.search('testIndex', 'data.title:Test') YIELD node
+            RETURN count(node) AS count
+            """
+        Then the result should be:
+            | count |
+            | 1     |
+
+        And having executed
+            """
+            MATCH (n:TestLabel {title: 'Test Title'}) SET n.title = null
+            """
+        When executing query:
+            """
+            CALL text_search.search('testIndex', 'data.title:Test') YIELD node
+            RETURN count(node) AS count
+            """
+        Then the result should be:
+            | count |
+            | 0     |
+
+        When executing query:
+            """
+            CALL text_search.search('testIndex', 'data.content:Test') YIELD node
+            RETURN count(node) AS count
+            """
+        Then the result should be:
+            | count |
+            | 1     |
+
+    Scenario: Create index on existing nodes
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Article {title: 'Database Systems', content: 'Introduction to graph databases and their applications'})
+            CREATE (:Article {title: 'Query Languages', content: 'Cypher query language for graph database operations'})
+            """
+        And having executed
+            """
+            CREATE TEXT INDEX article_index ON :Article
+            """
+        When executing query:
+            """
+            CALL text_search.search('article_index', 'data.content:graph') YIELD node
+            RETURN node.title AS title ORDER BY title
+            """
+        Then the result should be:
+            | title              |
+            | 'Database Systems' |
+            | 'Query Languages'  |
+
+    Scenario: Show index info test
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Article {title: 'Database Systems', content: 'Introduction to graph databases and their applications'})
+            CREATE (:Article {title: 'Query Languages', content: 'Cypher query language for graph database operations'})
+            """
+        And having executed
+            """
+            CREATE TEXT INDEX article_index ON :Article
+            """
+        When executing query:
+            """
+            SHOW INDEX INFO
+            """
+        Then the result should be:
+            | index type                    | label      | property  | count |
+            | 'text (name: article_index)'  | 'Article'  | []        | 2     |

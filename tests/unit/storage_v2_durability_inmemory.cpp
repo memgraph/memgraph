@@ -30,6 +30,7 @@
 #include <utility>
 
 #include "dbms/database.hpp"
+#include "flags/experimental.hpp"
 #include "flags/general.hpp"
 #include "license/license.hpp"
 #include "replication/state.hpp"
@@ -46,6 +47,7 @@
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
@@ -53,6 +55,7 @@
 #include "storage/v2/storage_mode.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage_test_utils.hpp"
+#include "tests/test_commit_args_helper.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/scheduler.hpp"
@@ -104,7 +107,10 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         extended_edge_gids_(kNumExtendedEdges, memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max())) {
   }
 
-  void SetUp() override { Clear(); }
+  void SetUp() override {
+    Clear();
+    memgraph::flags::SetExperimental(memgraph::flags::Experiments::TEXT_SEARCH);
+  }
 
   void TearDown() override { Clear(); }
 
@@ -117,11 +123,19 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     auto property_c = store->NameToProperty("prop_c");
     auto property_extra = store->NameToProperty("extra");
     auto property_point = store->NameToProperty("point");
+    auto property_text = store->NameToProperty("text");
     auto nested1_property = store->NameToProperty("nested1");
     auto nested2_property = store->NameToProperty("nested2");
     auto nested3_property = store->NameToProperty("nested3");
     auto et1 = store->NameToEdgeType("base_et1");
     auto et2 = store->NameToEdgeType("base_et2");
+
+    // Pre-create commonly used PropertyValue objects to reduce allocation overhead
+    const auto text_property_value = memgraph::storage::PropertyValue("text_value");
+    // Note: enum_property_value will be created after the enum is registered
+    // Pre-create vector property for edge optimization
+    const auto vector_property_value = memgraph::storage::PropertyValue(std::vector<memgraph::storage::PropertyValue>{
+        memgraph::storage::PropertyValue(1.0), memgraph::storage::PropertyValue(1.0)});
 
     const auto property_vector = store->NameToProperty("vector");
     const auto vector_index_name = "vector_index"s;
@@ -139,33 +153,36 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       // Create enum.
       auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateEnum("enum1"s, std::vector{"v1"s, "v2"s}).HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
+      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
+
+    // Create enum property value after enum is registered
+    const auto enum_property_value = memgraph::storage::PropertyValue(*store->enum_store_.ToEnum("enum1", "v2"));
     {
       // alter enum.
       auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(unique_acc->EnumAlterAdd("enum1", "v3").HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
+      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
     {
       // Create label index.
       auto acc = store->ReadOnlyAccess();
       ASSERT_FALSE(acc->CreateIndex(label_unindexed).HasError());
-      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
     {
       // Create label index statistics.
       auto acc = store->Access();
       acc->SetIndexStats(label_unindexed, memgraph::storage::LabelIndexStats{1, 2});
       ASSERT_TRUE(acc->GetIndexStats(label_unindexed));
-      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
     {
       // Create label+property index.
 
       auto acc = store->ReadOnlyAccess();
       ASSERT_FALSE(acc->CreateIndex(label_indexed, {property_id}).HasError());
-      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
     {
       // Create label+property index statistics.
@@ -173,13 +190,13 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       acc->SetIndexStats(label_indexed, std::array{memgraph::storage::PropertyPath{property_id}},
                          memgraph::storage::LabelPropertyIndexStats{1, 2, 3.4, 5.6, 0.0});
       ASSERT_TRUE(acc->GetIndexStats(label_indexed, std::array{memgraph::storage::PropertyPath{property_id}}));
-      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
     {
       // Create label+properties index.
       auto acc = store->ReadOnlyAccess();
       ASSERT_FALSE(acc->CreateIndex(label_indexed, {property_b, property_a, property_c}).HasError());
-      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
     {
       // Create label+properties index statistics.
@@ -192,14 +209,14 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       ASSERT_TRUE(acc->GetIndexStats(label_indexed, std::array{memgraph::storage::PropertyPath{property_b},
                                                                memgraph::storage::PropertyPath{property_a},
                                                                memgraph::storage::PropertyPath{property_c}}));
-      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
     {
       // Create nested index.
       auto acc = store->ReadOnlyAccess();
       ASSERT_FALSE(
           acc->CreateIndex(label_indexed, {{nested1_property, nested2_property, nested3_property}}).HasError());
-      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
     {
       // Create nested index statistics.
@@ -210,33 +227,43 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           memgraph::storage::LabelPropertyIndexStats{1, 2, 3.4, 5.6, 0.0});
       ASSERT_TRUE(acc->GetIndexStats(label_indexed, std::array{memgraph::storage::PropertyPath{
                                                         nested1_property, nested2_property, nested3_property}}));
-      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
     {
       // Create point index.
       auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreatePointIndex(label_indexed, property_point).HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
+      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
 
     {
       // Create vector index.
       auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateVectorIndex(vector_index_spec).HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
+      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    }
+
+    {
+      // Create text index.
+      auto unique_acc = store->UniqueAccess();
+      ASSERT_FALSE(unique_acc
+                       ->CreateTextIndex(
+                           memgraph::storage::TextIndexSpec{"text_index", label_indexed, std::vector{property_text}})
+                       .HasError());
+      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
 
     {
       // Create existence constraint.
       auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateExistenceConstraint(label_unindexed, property_id).HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
+      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
     {
       // Create unique constraint.
       auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateUniqueConstraint(label_unindexed, {property_id, property_extra}).HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
+      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
     {
       // Create type constraint.
@@ -244,11 +271,10 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       ASSERT_FALSE(
           unique_acc->CreateTypeConstraint(label_indexed, property_point, memgraph::storage::TypeConstraintKind::POINT)
               .HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
+      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
 
     // Create vertices.
-    auto enum_val = *store->enum_store_.ToEnum("enum1", "v2");
     for (uint64_t i = 0; i < kNumBaseVertices; ++i) {
       auto acc = store->Access();
       auto vertex = acc->CreateVertex();
@@ -288,16 +314,14 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
 
       // first 5 have vector values
       if (i < 5) {
-        memgraph::storage::PropertyValue property_value(std::vector<memgraph::storage::PropertyValue>{
-            memgraph::storage::PropertyValue(1.0), memgraph::storage::PropertyValue(1.0)});
-        ASSERT_TRUE(vertex.SetProperty(property_vector, property_value).HasValue());
+        ASSERT_TRUE(vertex.SetProperty(property_vector, vector_property_value).HasValue());
       }
 
       // lower 1/3 and top 1/2 have ids
       if (i < kNumBaseVertices / 3 || i >= kNumBaseVertices / 2) {
         // some are enums
         if (i % 5 == 0) {
-          ASSERT_TRUE(vertex.SetProperty(property_id, memgraph::storage::PropertyValue(enum_val)).HasValue());
+          ASSERT_TRUE(vertex.SetProperty(property_id, enum_property_value).HasValue());
         } else {
           // rest are ints
           ASSERT_TRUE(
@@ -313,7 +337,12 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         ASSERT_TRUE(vertex.SetProperty(nested1_property, memgraph::storage::PropertyValue(map_value)).HasValue());
       }
 
-      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError()) << i;
+      // one node will have text property
+      if (i == 0) {
+        ASSERT_TRUE(vertex.SetProperty(property_text, text_property_value).HasValue());
+      }
+
+      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError()) << i;
     }
 
     // Create edges.
@@ -338,16 +367,14 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
             edge.SetProperty(property_id, memgraph::storage::PropertyValue(static_cast<int64_t>(i))).HasValue());
         // For the first 5 edges of et1, set a vector property for the vector edge index
         if (i < 5) {
-          memgraph::storage::PropertyValue property_value(std::vector<memgraph::storage::PropertyValue>{
-              memgraph::storage::PropertyValue(1.0), memgraph::storage::PropertyValue(1.0)});
-          ASSERT_TRUE(edge.SetProperty(property_vector, property_value).HasValue());
+          ASSERT_TRUE(edge.SetProperty(property_vector, vector_property_value).HasValue());
         }
       } else {
         auto ret = edge.SetProperty(property_id, memgraph::storage::PropertyValue(static_cast<int64_t>(i)));
         ASSERT_TRUE(ret.HasError());
         ASSERT_EQ(ret.GetError(), memgraph::storage::Error::PROPERTIES_DISABLED);
       }
-      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
   }
 
@@ -362,20 +389,20 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       // Create label index.
       auto acc = store->ReadOnlyAccess();
       ASSERT_FALSE(acc->CreateIndex(label_unused).HasError());
-      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
     {
       // Create label index statistics.
       auto acc = store->Access();
       acc->SetIndexStats(label_unused, memgraph::storage::LabelIndexStats{123, 9.87});
       ASSERT_TRUE(acc->GetIndexStats(label_unused));
-      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
     {
       // Create label+property index.
       auto acc = store->ReadOnlyAccess();
       ASSERT_FALSE(acc->CreateIndex(label_indexed, {property_count}).HasError());
-      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
     {
       // Create label+property index statistics.
@@ -383,21 +410,21 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       acc->SetIndexStats(label_indexed, std::array{memgraph::storage::PropertyPath{property_count}},
                          memgraph::storage::LabelPropertyIndexStats{456798, 312345, 12312312.2, 123123.2, 67876.9});
       ASSERT_TRUE(acc->GetIndexStats(label_indexed, std::array{memgraph::storage::PropertyPath{property_count}}));
-      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
 
     {
       // Create existence constraint.
       auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateExistenceConstraint(label_unused, property_count).HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
+      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
 
     {
       // Create unique constraint.
       auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateUniqueConstraint(label_unused, {property_count}).HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
+      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
 
     // Storage accessor.
@@ -415,7 +442,8 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       if (i < kNumExtendedVertices / 3 || i >= kNumExtendedVertices / 2) {
         ASSERT_TRUE(vertex.SetProperty(property_count, memgraph::storage::PropertyValue("nandare")).HasValue());
       }
-      if (!single_transaction) ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+      if (!single_transaction)
+        ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
 
     // Create edges.
@@ -437,10 +465,11 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       ASSERT_TRUE(edgeRes.HasValue());
       auto edge = std::move(edgeRes.GetValue());
       extended_edge_gids_[i] = edge.Gid();
-      if (!single_transaction) ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+      if (!single_transaction)
+        ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
 
-    if (single_transaction) ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    if (single_transaction) ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   void CreateEdgeIndex(memgraph::storage::Storage *store, memgraph::storage::EdgeTypeId edge_type) {
@@ -448,7 +477,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       // Create edge-type index.
       auto read_only_acc = store->ReadOnlyAccess();
       ASSERT_FALSE(read_only_acc->CreateIndex(edge_type).HasError());
-      ASSERT_FALSE(read_only_acc->PrepareForCommitPhase().HasError());
+      ASSERT_FALSE(read_only_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
   }
 
@@ -458,7 +487,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       // Create edge-type index.
       auto acc = store->ReadOnlyAccess();
       ASSERT_FALSE(acc->CreateIndex(edge_type, prop).HasError());
-      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
   }
 
@@ -482,7 +511,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
       // Create edge-type vector index.
       auto unique_acc = store->UniqueAccess();
       ASSERT_FALSE(unique_acc->CreateVectorEdgeIndex(vector_edge_index_spec).HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
+      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
   }
 
@@ -496,6 +525,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
     auto property_c = store->NameToProperty("prop_c");
     auto property_extra = store->NameToProperty("extra");
     auto property_point = store->NameToProperty("point");
+    auto property_text = store->NameToProperty("text");
     auto property_nested1 = store->NameToProperty("nested1");
     auto property_nested2 = store->NameToProperty("nested2");
     auto property_nested3 = store->NameToProperty("nested3");
@@ -555,6 +585,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_TRUE(std::ranges::all_of(info.vector_indices_spec, [&vector_index_spec](const auto &index) {
             return index == vector_index_spec;
           }));
+          ASSERT_EQ(info.text_indices.size(), 1);
+          ASSERT_EQ(info.text_indices[0],
+                    (memgraph::storage::TextIndexSpec{"text_index", base_label_indexed, std::vector{property_text}}));
           break;
         case DatasetType::ONLY_EXTENDED:
           ASSERT_THAT(info.label, UnorderedElementsAre(extended_label_unused));
@@ -582,6 +615,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_TRUE(std::ranges::all_of(info.vector_indices_spec, [&vector_index_spec](const auto &index) {
             return index == vector_index_spec;
           }));
+          ASSERT_EQ(info.text_indices.size(), 1);
+          ASSERT_EQ(info.text_indices[0],
+                    (memgraph::storage::TextIndexSpec{"text_index", base_label_indexed, std::vector{property_text}}));
           break;
         case DatasetType::BASE_WITH_EDGE_TYPE_INDEXED:
           ASSERT_THAT(info.label, UnorderedElementsAre(base_label_unindexed));
@@ -598,6 +634,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_TRUE(std::ranges::all_of(info.vector_indices_spec, [&vector_index_spec](const auto &index) {
             return index == vector_index_spec;
           }));
+          ASSERT_EQ(info.text_indices.size(), 1);
+          ASSERT_EQ(info.text_indices[0],
+                    (memgraph::storage::TextIndexSpec{"text_index", base_label_indexed, std::vector{property_text}}));
           break;
         case DatasetType::BASE_WITH_EDGE_TYPE_PROPERTY_INDEXED:
           ASSERT_THAT(info.label, UnorderedElementsAre(base_label_unindexed));
@@ -617,6 +656,9 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
           ASSERT_TRUE(std::ranges::any_of(info.vector_edge_indices_spec, [&vector_edge_index_spec](const auto &index) {
             return index == vector_edge_index_spec;
           }));
+          ASSERT_EQ(info.text_indices.size(), 1);
+          ASSERT_EQ(info.text_indices[0],
+                    (memgraph::storage::TextIndexSpec{"text_index", base_label_indexed, std::vector{property_text}}));
           break;
       }
     }
@@ -805,6 +847,10 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
                                      {property_nested3, memgraph::storage::PropertyValue(1)}})}};
           ASSERT_EQ((*properties)[property_nested1], memgraph::storage::PropertyValue(map_value));
         }
+        auto has_property_text = i == 0;
+        if (has_property_text) {
+          ASSERT_EQ((*properties)[property_text], memgraph::storage::PropertyValue("text_value"));
+        }
 
         std::size_t expected_size = 0;
         if (has_property_point) {
@@ -816,11 +862,17 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         if (has_property_nested) {
           expected_size++;
         }
+        if (has_property_text) {
+          expected_size++;
+        }
+
         if (i < kNumBaseVertices / 3 || i >= kNumBaseVertices / 2) {
           expected_size++;
           ASSERT_EQ(properties->size(), expected_size);
           if (i % 5 == 0) {
-            ASSERT_EQ((*properties)[property_id], memgraph::storage::PropertyValue(enum_val));
+            // Re-create enum property value for this scope
+            const auto enum_value = memgraph::storage::PropertyValue(*store->enum_store_.ToEnum("enum1", "v2"));
+            ASSERT_EQ((*properties)[property_id], enum_value);
           } else {
             ASSERT_EQ((*properties)[property_id], memgraph::storage::PropertyValue(static_cast<int64_t>(i)));
           }
@@ -830,25 +882,41 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         }
       }
 
-      // Verify edges.
-      for (uint64_t i = 0; i < kNumBaseEdges; ++i) {
-        auto find_edge = [&](auto &edges) -> std::optional<memgraph::storage::EdgeAccessor> {
-          for (auto &edge : edges) {
-            if (edge.Gid() == base_edge_gids_[i]) {
-              return edge;
-            }
-          }
-          return {};
-        };
-        const auto has_vector_property = i < 5 && i < kNumBaseEdges / 2;
+      // Verify edges with batch optimization to reduce FindVertex and OutEdges overhead
+      // Group edges by source vertex to minimize repeated vertex lookups and edge traversals
+      std::unordered_map<uint64_t, std::vector<uint64_t>> edges_by_source_vertex;
+      std::unordered_map<uint64_t, std::vector<uint64_t>> edges_by_target_vertex;
 
-        {
-          auto vertex1 = acc->FindVertex(base_vertex_gids_[(i / 2) % kNumBaseVertices], memgraph::storage::View::OLD);
-          ASSERT_TRUE(vertex1);
-          auto out_edges = vertex1->OutEdges(memgraph::storage::View::OLD);
-          ASSERT_TRUE(out_edges.HasValue());
-          auto edge1 = find_edge(out_edges->edges);
+      // Pre-group edges by their source/target vertices
+      for (uint64_t i = 0; i < kNumBaseEdges; ++i) {
+        uint64_t source_idx = (i / 2) % kNumBaseVertices;
+        uint64_t target_idx = (i / 3) % kNumBaseVertices;
+        edges_by_source_vertex[source_idx].push_back(i);
+        edges_by_target_vertex[target_idx].push_back(i);
+      }
+
+      auto find_edge = [&](auto &edges,
+                           memgraph::storage::Gid edge_gid) -> std::optional<memgraph::storage::EdgeAccessor> {
+        for (auto &edge : edges) {
+          if (edge.Gid() == edge_gid) {
+            return edge;
+          }
+        }
+        return {};
+      };
+
+      // Verify outgoing edges - batch process by source vertex
+      for (const auto &[vertex_idx, edge_indices] : edges_by_source_vertex) {
+        auto vertex1 = acc->FindVertex(base_vertex_gids_[vertex_idx], memgraph::storage::View::OLD);
+        ASSERT_TRUE(vertex1);
+        auto out_edges = vertex1->OutEdges(memgraph::storage::View::OLD);  // Single call per vertex instead of per edge
+        ASSERT_TRUE(out_edges.HasValue());
+
+        // Process all edges from this vertex in one batch
+        for (uint64_t i : edge_indices) {
+          auto edge1 = find_edge(out_edges->edges, base_edge_gids_[i]);
           ASSERT_TRUE(edge1);
+          const auto has_vector_property = i < 5 && i < kNumBaseEdges / 2;
           if (i < kNumBaseEdges / 2) {
             ASSERT_EQ(edge1->EdgeType(), et1);
           } else {
@@ -863,14 +931,20 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
             ASSERT_EQ(properties->size(), 0);
           }
         }
+      }
 
-        {
-          auto vertex2 = acc->FindVertex(base_vertex_gids_[(i / 3) % kNumBaseVertices], memgraph::storage::View::OLD);
-          ASSERT_TRUE(vertex2);
-          auto in_edges = vertex2->InEdges(memgraph::storage::View::OLD);
-          ASSERT_TRUE(in_edges.HasValue());
-          auto edge2 = find_edge(in_edges->edges);
+      // Verify incoming edges - batch process by target vertex
+      for (const auto &[vertex_idx, edge_indices] : edges_by_target_vertex) {
+        auto vertex2 = acc->FindVertex(base_vertex_gids_[vertex_idx], memgraph::storage::View::OLD);
+        ASSERT_TRUE(vertex2);
+        auto in_edges = vertex2->InEdges(memgraph::storage::View::OLD);  // Single call per vertex instead of per edge
+        ASSERT_TRUE(in_edges.HasValue());
+
+        // Process all edges to this vertex in one batch
+        for (uint64_t i : edge_indices) {
+          auto edge2 = find_edge(in_edges->edges, base_edge_gids_[i]);
           ASSERT_TRUE(edge2);
+          const auto has_vector_property = i < 5 && i < kNumBaseEdges / 2;
           if (i < kNumBaseEdges / 2) {
             ASSERT_EQ(edge2->EdgeType(), et1);
           } else {
@@ -1128,22 +1202,22 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         case ONLY_BASE: {
           if (properties_on_edges) {
             static const auto expected_schema = nlohmann::json::parse(
-                R"({"edges":[{"count":500,"end_node_labels":["base_unindexed"],"properties":[{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1000,"end_node_labels":["base_unindexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":5,"filling_factor":0.3333333333333333,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]},{"count":500,"labels":["base_indexed"],"properties":[{"count":5,"filling_factor":1.0,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":10,"filling_factor":2.0,"key":"nested1","types":[{"count":10,"type":"Map"}]},{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]},{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]}]}]})");
+                R"({"edges":[{"count":500,"end_node_labels":["base_unindexed"],"properties":[{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1000,"end_node_labels":["base_unindexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":5,"filling_factor":0.3333333333333333,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]},{"count":500,"labels":["base_indexed"],"properties":[{"count":5,"filling_factor":1.0,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":10,"filling_factor":2.0,"key":"nested1","types":[{"count":10,"type":"Map"}]},{"count":1,"filling_factor":0.2,"key":"text","types":[{"count":1,"type":"String"}]},{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]},{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]}]}]})");
             ASSERT_TRUE(ConfrontJSON(schema_json, expected_schema));
           } else {
             static const auto expected_schema = nlohmann::json::parse(
-                R"({"edges":[{"count":500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1000,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]},{"count":500,"labels":["base_indexed"],"properties":[{"count":5,"filling_factor":1.0,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":10,"filling_factor":2.0,"key":"nested1","types":[{"count":10,"type":"Map"}]},{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]},{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]}]}]})");
+                R"({"edges":[{"count":500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1000,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]},{"count":500,"labels":["base_indexed"],"properties":[{"count":5,"filling_factor":1.0,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":10,"filling_factor":2.0,"key":"nested1","types":[{"count":10,"type":"Map"}]},{"count":1,"filling_factor":0.2,"key":"text","types":[{"count":1,"type":"String"}]},{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]},{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]}]}]})");
             ASSERT_TRUE(ConfrontJSON(schema_json, expected_schema));
           }
         } break;
         case ONLY_BASE_WITH_EXTENDED_INDICES_AND_CONSTRAINTS: {
           if (properties_on_edges) {
             static const auto expected_schema = nlohmann::json::parse(
-                R"({"edges":[{"count":1000,"end_node_labels":["base_unindexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":500,"end_node_labels":["base_unindexed"],"properties":[{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":5,"filling_factor":0.3333333333333333,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":500,"labels":["base_indexed"],"properties":[{"count":10,"filling_factor":2.0,"key":"nested1","types":[{"count":10,"type":"Map"}]},{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]},{"count":5,"filling_factor":1.0,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]}]},{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]}]})");
+                R"({"edges":[{"count":1000,"end_node_labels":["base_unindexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":500,"end_node_labels":["base_unindexed"],"properties":[{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":5,"filling_factor":0.3333333333333333,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":500,"labels":["base_indexed"],"properties":[{"count":1,"filling_factor":0.2,"key":"text","types":[{"count":1,"type":"String"}]},{"count":10,"filling_factor":2.0,"key":"nested1","types":[{"count":10,"type":"Map"}]},{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]},{"count":5,"filling_factor":1.0,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]}]},{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]}]})");
             ASSERT_TRUE(ConfrontJSON(schema_json, expected_schema));
           } else {
             static const auto expected_schema = nlohmann::json::parse(
-                R"({"edges":[{"count":1000,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":500,"labels":["base_indexed"],"properties":[{"count":10,"filling_factor":2.0,"key":"nested1","types":[{"count":10,"type":"Map"}]},{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]},{"count":5,"filling_factor":1.0,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]}]},{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]}]})");
+                R"({"edges":[{"count":1000,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":500,"labels":["base_indexed"],"properties":[{"count":1,"filling_factor":0.2,"key":"text","types":[{"count":1,"type":"String"}]},{"count":10,"filling_factor":2.0,"key":"nested1","types":[{"count":10,"type":"Map"}]},{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]},{"count":5,"filling_factor":1.0,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]}]},{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]}]})");
             ASSERT_TRUE(ConfrontJSON(schema_json, expected_schema));
           }
         } break;
@@ -1164,11 +1238,11 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         case BASE_WITH_EXTENDED: {
           if (properties_on_edges) {
             static const auto expected_schema = nlohmann::json::parse(
-                R"({"edges":[{"count":150,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et4"},{"count":250,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et3"},{"count":100,"end_node_labels":[],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et4"},{"count":500,"end_node_labels":["base_unindexed"],"properties":[{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":200,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":[],"type":"extended_et4"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1000,"end_node_labels":["base_unindexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":300,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"extended_et4"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":5,"filling_factor":0.3333333333333333,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":50,"labels":["extended_indexed"],"properties":[{"count":33,"filling_factor":66.0,"key":"count","types":[{"count":33,"type":"String"}]}]},{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]},{"count":50,"labels":[],"properties":[{"count":50,"filling_factor":100.0,"key":"count","types":[{"count":50,"type":"String"}]}]},{"count":500,"labels":["base_indexed"],"properties":[{"count":5,"filling_factor":1.0,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":10,"filling_factor":2.0,"key":"nested1","types":[{"count":10,"type":"Map"}]},{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]},{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]}]}]})");
+                R"({"edges":[{"count":300,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"extended_et4"},{"count":250,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et3"},{"count":500,"end_node_labels":["base_unindexed"],"properties":[{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":150,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et4"},{"count":100,"end_node_labels":[],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et4"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":200,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":[],"type":"extended_et4"},{"count":1000,"end_node_labels":["base_unindexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[{"count":1000,"filling_factor":100.0,"key":"id","types":[{"count":1000,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[{"count":5,"filling_factor":0.3333333333333333,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":1500,"filling_factor":100.0,"key":"id","types":[{"count":1500,"type":"Integer"}]}],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":50,"labels":["extended_indexed"],"properties":[{"count":33,"filling_factor":66.0,"key":"count","types":[{"count":33,"type":"String"}]}]},{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]},{"count":50,"labels":[],"properties":[{"count":50,"filling_factor":100.0,"key":"count","types":[{"count":50,"type":"String"}]}]},{"count":500,"labels":["base_indexed"],"properties":[{"count":5,"filling_factor":1.0,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":10,"filling_factor":2.0,"key":"nested1","types":[{"count":10,"type":"Map"}]},{"count":1,"filling_factor":0.2,"key":"text","types":[{"count":1,"type":"String"}]},{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]},{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]}]}]})");
             ASSERT_TRUE(ConfrontJSON(schema_json, expected_schema));
           } else {
             static const auto expected_schema = nlohmann::json::parse(
-                R"({"edges":[{"count":150,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et4"},{"count":250,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et3"},{"count":100,"end_node_labels":[],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et4"},{"count":500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":200,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":[],"type":"extended_et4"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1000,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":300,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"extended_et4"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":50,"labels":["extended_indexed"],"properties":[{"count":33,"filling_factor":66.0,"key":"count","types":[{"count":33,"type":"String"}]}]},{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]},{"count":50,"labels":[],"properties":[{"count":50,"filling_factor":100.0,"key":"count","types":[{"count":50,"type":"String"}]}]},{"count":500,"labels":["base_indexed"],"properties":[{"count":5,"filling_factor":1.0,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":10,"filling_factor":2.0,"key":"nested1","types":[{"count":10,"type":"Map"}]},{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]},{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]}]}]})");
+                R"({"edges":[{"count":300,"end_node_labels":[],"properties":[],"start_node_labels":[],"type":"extended_et4"},{"count":250,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et3"},{"count":500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":150,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et4"},{"count":100,"end_node_labels":[],"properties":[],"start_node_labels":["extended_indexed"],"type":"extended_et4"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_unindexed"],"type":"base_et1"},{"count":200,"end_node_labels":["extended_indexed"],"properties":[],"start_node_labels":[],"type":"extended_et4"},{"count":1000,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1000,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et2"},{"count":1500,"end_node_labels":["base_unindexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et1"},{"count":1500,"end_node_labels":["base_indexed"],"properties":[],"start_node_labels":["base_indexed"],"type":"base_et1"}],"nodes":[{"count":50,"labels":["extended_indexed"],"properties":[{"count":33,"filling_factor":66.0,"key":"count","types":[{"count":33,"type":"String"}]}]},{"count":500,"labels":["base_unindexed"],"properties":[{"count":11,"filling_factor":2.2,"key":"point","types":[{"count":11,"type":"Point2D"}]},{"count":500,"filling_factor":100.0,"key":"id","types":[{"count":400,"type":"Integer"},{"count":100,"type":"Enum::enum1"}]}]},{"count":50,"labels":[],"properties":[{"count":50,"filling_factor":100.0,"key":"count","types":[{"count":50,"type":"String"}]}]},{"count":500,"labels":["base_indexed"],"properties":[{"count":5,"filling_factor":1.0,"key":"vector","types":[{"count":5,"type":"List"}]},{"count":10,"filling_factor":2.0,"key":"nested1","types":[{"count":10,"type":"Map"}]},{"count":1,"filling_factor":0.2,"key":"text","types":[{"count":1,"type":"String"}]},{"count":12,"filling_factor":2.4,"key":"point","types":[{"count":12,"type":"Point2D"}]},{"count":333,"filling_factor":66.6,"key":"id","types":[{"count":266,"type":"Integer"},{"count":67,"type":"Enum::enum1"}]}]}]})");
             ASSERT_TRUE(ConfrontJSON(schema_json, expected_schema));
           }
         } break;
@@ -1339,7 +1413,7 @@ TEST_P(DurabilityTest, SnapshotOnExit) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -1382,7 +1456,7 @@ TEST_P(DurabilityTest, SnapshotPeriodic) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -1460,7 +1534,7 @@ TEST_P(DurabilityTest, SnapshotFallback) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -1480,7 +1554,7 @@ TEST_P(DurabilityTest, SnapshotEverythingCorrupt) {
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 1);
@@ -1573,7 +1647,7 @@ TEST_P(DurabilityTest, SnapshotRetention) {
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }  // Snapshot made on exit
 
   ASSERT_GE(GetSnapshotsList().size(), 1);
@@ -1589,7 +1663,7 @@ TEST_P(DurabilityTest, SnapshotRetention) {
                        .snapshot_wal_mode = memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT,
                        .snapshot_interval = memgraph::utils::SchedulerInterval{std::chrono::milliseconds(2000)},
                        .snapshot_retention_count = 1},  // if the retention is more than 1 snapshots won't get created
-                                                        // due to db having the same state as before
+        // due to db having the same state as before
         .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = false}},
     };
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
@@ -1641,7 +1715,7 @@ TEST_P(DurabilityTest, SnapshotRetention) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -1727,7 +1801,7 @@ TEST_P(DurabilityTest, SnapshotMixedUUID) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -1746,7 +1820,7 @@ TEST_P(DurabilityTest, SnapshotBackup) {
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 1);
@@ -1817,7 +1891,7 @@ TEST_F(DurabilityTest, SnapshotWithoutPropertiesOnEdgesRecoveryWithPropertiesOnE
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -1904,7 +1978,7 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesButUnusedRecoveryWithoutProp
           }
         }
       }
-      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
   }
 
@@ -1929,7 +2003,7 @@ TEST_F(DurabilityTest, SnapshotWithPropertiesOnEdgesButUnusedRecoveryWithoutProp
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -1974,7 +2048,7 @@ TEST_P(DurabilityTest, WalBasic) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -1999,7 +2073,7 @@ TEST_P(DurabilityTest, WalBackup) {
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
@@ -2104,7 +2178,7 @@ TEST_P(DurabilityTest, WalAppendToExisting) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -2149,7 +2223,7 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
     auto v3 = acc->CreateVertex();
     gid_v3 = v3.Gid();
     ASSERT_TRUE(v3.SetProperty(db.storage()->NameToProperty("v3"), memgraph::storage::PropertyValue(42)).HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
@@ -2253,7 +2327,7 @@ TEST_P(DurabilityTest, WalCreateInSingleTransaction) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -2278,41 +2352,41 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
     auto indices = [&] {
       auto acc = db.Access();
       auto res = acc->ListAllIndices();
-      (void)acc->PrepareForCommitPhase();
+      (void)acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
       return res;
     }();  // iile
     for (const auto &index : indices.label) {
-      auto acc = db.Access(memgraph::storage::Storage::Accessor::Type::READ);
+      auto acc = db.Access(memgraph::storage::StorageAccessType::READ);
       ASSERT_FALSE(acc->DropIndex(index).HasError());
-      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
     for (const auto &[label, properties] : indices.label_properties) {
-      auto acc = db.Access(memgraph::storage::Storage::Accessor::Type::READ);
+      auto acc = db.Access(memgraph::storage::StorageAccessType::READ);
       ASSERT_FALSE(acc->DropIndex(label, std::vector(properties)).HasError());
-      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
     auto constraints = [&] {
       auto acc = db.Access();
       auto res = acc->ListAllConstraints();
-      (void)acc->PrepareForCommitPhase();
+      (void)acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs());
       return res;
     }();  // iile
     for (const auto &constraint : constraints.existence) {
       auto unique_acc = db.UniqueAccess();
       ASSERT_FALSE(unique_acc->DropExistenceConstraint(constraint.first, constraint.second).HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
+      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
     for (const auto &constraint : constraints.unique) {
       auto unique_acc = db.UniqueAccess();
       ASSERT_EQ(unique_acc->DropUniqueConstraint(constraint.first, constraint.second),
                 memgraph::storage::UniqueConstraints::DeletionStatus::SUCCESS);
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase().HasError());
+      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
     auto acc = db.Access();
     for (auto vertex : acc->Vertices(memgraph::storage::View::OLD)) {
       ASSERT_TRUE(acc->DetachDeleteVertex(&vertex).HasValue());
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
@@ -2350,7 +2424,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveEverything) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -2406,9 +2480,9 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
     }
 
     // Commit transaction 3, then 1, then 2.
-    ASSERT_FALSE(acc3->PrepareForCommitPhase().HasError());
-    ASSERT_FALSE(acc1->PrepareForCommitPhase().HasError());
-    ASSERT_FALSE(acc2->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_FALSE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    ASSERT_FALSE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
@@ -2445,19 +2519,20 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
     // Verify transaction 3.
     using namespace memgraph::storage::durability;
     constexpr bool commit{true};
-    ASSERT_EQ(data[0].second, WalDeltaData{WalTransactionStart{commit}});
+    auto write_delta = WalTransactionStart{commit, TransactionAccessType::WRITE};
+    ASSERT_EQ(data[0].second, WalDeltaData{write_delta});
     ASSERT_EQ(data[1].second, WalDeltaData{WalVertexCreate{gid3}});
     ASSERT_EQ(data[2].second,
               WalDeltaData{WalVertexSetProperty(gid3, "id", memgraph::storage::ExternalPropertyValue(3))});
     ASSERT_EQ(data[3].second, WalDeltaData{WalTransactionEnd{}});
     // Verify transaction 1.
-    ASSERT_EQ(data[4].second, WalDeltaData{WalTransactionStart{commit}});
+    ASSERT_EQ(data[4].second, WalDeltaData{write_delta});
     ASSERT_EQ(data[5].second, WalDeltaData{WalVertexCreate{gid1}});
     ASSERT_EQ(data[6].second,
               WalDeltaData{WalVertexSetProperty(gid1, "id", memgraph::storage::ExternalPropertyValue(1))});
     ASSERT_EQ(data[7].second, WalDeltaData{WalTransactionEnd{}});
     // Verify transaction 2.
-    ASSERT_EQ(data[8].second, WalDeltaData{WalTransactionStart{commit}});
+    ASSERT_EQ(data[8].second, WalDeltaData{write_delta});
     ASSERT_EQ(data[9].second, WalDeltaData{WalVertexCreate{gid2}});
     ASSERT_EQ(data[10].second,
               WalDeltaData{WalVertexSetProperty(gid2, "id", memgraph::storage::ExternalPropertyValue(2))});
@@ -2493,7 +2568,7 @@ TEST_P(DurabilityTest, WalTransactionOrdering) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -2525,7 +2600,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveOnlyBaseDataset) {
       if (!*has_indexed && !*has_unindexed) continue;
       ASSERT_TRUE(acc->DetachDeleteVertex(&vertex).HasValue());
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
@@ -2550,7 +2625,7 @@ TEST_P(DurabilityTest, WalCreateAndRemoveOnlyBaseDataset) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -2576,7 +2651,8 @@ TEST_P(DurabilityTest, WalDeathResilience) {
       for (uint64_t i = 0; i < 1000000; ++i) {
         auto acc = db.Access();
         acc->CreateVertex();
-        MG_ASSERT(!acc->PrepareForCommitPhase().HasError(), "Couldn't commit transaction!");
+        MG_ASSERT(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError(),
+                  "Couldn't commit transaction!");
       }
     }
   } else if (pid > 0) {
@@ -2629,7 +2705,7 @@ TEST_P(DurabilityTest, WalDeathResilience) {
       for (uint64_t i = 0; i < kExtraItems; ++i) {
         acc->CreateVertex();
       }
-      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
   }
 
@@ -2662,7 +2738,7 @@ TEST_P(DurabilityTest, WalDeathResilience) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -2687,7 +2763,7 @@ TEST_P(DurabilityTest, WalMissingSecond) {
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
@@ -2719,7 +2795,7 @@ TEST_P(DurabilityTest, WalMissingSecond) {
       auto acc = db.Access();
       auto vertex = acc->CreateVertex();
       gids.push_back(vertex.Gid());
-      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
     for (uint64_t i = 0; i < kNumVertices; ++i) {
       auto acc = db.Access();
@@ -2728,7 +2804,7 @@ TEST_P(DurabilityTest, WalMissingSecond) {
       ASSERT_TRUE(
           vertex->SetProperty(db.storage()->NameToProperty("nandare"), memgraph::storage::PropertyValue("haihaihai!"))
               .HasValue());
-      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
   }
 
@@ -2790,7 +2866,7 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
@@ -2822,7 +2898,7 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
       auto acc = db.Access();
       auto vertex = acc->CreateVertex();
       gids.push_back(vertex.Gid());
-      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
     for (uint64_t i = 0; i < kNumVertices; ++i) {
       auto acc = db.Access();
@@ -2831,7 +2907,7 @@ TEST_P(DurabilityTest, WalCorruptSecond) {
       ASSERT_TRUE(
           vertex->SetProperty(db.storage()->NameToProperty("nandare"), memgraph::storage::PropertyValue("haihaihai!"))
               .HasValue());
-      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
   }
 
@@ -2925,7 +3001,7 @@ TEST_P(DurabilityTest, WalCorruptLastTransaction) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -2978,7 +3054,7 @@ TEST_P(DurabilityTest, WalAllOperationsInSingleTransaction) {
     ASSERT_TRUE(acc->DeleteEdge(&edge2).HasValue());
     ASSERT_TRUE(acc->DeleteVertex(&vertex2).HasValue());
     ASSERT_TRUE(acc->DeleteVertex(&vertex3).HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
@@ -3010,7 +3086,7 @@ TEST_P(DurabilityTest, WalAllOperationsInSingleTransaction) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -3059,7 +3135,7 @@ TEST_P(DurabilityTest, WalAndSnapshot) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -3134,7 +3210,7 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshot) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -3222,7 +3298,7 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
       ASSERT_TRUE(
           vertex.SetProperty(db.storage()->NameToProperty("meaning"), memgraph::storage::PropertyValue(42)).HasValue());
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 1);
@@ -3264,7 +3340,7 @@ TEST_P(DurabilityTest, WalAndSnapshotAppendToExistingSnapshotAndWal) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -3289,7 +3365,7 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   ASSERT_EQ(GetSnapshotsList().size(), 0);
@@ -3323,7 +3399,7 @@ TEST_P(DurabilityTest, WalAndSnapshotWalRetention) {
     while (timer.Elapsed().count() < 13.0) {
       auto acc = db.Access();
       acc->CreateVertex();
-      ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
       ++items_created;
     }
   }
@@ -3398,7 +3474,7 @@ TEST_P(DurabilityTest, SnapshotAndWalMixedUUID) {
     for (uint64_t i = 0; i < 1000; ++i) {
       acc->CreateVertex();
     }
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     std::this_thread::sleep_for(std::chrono::milliseconds(2500));
   }
 
@@ -3454,7 +3530,7 @@ TEST_P(DurabilityTest, SnapshotAndWalMixedUUID) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -3636,6 +3712,7 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
   memgraph::storage::Constraints constraints{config, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
   memgraph::storage::ReplicationStorageState repl_storage_state;
   memgraph::storage::EnumStore enum_store;
+  memgraph::storage::ttl::TTL ttl{nullptr};
 
   memgraph::storage::durability::Recovery recovery{
       config.durability.storage_directory / memgraph::storage::durability::kSnapshotDirectory,
@@ -3645,7 +3722,7 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
   const auto info = recovery.RecoverData(
       uuid, repl_storage_state, &vertices, &edges, &edges_metadata, &edge_count, name_id_mapper.get(), &indices,
       &constraints, config, &wal_seq_num, &enum_store, nullptr /* schema_info */, [](auto in) { return std::nullopt; },
-      "memgraph");
+      "memgraph", &ttl);
 
   MG_ASSERT(info.has_value(), "Info doesn't have value present");
   const auto par_exec_info = memgraph::storage::durability::GetParallelExecInfo(*info, config);
@@ -3711,7 +3788,7 @@ TEST_P(DurabilityTest, EdgeTypeIndexRecovered) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -3759,7 +3836,7 @@ TEST_P(DurabilityTest, EdgeTypePropertyIndexRecoveredWithEdgeTypeIndices) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -3804,7 +3881,7 @@ TEST_P(DurabilityTest, EdgeTypePropertyIndexRecoveredWithoutEdgeTypeIndices) {
     auto vertex = acc->CreateVertex();
     auto edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(edge.HasValue());
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -3854,7 +3931,7 @@ TEST_P(DurabilityTest, EdgeMetadataRecovered) {
     auto new_edge = acc->CreateEdge(&vertex, &vertex, db.storage()->NameToEdgeType("et"));
     ASSERT_TRUE(new_edge.HasValue());
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto acc = db.Access();
@@ -3865,6 +3942,436 @@ TEST_P(DurabilityTest, EdgeMetadataRecovered) {
     edge = acc->FindEdge(memgraph::storage::Gid::FromUint(kNumBaseEdges + 1), memgraph::storage::View::OLD);
     ASSERT_FALSE(edge.has_value());
 
-    ASSERT_FALSE(acc->PrepareForCommitPhase().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
+}
+
+#ifdef MG_ENTERPRISE
+// Comprehensive test for TTL durability via WAL/snapshots with different configurations
+TEST_F(DurabilityTest, TtlDurability) {
+  // Test 1: TTL enabled with edge TTL
+  {
+    memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+                                     .salient.items = {.properties_on_edges = true}};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::dbms::Database db{config, repl_state};
+
+    // Configure TTL with edge TTL enabled
+    {
+      auto acc = db.UniqueAccess();
+      auto ttl_config = memgraph::storage::ttl::TtlInfo{
+          std::chrono::hours(24),            // 24 hour period
+          std::chrono::system_clock::now(),  // start time
+          true                               // enable edge TTL
+      };
+      acc->ConfigureTtl(ttl_config);
+      acc->StartTtl();
+      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    }
+
+    // Verify TTL is configured correctly
+    {
+      auto acc = db.UniqueAccess();
+      auto config = acc->GetTtlConfig();
+      ASSERT_EQ(config.period, std::chrono::hours(24));
+      ASSERT_TRUE(config.should_run_edge_ttl);
+    }
+  }
+
+  // Verify snapshot was created
+  ASSERT_EQ(GetSnapshotsList().size(), 1);
+  ASSERT_EQ(GetWalsList().size(), 0);
+
+  // Recover from snapshot and verify TTL with edge TTL
+  {
+    memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+                                     .salient.items = {.properties_on_edges = true}};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::dbms::Database db{config, repl_state};
+
+    // Verify TTL configuration was recovered
+    {
+      auto acc = db.UniqueAccess();
+      auto config = acc->GetTtlConfig();
+      ASSERT_EQ(config.period, std::chrono::hours(24));
+      ASSERT_TRUE(config.should_run_edge_ttl);
+    }
+  }
+
+  // Test 2: TTL enabled without edge TTL
+  {
+    memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+                                     .salient.items = {.properties_on_edges = true}};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::dbms::Database db{config, repl_state};
+
+    // Configure TTL with edge TTL disabled
+    {
+      auto acc = db.UniqueAccess();
+      auto ttl_config = memgraph::storage::ttl::TtlInfo{
+          std::chrono::minutes(30),                                  // 30 minute period
+          std::chrono::system_clock::now() + std::chrono::hours(1),  // start time in the future
+          false                                                      // disable edge TTL
+      };
+      acc->ConfigureTtl(ttl_config);
+      acc->StartTtl();
+      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    }
+
+    // Verify TTL is configured correctly
+    {
+      auto acc = db.UniqueAccess();
+      auto config = acc->GetTtlConfig();
+      ASSERT_EQ(config.period, std::chrono::minutes(30));
+      ASSERT_FALSE(config.should_run_edge_ttl);
+    }
+  }
+
+  // Test 3: TTL disabled
+  {
+    memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .snapshot_on_exit = true},
+                                     .salient.items = {.properties_on_edges = true}};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::dbms::Database db{config, repl_state};
+
+    // Disable TTL
+    {
+      auto acc = db.UniqueAccess();
+      acc->DisableTtl();
+      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    }
+
+    // Verify TTL is disabled
+    {
+      auto acc = db.UniqueAccess();
+      auto config = acc->GetTtlConfig();
+      ASSERT_FALSE(config.period.has_value());
+      ASSERT_FALSE(config.start_time.has_value());
+    }
+  }
+
+  // Test 4: WAL durability with multiple TTL state transitions
+  {
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL},
+        .salient.items = {.properties_on_edges = true}};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::dbms::Database db{config, repl_state};
+
+    // Perform various TTL operations that will be logged to WAL
+    {
+      auto acc = db.UniqueAccess();
+
+      // Start with TTL disabled
+      acc->DisableTtl();
+      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    }
+    {
+      auto acc = db.UniqueAccess();
+
+      // Configure TTL with edge TTL enabled
+      auto ttl_config1 = memgraph::storage::ttl::TtlInfo{
+          std::chrono::hours(12),            // 12 hour period
+          std::chrono::system_clock::now(),  // start time now
+          true                               // enable edge TTL
+      };
+      acc->ConfigureTtl(ttl_config1);
+      acc->StartTtl();
+      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    }
+    {
+      auto acc = db.UniqueAccess();
+
+      // Stop TTL
+      acc->StopTtl();
+      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    }
+    {
+      auto acc = db.UniqueAccess();
+
+      // Re-enable TTL
+      acc->StartTtl();
+      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    }
+    {
+      auto acc = db.UniqueAccess();
+
+      // Final configuration
+      auto ttl_config3 = memgraph::storage::ttl::TtlInfo{
+          std::chrono::seconds(3600),                                   // 1 hour period
+          std::chrono::system_clock::now() + std::chrono::seconds(60),  // start time in 1 minute
+          true                                                          // enable edge TTL
+      };
+      acc->ConfigureTtl(ttl_config3);
+      acc->StartTtl();
+      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    }
+  }
+
+  // Verify WAL was created
+  ASSERT_GT(GetWalsList().size(), 0);
+
+  // Recover from WAL and verify final TTL state
+  {
+    memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+                                     .salient.items = {.properties_on_edges = true}};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::dbms::Database db{config, repl_state};
+
+    // Verify final TTL configuration (last operation was ConfigureTtl with 1-hour period and edge TTL enabled)
+    {
+      auto acc = db.UniqueAccess();
+      auto config = acc->GetTtlConfig();
+      ASSERT_EQ(config.period, std::chrono::seconds(3600));
+      ASSERT_TRUE(config.should_run_edge_ttl);
+      ASSERT_TRUE(config.start_time.has_value());
+      ASSERT_TRUE(db.storage()->ttl_.Running());
+      ASSERT_TRUE(db.storage()->ttl_.Enabled());
+    }
+  }
+
+  // Test 5: No recovery -> TTL stopped state
+  {
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory,
+                       .recover_on_startup = false,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL},
+        .salient.items = {.properties_on_edges = true}};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::dbms::Database db{config, repl_state};
+
+    ASSERT_FALSE(db.storage()->ttl_.Running());
+    ASSERT_FALSE(db.storage()->ttl_.Enabled());
+
+    // Start with TTL enabled, then stop it
+    {
+      auto acc = db.UniqueAccess();
+
+      // Enable and configure TTL
+      auto ttl_config = memgraph::storage::ttl::TtlInfo{
+          std::chrono::hours(6),             // 6 hour period
+          std::chrono::system_clock::now(),  // start time
+          false                              // disable edge TTL
+      };
+      acc->ConfigureTtl(ttl_config);
+      acc->StartTtl();
+      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(db.storage()->ttl_.Running());
+      ASSERT_FALSE(db.storage()->ttl_.Paused());
+      ASSERT_TRUE(db.storage()->ttl_.Enabled());
+    }
+    {
+      auto acc = db.UniqueAccess();
+      // Stop TTL
+      acc->StopTtl();
+      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(db.storage()->ttl_.Running());
+      ASSERT_TRUE(db.storage()->ttl_.Paused());
+      ASSERT_TRUE(db.storage()->ttl_.Enabled());
+    }
+  }
+
+  // Recover and verify TTL is stopped
+  {
+    memgraph::storage::Config config{.durability = {.storage_directory = storage_directory, .recover_on_startup = true},
+                                     .salient.items = {.properties_on_edges = true}};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::dbms::Database db{config, repl_state};
+
+    // Verify TTL is stopped
+    {
+      auto acc = db.UniqueAccess();
+      auto config = acc->GetTtlConfig();
+      ASSERT_TRUE(config.period.has_value());
+      ASSERT_TRUE(config.start_time.has_value());
+      ASSERT_TRUE(db.storage()->ttl_.Running());
+      ASSERT_TRUE(db.storage()->ttl_.Paused());
+      ASSERT_TRUE(db.storage()->ttl_.Enabled());
+    }
+  }
+
+  // Snapshot and recover
+  {
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory,
+                       .recover_on_startup = true,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL},
+        .salient.items = {.properties_on_edges = true}};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::dbms::Database db{config, repl_state};
+
+    // Verify setup and stopped TTL
+    {
+      auto acc = db.UniqueAccess();
+      auto config = acc->GetTtlConfig();
+      ASSERT_TRUE(config.period.has_value());
+      ASSERT_TRUE(config.start_time.has_value());
+      ASSERT_TRUE(db.storage()->ttl_.Running());
+      ASSERT_TRUE(db.storage()->ttl_.Paused());
+      ASSERT_TRUE(db.storage()->ttl_.Enabled());
+    }
+
+    ASSERT_FALSE(static_cast<memgraph::storage::InMemoryStorage *>(db.storage())->CreateSnapshot({}).HasError());
+  }
+
+  {
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory,
+                       .recover_on_startup = true,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL},
+        .salient.items = {.properties_on_edges = true}};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::dbms::Database db{config, repl_state};
+
+    // Verify setup and stopped TTL
+    {
+      auto acc = db.UniqueAccess();
+      auto config = acc->GetTtlConfig();
+      ASSERT_TRUE(config.period.has_value());
+      ASSERT_TRUE(config.start_time.has_value());
+      ASSERT_TRUE(db.storage()->ttl_.Running());
+      ASSERT_TRUE(db.storage()->ttl_.Paused());
+      ASSERT_TRUE(db.storage()->ttl_.Enabled());
+    }
+
+    // Startup TTL
+    {
+      auto acc = db.UniqueAccess();
+      acc->StartTtl();
+      ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      ASSERT_TRUE(db.storage()->ttl_.Running());
+      ASSERT_FALSE(db.storage()->ttl_.Paused());
+      ASSERT_TRUE(db.storage()->ttl_.Enabled());
+    }
+  }
+
+  // Snapshot + WAL
+  {
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory,
+                       .recover_on_startup = true,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL},
+        .salient.items = {.properties_on_edges = true}};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::dbms::Database db{config, repl_state};
+
+    // Verify setup and running TTL
+    {
+      auto acc = db.UniqueAccess();
+      auto config = acc->GetTtlConfig();
+      ASSERT_TRUE(config.period.has_value());
+      ASSERT_TRUE(config.start_time.has_value());
+      ASSERT_TRUE(db.storage()->ttl_.Running());
+      ASSERT_FALSE(db.storage()->ttl_.Paused());
+      ASSERT_TRUE(db.storage()->ttl_.Enabled());
+    }
+
+    ASSERT_FALSE(static_cast<memgraph::storage::InMemoryStorage *>(db.storage())->CreateSnapshot({}).HasError());
+  }
+  // Only snapshot
+  {
+    memgraph::storage::Config config{
+        .durability = {.storage_directory = storage_directory,
+                       .recover_on_startup = true,
+                       .snapshot_wal_mode =
+                           memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL},
+        .salient.items = {.properties_on_edges = true}};
+    memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+        memgraph::storage::ReplicationStateRootPath(config)};
+    memgraph::dbms::Database db{config, repl_state};
+
+    // Verify setup and running TTL
+    {
+      auto acc = db.UniqueAccess();
+      auto config = acc->GetTtlConfig();
+      ASSERT_TRUE(config.period.has_value());
+      ASSERT_TRUE(config.start_time.has_value());
+      ASSERT_TRUE(db.storage()->ttl_.Running());
+      ASSERT_FALSE(db.storage()->ttl_.Paused());
+      ASSERT_TRUE(db.storage()->ttl_.Enabled());
+    }
+  }
+}
+#endif
+
+TEST_P(DurabilityTest, CreateSnapshotReturnsPath) {
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory,
+                     .recover_on_startup = false,
+                     .snapshot_on_exit = false,
+                     .items_per_batch = 13,
+                     .allow_parallel_schema_creation = true},
+      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+  };
+
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::dbms::Database db{config, repl_state};
+
+  auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
+
+  // Create some data to ensure snapshot has content
+  {
+    auto acc = mem_storage->Access();
+    auto vertex = acc->CreateVertex();
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  // Test CreateSnapshot returns path on success
+  auto result = mem_storage->CreateSnapshot(memgraph::replication_coordination_glue::ReplicationRole::MAIN);
+
+  ASSERT_FALSE(result.HasError()) << "CreateSnapshot should succeed with some data";
+
+  auto snapshot_path = result.GetValue();
+  ASSERT_TRUE(std::filesystem::exists(snapshot_path)) << "Snapshot file should exist at returned path";
+  ASSERT_TRUE(std::filesystem::is_regular_file(snapshot_path)) << "Snapshot should be a regular file";
+
+  // Verify the path is in the expected directory
+  auto expected_dir = config.durability.storage_directory / memgraph::storage::durability::kSnapshotDirectory;
+  ASSERT_EQ(snapshot_path.parent_path(), expected_dir) << "Snapshot should be in the snapshots directory";
+
+  // Verify the filename format (should contain timestamp)
+  auto filename = snapshot_path.filename().string();
+  ASSERT_TRUE(filename.find("timestamp_") != std::string::npos) << "Snapshot filename should contain timestamp";
+}
+
+TEST_P(DurabilityTest, CreateSnapshotReturnsErrorForReplica) {
+  memgraph::storage::Config config{
+      .durability = {.storage_directory = storage_directory,
+                     .recover_on_startup = false,
+                     .snapshot_on_exit = false,
+                     .items_per_batch = 13,
+                     .allow_parallel_schema_creation = true},
+      .salient = {.items = {.properties_on_edges = GetParam(), .enable_schema_info = true}},
+  };
+
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      memgraph::storage::ReplicationStateRootPath(config)};
+  memgraph::dbms::Database db{config, repl_state};
+
+  auto *mem_storage = static_cast<memgraph::storage::InMemoryStorage *>(db.storage());
+
+  // Test CreateSnapshot returns error for replica role
+  auto result = mem_storage->CreateSnapshot(memgraph::replication_coordination_glue::ReplicationRole::REPLICA);
+
+  ASSERT_TRUE(result.HasError()) << "CreateSnapshot should fail for replica role";
+  ASSERT_EQ(result.GetError(), memgraph::storage::InMemoryStorage::CreateSnapshotError::DisabledForReplica)
+      << "Should return DisabledForReplica error";
 }

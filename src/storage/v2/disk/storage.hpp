@@ -12,6 +12,7 @@
 #pragma once
 
 #include "kvstore/kvstore.hpp"
+#include "storage/v2/access_type.hpp"
 #include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/disk/durable_metadata.hpp"
@@ -24,6 +25,7 @@
 #include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/ttl.hpp"
 #include "utils/result.hpp"
 #include "utils/rw_lock.hpp"
 
@@ -38,7 +40,8 @@ namespace memgraph::storage {
 class DiskStorage final : public Storage {
  public:
   explicit DiskStorage(Config config = Config(),
-                       PlanInvalidatorPtr invalidator = std::make_unique<PlanInvalidatorDefault>());
+                       PlanInvalidatorPtr invalidator = std::make_unique<PlanInvalidatorDefault>(),
+                       std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr);
 
   DiskStorage(const DiskStorage &) = delete;
   DiskStorage(DiskStorage &&) = delete;
@@ -52,7 +55,7 @@ class DiskStorage final : public Storage {
     friend class DiskStorage;
 
     explicit DiskAccessor(SharedAccess tag, DiskStorage *storage, IsolationLevel isolation_level,
-                          StorageMode storage_mode, Accessor::Type rw_type);
+                          StorageMode storage_mode, StorageAccessType rw_type);
     explicit DiskAccessor(auto tag, DiskStorage *storage, IsolationLevel isolation_level, StorageMode storage_mode);
 
    public:
@@ -158,6 +161,10 @@ class DiskStorage final : public Storage {
       return std::nullopt;
     }
 
+    std::optional<uint64_t> ApproximateVerticesTextCount(std::string_view /*index_name*/) const override {
+      return std::nullopt;
+    }
+
     std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId & /*label*/) const override {
       return {};
     }
@@ -201,11 +208,15 @@ class DiskStorage final : public Storage {
       return transaction_.active_indices_.label_properties_->IndexReady(label, properties);
     }
 
+    bool LabelPropertyIndexExists(LabelId label, std::span<PropertyPath const> properties) const override;
+
     bool EdgeTypeIndexReady(EdgeTypeId edge_type) const override;
 
-    bool EdgeTypePropertyIndexReady(EdgeTypeId edge_type, PropertyId proeprty) const override;
+    bool EdgeTypePropertyIndexReady(EdgeTypeId edge_type, PropertyId property) const override;
 
-    bool EdgePropertyIndexReady(PropertyId proeprty) const override;
+    bool EdgePropertyIndexReady(PropertyId property) const override;
+
+    bool EdgePropertyIndexExists(PropertyId property) const override;
 
     bool PointIndexExists(LabelId label, PropertyId property) const override;
 
@@ -214,12 +225,10 @@ class DiskStorage final : public Storage {
     ConstraintsInfo ListAllConstraints() const override;
 
     // NOLINTNEXTLINE(google-default-arguments)
-    utils::BasicResult<StorageManipulationError, void> PrepareForCommitPhase(
-        CommitReplicationArgs reparg = {}, DatabaseAccessProtector db_acc = {}) override;
+    utils::BasicResult<StorageManipulationError, void> PrepareForCommitPhase(CommitArgs commit_args) override;
 
     // NOLINTNEXTLINE(google-default-arguments)
-    utils::BasicResult<StorageManipulationError, void> PeriodicCommit(CommitReplicationArgs reparg = {},
-                                                                      DatabaseAccessProtector db_acc = {}) override;
+    utils::BasicResult<StorageManipulationError, void> PeriodicCommit(CommitArgs commit_args) override;
 
     void UpdateObjectsCountOnAbort();
 
@@ -292,8 +301,8 @@ class DiskStorage final : public Storage {
                        PointDistanceCondition condition) -> PointIterable override;
 
     auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
-                       PropertyValue const &bottom_left, PropertyValue const &top_right, WithinBBoxCondition condition)
-        -> PointIterable override;
+                       PropertyValue const &bottom_left, PropertyValue const &top_right,
+                       WithinBBoxCondition condition) -> PointIterable override;
 
     std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearchOnNodes(
         const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) override;
@@ -305,6 +314,65 @@ class DiskStorage final : public Storage {
 
     std::vector<VectorEdgeIndexInfo> ListAllVectorEdgeIndices() const override;
 
+#ifdef MG_ENTERPRISE
+    // TTL management methods
+    void StartTtl(TTLReplicationArgs /*repl_args*/ = {}) override {
+      storage_->ttl_.Resume();
+      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::ENABLE,
+                                          std::nullopt, std::nullopt, false);
+    }
+
+    void DisableTtl(TTLReplicationArgs /*repl_args*/ = {}) override {
+      auto ttl_label = NameToLabel("TTL");
+      auto ttl_property = NameToProperty("ttl");
+
+      // Drop indices
+      auto index_result = DropIndex(ttl_label, std::vector<storage::PropertyPath>{{ttl_property}});
+      if (index_result.HasError()) {
+        // Silently fail if vertex index already dropped
+      }
+
+      // Check if edge TTL was enabled and drop edge index if needed
+      if (storage_->ttl_.Config().should_run_edge_ttl) {
+        auto edge_index_result = DropGlobalEdgeIndex(ttl_property);
+        if (edge_index_result.HasError()) {
+          // Silently fail if edge index already dropped
+        }
+      }
+
+      storage_->ttl_.Disable();
+
+      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::DISABLE,
+                                          std::nullopt, std::nullopt, false);
+    }
+
+    void StopTtl() override {
+      storage_->ttl_.Pause();
+      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::STOP,
+                                          std::nullopt, std::nullopt, false);
+    }
+
+    void ConfigureTtl(const storage::ttl::TtlInfo &ttl_info, TTLReplicationArgs /*repl_args*/ = {}) override {
+      auto ttl_label = NameToLabel("TTL");
+      auto ttl_property = NameToProperty("ttl");
+
+      // If TTL is not enabled, create required indices and enable TTL
+      if (!storage_->ttl_.Enabled()) {
+        // Create label+property index for TTL
+        (void)CreateIndex(ttl_label, std::vector<storage::PropertyPath>{{ttl_property}});
+        storage_->ttl_.Enable();
+      }
+
+      // Configure TTL
+      if (!storage_->ttl_.Running()) storage_->ttl_.Configure(ttl_info.should_run_edge_ttl);
+      storage_->ttl_.SetInterval(ttl_info.period, ttl_info.start_time);
+      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::CONFIGURE,
+                                          ttl_info.period, ttl_info.start_time, ttl_info.should_run_edge_ttl);
+    }
+
+    storage::ttl::TtlInfo GetTtlConfig() const override { return storage_->ttl_.Config(); }
+#endif
+
    private:
     VerticesIterable Vertices(LabelId label, PropertyId property, const PropertyValue &value, View view);
     VerticesIterable Vertices(LabelId label, PropertyId property, View view);
@@ -314,7 +382,7 @@ class DiskStorage final : public Storage {
   };
 
   using Storage::Access;
-  std::unique_ptr<Accessor> Access(storage::Storage::Accessor::Type rw_type,
+  std::unique_ptr<Accessor> Access(storage::StorageAccessType rw_type,
                                    std::optional<IsolationLevel> override_isolation_level,
                                    std::optional<std::chrono::milliseconds> timeout) override;
 
@@ -457,6 +525,10 @@ class DiskStorage final : public Storage {
   void FreeMemory(std::unique_lock<utils::ResourceLock> /*lock*/, bool /*periodic*/) override {}
 
   void PrepareForNewEpoch() override { throw utils::BasicException("Disk storage mode does not support replication."); }
+
+  bool IsAsyncIndexerIdle() const override { return true; /* Disk storage has no async indexer */ }
+
+  bool HasAsyncIndexerStopped() const override { return true; /* Disk storage has no async indexer */ }
 
   uint64_t GetCommitTimestamp();
 

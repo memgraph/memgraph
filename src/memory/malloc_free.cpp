@@ -14,8 +14,6 @@
 
 #include <cerrno>
 #include <cstddef>
-#include <type_traits>
-#include <utility>
 
 #include <jemalloc/jemalloc.h>
 
@@ -24,7 +22,7 @@
 namespace {
 inline auto alloc_tracking(size_t size, int flags = 0) -> bool {
   if (memgraph::memory::IsQueryTracked()) [[unlikely]] {
-    const auto actual_size = je_nallocx(size, flags);
+    auto actual_size = je_nallocx(size, flags);
     return memgraph::memory::TrackAllocOnCurrentThread(actual_size);
   }
   return true;
@@ -37,16 +35,21 @@ inline void failed_alloc_tracking(size_t size, int flags = 0) {
   }
 }
 
+inline void free_tracking(void *ptr, int flags = 0) {
+  if (memgraph::memory::IsQueryTracked()) [[unlikely]] {
+    auto actual_size = je_sallocx(ptr, flags);
+    memgraph::memory::TrackFreeOnCurrentThread(actual_size);
+  }
+}
+
 inline auto realloc_tracking(void *ptr, size_t size, int flags = 0) -> bool {
   if (memgraph::memory::IsQueryTracked()) [[unlikely]] {
     const auto prev_size = ptr ? je_sallocx(ptr, flags) : 0;
     const auto next_size = je_nallocx(size, flags);
     if (next_size > prev_size) {  // increasing memory
-      const auto actual_size = next_size - prev_size;
-      return memgraph::memory::TrackAllocOnCurrentThread(actual_size);
+      return memgraph::memory::TrackAllocOnCurrentThread(next_size - prev_size);
     } else if (next_size < prev_size) {  // decreasing memory
-      const auto actual_size = prev_size - next_size;
-      memgraph::memory::TrackFreeOnCurrentThread(actual_size);
+      memgraph::memory::TrackFreeOnCurrentThread(prev_size - next_size);
     }
   }
   return true;
@@ -57,19 +60,10 @@ inline void failed_realloc_tracking(void *ptr, size_t size, int flags = 0) {
     const auto prev_size = ptr ? je_sallocx(ptr, flags) : 0;
     const auto next_size = je_nallocx(size, flags);
     if (next_size > prev_size) {  // failed while increasing memory
-      const auto actual_size = next_size - prev_size;
-      memgraph::memory::TrackFreeOnCurrentThread(actual_size);
-    } else if (next_size < prev_size) {  // failed while decreasing memory
-      const auto actual_size = prev_size - next_size;
-      memgraph::memory::TrackAllocOnCurrentThread(actual_size);  // fail silently
+      memgraph::memory::TrackFreeOnCurrentThread(next_size - prev_size);
+    } else if (next_size < prev_size) {                                    // failed while decreasing memory
+      memgraph::memory::TrackAllocOnCurrentThread(prev_size - next_size);  // fail silently
     }
-  }
-}
-
-inline void free_tracking(void *ptr, int flags = 0) {
-  if (memgraph::memory::IsQueryTracked()) [[unlikely]] {
-    const auto actual_size = je_sallocx(ptr, flags);
-    memgraph::memory::TrackFreeOnCurrentThread(actual_size);
   }
 }
 }  // namespace

@@ -28,31 +28,37 @@ class InMemoryReplicationHandlers {
   static void Register(dbms::DbmsHandler *dbms_handler, replication::RoleReplicaData &data);
 
  private:
+  struct LoadWalStatus {
+    bool success{false};
+    uint32_t current_batch_counter{0};
+    uint64_t num_txns_committed{0};
+  };
+
   // RPC handlers
   static void HeartbeatHandler(dbms::DbmsHandler *dbms_handler, const std::optional<utils::UUID> &current_main_uuid,
-                               slk::Reader *req_reader, slk::Builder *res_builder);
+                               uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 
   static void PrepareCommitHandler(dbms::DbmsHandler *dbms_handler, const std::optional<utils::UUID> &current_main_uuid,
-                                   slk::Reader *req_reader, slk::Builder *res_builder);
+                                   uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 
   static void FinalizeCommitHandler(dbms::DbmsHandler *dbms_handler,
-                                    const std::optional<utils::UUID> &current_main_uuid, slk::Reader *req_reader,
-                                    slk::Builder *res_builder);
+                                    const std::optional<utils::UUID> &current_main_uuid, uint64_t request_version,
+                                    slk::Reader *req_reader, slk::Builder *res_builder);
 
   static void SnapshotHandler(dbms::DbmsHandler *dbms_handler, const std::optional<utils::UUID> &current_main_uuid,
-                              slk::Reader *req_reader, slk::Builder *res_builder);
+                              uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 
   static void WalFilesHandler(dbms::DbmsHandler *dbms_handler, const std::optional<utils::UUID> &current_main_uuid,
-                              slk::Reader *req_reader, slk::Builder *res_builder);
+                              uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 
   static void CurrentWalHandler(dbms::DbmsHandler *dbms_handler, const std::optional<utils::UUID> &current_main_uuid,
-                                slk::Reader *req_reader, slk::Builder *res_builder);
+                                uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 
   static void SwapMainUUIDHandler(dbms::DbmsHandler *dbms_handler, replication::RoleReplicaData &role_replica_data,
-                                  slk::Reader *req_reader, slk::Builder *res_builder);
+                                  uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 
-  static std::pair<bool, uint32_t> LoadWal(storage::InMemoryStorage *storage, storage::replication::Decoder *decoder,
-                                           slk::Builder *res_builder, uint32_t start_batch_counter = 0);
+  static LoadWalStatus LoadWal(storage::InMemoryStorage *storage, storage::replication::Decoder *decoder,
+                               slk::Builder *res_builder, uint32_t start_batch_counter = 0);
 
   // If the connection between MAIN and REPLICA dies just after sending PrepareCommitRes and receiving
   // FinalizeCommitReq, then there is the possibility that the cached_commit_accessor_ will stay alive for too long
@@ -61,7 +67,7 @@ class InMemoryReplicationHandlers {
 
   static std::optional<storage::SingleTxnDeltasProcessingResult> ReadAndApplyDeltasSingleTxn(
       storage::InMemoryStorage *storage, storage::durability::BaseDecoder *decoder, uint64_t version, slk::Builder *,
-      bool commit_txn_immediately, bool loading_wal, uint32_t start_batch_counter = 0);
+      bool two_phase_commit, bool loading_wal, uint32_t start_batch_counter = 0);
 
   static TwoPCCache two_pc_cache_;
 };
