@@ -538,12 +538,14 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
 
   auto from_result = PrepareForCommutativeWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE);
   if (from_result == WriteResult::CONFLICT) return std::unexpected{Error::SERIALIZATION_ERROR};
+  if (from_result == WriteResult::COMMUTATIVE) transaction_.has_interleaved_deltas = true;
   if (from_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
 
   WriteResult to_result = WriteResult::SUCCESS;
   if (to_vertex != from_vertex) {
     to_result = PrepareForCommutativeWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE);
     if (to_result == WriteResult::CONFLICT) return std::unexpected{Error::SERIALIZATION_ERROR};
+    if (to_result == WriteResult::COMMUTATIVE) transaction_.has_interleaved_deltas = true;
     if (to_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
   }
 
@@ -658,12 +660,14 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
 
   auto from_result = PrepareForCommutativeWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE);
   if (from_result == WriteResult::CONFLICT) return std::unexpected{Error::SERIALIZATION_ERROR};
+  if (from_result == WriteResult::COMMUTATIVE) transaction_.has_interleaved_deltas = true;
   if (from_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
 
   WriteResult to_result = WriteResult::SUCCESS;
   if (to_vertex != from_vertex) {
     to_result = PrepareForCommutativeWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE);
     if (to_result == WriteResult::CONFLICT) return std::unexpected{Error::SERIALIZATION_ERROR};
+    if (to_result == WriteResult::COMMUTATIVE) transaction_.has_interleaved_deltas = true;
     if (to_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
   }
 
@@ -1465,12 +1469,23 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
     mem_storage->commit_log_->MarkFinished(*commit_timestamp_);
 
     if (!transaction_.deltas.empty()) {
-      // Only hand over delta to be GC'ed if there was any deltas
-      mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) {
-        // using mark of 0 as GC will assign a mark_timestamp after unlinking
-        committed_transactions.emplace_back(
-            0, std::move(transaction_.deltas), std::move(transaction_.commit_timestamp));
-      });
+      std::cout << "InMemoryAccessor::FinalizeTransaction has_interleaved_deltas:="
+                << transaction_.has_interleaved_deltas << "\n";
+      if (transaction_.has_interleaved_deltas) {
+        // @TODO(colinbarry): Handle interleaved deltas with waiting list
+        // For now, use existing path to avoid breaking current functionality
+        mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) {
+          committed_transactions.emplace_back(0, std::move(transaction_.deltas),
+                                              std::move(transaction_.commit_timestamp));
+        });
+      } else {
+        // Only hand over delta to be GC'ed if there was any deltas
+        mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) {
+          // using mark of 0 as GC will assign a mark_timestamp after unlinking
+          committed_transactions.emplace_back(0, std::move(transaction_.deltas),
+                                              std::move(transaction_.commit_timestamp));
+        });
+      }
     }
     commit_timestamp_.reset();
   }
