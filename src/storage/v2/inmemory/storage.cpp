@@ -1463,25 +1463,53 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
   is_transaction_active_ = false;
 }
 
+std::set<uint64_t> InMemoryStorage::InMemoryAccessor::CollectContributingTransactions() const {
+  std::set<uint64_t> contributors;
+  std::unordered_set<const Delta *> visited;
+
+  // @TODO use ranges + filter here
+  for (const auto &delta : transaction_.deltas) {
+    if (IsOperationInterleaved(delta) && !visited.count(&delta)) {
+      auto *current_delta = &delta;
+
+      while (current_delta != nullptr && !visited.count(current_delta)) {
+        visited.insert(current_delta);
+        auto ts = current_delta->timestamp->load();
+        if (ts >= kTimestampInitialId) {
+          contributors.insert(ts);
+        }
+
+        current_delta = current_delta->next.load();
+      }
+    }
+  }
+
+  return contributors;
+}
+
 void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
   if (commit_timestamp_) {
     auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
     mem_storage->commit_log_->MarkFinished(*commit_timestamp_);
 
     if (!transaction_.deltas.empty()) {
-      std::cout << "InMemoryAccessor::FinalizeTransaction has_interleaved_deltas:="
-                << transaction_.has_interleaved_deltas << "\n";
       if (transaction_.has_interleaved_deltas) {
-        // @TODO(colinbarry): Handle interleaved deltas with waiting list
-        // For now, use existing path to avoid breaking current functionality
-        mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) {
-          committed_transactions.emplace_back(0, std::move(transaction_.deltas),
-                                              std::move(transaction_.commit_timestamp));
-        });
+        auto contributors = CollectContributingTransactions();
+
+        if (!contributors.empty()) {
+          mem_storage->waiting_gc_deltas_.WithLock([&](auto &waiting_list) {
+            waiting_list.emplace_back(
+                InMemoryStorage::GCDeltas(0, std::move(transaction_.deltas), std::move(transaction_.commit_timestamp)),
+                std::move(contributors));
+          });
+        } else {
+          mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) {
+            committed_transactions.emplace_back(0, std::move(transaction_.deltas),
+                                                std::move(transaction_.commit_timestamp));
+          });
+        }
       } else {
-        // Only hand over delta to be GC'ed if there was any deltas
         mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) {
-          // using mark of 0 as GC will assign a mark_timestamp after unlinking
           committed_transactions.emplace_back(0, std::move(transaction_.deltas),
                                               std::move(transaction_.commit_timestamp));
         });
@@ -2325,6 +2353,32 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // ones.
 
   uint64_t oldest_active_start_timestamp = commit_log_->OldestActive();
+
+  // Process waiting list for interleaved delta chains ready to move to GC
+  // @TODO(colinbarry) Tidy this: prototype messy code!
+  waiting_gc_deltas_.WithLock([&](auto &waiting_list) {
+    auto it = waiting_list.begin();
+    while (it != waiting_list.end()) {
+      // Remove committed transactions
+      auto tx_it = it->contributing_transactions_.begin();
+      while (tx_it != it->contributing_transactions_.end()) {
+        if (*tx_it < oldest_active_start_timestamp) {
+          tx_it = it->contributing_transactions_.erase(tx_it);
+        } else {
+          ++tx_it;
+        }
+      }
+
+      // If empty, move to GC
+      if (it->contributing_transactions_.empty()) {
+        committed_transactions_.WithLock(
+            [&](auto &committed_transactions) { committed_transactions.emplace_back(std::move(it->deltas_)); });
+        it = waiting_list.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  });
 
   {
     auto guard = std::unique_lock{engine_lock_};
