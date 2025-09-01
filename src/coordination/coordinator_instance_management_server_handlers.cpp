@@ -30,6 +30,12 @@ void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceMa
         CoordinatorInstanceManagementServerHandlers::ShowInstancesHandler(coordinator_instance, request_version,
                                                                           req_reader, res_builder);
       });
+
+  server.Register<coordination::GetRoutingTableRpc>(
+    [&](uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) -> void {
+      CoordinatorInstanceManagementServerHandlers::GetRoutingTableHandler(coordinator_instance, request_version,
+                                                                        req_reader, res_builder);
+    });
 }
 
 void CoordinatorInstanceManagementServerHandlers::ShowInstancesHandler(CoordinatorInstance const &coordinator_instance,
