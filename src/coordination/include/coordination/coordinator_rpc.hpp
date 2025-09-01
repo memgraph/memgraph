@@ -25,8 +25,8 @@
 namespace memgraph::coordination {
 
 struct PromoteToMainReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_FAILOVER_REQ, .name = "PromoteToMainReq"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(PromoteToMainReq *self, memgraph::slk::Reader *reader);
   static void Save(const PromoteToMainReq &self, memgraph::slk::Builder *builder);
@@ -41,8 +41,8 @@ struct PromoteToMainReq {
 };
 
 struct PromoteToMainRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_FAILOVER_RES, .name = "PromoteToMainRes"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(PromoteToMainRes *self, memgraph::slk::Reader *reader);
   static void Save(const PromoteToMainRes &self, memgraph::slk::Builder *builder);
@@ -56,8 +56,10 @@ struct PromoteToMainRes {
 using PromoteToMainRpc = rpc::RequestResponse<PromoteToMainReq, PromoteToMainRes>;
 
 struct RegisterReplicaOnMainReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_REGISTER_REPLICA_ON_MAIN_REQ,
+                                          .name = "RegisterReplicaOnMainReq"};
+  static constexpr uint64_t kVersion{1};
+
 
   static void Load(RegisterReplicaOnMainReq *self, memgraph::slk::Reader *reader);
   static void Save(const RegisterReplicaOnMainReq &self, memgraph::slk::Builder *builder);
@@ -71,8 +73,9 @@ struct RegisterReplicaOnMainReq {
 };
 
 struct RegisterReplicaOnMainRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_REGISTER_REPLICA_ON_MAIN_RES,
+                                         .name = "RegisterReplicaOnMainRes"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(RegisterReplicaOnMainRes *self, memgraph::slk::Reader *reader);
   static void Save(const RegisterReplicaOnMainRes &self, memgraph::slk::Builder *builder);
@@ -86,23 +89,29 @@ struct RegisterReplicaOnMainRes {
 using RegisterReplicaOnMainRpc = rpc::RequestResponse<RegisterReplicaOnMainReq, RegisterReplicaOnMainRes>;
 
 struct DemoteMainToReplicaReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_SET_REPL_MAIN_REQ,
+                                         .name = "DemoteMainToReplicaReq"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(DemoteMainToReplicaReq *self, memgraph::slk::Reader *reader);
   static void Save(const DemoteMainToReplicaReq &self, memgraph::slk::Builder *builder);
 
-  explicit DemoteMainToReplicaReq(ReplicationClientInfo replication_client_info)
-      : replication_client_info(std::move(replication_client_info)) {}
+  // main uuid is provided when Demote is called from InstanceSuccessCallback because at that point we already know
+  // what's next main uuid since the failover has already been done
+  explicit DemoteMainToReplicaReq(ReplicationClientInfo replication_client_info,
+                                  std::optional<utils::UUID> const &main_uuid = std::nullopt)
+      : replication_client_info_(std::move(replication_client_info)), main_uuid_(main_uuid) {}
 
   DemoteMainToReplicaReq() = default;
 
-  ReplicationClientInfo replication_client_info;
+  ReplicationClientInfo replication_client_info_;
+  std::optional<utils::UUID> main_uuid_;
 };
 
 struct DemoteMainToReplicaRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_SET_REPL_MAIN_RES,
+                                         .name = "DemoteMainToReplicaRes"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(DemoteMainToReplicaRes *self, memgraph::slk::Reader *reader);
   static void Save(const DemoteMainToReplicaRes &self, memgraph::slk::Builder *builder);
@@ -116,8 +125,9 @@ struct DemoteMainToReplicaRes {
 using DemoteMainToReplicaRpc = rpc::RequestResponse<DemoteMainToReplicaReq, DemoteMainToReplicaRes>;
 
 struct UnregisterReplicaReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_UNREGISTER_REPLICA_REQ,
+                                         .name = "UnregisterReplicaReq"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(UnregisterReplicaReq *self, memgraph::slk::Reader *reader);
   static void Save(UnregisterReplicaReq const &self, memgraph::slk::Builder *builder);
@@ -130,8 +140,9 @@ struct UnregisterReplicaReq {
 };
 
 struct UnregisterReplicaRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_UNREGISTER_REPLICA_RES,
+                                         .name = "UnregisterReplicaRes"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(UnregisterReplicaRes *self, memgraph::slk::Reader *reader);
   static void Save(const UnregisterReplicaRes &self, memgraph::slk::Builder *builder);
@@ -145,8 +156,9 @@ struct UnregisterReplicaRes {
 using UnregisterReplicaRpc = rpc::RequestResponse<UnregisterReplicaReq, UnregisterReplicaRes>;
 
 struct EnableWritingOnMainReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_ENABLE_WRITING_ON_MAIN_REQ,
+                                         .name = "EnableWritingOnMainReq"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(EnableWritingOnMainReq *self, memgraph::slk::Reader *reader);
   static void Save(EnableWritingOnMainReq const &self, memgraph::slk::Builder *builder);
@@ -155,13 +167,14 @@ struct EnableWritingOnMainReq {
 };
 
 struct EnableWritingOnMainRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_ENABLE_WRITING_ON_MAIN_RES,
+                                         .name = "EnableWritingOnMainRes"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(EnableWritingOnMainRes *self, memgraph::slk::Reader *reader);
   static void Save(EnableWritingOnMainRes const &self, memgraph::slk::Builder *builder);
 
-  explicit EnableWritingOnMainRes(bool success) : success(success) {}
+  explicit EnableWritingOnMainRes(bool const success) : success(success) {}
   EnableWritingOnMainRes() = default;
 
   bool success;
@@ -170,8 +183,9 @@ struct EnableWritingOnMainRes {
 using EnableWritingOnMainRpc = rpc::RequestResponse<EnableWritingOnMainReq, EnableWritingOnMainRes>;
 
 struct GetDatabaseHistoriesReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_GET_INSTANCE_DATABASES_REQ,
+                                         .name = "GetDatabaseHistoriesReq"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(GetDatabaseHistoriesReq *self, memgraph::slk::Reader *reader);
   static void Save(const GetDatabaseHistoriesReq &self, memgraph::slk::Builder *builder);
@@ -180,8 +194,9 @@ struct GetDatabaseHistoriesReq {
 };
 
 struct GetDatabaseHistoriesRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_GET_INSTANCE_DATABASES_RES,
+                                         .name = "GetDatabaseHistoriesRes"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(GetDatabaseHistoriesRes *self, memgraph::slk::Reader *reader);
   static void Save(const GetDatabaseHistoriesRes &self, memgraph::slk::Builder *builder);
@@ -196,8 +211,8 @@ struct GetDatabaseHistoriesRes {
 using GetDatabaseHistoriesRpc = rpc::RequestResponse<GetDatabaseHistoriesReq, GetDatabaseHistoriesRes>;
 
 struct ShowInstancesReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_SHOW_INSTANCES_REQ, .name = "ShowInstancesReq"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(ShowInstancesReq *self, memgraph::slk::Reader *reader);
   static void Save(const ShowInstancesReq &self, memgraph::slk::Builder *builder);
@@ -206,8 +221,8 @@ struct ShowInstancesReq {
 };
 
 struct ShowInstancesRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_SHOW_INSTANCES_RES, .name = "ShowInstancesRes"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(ShowInstancesRes *self, memgraph::slk::Reader *reader);
   static void Save(const ShowInstancesRes &self, memgraph::slk::Builder *builder);
@@ -223,8 +238,8 @@ struct ShowInstancesRes {
 using ShowInstancesRpc = rpc::RequestResponse<ShowInstancesReq, ShowInstancesRes>;
 
 struct StateCheckReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_STATE_CHECK_REQ, .name = "StateCheckReq"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(StateCheckReq *self, memgraph::slk::Reader *reader);
   static void Save(const StateCheckReq &self, memgraph::slk::Builder *builder);
@@ -232,13 +247,13 @@ struct StateCheckReq {
 };
 
 struct StateCheckRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_STATE_CHECK_RES, .name = "StateCheckRes"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(StateCheckRes *self, memgraph::slk::Reader *reader);
   static void Save(const StateCheckRes &self, memgraph::slk::Builder *builder);
 
-  StateCheckRes(bool const replica, std::optional<utils::UUID> const req_uuid, bool const writing_enabled)
+  StateCheckRes(bool const replica, std::optional<utils::UUID> const &req_uuid, bool writing_enabled)
       : state({.is_replica = replica, .uuid = req_uuid, .is_writing_enabled = writing_enabled}) {}
   StateCheckRes() = default;
 
@@ -248,8 +263,8 @@ struct StateCheckRes {
 using StateCheckRpc = rpc::RequestResponse<StateCheckReq, StateCheckRes>;
 
 struct ReplicationLagReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_GET_REPLICATION_LAG_REQ, .name = "ReplicationLagReq"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(ReplicationLagReq *self, memgraph::slk::Reader *reader);
   static void Save(const ReplicationLagReq &self, memgraph::slk::Builder *builder);
@@ -257,8 +272,8 @@ struct ReplicationLagReq {
 };
 
 struct ReplicationLagRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_GET_REPLICATION_LAG_RES, .name = "ReplicationLagRes"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(ReplicationLagRes *self, memgraph::slk::Reader *reader);
   static void Save(const ReplicationLagRes &self, memgraph::slk::Builder *builder);

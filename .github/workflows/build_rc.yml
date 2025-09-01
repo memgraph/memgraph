@@ -64,7 +64,7 @@ jobs:
 
       - name: Set Memgraph Override Version
         run: |
-          sed -i "s/set(MEMGRAPH_OVERRIDE_VERSION \"\")/set(MEMGRAPH_OVERRIDE_VERSION \"${{ inputs.release_version }}\")/" CMakeLists.txt
+          sed -i "s/set(MEMGRAPH_OVERRIDE_VERSION \"\")/set(MEMGRAPH_OVERRIDE_VERSION \"${{ inputs.version }}\")/" CMakeLists.txt
           git add CMakeLists.txt
           # this will fail if there are no changes, but we don't care
           git commit -m "Update CMakeLists.txt with new memgraph override version [skip tests] [skip build]" || true
@@ -104,7 +104,7 @@ jobs:
       arch: amd
       threads: 24
       build_type: Release
-      ref: ${{ needs.PrepareReleaseBranch.outputs.branch_name }}
+      ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
     secrets: inherit
 
   StressTestLarge:
@@ -119,6 +119,7 @@ jobs:
       build_type: Release
       run_stress_large: 'true'
       run_release_tests: 'false'
+      ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
     secrets: inherit
 
   PackageArtifact:
@@ -166,9 +167,9 @@ jobs:
       push_to_s3: 'true'
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
-      s3_dest_dir: "memgraph/${{ github.ref_name }}"
+      s3_dest_dir: "memgraph/${{ needs.PrepareReleaseBranch.outputs.tag_name }}"
       additional_build_args: ${{ matrix.additional_build_args }}
-      ref: ${{ needs.PrepareReleaseBranch.outputs.branch_name }}
+      ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
     secrets: inherit
 
   DockerArtifact:
@@ -191,21 +192,21 @@ jobs:
       push_to_s3: 'true'
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
-      s3_dest_dir: "memgraph/${{ github.ref_name }}"
-      ref: ${{ needs.PrepareReleaseBranch.outputs.branch_name }}
+      s3_dest_dir: "memgraph/${{ needs.PrepareReleaseBranch.outputs.tag_name }}"
+      ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
     secrets: inherit
 
   TriggerMAGEBuild:
     name: Trigger MAGE Build
     needs: [PrepareReleaseBranch, PackageArtifact]
-    if: ${{ inputs.build_mage }}
+    if: ${{ inputs.build_mage && always() }}
     runs-on: ubuntu-24.04
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
-          ref: ${{ needs.PrepareReleaseBranch.outputs.branch_name }}
+          ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
 
       - name: Set up Python
         uses: actions/setup-python@v4

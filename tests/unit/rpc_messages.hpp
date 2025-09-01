@@ -14,50 +14,86 @@
 #include <utility>
 
 #include "rpc/messages.hpp"
-#include "slk/serialization.hpp"
 #include "utils/typeinfo.hpp"
 
-struct SumReq {
-  static const memgraph::utils::TypeInfo kType;
+struct SumReqV1 {
+  static constexpr memgraph::utils::TypeInfo kType{.id = memgraph::utils::TypeId::UNKNOWN, .name = "SumReq"};
+  static constexpr uint64_t kVersion{1};
 
-  SumReq() = default;  // Needed for serialization.
-  SumReq(int x, int y) : x(x), y(y) {}
+  SumReqV1() = default;  // Needed for serialization.
+  SumReqV1(int x, int y) : x(x), y(y) {}
 
-  static void Load(SumReq *obj, memgraph::slk::Reader *reader);
-  static void Save(const SumReq &obj, memgraph::slk::Builder *builder);
+  static void Load(SumReqV1 *obj, memgraph::slk::Reader *reader);
+  static void Save(const SumReqV1 &obj, memgraph::slk::Builder *builder);
 
   int x;
   int y;
 };
+// v2 request accepts the vector of numbers
+// v2 response return the sum as a vector with the single-element (some random reason)
+struct SumReq {
+  static constexpr memgraph::utils::TypeInfo kType{.id = memgraph::utils::TypeId::UNKNOWN, .name = "SumReq"};
+  static constexpr uint64_t kVersion{2};
 
-const memgraph::utils::TypeInfo SumReq::kType{memgraph::utils::TypeId::UNKNOWN, "SumReq"};
+  SumReq() = default;  // Needed for serialization.
+  explicit SumReq(std::initializer_list<int> const nums) : nums_(nums) {}
 
-struct SumRes {
-  static const memgraph::utils::TypeInfo kType;
+  static void Load(SumReq *obj, memgraph::slk::Reader *reader);
+  static void Save(const SumReq &obj, memgraph::slk::Builder *builder);
 
-  SumRes() = default;  // Needed for serialization.
-  explicit SumRes(int sum) : sum(sum) {}
+  static SumReq Upgrade(SumReqV1 const &prev) { return SumReq{{prev.x, prev.y}}; }
 
-  static void Load(SumRes *obj, memgraph::slk::Reader *reader);
-  static void Save(const SumRes &obj, memgraph::slk::Builder *builder);
+  std::vector<int> nums_;
+};
+
+struct SumResV1 {
+  static constexpr memgraph::utils::TypeInfo kType{.id = memgraph::utils::TypeId::UNKNOWN, .name = "SumRes"};
+  static constexpr uint64_t kVersion{1};
+
+  SumResV1() = default;  // Needed for serialization.
+  explicit SumResV1(int const sum) : sum(sum) {}
+
+  static void Load(SumResV1 *obj, memgraph::slk::Reader *reader);
+  static void Save(const SumResV1 &obj, memgraph::slk::Builder *builder);
 
   int sum;
 };
 
-const memgraph::utils::TypeInfo SumRes::kType{memgraph::utils::TypeId::UNKNOWN, "SumRes"};
+struct SumRes {
+  static constexpr memgraph::utils::TypeInfo kType{.id = memgraph::utils::TypeId::UNKNOWN, .name = "SumRes"};
+  static constexpr uint64_t kVersion{2};
+
+  SumRes() = default;  // Needed for serialization.
+  explicit SumRes(std::initializer_list<int> const sum) : sum(sum) {}
+
+  static void Load(SumRes *obj, memgraph::slk::Reader *reader);
+  static void Save(const SumRes &obj, memgraph::slk::Builder *builder);
+
+  SumResV1 Downgrade() const { return SumResV1{sum[0]}; }
+
+  std::vector<int> sum;
+};
 
 namespace memgraph::slk {
+void Save(const SumReqV1 &sum, Builder *builder);
+void Load(SumReqV1 *sum, Reader *reader);
 void Save(const SumReq &sum, Builder *builder);
 void Load(SumReq *sum, Reader *reader);
 
 void Save(const SumRes &res, Builder *builder);
 void Load(SumRes *res, Reader *reader);
+void Save(const SumResV1 &res, Builder *builder);
+void Load(SumResV1 *res, Reader *reader);
 }  // namespace memgraph::slk
 
 using Sum = memgraph::rpc::RequestResponse<SumReq, SumRes>;
+using SumV1 = memgraph::rpc::RequestResponse<SumReqV1, SumResV1>;
 
 struct EchoMessage {
-  static const memgraph::utils::TypeInfo kType;
+  // Intentionally set to a random value to avoid polluting typeinfo.hpp
+  static constexpr memgraph::utils::TypeInfo kType{.id = memgraph::utils::TypeId::COORD_UNREGISTER_REPLICA_REQ,
+                                                   "EchoMessage"};
+  static constexpr uint64_t kVersion{1};
 
   EchoMessage() = default;  // Needed for serialization.
   explicit EchoMessage(std::string data) : data(std::move(data)) {}
@@ -67,10 +103,6 @@ struct EchoMessage {
 
   std::string data;
 };
-
-// Intentionally set to a random value to avoid polluting typeinfo.hpp
-const memgraph::utils::TypeInfo EchoMessage::kType{memgraph::utils::TypeId::COORD_UNREGISTER_REPLICA_REQ,
-                                                   "EchoMessage"};
 
 namespace memgraph::slk {
 void Save(const EchoMessage &echo, Builder *builder);
