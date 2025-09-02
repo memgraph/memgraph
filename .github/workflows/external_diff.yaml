@@ -1,0 +1,102 @@
+name: "Diff (External)"
+concurrency:
+  group: ${{ github.head_ref || github.sha }}
+  cancel-in-progress: true
+
+on:
+  merge_group:
+  pull_request:
+  workflow_dispatch:
+    inputs:
+      pr_number:
+        type: string
+        required: true
+        description: 'Pull Request number to create staging branch from'
+      base_master:
+        type: boolean
+        default: false
+        description: Create staging branch using master as base.
+      community_core:
+        type: boolean
+        default: true
+      coverage:
+        description: 'Comma-separated list of coverage tests to run (e.g. core,clang_tidy). Use "none" to skip all coverage tests.'
+        default: 'core,clang_tidy'
+      debug_core:
+        type: boolean
+        default: true
+      debug_integration:
+        type: boolean
+        default: true
+      jepsen_core:
+        type: boolean
+        default: true
+      release:
+        description: 'Comma-separated list of release tests to run (e.g. core,benchmark,e2e,stress,query_modules). Use "none" to skip all release tests.'
+        default: 'core,benchmark,e2e,stress,query_modules'
+      malloc_build:
+        type: boolean
+        default: true
+
+jobs:
+    CreateStagingBranch:
+      runs-on: ubuntu-latest
+      steps:
+        - name: Checkout repository
+          uses: actions/checkout@v4
+          with:
+            fetch-depth: 0
+
+        - name: Get new branch name
+          id: get_branch_name
+          run: |
+            # Run the script and read the output into variables
+            read pr_number branch_name commit_sha staging_branch short_sha <<< "$(./tools/external/get_pr_info.sh "${{ github.event.inputs.pr_number }}" "${{ github.token }}" "${{ github.repository }}")"
+            
+            # Set GitHub output variables
+            echo "pr_number=$pr_number" >> $GITHUB_OUTPUT
+            echo "branch_name=$branch_name" >> $GITHUB_OUTPUT
+            echo "commit_sha=$commit_sha" >> $GITHUB_OUTPUT
+            echo "staging_branch=$staging_branch" >> $GITHUB_OUTPUT
+            echo "short_sha=$short_sha" >> $GITHUB_OUTPUT
+
+            # Print variables to logs
+            echo "pr_number=$pr_number"
+            echo "branch_name=$branch_name"
+            echo "commit_sha=$commit_sha"
+            echo "staging_branch=$staging_branch"
+            echo "short_sha=$short_sha"
+
+        - name: Create staging branch
+          run: |
+            git config user.name "GitHub Actions"
+            git config user.email "github-actions@github.com"
+            
+            ./tools/external/create_staging_branch.sh \
+              "${{ github.event.inputs.base_master }}" \
+              "${{ steps.get_branch_name.outputs.branch_name }}" \
+              "${{ steps.get_branch_name.outputs.commit_sha }}" \
+              "${{ steps.get_branch_name.outputs.staging_branch }}" \
+            
+            echo "Created staging branch: ${{ steps.get_branch_name.outputs.staging_branch }}"
+            echo "Based on PR: #${{ github.event.inputs.pr_number }}"
+            echo "Feature branch: ${{ steps.get_branch_name.outputs.branch_name }}"
+            echo "Commit SHA: ${{ steps.get_branch_name.outputs.commit_sha }}"
+            echo "Base master: ${{ github.event.inputs.base_master }}"
+
+    TriggerDiffWorkflow:
+      needs: CreateStagingBranch
+      uses: ./.github/workflows/diff.yml
+      with:
+        pr_number: ${{ github.event.inputs.pr_number }}
+        base_master: ${{ github.event.inputs.base_master }}
+        community_core: ${{ github.event.inputs.community_core }}
+        coverage: ${{ github.event.inputs.coverage }}
+        debug_core: ${{ github.event.inputs.debug_core }}
+        debug_integration: ${{ github.event.inputs.debug_integration }}
+        jepsen_core: ${{ github.event.inputs.jepsen_core }}
+        release: ${{ github.event.inputs.release }}
+        malloc_build: ${{ github.event.inputs.malloc_build }}
+        ref: ${{ needs.CreateStagingBranch.outputs.staging_branch }}
+      secrets: inherit
+        
