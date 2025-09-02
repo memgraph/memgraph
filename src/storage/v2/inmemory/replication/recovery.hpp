@@ -78,8 +78,13 @@ std::optional<typename T::Response> TransferDurabilityFiles(const R &files, rpc:
     return std::nullopt;
   }
 
+  slk::Builder *builder = maybe_stream_result->GetBuilder();
+
+  // Flush the segment so the file data could start at the beginning of the next segment
+  builder->PrepareForFileSending();
+
   // If writing files failed, fail the task by returning empty optional
-  if (replication::Encoder encoder(maybe_stream_result->GetBuilder()); !WriteFiles(files, encoder)) {
+  if (replication::Encoder encoder(builder); !WriteFiles(files, encoder)) {
     return std::nullopt;
   }
 

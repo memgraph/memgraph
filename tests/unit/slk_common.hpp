@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -46,7 +46,7 @@ class Loopback {
     MG_ASSERT(builder_, "You must first get a builder before getting a reader!");
     MG_ASSERT(!reader_, "You have already allocated a reader!");
     builder_->Finalize();
-    auto ret = memgraph::slk::CheckStreamComplete(data_.data(), data_.size());
+    auto ret = memgraph::slk::CheckStreamStatus(data_.data(), data_.size());
     MG_ASSERT(ret.status == memgraph::slk::StreamStatus::COMPLETE);
     MG_ASSERT(ret.stream_size == data_.size());
     size_ = ret.encoded_data_size;

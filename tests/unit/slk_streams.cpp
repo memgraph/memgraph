@@ -308,19 +308,19 @@ TEST(CheckStreamComplete, SingleSegment) {
 
   // test with missing data
   for (size_t i = 0; i < sizeof(memgraph::slk::SegmentSize); ++i) {
-    auto [status, stream_size, data_size] = memgraph::slk::CheckStreamComplete(buffer.data(), i);
+    auto [status, stream_size, data_size] = memgraph::slk::CheckStreamStatus(buffer.data(), i);
     ASSERT_EQ(status, memgraph::slk::StreamStatus::PARTIAL);
     ASSERT_EQ(stream_size, memgraph::slk::kSegmentMaxTotalSize);
     ASSERT_EQ(data_size, 0);
   }
   for (size_t i = sizeof(memgraph::slk::SegmentSize); i < sizeof(memgraph::slk::SegmentSize) + input.size(); ++i) {
-    auto [status, stream_size, data_size] = memgraph::slk::CheckStreamComplete(buffer.data(), i);
+    auto [status, stream_size, data_size] = memgraph::slk::CheckStreamStatus(buffer.data(), i);
     ASSERT_EQ(status, memgraph::slk::StreamStatus::PARTIAL);
     ASSERT_EQ(stream_size, memgraph::slk::kSegmentMaxTotalSize + sizeof(memgraph::slk::SegmentSize));
     ASSERT_EQ(data_size, 0);
   }
   for (size_t i = sizeof(memgraph::slk::SegmentSize) + input.size(); i < buffer.size(); ++i) {
-    auto [status, stream_size, data_size] = memgraph::slk::CheckStreamComplete(buffer.data(), i);
+    auto [status, stream_size, data_size] = memgraph::slk::CheckStreamStatus(buffer.data(), i);
     ASSERT_EQ(status, memgraph::slk::StreamStatus::PARTIAL);
     ASSERT_EQ(stream_size, memgraph::slk::kSegmentMaxTotalSize + sizeof(memgraph::slk::SegmentSize) + input.size());
     ASSERT_EQ(data_size, input.size());
@@ -328,7 +328,7 @@ TEST(CheckStreamComplete, SingleSegment) {
 
   // test with complete data
   {
-    auto [status, stream_size, data_size] = memgraph::slk::CheckStreamComplete(buffer.data(), buffer.size());
+    auto [status, stream_size, data_size] = memgraph::slk::CheckStreamStatus(buffer.data(), buffer.size());
     ASSERT_EQ(status, memgraph::slk::StreamStatus::COMPLETE);
     ASSERT_EQ(stream_size, buffer.size());
     ASSERT_EQ(data_size, input.size());
@@ -338,7 +338,7 @@ TEST(CheckStreamComplete, SingleSegment) {
   {
     auto extended_buffer = BinaryData(buffer.data(), buffer.size()) + GetRandomData(5);
     auto [status, stream_size, data_size] =
-        memgraph::slk::CheckStreamComplete(extended_buffer.data(), extended_buffer.size());
+        memgraph::slk::CheckStreamStatus(extended_buffer.data(), extended_buffer.size());
     ASSERT_EQ(status, memgraph::slk::StreamStatus::COMPLETE);
     ASSERT_EQ(stream_size, buffer.size());
     ASSERT_EQ(data_size, input.size());
@@ -357,21 +357,21 @@ TEST(CheckStreamComplete, MultipleSegments) {
 
   // test with missing data
   for (size_t i = 0; i < sizeof(memgraph::slk::SegmentSize); ++i) {
-    auto [status, stream_size, data_size] = memgraph::slk::CheckStreamComplete(buffer.data(), i);
+    auto [status, stream_size, data_size] = memgraph::slk::CheckStreamStatus(buffer.data(), i);
     ASSERT_EQ(status, memgraph::slk::StreamStatus::PARTIAL);
     ASSERT_EQ(stream_size, memgraph::slk::kSegmentMaxTotalSize);
     ASSERT_EQ(data_size, 0);
   }
   for (size_t i = sizeof(memgraph::slk::SegmentSize);
        i < sizeof(memgraph::slk::SegmentSize) + memgraph::slk::kSegmentMaxDataSize; ++i) {
-    auto [status, stream_size, data_size] = memgraph::slk::CheckStreamComplete(buffer.data(), i);
+    auto [status, stream_size, data_size] = memgraph::slk::CheckStreamStatus(buffer.data(), i);
     ASSERT_EQ(status, memgraph::slk::StreamStatus::PARTIAL);
     ASSERT_EQ(stream_size, memgraph::slk::kSegmentMaxTotalSize + sizeof(memgraph::slk::SegmentSize));
     ASSERT_EQ(data_size, 0);
   }
   for (size_t i = sizeof(memgraph::slk::SegmentSize) + memgraph::slk::kSegmentMaxDataSize;
        i < sizeof(memgraph::slk::SegmentSize) * 2 + memgraph::slk::kSegmentMaxDataSize; ++i) {
-    auto [status, stream_size, data_size] = memgraph::slk::CheckStreamComplete(buffer.data(), i);
+    auto [status, stream_size, data_size] = memgraph::slk::CheckStreamStatus(buffer.data(), i);
     ASSERT_EQ(status, memgraph::slk::StreamStatus::PARTIAL);
     ASSERT_EQ(stream_size, sizeof(memgraph::slk::SegmentSize) + memgraph::slk::kSegmentMaxDataSize +
                                memgraph::slk::kSegmentMaxTotalSize);
@@ -379,14 +379,14 @@ TEST(CheckStreamComplete, MultipleSegments) {
   }
   for (size_t i = sizeof(memgraph::slk::SegmentSize) * 2 + memgraph::slk::kSegmentMaxDataSize;
        i < sizeof(memgraph::slk::SegmentSize) * 2 + input.size(); ++i) {
-    auto [status, stream_size, data_size] = memgraph::slk::CheckStreamComplete(buffer.data(), i);
+    auto [status, stream_size, data_size] = memgraph::slk::CheckStreamStatus(buffer.data(), i);
     ASSERT_EQ(status, memgraph::slk::StreamStatus::PARTIAL);
     ASSERT_EQ(stream_size, sizeof(memgraph::slk::SegmentSize) * 2 + memgraph::slk::kSegmentMaxDataSize +
                                memgraph::slk::kSegmentMaxTotalSize);
     ASSERT_EQ(data_size, memgraph::slk::kSegmentMaxDataSize);
   }
   for (size_t i = sizeof(memgraph::slk::SegmentSize) * 2 + input.size(); i < buffer.size(); ++i) {
-    auto [status, stream_size, data_size] = memgraph::slk::CheckStreamComplete(buffer.data(), i);
+    auto [status, stream_size, data_size] = memgraph::slk::CheckStreamStatus(buffer.data(), i);
     ASSERT_EQ(status, memgraph::slk::StreamStatus::PARTIAL);
     ASSERT_EQ(stream_size, memgraph::slk::kSegmentMaxTotalSize + sizeof(memgraph::slk::SegmentSize) * 2 + input.size());
     ASSERT_EQ(data_size, input.size());
@@ -394,7 +394,7 @@ TEST(CheckStreamComplete, MultipleSegments) {
 
   // test with complete data
   {
-    auto [status, stream_size, data_size] = memgraph::slk::CheckStreamComplete(buffer.data(), buffer.size());
+    auto [status, stream_size, data_size] = memgraph::slk::CheckStreamStatus(buffer.data(), buffer.size());
     ASSERT_EQ(status, memgraph::slk::StreamStatus::COMPLETE);
     ASSERT_EQ(stream_size, buffer.size());
     ASSERT_EQ(data_size, input.size());
@@ -404,7 +404,7 @@ TEST(CheckStreamComplete, MultipleSegments) {
   {
     auto extended_buffer = BinaryData(buffer.data(), buffer.size()) + GetRandomData(5);
     auto [status, stream_size, data_size] =
-        memgraph::slk::CheckStreamComplete(extended_buffer.data(), extended_buffer.size());
+        memgraph::slk::CheckStreamStatus(extended_buffer.data(), extended_buffer.size());
     ASSERT_EQ(status, memgraph::slk::StreamStatus::COMPLETE);
     ASSERT_EQ(stream_size, buffer.size());
     ASSERT_EQ(data_size, input.size());
@@ -413,7 +413,7 @@ TEST(CheckStreamComplete, MultipleSegments) {
 
 TEST(CheckStreamComplete, InvalidSegment) {
   auto input = SizeToBinaryData(0);
-  auto [status, stream_size, data_size] = memgraph::slk::CheckStreamComplete(input.data(), input.size());
+  auto [status, stream_size, data_size] = memgraph::slk::CheckStreamStatus(input.data(), input.size());
   ASSERT_EQ(status, memgraph::slk::StreamStatus::INVALID);
   ASSERT_EQ(stream_size, 0);
   ASSERT_EQ(data_size, 0);
