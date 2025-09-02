@@ -1427,3 +1427,14 @@ class Pokec(Workload):
                 raise Exception(f"Unknown vendor {self._vendor}")
 
         return query, params
+
+    def benchmark__planner_optimizations__or_filter(self):
+        # The query needs to facilitate index since STARTS WITH is an ordered filter
+        match self._vendor:
+            case GraphVendors.MEMGRAPH:
+                query = f"MATCH (u) WHERE (u:User AND u.id = 1) OR (u:User AND u.id = 2) RETURN count(*)"
+                params = {}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
