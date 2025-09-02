@@ -33,7 +33,7 @@
 #include "utils/message.hpp"
 
 namespace memgraph::metrics {
-extern const Event TransientError;
+extern const Event TransientErrors;
 }  // namespace memgraph::metrics
 
 namespace memgraph::communication::bolt {
@@ -65,7 +65,7 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::ex
     // database probably aborted transaction because of some timeout,
     // deadlock, serialization error or something similar. We return
     // TransientError since retry of same transaction could succeed.
-    memgraph::metrics::IncrementCounter(memgraph::metrics::TransientError);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::TransientErrors);
     return {"Memgraph.TransientError.MemgraphError.MemgraphError", e.what()};
   }
   if (dynamic_cast<const std::bad_alloc *>(&e)) {

@@ -113,7 +113,7 @@
   M(FailedPull, Transaction, "Number of times executing a prepared query failed.")                                     \
   M(SuccessfulQuery, Transaction, "Number of successful queries.")                                                     \
   M(WriteWriteConflicts, Transaction, "Number of times a write-write conflict happened.")                              \
-  M(TransientError, Transaction, "Number of times a transient error happened.")                                        \
+  M(TransientErrors, Transaction, "Number of times a transient error happened.")                                        \
   M(UnreleasedDeltaObjects, Memory, "Total number of unreleased delta objects in memory.")                             \
                                                                                                                        \
   M(DeletedNodes, TTL, "Number of nodes deleted via TTL")                                                              \
