@@ -122,7 +122,7 @@ def get_output(*cmd, multiple=False):
     return ret.stdout.decode("utf-8").strip()
 
 
-def fetch_original_repo_version():
+def fetch_memgraph_repo_version():
     """Fetch version information from the original Memgraph repository via GitHub API."""
     try:
         # GitHub API endpoint for the original Memgraph repository tags
@@ -310,7 +310,7 @@ if current_version is None:
     # Fallback: try to get version information from the original Memgraph repository
     print("No local release branches found. Fetching version from original repository...", file=sys.stderr)
 
-    original_version, original_branch = fetch_original_repo_version()
+    original_version, original_branch = fetch_memgraph_repo_version()
 
     if original_version is not None:
         # Use the version from the original repository
