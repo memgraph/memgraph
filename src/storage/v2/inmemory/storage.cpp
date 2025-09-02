@@ -1463,36 +1463,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
   is_transaction_active_ = false;
 }
 
-std::optional<uint64_t> InMemoryStorage::InMemoryAccessor::CollectContributingTransactions() const {
-  std::optional<uint64_t> max_contributor;
-  // @TODO(colinbarry): performance considerations of building this set
-  // to process a delta only once.
-  std::unordered_set<const Delta *> visited;
-
-  // @TODO use ranges + filter here
-  for (const auto &delta : transaction_.deltas) {
-    if (IsOperationInterleaved(delta) && !visited.count(&delta)) {
-      auto *current_delta = &delta;
-
-      while (current_delta != nullptr && !visited.count(current_delta)) {
-        visited.insert(current_delta);
-        auto ts = current_delta->timestamp->load();
-        if (ts >= kTransactionInitialId && ts != transaction_.transaction_id) {
-          if (max_contributor) {
-            max_contributor = std::max(*max_contributor, ts);
-          } else {
-            max_contributor = ts;
-          }
-        }
-
-        current_delta = current_delta->next.load();
-      }
-    }
-  }
-
-  return max_contributor;
-}
-
 void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
   if (commit_timestamp_) {
     auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
@@ -1500,20 +1470,10 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
 
     if (!transaction_.deltas.empty()) {
       if (transaction_.has_interleaved_deltas) {
-        auto max_contributor = CollectContributingTransactions();
-
-        if (max_contributor) {
-          mem_storage->waiting_gc_deltas_.WithLock([&](auto &waiting_list) {
-            waiting_list.emplace_back(
-                InMemoryStorage::GCDeltas(0, std::move(transaction_.deltas), std::move(transaction_.commit_timestamp)),
-                max_contributor);
-          });
-        } else {
-          mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) {
-            committed_transactions.emplace_back(0, std::move(transaction_.deltas),
-                                                std::move(transaction_.commit_timestamp));
-          });
-        }
+        mem_storage->waiting_gc_deltas_.WithLock([&](auto &waiting_list) {
+          waiting_list.emplace_back(
+              InMemoryStorage::GCDeltas(0, std::move(transaction_.deltas), std::move(transaction_.commit_timestamp)));
+        });
       } else {
         mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) {
           committed_transactions.emplace_back(0, std::move(transaction_.deltas),
@@ -2364,8 +2324,31 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   waiting_gc_deltas_.WithLock([&](auto &waiting_list) {
     auto it = waiting_list.begin();
     while (it != waiting_list.end()) {
-      // Check if max contributor has finished
-      if (!it->max_contributing_transaction_ || *it->max_contributing_transaction_ < oldest_active_start_timestamp) {
+      // @TODO(colinbarry): can we improve this? Have to traverse delta
+      // chains is not a quick operation. Basically, we know upfront upon which
+      // transactions the waiting list is waiting: we need some quick method
+      // or saying: "are all these transactions finished"?
+      // Check if all downstream deltas are now committed by re-traversing chains
+      bool all_contributors_committed = true;
+      std::unordered_set<const Delta *> visited;
+
+      for (const auto &delta : it->deltas_.deltas_) {
+        if (IsOperationInterleaved(delta) && !visited.count(&delta)) {
+          auto *current_delta = &delta;
+          while (current_delta != nullptr && !visited.count(current_delta)) {
+            visited.insert(current_delta);
+            auto ts = current_delta->timestamp->load();
+            if (ts >= kTransactionInitialId) {
+              all_contributors_committed = false;
+              break;
+            }
+            current_delta = current_delta->next.load();
+          }
+          if (!all_contributors_committed) break;
+        }
+      }
+
+      if (all_contributors_committed) {
         committed_transactions_.WithLock(
             [&](auto &committed_transactions) { committed_transactions.emplace_back(std::move(it->deltas_)); });
         it = waiting_list.erase(it);
