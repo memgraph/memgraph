@@ -1,1 +1,14 @@
-UnionFind datastructure
+## Core Infrastructure
+- [x] UnionFind datastructure
+- [ ] E-node representation
+- [ ] E-graph structure
+- [ ] Pattern matching engine
+- [ ] Cost model
+
+## Optimizations
+- [ ] Rule system for rewrites
+
+## Integration
+- [ ] Bridge to existing planner
+- [ ] Performance benchmarks
+- [ ] Migration strategy

@@ -436,6 +436,10 @@ add_subdirectory(libs EXCLUDE_FROM_ALL)
 set(MG_PYTHON_VERSION "" CACHE STRING "Specify the exact Python version used by the query modules")
 set(MG_PYTHON_PATH "" CACHE STRING "Specify the exact Python path used by the query modules")
 
+# Common
+set(test_unit_prefix memgraph__unit__)
+add_custom_target(memgraph__unit)
+
 # Add subprojects
 include_directories(src)
 add_subdirectory(src)

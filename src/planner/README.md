@@ -1,5 +1,11 @@
-This is the new (2025) planner subsystem, it is still under development.
+# Planner Module
 
-This will become the default planner in the future.
+New (2025) query planner based on equality saturation. Under development.
 
-The approach is around equality saturation.
+## Components
+
+### Core
+- `union_find.hpp` - Disjoint-set datastructure
+
+## Testing
+- `memgraph__unit__planner`
