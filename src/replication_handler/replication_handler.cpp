@@ -446,7 +446,7 @@ std::pair<ReplicationHandler::MainResT, ReplicationHandler::ReplicasResT> Replic
         repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).num_committed_txns_;
     main.emplace(std::string{db_acc->storage()->uuid()}, num_main_committed_txns);
 
-    repl_storage_state.replication_storage_clients_.WithLock(
+    repl_storage_state.replication_storage_clients_.WithReadLock(
         [&db_name, &num_main_committed_txns, &replicas](auto &storage_clients) {
           for (auto &repl_storage_client : storage_clients) {
             auto const replica_name = repl_storage_client->Name();
