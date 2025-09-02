@@ -10,7 +10,7 @@ target_precompile_headers(memgraph_unit_main PRIVATE
 )
 include(GoogleTest)
 function(add_unit_test exec_name)
-    set(options CUSTOM_MAIN)
+    set(options CUSTOM_MAIN DISCOVER_TESTS)
     set(oneValueArgs "")
     set(multiValueArgs SOURCES LINK_TARGETS TEST_PROPERTIES INCLUDE_DIRS)
     cmake_parse_arguments(ARG "${options}" "${oneValueArgs}" "${multiValueArgs}" ${ARGN})
@@ -47,24 +47,39 @@ function(add_unit_test exec_name)
 
     set_target_properties(${target_name} PROPERTIES OUTPUT_NAME ${exec_name})
 
-    # Prepare test properties for gtest_discover_tests
     set(test_properties "")
     if (ARG_TEST_PROPERTIES)
         set(test_properties ${ARG_TEST_PROPERTIES})
     endif ()
-    if (TEST_COVERAGE)
-        list(APPEND test_properties ENVIRONMENT "LLVM_PROFILE_FILE=${exec_name}_%p_%m.profraw")
-    endif ()
 
-    if (test_properties)
-        gtest_discover_tests(${target_name}
-            TEST_PREFIX "${target_name}."
-            PROPERTIES ${test_properties}
-        )
+    # Use gtest_discover_tests if DISCOVER_TESTS is set, otherwise use add_test
+    if (ARG_DISCOVER_TESTS)
+        # Prepare test properties for gtest_discover_tests
+
+        if (TEST_COVERAGE)
+            list(APPEND test_properties ENVIRONMENT "LLVM_PROFILE_FILE=${exec_name}_%p_%m.profraw")
+        endif ()
+
+        if (test_properties)
+            gtest_discover_tests(${target_name}
+                TEST_PREFIX "${target_name}."
+                PROPERTIES ${test_properties}
+            )
+        else ()
+            gtest_discover_tests(${target_name}
+                TEST_PREFIX "${target_name}."
+            )
+        endif ()
     else ()
-        gtest_discover_tests(${target_name}
-            TEST_PREFIX "${target_name}."
-        )
+        # Use regular add_test - runs all tests in the binary as one test
+        if (TEST_COVERAGE)
+            list(APPEND test_properties ENVIRONMENT "LLVM_PROFILE_FILE=${exec_name}.profraw")
+        endif ()
+
+        add_test(NAME ${target_name} COMMAND ${target_name})
+        if (test_properties)
+            set_tests_properties(${target_name} PROPERTIES ${test_properties})
+        endif ()
     endif ()
 
     add_dependencies(memgraph__unit ${target_name})
