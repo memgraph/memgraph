@@ -40,7 +40,7 @@ def test_metrics_on_write_write_conflicts_increment(first_connection, second_con
 
     begin_metrics = list(memgraph.execute_and_fetch("SHOW METRICS INFO"))
     begin_amount_of_conflicts = [x for x in begin_metrics if x["name"] == "WriteWriteConflicts"][0]["value"]
-    begin_amount_of_transient_errors = [x for x in begin_metrics if x["name"] == "TransientError"][0]["value"]
+    begin_amount_of_transient_errors = [x for x in begin_metrics if x["name"] == "TransientErrors"][0]["value"]
 
     execute_and_fetch_all(m1c, "CREATE (:Node {prop: 1})")
     first_connection.commit()
@@ -56,7 +56,7 @@ def test_metrics_on_write_write_conflicts_increment(first_connection, second_con
     end_metrics = list(memgraph.execute_and_fetch("SHOW METRICS INFO"))
 
     end_amount_of_conflicts = [x for x in end_metrics if x["name"] == "WriteWriteConflicts"][0]["value"]
-    end_amount_of_transient_errors = [x for x in end_metrics if x["name"] == "TransientError"][0]["value"]
+    end_amount_of_transient_errors = [x for x in end_metrics if x["name"] == "TransientErrors"][0]["value"]
     assert end_amount_of_conflicts == begin_amount_of_conflicts + 1
     assert end_amount_of_transient_errors == begin_amount_of_transient_errors + 1
 
