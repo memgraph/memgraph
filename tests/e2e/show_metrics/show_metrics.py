@@ -213,9 +213,9 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "FailedPull", "type": "Transaction", "metric type": "Counter"},
         {"name": "FailedQuery", "type": "Transaction", "metric type": "Counter"},
         {"name": "RollbackedTransactions", "type": "Transaction", "metric type": "Counter"},
+        {"name": "SuccessfulQuery", "type": "Transaction", "metric type": "Counter"},
         {"name": "TransientErrors", "type": "Transaction", "metric type": "Counter"},
         {"name": "WriteWriteConflicts", "type": "Transaction", "metric type": "Counter"},
-        {"name": "SuccessfulQuery", "type": "Transaction", "metric type": "Counter"},
         {"name": "TriggersCreated", "type": "Trigger", "metric type": "Counter"},
         {"name": "TriggersExecuted", "type": "Trigger", "metric type": "Counter"},
     ]
