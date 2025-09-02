@@ -523,9 +523,19 @@ State HandleRoute(TSession &session, const Marker marker) {
     return State::Close;
   }
 
+
 #ifdef MG_ENTERPRISE
+  auto const db_str = std::invoke(
+    [&db]() -> std::optional<std::string> {
+      try {
+        return std::make_optional(db.ValueString());
+      } catch (ValueException const &) {
+      return std::nullopt;
+    }
+    });
+
   try {
-    auto res = session.Route(routing.ValueMap(), bookmarks.ValueList(), {});
+    auto res = session.Route(routing.ValueMap(), bookmarks.ValueList(), db_str, {});
     if (!session.encoder_.MessageSuccess(std::move(res))) {
       spdlog::trace("Couldn't send result of routing!");
       return State::Close;
