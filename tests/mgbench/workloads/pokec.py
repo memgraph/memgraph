@@ -1429,7 +1429,7 @@ class Pokec(Workload):
         return query, params
 
     def benchmark__planner_optimizations__or_filter(self):
-        # The query needs to facilitate index since STARTS WITH is an ordered filter
+        # The query needs to facilitate index since it uses filter. OR filter parsing needs to be performed
         match self._vendor:
             case GraphVendors.MEMGRAPH:
                 query = f"MATCH (u) WHERE (u:User AND u.id = 1) OR (u:User AND u.id = 2) RETURN count(*)"
