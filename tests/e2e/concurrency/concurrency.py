@@ -38,9 +38,9 @@ def test_metrics_on_write_write_conflicts_increment(first_connection, second_con
     m1c = first_connection.cursor()
     m2c = second_connection.cursor()
 
-    begin_amount_of_conflicts = [
-        x for x in execute_and_fetch_all(m1c, "SHOW METRICS INFO") if x[0] == "WriteWriteConflicts"
-    ][0][1]
+    begin_metrics = execute_and_fetch_all(m1c, "SHOW METRICS INFO")
+    begin_amount_of_conflicts = [x for x in begin_metrics if x[0] == "WriteWriteConflicts"][0][1]
+    begin_amount_of_transient_errors = [x for x in begin_metrics if x[0] == "TransientError"][0][1]
 
     execute_and_fetch_all(m1c, "CREATE (:Node {prop: 1})")
     first_connection.commit()
@@ -53,10 +53,11 @@ def test_metrics_on_write_write_conflicts_increment(first_connection, second_con
     except Exception as e:
         pass
 
-    end_amount_of_conflicts = [
-        x for x in execute_and_fetch_all(m1c, "SHOW METRICS INFO") if x[0] == "WriteWriteConflicts"
-    ][0][1]
+    end_metrics = execute_and_fetch_all(m1c, "SHOW METRICS INFO")
+    end_amount_of_conflicts = [x for x in end_metrics if x[0] == "WriteWriteConflicts"][0][1]
+    end_amount_of_transient_errors = [x for x in end_metrics if x[0] == "TransientError"][0][1]
     assert end_amount_of_conflicts == begin_amount_of_conflicts + 1
+    assert end_amount_of_transient_errors == begin_amount_of_transient_errors + 1
 
 
 def test_concurrency_if_no_delta_on_same_edge_property_update(first_connection, second_connection):
