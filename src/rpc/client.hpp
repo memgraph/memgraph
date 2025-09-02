@@ -134,7 +134,7 @@ class Client {
         uint64_t response_data_size = 0;
         while (true) {
           // Even if in progress RPC message was sent, the stream will be complete
-          auto const ret = slk::CheckStreamComplete(self_->client_->GetData(), self_->client_->GetDataSize());
+          auto const ret = slk::CheckStreamStatus(self_->client_->GetData(), self_->client_->GetDataSize());
           if (ret.status == slk::StreamStatus::INVALID) {
             // Logically invalid state, connection is still up, defunct stream and release
             defunct_ = true;
@@ -214,7 +214,7 @@ class Client {
       // Receive the response.
       uint64_t response_data_size = 0;
       while (true) {
-        auto ret = slk::CheckStreamComplete(self_->client_->GetData(), self_->client_->GetDataSize());
+        auto ret = slk::CheckStreamStatus(self_->client_->GetData(), self_->client_->GetDataSize());
         if (ret.status == slk::StreamStatus::INVALID) {
           // Logically invalid state, connection is still up, defunct stream and release
           defunct_ = true;
@@ -408,8 +408,11 @@ class Client {
     ProtocolMessageHeader const message_header{.protocol_version = current_protocol_version,
                                                .message_id = req_type.id,
                                                .message_version = TRequestResponse::Request::kVersion};
+    spdlog::warn("Position before saving header: {}", handler.GetBuilder()->GetPos());
     SaveMessageHeader(message_header, handler.GetBuilder());
+    spdlog::warn("Position after saving header: {}", handler.GetBuilder()->GetPos());
     TRequestResponse::Request::Save(request, handler.GetBuilder());
+    spdlog::warn("Position after saving request: {}", handler.GetBuilder()->GetPos());
 
     // Return the handler to the user.
     return handler;

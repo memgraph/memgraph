@@ -267,7 +267,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       return;
     }
     ExecuteForSocket([this](auto &socket) {
-      auto buffer = input_buffer_.write_end()->Allocate();
+      auto buffer = input_buffer_.write_end()->GetBuffer();
       socket.async_read_some(
           boost::asio::buffer(buffer.data, buffer.len),
           boost::asio::bind_executor(strand_, std::bind_front(&Session::OnRead, shared_from_this())));
@@ -279,7 +279,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       return;
     }
     ExecuteForSocket([this](auto &socket) {
-      auto buffer = input_buffer_.write_end()->Allocate();
+      auto buffer = input_buffer_.write_end()->GetBuffer();
       socket.async_read_some(
           boost::asio::buffer(buffer.data, buffer.len),
           boost::asio::bind_executor(strand_, std::bind_front(&Session::OnReadAsio, shared_from_this())));
@@ -291,7 +291,7 @@ class Session final : public std::enable_shared_from_this<Session<TSession, TSes
       return;
     }
     ExecuteForSocket([this](auto &socket) {
-      auto buffer = input_buffer_.write_end()->Allocate();
+      auto buffer = input_buffer_.write_end()->GetBuffer();
       socket.async_read_some(
           boost::asio::buffer(buffer.data, buffer.len),
           boost::asio::bind_executor(strand_, std::bind_front(&Session::OnFirstRead, shared_from_this())));

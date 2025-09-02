@@ -42,7 +42,7 @@ class Encoder final : public durability::BaseEncoder {
 
   void WriteExternalPropertyValue(const ExternalPropertyValue &value) override;
 
-  void WriteBuffer(const uint8_t *buffer, size_t buffer_size);
+  void WriteFileBuffer(const uint8_t *buffer, size_t buffer_size);
 
   void WriteFileData(utils::InputFile *file);
 
@@ -80,9 +80,8 @@ class Decoder final : public durability::BaseDecoder {
 
   /// Read the file and save it inside the specified directory.
   /// @param directory Directory which will contain the read file.
-  /// @param suffix Suffix to be added to the received file's filename.
   /// @return If the read was successful, path to the read file.
-  std::optional<std::filesystem::path> ReadFile(const std::filesystem::path &directory, const std::string &suffix = "");
+  std::optional<std::filesystem::path> ReadFile(const std::filesystem::path &directory);
 
  private:
   slk::Reader *reader_;

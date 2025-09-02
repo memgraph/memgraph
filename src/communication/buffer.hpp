@@ -89,7 +89,7 @@ class Buffer final {
     WriteEnd &operator=(WriteEnd &&) = delete;
     ~WriteEnd() = default;
 
-    io::network::StreamBuffer Allocate();
+    io::network::StreamBuffer GetBuffer();
 
     void Written(size_t len);
 
@@ -142,7 +142,7 @@ class Buffer final {
    * location in the internal buffer. Also, it returns the size of the
    * available memory.
    */
-  io::network::StreamBuffer Allocate();
+  io::network::StreamBuffer GetBuffer();
 
   /**
    * This method is used to notify the buffer that the data has been written.

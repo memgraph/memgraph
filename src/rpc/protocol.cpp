@@ -18,6 +18,7 @@
 #include "rpc/version.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
+#include "storage/v2/durability/paths.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/stat.hpp"
@@ -26,21 +27,98 @@
 namespace memgraph::rpc {
 
 constexpr auto kBufferRetainLimit = 4 * 1024 * 1024;  // 4MiB
+const auto kTempDirectory =
+    std::filesystem::temp_directory_path() / "memgraph" / storage::durability::kReplicaDurabilityDirectory;
+;
+
+FileReplicationHandler::FileReplicationHandler(const uint8_t *data, size_t const size) : written_(0) {
+  spdlog::warn("Data starts at address: {}", static_cast<const void *>(data));
+  slk::Reader req_reader(data, size);
+  spdlog::warn("Reader pos before creating decoder: {}", req_reader.GetPos());
+  storage::replication::Decoder decoder(&req_reader);
+  spdlog::warn("Reader pos after creating decoder: {}", req_reader.GetPos());
+
+  // We should be able to always read filename and filesize since file data starts with the new segment
+  auto const maybe_filename = decoder.ReadString();
+  MG_ASSERT(maybe_filename, "Filename missing for the received file over the RPC");
+  auto const path = kTempDirectory / *maybe_filename;
+
+  spdlog::warn("Path {} will be used", path);
+
+  file_.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING);
+
+  const auto maybe_file_size = decoder.ReadUint();
+  MG_ASSERT(maybe_file_size, "File size missing");
+  file_size_ = *maybe_file_size;
+
+  spdlog::warn("File size is: {}", file_size_);
+
+  uint8_t buffer[utils::kFileBufferSize];
+  auto to_write = size - req_reader.GetPos();
+  while (to_write > 0) {
+    const auto chunk_size = std::min(to_write, utils::kFileBufferSize);
+    req_reader.Load(buffer, chunk_size);
+    file_.Write(buffer, chunk_size);
+    to_write -= chunk_size;
+    spdlog::warn("Written {} bytes to file, remaining {}", chunk_size, to_write);
+  }
+}
+
+FileReplicationHandler::~FileReplicationHandler() { file_.Close(); }
+
+void FileReplicationHandler::WriteToFile(const uint8_t *data, size_t const size) {
+  spdlog::warn("Got the request to write {} bytes to the file", size);
+  slk::Reader req_reader(data, size);
+  uint8_t buffer[utils::kFileBufferSize];
+  auto to_write = size;
+  while (to_write > 0) {
+    const auto chunk_size = std::min(to_write, utils::kFileBufferSize);
+    req_reader.Load(buffer, chunk_size);
+    file_.Write(buffer, chunk_size);
+    to_write -= chunk_size;
+    spdlog::warn("Written {} bytes to file, remaining {}", chunk_size, to_write);
+  }
+}
 
 RpcMessageDeliverer::RpcMessageDeliverer(Server *server, io::network::Endpoint const & /*endpoint*/,
                                          communication::InputStream *input_stream,
                                          communication::OutputStream *output_stream)
     : server_(server), input_stream_(input_stream), output_stream_(output_stream) {}
 
-void RpcMessageDeliverer::Execute() const {
-  spdlog::trace("Memory at the start of execute: {}", utils::GetReadableSize(utils::GetMemoryRES()));
-  auto ret = slk::CheckStreamComplete(input_stream_->data(), input_stream_->size());
+void RpcMessageDeliverer::Execute() {
+  // spdlog::trace("Memory at the start of execute: {}", utils::GetReadableSize(utils::GetMemoryRES()));
+  spdlog::trace("Input stream size at the Execute Start: {}", input_stream_->size());
+  auto ret = slk::CheckStreamStatus(input_stream_->data(), input_stream_->size());
+
   if (ret.status == slk::StreamStatus::INVALID) {
     throw SessionException("Received an invalid SLK stream!");
   }
+  // We resize the stream only if the initial header+request cannot fit into the input stream. We don't resize it in
+  // order to receive the whole file into the buffer
   if (ret.status == slk::StreamStatus::PARTIAL) {
-    spdlog::trace("Memory partial stream received, size: {}", ret.stream_size);
+    spdlog::trace("Resizing input stream to {}", ret.stream_size);
     input_stream_->Resize(ret.stream_size);
+    return;
+  }
+
+  // Use info whether file_replication_handler already exists + you need to copy previous data so you can initalize
+  // message request
+
+  // TODO: (andi) What if file is smaller than one segment? file_data_size is probably invalid then
+  if (ret.status == slk::StreamStatus::FILE_DATA) {
+    const uint8_t *file_data_start = input_stream_->data() + ret.pos - sizeof(slk::SegmentSize);
+    size_t const file_data_size = input_stream_->size() - ret.pos;
+    if (!file_replication_handler_.has_value()) {
+      spdlog::warn("Initializing file replication handler. Stream size: {} Stream pos: {}", input_stream_->size(),
+                   ret.pos);
+      // Will be used at the end to construct slk::Reader. Contains message header and request
+      header_request_ = std::vector<uint8_t>{
+          input_stream_->data(), input_stream_->data() + (input_stream_->size() - ret.pos - sizeof(slk::SegmentSize))};
+      file_replication_handler_.emplace(file_data_start, file_data_size);
+    } else {
+      file_replication_handler_->WriteToFile(file_data_start, file_data_size);
+    }
+    input_stream_->Clear();
     return;
   }
 
@@ -51,7 +129,17 @@ void RpcMessageDeliverer::Execute() const {
   }};
 
   // Prepare SLK reader and builder.
-  slk::Reader req_reader(input_stream_->data(), input_stream_->size());
+  slk::Reader req_reader = std::invoke([&]() {
+    // File data wasn't received
+    if (header_request_.empty()) {
+      spdlog::warn("Using original buffer for reading header and request");
+      return slk::Reader{input_stream_->data(), input_stream_->size()};
+    }
+    spdlog::warn("Using buffer copy for reading header and request");
+    // File data received
+    return slk::Reader{header_request_.data(), header_request_.size()};
+  });
+
   slk::Builder res_builder([&](const uint8_t *data, size_t const size, bool const have_more) {
     output_stream_->Write(data, size, have_more);
   });
@@ -83,7 +171,7 @@ void RpcMessageDeliverer::Execute() const {
 
   spdlog::trace("[RpcServer] received {}, version {}", it->second.req_type.name, maybe_message_header->message_version);
   spdlog::trace("Memory when RPC {} received: {}", it->second.req_type.name,
-               utils::GetReadableSize(utils::GetMemoryRES()));
+                utils::GetReadableSize(utils::GetMemoryRES()));
   try {
     it->second.callback(maybe_message_header->message_version, &req_reader, &res_builder);
     // Finalize the SLK stream.

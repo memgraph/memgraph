@@ -21,8 +21,10 @@ void Encoder::WriteBool(bool value) {
 }
 
 void Encoder::WriteUint(uint64_t value) {
+  spdlog::warn("Pos before saving uint: {}", builder_->GetPos());
   WriteMarker(durability::Marker::TYPE_INT);
   slk::Save(value, builder_);
+  spdlog::warn("Pos after saving uint: {}", builder_->GetPos());
 }
 
 void Encoder::WriteDouble(double value) {
@@ -31,8 +33,10 @@ void Encoder::WriteDouble(double value) {
 }
 
 void Encoder::WriteString(const std::string_view value) {
+  spdlog::warn("Pos before saving string: {}", builder_->GetPos());
   WriteMarker(durability::Marker::TYPE_STRING);
   slk::Save(value, builder_);
+  spdlog::warn("Pos after saving string: {}", builder_->GetPos());
 }
 
 void Encoder::WriteEnum(storage::Enum value) {
@@ -55,7 +59,9 @@ void Encoder::WriteExternalPropertyValue(const ExternalPropertyValue &value) {
   slk::Save(value, builder_);
 }
 
-void Encoder::WriteBuffer(const uint8_t *buffer, const size_t buffer_size) { builder_->Save(buffer, buffer_size); }
+void Encoder::WriteFileBuffer(const uint8_t *buffer, const size_t buffer_size) {
+  builder_->Save(buffer, buffer_size, /*file_data*/ true);
+}
 
 void Encoder::WriteFileData(utils::InputFile *file) {
   auto file_size = file->GetSize();
@@ -63,7 +69,7 @@ void Encoder::WriteFileData(utils::InputFile *file) {
   while (file_size > 0) {
     const auto chunk_size = std::min(file_size, utils::kFileBufferSize);
     file->Read(buffer, chunk_size);
-    WriteBuffer(buffer, chunk_size);
+    WriteFileBuffer(buffer, chunk_size);
     file_size -= chunk_size;
   }
 }
@@ -79,10 +85,14 @@ bool Encoder::WriteFile(const std::filesystem::path &path) {
     return false;
   }
   const auto &filename = path.filename().generic_string();
+  spdlog::trace("Position before saving filename: {}", builder_->GetPos());
   WriteString(filename);
+  spdlog::trace("Position after saving filename: {}", builder_->GetPos());
   auto const file_size = file.GetSize();
   WriteUint(file_size);
+  spdlog::trace("Position after saving file size: {}", builder_->GetPos());
   WriteFileData(&file);
+  spdlog::trace("Position after saving file data: {}", builder_->GetPos());
   return true;
 }
 
@@ -115,9 +125,21 @@ std::optional<double> Decoder::ReadDouble() {
 }
 
 std::optional<std::string> Decoder::ReadString() {
-  if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_STRING) return std::nullopt;
+  spdlog::warn("Reader position before reading string: {}", reader_->GetPos());
+  const auto marker = ReadMarker();
+  if (!marker) {
+    spdlog::warn("Marker is invalid");
+    return std::nullopt;
+  }
+
+  if (marker != durability::Marker::TYPE_STRING) {
+    spdlog::warn("Marker not string ,type: {}", static_cast<uint8_t>(marker.value()));
+    return std::nullopt;
+  }
+
   std::string value;
   slk::Load(&value, reader_);
+  spdlog::warn("Reader position after reading string: {}", reader_->GetPos());
   return std::move(value);
 }
 
@@ -164,14 +186,13 @@ bool Decoder::SkipExternalPropertyValue() {
   return true;
 }
 
-std::optional<std::filesystem::path> Decoder::ReadFile(const std::filesystem::path &directory,
-                                                       const std::string &suffix) {
+std::optional<std::filesystem::path> Decoder::ReadFile(const std::filesystem::path &directory) {
   MG_ASSERT(std::filesystem::exists(directory) && std::filesystem::is_directory(directory),
             "Sent path for streamed files should be a valid directory!");
   utils::OutputFile file;
   const auto maybe_filename = ReadString();
   MG_ASSERT(maybe_filename, "Filename missing for the file");
-  const auto filename = *maybe_filename + suffix;
+  const auto filename = *maybe_filename;
   auto path = directory / filename;
 
   file.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING);

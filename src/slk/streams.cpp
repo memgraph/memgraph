@@ -22,32 +22,63 @@ Builder::Builder(std::function<void(const uint8_t *, size_t, bool)> write_func) 
 
 bool Builder::IsEmpty() const { return pos_ == 0; }
 
-void Builder::Save(const uint8_t *data, uint64_t size) {
+size_t Builder::GetPos() const { return pos_; }
+
+void Builder::Save(const uint8_t *data, uint64_t size, bool const file_data) {
   size_t offset = 0;
   while (size > 0) {
-    FlushSegment(false);
+    FlushSegment(false, file_data);
 
     size_t const to_write = std::min(size, kSegmentMaxDataSize - pos_);
 
     memcpy(segment_.data() + sizeof(SegmentSize) + pos_, data + offset, to_write);
-
+    spdlog::warn("Position before saving: {}", pos_);
     size -= to_write;
     pos_ += to_write;
+    spdlog::warn("Position after saving: {}", pos_);
 
     offset += to_write;
   }
 }
 
+void Builder::PrepareForFileSending() {
+  MG_ASSERT(pos_ > 0, "Trying to flush out a segment that has no data in it when preparing for sending file!");
+
+  // Write data size at the beginning of the stream
+  SegmentSize const data_size = pos_;
+  memcpy(segment_.data(), &data_size, sizeof(SegmentSize));
+
+  spdlog::warn("PrepareForFileSending, data size is: {}", data_size);
+
+  // Data size + 4B at the beginning to annotate stream size
+  size_t const total_size = sizeof(SegmentSize) + pos_;
+  write_func_(segment_.data(), total_size, /*have_more*/ true);
+
+  // File data needs to start at the beginning of the new segment
+  pos_ = 0;
+}
+
 void Builder::Finalize() { FlushSegment(true); }
 
-void Builder::FlushSegment(bool final_segment) {
+void Builder::FlushSegment(bool const final_segment, bool const file_data) {
   if (!final_segment && pos_ < kSegmentMaxDataSize) return;
   MG_ASSERT(pos_ > 0, "Trying to flush out a segment that has no data in it!");
 
-  size_t total_size = sizeof(SegmentSize) + pos_;
+  // If the data I want to flush is part of the file, I need to send special marker to the server could know how to
+  // interpret it
+  if (file_data) {
+    // TODO: (andi) Not sure if I can pass pointer to constexpr
+    spdlog::warn("Flushing file_data mask. Final segment: {}, Pos: {}", final_segment, pos_);
+    const auto kVar = kFileSegmentMask;
+    memcpy(segment_.data(), &kVar, sizeof(SegmentSize));
+  } else {
+    SegmentSize const data_size = pos_;
+    spdlog::warn("Flushing non-file_dat segment with data size: {}. Final segment: {}. Pos: {}", data_size,
+                 final_segment, pos_);
+    memcpy(segment_.data(), &data_size, sizeof(SegmentSize));
+  }
 
-  SegmentSize size = pos_;
-  memcpy(segment_.data(), &size, sizeof(SegmentSize));
+  size_t total_size = sizeof(SegmentSize) + pos_;
 
   if (final_segment) {
     SegmentSize footer = 0;
@@ -70,6 +101,7 @@ void Reader::Load(uint8_t *data, uint64_t size) {
     if (to_read > have_) {
       to_read = have_;
     }
+    spdlog::warn("Reading from position {}. Should read: {}", pos_, size);
     memcpy(data + offset, data_ + pos_, to_read);
     pos_ += to_read;
     have_ -= to_read;
@@ -78,9 +110,12 @@ void Reader::Load(uint8_t *data, uint64_t size) {
   }
 }
 
+size_t Reader::GetPos() const { return pos_; }
+
 void Reader::Finalize() { GetSegment(true); }
 
 void Reader::GetSegment(bool should_be_final) {
+  spdlog::warn("Position when entering GetSegment: {}", pos_);
   if (have_ != 0) {
     if (should_be_final) {
       throw SlkReaderLeftoverDataException("There is still leftover data in the SLK stream!");
@@ -110,9 +145,10 @@ void Reader::GetSegment(bool should_be_final) {
     throw SlkReaderException("There isn't enough data in the SLK stream!");
   }
   have_ = len;
+  spdlog::warn("Position when exiting GetSegment: {}", pos_);
 }
 
-StreamInfo CheckStreamComplete(const uint8_t *data, size_t size) {
+StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size) {
   size_t found_segments = 0;
   size_t data_size = 0;
 
@@ -120,26 +156,43 @@ StreamInfo CheckStreamComplete(const uint8_t *data, size_t size) {
   while (true) {
     SegmentSize len = 0;
     if (pos + sizeof(SegmentSize) > size) {
-      return {StreamStatus::PARTIAL, pos + kSegmentMaxTotalSize, data_size};
+      return {.status = StreamStatus::PARTIAL,
+              .stream_size = pos + kSegmentMaxTotalSize,
+              .encoded_data_size = data_size,
+              .pos = pos};
     }
     memcpy(&len, data + pos, sizeof(SegmentSize));
+
     pos += sizeof(SegmentSize);
+
+    if (len == kFileSegmentMask) {
+      spdlog::trace("File segment read at: {}. Found segments: {}", pos - sizeof(SegmentSize), found_segments);
+      return {.status = StreamStatus::FILE_DATA, .stream_size = pos, .encoded_data_size = data_size, .pos = pos};
+    }
+
     if (len == 0) {
       break;
     }
 
+    spdlog::trace("Read len of: {}", len);
+
     if (pos + len > size) {
-      return {StreamStatus::PARTIAL, pos + kSegmentMaxTotalSize, data_size};
+      return {.status = StreamStatus::PARTIAL,
+              .stream_size = pos + kSegmentMaxTotalSize,
+              .encoded_data_size = data_size,
+              .pos = pos};
     }
     pos += len;
 
     ++found_segments;
     data_size += len;
   }
+
   if (found_segments < 1) {
-    return {StreamStatus::INVALID, 0, 0};
+    return {.status = StreamStatus::INVALID, .stream_size = 0, .encoded_data_size = 0, .pos = pos};
   }
-  return {StreamStatus::COMPLETE, pos, data_size};
+
+  return {.status = StreamStatus::COMPLETE, .stream_size = pos, .encoded_data_size = data_size, .pos = pos};
 }
 
 }  // namespace memgraph::slk
