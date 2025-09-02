@@ -12,7 +12,5 @@ target_sources(mg-planner
     src/core/union_find.cpp
 )
 
-if(BUILD_TESTING)
-    add_subdirectory(test)
-    add_subdirectory(bench)
-endif ()
+add_subdirectory(test)
+add_subdirectory(bench)

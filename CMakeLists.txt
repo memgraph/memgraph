@@ -437,9 +437,10 @@ set(MG_PYTHON_VERSION "" CACHE STRING "Specify the exact Python version used by 
 set(MG_PYTHON_PATH "" CACHE STRING "Specify the exact Python path used by the query modules")
 
 # Common
-
-include(cmake/unit_tests.cmake)
-
+if (MG_ENABLE_TESTING)
+  enable_testing()
+  include(cmake/unit_tests.cmake)
+endif ()
 
 # Add subprojects
 include_directories(src)

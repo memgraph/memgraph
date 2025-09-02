@@ -1,4 +1,5 @@
 add_unit_test(planner
+    SOURCES unittest__union_find.cpp
     LINK_TARGETS mg::planner
-    SOURCES union_find_test.cpp
+    DISCOVER_TESTS
 )

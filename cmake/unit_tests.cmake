@@ -3,8 +3,15 @@
 
 set(test_unit_prefix memgraph__unit__)
 set(test_bench_prefix memgraph__benchmark__)
-add_custom_target(memgraph__unit)
-add_custom_target(memgraph__benchmark)
+
+# Only create targets if they don't already exist
+if(NOT TARGET memgraph__unit)
+    add_custom_target(memgraph__unit)
+endif()
+
+if(NOT TARGET memgraph__benchmark)
+    add_custom_target(memgraph__benchmark)
+endif()
 
 include(GoogleTest)
 
@@ -74,7 +81,7 @@ function(add_unit_test exec_name)
             list(APPEND test_properties ENVIRONMENT "LLVM_PROFILE_FILE=${exec_name}.profraw")
         endif()
 
-        add_test(NAME ${target_name} COMMAND ${target_name})
+        add_test(NAME ${target_name} COMMAND $<TARGET_FILE:${target_name}>)
         if(test_properties)
             set_tests_properties(${target_name} PROPERTIES ${test_properties})
         endif()
