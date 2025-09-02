@@ -42,6 +42,7 @@ void SearchAllPropertiesEdges(mgp_list *args, mgp_graph *memgraph_graph, mgp_res
 void Aggregate(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 }  // namespace TextSearch
 
+// Text search on nodes functions
 void TextSearch::Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
   const auto record_factory = mgp::RecordFactory(result);
@@ -114,6 +115,7 @@ void TextSearch::Aggregate(mgp_list *args, mgp_graph *memgraph_graph, mgp_result
   }
 }
 
+// Text search on edges functions
 void TextSearch::SearchEdges(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
   mgp::MemoryDispatcherGuard guard{memory};
   const auto record_factory = mgp::RecordFactory(result);
@@ -143,10 +145,7 @@ void TextSearch::RegexSearchEdges(mgp_list *args, mgp_graph *memgraph_graph, mgp
     for (const auto &edge_result :
          mgp::SearchTextEdgeIndex(memgraph_graph, index_name, search_query, text_search_mode::REGEX)) {
       auto record = record_factory.NewRecord();
-      auto edge_list = edge_result.ValueList();
-      record.Insert(TextSearch::kReturnEdge.data(), edge_list[0].ValueRelationship());
-      record.Insert(TextSearch::kReturnFromVertex.data(), edge_list[1].ValueNode());
-      record.Insert(TextSearch::kReturnToVertex.data(), edge_list[2].ValueNode());
+      record.Insert(TextSearch::kReturnEdge.data(), edge_result.ValueRelationship());
     }
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
@@ -165,10 +164,7 @@ void TextSearch::SearchAllPropertiesEdges(mgp_list *args, mgp_graph *memgraph_gr
     for (const auto &edge_result :
          mgp::SearchTextEdgeIndex(memgraph_graph, index_name, search_query, text_search_mode::ALL_PROPERTIES)) {
       auto record = record_factory.NewRecord();
-      auto edge_list = edge_result.ValueList();
-      record.Insert(TextSearch::kReturnEdge.data(), edge_list[0].ValueRelationship());
-      record.Insert(TextSearch::kReturnFromVertex.data(), edge_list[1].ValueNode());
-      record.Insert(TextSearch::kReturnToVertex.data(), edge_list[2].ValueNode());
+      record.Insert(TextSearch::kReturnEdge.data(), edge_result.ValueRelationship());
     }
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());

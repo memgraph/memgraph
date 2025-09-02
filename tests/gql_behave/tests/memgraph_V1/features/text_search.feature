@@ -11,8 +11,8 @@ Feature: Text search related features
             SHOW INDEX INFO
             """
         Then the result should be:
-            | index type                  | label      | property | count |
-            | 'text (name: exampleIndex)' | 'Document' | []       | 0     |
+            | index type                        | label      | property | count |
+            | 'label_text (name: exampleIndex)' | 'Document' | []       | 0     |
 
     Scenario: Drop text index
         Given an empty graph
@@ -277,7 +277,7 @@ Feature: Text search related features
             """
         Then the result should be:
             | index type                        | label      | property            | count |
-            | 'text (name: titleContentIndex)'  | 'Document' | ['title','content'] | 0     |
+            | 'label_text (name: titleContentIndex)'  | 'Document' | ['title','content'] | 0     |
 
     Scenario: Search in property-specific index with both properties
         Given an empty graph
@@ -420,8 +420,8 @@ Feature: Text search related features
             SHOW INDEX INFO
             """
         Then the result should be:
-            | index type                    | label      | property  | count |
-            | 'text (name: article_index)'  | 'Article'  | []        | 2     |
+            | index type                          | label      | property  | count |
+            | 'label_text (name: article_index)'  | 'Article'  | []        | 2     |
 
 
     # Text search tests for edges
@@ -437,8 +437,8 @@ Feature: Text search related features
             SHOW INDEX INFO
             """
         Then the result should be:
-            | index type                            | label               | property | count |
-            | 'text (name: exampleEdgeIndex)'       | 'DOCUMENT_RELATION' | []       | null  |
+            | index type                                      | label               | property | count |
+            | 'edge-type_text (name: exampleEdgeIndex)'       | 'DOCUMENT_RELATION' | []       | 0     |
 
     Scenario: Drop text edge index
         Given an empty graph
@@ -471,12 +471,12 @@ Feature: Text search related features
             """
         When executing query:
             """
-            CALL text_search.search_edges('complianceEdges', 'data.title:Rules2024') YIELD node
-            RETURN node AS edge
+            CALL text_search.search_edges('complianceEdges', 'data.title:Rules2024') YIELD edge
+            RETURN edge AS edge
             ORDER BY edge.version ASC
             """
         Then the result should be:
-            | edge                                    |
+            | edge                                           |
             | [:RELATES_TO {title: 'Rules2024', version: 1}] |
             | [:RELATES_TO {title: 'Rules2024', version: 2}] |
 
@@ -494,12 +494,12 @@ Feature: Text search related features
             """
         When executing query:
             """
-            CALL text_search.search_all('complianceEdges', 'Rules2024') YIELD node
-            RETURN node AS edge
+            CALL text_search.search_all_edges('complianceEdges', 'Rules2024') YIELD edge
+            RETURN edge AS edge
             ORDER BY edge.version ASC
             """
         Then the result should be:
-            | edge                                                                                |
+            | edge                                                                              |
             | [:RELATES_TO {title: 'Rules2024', fulltext: 'text words', version: 1}]            |
             | [:RELATES_TO {title: 'Rules2024', fulltext: 'other words', version: 2}]           |
             | [:RELATES_TO {title: 'Other', fulltext: 'Rules2024 here', version: 3}]            |
@@ -517,8 +517,8 @@ Feature: Text search related features
             """
         When executing query:
             """
-            CALL text_search.regex_search('complianceEdges', 'wor.*s') YIELD node
-            RETURN node AS edge
+            CALL text_search.regex_search_edges('complianceEdges', 'wor.*s') YIELD edge
+            RETURN edge AS edge
             ORDER BY edge.fulltext ASC
             """
         Then the result should be:
@@ -539,8 +539,8 @@ Feature: Text search related features
             """
         When executing query:
             """
-            CALL text_search.search('complianceEdges', '(data.title:Rules2023 OR data.title:Rules2024) AND data.fulltext:words') YIELD node
-            RETURN node.title AS title, node.version AS version
+            CALL text_search.search_edges('complianceEdges', '(data.title:Rules2023 OR data.title:Rules2024) AND data.fulltext:words') YIELD edge
+            RETURN edge.title AS title, edge.version AS version
             ORDER BY version ASC, title ASC
             """
         Then the result should be:
@@ -559,8 +559,8 @@ Feature: Text search related features
             """
         When executing query:
             """
-            CALL text_search.search('complianceEdges', 'data.title:Rules2024') YIELD node
-            RETURN node.title AS title, node.version AS version
+            CALL text_search.search_edges('complianceEdges', 'data.title:Rules2024') YIELD edge
+            RETURN edge.title AS title, edge.version AS version
             ORDER BY version ASC, title ASC
             """
         Then the result should be:
@@ -583,8 +583,8 @@ Feature: Text search related features
             """
         When executing query:
             """
-            CALL text_search.search('complianceEdges', 'data.title:Rules2024') YIELD node
-            RETURN node.title AS title, node.version AS version
+            CALL text_search.search_edges('complianceEdges', 'data.title:Rules2024') YIELD edge
+            RETURN edge.title AS title, edge.version AS version
             ORDER BY version ASC, title ASC
             """
         Then the result should be:
@@ -606,8 +606,8 @@ Feature: Text search related features
             """
         When executing query:
             """
-            CALL text_search.search('complianceEdges', 'data.title:Rules2030') YIELD node
-            RETURN node.title AS title, node.version AS version
+            CALL text_search.search_edges('complianceEdges', 'data.title:Rules2030') YIELD edge
+            RETURN edge.title AS title, edge.version AS version
             ORDER BY version ASC, title ASC
             """
         Then the result should be:
@@ -628,8 +628,8 @@ Feature: Text search related features
             """
         When executing query:
             """
-            CALL text_search.regex_search('testEdgeIndex', 't.*') YIELD node
-            RETURN node.title AS title
+            CALL text_search.regex_search_edges('testEdgeIndex', 't.*') YIELD edge
+            RETURN edge.title AS title
             ORDER BY title ASC
             """
         Then the result should be:
@@ -652,8 +652,8 @@ Feature: Text search related features
             """
         When executing query:
             """
-            CALL text_search.regex_search('testEdgeIndex', 'T.*G') YIELD node
-            RETURN node.content AS content
+            CALL text_search.regex_search_edges('testEdgeIndex', 'T.*G') YIELD edge
+            RETURN edge.content AS content
             ORDER BY content ASC
             """
         Then the result should be:
@@ -665,8 +665,8 @@ Feature: Text search related features
         Given an empty graph
         When executing query:
             """
-            CALL text_search.search('noSuchEdgeIndex', 'data.fulltext:words') YIELD node
-            RETURN node.title AS title, node.version AS version
+            CALL text_search.search_edges('noSuchEdgeIndex', 'data.fulltext:words') YIELD edge
+            RETURN edge.title AS title, edge.version AS version
             ORDER BY version ASC, title ASC
             """
         Then an error should be raised
@@ -682,8 +682,8 @@ Feature: Text search related features
             SHOW INDEX INFO
             """
         Then the result should be:
-            | index type                               | label        | property            | count |
-            | 'text (name: titleContentEdgeIndex)'     | 'RELATES_TO' | ['title','content'] | null  |
+            | index type                                         | label        | property            | count |
+            | 'edge-type_text (name: titleContentEdgeIndex)'     | 'RELATES_TO' | ['title','content'] | 0     |
 
     Scenario: Search in property-specific edge index with both properties
         Given an empty graph
@@ -697,8 +697,8 @@ Feature: Text search related features
             """
         When executing query:
             """
-            CALL text_search.search('titleContentEdgeIndex', 'data.title:Manual2024') YIELD node
-            RETURN node.title AS title, node.content AS content
+            CALL text_search.search_edges('titleContentEdgeIndex', 'data.title:Manual2024') YIELD edge
+            RETURN edge.title AS title, edge.content AS content
             ORDER BY title ASC
             """
         Then the result should be:
@@ -717,8 +717,8 @@ Feature: Text search related features
             """
         When executing query:
             """
-            CALL text_search.search('titleContentEdgeIndex', 'data.title:OnlyTitle') YIELD node
-            RETURN node.title AS title, node.version AS version
+            CALL text_search.search_edges('titleContentEdgeIndex', 'data.title:OnlyTitle') YIELD edge
+            RETURN edge.title AS title, edge.version AS version
             ORDER BY version ASC
             """
         Then the result should be:
@@ -737,8 +737,8 @@ Feature: Text search related features
             """
         When executing query:
             """
-            CALL text_search.search('titleContentEdgeIndex', 'data.description:indexed') YIELD node
-            RETURN node
+            CALL text_search.search_edges('titleContentEdgeIndex', 'data.description:indexed') YIELD edge
+            RETURN edge
             """
         Then the result should be empty
 
@@ -754,8 +754,8 @@ Feature: Text search related features
             """
         When executing query:
             """
-            CALL text_search.search('testEdgeIndex', 'data.title:Test') YIELD node
-            RETURN count(node) AS count
+            CALL text_search.search_edges('testEdgeIndex', 'data.title:Test') YIELD edge
+            RETURN count(edge) AS count
             """
         Then the result should be:
             | count |
@@ -767,8 +767,8 @@ Feature: Text search related features
             """
         When executing query:
             """
-            CALL text_search.search('testEdgeIndex', 'data.title:Test') YIELD node
-            RETURN count(node) AS count
+            CALL text_search.search_edges('testEdgeIndex', 'data.title:Test') YIELD edge
+            RETURN count(edge) AS count
             """
         Then the result should be:
             | count |
@@ -776,8 +776,8 @@ Feature: Text search related features
 
         When executing query:
             """
-            CALL text_search.search('testEdgeIndex', 'data.content:Test') YIELD node
-            RETURN count(node) AS count
+            CALL text_search.search_edges('testEdgeIndex', 'data.content:Test') YIELD edge
+            RETURN count(edge) AS count
             """
         Then the result should be:
             | count |
@@ -798,8 +798,8 @@ Feature: Text search related features
 
         When executing query:
             """
-            CALL text_search.search('reference_index', 'data.content:graph') YIELD node
-            RETURN node.title AS title ORDER BY title
+            CALL text_search.search_edges('reference_index', 'data.content:graph') YIELD edge
+            RETURN edge.title AS title ORDER BY title
             """
         Then the result should be:
             | title              |
