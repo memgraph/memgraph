@@ -437,10 +437,9 @@ set(MG_PYTHON_VERSION "" CACHE STRING "Specify the exact Python version used by 
 set(MG_PYTHON_PATH "" CACHE STRING "Specify the exact Python path used by the query modules")
 
 # Common
-set(test_unit_prefix memgraph__unit__)
-set(test_bench_prefix memgraph__benchmark__)
-add_custom_target(memgraph__unit)
-add_custom_target(memgraph__benchmark)
+
+include(cmake/unit_tests.cmake)
+
 
 # Add subprojects
 include_directories(src)
