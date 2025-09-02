@@ -4318,19 +4318,21 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
           }
           return props;
         });
-
-        auto properties_string =
-            properties | rv::transform([&](PropertyId prop_id) { return name_id_mapper->IdToName(prop_id.AsUint()); }) |
-            rv::join(", ") | r::_to_::to<std::string>;
-
         auto property_paths = properties |
                               std::views::transform([](const auto &property_id) { return PropertyPath{property_id}; }) |
                               r::to_vector;
         AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties,
-                                    {get_label_from_id(*label), std::move(property_paths)},
+                                    {get_label_from_id(*label), property_paths},
                                     "The label+property index already exists!");
         SPDLOG_TRACE("Recovered metadata of label+property index for :{}({})",
-                     name_id_mapper->IdToName(snapshot_id_map.at(*label)), properties_string);
+                     name_id_mapper->IdToName(snapshot_id_map.at(*label)),
+                     fmt::format("{}", fmt::join(property_paths | rv::transform([&](const PropertyPath &path) {
+                                                   return path | rv::transform([&](const auto &property_id) {
+                                                            return name_id_mapper->IdToName(property_id.AsUint());
+                                                          }) |
+                                                          rv::join(". ") | r::to<std::string>;
+                                                 }) | r::to_vector,
+                                                 ", ")));
       }
       spdlog::info("Metadata of label+property indices are recovered.");
     }
@@ -4909,20 +4911,18 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read label for label properties index.");
         auto property_paths = get_property_paths("label properties index");
-        auto path_to_name = [&](const PropertyPath &path) {
-          return path | rv::transform([&](const auto &property_id) {
-                   return name_id_mapper->IdToName(property_id.AsUint());
-                 }) |
-                 rv::join(". ") | r::_to_::to<std::string>;
-        };
-        auto properties_vec = property_paths | rv::transform(path_to_name) | r::to_vector;
-        auto properties_string = fmt::format("{}", fmt::join(properties_vec, ", "));
-
         AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties,
-                                    {get_label_from_id(*label), std::move(property_paths)},
+                                    {get_label_from_id(*label), property_paths},
                                     "The label+property index already exists!");
         SPDLOG_TRACE("Recovered metadata of label+property index for :{}({})",
-                     name_id_mapper->IdToName(snapshot_id_map.at(*label)), properties_string);
+                     name_id_mapper->IdToName(snapshot_id_map.at(*label)),
+                     fmt::format("{}", fmt::join(property_paths | rv::transform([&](const PropertyPath &path) {
+                                                   return path | rv::transform([&](const auto &property_id) {
+                                                            return name_id_mapper->IdToName(property_id.AsUint());
+                                                          }) |
+                                                          rv::join(". ") | r::to<std::string>;
+                                                 }) | r::to_vector,
+                                                 ", ")));
       }
       spdlog::info("Metadata of label+property indices are recovered.");
     }
@@ -5488,20 +5488,18 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read label for label properties index.");
         auto property_paths = get_property_paths("label properties index");
-        auto path_to_name = [&](const PropertyPath &path) {
-          return path | rv::transform([&](const auto &property_id) {
-                   return name_id_mapper->IdToName(property_id.AsUint());
-                 }) |
-                 rv::join(". ") | r::_to_::to<std::string>;
-        };
-        auto properties_vec = property_paths | rv::transform(path_to_name) | r::to_vector;
-        auto properties_string = fmt::format("{}", fmt::join(properties_vec, ", "));
-
         AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties,
-                                    {get_label_from_id(*label), std::move(property_paths)},
+                                    {get_label_from_id(*label), property_paths},
                                     "The label+property index already exists!");
         SPDLOG_TRACE("Recovered metadata of label+property index for :{}({})",
-                     name_id_mapper->IdToName(snapshot_id_map.at(*label)), properties_string);
+                     name_id_mapper->IdToName(snapshot_id_map.at(*label)),
+                     fmt::format("{}", fmt::join(property_paths | rv::transform([&](const PropertyPath &path) {
+                                                   return path | rv::transform([&](const auto &property_id) {
+                                                            return name_id_mapper->IdToName(property_id.AsUint());
+                                                          }) |
+                                                          rv::join(". ") | r::to<std::string>;
+                                                 }) | r::to_vector,
+                                                 ", ")));
       }
       spdlog::info("Metadata of label+property indices are recovered.");
     }
@@ -6069,20 +6067,18 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read label for label properties index.");
         auto property_paths = get_property_paths("label properties index");
-        auto path_to_name = [&](const PropertyPath &path) {
-          return path | rv::transform([&](const auto &property_id) {
-                   return name_id_mapper->IdToName(property_id.AsUint());
-                 }) |
-                 rv::join(". ") | r::_to_::to<std::string>;
-        };
-        auto properties_vec = property_paths | rv::transform(path_to_name) | r::to_vector;
-        auto properties_string = fmt::format("{}", fmt::join(properties_vec, ", "));
-
         AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties,
-                                    {get_label_from_id(*label), std::move(property_paths)},
+                                    {get_label_from_id(*label), property_paths},
                                     "The label+property index already exists!");
         SPDLOG_TRACE("Recovered metadata of label+property index for :{}({})",
-                     name_id_mapper->IdToName(snapshot_id_map.at(*label)), properties_string);
+                     name_id_mapper->IdToName(snapshot_id_map.at(*label)),
+                     fmt::format("{}", fmt::join(property_paths | rv::transform([&](const PropertyPath &path) {
+                                                   return path | rv::transform([&](const auto &property_id) {
+                                                            return name_id_mapper->IdToName(property_id.AsUint());
+                                                          }) |
+                                                          rv::join(". ") | r::to<std::string>;
+                                                 }) | r::to_vector,
+                                                 ", ")));
       }
       spdlog::info("Metadata of label+property indices are recovered.");
     }
@@ -6697,23 +6693,18 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read label for label properties index.");
         auto property_paths = get_property_paths("label properties index");
-        auto path_to_name = [&](const PropertyPath &path) {
-          return path | rv::transform([&](const auto &property_id) {
-                   return name_id_mapper->IdToName(property_id.AsUint());
-                 }) |
-                 rv::join(". ") | r::_to_::to<std::string>;
-        };
-
-        // NOLINTBEGIN(bugprone-unused-local-non-trivial-variable)
-        auto properties_vec = property_paths | rv::transform(path_to_name) | r::to_vector;
-        auto properties_string = fmt::format("{}", fmt::join(properties_vec, ", "));
-
         AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties,
-                                    {get_label_from_id(*label), std::move(property_paths)},
+                                    {get_label_from_id(*label), property_paths},
                                     "The label+property index already exists!");
         SPDLOG_TRACE("Recovered metadata of label+property index for :{}({})",
-                     name_id_mapper->IdToName(snapshot_id_map.at(*label)), properties_string);
-        // NOLINTEND(bugprone-unused-local-non-trivial-variable)
+                     name_id_mapper->IdToName(snapshot_id_map.at(*label)),
+                     fmt::format("{}", fmt::join(property_paths | rv::transform([&](const PropertyPath &path) {
+                                                   return path | rv::transform([&](const auto &property_id) {
+                                                            return name_id_mapper->IdToName(property_id.AsUint());
+                                                          }) |
+                                                          rv::join(". ") | r::to<std::string>;
+                                                 }) | r::to_vector,
+                                                 ", ")));
       }
       spdlog::info("Metadata of label+property indices are recovered.");
     }
@@ -7338,20 +7329,18 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read label for label properties index.");
         auto property_paths = get_property_paths("label properties index");
-        auto path_to_name = [&](const PropertyPath &path) {
-          return path | rv::transform([&](const auto &property_id) {
-                   return name_id_mapper->IdToName(property_id.AsUint());
-                 }) |
-                 rv::join(". ") | r::to<std::string>;
-        };
-        auto properties_vec = property_paths | rv::transform(path_to_name) | r::to_vector;
-        auto properties_string = fmt::format("{}", fmt::join(properties_vec, ", "));
-
         AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties,
-                                    {get_label_from_id(*label), std::move(property_paths)},
+                                    {get_label_from_id(*label), property_paths},
                                     "The label+property index already exists!");
         SPDLOG_TRACE("Recovered metadata of label+property index for :{}({})",
-                     name_id_mapper->IdToName(snapshot_id_map.at(*label)), properties_string);
+                     name_id_mapper->IdToName(snapshot_id_map.at(*label)),
+                     fmt::format("{}", fmt::join(property_paths | rv::transform([&](const PropertyPath &path) {
+                                                   return path | rv::transform([&](const auto &property_id) {
+                                                            return name_id_mapper->IdToName(property_id.AsUint());
+                                                          }) |
+                                                          rv::join(". ") | r::to<std::string>;
+                                                 }) | r::to_vector,
+                                                 ", ")));
       }
       spdlog::info("Metadata of label+property indices are recovered.");
     }
@@ -8040,20 +8029,18 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
         auto label = snapshot.ReadUint();
         if (!label) throw RecoveryFailure("Couldn't read label for label properties index.");
         auto property_paths = get_property_paths("label properties index");
-        auto path_to_name = [&](const PropertyPath &path) {
-          return path | rv::transform([&](const auto &property_id) {
-                   return name_id_mapper->IdToName(property_id.AsUint());
-                 }) |
-                 rv::join(". ") | r::to<std::string>;
-        };
-        auto properties_vec = property_paths | rv::transform(path_to_name) | r::to_vector;
-        auto properties_string = fmt::format("{}", fmt::join(properties_vec, ", "));
-
         AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties,
-                                    {get_label_from_id(*label), std::move(property_paths)},
+                                    {get_label_from_id(*label), property_paths},
                                     "The label+property index already exists!");
         SPDLOG_TRACE("Recovered metadata of label+property index for :{}({})",
-                     name_id_mapper->IdToName(snapshot_id_map.at(*label)), properties_string);
+                     name_id_mapper->IdToName(snapshot_id_map.at(*label)),
+                     fmt::format("{}", fmt::join(property_paths | rv::transform([&](const PropertyPath &path) {
+                                                   return path | rv::transform([&](const auto &property_id) {
+                                                            return name_id_mapper->IdToName(property_id.AsUint());
+                                                          }) |
+                                                          rv::join(". ") | r::to<std::string>;
+                                                 }) | r::to_vector,
+                                                 ", ")));
       }
       spdlog::info("Metadata of label+property indices are recovered.");
     }
