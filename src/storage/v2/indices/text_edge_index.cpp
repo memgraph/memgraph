@@ -66,6 +66,7 @@ std::vector<TextEdgeIndexData *> TextEdgeIndex::GetApplicableTextIndices(EdgeTyp
 void TextEdgeIndex::AddEdgeToTextIndex(std::int64_t edge_gid, std::int64_t from_vertex_gid, std::int64_t to_vertex_gid,
                                        nlohmann::json properties, std::string property_values_as_str,
                                        mgcxx::text_search::Context &context) {
+  if (property_values_as_str.empty()) return;
   nlohmann::json document = {};
   document["data"] = std::move(properties);
   document["all"] = std::move(property_values_as_str);

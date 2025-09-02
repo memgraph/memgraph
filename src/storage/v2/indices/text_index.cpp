@@ -68,6 +68,7 @@ std::vector<TextIndexData *> TextIndex::GetApplicableTextIndices(std::span<stora
 
 void TextIndex::AddNodeToTextIndex(std::int64_t gid, const nlohmann::json &properties,
                                    const std::string &property_values_as_str, mgcxx::text_search::Context &context) {
+  if (property_values_as_str.empty()) return;
   nlohmann::json document = {};
   document["data"] = properties;
   document["all"] = property_values_as_str;
