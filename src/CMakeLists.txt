@@ -26,6 +26,7 @@ add_subdirectory(replication_handler)
 add_subdirectory(coordination)
 add_subdirectory(replication_coordination_glue)
 add_subdirectory(system)
+add_subdirectory(planner)
 
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 
