@@ -6268,6 +6268,45 @@ TEST_P(CypherMainVisitorTest, TestShowActiveUsersInfo) {
   }
 }
 
+TEST_P(CypherMainVisitorTest, TestNestedPropertyUpdate) {
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) SET n.details.age = 21"));
+    ASSERT_NE(query, nullptr);
+
+    ASSERT_EQ(query->single_query_->clauses_.size(), 2);
+    auto *set_property = dynamic_cast<SetProperty *>(query->single_query_->clauses_[1]);
+    ASSERT_NE(set_property, nullptr);
+
+    ASSERT_EQ(set_property->property_lookup_->property_path_.size(), 2);
+    ASSERT_EQ(set_property->property_lookup_->lookup_mode_, PropertyLookup::LookupMode::REPLACE);
+  }
+  {
+    auto &ast_generator = *GetParam();
+    auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) SET n.details.details2 += {age: 21}"));
+    ASSERT_NE(query, nullptr);
+
+    ASSERT_EQ(query->single_query_->clauses_.size(), 2);
+    auto *set_property = dynamic_cast<SetProperty *>(query->single_query_->clauses_[1]);
+    ASSERT_NE(set_property, nullptr);
+
+    ASSERT_EQ(set_property->property_lookup_->property_path_.size(), 2);
+    ASSERT_EQ(set_property->property_lookup_->lookup_mode_, PropertyLookup::LookupMode::APPEND);
+  }
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) REMOVE n.details.age"));
+    ASSERT_NE(query, nullptr);
+
+    ASSERT_EQ(query->single_query_->clauses_.size(), 2);
+    auto *remove_property = dynamic_cast<RemoveProperty *>(query->single_query_->clauses_[1]);
+    ASSERT_NE(remove_property, nullptr);
+
+    ASSERT_EQ(remove_property->property_lookup_->property_path_.size(), 2);
+  }
+}
+
 TEST_P(CypherMainVisitorTest, UserProfiles) {
   auto &ast_generator = *GetParam();
   {
