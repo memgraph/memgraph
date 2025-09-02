@@ -96,9 +96,9 @@ void Indices::UpdateOnSetProperty(EdgeTypeId edge_type, PropertyId property, con
   text_edge_index_.UpdateOnSetProperty(edge, from_vertex, to_vertex, edge_type, tx);
 }
 
-void Indices::UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type, Transaction &tx) {
+void Indices::UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
+                                   const Transaction &tx) {
   tx.active_indices_.edge_type_->UpdateOnEdgeCreation(from, to, edge_ref, edge_type, tx);
-  text_edge_index_.UpdateOnEdgeCreation(edge_ref.ptr, from, to, edge_type, tx);
 }
 
 Indices::Indices(const Config &config, StorageMode storage_mode)

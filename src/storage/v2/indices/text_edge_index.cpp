@@ -85,14 +85,6 @@ void TextEdgeIndex::AddEdgeToTextIndex(std::int64_t edge_gid, std::int64_t from_
   }
 }
 
-void TextEdgeIndex::UpdateOnEdgeCreation(const Edge *edge, const Vertex *from_vertex, const Vertex *to_vertex,
-                                         EdgeTypeId edge_type, Transaction &tx) {
-  auto applicable_text_indices = GetApplicableTextIndices(edge_type, edge->properties.ExtractPropertyIds());
-  if (applicable_text_indices.empty()) return;
-  TrackTextEdgeIndexChange(tx.text_edge_index_change_collector_, applicable_text_indices, edge, from_vertex, to_vertex,
-                           TextIndexOp::ADD);
-}
-
 void TextEdgeIndex::RemoveEdge(const Edge *edge, EdgeTypeId edge_type, Transaction &tx) {
   auto applicable_text_indices = GetApplicableTextIndices(edge_type, edge->properties.ExtractPropertyIds());
   if (applicable_text_indices.empty()) return;

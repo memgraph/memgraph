@@ -9216,18 +9216,37 @@ std::optional<std::filesystem::path> CreateSnapshot(
 
     // Write text indices.
     if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-      auto text_indices = storage->indices_.text_index_.ListIndices();
-      snapshot.WriteUint(text_indices.size());
-      for (const auto &[index_name, label, properties] : text_indices) {
-        snapshot.WriteString(index_name);
-        write_mapping(label);
-        snapshot.WriteUint(properties.size());
-        for (const auto &property : properties) {
-          write_mapping(property);
+      // Text indices on nodes
+      {
+        auto text_indices = storage->indices_.text_index_.ListIndices();
+        snapshot.WriteUint(text_indices.size());
+        for (const auto &[index_name, label, properties] : text_indices) {
+          snapshot.WriteString(index_name);
+          write_mapping(label);
+          snapshot.WriteUint(properties.size());
+          for (const auto &property : properties) {
+            write_mapping(property);
+          }
+        }
+        if (snapshot_aborted()) {
+          return std::nullopt;
         }
       }
-      if (snapshot_aborted()) {
-        return std::nullopt;
+      // Text indices on edges
+      {
+        auto text_edge_indices = storage->indices_.text_edge_index_.ListIndices();
+        snapshot.WriteUint(text_edge_indices.size());
+        for (const auto &[index_name, edge_type, properties] : text_edge_indices) {
+          snapshot.WriteString(index_name);
+          write_mapping(edge_type);
+          snapshot.WriteUint(properties.size());
+          for (const auto &property : properties) {
+            write_mapping(property);
+          }
+        }
+        if (snapshot_aborted()) {
+          return std::nullopt;
+        }
       }
     }
   }

@@ -68,9 +68,6 @@ class TextEdgeIndex {
 
   std::map<std::string, TextEdgeIndexData, std::less<>> index_;
 
-  void UpdateOnEdgeCreation(const Edge *edge, const Vertex *from_vertex, const Vertex *to_vertex, EdgeTypeId edge_type,
-                            Transaction &tx);
-
   void RemoveEdge(const Edge *edge, EdgeTypeId edge_type, Transaction &tx);
 
   void UpdateOnSetProperty(const Edge *edge, const Vertex *from_vertex, const Vertex *to_vertex, EdgeTypeId edge_type,

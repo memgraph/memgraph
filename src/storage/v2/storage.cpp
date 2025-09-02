@@ -13,6 +13,7 @@
 #include <shared_mutex>
 #include <tuple>
 
+#include "flags/general.hpp"
 #include "spdlog/spdlog.h"
 
 #include "flags/experimental.hpp"
@@ -400,8 +401,10 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
     for (auto *node : nodes_to_delete) {
       storage_->indices_.text_index_.RemoveNode(node, transaction_);
     }
-    for (auto *edge : edges) {
-      storage_->indices_.text_edge_index_.RemoveEdge(edge->edge_.ptr, edge->edge_type_, transaction_);
+    if (FLAGS_storage_properties_on_edges) {
+      for (auto *edge : edges) {
+        storage_->indices_.text_edge_index_.RemoveEdge(edge->edge_.ptr, edge->edge_type_, transaction_);
+      }
     }
   }
 

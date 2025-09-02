@@ -497,7 +497,7 @@ Result<std::map<PropertyId, PropertyValue>> EdgeAccessor::PropertiesByPropertyId
   });
   if (!exists) return Error::NONEXISTENT_OBJECT;
   if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
-  return std::move(properties_map);
+  return properties_map;
 }
 
 Gid EdgeAccessor::Gid() const noexcept {
