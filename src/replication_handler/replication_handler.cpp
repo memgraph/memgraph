@@ -416,8 +416,8 @@ auto ReplicationHandler::GetReplicationLag() const -> coordination::ReplicationL
         repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).num_committed_txns_;
     lag_info.dbs_main_committed_txns_.emplace(db_name, num_main_committed_txns);
 
-    repl_storage_state.replication_storage_clients_.WithLock([&db_name, &lag_info,
-                                                              &num_main_committed_txns](auto &storage_clients) {
+    repl_storage_state.replication_storage_clients_.WithReadLock([&db_name, &lag_info,
+                                                                  &num_main_committed_txns](auto &storage_clients) {
       for (auto &repl_storage_client : storage_clients) {
         auto const replica_name = repl_storage_client->Name();
         auto const num_committed_txns_repl = repl_storage_client->GetNumCommittedTxns();
