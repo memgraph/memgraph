@@ -5254,17 +5254,23 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
     case TransactionQueueQuery::Action::TERMINATE_TRANSACTIONS: {
       auto evaluation_context = EvaluationContext{.timestamp = QueryTimestamp(), .parameters = parameters};
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
-      std::vector<std::string> maybe_kill_transaction_ids;
+      std::vector<uint64_t> maybe_kill_transaction_ids;
       std::transform(transaction_query->transaction_id_list_.begin(), transaction_query->transaction_id_list_.end(),
                      std::back_inserter(maybe_kill_transaction_ids), [&evaluator](Expression *expression) {
-                       return std::string(expression->Accept(evaluator).ValueString());
+                       try {
+                         return std::stoul(expression->Accept(evaluator).ValueString().c_str());
+                       } catch (std::exception & /* unused */) {
+                         return std::numeric_limits<uint64_t>::max();
+                       }
                      });
       callback.header = {"transaction_id", "killed"};
       callback.fn = [interpreter_context, maybe_kill_transaction_ids = std::move(maybe_kill_transaction_ids),
                      user_or_role = std::move(user_or_role),
                      privilege_checker = std::move(privilege_checker)]() mutable {
-        return interpreter_context->TerminateTransactions(std::move(maybe_kill_transaction_ids), user_or_role.get(),
-                                                          std::move(privilege_checker));
+        return interpreter_context->interpreters.WithLock([&](auto &interpreters) mutable {
+          return interpreter_context->TerminateTransactions(interpreters, std::move(maybe_kill_transaction_ids),
+                                                            user_or_role.get(), std::move(privilege_checker));
+        });
       };
       break;
     }
@@ -6054,7 +6060,8 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
       return PreparedQuery{
           {"STATUS"},
           std::move(parsed_query.required_privileges),
-          [db_name = query->db_name_, /* force = query->force_ */ db_handler, auth = interpreter_context->auth,
+          [db_name = query->db_name_, force = query->force_, db_handler, interpreter_context,
+           auth = interpreter_context->auth,
            interpreter = &interpreter](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
             if (!interpreter->system_transaction_) {
               throw QueryException("Expected to be in a system transaction");
@@ -6064,12 +6071,28 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
 
             try {
               // Remove database
-              // if (force)
-              // DbmsHandler::DeleteResult success{FAIL};
-              // TODO Hard to handle auth since we don't know if the database is in use
-              // Also GRANT DATABASE * will still allow users to access the dropped db
-              const auto success = db_handler->Delete(db_name, &*interpreter->system_transaction_);
-              // auto success = db_handler->TryDelete(db_name, &*interpreter->system_transaction_);
+              dbms::DbmsHandler::DeleteResult success;
+              if (force) {
+                success = db_handler->Delete(db_name, &*interpreter->system_transaction_);
+                if (!success.HasError()) {
+                  // Try to terminate all interpreters using the database
+                  // Best effort approach, if it fails, user will continue using the db until they commit/abort
+                  // Get access to the interpreter context to notify all active interpreters
+                  interpreter_context->interpreters.WithLock(
+                      [db_name, interpreter_context, interpreter](auto &interpreters) {
+                        auto privilege_checker = [](QueryUserOrRole *user_or_role, std::string const &db_name) {
+                          return user_or_role &&
+                                 user_or_role->IsAuthorized({query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT},
+                                                            db_name, &query::up_to_date_policy);
+                        };
+                        interpreter_context->TerminateTransactions(
+                            interpreters, interpreter_context->ShowTransactionsUsingDBName(interpreters, db_name),
+                            interpreter->user_or_role_.get(), privilege_checker);
+                      });
+                }
+              } else {
+                success = db_handler->TryDelete(db_name, &*interpreter->system_transaction_);
+              }
               if (!success.HasError()) {
                 // Remove from auth
                 if (auth) auth->DeleteDatabase(db_name, &*interpreter->system_transaction_);

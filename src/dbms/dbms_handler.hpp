@@ -266,7 +266,7 @@ class DbmsHandler {
   /**
    * @brief Delete or defer deletion of database with a transactional scope.
    *
-   * @param uuid database UUID
+   * @param db_name database name
    * @param transaction system transaction
    * @return DeleteResult error on failure
    */
