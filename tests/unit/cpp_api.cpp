@@ -1236,7 +1236,7 @@ TYPED_TEST(CppApiTestFixture, TestUniqueConstraint) {
 
 TYPED_TEST(CppApiTestFixture, TestVectorSearch) {
   if constexpr (!std::is_same<TypeParam, memgraph::storage::InMemoryStorage>::value) {
-    GTEST_SKIP() << "TestNestedIndex runs only on InMemoryStorage.";
+    GTEST_SKIP() << "TestVectorSearch runs only on InMemoryStorage.";
   }
   constexpr auto index_name = "index";
   constexpr auto label_name = "label";
@@ -1291,7 +1291,7 @@ TYPED_TEST(CppApiTestFixture, TestVectorSearch) {
 
 TYPED_TEST(CppApiTestFixture, TestVectorSearchOnEdges) {
   if constexpr (!std::is_same<TypeParam, memgraph::storage::InMemoryStorage>::value) {
-    GTEST_SKIP() << "TestNestedIndex runs only on InMemoryStorage.";
+    GTEST_SKIP() << "TestVectorSearchOnEdges runs only on InMemoryStorage.";
   }
   constexpr auto index_name = "index";
   constexpr auto edge_type = "edge_type";
