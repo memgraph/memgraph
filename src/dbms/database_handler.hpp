@@ -90,7 +90,10 @@ class DatabaseHandler : public Handler<Database> {
   std::vector<std::string> All() const {
     std::vector<std::string> res;
     res.reserve(std::distance(cbegin(), cend()));
-    std::for_each(cbegin(), cend(), [&](const auto &elem) { res.push_back(elem.first); });
+    std::for_each(cbegin(), cend(), [&](const auto &elem) {
+      const auto is_deleting = elem.second.is_deleting();
+      if (is_deleting.has_value() && !is_deleting.value()) res.push_back(elem.first);
+    });
     return res;
   }
 

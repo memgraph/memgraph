@@ -234,6 +234,14 @@ struct Gatekeeper {
     return std::nullopt;
   }
 
+  std::optional<bool> is_deleting() const {
+    auto guard = std::unique_lock{pimpl_->mutex_};
+    if (pimpl_->value_) {
+      return pimpl_->is_deleting;
+    }
+    return std::nullopt;
+  }
+
   ~Gatekeeper() {
     if (!pimpl_) return;  // Moved out, nothing to do
     pimpl_->is_deleting = true;
