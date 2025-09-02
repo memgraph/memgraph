@@ -133,7 +133,12 @@ auto UnionFind::UnionSets(std::span<id_t const> ids, UnionFindContext &ctx) -> i
   return best_root;
 }
 
-auto UnionFind::Connected(id_t a, id_t b) -> bool { return Find(a) == Find(b); }
+auto UnionFind::Connected(id_t a, id_t b) -> bool {
+  // TODO: C++26 contract
+  assert(a < parent_.size());
+  assert(b < parent_.size());
+  return Find(a) == Find(b);
+}
 
 auto UnionFind::ComponentCount() const -> size_t { return num_of_sets_; }
 
