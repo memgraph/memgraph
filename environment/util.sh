@@ -33,10 +33,10 @@ function operating_system() {
                 echo "rocky-10"
                 ;;
             # Compatible mappings
-            rhel-9|almalinux-9|amzn-2)
+            rhel-9*|almalinux-9*|amzn-2)
                 echo "centos-9"
                 ;;
-            rhel-10|almalinux-10)
+            rhel-10*|almalinux-10*)
                 echo "centos-10"
                 ;;
             # Default: return the detected OS as-is
