@@ -166,7 +166,7 @@ install() {
 
     for pkg in "${packages[@]}"; do
         case "$pkg" in
-            custom-*|PyYAML|python3-virtualenv|libipt|libipt-devel|java-11-openjdk-headless|java-11-openjdk|java-11-openjdk-devel|java-17-openjdk-headless|java-17-openjdk|java-17-openjdk-devel)
+            custom-*|PyYAML|python3-virtualenv|libipt|libipt-devel|java-11-openjdk-headless|java-11-openjdk|java-11-openjdk-devel|java-17-openjdk-headless|java-17-openjdk|java-17-openjdk-devel|sbcl)
                 custom_packages+=("$pkg")
                 ;;
             *)
@@ -243,6 +243,17 @@ install() {
                 else # Running using sudo.
                     sudo -H -u "$SUDO_USER" bash -c "pip3 install virtualenv"
                     sudo -H -u "$SUDO_USER" bash -c "pip3 install virtualenvwrapper"
+                fi
+                ;;
+            sbcl)
+                if ! dnf list installed cl-asdf >/dev/null 2>/dev/null; then
+                    dnf install -y http://www.nosuchhost.net/~cheese/fedora/packages/epel-9/x86_64/cl-asdf-20101028-27.el9.noarch.rpm
+                fi
+                if ! dnf list installed common-lisp-controller >/dev/null 2>/dev/null; then
+                    dnf install -y http://www.nosuchhost.net/~cheese/fedora/packages/epel-9/x86_64/common-lisp-controller-7.4-29.el9.noarch.rpm
+                fi
+                if ! dnf list installed sbcl >/dev/null 2>/dev/null; then
+                    dnf install -y http://www.nosuchhost.net/~cheese/fedora/packages/epel-9/x86_64/sbcl-2.3.11-3.el9~bootstrap.x86_64.rpm
                 fi
                 ;;
             *)
