@@ -4,81 +4,41 @@ function operating_system() {
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
         local detected_os=$(grep -E '^(VERSION_)?ID=' /etc/os-release | \
         sort | cut -d '=' -f 2- | sed 's/"//g' | paste -s -d '-')
-        
+
         # Map popular Linux distributions to supported OSes
         case "$detected_os" in
             # Ubuntu mappings
-            "ubuntu-22.04"|"ubuntu-22.10"|"ubuntu-23.04"|"ubuntu-23.10")
+            ubuntu-22.*|ubuntu-23.*)
                 echo "ubuntu-22.04"
                 ;;
-            "ubuntu-24.04"|"ubuntu-24.10"|"ubuntu-25.04")
+            ubuntu-24.*|ubuntu-25.*)
                 echo "ubuntu-24.04"
                 ;;
-            
-            # Linux Mint mappings (based on Ubuntu)
-            "linuxmint-20"|"linuxmint-20.1"|"linuxmint-20.2"|"linuxmint-20.3")
+            # Linux Mint mappings
+            linuxmint-20*|linuxmint-21*)
                 echo "ubuntu-22.04"
                 ;;
-            "linuxmint-21"|"linuxmint-21.1"|"linuxmint-21.2"|"linuxmint-21.3")
-                echo "ubuntu-22.04"
-                ;;
-            "linuxmint-22"|"linuxmint-22.1")
+            linuxmint-22*)
                 echo "ubuntu-24.04"
                 ;;
-            
-            # Debian mappings (same version only)
-            "debian-11")
-                echo "debian-11"
+            # Direct mappings
+            debian-11|debian-12|centos-9|centos-10|fedora-41|fedora-42)
+                echo "$detected_os"
                 ;;
-            "debian-12")
-                echo "debian-12"
-                ;;
-            
-            # CentOS mappings (same version only)
-            "centos-9")
-                echo "centos-9"
-                ;;
-            "centos-10")
-                echo "centos-10"
-                ;;
-            
-            # Rocky Linux mappings (same version only)
-            "rocky-9"|"rocky-9.0"|"rocky-9.1"|"rocky-9.2"|"rocky-9.3"|"rocky-9.4"|"rocky-9.5"|"rocky-9.6")
+            # Rocky Linux mappings
+            rocky-9*)
                 echo "rocky-9"
                 ;;
-            "rocky-10"|"rocky-10.0")
+            rocky-10*)
                 echo "rocky-10"
                 ;;
-            
-            # RHEL mappings (compatible with CentOS)
-            "rhel-9")
+            # Compatible mappings
+            rhel-9|almalinux-9|amzn-2)
                 echo "centos-9"
                 ;;
-            "rhel-10")
+            rhel-10|almalinux-10)
                 echo "centos-10"
                 ;;
-            
-            # AlmaLinux mappings (compatible with CentOS)
-            "almalinux-9")
-                echo "centos-9"
-                ;;
-            "almalinux-10")
-                echo "centos-10"
-                ;;
-            
-            # Amazon Linux mappings
-            "amzn-2")
-                echo "centos-9"
-                ;;
-            
-            # Fedora mappings (same version only)
-            "fedora-41")
-                echo "fedora-41"
-                ;;
-            "fedora-42")
-                echo "fedora-42"
-                ;;
-            
             # Default: return the detected OS as-is
             *)
                 echo "$detected_os"
@@ -125,7 +85,7 @@ check_architecture() {
 
 function check_custom_package() {
     local pkg="$1"
-    
+
     case "$pkg" in
         custom-maven*)
             if [ ! -f "/opt/apache-maven-3.9.3/bin/mvn" ]; then
@@ -151,7 +111,7 @@ function check_custom_package() {
 
 function install_custom_packages() {
     local packages=("$@")
-    
+
     for pkg in "${packages[@]}"; do
         case "$pkg" in
             custom-maven*)
@@ -276,7 +236,7 @@ function parse_operating_system() {
     local os_output=$(operating_system)
     local os_name=""
     local os_version=""
-    
+
     # Split on the first dash to separate OS name from version
     if [[ "$os_output" == *"-"* ]]; then
         os_name=$(echo "$os_output" | cut -d'-' -f1)
@@ -286,11 +246,11 @@ function parse_operating_system() {
         os_name="$os_output"
         os_version=""
     fi
-    
+
     # Export variables for use by calling script
     export OS="$os_name"
     export VER="$os_version"
-    
+
     echo "OS: $OS"
     echo "VER: $VER"
 }

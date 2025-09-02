@@ -58,7 +58,7 @@ MEMGRAPH_BUILD_DEPS=(
     sbcl # for custom Lisp C++ preprocessing
     doxygen graphviz # source documentation generators
     mono-runtime mono-mcs zip unzip default-jdk-headless openjdk-17-jdk-headless custom-maven # for driver tests
-    dotnet-sdk-6.0 golang custom-golang nodejs npm
+    dotnet-sdk-6.0 golang custom-golang custom-node
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
     libsasl2-dev
