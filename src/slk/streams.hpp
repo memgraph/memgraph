@@ -110,6 +110,8 @@ class Reader {
  public:
   Reader(const uint8_t *data, size_t size);
 
+  Reader(const uint8_t *data, size_t size, size_t have);
+
   /// Function used internally by SLK to deserialize the data.
   void Load(uint8_t *data, uint64_t size);
 

@@ -32,8 +32,7 @@ const auto kTempDirectory =
 ;
 
 FileReplicationHandler::FileReplicationHandler(const uint8_t *data, size_t const size) : written_(0) {
-  spdlog::warn("Data starts at address: {}", static_cast<const void *>(data));
-  slk::Reader req_reader(data, size);
+  slk::Reader req_reader(data, size, size);
   spdlog::warn("Reader pos before creating decoder: {}", req_reader.GetPos());
   storage::replication::Decoder decoder(&req_reader);
   spdlog::warn("Reader pos after creating decoder: {}", req_reader.GetPos());
@@ -42,6 +41,8 @@ FileReplicationHandler::FileReplicationHandler(const uint8_t *data, size_t const
   auto const maybe_filename = decoder.ReadString();
   MG_ASSERT(maybe_filename, "Filename missing for the received file over the RPC");
   auto const path = kTempDirectory / *maybe_filename;
+
+  utils::EnsureDirOrDie(kTempDirectory);
 
   spdlog::warn("Path {} will be used", path);
 
@@ -60,7 +61,7 @@ FileReplicationHandler::FileReplicationHandler(const uint8_t *data, size_t const
     req_reader.Load(buffer, chunk_size);
     file_.Write(buffer, chunk_size);
     to_write -= chunk_size;
-    spdlog::warn("Written {} bytes to file, remaining {}", chunk_size, to_write);
+    spdlog::warn("Written {} bytes to file in the constructor, remaining {}", chunk_size, to_write);
   }
 }
 
@@ -106,7 +107,7 @@ void RpcMessageDeliverer::Execute() {
 
   // TODO: (andi) What if file is smaller than one segment? file_data_size is probably invalid then
   if (ret.status == slk::StreamStatus::FILE_DATA) {
-    const uint8_t *file_data_start = input_stream_->data() + ret.pos - sizeof(slk::SegmentSize);
+    const uint8_t *file_data_start = input_stream_->data() + ret.pos;
     size_t const file_data_size = input_stream_->size() - ret.pos;
     if (!file_replication_handler_.has_value()) {
       spdlog::warn("Initializing file replication handler. Stream size: {} Stream pos: {}", input_stream_->size(),

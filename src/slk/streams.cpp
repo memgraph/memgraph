@@ -91,7 +91,9 @@ void Builder::FlushSegment(bool const final_segment, bool const file_data) {
   pos_ = 0;
 }
 
-Reader::Reader(const uint8_t *data, size_t size) : data_(data), size_(size) {}
+Reader::Reader(const uint8_t *data, size_t const size) : data_(data), size_(size) {}
+
+Reader::Reader(const uint8_t *data, size_t const size, size_t const have) : data_(data), size_(size), have_(have) {}
 
 void Reader::Load(uint8_t *data, uint64_t size) {
   size_t offset = 0;
