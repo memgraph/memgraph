@@ -407,8 +407,6 @@ class InMemoryStorage final : public Storage {
 
     void FinalizeTransaction() override;
 
-    std::optional<uint64_t> CollectContributingTransactions() const;
-
     /// Create an index.
     /// Returns void if the index has been created.
     /// Returns `StorageIndexDefinitionError` if an error occures. Error can be:
@@ -804,11 +802,9 @@ class InMemoryStorage final : public Storage {
 
   // Ownership of linked deltas is transferred to committed_transactions_ once transaction is commited
   struct WaitingGCDeltas {
-    WaitingGCDeltas(GCDeltas deltas, std::optional<uint64_t> max_contributor)
-        : deltas_{std::move(deltas)}, max_contributing_transaction_{max_contributor} {}
+    explicit WaitingGCDeltas(GCDeltas deltas) : deltas_{std::move(deltas)} {}
 
     GCDeltas deltas_;
-    std::optional<uint64_t> max_contributing_transaction_;
   };
 
   utils::Synchronized<std::list<GCDeltas>, utils::SpinLock> committed_transactions_{};
