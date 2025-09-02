@@ -1,0 +1,49 @@
+#!/bin/bash
+
+# Script to create a staging branch
+# Usage: ./create_staging_branch.sh <BASE_MASTER> <BRANCH_NAME> <COMMIT_SHA> <STAGING_BRANCH>
+
+set -e
+
+if [ $# -ne 4 ]; then
+    echo "Usage: $0 <BASE_MASTER> <BRANCH_NAME> <COMMIT_SHA> <STAGING_BRANCH>"
+    echo "Example: $0 true feature-branch abc1234 staging/abc1234"
+    exit 1
+fi
+
+BASE_MASTER="$1"
+BRANCH_NAME="$2"
+COMMIT_SHA="$3"
+STAGING_BRANCH="$4"
+
+# Fetch the PR branch
+echo "Fetching feature branch: $BRANCH_NAME"
+git fetch origin "$BRANCH_NAME"
+
+if [ "$BASE_MASTER" = "true" ]; then
+    echo "Creating staging branch from master and merging feature branch..."
+    
+    # Create staging branch from base reference
+    git checkout master
+    git pull origin master
+    git checkout -b "$STAGING_BRANCH"
+    
+    # Merge the feature branch into staging
+    git merge "$COMMIT_SHA" --no-edit
+    
+    echo "Created staging branch from master and merged feature branch"
+else
+    echo "Creating direct copy of feature branch..."
+    
+    # Create staging branch as direct copy of feature branch
+    git checkout "$COMMIT_SHA"
+    git checkout -b "$STAGING_BRANCH"
+    
+    echo "Created direct copy of feature branch"
+fi
+
+# Push the staging branch
+echo "Pushing staging branch: $STAGING_BRANCH"
+git push origin "$STAGING_BRANCH"
+
+echo "Successfully created and pushed staging branch: $STAGING_BRANCH" 
