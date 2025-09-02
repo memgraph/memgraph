@@ -14,5 +14,5 @@ target_sources(mg-planner
 
 if(BUILD_TESTING)
     add_subdirectory(test)
-#    add_subdirectory(bench)
+    add_subdirectory(bench)
 endif ()

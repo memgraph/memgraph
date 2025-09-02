@@ -1102,6 +1102,12 @@ TEST(AuthModule, UserProfiles) {
 
   // Test UserProfiles class directly since profile management is now centralized
   auto temp_dir = std::filesystem::temp_directory_path() / "MG_test_user_profiles";
+
+  // Clean up any existing directory
+  if (std::filesystem::exists(temp_dir)) {
+    std::filesystem::remove_all(temp_dir);
+  }
+
   memgraph::kvstore::KVStore kvstore{temp_dir};
   memgraph::auth::UserProfiles user_profiles{kvstore};
 
@@ -1178,5 +1184,10 @@ TEST(AuthModule, UserProfiles) {
   ASSERT_TRUE(user_profiles.Drop("profile"));
   profile = user_profiles.Get("profile");
   ASSERT_FALSE(profile.has_value());
+
+  // Clean up test directory
+  if (std::filesystem::exists(temp_dir)) {
+    std::filesystem::remove_all(temp_dir);
+  }
 }
 #endif
