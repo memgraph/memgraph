@@ -122,7 +122,7 @@ auto CoordinatorClusterState::Serialize(ptr<buffer> &data) const -> void {
   nlohmann::json json;
   to_json(json, *this);
   auto const log = json.dump();
-  data = buffer::alloc(sizeof(uint64_t) + log.size());
+  data = buffer::alloc(sizeof(uint32_t) + log.size());
   buffer_serializer bs(data);
   bs.put_str(log);
 }
