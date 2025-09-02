@@ -59,6 +59,31 @@ static void BM_UnionFind_Find(benchmark::State &state) {
 }
 BENCHMARK(BM_UnionFind_Find)->Range(kRangeLow, kRangeHigh)->Complexity();
 
+static void BM_UnionFind_Find_OnAChain(benchmark::State &state) {
+  UnionFind uf;
+  std::vector<uint32_t> ids;
+
+  // Setup: create a chain of unions
+  ids.reserve(state.range(0));
+  for (int i = 0; i < state.range(0); ++i) {
+    ids.push_back(uf.MakeSet());
+  }
+
+  for (size_t i = 0; i < (state.range(0) - 1); ++i) {
+    uf.UnionSets(ids[i], ids[i + 1]);
+  }
+
+  for (auto _ : state) {
+    // Benchmark find on the first element (should trigger path halving)
+    for (int i = 0; i < 1000; ++i) {
+      benchmark::DoNotOptimize(uf.Find(ids[0]));
+    }
+  }
+  state.SetItemsProcessed(state.iterations() * 1000);
+  state.SetComplexityN(state.range(0));
+}
+BENCHMARK(BM_UnionFind_Find_OnAChain)->Range(kRangeLow, kRangeHigh)->Complexity();
+
 static void BM_UnionFind_Union(benchmark::State &state) {
   UnionFind uf;
   std::vector<uint32_t> ids;
@@ -84,29 +109,33 @@ static void BM_UnionFind_Union(benchmark::State &state) {
 }
 BENCHMARK(BM_UnionFind_Union)->Range(kRangeLow, kRangeHigh)->Complexity();
 
-static void BM_UnionFind_Find_OnAChain(benchmark::State &state) {
+static void BM_UnionFind_BulkUnion(benchmark::State &state) {
   UnionFind uf;
   std::vector<uint32_t> ids;
+  UnionFindContext ctx;
 
-  // Setup: create a chain of unions
-  ids.reserve(state.range(0));
-  for (int i = 0; i < state.range(0); ++i) {
-    ids.push_back(uf.MakeSet());
-  }
-
-  for (size_t i = 0; i < (state.range(0) - 1); ++i) {
-    uf.UnionSets(ids[i], ids[i + 1]);
-  }
-
+  auto size = state.range(0);
   for (auto _ : state) {
-    // Benchmark find on the first element (should trigger path halving)
-    for (int i = 0; i < 1000; ++i) {
-      benchmark::DoNotOptimize(uf.Find(ids[0]));
+    state.PauseTiming();
+    uf.Clear();
+    ids.clear();
+
+    ids.reserve(size);
+    for (int64_t i = 0; i < size; ++i) {
+      ids.push_back(uf.MakeSet());
     }
+
+    state.ResumeTiming();
+
+    // Bulk union
+    uf.UnionSets(ids, ctx);
+
+    benchmark::DoNotOptimize(uf);
   }
-  state.SetItemsProcessed(state.iterations() * 1000);
-  state.SetComplexityN(state.range(0));
+
+  state.SetComplexityN(size);
+  state.SetItemsProcessed(state.iterations() * size);
 }
-BENCHMARK(BM_UnionFind_Find_OnAChain)->Range(kRangeLow, kRangeHigh)->Complexity();
+BENCHMARK(BM_UnionFind_BulkUnion)->Range(kRangeLow, kRangeHigh)->Complexity();
 
 BENCHMARK_MAIN();
