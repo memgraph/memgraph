@@ -9,6 +9,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+from constants import GraphVendors
 from workloads.base import Workload
 
 
@@ -34,10 +35,22 @@ class Supernode(Workload):
         return queries
 
     def benchmark__test__merge_supernode_edges(self):
-        return ("MATCH (s:Supernode), (n:Node) MERGE (s)<-[:EDGE]-(n);", {})
+        match self._vendor:
+            case GraphVendors.MEMGRAPH:
+                return ("MATCH (s:Supernode), (n:Node) MERGE (s)<-[:EDGE]-(n);", {})
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     def benchmark__test__merge_supernode_edges_other_way(self):
-        return ("MATCH (s:Supernode), (n:Node) MERGE (n)-[:EDGE]->(s);", {})
+        match self._vendor:
+            case GraphVendors.MEMGRAPH:
+                return ("MATCH (s:Supernode), (n:Node) MERGE (n)-[:EDGE]->(s);", {})
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     def benchmark__test__unwind_supernode_with_writes(self):
-        return (f"UNWIND range(1, {Supernode.CARDINALITY}) AS x MATCH (s:Supernode) SET s.prop = x", {})
+        match self._vendor:
+            case GraphVendors.MEMGRAPH:
+                return (f"UNWIND range(1, {Supernode.CARDINALITY}) AS x MATCH (s:Supernode) SET s.prop = x", {})
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")

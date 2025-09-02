@@ -11,6 +11,7 @@
 
 #include "query/trigger.hpp"
 
+#include "dbms/database.hpp"
 #include "query/config.hpp"
 #include "query/context.hpp"
 #include "query/cypher_query_interpreter.hpp"
@@ -20,7 +21,6 @@
 #include "query/plan/operator.hpp"
 #include "query/query_user.hpp"
 #include "query/serialization/property_value.hpp"
-#include "query/typed_value.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/memory.hpp"
@@ -153,19 +153,19 @@ std::vector<std::pair<Identifier, TriggerIdentifierTag>> GetPredefinedIdentifier
 Trigger::Trigger(std::string name, const std::string &query, const UserParameters &user_parameters,
                  const TriggerEventType event_type, utils::SkipList<QueryCacheEntry> *query_cache,
                  DbAccessor *db_accessor, const InterpreterConfig::Query &query_config,
-                 std::shared_ptr<QueryUserOrRole> owner)
+                 std::shared_ptr<QueryUserOrRole> owner, std::string_view db_name)
     : name_{std::move(name)},
       parsed_statements_{ParseQuery(query, user_parameters, query_cache, query_config)},
       event_type_{event_type},
       owner_{std::move(owner)} {
   // We check immediately if the query is valid by trying to create a plan.
-  GetPlan(db_accessor);
+  GetPlan(db_accessor, db_name);
 }
 
 Trigger::TriggerPlan::TriggerPlan(std::unique_ptr<LogicalPlan> logical_plan, std::vector<IdentifierInfo> identifiers)
     : cached_plan(std::move(logical_plan)), identifiers(std::move(identifiers)) {}
 
-std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor) const {
+std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor, std::string_view db_name) const {
   std::lock_guard plan_guard{plan_lock_};
   if (!parsed_statements_.is_cacheable || !trigger_plan_) {
     auto identifiers = GetPredefinedIdentifiers(event_type_);
@@ -185,21 +185,22 @@ std::shared_ptr<Trigger::TriggerPlan> Trigger::GetPlan(DbAccessor *db_accessor) 
 
     trigger_plan_ = std::make_shared<TriggerPlan>(std::move(logical_plan), std::move(identifiers));
   }
-  if (!owner_->IsAuthorized(parsed_statements_.required_privileges, "", &up_to_date_policy)) {
+  if (owner_ && !owner_->IsAuthorized(parsed_statements_.required_privileges, db_name, &up_to_date_policy)) {
     throw utils::BasicException("The owner of trigger '{}' is not authorized to execute the query!", name_);
   }
   return trigger_plan_;
 }
 
-void Trigger::Execute(DbAccessor *dba, DatabaseAccessProtector db_acc, utils::MemoryResource *execution_memory,
+void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::MemoryResource *execution_memory,
                       const double max_execution_time_sec, std::atomic<bool> *is_shutting_down,
-                      std::atomic<TransactionStatus> *transaction_status, const TriggerContext &context) const {
+                      std::atomic<TransactionStatus> *transaction_status, const TriggerContext &context,
+                      bool is_main) const {
   if (!context.ShouldEventTrigger(event_type_)) {
     return;
   }
 
   spdlog::debug("Executing trigger '{}'", name_);
-  auto trigger_plan = GetPlan(dba);
+  auto trigger_plan = GetPlan(dba, db_acc->name());
   MG_ASSERT(trigger_plan, "Invalid trigger plan received");
   auto &[plan, identifiers] = *trigger_plan;
 
@@ -210,12 +211,15 @@ void Trigger::Execute(DbAccessor *dba, DatabaseAccessProtector db_acc, utils::Me
   ctx.evaluation_context.parameters = parsed_statements_.parameters;
   ctx.evaluation_context.properties = NamesToProperties(plan.ast_storage().properties_, dba);
   ctx.evaluation_context.labels = NamesToLabels(plan.ast_storage().labels_, dba);
-  ctx.timer = (max_execution_time_sec > 0.0) ? std::make_shared<utils::AsyncTimer>(max_execution_time_sec) : nullptr;
-  ctx.is_shutting_down = is_shutting_down;
-  ctx.transaction_status = transaction_status;
+  ctx.stopping_context = {
+      .transaction_status = transaction_status,
+      .is_shutting_down = is_shutting_down,
+      .timer = (max_execution_time_sec > 0.0) ? std::make_shared<utils::AsyncTimer>(max_execution_time_sec) : nullptr,
+  };
   ctx.is_profile_query = false;
   ctx.evaluation_context.memory = execution_memory;
-  ctx.db_acc = std::move(db_acc);
+  ctx.protector = dbms::DatabaseProtector{db_acc}.clone();
+  ctx.is_main = is_main;
 
   auto cursor = plan.plan().MakeCursor(execution_memory);
   Frame frame{plan.symbol_table().max_position(), execution_memory};
@@ -227,8 +231,7 @@ void Trigger::Execute(DbAccessor *dba, DatabaseAccessProtector db_acc, utils::Me
     frame[plan.symbol_table().at(identifier)] = context.GetTypedValue(tag, dba);
   }
 
-  while (cursor->Pull(frame, ctx))
-    ;
+  while (cursor->Pull(frame, ctx));
 
   cursor->Shutdown();
   memgraph::metrics::IncrementCounter(memgraph::metrics::TriggersExecuted);
@@ -243,7 +246,8 @@ TriggerStore::TriggerStore(std::filesystem::path directory) : storage_{std::move
 
 void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
                                   const InterpreterConfig::Query &query_config, const query::AuthChecker *auth_checker,
-                                  std::string_view trigger_name, std::string_view trigger_data) {
+                                  std::string_view trigger_name, std::string_view trigger_data,
+                                  std::string_view db_name) {
   const auto get_failed_message = [&trigger_name = trigger_name](const std::string_view message) {
     return fmt::format("Failed to load trigger '{}'. {}", trigger_name, message);
   };
@@ -297,18 +301,18 @@ void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache,
     return;
   }
 
-  const auto owner_role_json = json_trigger_data["owner_role"];
-  const std::optional<std::string> role{};
-  if (owner_role_json.is_string()) {
-    owner.emplace(owner_role_json.get<std::string>());
-  } else if (!owner_role_json.is_null()) {
+  const auto owner_roles_json = json_trigger_data["owner_roles"];
+  std::vector<std::string> roles{};
+  if (owner_roles_json.is_array()) {
+    roles = owner_roles_json.get<std::vector<std::string>>();
+  } else if (!owner_roles_json.is_null()) {
     spdlog::warn(invalid_state_message);
     return;
   }
 
   std::shared_ptr<query::QueryUserOrRole> user = nullptr;
   try {
-    user = auth_checker->GenQueryUser(owner, role);
+    user = auth_checker->GenQueryUser(owner, roles);
   } catch (const utils::BasicException &e) {
     spdlog::warn(
         fmt::format("Failed to load trigger '{}' because its owner is not an existing Memgraph user.", trigger_name));
@@ -318,7 +322,7 @@ void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache,
   std::optional<Trigger> trigger;
   try {
     trigger.emplace(std::string{trigger_name}, statement, user_parameters, event_type, query_cache, db_accessor,
-                    query_config, std::move(user));
+                    query_config, std::move(user), std::string{db_name});
   } catch (const utils::BasicException &e) {
     spdlog::warn("Failed to create trigger '{}' because: {}", trigger_name, e.what());
     return;
@@ -332,21 +336,22 @@ void TriggerStore::RestoreTrigger(utils::SkipList<QueryCacheEntry> *query_cache,
 }
 
 void TriggerStore::RestoreTriggers(utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
-                                   const InterpreterConfig::Query &query_config,
-                                   const query::AuthChecker *auth_checker) {
+                                   const InterpreterConfig::Query &query_config, const query::AuthChecker *auth_checker,
+                                   std::string_view db_name) {
   MG_ASSERT(before_commit_triggers_.size() == 0 && after_commit_triggers_.size() == 0,
             "Cannot restore trigger when some triggers already exist!");
   spdlog::info("Loading triggers...");
 
   for (const auto &[trigger_name, trigger_data] : storage_) {
-    RestoreTrigger(query_cache, db_accessor, query_config, auth_checker, trigger_name, trigger_data);
+    RestoreTrigger(query_cache, db_accessor, query_config, auth_checker, trigger_name, trigger_data, db_name);
   }
 }
 
 void TriggerStore::AddTrigger(std::string name, const std::string &query, const UserParameters &user_parameters,
                               TriggerEventType event_type, TriggerPhase phase,
                               utils::SkipList<QueryCacheEntry> *query_cache, DbAccessor *db_accessor,
-                              const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> owner) {
+                              const InterpreterConfig::Query &query_config, std::shared_ptr<QueryUserOrRole> owner,
+                              std::string_view db_name) {
   std::unique_lock store_guard{store_lock_};
   if (storage_.Get(name)) {
     throw utils::BasicException("Trigger with the same name already exists.");
@@ -355,7 +360,7 @@ void TriggerStore::AddTrigger(std::string name, const std::string &query, const 
   std::optional<Trigger> trigger;
   try {
     trigger.emplace(std::move(name), query, user_parameters, event_type, query_cache, db_accessor, query_config,
-                    std::move(owner));
+                    std::move(owner), db_name);
   } catch (const utils::BasicException &e) {
     const auto identifiers = GetPredefinedIdentifiers(event_type);
     std::stringstream identifier_names_stream;
@@ -383,18 +388,18 @@ void TriggerStore::AddTrigger(std::string name, const std::string &query, const 
     if (maybe_username) {
       data["owner"] = *maybe_username;
       // Roles need to be associated with a username
-      const auto &maybe_rolename = owner_from_trigger->rolename();
-      if (maybe_rolename) {
-        data["owner_role"] = *maybe_rolename;
+      const auto &maybe_rolename = owner_from_trigger->rolenames();
+      if (!maybe_rolename.empty()) {
+        data["owner_roles"] = maybe_rolename;
       } else {
-        data["owner_role"] = nullptr;
+        data["owner_roles"] = nullptr;
       }
     } else {
       data["owner"] = nullptr;
     }
   } else {
     data["owner"] = nullptr;
-    data["owner_role"] = nullptr;
+    data["owner_roles"] = nullptr;
   }
   storage_.Put(trigger->Name(), data.dump());
   store_guard.unlock();

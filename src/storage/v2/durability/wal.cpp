@@ -15,6 +15,7 @@
 #include <type_traits>
 #include <usearch/index_plugins.hpp>
 
+#include "storage/v2/access_type.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/delta.hpp"
 #include "storage/v2/durability/exceptions.hpp"
@@ -25,9 +26,15 @@
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/edge.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
+#include "storage/v2/indices/property_path.hpp"
+#include "storage/v2/indices/text_index_utils.hpp"
+#include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
+#include "storage/v2/indices/vector_index_utils.hpp"
+#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
+#include "storage/v2/ttl.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/logging.hpp"
@@ -128,7 +135,9 @@ constexpr Marker OperationToMarker(StorageMetadataOperation operation) {
     add_case(POINT_INDEX_CREATE);
     add_case(POINT_INDEX_DROP);
     add_case(VECTOR_INDEX_CREATE);
+    add_case(VECTOR_EDGE_INDEX_CREATE);
     add_case(VECTOR_INDEX_DROP);
+    add_case(TTL_OPERATION);
   }
 #undef add_case
 }
@@ -155,6 +164,8 @@ constexpr Marker DeltaActionToMarker(Delta::Action action) {
     case Delta::Action::REMOVE_IN_EDGE:
     case Delta::Action::REMOVE_OUT_EDGE:
       return Marker::DELTA_EDGE_CREATE;
+    default:
+      throw RecoveryFailure(kInvalidWalErrorMessage);
   }
 }
 
@@ -172,6 +183,7 @@ constexpr bool IsMarkerImplicitTransactionEndVersion15(Marker marker) {
     case DELTA_EDGE_DELETE:
     case DELTA_VERTEX_SET_PROPERTY:
     case DELTA_EDGE_SET_PROPERTY:
+    case DELTA_TRANSACTION_START:
       return false;
 
     // This delta explicitly indicates that a transaction is done.
@@ -210,7 +222,9 @@ constexpr bool IsMarkerImplicitTransactionEndVersion15(Marker marker) {
     case DELTA_TYPE_CONSTRAINT_CREATE:
     case DELTA_TYPE_CONSTRAINT_DROP:
     case DELTA_VECTOR_INDEX_CREATE:
+    case DELTA_VECTOR_EDGE_INDEX_CREATE:
     case DELTA_VECTOR_INDEX_DROP:
+    case DELTA_TTL_OPERATION:
       return true;
 
     // Not deltas
@@ -238,6 +252,7 @@ constexpr bool IsMarkerImplicitTransactionEndVersion15(Marker marker) {
     case SECTION_EDGE_INDICES:
     case SECTION_OFFSETS:
     case SECTION_ENUMS:
+    case SECTION_TTL:
     case VALUE_FALSE:
     case VALUE_TRUE:
       throw RecoveryFailure(kInvalidWalErrorMessage);
@@ -254,8 +269,18 @@ constexpr bool IsMarkerTransactionEnd(const Marker marker, const uint64_t versio
 
 // ========== concrete type decoders start here ==========
 template <bool is_read>
-auto Decode(utils::tag_type<Gid> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
-    -> std::conditional_t<is_read, Gid, void> {
+auto Decode(utils::tag_type<bool> /*unused*/, BaseDecoder *decoder,
+            const uint64_t /*version*/) -> std::conditional_t<is_read, bool, void> {
+  const auto flag = decoder->ReadBool();
+  if (!flag) throw RecoveryFailure(kInvalidWalErrorMessage);
+  if constexpr (is_read) {
+    return *flag;
+  }
+}
+
+template <bool is_read>
+auto Decode(utils::tag_type<Gid> /*unused*/, BaseDecoder *decoder,
+            const uint64_t /*version*/) -> std::conditional_t<is_read, Gid, void> {
   const auto gid = decoder->ReadUint();
   if (!gid) throw RecoveryFailure(kInvalidWalErrorMessage);
   if constexpr (is_read) {
@@ -264,8 +289,8 @@ auto Decode(utils::tag_type<Gid> /*unused*/, BaseDecoder *decoder, const uint64_
 }
 
 template <bool is_read>
-auto Decode(utils::tag_type<std::string> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
-    -> std::conditional_t<is_read, std::string, void> {
+auto Decode(utils::tag_type<std::string> /*unused*/, BaseDecoder *decoder,
+            const uint64_t /*version*/) -> std::conditional_t<is_read, std::string, void> {
   if constexpr (is_read) {
     auto str = decoder->ReadString();
     if (!str) throw RecoveryFailure(kInvalidWalErrorMessage);
@@ -276,8 +301,30 @@ auto Decode(utils::tag_type<std::string> /*unused*/, BaseDecoder *decoder, const
 }
 
 template <bool is_read>
-auto Decode(utils::tag_type<ExternalPropertyValue> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
-    -> std::conditional_t<is_read, ExternalPropertyValue, void> {
+auto Decode(utils::tag_type<std::optional<std::string>> /*unused*/, BaseDecoder *decoder,
+            const uint64_t /*version*/) -> std::conditional_t<is_read, std::optional<std::string>, void> {
+  if constexpr (is_read) {
+    auto has_value = decoder->ReadBool();
+    if (!has_value) throw RecoveryFailure(kInvalidWalErrorMessage);
+    if (*has_value) {
+      auto str = decoder->ReadString();
+      if (!str) throw RecoveryFailure(kInvalidWalErrorMessage);
+      return std::make_optional(*std::move(str));
+    }
+    return std::nullopt;
+
+  } else {
+    auto has_value = decoder->ReadBool();
+    if (!has_value) throw RecoveryFailure(kInvalidWalErrorMessage);
+    if (*has_value) {
+      if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
+    }
+  }
+}
+
+template <bool is_read>
+auto Decode(utils::tag_type<ExternalPropertyValue> /*unused*/, BaseDecoder *decoder,
+            const uint64_t /*version*/) -> std::conditional_t<is_read, ExternalPropertyValue, void> {
   if constexpr (is_read) {
     auto str = decoder->ReadExternalPropertyValue();
     if (!str) throw RecoveryFailure(kInvalidWalErrorMessage);
@@ -309,32 +356,31 @@ auto Decode(utils::tag_type<std::set<std::string, std::less<>>> /*unused*/, Base
   }
 }
 
-template <bool is_read>
-auto Decode(utils::tag_type<std::vector<std::string>> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
-    -> std::conditional_t<is_read, std::vector<std::string>, void> {
+template <bool is_read, typename T>
+auto Decode(utils::tag_type<std::vector<T>> /*unused*/, BaseDecoder *decoder,
+            const uint64_t /*version*/) -> std::conditional_t<is_read, std::vector<T>, void> {
   if constexpr (is_read) {
     const auto count = decoder->ReadUint();
     if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
-    std::vector<std::string> strings;
-    strings.reserve(*count);
+    std::vector<T> values;
+    values.reserve(*count);
     for (uint64_t i = 0; i < *count; ++i) {
-      auto str = decoder->ReadString();
-      if (!str) throw RecoveryFailure(kInvalidWalErrorMessage);
-      strings.emplace_back(*std::move(str));
+      auto value = Decode<true>(utils::tag_t<T>, decoder, 0);
+      values.emplace_back(std::move(value));
     }
-    return strings;
+    return values;
   } else {
     const auto count = decoder->ReadUint();
     if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
     for (uint64_t i = 0; i < *count; ++i) {
-      if (!decoder->SkipString()) throw RecoveryFailure(kInvalidWalErrorMessage);
+      Decode<false>(utils::tag_t<T>, decoder, 0);
     }
   }
 }
 
 template <bool is_read>
-auto Decode(utils::tag_type<TypeConstraintKind> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
-    -> std::conditional_t<is_read, TypeConstraintKind, void> {
+auto Decode(utils::tag_type<TypeConstraintKind> /*unused*/, BaseDecoder *decoder,
+            const uint64_t /*version*/) -> std::conditional_t<is_read, TypeConstraintKind, void> {
   if constexpr (is_read) {
     auto kind = decoder->ReadUint();
     if (!kind) throw RecoveryFailure(kInvalidWalErrorMessage);
@@ -345,8 +391,8 @@ auto Decode(utils::tag_type<TypeConstraintKind> /*unused*/, BaseDecoder *decoder
 }
 
 template <bool is_read>
-auto Decode(utils::tag_type<uint16_t> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
-    -> std::conditional_t<is_read, uint16_t, void> {
+auto Decode(utils::tag_type<uint16_t> /*unused*/, BaseDecoder *decoder,
+            const uint64_t /*version*/) -> std::conditional_t<is_read, uint16_t, void> {
   const auto uint16 = decoder->ReadUint();
   if (!uint16) throw RecoveryFailure(kInvalidWalErrorMessage);
   if constexpr (is_read) {
@@ -355,8 +401,30 @@ auto Decode(utils::tag_type<uint16_t> /*unused*/, BaseDecoder *decoder, const ui
 }
 
 template <bool is_read>
-auto Decode(utils::tag_type<std::size_t> /*unused*/, BaseDecoder *decoder, const uint64_t /*version*/)
-    -> std::conditional_t<is_read, std::size_t, void> {
+auto Decode(utils::tag_type<uint8_t> /*unused*/, BaseDecoder *decoder,
+            const uint64_t /*version*/) -> std::conditional_t<is_read, uint8_t, void> {
+  const auto uint8 = decoder->ReadUint();
+  if (!uint8) throw RecoveryFailure(kInvalidWalErrorMessage);
+
+  if constexpr (is_read) {
+    return static_cast<uint8_t>(*uint8);
+  }
+}
+
+template <bool is_read>
+auto Decode(utils::tag_type<TtlOperationType> /*unused*/, BaseDecoder *decoder,
+            const uint64_t /*version*/) -> std::conditional_t<is_read, TtlOperationType, void> {
+  const auto uint8 = decoder->ReadUint();
+  if (!uint8) throw RecoveryFailure(kInvalidWalErrorMessage);
+
+  if constexpr (is_read) {
+    return static_cast<TtlOperationType>(*uint8);
+  }
+}
+
+template <bool is_read>
+auto Decode(utils::tag_type<std::size_t> /*unused*/, BaseDecoder *decoder,
+            const uint64_t /*version*/) -> std::conditional_t<is_read, std::size_t, void> {
   const auto size = decoder->ReadUint();
   if (!size) throw RecoveryFailure(kInvalidWalErrorMessage);
   if constexpr (is_read) {
@@ -364,12 +432,114 @@ auto Decode(utils::tag_type<std::size_t> /*unused*/, BaseDecoder *decoder, const
   }
 }
 
+template <bool is_read, typename T, typename U>
+auto Decode(utils::tag_type<std::pair<T, U>> /*unused*/, BaseDecoder *decoder,
+            const uint64_t version) -> std::conditional_t<is_read, std::pair<T, U>, void> {
+  if constexpr (is_read) {
+    auto first = Decode<true>(utils::tag_t<T>, decoder, version);
+    auto second = Decode<true>(utils::tag_t<U>, decoder, version);
+    return std::make_pair(std::move(first), std::move(second));
+  } else {
+    Decode<false>(utils::tag_t<T>, decoder, version);
+    Decode<false>(utils::tag_t<U>, decoder, version);
+  }
+}
+
+template <bool is_read>
+auto Decode(utils::tag_type<std::chrono::microseconds> /*unused*/, BaseDecoder *decoder,
+            const uint64_t /*version*/) -> std::conditional_t<is_read, std::chrono::microseconds, void> {
+  const auto count = decoder->ReadUint();
+  if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
+  if constexpr (is_read) {
+    return std::chrono::microseconds(*count);
+  }
+}
+
+template <bool is_read>
+auto Decode(utils::tag_type<std::chrono::system_clock::time_point> /*unused*/, BaseDecoder *decoder,
+            const uint64_t /*version*/) -> std::conditional_t<is_read, std::chrono::system_clock::time_point, void> {
+  const auto count = decoder->ReadUint();
+  if (!count) throw RecoveryFailure(kInvalidWalErrorMessage);
+  if constexpr (is_read) {
+    return std::chrono::system_clock::time_point(std::chrono::microseconds(*count));
+  }
+}
+
+template <bool is_read>
+auto Decode(utils::tag_type<std::optional<std::chrono::microseconds>> /*unused*/, BaseDecoder *decoder,
+            const uint64_t version) -> std::conditional_t<is_read, std::optional<std::chrono::microseconds>, void> {
+  const auto has_value = decoder->ReadBool();
+  if (!has_value) throw RecoveryFailure(kInvalidWalErrorMessage);
+  if constexpr (is_read) {
+    if (*has_value) {
+      return Decode<true>(utils::tag_t<std::chrono::microseconds>, decoder, version);
+    }
+    return std::nullopt;
+
+  } else {
+    if (*has_value) {
+      Decode<false>(utils::tag_t<std::chrono::microseconds>, decoder, version);
+    }
+  }
+}
+
+template <bool is_read>
+auto Decode(utils::tag_type<std::optional<std::chrono::system_clock::time_point>> /*unused*/, BaseDecoder *decoder,
+            const uint64_t version)
+    -> std::conditional_t<is_read, std::optional<std::chrono::system_clock::time_point>, void> {
+  const auto has_value = decoder->ReadBool();
+  if (!has_value) throw RecoveryFailure(kInvalidWalErrorMessage);
+  if constexpr (is_read) {
+    if (*has_value) {
+      return Decode<true>(utils::tag_t<std::chrono::system_clock::time_point>, decoder, version);
+    }
+    return std::nullopt;
+
+  } else {
+    if (*has_value) {
+      Decode<false>(utils::tag_t<std::chrono::system_clock::time_point>, decoder, version);
+    }
+  }
+}
+
 // ========== concrete type decoders end here ==========
+
+template <typename T>
+auto Read(BaseDecoder *decoder, const uint64_t version) -> T;
+template <typename T>
+auto Skip(BaseDecoder *decoder, const uint64_t version) -> void;
+
+template <typename T>
+concept IsReadSkip = requires { typename T::ctr_types; };
+
+template <bool is_read, typename T>
+  requires(std::is_enum_v<T>)
+auto Decode(utils::tag_type<T> /*unused*/, BaseDecoder *decoder,
+            const uint64_t version) -> std::conditional_t<is_read, T, void> {
+  using underlying_type = std::underlying_type_t<T>;
+  if constexpr (is_read) {
+    auto decoded = static_cast<T>(Decode<is_read>(utils::tag_type<underlying_type>(), decoder, version));
+    return decoded;
+  } else {
+    Decode<is_read>(utils::tag_type<underlying_type>(), decoder, version);
+  }
+}
+
+// Generic helper decoder, please keep after the concrete type decoders
+template <bool is_read, IsReadSkip T>
+auto Decode(utils::tag_type<T> /*unused*/, BaseDecoder *decoder,
+            const uint64_t version) -> std::conditional_t<is_read, T, void> {
+  if constexpr (is_read) {
+    return Read<T>(decoder, version);
+  } else {
+    Skip<T>(decoder, version);
+  }
+}
 
 // Generic helper decoder, please keep after the concrete type decoders
 template <bool is_read, auto MIN_VER, typename Type>
-auto Decode(utils::tag_type<VersionDependant<MIN_VER, Type>> /*unused*/, BaseDecoder *decoder, const uint64_t version)
-    -> std::conditional_t<is_read, std::optional<Type>, void> {
+auto Decode(utils::tag_type<VersionDependant<MIN_VER, Type>> /*unused*/, BaseDecoder *decoder,
+            const uint64_t version) -> std::conditional_t<is_read, std::optional<Type>, void> {
   if (MIN_VER <= version) {
     return Decode<is_read>(utils::tag_t<Type>, decoder, version);
   }
@@ -401,8 +571,7 @@ auto Read(BaseDecoder *decoder, const uint64_t version) -> T {
     // see [dcl.init.list] 9.4.5.4
     // Ordering of these constructor argument calls is well defined
     return T{Decode<true>(utils::tag_t<std::tuple_element_t<I, ctr_types>>, decoder, version)...};
-  }
-  (std::make_index_sequence<std::tuple_size_v<ctr_types>>{});
+  }(std::make_index_sequence<std::tuple_size_v<ctr_types>>{});
 }
 
 template <typename T>
@@ -411,8 +580,7 @@ auto Skip(BaseDecoder *decoder, const uint64_t version) -> void {
 
   [&]<auto... I>(std::index_sequence<I...>) {
     (Decode<false>(utils::tag_t<std::tuple_element_t<I, ctr_types>>, decoder, version), ...);
-  }
-  (std::make_index_sequence<std::tuple_size_v<ctr_types>>{});
+  }(std::make_index_sequence<std::tuple_size_v<ctr_types>>{});
 }
 
 // Function used to either read or skip the current WAL delta data. The WAL
@@ -422,8 +590,8 @@ auto Skip(BaseDecoder *decoder, const uint64_t version) -> void {
 // be used.
 // @throw RecoveryFailure
 template <bool read_data>
-auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
-    -> std::conditional_t<read_data, WalDeltaData, bool> {
+auto ReadSkipWalDeltaData(BaseDecoder *decoder,
+                          const uint64_t version) -> std::conditional_t<read_data, WalDeltaData, bool> {
   auto action = decoder->ReadMarker();
   if (!action) throw RecoveryFailure(kInvalidWalErrorMessage);
 
@@ -447,6 +615,7 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     read_skip(EDGE_SET_PROPERTY, WalEdgeSetProperty);
     read_skip(EDGE_CREATE, WalEdgeCreate);
     read_skip(EDGE_DELETE, WalEdgeDelete);
+    read_skip(TRANSACTION_START, WalTransactionStart);
     read_skip(TRANSACTION_END, WalTransactionEnd);
     read_skip(LABEL_INDEX_CREATE, WalLabelIndexCreate);
     read_skip(LABEL_INDEX_DROP, WalLabelIndexDrop);
@@ -476,7 +645,9 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     read_skip(ENUM_ALTER_ADD, WalEnumAlterAdd);
     read_skip(ENUM_ALTER_UPDATE, WalEnumAlterUpdate);
     read_skip(VECTOR_INDEX_CREATE, WalVectorIndexCreate);
+    read_skip(VECTOR_EDGE_INDEX_CREATE, WalVectorEdgeIndexCreate);
     read_skip(VECTOR_INDEX_DROP, WalVectorIndexDrop);
+    read_skip(TTL_OPERATION, WalTtlOperation);
 
     // Other markers are not actions
     case Marker::TYPE_NULL:
@@ -503,6 +674,7 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     case Marker::SECTION_EDGE_INDICES:
     case Marker::SECTION_OFFSETS:
     case Marker::SECTION_ENUMS:
+    case Marker::SECTION_TTL:
     case Marker::VALUE_FALSE:
     case Marker::VALUE_TRUE:
       throw RecoveryFailure(kInvalidWalErrorMessage);
@@ -570,37 +742,31 @@ WalInfo ReadWalInfo(const std::filesystem::path &path) {
       auto timestamp = ReadWalDeltaHeader(&wal);
       auto is_transaction_end = SkipWalDeltaData(&wal, version);
       return {{timestamp, is_transaction_end}};
-    } catch (const RecoveryFailure &) {
+    } catch (const RecoveryFailure &e) {
+      spdlog::error("Error occurred while reading WAL info: {}", e.what());
       return std::nullopt;
     }
   };
   auto size = wal.GetSize();
-  // Here we read the whole file and determine the number of valid deltas. A
-  // delta is valid only if all of its data can be successfully read. This
-  // allows us to recover data from WAL files that are corrupt at the end (eg.
-  // because of power loss) but are still valid at the beginning. While reading
-  // the deltas we only count deltas which are a part of a fully valid
-  // transaction (indicated by a TRANSACTION_END delta or any other
-  // non-transactional operation).
   std::optional<uint64_t> current_timestamp;
-  uint64_t num_deltas = 0;
+  uint64_t num_deltas_in_txn = 0;
   while (wal.GetPosition() != size) {
     auto ret = validate_delta();
     if (!ret) break;
     auto [timestamp, is_end_of_transaction] = *ret;
     if (!current_timestamp) current_timestamp = timestamp;
     if (*current_timestamp != timestamp) break;
-    ++num_deltas;
+    ++num_deltas_in_txn;
     if (is_end_of_transaction) {
+      // Update from_timestamp only the 1st time
       if (info.num_deltas == 0) {
         info.from_timestamp = timestamp;
-        info.to_timestamp = timestamp;
       }
-      if (timestamp < info.from_timestamp || timestamp < info.to_timestamp) break;
+
       info.to_timestamp = timestamp;
-      info.num_deltas += num_deltas;
+      info.num_deltas += num_deltas_in_txn;
       current_timestamp = std::nullopt;
-      num_deltas = 0;
+      num_deltas_in_txn = 0;
     }
   }
 
@@ -732,6 +898,43 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, const Delta
   }
 }
 
+namespace {
+auto convert_to_transaction_access_type(StorageAccessType access_type) -> TransactionAccessType {
+  switch (access_type) {
+    case StorageAccessType::UNIQUE:
+      return TransactionAccessType::UNIQUE;
+    case StorageAccessType::WRITE:
+      return TransactionAccessType::WRITE;
+    case StorageAccessType::READ:
+      return TransactionAccessType::READ;
+    case StorageAccessType::READ_ONLY:
+      return TransactionAccessType::READ_ONLY;
+    default:
+      throw RecoveryFailure("Invalid access type for transaction start delta!");
+  }
+}
+}  // namespace
+
+uint64_t EncodeTransactionStart(Encoder<utils::OutputFile> *encoder, uint64_t const timestamp, bool const commit,
+                                StorageAccessType access_type) {
+  encoder->WriteMarker(Marker::SECTION_DELTA);
+  encoder->WriteUint(timestamp);
+  encoder->WriteMarker(Marker::DELTA_TRANSACTION_START);
+  auto const flag_pos = encoder->GetPosition();
+  encoder->WriteBool(commit);
+  encoder->WriteUint(static_cast<uint8_t>(convert_to_transaction_access_type(access_type)));
+  return flag_pos;
+}
+
+void EncodeTransactionStart(BaseEncoder *encoder, uint64_t const timestamp, bool const commit,
+                            StorageAccessType access_type) {
+  encoder->WriteMarker(Marker::SECTION_DELTA);
+  encoder->WriteUint(timestamp);
+  encoder->WriteMarker(Marker::DELTA_TRANSACTION_START);
+  encoder->WriteBool(commit);
+  encoder->WriteUint(static_cast<uint8_t>(convert_to_transaction_access_type(access_type)));
+}
+
 void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp) {
   encoder->WriteMarker(Marker::SECTION_DELTA);
   encoder->WriteUint(timestamp);
@@ -743,7 +946,8 @@ std::optional<RecoveryInfo> LoadWal(
     const std::optional<uint64_t> last_applied_delta_timestamp, utils::SkipList<Vertex> *vertices,
     utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
     SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
-    std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge) {
+    std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
+    memgraph::storage::ttl::TTL *ttl) {
   spdlog::info("Trying to load WAL file {}.", path);
 
   Decoder wal;
@@ -761,8 +965,7 @@ std::optional<RecoveryInfo> LoadWal(
     return std::nullopt;
   }
 
-  RecoveryInfo ret;
-  ret.last_durable_timestamp = info.to_timestamp;
+  std::optional<RecoveryInfo> ret;
 
   // Recover deltas
   wal.SetPosition(info.offset_deltas);
@@ -771,26 +974,35 @@ std::optional<RecoveryInfo> LoadWal(
   auto vertex_acc = vertices->access();
   spdlog::info("WAL file contains {} deltas.", info.num_deltas);
 
+  // In 2PC, we can have deltas stored on disk which shouldn't be applied when recovering
+  bool should_commit{true};
+  std::optional<TransactionAccessType> access_type;
+
   auto delta_apply = utils::Overloaded{
       [&](WalVertexCreate const &data) {
         auto [vertex, inserted] = vertex_acc.insert(Vertex{data.gid, nullptr});
-        if (!inserted) throw RecoveryFailure("The vertex must be inserted here!");
-        ret.next_vertex_id = std::max(ret.next_vertex_id, data.gid.AsUint() + 1);
+        if (!inserted)
+          throw RecoveryFailure("The vertex must be inserted here! Current ldt is: {}", ret->last_durable_timestamp);
+        ret->next_vertex_id = std::max(ret->next_vertex_id, data.gid.AsUint() + 1);
         if (schema_info) schema_info->AddVertex(&*vertex);
       },
       [&](WalVertexDelete const &data) {
         const auto vertex = vertex_acc.find(data.gid);
-        if (vertex == vertex_acc.end()) throw RecoveryFailure("The vertex doesn't exist!");
+        if (vertex == vertex_acc.end())
+          throw RecoveryFailure("The vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
         if (!vertex->in_edges.empty() || !vertex->out_edges.empty())
           throw RecoveryFailure("The vertex can't be deleted because it still has edges!");
-        if (!vertex_acc.remove(data.gid)) throw RecoveryFailure("The vertex must be removed here!");
+        if (!vertex_acc.remove(data.gid))
+          throw RecoveryFailure("The vertex must be removed here! Current ldt is: {}", ret->last_durable_timestamp);
         if (schema_info) schema_info->DeleteVertex(&*vertex);
       },
       [&](WalVertexAddLabel const &data) {
         const auto vertex = vertex_acc.find(data.gid);
-        if (vertex == vertex_acc.end()) throw RecoveryFailure("The vertex doesn't exist!");
+        if (vertex == vertex_acc.end())
+          throw RecoveryFailure("The vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
         const auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        if (r::contains(vertex->labels, label_id)) throw RecoveryFailure("The vertex already has the label!");
+        if (r::contains(vertex->labels, label_id))
+          throw RecoveryFailure("The vertex already has the label! Current ldt is: {}", ret->last_durable_timestamp);
         std::optional<utils::small_vector<LabelId>> old_labels{};
         if (schema_info) old_labels.emplace(vertex->labels);
         vertex->labels.push_back(label_id);
@@ -798,10 +1010,12 @@ std::optional<RecoveryInfo> LoadWal(
       },
       [&](WalVertexRemoveLabel const &data) {
         const auto vertex = vertex_acc.find(data.gid);
-        if (vertex == vertex_acc.end()) throw RecoveryFailure("The vertex doesn't exist!");
+        if (vertex == vertex_acc.end())
+          throw RecoveryFailure("The vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
         const auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         auto it = r::find(vertex->labels, label_id);
-        if (it == vertex->labels.end()) throw RecoveryFailure("The vertex doesn't have the label!");
+        if (it == vertex->labels.end())
+          throw RecoveryFailure("The vertex doesn't have the label! Current ldt is: {}", ret->last_durable_timestamp);
         std::optional<utils::small_vector<LabelId>> old_labels{};
         if (schema_info) old_labels.emplace(vertex->labels);
         std::swap(*it, vertex->labels.back());
@@ -810,7 +1024,8 @@ std::optional<RecoveryInfo> LoadWal(
       },
       [&](WalVertexSetProperty const &data) {
         const auto vertex = vertex_acc.find(data.gid);
-        if (vertex == vertex_acc.end()) throw RecoveryFailure("The vertex doesn't exist!");
+        if (vertex == vertex_acc.end())
+          throw RecoveryFailure("The vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
         auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
         const auto property_value = ToPropertyValue(data.value, name_id_mapper);
         if (schema_info) {
@@ -821,28 +1036,33 @@ std::optional<RecoveryInfo> LoadWal(
       },
       [&](WalEdgeCreate const &data) {
         const auto from_vertex = vertex_acc.find(data.from_vertex);
-        if (from_vertex == vertex_acc.end()) throw RecoveryFailure("The from vertex doesn't exist!");
+        if (from_vertex == vertex_acc.end())
+          throw RecoveryFailure("The from vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
         const auto to_vertex = vertex_acc.find(data.to_vertex);
-        if (to_vertex == vertex_acc.end()) throw RecoveryFailure("The to vertex doesn't exist!");
+        if (to_vertex == vertex_acc.end())
+          throw RecoveryFailure("The to vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
 
         auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));
         auto edge_ref = std::invoke([&]() -> EdgeRef {
           if (items.properties_on_edges) {
             auto [edge, inserted] = edge_acc.insert(Edge{(data.gid), nullptr});
-            if (!inserted) throw RecoveryFailure("The edge must be inserted here!");
+            if (!inserted)
+              throw RecoveryFailure("The edge must be inserted here! Current ldt is: {}", ret->last_durable_timestamp);
             return EdgeRef{&*edge};
           }
           return EdgeRef{data.gid};
         });
         auto out_link = std::tuple{edge_type_id, &*to_vertex, edge_ref};
         if (r::contains(from_vertex->out_edges, out_link))
-          throw RecoveryFailure("The from vertex already has this edge!");
+          throw RecoveryFailure("The from vertex already has this edge! Current ldt is: {}",
+                                ret->last_durable_timestamp);
         from_vertex->out_edges.push_back(out_link);
         auto in_link = std::tuple{edge_type_id, &*from_vertex, edge_ref};
-        if (r::contains(to_vertex->in_edges, in_link)) throw RecoveryFailure("The to vertex already has this edge!");
+        if (r::contains(to_vertex->in_edges, in_link))
+          throw RecoveryFailure("The to vertex already has this edge! Current ldt is: {}", ret->last_durable_timestamp);
         to_vertex->in_edges.push_back(in_link);
 
-        ret.next_edge_id = std::max(ret.next_edge_id, data.gid.AsUint() + 1);
+        ret->next_edge_id = std::max(ret->next_edge_id, data.gid.AsUint() + 1);
 
         // Increment edge count.
         edge_count->fetch_add(1, std::memory_order_acq_rel);
@@ -851,15 +1071,18 @@ std::optional<RecoveryInfo> LoadWal(
       },
       [&](WalEdgeDelete const &data) {
         const auto from_vertex = vertex_acc.find(data.from_vertex);
-        if (from_vertex == vertex_acc.end()) throw RecoveryFailure("The from vertex doesn't exist!");
+        if (from_vertex == vertex_acc.end())
+          throw RecoveryFailure("The from vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
         const auto to_vertex = vertex_acc.find(data.to_vertex);
-        if (to_vertex == vertex_acc.end()) throw RecoveryFailure("The to vertex doesn't exist!");
+        if (to_vertex == vertex_acc.end())
+          throw RecoveryFailure("The to vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
 
         auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));
         auto edge_ref = std::invoke([&]() -> EdgeRef {
           if (items.properties_on_edges) {
             auto edge = edge_acc.find(data.gid);
-            if (edge == edge_acc.end()) throw RecoveryFailure("The edge doesn't exist!");
+            if (edge == edge_acc.end())
+              throw RecoveryFailure("The edge doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
             return EdgeRef{&*edge};
           }
           return EdgeRef{data.gid};
@@ -868,19 +1091,24 @@ std::optional<RecoveryInfo> LoadWal(
         {
           auto out_link = std::tuple{edge_type_id, &*to_vertex, edge_ref};
           auto it = r::find(from_vertex->out_edges, out_link);
-          if (it == from_vertex->out_edges.end()) throw RecoveryFailure("The from vertex doesn't have this edge!");
+          if (it == from_vertex->out_edges.end())
+            throw RecoveryFailure("The from vertex doesn't have this edge! Current ldt is: {}",
+                                  ret->last_durable_timestamp);
           std::swap(*it, from_vertex->out_edges.back());
           from_vertex->out_edges.pop_back();
         }
         {
           auto in_link = std::tuple{edge_type_id, &*from_vertex, edge_ref};
           auto it = r::find(to_vertex->in_edges, in_link);
-          if (it == to_vertex->in_edges.end()) throw RecoveryFailure("The to vertex doesn't have this edge!");
+          if (it == to_vertex->in_edges.end())
+            throw RecoveryFailure("The to vertex doesn't have this edge! Current ldt is: {}",
+                                  ret->last_durable_timestamp);
           std::swap(*it, to_vertex->in_edges.back());
           to_vertex->in_edges.pop_back();
         }
         if (items.properties_on_edges) {
-          if (!edge_acc.remove(data.gid)) throw RecoveryFailure("The edge must be removed here!");
+          if (!edge_acc.remove(data.gid))
+            throw RecoveryFailure("The edge must be removed here! Current ldt is: {}", ret->last_durable_timestamp);
         }
 
         // Decrement edge count.
@@ -893,10 +1121,12 @@ std::optional<RecoveryInfo> LoadWal(
         if (!items.properties_on_edges)
           throw RecoveryFailure(
               "The WAL has properties on edges, but the storage is "
-              "configured without properties on edges!");
+              "configured without properties on edges! Current ldt is: {}",
+              ret->last_durable_timestamp);
 
         auto edge = edge_acc.find(data.gid);
-        if (edge == edge_acc.end()) throw RecoveryFailure("The edge doesn't exist!");
+        if (edge == edge_acc.end())
+          throw RecoveryFailure("The edge doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
         const auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
         const auto property_value = ToPropertyValue(data.value, name_id_mapper);
 
@@ -904,18 +1134,22 @@ std::optional<RecoveryInfo> LoadWal(
           const auto &[edge_ref, edge_type, from_vertex, to_vertex] = std::invoke([&] {
             if (data.from_gid.has_value()) {
               const auto from_vertex = vertex_acc.find(data.from_gid);
-              if (from_vertex == vertex_acc.end()) throw RecoveryFailure("The from vertex doesn't exist!");
+              if (from_vertex == vertex_acc.end())
+                throw RecoveryFailure("The from vertex doesn't exist! Current ldt is: {}", ret->last_durable_timestamp);
               const auto found_edge = r::find_if(from_vertex->out_edges, [&edge](const auto &edge_info) {
                 const auto &[edge_type, to_vertex, edge_ref] = edge_info;
                 return edge_ref.ptr == &*edge;
               });
-              if (found_edge == from_vertex->out_edges.end()) throw RecoveryFailure("Recovery failed, edge not found.");
+              if (found_edge == from_vertex->out_edges.end())
+                throw RecoveryFailure("Recovery failed, edge not found. Current ldt is: {}",
+                                      ret->last_durable_timestamp);
               const auto &[edge_type, to_vertex, edge_ref] = *found_edge;
               return std::tuple{edge_ref, edge_type, &*from_vertex, to_vertex};
             }
             // Fallback on user defined find edge function
             const auto maybe_edge = find_edge(edge->gid);
-            if (!maybe_edge) throw RecoveryFailure("Recovery failed, edge not found.");
+            if (!maybe_edge)
+              throw RecoveryFailure("Recovery failed, edge not found. Current ldt is: {}", ret->last_durable_timestamp);
             return *maybe_edge;
           });
 
@@ -926,7 +1160,11 @@ std::optional<RecoveryInfo> LoadWal(
 
         edge->properties.SetProperty(property_id, property_value);
       },
-      [&](WalTransactionEnd const &) { /*Nothing to apply*/ },
+      [&](WalTransactionStart const &data) {
+        should_commit = data.commit.value_or(true);
+        access_type = data.access_type;
+      },
+      [&](WalTransactionEnd const &) { ret->num_committed_txns++; },
       [&](WalLabelIndexCreate const &data) {
         const auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         AddRecoveredIndexConstraint(&indices_constraints->indices.label, label_id, "The label index already exists!");
@@ -982,15 +1220,13 @@ std::optional<RecoveryInfo> LoadWal(
       },
       [&](WalLabelPropertyIndexCreate const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        auto name_to_id = [&](std::string_view name) { return PropertyId::FromUint(name_id_mapper->NameToId(name)); };
-        auto prop_ids = data.properties | rv::transform(name_to_id) | r::to_vector;
+        auto prop_ids = data.composite_property_paths.convert(name_id_mapper);
         AddRecoveredIndexConstraint(&indices_constraints->indices.label_properties, {label_id, std::move(prop_ids)},
                                     "The label property index already exists!");
       },
       [&](WalLabelPropertyIndexDrop const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        auto name_to_id = [&](std::string_view name) { return PropertyId::FromUint(name_id_mapper->NameToId(name)); };
-        auto prop_ids = data.properties | rv::transform(name_to_id) | r::to_vector;
+        auto prop_ids = data.composite_property_paths.convert(name_id_mapper);
         RemoveRecoveredIndexConstraint(&indices_constraints->indices.label_properties, {label_id, std::move(prop_ids)},
                                        "The label property index doesn't exist!");
       },
@@ -1008,15 +1244,13 @@ std::optional<RecoveryInfo> LoadWal(
       },
       [&](WalLabelPropertyIndexStatsSet const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        auto name_to_id = [&](std::string_view name) { return PropertyId::FromUint(name_id_mapper->NameToId(name)); };
-        auto properties = data.properties | rv::transform(name_to_id) | r::to_vector;
-
+        auto prop_ids = data.composite_property_paths.convert(name_id_mapper);
         LabelPropertyIndexStats stats{};
         if (!FromJson(data.json_stats, stats)) {
           throw RecoveryFailure("Failed to read statistics!");
         }
         indices_constraints->indices.label_property_stats.emplace_back(label_id,
-                                                                       std::make_pair(std::move(properties), stats));
+                                                                       std::make_pair(std::move(prop_ids), stats));
       },
       [&](WalLabelPropertyIndexStatsClear const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
@@ -1025,13 +1259,23 @@ std::optional<RecoveryInfo> LoadWal(
       },
       [&](WalTextIndexCreate const &data) {
         auto label = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        AddRecoveredIndexConstraint(&indices_constraints->indices.text_indices, {data.index_name, label},
+        auto prop_ids = std::invoke([&]() -> std::vector<PropertyId> {
+          if (!data.properties) {
+            return {};
+          }
+          return *data.properties | rv::transform([&](const auto &prop_name) {
+            return PropertyId::FromUint(name_id_mapper->NameToId(prop_name));
+          }) | r::to_vector;
+        });
+        AddRecoveredIndexConstraint(&indices_constraints->indices.text_indices,
+                                    TextIndexSpec{data.index_name, label, std::move(prop_ids)},
                                     "The text index already exists!");
       },
       [&](WalTextIndexDrop const &data) {
-        auto label = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        RemoveRecoveredIndexConstraint(&indices_constraints->indices.text_indices, {data.index_name, label},
-                                       "The text index doesn't exist!");
+        std::erase_if(indices_constraints->indices.text_indices, [&](const auto &index_metadata) {
+          const auto &[index_name, label, properties] = index_metadata;
+          return index_name == data.index_name;
+        });
       },
       [&](WalExistenceConstraintCreate const &data) {
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
@@ -1122,41 +1366,100 @@ std::optional<RecoveryInfo> LoadWal(
       },
       [&](WalVectorIndexCreate const &data) {
         if (r::any_of(indices_constraints->indices.vector_indices,
+                      [&](const auto &index) { return index.index_name == data.index_name; }) ||
+            r::any_of(indices_constraints->indices.vector_edge_indices,
                       [&](const auto &index) { return index.index_name == data.index_name; })) {
           throw RecoveryFailure("The vector index already exists!");
         }
 
         auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
-        const auto unum_metric_kind = VectorIndex::MetricFromName(data.metric_kind);
+        const auto unum_metric_kind = MetricFromName(data.metric_kind);
+        auto scalar_kind = data.scalar_kind ? static_cast<unum::usearch::scalar_kind_t>(*data.scalar_kind)
+                                            : unum::usearch::scalar_kind_t::f32_k;
         indices_constraints->indices.vector_indices.emplace_back(data.index_name, label_id, property_id,
                                                                  unum_metric_kind, data.dimension,
-                                                                 data.resize_coefficient, data.capacity);
+                                                                 data.resize_coefficient, data.capacity, scalar_kind);
+      },
+      [&](WalVectorEdgeIndexCreate const &data) {
+        if (r::any_of(indices_constraints->indices.vector_indices,
+                      [&](const auto &index) { return index.index_name == data.index_name; }) ||
+            r::any_of(indices_constraints->indices.vector_edge_indices,
+                      [&](const auto &index) { return index.index_name == data.index_name; })) {
+          throw RecoveryFailure("The vector edge index already exists!");
+        }
+
+        auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));
+        auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
+        const auto unum_metric_kind = MetricFromName(data.metric_kind);
+        auto scalar_kind = static_cast<unum::usearch::scalar_kind_t>(data.scalar_kind);
+        indices_constraints->indices.vector_edge_indices.emplace_back(
+            data.index_name, edge_type_id, property_id, unum_metric_kind, data.dimension, data.resize_coefficient,
+            data.capacity, scalar_kind);
       },
       [&](WalVectorIndexDrop const &data) {
         std::erase_if(indices_constraints->indices.vector_indices,
                       [&](const auto &index) { return index.index_name == data.index_name; });
       },
+      [&](WalTtlOperation const &data) {
+        switch (data.operation_type) {
+          case TtlOperationType::ENABLE:
+            if (ttl->Config()) ttl->Resume();
+            break;
+          case TtlOperationType::DISABLE:
+            ttl->Disable();
+            break;
+          case TtlOperationType::CONFIGURE:
+            ttl->Enable();
+            if (!ttl->Running()) ttl->Configure(data.should_run_edge_ttl);
+            ttl->SetInterval(data.period, data.start_time);
+            break;
+          case TtlOperationType::STOP:
+            ttl->Pause();
+            break;
+          default:
+            throw RecoveryFailure("Invalid TTL operation type: {}", static_cast<int>(data.operation_type));
+        }
+      },
   };
 
   for (uint64_t i = 0; i < info.num_deltas; ++i) {
     // Read WAL delta header to find out the delta timestamp.
-    auto timestamp = ReadWalDeltaHeader(&wal);
-
-    if (!last_applied_delta_timestamp || timestamp > *last_applied_delta_timestamp) {
+    if (auto timestamp = ReadWalDeltaHeader(&wal);
+        (!last_applied_delta_timestamp || timestamp > *last_applied_delta_timestamp)) {
       // This delta should be loaded.
       auto delta = ReadWalDeltaData(&wal, *version);
-      std::visit(delta_apply, delta.data_);
-      ++deltas_applied;
-      ret.next_timestamp = std::max(ret.next_timestamp, timestamp + 1);
+
+      // We should always check if the delta is WalTransactionStart to update should_commit
+      if (auto *txn_start = std::get_if<WalTransactionStart>(&delta.data_)) {
+        should_commit = txn_start->commit.value_or(true);
+        ++deltas_applied;
+        continue;
+      }
+
+      if (should_commit) {
+        // First delta which is not WalTransactionStart -> allocate RecoveryInfo
+        if (!ret.has_value()) {
+          ret.emplace(RecoveryInfo{.next_timestamp = timestamp + 1, .last_durable_timestamp = timestamp});
+        } else {
+          ret->next_timestamp = std::max(ret->next_timestamp, timestamp + 1);
+          ret->last_durable_timestamp = timestamp;
+        }
+
+        std::visit(delta_apply, delta.data_);
+        ++deltas_applied;
+      }
+
     } else {
       // This delta should be skipped.
       SkipWalDeltaData(&wal, *version);
     }
   }
 
-  spdlog::info("Applied {} deltas from WAL. Skipped {} deltas, because they were too old.", deltas_applied,
-               info.num_deltas - deltas_applied);
+  spdlog::info(
+      "Applied {} deltas from WAL. Skipped {} deltas, because they were too old or because 2PC protocol decided to "
+      "abort txn but deltas were already made durable.",
+      deltas_applied, info.num_deltas - deltas_applied);
 
   return ret;
 }
@@ -1179,12 +1482,11 @@ WalFile::WalFile(const std::filesystem::path &wal_directory, utils::UUID const &
   wal_.Initialize(path_, kWalMagic, kVersion);
 
   // Write placeholder offsets.
-  uint64_t offset_offsets = 0;
-  uint64_t offset_metadata = 0;
-  uint64_t offset_deltas = 0;
   wal_.WriteMarker(Marker::SECTION_OFFSETS);
-  offset_offsets = wal_.GetPosition();
+  uint64_t const offset_offsets = wal_.GetPosition();
+  uint64_t offset_metadata{0};
   wal_.WriteUint(offset_metadata);
+  uint64_t offset_deltas{0};
   wal_.WriteUint(offset_deltas);
 
   // Write metadata.
@@ -1255,6 +1557,19 @@ void WalFile::AppendDelta(const Delta &delta, const Edge &edge, uint64_t timesta
   UpdateStats(timestamp);
 }
 
+uint64_t WalFile::AppendTransactionStart(uint64_t const timestamp, bool const commit, StorageAccessType access_type) {
+  auto const flag_pos = EncodeTransactionStart(&wal_, timestamp, commit, access_type);
+  UpdateStats(timestamp);
+  return flag_pos;
+}
+
+void WalFile::UpdateCommitStatus(uint64_t const flag_pos, bool const new_decision) {
+  auto const curr_pos = wal_.GetPosition();
+  wal_.SetPosition(flag_pos);
+  wal_.WriteBool(new_decision);
+  wal_.SetPosition(curr_pos);
+}
+
 void WalFile::AppendTransactionEnd(uint64_t timestamp) {
   EncodeTransactionEnd(&wal_, timestamp);
   UpdateStats(timestamp);
@@ -1322,11 +1637,14 @@ void EncodeLabelProperty(BaseEncoder &encoder, NameIdMapper &name_id_mapper, Lab
 }
 
 void EncodeLabelPropertyStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
-                              std::span<PropertyId const> properties, LabelPropertyIndexStats const &stats) {
+                              std::span<PropertyPath const> properties, LabelPropertyIndexStats const &stats) {
   encoder.WriteString(name_id_mapper.IdToName(label.AsUint()));
   encoder.WriteUint(properties.size());
-  for (auto const &prop : properties) {
-    encoder.WriteString(name_id_mapper.IdToName(prop.AsUint()));
+  for (auto const &path : properties) {
+    encoder.WriteUint(path.size());
+    for (auto const &segment : path) {
+      encoder.WriteString(name_id_mapper.IdToName(segment.AsUint()));
+    }
   }
   encoder.WriteString(ToJson(stats));
 }
@@ -1351,11 +1669,14 @@ void EncodeEdgePropertyIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper,
 }
 
 void EncodeLabelProperties(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
-                           std::vector<PropertyId> const &properties) {
+                           std::span<PropertyPath const> properties) {
   encoder.WriteString(name_id_mapper.IdToName(label.AsUint()));
   encoder.WriteUint(properties.size());
-  for (const auto &property : properties) {
-    encoder.WriteString(name_id_mapper.IdToName(property.AsUint()));
+  for (const auto &path : properties) {
+    encoder.WriteUint(path.size());
+    for (const auto &property : path) {
+      encoder.WriteString(name_id_mapper.IdToName(property.AsUint()));
+    }
   }
 }
 
@@ -1375,23 +1696,57 @@ void EncodeTypeConstraint(BaseEncoder &encoder, NameIdMapper &name_id_mapper, La
   encoder.WriteUint(static_cast<uint64_t>(type));
 }
 
-void EncodeTextIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, std::string_view text_index_name,
-                     LabelId label) {
-  encoder.WriteString(text_index_name);
-  encoder.WriteString(name_id_mapper.IdToName(label.AsUint()));
+void EncodeTextIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const TextIndexSpec &text_index_info) {
+  encoder.WriteString(text_index_info.index_name_);
+  encoder.WriteString(name_id_mapper.IdToName(text_index_info.label_.AsUint()));
+  encoder.WriteUint(text_index_info.properties_.size());
+  for (const auto &property : text_index_info.properties_) {
+    encoder.WriteString(name_id_mapper.IdToName(property.AsUint()));
+  }
 }
 
 void EncodeVectorIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const VectorIndexSpec &index_spec) {
   encoder.WriteString(index_spec.index_name);
-  encoder.WriteString(name_id_mapper.IdToName(index_spec.label.AsUint()));
+  encoder.WriteString(name_id_mapper.IdToName(index_spec.label_id.AsUint()));
   encoder.WriteString(name_id_mapper.IdToName(index_spec.property.AsUint()));
-  encoder.WriteString(VectorIndex::NameFromMetric(index_spec.metric_kind));
+  encoder.WriteString(NameFromMetric(index_spec.metric_kind));
   encoder.WriteUint(index_spec.dimension);
   encoder.WriteUint(index_spec.resize_coefficient);
   encoder.WriteUint(index_spec.capacity);
+  encoder.WriteUint(static_cast<uint64_t>(index_spec.scalar_kind));
 }
 
-void EncodeVectorIndexName(BaseEncoder &encoder, std::string_view index_name) { encoder.WriteString(index_name); }
+void EncodeVectorEdgeIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper,
+                               const VectorEdgeIndexSpec &index_spec) {
+  encoder.WriteString(index_spec.index_name);
+  encoder.WriteString(name_id_mapper.IdToName(index_spec.edge_type_id.AsUint()));
+  encoder.WriteString(name_id_mapper.IdToName(index_spec.property.AsUint()));
+  encoder.WriteString(NameFromMetric(index_spec.metric_kind));
+  encoder.WriteUint(index_spec.dimension);
+  encoder.WriteUint(index_spec.resize_coefficient);
+  encoder.WriteUint(index_spec.capacity);
+  encoder.WriteUint(static_cast<uint64_t>(index_spec.scalar_kind));
+}
+
+void EncodeIndexName(BaseEncoder &encoder, std::string_view index_name) { encoder.WriteString(index_name); }
+
+// TTL encoding function
+void EncodeTtlOperation(BaseEncoder &encoder, TtlOperationType operation_type,
+                        const std::optional<std::chrono::microseconds> &period,
+                        const std::optional<std::chrono::system_clock::time_point> &start_time,
+                        bool should_run_edge_ttl) {
+  encoder.WriteUint(static_cast<uint64_t>(operation_type));
+  encoder.WriteBool(period.has_value());
+  if (period.has_value()) {
+    encoder.WriteUint(static_cast<uint64_t>(period->count()));
+  }
+  encoder.WriteBool(start_time.has_value());
+  if (start_time.has_value()) {
+    encoder.WriteUint(static_cast<uint64_t>(
+        std::chrono::duration_cast<std::chrono::microseconds>(start_time->time_since_epoch()).count()));
+  }
+  encoder.WriteBool(should_run_edge_ttl);
+}
 
 void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, uint64_t timestamp) {
   encoder.WriteMarker(Marker::SECTION_DELTA);
@@ -1399,4 +1754,18 @@ void EncodeOperationPreamble(BaseEncoder &encoder, StorageMetadataOperation Op, 
   encoder.WriteMarker(OperationToMarker(Op));
 }
 
+auto UpgradeForNestedIndices(CompositeStr v) -> std::vector<PathStr> {
+  auto wrap_singular_path = [](auto &&path) -> PathStr { return std::vector{std::forward<decltype(path)>(path)}; };
+  return v | ranges::views::transform(wrap_singular_path) | ranges::to_vector;
+};
+
+auto CompositePropertyPaths::convert(NameIdMapper *mapper) const -> std::vector<PropertyPath> {
+  auto to_propertyid = [&](std::string_view prop_name) -> PropertyId {
+    return PropertyId::FromUint(mapper->NameToId(prop_name));
+  };
+  auto to_path = [&](PathStr const &path) -> PropertyPath {
+    return PropertyPath{path | rv::transform(to_propertyid) | r::to_vector};
+  };
+  return property_paths_ | rv::transform(to_path) | r::to_vector;
+}
 }  // namespace memgraph::storage::durability

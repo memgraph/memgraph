@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,6 +13,7 @@
 #include <gtest/gtest.h>
 
 #include "storage/v2/inmemory/storage.hpp"
+#include "tests/test_commit_args_helper.hpp"
 
 using memgraph::replication_coordination_glue::ReplicationRole;
 using testing::UnorderedElementsAre;
@@ -59,7 +60,7 @@ TEST(StorageV2Gc, Sanity) {
       EXPECT_EQ(vertex_new.has_value(), i % 5 != 0);
     }
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Verify existing vertices and add labels to some of them.
@@ -97,7 +98,7 @@ TEST(StorageV2Gc, Sanity) {
       }
     }
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Add and remove some edges.
@@ -155,7 +156,7 @@ TEST(StorageV2Gc, Sanity) {
       }
     }
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -174,7 +175,7 @@ TEST(StorageV2Gc, Indices) {
   {
     auto unique_acc = storage->UniqueAccess();
     ASSERT_FALSE(unique_acc->CreateIndex(storage->NameToLabel("label")).HasError());
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
@@ -183,7 +184,7 @@ TEST(StorageV2Gc, Indices) {
       auto vertex = acc0->CreateVertex();
       ASSERT_TRUE(*vertex.AddLabel(acc0->NameToLabel("label")));
     }
-    ASSERT_FALSE(acc0->Commit().HasError());
+    ASSERT_FALSE(acc0->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto acc1 = storage->Access();
@@ -192,7 +193,7 @@ TEST(StorageV2Gc, Indices) {
     for (auto vertex : acc2->Vertices(memgraph::storage::View::OLD)) {
       ASSERT_TRUE(*vertex.RemoveLabel(acc2->NameToLabel("label")));
     }
-    ASSERT_FALSE(acc2->Commit().HasError());
+    ASSERT_FALSE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
 
     // Wait for GC.
     std::this_thread::sleep_for(std::chrono::milliseconds(300));

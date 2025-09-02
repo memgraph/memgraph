@@ -10,10 +10,12 @@
 // licenses/APL.txt.
 
 #include "query/frontend/ast/ast.hpp"
+#include "frontend/ast/ast_storage.hpp"
 #include "query/frontend/ast/query/aggregation.hpp"
 #include "query/frontend/ast/query/auth_query.hpp"
 #include "query/frontend/ast/query/exists.hpp"
 #include "query/frontend/ast/query/pattern_comprehension.hpp"
+#include "query/frontend/ast/query/user_profile.hpp"
 #include "utils/typeinfo.hpp"
 
 #include "range/v3/all.hpp"
@@ -197,8 +199,8 @@ query::IndexHint query::IndexHint::Clone(query::AstStorage *storage) const {
   IndexHint object;
   object.index_type_ = index_type_;
   object.label_ix_ = storage->GetLabelIx(label_ix_.name);
-  auto propix_to_propid = [&](auto &&v) { return storage->GetPropertyIx(v.name); };
-  object.property_ixs_ = property_ixs_ | rv::transform(propix_to_propid) | r::to_vector;
+  auto clone_path = [&](PropertyIxPath const &path) { return path.Clone(storage); };
+  object.property_ixs_ = property_ixs_ | rv::transform(clone_path) | r::to_vector;
   return object;
 }
 
@@ -227,6 +229,9 @@ constexpr utils::TypeInfo query::TextIndexQuery::kType{utils::TypeId::AST_TEXT_I
 
 constexpr utils::TypeInfo query::VectorIndexQuery::kType{utils::TypeId::AST_VECTOR_INDEX_QUERY, "VectorIndexQuery",
                                                          &query::Query::kType};
+
+constexpr utils::TypeInfo query::CreateVectorEdgeIndexQuery::kType{utils::TypeId::AST_VECTOR_EDGE_INDEX_QUERY,
+                                                                   "CreateVectorEdgeIndexQuery", &query::Query::kType};
 
 constexpr utils::TypeInfo query::Create::kType{utils::TypeId::AST_CREATE, "Create", &query::Clause::kType};
 
@@ -316,6 +321,9 @@ constexpr utils::TypeInfo query::RecoverSnapshotQuery::kType{utils::TypeId::AST_
 constexpr utils::TypeInfo query::ShowSnapshotsQuery::kType{utils::TypeId::AST_SHOW_SNAPSHOTS_QUERY,
                                                            "ShowSnapshotsQuery", &query::Query::kType};
 
+constexpr utils::TypeInfo query::ShowNextSnapshotQuery::kType{utils::TypeId::AST_SHOW_NEXT_SNAPSHOT_QUERY,
+                                                              "ShowNextSnapshotQuery", &query::Query::kType};
+
 constexpr utils::TypeInfo query::StreamQuery::kType{utils::TypeId::AST_STREAM_QUERY, "StreamQuery",
                                                     &query::Query::kType};
 
@@ -388,6 +396,9 @@ constexpr utils::TypeInfo query::TtlQuery::kType{utils::TypeId::AST_TTL_QUERY, "
 constexpr utils::TypeInfo query::SessionTraceQuery::kType{utils::TypeId::AST_SESSION_TRACE_QUERY, "SessionTraceQuery",
                                                           &query::Query::kType};
 
+constexpr utils::TypeInfo query::UserProfileQuery::kType{utils::TypeId::AST_USER_PROFILE_QUERY, "UserProfileQuery",
+                                                         &query::Query::kType};
+
 namespace query {
 DEFINE_VISITABLE(Identifier, ExpressionVisitor<TypedValue>);
 DEFINE_VISITABLE(Identifier, ExpressionVisitor<TypedValue *>);
@@ -409,7 +420,11 @@ DEFINE_VISITABLE(Exists, ExpressionVisitor<TypedValue *>);
 DEFINE_VISITABLE(Exists, ExpressionVisitor<void>);
 bool Exists::Accept(HierarchicalTreeVisitor &visitor) {
   if (visitor.PreVisit(*this)) {
-    pattern_->Accept(visitor);
+    if (HasPattern()) {
+      GetPattern()->Accept(visitor);
+    } else if (HasSubquery()) {
+      GetSubquery()->Accept(visitor);
+    }
   }
   return visitor.PostVisit(*this);
 }
@@ -451,6 +466,14 @@ Aggregation::Aggregation(Expression *expression1, Expression *expression2, Aggre
              "expression2 is obligatory in COLLECT_MAP and PROJECT_LISTS, and invalid otherwise");
 }
 
+auto PropertyIxPath::Clone(AstStorage *storage) const -> PropertyIxPath {
+  auto paths_copy = std::vector<memgraph::query::PropertyIx>{};
+  paths_copy.reserve(path.size());
+  for (auto const &prop_ix : path) {
+    paths_copy.emplace_back(storage->GetPropertyIx(prop_ix.name));
+  }
+  return PropertyIxPath{std::move(paths_copy)};
+}
 }  // namespace query
 
 }  // namespace memgraph

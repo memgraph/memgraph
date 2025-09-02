@@ -72,7 +72,7 @@ void Encoder<FileType>::WriteMarker(Marker marker) {
 }
 
 template <typename FileType>
-void Encoder<FileType>::WriteBool(bool value) {
+void Encoder<FileType>::WriteBool(bool const value) {
   WriteMarker(Marker::TYPE_BOOL);
   if (value) {
     WriteMarker(Marker::VALUE_TRUE);
@@ -507,7 +507,7 @@ std::optional<ExternalPropertyValue> Decoder::ReadExternalPropertyValue() {
       auto size = ReadSize(this);
       if (!size) return std::nullopt;
       auto value = ExternalPropertyValue::map_t{};
-      value.reserve(*size);
+      do_reserve(value, *size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto key = ReadString();
         if (!key) return std::nullopt;
@@ -555,6 +555,7 @@ std::optional<ExternalPropertyValue> Decoder::ReadExternalPropertyValue() {
     case Marker::SECTION_EDGE_INDICES:
     case Marker::SECTION_OFFSETS:
     case Marker::SECTION_ENUMS:
+    case Marker::SECTION_TTL:
     case Marker::DELTA_VERTEX_CREATE:
     case Marker::DELTA_VERTEX_DELETE:
     case Marker::DELTA_VERTEX_ADD_LABEL:
@@ -563,6 +564,7 @@ std::optional<ExternalPropertyValue> Decoder::ReadExternalPropertyValue() {
     case Marker::DELTA_EDGE_CREATE:
     case Marker::DELTA_EDGE_DELETE:
     case Marker::DELTA_EDGE_SET_PROPERTY:
+    case Marker::DELTA_TRANSACTION_START:
     case Marker::DELTA_TRANSACTION_END:
     case Marker::DELTA_LABEL_INDEX_CREATE:
     case Marker::DELTA_LABEL_INDEX_DROP:
@@ -590,7 +592,9 @@ std::optional<ExternalPropertyValue> Decoder::ReadExternalPropertyValue() {
     case Marker::DELTA_POINT_INDEX_CREATE:
     case Marker::DELTA_POINT_INDEX_DROP:
     case Marker::DELTA_VECTOR_INDEX_CREATE:
+    case Marker::DELTA_VECTOR_EDGE_INDEX_CREATE:
     case Marker::DELTA_VECTOR_INDEX_DROP:
+    case Marker::DELTA_TTL_OPERATION:
     case Marker::DELTA_TYPE_CONSTRAINT_CREATE:
     case Marker::DELTA_TYPE_CONSTRAINT_DROP:
     case Marker::VALUE_FALSE:
@@ -689,6 +693,7 @@ bool Decoder::SkipExternalPropertyValue() {
     case Marker::SECTION_EDGE_INDICES:
     case Marker::SECTION_OFFSETS:
     case Marker::SECTION_ENUMS:
+    case Marker::SECTION_TTL:
     case Marker::DELTA_VERTEX_CREATE:
     case Marker::DELTA_VERTEX_DELETE:
     case Marker::DELTA_VERTEX_ADD_LABEL:
@@ -697,6 +702,7 @@ bool Decoder::SkipExternalPropertyValue() {
     case Marker::DELTA_EDGE_CREATE:
     case Marker::DELTA_EDGE_DELETE:
     case Marker::DELTA_EDGE_SET_PROPERTY:
+    case Marker::DELTA_TRANSACTION_START:
     case Marker::DELTA_TRANSACTION_END:
     case Marker::DELTA_LABEL_INDEX_CREATE:
     case Marker::DELTA_LABEL_INDEX_DROP:
@@ -724,7 +730,9 @@ bool Decoder::SkipExternalPropertyValue() {
     case Marker::DELTA_POINT_INDEX_CREATE:
     case Marker::DELTA_POINT_INDEX_DROP:
     case Marker::DELTA_VECTOR_INDEX_CREATE:
+    case Marker::DELTA_VECTOR_EDGE_INDEX_CREATE:
     case Marker::DELTA_VECTOR_INDEX_DROP:
+    case Marker::DELTA_TTL_OPERATION:
     case Marker::DELTA_TYPE_CONSTRAINT_CREATE:
     case Marker::DELTA_TYPE_CONSTRAINT_DROP:
     case Marker::VALUE_FALSE:

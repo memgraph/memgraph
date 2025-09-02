@@ -43,6 +43,10 @@ on:
         type: string
         description: "Target dir path in S3 bucket."
         default: ''
+      ref:
+        type: string
+        description: "Git ref to checkout. Default value is the current ref."
+        default: ''
 
 jobs:
   PackageAndUpload:
@@ -68,6 +72,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0 # Required because of release/get_version.py
+          ref: ${{ inputs.ref != '' && inputs.ref || github.ref }}
 
       - name: "Unlock keychain for current session" # Required beacuse ARM builds run on macos
         # if: ${{ inputs.arch == 'arm' }}
@@ -75,7 +80,7 @@ jobs:
         run: security -v unlock-keychain -p ${{ secrets.SELF_HOSTED_RUNNER_PASSWORD }} ~/Library/Keychains/login.keychain-db
 
       - name: "Log in to Docker Hub"
-        uses: docker/login-action@v3
+        uses: ./.github/actions/docker-login
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -103,10 +108,7 @@ jobs:
 
       - name: Set Additional Build Args
         run: |
-          args="${{ inputs.additional_build_args }}"
-          if [[ "${{ inputs.os }}" == "centos-9" || "${{ inputs.os }}" == "centos-10" || "${{ inputs.os }}" == "fedora-41" ]]; then
-            args="$args --init-skip-prep-testing"
-          fi
+          args="${{ inputs.additional_build_args }} --disable-testing"
           echo "ADDITIONAL_BUILD_ARGS=$args" >> $GITHUB_ENV
           echo "Final build args: $args"
 
@@ -232,5 +234,3 @@ jobs:
           AWS_REGION: ${{ inputs.s3_region }}
           SOURCE_DIR: ${{ env.FOR_DOCKER == 'true' && env.DOCKER_ARTIFACT_DIR || env.PACKAGE_ARTIFACT_DIR }}
           DEST_DIR: "${{ inputs.s3_dest_dir }}/${{ env.ARTIFACT_NAME }}/"
-
-

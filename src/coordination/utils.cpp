@@ -13,6 +13,7 @@
 
 #include <string_view>
 
+#include "coordination/data_instance_context.hpp"
 #include "coordination/logger_wrapper.hpp"
 #include "kvstore/kvstore.hpp"
 #include "utils/logging.hpp"
@@ -31,6 +32,5 @@ auto GetOrSetDefaultVersion(kvstore::KVStore &durability, std::string_view key, 
   MG_ASSERT(durability.Put(key, std::to_string(default_value)), "Failed to store durability version.");
   return default_value;
 }
-
 }  // namespace memgraph::coordination
 #endif

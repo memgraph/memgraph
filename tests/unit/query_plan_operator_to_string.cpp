@@ -23,6 +23,7 @@
 
 using namespace memgraph::query;
 using namespace memgraph::query::plan;
+namespace ms = memgraph::storage;
 
 // The JSON formatted plan is consumed (or will be) by Memgraph Lab, and
 // therefore should not be changed before synchronizing with whoever is
@@ -119,7 +120,8 @@ TYPED_TEST(OperatorToStringTest, ScanAllByLabel) {
 TYPED_TEST(OperatorToStringTest, ScanAllByLabelProperties_OverARange) {
   std::shared_ptr<LogicalOperator> last_op;
   last_op = std::make_shared<ScanAllByLabelProperties>(
-      nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"), std::vector{this->dba.NameToProperty("prop")},
+      nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+      std::vector{ms::PropertyPath{this->dba.NameToProperty("prop")}},
       std::vector{ExpressionRange::Range(memgraph::utils::MakeBoundInclusive<Expression *>(LITERAL(1)),
                                          memgraph::utils::MakeBoundExclusive<Expression *>(LITERAL(20)))});
   last_op->dba_ = &this->dba;
@@ -130,9 +132,10 @@ TYPED_TEST(OperatorToStringTest, ScanAllByLabelProperties_OverARange) {
 
 TYPED_TEST(OperatorToStringTest, ScanAllByLabelProperties_Value) {
   std::shared_ptr<LogicalOperator> last_op;
-  last_op = std::make_shared<ScanAllByLabelProperties>(
-      nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"), std::vector{this->dba.NameToProperty("prop")},
-      std::vector{ExpressionRange::Equal(ADD(LITERAL(21), LITERAL(21)))});
+  last_op =
+      std::make_shared<ScanAllByLabelProperties>(nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+                                                 std::vector{ms::PropertyPath{this->dba.NameToProperty("prop")}},
+                                                 std::vector{ExpressionRange::Equal(ADD(LITERAL(21), LITERAL(21)))});
   last_op->dba_ = &this->dba;
 
   std::string expected_string{"ScanAllByLabelProperties (node :Label {prop})"};
@@ -142,11 +145,93 @@ TYPED_TEST(OperatorToStringTest, ScanAllByLabelProperties_Value) {
 TYPED_TEST(OperatorToStringTest, ScanAllByLabelProperty) {
   std::shared_ptr<LogicalOperator> last_op;
   last_op = std::make_shared<ScanAllByLabelProperties>(nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
-                                                       std::vector{this->dba.NameToProperty("prop")},
+                                                       std::vector{ms::PropertyPath{this->dba.NameToProperty("prop")}},
                                                        std::vector{ExpressionRange::IsNotNull()});
   last_op->dba_ = &this->dba;
 
   std::string expected_string{"ScanAllByLabelProperties (node :Label {prop})"};
+  EXPECT_EQ(last_op->ToString(), expected_string);
+}
+
+TYPED_TEST(OperatorToStringTest, ScanAllByLabelCompositeProperties_OverARange) {
+  std::shared_ptr<LogicalOperator> last_op;
+  last_op = std::make_shared<ScanAllByLabelProperties>(
+      nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+      std::vector{ms::PropertyPath{this->dba.NameToProperty("first")},
+                  ms::PropertyPath{this->dba.NameToProperty("second")},
+                  ms::PropertyPath{this->dba.NameToProperty("third")}},
+      std::vector{ExpressionRange::Range(memgraph::utils::MakeBoundInclusive<Expression *>(LITERAL(1)),
+                                         memgraph::utils::MakeBoundExclusive<Expression *>(LITERAL(20)))});
+  last_op->dba_ = &this->dba;
+
+  std::string expected_string{"ScanAllByLabelProperties (node :Label {first, second, third})"};
+  EXPECT_EQ(last_op->ToString(), expected_string);
+}
+
+TYPED_TEST(OperatorToStringTest, ScanAllByLabelCompositeProperties_Value) {
+  std::shared_ptr<LogicalOperator> last_op;
+  last_op =
+      std::make_shared<ScanAllByLabelProperties>(nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+                                                 std::vector{ms::PropertyPath{this->dba.NameToProperty("first")},
+                                                             ms::PropertyPath{this->dba.NameToProperty("second")},
+                                                             ms::PropertyPath{this->dba.NameToProperty("third")}},
+                                                 std::vector{ExpressionRange::Equal(ADD(LITERAL(21), LITERAL(21)))});
+  last_op->dba_ = &this->dba;
+
+  std::string expected_string{"ScanAllByLabelProperties (node :Label {first, second, third})"};
+  EXPECT_EQ(last_op->ToString(), expected_string);
+}
+
+TYPED_TEST(OperatorToStringTest, ScanAllByLabelCompositeProperty) {
+  std::shared_ptr<LogicalOperator> last_op;
+  last_op = std::make_shared<ScanAllByLabelProperties>(nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+                                                       std::vector{ms::PropertyPath{this->dba.NameToProperty("first")},
+                                                                   ms::PropertyPath{this->dba.NameToProperty("second")},
+                                                                   ms::PropertyPath{this->dba.NameToProperty("third")}},
+                                                       std::vector{ExpressionRange::IsNotNull()});
+  last_op->dba_ = &this->dba;
+
+  std::string expected_string{"ScanAllByLabelProperties (node :Label {first, second, third})"};
+  EXPECT_EQ(last_op->ToString(), expected_string);
+}
+
+TYPED_TEST(OperatorToStringTest, ScanAllByLabelNestedProperties_OverARange) {
+  std::shared_ptr<LogicalOperator> last_op;
+  last_op = std::make_shared<ScanAllByLabelProperties>(
+      nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+      std::vector{ms::PropertyPath{this->dba.NameToProperty("first"), this->dba.NameToProperty("second"),
+                                   this->dba.NameToProperty("third")}},
+      std::vector{ExpressionRange::Range(memgraph::utils::MakeBoundInclusive<Expression *>(LITERAL(1)),
+                                         memgraph::utils::MakeBoundExclusive<Expression *>(LITERAL(20)))});
+  last_op->dba_ = &this->dba;
+
+  std::string expected_string{"ScanAllByLabelProperties (node :Label {first.second.third})"};
+  EXPECT_EQ(last_op->ToString(), expected_string);
+}
+
+TYPED_TEST(OperatorToStringTest, ScanAllByLabelNestedProperties_Value) {
+  std::shared_ptr<LogicalOperator> last_op;
+  last_op = std::make_shared<ScanAllByLabelProperties>(
+      nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+      std::vector{ms::PropertyPath{this->dba.NameToProperty("first"), this->dba.NameToProperty("second"),
+                                   this->dba.NameToProperty("third")}},
+      std::vector{ExpressionRange::Equal(ADD(LITERAL(21), LITERAL(21)))});
+  last_op->dba_ = &this->dba;
+
+  std::string expected_string{"ScanAllByLabelProperties (node :Label {first.second.third})"};
+  EXPECT_EQ(last_op->ToString(), expected_string);
+}
+
+TYPED_TEST(OperatorToStringTest, ScanAllByLabelNestedProperty) {
+  std::shared_ptr<LogicalOperator> last_op;
+  last_op = std::make_shared<ScanAllByLabelProperties>(
+      nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+      std::vector{ms::PropertyPath{this->dba.NameToProperty("first"), this->dba.NameToProperty("second"),
+                                   this->dba.NameToProperty("third")}},
+      std::vector{ExpressionRange::IsNotNull()});
+  last_op->dba_ = &this->dba;
+
+  std::string expected_string{"ScanAllByLabelProperties (node :Label {first.second.third})"};
   EXPECT_EQ(last_op->ToString(), expected_string);
 }
 
@@ -184,10 +269,30 @@ TYPED_TEST(OperatorToStringTest, ExpandVariable) {
       false, LITERAL(2), LITERAL(5), false,
       ExpansionLambda{this->GetSymbol("inner_node"), this->GetSymbol("inner_edge"),
                       PROPERTY_LOOKUP(this->dba, "inner_node", this->dba.NameToProperty("unblocked"))},
-      std::nullopt, std::nullopt);
+      std::nullopt, std::nullopt, nullptr);
   last_op->dba_ = &this->dba;
 
   std::string expected_string{"BFSExpand (node1)-[edge:EdgeType1|:EdgeType2]->(node2)"};
+  EXPECT_EQ(last_op->ToString(), expected_string);
+}
+
+TYPED_TEST(OperatorToStringTest, KShortestExpand) {
+  auto node1_sym = this->GetSymbol("node1");
+  auto node2_sym = this->GetSymbol("node2");
+  auto edge_sym = this->GetSymbol("edge");
+
+  std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAll>(nullptr, node1_sym);
+  last_op = std::make_shared<ExpandVariable>(
+      last_op, node1_sym, node2_sym, edge_sym, EdgeAtom::Type::KSHORTEST, EdgeAtom::Direction::OUT,
+      std::vector<memgraph::storage::EdgeTypeId>{this->dba.NameToEdgeType("EdgeType1"),
+                                                 this->dba.NameToEdgeType("EdgeType2")},
+      false, nullptr, nullptr, false,
+      ExpansionLambda{this->GetSymbol("inner_node"), this->GetSymbol("inner_edge"),
+                      PROPERTY_LOOKUP(this->dba, "inner_node", this->dba.NameToProperty("unblocked"))},
+      std::nullopt, std::nullopt, nullptr);
+  last_op->dba_ = &this->dba;
+
+  std::string expected_string{"KShortest (node1)-[edge:EdgeType1|:EdgeType2]->(node2)"};
   EXPECT_EQ(last_op->ToString(), expected_string);
 }
 

@@ -109,7 +109,7 @@ nlohmann::json SerializeExternalPropertyValue(const storage::ExternalPropertyVal
 }
 
 nlohmann::json SerializeExternalPropertyValueVector(const std::vector<storage::ExternalPropertyValue> &values,
-                                                    memgraph::storage::Storage::Accessor *storage_acc) {
+                                                    storage::Storage::Accessor *storage_acc) {
   nlohmann::json array = nlohmann::json::array();
   for (const auto &value : values) {
     array.push_back(SerializeExternalPropertyValue(value, storage_acc));
@@ -118,7 +118,7 @@ nlohmann::json SerializeExternalPropertyValueVector(const std::vector<storage::E
 }
 
 nlohmann::json SerializeExternalPropertyValueMap(storage::ExternalPropertyValue::map_t const &map,
-                                                 memgraph::storage::Storage::Accessor *storage_acc) {
+                                                 storage::Storage::Accessor *storage_acc) {
   nlohmann::json data = nlohmann::json::object();
   data.emplace("type", static_cast<uint64_t>(ObjectType::MAP));
   data.emplace("value", nlohmann::json::object());
@@ -211,7 +211,7 @@ storage::ExternalPropertyValue::map_t DeserializeExternalPropertyValueMap(nlohma
   const nlohmann::json::object_t &values = data.at("value");
 
   auto property_values = storage::ExternalPropertyValue::map_t{};
-  property_values.reserve(values.size());
+  do_reserve(property_values, values.size());
   for (const auto &[key, value] : values) {
     property_values.emplace(key, DeserializeExternalPropertyValue(value, storage_acc));
   }

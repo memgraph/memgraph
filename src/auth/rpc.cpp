@@ -13,6 +13,7 @@
 
 #include <nlohmann/json.hpp>
 #include "auth/auth.hpp"
+#include "auth/profiles/user_profiles.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
 #include "utils/enum.hpp"
@@ -26,7 +27,8 @@ auth::Role LoadAuthRole(memgraph::slk::Reader *reader) {
   std::string tmp;
   memgraph::slk::Load(&tmp, reader);
   const auto json = nlohmann::json::parse(tmp);
-  return memgraph::auth::Role::Deserialize(json);
+  auto role = memgraph::auth::Role::Deserialize(json);
+  return role;
 }
 }  // namespace
 // Deserialize code for auth::Role
@@ -46,24 +48,52 @@ inline void Load<auth::Role>(std::optional<auth::Role> *obj, Reader *reader) {
 // Serialize code for auth::User
 void Save(const auth::User &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.Serialize().dump(), builder);
-  std::optional<auth::Role> role{};
-  if (const auto *role_ptr = self.role(); role_ptr) {
-    role.emplace(*role_ptr);
-  }
-  memgraph::slk::Save(role, builder);
+  std::vector<auth::Role> roles{self.roles().cbegin(), self.roles().cend()};
+  memgraph::slk::Save(roles, builder);
+#ifdef MG_ENTERPRISE
+  // MT roles
+  memgraph::slk::Save(self.GetMultiTenantRoleMappings(), builder);
+#endif
 }
+
 // Deserialize code for auth::User
 void Load(auth::User *self, memgraph::slk::Reader *reader) {
   std::string tmp;
   memgraph::slk::Load(&tmp, reader);
   const auto json = nlohmann::json::parse(tmp);
   *self = memgraph::auth::User::Deserialize(json);
-  std::optional<auth::Role> role{};
-  memgraph::slk::Load(&role, reader);
-  if (role)
-    self->SetRole(*role);
-  else
-    self->ClearRole();
+  std::vector<auth::Role> roles;
+  memgraph::slk::Load(&roles, reader);
+  self->ClearAllRoles();
+
+#ifdef MG_ENTERPRISE
+  // Handle multi-tenant roles (has to be done before adding all roles)
+  std::unordered_map<std::string, std::unordered_set<std::string>> db_role_map;
+  memgraph::slk::Load(&db_role_map, reader);
+  for (const auto &[db, role_names] : db_role_map) {
+    for (const auto &role : role_names) {
+      if (auto role_it =
+              std::find_if(roles.begin(), roles.end(), [&role](const auto &r) { return r.rolename() == role; });
+          role_it != roles.end()) {
+        self->AddMultiTenantRole(*role_it, db);
+      }
+    }
+  }
+#endif
+
+  // Handle global roles
+  for (const auto &role : roles) {
+    try {
+      self->AddRole(role);
+    } catch (const auth::AuthException &e) {
+      // Absorb the exception and continue with the next role (role already set as multi-tenant role)
+      continue;
+    }
+  }
+
+#ifdef MG_ENTERPRISE
+  // Profile management moved to UserProfiles class
+#endif
 }
 
 // Serialize code for auth::Auth::Config
@@ -88,19 +118,19 @@ void Load(auth::Auth::Config *self, memgraph::slk::Reader *reader) {
 // Serialize code for UpdateAuthDataReq
 void Save(const memgraph::replication::UpdateAuthDataReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.main_uuid, builder);
-  memgraph::slk::Save(self.epoch_id, builder);
   memgraph::slk::Save(self.expected_group_timestamp, builder);
   memgraph::slk::Save(self.new_group_timestamp, builder);
   memgraph::slk::Save(self.user, builder);
   memgraph::slk::Save(self.role, builder);
+  memgraph::slk::Save(self.profile, builder);
 }
 void Load(memgraph::replication::UpdateAuthDataReq *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->main_uuid, reader);
-  memgraph::slk::Load(&self->epoch_id, reader);
   memgraph::slk::Load(&self->expected_group_timestamp, reader);
   memgraph::slk::Load(&self->new_group_timestamp, reader);
   memgraph::slk::Load(&self->user, reader);
   memgraph::slk::Load(&self->role, reader);
+  memgraph::slk::Load(&self->profile, reader);
 }
 
 // Serialize code for UpdateAuthDataRes
@@ -114,20 +144,18 @@ void Load(memgraph::replication::UpdateAuthDataRes *self, memgraph::slk::Reader 
 // Serialize code for DropAuthDataReq
 void Save(const memgraph::replication::DropAuthDataReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.main_uuid, builder);
-  memgraph::slk::Save(self.epoch_id, builder);
   memgraph::slk::Save(self.expected_group_timestamp, builder);
   memgraph::slk::Save(self.new_group_timestamp, builder);
-  memgraph::slk::Save(utils::EnumToNum<2, uint8_t>(self.type), builder);
+  memgraph::slk::Save(utils::EnumToNum<3, uint8_t>(self.type), builder);
   memgraph::slk::Save(self.name, builder);
 }
 void Load(memgraph::replication::DropAuthDataReq *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->main_uuid, reader);
-  memgraph::slk::Load(&self->epoch_id, reader);
   memgraph::slk::Load(&self->expected_group_timestamp, reader);
   memgraph::slk::Load(&self->new_group_timestamp, reader);
   uint8_t type_tmp = 0;
   memgraph::slk::Load(&type_tmp, reader);
-  if (!utils::NumToEnum<2>(type_tmp, self->type)) {
+  if (!utils::NumToEnum<3>(type_tmp, self->type)) {
     throw SlkReaderException("Unexpected result line:{}!", __LINE__);
   }
   memgraph::slk::Load(&self->name, reader);
@@ -144,16 +172,6 @@ void Load(memgraph::replication::DropAuthDataRes *self, memgraph::slk::Reader *r
 }  // namespace memgraph::slk
 
 namespace memgraph::replication {
-
-constexpr utils::TypeInfo UpdateAuthDataReq::kType{utils::TypeId::REP_UPDATE_AUTH_DATA_REQ, "UpdateAuthDataReq",
-                                                   nullptr};
-
-constexpr utils::TypeInfo UpdateAuthDataRes::kType{utils::TypeId::REP_UPDATE_AUTH_DATA_RES, "UpdateAuthDataRes",
-                                                   nullptr};
-
-constexpr utils::TypeInfo DropAuthDataReq::kType{utils::TypeId::REP_DROP_AUTH_DATA_REQ, "DropAuthDataReq", nullptr};
-
-constexpr utils::TypeInfo DropAuthDataRes::kType{utils::TypeId::REP_DROP_AUTH_DATA_RES, "DropAuthDataRes", nullptr};
 
 void UpdateAuthDataReq::Save(const UpdateAuthDataReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);

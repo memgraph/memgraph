@@ -195,7 +195,14 @@ void to_json(nlohmann::json &j, CoordinatorClusterState const &state) {
 }
 
 void from_json(nlohmann::json const &j, CoordinatorClusterState &instance_state) {
-  instance_state.SetDataInstances(j.at(kDataInstances.data()).get<std::vector<DataInstanceContext>>());
+  // <= 3.2.1 && >= 3.4
+  if (j.contains(kDataInstances.data())) {
+    instance_state.SetDataInstances(j.at(kDataInstances.data()).get<std::vector<DataInstanceContext>>());
+  } else {
+    // 3.3
+    instance_state.SetDataInstances(j.at(kClusterState.data()).get<std::vector<DataInstanceContext>>());
+  }
+
   instance_state.SetCurrentMainUUID(j.at(kMainUUID.data()).get<utils::UUID>());
   instance_state.SetCoordinatorInstances(
       j.at(kCoordinatorInstances.data()).get<std::vector<CoordinatorInstanceContext>>());

@@ -48,6 +48,11 @@ def memgraph(**kwargs) -> Memgraph:
     memgraph.execute("DROP INDEX ON :Label(id0)")
     memgraph.execute("DROP INDEX ON :Label(id1)")
     memgraph.execute("DROP INDEX ON :Label(id2)")
+    memgraph.execute("DROP INDEX ON :Label1(a.b, c.d)")
+    memgraph.execute("DROP INDEX ON :Label2(a.b, c.d)")
+    memgraph.execute("DROP INDEX ON :Label1(a)")
+    memgraph.execute("DROP INDEX ON :Label1(a, b.c)")
+    memgraph.execute("DROP INDEX ON :Label1(a, b.c, d.e.f)")
 
     memgraph.drop_database()
     memgraph.drop_indexes()

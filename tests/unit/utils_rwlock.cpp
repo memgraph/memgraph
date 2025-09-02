@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,6 +14,7 @@
 #include "utils/rw_lock.hpp"
 #include "utils/timer.hpp"
 
+#include <barrier>
 #include <latch>
 #include <shared_mutex>
 #include <thread>
@@ -22,22 +23,33 @@ using namespace std::chrono_literals;
 
 TEST(RWLock, MultipleReaders) {
   memgraph::utils::RWLock rwlock(memgraph::utils::RWLock::Priority::READ);
+  constexpr int num_workers{3};
 
   std::vector<std::thread> threads;
-  memgraph::utils::Timer timer;
-  for (int i = 0; i < 3; ++i) {
-    threads.push_back(std::thread([&rwlock] {
+  threads.reserve(num_workers);
+
+  auto timer = memgraph::utils::Timer();
+  auto start = std::chrono::duration<double>();
+
+  std::barrier start_sync(num_workers, [&start, &timer]() { start = timer.Elapsed(); });
+  std::barrier end_sync(num_workers, [&start, &timer]() {
+    auto const elapsed = timer.Elapsed() - start;
+    EXPECT_LE(elapsed, 150ms);
+    EXPECT_GE(elapsed, 90ms);
+  });
+
+  for (int i = 0; i < num_workers; ++i) {
+    threads.emplace_back([&]() {
+      start_sync.arrive_and_wait();
       auto lock = std::shared_lock{rwlock};
       std::this_thread::sleep_for(100ms);
-    }));
+      end_sync.arrive_and_wait();
+    });
   }
 
-  for (int i = 0; i < 3; ++i) {
-    threads[i].join();
+  for (auto &thread : threads) {
+    thread.join();
   }
-
-  EXPECT_LE(timer.Elapsed(), 150ms);
-  EXPECT_GE(timer.Elapsed(), 90ms);
 }
 
 TEST(RWLock, SingleWriter) {

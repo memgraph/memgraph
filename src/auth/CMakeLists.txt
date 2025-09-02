@@ -6,6 +6,7 @@ target_sources(mg-auth PRIVATE
     module.cpp
     rpc.cpp
     replication_handlers.cpp
+    profiles/user_profiles.cpp
 )
 
 find_package(Seccomp REQUIRED)

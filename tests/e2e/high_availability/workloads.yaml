@@ -26,3 +26,15 @@ workloads:
   - name: "HA durability"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["high_availability/durability.py"]
+
+  - name: "Strict sync mode"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["high_availability/strict_sync.py"]
+
+  - name: "Test replication lag"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["high_availability/replication_lag.py"]
+
+  - name: "HA TTL"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["high_availability/ttl.py"]

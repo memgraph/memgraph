@@ -42,6 +42,9 @@
 #include "utils/small_vector.hpp"
 #include "utils/variant_helpers.hpp"
 
+namespace r = ranges;
+namespace rv = r::views;
+
 namespace memgraph::storage {
 
 namespace {
@@ -166,20 +169,7 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
     storage_->stored_node_labels_.try_insert(label);
   }
 
-  if (storage_->config_.salient.items.enable_label_index_auto_creation &&
-      !storage_->indices_.label_index_->IndexExists(label)) {
-    storage_->labels_to_auto_index_.WithLock([&](auto &label_indices) {
-      if (auto it = label_indices.find(label); it != label_indices.end()) {
-        const bool this_txn_already_encountered_label = transaction_->introduced_new_label_index_.contains(label);
-        if (!this_txn_already_encountered_label) {
-          ++(it->second);
-        }
-        return;
-      }
-      label_indices.insert({label, 1});
-    });
-    transaction_->introduced_new_label_index_.insert(label);
-  }
+  transaction_->async_index_helper_.Track(label);
 
   /// TODO: some by pointers, some by reference => not good, make it better
   storage_->constraints_.unique_constraints_->UpdateOnAddLabel(label, *vertex_, transaction_->start_timestamp);
@@ -436,44 +426,44 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
 
   if (vertex_->deleted) return Error::DELETED_OBJECT;
   bool result{false};
-  utils::AtomicMemoryBlock(
-      [&result, &properties, storage = storage_, transaction = transaction_, vertex = vertex_, &schema_acc]() {
-        if (!vertex->properties.InitProperties(properties)) {
-          result = false;
-          return;
+  utils::AtomicMemoryBlock([&result, &properties, storage = storage_, transaction = transaction_, vertex = vertex_,
+                            &schema_acc]() {
+    if (!vertex->properties.InitProperties(properties)) {
+      result = false;
+      return;
+    }
+    for (const auto &[property, new_value] : properties) {
+      CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
+      // TODO: defer until once all properties have been set, to make fewer entries ?
+      storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction);
+      transaction->UpdateOnSetProperty(property, PropertyValue{}, new_value, vertex);
+      if (transaction->constraint_verification_info) {
+        if (!new_value.IsNull()) {
+          transaction->constraint_verification_info->AddedProperty(vertex);
+        } else {
+          transaction->constraint_verification_info->RemovedProperty(vertex);
         }
-        for (const auto &[property, new_value] : properties) {
-          CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
-          // TODO: defer until once all properties have been set, to make fewer entries ?
-          storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction);
-          transaction->UpdateOnSetProperty(property, PropertyValue{}, new_value, vertex);
-          if (transaction->constraint_verification_info) {
-            if (!new_value.IsNull()) {
-              transaction->constraint_verification_info->AddedProperty(vertex);
-            } else {
-              transaction->constraint_verification_info->RemovedProperty(vertex);
-            }
-          }
-          if (schema_acc) {
-            std::visit(utils::Overloaded{[vertex, property, new_type = ExtendedPropertyType{new_value}](
-                                             SchemaInfo::VertexModifyingAccessor &acc) {
-                                           acc.SetProperty(vertex, property, new_type, ExtendedPropertyType{});
-                                         },
-                                         [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
-                       *schema_acc);
-          }
+      }
+      if (schema_acc) {
+        std::visit(utils::Overloaded{[vertex = vertex, property = property, new_type = ExtendedPropertyType{new_value}](
+                                         SchemaInfo::VertexModifyingAccessor &acc) {
+                                       acc.SetProperty(vertex, property, new_type, ExtendedPropertyType{});
+                                     },
+                                     [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                   *schema_acc);
+      }
+    }
+    // TODO If not performant enough there is also InitProperty()
+    if (storage->constraints_.HasTypeConstraints()) {
+      for (auto const &[property_id, property_value] : properties) {
+        if (auto maybe_violation =
+                storage->constraints_.type_constraints_->Validate(*vertex, property_id, property_value)) {
+          HandleTypeConstraintViolation(storage, *maybe_violation);
         }
-        // TODO If not performant enough there is also InitProperty()
-        if (storage->constraints_.HasTypeConstraints()) {
-          for (auto const &[property_id, property_value] : properties) {
-            if (auto maybe_violation =
-                    storage->constraints_.type_constraints_->Validate(*vertex, property_id, property_value)) {
-              HandleTypeConstraintViolation(storage, *maybe_violation);
-            }
-          }
-        }
-        result = true;
-      });
+      }
+    }
+    result = true;
+  });
 
   return result;
 }
@@ -691,6 +681,64 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
   if (!exists) return Error::NONEXISTENT_OBJECT;
   if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
   return std::move(properties);
+}
+
+Result<std::map<PropertyId, PropertyValue>> VertexAccessor::PropertiesByPropertyIds(
+    std::span<PropertyId const> properties, View view) const {
+  bool exists = true;
+  bool deleted = false;
+  std::vector<PropertyValue> property_values;
+  property_values.reserve(properties.size());
+  Delta *delta = nullptr;
+  {
+    auto guard = std::shared_lock{vertex_->lock};
+    deleted = vertex_->deleted;
+    auto property_paths = properties |
+                          rv::transform([](PropertyId property) { return storage::PropertyPath{property}; }) |
+                          r::to<std::vector<storage::PropertyPath>>();
+    property_values = vertex_->properties.ExtractPropertyValuesMissingAsNull(property_paths);
+    delta = vertex_->delta;
+  }
+  auto properties_map =
+      rv::zip(properties, property_values) | rv::transform([](const auto &property_id_value_pair) {
+        return std::make_pair(std::get<0>(property_id_value_pair), std::get<1>(property_id_value_pair));
+      }) |
+      r::to<std::map<PropertyId, PropertyValue>>();
+
+  // Checking cache has a cost, only do it if we have any deltas
+  // if we have no deltas then what we already have from the vertex is correct.
+  if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
+    // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
+    // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
+    auto const useCache = transaction_->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;
+    if (useCache) {
+      auto const &cache = transaction_->manyDeltasCache;
+      if (auto resError = HasError(view, cache, vertex_, for_deleted_); resError) return *resError;
+      // Note: We don't have specific cache for properties by IDs, so we skip caching for now
+    }
+
+    auto const n_processed =
+        ApplyDeltasForRead(transaction_, delta, view, [&exists, &deleted, &properties_map](const Delta &delta) {
+          // clang-format off
+          DeltaDispatch(delta, utils::ChainedOverloaded{
+            Deleted_ActionMethod(deleted),
+            Exists_ActionMethod(exists),
+            Properties_ActionMethod(properties_map)
+          });
+          // clang-format on
+        });
+
+    if (useCache && n_processed >= FLAGS_delta_chain_cache_threshold) {
+      auto &cache = transaction_->manyDeltasCache;
+      cache.StoreExists(view, vertex_, exists);
+      cache.StoreDeleted(view, vertex_, deleted);
+      // Note: We don't cache this specific subset of properties for now
+    }
+  }
+
+  if (!exists) return Error::NONEXISTENT_OBJECT;
+  if (!for_deleted_ && deleted) return Error::DELETED_OBJECT;
+  return std::move(properties_map);
 }
 
 auto VertexAccessor::BuildResultOutEdges(edge_store const &out_edges) const {

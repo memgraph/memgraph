@@ -62,6 +62,13 @@ def show_users_func(cursor):
     return func
 
 
+def show_current_user_func(cursor):
+    def func():
+        return set(execute_and_fetch_all(cursor, "SHOW CURRENT USER;"))
+
+    return func
+
+
 def show_roles_func(cursor):
     def func():
         return set(execute_and_fetch_all(cursor, "SHOW ROLES;"))
@@ -85,7 +92,7 @@ def show_role_for_user_func(cursor, username):
 
 def show_privileges_func(cursor, user_or_role):
     def func():
-        return set(execute_and_fetch_all(cursor, f"SHOW PRIVILEGES FOR {user_or_role};"))
+        return set(execute_and_fetch_all(cursor, f"SHOW PRIVILEGES FOR {user_or_role} ON MAIN;"))
 
     return func
 
@@ -110,6 +117,41 @@ def try_and_count(cursor, query):
     except:
         return 1
     return 0
+
+
+def show_profiles_func(cursor):
+    def func():
+        return set(execute_and_fetch_all(cursor, "SHOW PROFILES;"))
+
+    return func
+
+
+def show_profile_func(cursor, profilename):
+    def func():
+        return set(execute_and_fetch_all(cursor, f"SHOW PROFILE {profilename};"))
+
+    return func
+
+
+def show_profile_for_user_func(cursor, username):
+    def func():
+        return set(execute_and_fetch_all(cursor, f"SHOW PROFILE FOR {username};"))
+
+    return func
+
+
+def show_users_for_profile_func(cursor, profilename):
+    def func():
+        return set(execute_and_fetch_all(cursor, f"SHOW USERS FOR PROFILE {profilename};"))
+
+    return func
+
+
+def show_resource_usage_func(cursor, user):
+    def func():
+        return set(execute_and_fetch_all(cursor, f"SHOW RESOURCE USAGE FOR {user};"))
+
+    return func
 
 
 def only_main_queries(cursor):
@@ -144,7 +186,7 @@ def main_and_repl_queries(cursor):
     try_and_count(cursor, f"SHOW ROLES")
     try_and_count(cursor, f"SHOW USERS FOR ROLE role_name")
     try_and_count(cursor, f"SHOW ROLE FOR user_name")
-    try_and_count(cursor, f"SHOW PRIVILEGES FOR role_name")
+    try_and_count(cursor, f"SHOW PRIVILEGES FOR role_name ON MAIN")
     try_and_count(cursor, f"SHOW DATABASE PRIVILEGES FOR user_name")
 
     return n_exceptions
@@ -366,6 +408,7 @@ def test_manual_roles_recovery(connection, test_name):
     # 1/ Check that both MAIN and REPLICA have user1 and user2
     # 2/ Check that role1 and role2 are replicated
     # 3/ Check that user1 has role1
+    # 4/ Test multiple roles and role syntax compatibility
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
@@ -379,6 +422,9 @@ def test_manual_roles_recovery(connection, test_name):
             "data_directory": f"{get_data_path(file, test_name)}/replica1",
             "setup_queries": [
                 "CREATE ROLE role3;",
+                "CREATE ROLE role6;",
+                "CREATE USER user3;",
+                "SET ROLES FOR user3 TO role3, role6;",
                 f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};",
             ],
         },
@@ -392,8 +438,12 @@ def test_manual_roles_recovery(connection, test_name):
             "data_directory": f"{get_data_path(file, test_name)}/replica2",
             "setup_queries": [
                 "CREATE ROLE role4;",
+                "CREATE ROLE role5;",
+                "CREATE ROLE role7;",
                 "CREATE USER user4;",
                 "SET ROLE FOR user4 TO role4;",
+                "SET ROLE FOR user4 TO role4, role5;",
+                "SET ROLES FOR user4 TO role4, role5, role7;",
                 f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};",
             ],
         },
@@ -408,8 +458,12 @@ def test_manual_roles_recovery(connection, test_name):
             "setup_queries": [
                 "CREATE ROLE role1;",
                 "CREATE ROLE role2;",
+                "CREATE ROLE role3;",
+                "CREATE ROLE role8;",
                 "CREATE USER user2;",
                 "SET ROLE FOR user2 TO role2;",
+                "SET ROLE FOR user2 TO role2, role3;",
+                "SET ROLES FOR user2 TO role2, role3, role8;",
                 f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';",
                 f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';",
             ],
@@ -430,12 +484,12 @@ def test_manual_roles_recovery(connection, test_name):
     mg_sleep_and_assert(expected_data, show_users_func(cursor_replica_2))
 
     # 2/
-    expected_data = {("role2",), ("role1",)}
+    expected_data = {("role1",), ("role2",), ("role3",), ("role8",)}
     mg_sleep_and_assert(expected_data, show_roles_func(cursor_replica_1))
     mg_sleep_and_assert(expected_data, show_roles_func(cursor_replica_2))
 
     # 3/
-    expected_data = {("role2",)}
+    expected_data = {("role2",), ("role3",), ("role8",)}
     mg_sleep_and_assert(
         expected_data,
         show_role_for_user_func(cursor_replica_1, "user2"),
@@ -444,6 +498,40 @@ def test_manual_roles_recovery(connection, test_name):
         expected_data,
         show_role_for_user_func(cursor_replica_2, "user2"),
     )
+
+    # 4/ Test multiple roles and role syntax compatibility
+    # Test that both SET ROLE and SET ROLES work the same
+    cursor_main = connection(BOLT_PORTS["main"], "main", "user2").cursor()
+
+    # Test SET ROLE vs SET ROLES
+    execute_and_fetch_all(cursor_main, "CREATE USER test_user")
+    execute_and_fetch_all(cursor_main, "CREATE ROLE test_role1")
+    execute_and_fetch_all(cursor_main, "CREATE ROLE test_role2")
+
+    # Test SET ROLE
+    execute_and_fetch_all(cursor_main, "SET ROLE FOR test_user TO test_role1, test_role2")
+    results1 = execute_and_fetch_all(cursor_main, "SHOW ROLE FOR test_user")
+    role_set1 = {row[0] for row in results1 if row[0] != "null"}
+
+    # Test SET ROLES
+    execute_and_fetch_all(cursor_main, "CLEAR ROLE FOR test_user")
+    execute_and_fetch_all(cursor_main, "SET ROLES FOR test_user TO test_role1, test_role2")
+    results2 = execute_and_fetch_all(cursor_main, "SHOW ROLES FOR test_user")
+    role_set2 = {row[0] for row in results2 if row[0] != "null"}
+
+    # Both should show the same roles
+    assert role_set1 == role_set2
+    assert role_set1 == {"test_role1", "test_role2"}
+
+    # Test CLEAR ROLE vs CLEAR ROLES
+    execute_and_fetch_all(cursor_main, "CLEAR ROLE FOR test_user")
+    results3 = execute_and_fetch_all(cursor_main, "SHOW ROLE FOR test_user")
+    assert len(results3) == 1 and results3[0][0] == "null"
+
+    execute_and_fetch_all(cursor_main, "SET ROLES FOR test_user TO test_role1, test_role2")
+    execute_and_fetch_all(cursor_main, "CLEAR ROLES FOR test_user")
+    results4 = execute_and_fetch_all(cursor_main, "SHOW ROLES FOR test_user")
+    assert len(results4) == 1 and results4[0][0] == "null"
 
 
 def test_auth_config_recovery(connection, test_name):
@@ -586,7 +674,7 @@ def test_auth_replication(connection, test_name):
 
     # 0/
     interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, keep_directories=False)
-    cursor_main = connection(BOLT_PORTS["main"], "main", "user1").cursor()
+    cursor_main = connection(BOLT_PORTS["main"], "main").cursor()
     cursor_replica1 = connection(BOLT_PORTS["replica_1"], "replica").cursor()
     cursor_replica2 = connection(BOLT_PORTS["replica_2"], "replica").cursor()
 
@@ -684,6 +772,33 @@ def test_auth_replication(connection, test_name):
         },
     )
 
+    # Test multiple roles
+    execute_and_fetch_all(cursor_main, "CREATE ROLE role4")
+    execute_and_fetch_all(cursor_main, "CREATE ROLE role5")
+    execute_and_fetch_all(cursor_main, "CREATE USER user5")
+    execute_and_fetch_all(cursor_main, "SET ROLE FOR user5 TO role3, role4, role5")
+    check(partial(show_role_for_user_func, username="user5"), {("role3",), ("role4",), ("role5",)})
+    check(
+        partial(show_users_for_role_func, rolename="role3"),
+        {
+            ("user3",),
+            ("user3b",),
+            ("user5",),
+        },
+    )
+    check(
+        partial(show_users_for_role_func, rolename="role4"),
+        {
+            ("user5",),
+        },
+    )
+    check(
+        partial(show_users_for_role_func, rolename="role5"),
+        {
+            ("user5",),
+        },
+    )
+
     # CLEAR ROLE
     execute_and_fetch_all(cursor_main, "CLEAR ROLE FOR user3")
     check(partial(show_role_for_user_func, username="user3"), {("null",)})
@@ -691,6 +806,7 @@ def test_auth_replication(connection, test_name):
         partial(show_users_for_role_func, rolename="role3"),
         {
             ("user3b",),
+            ("user5",),
         },
     )
 
@@ -820,6 +936,472 @@ def test_auth_replication(connection, test_name):
         execute_and_fetch_all(connection(BOLT_PORTS["replica_2"], "replica", "user4").cursor(), "SHOW DATABASE")[0][0]
         == "auth_test"
     )
+
+    # Test multi-tenant role functionality
+    execute_and_fetch_all(cursor_main, "CREATE USER mt_user")
+    execute_and_fetch_all(cursor_main, "CREATE ROLE mt_role1")
+    execute_and_fetch_all(cursor_main, "CREATE ROLE mt_role2")
+    execute_and_fetch_all(cursor_main, "CREATE DATABASE mt_db1")
+    execute_and_fetch_all(cursor_main, "CREATE DATABASE mt_db2")
+
+    # Grant database access to roles
+    execute_and_fetch_all(cursor_main, "GRANT DATABASE mt_db1 TO mt_role1")
+    execute_and_fetch_all(cursor_main, "GRANT DATABASE mt_db2 TO mt_role2")
+
+    # Test setting multi-tenant roles
+    execute_and_fetch_all(cursor_main, "SET ROLE FOR mt_user TO mt_role1 ON mt_db1")
+    execute_and_fetch_all(cursor_main, "SET ROLE FOR mt_user TO mt_role2 ON mt_db2")
+
+    # Test SHOW ROLE/ROLES ON DATABASE
+    def get_mt_roles(cursor, username, database):
+        def func():
+            results = execute_and_fetch_all(cursor, f"SHOW ROLE FOR {username} ON DATABASE {database}")
+            print(f"SHOW ROLE FOR {username} ON DATABASE {database}")
+            print(results)
+            role_set = set()
+            for row in results:
+                if row[0] != "null":
+                    role_set.add(row[0])
+            return role_set
+
+        return func
+
+    # Check roles are replicated
+    check(partial(get_mt_roles, username="mt_user", database="mt_db1"), {"mt_role1"})
+    check(partial(get_mt_roles, username="mt_user", database="mt_db2"), {"mt_role2"})
+
+    # Update description with username
+    execute_and_fetch_all(cursor_main, "CREATE USER superadmin")
+    execute_and_fetch_all(cursor_main, "GRANT ALL PRIVILEGES TO superadmin")
+    execute_and_fetch_all(cursor_main, "GRANT DATABASE * TO superadmin")
+    MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL["main"]["username"] = "superadmin"
+    MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL["main"]["setup_queries"].clear()
+    MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL["replica_1"]["username"] = "superadmin"
+    MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL["replica_1"]["setup_queries"].clear()
+    MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL["replica_2"]["username"] = "superadmin"
+    MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL["replica_2"]["setup_queries"].clear()
+
+    # Test restart
+    interactive_mg_runner.stop_all(keep_directories=True)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, keep_directories=True)
+    cursor_main = connection(BOLT_PORTS["main"], "main", "superadmin").cursor()
+    cursor_replica1 = connection(BOLT_PORTS["replica_1"], "replica", "superadmin").cursor()
+    cursor_replica2 = connection(BOLT_PORTS["replica_2"], "replica", "superadmin").cursor()
+    assert get_mt_roles(cursor_main, username="mt_user", database="mt_db1")() == {"mt_role1"}
+    assert get_mt_roles(cursor_main, username="mt_user", database="mt_db2")() == {"mt_role2"}
+    check(partial(get_mt_roles, username="mt_user", database="mt_db1"), {"mt_role1"})
+    check(partial(get_mt_roles, username="mt_user", database="mt_db2"), {"mt_role2"})
+
+    # Test clearing multi-tenant roles
+    execute_and_fetch_all(cursor_main, "CLEAR ROLE FOR mt_user ON mt_db1")
+    check(partial(get_mt_roles, username="mt_user", database="mt_db1"), set())
+    check(partial(get_mt_roles, username="mt_user", database="mt_db2"), {"mt_role2"})
+
+    # Test restart
+    interactive_mg_runner.stop_all(keep_directories=True)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, keep_directories=True)
+    cursor_main = connection(BOLT_PORTS["main"], "main", "superadmin").cursor()
+    cursor_replica1 = connection(BOLT_PORTS["replica_1"], "replica", "superadmin").cursor()
+    cursor_replica2 = connection(BOLT_PORTS["replica_2"], "replica", "superadmin").cursor()
+    assert get_mt_roles(cursor_main, username="mt_user", database="mt_db1")() == set()
+    assert get_mt_roles(cursor_main, username="mt_user", database="mt_db2")() == {"mt_role2"}
+    check(partial(get_mt_roles, username="mt_user", database="mt_db1"), set())
+    check(partial(get_mt_roles, username="mt_user", database="mt_db2"), {"mt_role2"})
+
+    # Test role syntax compatibility with multi-tenant roles
+    execute_and_fetch_all(cursor_main, "CLEAR ROLE FOR mt_user ON mt_db1")
+    execute_and_fetch_all(cursor_main, "GRANT DATABASE * TO mt_role2")
+    execute_and_fetch_all(cursor_main, "SET ROLES FOR mt_user TO mt_role1, mt_role2 ON mt_db1")
+    check(partial(get_mt_roles, username="mt_user", database="mt_db1"), {"mt_role1", "mt_role2"})
+    check(partial(get_mt_roles, username="mt_user", database="mt_db2"), {"mt_role2"})
+
+    # Remove role
+    execute_and_fetch_all(cursor_main, "DROP ROLE mt_role2")
+    check(partial(get_mt_roles, username="mt_user", database="mt_db1"), {"mt_role1"})
+    check(partial(get_mt_roles, username="mt_user", database="mt_db2"), set())
+
+    # Test CLEAR ROLES (plural form)
+    execute_and_fetch_all(cursor_main, "CLEAR ROLES FOR mt_user ON mt_db1")
+    check(partial(get_mt_roles, username="mt_user", database="mt_db1"), set())
+
+    # Test error handling for role without database access
+    try:
+        execute_and_fetch_all(cursor_main, "SET ROLE FOR mt_user TO mt_role1 ON mt_db2")
+        assert False, "Expected exception when setting role without database access"
+    except mgclient.DatabaseError:
+        pass  # Expected
+
+    # Clean up
+    interactive_mg_runner.stop_all(keep_directories=False)
+
+
+def test_user_profile_replication(connection, test_name):
+    # Goal: show that user profiles get replicated
+
+    MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
+        "replica_1": {
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['replica_1']}",
+                "--log-level=TRACE",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/replica1.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica1",
+            "username": "user1",
+            "setup_queries": [
+                f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_1']};",
+            ],
+        },
+        "replica_2": {
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['replica_2']}",
+                "--log-level=TRACE",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/replica2.log",
+            "data_directory": f"{get_data_path(file, test_name)}/replica2",
+            "username": "user1",
+            "setup_queries": [
+                f"SET REPLICATION ROLE TO REPLICA WITH PORT {REPLICATION_PORTS['replica_2']};",
+            ],
+        },
+        "main": {
+            "args": [
+                "--bolt-port",
+                f"{BOLT_PORTS['main']}",
+                "--log-level=TRACE",
+            ],
+            "log_file": f"{get_logs_path(file, test_name)}/main.log",
+            "data_directory": f"{get_data_path(file, test_name)}/main",
+            "username": "user1",
+            "setup_queries": [
+                f"REGISTER REPLICA replica_1 SYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_1']}';",
+                f"REGISTER REPLICA replica_2 ASYNC TO '127.0.0.1:{REPLICATION_PORTS['replica_2']}';",
+            ],
+        },
+    }
+
+    # 0/
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, keep_directories=True)
+    cursor_main = connection(BOLT_PORTS["main"], "main", "user1").cursor()
+    cursor_replica1 = connection(BOLT_PORTS["replica_1"], "replica").cursor()
+    cursor_replica2 = connection(BOLT_PORTS["replica_2"], "replica").cursor()
+
+    def check(f, expected_data):
+        # REPLICA 1 is SYNC, should already be ready
+        assert expected_data == f(cursor_replica1)()
+        # REPLICA 2 is ASYNC, should wait for it
+        mg_sleep_and_assert(expected_data, f(cursor_replica2))
+
+    def resource_check(instance_name, instance_type, username, expected_usage):
+        cursor = connection(BOLT_PORTS[instance_name], instance_type, username).cursor()
+        usage = show_resource_usage_func(cursor, username)()
+        assert expected_usage == usage
+
+    def all_resource_check(user1_usage=None, user2_usage=None):
+        if user1_usage is not None:
+            resource_check("main", "main", "user1", user1_usage)
+            resource_check("replica_1", "replica", "user1", user1_usage)
+            resource_check("replica_2", "replica", "user1", user1_usage)
+        if user2_usage is not None:
+            resource_check("main", "main", "user2", user2_usage)
+            resource_check("replica_1", "replica", "user2", user2_usage)
+            resource_check("replica_2", "replica", "user2", user2_usage)
+
+    # 1/
+
+    # CREATE PROFILES
+    execute_and_fetch_all(cursor_main, "CREATE PROFILE p1")
+    execute_and_fetch_all(cursor_main, "CREATE PROFILE p2 LIMIT SESSIONS 1, TRANSACTIONS_MEMORY 100MB")
+    check(
+        show_profiles_func,
+        {
+            ("p2",),
+            ("p1",),
+        },
+    )
+    check(
+        partial(show_profile_func, profilename="p1"),
+        {("sessions", "UNLIMITED"), ("transactions_memory", "UNLIMITED")},
+    )
+    check(
+        partial(show_profile_func, profilename="p2"),
+        {("sessions", 1), ("transactions_memory", "100MB")},
+    )
+
+    # UPDATE PROFILES
+    execute_and_fetch_all(cursor_main, "UPDATE PROFILE p1 LIMIT SESSIONS 10, TRANSACTIONS_MEMORY 1000MB")
+    execute_and_fetch_all(cursor_main, "UPDATE PROFILE p2 LIMIT SESSIONS 2, TRANSACTIONS_MEMORY 200MB")
+    check(
+        partial(show_profile_func, profilename="p1"),
+        {("sessions", 10), ("transactions_memory", "1000MB")},
+    )
+    check(
+        partial(show_profile_func, profilename="p2"),
+        {("sessions", 2), ("transactions_memory", "200MB")},
+    )
+
+    # DROP PROFILES
+    execute_and_fetch_all(cursor_main, "DROP PROFILE p1")
+    check(
+        show_profiles_func,
+        {
+            ("p2",),
+        },
+    )
+
+    # CREATE USER
+    execute_and_fetch_all(cursor_main, "CREATE USER user1")
+    execute_and_fetch_all(cursor_main, "CREATE USER user2")
+    execute_and_fetch_all(cursor_main, "GRANT PROFILE_RESTRICTION TO user2")
+    execute_and_fetch_all(cursor_main, "GRANT AUTH TO user2")
+    check(
+        show_users_func,
+        {
+            ("user2",),
+            ("user1",),
+        },
+    )
+
+    all_resource_check(
+        {("transactions_memory", None, "UNLIMITED"), ("sessions", 1, "UNLIMITED")},
+        {("transactions_memory", None, "UNLIMITED"), ("sessions", 1, "UNLIMITED")},
+    )
+
+    # SET PROFILES
+    execute_and_fetch_all(cursor_main, "SET PROFILE FOR user1 TO p2")
+    execute_and_fetch_all(cursor_main, "SET PROFILE FOR user2 TO p2")
+    check(
+        partial(show_profile_for_user_func, username="user1"),
+        {("p2",)},
+    )
+    check(
+        partial(show_profile_for_user_func, username="user2"),
+        {("p2",)},
+    )
+    check(
+        partial(show_users_for_profile_func, profilename="p2"),
+        {
+            ("user2",),
+            ("user1",),
+        },
+    )
+
+    all_resource_check(
+        {("transactions_memory", "0B", "200.00MiB"), ("sessions", 1, 2)},
+        {("transactions_memory", "0B", "200.00MiB"), ("sessions", 1, 2)},
+    )
+
+    # CLEAR PROFILE
+    execute_and_fetch_all(cursor_main, "CLEAR PROFILE FOR user1")
+    check(
+        partial(show_profile_for_user_func, username="user1"),
+        {("null",)},
+    )
+    check(
+        partial(show_profile_for_user_func, username="user2"),
+        {("p2",)},
+    )
+    check(
+        partial(show_users_for_profile_func, profilename="p2"),
+        {
+            ("user2",),
+        },
+    )
+
+    all_resource_check(
+        {("transactions_memory", None, "UNLIMITED"), ("sessions", 1, "UNLIMITED")},
+        {("transactions_memory", "0B", "200.00MiB"), ("sessions", 1, 2)},
+    )
+
+    # Restart cluster and check values
+    interactive_mg_runner.stop_all(keep_directories=True)
+    MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL["main"]["setup_queries"] = []
+    MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL["replica_1"]["setup_queries"] = []
+    MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL["replica_2"]["setup_queries"] = []
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL, keep_directories=False)
+    cursor_main = connection(BOLT_PORTS["main"], "main", "user1").cursor()
+    cursor_replica1 = connection(BOLT_PORTS["replica_1"], "replica", "user1").cursor()
+    cursor_replica2 = connection(BOLT_PORTS["replica_2"], "replica", "user1").cursor()
+    check(
+        show_profiles_func,
+        {
+            ("p2",),
+        },
+    )
+    check(
+        partial(show_profile_func, profilename="p2"),
+        {("sessions", 2), ("transactions_memory", "200MB")},
+    )
+    check(
+        show_profiles_func,
+        {
+            ("p2",),
+        },
+    )
+    check(
+        partial(show_profile_for_user_func, username="user2"),
+        {("p2",)},
+    )
+    check(
+        partial(show_users_for_profile_func, profilename="p2"),
+        {
+            ("user2",),
+        },
+    )
+
+    all_resource_check(
+        {("transactions_memory", None, "UNLIMITED"), ("sessions", 2, "UNLIMITED")},
+        {("transactions_memory", "0B", "200.00MiB"), ("sessions", 1, 2)},
+    )
+
+    # DROP USER WITH PROFILE (profile map is unrelated to existing users)
+    execute_and_fetch_all(cursor_main, "DROP USER user2")
+    check(
+        partial(show_users_for_profile_func, profilename="p2"),
+        {
+            ("user2",),
+        },
+    )
+
+    all_resource_check({("transactions_memory", None, "UNLIMITED"), ("sessions", 2, "UNLIMITED")})
+
+    # DROP PROFILE WITH USER
+    execute_and_fetch_all(cursor_main, "SET PROFILE FOR user1 TO p2")
+    check(
+        partial(show_profile_for_user_func, username="user1"),
+        {("p2",)},
+    )
+    all_resource_check({("transactions_memory", "0B", "200.00MiB"), ("sessions", 2, 2)})
+
+    execute_and_fetch_all(cursor_main, "DROP PROFILE p2")
+    check(
+        partial(show_profile_for_user_func, username="user1"),
+        {("null",)},
+    )
+    check(
+        show_profiles_func,
+        set(),  # empty
+    )
+
+    all_resource_check({("transactions_memory", None, "UNLIMITED"), ("sessions", 2, "UNLIMITED")})
+
+    # CREATE ROLE
+    execute_and_fetch_all(cursor_main, "CREATE ROLE role1")
+    check(
+        show_roles_func,
+        {
+            ("role1",),
+        },
+    )
+
+    execute_and_fetch_all(cursor_main, "SET ROLE FOR user1 TO role1")
+    check(
+        partial(show_role_for_user_func, username="user1"),
+        {
+            ("role1",),
+        },
+    )
+
+    execute_and_fetch_all(cursor_main, "CREATE PROFILE p1 LIMIT SESSIONS 10, TRANSACTIONS_MEMORY 1000MB")
+    check(
+        partial(show_profile_func, profilename="p1"),
+        {("sessions", 10), ("transactions_memory", "1000MB")},
+    )
+
+    execute_and_fetch_all(cursor_main, "SET PROFILE FOR role1 TO p1")
+    check(
+        partial(show_profile_for_user_func, username="role1"),
+        {
+            ("p1",),
+        },
+    )
+    # check(
+    #     partial(show_profile_for_user_func, username="user1"),
+    #     {
+    #         ("p1",),
+    #     },
+    # )
+
+    # NOTE: Role profiles are disabled for now
+    # all_resource_check({("transactions_memory", "0B", "1000.00MiB"), ("sessions", 2, 10)})
+
+    execute_and_fetch_all(cursor_main, "UPDATE PROFILE p1 LIMIT sessions 3")
+    check(
+        partial(show_profile_func, profilename="p1"),
+        {("sessions", 3), ("transactions_memory", "1000MB")},
+    )
+    # all_resource_check({("transactions_memory", "0B", "1000.00MiB"), ("sessions", 2, 3)})
+
+    execute_and_fetch_all(cursor_main, "CREATE PROFILE p2 LIMIT SESSIONS 20, TRANSACTIONS_MEMORY 200MB")
+    check(
+        partial(show_profile_func, profilename="p2"),
+        {("sessions", 20), ("transactions_memory", "200MB")},
+    )
+
+    execute_and_fetch_all(cursor_main, "SET PROFILE FOR user1 TO p2")
+    check(
+        partial(show_profile_for_user_func, username="user1"),
+        {
+            ("p2",),
+            # ("p2\np1",),
+        },
+    )
+
+    # all_resource_check({("transactions_memory", "0B", "200.00MiB"), ("sessions", 2, 3)})
+    all_resource_check({("transactions_memory", "0B", "200.00MiB"), ("sessions", 2, 20)})
+
+    # drop profile of user
+
+    execute_and_fetch_all(cursor_main, "DROP ROLE role1")
+    check(
+        partial(show_role_for_user_func, username="user1"),
+        {
+            ("null",),
+        },
+    )
+    check(
+        partial(show_profile_for_user_func, username="user1"),
+        {
+            ("p2",),
+            # ("p2\np1",),
+        },
+    )
+
+    all_resource_check({("transactions_memory", "0B", "200.00MiB"), ("sessions", 2, 20)})
+
+    # execute_and_fetch_all(cursor_main, "CREATE ROLE role1")
+    # execute_and_fetch_all(cursor_main, "SET ROLE FOR user1 TO role1")
+    # execute_and_fetch_all(cursor_main, "SET PROFILE FOR role1 TO p1")
+    # check(
+    #     partial(show_profile_for_user_func, username="role1"),
+    #     {
+    #         ("p1",),
+    #     },
+    # )
+
+    # all_resource_check({("transactions_memory", "0B", "200.00MiB"), ("sessions", 2, 3)})
+
+    # execute_and_fetch_all(cursor_main, "DROP PROFILE p1")
+    # check(
+    #     partial(show_profile_for_user_func, username="role1"),
+    #     {
+    #         ("null",),
+    #     },
+    # )
+    # all_resource_check({("transactions_memory", "0B", "200.00MiB"), ("sessions", 2, 20)})
+
+    # execute_and_fetch_all(cursor_main, "DROP PROFILE p2")
+    # check(
+    #     partial(show_profile_for_user_func, username="user1"),
+    #     {
+    #         ("null",),
+    #     },
+    # )
+    # all_resource_check({("transactions_memory", None, "UNLIMITED"), ("sessions", 2, "UNLIMITED")})
+
+    # Hotfix: Make sure the last connection is user1 on main (connect caches the connection and uses it for cleanup)
+    connection(BOLT_PORTS["main"], "main", "user1")
 
 
 if __name__ == "__main__":

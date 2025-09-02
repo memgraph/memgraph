@@ -27,6 +27,11 @@
 #error "Minimum supported Python API is 3.5"
 #endif
 
+// Python 3.9 compatibility macro
+#ifndef Py_Is
+#define Py_Is(x, y) ((x) == (y))
+#endif
+
 #include "utils/logging.hpp"
 
 namespace memgraph::py {

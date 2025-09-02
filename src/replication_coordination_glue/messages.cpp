@@ -52,16 +52,6 @@ void Load(memgraph::replication_coordination_glue::SwapMainUUIDReq *self, memgra
 
 namespace memgraph::replication_coordination_glue {
 
-constexpr utils::TypeInfo FrequentHeartbeatReq::kType{utils::TypeId::REP_FREQUENT_HEARTBEAT_REQ, "FrequentHeartbeatReq",
-                                                      nullptr};
-
-constexpr utils::TypeInfo FrequentHeartbeatRes::kType{utils::TypeId::REP_FREQUENT_HEARTBEAT_RES, "FrequentHeartbeatRes",
-                                                      nullptr};
-
-constexpr utils::TypeInfo SwapMainUUIDReq::kType{utils::TypeId::COORD_SWAP_UUID_REQ, "SwapMainUUIDReq", nullptr};
-
-constexpr utils::TypeInfo SwapMainUUIDRes::kType{utils::TypeId::COORD_SWAP_UUID_RES, "SwapMainUUIDRes", nullptr};
-
 void FrequentHeartbeatReq::Save(const FrequentHeartbeatReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }

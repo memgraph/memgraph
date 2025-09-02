@@ -16,6 +16,7 @@
 
 #include <algorithm>
 #include <map>
+#include <span>
 #include <vector>
 
 namespace memgraph::storage {
@@ -25,6 +26,34 @@ struct Vertex;
 
 class EdgeTypeIndex {
  public:
+  using AbortableInfo = std::map<EdgeTypeId, std::vector<std::tuple<Vertex *, Vertex *, Edge *>>>;
+
+  struct AbortProcessor {
+    explicit AbortProcessor(std::span<EdgeTypeId const> edge_types);
+
+    void CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Edge *edge);
+
+    AbortableInfo cleanup_collection_;
+  };
+
+  struct ActiveIndices {
+    virtual ~ActiveIndices() = default;
+
+    virtual void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
+                                      const Transaction &tx) = 0;
+
+    virtual auto ApproximateEdgeCount(EdgeTypeId edge_type) const -> uint64_t = 0;
+
+    virtual bool IndexReady(EdgeTypeId edge_type) const = 0;
+    virtual bool IndexRegistered(EdgeTypeId edge_type) const = 0;
+
+    virtual auto ListIndices(uint64_t start_timestamp) const -> std::vector<EdgeTypeId> = 0;
+
+    virtual auto GetAbortProcessor() const -> AbortProcessor = 0;
+
+    virtual void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) = 0;
+  };
+
   EdgeTypeIndex() = default;
 
   EdgeTypeIndex(const EdgeTypeIndex &) = delete;
@@ -36,41 +65,9 @@ class EdgeTypeIndex {
 
   virtual bool DropIndex(EdgeTypeId edge_type) = 0;
 
-  virtual bool IndexExists(EdgeTypeId edge_type) const = 0;
-
-  virtual std::vector<EdgeTypeId> ListIndices() const = 0;
-
-  virtual uint64_t ApproximateEdgeCount(EdgeTypeId edge_type) const = 0;
-
-  virtual void UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
-                                    const Transaction &tx) = 0;
-
-  virtual void UpdateOnEdgeModification(Vertex *old_from, Vertex *old_to, Vertex *new_from, Vertex *new_to,
-                                        EdgeRef edge_ref, EdgeTypeId edge_type, const Transaction &tx) = 0;
-
   virtual void DropGraphClearIndices() = 0;
 
-  using AbortableInfo = std::map<EdgeTypeId, std::vector<std::tuple<Vertex *, Vertex *, Edge *>>>;
-
-  struct AbortProcessor {
-    explicit AbortProcessor(std::vector<EdgeTypeId> edge_type) : edge_type_(std::move(edge_type)) {}
-
-    void CollectOnEdgeRemoval(EdgeTypeId edge_type, Vertex *from_vertex, Vertex *to_vertex, Edge *edge) {
-      if (std::binary_search(edge_type_.begin(), edge_type_.end(), edge_type)) {
-        cleanup_collection_[edge_type].emplace_back(from_vertex, to_vertex, edge);
-      }
-    }
-
-    void Process(EdgeTypeIndex &index, uint64_t start_timestamp) {
-      index.AbortEntries(cleanup_collection_, start_timestamp);
-    }
-
-   private:
-    std::vector<EdgeTypeId> edge_type_;
-    AbortableInfo cleanup_collection_;
-  };
-
-  virtual void AbortEntries(AbortableInfo const &, uint64_t start_timestamp) = 0;
+  virtual auto GetActiveIndices() const -> std::unique_ptr<ActiveIndices> = 0;
 };
 
 }  // namespace memgraph::storage

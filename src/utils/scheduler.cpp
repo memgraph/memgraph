@@ -34,7 +34,9 @@ namespace memgraph::utils {
  * @throw std::bad_alloc
  */
 void Scheduler::Run(const std::string &service_name, const std::function<void()> &f) {
-  DMG_ASSERT(!IsRunning(), "Thread already running.");
+  // stop any running thread
+  thread_.request_stop();
+
   // Thread setup
   thread_ = std::jthread([this, f = f, service_name = service_name](std::stop_token token) mutable {
     ThreadRun(std::move(service_name), std::move(f), token);
@@ -124,6 +126,13 @@ SchedulerInterval::SchedulerInterval(std::string str) {
   }
   MG_ASSERT(failure, "Failure not handled correctly.");
   LOG_FATAL("Scheduler setup not an interval or cron expression");
+}
+
+SchedulerInterval::operator bool() const {
+  return std::visit(
+      utils::Overloaded{[](const PeriodStartTime &pst) { return pst.period != std::chrono::milliseconds(0); },
+                        [](const std::string &cron) { return !cron.empty(); }},
+      period_or_cron);
 }
 
 // Checking stop_possible() is necessary because otherwise calling IsRunning

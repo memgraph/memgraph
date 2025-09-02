@@ -44,21 +44,21 @@ constraintPropertyList : variable propertyLookup ( ',' variable propertyLookup )
 
 storageInfo : STORAGE INFO ;
 
-activeUsersInfo : ACTIVE USERS INFO ;
+activeUsersInfo : ACTIVE USERS INFO | ACTIVE USERS ;
 
 licenseInfo : LICENSE INFO ;
 
-indexInfo : INDEX INFO ;
+indexInfo : INDEX INFO | INDEXES ;
 
-constraintInfo : CONSTRAINT INFO ;
+constraintInfo : CONSTRAINT INFO | CONSTRAINTS ;
 
 edgetypeInfo : EDGE_TYPES INFO ;
 
 nodelabelInfo : NODE_LABELS INFO ;
 
-metricsInfo : METRICS INFO ;
+metricsInfo : METRICS INFO | METRICS ;
 
-vectorIndexInfo : VECTOR INDEX INFO ;
+vectorIndexInfo : VECTOR INDEX INFO | VECTOR INDEXES ;
 
 buildInfo : BUILD INFO ;
 
@@ -107,6 +107,7 @@ create : CREATE pattern ;
 set : SET setItem ( ',' setItem )* ;
 
 setItem : ( propertyExpression '=' expression )
+        | ( propertyExpression '+=' expression )
         | ( variable '=' expression )
         | ( variable '+=' expression )
         | ( variable nodeLabels )
@@ -190,7 +191,7 @@ relationshipDetail : '[' ( name=variable )? ( relationshipTypes )? ( variableExp
 
 relationshipLambda: '(' traversed_edge=variable ',' traversed_node=variable ( ',' accumulated_path=variable )? ( ',' accumulated_weight=variable )? '|' expression ')';
 
-variableExpansion : '*' (BFS | WSHORTEST | ALLSHORTEST)? ( expression )? ( '..' ( expression )? )? ;
+variableExpansion : '*' (BFS | WSHORTEST | ALLSHORTEST | KSHORTEST)? ( expression )? ( '..' ( expression )? )? ( '|' k=expression )? ;
 
 properties : mapLiteral
            | parameter
@@ -234,19 +235,21 @@ expression5 : expression4 ( '^' expression4 )* ;
 
 expression4 : ( ( '+' | '-' ) )* expression3a ;
 
-expression3a : expression3b ( stringAndNullOperators )* ;
+expression3a : expression2a ( stringAndNullOperators )* ;
 
-stringAndNullOperators : ( ( ( ( '=~' ) | ( IN ) | ( STARTS WITH ) | ( ENDS WITH ) | ( CONTAINS ) ) expression3b) | ( IS CYPHERNULL ) | ( IS NOT CYPHERNULL ) ) ;
+stringAndNullOperators : ( ( ( ( '=~' ) | ( IN ) | ( STARTS WITH ) | ( ENDS WITH ) | ( CONTAINS ) ) expression2a) | ( IS CYPHERNULL ) | ( IS NOT CYPHERNULL ) ) ;
 
-expression3b : expression2a ( listIndexingOrSlicing )* ;
+expression2a : expression2b ( nodeLabels )? ;
+
+expression2b : atom ( memberAccess )* ;
+
+memberAccess : propertyLookup
+             | listIndexingOrSlicing
+             ;
 
 listIndexingOrSlicing : ( '[' expression ']' )
                       | ( '[' lower_bound=expression? '..' upper_bound=expression? ']' )
                       ;
-
-expression2a : expression2b ( nodeLabels )? ;
-
-expression2b : atom ( propertyLookup )* ;
 
 atom : listComprehension
      | literal
@@ -263,6 +266,7 @@ atom : listComprehension
      | ( NONE '(' filterExpression ')' )
      | ( SINGLE '(' filterExpression ')' )
      | ( EXISTS '(' existsExpression ')' )
+     | ( EXISTS '{' existsSubquery '}' )
      | relationshipsPattern
      | parenthesizedExpression
      | functionInvocation
@@ -305,6 +309,10 @@ reduceExpression : accumulator=variable '=' initial=expression ',' idInColl '|' 
 extractExpression : idInColl '|' expression ;
 
 existsExpression : forcePatternPart | .* ;
+
+existsSubquery : forcePatternPart
+               | cypherQuery
+               ;
 
 forcePatternPart : ( variable '=' relationshipsPattern )
                  | relationshipsPattern
@@ -352,14 +360,16 @@ propertyKeyName : symbolicName ;
 
 propertyKeyValuePair : propertyKeyName ':' expression ;
 
+nestedPropertyKeyNames : propertyKeyName ( '.' propertyKeyName )* ;
+
 integerLiteral : DecimalLiteral
                | OctalLiteral
                | HexadecimalLiteral
                ;
 
-createIndex : CREATE INDEX ON ':' labelName ( '(' propertyKeyName ( ',' propertyKeyName )* ')' )? ;
+createIndex : CREATE INDEX ON ':' labelName ( '(' nestedPropertyKeyNames ( ',' nestedPropertyKeyNames )* ')' )? ;
 
-dropIndex : DROP INDEX ON ':' labelName ( '(' propertyKeyName ( ',' propertyKeyName )* ')' )? ;
+dropIndex : DROP INDEX ON ':' labelName ( '(' nestedPropertyKeyNames ( ',' nestedPropertyKeyNames )* ')' )? ;
 
 doubleLiteral : FloatingLiteral ;
 

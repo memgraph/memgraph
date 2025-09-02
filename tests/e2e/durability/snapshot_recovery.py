@@ -15,6 +15,7 @@ import shutil
 import sys
 import tempfile
 import time
+from pathlib import Path
 
 import interactive_mg_runner
 import pytest
@@ -412,7 +413,17 @@ def test_local_snapshot(global_snapshot, database):
     cursor = mt_cursor(connection, database)
     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE SNAPSHOT;")
+    result = execute_and_fetch_all(cursor, "CREATE SNAPSHOT;")
+    # Verify that CREATE SNAPSHOT returned a path and it exists as a file
+    assert len(result) == 1, "CREATE SNAPSHOT should return exactly one row"
+    assert len(result[0]) == 1, "CREATE SNAPSHOT should return exactly one column (path)"
+    snapshot_path = result[0][0]
+    assert snapshot_path is not None, "CREATE SNAPSHOT should return a non-null path"
+    assert isinstance(snapshot_path, str), "CREATE SNAPSHOT should return a string path"
+    # Verify the path exists and is a file
+    path_obj = Path(snapshot_path)
+    assert path_obj.exists(), f"Snapshot file should exist at {snapshot_path}"
+    assert path_obj.is_file(), f"Snapshot should be a file at {snapshot_path}"
     main_test(mt_data_dir(data_directory.name, database), global_snapshot, database, False)
     interactive_mg_runner.kill_all()
     interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
@@ -430,12 +441,82 @@ def test_local_snapshot_and_current_wal(global_snapshot, database):
     cursor = mt_cursor(connection, database)
     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
-    execute_and_fetch_all(cursor, "CREATE SNAPSHOT;")
+    result = execute_and_fetch_all(cursor, "CREATE SNAPSHOT;")
+    # Verify that CREATE SNAPSHOT returned a path and it exists as a file
+    assert len(result) == 1, "CREATE SNAPSHOT should return exactly one row"
+    assert len(result[0]) == 1, "CREATE SNAPSHOT should return exactly one column (path)"
+    snapshot_path = result[0][0]
+    assert snapshot_path is not None, "CREATE SNAPSHOT should return a non-null path"
+    assert isinstance(snapshot_path, str), "CREATE SNAPSHOT should return a string path"
+    # Verify the path exists and is a file
+    path_obj = Path(snapshot_path)
+    assert path_obj.exists(), f"Snapshot file should exist at {snapshot_path}"
+    assert path_obj.is_file(), f"Snapshot should be a file at {snapshot_path}"
     execute_and_fetch_all(cursor, "CREATE (:L{p:'random data'});")
     main_test(mt_data_dir(data_directory.name, database), global_snapshot, database, False)
     interactive_mg_runner.kill_all()
     interactive_mg_runner.start(memgraph_instances(data_directory.name), "recover_on_startup")
     main_test_reboot(database)
+    interactive_mg_runner.kill_all()
+
+
+def test_marked_commits_after_snapshot():
+    # 1 create some data
+    # 2 create snapshot
+    # 3 a couple of read queries
+    # 4 recover from snapshot
+    # 5 create more data
+    # 6 verify deltas are being released
+
+    data_directory = tempfile.TemporaryDirectory()
+    interactive_mg_runner.start(memgraph_instances(data_directory.name), "default")
+
+    connection = connect(host="localhost", port=7687)
+    cursor = mt_cursor(connection, "memgraph")
+
+    # 1
+    execute_and_fetch_all(cursor, "CREATE ()")
+    execute_and_fetch_all(cursor, "CREATE ()")
+    execute_and_fetch_all(cursor, "CREATE ()")
+    # 2
+    result = execute_and_fetch_all(cursor, "CREATE SNAPSHOT")
+    # Verify that CREATE SNAPSHOT returned a path and it exists as a file
+    assert len(result) == 1, "CREATE SNAPSHOT should return exactly one row"
+    assert len(result[0]) == 1, "CREATE SNAPSHOT should return exactly one column (path)"
+    snapshot_path = result[0][0]
+    assert snapshot_path is not None, "CREATE SNAPSHOT should return a non-null path"
+    assert isinstance(snapshot_path, str), "CREATE SNAPSHOT should return a string path"
+    # Verify the path exists and is a file
+    path_obj = Path(snapshot_path)
+    assert path_obj.exists(), f"Snapshot file should exist at {snapshot_path}"
+    assert path_obj.is_file(), f"Snapshot should be a file at {snapshot_path}"
+    # 3
+    execute_and_fetch_all(cursor, "MATCH (n) RETURN count(*)")
+    execute_and_fetch_all(cursor, "MATCH (n) RETURN count(*)")
+    execute_and_fetch_all(cursor, "MATCH (n) RETURN count(*)")
+    # 4
+    dir_path = Path(os.path.join(data_directory.name, "snapshots"))
+    assert dir_path.exists()
+    assert dir_path.is_dir()
+    files = [f for f in dir_path.iterdir() if f.is_file()]
+    assert files
+    snapshot_path = max(files, key=lambda f: f.stat().st_mtime)
+    execute_and_fetch_all(cursor, f'RECOVER SNAPSHOT "{snapshot_path}" FORCE')
+    # 5
+    execute_and_fetch_all(cursor, "CREATE ()")
+    execute_and_fetch_all(cursor, "CREATE ()")
+    execute_and_fetch_all(cursor, "CREATE ()")
+    # 6
+    execute_and_fetch_all(cursor, "FREE MEMORY")
+    execute_and_fetch_all(cursor, "FREE MEMORY")
+    info = execute_and_fetch_all(cursor, "SHOW STORAGE INFO")
+    unreleased_deltas = None
+    for [key, val] in info:
+        if key == "unreleased_delta_objects":
+            unreleased_deltas = val
+    assert unreleased_deltas is not None
+    assert unreleased_deltas == 0
+
     interactive_mg_runner.kill_all()
 
 

@@ -21,6 +21,7 @@
 #include <unordered_set>
 #include <variant>
 
+#include "exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "utils/algorithm.hpp"
@@ -97,7 +98,7 @@ void SymbolGenerator::VisitReturnBody(ReturnBody &body, Where *where) {
       }
       user_symbols.emplace_back(sym_pair.second);
     }
-    if (user_symbols.empty()) {
+    if (scope.in_return && user_symbols.empty()) {
       throw SemanticException("There are no variables in scope to use for '*'.");
     }
   }
@@ -327,8 +328,9 @@ bool SymbolGenerator::PostVisit(Merge &) {
 }
 
 bool SymbolGenerator::PostVisit(Unwind &unwind) {
+  auto &scope = scopes_.back();
   const auto &name = unwind.named_expression_->name_;
-  if (HasSymbol(name)) {
+  if (FindSymbolInScope(name, scope, Symbol::Type::ANY).has_value()) {
     throw RedeclareVariableError(name);
   }
   unwind.named_expression_->MapTo(CreateSymbol(name, true));
@@ -374,15 +376,27 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     throw SemanticException("Variables are not allowed in {}.", scope.in_skip ? "SKIP" : "LIMIT");
   }
 
-  if (scope.in_exists && (scope.visiting_edge || scope.in_node_atom)) {
+  if (scope.in_exists_pattern && (scope.visiting_edge || scope.in_node_atom)) {
     auto has_symbol = HasSymbol(ident.name_);
     if (!has_symbol && !ConsumePredefinedIdentifier(ident.name_) && ident.user_declared_) {
       throw SemanticException("Unbounded variables are not allowed in exists!");
     }
   }
 
+  const bool is_in_pattern_comprehension_filter =
+      scope.in_pattern_comprehension && scopes_.size() > 1 && scopes_[scopes_.size() - 2].in_where;
+
   Symbol symbol;
-  if (scope.in_pattern && !(scope.in_node_atom || scope.visiting_edge)) {
+  if ((scope.in_exists_subquery || is_in_pattern_comprehension_filter) && (scope.visiting_edge || scope.in_node_atom)) {
+    auto has_symbol = HasSymbol(ident.name_);
+    if (!has_symbol) {
+      ident.user_declared_ = false;
+      symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_,
+                                 scope.in_node_atom ? Symbol::Type::VERTEX : Symbol::Type::EDGE);
+    } else {
+      symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::ANY);
+    }
+  } else if (scope.in_pattern && !(scope.in_node_atom || scope.visiting_edge)) {
     // If we are in the pattern, and outside of a node or an edge, the
     // identifier is the pattern name.
     symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::PATH);
@@ -429,6 +443,7 @@ SymbolGenerator::ReturnType SymbolGenerator::Visit(Identifier &ident) {
     }
     symbol = GetOrCreateSymbol(ident.name_, ident.user_declared_, Symbol::Type::ANY);
   }
+
   ident.MapTo(symbol);
   return true;
 }
@@ -557,8 +572,18 @@ bool SymbolGenerator::PostVisit(ListComprehension & /*list_comprehension*/) {
 bool SymbolGenerator::PreVisit(Exists &exists) {
   auto &scope = scopes_.back();
 
+  if (!exists.HasPattern() && !exists.HasSubquery()) {
+    throw SemanticException(
+        "EXISTS semantic hold neither pattern or subquery part! Please contact Memgraph support as this scenario "
+        "should not happen!");
+  }
+
+  if (!scope.in_where) {
+    throw utils::NotYetImplemented("Exists can only be used inside the WHERE clause!");
+  }
+
   if (scope.in_set_property) {
-    throw utils::NotYetImplemented("Exists cannot be used within SET clause.!");
+    throw utils::NotYetImplemented("Exists cannot be used within SET clause!");
   }
 
   if (scope.in_with) {
@@ -577,17 +602,27 @@ bool SymbolGenerator::PreVisit(Exists &exists) {
     throw utils::NotYetImplemented("IF operator cannot be used with exists, but only during matching!");
   }
 
-  scope.in_exists = true;
-
   const auto &symbol = CreateAnonymousSymbol();
   exists.MapTo(symbol);
+
+  if (exists.HasPattern()) {
+    scope.in_exists_pattern = true;
+  }
+
+  if (exists.HasSubquery()) {
+    scopes_.emplace_back(Scope{.in_exists_subquery = true});  // NOLINT(hicpp-use-emplace,modernize-use-emplace)
+  }
 
   return true;
 }
 
-bool SymbolGenerator::PostVisit(Exists & /*exists*/) {
-  auto &scope = scopes_.back();
-  scope.in_exists = false;
+bool SymbolGenerator::PostVisit(Exists &exists) {
+  if (exists.HasPattern()) {
+    auto &scope = scopes_.back();
+    scope.in_exists_pattern = false;
+  } else if (exists.HasSubquery()) {
+    scopes_.pop_back();
+  }
 
   return true;
 }
@@ -608,10 +643,63 @@ bool SymbolGenerator::PreVisit(SetProperty & /*set_property*/) {
   return true;
 }
 
-bool SymbolGenerator::PostVisit(SetProperty & /*set_property*/) {
+bool SymbolGenerator::PostVisit(SetProperty &set_property) {
   auto &scope = scopes_.back();
   scope.in_set_property = false;
 
+  if (set_property.property_lookup_->property_path_.size() <= 1 &&
+      set_property.property_lookup_->lookup_mode_ == PropertyLookup::LookupMode::REPLACE) {
+    return true;
+  }
+
+  PropertyLookupBaseIdentifierVisitor visitor;
+  set_property.property_lookup_->Accept(visitor);
+
+  if (!visitor.base_identifier) {
+    return true;
+  }
+
+  auto maybe_symbol = FindSymbolInScope(visitor.base_identifier->name_, scope, Symbol::Type::ANY);
+
+  if (!maybe_symbol.has_value()) {
+    throw SemanticException("Symbol not found when setting property, please contact Memgraph support!");
+  }
+
+  if (auto type = maybe_symbol.value().type(); type != Symbol::Type::VERTEX && type != Symbol::Type::EDGE) {
+    return true;
+  }
+
+  set_property.property_lookup_->expression_ = visitor.base_identifier;
+  set_property.property_lookup_->use_nested_property_update_ = true;
+
+  return true;
+}
+
+bool SymbolGenerator::PostVisit(RemoveProperty &remove_property) {
+  auto &scope = scopes_.back();
+
+  if (remove_property.property_lookup_->property_path_.size() <= 1) {
+    return true;
+  }
+
+  PropertyLookupBaseIdentifierVisitor visitor;
+  remove_property.property_lookup_->Accept(visitor);
+
+  if (!visitor.base_identifier) {
+    return true;
+  }
+
+  auto maybe_symbol = FindSymbolInScope(visitor.base_identifier->name_, scope, Symbol::Type::ANY);
+
+  if (!maybe_symbol.has_value()) {
+    throw SemanticException("Symbol not found when removing property, please contact Memgraph support!");
+  }
+
+  if (auto type = maybe_symbol.value().type(); type != Symbol::Type::VERTEX && type != Symbol::Type::EDGE) {
+    return true;
+  }
+
+  remove_property.property_lookup_->expression_ = visitor.base_identifier;
   return true;
 }
 
@@ -837,15 +925,6 @@ bool SymbolGenerator::PostVisit(EdgeAtom &) {
 }
 
 bool SymbolGenerator::PreVisit(PatternComprehension &pc) {
-  auto &scope = scopes_.back();
-
-  if (!scope.in_with && !scope.in_return) {
-    throw utils::NotYetImplemented("Pattern comprehension can only be used within With and Return clauses!");
-  }
-  if (scope.in_list_comprehension) {
-    throw utils::NotYetImplemented("Pattern comprehension inside list comprehension!");
-  }
-
   scopes_.emplace_back(Scope{.in_pattern_comprehension = true});
 
   const auto &symbol = CreateAnonymousSymbol();
@@ -932,6 +1011,14 @@ void PropertyLookupEvaluationModeVisitor::Visit(PropertyLookup &property_lookup)
     }
 
     return;
+  }
+}
+
+void PropertyLookupBaseIdentifierVisitor::Visit(PropertyLookup &property_lookup) {
+  if (property_lookup.expression_->GetTypeInfo() != Identifier::kType) {
+    property_lookup.expression_->Accept(*this);
+  } else {
+    base_identifier = static_cast<Identifier *>(property_lookup.expression_);
   }
 }
 

@@ -33,7 +33,7 @@ jobs:
           fetch-depth: 0
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: ./.github/actions/docker-login
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -66,15 +66,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          copy --binary --dest-dir build
-
-      - name: Copy libmemgraph_module_support.so
-        run: |
-          ./release/package/mgbuild.sh \
-          --toolchain $TOOLCHAIN \
-          --os $OS \
-          --arch $ARCH \
-          copy --libs --dest-dir build/src/query
+          copy --binary --use-make-install --dest-dir build
 
       - name: Run unit tests for Jepsen code
         run: |

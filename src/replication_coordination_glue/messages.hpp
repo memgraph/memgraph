@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include "role.hpp"
 #include "rpc/messages.hpp"
 #include "slk/serialization.hpp"
 #include "utils/uuid.hpp"
@@ -19,8 +18,9 @@
 namespace memgraph::replication_coordination_glue {
 
 struct FrequentHeartbeatReq {
-  static const utils::TypeInfo kType;  // TODO: make constexpr?
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_FREQUENT_HEARTBEAT_REQ,
+                                         .name = "FrequentHeartbeatReq"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(FrequentHeartbeatReq *self, memgraph::slk::Reader *reader);
   static void Save(const FrequentHeartbeatReq &self, memgraph::slk::Builder *builder);
@@ -28,23 +28,20 @@ struct FrequentHeartbeatReq {
 };
 
 struct FrequentHeartbeatRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::REP_FREQUENT_HEARTBEAT_RES,
+                                         .name = "FrequentHeartbeatRes"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(FrequentHeartbeatRes *self, memgraph::slk::Reader *reader);
   static void Save(const FrequentHeartbeatRes &self, memgraph::slk::Builder *builder);
   FrequentHeartbeatRes() = default;
-
-  ReplicationRole repl_role;  // MAIN or REPLICA
-  utils::UUID uuid;           // MAIN's UUID or the UUID which REPLICA listens
-  bool is_writing_enabled;
 };
 
 using FrequentHeartbeatRpc = rpc::RequestResponse<FrequentHeartbeatReq, FrequentHeartbeatRes>;
 
 struct SwapMainUUIDReq {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_SWAP_UUID_REQ, .name = "SwapMainUUIDReq"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(SwapMainUUIDReq *self, memgraph::slk::Reader *reader);
   static void Save(const SwapMainUUIDReq &self, memgraph::slk::Builder *builder);
@@ -57,8 +54,8 @@ struct SwapMainUUIDReq {
 };
 
 struct SwapMainUUIDRes {
-  static const utils::TypeInfo kType;
-  static const utils::TypeInfo &GetTypeInfo() { return kType; }
+  static constexpr utils::TypeInfo kType{.id = utils::TypeId::COORD_SWAP_UUID_RES, .name = "SwapMainUUIDRes"};
+  static constexpr uint64_t kVersion{1};
 
   static void Load(SwapMainUUIDRes *self, memgraph::slk::Reader *reader);
   static void Save(const SwapMainUUIDRes &self, memgraph::slk::Builder *builder);

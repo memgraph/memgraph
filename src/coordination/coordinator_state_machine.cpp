@@ -17,6 +17,7 @@
 #include "coordination/coordinator_cluster_state.hpp"
 #include "coordination/coordinator_exceptions.hpp"
 #include "coordination/coordinator_state_manager.hpp"
+#include "utils/atomic_utils.hpp"
 #include "utils/logging.hpp"
 
 #include <regex>
@@ -75,12 +76,8 @@ void CoordinatorStateMachine::UpdateStateMachineFromSnapshotDurability() {
     try {
       auto parsed_snapshot_id =
           std::stoul(std::regex_replace(snapshot_key_id, std::regex{kSnapshotIdPrefix.data()}, ""));
-      uint64_t old_committed_idx = last_committed_idx_.load(std::memory_order_acquire);
-      while (old_committed_idx < parsed_snapshot_id &&
-             !last_committed_idx_.compare_exchange_weak(old_committed_idx, parsed_snapshot_id,
-                                                        std::memory_order_acq_rel, std::memory_order_acquire)) {
-        // old is updated by compare_exchange_weak
-      }
+
+      atomic_fetch_max_explicit(&last_committed_idx_, parsed_snapshot_id, std::memory_order_acq_rel);
 
       // NOLINTNEXTLINE (misc-const-correctness)
       auto snapshot_ctx = std::make_shared<SnapshotCtx>();
@@ -136,6 +133,7 @@ bool CoordinatorStateMachine::HandleMigration(LogStoreVersion stored_version) {
     throw CoordinatorStateMachineVersionMigrationException("Unexpected log store version {} for active version v2.",
                                                            static_cast<int>(stored_version));
   }
+  // C++ std::unreachable
   throw CoordinatorStateMachineVersionMigrationException("Unexpected log store version {} for active version {}.",
                                                          static_cast<int>(stored_version),
                                                          static_cast<int>(kActiveVersion));
@@ -165,7 +163,7 @@ auto CoordinatorStateMachine::SerializeUpdateClusterState(CoordinatorClusterStat
     }
   };
 
-  add_if_set(kDataInstances, delta_state.data_instances_);
+  add_if_set(kClusterState, delta_state.data_instances_);
   add_if_set(kCoordinatorInstances, delta_state.coordinator_instances_);
   add_if_set(kUuid, delta_state.current_main_uuid_);
   add_if_set(kEnabledReadsOnMain, delta_state.enabled_reads_on_main_);
@@ -180,8 +178,8 @@ auto CoordinatorStateMachine::DecodeLog(buffer &data) -> CoordinatorClusterState
     CoordinatorClusterStateDelta delta_state;
     auto const json = nlohmann::json::parse(bs.get_str());
 
-    if (json.contains(kDataInstances.data())) {
-      auto const data_instances = json.at(kDataInstances.data());
+    if (json.contains(kClusterState.data())) {
+      auto const data_instances = json.at(kClusterState.data());
       delta_state.data_instances_ = data_instances.get<std::vector<DataInstanceContext>>();
     }
 
@@ -361,7 +359,7 @@ auto CoordinatorStateMachine::CreateSnapshotInternal(ptr<snapshot> const &snapsh
 
   while (snapshots_.size() > MAX_SNAPSHOTS) {
     auto snapshot_current = snapshots_.begin()->first;
-    if (auto const ok = durability_->Delete("snapshot_id_" + std::to_string(snapshot_current)); !ok) {
+    if (auto const ok = durability_->Delete(fmt::format("{}{}", kSnapshotIdPrefix, snapshot_current)); !ok) {
       throw DeleteSnapshotFromDiskException("Failed to delete snapshot with id {} from disk.", snapshot_current);
     }
     snapshots_.erase(snapshots_.begin());

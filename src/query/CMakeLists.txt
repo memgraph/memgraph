@@ -48,6 +48,7 @@ target_sources(mg-query
     plan/pretty_print.cpp
     plan/profile.cpp
     plan/read_write_type_checker.cpp
+    plan/used_index_checker.cpp
     plan/rewrite/index_lookup.cpp
     plan/rewrite/general.cpp
     plan/rewrite/range.cpp
@@ -71,7 +72,6 @@ target_sources(mg-query
     auth_query_handler.cpp
     interpreter_context.cpp
     query_user.cpp
-    time_to_live/time_to_live.cpp
     query_logger.cpp
     vertex_accessor.cpp
     context.cpp
@@ -98,6 +98,8 @@ target_sources(mg-query
     frontend/ast/query/pattern.hpp
     frontend/ast/query/pattern_comprehension.hpp
     frontend/ast/query/query.hpp
+    plan/used_index_checker.hpp
+    plan/read_write_type_checker.hpp
 )
 
 
@@ -113,7 +115,7 @@ target_link_libraries(mg-query
     mg-license
     mg-utils
     mg-kvstore
-    mg-memory
+    mg-memory-utils
     mg::csv
     mg::system
     mg-flags

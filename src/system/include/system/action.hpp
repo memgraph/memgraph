@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -29,7 +29,6 @@ struct ISystemAction {
 #ifdef MG_ENTERPRISE
   /// Prepare the RPC payload that will be sent to all replicas clients
   virtual bool DoReplication(memgraph::replication::ReplicationClient &client, const utils::UUID &main_uuid,
-                             memgraph::replication::ReplicationEpoch const &epoch,
                              Transaction const &system_tx) const = 0;
 
   virtual void PostReplication(memgraph::replication::RoleMainData &main_data) const = 0;

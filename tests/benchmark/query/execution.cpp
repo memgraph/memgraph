@@ -35,6 +35,7 @@
 #include "query/frontend/semantic/symbol_generator.hpp"
 #include "query/interpreter.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "tests/test_commit_args_helper.hpp"
 
 using memgraph::replication_coordination_glue::ReplicationRole;
 
@@ -69,7 +70,7 @@ class PoolResource final {
 static void AddVertices(memgraph::storage::Storage *db, int vertex_count) {
   auto dba = db->Access();
   for (int i = 0; i < vertex_count; i++) dba->CreateVertex();
-  MG_ASSERT(!dba->Commit().HasError());
+  MG_ASSERT(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
 }
 
 static const char *kStartLabel = "start";
@@ -87,7 +88,7 @@ static void AddStarGraph(memgraph::storage::Storage *db, int spoke_count, int de
         prev_vertex = dest;
       }
     }
-    MG_ASSERT(!dba->Commit().HasError());
+    MG_ASSERT(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto unique_acc = db->UniqueAccess();
@@ -112,7 +113,7 @@ static void AddTree(memgraph::storage::Storage *db, int vertex_count) {
       MG_ASSERT(dba->CreateEdge(&parent, &v, dba->NameToEdgeType("Type")).HasValue());
       vertices.push_back(v);
     }
-    MG_ASSERT(!dba->Commit().HasError());
+    MG_ASSERT(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto unique_acc = db->UniqueAccess();
@@ -180,7 +181,7 @@ static memgraph::query::plan::ExpandVariable MakeExpandVariable(memgraph::query:
   filter_lambda.expression = nullptr;
   return memgraph::query::plan::ExpandVariable(nullptr, input_symbol, dest_symbol, edge_symbol, expand_type,
                                                memgraph::query::EdgeAtom::Direction::OUT, {}, false, nullptr, nullptr,
-                                               false, filter_lambda, std::nullopt, std::nullopt);
+                                               false, filter_lambda, std::nullopt, std::nullopt, nullptr);
 }
 
 template <class TMemory>

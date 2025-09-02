@@ -16,12 +16,16 @@
 #include "spdlog/spdlog.h"
 
 #include "flags/experimental.hpp"
+#include "license/license.hpp"
+#include "storage/v2/async_indexer.hpp"
 #include "storage/v2/disk/name_id_mapper.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/schema_info_glue.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/transaction.hpp"
+#include "storage/v2/ttl.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/view.hpp"
@@ -52,11 +56,11 @@ void TryLock(auto &guard, auto timeout) {
   }
 }
 
-auto CreateSharedGuard(Storage *storage, Storage::Accessor::Type rw_type,
+auto CreateSharedGuard(Storage *storage, StorageAccessType rw_type,
                        const std::optional<std::chrono::milliseconds> timeout) {
   utils::SharedResourceLockGuard::Type shared_type{};
   switch (rw_type) {
-    using enum Storage::Accessor::Type;
+    using enum StorageAccessType;
     case NO_ACCESS:
       [[fallthrough]];
     case UNIQUE:
@@ -85,7 +89,8 @@ auto CreateUniqueGuard(Storage *storage, const std::optional<std::chrono::millis
 }
 }  // namespace
 
-Storage::Storage(Config config, StorageMode storage_mode)
+Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator,
+                 std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory)
     : name_id_mapper_(std::invoke([config, storage_mode]() -> std::unique_ptr<NameIdMapper> {
         if (storage_mode == StorageMode::ON_DISK_TRANSACTIONAL) {
           return std::make_unique<DiskNameIdMapper>(config.disk.name_id_mapper_directory,
@@ -97,12 +102,22 @@ Storage::Storage(Config config, StorageMode storage_mode)
       isolation_level_(config.transaction.isolation_level),
       storage_mode_(storage_mode),
       indices_(config, storage_mode),
-      constraints_(config, storage_mode) {
+      constraints_(config, storage_mode),
+      invalidator_{std::move(invalidator)},
+      database_protector_factory_{database_protector_factory ? std::move(database_protector_factory)
+                                                             : []() -> std::unique_ptr<DatabaseProtector> {
+        // Default safe factory - returns a dummy protector used for test usage
+        // This ensures async operations never get nullptr in test environments
+        struct DefaultDatabaseProtector : DatabaseProtector {
+          auto clone() const -> DatabaseProtectorPtr override { return std::make_unique<DefaultDatabaseProtector>(); }
+        };
+        return std::make_unique<DefaultDatabaseProtector>();
+      }} {
   spdlog::info("Created database with {} storage mode.", StorageModeToString(storage_mode));
 }
 
 Storage::Accessor::Accessor(SharedAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
-                            StorageMode storage_mode, Type rw_type,
+                            StorageMode storage_mode, StorageAccessType rw_type,
                             const std::optional<std::chrono::milliseconds> timeout)
     : storage_(storage),
       // The lock must be acquired before creating the transaction object to
@@ -112,6 +127,7 @@ Storage::Accessor::Accessor(SharedAccess /* tag */, Storage *storage, IsolationL
       unique_guard_(storage_->main_lock_, std::defer_lock),
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),
+      original_access_type_(rw_type),
       creation_storage_mode_(storage_mode) {}
 
 Storage::Accessor::Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
@@ -124,6 +140,7 @@ Storage::Accessor::Accessor(UniqueAccess /* tag */, Storage *storage, IsolationL
       unique_guard_(CreateUniqueGuard(storage, timeout)),
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),
+      original_access_type_(StorageAccessType::UNIQUE),
       creation_storage_mode_(storage_mode) {}
 
 Storage::Accessor::Accessor(ReadOnlyAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
@@ -136,6 +153,7 @@ Storage::Accessor::Accessor(ReadOnlyAccess /* tag */, Storage *storage, Isolatio
       unique_guard_(storage_->main_lock_, std::defer_lock),
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
       is_transaction_active_(true),
+      original_access_type_(StorageAccessType::READ_ONLY),
       creation_storage_mode_(storage_mode) {}
 
 Storage::Accessor::Accessor(Accessor &&other) noexcept
@@ -145,6 +163,7 @@ Storage::Accessor::Accessor(Accessor &&other) noexcept
       transaction_(std::move(other.transaction_)),
       commit_timestamp_(other.commit_timestamp_),
       is_transaction_active_(other.is_transaction_active_),
+      original_access_type_(other.original_access_type_),
       creation_storage_mode_(other.creation_storage_mode_) {
   // Don't allow the other accessor to abort our transaction in destructor.
   other.is_transaction_active_ = false;
@@ -201,7 +220,7 @@ std::optional<uint64_t> Storage::Accessor::GetTransactionId() const {
   return {};
 }
 
-std::unique_ptr<utils::QueryMemoryTracker> &Storage::Accessor::GetQueryMemoryTracker() {
+utils::QueryMemoryTracker &Storage::Accessor::GetTransactionMemoryTracker() {
   return transaction_.query_memory_tracker_;
 }
 
@@ -378,7 +397,7 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
 
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     for (auto *node : nodes_to_delete) {
-      storage_->indices_.text_index_.RemoveNode(node);
+      storage_->indices_.text_index_.RemoveNode(node, transaction_);
     }
   }
 
@@ -681,23 +700,30 @@ void Storage::Accessor::MarkEdgeAsDeleted(Edge *edge) {
   }
 }
 
-void Storage::Accessor::CreateTextIndex(const std::string &index_name, LabelId label) {
+utils::BasicResult<storage::StorageIndexDefinitionError, void> Storage::Accessor::CreateTextIndex(
+    const TextIndexSpec &text_index_info) {
   MG_ASSERT(type() == UNIQUE, "Creating a text index requires unique access to storage!");
-  auto *mapper = storage_->name_id_mapper_.get();
-  storage_->indices_.text_index_.CreateIndex(index_name, label, Vertices(View::NEW), mapper);
-  transaction_.md_deltas.emplace_back(MetadataDelta::text_index_create, index_name, label);
+  try {
+    storage_->indices_.text_index_.CreateIndex(text_index_info, Vertices(View::NEW), storage_->name_id_mapper_.get());
+  } catch (const query::TextSearchException &e) {
+    return storage::StorageIndexDefinitionError{IndexDefinitionError{}};
+  }
+  transaction_.md_deltas.emplace_back(MetadataDelta::text_index_create, text_index_info);
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveTextIndices);
+  return {};
 }
 
-void Storage::Accessor::DropTextIndex(const std::string &index_name) {
+utils::BasicResult<storage::StorageIndexDefinitionError, void> Storage::Accessor::DropTextIndex(
+    const std::string &index_name) {
   MG_ASSERT(type() == UNIQUE, "Dropping a text index requires unique access to storage!");
-  auto deleted_index_label = storage_->indices_.text_index_.DropIndex(index_name);
-  transaction_.md_deltas.emplace_back(MetadataDelta::text_index_drop, index_name, deleted_index_label);
+  try {
+    storage_->indices_.text_index_.DropIndex(index_name);
+  } catch (const query::TextSearchException &e) {
+    return storage::StorageIndexDefinitionError{StorageIndexDefinitionError{}};
+  }
+  transaction_.md_deltas.emplace_back(MetadataDelta::text_index_drop, index_name);
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveTextIndices);
-}
-
-void Storage::Accessor::TryInsertVertexIntoVectorIndex(const VertexAccessor &vertex) {
-  storage_->indices_.vector_index_.TryInsertVertex(vertex.vertex_);
+  return {};
 }
 
 }  // namespace memgraph::storage

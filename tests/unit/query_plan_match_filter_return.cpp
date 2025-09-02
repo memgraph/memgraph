@@ -38,6 +38,7 @@
 #include "query/plan/operator.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "tests/test_commit_args_helper.hpp"
 #include "utils/synchronized.hpp"
 
 using namespace memgraph::query;
@@ -741,7 +742,7 @@ class QueryPlanExpandVariable : public testing::Test {
                                               direction, edge_types, is_reverse, convert(lower), convert(upper), false,
                                               ExpansionLambda{symbol_table.CreateSymbol("inner_edge", false),
                                                               symbol_table.CreateSymbol("inner_node", false), nullptr},
-                                              std::nullopt, std::nullopt);
+                                              std::nullopt, std::nullopt, nullptr);
     } else
       return std::make_shared<Expand>(filter_op, n_from.sym_, n_to_sym, edge_sym, direction, edge_types, false, view);
   }
@@ -1420,7 +1421,7 @@ TYPED_TEST(QueryPlanExpandVariable, ExpandToSameSymbol) {
                                          /* existing = */ true,
                                          ExpansionLambda{this->symbol_table.CreateSymbol("inner_edge", false),
                                                          this->symbol_table.CreateSymbol("inner_node", false), nullptr},
-                                         std::nullopt, std::nullopt),
+                                         std::nullopt, std::nullopt, nullptr),
         e);
   };
 
@@ -1613,7 +1614,7 @@ TYPED_TEST(QueryPlanExpandVariable, FineGrainedExpandToSameSymbol) {
                                          /* existing = */ true,
                                          ExpansionLambda{this->symbol_table.CreateSymbol("inner_edge", false),
                                                          this->symbol_table.CreateSymbol("inner_node", false), nullptr},
-                                         std::nullopt, std::nullopt),
+                                         std::nullopt, std::nullopt, nullptr),
         e, &user);
   };
 
@@ -1887,7 +1888,7 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
         last_op, n.sym_, node_sym, edge_list_sym, EdgeAtom::Type::WEIGHTED_SHORTEST_PATH, direction,
         std::vector<memgraph::storage::EdgeTypeId>{}, false, nullptr, max_depth ? LITERAL(max_depth.value()) : nullptr,
         existing_node_input != nullptr, ExpansionLambda{filter_edge, filter_node, where},
-        ExpansionLambda{weight_edge, weight_node, PROPERTY_LOOKUP(dba, ident_e, prop)}, total_weight);
+        ExpansionLambda{weight_edge, weight_node, PROPERTY_LOOKUP(dba, ident_e, prop)}, total_weight, nullptr);
 
     Frame frame(symbol_table.max_position());
     auto cursor = last_op->MakeCursor(memgraph::utils::NewDeleteResource());
@@ -2331,7 +2332,7 @@ class QueryPlanExpandAllShortestPaths : public testing::Test {
         last_op, n.sym_, node_sym, edge_list_sym, EdgeAtom::Type::ALL_SHORTEST_PATHS, direction,
         std::vector<memgraph::storage::EdgeTypeId>{}, false, nullptr, max_depth ? LITERAL(max_depth.value()) : nullptr,
         existing_node_input != nullptr, ExpansionLambda{filter_edge, filter_node, where},
-        ExpansionLambda{weight_edge, weight_node, PROPERTY_LOOKUP(dba, ident_e, prop)}, total_weight);
+        ExpansionLambda{weight_edge, weight_node, PROPERTY_LOOKUP(dba, ident_e, prop)}, total_weight, nullptr);
 
     Frame frame(symbol_table.max_position());
     auto cursor = last_op->MakeCursor(memgraph::utils::NewDeleteResource());
@@ -3088,7 +3089,7 @@ TYPED_TEST(QueryPlan, ScanAllByLabel) {
   {
     auto unique_acc = this->db->UniqueAccess();
     [[maybe_unused]] auto _ = unique_acc->CreateIndex(label);
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   auto storage_dba = this->db->Access();
   memgraph::query::DbAccessor dba(storage_dba.get());
@@ -3144,13 +3145,13 @@ TYPED_TEST(QueryPlan, ScanAllByLabelProperties) {
       ASSERT_TRUE(vertex.AddLabel(label).HasValue());
       ASSERT_TRUE(vertex.SetProperty(prop, value).HasValue());
     }
-    ASSERT_FALSE(dba.Commit().HasError());
+    ASSERT_FALSE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
     auto unique_acc = this->db->UniqueAccess();
     [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   auto storage_dba = this->db->Access();
@@ -3238,12 +3239,12 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyEqualityNoError) {
     auto string_vertex = dba.InsertVertex();
     ASSERT_TRUE(string_vertex.AddLabel(label).HasValue());
     ASSERT_TRUE(string_vertex.SetProperty(prop, memgraph::storage::PropertyValue("string")).HasValue());
-    ASSERT_FALSE(dba.Commit().HasError());
+    ASSERT_FALSE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto unique_acc = this->db->UniqueAccess();
     [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   auto storage_dba = this->db->Access();
@@ -3277,12 +3278,12 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyValueError) {
       ASSERT_TRUE(vertex.AddLabel(label).HasValue());
       ASSERT_TRUE(vertex.SetProperty(prop, memgraph::storage::PropertyValue(i)).HasValue());
     }
-    ASSERT_FALSE(dba.Commit().HasError());
+    ASSERT_FALSE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto unique_acc = this->db->UniqueAccess();
     [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   auto storage_dba = this->db->Access();
@@ -3310,12 +3311,12 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeError) {
       ASSERT_TRUE(vertex.AddLabel(label).HasValue());
       ASSERT_TRUE(vertex.SetProperty(prop, memgraph::storage::PropertyValue(i)).HasValue());
     }
-    ASSERT_FALSE(dba.Commit().HasError());
+    ASSERT_FALSE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto unique_acc = this->db->UniqueAccess();
     [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   auto storage_dba = this->db->Access();
@@ -3366,12 +3367,12 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyEqualNull) {
     auto vertex_with_prop = dba.InsertVertex();
     ASSERT_TRUE(vertex_with_prop.AddLabel(label).HasValue());
     ASSERT_TRUE(vertex_with_prop.SetProperty(prop, memgraph::storage::PropertyValue(42)).HasValue());
-    ASSERT_FALSE(dba.Commit().HasError());
+    ASSERT_FALSE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto unique_acc = this->db->UniqueAccess();
     [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   auto storage_dba = this->db->Access();
@@ -3402,12 +3403,12 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyRangeNull) {
     auto vertex_with_prop = dba.InsertVertex();
     ASSERT_TRUE(vertex_with_prop.AddLabel(label).HasValue());
     ASSERT_TRUE(vertex_with_prop.SetProperty(prop, memgraph::storage::PropertyValue(42)).HasValue());
-    ASSERT_FALSE(dba.Commit().HasError());
+    ASSERT_FALSE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto unique_acc = this->db->UniqueAccess();
     [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   auto storage_dba = this->db->Access();
@@ -3435,12 +3436,12 @@ TYPED_TEST(QueryPlan, ScanAllByLabelPropertyNoValueInIndexContinuation) {
     auto v = dba.InsertVertex();
     ASSERT_TRUE(v.AddLabel(label).HasValue());
     ASSERT_TRUE(v.SetProperty(prop, memgraph::storage::PropertyValue(2)).HasValue());
-    ASSERT_FALSE(dba.Commit().HasError());
+    ASSERT_FALSE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto unique_acc = this->db->UniqueAccess();
     [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   auto storage_dba = this->db->Access();
@@ -3478,13 +3479,13 @@ TYPED_TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
     ASSERT_TRUE(v.AddLabel(label).HasValue());
     ASSERT_TRUE(v.SetProperty(prop, memgraph::storage::PropertyValue(i < vertex_prop_count ? prop_value1 : prop_value2))
                     .HasValue());
-    ASSERT_FALSE(dba.Commit().HasError());
+    ASSERT_FALSE(dba.Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
     auto unique_acc = this->db->UniqueAccess();
     [[maybe_unused]] auto _ = unique_acc->CreateIndex(label, {prop});
-    ASSERT_FALSE(unique_acc->Commit().HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Make sure there are `vertex_count` vertices

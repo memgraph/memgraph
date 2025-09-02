@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -32,4 +32,12 @@ std::vector<storage::LabelId> NamesToLabels(std::vector<std::string> const &labe
   }
   return labels;
 }
+
+auto ExecutionContext::commit_args() -> storage::CommitArgs {
+  if (is_main) {
+    return storage::CommitArgs::make_main(protector->clone());
+  }
+  return storage::CommitArgs::make_replica_read();
+}
+
 }  // namespace memgraph::query

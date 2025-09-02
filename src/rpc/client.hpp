@@ -25,6 +25,7 @@
 #include "slk/streams.hpp"
 #include "utils/logging.hpp"
 #include "utils/on_scope_exit.hpp"
+#include "utils/resource_lock.hpp"
 #include "utils/typeinfo.hpp"
 
 #include "io/network/fmt.hpp"  // necessary include
@@ -54,13 +55,15 @@ class Client {
       {"RegisterReplicaOnMainReq"sv, 10000},  // coordinator sending to main
       {"UnregisterReplicaReq"sv, 10000},      // coordinator sending to main
       {"EnableWritingOnMainReq"sv, 10000},    // coordinator to main
+      {"ReplicationLagReq"sv, 5000},          // coordinator to main
       {"GetDatabaseHistoriesReq"sv, 10000},   // coordinator to data instances
       {"StateCheckReq"sv, 5000},              // coordinator to data instances
       {"SwapMainUUIDReq"sv, 10000},           // coord to data instances
       {"FrequentHeartbeatReq"sv, 5000},       // coord to data instances
       {"HeartbeatReq"sv, 10000},              // main to replica
       {"SystemRecoveryReq"sv, 30000},  // main to replica when MT is used. Recovering 1000DBs should take around 25''
-      {"AppendDeltasReq"sv, 30000},    // Waiting 30'' on a progress/final response
+      {"PrepareCommitReq"sv, 30000},   // Waiting 30'' on a progress/final response
+      {"FinalizeCommitReq"sv, 10000},  // Waiting 10'' on a final response
       {"CurrentWalReq"sv, 30000},      // Waiting 30'' on a progress/final response
       {"WalFilesReq"sv, 30000},        // Waiting 30'' on a progress/final response
       {"SnapshotReq"sv, 60000}         // Waiting 60'' on a progress/final response
@@ -75,7 +78,7 @@ class Client {
    private:
     friend class Client;
 
-    StreamHandler(Client *self, std::unique_lock<std::mutex> &&guard,
+    StreamHandler(Client *self, std::unique_lock<utils::ResourceLock> &&guard,
                   std::function<typename TRequestResponse::Response(slk::Reader *)> res_load,
                   std::optional<int> timeout_ms)
         : self_(self),
@@ -101,7 +104,7 @@ class Client {
         timeout_ms_ = other.timeout_ms_;
         defunct_ = std::exchange(other.defunct_, true);
         guard_ = std::move(other.guard_);
-        req_builder_ = slk::Builder(std::move(other.req_builder_, GenBuilderCallback(self_, this, timeout_ms_)));
+        req_builder_ = slk::Builder(std::move(other.req_builder_), GenBuilderCallback(self_, this, timeout_ms_));
         res_load_ = std::move(other.res_load_);
       }
       return *this;
@@ -123,7 +126,8 @@ class Client {
 
       // Finalize the request.
       req_builder_.Finalize();
-      spdlog::trace("[RpcClient] sent {} to {}", req_type_name, self_->client_->endpoint().SocketAddress());
+      spdlog::trace("[RpcClient] sent {}, version {}, to {}", req_type_name, TRequestResponse::Request::kVersion,
+                    self_->client_->endpoint().SocketAddress());
 
       while (true) {
         // Receive the response.
@@ -155,27 +159,21 @@ class Client {
         // Load the response.
         slk::Reader res_reader(self_->client_->GetData(), response_data_size);
 
-        auto res_id{utils::TypeId::UNKNOWN};
-        // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
-        rpc::Version version;
+        auto const maybe_message_header = std::invoke([&res_reader]() -> std::optional<ProtocolMessageHeader> {
+          try {
+            return LoadMessageHeader(&res_reader);
+          } catch (const std::exception &e) {
+            return std::nullopt;
+          }
+        });
 
-        try {
-          slk::Load(&res_id, &res_reader);
-          slk::Load(&version, &res_reader);
-        } catch (const slk::SlkReaderException &) {
+        if (!maybe_message_header.has_value()) {
           self_->client_->ShiftData(response_data_size);
           throw SlkRpcFailedException();
+          ;
         }
 
-        if (version != rpc::current_version) {
-          // V1 we introduced versioning with, absolutely no backwards compatibility,
-          // because it's impossible to provide backwards compatibility with pre versioning.
-          // Future versions this may require mechanism for graceful version handling.
-          self_->client_->ShiftData(response_data_size);
-          throw VersionMismatchRpcFailedException();
-        }
-
-        if (res_id == utils::TypeId::REP_IN_PROGRESS_RES) {
+        if (maybe_message_header->message_id == utils::TypeId::REP_IN_PROGRESS_RES) {
           // Continue holding the lock
           spdlog::info("[RpcClient] Received InProgressRes RPC message from {}:{}. Waiting for {}.",
                        self_->endpoint_.GetAddress(), self_->endpoint_.GetPort(), final_res_type_name);
@@ -183,9 +181,9 @@ class Client {
           continue;
         }
 
-        if (res_id != final_res_type.id) {
+        if (maybe_message_header->message_id != final_res_type.id) {
           spdlog::error("[RpcClient] Message response was of unexpected type, received TypeId {}",
-                        static_cast<uint64_t>(res_id));
+                        static_cast<uint64_t>(maybe_message_header->message_id));
           // Logically invalid state, connection is still up, defunct stream and release
           defunct_ = true;
           guard_.unlock();
@@ -193,8 +191,8 @@ class Client {
           throw GenericRpcFailedException();
         }
 
-        spdlog::trace("[RpcClient] received {} from endpoint {}:{}.", final_res_type_name,
-                      self_->endpoint_.GetAddress(), self_->endpoint_.GetPort());
+        spdlog::trace("[RpcClient] received {}, version {}, from endpoint {}:{}.", final_res_type_name,
+                      maybe_message_header->message_version, self_->endpoint_.GetAddress(), self_->endpoint_.GetPort());
         self_->client_->ShiftData(response_data_size);
         return res_load_(&res_reader);
       }
@@ -210,7 +208,8 @@ class Client {
       // Finalize the request.
       req_builder_.Finalize();
 
-      spdlog::trace("[RpcClient] sent {} to {}", req_type_name, self_->client_->endpoint().SocketAddress());
+      spdlog::trace("[RpcClient] sent {}, version {}, to {}", req_type_name, TRequestResponse::Request::kVersion,
+                    self_->client_->endpoint().SocketAddress());
 
       // Receive the response.
       uint64_t response_data_size = 0;
@@ -241,35 +240,32 @@ class Client {
       slk::Reader res_reader(self_->client_->GetData(), response_data_size);
       utils::OnScopeExit res_cleanup([&, response_data_size] { self_->client_->ShiftData(response_data_size); });
 
-      utils::TypeId res_id{utils::TypeId::UNKNOWN};
-      // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
-      rpc::Version version;
+      auto const maybe_message_header = std::invoke([&res_reader]() -> std::optional<ProtocolMessageHeader> {
+        try {
+          return LoadMessageHeader(&res_reader);
+        } catch (const std::exception &e) {
+          return std::nullopt;
+        }
+      });
 
-      try {
-        slk::Load(&res_id, &res_reader);
-        slk::Load(&version, &res_reader);
-      } catch (const slk::SlkReaderException &) {
+      if (!maybe_message_header.has_value()) {
         throw SlkRpcFailedException();
-      }
-
-      if (version != rpc::current_version) {
-        // V1 we introduced versioning with, absolutely no backwards compatibility,
-        // because it's impossible to provide backwards compatibility with pre versioning.
-        // Future versions this may require mechanism for graceful version handling.
-        throw VersionMismatchRpcFailedException();
+        ;
       }
 
       // Check the response ID.
-      if (res_id != res_type.id && res_id != utils::TypeId::UNKNOWN) {
-        spdlog::error("Message response was of unexpected type");
+      if (maybe_message_header->message_id != res_type.id &&
+          maybe_message_header->message_id != utils::TypeId::UNKNOWN) {
+        spdlog::error("Message response was of unexpected type. Received ID {} and expected {}",
+                      static_cast<uint64_t>(maybe_message_header->message_id), static_cast<uint64_t>(res_type.id));
         // Logically invalid state, connection is still up, defunct stream and release
         defunct_ = true;
         guard_.unlock();
         throw GenericRpcFailedException();
       }
 
-      spdlog::trace("[RpcClient] received {} from endpoint {}:{}.", res_type_name, self_->endpoint_.GetAddress(),
-                    self_->endpoint_.GetPort());
+      spdlog::trace("[RpcClient] received {}, version {} from endpoint {}:{}.", res_type_name,
+                    maybe_message_header->message_version, self_->endpoint_.GetAddress(), self_->endpoint_.GetPort());
 
       return res_load_(&res_reader);
     }
@@ -292,7 +288,7 @@ class Client {
     Client *self_;
     std::optional<int> timeout_ms_;
     bool defunct_ = false;
-    std::unique_lock<std::mutex> guard_;
+    std::unique_lock<utils::ResourceLock> guard_;
     slk::Builder req_builder_;
     std::function<typename TRequestResponse::Response(slk::Reader *)> res_load_;
   };
@@ -318,17 +314,69 @@ class Client {
           TRequestResponse::Response::Load(&response, reader);
           return response;
         },
-        std::forward<Args>(args)...);
+        /*try_lock_timeout*/ std::nullopt, /*guard*/ std::nullopt, std::forward<Args>(args)...);
+  }
+
+  /**
+   * Tries to obtain RPC stream by try locking RPC lock, otherwise returns std::nullopt
+   * @tparam TRequestResponse RPC type
+   * @tparam Args Type of arguments to propagate to StreamWithLoad
+   * @param try_lock_timeout Optional timeout for try lock on RPC lock
+   * @param args  Arguments to propagate to StreamWithLoad
+   * @return nullopt if couldn't try_lock, StreamHandler otherwise
+   */
+  template <class TRequestResponse, class... Args>
+  std::optional<StreamHandler<TRequestResponse>> TryStream(
+      std::optional<std::chrono::milliseconds> const &try_lock_timeout, Args &&...args) {
+    try {
+      return StreamWithLoad<TRequestResponse>(
+          [](auto *reader) {
+            typename TRequestResponse::Response response;
+            TRequestResponse::Response::Load(&response, reader);
+            return response;
+          },
+          /*try_lock_timeout*/ try_lock_timeout, /*guard*/ std::nullopt, std::forward<Args>(args)...);
+    } catch (FailedToGetRpcStreamException const &) {
+      return std::nullopt;
+    }
+  }
+
+  template <class TRequestResponseNew, class TRequestResponseOld, class... Args>
+  StreamHandler<TRequestResponseNew> UpgradeStream(StreamHandler<TRequestResponseOld> &&old_stream_handler,
+                                                   Args &&...args) {
+    return StreamWithLoad<TRequestResponseNew>(
+        [](auto *reader) {
+          typename TRequestResponseNew::Response response;
+          TRequestResponseNew::Response::Load(&response, reader);
+          return response;
+        },
+        /*try_lock_timeout*/ std::nullopt, /*guard*/ std::move(old_stream_handler.guard_), std::forward<Args>(args)...);
   }
 
   /// Same as `Stream` but the first argument is a response loading function.
   template <class TRequestResponse, class... Args>
   StreamHandler<TRequestResponse> StreamWithLoad(
-      std::function<typename TRequestResponse::Response(slk::Reader *)> res_load, Args &&...args) {
+      std::function<typename TRequestResponse::Response(slk::Reader *)> res_load,
+      std::optional<std::chrono::milliseconds> const &try_lock_timeout,
+      std::optional<std::unique_lock<utils::ResourceLock>> guard_arg, Args &&...args) {
     typename TRequestResponse::Request request(std::forward<Args>(args)...);
     auto req_type = TRequestResponse::Request::kType;
+    auto req_type_name = std::string_view{req_type.name};
 
-    auto guard = std::unique_lock{mutex_};
+    auto guard = std::invoke([&]() -> std::unique_lock<utils::ResourceLock> {
+      // Upgrade stream with existing lock
+      if (guard_arg.has_value()) {
+        return std::move(*guard_arg);
+      }
+      // New stream, new lock, maybe use try_lock_timeout
+      auto local_guard = std::unique_lock{mutex_, std::defer_lock};
+      if (!try_lock_timeout.has_value()) {
+        local_guard.lock();
+      } else if (!local_guard.try_lock_for(*try_lock_timeout)) {
+        throw FailedToGetRpcStreamException();
+      }
+      return local_guard;  // RVO
+    });
 
     // Check if the connection is broken (if we haven't used the client for a
     // long time the server could have died).
@@ -348,7 +396,6 @@ class Client {
 
     std::optional<int> timeout_ms{std::nullopt};
 
-    auto req_type_name = std::string_view{req_type.name};
     auto const maybe_timeout = std::ranges::find_if(
         rpc_timeouts_ms_, [req_type_name](auto const &entry) { return entry.first == req_type_name; });
     if (maybe_timeout != rpc_timeouts_ms_.end()) {
@@ -358,9 +405,10 @@ class Client {
     // Create the stream handler.
     StreamHandler<TRequestResponse> handler(this, std::move(guard), res_load, timeout_ms);
 
-    // Build and send the request.
-    slk::Save(req_type.id, handler.GetBuilder());
-    slk::Save(rpc::current_version, handler.GetBuilder());
+    ProtocolMessageHeader const message_header{.protocol_version = current_protocol_version,
+                                               .message_id = req_type.id,
+                                               .message_version = TRequestResponse::Request::kVersion};
+    SaveMessageHeader(message_header, handler.GetBuilder());
     TRequestResponse::Request::Save(request, handler.GetBuilder());
 
     // Return the handler to the user.
@@ -401,7 +449,7 @@ class Client {
   std::optional<communication::Client> client_;
   std::unordered_map<std::string_view, int> rpc_timeouts_ms_;
 
-  mutable std::mutex mutex_;
+  mutable utils::ResourceLock mutex_;
 };
 
 }  // namespace memgraph::rpc

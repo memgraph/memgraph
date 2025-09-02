@@ -119,7 +119,7 @@ template <typename K, typename V>
 void PrintObject(std::ostream *out, const DbAccessor *dba, const std::map<K, V> &map);
 
 template <typename K, typename V, typename C, typename A>
-void PrintObject(std::ostream *out, const DbAccessor *dba, const boost::container::flat_map<K, V, C, A> &map);
+void PrintObject(std::ostream *out, const DbAccessor *dba, const std::map<K, V, C, A> &map);
 
 void PrintObject(std::ostream *out, EnumValueAccess op);
 
@@ -128,6 +128,10 @@ void PrintObject(std::ostream *out, const DbAccessor *dba, storage::Enum value);
 void PrintObject(std::ostream *out, storage::Point2d const &value);
 
 void PrintObject(std::ostream *out, storage::Point3d const &value);
+
+void PrintObject(std::ostream *out, const DbAccessor *dba, PropertyIx const &property);
+
+void PrintObject(std::ostream *out, PropertyIx const &property);
 
 template <typename T>
 void PrintObject(std::ostream *out, const DbAccessor * /*dba*/, const T &arg) {
@@ -180,6 +184,12 @@ void PrintObject(std::ostream *out, const DbAccessor *dba, storage::Enum value) 
 void PrintObject(std::ostream *out, storage::Point2d const &value) { *out << query::CypherConstructionFor(value); }
 
 void PrintObject(std::ostream *out, storage::Point3d const &value) { *out << query::CypherConstructionFor(value); }
+
+void PrintObject(std::ostream *out, const DbAccessor * /*dba*/, const PropertyIx &property) {
+  PrintObject(out, property);
+}
+
+void PrintObject(std::ostream *out, PropertyIx const &property) { *out << property.name; }
 
 void PrintObject(std::ostream *out, const DbAccessor *dba, const storage::PropertyValue &value) {
   switch (value.type()) {
@@ -296,7 +306,7 @@ void PrintObject(std::ostream *out, const DbAccessor *dba, const std::map<K, V> 
 }
 
 template <typename K, typename V, typename C, typename A>
-void PrintObject(std::ostream *out, const DbAccessor *dba, const boost::container::flat_map<K, V, C, A> &map) {
+void PrintObject(std::ostream *out, const DbAccessor *dba, const std::map<K, V, C, A> &map) {
   *out << "{";
   utils::PrintIterable(*out, map, ", ", [&dba](auto &stream, const auto &item) {
     PrintObject(&stream, dba, item.first);
@@ -448,7 +458,7 @@ void ExpressionPrettyPrinter::Visit(Identifier &op) { PrintOperator(out_, dba_, 
 void ExpressionPrettyPrinter::Visit(PrimitiveLiteral &op) { PrintObject(out_, dba_, op.value_); }
 
 void ExpressionPrettyPrinter::Visit(PropertyLookup &op) {
-  PrintOperator(out_, dba_, "PropertyLookup", op.expression_, op.property_.name);
+  PrintOperator(out_, dba_, "PropertyLookup", op.expression_, op.property_path_);
 }
 
 void ExpressionPrettyPrinter::Visit(ParameterLookup &op) {

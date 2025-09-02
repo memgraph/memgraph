@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -177,6 +177,75 @@ inline auto Edges_ActionMethod(utils::small_vector<std::tuple<EdgeTypeId, Vertex
       ActionMethod <(dir == EdgeDirection::IN) ? REMOVE_IN_EDGE : REMOVE_OUT_EDGE> (
           [&, predicate](Delta const &delta) {
               if (!predicate(delta)) return;
+              // Remove the label because we don't see the addition.
+              auto it = std::find(edges.begin(), edges.end(),
+                            std::tuple{delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge});
+              DMG_ASSERT(it != edges.end(), "Invalid database state!");
+              *it = edges.back();
+              edges.pop_back();
+          }
+      )
+  };
+  // clang-format on
+}
+
+template <EdgeDirection dir>
+inline auto Edges_ActionMethod(utils::small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> &edges,
+                               EdgeTypeId edge_type) {
+  auto const predicate = [edge_type](Delta const &delta) { return delta.vertex_edge.edge_type == edge_type; };
+
+  // clang-format off
+  using enum Delta::Action;
+  return utils::Overloaded{
+      ActionMethod <(dir == EdgeDirection::IN) ? ADD_IN_EDGE : ADD_OUT_EDGE> (
+          [&, predicate](Delta const &delta) {
+              if (!predicate(delta)) return;
+              // Add the edge because we don't see the removal.
+              auto link = std::tuple{delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge};
+              /// NOTE: For in_memory_storage, link should never exist but for on_disk storage it is possible that
+              /// after edge deletion, in the same txn, user requests loading from disk. Then edge will already exist
+              /// in out_edges struct.
+              auto link_exists = std::find(edges.begin(), edges.end(), link) != edges.end();
+              if (!link_exists) {
+                edges.push_back(link);
+              }
+          }
+      ),
+      ActionMethod <(dir == EdgeDirection::IN) ? REMOVE_IN_EDGE : REMOVE_OUT_EDGE> (
+          [&, predicate](Delta const &delta) {
+              if (!predicate(delta)) return;
+              // Remove the label because we don't see the addition.
+              auto it = std::find(edges.begin(), edges.end(),
+                            std::tuple{delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge});
+              DMG_ASSERT(it != edges.end(), "Invalid database state!");
+              *it = edges.back();
+              edges.pop_back();
+          }
+      )
+  };
+  // clang-format on
+}
+
+template <EdgeDirection dir>
+inline auto Edges_ActionMethod(utils::small_vector<std::tuple<EdgeTypeId, Vertex *, EdgeRef>> &edges) {
+  // clang-format off
+  using enum Delta::Action;
+  return utils::Overloaded{
+      ActionMethod <(dir == EdgeDirection::IN) ? ADD_IN_EDGE : ADD_OUT_EDGE> (
+          [&](Delta const &delta) {
+              // Add the edge because we don't see the removal.
+              auto link = std::tuple{delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge};
+              /// NOTE: For in_memory_storage, link should never exist but for on_disk storage it is possible that
+              /// after edge deletion, in the same txn, user requests loading from disk. Then edge will already exist
+              /// in out_edges struct.
+              auto link_exists = std::find(edges.begin(), edges.end(), link) != edges.end();
+              if (!link_exists) {
+                edges.push_back(link);
+              }
+          }
+      ),
+      ActionMethod <(dir == EdgeDirection::IN) ? REMOVE_IN_EDGE : REMOVE_OUT_EDGE> (
+          [&](Delta const &delta) {
               // Remove the label because we don't see the addition.
               auto it = std::find(edges.begin(), edges.end(),
                             std::tuple{delta.vertex_edge.edge_type, delta.vertex_edge.vertex, delta.vertex_edge.edge});

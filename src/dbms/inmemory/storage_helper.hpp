@@ -20,9 +20,24 @@ namespace memgraph::dbms {
 
 inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(
     storage::Config config,
-    const utils::Synchronized<::memgraph::replication::ReplicationState, utils::RWSpinLock> &repl_state) {
+    const utils::Synchronized<::memgraph::replication::ReplicationState, utils::RWSpinLock> &repl_state,
+    storage::PlanInvalidatorPtr invalidator = std::make_unique<storage::PlanInvalidatorDefault>(),
+    std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr) {
   const auto name = config.salient.name;
-  auto storage = std::make_unique<storage::InMemoryStorage>(std::move(config));
+
+  // Use default safe factory from Storage constructor for basic usage
+  auto storage = std::make_unique<storage::InMemoryStorage>(std::move(config), std::nullopt, std::move(invalidator),
+                                                            std::move(database_protector_factory));
+
+  // TODO: we want a better approach for controlling background works.
+  //       Idea:
+  //       During recovery - Should block these threads with a common `force_pause`
+  //       Here - Soft pause those threads if replica, release the force_pause
+  // Set the main instance check function on TTL based on replication state
+  storage->ttl_.SetUserCheck([&repl_state]() -> bool {
+    const auto locked_repl_state = repl_state.ReadLock();
+    return locked_repl_state->IsMainWriteable();
+  });
 
   // Connect replication state and storage
   storage->CreateSnapshotHandler(
@@ -31,7 +46,11 @@ inline std::unique_ptr<storage::Storage> CreateInMemoryStorage(
         // Holding on to the lock for the duration of CreateSnapshot will cause a deadlock
         // Not holding the lock might allow a replica to create the snapshot if the role switch is happening
         const auto role = repl_state.ReadLock()->GetRole();
-        return storage->CreateSnapshot(role);
+        auto result = storage->CreateSnapshot(role);
+        if (result.HasError()) {
+          return result.GetError();
+        }
+        return utils::BasicResult<storage::InMemoryStorage::CreateSnapshotError>{};
       });
 
   return std::move(storage);

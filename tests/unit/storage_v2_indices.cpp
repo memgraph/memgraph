@@ -22,8 +22,11 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/property_value_utils.hpp"
 #include "storage/v2/temporal.hpp"
 #include "storage_test_utils.hpp"
+#include "tests/test_commit_args_helper.hpp"
+#include "utils/rocksdb_serialization.hpp"
 
 // NOLINTNEXTLINE(google-build-using-namespace)
 using namespace memgraph::storage;
@@ -53,6 +56,21 @@ PropertyValueRange IsNotNull() { return PropertyValueRange::IsNotNull(); }
 
 }  // namespace pvr
 
+/** Type for  a key-value pair.
+ */
+using KVPair = std::tuple<PropertyId, PropertyValue>;
+
+/** Creates a map from a (possibly nested) list of `KVPair`s.
+ */
+template <typename... Ts>
+auto MakeMap(Ts &&...values) -> PropertyValue
+  requires(std::is_same_v<std::decay_t<Ts>, KVPair> && ...)
+{
+  return PropertyValue{PropertyValue::map_t{
+      {std::get<0>(values),
+       std::forward<std::tuple_element_t<1, std::decay_t<Ts>>>(std::get<1>(std::forward<Ts>(values)))}...}};
+};
+
 template <typename StorageType>
 class IndexTest : public testing::Test {
  protected:
@@ -73,6 +91,7 @@ class IndexTest : public testing::Test {
     this->prop_a = acc->NameToProperty("prop_a");
     this->prop_b = acc->NameToProperty("prop_b");
     this->prop_c = acc->NameToProperty("prop_c");
+    this->prop_d = acc->NameToProperty("prop_d");
     vertex_id = 0;
   }
 
@@ -81,6 +100,22 @@ class IndexTest : public testing::Test {
       disk_test_utils::RemoveRocksDbDirs(testSuite);
     }
     this->storage.reset(nullptr);
+  }
+
+  auto CreateIndexAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> {
+    if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>) {
+      return this->storage->ReadOnlyAccess();
+    } else {
+      return this->storage->UniqueAccess();
+    }
+  }
+
+  auto DropIndexAccessor() -> std::unique_ptr<memgraph::storage::Storage::Accessor> {
+    if constexpr (std::is_same_v<StorageType, memgraph::storage::InMemoryStorage>) {
+      return this->storage->Access(memgraph::storage::StorageAccessType::READ);
+    } else {
+      return this->storage->UniqueAccess();
+    }
   }
 
   const std::string testSuite = "storage_v2_indices";
@@ -97,6 +132,7 @@ class IndexTest : public testing::Test {
   PropertyId prop_a;
   PropertyId prop_b;
   PropertyId prop_c;
+  PropertyId prop_d;
 
   VertexAccessor CreateVertex(Storage::Accessor *accessor) {
     VertexAccessor vertex = accessor->CreateVertex();
@@ -138,7 +174,7 @@ TYPED_TEST_SUITE(IndexTest, StorageTypes);
 TYPED_TEST(IndexTest, LabelIndexCreate) {
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelIndexExists(this->label1));
+    EXPECT_FALSE(acc->LabelIndexReady(this->label1));
     EXPECT_EQ(acc->ListAllIndices().label.size(), 0);
   }
 
@@ -148,13 +184,13 @@ TYPED_TEST(IndexTest, LabelIndexCreate) {
       auto vertex = this->CreateVertex(acc.get());
       ASSERT_NO_ERROR(vertex.AddLabel(i % 2 ? this->label1 : this->label2));
     }
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
@@ -203,7 +239,7 @@ TYPED_TEST(IndexTest, LabelIndexCreate) {
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::NEW), View::NEW),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
 
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
@@ -220,7 +256,7 @@ TYPED_TEST(IndexTest, LabelIndexCreate) {
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::NEW), View::NEW),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
 
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 }
 
@@ -228,7 +264,7 @@ TYPED_TEST(IndexTest, LabelIndexCreate) {
 TYPED_TEST(IndexTest, LabelIndexDrop) {
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelIndexExists(this->label1));
+    EXPECT_FALSE(acc->LabelIndexReady(this->label1));
     EXPECT_EQ(acc->ListAllIndices().label.size(), 0);
   }
 
@@ -238,13 +274,13 @@ TYPED_TEST(IndexTest, LabelIndexDrop) {
       auto vertex = this->CreateVertex(acc.get());
       ASSERT_NO_ERROR(vertex.AddLabel(i % 2 ? this->label1 : this->label2));
     }
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
@@ -254,24 +290,24 @@ TYPED_TEST(IndexTest, LabelIndexDrop) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->DropIndex(this->label1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->DropIndexAccessor();
+    EXPECT_FALSE(acc->DropIndex(this->label1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelIndexExists(this->label1));
+    EXPECT_FALSE(acc->LabelIndexReady(this->label1));
     EXPECT_EQ(acc->ListAllIndices().label.size(), 0);
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_TRUE(unique_acc->DropIndex(this->label1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->DropIndexAccessor();
+    EXPECT_TRUE(acc->DropIndex(this->label1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelIndexExists(this->label1));
+    EXPECT_FALSE(acc->LabelIndexReady(this->label1));
     EXPECT_EQ(acc->ListAllIndices().label.size(), 0);
   }
 
@@ -281,17 +317,17 @@ TYPED_TEST(IndexTest, LabelIndexDrop) {
       auto vertex = this->CreateVertex(acc.get());
       ASSERT_NO_ERROR(vertex.AddLabel(i % 2 ? this->label1 : this->label2));
     }
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_TRUE(acc->LabelIndexExists(this->label1));
+    EXPECT_TRUE(acc->LabelIndexReady(this->label1));
     EXPECT_THAT(acc->ListAllIndices().label, UnorderedElementsAre(this->label1));
   }
 
@@ -322,14 +358,14 @@ TYPED_TEST(IndexTest, LabelIndexBasic) {
   //    vertices.
   // 4. Delete even numbered vertices.
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label2).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label2).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   auto acc = this->storage->Access();
@@ -395,14 +431,14 @@ TYPED_TEST(IndexTest, LabelIndexDuplicateVersions) {
   // the same vertex in the index (they only differ by the timestamp). This test
   // checks that duplicates are properly filtered out.
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label2).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label2).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
@@ -414,7 +450,7 @@ TYPED_TEST(IndexTest, LabelIndexDuplicateVersions) {
 
     EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1, 2, 3, 4));
 
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
@@ -443,14 +479,14 @@ TYPED_TEST(IndexTest, LabelIndexDuplicateVersions) {
 TYPED_TEST(IndexTest, LabelIndexTransactionalIsolation) {
   // Check that transactions only see entries they are supposed to see.
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label2).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label2).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   auto acc_before = this->storage->Access();
@@ -468,7 +504,7 @@ TYPED_TEST(IndexTest, LabelIndexTransactionalIsolation) {
 
   EXPECT_THAT(this->GetIds(acc_after->Vertices(this->label1, View::NEW), View::NEW), IsEmpty());
 
-  ASSERT_NO_ERROR(acc->Commit());
+  ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 
   auto acc_after_commit = this->storage->Access();
 
@@ -484,14 +520,14 @@ TYPED_TEST(IndexTest, LabelIndexTransactionalIsolation) {
 TYPED_TEST(IndexTest, LabelIndexCountEstimate) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto acc = this->CreateIndexAccessor();
+      EXPECT_FALSE(acc->CreateIndex(this->label1).HasError());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label2).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto acc = this->CreateIndexAccessor();
+      EXPECT_FALSE(acc->CreateIndex(this->label2).HasError());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
 
     auto acc = this->storage->Access();
@@ -508,9 +544,9 @@ TYPED_TEST(IndexTest, LabelIndexCountEstimate) {
 TYPED_TEST(IndexTest, LabelIndexDeletedVertex) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto acc = this->CreateIndexAccessor();
+      EXPECT_FALSE(acc->CreateIndex(this->label1).HasError());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
     auto acc1 = this->storage->Access();
     auto vertex1 = this->CreateVertex(acc1.get());
@@ -518,12 +554,12 @@ TYPED_TEST(IndexTest, LabelIndexDeletedVertex) {
     auto vertex2 = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex2.AddLabel(this->label1));
     EXPECT_THAT(this->GetIds(acc1->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
-    ASSERT_NO_ERROR(acc1->Commit());
+    ASSERT_NO_ERROR(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     auto acc2 = this->storage->Access();
     auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
     auto res = acc2->DeleteVertex(&*vertex_to_delete);
     ASSERT_FALSE(res.HasError());
-    ASSERT_NO_ERROR(acc2->Commit());
+    ASSERT_NO_ERROR(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     auto acc3 = this->storage->Access();
     EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(1));
   }
@@ -532,22 +568,22 @@ TYPED_TEST(IndexTest, LabelIndexDeletedVertex) {
 TYPED_TEST(IndexTest, LabelIndexRemoveIndexedLabel) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto acc = this->CreateIndexAccessor();
+      EXPECT_FALSE(acc->CreateIndex(this->label1).HasError());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
     auto acc1 = this->storage->Access();
     auto vertex1 = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
     auto vertex2 = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex2.AddLabel(this->label1));
-    ASSERT_NO_ERROR(acc1->Commit());
+    ASSERT_NO_ERROR(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     auto acc2 = this->storage->Access();
     EXPECT_THAT(this->GetIds(acc2->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
     auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
     auto res = vertex_to_delete->RemoveLabel(this->label1);
     ASSERT_FALSE(res.HasError());
-    ASSERT_NO_ERROR(acc2->Commit());
+    ASSERT_NO_ERROR(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     auto acc3 = this->storage->Access();
     EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(1));
   }
@@ -556,16 +592,16 @@ TYPED_TEST(IndexTest, LabelIndexRemoveIndexedLabel) {
 TYPED_TEST(IndexTest, LabelIndexRemoveAndAddIndexedLabel) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto acc = this->CreateIndexAccessor();
+      EXPECT_FALSE(acc->CreateIndex(this->label1).HasError());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
     auto acc1 = this->storage->Access();
     auto vertex1 = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex1.AddLabel(this->label1));
     auto vertex2 = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex2.AddLabel(this->label1));
-    ASSERT_NO_ERROR(acc1->Commit());
+    ASSERT_NO_ERROR(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     auto acc2 = this->storage->Access();
     EXPECT_THAT(this->GetIds(acc2->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
     auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
@@ -573,7 +609,7 @@ TYPED_TEST(IndexTest, LabelIndexRemoveAndAddIndexedLabel) {
     ASSERT_FALSE(res_remove.HasError());
     auto res_add = vertex_to_delete->AddLabel(this->label1);
     ASSERT_FALSE(res_add.HasError());
-    ASSERT_NO_ERROR(acc2->Commit());
+    ASSERT_NO_ERROR(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     auto acc3 = this->storage->Access();
     EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
   }
@@ -585,15 +621,15 @@ TYPED_TEST(IndexTest, LabelIndexClearOldDataFromDisk) {
         static_cast<memgraph::storage::DiskLabelIndex *>(this->storage->indices_.label_index_.get());
 
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label1).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto acc = this->CreateIndexAccessor();
+      EXPECT_FALSE(acc->CreateIndex(this->label1).HasError());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
     auto acc1 = this->storage->Access();
     auto vertex = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
     ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(10)));
-    ASSERT_NO_ERROR(acc1->Commit());
+    ASSERT_NO_ERROR(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 
     auto *tx_db = disk_label_index->GetRocksDBStorage()->db_;
     ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
@@ -601,14 +637,14 @@ TYPED_TEST(IndexTest, LabelIndexClearOldDataFromDisk) {
     auto acc2 = this->storage->Access();
     auto vertex2 = acc2->FindVertex(vertex.Gid(), memgraph::storage::View::NEW).value();
     ASSERT_TRUE(vertex2.SetProperty(this->prop_val, memgraph::storage::PropertyValue(10)).HasValue());
-    ASSERT_FALSE(acc2->Commit().HasError());
+    ASSERT_FALSE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
 
     ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
 
     auto acc3 = this->storage->Access();
     auto vertex3 = acc3->FindVertex(vertex.Gid(), memgraph::storage::View::NEW).value();
     ASSERT_TRUE(vertex3.SetProperty(this->prop_val, memgraph::storage::PropertyValue(15)).HasValue());
-    ASSERT_FALSE(acc3->Commit().HasError());
+    ASSERT_FALSE(acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
 
     ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
   }
@@ -621,84 +657,88 @@ TYPED_TEST(IndexTest, LabelPropertyIndexCreateAndDrop) {
     EXPECT_EQ(acc->ListAllIndices().label_properties.size(), 0);
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_id}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_id}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_TRUE(acc->LabelPropertyIndexExists(this->label1, std::array{this->prop_id}));
+    EXPECT_TRUE(acc->LabelPropertyIndexReady(this->label1, std::array{PropertyPath{this->prop_id}}));
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_THAT(acc->ListAllIndices().label_properties,
-                UnorderedElementsAre(std::make_pair(this->label1, std::vector{this->prop_id})));
+    EXPECT_THAT(
+        acc->ListAllIndices().label_properties,
+        UnorderedElementsAre(std::make_pair(this->label1, std::vector<PropertyPath>{PropertyPath{this->prop_id}})));
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label2, std::array{this->prop_id}));
+    EXPECT_FALSE(acc->LabelPropertyIndexReady(this->label2, std::array{PropertyPath{this->prop_id}}));
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_TRUE(unique_acc->CreateIndex(this->label1, {this->prop_id}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
-  }
-
-  {
-    auto acc = this->storage->Access();
-    EXPECT_THAT(acc->ListAllIndices().label_properties,
-                UnorderedElementsAre(std::make_pair(this->label1, std::vector{this->prop_id})));
-  }
-
-  {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label2, {this->prop_id}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_TRUE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_id}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
     auto acc = this->storage->Access();
-    EXPECT_TRUE(acc->LabelPropertyIndexExists(this->label2, std::array{this->prop_id}));
+    EXPECT_THAT(
+        acc->ListAllIndices().label_properties,
+        UnorderedElementsAre(std::make_pair(this->label1, std::vector<PropertyPath>{PropertyPath{this->prop_id}})));
+  }
+
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label2, {PropertyPath{this->prop_id}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
     auto acc = this->storage->Access();
-    EXPECT_THAT(acc->ListAllIndices().label_properties,
-                UnorderedElementsAre(std::make_pair(this->label1, std::vector{this->prop_id}),
-                                     std::make_pair(this->label2, std::vector{this->prop_id})));
-  }
-
-  {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->DropIndex(this->label1, {this->prop_id}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
-  }
-  {
-    auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label1, std::array{this->prop_id}));
+    EXPECT_TRUE(acc->LabelPropertyIndexReady(this->label2, std::array{PropertyPath{this->prop_id}}));
   }
 
   {
     auto acc = this->storage->Access();
-    EXPECT_THAT(acc->ListAllIndices().label_properties,
-                UnorderedElementsAre(std::make_pair(this->label2, std::vector{this->prop_id})));
+    EXPECT_THAT(
+        acc->ListAllIndices().label_properties,
+        UnorderedElementsAre(std::make_pair(this->label1, std::vector<PropertyPath>{PropertyPath{this->prop_id}}),
+                             std::make_pair(this->label2, std::vector<PropertyPath>{PropertyPath{this->prop_id}})));
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_TRUE(unique_acc->DropIndex(this->label1, {this->prop_id}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
-  }
-
-  {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->DropIndex(this->label2, {this->prop_id}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->DropIndexAccessor();
+    EXPECT_FALSE(acc->DropIndex(this->label1, {PropertyPath{this->prop_id}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label2, std::array{this->prop_id}));
+    EXPECT_FALSE(acc->LabelPropertyIndexReady(this->label1, std::array{PropertyPath{this->prop_id}}));
+  }
+
+  {
+    auto acc = this->storage->Access();
+    EXPECT_THAT(
+        acc->ListAllIndices().label_properties,
+        UnorderedElementsAre(std::make_pair(this->label2, std::vector<PropertyPath>{PropertyPath{this->prop_id}})));
+  }
+
+  {
+    auto acc = this->DropIndexAccessor();
+    EXPECT_TRUE(acc->DropIndex(this->label1, {PropertyPath{this->prop_id}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  {
+    auto acc = this->DropIndexAccessor();
+    EXPECT_FALSE(acc->DropIndex(this->label2, {PropertyPath{this->prop_id}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access();
+    EXPECT_FALSE(acc->LabelPropertyIndexReady(this->label2, std::array{PropertyPath{this->prop_id}}));
   }
 
   {
@@ -717,88 +757,110 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
     EXPECT_EQ(acc->ListAllIndices().label_properties.size(), 0);
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_a, this->prop_b, this->prop_c}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1,
+                                  {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})
+                     .HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_TRUE(acc->LabelPropertyIndexExists(this->label1, std::array{this->prop_a, this->prop_b, this->prop_c}));
+    EXPECT_TRUE(acc->LabelPropertyIndexReady(
+        this->label1, std::array{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}));
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_THAT(
-        acc->ListAllIndices().label_properties,
-        UnorderedElementsAre(std::make_pair(this->label1, std::vector{this->prop_a, this->prop_b, this->prop_c})));
+    EXPECT_THAT(acc->ListAllIndices().label_properties,
+                UnorderedElementsAre(std::make_pair(
+                    this->label1,
+                    std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})));
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label2, std::array{this->prop_a, this->prop_b, this->prop_c}));
+    EXPECT_FALSE(acc->LabelPropertyIndexReady(
+        this->label2, std::array{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}));
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_TRUE(unique_acc->CreateIndex(this->label1, {this->prop_a, this->prop_b, this->prop_c}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
-  }
-
-  {
-    auto acc = this->storage->Access();
-    EXPECT_THAT(
-        acc->ListAllIndices().label_properties,
-        UnorderedElementsAre(std::make_pair(this->label1, std::vector{this->prop_a, this->prop_b, this->prop_c})));
-  }
-
-  {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label2, {this->prop_a, this->prop_b, this->prop_c}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_TRUE(acc->CreateIndex(this->label1,
+                                 {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})
+                    .HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
     auto acc = this->storage->Access();
-    EXPECT_TRUE(acc->LabelPropertyIndexExists(this->label2, std::array{this->prop_a, this->prop_b, this->prop_c}));
+    EXPECT_THAT(acc->ListAllIndices().label_properties,
+                UnorderedElementsAre(std::make_pair(
+                    this->label1,
+                    std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})));
+  }
+
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label2,
+                                  {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})
+                     .HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
     auto acc = this->storage->Access();
-    EXPECT_THAT(
-        acc->ListAllIndices().label_properties,
-        UnorderedElementsAre(std::make_pair(this->label1, std::vector{this->prop_a, this->prop_b, this->prop_c}),
-                             std::make_pair(this->label2, std::vector{this->prop_a, this->prop_b, this->prop_c})));
-  }
-
-  {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->DropIndex(this->label1, {this->prop_a, this->prop_b, this->prop_c}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
-  }
-  {
-    auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label1, std::array{this->prop_a, this->prop_b, this->prop_c}));
+    EXPECT_TRUE(acc->LabelPropertyIndexReady(
+        this->label2, std::array{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}));
   }
 
   {
     auto acc = this->storage->Access();
-    EXPECT_THAT(
-        acc->ListAllIndices().label_properties,
-        UnorderedElementsAre(std::make_pair(this->label2, std::vector{this->prop_a, this->prop_b, this->prop_c})));
+    EXPECT_THAT(acc->ListAllIndices().label_properties,
+                UnorderedElementsAre(
+                    std::make_pair(this->label1, std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b},
+                                                             PropertyPath{this->prop_c}}),
+                    std::make_pair(this->label2, std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b},
+                                                             PropertyPath{this->prop_c}})));
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_TRUE(unique_acc->DropIndex(this->label1, {this->prop_a, this->prop_b, this->prop_c}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
-  }
-
-  {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->DropIndex(this->label2, {this->prop_a, this->prop_b, this->prop_c}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->DropIndexAccessor();
+    EXPECT_FALSE(acc->DropIndex(this->label1,
+                                {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})
+                     .HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->LabelPropertyIndexExists(this->label2, std::array{this->prop_a, this->prop_b, this->prop_c}));
+    EXPECT_FALSE(acc->LabelPropertyIndexReady(
+        this->label1, std::array{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}));
+  }
+
+  {
+    auto acc = this->storage->Access();
+    EXPECT_THAT(acc->ListAllIndices().label_properties,
+                UnorderedElementsAre(std::make_pair(
+                    this->label2,
+                    std::vector{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})));
+  }
+
+  {
+    auto acc = this->DropIndexAccessor();
+    EXPECT_TRUE(acc->DropIndex(this->label1,
+                               {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})
+                    .HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  {
+    auto acc = this->DropIndexAccessor();
+    EXPECT_FALSE(acc->DropIndex(this->label2,
+                                {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}})
+                     .HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+  {
+    auto acc = this->storage->Access();
+    EXPECT_FALSE(acc->LabelPropertyIndexReady(
+        this->label2, std::array{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}, PropertyPath{this->prop_c}}));
   }
 
   {
@@ -815,21 +877,21 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCreateAndDrop) {
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelPropertyIndexBasic) {
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label2, {this->prop_val}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label2, {PropertyPath{this->prop_val}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   auto acc = this->storage->Access();
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::OLD),
-                   View::OLD),
-      IsEmpty());
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::OLD),
+                           View::OLD),
+              IsEmpty());
 
   for (int i = 0; i < 10; ++i) {
     auto vertex = this->CreateVertex(acc.get());
@@ -837,47 +899,47 @@ TYPED_TEST(IndexTest, LabelPropertyIndexBasic) {
     ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(i)));
   }
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::OLD),
-                   View::OLD),
-      IsEmpty());
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::OLD),
+                           View::OLD),
+              IsEmpty());
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label2, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::OLD),
-                   View::OLD),
-      IsEmpty());
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::OLD),
+                           View::OLD),
+              IsEmpty());
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::NEW),
-                   View::NEW),
-      UnorderedElementsAre(1, 3, 5, 7, 9));
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::NEW),
+                           View::NEW),
+              UnorderedElementsAre(1, 3, 5, 7, 9));
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label2, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::NEW),
-                   View::NEW),
-      UnorderedElementsAre(0, 2, 4, 6, 8));
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::NEW),
+                           View::NEW),
+              UnorderedElementsAre(0, 2, 4, 6, 8));
 
   acc->AdvanceCommand();
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::OLD),
-                   View::OLD),
-      UnorderedElementsAre(1, 3, 5, 7, 9));
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::OLD),
+                           View::OLD),
+              UnorderedElementsAre(1, 3, 5, 7, 9));
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label2, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::OLD),
-                   View::OLD),
-      UnorderedElementsAre(0, 2, 4, 6, 8));
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::OLD),
+                           View::OLD),
+              UnorderedElementsAre(0, 2, 4, 6, 8));
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::NEW),
-                   View::NEW),
-      UnorderedElementsAre(1, 3, 5, 7, 9));
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::NEW),
+                           View::NEW),
+              UnorderedElementsAre(1, 3, 5, 7, 9));
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label2, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::NEW),
-                   View::NEW),
-      UnorderedElementsAre(0, 2, 4, 6, 8));
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::NEW),
+                           View::NEW),
+              UnorderedElementsAre(0, 2, 4, 6, 8));
 
   for (auto vertex : acc->Vertices(View::OLD)) {
     int64_t id = vertex.GetProperty(this->prop_id, View::OLD)->ValueInt();
@@ -888,25 +950,25 @@ TYPED_TEST(IndexTest, LabelPropertyIndexBasic) {
     }
   }
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::OLD),
-                   View::OLD),
-      UnorderedElementsAre(1, 3, 5, 7, 9));
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::OLD),
+                           View::OLD),
+              UnorderedElementsAre(1, 3, 5, 7, 9));
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label2, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::OLD),
-                   View::OLD),
-      UnorderedElementsAre(0, 2, 4, 6, 8));
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::OLD),
+                           View::OLD),
+              UnorderedElementsAre(0, 2, 4, 6, 8));
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::NEW),
-                   View::NEW),
-      UnorderedElementsAre(0, 2, 4, 6, 8));
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::NEW),
+                           View::NEW),
+              UnorderedElementsAre(0, 2, 4, 6, 8));
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label2, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::NEW),
-                   View::NEW),
-      UnorderedElementsAre(0, 2, 4, 6, 8));
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::NEW),
+                           View::NEW),
+              UnorderedElementsAre(0, 2, 4, 6, 8));
 
   for (auto vertex : acc->Vertices(View::OLD)) {
     int64_t id = vertex.GetProperty(this->prop_id, View::OLD)->ValueInt();
@@ -915,47 +977,47 @@ TYPED_TEST(IndexTest, LabelPropertyIndexBasic) {
     }
   }
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::OLD),
-                   View::OLD),
-      UnorderedElementsAre(1, 3, 5, 7, 9));
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::OLD),
+                           View::OLD),
+              UnorderedElementsAre(1, 3, 5, 7, 9));
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label2, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::OLD),
-                   View::OLD),
-      UnorderedElementsAre(0, 2, 4, 6, 8));
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::OLD),
+                           View::OLD),
+              UnorderedElementsAre(0, 2, 4, 6, 8));
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::NEW),
-                   View::NEW),
-      IsEmpty());
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::NEW),
+                           View::NEW),
+              IsEmpty());
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label2, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::NEW),
-                   View::NEW),
-      IsEmpty());
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::NEW),
+                           View::NEW),
+              IsEmpty());
 
   acc->AdvanceCommand();
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::OLD),
-                   View::OLD),
-      IsEmpty());
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::OLD),
+                           View::OLD),
+              IsEmpty());
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label2, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::OLD),
-                   View::OLD),
-      IsEmpty());
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::OLD),
+                           View::OLD),
+              IsEmpty());
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::NEW),
-                   View::NEW),
-      IsEmpty());
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::NEW),
+                           View::NEW),
+              IsEmpty());
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label2, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::NEW),
-                   View::NEW),
-      IsEmpty());
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::NEW),
+                           View::NEW),
+              IsEmpty());
 }
 
 TYPED_TEST(IndexTest, LabelPropertyCompositeIndexBasic) {
@@ -964,18 +1026,22 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexBasic) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_b, this->prop_a, this->prop_c}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1,
+                                  {PropertyPath{this->prop_b}, PropertyPath{this->prop_a}, PropertyPath{this->prop_c}})
+                     .HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label2, {this->prop_c, this->prop_b}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label2, {PropertyPath{this->prop_c}, PropertyPath{this->prop_b}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   auto acc = this->storage->Access();
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{this->prop_b, this->prop_a, this->prop_c},
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1,
+                                         std::array{PropertyPath{this->prop_b}, PropertyPath{this->prop_a},
+                                                    PropertyPath{this->prop_c}},
                                          std::array{pvr::IsNotNull()}, View::OLD),
                            View::OLD),
               IsEmpty());
@@ -999,77 +1065,98 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexBasic) {
     }
   }
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{this->prop_b, this->prop_a, this->prop_c},
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1,
+                                         std::array{PropertyPath{this->prop_b}, PropertyPath{this->prop_a},
+                                                    PropertyPath{this->prop_c}},
                                          std::array{pvr::IsNotNull()}, View::OLD),
                            View::OLD),
               IsEmpty());
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{this->prop_c, this->prop_b},
-                                         std::array{pvr::IsNotNull()}, View::OLD),
-                           View::OLD),
-              IsEmpty());
+  EXPECT_THAT(
+      this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_c}, PropertyPath{this->prop_b}},
+                                 std::array{pvr::IsNotNull()}, View::OLD),
+                   View::OLD),
+      IsEmpty());
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{this->prop_b, this->prop_a, this->prop_c},
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1,
+                                         std::array{PropertyPath{this->prop_b}, PropertyPath{this->prop_a},
+                                                    PropertyPath{this->prop_c}},
                                          std::array{pvr::IsNotNull()}, View::NEW),
                            View::NEW),
               UnorderedElementsAre(3, 9));
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{this->prop_c, this->prop_b},
-                                         std::array{pvr::IsNotNull()}, View::NEW),
-                           View::NEW),
-              UnorderedElementsAre(6, 8));
+  EXPECT_THAT(
+      this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_c}, PropertyPath{this->prop_b}},
+                                 std::array{pvr::IsNotNull()}, View::NEW),
+                   View::NEW),
+      UnorderedElementsAre(6, 8));
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{this->prop_b, this->prop_a, this->prop_c},
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1,
+                                         std::array{PropertyPath{this->prop_b}, PropertyPath{this->prop_a},
+                                                    PropertyPath{this->prop_c}},
                                          std::array{pvr::IsNotNull(), pvr::IsNotNull(), pvr::IsNotNull()}, View::NEW),
                            View::NEW),
               UnorderedElementsAre(9));
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{this->prop_c, this->prop_b},
-                                         std::array{pvr::IsNotNull(), pvr::IsNotNull()}, View::NEW),
-                           View::NEW),
-              UnorderedElementsAre(6));
+  EXPECT_THAT(
+      this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_c}, PropertyPath{this->prop_b}},
+                                 std::array{pvr::IsNotNull(), pvr::IsNotNull()}, View::NEW),
+                   View::NEW),
+      UnorderedElementsAre(6));
 
   acc->AdvanceCommand();
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{this->prop_b, this->prop_a, this->prop_c},
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1,
+                                         std::array{PropertyPath{this->prop_b}, PropertyPath{this->prop_a},
+                                                    PropertyPath{this->prop_c}},
                                          std::array{pvr::IsNotNull()}, View::OLD),
                            View::OLD),
               UnorderedElementsAre(3, 9));
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{this->prop_c, this->prop_b},
-                                         std::array{pvr::IsNotNull()}, View::OLD),
-                           View::OLD),
-              UnorderedElementsAre(6, 8));
+  EXPECT_THAT(
+      this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_c}, PropertyPath{this->prop_b}},
+                                 std::array{pvr::IsNotNull()}, View::OLD),
+                   View::OLD),
+      UnorderedElementsAre(6, 8));
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{this->prop_b, this->prop_a, this->prop_c},
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1,
+                                         std::array{PropertyPath{this->prop_b}, PropertyPath{this->prop_a},
+                                                    PropertyPath{this->prop_c}},
                                          std::array{pvr::IsNotNull(), pvr::IsNotNull(), pvr::IsNotNull()}, View::OLD),
                            View::OLD),
               UnorderedElementsAre(9));
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{this->prop_c, this->prop_b},
-                                         std::array{pvr::IsNotNull(), pvr::IsNotNull()}, View::OLD),
-                           View::OLD),
-              UnorderedElementsAre(6));
+  EXPECT_THAT(
+      this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_c}, PropertyPath{this->prop_b}},
+                                 std::array{pvr::IsNotNull(), pvr::IsNotNull()}, View::OLD),
+                   View::OLD),
+      UnorderedElementsAre(6));
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{this->prop_b, this->prop_a, this->prop_c},
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1,
+                                         std::array{PropertyPath{this->prop_b}, PropertyPath{this->prop_a},
+                                                    PropertyPath{this->prop_c}},
                                          std::array{pvr::IsNotNull()}, View::NEW),
                            View::NEW),
               UnorderedElementsAre(3, 9));
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{this->prop_c, this->prop_b},
-                                         std::array{pvr::IsNotNull()}, View::NEW),
-                           View::NEW),
-              UnorderedElementsAre(6, 8));
+  EXPECT_THAT(
+      this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_c}, PropertyPath{this->prop_b}},
+                                 std::array{pvr::IsNotNull()}, View::NEW),
+                   View::NEW),
+      UnorderedElementsAre(6, 8));
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{this->prop_b, this->prop_a, this->prop_c},
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1,
+                                         std::array{PropertyPath{this->prop_b}, PropertyPath{this->prop_a},
+                                                    PropertyPath{this->prop_c}},
                                          std::array{pvr::IsNotNull(), pvr::IsNotNull(), pvr::IsNotNull()}, View::NEW),
                            View::NEW),
               UnorderedElementsAre(9));
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{this->prop_c, this->prop_b},
-                                         std::array{pvr::IsNotNull(), pvr::IsNotNull()}, View::NEW),
-                           View::NEW),
-              UnorderedElementsAre(6));
+  EXPECT_THAT(
+      this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_c}, PropertyPath{this->prop_b}},
+                                 std::array{pvr::IsNotNull(), pvr::IsNotNull()}, View::NEW),
+                   View::NEW),
+      UnorderedElementsAre(6));
 
   for (auto vertex : acc->Vertices(View::OLD)) {
     if (vertex.Gid().AsUint() % 2 == 0) {
@@ -1077,53 +1164,65 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexBasic) {
     }
   }
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{this->prop_b, this->prop_a, this->prop_c},
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1,
+                                         std::array{PropertyPath{this->prop_b}, PropertyPath{this->prop_a},
+                                                    PropertyPath{this->prop_c}},
                                          std::array{pvr::IsNotNull()}, View::OLD),
                            View::OLD),
               UnorderedElementsAre(3, 9));
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{this->prop_c, this->prop_b},
-                                         std::array{pvr::IsNotNull()}, View::OLD),
-                           View::OLD),
-              UnorderedElementsAre(6, 8));
+  EXPECT_THAT(
+      this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_c}, PropertyPath{this->prop_b}},
+                                 std::array{pvr::IsNotNull()}, View::OLD),
+                   View::OLD),
+      UnorderedElementsAre(6, 8));
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{this->prop_b, this->prop_a, this->prop_c},
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1,
+                                         std::array{PropertyPath{this->prop_b}, PropertyPath{this->prop_a},
+                                                    PropertyPath{this->prop_c}},
                                          std::array{pvr::IsNotNull(), pvr::IsNotNull(), pvr::IsNotNull()}, View::OLD),
                            View::OLD),
               UnorderedElementsAre(9));
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{this->prop_c, this->prop_b},
-                                         std::array{pvr::IsNotNull(), pvr::IsNotNull()}, View::OLD),
-                           View::OLD),
-              UnorderedElementsAre(6));
+  EXPECT_THAT(
+      this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_c}, PropertyPath{this->prop_b}},
+                                 std::array{pvr::IsNotNull(), pvr::IsNotNull()}, View::OLD),
+                   View::OLD),
+      UnorderedElementsAre(6));
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{this->prop_b, this->prop_a, this->prop_c},
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1,
+                                         std::array{PropertyPath{this->prop_b}, PropertyPath{this->prop_a},
+                                                    PropertyPath{this->prop_c}},
                                          std::array{pvr::IsNotNull()}, View::NEW),
                            View::NEW),
               UnorderedElementsAre(3, 9));
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{this->prop_c, this->prop_b},
-                                         std::array{pvr::IsNotNull()}, View::NEW),
-                           View::NEW),
-              UnorderedElementsAre());
+  EXPECT_THAT(
+      this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_c}, PropertyPath{this->prop_b}},
+                                 std::array{pvr::IsNotNull()}, View::NEW),
+                   View::NEW),
+      UnorderedElementsAre());
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{this->prop_b, this->prop_a, this->prop_c},
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1,
+                                         std::array{PropertyPath{this->prop_b}, PropertyPath{this->prop_a},
+                                                    PropertyPath{this->prop_c}},
                                          std::array{pvr::IsNotNull(), pvr::IsNotNull(), pvr::IsNotNull()}, View::NEW),
                            View::NEW),
               UnorderedElementsAre(9));
 
-  EXPECT_THAT(this->GetIds(acc->Vertices(this->label2, std::array{this->prop_c, this->prop_b},
-                                         std::array{pvr::IsNotNull(), pvr::IsNotNull()}, View::NEW),
-                           View::NEW),
-              UnorderedElementsAre());
+  EXPECT_THAT(
+      this->GetIds(acc->Vertices(this->label2, std::array{PropertyPath{this->prop_c}, PropertyPath{this->prop_b}},
+                                 std::array{pvr::IsNotNull(), pvr::IsNotNull()}, View::NEW),
+                   View::NEW),
+      UnorderedElementsAre());
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelPropertyIndexDuplicateVersions) {
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
@@ -1134,47 +1233,47 @@ TYPED_TEST(IndexTest, LabelPropertyIndexDuplicateVersions) {
       ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(i)));
     }
 
-    EXPECT_THAT(
-        this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::NEW),
-                     View::NEW),
-        UnorderedElementsAre(0, 1, 2, 3, 4));
+    EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                           std::array{pvr::IsNotNull()}, View::NEW),
+                             View::NEW),
+                UnorderedElementsAre(0, 1, 2, 3, 4));
 
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
     auto acc = this->storage->Access();
-    EXPECT_THAT(
-        this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::OLD),
-                     View::OLD),
-        UnorderedElementsAre(0, 1, 2, 3, 4));
+    EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                           std::array{pvr::IsNotNull()}, View::OLD),
+                             View::OLD),
+                UnorderedElementsAre(0, 1, 2, 3, 4));
 
     for (auto vertex : acc->Vertices(View::OLD)) {
       ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue()));
     }
 
-    EXPECT_THAT(
-        this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::OLD),
-                     View::OLD),
-        UnorderedElementsAre(0, 1, 2, 3, 4));
+    EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                           std::array{pvr::IsNotNull()}, View::OLD),
+                             View::OLD),
+                UnorderedElementsAre(0, 1, 2, 3, 4));
 
-    EXPECT_THAT(
-        this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::NEW),
-                     View::NEW),
-        IsEmpty());
+    EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                           std::array{pvr::IsNotNull()}, View::NEW),
+                             View::NEW),
+                IsEmpty());
 
     for (auto vertex : acc->Vertices(View::OLD)) {
       ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(42)));
     }
-    EXPECT_THAT(
-        this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::OLD),
-                     View::OLD),
-        UnorderedElementsAre(0, 1, 2, 3, 4));
+    EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                           std::array{pvr::IsNotNull()}, View::OLD),
+                             View::OLD),
+                UnorderedElementsAre(0, 1, 2, 3, 4));
 
-    EXPECT_THAT(
-        this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::NEW),
-                     View::NEW),
-        UnorderedElementsAre(0, 1, 2, 3, 4));
+    EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                           std::array{pvr::IsNotNull()}, View::NEW),
+                             View::NEW),
+                UnorderedElementsAre(0, 1, 2, 3, 4));
   }
 }
 
@@ -1185,19 +1284,19 @@ TYPED_TEST(IndexTest, LabelPropertyIndexStrictInsert) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    ASSERT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    ASSERT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   auto acc = this->storage->Access();
 
-  ASSERT_EQ(acc->ApproximateVertexCount(this->label1, std::array{this->prop_val}), 0);
+  ASSERT_EQ(acc->ApproximateVertexCount(this->label1, std::array{PropertyPath{this->prop_val}}), 0);
   {
     auto vertex = this->CreateVertex(acc.get());
     ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
     ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(42)));
-    ASSERT_EQ(acc->ApproximateVertexCount(this->label1, std::array{this->prop_val}), 1);
+    ASSERT_EQ(acc->ApproximateVertexCount(this->label1, std::array{PropertyPath{this->prop_val}}), 1);
   }
 
   {
@@ -1205,16 +1304,16 @@ TYPED_TEST(IndexTest, LabelPropertyIndexStrictInsert) {
     ASSERT_NO_ERROR(vertex.AddLabel(this->label2));  // NOTE: this is not label1
     ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(42)));
     // We expect index for label1+id to be uneffected
-    ASSERT_EQ(acc->ApproximateVertexCount(this->label1, std::array{this->prop_val}), 1);
+    ASSERT_EQ(acc->ApproximateVertexCount(this->label1, std::array{PropertyPath{this->prop_val}}), 1);
   }
 }
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelPropertyIndexTransactionalIsolation) {
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   auto acc_before = this->storage->Access();
@@ -1227,36 +1326,36 @@ TYPED_TEST(IndexTest, LabelPropertyIndexTransactionalIsolation) {
     ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(i)));
   }
 
-  EXPECT_THAT(
-      this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::NEW),
-                   View::NEW),
-      UnorderedElementsAre(0, 1, 2, 3, 4));
+  EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                         std::array{pvr::IsNotNull()}, View::NEW),
+                           View::NEW),
+              UnorderedElementsAre(0, 1, 2, 3, 4));
 
-  EXPECT_THAT(this->GetIds(acc_before->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()},
-                                                View::NEW),
+  EXPECT_THAT(this->GetIds(acc_before->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                                std::array{pvr::IsNotNull()}, View::NEW),
                            View::NEW),
               IsEmpty());
 
-  EXPECT_THAT(this->GetIds(acc_after->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()},
-                                               View::NEW),
+  EXPECT_THAT(this->GetIds(acc_after->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                               std::array{pvr::IsNotNull()}, View::NEW),
                            View::NEW),
               IsEmpty());
 
-  ASSERT_NO_ERROR(acc->Commit());
+  ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 
   auto acc_after_commit = this->storage->Access();
 
-  EXPECT_THAT(this->GetIds(acc_before->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()},
-                                                View::NEW),
+  EXPECT_THAT(this->GetIds(acc_before->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                                std::array{pvr::IsNotNull()}, View::NEW),
                            View::NEW),
               IsEmpty());
 
-  EXPECT_THAT(this->GetIds(acc_after->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()},
-                                               View::NEW),
+  EXPECT_THAT(this->GetIds(acc_after->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                               std::array{pvr::IsNotNull()}, View::NEW),
                            View::NEW),
               IsEmpty());
 
-  EXPECT_THAT(this->GetIds(acc_after_commit->Vertices(this->label1, std::array{this->prop_val},
+  EXPECT_THAT(this->GetIds(acc_after_commit->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
                                                       std::array{pvr::IsNotNull()}, View::NEW),
                            View::NEW),
               UnorderedElementsAre(0, 1, 2, 3, 4));
@@ -1271,9 +1370,9 @@ TYPED_TEST(IndexTest, LabelPropertyIndexFiltering) {
   // properly.
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
@@ -1284,12 +1383,12 @@ TYPED_TEST(IndexTest, LabelPropertyIndexFiltering) {
       ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
       ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, i % 2 ? PropertyValue(i / 2) : PropertyValue(i / 2.0)));
     }
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
     auto acc = this->storage->Access();
     for (int i = 0; i < 5; ++i) {
-      EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val},
+      EXPECT_THAT(this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
                                              std::array{pvr::Equal(PropertyValue(i))}, View::OLD)),
                   UnorderedElementsAre(2 * i, 2 * i + 1));
     }
@@ -1297,34 +1396,34 @@ TYPED_TEST(IndexTest, LabelPropertyIndexFiltering) {
     // [1, +inf>
     EXPECT_THAT(
         this->GetIds(acc->Vertices(
-            this->label1, std::array{this->prop_val},
+            this->label1, std::array{PropertyPath{this->prop_val}},
             std::array{pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(1)), std::nullopt)}, View::OLD)),
         UnorderedElementsAre(2, 3, 4, 5, 6, 7, 8, 9));
 
     // <1, +inf>
     EXPECT_THAT(
         this->GetIds(acc->Vertices(
-            this->label1, std::array{this->prop_val},
+            this->label1, std::array{PropertyPath{this->prop_val}},
             std::array{pvr::Range(memgraph::utils::MakeBoundExclusive(PropertyValue(1)), std::nullopt)}, View::OLD)),
         UnorderedElementsAre(4, 5, 6, 7, 8, 9));
 
     // <-inf, 3]
     EXPECT_THAT(
         this->GetIds(acc->Vertices(
-            this->label1, std::array{this->prop_val},
+            this->label1, std::array{PropertyPath{this->prop_val}},
             std::array{pvr::Range(std::nullopt, memgraph::utils::MakeBoundInclusive(PropertyValue(3)))}, View::OLD)),
         UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7));
 
     // <-inf, 3>
     EXPECT_THAT(
         this->GetIds(acc->Vertices(
-            this->label1, std::array{this->prop_val},
+            this->label1, std::array{PropertyPath{this->prop_val}},
             std::array{pvr::Range(std::nullopt, memgraph::utils::MakeBoundExclusive(PropertyValue(3)))}, View::OLD)),
         UnorderedElementsAre(0, 1, 2, 3, 4, 5));
 
     // [1, 3]
     EXPECT_THAT(
-        this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val},
+        this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
                                    std::array{pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(1)),
                                                          memgraph::utils::MakeBoundInclusive(PropertyValue(3)))},
                                    View::OLD)),
@@ -1332,7 +1431,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexFiltering) {
 
     // <1, 3]
     EXPECT_THAT(
-        this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val},
+        this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
                                    std::array{pvr::Range(memgraph::utils::MakeBoundExclusive(PropertyValue(1)),
                                                          memgraph::utils::MakeBoundInclusive(PropertyValue(3)))},
                                    View::OLD)),
@@ -1340,7 +1439,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexFiltering) {
 
     // [1, 3>
     EXPECT_THAT(
-        this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val},
+        this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
                                    std::array{pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(1)),
                                                          memgraph::utils::MakeBoundExclusive(PropertyValue(3)))},
                                    View::OLD)),
@@ -1348,7 +1447,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexFiltering) {
 
     // <1, 3>
     EXPECT_THAT(
-        this->GetIds(acc->Vertices(this->label1, std::array{this->prop_val},
+        this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
                                    std::array{pvr::Range(memgraph::utils::MakeBoundExclusive(PropertyValue(1)),
                                                          memgraph::utils::MakeBoundExclusive(PropertyValue(3)))},
                                    View::OLD)),
@@ -1358,42 +1457,124 @@ TYPED_TEST(IndexTest, LabelPropertyIndexFiltering) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(IndexTest, LabelPropertyIndexCountEstimate) {
-  if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
-    {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
-    }
-
-    auto acc = this->storage->Access();
-    for (int i = 1; i <= 10; ++i) {
-      for (int j = 0; j < i; ++j) {
-        auto vertex = this->CreateVertex(acc.get());
-        ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
-        ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(i)));
-      }
-    }
-
-    // @TODO have no tests for approx vertex count with composite indices
-
-    EXPECT_EQ(acc->ApproximateVertexCount(this->label1, std::array{this->prop_val}), 55);
-    for (int i = 1; i <= 10; ++i) {
-      EXPECT_EQ(acc->ApproximateVertexCount(this->label1, std::array{this->prop_val}, std::array{PropertyValue(i)}), i);
-    }
-
-    EXPECT_EQ(acc->ApproximateVertexCount(this->label1, std::array{this->prop_val},
-                                          std::array{memgraph::storage::PropertyValueRange::Bounded(
-                                              memgraph::utils::MakeBoundInclusive(PropertyValue(2)),
-                                              memgraph::utils::MakeBoundInclusive(PropertyValue(6)))}),
-              2 + 3 + 4 + 5 + 6);
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Not supported on disk";
   }
+
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto acc = this->storage->Access();
+  for (int i = 1; i <= 10; ++i) {
+    for (int j = 0; j < i; ++j) {
+      auto vertex = this->CreateVertex(acc.get());
+      ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(i)));
+    }
+  }
+
+  EXPECT_EQ(acc->ApproximateVertexCount(this->label1, std::array{PropertyPath{this->prop_val}}), 55);
+  for (int i = 1; i <= 10; ++i) {
+    EXPECT_EQ(acc->ApproximateVertexCount(this->label1, std::array{PropertyPath{this->prop_val}},
+                                          std::array{PropertyValue(i)}),
+              i);
+  }
+
+  EXPECT_EQ(acc->ApproximateVertexCount(this->label1, std::array{PropertyPath{this->prop_val}},
+                                        std::array{memgraph::storage::PropertyValueRange::Bounded(
+                                            memgraph::utils::MakeBoundInclusive(PropertyValue(2)),
+                                            memgraph::utils::MakeBoundInclusive(PropertyValue(6)))}),
+            2 + 3 + 4 + 5 + 6);
+}
+
+TYPED_TEST(IndexTest, LabelPropertyCompositeIndexCountEstimate) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Not supported on disk";
+  }
+
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_a}, PropertyPath{this->prop_b}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto acc = this->storage->Access();
+  for (int i = 1; i <= 10; ++i) {
+    for (int j = 0; j < i; ++j) {
+      auto vertex = this->CreateVertex(acc.get());
+      ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_a, PropertyValue{i}));
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_b, PropertyValue{i * 2}));
+    }
+  }
+
+  // `110` is because each `SetProperty` above adds another entry into the
+  // skip list, resulting in an approximation that is twice the actual count.
+  EXPECT_EQ(
+      acc->ApproximateVertexCount(this->label1, std::array{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}}),
+      110);
+  for (int i = 1; i <= 10; ++i) {
+    EXPECT_EQ(
+        acc->ApproximateVertexCount(this->label1, std::array{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}},
+                                    std::array{PropertyValue{i}, PropertyValue{i * 2}}),
+        i);
+  }
+
+  EXPECT_EQ(
+      acc->ApproximateVertexCount(
+          this->label1, std::array{PropertyPath{this->prop_a}, PropertyPath{this->prop_b}},
+          std::array{
+              memgraph::storage::PropertyValueRange::Bounded(memgraph::utils::MakeBoundInclusive(PropertyValue(2)),
+                                                             memgraph::utils::MakeBoundInclusive(PropertyValue(6))),
+
+              memgraph::storage::PropertyValueRange::Bounded(memgraph::utils::MakeBoundInclusive(PropertyValue(4)),
+                                                             memgraph::utils::MakeBoundInclusive(PropertyValue(10)))}),
+      14);
+}
+
+TYPED_TEST(IndexTest, LabelPropertyNestedIndexCountEstimate) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Not supported on disk";
+  }
+
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_a, this->prop_b}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto acc = this->storage->Access();
+  for (int i = 1; i <= 10; ++i) {
+    for (int j = 0; j < i; ++j) {
+      auto vertex = this->CreateVertex(acc.get());
+      ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+      ASSERT_NO_ERROR(
+          vertex.SetProperty(this->prop_a, PropertyValue{PropertyValue::map_t{{this->prop_b, PropertyValue{i}}}}));
+    }
+  }
+
+  EXPECT_EQ(acc->ApproximateVertexCount(this->label1, std::array{PropertyPath{this->prop_a, this->prop_b}}), 55);
+  for (int i = 1; i <= 10; ++i) {
+    EXPECT_EQ(acc->ApproximateVertexCount(this->label1, std::array{PropertyPath{this->prop_a, this->prop_b}},
+                                          std::array{PropertyValue(i)}),
+              i);
+  }
+
+  EXPECT_EQ(acc->ApproximateVertexCount(this->label1, std::array{PropertyPath{this->prop_a, this->prop_b}},
+                                        std::array{memgraph::storage::PropertyValueRange::Bounded(
+                                            memgraph::utils::MakeBoundInclusive(PropertyValue(2)),
+                                            memgraph::utils::MakeBoundInclusive(PropertyValue(6)))}),
+            2 + 3 + 4 + 5 + 6);
 }
 
 TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   const std::array temporals{TemporalData{TemporalType::Date, 23}, TemporalData{TemporalType::Date, 28},
@@ -1446,13 +1627,14 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
       ASSERT_TRUE(v.AddLabel(this->label1).HasValue());
       ASSERT_TRUE(v.SetProperty(this->prop_val, value).HasValue());
     }
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Verify that all nodes are in the index.
   {
     auto acc = this->storage->Access();
-    auto iterable = acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::OLD);
+    auto iterable =
+        acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}}, std::array{pvr::IsNotNull()}, View::OLD);
     auto it = iterable.begin();
     for (const auto &value : values) {
       ASSERT_NE(it, iterable.end());
@@ -1469,8 +1651,8 @@ TYPED_TEST(IndexTest, LabelPropertyIndexMixedIteration) {
                     const std::optional<memgraph::utils::Bound<PropertyValue>> &to,
                     const std::vector<PropertyValue> &expected) {
     auto acc = this->storage->Access();
-    auto iterable =
-        acc->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::Range(from, to)}, View::OLD);
+    auto iterable = acc->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                  std::array{pvr::Range(from, to)}, View::OLD);
     size_t i = 0;
     for (auto it = iterable.begin(); it != iterable.end(); ++it, ++i) {
       auto vertex = *it;
@@ -1645,9 +1827,9 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {prop_a, prop_b}).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{prop_a}, PropertyPath{prop_b}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   auto a_values = ranges::views::iota(0, 5) | ranges::views::transform([](int val) { return PropertyValue(val); }) |
@@ -1666,7 +1848,7 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
       ASSERT_TRUE(v.SetProperty(prop_b, b_val).HasValue());
     }
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   auto const inclusive_bound = [](PropertyValue val) { return memgraph::utils::MakeBoundInclusive(val); };
@@ -1677,7 +1859,9 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
 
   using enum PropertyValueType;
 
-  auto const test = [&](std::span<memgraph::storage::PropertyId const> props,
+  using PropertyPath = memgraph::storage::PropertyPath;
+
+  auto const test = [&](std::span<PropertyPath const> props,
                         std::span<memgraph::storage::PropertyValueRange const> ranges, size_t expected_num_vertices,
                         auto &&props_validator) {
     EXPECT_EQ(CheckVertexProperties(this->storage->Access(), this->label1, props, ranges, props_validator),
@@ -1685,14 +1869,14 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
   };
 
   // Check 1 <= n.a <= 3 AND n.b IS NOT NULL
-  test(std::array{prop_a, prop_b}, std::array{bounded(1, 3), PropertyValueRange::IsNotNull()}, 21,
-       [](std::span<PropertyValue const> values) {
+  test(std::array{PropertyPath{prop_a}, PropertyPath{prop_b}},
+       std::array{bounded(1, 3), PropertyValueRange::IsNotNull()}, 21, [](std::span<PropertyValue const> values) {
          EXPECT_EQ(values[0].type(), Int);
          EXPECT_TRUE(values[0].ValueInt() >= 1 && values[0].ValueInt() <= 3);
          EXPECT_NE(values[1].type(), Null);
        });
 
-  test(std::array{prop_a, prop_b}, std::array{bounded(1, 3), bounded("alfa", "bravo")}, 6,
+  test(std::array{PropertyPath{prop_a}, PropertyPath{prop_b}}, std::array{bounded(1, 3), bounded("alfa", "bravo")}, 6,
        [](std::span<PropertyValue const> values) {
          EXPECT_EQ(values[0].type(), Int);
          EXPECT_TRUE(values[0].ValueInt() >= 1 && values[0].ValueInt() <= 3);
@@ -1701,7 +1885,7 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
        });
 
   // Check 1 <= n.a <= 3 AND 1 <= n.b <= 6
-  test(std::array{prop_a, prop_b}, std::array{bounded(1, 3), bounded(1, 6)}, 12,
+  test(std::array{PropertyPath{prop_a}, PropertyPath{prop_b}}, std::array{bounded(1, 3), bounded(1, 6)}, 12,
        [](std::span<PropertyValue const> values) {
          EXPECT_EQ(values[0].type(), Int);
          EXPECT_TRUE(values[0].ValueInt() >= 1 && values[0].ValueInt() <= 3);
@@ -1711,14 +1895,15 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
        });
 
   // Check 1 <= n.a <= 3
-  test(std::array{prop_a, prop_b}, std::array{bounded(1, 3)}, 24, [](std::span<PropertyValue const> values) {
-    EXPECT_EQ(values[0].type(), Int);
-    EXPECT_TRUE(values[0].ValueInt() >= 1 && values[0].ValueInt() <= 3);
-  });
+  test(std::array{PropertyPath{prop_a}, PropertyPath{prop_b}}, std::array{bounded(1, 3)}, 24,
+       [](std::span<PropertyValue const> values) {
+         EXPECT_EQ(values[0].type(), Int);
+         EXPECT_TRUE(values[0].ValueInt() >= 1 && values[0].ValueInt() <= 3);
+       });
 
   // Check n.a IS NOT NULL AND 1 <= n.b <= 3
-  test(std::array{prop_a, prop_b}, std::array{PropertyValueRange::IsNotNull(), bounded(1, 3)}, 10,
-       [](std::span<PropertyValue const> values) {
+  test(std::array{PropertyPath{prop_a}, PropertyPath{prop_b}},
+       std::array{PropertyValueRange::IsNotNull(), bounded(1, 3)}, 10, [](std::span<PropertyValue const> values) {
          EXPECT_NE(values[0].type(), Null);
 
          auto b_type = values[1].type();
@@ -1734,9 +1919,9 @@ TYPED_TEST(IndexTest, LabelPropertyCompositeIndexMixedIteration) {
 TYPED_TEST(IndexTest, LabelPropertyIndexDeletedVertex) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto acc = this->CreateIndexAccessor();
+      EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
     auto acc1 = this->storage->Access();
 
@@ -1749,19 +1934,19 @@ TYPED_TEST(IndexTest, LabelPropertyIndexDeletedVertex) {
     ASSERT_NO_ERROR(vertex2.SetProperty(this->prop_val, PropertyValue(1)));
 
     EXPECT_THAT(this->GetIds(acc1->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
-    ASSERT_NO_ERROR(acc1->Commit());
+    ASSERT_NO_ERROR(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 
     auto acc2 = this->storage->Access();
     auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
     auto res = acc2->DeleteVertex(&*vertex_to_delete);
     ASSERT_FALSE(res.HasError());
-    ASSERT_NO_ERROR(acc2->Commit());
+    ASSERT_NO_ERROR(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 
     auto acc3 = this->storage->Access();
-    EXPECT_THAT(
-        this->GetIds(acc3->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::NEW),
-                     View::NEW),
-        UnorderedElementsAre(1));
+    EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                            std::array{pvr::IsNotNull()}, View::NEW),
+                             View::NEW),
+                UnorderedElementsAre(1));
   }
 }
 
@@ -1769,9 +1954,9 @@ TYPED_TEST(IndexTest, LabelPropertyIndexDeletedVertex) {
 TYPED_TEST(IndexTest, LabelPropertyIndexRemoveIndexedLabel) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto acc = this->CreateIndexAccessor();
+      EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
     auto acc1 = this->storage->Access();
 
@@ -1784,28 +1969,28 @@ TYPED_TEST(IndexTest, LabelPropertyIndexRemoveIndexedLabel) {
     ASSERT_NO_ERROR(vertex2.SetProperty(this->prop_val, PropertyValue(1)));
 
     EXPECT_THAT(this->GetIds(acc1->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
-    ASSERT_NO_ERROR(acc1->Commit());
+    ASSERT_NO_ERROR(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 
     auto acc2 = this->storage->Access();
     auto vertex_to_delete = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
     auto res = vertex_to_delete->RemoveLabel(this->label1);
     ASSERT_FALSE(res.HasError());
-    ASSERT_NO_ERROR(acc2->Commit());
+    ASSERT_NO_ERROR(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 
     auto acc3 = this->storage->Access();
-    EXPECT_THAT(
-        this->GetIds(acc3->Vertices(this->label1, std::array{this->prop_val}, std::array{pvr::IsNotNull()}, View::NEW),
-                     View::NEW),
-        UnorderedElementsAre(1));
+    EXPECT_THAT(this->GetIds(acc3->Vertices(this->label1, std::array{PropertyPath{this->prop_val}},
+                                            std::array{pvr::IsNotNull()}, View::NEW),
+                             View::NEW),
+                UnorderedElementsAre(1));
   }
 }
 
 TYPED_TEST(IndexTest, LabelPropertyIndexRemoveAndAddIndexedLabel) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::DiskStorage>)) {
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto acc = this->CreateIndexAccessor();
+      EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
     auto acc1 = this->storage->Access();
 
@@ -1818,7 +2003,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexRemoveAndAddIndexedLabel) {
     ASSERT_NO_ERROR(vertex2.SetProperty(this->prop_val, PropertyValue(1)));
 
     EXPECT_THAT(this->GetIds(acc1->Vertices(this->label1, View::NEW), View::NEW), UnorderedElementsAre(0, 1));
-    ASSERT_NO_ERROR(acc1->Commit());
+    ASSERT_NO_ERROR(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 
     auto acc2 = this->storage->Access();
     auto target_vertex = acc2->FindVertex(vertex1.Gid(), memgraph::storage::View::NEW);
@@ -1826,7 +2011,7 @@ TYPED_TEST(IndexTest, LabelPropertyIndexRemoveAndAddIndexedLabel) {
     ASSERT_FALSE(remove_res.HasError());
     auto add_res = target_vertex->AddLabel(this->label1);
     ASSERT_FALSE(add_res.HasError());
-    ASSERT_NO_ERROR(acc2->Commit());
+    ASSERT_NO_ERROR(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 }
 
@@ -1836,15 +2021,15 @@ TYPED_TEST(IndexTest, LabelPropertyIndexClearOldDataFromDisk) {
         static_cast<memgraph::storage::DiskLabelPropertyIndex *>(this->storage->indices_.label_property_index_.get());
 
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->label1, {this->prop_val}).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto acc = this->CreateIndexAccessor();
+      EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
     auto acc1 = this->storage->Access();
     auto vertex = this->CreateVertex(acc1.get());
     ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
     ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, PropertyValue(10)));
-    ASSERT_NO_ERROR(acc1->Commit());
+    ASSERT_NO_ERROR(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 
     auto *tx_db = disk_label_property_index->GetRocksDBStorage()->db_;
     ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
@@ -1852,14 +2037,14 @@ TYPED_TEST(IndexTest, LabelPropertyIndexClearOldDataFromDisk) {
     auto acc2 = this->storage->Access();
     auto vertex2 = acc2->FindVertex(vertex.Gid(), memgraph::storage::View::NEW).value();
     ASSERT_TRUE(vertex2.SetProperty(this->prop_val, memgraph::storage::PropertyValue(10)).HasValue());
-    ASSERT_FALSE(acc2->Commit().HasError());
+    ASSERT_FALSE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
 
     ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
 
     auto acc3 = this->storage->Access();
     auto vertex3 = acc3->FindVertex(vertex.Gid(), memgraph::storage::View::NEW).value();
     ASSERT_TRUE(vertex3.SetProperty(this->prop_val, memgraph::storage::PropertyValue(15)).HasValue());
-    ASSERT_FALSE(acc3->Commit().HasError());
+    ASSERT_FALSE(acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
 
     ASSERT_EQ(disk_test_utils::GetRealNumberOfEntriesInRocksDB(tx_db), 1);
   }
@@ -1870,7 +2055,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     {
       auto acc = this->storage->Access();
-      EXPECT_FALSE(acc->EdgeTypeIndexExists(this->edge_type_id1));
+      EXPECT_FALSE(acc->EdgeTypeIndexReady(this->edge_type_id1));
       EXPECT_EQ(acc->ListAllIndices().edge_type.size(), 0);
       EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1), 0);
     }
@@ -1882,19 +2067,19 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
         auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
         this->CreateEdge(&vertex_from, &vertex_to, i % 2 ? this->edge_type_id1 : this->edge_type_id2, acc.get());
       }
-      ASSERT_NO_ERROR(acc->Commit());
-      EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1), 0);
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
 
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
-      EXPECT_EQ(unique_acc->ApproximateEdgeCount(this->edge_type_id1), 5);
+      auto read_only_acc = this->storage->ReadOnlyAccess();
+      EXPECT_EQ(read_only_acc->ApproximateEdgeCount(this->edge_type_id1), 0);
+      EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id1).HasError());
+      ASSERT_NO_ERROR(read_only_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
 
     {
       auto acc = this->storage->Access();
+      EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1), 5);
       EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::OLD), View::OLD),
                   UnorderedElementsAre(1, 3, 5, 7, 9));
       EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::NEW), View::NEW),
@@ -1946,7 +2131,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
       EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::NEW), View::NEW),
                   UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
 
-      ASSERT_NO_ERROR(acc->Commit());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
       EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1), 10);
     }
 
@@ -1964,7 +2149,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
       EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, View::NEW), View::NEW),
                   UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
 
-      ASSERT_NO_ERROR(acc->Commit());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
 
     // Check that GC doesn't remove useful elements
@@ -1990,7 +2175,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
             }
           }
         }
-        ASSERT_NO_ERROR(acc->Commit());
+        ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
       }
       this->storage->FreeMemory({}, false);
       this->storage->FreeMemory({}, false);
@@ -2011,7 +2196,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCreate) {
             }
           }
         }
-        ASSERT_NO_ERROR(acc->Commit());
+        ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
       }
       this->storage->FreeMemory({}, false);
       this->storage->FreeMemory({}, false);
@@ -2027,7 +2212,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexDrop) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     {
       auto acc = this->storage->Access();
-      EXPECT_FALSE(acc->EdgeTypeIndexExists(this->edge_type_id1));
+      EXPECT_FALSE(acc->EdgeTypeIndexReady(this->edge_type_id1));
       EXPECT_EQ(acc->ListAllIndices().edge_type.size(), 0);
     }
 
@@ -2038,13 +2223,13 @@ TYPED_TEST(IndexTest, EdgeTypeIndexDrop) {
         auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
         this->CreateEdge(&vertex_from, &vertex_to, i % 2 ? this->edge_type_id1 : this->edge_type_id2, acc.get());
       }
-      ASSERT_NO_ERROR(acc->Commit());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
 
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto read_only_acc = this->storage->ReadOnlyAccess();
+      EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id1).HasError());
+      ASSERT_NO_ERROR(read_only_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
 
     {
@@ -2057,14 +2242,14 @@ TYPED_TEST(IndexTest, EdgeTypeIndexDrop) {
     }
 
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->DropIndex(this->edge_type_id1).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
-      EXPECT_EQ(unique_acc->ApproximateEdgeCount(this->edge_type_id1), 0);
+      auto drop_acc = this->DropIndexAccessor();
+      EXPECT_FALSE(drop_acc->DropIndex(this->edge_type_id1).HasError());
+      ASSERT_NO_ERROR(drop_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
     {
       auto acc = this->storage->Access();
-      EXPECT_FALSE(acc->EdgeTypeIndexExists(this->edge_type_id1));
+      EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1), 0);
+      EXPECT_FALSE(acc->EdgeTypeIndexReady(this->edge_type_id1));
       EXPECT_EQ(acc->ListAllIndices().edge_type.size(), 0);
       EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1), 0);
     }
@@ -2076,17 +2261,17 @@ TYPED_TEST(IndexTest, EdgeTypeIndexDrop) {
         auto vertex_to = this->CreateVertexWithoutProperties(acc.get());
         this->CreateEdge(&vertex_from, &vertex_to, i % 2 ? this->edge_type_id1 : this->edge_type_id2, acc.get());
       }
-      ASSERT_NO_ERROR(acc->Commit());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
 
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto read_only_acc = this->storage->ReadOnlyAccess();
+      EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id1).HasError());
+      ASSERT_NO_ERROR(read_only_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
     {
       auto acc = this->storage->Access();
-      EXPECT_TRUE(acc->EdgeTypeIndexExists(this->edge_type_id1));
+      EXPECT_TRUE(acc->EdgeTypeIndexReady(this->edge_type_id1));
       EXPECT_THAT(acc->ListAllIndices().edge_type, UnorderedElementsAre(this->edge_type_id1));
     }
 
@@ -2117,14 +2302,14 @@ TYPED_TEST(IndexTest, EdgeTypeIndexBasic) {
   // 3. Delete even numbered edges.
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto read_only_acc = this->storage->ReadOnlyAccess();
+      EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id1).HasError());
+      ASSERT_NO_ERROR(read_only_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id2).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto read_only_acc = this->storage->ReadOnlyAccess();
+      EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id2).HasError());
+      ASSERT_NO_ERROR(read_only_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
 
     auto acc = this->storage->Access();
@@ -2191,14 +2376,14 @@ TYPED_TEST(IndexTest, EdgeTypeIndexTransactionalIsolation) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     // Check that transactions only see entries they are supposed to see.
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto read_only_acc = this->storage->ReadOnlyAccess();
+      EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id1).HasError());
+      ASSERT_NO_ERROR(read_only_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id2).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto read_only_acc = this->storage->ReadOnlyAccess();
+      EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id2).HasError());
+      ASSERT_NO_ERROR(read_only_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
 
     auto acc_before = this->storage->Access();
@@ -2218,7 +2403,7 @@ TYPED_TEST(IndexTest, EdgeTypeIndexTransactionalIsolation) {
 
     EXPECT_THAT(this->GetIds(acc_after->Edges(this->edge_type_id1, View::NEW), View::NEW), IsEmpty());
 
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 
     auto acc_after_commit = this->storage->Access();
 
@@ -2235,14 +2420,14 @@ TYPED_TEST(IndexTest, EdgeTypeIndexTransactionalIsolation) {
 TYPED_TEST(IndexTest, EdgeTypeIndexCountEstimate) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto read_only_acc = this->storage->ReadOnlyAccess();
+      EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id1).HasError());
+      ASSERT_NO_ERROR(read_only_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id2).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto read_only_acc = this->storage->ReadOnlyAccess();
+      EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id2).HasError());
+      ASSERT_NO_ERROR(read_only_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
 
     auto acc = this->storage->Access();
@@ -2261,9 +2446,9 @@ TYPED_TEST(IndexTest, EdgeTypeIndexCountEstimate) {
 TYPED_TEST(IndexTest, EdgeTypeIndexRepeatingEdgeTypesBetweenSameVertices) {
   if constexpr ((std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
     {
-      auto unique_acc = this->storage->UniqueAccess();
-      EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1).HasError());
-      ASSERT_NO_ERROR(unique_acc->Commit());
+      auto read_only_acc = this->storage->ReadOnlyAccess();
+      EXPECT_FALSE(read_only_acc->CreateIndex(this->edge_type_id1).HasError());
+      ASSERT_NO_ERROR(read_only_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
 
     auto acc = this->storage->Access();
@@ -2288,7 +2473,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->EdgeTypePropertyIndexExists(this->edge_type_id1, this->edge_prop_id1));
+    EXPECT_FALSE(acc->EdgeTypePropertyIndexReady(this->edge_type_id1, this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_type_property.size(), 0);
     EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1, this->edge_prop_id1), 0);
   }
@@ -2302,19 +2487,19 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
           this->CreateEdge(&vertex_from, &vertex_to, i % 2 ? this->edge_type_id1 : this->edge_type_id2, acc.get());
       ASSERT_NO_ERROR(edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i)));
     }
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1, this->edge_prop_id1), 0);
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
-    EXPECT_EQ(unique_acc->ApproximateEdgeCount(this->edge_type_id1, this->edge_prop_id1), 5);
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
     auto acc = this->storage->Access();
+    EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1, this->edge_prop_id1), 5);
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::OLD), View::OLD),
                 UnorderedElementsAre(1, 3, 5, 7, 9));
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
@@ -2370,7 +2555,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
 
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_type_id1, this->edge_prop_id1), 10);
   }
 
@@ -2388,7 +2573,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
                 UnorderedElementsAre(1, 3, 5, 7, 9, 21, 23, 25, 27, 29));
 
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   // Check that GC doesn't remove useful elements
@@ -2414,7 +2599,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
           }
         }
       }
-      ASSERT_NO_ERROR(acc->Commit());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
     this->storage->FreeMemory({}, false);
     this->storage->FreeMemory({}, false);
@@ -2435,7 +2620,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCreate) {
           }
         }
       }
-      ASSERT_NO_ERROR(acc->Commit());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
     this->storage->FreeMemory({}, false);
     this->storage->FreeMemory({}, false);
@@ -2452,7 +2637,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexDrop) {
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->EdgeTypePropertyIndexExists(this->edge_type_id1, this->edge_prop_id1));
+    EXPECT_FALSE(acc->EdgeTypePropertyIndexReady(this->edge_type_id1, this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_type_property.size(), 0);
   }
 
@@ -2465,13 +2650,13 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexDrop) {
           this->CreateEdge(&vertex_from, &vertex_to, i % 2 ? this->edge_type_id1 : this->edge_type_id2, acc.get());
       ASSERT_NO_ERROR(edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i)));
     }
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
@@ -2483,24 +2668,24 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexDrop) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->DropIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->DropIndexAccessor();
+    EXPECT_FALSE(acc->DropIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->EdgeTypePropertyIndexExists(this->edge_type_id1, this->edge_prop_id1));
+    EXPECT_FALSE(acc->EdgeTypePropertyIndexReady(this->edge_type_id1, this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_type_property.size(), 0);
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_TRUE(unique_acc->DropIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->DropIndexAccessor();
+    EXPECT_TRUE(acc->DropIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->EdgeTypePropertyIndexExists(this->edge_type_id1, this->edge_prop_id1));
+    EXPECT_FALSE(acc->EdgeTypePropertyIndexReady(this->edge_type_id1, this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_type_property.size(), 0);
   }
 
@@ -2513,17 +2698,17 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexDrop) {
           this->CreateEdge(&vertex_from, &vertex_to, i % 2 ? this->edge_type_id1 : this->edge_type_id2, acc.get());
       ASSERT_NO_ERROR(edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i)));
     }
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_TRUE(acc->EdgeTypePropertyIndexExists(this->edge_type_id1, this->edge_prop_id1));
+    EXPECT_TRUE(acc->EdgeTypePropertyIndexReady(this->edge_type_id1, this->edge_prop_id1));
     EXPECT_THAT(acc->ListAllIndices().edge_type_property,
                 UnorderedElementsAre(std::make_pair(this->edge_type_id1, this->edge_prop_id1)));
   }
@@ -2556,14 +2741,14 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexBasic) {
     return;
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id2, this->edge_prop_id2).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->edge_type_id2, this->edge_prop_id2).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   auto acc = this->storage->Access();
@@ -2639,14 +2824,14 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexTransactionalIsolation) {
   }
   // Check that transactions only see entries they are supposed to see.
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id2, this->edge_prop_id2).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->edge_type_id2, this->edge_prop_id2).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   auto acc_before = this->storage->Access();
@@ -2669,7 +2854,7 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexTransactionalIsolation) {
   EXPECT_THAT(this->GetIds(acc_after->Edges(this->edge_type_id1, this->edge_prop_id1, View::NEW), View::NEW),
               IsEmpty());
 
-  ASSERT_NO_ERROR(acc->Commit());
+  ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 
   auto acc_after_commit = this->storage->Access();
 
@@ -2689,14 +2874,14 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexCountEstimate) {
     return;
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id2, this->edge_prop_id2).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->edge_type_id2, this->edge_prop_id2).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   auto acc = this->storage->Access();
@@ -2722,9 +2907,9 @@ TYPED_TEST(IndexTest, EdgeTypePropertyIndexRepeatingEdgeTypesBetweenSameVertices
     return;
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->edge_type_id1, this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   auto acc = this->storage->Access();
@@ -2758,7 +2943,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexCreate) {
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->EdgePropertyIndexExists(this->edge_prop_id1));
+    EXPECT_FALSE(acc->EdgePropertyIndexReady(this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_type_property.size(), 0);
     EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_prop_id1), 0);
   }
@@ -2772,19 +2957,19 @@ TYPED_TEST(IndexTest, EdgePropertyIndexCreate) {
           this->CreateEdge(&vertex_from, &vertex_to, i % 2 ? this->edge_type_id1 : this->edge_type_id2, acc.get());
       ASSERT_NO_ERROR(edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i)));
     }
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_prop_id1), 0);
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
-    EXPECT_EQ(unique_acc->ApproximateEdgeCount(this->edge_prop_id1), 10);
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
     auto acc = this->storage->Access();
+    EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_prop_id1), 10);
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_prop_id1, View::OLD), View::OLD),
                 UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9));
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_prop_id1, View::NEW), View::NEW),
@@ -2840,7 +3025,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexCreate) {
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_prop_id1, View::NEW), View::NEW),
                 UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29));
 
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     EXPECT_EQ(acc->ApproximateEdgeCount(this->edge_prop_id1), 20);
   }
 
@@ -2858,7 +3043,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexCreate) {
     EXPECT_THAT(this->GetIds(acc->Edges(this->edge_prop_id1, View::NEW), View::NEW),
                 UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9, 20, 21, 22, 23, 24, 25, 26, 27, 28, 29));
 
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   // Check that GC doesn't remove useful elements
@@ -2884,7 +3069,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexCreate) {
           }
         }
       }
-      ASSERT_NO_ERROR(acc->Commit());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
     this->storage->FreeMemory({}, false);
     this->storage->FreeMemory({}, false);
@@ -2905,7 +3090,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexCreate) {
           }
         }
       }
-      ASSERT_NO_ERROR(acc->Commit());
+      ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
     }
     this->storage->FreeMemory({}, false);
     this->storage->FreeMemory({}, false);
@@ -2922,7 +3107,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexDrop) {
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->EdgePropertyIndexExists(this->edge_prop_id1));
+    EXPECT_FALSE(acc->EdgePropertyIndexReady(this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_property.size(), 0);
   }
 
@@ -2935,13 +3120,13 @@ TYPED_TEST(IndexTest, EdgePropertyIndexDrop) {
           this->CreateEdge(&vertex_from, &vertex_to, i % 2 ? this->edge_type_id1 : this->edge_type_id2, acc.get());
       ASSERT_NO_ERROR(edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i)));
     }
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
@@ -2953,24 +3138,24 @@ TYPED_TEST(IndexTest, EdgePropertyIndexDrop) {
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->DropGlobalEdgeIndex(this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->DropIndexAccessor();
+    EXPECT_FALSE(acc->DropGlobalEdgeIndex(this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->EdgePropertyIndexExists(this->edge_prop_id1));
+    EXPECT_FALSE(acc->EdgePropertyIndexReady(this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_property.size(), 0);
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_TRUE(unique_acc->DropGlobalEdgeIndex(this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->DropIndexAccessor();
+    EXPECT_TRUE(acc->DropGlobalEdgeIndex(this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_FALSE(acc->EdgePropertyIndexExists(this->edge_prop_id1));
+    EXPECT_FALSE(acc->EdgePropertyIndexReady(this->edge_prop_id1));
     EXPECT_EQ(acc->ListAllIndices().edge_property.size(), 0);
   }
 
@@ -2983,17 +3168,17 @@ TYPED_TEST(IndexTest, EdgePropertyIndexDrop) {
           this->CreateEdge(&vertex_from, &vertex_to, i % 2 ? this->edge_type_id1 : this->edge_type_id2, acc.get());
       ASSERT_NO_ERROR(edge_acc.SetProperty(this->edge_prop_id1, memgraph::storage::PropertyValue(i)));
     }
-    ASSERT_NO_ERROR(acc->Commit());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
     auto acc = this->storage->Access();
-    EXPECT_TRUE(acc->EdgePropertyIndexExists(this->edge_prop_id1));
+    EXPECT_TRUE(acc->EdgePropertyIndexReady(this->edge_prop_id1));
     EXPECT_THAT(acc->ListAllIndices().edge_property, UnorderedElementsAre(this->edge_prop_id1));
   }
 
@@ -3025,14 +3210,14 @@ TYPED_TEST(IndexTest, EdgePropertyIndexBasic) {
     return;
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateGlobalEdgeIndex(this->edge_prop_id2).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id2).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   auto acc = this->storage->Access();
@@ -3095,14 +3280,14 @@ TYPED_TEST(IndexTest, EdgePropertyIndexTransactionalIsolation) {
   }
   // Check that transactions only see entries they are supposed to see.
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateGlobalEdgeIndex(this->edge_prop_id2).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id2).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   auto acc_before = this->storage->Access();
@@ -3122,7 +3307,7 @@ TYPED_TEST(IndexTest, EdgePropertyIndexTransactionalIsolation) {
 
   EXPECT_THAT(this->GetIds(acc_after->Edges(this->edge_prop_id1, View::NEW), View::NEW), IsEmpty());
 
-  ASSERT_NO_ERROR(acc->Commit());
+  ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
 
   auto acc_after_commit = this->storage->Access();
 
@@ -3140,14 +3325,14 @@ TYPED_TEST(IndexTest, EdgePropertyIndexCountEstimate) {
     return;
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateGlobalEdgeIndex(this->edge_prop_id2).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id2).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   auto acc = this->storage->Access();
@@ -3173,9 +3358,9 @@ TYPED_TEST(IndexTest, EdgePropertyIndexRepeatingEdgeTypesBetweenSameVertices) {
     return;
   }
   {
-    auto unique_acc = this->storage->UniqueAccess();
-    EXPECT_FALSE(unique_acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
-    ASSERT_NO_ERROR(unique_acc->Commit());
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateGlobalEdgeIndex(this->edge_prop_id1).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
   }
 
   auto acc = this->storage->Access();
@@ -3198,4 +3383,347 @@ TYPED_TEST(IndexTest, EdgePropertyIndexRepeatingEdgeTypesBetweenSameVertices) {
   }
 
   EXPECT_THAT(this->GetIds(acc->Edges(this->edge_prop_id1, View::NEW), View::NEW), UnorderedElementsAre(1, 2, 3, 4, 5));
+}
+
+TYPED_TEST(IndexTest, CanIterateNestedLabelPropertyIndex) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Nested indices currently not supported on disk";
+  }
+
+  auto const make_map = [](PropertyId key, PropertyValue value) {
+    return PropertyValue{PropertyValue::map_t{{key, std::move(value)}}};
+  };
+
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_a, this->prop_b, this->prop_c}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  {
+    auto acc = this->storage->Access();
+    for (int i = 0; i < 20; ++i) {
+      auto vertex = this->CreateVertex(acc.get());
+      ASSERT_NO_ERROR(vertex.AddLabel(i % 3 < 2 ? this->label1 : this->label2));
+
+      // INDEX: 0 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19
+      // LABEL: 1 1 2 1 1 2 1 1 2 1  1  2  1  1  2  1  1  2  1  1
+      // c=int: 0 0 0 1 0 0 0 0 1 0  0  0  0  1  0  0  0  0  1  0
+
+      if (i % 5 == 0) {
+        // no `a` property
+      } else if (i % 5 == 1) {
+        // has an `a` property, but it is not a map, but a string
+        ASSERT_NO_ERROR(vertex.SetProperty(this->prop_a, PropertyValue(std::to_string(i))));
+      } else if (i % 5 == 2) {
+        // has `a.b`, where b is not a map, but a string
+        ASSERT_NO_ERROR(vertex.SetProperty(this->prop_a, make_map(this->prop_b, PropertyValue(std::to_string(i)))));
+      } else if (i % 5 == 3) {
+        // has `a.b.c`, where c is an integer
+        ASSERT_NO_ERROR(
+            vertex.SetProperty(this->prop_a, make_map(this->prop_b, make_map(this->prop_c, PropertyValue(i)))));
+      } else if (i % 5 == 4) {
+        // has `a.b.c`, where c is a boolean `true`
+        ASSERT_NO_ERROR(
+            vertex.SetProperty(this->prop_a, make_map(this->prop_b, make_map(this->prop_c, PropertyValue(true)))));
+      }
+    }
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto acc = this->storage->Access();
+  EXPECT_THAT(
+      this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_a, this->prop_b, this->prop_c}},
+                                 std::array{pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(0)),
+                                                       memgraph::utils::MakeBoundInclusive(PropertyValue(20)))},
+                                 View::NEW),
+                   View::NEW),
+      UnorderedElementsAre(3, 13, 18));
+
+  // TODO(colinbarry): Temporarily remove this portion of the test from ASAN
+  // tests because it is (correctly) flagged as causing a leak. This is because
+  // of an issue where if a Delta contains any map-type `PropertyValue`, the
+  // storage for the inner part of the map is not deallocated.
+#if __has_feature(address_sanitizer)
+  GTEST_SKIP() << "Skipping portion of index test due to delta leak bug";
+#endif
+
+  // Remove a.b.c from vertex 13 and set a.b.c to 15 on vertex 15
+  for (auto vertex : acc->Vertices(View::OLD)) {
+    int64_t id = vertex.GetProperty(this->prop_id, View::OLD)->ValueInt();
+    if (id == 13) {
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_a, PropertyValue{}));
+    } else if (id == 15) {
+      ASSERT_NO_ERROR(
+          vertex.SetProperty(this->prop_a, make_map(this->prop_b, make_map(this->prop_c, PropertyValue(15)))));
+    }
+  }
+
+  EXPECT_THAT(
+      this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_a, this->prop_b, this->prop_c}},
+                                 std::array{pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(0)),
+                                                       memgraph::utils::MakeBoundInclusive(PropertyValue(20)))},
+                                 View::OLD),
+                   View::OLD),
+      UnorderedElementsAre(3, 13, 18));
+
+  EXPECT_THAT(
+      this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_a, this->prop_b, this->prop_c}},
+                                 std::array{pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(0)),
+                                                       memgraph::utils::MakeBoundInclusive(PropertyValue(20)))},
+                                 View::NEW),
+                   View::NEW),
+      UnorderedElementsAre(3, 15, 18));
+
+  acc->AdvanceCommand();
+
+  EXPECT_THAT(
+      this->GetIds(acc->Vertices(this->label1, std::array{PropertyPath{this->prop_a, this->prop_b, this->prop_c}},
+                                 std::array{pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(0)),
+                                                       memgraph::utils::MakeBoundInclusive(PropertyValue(20)))},
+                                 View::OLD),
+                   View::OLD),
+      UnorderedElementsAre(3, 15, 18));
+}
+
+TYPED_TEST(IndexTest, CompositeIndicesReadOutOfOrderProperties) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Composite indices currently not supported on disk";
+  }
+
+  // TODO(colinbarry): Temporarily remove this portion of the test from ASAN
+  // tests because it is (correctly) flagged as causing a leak. This is because
+  // of an issue where if a Delta contains any map-type `PropertyValue`, the
+  // storage for the inner part of the map is not deallocated.
+#if __has_feature(address_sanitizer)
+  GTEST_SKIP() << "Skipping portion of index test due to delta leak bug";
+#endif
+
+  {
+    auto acc = this->CreateIndexAccessor();
+    // Note the index properties are not based on monotonic `PropertyId`. They
+    // will need to be permuted when writing and reading from the property store.
+    EXPECT_FALSE(acc->CreateIndex(this->label1,
+                                  {PropertyPath{this->prop_b}, PropertyPath{this->prop_a}, PropertyPath{this->prop_c}})
+                     .HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto acc = this->storage->Access();
+  {
+    for (int i = 0; i < 10; ++i) {
+      auto vertex = this->CreateVertex(acc.get());
+      ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_a, PropertyValue(i)));
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_b, PropertyValue(i + 10)));
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_c, PropertyValue(i + 20)));
+    }
+  }
+
+  auto const get_ids = [&](View view) {
+    return this->GetIds(
+        acc->Vertices(this->label1,
+                      std::array{PropertyPath{this->prop_b}, PropertyPath{this->prop_a}, PropertyPath{this->prop_c}},
+                      std::array{pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(10)),
+                                            memgraph::utils::MakeBoundInclusive(PropertyValue(20))),
+                                 pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(0)),
+                                            memgraph::utils::MakeBoundInclusive(PropertyValue(10))),
+                                 pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(20)),
+                                            memgraph::utils::MakeBoundInclusive(PropertyValue(30)))},
+                      view),
+        view);
+  };
+
+  acc->AdvanceCommand();
+  EXPECT_THAT(get_ids(View::OLD), UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9));
+
+  for (auto vertex : acc->Vertices(View::OLD)) {
+    int64_t id = vertex.GetProperty(this->prop_id, View::OLD)->ValueInt();
+    if (id % 2 == 0) {
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_b, PropertyValue{}));
+    }
+  }
+
+  EXPECT_THAT(get_ids(View::OLD), UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9));
+  EXPECT_THAT(get_ids(View::NEW), UnorderedElementsAre(1, 3, 5, 7, 9));
+
+  acc->AdvanceCommand();
+  for (auto vertex : acc->Vertices(View::OLD)) {
+    int64_t id = vertex.GetProperty(this->prop_id, View::OLD)->ValueInt();
+    if (id % 2 == 0) {
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_b, PropertyValue{id + 10}));
+    }
+
+    EXPECT_THAT(get_ids(View::OLD), UnorderedElementsAre(1, 3, 5, 7, 9));
+  }
+  EXPECT_THAT(get_ids(View::NEW), UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9));
+
+  acc->AdvanceCommand();
+  for (auto vertex : acc->Vertices(View::OLD)) {
+    int64_t id = vertex.GetProperty(this->prop_id, View::OLD)->ValueInt();
+    if (id % 3 < 2) {
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_c, PropertyValue{"a-string"}));
+    }
+  }
+
+  EXPECT_THAT(get_ids(View::OLD), UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9));
+  EXPECT_THAT(get_ids(View::NEW), UnorderedElementsAre(2, 5, 8));
+
+  acc->AdvanceCommand();
+  for (auto vertex : acc->Vertices(View::OLD)) {
+    int64_t id = vertex.GetProperty(this->prop_id, View::OLD)->ValueInt();
+    if (id % 3 < 2) {
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_c, PropertyValue{id + 20}));
+    }
+  }
+
+  EXPECT_THAT(get_ids(View::OLD), UnorderedElementsAre(2, 5, 8));
+  EXPECT_THAT(get_ids(View::NEW), UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9));
+
+  acc->AdvanceCommand();
+  for (auto vertex : acc->Vertices(View::OLD)) {
+    int64_t id = vertex.GetProperty(this->prop_id, View::OLD)->ValueInt();
+    if (id % 5 < 3) {
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_a, PropertyValue{}));
+    }
+  }
+
+  EXPECT_THAT(get_ids(View::OLD), UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9));
+  EXPECT_THAT(get_ids(View::NEW), UnorderedElementsAre(3, 4, 8, 9));
+}
+
+TYPED_TEST(IndexTest, NestedIndicesReadOutOfOrderProperties) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Composite indices currently not supported on disk";
+  }
+
+  {
+    auto acc = this->CreateIndexAccessor();
+    // Note the index properties are not based on monotonic `PropertyId`. They
+    // will need to be permuted when writing and reading from the property store.
+    EXPECT_FALSE(acc->CreateIndex(this->label1,
+                                  {PropertyPath{this->prop_b, this->prop_d}, PropertyPath{this->prop_a, this->prop_d},
+                                   PropertyPath{this->prop_c, this->prop_d}})
+                     .HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto acc = this->storage->Access();
+  {
+    for (int i = 0; i < 10; ++i) {
+      auto vertex = this->CreateVertex(acc.get());
+      ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_a, MakeMap(KVPair{this->prop_d, PropertyValue(i)})));
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_b, MakeMap(KVPair{this->prop_d, PropertyValue(i + 10)})));
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_c, MakeMap(KVPair{this->prop_d, PropertyValue(i + 20)})));
+    }
+  }
+
+  auto const get_ids = [&](View view) {
+    return this->GetIds(
+        acc->Vertices(this->label1,
+                      std::array{PropertyPath{this->prop_b, this->prop_d}, PropertyPath{this->prop_a, this->prop_d},
+                                 PropertyPath{this->prop_c, this->prop_d}},
+                      std::array{pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(10)),
+                                            memgraph::utils::MakeBoundInclusive(PropertyValue(20))),
+                                 pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(0)),
+                                            memgraph::utils::MakeBoundInclusive(PropertyValue(10))),
+                                 pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue(20)),
+                                            memgraph::utils::MakeBoundInclusive(PropertyValue(30)))},
+                      view),
+        view);
+  };
+
+  acc->AdvanceCommand();
+  EXPECT_THAT(get_ids(View::OLD), UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9));
+
+  for (auto vertex : acc->Vertices(View::OLD)) {
+    int64_t id = vertex.GetProperty(this->prop_id, View::OLD)->ValueInt();
+    if (id % 2 == 0) {
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_b, PropertyValue{}));
+    }
+  }
+
+  EXPECT_THAT(get_ids(View::OLD), UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9));
+  EXPECT_THAT(get_ids(View::NEW), UnorderedElementsAre(1, 3, 5, 7, 9));
+
+  acc->AdvanceCommand();
+  EXPECT_THAT(get_ids(View::OLD), UnorderedElementsAre(1, 3, 5, 7, 9));
+  EXPECT_THAT(get_ids(View::NEW), UnorderedElementsAre(1, 3, 5, 7, 9));
+
+  for (auto vertex : acc->Vertices(View::OLD)) {
+    int64_t id = vertex.GetProperty(this->prop_id, View::OLD)->ValueInt();
+    if (id % 3 == 0) {
+      ASSERT_NO_ERROR(vertex.SetProperty(this->prop_c, PropertyValue{}));
+    }
+  }
+
+  EXPECT_THAT(get_ids(View::OLD), UnorderedElementsAre(1, 3, 5, 7, 9));
+  EXPECT_THAT(get_ids(View::NEW), UnorderedElementsAre(1, 5, 7));
+
+  acc->AdvanceCommand();
+  for (auto vertex : acc->Vertices(View::OLD)) {
+    int64_t id = vertex.GetProperty(this->prop_id, View::OLD)->ValueInt();
+    ASSERT_NO_ERROR(vertex.SetProperty(this->prop_a, MakeMap(KVPair{this->prop_d, PropertyValue(id)})));
+    ASSERT_NO_ERROR(vertex.SetProperty(this->prop_b, MakeMap(KVPair{this->prop_d, PropertyValue(id + 10)})));
+    ASSERT_NO_ERROR(vertex.SetProperty(this->prop_c, MakeMap(KVPair{this->prop_d, PropertyValue(id + 20)})));
+  }
+
+  EXPECT_THAT(get_ids(View::OLD), UnorderedElementsAre(1, 5, 7));
+  EXPECT_THAT(get_ids(View::NEW), UnorderedElementsAre(0, 1, 2, 3, 4, 5, 6, 7, 8, 9));
+}
+
+TYPED_TEST(IndexTest, DeltaDoesNotLeak) {
+  if constexpr (!(std::is_same_v<TypeParam, memgraph::storage::InMemoryStorage>)) {
+    GTEST_SKIP() << "Testing in-memory only";
+  }
+
+  auto const make_map = [](PropertyId key, PropertyValue value) {
+    return PropertyValue{PropertyValue::map_t{{key, std::move(value)}}};
+  };
+  {
+    auto acc = this->storage->Access();
+    auto vertex = this->CreateVertex(acc.get());
+    vertex.SetProperty(this->prop_a, make_map(this->prop_b, make_map(this->prop_c, PropertyValue("hello"))));
+    // vvv This create a `Delta` containing the above `PropertyValue` map,
+    // which ASAN reports as a leak.
+    vertex.SetProperty(this->prop_a, PropertyValue("goodbye"));
+  }
+  this->storage->FreeMemory();
+}
+
+TYPED_TEST(IndexTest, LabelPropertiesIndicesScansOnlyStringsForRegexes) {
+  if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
+    GTEST_SKIP() << "Regex index search currently not supported on disk";
+  }
+  auto const values = std::vector{
+      PropertyValue{false},    PropertyValue{true},    PropertyValue{2},
+      PropertyValue{3},        PropertyValue{"apple"}, PropertyValue{"banana"},
+      PropertyValue{"cherry"}, PropertyValue{"date"},  PropertyValue{"eggplant"},
+  };
+  {
+    auto acc = this->CreateIndexAccessor();
+    EXPECT_FALSE(acc->CreateIndex(this->label1, {PropertyPath{this->prop_val}}).HasError());
+    ASSERT_NO_ERROR(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()));
+  }
+
+  auto acc = this->storage->Access();
+
+  for (auto &&value : values) {
+    auto vertex = this->CreateVertex(acc.get());
+    ASSERT_NO_ERROR(vertex.AddLabel(this->label1));
+    ASSERT_NO_ERROR(vertex.SetProperty(this->prop_val, value));
+  }
+
+  auto const get_ids = [&](View view) {
+    return this->GetIds(
+        acc->Vertices(
+            this->label1, std::array{PropertyPath{this->prop_val}},
+            std::array{pvr::Range(memgraph::utils::MakeBoundInclusive(PropertyValue("")),
+                                  memgraph::storage::UpperBoundForType(memgraph::storage::PropertyValueType::String))},
+            view),
+        view);
+  };
+
+  EXPECT_THAT(get_ids(View::NEW), UnorderedElementsAre(4, 5, 6, 7, 8));
 }

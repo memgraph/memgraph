@@ -1,0 +1,12 @@
+diff --git a/.clang-tidy b/.clang-tidy
+index 34239d6..bc50ee7 100644
+--- a/.clang-tidy
++++ b/.clang-tidy
+@@ -27,7 +27,6 @@ clang-analyzer-*,
+ 
+ WarningsAsErrors: ''
+ HeaderFilterRegex: '*spdlog/[^f].*'
+-AnalyzeTemporaryDtors: false
+ FormatStyle:     none
+ 
+ CheckOptions:    

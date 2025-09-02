@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 
@@ -28,41 +27,48 @@ class LabelIndex {
 
   virtual ~LabelIndex() = default;
 
-  virtual void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) = 0;
-
-  // Not used for in-memory
-  virtual void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) = 0;
-
   virtual bool DropIndex(LabelId label) = 0;
-
-  virtual bool IndexExists(LabelId label) const = 0;
-
-  virtual std::vector<LabelId> ListIndices() const = 0;
-
-  virtual uint64_t ApproximateVertexCount(LabelId label) const = 0;
-
   virtual void DropGraphClearIndices() = 0;
 
   using AbortableInfo = std::map<LabelId, std::vector<Vertex *>>;
 
+  struct ActiveIndices;
+
   struct AbortProcessor {
+    explicit AbortProcessor() = default;
     explicit AbortProcessor(std::vector<LabelId> label) : label_(std::move(label)) {}
 
-    void collect_on_label_removal(LabelId label, Vertex *vertex) {
+    void CollectOnLabelRemoval(LabelId label, Vertex *vertex) {
       if (std::binary_search(label_.begin(), label_.end(), label)) {
-        cleanup_collection_[label].emplace_back(vertex);
+        cleanup_collection_[label].emplace_back(vertex);  // TODO (ivan): check that this is sorted
       }
     }
-    void process(LabelIndex &index, uint64_t start_timestamp) {
-      index.AbortEntries(cleanup_collection_, start_timestamp);
-    }
-
-   private:
     std::vector<LabelId> label_;
     AbortableInfo cleanup_collection_;
   };
 
-  virtual void AbortEntries(AbortableInfo const &, uint64_t start_timestamp) = 0;
+  struct ActiveIndices {
+    virtual ~ActiveIndices() = default;
+
+    virtual void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update, const Transaction &tx) = 0;
+
+    // Not used for in-memory
+    virtual void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_after_update, const Transaction &tx) = 0;
+
+    virtual bool IndexRegistered(LabelId label) const = 0;
+
+    virtual bool IndexReady(LabelId label) const = 0;
+
+    virtual std::vector<LabelId> ListIndices(uint64_t start_timestamp) const = 0;
+
+    virtual uint64_t ApproximateVertexCount(LabelId label) const = 0;
+
+    virtual void AbortEntries(AbortableInfo const &, uint64_t start_timestamp) = 0;
+
+    virtual auto GetAbortProcessor() const -> AbortProcessor = 0;
+  };
+
+  virtual auto GetActiveIndices() const -> std::unique_ptr<ActiveIndices> = 0;
 };
 
 }  // namespace memgraph::storage

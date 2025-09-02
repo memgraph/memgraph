@@ -30,6 +30,8 @@ struct RpcInfo {
   static const metrics::Event timerLabel;
 };
 
+constexpr auto kRecoveryRpcTimeout = std::chrono::milliseconds(5000);
+
 class InMemoryStorage;
 
 template <typename T>
@@ -56,13 +58,32 @@ std::enable_if_t<std::is_same_v<T, std::vector<std::filesystem::path>>, bool> Wr
 }
 
 template <rpc::IsRpc T, typename R, typename... Args>
-std::optional<typename T::Response> TransferDurabilityFiles(const R &files, rpc::Client &client, Args &&...args) {
+std::optional<typename T::Response> TransferDurabilityFiles(const R &files, rpc::Client &client,
+                                                            replication_coordination_glue::ReplicationMode const mode,
+                                                            Args &&...args) {
   utils::MetricsTimer const timer{RpcInfo<T>::timerLabel};
-  auto stream = client.Stream<T>(std::forward<Args>(args)...);
-  if (replication::Encoder encoder(stream.GetBuilder()); !WriteFiles(files, encoder)) {
+  std::optional<rpc::Client::StreamHandler<T>> maybe_stream_result;
+
+  // if ASYNC mode, we shouldn't block on transferring durability files because there could be a commit task which holds
+  // rpc stream and which needs to be executed
+  if (mode == replication_coordination_glue::ReplicationMode::ASYNC) {
+    maybe_stream_result = client.TryStream<T>(kRecoveryRpcTimeout, std::forward<Args>(args)...);
+  } else {
+    // in SYNC and STRICT_SYNC mode, we block until we obtain RPC lock
+    maybe_stream_result.emplace(client.Stream<T>(std::forward<Args>(args)...));
+  }
+
+  // If dealing with ASYNC replica and couldn't obtain the lock
+  if (!maybe_stream_result.has_value()) {
     return std::nullopt;
   }
-  return stream.SendAndWaitProgress();
+
+  // If writing files failed, fail the task by returning empty optional
+  if (replication::Encoder encoder(maybe_stream_result->GetBuilder()); !WriteFiles(files, encoder)) {
+    return std::nullopt;
+  }
+
+  return maybe_stream_result->SendAndWaitProgress();
 }
 
 auto GetRecoverySteps(uint64_t replica_commit, utils::FileRetainer::FileLocker *file_locker,

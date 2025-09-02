@@ -15,17 +15,21 @@
 #include <map>
 #include <utility>
 
+#include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/edge_property_index.hpp"
+#include "storage/v2/indices/errors.hpp"
+#include "storage/v2/inmemory/indices_mvcc.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
 #include "storage/v2/vertex_accessor.hpp"
+#include "utils/rw_lock.hpp"
 #include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
 
-class InMemoryEdgePropertyIndex : public storage::EdgePropertyIndex {
+class InMemoryEdgePropertyIndex : public EdgePropertyIndex {
  private:
   struct Entry {
     PropertyValue value;
@@ -46,58 +50,29 @@ class InMemoryEdgePropertyIndex : public storage::EdgePropertyIndex {
              std::tie(rhs.value, rhs.edge, rhs.from_vertex, rhs.to_vertex, rhs.edge_type, rhs.timestamp);
     }
 
-    bool operator<(const PropertyValue &rhs) const;
-    bool operator==(const PropertyValue &rhs) const;
+    bool operator<(const PropertyValue &rhs) const { return value < rhs; }
+    bool operator==(const PropertyValue &rhs) const { return value == rhs; }
   };
 
  public:
-  InMemoryEdgePropertyIndex() = default;
+  struct IndividualIndex {
+    ~IndividualIndex();
+    void Publish(uint64_t commit_timestamp);
 
-  /// @throw std::bad_alloc
-  bool CreateIndex(PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
-                   std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+    utils::SkipList<Entry> skip_list_;
+    IndexStatus status_{};
+  };
 
-  /// Returns false if there was no index to drop
-  bool DropIndex(PropertyId property) override;
+  struct IndicesContainer {
+    IndicesContainer(IndicesContainer const &other) : indices_(other.indices_) {}
+    IndicesContainer(IndicesContainer &&) = default;
+    IndicesContainer &operator=(IndicesContainer const &) = default;
+    IndicesContainer &operator=(IndicesContainer &&) = default;
+    IndicesContainer() = default;
+    ~IndicesContainer() = default;
 
-  bool IndexExists(PropertyId property) const override;
-
-  std::vector<PropertyId> ListIndices() const override;
-
-  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
-
-  void AbortEntries(std::pair<EdgeTypeId, PropertyId> edge_property,
-                    std::span<std::tuple<Vertex *const, Vertex *const, Edge *const, PropertyValue> const> edges,
-                    uint64_t exact_start_timestamp);
-
-  uint64_t ApproximateEdgeCount(PropertyId property) const override;
-
-  uint64_t ApproximateEdgeCount(PropertyId property, const PropertyValue &value) const override;
-
-  uint64_t ApproximateEdgeCount(PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower,
-                                const std::optional<utils::Bound<PropertyValue>> &upper) const override;
-
-  // Functions that update the index
-  void UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex, Edge *edge, EdgeTypeId edge_type,
-                           PropertyId property, PropertyValue value, uint64_t timestamp) override;
-
-  void UpdateOnEdgeModification(Vertex *old_from, Vertex *old_to, Vertex *new_from, Vertex *new_to, EdgeRef edge_ref,
-                                EdgeTypeId edge_type, PropertyId property, const PropertyValue &value,
-                                const Transaction &tx) override;
-
-  void DropGraphClearIndices() override;
-
-  IndexStats Analysis() const {
-    IndexStats stats;
-    for (const auto &[key, _] : index_) {
-      stats.ep.push_back(key);
-    }
-    return stats;
-  }
-
-  static constexpr std::size_t kEdgeTypeIdPos = 0U;
-  static constexpr std::size_t kVertexPos = 1U;
-  static constexpr std::size_t kEdgeRefPos = 2U;
+    std::map<PropertyId, std::shared_ptr<IndividualIndex>> indices_;
+  };
 
   class Iterable {
    public:
@@ -144,14 +119,73 @@ class InMemoryEdgePropertyIndex : public storage::EdgePropertyIndex {
     Transaction *transaction_;
   };
 
+  struct ActiveIndices : EdgePropertyIndex::ActiveIndices {
+    explicit ActiveIndices(std::shared_ptr<IndicesContainer const> indices = std::make_shared<IndicesContainer>())
+        : index_container_{std::move(indices)} {}
+
+    void UpdateOnSetProperty(Vertex *from_vertex, Vertex *to_vertex, Edge *edge, EdgeTypeId edge_type,
+                             PropertyId property, PropertyValue value, uint64_t timestamp) override;
+
+    uint64_t ApproximateEdgeCount(PropertyId property) const override;
+
+    uint64_t ApproximateEdgeCount(PropertyId property, const PropertyValue &value) const override;
+
+    uint64_t ApproximateEdgeCount(PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower,
+                                  const std::optional<utils::Bound<PropertyValue>> &upper) const override;
+
+    bool IndexExists(PropertyId property) const override;
+
+    bool IndexReady(PropertyId property) const override;
+
+    std::vector<PropertyId> ListIndices(uint64_t start_timestamp) const override;
+
+    Iterable Edges(PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
+                   const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
+                   Transaction *transaction);
+
+    auto GetAbortProcessor() const -> AbortProcessor override;
+    void AbortEntries(AbortableInfo const &info, uint64_t start_timestamp) override;
+
+   private:
+    std::shared_ptr<IndicesContainer const> index_container_;
+  };
+
+  InMemoryEdgePropertyIndex() = default;
+
+  /// @throw std::bad_alloc
+  bool CreateIndexOnePass(PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
+                          std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
+
+  bool RegisterIndex(PropertyId property);
+  auto PopulateIndex(PropertyId property, utils::SkipList<Vertex>::Accessor vertices,
+                     std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
+                     Transaction const *tx = nullptr,
+                     CheckCancelFunction cancel_check = neverCancel) -> utils::BasicResult<IndexPopulateError>;
+  bool PublishIndex(PropertyId property, uint64_t commit_timestamp);
+
+  /// Returns false if there was no index to drop
+  bool DropIndex(PropertyId property) override;
+
+  void RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token);
+
+  void DropGraphClearIndices() override;
+
   void RunGC();
 
-  Iterable Edges(PropertyId property, const std::optional<utils::Bound<PropertyValue>> &lower_bound,
-                 const std::optional<utils::Bound<PropertyValue>> &upper_bound, View view, Storage *storage,
-                 Transaction *transaction);
+  auto GetActiveIndices() const -> std::unique_ptr<EdgePropertyIndex::ActiveIndices> override;
 
  private:
-  std::map<PropertyId, utils::SkipList<Entry>> index_;
+  auto GetIndividualIndex(PropertyId property) const -> std::shared_ptr<IndividualIndex>;
+  void CleanupAllIndicies();
+
+  utils::Synchronized<std::shared_ptr<IndicesContainer const>, utils::WritePrioritizedRWLock> index_{
+      std::make_shared<IndicesContainer const>()};
+
+  // For correct GC we need a copy of all indexes, even if dropped, this is so we can ensure dangling ptr are removed
+  // even for dropped indices
+  using AllIndicesEntry = std::pair<PropertyId, std::shared_ptr<IndividualIndex>>;
+  utils::Synchronized<std::shared_ptr<std::vector<AllIndicesEntry> const>, utils::WritePrioritizedRWLock> all_indices_{
+      std::make_shared<std::vector<AllIndicesEntry> const>()};
 };
 
 }  // namespace memgraph::storage

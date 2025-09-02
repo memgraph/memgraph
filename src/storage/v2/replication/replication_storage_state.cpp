@@ -10,22 +10,20 @@
 // licenses/APL.txt.
 
 #include "storage/v2/replication/replication_storage_state.hpp"
+#include "storage/v2/commit_args.hpp"
 
 #include "replication/replication_server.hpp"
-#include "storage/v2/replication/replication_transaction.hpp"
-
-#include <span>
-
-#include <range/v3/view.hpp>
 
 namespace memgraph::storage {
 
-auto ReplicationStorageState::InitializeTransaction(uint64_t seq_num, Storage *storage, DatabaseAccessProtector db_acc)
-    -> TransactionReplication {
-  return {seq_num, storage, db_acc, replication_storage_clients_};
+// This will block until we retrieve RPC streams for all STRICT_SYNC and SYNC replicas. It is OK to not be able to
+// obtain the RPC lock for the ASYNC replica.
+auto ReplicationStorageState::StartPrepareCommitPhase(uint64_t const durability_commit_timestamp, Storage *storage,
+                                                      CommitArgs const &commit_args) -> TransactionReplication {
+  return {durability_commit_timestamp, storage, commit_args, replication_storage_clients_};
 }
 
-std::optional<replication::ReplicaState> ReplicationStorageState::GetReplicaState(std::string_view name) const {
+std::optional<replication::ReplicaState> ReplicationStorageState::GetReplicaState(std::string_view const name) const {
   return replication_storage_clients_.WithReadLock(
       [&](auto const &clients) -> std::optional<replication::ReplicaState> {
         auto const name_matches = [=](ReplicationStorageClientPtr const &client) { return client->Name() == name; };
@@ -41,17 +39,19 @@ void ReplicationStorageState::Reset() {
   replication_storage_clients_.WithLock([](auto &clients) { clients.clear(); });
 }
 
-void ReplicationStorageState::TrackLatestHistory() {
-  constexpr uint16_t kEpochHistoryRetention = 1000;
+// Don't save epochs in history for which ldt wasn't changed
+void ReplicationStorageState::SaveLatestHistory() {
+  auto const new_ldt = commit_ts_info_.load(std::memory_order_acquire).ldt_;
+  if (!history.empty() && history.back().second == new_ldt) {
+    return;
+  }
+
   // Generate new epoch id and save the last one to the history.
-  if (history.size() == kEpochHistoryRetention) {
+  if (constexpr uint16_t kEpochHistoryRetention = 1000; history.size() == kEpochHistoryRetention) {
     history.pop_front();
   }
-  history.emplace_back(epoch_.id(), last_durable_timestamp_);
-}
 
-void ReplicationStorageState::AddEpochToHistoryForce(std::string prev_epoch) {
-  history.emplace_back(std::move(prev_epoch), last_durable_timestamp_);
+  history.emplace_back(epoch_.id(), new_ldt);
 }
 
 }  // namespace memgraph::storage

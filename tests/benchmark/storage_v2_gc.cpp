@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -15,6 +15,7 @@
 
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
+#include "tests/test_commit_args_helper.hpp"
 #include "utils/timer.hpp"
 
 using memgraph::replication_coordination_glue::ReplicationRole;
@@ -49,7 +50,7 @@ void UpdateLabelFunc(int thread_id, memgraph::storage::Storage *storage,
     auto vertex = acc->FindVertex(gid, memgraph::storage::View::OLD);
     MG_ASSERT(vertex.has_value(), "Vertex with GID {} doesn't exist", gid.AsUint());
     if (vertex->AddLabel(memgraph::storage::LabelId::FromUint(label_dist(gen))).HasValue()) {
-      MG_ASSERT(!acc->Commit().HasError());
+      MG_ASSERT(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     } else {
       acc->Abort();
     }
@@ -67,7 +68,7 @@ int main(int argc, char *argv[]) {
       for (int i = 0; i < FLAGS_num_vertices; ++i) {
         vertices.push_back(acc->CreateVertex().Gid());
       }
-      MG_ASSERT(!acc->Commit().HasError());
+      MG_ASSERT(!acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     }
 
     memgraph::utils::Timer timer;

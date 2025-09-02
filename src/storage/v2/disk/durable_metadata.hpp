@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,11 +13,11 @@
 
 #include <cstdint>
 #include <set>
-#include <vector>
 
 #include "kvstore/kvstore.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/text_index_utils.hpp"
 
 namespace memgraph::storage {
 
@@ -53,9 +53,9 @@ class DurableMetadata {
   bool PersistLabelPropertyIndexAndExistenceConstraintDeletion(LabelId label, PropertyId property,
                                                                const std::string &key);
 
-  bool PersistTextIndexCreation(const std::string &index_name, LabelId label);
+  bool PersistTextIndexCreation(const storage::TextIndexSpec &text_index);
 
-  bool PersistTextIndexDeletion(const std::string &index_name, LabelId label);
+  bool PersistTextIndexDeletion(std::string_view index_name);
 
   bool PersistUniqueConstraintCreation(LabelId label, const std::set<PropertyId> &properties);
 

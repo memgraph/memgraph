@@ -14,7 +14,6 @@
 #include <bitset>
 #include <initializer_list>
 #include <string>
-#include <unordered_set>
 #include <vector>
 
 namespace memgraph::query::lexer_constants {
@@ -79,14 +78,14 @@ class Trie {
     bool finish = false;
   };
 
-  const static int kRootIndex = 0;
+  constexpr static int kRootIndex = 0;
   std::vector<Node> nodes_{1};
 };
 }  // namespace trie
 
 // All word constants should be lowercase in this file.
 
-const int kBitsetSize = 65536;
+constexpr int kBitsetSize = 65536;
 
 const trie::Trie kKeywords = {"active",
                               "add",
@@ -184,6 +183,7 @@ const trie::Trie kKeywords = {"active",
                               "if",
                               "ignore",
                               "import",
+                              "impersonate_user",
                               "in_memory_analytical",
                               "in_memory_transactional",
                               "in",
@@ -197,7 +197,9 @@ const trie::Trie kKeywords = {"active",
                               "kafka",
                               "kb",
                               "key",
+                              "kshortest",
                               "labels",
+                              "lag",
                               "leadership",
                               "level",
                               "limit",
@@ -239,7 +241,9 @@ const trie::Trie kKeywords = {"active",
                               "port",
                               "privileges",
                               "procedure",
+                              "procedures",
                               "profile",
+                              "profile_restriction",
                               "pulsar",
                               "query",
                               "quote",
@@ -254,6 +258,7 @@ const trie::Trie kKeywords = {"active",
                               "replicas",
                               "replication",
                               "reset",
+                              "resource",
                               "return",
                               "revoke",
                               "role",
@@ -280,6 +285,7 @@ const trie::Trie kKeywords = {"active",
                               "storage",
                               "stream",
                               "streams",
+                              "strict_sync",
                               "string",
                               "sync",
                               "terminate",
@@ -305,6 +311,7 @@ const trie::Trie kKeywords = {"active",
                               "unregister",
                               "unwind",
                               "update",
+                              "usage",
                               "use",
                               "user",
                               "users",

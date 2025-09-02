@@ -20,12 +20,14 @@
 #include <vector>
 
 // TODO: remove once ast is split over multiple files
+#include "frontend/ast/query/pattern_comprehension.hpp"
 #include "query/frontend/ast/ast.hpp"
 
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/ast/query/identifier.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/point_distance_condition.hpp"
+#include "utils/transparent_compare.hpp"
 
 namespace memgraph::query::plan {
 
@@ -82,19 +84,41 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   }
 
   bool Visit(Identifier &ident) override {
-    if (!in_exists || ident.user_declared_) {
+    const bool is_ordinary_flow = !in_exists && !in_pattern_comprehension;
+    if (is_ordinary_flow) {
+      symbols_.insert(symbol_table_.at(ident));
+    } else if (ident.user_declared_) {
       symbols_.insert(symbol_table_.at(ident));
     }
-
     return true;
   }
 
   bool PreVisit(Exists &exists) override {
     in_exists = true;
 
-    // We do not visit pattern identifier since we're in exists filter pattern
-    for (auto &atom : exists.pattern_->atoms_) {
-      atom->Accept(*this);
+    if (exists.HasPattern()) {
+      // We do not visit pattern identifier since we're in exists filter pattern
+      for (auto &atom : exists.GetPattern()->atoms_) {
+        atom->Accept(*this);
+      }
+    } else if (exists.HasSubquery()) {
+      // For subqueries, we need to collect symbols from the subquery
+      auto *single_query = exists.GetSubquery()->single_query_;
+      if (single_query) {
+        for (auto *clause : single_query->clauses_) {
+          if (auto *match = utils::Downcast<Match>(clause)) {
+            for (auto *pattern : match->patterns_) {
+              for (auto &atom : pattern->atoms_) {
+                atom->Accept(*this);
+              }
+            }
+          }
+        }
+      }
+    } else {
+      throw SemanticException(
+          "EXISTS semantic is neither of type pattern, or subquery! Please contact Memgraph support as this scenario "
+          "should not happen!");
     }
 
     return false;
@@ -102,6 +126,18 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
 
   bool PostVisit(Exists & /*exists*/) override {
     in_exists = false;
+    return true;
+  }
+
+  bool PreVisit(PatternComprehension &pc) override {
+    in_pattern_comprehension = true;
+    pc.pattern_->Accept(*this);
+
+    return false;
+  }
+
+  bool PostVisit(PatternComprehension & /*pc*/) override {
+    in_pattern_comprehension = false;
     return true;
   }
 
@@ -114,6 +150,7 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
 
  private:
   bool in_exists{false};
+  bool in_pattern_comprehension{false};
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
@@ -173,7 +210,7 @@ enum class SplitExpressionMode { AND, OR };
 struct PatternComprehensionMatching;
 struct FilterMatching;
 
-enum class PatternFilterType { EXISTS };
+enum class PatternFilterType { EXISTS_PATTERN, EXISTS_SUBQUERY };
 
 /// Collects matchings that include patterns
 class PatternVisitor : public ExpressionVisitor<void> {
@@ -398,15 +435,21 @@ class PropertyFilter {
   /// Construct the range based filter.
   PropertyFilter(const SymbolTable &, const Symbol &, PropertyIx, const std::optional<Bound> &,
                  const std::optional<Bound> &);
+  /// Construct with Expression being the equality or regex match check used for multiple properties.
+  PropertyFilter(const SymbolTable &, const Symbol &, PropertyIxPath, Expression *, Type);
+  /// Construct the range based filter used for multiple properties.
+  PropertyFilter(const SymbolTable &, const Symbol &, PropertyIxPath, const std::optional<Bound> &,
+                 const std::optional<Bound> &);
   /// Construct a filter without an expression that produces a value.
   /// Used for the "PROP IS NOT NULL" filter, and can be used for any
   /// property filter that doesn't need to use an expression to produce
   /// values that should be filtered further.
   PropertyFilter(Symbol, PropertyIx, Type);
+  PropertyFilter(Symbol, PropertyIxPath, Type);
 
   /// Symbol whose property is looked up.
   Symbol symbol_;
-  PropertyIx property_;
+  PropertyIxPath property_ids_;
   Type type_;
   /// True if the same symbol is used in expressions for value or bounds.
   bool is_symbol_in_value_ = false;
@@ -517,6 +560,7 @@ struct FilterInfo {
   /// Matchings for filters that include patterns
   /// NOTE: The vector is not defined here because FilterMatching is forward declared above.
   std::vector<FilterMatching> matchings;
+  std::vector<PatternComprehensionMatching> pattern_comprehension_matchings;
   /// Information for Type::Point filtering.
   std::optional<PointFilter> point_filter{};
 };
@@ -546,7 +590,7 @@ class Filters final {
 
   auto FilteredLabels(const Symbol &symbol) const -> std::unordered_set<LabelIx>;
   auto FilteredOrLabels(const Symbol &symbol) const -> std::vector<std::vector<LabelIx>>;
-  auto FilteredProperties(const Symbol &symbol) const -> std::unordered_set<PropertyIx>;
+  auto FilteredProperties(const Symbol &symbol) const -> std::set<PropertyIxPath>;
 
   /// Remove a filter; may invalidate iterators.
   /// Removal is done by comparing only the expression, so that multiple
@@ -639,6 +683,8 @@ struct FilterMatching : Matching {
   PatternFilterType type;
   /// Symbol for the filter expression
   std::optional<Symbol> symbol;
+  /// For EXISTS_SUBQUERY, holds the full subquery QueryParts
+  std::shared_ptr<QueryParts> subquery;
 };
 
 inline auto Filters::erase(Filters::iterator pos) -> iterator { return all_filters_.erase(pos); }
@@ -672,12 +718,11 @@ inline auto Filters::FilteredOrLabels(const Symbol &symbol) const -> std::vector
   return or_labels;
 }
 
-inline auto Filters::FilteredProperties(const Symbol &symbol) const -> std::unordered_set<PropertyIx> {
-  std::unordered_set<PropertyIx> properties;
-
+inline auto Filters::FilteredProperties(const Symbol &symbol) const -> std::set<PropertyIxPath> {
+  std::set<PropertyIxPath> properties;
   for (const auto &filter : all_filters_) {
     if (filter.type == FilterInfo::Type::Property && filter.property_filter->symbol_ == symbol) {
-      properties.insert(filter.property_filter->property_);
+      properties.insert(filter.property_filter->property_ids_);
     }
   }
   return properties;

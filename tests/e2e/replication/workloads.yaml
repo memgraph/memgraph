@@ -114,9 +114,17 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: [ "replication/replicate_spatial_feature.py" ]
 
-  - name: "Replicate vector search"
+  - name: "Replicate vector index"
     binary: "tests/e2e/pytest_runner.sh"
-    args: [ "replication/replicate_vector_search.py" ]
+    args: [ "replication/replicate_vector_index.py" ]
+
+  - name: "Replicate vector edge index"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: [ "replication/replicate_vector_edge_index.py" ]
+
+  - name: "Replicate text index"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: [ "replication/replicate_text_index.py" ]
 
   - name: "Delete edge replication"
     binary: "tests/e2e/pytest_runner.sh"

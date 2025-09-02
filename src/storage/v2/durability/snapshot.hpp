@@ -24,6 +24,7 @@
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "storage/v2/transaction.hpp"
+#include "storage/v2/ttl.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/observer.hpp"
@@ -33,17 +34,20 @@ namespace memgraph::storage::durability {
 
 /// Structure used to hold information about a snapshot.
 struct SnapshotInfo {
+  static constexpr uint64_t kInvalidOffset = 0u;
+
   uint64_t offset_edges;
   uint64_t offset_vertices;
   uint64_t offset_indices;
-  uint64_t offset_edge_indices;
+  uint64_t offset_edge_indices{kInvalidOffset};
   uint64_t offset_constraints;
   uint64_t offset_mapper;
-  uint64_t offset_enums;
+  uint64_t offset_enums{kInvalidOffset};
   uint64_t offset_epoch_history;
   uint64_t offset_metadata;
-  uint64_t offset_edge_batches;
-  uint64_t offset_vertex_batches;
+  uint64_t offset_edge_batches{kInvalidOffset};
+  uint64_t offset_vertex_batches{kInvalidOffset};
+  uint64_t offset_ttl{kInvalidOffset};
 
   std::string uuid;
   std::string epoch_id;
@@ -51,6 +55,7 @@ struct SnapshotInfo {
   uint64_t durable_timestamp;
   uint64_t edges_count;
   uint64_t vertices_count;
+  uint64_t num_committed_txns;
 };
 
 /// Structure used to hold information about the snapshot that has been
@@ -59,11 +64,14 @@ struct RecoveredSnapshot {
   SnapshotInfo snapshot_info;
   RecoveryInfo recovery_info;
   RecoveredIndicesAndConstraints indices_constraints;
+  // TODO: RecoveredTTL
 };
 
 /// Function used to read information about the snapshot file.
 /// @throw RecoveryFailure
 SnapshotInfo ReadSnapshotInfo(const std::filesystem::path &path);
+
+void OverwriteSnapshotUUID(std::filesystem::path const &path, utils::UUID const &uuid);
 
 /// Function used to load the snapshot data into the storage.
 /// @throw RecoveryFailure
@@ -72,14 +80,14 @@ RecoveredSnapshot LoadSnapshot(std::filesystem::path const &path, utils::SkipLis
                                std::deque<std::pair<std::string, uint64_t>> *epoch_history,
                                NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count, Config const &config,
                                memgraph::storage::EnumStore *enum_store,
-                               memgraph::storage::SharedSchemaTracking *schema_info,
+                               memgraph::storage::SharedSchemaTracking *schema_info, memgraph::storage::ttl::TTL *ttl,
                                std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
-bool CreateSnapshot(Storage *storage, Transaction *transaction, const std::filesystem::path &snapshot_directory,
-                    const std::filesystem::path &wal_directory, utils::SkipList<Vertex> *vertices,
-                    utils::SkipList<Edge> *edges, utils::UUID const &uuid,
-                    const memgraph::replication::ReplicationEpoch &epoch,
-                    const std::deque<std::pair<std::string, uint64_t>> &epoch_history,
-                    utils::FileRetainer *file_retainer, std::atomic_bool *abort_snapshot = nullptr);
+std::optional<std::filesystem::path> CreateSnapshot(
+    Storage *storage, Transaction *transaction, const std::filesystem::path &snapshot_directory,
+    const std::filesystem::path &wal_directory, utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,
+    utils::UUID const &uuid, const memgraph::replication::ReplicationEpoch &epoch,
+    const std::deque<std::pair<std::string, uint64_t>> &epoch_history, utils::FileRetainer *file_retainer,
+    std::atomic_bool *abort_snapshot = nullptr);
 
 }  // namespace memgraph::storage::durability

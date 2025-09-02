@@ -210,14 +210,12 @@ auto CoordinatorInstance::GetCoordinatorsInstanceStatus() const -> std::vector<I
   };
 
   auto const coordinators = raft_state_->GetCoordinatorInstancesAux();
-  spdlog::trace("Found {} coordinators.", coordinators.size());
   auto const curr_leader_id = raft_state_->GetLeaderId();
 
   std::vector<InstanceStatus> results;
   results.reserve(coordinators.size());
 
   for (auto const &coordinator : coordinators) {
-    spdlog::trace("Found coordinator with id {}", coordinator.id);
     results.emplace_back(InstanceStatus{
         .instance_name = fmt::format("coordinator_{}", coordinator.id),
         .coordinator_server = coordinator.coordinator_server,
@@ -683,13 +681,30 @@ auto CoordinatorInstance::RegisterReplicationInstance(DataInstanceConfig const &
     return RegisterInstanceCoordinatorStatus::REPL_ENDPOINT_EXISTS;
   }
 
+  if (config.replication_client_info.replication_mode == replication_coordination_glue::ReplicationMode::STRICT_SYNC) {
+    if (std::ranges::any_of(repl_instances_, [](auto &&instance) {
+          return instance.GetReplicationClientInfo().replication_mode ==
+                 replication_coordination_glue::ReplicationMode::SYNC;
+        })) {
+      return RegisterInstanceCoordinatorStatus::STRICT_SYNC_AND_SYNC_FORBIDDEN;
+    }
+
+  } else if (config.replication_client_info.replication_mode == replication_coordination_glue::ReplicationMode::SYNC) {
+    if (std::ranges::any_of(repl_instances_, [](auto &&instance) {
+          return instance.GetReplicationClientInfo().replication_mode ==
+                 replication_coordination_glue::ReplicationMode::STRICT_SYNC;
+        })) {
+      return RegisterInstanceCoordinatorStatus::STRICT_SYNC_AND_SYNC_FORBIDDEN;
+    }
+  }
+
   auto const curr_main_uuid = raft_state_->GetCurrentMainUUID();
 
   auto *new_instance =
       &repl_instances_.emplace_back(config, this, instance_down_timeout_sec_, instance_health_check_frequency_sec_);
 
   // We do this here not under callbacks because we need to add replica to the current main.
-  if (!new_instance->SendRpc<DemoteMainToReplicaRpc>()) {
+  if (!new_instance->SendRpc<DemoteMainToReplicaRpc>(curr_main_uuid)) {
     spdlog::error("Failed to demote instance {} to replica.", config.instance_name);
     repl_instances_.pop_back();
     return RegisterInstanceCoordinatorStatus::RPC_FAILED;
@@ -1018,7 +1033,7 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
     if (!instance_state->is_replica) {
       // If instance is not replica, demote it to become replica. If request for demotion failed, return,
       // and you will simply retry on the next ping.
-      if (!instance.SendRpc<DemoteMainToReplicaRpc>()) {
+      if (!instance.SendRpc<DemoteMainToReplicaRpc>(curr_main_uuid)) {
         spdlog::error("Couldn't demote instance {} to replica.", instance_name);
         return;
       }
@@ -1028,7 +1043,8 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
       if (!instance.SendSwapAndUpdateUUID(curr_main_uuid)) {
         spdlog::error("Failed to set new uuid for replica instance {} to {}.", instance_name,
                       std::string{curr_main_uuid});
-        return;
+      } else {
+        spdlog::trace("Set UUID on instance {} to {}", instance_name, std::string{curr_main_uuid});
       }
     }
   }
@@ -1059,7 +1075,7 @@ void CoordinatorInstance::InstanceFailCallback(std::string_view instance_name,
     spdlog::trace("Cluster without main instance, trying failover.");
     switch (TryFailover()) {
       case FailoverStatus::SUCCESS: {
-        spdlog::trace("Failover successful after failing to promote main instance.");
+        spdlog::trace("Failover successful in the InstanceFailCallback");
         break;
       };
       case FailoverStatus::NO_INSTANCE_ALIVE: {
@@ -1220,8 +1236,8 @@ auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::s
       });
       MG_ASSERT(raft_instance != data_instances.cend(),
                 "In-memory instance not saved in the Raft. Please submit this bug since this isn't intended state.");
-      return raft_instance->config.replication_client_info.replication_mode !=
-             replication_coordination_glue::ReplicationMode::SYNC;
+      return raft_instance->config.replication_client_info.replication_mode ==
+             replication_coordination_glue::ReplicationMode::ASYNC;
     }();
 
     if (skip_instance) {
@@ -1247,5 +1263,35 @@ auto CoordinatorInstance::ShowCoordinatorSettings() const -> std::vector<std::pa
   };
   return settings;
 }
+
+auto CoordinatorInstance::ShowReplicationLag() const -> std::map<std::string, std::map<std::string, ReplicaDBLagData>> {
+  for (auto const &repl_instance : repl_instances_) {
+    auto const instance_name = repl_instance.InstanceName();
+    if (!raft_state_->IsCurrentMain(instance_name)) {
+      continue;
+    }
+
+    auto maybe_repl_lag_res = repl_instance.GetClient().SendGetReplicationLagRpc();
+    if (!maybe_repl_lag_res.has_value()) {
+      return {};
+    }
+    auto &replicas_res = maybe_repl_lag_res->replicas_info_;
+
+    auto const get_repl_db_lag_data =
+        [](std::pair<std::string, uint64_t> const &orig_data) -> std::pair<std::string, ReplicaDBLagData> {
+      return std::pair{orig_data.first,
+                       ReplicaDBLagData{.num_committed_txns_ = orig_data.second, .num_txns_behind_main_ = 0}};
+    };
+
+    auto main_data = maybe_repl_lag_res->dbs_main_committed_txns_ | ranges::views::transform(get_repl_db_lag_data) |
+                     ranges::to<std::map<std::string, ReplicaDBLagData>>();
+
+    replicas_res.emplace(instance_name, std::move(main_data));
+    return replicas_res;
+  }
+  spdlog::error("No instance is annotated as main in Raft logs");
+  return {};
+}
+
 }  // namespace memgraph::coordination
 #endif

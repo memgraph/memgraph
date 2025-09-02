@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,7 +13,6 @@
 
 #include "dbms/dbms_handler.hpp"
 #include "replication/state.hpp"
-#include "slk/streams.hpp"
 #include "system/state.hpp"
 
 namespace memgraph::dbms {
@@ -29,10 +28,10 @@ inline void LogWrongMain(const std::optional<utils::UUID> &current_main_uuid, co
 // RPC handlers
 void CreateDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
                            const std::optional<utils::UUID> &current_main_uuid, DbmsHandler &dbms_handler,
-                           slk::Reader *req_reader, slk::Builder *res_builder);
+                           uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
                          const std::optional<utils::UUID> &current_main_uuid, DbmsHandler &dbms_handler,
-                         slk::Reader *req_reader, slk::Builder *res_builder);
+                         uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage::SalientConfig> &database_configs);
 
 // RPC registration

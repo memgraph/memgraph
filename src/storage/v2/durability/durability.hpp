@@ -101,7 +101,6 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
 void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadata &indices_metadata, Indices *indices,
                             utils::SkipList<Vertex> *vertices, NameIdMapper *name_id_mapper, bool properties_on_edges,
                             const std::optional<ParallelizedSchemaCreationInfo> &parallel_exec_info = std::nullopt,
-                            const std::optional<std::filesystem::path> &storage_dir = std::nullopt,
                             std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
 // Helper function used to recover all discovered constraints. The
@@ -147,7 +146,7 @@ struct Recovery {
       NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints, Config const &config,
       uint64_t *wal_seq_num, EnumStore *enum_store, SharedSchemaTracking *schema_info,
       std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
-      std::string const &db_name);
+      std::string const &db_name, memgraph::storage::ttl::TTL *ttl);
 
   const std::filesystem::path snapshot_directory_;
   const std::filesystem::path wal_directory_;

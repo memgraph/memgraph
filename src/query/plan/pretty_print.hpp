@@ -103,6 +103,8 @@ class PlanPrinter : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(RollUpApply &) override;
   bool PreVisit(PeriodicCommit &) override;
   bool PreVisit(PeriodicSubquery &) override;
+  bool PreVisit(SetNestedProperty &) override;
+  bool PreVisit(RemoveNestedProperty &) override;
 
   bool PreVisit(Unwind &) override;
   bool PreVisit(CallProcedure &) override;
@@ -153,6 +155,8 @@ nlohmann::json ToJson(storage::EdgeTypeId edge_type, const DbAccessor &dba);
 nlohmann::json ToJson(storage::LabelId label, const DbAccessor &dba);
 
 nlohmann::json ToJson(storage::PropertyId property, const DbAccessor &dba);
+
+nlohmann::json ToJson(storage::PropertyPath path, const DbAccessor &dba);
 
 nlohmann::json ToJson(NamedExpression *nexpr, const DbAccessor &dba);
 
@@ -243,6 +247,8 @@ class PlanToJsonVisitor : public virtual HierarchicalLogicalOperatorVisitor {
   bool PreVisit(RollUpApply &) override;
   bool PreVisit(PeriodicCommit &) override;
   bool PreVisit(PeriodicSubquery &) override;
+  bool PreVisit(SetNestedProperty &) override;
+  bool PreVisit(RemoveNestedProperty &) override;
 
   bool Visit(Once &) override;
 

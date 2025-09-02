@@ -21,6 +21,7 @@
 #include <cstdint>
 #include <filesystem>
 #include <optional>
+#include <source_location>
 #include <string>
 
 #include <fmt/format.h>
@@ -38,21 +39,19 @@
 
 namespace memgraph::logging {
 
-// TODO (antonio2368): Replace with std::source_location when it's supported by
-// compilers
-[[noreturn]] void AssertFailed(const char *file_name, int line_num, const char *expr, const std::string &message);
+[[noreturn]] void AssertFailed(std::source_location loc, const char *expr, const std::string &message);
 
 #define GET_MESSAGE(...) \
   BOOST_PP_IF(BOOST_PP_EQUAL(BOOST_PP_VARIADIC_SIZE(__VA_ARGS__), 0), "", fmt::format(__VA_ARGS__))
 
-#define MG_ASSERT(expr, ...)                                                                    \
-  do {                                                                                          \
-    if (!(expr)) [[unlikely]] {                                                                 \
-      [&]() __attribute__((noinline, cold, noreturn)) {                                         \
-        ::memgraph::logging::AssertFailed(__FILE__, __LINE__, #expr, GET_MESSAGE(__VA_ARGS__)); \
-      }                                                                                         \
-      ();                                                                                       \
-    }                                                                                           \
+#define MG_ASSERT(expr, ...)                                                                                 \
+  do {                                                                                                       \
+    if (!(expr)) [[unlikely]] { /* NOLINT(readability-simplify-boolean-expr) */                              \
+      [&]() __attribute__((noinline, cold, noreturn)) {                                                      \
+        ::memgraph::logging::AssertFailed(std::source_location::current(), #expr, GET_MESSAGE(__VA_ARGS__)); \
+      }                                                                                                      \
+      ();                                                                                                    \
+    }                                                                                                        \
   } while (false)
 
 #ifndef NDEBUG

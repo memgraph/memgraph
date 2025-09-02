@@ -306,6 +306,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitShowCoordinatorSettings(MemgraphCypher::ShowCoordinatorSettingsContext *ctx) override;
 
   /**
+   * @return CoordinatorQuery*
+   */
+  antlrcpp::Any visitShowReplicationLag(MemgraphCypher::ShowReplicationLagContext *ctx) override;
+
+  /**
    * @return LockPathQuery*
    */
   antlrcpp::Any visitLockPathQuery(MemgraphCypher::LockPathQueryContext *ctx) override;
@@ -364,6 +369,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return ShowSnapshotsQuery*
    */
   antlrcpp::Any visitShowSnapshotsQuery(MemgraphCypher::ShowSnapshotsQueryContext *ctx) override;
+
+  /**
+   * @return ShowNextSnapshotQuery*
+   */
+  antlrcpp::Any visitShowNextSnapshotQuery(MemgraphCypher::ShowNextSnapshotQueryContext *ctx) override;
 
   /**
    * @return StreamQuery*
@@ -601,6 +611,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitDropVectorIndex(MemgraphCypher::DropVectorIndexContext *ctx) override;
 
   /**
+   * @return CreateCreateVectorEdgeIndexQuery*
+   */
+  antlrcpp::Any visitCreateVectorEdgeIndex(MemgraphCypher::CreateVectorEdgeIndexContext *ctx) override;
+
+  /**
    * @return AuthQuery*
    */
   antlrcpp::Any visitCreateUser(MemgraphCypher::CreateUserContext *ctx) override;
@@ -624,6 +639,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return AuthQuery*
    */
   antlrcpp::Any visitShowCurrentUser(MemgraphCypher::ShowCurrentUserContext *ctx) override;
+
+  /**
+   * @return AuthQuery*
+   */
+  antlrcpp::Any visitShowCurrentRole(MemgraphCypher::ShowCurrentRoleContext *ctx) override;
 
   /**
    * @return AuthQuery*
@@ -878,7 +898,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitRelationshipTypes(MemgraphCypher::RelationshipTypesContext *ctx) override;
 
   /**
-   * @return std::tuple<EdgeAtom::Type, int64_t, int64_t>.
+   * @return std::tuple<EdgeAtom::Type, Expression*, Expression*, Expression*>.
    */
   antlrcpp::Any visitVariableExpansion(MemgraphCypher::VariableExpansionContext *ctx) override;
 
@@ -973,14 +993,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitStringAndNullOperators(MemgraphCypher::StringAndNullOperatorsContext *ctx) override;
 
   /**
-   * List indexing and slicing.
-   *
-   * @return Expression*
-   */
-  antlrcpp::Any visitExpression3b(MemgraphCypher::Expression3bContext *ctx) override;
-
-  /**
-   * Does nothing, everything is done in visitExpression3b.
+   * Does nothing, everything is done in visitExpression2b.
    */
   antlrcpp::Any visitListIndexingOrSlicing(MemgraphCypher::ListIndexingOrSlicingContext *ctx) override;
 
@@ -992,7 +1005,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitExpression2a(MemgraphCypher::Expression2aContext *ctx) override;
 
   /**
-   * Property lookup.
+   * Property lookup, list indexing and slicing.
    *
    * @return Expression*
    */
@@ -1014,6 +1027,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return Exists* (Expression)
    */
   antlrcpp::Any visitExistsExpression(MemgraphCypher::ExistsExpressionContext *ctx) override;
+
+  /**
+   * @return Exists* (Expression)
+   */
+  antlrcpp::Any visitExistsSubquery(MemgraphCypher::ExistsSubqueryContext *ctx) override;
 
   /**
    * @return pattern comprehension (Expression)
@@ -1219,6 +1237,61 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    */
   antlrcpp::Any visitSetSessionTraceQuery(MemgraphCypher::SetSessionTraceQueryContext *ctx) override;
 
+  /**
+   * @return std::pair<std::string, UserProfileQuery::LimitValueResult>
+   */
+  antlrcpp::Any visitLimitKV(MemgraphCypher::LimitKVContext *ctx) override;
+
+  /**
+   * @return std::vector<std::pair<std::string, UserProfileQuery::LimitValueResult>>
+   */
+  antlrcpp::Any visitListOfLimits(MemgraphCypher::ListOfLimitsContext *ctx) override;
+
+  /**
+   * @return UserProfileQuery*
+   */
+  antlrcpp::Any visitCreateUserProfile(MemgraphCypher::CreateUserProfileContext *ctx) override;
+
+  /**
+   * @return UserProfileQuery*
+   */
+  antlrcpp::Any visitDropUserProfile(MemgraphCypher::DropUserProfileContext *ctx) override;
+
+  /**
+   * @return UserProfileQuery*
+   */
+  antlrcpp::Any visitShowUserProfiles(MemgraphCypher::ShowUserProfilesContext *ctx) override;
+
+  /**
+   * @return UserProfileQuery*
+   */
+  antlrcpp::Any visitShowUserProfile(MemgraphCypher::ShowUserProfileContext *ctx) override;
+
+  /**
+   * @return UserProfileQuery*
+   */
+  antlrcpp::Any visitShowUserProfileForUser(MemgraphCypher::ShowUserProfileForUserContext *ctx) override;
+
+  /**
+   * @return UserProfileQuery*
+   */
+  antlrcpp::Any visitShowUserProfileForProfile(MemgraphCypher::ShowUserProfileForProfileContext *ctx) override;
+
+  /**
+   * @return UserProfileQuery*
+   */
+  antlrcpp::Any visitSetUserProfile(MemgraphCypher::SetUserProfileContext *ctx) override;
+
+  /**
+   * @return UserProfileQuery*
+   */
+  antlrcpp::Any visitClearUserProfile(MemgraphCypher::ClearUserProfileContext *ctx) override;
+
+  /**
+   * @return UserProfileQuery*
+   */
+  antlrcpp::Any visitShowResourceConsumption(MemgraphCypher::ShowResourceConsumptionContext *ctx) override;
+
  public:
   Query *query() { return query_; }
   const static std::string kAnonPrefix;
@@ -1250,7 +1323,8 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   // We use this variable in visitReturnItem to check if we are in with or
   // return.
   bool in_with_ = false;
-
+  // Flag to indicate if we are parsing an EXISTS subquery
+  bool parsing_exists_subquery_ = false;
   Parameters *parameters_;
 
   QueryInfo query_info_;

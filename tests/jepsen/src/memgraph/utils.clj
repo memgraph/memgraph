@@ -18,10 +18,21 @@
   [node port]
   (str "bolt://" node ":" port))
 
+(defn bolt-routing-url
+  "Get URL for connecting using bolt+routing connection."
+  [node port]
+  (str "neo4j://" node ":" port))
+
 (defn open-bolt
   "Open Bolt connection to the node. All instances use port 7687, so it is hardcoded."
   [node]
   (dbclient/connect (URI. (bolt-url node 7687)) "" ""))
+
+; TODO: (andi) Add authentication
+(defn open-bolt-routing
+  "Open bolt+routing connection to the node."
+  [node]
+  (dbclient/connect (URI. (bolt-routing-url node 7687))))
 
 (defn random-nonempty-subset
   "Return a random nonempty subset of the input collection. Relies on the fact that first 3 instances from the collection are data instances
@@ -70,13 +81,38 @@
 (defn not-main-anymore?
   "Accepts exception e as argument."
   [e]
-  (string/includes? (str e) "Cannot commit because instance is not main anymore")
-  )
+  (string/includes? (str e) "Cannot commit because instance is not main anymore"))
 
 (defn node-is-down
   "Log that a node is down"
   [node]
   (str "Node " node " is down"))
+
+(defn cannot-get-shared-access?
+  "Cannot get shared access to the storage."
+  [e]
+  (string/includes? (str e) "Cannot get shared access storage"))
+
+(defn unique-constraint-violated?
+  "Unique constraint was violated."
+  [e]
+  (string/includes? (str e) "Unable to commit due to unique constraint violation"))
+
+(defn txn-timeout?
+  "Txn timeout has occurred."
+  [e]
+  (string/includes? (str e) "Transaction was asked to abort because of transaction timeout."
+ ))
+
+(defn server-no-longer-available
+  "Accepts exception e as argument."
+  [e]
+  (string/includes? (str e) "no longer available"))
+
+(defn no-write-server
+  "Accepts exception e as argument."
+  [e]
+  (string/includes? (str e) "Failed to obtain connection towards WRITE server"))
 
 (defn query-forbidden-on-main?
   "Accepts exception e as argument."
@@ -87,6 +123,11 @@
   "Accepts exception e as argument."
   [e]
   (string/includes? (str e) "Write queries are forbidden on the replica"))
+
+(defn strict-sync-replica-down?
+  "Accepts exception e as argument."
+  [e]
+  (string/includes? (str e) "At least one STRICT_SYNC replica has not confirmed committing last transaction."))
 
 (defn sync-replica-down?
   "Accepts exception e as argument."

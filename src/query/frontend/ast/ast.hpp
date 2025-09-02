@@ -53,6 +53,8 @@ inline constexpr std::string_view kCapacity = "capacity";
 inline constexpr std::string_view kResizeCoefficient = "resize_coefficient";
 inline constexpr std::uint16_t kDefaultResizeCoefficient = 2;
 inline constexpr std::string_view kDefaultMetric = "l2sq";
+inline constexpr std::string_view kScalarKind = "scalar_kind";
+inline constexpr std::string_view kDefaultScalarKind = "f32";
 
 class UnaryOperator : public memgraph::query::Expression {
  public:
@@ -971,7 +973,16 @@ class PropertyLookup : public memgraph::query::Expression {
 
   enum class EvaluationMode { GET_OWN_PROPERTY, GET_ALL_PROPERTIES };
 
+  enum class LookupMode { REPLACE, APPEND };
+
   PropertyLookup() = default;
+
+  PropertyLookup(Expression *expression, std::vector<PropertyIx> property_path)
+      : expression_(expression), property_path_(std::move(property_path)) {
+    MG_ASSERT(property_path_.size() > 0, "Property path is empty!");
+  }
+  PropertyLookup(Expression *expression, PropertyIx property)
+      : expression_(expression), property_(property), property_path_{property} {}
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
@@ -984,20 +995,28 @@ class PropertyLookup : public memgraph::query::Expression {
   }
 
   memgraph::query::Expression *expression_{nullptr};
-  memgraph::query::PropertyIx property_;
+  PropertyIx property_;
+  std::vector<PropertyIx> property_path_;
   memgraph::query::PropertyLookup::EvaluationMode evaluation_mode_{EvaluationMode::GET_OWN_PROPERTY};
+  memgraph::query::PropertyLookup::LookupMode lookup_mode_{LookupMode::REPLACE};
+  bool use_nested_property_update_{false};
 
   PropertyLookup *Clone(AstStorage *storage) const override {
     PropertyLookup *object = storage->Create<PropertyLookup>();
     object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
     object->property_ = storage->GetPropertyIx(property_.name);
+    object->property_path_.resize(property_path_.size());
+    for (size_t i = 0; i < property_path_.size(); ++i) {
+      object->property_path_[i] = storage->GetPropertyIx(property_path_[i].name);
+    }
     object->evaluation_mode_ = evaluation_mode_;
+    object->lookup_mode_ = lookup_mode_;
+    object->use_nested_property_update_ = use_nested_property_update_;
     return object;
   }
 
  protected:
-  PropertyLookup(Expression *expression, PropertyIx property)
-      : expression_(expression), property_(std::move(property)) {}
+  // Constructors moved above
 
  private:
   friend class AstStorage;
@@ -1617,7 +1636,14 @@ class EdgeAtom : public memgraph::query::PatternAtom {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class Type : uint8_t { SINGLE, DEPTH_FIRST, BREADTH_FIRST, WEIGHTED_SHORTEST_PATH, ALL_SHORTEST_PATHS };
+  enum class Type : uint8_t {
+    SINGLE,
+    DEPTH_FIRST,
+    BREADTH_FIRST,
+    WEIGHTED_SHORTEST_PATH,
+    ALL_SHORTEST_PATHS,
+    KSHORTEST,
+  };
 
   enum class Direction : uint8_t { IN, OUT, BOTH };
 
@@ -1669,6 +1695,9 @@ class EdgeAtom : public memgraph::query::PatternAtom {
       if (cont && total_weight_) {
         total_weight_->Accept(visitor);
       }
+      if (cont && limit_) {
+        cont = limit_->Accept(visitor);
+      }
     }
     return visitor.PostVisit(*this);
   }
@@ -1679,6 +1708,7 @@ class EdgeAtom : public memgraph::query::PatternAtom {
       case Type::BREADTH_FIRST:
       case Type::WEIGHTED_SHORTEST_PATH:
       case Type::ALL_SHORTEST_PATHS:
+      case Type::KSHORTEST:
         return true;
       case Type::SINGLE:
         return false;
@@ -1703,6 +1733,8 @@ class EdgeAtom : public memgraph::query::PatternAtom {
   memgraph::query::EdgeAtom::Lambda weight_lambda_;
   /// Variable where the total weight for weighted shortest path will be stored.
   memgraph::query::Identifier *total_weight_{nullptr};
+  /// Limit for the number of paths returned in kshortest path expansion.
+  memgraph::query::Expression *limit_{nullptr};
 
   EdgeAtom *Clone(AstStorage *storage) const override {
     EdgeAtom *object = storage->Create<EdgeAtom>();
@@ -1731,6 +1763,7 @@ class EdgeAtom : public memgraph::query::PatternAtom {
     object->filter_lambda_ = filter_lambda_.Clone(storage);
     object->weight_lambda_ = weight_lambda_.Clone(storage);
     object->total_weight_ = total_weight_ ? total_weight_->Clone(storage) : nullptr;
+    object->limit_ = limit_ ? limit_->Clone(storage) : nullptr;
     return object;
   }
 
@@ -1836,6 +1869,21 @@ class CypherUnion : public memgraph::query::Tree, public utils::Visitable<Hierar
   friend class AstStorage;
 };
 
+struct PropertyIxPath {
+  PropertyIxPath(std::vector<memgraph::query::PropertyIx> path) : path{std::move(path)} {}
+  PropertyIxPath(std::initializer_list<memgraph::query::PropertyIx> path) : path{std::move(path)} {}
+
+  std::vector<memgraph::query::PropertyIx> path;
+
+  auto AsPathString() const -> std::string {
+    return utils::Join(path | ranges::views::transform(&PropertyIx::name), ".");
+  }
+  auto Clone(AstStorage *storage) const -> PropertyIxPath;
+  friend bool operator==(PropertyIxPath const &, PropertyIxPath const &) = default;
+  friend bool operator<(PropertyIxPath const &, PropertyIxPath const &) = default;
+  friend auto operator<=>(PropertyIxPath const &, PropertyIxPath const &) = default;
+};
+
 struct IndexHint {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const { return kType; }
@@ -1845,7 +1893,7 @@ struct IndexHint {
   memgraph::query::IndexHint::IndexType index_type_;
   memgraph::query::LabelIx label_ix_;
   // This is not the exact properies of the index, it is the prefix (which might be exact)
-  std::vector<memgraph::query::PropertyIx> property_ixs_;
+  std::vector<PropertyIxPath> property_ixs_;
 
   IndexHint Clone(AstStorage *storage) const;
 };
@@ -1977,21 +2025,21 @@ class IndexQuery : public memgraph::query::Query {
 
   memgraph::query::IndexQuery::Action action_;
   memgraph::query::LabelIx label_;
-  std::vector<memgraph::query::PropertyIx> properties_;
+  std::vector<query::PropertyIxPath> properties_;
 
   IndexQuery *Clone(AstStorage *storage) const override {
     IndexQuery *object = storage->Create<IndexQuery>();
     object->action_ = action_;
     object->label_ = storage->GetLabelIx(label_.name);
-    object->properties_.resize(properties_.size());
-    for (auto i = 0; i < object->properties_.size(); ++i) {
-      object->properties_[i] = storage->GetPropertyIx(properties_[i].name);
+    object->properties_.reserve(properties_.size());
+    for (auto const &prop_path : properties_) {
+      object->properties_.emplace_back(prop_path.Clone(storage));
     }
     return object;
   }
 
  protected:
-  IndexQuery(Action action, LabelIx label, std::vector<PropertyIx> properties)
+  IndexQuery(Action action, LabelIx label, std::vector<PropertyIxPath> properties)
       : action_(action), label_(std::move(label)), properties_(std::move(properties)) {}
 
  private:
@@ -2027,7 +2075,7 @@ class EdgeIndexQuery : public memgraph::query::Query {
   }
 
  protected:
-  EdgeIndexQuery(Action action, EdgeTypeIx edge_type, std::vector<PropertyIx> properties)
+  EdgeIndexQuery(Action action, EdgeTypeIx edge_type, std::vector<memgraph::query::PropertyIx> properties)
       : action_(action), edge_type_(edge_type), properties_(std::move(properties)) {}
 
  private:
@@ -2078,13 +2126,15 @@ class TextIndexQuery : public memgraph::query::Query {
 
   memgraph::query::TextIndexQuery::Action action_;
   memgraph::query::LabelIx label_;
+  std::vector<memgraph::query::PropertyIx> properties_;
   std::string index_name_;
 
   TextIndexQuery *Clone(AstStorage *storage) const override {
-    TextIndexQuery *object = storage->Create<TextIndexQuery>();
+    auto *object = storage->Create<TextIndexQuery>();
     object->action_ = action_;
-    object->label_ = storage->GetLabelIx(label_.name);
+    object->label_ = label_;
     object->index_name_ = index_name_;
+    object->properties_ = properties_;
     return object;
   }
 
@@ -2131,6 +2181,43 @@ class VectorIndexQuery : public memgraph::query::Query {
       : action_(action),
         index_name_(std::move(index_name)),
         label_(std::move(label)),
+        property_(std::move(property)),
+        configs_(std::move(configs)) {}
+
+ private:
+  friend class AstStorage;
+};
+
+class CreateVectorEdgeIndexQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  CreateVectorEdgeIndexQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  std::string index_name_;
+  memgraph::query::EdgeTypeIx edge_type_;
+  memgraph::query::PropertyIx property_;
+  std::unordered_map<memgraph::query::Expression *, memgraph::query::Expression *> configs_;
+
+  CreateVectorEdgeIndexQuery *Clone(AstStorage *storage) const override {
+    CreateVectorEdgeIndexQuery *object = storage->Create<CreateVectorEdgeIndexQuery>();
+    object->index_name_ = index_name_;
+    object->edge_type_ = storage->GetEdgeTypeIx(edge_type_.name);
+    object->property_ = storage->GetPropertyIx(property_.name);
+    for (const auto &[key, value] : configs_) {
+      object->configs_[key->Clone(storage)] = value->Clone(storage);
+    }
+    return object;
+  }
+
+ protected:
+  CreateVectorEdgeIndexQuery(std::string index_name, EdgeTypeIx edge_type, PropertyIx property,
+                             std::unordered_map<Expression *, Expression *> configs)
+      : index_name_(std::move(index_name)),
+        edge_type_(std::move(edge_type)),
         property_(std::move(property)),
         configs_(std::move(configs)) {}
 
@@ -2821,19 +2908,19 @@ class ReplicationQuery : public memgraph::query::Query {
 
   enum class ReplicationRole { MAIN, REPLICA };
 
-  enum class SyncMode { SYNC, ASYNC };
+  enum class SyncMode { SYNC, ASYNC, STRICT_SYNC };
 
   ReplicationQuery() = default;
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  memgraph::query::ReplicationQuery::Action action_;
-  memgraph::query::ReplicationQuery::ReplicationRole role_;
+  Action action_;
+  ReplicationRole role_;
   std::string instance_name_;
-  memgraph::query::Expression *socket_address_{nullptr};
-  memgraph::query::Expression *coordinator_socket_address_{nullptr};
-  memgraph::query::Expression *port_{nullptr};
-  memgraph::query::ReplicationQuery::SyncMode sync_mode_;
+  Expression *socket_address_{nullptr};
+  Expression *coordinator_socket_address_{nullptr};
+  Expression *port_{nullptr};
+  SyncMode sync_mode_;
 
   ReplicationQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<ReplicationQuery>();
@@ -2893,22 +2980,23 @@ class CoordinatorQuery : public memgraph::query::Query {
     FORCE_RESET_CLUSTER_STATE,
     YIELD_LEADERSHIP,
     SET_COORDINATOR_SETTING,
-    SHOW_COORDINATOR_SETTINGS
+    SHOW_COORDINATOR_SETTINGS,
+    SHOW_REPLICATION_LAG
   };
 
-  enum class SyncMode { SYNC, ASYNC };
+  enum class SyncMode { SYNC, ASYNC, STRICT_SYNC };
 
   CoordinatorQuery() = default;
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  memgraph::query::CoordinatorQuery::Action action_;
+  Action action_;
   std::string instance_name_{};
-  std::unordered_map<memgraph::query::Expression *, memgraph::query::Expression *> configs_;
-  memgraph::query::Expression *coordinator_id_{nullptr};
-  memgraph::query::CoordinatorQuery::SyncMode sync_mode_;
-  memgraph::query::Expression *setting_name_{nullptr};
-  memgraph::query::Expression *setting_value_{nullptr};
+  std::unordered_map<Expression *, Expression *> configs_;
+  Expression *coordinator_id_{nullptr};
+  SyncMode sync_mode_;
+  Expression *setting_name_{nullptr};
+  Expression *setting_value_{nullptr};
 
   CoordinatorQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<CoordinatorQuery>();
@@ -3192,6 +3280,19 @@ class ShowSnapshotsQuery : public memgraph::query::Query {
 
   ShowSnapshotsQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<ShowSnapshotsQuery>();
+    return object;
+  }
+};
+
+class ShowNextSnapshotQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  ShowNextSnapshotQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<ShowNextSnapshotQuery>();
     return object;
   }
 };
@@ -3677,7 +3778,7 @@ class TtlQuery : public memgraph::query::Query {
 
   TtlQuery() = default;
 
-  enum class Type { UNKNOWN = 0, ENABLE, DISABLE, STOP } type_;
+  enum class Type { UNKNOWN = 0, START, CONFIGURE, DISABLE, STOP } type_;
   Expression *period_{};
   Expression *specific_time_{};
 
@@ -3717,3 +3818,26 @@ class SessionTraceQuery : public memgraph::query::Query {
 };
 
 }  // namespace memgraph::query
+
+template <>
+class fmt::formatter<memgraph::query::PropertyIxPath> {
+ public:
+  constexpr auto parse(format_parse_context &ctx) { return ctx.begin(); }
+
+  template <typename FormatContext>
+  auto format(const memgraph::query::PropertyIxPath &wrapper, FormatContext &ctx) {
+    auto out = ctx.out();
+
+    if (!wrapper.path.empty()) {
+      auto it = wrapper.path.begin();
+      auto const e = wrapper.path.end();
+      out = fmt::format_to(out, "{}", it->name);
+      ++it;
+      while (it != e) {
+        out = fmt::format_to(out, ".{}", it->name);
+        ++it;
+      }
+    }
+    return out;
+  }
+};

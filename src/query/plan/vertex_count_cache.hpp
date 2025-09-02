@@ -13,6 +13,7 @@
 #pragma once
 
 #include <optional>
+#include <ranges>
 
 #include "query/db_accessor.hpp"
 #include "storage/v2/enum_store.hpp"
@@ -32,8 +33,8 @@ class VertexCountCache {
   auto NameToLabel(const std::string &name) { return db_->NameToLabel(name); }
   auto NameToProperty(const std::string &name) { return db_->NameToProperty(name); }
   auto NameToEdgeType(const std::string &name) { return db_->NameToEdgeType(name); }
-  auto GetEnumValue(std::string_view name, std::string_view value)
-      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+  auto GetEnumValue(std::string_view name,
+                    std::string_view value) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
     return db_->GetEnumValue(name, value);
   }
 
@@ -48,14 +49,14 @@ class VertexCountCache {
     return label_vertex_count_.at(label);
   }
 
-  int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyId const> properties) {
+  int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyPath const> properties) {
     auto key = std::make_pair(label, std::vector(properties.begin(), properties.end()));
     if (label_properties_vertex_count_.find(key) == label_properties_vertex_count_.end())
       label_properties_vertex_count_[key] = db_->VerticesCount(label, properties);
     return label_properties_vertex_count_.at(key);
   }
 
-  int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyId const> properties,
+  int64_t VerticesCount(storage::LabelId label, std::span<storage::PropertyPath const> properties,
                         std::span<storage::PropertyValueRange const> bounds) {
     auto key = std::make_tuple(label, std::vector(properties.begin(), properties.end()),
                                std::vector(bounds.begin(), bounds.end()));
@@ -120,11 +121,9 @@ class VertexCountCache {
 
   int64_t EdgesCount(storage::PropertyId property, const storage::PropertyValue &value) {
     auto &value_edge_count = edge_property_value_edge_count_[property];
-    // TODO: Why do we even need TypedValue in this whole file?
-    TypedValue tv_value(value, db_->GetStorageAccessor()->GetNameIdMapper());
-    if (value_edge_count.find(tv_value) == value_edge_count.end())
-      value_edge_count[tv_value] = db_->EdgesCount(property, value);
-    return value_edge_count.at(tv_value);
+    if (value_edge_count.find(value) == value_edge_count.end())
+      value_edge_count[value] = db_->EdgesCount(property, value);
+    return value_edge_count.at(value);
   }
 
   int64_t EdgesCount(storage::PropertyId property, const std::optional<utils::Bound<storage::PropertyValue>> &lower,
@@ -136,25 +135,25 @@ class VertexCountCache {
     return bounds_edge_count.at(bounds);
   }
 
-  bool LabelIndexExists(storage::LabelId label) { return db_->LabelIndexExists(label); }
+  bool LabelIndexReady(storage::LabelId label) { return db_->LabelIndexReady(label); }
 
-  bool LabelPropertyIndexExists(storage::LabelId label, std::span<storage::PropertyId const> properties) {
-    return db_->LabelPropertyIndexExists(label, properties);
+  bool LabelPropertyIndexReady(storage::LabelId label, std::span<storage::PropertyPath const> properties) {
+    return db_->LabelPropertyIndexReady(label, properties);
   }
 
   auto RelevantLabelPropertiesIndicesInfo(std::span<storage::LabelId const> labels,
-                                          std::span<storage::PropertyId const> properties) const
+                                          std::span<storage::PropertyPath const> properties) const
       -> std::vector<storage::LabelPropertiesIndicesInfo> {
     return db_->RelevantLabelPropertiesIndicesInfo(labels, properties);
   }
 
-  bool EdgeTypeIndexExists(storage::EdgeTypeId edge_type) { return db_->EdgeTypeIndexExists(edge_type); }
+  bool EdgeTypeIndexReady(storage::EdgeTypeId edge_type) { return db_->EdgeTypeIndexReady(edge_type); }
 
-  bool EdgeTypePropertyIndexExists(storage::EdgeTypeId edge_type, storage::PropertyId property) {
-    return db_->EdgeTypePropertyIndexExists(edge_type, property);
+  bool EdgeTypePropertyIndexReady(storage::EdgeTypeId edge_type, storage::PropertyId property) {
+    return db_->EdgeTypePropertyIndexReady(edge_type, property);
   }
 
-  bool EdgePropertyIndexExists(storage::PropertyId property) { return db_->EdgePropertyIndexExists(property); }
+  bool EdgePropertyIndexReady(storage::PropertyId property) { return db_->EdgePropertyIndexReady(property); }
 
   bool PointIndexExists(storage::LabelId label, storage::PropertyId prop) const {
     return db_->PointIndexExists(label, prop);
@@ -164,8 +163,8 @@ class VertexCountCache {
     return db_->GetIndexStats(label);
   }
 
-  std::optional<storage::LabelPropertyIndexStats> GetIndexStats(const storage::LabelId &label,
-                                                                std::span<storage::PropertyId const> properties) const {
+  std::optional<storage::LabelPropertyIndexStats> GetIndexStats(
+      const storage::LabelId &label, std::span<storage::PropertyPath const> properties) const {
     return db_->GetIndexStats(label, properties);
   }
 
@@ -175,9 +174,9 @@ class VertexCountCache {
 
  private:
   using LabelPropertyKey = std::pair<storage::LabelId, storage::PropertyId>;
-  using LabelPropertiesKey = std::pair<storage::LabelId, std::vector<storage::PropertyId>>;
+  using LabelPropertiesKey = std::pair<storage::LabelId, std::vector<storage::PropertyPath>>;
   using LabelPropertiesRangesKey =
-      std::tuple<storage::LabelId, std::vector<storage::PropertyId>, std::vector<storage::PropertyValueRange>>;
+      std::tuple<storage::LabelId, std::vector<storage::PropertyPath>, std::vector<storage::PropertyValueRange>>;
   using EdgeTypePropertyKey = std::pair<storage::EdgeTypeId, storage::PropertyId>;
 
   struct LabelPropertyHash {
@@ -195,8 +194,8 @@ class VertexCountCache {
       auto const &[label_id, property_ids] = key;
       std::size_t seed = 0;
       boost::hash_combine(seed, std::hash<storage::LabelId>{}(label_id));
-      boost::hash_combine(seed,
-                          utils::FnvCollection<std::vector<storage::PropertyId>, storage::PropertyId>{}(property_ids));
+      boost::hash_combine(
+          seed, utils::FnvCollection<std::vector<storage::PropertyPath>, storage::PropertyPath>{}(property_ids));
       return seed;
     }
   };
@@ -206,8 +205,8 @@ class VertexCountCache {
       auto const &[label_id, property_ids, property_ranges] = key;
       std::size_t seed = 0;
       boost::hash_combine(seed, std::hash<storage::LabelId>{}(label_id));
-      boost::hash_combine(seed,
-                          utils::FnvCollection<std::vector<storage::PropertyId>, storage::PropertyId>{}(property_ids));
+      boost::hash_combine(
+          seed, utils::FnvCollection<std::vector<storage::PropertyPath>, storage::PropertyPath>{}(property_ids));
       boost::hash_combine(seed,
                           utils::FnvCollection<std::vector<storage::PropertyValueRange>, storage::PropertyValueRange>{}(
                               property_ranges));
@@ -261,8 +260,7 @@ class VertexCountCache {
   std::unordered_map<storage::PropertyId, int64_t> edge_property_edge_count_;
   std::unordered_map<EdgeTypePropertyKey, std::unordered_map<storage::PropertyValue, int64_t>, EdgeTypePropertyHash>
       property_value_edge_count_;
-  std::unordered_map<storage::PropertyId, std::unordered_map<query::TypedValue, int64_t, query::TypedValue::Hash,
-                                                             query::TypedValue::BoolEqual>>
+  std::unordered_map<storage::PropertyId, std::unordered_map<storage::PropertyValue, int64_t>>
       edge_property_value_edge_count_;
   std::unordered_map<LabelPropertyKey, std::unordered_map<BoundsKey, int64_t, BoundsHash>, LabelPropertyHash>
       property_bounds_vertex_count_;
