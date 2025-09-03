@@ -129,6 +129,8 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "ActiveVectorIndices", "type": "Index", "metric type": "Counter"},
         {"name": "UnreleasedDeltaObjects", "type": "Memory", "metric type": "Counter"},
         {"name": "DiskUsage", "type": "Memory", "metric type": "Gauge"},
+        {"name": "GCLatency_us", "type": "Memory", "metric type": "Histogram"},
+        {"name": "GCSkiplistCleanupLatency_us", "type": "Memory", "metric type": "Histogram"},
         {"name": "MemoryRes", "type": "Memory", "metric type": "Gauge"},
         {"name": "PeakMemoryRes", "type": "Memory", "metric type": "Gauge"},
         {"name": "AccumulateOperator", "type": "Operator", "metric type": "Counter"},
