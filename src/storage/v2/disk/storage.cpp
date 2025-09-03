@@ -978,12 +978,13 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid
   return disk_storage->FindVertex(gid, &transaction_, view);
 }
 
-std::optional<EdgeAccessor> DiskStorage::DiskAccessor::FindEdge(storage::Gid gid, View view) {
+std::optional<EdgeAccessor> DiskStorage::DiskAccessor::FindEdge(storage::Gid /*gid*/, View /*view*/) {
   throw utils::NotYetImplemented("Id based lookup for on-disk storage mode is not yet implemented on edges. {}",
                                  kErrorMessage);
 }
 
-std::optional<EdgeAccessor> DiskStorage::DiskAccessor::FindEdge(Gid edge_gid, Gid from_vertex_gid, View view) {
+std::optional<EdgeAccessor> DiskStorage::DiskAccessor::FindEdge(Gid /*edge_gid*/, Gid /*from_vertex_gid*/,
+                                                                View /*view*/) {
   throw utils::NotYetImplemented("Id based lookup for on-disk storage mode is not yet implemented on edges. {}",
                                  kErrorMessage);
 }

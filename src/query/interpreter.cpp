@@ -6935,7 +6935,7 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   // Unique access required
   void Visit(PointIndexQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
   void Visit(TextIndexQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
-  void Visit(CreateTextEdgeIndexQuery &) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
+  void Visit(CreateTextEdgeIndexQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
   void Visit(VectorIndexQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
   void Visit(CreateVectorEdgeIndexQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
   void Visit(ConstraintQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }

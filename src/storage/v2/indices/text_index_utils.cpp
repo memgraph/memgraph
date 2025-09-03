@@ -158,7 +158,7 @@ void TrackTextIndexChange(TextIndexChangeCollector &collector, std::span<TextInd
 void TrackTextEdgeIndexChange(TextEdgeIndexChangeCollector &collector, std::span<TextEdgeIndexData *> indices,
                               const Edge *edge, const Vertex *from_vertex, const Vertex *to_vertex, TextIndexOp op) {
   if (!edge || !from_vertex || !to_vertex) return;
-  EdgeWithVertices edge_with_vertices(edge, from_vertex, to_vertex);
+  const EdgeWithVertices edge_with_vertices(edge, from_vertex, to_vertex);
   for (auto *idx : indices) {
     auto &entry = collector[idx];
     if (op == TextIndexOp::ADD) {

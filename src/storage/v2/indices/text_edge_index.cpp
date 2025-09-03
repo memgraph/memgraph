@@ -183,8 +183,8 @@ std::vector<EdgeTextSearchResult> TextEdgeIndex::Search(const std::string &index
   for (const auto &doc : search_results.docs) {
     // Create string using both data pointer and length to avoid buffer overflow
     // The CXX .data() method may not null-terminate the string properly
-    std::string doc_string(doc.data.data(), doc.data.length());
-    auto doc_json = nlohmann::json::parse(doc_string);
+    const std::string doc_string(doc.data.data(), doc.data.length());
+    const auto doc_json = nlohmann::json::parse(doc_string);
 
     const auto edge_gid = storage::Gid::FromString(doc_json["metadata"]["edge_gid"].dump());
     const auto from_vertex_gid = storage::Gid::FromString(doc_json["metadata"]["from_vertex_gid"].dump());
@@ -249,7 +249,7 @@ std::optional<uint64_t> TextEdgeIndex::ApproximateEdgesTextCount(std::string_vie
 void TextEdgeIndex::ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mapper) {
   for (const auto &[index_data_ptr, pending] : tx.text_edge_index_change_collector_) {
     // Take exclusive lock to properly serialize all updates and hold it for the entire operation
-    std::lock_guard lock(index_data_ptr->write_mutex);
+    const std::lock_guard lock(index_data_ptr->write_mutex);
     try {
       for (const auto *edge : pending.to_remove) {
         auto search_edge_to_be_deleted =

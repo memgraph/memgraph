@@ -190,8 +190,8 @@ std::vector<Gid> TextIndex::Search(const std::string &index_name, const std::str
   for (const auto &doc : search_results.docs) {
     // Create string using both data pointer and length to avoid buffer overflow
     // The CXX .data() method may not null-terminate the string properly
-    std::string doc_string(doc.data.data(), doc.data.length());
-    auto doc_json = nlohmann::json::parse(doc_string);
+    const std::string doc_string(doc.data.data(), doc.data.length());
+    const auto doc_json = nlohmann::json::parse(doc_string);
     found_nodes.push_back(storage::Gid::FromString(doc_json["metadata"]["gid"].dump()));
   }
   return found_nodes;
@@ -256,7 +256,7 @@ void TextIndex::Clear() {
 void TextIndex::ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mapper) {
   for (const auto &[index_data_ptr, pending] : tx.text_index_change_collector_) {
     // Take exclusive lock to properly serialize all updates and hold it for the entire operation
-    std::lock_guard lock(index_data_ptr->write_mutex);
+    const std::lock_guard lock(index_data_ptr->write_mutex);
     try {
       for (const auto *vertex : pending.to_remove) {
         auto search_node_to_be_deleted =
