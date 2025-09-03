@@ -392,9 +392,19 @@ set(TANTIVY_TEXT_SEARCH_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/lib/libtantivy
   CACHE FILEPATH "Path to mgcxx tantivy library (internal one)" FORCE)
 set(MGCXX_TEXT_SEARCH_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/lib/libmgcxx_text_search.a
   CACHE FILEPATH "Path to mgcxx text search library" FORCE)
+
+# Ensure the include directory exists
+file(MAKE_DIRECTORY ${MGCXX_INCLUDE_DIR})
+
+# Add mgcxx as an external project with proper build configuration
 add_external_project(mgcxx
   SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx
-  CMAKE_ARGS -DENABLE_TESTS=OFF)
+  CMAKE_ARGS -DENABLE_TESTS=OFF
+  BUILD_BYPRODUCTS
+    ${MGCXX_TEXT_SEARCH_LIBRARY}
+    ${TANTIVY_TEXT_SEARCH_LIBRARY}
+    ${MGCXX_INCLUDE_DIR}/mgcxx_text_search.hpp)
+
 mark_as_advanced(MGCXX_INCLUDE_DIR TANTIVY_TEXT_SEARCH_LIBRARY MGCXX_TEXT_SEARCH_LIBRARY)
 import_library(tantivy_text_search STATIC ${TANTIVY_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
 import_library(mgcxx_text_search STATIC ${MGCXX_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)

@@ -4,6 +4,7 @@
 BUILD_TYPE="Release"
 TARGET=""
 CMAKE_ARGS=""
+skip_init=false
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -15,6 +16,10 @@ while [[ $# -gt 0 ]]; do
         --target)
             TARGET="$2"
             shift 2
+            ;;
+        --skip-init)
+            skip_init=true
+            shift
             ;;
         *)
             # Capture any other arguments to pass to cmake
@@ -52,7 +57,9 @@ if [ ! -f "$HOME/.conan2/profiles/default" ]; then
 fi
 
 # fetch libs that aren't provided by conan yet
-./init
+if [ "$skip_init" = false ]; then
+    ./init
+fi
 
 # install conan dependencies
 export MG_TOOLCHAIN_ROOT=/opt/toolchain-v7/
