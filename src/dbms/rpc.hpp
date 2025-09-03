@@ -100,10 +100,9 @@ struct RenameDatabaseReq {
   static void Load(RenameDatabaseReq *self, memgraph::slk::Reader *reader);
   static void Save(const RenameDatabaseReq &self, memgraph::slk::Builder *builder);
   RenameDatabaseReq() = default;
-  RenameDatabaseReq(const utils::UUID &main_uuid, std::string epoch_id, uint64_t expected_group_timestamp,
-                    uint64_t new_group_timestamp, const utils::UUID &uuid, std::string old_name, std::string new_name)
+  RenameDatabaseReq(const utils::UUID &main_uuid, uint64_t expected_group_timestamp, uint64_t new_group_timestamp,
+                    const utils::UUID &uuid, std::string old_name, std::string new_name)
       : main_uuid(main_uuid),
-        epoch_id(std::move(epoch_id)),
         expected_group_timestamp{expected_group_timestamp},
         new_group_timestamp(new_group_timestamp),
         uuid(uuid),
@@ -111,7 +110,6 @@ struct RenameDatabaseReq {
         new_name(std::move(new_name)) {}
 
   utils::UUID main_uuid;
-  std::string epoch_id;
   uint64_t expected_group_timestamp;
   uint64_t new_group_timestamp;
   utils::UUID uuid;
