@@ -8,10 +8,12 @@ target_sources(mg-planner
     FILES
     include/planner/core/union_find.hpp
     include/planner/core/enode.hpp
+    include/planner/core/eclass.hpp
 
     PRIVATE
     src/core/union_find.cpp
     src/core/enode.cpp
+    src/core/eclass.cpp
 )
 
 target_link_libraries(mg-planner PRIVATE mg-utils)
