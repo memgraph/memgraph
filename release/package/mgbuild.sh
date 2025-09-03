@@ -904,7 +904,7 @@ test_memgraph() {
       done
 
       check_support pokec_size $DATASET_SIZE
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 12 --export-results-file $EXPORT_RESULTS_FILE $DATASET/$DATASET_SIZE/*/*"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 12 --export-results $EXPORT_RESULTS_FILE $DATASET/$DATASET_SIZE/*/*"
     ;;
     upload-to-bench-graph)
       shift 1
