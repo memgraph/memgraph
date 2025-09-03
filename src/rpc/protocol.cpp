@@ -140,7 +140,7 @@ void RpcMessageDeliverer::Execute() {
   spdlog::trace("Memory when RPC {} received: {}", it->second.req_type.name,
                 utils::GetReadableSize(utils::GetMemoryRES()));
   try {
-    it->second.callback(maybe_message_header->message_version, &req_reader, &res_builder);
+    it->second.callback(file_replication_handler_, maybe_message_header->message_version, &req_reader, &res_builder);
     // Finalize the SLK stream.
     req_reader.Finalize();
   }
