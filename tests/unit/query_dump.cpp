@@ -1311,24 +1311,27 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
                      .HasError());
     ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
-  {
-    auto unique_acc = this->db->UniqueAccess();
-    ASSERT_FALSE(unique_acc
-                     ->CreateTextEdgeIndex(memgraph::storage::TextEdgeIndexSpec{
-                         "text_edge_index_without_properties", this->db->storage()->NameToEdgeType("RELATES_TO"), {}})
-                     .HasError());
-    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
-  }
-  {
-    auto unique_acc = this->db->UniqueAccess();
-    ASSERT_FALSE(
-        unique_acc
-            ->CreateTextEdgeIndex(memgraph::storage::TextEdgeIndexSpec{
-                "text_edge_index_with_properties",
-                this->db->storage()->NameToEdgeType("RELATES_TO"),
-                {this->db->storage()->NameToProperty("title"), this->db->storage()->NameToProperty("content")}})
-            .HasError());
-    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  // At the moment, text index on edges isn't supported for on-disk storage
+  if constexpr (std::is_same_v<StorageTypes, memgraph::storage::InMemoryStorage>) {
+    {
+      auto unique_acc = this->db->UniqueAccess();
+      ASSERT_FALSE(unique_acc
+                       ->CreateTextEdgeIndex(memgraph::storage::TextEdgeIndexSpec{
+                           "text_edge_index_without_properties", this->db->storage()->NameToEdgeType("RELATES_TO"), {}})
+                       .HasError());
+      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    }
+    {
+      auto unique_acc = this->db->UniqueAccess();
+      ASSERT_FALSE(
+          unique_acc
+              ->CreateTextEdgeIndex(memgraph::storage::TextEdgeIndexSpec{
+                  "text_edge_index_with_properties",
+                  this->db->storage()->NameToEdgeType("RELATES_TO"),
+                  {this->db->storage()->NameToProperty("title"), this->db->storage()->NameToProperty("content")}})
+              .HasError());
+      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    }
   }
 
   const auto &db_initial_state = GetState(this->db->storage());

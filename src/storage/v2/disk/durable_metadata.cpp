@@ -17,7 +17,6 @@
 #include "kvstore/kvstore.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/disk/durable_metadata.hpp"
-#include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/rocksdb_serialization.hpp"
 #include "utils/string.hpp"
@@ -32,7 +31,6 @@ constexpr const char *kEdgeDountDescr = "edge_count";
 constexpr const char *kLabelIndexStr = "label_index";
 constexpr const char *kLabelPropertyIndexStr = "label_property_index";
 constexpr const char *kTextIndexStr = "text_index";
-constexpr const char *kTextEdgeIndexStr = "text_edge_index";
 constexpr const char *kExistenceConstraintsStr = "existence_constraints";
 constexpr const char *kUniqueConstraintsStr = "unique_constraints";
 }  // namespace
