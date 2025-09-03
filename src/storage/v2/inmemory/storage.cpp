@@ -2046,7 +2046,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     auto elapsed_us = std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count();
     memgraph::metrics::Measure(memgraph::metrics::GCLatency_us, elapsed_us);
     auto elapsed_seconds = static_cast<double>(elapsed_us) / 1000000.0;
-    spdlog::trace("Storage GC on '{}' finished [{}]. Duration: {:.2f} s", name(), periodic ? "periodic" : "forced",
+    spdlog::trace("Storage GC on '{}' finished [{}]. Duration: {:.2f}s", name(), periodic ? "periodic" : "forced",
                   elapsed_seconds);
   }};
 
