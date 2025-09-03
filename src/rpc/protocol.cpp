@@ -27,61 +27,6 @@
 namespace memgraph::rpc {
 
 constexpr auto kBufferRetainLimit = 4 * 1024 * 1024;  // 4MiB
-const auto kTempDirectory =
-    std::filesystem::temp_directory_path() / "memgraph" / storage::durability::kReplicaDurabilityDirectory;
-;
-
-FileReplicationHandler::FileReplicationHandler(const uint8_t *data, size_t const size) : written_(0) {
-  slk::Reader req_reader(data, size, size);
-  // spdlog::warn("Reader pos before creating decoder: {}", req_reader.GetPos());
-  storage::replication::Decoder decoder(&req_reader);
-  // spdlog::warn("Reader pos after creating decoder: {}", req_reader.GetPos());
-
-  // We should be able to always read filename and filesize since file data starts with the new segment
-  auto const maybe_filename = decoder.ReadString();
-  MG_ASSERT(maybe_filename, "Filename missing for the received file over the RPC");
-  auto const path = kTempDirectory / *maybe_filename;
-
-  utils::EnsureDirOrDie(kTempDirectory);
-
-  spdlog::warn("Path {} will be used", path);
-
-  file_.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING);
-
-  const auto maybe_file_size = decoder.ReadUint();
-  MG_ASSERT(maybe_file_size, "File size missing");
-  file_size_ = *maybe_file_size;
-
-  spdlog::warn("File size is: {}", file_size_);
-
-  uint8_t buffer[utils::kFileBufferSize];
-  auto to_write = size - req_reader.GetPos();
-  while (to_write > 0) {
-    const auto chunk_size = std::min(to_write, utils::kFileBufferSize);
-    req_reader.Load(buffer, chunk_size);
-    file_.Write(buffer, chunk_size);
-    to_write -= chunk_size;
-    written_ += chunk_size;
-    spdlog::warn("Written {} bytes to file in the constructor, remaining {}", chunk_size, file_size_ - written_);
-  }
-}
-
-FileReplicationHandler::~FileReplicationHandler() { file_.Close(); }
-
-void FileReplicationHandler::WriteToFile(const uint8_t *data, size_t const size) {
-  spdlog::warn("Got the request to write {} bytes to the file", size);
-  slk::Reader req_reader(data, size, size);
-  uint8_t buffer[utils::kFileBufferSize];
-  auto to_write = size;
-  while (to_write > 0) {
-    const auto chunk_size = std::min(to_write, utils::kFileBufferSize);
-    req_reader.Load(buffer, chunk_size);
-    file_.Write(buffer, chunk_size);
-    to_write -= chunk_size;
-    written_ += chunk_size;
-    spdlog::warn("Written {} bytes to file in the method, remaining {}", chunk_size, file_size_ - written_);
-  }
-}
 
 RpcMessageDeliverer::RpcMessageDeliverer(Server *server, io::network::Endpoint const & /*endpoint*/,
                                          communication::InputStream *input_stream,
@@ -98,6 +43,7 @@ void RpcMessageDeliverer::Execute() {
     }
     return file_replication_handler_->file_size_ - file_replication_handler_->written_;
   });
+
   auto ret = slk::CheckStreamStatus(input_stream_->data(), input_stream_->size(), remaining_file_size);
 
   if (ret.status == slk::StreamStatus::INVALID) {
@@ -111,10 +57,11 @@ void RpcMessageDeliverer::Execute() {
     return;
   }
 
-  // Use info whether file_replication_handler already exists + you need to copy previous data so you can initalize
+  // Use info whether file_replication_handler already exists + you need to copy previous data so you can initialize
   // message request
   // TODO: (andi) What if file is smaller than one segment? file_data_size is probably invalid then
   // TODO: (andi) Solve memory leak when closing file
+  // TODO: (andi) Footer should be the end because of the multiple files
   if (ret.status == slk::StreamStatus::FILE_DATA) {
     const uint8_t *file_data_start = input_stream_->data() + ret.pos;
     size_t const file_data_size = input_stream_->size() - ret.pos;

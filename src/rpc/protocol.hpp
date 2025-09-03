@@ -12,6 +12,7 @@
 #pragma once
 
 #include "communication/session.hpp"
+#include "rpc/file_replication_handler.hpp"
 #include "utils/file.hpp"
 
 /**
@@ -24,26 +25,6 @@
  *                 message_size bytes serialized_message
  */
 namespace memgraph::rpc {
-
-class FileReplicationHandler final {
- public:
-  FileReplicationHandler(const uint8_t *data, size_t size);
-  ~FileReplicationHandler();
-
-  FileReplicationHandler(const FileReplicationHandler &) = delete;
-  FileReplicationHandler &operator=(const FileReplicationHandler &) = delete;
-  ;
-  FileReplicationHandler(FileReplicationHandler &&) = default;
-  FileReplicationHandler &operator=(FileReplicationHandler &&) = default;
-
-  void WriteToFile(const uint8_t *data, size_t size);
-
-  // TODO: (andi) make private
-  utils::OutputFile file_;
-  uint64_t file_size_;
-  // How many bytes we wrote to the file
-  uint64_t written_;
-};
 
 // Forward declaration of class Server
 class Server;
