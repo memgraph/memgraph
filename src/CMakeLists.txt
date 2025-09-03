@@ -86,8 +86,6 @@ add_custom_command(TARGET memgraph POST_BUILD
         COMMAND ${CMAKE_SOURCE_DIR}/config/generate.py
         ${CMAKE_BINARY_DIR}/memgraph
         ${CMAKE_BINARY_DIR}/config/memgraph.conf
-        DEPENDS ${CMAKE_SOURCE_DIR}/config/generate.py
-        ${CMAKE_SOURCE_DIR}/config/flags.yaml
         BYPRODUCTS ${CMAKE_BINARY_DIR}/config/memgraph.conf
         COMMENT "Generating memgraph configuration file")
 # Copy the mappings file to the build directory.
