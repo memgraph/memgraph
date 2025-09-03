@@ -470,7 +470,7 @@ DbmsHandler::DeleteResult DbmsHandler::Delete_(std::string_view db_name) {
 void DbmsHandler::UpdateDurability(const storage::Config &config, std::optional<std::filesystem::path> rel_dir) {
   if (!durability_) return;
   // Save database in a list of active databases
-  const auto &key = Durability::GenKey(config.salient.name);
+  const auto &key = Durability::GenKey(*config.salient.name.str_view());
   if (rel_dir == std::nullopt) {
     rel_dir =
         std::filesystem::relative(config.durability.storage_directory, default_config_.durability.storage_directory);

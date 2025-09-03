@@ -229,7 +229,7 @@ void Load(memgraph::storage::replication::FinalizeCommitReq *self, memgraph::slk
 
 // Serialize SalientConfig
 void Save(const memgraph::storage::SalientConfig &self, memgraph::slk::Builder *builder) {
-  memgraph::slk::Save(self.name, builder);
+  memgraph::slk::Save(*self.name.str_view(), builder);
   memgraph::slk::Save(self.uuid, builder);
   memgraph::slk::Save(utils::EnumToNum<3, uint8_t>(self.storage_mode), builder);
   memgraph::slk::Save(self.items.properties_on_edges, builder);
@@ -237,7 +237,9 @@ void Save(const memgraph::storage::SalientConfig &self, memgraph::slk::Builder *
 }
 
 void Load(memgraph::storage::SalientConfig *self, memgraph::slk::Reader *reader) {
-  memgraph::slk::Load(&self->name, reader);
+  std::string name;
+  memgraph::slk::Load(&name, reader);
+  self->name = std::move(name);
   memgraph::slk::Load(&self->uuid, reader);
   uint8_t sm = 0;
   memgraph::slk::Load(&sm, reader);

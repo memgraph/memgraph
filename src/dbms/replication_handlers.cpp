@@ -226,14 +226,14 @@ bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage:
     // Missing db
     try {
       if (dbms_handler.Update(config).HasError()) {
-        spdlog::debug("SystemRecoveryHandler: Failed to update database \"{}\".", config.name);
+        spdlog::debug("SystemRecoveryHandler: Failed to update database \"{}\".", *config.name.str_view());
         return false;
       }
     } catch (const UnknownDatabaseException &) {
       spdlog::debug("SystemRecoveryHandler: UnknownDatabaseException");
       return false;
     }
-    const auto it = std::find(old.begin(), old.end(), config.name);
+    const auto it = std::find(old.begin(), old.end(), *config.name.str_view());
     if (it != old.end()) old.erase(it);
   }
 

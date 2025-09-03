@@ -71,7 +71,7 @@ class DatabaseHandler : public Handler<Database> {
     }
 
     // Create database protector factory that can look up this specific database by name
-    auto database_protector_factory = [this, db_name = config.salient.name]() -> storage::DatabaseProtectorPtr {
+    auto database_protector_factory = [this, db_name = config.salient.name.str()]() -> storage::DatabaseProtectorPtr {
       if (auto db_gatekeeper_opt = this->Get(db_name)) {
         return std::make_unique<DatabaseProtector>(*db_gatekeeper_opt);
       }
@@ -79,7 +79,8 @@ class DatabaseHandler : public Handler<Database> {
       return nullptr;
     };
 
-    return HandlerT::New(std::piecewise_construct, config.salient.name, config, repl_state, database_protector_factory);
+    return HandlerT::New(std::piecewise_construct, *config.salient.name.str_view(), config, repl_state,
+                         database_protector_factory);
   }
 
   /**
