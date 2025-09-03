@@ -16,6 +16,10 @@
 #include "storage/v2/inmemory/storagefwd.hpp"
 #include "storage/v2/replication/serialization.hpp"
 
+namespace memgraph::rpc {
+class FileReplicationHandler;
+}  // namespace memgraph::rpc
+
 namespace memgraph::dbms {
 
 struct TwoPCCache {
@@ -45,20 +49,24 @@ class InMemoryReplicationHandlers {
                                     const std::optional<utils::UUID> &current_main_uuid, uint64_t request_version,
                                     slk::Reader *req_reader, slk::Builder *res_builder);
 
-  static void SnapshotHandler(dbms::DbmsHandler *dbms_handler, const std::optional<utils::UUID> &current_main_uuid,
+  static void SnapshotHandler(rpc::FileReplicationHandler const &file_replication_handler,
+                              dbms::DbmsHandler *dbms_handler, const std::optional<utils::UUID> &current_main_uuid,
                               uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 
-  static void WalFilesHandler(dbms::DbmsHandler *dbms_handler, const std::optional<utils::UUID> &current_main_uuid,
+  static void WalFilesHandler(rpc::FileReplicationHandler const &file_replication_handler,
+                              dbms::DbmsHandler *dbms_handler, const std::optional<utils::UUID> &current_main_uuid,
                               uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 
-  static void CurrentWalHandler(dbms::DbmsHandler *dbms_handler, const std::optional<utils::UUID> &current_main_uuid,
+  static void CurrentWalHandler(rpc::FileReplicationHandler const &file_replication_handler,
+                                dbms::DbmsHandler *dbms_handler, const std::optional<utils::UUID> &current_main_uuid,
                                 uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 
   static void SwapMainUUIDHandler(dbms::DbmsHandler *dbms_handler, replication::RoleReplicaData &role_replica_data,
                                   uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 
-  static LoadWalStatus LoadWal(storage::InMemoryStorage *storage, storage::replication::Decoder *decoder,
-                               slk::Builder *res_builder, uint32_t start_batch_counter = 0);
+  static LoadWalStatus LoadWal(std::string const &wal_file_name, storage::InMemoryStorage *storage,
+                               storage::replication::Decoder *decoder, slk::Builder *res_builder,
+                               uint32_t start_batch_counter = 0);
 
   // If the connection between MAIN and REPLICA dies just after sending PrepareCommitRes and receiving
   // FinalizeCommitReq, then there is the possibility that the cached_commit_accessor_ will stay alive for too long

@@ -102,6 +102,9 @@ void RpcMessageDeliverer::Execute() {
     }
     MG_ASSERT(file_replication_handler_.has_value() &&
               file_replication_handler_->written_ == file_replication_handler_->file_size_);
+
+    // TODO: (andi) Move it in better place
+    file_replication_handler_->file_.Close();
     spdlog::warn("Using buffer copy for reading header and request");
     // File data received
     return slk::Reader{header_request_.data(), header_request_.size()};

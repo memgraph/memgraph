@@ -32,6 +32,6 @@ class FileReplicationHandler final {
   uint64_t file_size_;
   // How many bytes we wrote to the file
   uint64_t written_;
-  std::vector<std::filesystem::path> paths_;
+  std::vector<std::string> file_names_;
 };
 }  // namespace memgraph::rpc
