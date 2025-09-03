@@ -212,7 +212,7 @@ check_support() {
         fi
       done
       if [[ "$is_supported" == false ]]; then
-        echo -e "TError: oolchain version $2 isn't supported!\nChoose from  ${SUPPORTED_TOOLCHAINS[*]}"
+        echo -e "Error: Toolchain version $2 isn't supported!\nChoose from  ${SUPPORTED_TOOLCHAINS[*]}"
         exit 1
       fi
     ;;
@@ -870,9 +870,10 @@ test_memgraph() {
     ;;
     mgbench)
       shift 1
-      local POKEC_SIZE=${1:-'medium'}
-      check_support pokec_size $POKEC_SIZE
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 12 --export-results benchmark_result.json pokec/$POKEC_SIZE/*/*"
+      local DATASET=${1:-'pokec'}
+      local DATASET_SIZE=${2:-'medium'}
+      local EXPORT_RESULTS_FILE=${2:-'benchmark_result.json'}
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 12 --export-results $EXPORT_RESULTS_FILE $DATASET/$DATASET_SIZE/*/*"
     ;;
     upload-to-bench-graph)
       shift 1
