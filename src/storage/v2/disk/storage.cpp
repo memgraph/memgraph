@@ -1776,10 +1776,8 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Pr
           }
         } break;
         case MetadataDelta::Action::TEXT_EDGE_INDEX_CREATE: {
-          const auto &info = md_delta.text_edge_index;
-          if (!disk_storage->durable_metadata_.PersistTextEdgeIndexCreation(info)) {
-            return StorageManipulationError{PersistenceError{}};
-          }
+          throw utils::NotYetImplemented("Text edge indexing is not yet implemented for on-disk storage. {}",
+                                         kErrorMessage);
         } break;
         case MetadataDelta::Action::EXISTENCE_CONSTRAINT_CREATE: {
           const auto &info = md_delta.label_property;
@@ -2422,7 +2420,7 @@ IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
           {/* edge_type_property */},
           {/*edge property*/},
           storage_->indices_.text_index_.ListIndices(),
-          storage_->indices_.text_edge_index_.ListIndices(),
+          {/* text edge indices */},
           {/* point indices */},
           {/* vector indices */}};
 }

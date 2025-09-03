@@ -924,12 +924,8 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   CheckForFastDiscardOfDeltas();
 
-  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH) &&
-      !transaction_.text_index_change_collector_.empty()) {
+  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     memgraph::storage::TextIndex::ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
-  }
-  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH) &&
-      !transaction_.text_edge_index_change_collector_.empty()) {
     memgraph::storage::TextEdgeIndex::ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
   }
   is_transaction_active_ = false;

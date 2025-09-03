@@ -13,6 +13,7 @@
 #include <gtest/gtest.h>
 
 #include "disk_test_utils.hpp"
+#include "flags/experimental.hpp"
 #include "mg_procedure.h"
 #include "mgp.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
@@ -25,7 +26,10 @@
 template <typename StorageType>
 struct CppApiTestFixture : public ::testing::Test {
  protected:
-  void SetUp() override { mgp::MemoryDispatcher::Register(&memory); }
+  void SetUp() override {
+    mgp::MemoryDispatcher::Register(&memory);
+    memgraph::flags::SetExperimental(memgraph::flags::Experiments::TEXT_SEARCH);
+  }
 
   void TearDown() override {
     if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
@@ -1343,4 +1347,114 @@ TYPED_TEST(CppApiTestFixture, TestVectorSearchOnEdges) {
   auto found_edges = mgp::SearchVectorIndexOnEdges(&raw_graph, "index", list_to_find, 1);
   ASSERT_EQ(found_edges.Size(), 1);
   ASSERT_EQ(found_edges[0].ValueList()[0].ValueRelationship().Id(), edge1.Id());
+}
+
+TYPED_TEST(CppApiTestFixture, TestTextIndexOnNodes) {
+  constexpr auto index_name = "node_text_index";
+  constexpr auto label_name = "Document";
+  constexpr auto property_name = "content";
+
+  // Create text index
+  {
+    auto storage_acc = this->storage->UniqueAccess();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    auto label = db_acc->NameToLabel(label_name);
+    auto property = db_acc->NameToProperty(property_name);
+    auto text_index_spec =
+        memgraph::storage::TextIndexSpec{.index_name = index_name, .label = label, .properties = {property}};
+    ASSERT_FALSE(db_acc->CreateTextIndex(text_index_spec).HasError());
+    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  // Create nodes with text content and test search
+  {
+    auto storage_acc = this->storage->UniqueAccess();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+    auto graph = mgp::Graph(&raw_graph);
+
+    // Create nodes with text content
+    auto node1 = graph.CreateNode();
+    node1.AddLabel(label_name);
+    node1.SetProperty(property_name, mgp::Value("This is a test document"));
+
+    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  // Test text index search
+  {
+    auto storage_acc = this->storage->Access(memgraph::storage::StorageAccessType::READ);
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+
+    // Test search functionality
+    auto search_results =
+        mgp::SearchTextIndex(&raw_graph, index_name, "data.content:document", text_search_mode::SPECIFIED_PROPERTIES);
+    ASSERT_GE(search_results.Size(), 1);
+  }
+
+  // Cleanup - drop text index
+  {
+    auto storage_acc = this->storage->UniqueAccess();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    ASSERT_FALSE(db_acc->DropTextIndex(index_name).HasError());
+    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+}
+
+TYPED_TEST(CppApiTestFixture, TestTextIndexOnEdges) {
+  if constexpr (!std::is_same<TypeParam, memgraph::storage::InMemoryStorage>::value) {
+    GTEST_SKIP() << "TestTextIndexOnEdges runs only on InMemoryStorage.";
+  }
+  constexpr auto index_name = "edge_text_index";
+  constexpr auto edge_type = "CONTAINS";
+  constexpr auto property_name = "description";
+
+  // Create text edge index
+  {
+    auto storage_acc = this->storage->UniqueAccess();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    auto edge_type_id = db_acc->NameToEdgeType(edge_type);
+    auto property = db_acc->NameToProperty(property_name);
+    auto text_edge_index_spec = memgraph::storage::TextEdgeIndexSpec{
+        .index_name = index_name, .edge_type = edge_type_id, .properties = {property}};
+    ASSERT_FALSE(db_acc->CreateTextEdgeIndex(text_edge_index_spec).HasError());
+    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  // Create edges with text content and test search
+  {
+    auto storage_acc = this->storage->UniqueAccess();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+    auto graph = mgp::Graph(&raw_graph);
+
+    // Create nodes and edges with text content
+    auto node1 = graph.CreateNode();
+    auto node2 = graph.CreateNode();
+
+    auto edge1 = graph.CreateRelationship(node1, node2, edge_type);
+    edge1.SetProperty(property_name, mgp::Value("This edge contains important information about data structures"));
+    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  // Test text edge index search
+  {
+    auto storage_acc = this->storage->Access(memgraph::storage::StorageAccessType::READ);
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    mgp_graph raw_graph = this->CreateGraph(db_acc.get());
+
+    // Test search functionality
+    auto search_results = mgp::SearchTextEdgeIndex(&raw_graph, index_name, "data.description:information",
+                                                   text_search_mode::SPECIFIED_PROPERTIES);
+    ASSERT_GE(search_results.Size(), 1);
+  }
+
+  // Cleanup - drop text index
+  {
+    auto storage_acc = this->storage->UniqueAccess();
+    auto db_acc = std::make_unique<memgraph::query::DbAccessor>(storage_acc.get());
+    ASSERT_FALSE(db_acc->DropTextIndex(index_name).HasError());
+    ASSERT_FALSE(db_acc->Commit(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
 }

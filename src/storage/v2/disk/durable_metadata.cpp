@@ -17,6 +17,7 @@
 #include "kvstore/kvstore.hpp"
 #include "storage/v2/config.hpp"
 #include "storage/v2/disk/durable_metadata.hpp"
+#include "utils/exceptions.hpp"
 #include "utils/file.hpp"
 #include "utils/rocksdb_serialization.hpp"
 #include "utils/string.hpp"
@@ -161,19 +162,6 @@ bool DurableMetadata::PersistTextIndexCreation(const storage::TextIndexSpec &tex
     return durability_kvstore_.Put(kTextIndexStr, value);
   }
   return durability_kvstore_.Put(kTextIndexStr, index_name_label_properties);
-}
-
-bool DurableMetadata::PersistTextEdgeIndexCreation(const storage::TextEdgeIndexSpec &text_edge_index) {
-  const auto properties_str = utils::Join(
-      text_edge_index.properties | rv::transform([](const auto &property_id) { return property_id.ToString(); }), ",");
-  const auto index_name_label_properties =
-      fmt::format("{},{},{}", text_edge_index.index_name, text_edge_index.edge_type.ToString(), properties_str);
-  if (auto text_index_store = durability_kvstore_.Get(kTextEdgeIndexStr); text_index_store.has_value()) {
-    auto &value = text_index_store.value();
-    value = fmt::format("{}|{}", value, index_name_label_properties);
-    return durability_kvstore_.Put(kTextEdgeIndexStr, value);
-  }
-  return durability_kvstore_.Put(kTextEdgeIndexStr, index_name_label_properties);
 }
 
 bool DurableMetadata::PersistTextIndexDeletion(std::string_view index_name) {
