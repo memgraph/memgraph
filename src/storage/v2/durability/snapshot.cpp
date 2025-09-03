@@ -8282,21 +8282,21 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
       }
       // Recover text indices on edges
       {
-        auto size_opt = snapshot.ReadUint();
+        const auto size_opt = snapshot.ReadUint();
         const auto size = size_opt.value_or(0);
         spdlog::info("Recovering metadata of {} text indices.", size);
         for (uint64_t i = 0; i < size; ++i) {
-          auto index_name = snapshot.ReadString();
+          const auto index_name = snapshot.ReadString();
           if (!index_name.has_value()) throw RecoveryFailure("Couldn't read text index name!");
-          auto edge_type_id = snapshot.ReadUint();
+          const auto edge_type_id = snapshot.ReadUint();
           if (!edge_type_id) throw RecoveryFailure("Couldn't read text index edge type!");
           // Read properties
-          auto n_props = snapshot.ReadUint();
+          const auto n_props = snapshot.ReadUint();
           if (!n_props.has_value()) throw RecoveryFailure("Couldn't read text index properties count!");
           std::vector<PropertyId> properties;
           properties.reserve(*n_props);
           for (uint64_t j = 0; j < *n_props; ++j) {
-            auto property = snapshot.ReadUint();
+            const auto property = snapshot.ReadUint();
             if (!property.has_value()) throw RecoveryFailure("Couldn't read text index property!");
             properties.emplace_back(get_property_from_id(*property));
           }
@@ -9204,7 +9204,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
     if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
       // Text indices on nodes
       {
-        auto text_indices = storage->indices_.text_index_.ListIndices();
+        const auto text_indices = storage->indices_.text_index_.ListIndices();
         snapshot.WriteUint(text_indices.size());
         for (const auto &[index_name, label, properties] : text_indices) {
           snapshot.WriteString(index_name);
@@ -9220,7 +9220,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
       }
       // Text indices on edges
       {
-        auto text_edge_indices = storage->indices_.text_edge_index_.ListIndices();
+        const auto text_edge_indices = storage->indices_.text_edge_index_.ListIndices();
         snapshot.WriteUint(text_edge_indices.size());
         for (const auto &[index_name, edge_type, properties] : text_edge_indices) {
           snapshot.WriteString(index_name);

@@ -48,6 +48,8 @@ struct ReplicationHandler;
 
 namespace memgraph::storage {
 
+using EdgeInfo = std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>;
+
 struct IndexPerformanceTracker {
   void update(Delta::Action action) {
     switch (action) {
@@ -724,15 +726,11 @@ class InMemoryStorage final : public Storage {
 
   void UpdateEdgesMetadataOnModification(Edge *edge, Vertex *from_vertex);
 
-  using EdgeInfo = std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>;
-
   EdgeInfo FindEdge(Gid gid);
 
   EdgeInfo FindEdge(Gid edge_gid, Gid from_vertex_gid);
 
-  static EdgeInfo ExtractEdgeInfo(Vertex *from_vertex, const void *edge_ptr);
-
-  EdgeInfo FindEdgeFromMetadata(Gid gid, const void *edge_ptr);
+  EdgeInfo FindEdgeFromMetadata(Gid gid, const Edge *edge_ptr);
 
   void Clear();
 

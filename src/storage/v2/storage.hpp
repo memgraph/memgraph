@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <optional>
 #include "common_function_signatures.hpp"
 #include "mg_procedure.h"
 #include "storage/v2/access_type.hpp"

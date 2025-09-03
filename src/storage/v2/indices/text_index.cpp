@@ -34,8 +34,7 @@ void TextIndex::CreateTantivyIndex(const std::string &index_path, const TextInde
         mgcxx::text_search::create_index(index_path, mgcxx::text_search::IndexConfig{.mappings = mappings.dump()}),
         index_info.label, index_info.properties);
     if (!success) {
-      throw query::TextSearchException("Text index \"{}\" already exists at path: {}.", index_info.index_name,
-                                       index_path);
+      throw query::TextSearchException("Text index {} already exists at path: {}.", index_info.index_name, index_path);
     }
   } catch (const std::exception &e) {
     spdlog::error("Failed to create text index {} at path: {}. Error: {}", index_info.index_name, index_path, e.what());

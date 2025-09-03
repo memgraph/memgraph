@@ -17,7 +17,6 @@
 #include "spdlog/spdlog.h"
 
 #include "flags/experimental.hpp"
-#include "license/license.hpp"
 #include "storage/v2/async_indexer.hpp"
 #include "storage/v2/disk/name_id_mapper.hpp"
 #include "storage/v2/edge_ref.hpp"
@@ -36,7 +35,6 @@
 #include "utils/event_histogram.hpp"
 #include "utils/logging.hpp"
 #include "utils/resource_lock.hpp"
-#include "utils/result.hpp"
 #include "utils/small_vector.hpp"
 #include "utils/variant_helpers.hpp"
 
@@ -398,6 +396,7 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
   }
 
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    // TODO (@DavIvek): This is slow, implement gc
     for (auto *node : nodes_to_delete) {
       storage_->indices_.text_index_.RemoveNode(node, transaction_);
     }

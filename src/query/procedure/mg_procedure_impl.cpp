@@ -25,7 +25,6 @@
 #include <variant>
 
 #include "dbms/dbms_handler.hpp"
-#include "edge_accessor.hpp"
 #include "flags/experimental.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "glue/auth.hpp"
@@ -61,8 +60,6 @@
 #include "utils/string.hpp"
 #include "utils/temporal.hpp"
 #include "utils/variant_helpers.hpp"
-
-#include <mutex>
 
 // This file contains implementation of top level C API functions, but this is
 // all actually part of memgraph::query::procedure. So use that namespace for simplicity.
@@ -237,6 +234,13 @@ bool MgpGraphIsMutable(const mgp_graph &graph) noexcept {
 bool MgpVertexIsMutable(const mgp_vertex &vertex) { return MgpGraphIsMutable(*vertex.graph); }
 
 bool MgpEdgeIsMutable(const mgp_edge &edge) { return MgpVertexIsMutable(edge.from); }
+}  // namespace
+
+// Constants for common map key names used in procedure results
+namespace {
+constexpr const char *kErrorMsgKey = "error_msg";
+constexpr const char *kSearchResultsKey = "search_results";
+constexpr const char *kAggregationResultsKey = "aggregation_results";
 }  // namespace
 
 int mgp_is_enterprise_valid() { return memgraph::license::global_license_checker.IsEnterpriseValidFast(); }
@@ -3613,7 +3617,7 @@ void WrapVectorSearchResults(mgp_graph *graph, mgp_memory *memory, mgp_map **res
         err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving vector search results failed during creation of a string mgp_value");
     }
-    if (const auto err = mgp_map_insert(*result, "error_msg", error_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
+    if (const auto err = mgp_map_insert(*result, kErrorMsgKey, error_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving vector search error failed during insertion into mgp_map");
     }
     return;
@@ -3693,7 +3697,7 @@ void WrapVectorSearchResults(mgp_graph *graph, mgp_memory *memory, mgp_map **res
     throw std::logic_error("Retrieving vector search results failed during creation of a list mgp_value");
   }
 
-  if (const auto err = mgp_map_insert(*result, "search_results", search_results_value);
+  if (const auto err = mgp_map_insert(*result, kSearchResultsKey, search_results_value);
       err != mgp_error::MGP_ERROR_NO_ERROR) {
     throw std::logic_error("Retrieving vector search results failed during insertion into mgp_map");
   }
@@ -3843,7 +3847,7 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
         err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving vector search results failed during creation of a string mgp_value");
     }
-    if (const auto err = mgp_map_insert(*result, "error_msg", error_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
+    if (const auto err = mgp_map_insert(*result, kErrorMsgKey, error_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving vector search error failed during insertion into mgp_map");
     }
     return;
@@ -3869,7 +3873,7 @@ void WrapVectorIndexInfoResult(mgp_memory *memory, mgp_map **result,
     throw std::logic_error("Retrieving vector search results failed during creation of a list mgp_value");
   }
 
-  if (const auto err = mgp_map_insert(*result, "search_results", search_results_value);
+  if (const auto err = mgp_map_insert(*result, kSearchResultsKey, search_results_value);
       err != mgp_error::MGP_ERROR_NO_ERROR) {
     throw std::logic_error("Retrieving vector search results failed during insertion into mgp_map");
   }
@@ -3891,7 +3895,7 @@ void WrapTextSearch(mgp_graph *graph, mgp_memory *memory, mgp_map **result,
         err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving text search results failed during creation of a string mgp_value");
     }
-    if (const auto err = mgp_map_insert(*result, "error_msg", error_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
+    if (const auto err = mgp_map_insert(*result, kErrorMsgKey, error_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving text search error failed during insertion into mgp_map");
     }
     mgp_value_destroy(error_value);
@@ -3932,7 +3936,7 @@ void WrapTextSearch(mgp_graph *graph, mgp_memory *memory, mgp_map **result,
     throw std::logic_error("Retrieving text search results failed during creation of a list mgp_value");
   }
 
-  if (const auto err = mgp_map_insert(*result, "search_results", search_results_value);
+  if (const auto err = mgp_map_insert(*result, kSearchResultsKey, search_results_value);
       err != mgp_error::MGP_ERROR_NO_ERROR) {
     throw std::logic_error("Retrieving text index search results failed during insertion into mgp_map");
   }
@@ -3953,14 +3957,14 @@ void WrapTextIndexAggregation(mgp_memory *memory, mgp_map **result, const std::s
   }
 
   if (error_msg.has_value()) {
-    if (const auto err = mgp_map_insert(*result, "error_msg", aggregation_result_or_error_value);
+    if (const auto err = mgp_map_insert(*result, kErrorMsgKey, aggregation_result_or_error_value);
         err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving text index aggregation error failed during insertion into mgp_map");
     }
     return;
   }
 
-  if (const auto err = mgp_map_insert(*result, "aggregation_results", aggregation_result_or_error_value);
+  if (const auto err = mgp_map_insert(*result, kAggregationResultsKey, aggregation_result_or_error_value);
       err != mgp_error::MGP_ERROR_NO_ERROR) {
     throw std::logic_error("Retrieving text index aggregation results failed during insertion into mgp_map");
   }
@@ -3980,7 +3984,7 @@ void WrapEdgeTextSearchResults(mgp_graph *graph, mgp_memory *memory, mgp_map **r
         err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving edge text search results failed during creation of a string mgp_value");
     }
-    if (const auto err = mgp_map_insert(*result, "error_msg", error_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
+    if (const auto err = mgp_map_insert(*result, kErrorMsgKey, error_value); err != mgp_error::MGP_ERROR_NO_ERROR) {
       throw std::logic_error("Retrieving edge text search error failed during insertion into mgp_map");
     }
     mgp_value_destroy(error_value);
@@ -4021,7 +4025,7 @@ void WrapEdgeTextSearchResults(mgp_graph *graph, mgp_memory *memory, mgp_map **r
     throw std::logic_error("Retrieving text search results failed during creation of a list mgp_value");
   }
 
-  if (const auto err = mgp_map_insert(*result, "search_results", search_results_value);
+  if (const auto err = mgp_map_insert(*result, kSearchResultsKey, search_results_value);
       err != mgp_error::MGP_ERROR_NO_ERROR) {
     throw std::logic_error("Retrieving text index search results failed during insertion into mgp_map");
   }

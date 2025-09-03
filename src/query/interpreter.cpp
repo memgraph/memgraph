@@ -4045,8 +4045,8 @@ PreparedQuery PrepareCreateTextEdgeIndexQuery(ParsedQuery parsed_query, bool in_
   auto *dba = &*current_db.execution_db_accessor_;
 
   auto *storage = db_acc->storage();
-  auto edge_type_id = storage->NameToEdgeType(text_edge_index_query->edge_type_.name);
-  auto &index_name = text_edge_index_query->index_name_;
+  const auto edge_type_id = storage->NameToEdgeType(text_edge_index_query->edge_type_.name);
+  const auto &index_name = text_edge_index_query->index_name_;
   auto property_ids = text_edge_index_query->properties_ |
                       rv::transform([&](const auto &property) { return storage->NameToProperty(property.name); }) |
                       r::to_vector;
@@ -5250,8 +5250,8 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         const std::string_view edge_type_index_mark{"edge-type"};
         const std::string_view edge_type_property_index_mark{"edge-type+property"};
         const std::string_view edge_property_index_mark{"edge-property"};
-        const std::string_view text_label_property_index_mark{"label_text"};
-        const std::string_view text_edge_property_index_mark{"edge-type_text"};
+        const std::string_view text_label_index_mark{"label_text"};
+        const std::string_view text_edge_type_index_mark{"edge-type_text"};
         const std::string_view point_label_property_index_mark{"point"};
         const std::string_view vector_label_property_index_mark{"label+property_vector"};
         const std::string_view vector_edge_property_index_mark{"edge-type+property_vector"};
@@ -5290,9 +5290,9 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
           auto prop_names =
               properties |
               rv::transform([storage](auto prop_id) { return TypedValue(storage->PropertyToName(prop_id)); }) |
-              ranges::to_vector;
+              r::to_vector;
           results.push_back(
-              {TypedValue(fmt::format("{} (name: {})", text_label_property_index_mark, index_name)),
+              {TypedValue(fmt::format("{} (name: {})", text_label_index_mark, index_name)),
                TypedValue(storage->LabelToName(label)), TypedValue(std::move(prop_names)),
                TypedValue(static_cast<int>(storage_acc->ApproximateVerticesTextCount(index_name).value_or(0)))});
         }
@@ -5300,9 +5300,9 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
           auto prop_names =
               properties |
               rv::transform([storage](auto prop_id) { return TypedValue(storage->PropertyToName(prop_id)); }) |
-              ranges::to_vector;
+              r::to_vector;
           results.push_back(
-              {TypedValue(fmt::format("{} (name: {})", text_edge_property_index_mark, index_name)),
+              {TypedValue(fmt::format("{} (name: {})", text_edge_type_index_mark, index_name)),
                TypedValue(storage->EdgeTypeToName(label)), TypedValue(std::move(prop_names)),
                TypedValue(static_cast<int>(storage_acc->ApproximateEdgesTextCount(index_name).value_or(0)))});
         }

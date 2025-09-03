@@ -18,7 +18,6 @@
 #include <functional>
 #include <mutex>
 #include <optional>
-#include <range/v3/view/unique.hpp>
 #include <system_error>
 
 #include "dbms/constants.hpp"
@@ -29,7 +28,6 @@
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/durability/snapshot.hpp"
-#include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/edge_direction.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/edge_property_index.hpp"
@@ -3191,8 +3189,8 @@ void InMemoryStorage::CreateSnapshotHandler(
   });
 }
 
-InMemoryStorage::EdgeInfo InMemoryStorage::ExtractEdgeInfo(Vertex *from_vertex, const void *edge_ptr) {
-  for (auto &out_edge : from_vertex->out_edges) {
+EdgeInfo ExtractEdgeInfo(Vertex *from_vertex, const Edge *edge_ptr) {
+  for (const auto &out_edge : from_vertex->out_edges) {
     const auto [edge_type, other_vertex, edge_ref] = out_edge;
     if (edge_ref.ptr == edge_ptr) {
       return std::tuple(edge_ref, edge_type, from_vertex, other_vertex);
@@ -3201,14 +3199,14 @@ InMemoryStorage::EdgeInfo InMemoryStorage::ExtractEdgeInfo(Vertex *from_vertex, 
   return std::nullopt;
 }
 
-InMemoryStorage::EdgeInfo InMemoryStorage::FindEdgeFromMetadata(Gid gid, const void *edge_ptr) {
+EdgeInfo InMemoryStorage::FindEdgeFromMetadata(Gid gid, const Edge *edge_ptr) {
   auto edge_metadata_acc = edges_metadata_.access();
   auto edge_metadata_it = edge_metadata_acc.find(gid);
   MG_ASSERT(edge_metadata_it != edge_metadata_acc.end(), "Invalid database state!");
   return ExtractEdgeInfo(edge_metadata_it->from_vertex, edge_ptr);
 }
 
-InMemoryStorage::EdgeInfo InMemoryStorage::FindEdge(Gid gid) {
+EdgeInfo InMemoryStorage::FindEdge(Gid gid) {
   auto edge_acc = edges_.access();
   auto edge_it = edge_acc.find(gid);
   if (edge_it == edge_acc.end()) {
@@ -3230,7 +3228,7 @@ InMemoryStorage::EdgeInfo InMemoryStorage::FindEdge(Gid gid) {
   return std::nullopt;
 }
 
-InMemoryStorage::EdgeInfo InMemoryStorage::FindEdge(Gid edge_gid, Gid from_vertex_gid) {
+EdgeInfo InMemoryStorage::FindEdge(Gid edge_gid, Gid from_vertex_gid) {
   auto edge_acc = edges_.access();
   auto edge_it = edge_acc.find(edge_gid);
   if (edge_it == edge_acc.end()) {

@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #include "storage/v2/indices/text_edge_index.hpp"
-
 #include "flags/experimental.hpp"
 #include "mgcxx_text_search.hpp"
 #include "query/exceptions.hpp"
@@ -265,7 +264,6 @@ void TextEdgeIndex::ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_m
         auto edge_properties = index_data_ptr->properties.empty()
                                    ? edge_with_vertices.edge->properties.Properties()
                                    : ExtractProperties(edge_with_vertices.edge->properties, index_data_ptr->properties);
-        // Now we have access to the vertex GIDs through the EdgeWithVertices structure
         TextEdgeIndex::AddEdgeToTextIndex(
             edge_with_vertices.edge->gid.AsInt(), edge_with_vertices.from_vertex->gid.AsInt(),
             edge_with_vertices.to_vertex->gid.AsInt(), SerializeProperties(edge_properties, name_id_mapper),

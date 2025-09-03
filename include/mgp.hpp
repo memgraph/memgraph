@@ -4779,7 +4779,7 @@ inline List SearchTextIndex(mgp_graph *memgraph_graph, std::string_view index_na
   }
 
   if (!results_or_error.KeyExists(kSearchResultsKey)) {
-    return List();  // No results found, return empty list.
+    throw TextSearchException{"Error in text search results processing occurred."};
   }
 
   if (!results_or_error.At(kSearchResultsKey).IsList()) {
@@ -4802,7 +4802,7 @@ inline List SearchTextEdgeIndex(mgp_graph *memgraph_graph, std::string_view inde
   }
 
   if (!results_or_error.KeyExists(kSearchResultsKey)) {
-    return List();  // No results found, return empty list.
+    throw TextSearchException{"Error in text search results processing occurred."};
   }
 
   if (!results_or_error.At(kSearchResultsKey).IsList()) {

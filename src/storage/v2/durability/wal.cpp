@@ -25,7 +25,6 @@
 #include "storage/v2/durability/version.hpp"
 #include "storage/v2/durability/wal.hpp"
 #include "storage/v2/edge.hpp"
-#include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
@@ -1265,13 +1264,7 @@ std::optional<RecoveryInfo> LoadWal(
                                   "The label index stats doesn't exist!");
       },
       [&](WalTextIndexCreate const &data) {
-        if (r::any_of(indices_constraints->indices.text_indices,
-                      [&](const auto &index) { return index.index_name == data.index_name; }) ||
-            r::any_of(indices_constraints->indices.text_edge_indices,
-                      [&](const auto &index) { return index.index_name == data.index_name; })) {
-          throw RecoveryFailure("The vector index already exists!");
-        }
-        auto label = LabelId::FromUint(name_id_mapper->NameToId(data.label));
+        const auto label = LabelId::FromUint(name_id_mapper->NameToId(data.label));
         auto prop_ids = std::invoke([&]() -> std::vector<PropertyId> {
           if (!data.properties) {
             return {};
@@ -1283,22 +1276,11 @@ std::optional<RecoveryInfo> LoadWal(
         indices_constraints->indices.text_indices.emplace_back(data.index_name, label, std::move(prop_ids));
       },
       [&](WalTextEdgeIndexCreate const &data) {
-        if (r::any_of(indices_constraints->indices.text_indices,
-                      [&](const auto &index) { return index.index_name == data.index_name; }) ||
-            r::any_of(indices_constraints->indices.text_edge_indices,
-                      [&](const auto &index) { return index.index_name == data.index_name; })) {
-          throw RecoveryFailure("The vector index already exists!");
-        }
-        auto edge_type = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));
-        auto prop_ids = std::invoke([&]() -> std::vector<PropertyId> {
-          if (data.properties.empty()) {
-            return {};
-          }
-          return data.properties | rv::transform([&](const auto &prop_name) {
-                   return PropertyId::FromUint(name_id_mapper->NameToId(prop_name));
-                 }) |
-                 r::to_vector;
-        });
+        const auto edge_type = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));
+        auto prop_ids = data.properties | rv::transform([&](const auto &prop_name) {
+                          return PropertyId::FromUint(name_id_mapper->NameToId(prop_name));
+                        }) |
+                        r::to_vector;
         indices_constraints->indices.text_edge_indices.emplace_back(data.index_name, edge_type, std::move(prop_ids));
       },
       [&](WalTextIndexDrop const &data) {
@@ -1396,41 +1378,26 @@ std::optional<RecoveryInfo> LoadWal(
         }
       },
       [&](WalVectorIndexCreate const &data) {
-        if (r::any_of(indices_constraints->indices.vector_indices,
-                      [&](const auto &index) { return index.index_name == data.index_name; }) ||
-            r::any_of(indices_constraints->indices.vector_edge_indices,
-                      [&](const auto &index) { return index.index_name == data.index_name; })) {
-          throw RecoveryFailure("The vector index already exists!");
-        }
-
-        auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
-        auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
+        const auto label_id = LabelId::FromUint(name_id_mapper->NameToId(data.label));
+        const auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
         const auto unum_metric_kind = MetricFromName(data.metric_kind);
-        auto scalar_kind = data.scalar_kind ? static_cast<unum::usearch::scalar_kind_t>(*data.scalar_kind)
-                                            : unum::usearch::scalar_kind_t::f32_k;
+        const auto scalar_kind = data.scalar_kind ? static_cast<unum::usearch::scalar_kind_t>(*data.scalar_kind)
+                                                  : unum::usearch::scalar_kind_t::f32_k;
         indices_constraints->indices.vector_indices.emplace_back(data.index_name, label_id, property_id,
                                                                  unum_metric_kind, data.dimension,
                                                                  data.resize_coefficient, data.capacity, scalar_kind);
       },
       [&](WalVectorEdgeIndexCreate const &data) {
-        if (r::any_of(indices_constraints->indices.vector_indices,
-                      [&](const auto &index) { return index.index_name == data.index_name; }) ||
-            r::any_of(indices_constraints->indices.vector_edge_indices,
-                      [&](const auto &index) { return index.index_name == data.index_name; })) {
-          throw RecoveryFailure("The vector edge index already exists!");
-        }
-
-        auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));
-        auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
+        const auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));
+        const auto property_id = PropertyId::FromUint(name_id_mapper->NameToId(data.property));
         const auto unum_metric_kind = MetricFromName(data.metric_kind);
-        auto scalar_kind = static_cast<unum::usearch::scalar_kind_t>(data.scalar_kind);
+        const auto scalar_kind = static_cast<unum::usearch::scalar_kind_t>(data.scalar_kind);
         indices_constraints->indices.vector_edge_indices.emplace_back(
             data.index_name, edge_type_id, property_id, unum_metric_kind, data.dimension, data.resize_coefficient,
             data.capacity, scalar_kind);
       },
       [&](WalVectorIndexDrop const &data) {
         auto pred = [&](const auto &index_metadata) { return index_metadata.index_name == data.index_name; };
-
         if (!std::erase_if(indices_constraints->indices.vector_indices, pred)) {
           // Only check the second container if nothing was erased from the first
           std::erase_if(indices_constraints->indices.vector_edge_indices, pred);
