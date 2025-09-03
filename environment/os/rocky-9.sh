@@ -196,7 +196,7 @@ install() {
         dnf install -y python3
     fi
 
-    dnf install -y wget git python3-pip
+    dnf install -y wget git python3 python3-pip
 
     # Separate standard and custom packages
     local standard_packages=()

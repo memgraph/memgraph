@@ -640,6 +640,157 @@ def test_show_databases_for_user_and_role(memgraph):
     memgraph.execute("DROP DATABASE db3;")
 
 
+def test_user_profiles(memgraph):
+    try:
+        list(memgraph.execute_and_fetch("CREATE PROFILE profile;"))
+        list(memgraph.execute_and_fetch("CREATE PROFILE Profile LIMIT sessions 1;"))
+        list(memgraph.execute_and_fetch("CREATE PROFILE profile2 LIMIT SessionS 2;"))
+    except Exception as e:
+        assert False, f"Failed to create profiles: {e}"
+
+    with pytest.raises(Exception):
+        memgraph.execute("CREATE PROFILE profile LIMIT sessions 1;")
+
+    results = list(memgraph.execute_and_fetch("SHOW PROFILES;"))
+    assert len(results) == 3
+    assert {"profile": "profile"} in results
+    assert {"profile": "Profile"} in results
+    assert {"profile": "profile2"} in results
+
+    results = list(memgraph.execute_and_fetch("SHOW PROFILE profile;"))
+    assert len(results) == 2
+    assert {"limit": "sessions", "value": "UNLIMITED"} in results
+    assert {"limit": "transactions_memory", "value": "UNLIMITED"} in results
+
+    results = list(memgraph.execute_and_fetch("SHOW PROFILE Profile;"))
+    assert len(results) == 2
+    assert {"limit": "sessions", "value": 1} in results
+    assert {"limit": "transactions_memory", "value": "UNLIMITED"} in results
+
+    results = list(memgraph.execute_and_fetch("SHOW PROFILE profile2;"))
+    assert len(results) == 2
+    assert {"limit": "sessions", "value": 2} in results
+    assert {"limit": "transactions_memory", "value": "UNLIMITED"} in results
+
+    with pytest.raises(Exception):
+        memgraph.execute("SHOW PROFILE non_profile;")
+
+    try:
+        list(memgraph.execute_and_fetch("UPDATE PROFILE profile LIMIT Transactions_MEMORY 100MB;"))
+    except Exception as e:
+        assert False, f"Failed to create profiles: {e}"
+    results = list(memgraph.execute_and_fetch("SHOW PROFILE profile;"))
+    assert len(results) == 2
+    assert {"limit": "sessions", "value": "UNLIMITED"} in results
+    assert {"limit": "transactions_memory", "value": "100MB"} in results
+
+    with pytest.raises(Exception):
+        memgraph.execute("UPDATE PROFILE non_profile LIMIT Transactions_MEMORY 100MB;")
+    with pytest.raises(Exception):
+        memgraph.execute("UPDATE PROFILE profile LIMIT NON_LIMIT 100MB;")
+
+    try:
+        list(memgraph.execute_and_fetch("DROP PROFILE profile;"))
+    except Exception as e:
+        assert False, f"Failed to create profiles: {e}"
+
+    results = list(memgraph.execute_and_fetch("SHOW PROFILES;"))
+    assert len(results) == 2
+    assert {"profile": "profile"} not in results
+    assert {"profile": "Profile"} in results
+    assert {"profile": "profile2"} in results
+
+    with pytest.raises(Exception):
+        memgraph.execute("DROP PROFILE non_profile;")
+
+    memgraph.execute("CREATE USER mrma;")
+    memgraph.execute("CREATE USER bcrypt;")
+
+    try:
+        list(memgraph.execute_and_fetch("CREATE PROFILE profile;"))
+        list(memgraph.execute_and_fetch("SET PROFILE FOR mrma TO profile;"))
+        list(memgraph.execute_and_fetch("SET PROFILE FOR bcrypt TO Profile;"))
+    except Exception as e:
+        assert False, f"Failed to create profiles: {e}"
+
+    results = list(memgraph.execute_and_fetch("SHOW PROFILE FOR mrma;"))
+    assert len(results) == 1
+    assert {"profile": "profile"} in results
+    results = list(memgraph.execute_and_fetch("SHOW PROFILE FOR bcrypt;"))
+    assert len(results) == 1
+    assert {"profile": "Profile"} in results
+
+    results = list(memgraph.execute_and_fetch("SHOW USERS FOR PROFILE profile;"))
+    assert len(results) == 1
+    assert {"user": "mrma"} in results
+    results = list(memgraph.execute_and_fetch("SHOW USERS FOR PROFILE Profile;"))
+    assert len(results) == 1
+    assert {"user": "bcrypt"} in results
+    results = list(memgraph.execute_and_fetch("SHOW USERS FOR PROFILE profile2;"))
+    assert len(results) == 0
+
+    try:
+        list(memgraph.execute_and_fetch("SET PROFILE FOR mrma TO Profile;"))
+    except Exception as e:
+        assert False, f"Failed to create profiles: {e}"
+
+    results = list(memgraph.execute_and_fetch("SHOW PROFILE FOR mrma;"))
+    assert len(results) == 1
+    assert {"profile": "Profile"} in results
+
+    results = list(memgraph.execute_and_fetch("SHOW USERS FOR PROFILE profile;"))
+    assert len(results) == 0
+    results = list(memgraph.execute_and_fetch("SHOW USERS FOR PROFILE Profile;"))
+    assert len(results) == 2
+    assert {"user": "mrma"} in results
+    assert {"user": "bcrypt"} in results
+    results = list(memgraph.execute_and_fetch("SHOW USERS FOR PROFILE profile2;"))
+    assert len(results) == 0
+
+    try:
+        list(memgraph.execute_and_fetch("CLEAR PROFILE FOR mrma;"))
+    except Exception as e:
+        assert False, f"Failed to create profiles: {e}"
+
+    results = list(memgraph.execute_and_fetch("SHOW USERS FOR PROFILE profile;"))
+    assert len(results) == 0
+    results = list(memgraph.execute_and_fetch("SHOW USERS FOR PROFILE Profile;"))
+    assert len(results) == 1
+    assert {"user": "mrma"} not in results
+    assert {"user": "bcrypt"} in results
+    results = list(memgraph.execute_and_fetch("SHOW USERS FOR PROFILE profile2;"))
+    assert len(results) == 0
+
+    try:
+        list(memgraph.execute_and_fetch("SET PROFILE FOR mrma TO profile;"))
+        results = list(memgraph.execute_and_fetch("SHOW PROFILE FOR mrma;"))
+        assert len(results) == 1
+        assert {"profile": "profile"} in results
+        list(memgraph.execute_and_fetch("DROP PROFILE profile;"))
+        results = list(memgraph.execute_and_fetch("SHOW PROFILE FOR mrma;"))
+        assert len(results) == 1
+        assert {"profile": "null"} in results
+    except Exception as e:
+        assert False, f"Failed to create profiles: {e}"
+
+    memgraph.execute("DROP USER bcrypt;")
+    results = list(memgraph.execute_and_fetch("SHOW USERS FOR PROFILE Profile;"))
+    assert len(results) == 1  # bcrypt is still in the profile
+    assert {"user": "bcrypt"} in results
+    results = list(memgraph.execute_and_fetch("SHOW USERS FOR PROFILE profile2;"))
+    assert len(results) == 0
+
+    # auth users and profile maps have been made independent of each other
+    memgraph.execute("SET PROFILE FOR non_user TO Profile;")
+    results = list(memgraph.execute_and_fetch("SHOW USERS FOR PROFILE Profile;"))
+    assert len(results) == 2
+    assert {"user": "bcrypt"} in results
+    assert {"user": "non_user"} in results
+
+    with pytest.raises(Exception):
+        memgraph.execute("SET PROFILE FOR user TO non_profile;")
+
+
 def test_show_role_no_database_specification_required(memgraph):
     """Test that SHOW ROLE FOR user no longer forces database specification."""
     # Create test user and roles

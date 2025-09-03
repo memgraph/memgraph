@@ -16,6 +16,7 @@
 #include "auth/exceptions.hpp"
 #include "auth/models.hpp"
 #include "auth/module.hpp"
+#include "auth/profiles/user_profiles.hpp"
 #include "glue/auth_global.hpp"
 #include "kvstore/kvstore.hpp"
 #include "license/license.hpp"
@@ -92,7 +93,12 @@ class Auth final {
     NO_USER_ROLE,
   };
 
-  explicit Auth(std::string storage_directory, Config config);
+  explicit Auth(std::string storage_directory, Config config
+#ifdef MG_ENTERPRISE
+                ,
+                utils::ResourceMonitoring *user_resources = nullptr
+#endif
+  );
 
   /**
    * @brief Set the Config object
@@ -241,6 +247,8 @@ class Auth final {
    */
   std::optional<Role> GetRole(const std::string &rolename) const;
 
+  void LinkRole(Role &role) const;
+
   std::optional<UserOrRole> GetUserOrRole(const std::optional<std::string> &username,
                                           const std::vector<std::string> &rolenames) const {
     auto expect = [](bool condition, std::string &&msg) {
@@ -338,6 +346,8 @@ class Auth final {
    */
   std::vector<User> AllUsersForRole(const std::string &rolename) const;
 
+  std::vector<std::string> AllUsernamesForRole(const std::string &rolename) const;
+
 #ifdef MG_ENTERPRISE
   /**
    * @brief Grant access to individual database for a user.
@@ -402,6 +412,37 @@ class Auth final {
     return res;
   }
 
+// user profiles
+#ifdef MG_ENTERPRISE
+  bool CreateProfile(const std::string &profile_name, UserProfiles::limits_t defined_limits,
+                     const std::unordered_set<std::string> &usernames = {}, system::Transaction *system_tx = nullptr);
+
+  std::optional<UserProfiles::Profile> UpdateProfile(const std::string &profile_name,
+                                                     const UserProfiles::limits_t &updated_limits,
+                                                     system::Transaction *system_tx = nullptr);
+
+  bool CreateOrUpdateProfile(const std::string &profile_name, UserProfiles::limits_t defined_limits,
+                             const std::unordered_set<std::string> &usernames = {},
+                             system::Transaction *system_tx = nullptr);
+
+  bool DropProfile(const std::string &profile_name, system::Transaction *system_tx = nullptr);
+
+  std::optional<UserProfiles::Profile> GetProfile(std::string_view name) const;
+  std::vector<UserProfiles::Profile> AllProfiles() const;
+
+  std::optional<UserProfiles::Profile> SetProfile(const std::string &profile_name, const std::string &name,
+                                                  system::Transaction *system_tx = nullptr);
+
+  void RevokeProfile(const std::string &name, system::Transaction *system_tx = nullptr);
+
+  std::vector<User> GetUsersForProfile(const std::string &profile_name) const;
+  std::unordered_set<std::string> GetUsernamesForProfile(const std::string &profile_name) const;
+  std::optional<std::string> GetProfileForUsername(const std::string &username) const;
+#endif
+
+  bool HasUser(std::string_view name) const;
+  bool HasRole(std::string_view name) const;
+
  private:
   /**
    * @brief
@@ -447,6 +488,10 @@ class Auth final {
   // Auth is not thread-safe because modifying users and roles might require
   // more than one operation on the storage.
   kvstore::KVStore storage_;
+#ifdef MG_ENTERPRISE
+  UserProfiles user_profiles_{storage_};
+  utils::ResourceMonitoring *user_resources_;
+#endif
   std::unordered_map<std::string, auth::Module> modules_;
   Config config_;
   Epoch epoch_{kStartEpoch};

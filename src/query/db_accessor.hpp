@@ -34,6 +34,7 @@
 #include "storage/v2/view.hpp"
 #include "utils/bound.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/logging.hpp"
 #include "utils/pmr/unordered_set.hpp"
 #include "utils/result.hpp"
 #include "utils/variant_helpers.hpp"
@@ -289,12 +290,14 @@ class DbAccessor final {
   void FinalizeTransaction() { accessor_->FinalizeTransaction(); }
 
   void TrackCurrentThreadAllocations() {
-    memgraph::memory::StartTrackingCurrentThread(accessor_->GetQueryMemoryTracker().get());
+    auto *tracker = &accessor_->GetTransactionMemoryTracker();
+    DMG_ASSERT(tracker, "Query memory tracker must be set before tracking allocations");
+    memgraph::memory::StartTrackingCurrentThread(tracker);
   }
 
   void UntrackCurrentThreadAllocations() { memgraph::memory::StopTrackingCurrentThread(); }
 
-  auto &GetQueryMemoryTracker() { return accessor_->GetQueryMemoryTracker(); }
+  auto &GetTransactionMemoryTracker() { return accessor_->GetTransactionMemoryTracker(); }
 
   auto GetTransactionId() { return accessor_->GetTransactionId(); }
 
@@ -315,8 +318,8 @@ class DbAccessor final {
                      plan::PointDistanceCondition condition) -> PointIterable;
 
   auto PointVertices(storage::LabelId label, storage::PropertyId property, storage::CoordinateReferenceSystem crs,
-                     TypedValue const &bottom_left, TypedValue const &top_right, plan::WithinBBoxCondition condition)
-      -> PointIterable;
+                     TypedValue const &bottom_left, TypedValue const &top_right,
+                     plan::WithinBBoxCondition condition) -> PointIterable;
 
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type) {
     return EdgesIterable(accessor_->Edges(edge_type, view));
@@ -476,14 +479,12 @@ class DbAccessor final {
 
   void AdvanceCommand() { accessor_->AdvanceCommand(); }
 
-  utils::BasicResult<storage::StorageManipulationError, void> Commit(storage::CommitReplicationArgs reparg = {},
-                                                                     storage::DatabaseAccessProtector db_acc = {}) {
-    return accessor_->PrepareForCommitPhase(std::move(reparg), std::move(db_acc));
+  utils::BasicResult<storage::StorageManipulationError, void> Commit(storage::CommitArgs commit_args) {
+    return accessor_->PrepareForCommitPhase(std::move(commit_args));
   }
 
-  utils::BasicResult<storage::StorageManipulationError, void> PeriodicCommit(
-      storage::CommitReplicationArgs reparg = {}, storage::DatabaseAccessProtector db_acc = {}) {
-    return accessor_->PeriodicCommit(std::move(reparg), std::move(db_acc));
+  utils::BasicResult<storage::StorageManipulationError, void> PeriodicCommit(storage::CommitArgs commit_args) {
+    return accessor_->PeriodicCommit(std::move(commit_args));
   }
 
   void Abort() { accessor_->Abort(); }
@@ -593,6 +594,10 @@ class DbAccessor final {
 
   std::optional<uint64_t> VerticesVectorCount(storage::LabelId label, storage::PropertyId property) const {
     return accessor_->ApproximateVerticesVectorCount(label, property);
+  }
+
+  std::optional<uint64_t> VerticesTextCount(std::string_view index_name) const {
+    return accessor_->ApproximateVerticesTextCount(index_name);
   }
 
   int64_t EdgesCount() const { return accessor_->ApproximateEdgeCount(); }
@@ -758,8 +763,8 @@ class DbAccessor final {
 
   auto ShowEnums() { return accessor_->ShowEnums(); }
 
-  auto GetEnumValue(std::string_view name, std::string_view value) const
-      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+  auto GetEnumValue(std::string_view name,
+                    std::string_view value) const -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
     return accessor_->GetEnumValue(name, value);
   }
   auto GetEnumValue(std::string_view enum_str) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
@@ -770,17 +775,30 @@ class DbAccessor final {
     return accessor_->GetEnumStoreShared().ToString(value);
   }
 
-  auto EnumAlterAdd(std::string_view name, std::string_view value)
-      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+  auto EnumAlterAdd(std::string_view name,
+                    std::string_view value) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
     return accessor_->EnumAlterAdd(name, value);
   }
 
-  auto EnumAlterUpdate(std::string_view name, std::string_view old_value, std::string_view new_value)
-      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+  auto EnumAlterUpdate(std::string_view name, std::string_view old_value,
+                       std::string_view new_value) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
     return accessor_->EnumAlterUpdate(name, old_value, new_value);
   }
 
   auto GetStorageAccessor() const -> storage::Storage::Accessor * { return accessor_; }
+
+#ifdef MG_ENTERPRISE
+  // TTL operations - pushed into accessor
+  void StartTtl() { accessor_->StartTtl(); }
+
+  void ConfigureTtl(const storage::ttl::TtlInfo &ttl_info) { accessor_->ConfigureTtl(ttl_info); }
+
+  void DisableTtl() { accessor_->DisableTtl(); }
+
+  void StopTtl() { accessor_->StopTtl(); }
+
+  storage::ttl::TtlInfo GetTtlConfig() const { return accessor_->GetTtlConfig(); }
+#endif
 };
 
 class SubgraphDbAccessor final {

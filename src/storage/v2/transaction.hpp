@@ -16,13 +16,14 @@
 #include <optional>
 
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "utils/memory.hpp"
 #include "utils/query_memory_tracker.hpp"
 #include "utils/skip_list.hpp"
 
 #include "delta_container.hpp"
-#include "storage/v2/auto_indexer.hpp"
+#include "storage/v2/async_indexer.hpp"
 #include "storage/v2/constraint_verification_info.hpp"
 #include "storage/v2/delta.hpp"
 #include "storage/v2/edge.hpp"
@@ -57,9 +58,9 @@ struct CommitCallbacks {
   std::vector<std::function<void(uint64_t)>> callbacks_;
 };
 
-struct AutoIndexHelper {
-  AutoIndexHelper() = default;
-  AutoIndexHelper(Config const &config, ActiveIndices const &active_indices, uint64_t start_timestamp);
+struct AsyncIndexHelper {
+  AsyncIndexHelper() = default;
+  AsyncIndexHelper(Config const &config, ActiveIndices const &active_indices, uint64_t start_timestamp);
 
   // Perf: keep this code inlinable
   void Track(LabelId label) {
@@ -79,7 +80,7 @@ struct AutoIndexHelper {
     }
   }
 
-  void DispatchRequests(AutoIndexer &auto_indexer);
+  void DispatchRequests(AsyncIndexer &async_indexer);
 
  private:
   struct LabelIndexInfo {
@@ -98,7 +99,7 @@ struct AutoIndexHelper {
 struct Transaction {
   Transaction(uint64_t transaction_id, uint64_t start_timestamp, IsolationLevel isolation_level,
               StorageMode storage_mode, bool edge_import_mode_active, bool has_constraints,
-              PointIndexContext point_index_ctx, ActiveIndices active_indices, AutoIndexHelper auto_index_helper = {},
+              PointIndexContext point_index_ctx, ActiveIndices active_indices, AsyncIndexHelper async_index_helper = {},
               std::optional<uint64_t> last_durable_ts = std::nullopt)
       : transaction_id(transaction_id),
         start_timestamp(start_timestamp),
@@ -120,13 +121,13 @@ struct Transaction {
         point_index_change_collector_{point_index_ctx_},
         last_durable_ts_{last_durable_ts},
         active_indices_{std::move(active_indices)},
-        auto_index_helper_(std::move(auto_index_helper)) {}
+        async_index_helper_(std::move(async_index_helper)) {}
 
   Transaction(Transaction &&other) noexcept = default;
 
   Transaction(const Transaction &) = delete;
   Transaction &operator=(const Transaction &) = delete;
-  Transaction &operator=(Transaction &&other) = default;
+  Transaction &operator=(Transaction &&other) = delete;
 
   ~Transaction() = default;
 
@@ -207,11 +208,10 @@ struct Transaction {
   SchemaInfoPostProcess post_process_;
 
   /// Query memory tracker
-  std::unique_ptr<utils::QueryMemoryTracker> query_memory_tracker_{};
+  utils::QueryMemoryTracker query_memory_tracker_{};
 
-  /// Flag to track if any text index operations were performed during this transaction. Needed because text index
-  /// commit can be expensive and we want to avoid it if no text index operations were performed.
-  bool text_index_operations_performed_ = false;
+  /// Text index change tracking (batched apply on commit)
+  TextIndexChangeCollector text_index_change_collector_;
 
   /// Last durable timestamp at the moment of transaction creation
   std::optional<uint64_t> last_durable_ts_;
@@ -222,7 +222,7 @@ struct Transaction {
   CommitCallbacks commit_callbacks_;
 
   /// Auto indexing infomation gathering
-  AutoIndexHelper auto_index_helper_;
+  AsyncIndexHelper async_index_helper_;
 };
 
 inline bool operator==(const Transaction &first, const Transaction &second) {

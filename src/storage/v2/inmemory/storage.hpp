@@ -24,6 +24,8 @@
 #include "storage/v2/inmemory/snapshot_info.hpp"
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/storage.hpp"
+#include "storage/v2/storage_mode.hpp"
+#include "storage/v2/ttl.hpp"
 
 /// REPLICATION ///
 
@@ -122,7 +124,8 @@ class InMemoryStorage final : public Storage {
   /// @throw std::system_error
   /// @throw std::bad_alloc
   explicit InMemoryStorage(Config config = Config(), std::optional<free_mem_fn> free_mem_fn_override = std::nullopt,
-                           PlanInvalidatorPtr invalidator = std::make_unique<PlanInvalidatorDefault>());
+                           PlanInvalidatorPtr invalidator = std::make_unique<PlanInvalidatorDefault>(),
+                           std::function<storage::DatabaseProtectorPtr()> database_protector_factory = nullptr);
 
   InMemoryStorage(const InMemoryStorage &) = delete;
   InMemoryStorage(InMemoryStorage &&) = delete;
@@ -136,7 +139,7 @@ class InMemoryStorage final : public Storage {
     friend class InMemoryStorage;
 
     explicit InMemoryAccessor(SharedAccess tag, InMemoryStorage *storage, IsolationLevel isolation_level,
-                              StorageMode storage_mode, Accessor::Type rw_type,
+                              StorageMode storage_mode, StorageAccessType rw_type,
                               std::optional<std::chrono::milliseconds> timeout = std::nullopt);
     explicit InMemoryAccessor(auto tag, InMemoryStorage *storage, IsolationLevel isolation_level,
                               StorageMode storage_mode,
@@ -149,9 +152,8 @@ class InMemoryStorage final : public Storage {
     void CheckForFastDiscardOfDeltas();
 
     [[nodiscard]] bool HandleDurabilityAndReplicate(uint64_t durability_commit_timestamp,
-                                                    DatabaseAccessProtector db_acc,
                                                     TransactionReplication &replicating_txn,
-                                                    std::optional<bool> const &commit_immediately);
+                                                    CommitArgs const &commit_args);
 
    public:
     InMemoryAccessor(const InMemoryAccessor &) = delete;
@@ -280,6 +282,10 @@ class InMemoryStorage final : public Storage {
       return storage_->indices_.vector_edge_index_.ApproximateEdgesVectorCount(edge_type, property);
     }
 
+    std::optional<uint64_t> ApproximateVerticesTextCount(std::string_view index_name) const override {
+      return storage_->indices_.text_index_.ApproximateVerticesTextCount(index_name);
+    }
+
     std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const override {
       return static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get())->GetIndexStats(label);
     }
@@ -313,6 +319,10 @@ class InMemoryStorage final : public Storage {
       return transaction_.active_indices_.label_->IndexReady(label);
     }
 
+    bool LabelPropertyIndexExists(LabelId label, std::span<PropertyPath const> properties) const override {
+      return transaction_.active_indices_.label_properties_->IndexExists(label, properties);
+    }
+
     bool LabelPropertyIndexReady(LabelId label, std::span<PropertyPath const> properties) const override {
       return transaction_.active_indices_.label_properties_->IndexReady(label, properties);
     }
@@ -323,6 +333,10 @@ class InMemoryStorage final : public Storage {
 
     bool EdgeTypePropertyIndexReady(EdgeTypeId edge_type, PropertyId property) const override {
       return transaction_.active_indices_.edge_type_properties_->IndexReady(edge_type, property);
+    }
+
+    bool EdgePropertyIndexExists(PropertyId property) const override {
+      return transaction_.active_indices_.edge_property_->IndexExists(property);
     }
 
     bool EdgePropertyIndexReady(PropertyId property) const override {
@@ -340,11 +354,9 @@ class InMemoryStorage final : public Storage {
     // finalize commit method which will bump ldt, update commit ts etc.
     // @throw std::bad_alloc
     // NOLINTNEXTLINE(google-default-arguments)
-    utils::BasicResult<StorageManipulationError, void> PrepareForCommitPhase(
-        CommitReplicationArgs repl_args = {}, DatabaseAccessProtector db_acc = {}) override;
+    utils::BasicResult<StorageManipulationError, void> PrepareForCommitPhase(CommitArgs commit_args) override;
 
-    utils::BasicResult<StorageManipulationError, void> PeriodicCommit(CommitReplicationArgs reparg = {},
-                                                                      DatabaseAccessProtector db_acc = {}) override;
+    utils::BasicResult<StorageManipulationError, void> PeriodicCommit(CommitArgs commit_args) override;
 
     void AbortAndResetCommitTs();
 
@@ -515,8 +527,8 @@ class InMemoryStorage final : public Storage {
     /// View is not needed because a new rtree gets created for each transaction and it is always
     /// using the latest version
     auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
-                       PropertyValue const &bottom_left, PropertyValue const &top_right, WithinBBoxCondition condition)
-        -> PointIterable override;
+                       PropertyValue const &bottom_left, PropertyValue const &top_right,
+                       WithinBBoxCondition condition) -> PointIterable override;
 
     std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearchOnNodes(
         const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) override;
@@ -527,6 +539,90 @@ class InMemoryStorage final : public Storage {
     std::vector<VectorIndexInfo> ListAllVectorIndices() const override;
 
     std::vector<VectorEdgeIndexInfo> ListAllVectorEdgeIndices() const override;
+
+#ifdef MG_ENTERPRISE
+    // TTL management methods
+    void StartTtl(TTLReplicationArgs repl_args = {}) override {
+      DMG_ASSERT(type() == UNIQUE, "TTL operations require unique access to the storage!");
+      if (!storage_->ttl_.Config()) throw ttl::TtlException("TTL not configured!");
+      // Only MAIN should be running the TTL worker, it does write operations which only MAIN should be doing
+      if (repl_args.is_main) {
+        storage_->ttl_.Resume();
+      }
+      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::ENABLE,
+                                          std::nullopt, std::nullopt, false);
+    }
+
+    void StopTtl() override {
+      DMG_ASSERT(type() == UNIQUE, "TTL operations require unique access to the storage!");
+      storage_->ttl_.Pause();
+      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::STOP,
+                                          std::nullopt, std::nullopt, false);
+    }
+
+    void ConfigureTtl(const storage::ttl::TtlInfo &ttl_info, TTLReplicationArgs repl_args = {}) override {
+      DMG_ASSERT(type() == UNIQUE, "TTL operations require unique access to the storage!");
+      auto ttl_label = NameToLabel("TTL");
+      auto ttl_property = NameToProperty("ttl");
+
+      auto &ttl = storage_->ttl_;
+
+      // If TTL is not enabled, create required indices and enable TTL
+      if (!ttl.Enabled()) {
+        if (repl_args.is_main) {
+          // Only if MAIN, do we proactivly make indexes
+          // REPLICA will recieve deltas from MAIN that will create the indexes
+          if (GetCreationStorageMode() == StorageMode::IN_MEMORY_TRANSACTIONAL) {
+            // Use non-blocking async indexer
+            auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+            // Async index creation -> happens in separate transaction
+            mem_storage->async_indexer_.Enqueue(ttl_label, std::vector<storage::PropertyPath>{{ttl_property}});
+            if (ttl_info.should_run_edge_ttl) {
+              mem_storage->async_indexer_.Enqueue(ttl_property);
+            }
+          } else {
+            // Create index with unique access in same transaction
+            (void)CreateIndex(ttl_label, std::vector<storage::PropertyPath>{{ttl_property}});
+            // Create edge index if needed based on TTL configuration
+            if (ttl_info.should_run_edge_ttl) {
+              (void)CreateGlobalEdgeIndex(ttl_property);
+            }
+          }
+        }
+        ttl.Enable();
+      }
+
+      // Configure TTL
+      if (!ttl.Running()) ttl.Configure(ttl_info.should_run_edge_ttl);
+      ttl.SetInterval(ttl_info.period, ttl_info.start_time);
+      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::CONFIGURE,
+                                          ttl_info.period, ttl_info.start_time, ttl_info.should_run_edge_ttl);
+    }
+
+    void DisableTtl(TTLReplicationArgs repl_args = {}) override {
+      DMG_ASSERT(type() == UNIQUE, "TTL operations require unique access to the storage!");
+      auto ttl_label = NameToLabel("TTL");
+      auto ttl_property = NameToProperty("ttl");
+      auto &ttl = storage_->ttl_;
+      if (repl_args.is_main) {
+        // Only if MAIN, do we proactivly drop indexes
+        // REPLICA will recieve deltas from MAIN that will drop the indexes
+        // Drop indices (silently fail if index already dropped )
+        (void)DropIndex(ttl_label, std::vector<storage::PropertyPath>{{ttl_property}});
+        // Check if edge TTL was enabled and drop edge index if needed (silently fail if index already dropped)
+        if (ttl.Config().should_run_edge_ttl) {
+          (void)DropGlobalEdgeIndex(ttl_property);
+        }
+      }
+
+      ttl.Disable();
+
+      transaction_.md_deltas.emplace_back(MetadataDelta::ttl_operation, durability::TtlOperationType::DISABLE,
+                                          std::nullopt, std::nullopt, false);
+    }
+
+    storage::ttl::TtlInfo GetTtlConfig() const override { return storage_->ttl_.Config(); }
+#endif
 
     void DowngradeToReadIfValid();
 
@@ -549,7 +645,7 @@ class InMemoryStorage final : public Storage {
   };
 
   using Storage::Access;
-  std::unique_ptr<Accessor> Access(Accessor::Type rw_type, std::optional<IsolationLevel> override_isolation_level,
+  std::unique_ptr<Accessor> Access(StorageAccessType rw_type, std::optional<IsolationLevel> override_isolation_level,
                                    std::optional<std::chrono::milliseconds> timeout) override;
   using Storage::UniqueAccess;
   std::unique_ptr<Accessor> UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
@@ -583,6 +679,17 @@ class InMemoryStorage final : public Storage {
 
   const durability::Recovery &GetRecovery() const noexcept { return recovery_; }
 
+  auto GetAsyncIndexer() -> AsyncIndexer & { return async_indexer_; }
+
+  bool IsAsyncIndexerIdle() const override { return async_indexer_.IsIdle(); }
+
+  bool HasAsyncIndexerStopped() const override { return async_indexer_.HasThreadStopped(); }
+
+  void StopAllBackgroundTasks() override {
+    async_indexer_.Shutdown();
+    Storage::StopAllBackgroundTasks();
+  }
+
  private:
   /// The force parameter determines the behaviour of the garbage collector.
   /// If it's set to true, it will behave as a global operation, i.e. it can't
@@ -611,6 +718,8 @@ class InMemoryStorage final : public Storage {
   void UpdateEdgesMetadataOnModification(Edge *edge, Vertex *from_vertex);
 
   std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> FindEdge(Gid gid);
+
+  void Clear();
 
   // Main object storage
   utils::SkipList<Vertex> vertices_;
@@ -688,9 +797,6 @@ class InMemoryStorage final : public Storage {
   // Moved the create snapshot to a user defined handler so we can remove the global replication state from the storage
   std::function<void()> create_snapshot_handler{};
 
-  // A way to tell async operation to stop
-  std::stop_source stop_source;
-
   // Snapshot digest is the minimal meta info of a snapshot
   // Used to figure out if the current snapshot should be written or not
   struct SnapshotDigest {
@@ -702,11 +808,9 @@ class InMemoryStorage final : public Storage {
     friend bool operator==(SnapshotDigest const &, SnapshotDigest const &) = default;
   };
 
-  std::optional<AutoIndexer> auto_indexer_;
-
   std::optional<SnapshotDigest> last_snapshot_digest_;
 
-  void Clear();
+  AsyncIndexer async_indexer_;
 };
 
 class ReplicationAccessor final : public InMemoryStorage::InMemoryAccessor {
@@ -739,6 +843,7 @@ static_assert(std::is_move_constructible_v<ReplicationAccessor>, "Replication ac
 struct SingleTxnDeltasProcessingResult {
   std::unique_ptr<ReplicationAccessor> commit_acc;
   uint64_t current_delta_idx;
+  uint64_t num_txns_committed;
   uint32_t current_batch_counter;
 };
 

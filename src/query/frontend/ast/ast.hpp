@@ -973,7 +973,16 @@ class PropertyLookup : public memgraph::query::Expression {
 
   enum class EvaluationMode { GET_OWN_PROPERTY, GET_ALL_PROPERTIES };
 
+  enum class LookupMode { REPLACE, APPEND };
+
   PropertyLookup() = default;
+
+  PropertyLookup(Expression *expression, std::vector<PropertyIx> property_path)
+      : expression_(expression), property_path_(std::move(property_path)) {
+    MG_ASSERT(property_path_.size() > 0, "Property path is empty!");
+  }
+  PropertyLookup(Expression *expression, PropertyIx property)
+      : expression_(expression), property_(property), property_path_{property} {}
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
@@ -986,20 +995,28 @@ class PropertyLookup : public memgraph::query::Expression {
   }
 
   memgraph::query::Expression *expression_{nullptr};
-  memgraph::query::PropertyIx property_;
+  PropertyIx property_;
+  std::vector<PropertyIx> property_path_;
   memgraph::query::PropertyLookup::EvaluationMode evaluation_mode_{EvaluationMode::GET_OWN_PROPERTY};
+  memgraph::query::PropertyLookup::LookupMode lookup_mode_{LookupMode::REPLACE};
+  bool use_nested_property_update_{false};
 
   PropertyLookup *Clone(AstStorage *storage) const override {
     PropertyLookup *object = storage->Create<PropertyLookup>();
     object->expression_ = expression_ ? expression_->Clone(storage) : nullptr;
     object->property_ = storage->GetPropertyIx(property_.name);
+    object->property_path_.resize(property_path_.size());
+    for (size_t i = 0; i < property_path_.size(); ++i) {
+      object->property_path_[i] = storage->GetPropertyIx(property_path_[i].name);
+    }
     object->evaluation_mode_ = evaluation_mode_;
+    object->lookup_mode_ = lookup_mode_;
+    object->use_nested_property_update_ = use_nested_property_update_;
     return object;
   }
 
  protected:
-  PropertyLookup(Expression *expression, PropertyIx property)
-      : expression_(expression), property_(std::move(property)) {}
+  // Constructors moved above
 
  private:
   friend class AstStorage;
@@ -1619,7 +1636,14 @@ class EdgeAtom : public memgraph::query::PatternAtom {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  enum class Type : uint8_t { SINGLE, DEPTH_FIRST, BREADTH_FIRST, WEIGHTED_SHORTEST_PATH, ALL_SHORTEST_PATHS };
+  enum class Type : uint8_t {
+    SINGLE,
+    DEPTH_FIRST,
+    BREADTH_FIRST,
+    WEIGHTED_SHORTEST_PATH,
+    ALL_SHORTEST_PATHS,
+    KSHORTEST,
+  };
 
   enum class Direction : uint8_t { IN, OUT, BOTH };
 
@@ -1671,6 +1695,9 @@ class EdgeAtom : public memgraph::query::PatternAtom {
       if (cont && total_weight_) {
         total_weight_->Accept(visitor);
       }
+      if (cont && limit_) {
+        cont = limit_->Accept(visitor);
+      }
     }
     return visitor.PostVisit(*this);
   }
@@ -1681,6 +1708,7 @@ class EdgeAtom : public memgraph::query::PatternAtom {
       case Type::BREADTH_FIRST:
       case Type::WEIGHTED_SHORTEST_PATH:
       case Type::ALL_SHORTEST_PATHS:
+      case Type::KSHORTEST:
         return true;
       case Type::SINGLE:
         return false;
@@ -1705,6 +1733,8 @@ class EdgeAtom : public memgraph::query::PatternAtom {
   memgraph::query::EdgeAtom::Lambda weight_lambda_;
   /// Variable where the total weight for weighted shortest path will be stored.
   memgraph::query::Identifier *total_weight_{nullptr};
+  /// Limit for the number of paths returned in kshortest path expansion.
+  memgraph::query::Expression *limit_{nullptr};
 
   EdgeAtom *Clone(AstStorage *storage) const override {
     EdgeAtom *object = storage->Create<EdgeAtom>();
@@ -1733,6 +1763,7 @@ class EdgeAtom : public memgraph::query::PatternAtom {
     object->filter_lambda_ = filter_lambda_.Clone(storage);
     object->weight_lambda_ = weight_lambda_.Clone(storage);
     object->total_weight_ = total_weight_ ? total_weight_->Clone(storage) : nullptr;
+    object->limit_ = limit_ ? limit_->Clone(storage) : nullptr;
     return object;
   }
 
@@ -2949,7 +2980,8 @@ class CoordinatorQuery : public memgraph::query::Query {
     FORCE_RESET_CLUSTER_STATE,
     YIELD_LEADERSHIP,
     SET_COORDINATOR_SETTING,
-    SHOW_COORDINATOR_SETTINGS
+    SHOW_COORDINATOR_SETTINGS,
+    SHOW_REPLICATION_LAG
   };
 
   enum class SyncMode { SYNC, ASYNC, STRICT_SYNC };
@@ -3746,7 +3778,7 @@ class TtlQuery : public memgraph::query::Query {
 
   TtlQuery() = default;
 
-  enum class Type { UNKNOWN = 0, ENABLE, DISABLE, STOP } type_;
+  enum class Type { UNKNOWN = 0, START, CONFIGURE, DISABLE, STOP } type_;
   Expression *period_{};
   Expression *specific_time_{};
 

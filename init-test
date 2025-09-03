@@ -7,6 +7,7 @@ source "$DIR/environment/util.sh"
 export PIP_BREAK_SYSTEM_PACKAGES=1
 
 pip install uv
+export PATH="$HOME/.local/bin:$PATH"
 
 function setup_virtualenv () {
     pushd $1 > /dev/null
@@ -54,8 +55,6 @@ while(($#)); do
 done
 
 DISTRO=$(operating_system)
-ARCHITECTURE=$(architecture)
-
 
 # Fix for centos 7 during release
 if [[ "$ci" == "false" ]]; then

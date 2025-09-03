@@ -32,7 +32,8 @@ auto BuildReplicaKey(std::string_view name) -> std::string {
   return key;
 }
 
-ReplicationState::ReplicationState(std::optional<std::filesystem::path> durability_dir) {
+ReplicationState::ReplicationState(std::optional<std::filesystem::path> durability_dir, bool part_of_ha_cluster)
+    : part_of_ha_cluster_(part_of_ha_cluster) {
   if (!durability_dir) return;
   auto repl_dir = *std::move(durability_dir);
   repl_dir /= kReplicationDirectory;
@@ -59,13 +60,13 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
 #ifdef MG_ENTERPRISE
   if (flags::CoordinationSetupInstance().IsDataInstanceManagedByCoordinator() &&
       std::holds_alternative<RoleReplicaData>(replication_data)) {
-    spdlog::trace("Restarted replication uuid for replica");
-    std::get<RoleReplicaData>(replication_data).uuid_.reset();
+    std::get<RoleReplicaData>(replication_data).uuid_ = utils::UUID{};
+    spdlog::trace("Replica's replication uuid for replica has been reset");
   }
 #endif
   if (std::holds_alternative<RoleReplicaData>(replication_data)) {
-    auto &replica_uuid = std::get<RoleReplicaData>(replication_data).uuid_;
-    std::string uuid = replica_uuid.has_value() ? std::string(replica_uuid.value()) : "";
+    auto const &replica_uuid = std::get<RoleReplicaData>(replication_data).uuid_;
+    auto const uuid = std::string(replica_uuid);
     spdlog::trace("Recovered main's uuid for replica {}", uuid);
   } else {
     spdlog::trace("Recovered uuid for main {}", std::string(std::get<RoleMainData>(replication_data).uuid_));
@@ -73,8 +74,7 @@ ReplicationState::ReplicationState(std::optional<std::filesystem::path> durabili
   replication_data_ = std::move(replication_data);
 }
 
-bool ReplicationState::TryPersistRoleReplica(const ReplicationServerConfig &config,
-                                             const std::optional<utils::UUID> &main_uuid) {
+bool ReplicationState::TryPersistRoleReplica(const ReplicationServerConfig &config, utils::UUID const &main_uuid) {
   if (!HasDurability()) return true;
 
   auto data =
@@ -285,15 +285,23 @@ bool ReplicationState::SetReplicationRoleMain(const utils::UUID &main_uuid) {
 }
 
 bool ReplicationState::SetReplicationRoleReplica(const ReplicationServerConfig &config,
-                                                 const std::optional<utils::UUID> &main_uuid) {
+                                                 std::optional<utils::UUID> const &maybe_main_uuid) {
   // False positive report for the std::make_unique
+  // Random UUID when first setting replica role if main_uuid not provided already
+  auto const main_uuid = std::invoke([&maybe_main_uuid]() -> utils::UUID {
+    if (maybe_main_uuid.has_value()) {
+      return *maybe_main_uuid;
+    }
+    return utils::UUID{};
+  });
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
   if (!TryPersistRoleReplica(config, main_uuid)) {
     return false;
   }
   // False positive report for the std::make_unique
   // NOLINTNEXTLINE(clang-analyzer-cplusplus.NewDeleteLeaks)
-  replication_data_ = RoleReplicaData{config, std::make_unique<ReplicationServer>(config), std::nullopt};
+  replication_data_ =
+      RoleReplicaData{.config = config, .server = std::make_unique<ReplicationServer>(config), .uuid_ = main_uuid};
   return true;
 }
 

@@ -1,12 +1,12 @@
 query: >
   MATCH path = (p:Person)-[:OWNS]->(c:Car)-[:MADE_BY]->(co:Company)-[:LOCATED_IN]->(loc:Location)
   WITH collect(path) AS paths
-  CALL convert.to_tree(paths) YIELD value
-  RETURN value.name AS name, 
+  CALL convert_c.to_tree(paths, false) YIELD value
+  RETURN value.name AS name,
          value._type AS type,
-         size(value.owns) AS car_count,
-         [car IN value.owns | car.model] AS car_models,
-         [car IN value.owns | car.made_by[0].name] AS company_names
+         size(value.OWNS) AS car_count,
+         [car IN value.OWNS | car.model] AS car_models,
+         [car IN value.OWNS | car.MADE_BY[0].name] AS company_names
   ORDER BY name
 
 output:

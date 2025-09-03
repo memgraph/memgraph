@@ -58,12 +58,12 @@ void Indices::DropGraphClearIndices() {
   }
 }
 
-void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx, NameIdMapper *name_id_mapper) const {
+void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx) const {
   tx.active_indices_.label_->UpdateOnAddLabel(label, vertex, tx);
   tx.active_indices_.label_properties_->UpdateOnAddLabel(label, vertex, tx);
   vector_index_.UpdateOnAddLabel(label, vertex);
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    text_index_.UpdateOnAddLabel(label, vertex, name_id_mapper, tx);
+    text_index_.UpdateOnAddLabel(label, vertex, tx);
   }
 }
 
@@ -76,12 +76,12 @@ void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx
   }
 }
 
-void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, Transaction &tx,
-                                  NameIdMapper *name_id_mapper) const {
+void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
+                                  Transaction &tx) const {
   tx.active_indices_.label_properties_->UpdateOnSetProperty(property, value, vertex, tx);
   vector_index_.UpdateOnSetProperty(property, value, vertex);
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    text_index_.UpdateOnSetProperty(vertex, name_id_mapper, tx);
+    text_index_.UpdateOnSetProperty(vertex, tx);
   }
 }
 

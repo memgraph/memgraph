@@ -336,7 +336,7 @@ mgp_value_type FromTypedValueType(memgraph::query::TypedValue::Type type) {
     case memgraph::query::TypedValue::Type::LocalDateTime:
       return MGP_VALUE_TYPE_LOCAL_DATE_TIME;
     case memgraph::query::TypedValue::Type::ZonedDateTime:
-      throw std::logic_error{"mgp_value for TypedValue::Type::ZonedDateTime doesn't exist."};
+      return MGP_VALUE_TYPE_ZONED_DATE_TIME;
     case memgraph::query::TypedValue::Type::Duration:
       return MGP_VALUE_TYPE_DURATION;
     case memgraph::query::TypedValue::Type::Enum:
@@ -381,6 +381,7 @@ bool ContainsDeleted(const mgp_value *val) {
     case MGP_VALUE_TYPE_DATE:
     case MGP_VALUE_TYPE_LOCAL_TIME:
     case MGP_VALUE_TYPE_LOCAL_DATE_TIME:
+    case MGP_VALUE_TYPE_ZONED_DATE_TIME:
     case MGP_VALUE_TYPE_DURATION:
       return false;
     // Reference types
@@ -455,6 +456,8 @@ memgraph::query::TypedValue ToTypedValue(const mgp_value &val, memgraph::utils::
       return memgraph::query::TypedValue(val.local_date_time_v->local_date_time, alloc);
     case MGP_VALUE_TYPE_DURATION:
       return memgraph::query::TypedValue(val.duration_v->duration, alloc);
+    case MGP_VALUE_TYPE_ZONED_DATE_TIME:
+      return memgraph::query::TypedValue(val.zoned_date_time_v->zoned_date_time, alloc);
   }
 }
 
@@ -513,6 +516,12 @@ mgp_value::mgp_value(mgp_local_time *val, allocator_type alloc) noexcept
 
 mgp_value::mgp_value(mgp_local_date_time *val, allocator_type alloc) noexcept
     : type(MGP_VALUE_TYPE_LOCAL_DATE_TIME), alloc(alloc), local_date_time_v(val) {
+  MG_ASSERT(val->GetMemoryResource() == alloc.resource(),
+            "Unable to take ownership of a pointer with different allocator.");
+}
+
+mgp_value::mgp_value(mgp_zoned_date_time *val, allocator_type alloc) noexcept
+    : type(MGP_VALUE_TYPE_ZONED_DATE_TIME), alloc(alloc), zoned_date_time_v(val) {
   MG_ASSERT(val->GetMemoryResource() == alloc.resource(),
             "Unable to take ownership of a pointer with different allocator.");
 }
@@ -651,6 +660,11 @@ mgp_value::mgp_value(const memgraph::query::TypedValue &tv, mgp_graph *graph, al
       duration_v = allocator.new_object<mgp_duration>(tv.ValueDuration());
       break;
     }
+    case MGP_VALUE_TYPE_ZONED_DATE_TIME: {
+      memgraph::utils::Allocator<mgp_local_date_time> allocator(alloc);
+      zoned_date_time_v = allocator.new_object<mgp_zoned_date_time>(tv.ValueZonedDateTime());
+      break;
+    }
   }
 }
 
@@ -735,7 +749,15 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::stora
       break;
     }
     case memgraph::storage::PropertyValue::Type::ZonedTemporalData: {
-      throw std::logic_error{"mgp_value for PropertyValue::Type::ZonedTemporalData doesn't exist."};
+      const auto &zoned_temporal_data = pv.ValueZonedTemporalData();
+      switch (zoned_temporal_data.type) {
+        case memgraph::storage::ZonedTemporalType::ZonedDateTime: {
+          type = MGP_VALUE_TYPE_ZONED_DATE_TIME;
+          auto zdt = memgraph::utils::ZonedDateTime(zoned_temporal_data.microseconds, zoned_temporal_data.timezone);
+          zoned_date_time_v = NewRawMgpObject<mgp_zoned_date_time>(alloc.resource(), zdt);
+          break;
+        }
+      }
       break;
     }
     case memgraph::storage::PropertyValue::Type::Enum: {
@@ -811,6 +833,10 @@ mgp_value::mgp_value(const mgp_value &other, allocator_type alloc) : type(other.
       duration_v = NewRawMgpObject<mgp_duration>(alloc, *other.duration_v);
       break;
     }
+    case MGP_VALUE_TYPE_ZONED_DATE_TIME: {
+      zoned_date_time_v = NewRawMgpObject<mgp_zoned_date_time>(alloc, *other.zoned_date_time_v);
+      break;
+    }
   }
 }
 
@@ -855,6 +881,9 @@ void DeleteValueMember(mgp_value *value) noexcept {
       return;
     case MGP_VALUE_TYPE_DURATION:
       allocator.delete_object(value->duration_v);
+      return;
+    case MGP_VALUE_TYPE_ZONED_DATE_TIME:
+      allocator.delete_object(value->zoned_date_time_v);
       return;
   }
 }
@@ -964,6 +993,16 @@ mgp_value::mgp_value(mgp_value &&other, allocator_type alloc) : type(other.type)
         duration_v = NewRawMgpObject<mgp_duration>(alloc.resource(), *other.duration_v);
       }
       break;
+    case MGP_VALUE_TYPE_ZONED_DATE_TIME:
+      static_assert(std::is_pointer_v<decltype(zoned_date_time_v)>,
+                    "Expected to move zoned_date_time_v by copying pointers.");
+      if (*other.GetMemoryResource() == *alloc.resource()) {
+        zoned_date_time_v = other.zoned_date_time_v;
+        other.type = MGP_VALUE_TYPE_NULL;
+      } else {
+        zoned_date_time_v = NewRawMgpObject<mgp_zoned_date_time>(alloc.resource(), *other.zoned_date_time_v);
+      }
+      break;
   }
   DeleteValueMember(&other);
   other.type = MGP_VALUE_TYPE_NULL;
@@ -1028,6 +1067,7 @@ DEFINE_MGP_VALUE_MAKE(date)
 DEFINE_MGP_VALUE_MAKE(local_time)
 DEFINE_MGP_VALUE_MAKE(local_date_time)
 DEFINE_MGP_VALUE_MAKE(duration)
+DEFINE_MGP_VALUE_MAKE(zoned_date_time)
 
 namespace {
 mgp_value_type MgpValueGetType(const mgp_value &val) noexcept { return val.type; }
@@ -1061,6 +1101,7 @@ DEFINE_MGP_VALUE_IS(date, DATE)
 DEFINE_MGP_VALUE_IS(local_time, LOCAL_TIME)
 DEFINE_MGP_VALUE_IS(local_date_time, LOCAL_DATE_TIME)
 DEFINE_MGP_VALUE_IS(duration, DURATION)
+DEFINE_MGP_VALUE_IS(zoned_date_time, ZONED_DATE_TIME)
 
 mgp_error mgp_value_get_bool(mgp_value *val, int *result) {
   *result = val->bool_v ? 1 : 0;
@@ -1096,6 +1137,7 @@ DEFINE_MGP_VALUE_GET(date)
 DEFINE_MGP_VALUE_GET(local_time)
 DEFINE_MGP_VALUE_GET(local_date_time)
 DEFINE_MGP_VALUE_GET(duration)
+DEFINE_MGP_VALUE_GET(zoned_date_time)
 
 mgp_error mgp_list_make_empty(size_t capacity, mgp_memory *memory, mgp_list **result) {
   return WrapExceptions(
@@ -1129,6 +1171,10 @@ mgp_error mgp_list_append(mgp_list *list, mgp_value *val) {
 
 mgp_error mgp_list_append_extend(mgp_list *list, mgp_value *val) {
   return WrapExceptions([list, val] { list->elems.push_back(*val); });
+}
+
+mgp_error mgp_list_append_move(mgp_list *list, mgp_value *val) {
+  return WrapExceptions([list, val] { list->elems.emplace_back(std::move(*val)); });
 }
 
 mgp_error mgp_list_reserve(mgp_list *list, size_t n) {
@@ -1181,9 +1227,28 @@ mgp_error mgp_map_insert(mgp_map *map, const char *key, mgp_value *value) {
   });
 }
 
+mgp_error mgp_map_insert_move(mgp_map *map, const char *key, mgp_value *value) {
+  return WrapExceptions([&] {
+    auto emplace_result = map->items.emplace(key, std::move(*value));
+    if (!emplace_result.second) {
+      throw KeyAlreadyExistsException{"Map already contains mapping for {}", key};
+    }
+  });
+}
+
 mgp_error mgp_map_update(mgp_map *map, const char *key, mgp_value *value) {
   return WrapExceptions([&] {
     auto emplace_result = map->items.emplace(key, *value);
+    if (!emplace_result.second) {
+      map->items.erase(emplace_result.first);
+      map->items.emplace(key, *value);
+    }
+  });
+}
+
+mgp_error mgp_map_update_move(mgp_map *map, const char *key, mgp_value *value) {
+  return WrapExceptions([&] {
+    auto emplace_result = map->items.emplace(key, std::move(*value));
     if (!emplace_result.second) {
       map->items.erase(emplace_result.first);
       map->items.emplace(key, *value);
@@ -1623,6 +1688,110 @@ mgp_error mgp_local_date_time_diff(mgp_local_date_time *first, mgp_local_date_ti
       result);
 }
 
+mgp_error mgp_zoned_date_time_from_parameters(mgp_zoned_date_time_parameters *parameters, mgp_memory *memory,
+                                              mgp_zoned_date_time **zoned_date_time) {
+  return WrapExceptions([parameters, memory] { return NewRawMgpObject<mgp_zoned_date_time>(memory, parameters); },
+                        zoned_date_time);
+}
+
+mgp_error mgp_zoned_date_time_copy(mgp_zoned_date_time *zoned_date_time, mgp_memory *memory,
+                                   mgp_zoned_date_time **result) {
+  return WrapExceptions(
+      [zoned_date_time, memory] { return NewRawMgpObject<mgp_zoned_date_time>(memory, *zoned_date_time); }, result);
+}
+
+void mgp_zoned_date_time_destroy(mgp_zoned_date_time *zoned_date_time) { DeleteRawMgpObject(zoned_date_time); }
+
+mgp_error mgp_zoned_date_time_equal(mgp_zoned_date_time *first, mgp_zoned_date_time *second, int *result) {
+  return WrapExceptions([first, second] { return first->zoned_date_time == second->zoned_date_time; }, result);
+}
+
+mgp_error mgp_zoned_date_time_from_string(const char *string, mgp_memory *memory,
+                                          mgp_zoned_date_time **zoned_date_time) {
+  return WrapExceptions([string, memory] { return NewRawMgpObject<mgp_zoned_date_time>(memory, string); },
+                        zoned_date_time);
+}
+
+mgp_error mgp_zoned_date_time_get_year(mgp_zoned_date_time *zoned_date_time, int *year) {
+  return WrapExceptions([zoned_date_time] { return zoned_date_time->zoned_date_time.LocalYear(); }, year);
+}
+
+mgp_error mgp_zoned_date_time_get_month(mgp_zoned_date_time *zoned_date_time, int *month) {
+  return WrapExceptions([zoned_date_time] { return zoned_date_time->zoned_date_time.LocalMonth(); }, month);
+}
+
+mgp_error mgp_zoned_date_time_get_day(mgp_zoned_date_time *zoned_date_time, int *day) {
+  return WrapExceptions([zoned_date_time] { return zoned_date_time->zoned_date_time.LocalDay(); }, day);
+}
+
+mgp_error mgp_zoned_date_time_get_hour(mgp_zoned_date_time *zoned_date_time, int *hour) {
+  return WrapExceptions([zoned_date_time] { return zoned_date_time->zoned_date_time.LocalHour(); }, hour);
+}
+
+mgp_error mgp_zoned_date_time_get_minute(mgp_zoned_date_time *zoned_date_time, int *minute) {
+  return WrapExceptions([zoned_date_time] { return zoned_date_time->zoned_date_time.LocalMinute(); }, minute);
+}
+
+mgp_error mgp_zoned_date_time_get_second(mgp_zoned_date_time *zoned_date_time, int *second) {
+  return WrapExceptions([zoned_date_time] { return zoned_date_time->zoned_date_time.LocalSecond(); }, second);
+}
+
+mgp_error mgp_zoned_date_time_get_millisecond(mgp_zoned_date_time *zoned_date_time, int *millisecond) {
+  return WrapExceptions([zoned_date_time] { return zoned_date_time->zoned_date_time.LocalMillisecond(); }, millisecond);
+}
+
+mgp_error mgp_zoned_date_time_get_microsecond(mgp_zoned_date_time *zoned_date_time, int *microsecond) {
+  return WrapExceptions([zoned_date_time] { return zoned_date_time->zoned_date_time.LocalMicrosecond(); }, microsecond);
+}
+
+mgp_error mgp_zoned_date_time_get_timezone(mgp_zoned_date_time *zoned_date_time, char const **timezone) {
+  return WrapExceptions([zoned_date_time] { return zoned_date_time->zoned_date_time.TimezoneName().data(); }, timezone);
+}
+
+mgp_error mgp_zoned_date_time_get_offset(mgp_zoned_date_time *zoned_date_time, int *offset) {
+  return WrapExceptions([zoned_date_time] { return zoned_date_time->zoned_date_time.OffsetDuration().count(); },
+                        offset);
+}
+
+mgp_error mgp_zoned_date_time_timestamp(mgp_zoned_date_time *zoned_date_time, int64_t *timestamp) {
+  // Timestamps need to be in system time (UTC)
+  return WrapExceptions(
+      [zoned_date_time] { return zoned_date_time->zoned_date_time.SysMicrosecondsSinceEpoch().count(); }, timestamp);
+}
+
+mgp_error mgp_zoned_date_time_add_duration(mgp_zoned_date_time *zoned_date_time, mgp_duration *dur, mgp_memory *memory,
+                                           mgp_zoned_date_time **result) {
+  return WrapExceptions(
+      [zoned_date_time, dur, memory] {
+        return NewRawMgpObject<mgp_zoned_date_time>(memory, zoned_date_time->zoned_date_time + dur->duration);
+      },
+      result);
+}
+
+mgp_error mgp_zoned_date_time_sub_duration(mgp_zoned_date_time *zoned_date_time, mgp_duration *dur, mgp_memory *memory,
+                                           mgp_zoned_date_time **result) {
+  return WrapExceptions(
+      [zoned_date_time, dur, memory] {
+        return NewRawMgpObject<mgp_zoned_date_time>(memory, zoned_date_time->zoned_date_time - dur->duration);
+      },
+      result);
+}
+
+mgp_error mgp_zoned_date_time_diff(mgp_zoned_date_time *first, mgp_zoned_date_time *second, mgp_memory *memory,
+                                   mgp_duration **result) {
+  return WrapExceptions(
+      [first, second, memory] {
+        return NewRawMgpObject<mgp_duration>(memory, first->zoned_date_time - second->zoned_date_time);
+      },
+      result);
+}
+
+mgp_error mgp_zoned_date_time_now(mgp_memory *memory, mgp_zoned_date_time **zoned_date_time) {
+  return WrapExceptions(
+      [memory] { return NewRawMgpObject<mgp_zoned_date_time>(memory, memgraph::utils::CurrentZonedDateTime()); },
+      zoned_date_time);
+}
+
 mgp_error mgp_duration_from_string(const char *string, mgp_memory *memory, mgp_duration **duration) {
   return WrapExceptions([memory, string] { return NewRawMgpObject<mgp_duration>(memory, string); }, duration);
 }
@@ -1889,6 +2058,11 @@ memgraph::storage::PropertyValue ToPropertyValue(const mgp_value &value,
     case MGP_VALUE_TYPE_DURATION:
       return memgraph::storage::PropertyValue{memgraph::storage::TemporalData{memgraph::storage::TemporalType::Duration,
                                                                               value.duration_v->duration.microseconds}};
+    case MGP_VALUE_TYPE_ZONED_DATE_TIME:
+      return memgraph::storage::PropertyValue{
+          memgraph::storage::ZonedTemporalData{memgraph::storage::ZonedTemporalType::ZonedDateTime,
+                                               value.zoned_date_time_v->zoned_date_time.SysTimeSinceEpoch(),
+                                               value.zoned_date_time_v->zoned_date_time.GetTimezone()}};
     case MGP_VALUE_TYPE_VERTEX:
       throw ValueConversionException{"A vertex is not a valid property value!"};
     case MGP_VALUE_TYPE_EDGE:
@@ -1948,6 +2122,11 @@ memgraph::storage::ExternalPropertyValue ToExternalPropertyValue(const mgp_value
     case MGP_VALUE_TYPE_DURATION:
       return memgraph::storage::ExternalPropertyValue{memgraph::storage::TemporalData{
           memgraph::storage::TemporalType::Duration, value.duration_v->duration.microseconds}};
+    case MGP_VALUE_TYPE_ZONED_DATE_TIME:
+      return memgraph::storage::ExternalPropertyValue{
+          memgraph::storage::ZonedTemporalData{memgraph::storage::ZonedTemporalType::ZonedDateTime,
+                                               value.zoned_date_time_v->zoned_date_time.SysTimeSinceEpoch(),
+                                               value.zoned_date_time_v->zoned_date_time.GetTimezone()}};
     case MGP_VALUE_TYPE_VERTEX:
       throw ValueConversionException{"A vertex is not a valid property value!"};
     case MGP_VALUE_TYPE_EDGE:
@@ -2182,20 +2361,24 @@ mgp_error mgp_vertex_equal(mgp_vertex *v1, mgp_vertex *v2, int *result) {
 mgp_error mgp_vertex_labels_count(mgp_vertex *v, size_t *result) {
   return WrapExceptions(
       [v]() -> size_t {
-        auto maybe_labels = std::visit([v](const auto &impl) { return impl.Labels(v->graph->view); }, v->impl);
-        if (maybe_labels.HasError()) {
-          switch (maybe_labels.GetError()) {
-            case memgraph::storage::Error::DELETED_OBJECT:
-              throw DeletedObjectException{"Cannot get the labels of a deleted vertex!"};
-            case memgraph::storage::Error::NONEXISTENT_OBJECT:
-              LOG_FATAL("Query modules shouldn't have access to nonexistent objects when getting vertex labels!");
-            case memgraph::storage::Error::PROPERTIES_DISABLED:
-            case memgraph::storage::Error::VERTEX_HAS_EDGES:
-            case memgraph::storage::Error::SERIALIZATION_ERROR:
-              LOG_FATAL("Unexpected error when getting vertex labels.");
-          }
-        }
-        return maybe_labels->size();
+        return std::visit(
+            [v](const auto &impl) {
+              const auto maybe_labels = impl.Labels(v->graph->view);
+              if (maybe_labels.HasError()) {
+                switch (maybe_labels.GetError()) {
+                  case memgraph::storage::Error::DELETED_OBJECT:
+                    throw DeletedObjectException{"Cannot get the labels of a deleted vertex!"};
+                  case memgraph::storage::Error::NONEXISTENT_OBJECT:
+                    LOG_FATAL("Query modules shouldn't have access to nonexistent objects when getting vertex labels!");
+                  case memgraph::storage::Error::PROPERTIES_DISABLED:
+                  case memgraph::storage::Error::VERTEX_HAS_EDGES:
+                  case memgraph::storage::Error::SERIALIZATION_ERROR:
+                    LOG_FATAL("Unexpected error when getting vertex labels.");
+                }
+              }
+              return maybe_labels->size();
+            },
+            v->impl);
       },
       result);
 }
@@ -4188,6 +4371,7 @@ mgp_error MgpAddOptArg(TCall &callable, const std::string name, mgp_type &type, 
       case MGP_VALUE_TYPE_LOCAL_TIME:
       case MGP_VALUE_TYPE_LOCAL_DATE_TIME:
       case MGP_VALUE_TYPE_DURATION:
+      case MGP_VALUE_TYPE_ZONED_DATE_TIME:
         break;
     }
     // Default value must be of required `type`.

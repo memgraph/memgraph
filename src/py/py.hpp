@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -25,6 +25,11 @@
 
 #if PY_MAJOR_VERSION != 3 || PY_MINOR_VERSION < 5
 #error "Minimum supported Python API is 3.5"
+#endif
+
+// Python 3.9 compatibility macro
+#ifndef Py_Is
+#define Py_Is(x, y) ((x) == (y))
 #endif
 
 #include "utils/logging.hpp"

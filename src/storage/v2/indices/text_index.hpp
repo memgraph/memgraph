@@ -11,8 +11,8 @@
 
 #pragma once
 
+#include <mutex>
 #include <nlohmann/json_fwd.hpp>
-#include <shared_mutex>
 
 #include "mg_procedure.h"
 #include "storage/v2/id_types.hpp"
@@ -22,18 +22,15 @@
 #include "storage/v2/vertex.hpp"
 #include "storage/v2/vertices_iterable.hpp"
 #include "text_search.hpp"
-#include "utils/synchronized.hpp"
 
 namespace memgraph::storage {
 
 struct TextIndexData {
-  // This synchronized wrapper is used to protect add_document, remove_document, commit and rollback
-  // operations. Underlying Tantivy IndexWriter requires unique lock for commit and rollback
-  // operations and shared lock for add_document and remove_document operations.
-  // TODO(@DavIvek): Better approach would be to add locking on mgcxx side.
-  utils::Synchronized<mgcxx::text_search::Context, std::shared_mutex> context_;
+  mutable mgcxx::text_search::Context context_;
   LabelId scope_;
   std::vector<PropertyId> properties_;
+  std::mutex write_mutex_;  // Only used for exclusive locking during writes. IndexReader and IndexWriter are
+                            // independent, so no lock is required when reading.
 
   TextIndexData(mgcxx::text_search::Context context, LabelId scope, std::vector<PropertyId> properties)
       : context_(std::move(context)), scope_(scope), properties_(std::move(properties)) {}
@@ -49,17 +46,10 @@ class TextIndex {
                                                         std::span<PropertyId const> properties);
 
   static void AddNodeToTextIndex(std::int64_t gid, const nlohmann::json &properties,
-                                 const std::string &property_values_as_str, TextIndexData *applicable_text_index);
+                                 const std::string &property_values_as_str, mgcxx::text_search::Context &context);
 
   static std::map<PropertyId, PropertyValue> ExtractVertexProperties(const PropertyStore &property_store,
                                                                      std::span<PropertyId const> properties);
-
-  mgcxx::text_search::SearchOutput SearchGivenProperties(const std::string &index_name,
-                                                         const std::string &search_query);
-
-  mgcxx::text_search::SearchOutput RegexSearch(const std::string &index_name, const std::string &search_query);
-
-  mgcxx::text_search::SearchOutput SearchAllProperties(const std::string &index_name, const std::string &search_query);
 
  public:
   explicit TextIndex(const std::filesystem::path &storage_dir)
@@ -72,19 +62,13 @@ class TextIndex {
 
   ~TextIndex() = default;
 
-  std::map<std::string, TextIndexData> index_;
-
-  static void AddNode(Vertex *vertex, NameIdMapper *name_id_mapper, std::span<TextIndexData *> applicable_text_indices);
-
   void RemoveNode(Vertex *vertex_after_update, Transaction &tx);
 
-  static void RemoveNode(Vertex *vertex, std::span<TextIndexData *> applicable_text_indices);
-
-  void UpdateOnAddLabel(LabelId label, Vertex *vertex, NameIdMapper *name_id_mapper, Transaction &tx);
+  void UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx);
 
   void UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx);
 
-  void UpdateOnSetProperty(Vertex *vertex, NameIdMapper *name_id_mapper, Transaction &tx);
+  void UpdateOnSetProperty(Vertex *vertex, Transaction &tx);
 
   void CreateIndex(const TextIndexSpec &index_info, VerticesIterable vertices, NameIdMapper *name_id_mapper);
 
@@ -100,13 +84,15 @@ class TextIndex {
   std::string Aggregate(const std::string &index_name, const std::string &search_query,
                         const std::string &aggregation_query);
 
-  void Commit();
-
-  void Rollback();
+  static void ApplyTrackedChanges(Transaction &tx, NameIdMapper *name_id_mapper);
 
   std::vector<TextIndexSpec> ListIndices() const;
 
+  std::optional<uint64_t> ApproximateVerticesTextCount(std::string_view index_name) const;
+
   void Clear();
+
+  std::map<std::string, TextIndexData, std::less<>> index_;
 };
 
 }  // namespace memgraph::storage

@@ -11,18 +11,22 @@
 
 #pragma once
 
-#include <map>
-#include <string>
+#include <span>
 #include <string_view>
 #include <vector>
 
+#include "absl/container/flat_hash_map.h"
+#include "absl/container/flat_hash_set.h"
 #include "nlohmann/json_fwd.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
+#include "text_search.hpp"
 
 namespace memgraph::storage {
 
 class NameIdMapper;
+struct Vertex;
+struct TextIndexData;
 
 inline constexpr std::string_view kTextIndicesDirectory = "text_indices";
 inline constexpr bool kDoSkipCommit = true;
@@ -51,5 +55,28 @@ nlohmann::json SerializeProperties(const std::map<PropertyId, PropertyValue> &pr
 
 // Convert properties to string representation
 std::string StringifyProperties(const std::map<PropertyId, PropertyValue> &properties);
+
+// Search functions for the text index
+mgcxx::text_search::SearchOutput SearchGivenProperties(const std::string &search_query,
+                                                       mgcxx::text_search::Context &context);
+
+mgcxx::text_search::SearchOutput RegexSearch(const std::string &search_query, mgcxx::text_search::Context &context);
+
+mgcxx::text_search::SearchOutput SearchAllProperties(const std::string &search_query,
+                                                     mgcxx::text_search::Context &context);
+
+// Text index change tracking
+enum class TextIndexOp { ADD, UPDATE, REMOVE };
+
+struct TextIndexPending {
+  absl::flat_hash_set<Vertex const *> to_add_;
+  absl::flat_hash_set<Vertex const *> to_remove_;
+};
+
+// Text index change collector for transaction-level batching
+using TextIndexChangeCollector = absl::flat_hash_map<TextIndexData *, TextIndexPending>;
+
+void TrackTextIndexChange(TextIndexChangeCollector &collector, std::span<TextIndexData *> indices, Vertex *vertex,
+                          TextIndexOp op);
 
 }  // namespace memgraph::storage

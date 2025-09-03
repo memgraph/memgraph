@@ -18,6 +18,7 @@
 #include "utils/compressor.hpp"
 
 #include <gflags/gflags.h>
+#include <array>
 #include <cstdint>
 #include <map>
 #include <optional>
@@ -166,7 +167,7 @@ class PropertyStore {
   template <typename Func>
   auto WithReader(Func &&func) const;
 
-  uint8_t buffer_[sizeof(uint32_t) + sizeof(uint8_t *)];
+  std::array<uint8_t, sizeof(uint32_t) + sizeof(uint8_t *)> buffer_{};
 };
 
 }  // namespace memgraph::storage

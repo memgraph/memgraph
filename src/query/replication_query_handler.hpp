@@ -94,11 +94,10 @@ struct ReplicationQueryHandler {
   virtual bool SetReplicationRoleMain() = 0;
 
   // as MAIN, become REPLICA
-  virtual bool SetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config,
-                                         const std::optional<utils::UUID> &main_uuid) = 0;
+  virtual bool SetReplicationRoleReplica(const replication::ReplicationServerConfig &config,
+                                         std::optional<utils::UUID> const &maybe_main_uuid) = 0;
 
-  virtual bool TrySetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config,
-                                            const std::optional<utils::UUID> &main_uuid) = 0;
+  virtual bool TrySetReplicationRoleReplica(const replication::ReplicationServerConfig &config) = 0;
 
   // as MAIN, define and connect to REPLICAs
   virtual auto TryRegisterReplica(const memgraph::replication::ReplicationClientConfig &config)

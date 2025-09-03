@@ -69,6 +69,7 @@ inline void deleteImpl(void *ptr) noexcept {
   if (ptr == nullptr) [[unlikely]] {
     return;
   }
+
   dallocx(ptr, 0);
 }
 
@@ -76,6 +77,7 @@ inline void deleteImpl(void *ptr, const std::align_val_t align) noexcept {
   if (ptr == nullptr) [[unlikely]] {
     return;
   }
+
   dallocx(ptr, MALLOCX_ALIGN(align));  // NOLINT(hicpp-signed-bitwise)
 }
 

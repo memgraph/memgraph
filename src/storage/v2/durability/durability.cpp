@@ -462,7 +462,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     NameIdMapper *name_id_mapper, Indices *indices, Constraints *constraints, Config const &config,
     uint64_t *wal_seq_num, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
-    std::string const &db_name) {
+    std::string const &db_name, memgraph::storage::ttl::TTL *ttl) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
   spdlog::info("Recovering persisted data using snapshot ({}) and WAL directory ({}).", snapshot_directory_,
                wal_directory_);
@@ -499,7 +499,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
       spdlog::info("Starting snapshot recovery from {}.", path);
       try {
         recovered_snapshot = LoadSnapshot(path, vertices, edges, edges_metadata, epoch_history, name_id_mapper,
-                                          edge_count, config, enum_store, schema_info);
+                                          edge_count, config, enum_store, schema_info, ttl);
         spdlog::info("Snapshot recovery successful!");
         break;
       } catch (const RecoveryFailure &e) {
@@ -601,10 +601,6 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
     auto last_loaded_timestamp = snapshot_durable_timestamp;
     spdlog::info("Trying to load WAL files.");
 
-    if (last_loaded_timestamp) {
-      epoch_history->emplace_back(repl_storage_state.epoch_.id(), *last_loaded_timestamp);
-    }
-
     for (const auto &wal_file : wal_files) {
       if (previous_seq_num && (wal_file.seq_num - *previous_seq_num) > 1) {
         LOG_FATAL("You are missing a WAL file with the sequence number {}!", *previous_seq_num + 1);
@@ -613,7 +609,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
 
       try {
         auto info = LoadWal(wal_file.path, &indices_constraints, last_loaded_timestamp, vertices, edges, name_id_mapper,
-                            edge_count, config.salient.items, enum_store, schema_info, find_edge);
+                            edge_count, config.salient.items, enum_store, schema_info, find_edge, ttl);
         // Update recovery info data only if WAL file was used and its deltas loaded
 
         bool wal_contains_changes{false};
@@ -621,21 +617,24 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
           recovery_info.next_vertex_id = std::max(recovery_info.next_vertex_id, info->next_vertex_id);
           recovery_info.next_edge_id = std::max(recovery_info.next_edge_id, info->next_edge_id);
           recovery_info.next_timestamp = std::max(recovery_info.next_timestamp, info->next_timestamp);
-          // WAL file is interesting only if it is new (different) ts
+          // WAL file is interesting only if it has a new (different) ldt
           wal_contains_changes = recovery_info.last_durable_timestamp != info->last_durable_timestamp;
           recovery_info.last_durable_timestamp = info->last_durable_timestamp;
           last_loaded_timestamp.emplace(info->last_durable_timestamp);
           spdlog::trace("Set ldt to {} after loading from WAL", info->last_durable_timestamp);
+          recovery_info.num_committed_txns += info->num_committed_txns;
         }
 
-        if (!epoch_history->empty() && epoch_history->back().first == wal_file.epoch_id) {
-          epoch_history->back().second = *last_loaded_timestamp;
-          spdlog::trace("WAL file continuation from the epoch perspective. Updates epoch {} to ldt {}.",
-                        wal_file.epoch_id, *last_loaded_timestamp);
-        } else if (wal_contains_changes) {  // Update history with new epochs that contain some timestamp changes
-          epoch_history->emplace_back(wal_file.epoch_id, *last_loaded_timestamp);
-          repl_storage_state.epoch_.SetEpoch(wal_file.epoch_id);
-          spdlog::trace("Set epoch to {} for db {} with ldt {}", wal_file.epoch_id, db_name, *last_loaded_timestamp);
+        if (wal_contains_changes) {
+          if (!epoch_history->empty() && epoch_history->back().first == wal_file.epoch_id) {
+            epoch_history->back().second = *last_loaded_timestamp;
+            spdlog::trace("WAL file continuation from the epoch perspective. Updates epoch {} to ldt {}.",
+                          wal_file.epoch_id, *last_loaded_timestamp);
+          } else {  // Update history with new epoch that contains new timestamp
+            epoch_history->emplace_back(wal_file.epoch_id, *last_loaded_timestamp);
+            repl_storage_state.epoch_.SetEpoch(wal_file.epoch_id);
+            spdlog::trace("Set epoch to {} for db {} with ldt {}", wal_file.epoch_id, db_name, *last_loaded_timestamp);
+          }
         }
 
       } catch (const RecoveryFailure &e) {
@@ -675,7 +674,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
   memgraph::metrics::Measure(memgraph::metrics::SnapshotRecoveryLatency_us,
                              std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count());
   spdlog::trace("Epoch id: {}. Last durable commit timestamp: {}.", std::string(repl_storage_state.epoch_.id()),
-                repl_storage_state.last_durable_timestamp_.load(std::memory_order_acquire));
+                repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).ldt_);
 
   spdlog::trace("History with its epochs and attached commit timestamps.");
   r::for_each(repl_storage_state.history, [](auto &&history) {

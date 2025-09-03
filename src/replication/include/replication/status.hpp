@@ -41,15 +41,15 @@ struct MainRole {
 
 // fragment of key: "__replication_role"
 struct ReplicaRole {
-  ReplicationServerConfig config{};
-  std::optional<utils::UUID> main_uuid{};
+  ReplicationServerConfig config;
+  utils::UUID main_uuid;
   friend bool operator==(ReplicaRole const &, ReplicaRole const &) = default;
 };
 
 // from key: "__replication_role"
 struct ReplicationRoleEntry {
   DurabilityVersion version =
-      DurabilityVersion::V4;  // if not latest has been read then migration required to the latest
+      DurabilityVersion::V5;  // if not latest has been read then migration required to the latest
   std::variant<MainRole, ReplicaRole> role;
 
   friend bool operator==(ReplicationRoleEntry const &, ReplicationRoleEntry const &) = default;

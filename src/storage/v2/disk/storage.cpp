@@ -72,8 +72,8 @@ namespace memgraph::storage {
 
 namespace {
 
-auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex, VertexAccessor *to_vertex)
-    -> Result<EdgesVertexAccessorResult> {
+auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex,
+               VertexAccessor *to_vertex) -> Result<EdgesVertexAccessorResult> {
   auto use_out_edges = [](Vertex const *from_vertex, Vertex const *to_vertex) {
     // Obtain the locks by `gid` order to avoid lock cycles.
     auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
@@ -229,8 +229,10 @@ bool IsPropertyValueWithinInterval(const PropertyValue &value,
 
 }  // namespace
 
-DiskStorage::DiskStorage(Config config, PlanInvalidatorPtr invalidator)
-    : Storage(config, StorageMode::ON_DISK_TRANSACTIONAL, std::move(invalidator)),
+DiskStorage::DiskStorage(Config config, PlanInvalidatorPtr invalidator,
+                         std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
+    : Storage(config, StorageMode::ON_DISK_TRANSACTIONAL, std::move(invalidator),
+              std::move(database_protector_factory)),
       kvstore_(std::make_unique<RocksDBStorage>()),
       durable_metadata_(config) {
   LoadPersistingMetadataInfo();
@@ -289,7 +291,7 @@ DiskStorage::~DiskStorage() {
 
 DiskStorage::DiskAccessor::DiskAccessor(Accessor::SharedAccess tag, DiskStorage *storage,
                                         IsolationLevel isolation_level, StorageMode storage_mode,
-                                        Accessor::Type rw_type)
+                                        StorageAccessType rw_type)
     : Accessor(tag, storage, isolation_level, storage_mode, rw_type, /*no timeout*/ std::nullopt) {
   rocksdb::WriteOptions write_options;
   auto txOptions = rocksdb::TransactionOptions{.set_snapshot = true};
@@ -1678,7 +1680,7 @@ DiskStorage::CheckExistingVerticesBeforeCreatingUniqueConstraint(LabelId label,
 
 // NOLINTNEXTLINE(google-default-arguments)
 utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::PrepareForCommitPhase(
-    CommitReplicationArgs reparg, DatabaseAccessProtector /*db_acc*/) {
+    CommitArgs /*commit_args*/) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
   MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
 
@@ -1813,6 +1815,8 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Pr
         case MetadataDelta::Action::VECTOR_EDGE_INDEX_CREATE:
         case MetadataDelta::Action::VECTOR_INDEX_DROP:
           throw utils::NotYetImplemented("Vector index is not implemented for DiskStorage. {}", kErrorMessage);
+        case MetadataDelta::Action::TTL_OPERATION:
+          throw utils::NotYetImplemented("TTL operations are not implemented for DiskStorage. {}", kErrorMessage);
       }
     }
   } else if (transaction_.deltas.empty() ||
@@ -1889,7 +1893,7 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Pr
 
   spdlog::trace("rocksdb: Commit successful");
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    disk_storage->indices_.text_index_.Commit();
+    memgraph::storage::TextIndex::ApplyTrackedChanges(transaction_, disk_storage->name_id_mapper_.get());
   }
   disk_storage->durable_metadata_.UpdateMetaData(disk_storage->timestamp_, disk_storage->vertex_count_,
                                                  disk_storage->edge_count_);
@@ -1900,7 +1904,7 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Pr
 
 // NOLINTNEXTLINE(google-default-arguments)
 utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::PeriodicCommit(
-    CommitReplicationArgs /*reparg*/, DatabaseAccessProtector /*db_acc*/) {
+    CommitArgs /*commit_args*/) {
   throw utils::NotYetImplemented("Periodic commit is not yet supported using on-disk storage mode. {}", kErrorMessage);
 };
 
@@ -2016,9 +2020,7 @@ void DiskStorage::DiskAccessor::Abort() {
   // query_plan_accumulate_aggregate.cpp
   transaction_.disk_transaction_->Rollback();
   transaction_.disk_transaction_->ClearSnapshot();
-  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    storage_->indices_.text_index_.Rollback();
-  }
+
   delete transaction_.disk_transaction_;
   transaction_.disk_transaction_ = nullptr;
   is_transaction_active_ = false;
@@ -2303,8 +2305,8 @@ std::vector<VectorEdgeIndexInfo> DiskStorage::DiskAccessor::ListAllVectorEdgeInd
 
 auto DiskStorage::DiskAccessor::PointVertices(LabelId /*label*/, PropertyId /*property*/,
                                               CoordinateReferenceSystem /*crs*/, PropertyValue const & /*bottom_left*/,
-                                              PropertyValue const & /*top_right*/, WithinBBoxCondition /*condition*/)
-    -> PointIterable {
+                                              PropertyValue const & /*top_right*/,
+                                              WithinBBoxCondition /*condition*/) -> PointIterable {
   throw utils::NotYetImplemented("Point Vertices is not yet implemented for on-disk storage. {}", kErrorMessage);
 };
 
@@ -2339,7 +2341,7 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
 
 uint64_t DiskStorage::GetCommitTimestamp() { return timestamp_++; }
 
-std::unique_ptr<Storage::Accessor> DiskStorage::Access(Accessor::Type rw_type,
+std::unique_ptr<Storage::Accessor> DiskStorage::Access(StorageAccessType rw_type,
                                                        std::optional<IsolationLevel> override_isolation_level,
                                                        std::optional<std::chrono::milliseconds> /*timeout*/) {
   auto isolation_level = override_isolation_level.value_or(isolation_level_);
@@ -2369,6 +2371,11 @@ std::unique_ptr<Storage::Accessor> DiskStorage::ReadOnlyAccess(std::optional<Iso
       new DiskAccessor{Storage::Accessor::read_only_access, this, isolation_level, storage_mode_});
 }
 
+bool DiskStorage::DiskAccessor::LabelPropertyIndexExists(LabelId label,
+                                                         std::span<PropertyPath const> properties) const {
+  return transaction_.active_indices_.label_properties_->IndexExists(label, properties);
+}
+
 bool DiskStorage::DiskAccessor::EdgeTypeIndexReady(EdgeTypeId /*edge_type*/) const {
   spdlog::info("Edge-type index related operations are not yet supported using on-disk storage mode. {}",
                kErrorMessage);
@@ -2378,6 +2385,11 @@ bool DiskStorage::DiskAccessor::EdgeTypeIndexReady(EdgeTypeId /*edge_type*/) con
 bool DiskStorage::DiskAccessor::EdgeTypePropertyIndexReady(EdgeTypeId /*edge_type*/, PropertyId /*property*/) const {
   spdlog::info("Edge-type index related operations are not yet supported using on-disk storage mode. {}",
                kErrorMessage);
+  return false;
+}
+
+bool DiskStorage::DiskAccessor::EdgePropertyIndexExists(PropertyId /*property*/) const {
+  spdlog::info("Edge index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
   return false;
 }
 

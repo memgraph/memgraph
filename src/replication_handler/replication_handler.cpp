@@ -163,7 +163,7 @@ void StartReplicaClient(replication::ReplicationClient &client, dbms::DbmsHandle
           db_acc->storage()->repl_storage_state_.WithClient(name, [&](storage::ReplicationStorageClient &client) {
             if (client.State() == storage::replication::ReplicaState::MAYBE_BEHIND) {
               // Database <-> replica might be behind, check and recover
-              client.TryCheckReplicaStateAsync(db_acc->storage(), db_acc);
+              client.TryCheckReplicaStateAsync(db_acc->storage(), dbms::DatabaseProtector{db_acc});
             }
           });
         });
@@ -197,11 +197,14 @@ ReplicationHandler::ReplicationHandler(utils::Synchronized<ReplicationState, uti
 bool ReplicationHandler::SetReplicationRoleMain() { return DoToMainPromotion({}, false); }
 
 bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig &config,
-                                                   const std::optional<utils::UUID> &main_uuid) {
+                                                   std::optional<utils::UUID> const &maybe_main_uuid) {
   try {
     auto locked_repl_state = repl_state_.TryLock();
 
     dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
+      // Pause TTL
+      db_acc->ttl().Pause();
+      // Stop any snapshots
       auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
       storage->snapshot_runner_.Pause();
       storage->abort_snapshot_.store(true, std::memory_order_release);
@@ -231,17 +234,16 @@ bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig
       });
     }
 
-    return SetReplicationRoleReplica_<true>(locked_repl_state, config, main_uuid);
+    return SetReplicationRoleReplica_<true>(locked_repl_state, config, maybe_main_uuid);
   } catch (const utils::TryLockException & /* unused */) {
     return false;
   }
 }
 
-bool ReplicationHandler::TrySetReplicationRoleReplica(const ReplicationServerConfig &config,
-                                                      const std::optional<utils::UUID> &main_uuid) {
+bool ReplicationHandler::TrySetReplicationRoleReplica(const ReplicationServerConfig &config) {
   try {
     auto locked_repl_state = repl_state_.TryLock();
-    return SetReplicationRoleReplica_<false>(locked_repl_state, config, main_uuid);
+    return SetReplicationRoleReplica_<false>(locked_repl_state, config);
   } catch (const utils::TryLockException & /* unused */) {
     return false;
   }
@@ -285,6 +287,7 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
 
     // All DBs should have the same epoch
     auto const new_epoch = ReplicationEpoch();
+    spdlog::trace("Generated new epoch {}", new_epoch.id());
 
     // STEP 3) We are now MAIN, update storage local epoch
     dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
@@ -297,7 +300,7 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool co
 
       // Durability is tracking last durable timestamp from MAIN, whereas timestamp_ is dependent on MVCC
       // We need to take bigger timestamp not to lose durability ordering
-      if (auto const ldt = storage->repl_storage_state_.last_durable_timestamp_.load(std::memory_order_acquire);
+      if (auto const ldt = storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
           ldt >= storage->timestamp_) {
         // Mark all txns finished with IDs in range [old_storage_ts, global_ldt]
         static_cast<storage::InMemoryStorage *>(storage)->commit_log_->MarkFinishedInRange(storage->timestamp_, ldt);
@@ -382,11 +385,40 @@ auto ReplicationHandler::GetDatabasesHistories() const -> replication_coordinati
   dbms_handler_.ForEach([&results](dbms::DatabaseAccess db_acc) {
     auto const &repl_storage_state = db_acc->storage()->repl_storage_state_;
     results.dbs_info.emplace_back(std::string{db_acc->storage()->uuid()},
-                                  repl_storage_state.last_durable_timestamp_.load(std::memory_order_acquire));
+                                  repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).ldt_);
   });
 
   return results;
 }
+
+auto ReplicationHandler::GetReplicationLag() const -> coordination::ReplicationLagInfo {
+  coordination::ReplicationLagInfo lag_info;
+
+  dbms_handler_.ForEach([&lag_info](dbms::DatabaseAccess db_acc) {
+    auto &repl_storage_state = db_acc->storage()->repl_storage_state_;
+    auto const db_name = db_acc->name();
+    auto const num_main_committed_txns =
+        repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).num_committed_txns_;
+    lag_info.dbs_main_committed_txns_.emplace(db_name, num_main_committed_txns);
+
+    repl_storage_state.replication_storage_clients_.WithLock([&db_name, &lag_info,
+                                                              &num_main_committed_txns](auto &storage_clients) {
+      for (auto &repl_storage_client : storage_clients) {
+        auto const replica_name = repl_storage_client->Name();
+        auto const num_committed_txns_repl = repl_storage_client->GetNumCommittedTxns();
+        auto const replica_lag = num_main_committed_txns - num_committed_txns_repl;
+        // Insert or find the already inserted element
+        auto [replica_it, _] =
+            lag_info.replicas_info_.try_emplace(replica_name, std::map<std::string, coordination::ReplicaDBLagData>{});
+        replica_it->second.emplace(db_name,
+                                   coordination::ReplicaDBLagData{.num_committed_txns_ = num_committed_txns_repl,
+                                                                  .num_txns_behind_main_ = replica_lag});
+      }
+    });
+  });
+  return lag_info;
+}
+
 #endif
 
 bool ReplicationHandler::IsMain() const { return repl_state_.ReadLock()->IsMain(); }

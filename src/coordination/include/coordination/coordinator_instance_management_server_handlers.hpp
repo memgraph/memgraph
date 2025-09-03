@@ -19,12 +19,11 @@
 namespace memgraph::coordination {
 class CoordinatorInstanceManagementServerHandlers {
  public:
-  static void Register(memgraph::coordination::CoordinatorInstanceManagementServer &server,
-                       CoordinatorInstance &coordinator_instance);
+  static void Register(CoordinatorInstanceManagementServer &server, CoordinatorInstance const &coordinator_instance);
 
  private:
-  static void ShowInstancesHandler(CoordinatorInstance const &coordinator_instance, slk::Reader *req_reader,
-                                   slk::Builder *res_builder);
+  static void ShowInstancesHandler(CoordinatorInstance const &coordinator_instance, uint64_t request_version,
+                                   slk::Reader *req_reader, slk::Builder *res_builder);
 };
 
 }  // namespace memgraph::coordination

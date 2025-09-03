@@ -1,5 +1,6 @@
 find_package(gflags REQUIRED)
 
+copy_e2e_python_files(high_availability replication_lag.py)
 copy_e2e_python_files(high_availability strict_sync.py)
 copy_e2e_python_files(high_availability coordinator.py)
 copy_e2e_python_files(high_availability single_coordinator.py)
@@ -8,6 +9,7 @@ copy_e2e_python_files(high_availability distributed_coords.py)
 copy_e2e_python_files(high_availability disable_writing_on_main_after_restart.py)
 copy_e2e_python_files(high_availability durability.py)
 copy_e2e_python_files(high_availability manual_setting_replicas.py)
+copy_e2e_python_files(high_availability ttl.py)
 copy_e2e_python_files(high_availability common.py)
 copy_e2e_python_files(high_availability workloads.yaml)
 

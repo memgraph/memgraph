@@ -1,5 +1,4 @@
-add_library(mg-utils STATIC
-        atomic_max.hpp)
+add_library(mg-utils STATIC)
 add_library(mg::utils ALIAS mg-utils)
 
 target_sources(mg-utils
@@ -28,6 +27,7 @@ target_sources(mg-utils
     scheduler.cpp
     skip_list.cpp
     priority_thread_pool.cpp
+    resource_monitoring.cpp
 
     PUBLIC
     FILE_SET HEADERS
@@ -46,6 +46,7 @@ target_sources(mg-utils
     barrier.hpp
     transparent_compare.hpp
     compile_time.hpp
+    resource_monitoring.hpp
 )
 
 find_package(Boost REQUIRED CONFIG)

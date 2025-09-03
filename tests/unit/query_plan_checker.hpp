@@ -91,6 +91,8 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
   PRE_VISIT(Limit);
   PRE_VISIT(OrderBy);
   PRE_VISIT(EvaluatePatternFilter);
+  PRE_VISIT(SetNestedProperty);
+  PRE_VISIT(RemoveNestedProperty);
 
   bool PreVisit(Merge &op) override {
     CheckOp(op);
@@ -214,6 +216,8 @@ using ExpectEvaluatePatternFilter = OpChecker<EvaluatePatternFilter>;
 using ExpectPeriodicCommit = OpChecker<PeriodicCommit>;
 using ExpectLoadCsv = OpChecker<LoadCsv>;
 using ExpectBasicCallProcedure = OpChecker<CallProcedure>;
+using ExpectSetNestedProperty = OpChecker<SetNestedProperty>;
+using ExpectRemoveNestedProperty = OpChecker<RemoveNestedProperty>;
 
 class ExpectFilter : public OpChecker<Filter> {
  public:
@@ -314,6 +318,13 @@ class ExpectExpandBfs : public OpChecker<ExpandVariable> {
  public:
   void ExpectOp(ExpandVariable &op, const SymbolTable &) override {
     EXPECT_EQ(op.type_, memgraph::query::EdgeAtom::Type::BREADTH_FIRST);
+  }
+};
+
+class ExpectExpandKShortest : public OpChecker<ExpandVariable> {
+ public:
+  void ExpectOp(ExpandVariable &op, const SymbolTable &) override {
+    EXPECT_EQ(op.type_, memgraph::query::EdgeAtom::Type::KSHORTEST);
   }
 };
 

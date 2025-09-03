@@ -29,6 +29,8 @@
 #ifdef MG_ENTERPRISE
 #include "coordination/instance_status.hpp"
 #include "coordination/raft_state.hpp"
+#include "coordination/replication_lag_info.hpp"
+#include "utils/resource_monitoring.hpp"
 #endif
 
 namespace memgraph::metrics {
@@ -149,6 +151,8 @@ class CoordinatorQueryHandler {
   virtual void SetCoordinatorSetting(std::string_view setting_name, std::string_view setting_value) = 0;
 
   virtual std::vector<std::pair<std::string, std::string>> ShowCoordinatorSettings() = 0;
+
+  virtual std::map<std::string, std::map<std::string, coordination::ReplicaDBLagData>> ShowReplicationLag() = 0;
 };
 #endif
 
@@ -202,7 +206,7 @@ struct CurrentDB {
   CurrentDB &operator=(CurrentDB const &) = delete;
 
   void SetupDatabaseTransaction(std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit,
-                                storage::Storage::Accessor::Type acc_type = storage::Storage::Accessor::Type::WRITE);
+                                storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE);
   void CleanupDBTransaction(bool abort);
   void SetCurrentDB(memgraph::dbms::DatabaseAccess new_db, bool in_explicit_db) {
     // do we lock here?
@@ -264,6 +268,9 @@ class Interpreter final {
   };
 
   std::shared_ptr<QueryUserOrRole> user_or_role_{};
+#ifdef MG_ENTERPRISE
+  std::shared_ptr<utils::UserResources> user_resource_;
+#endif
   SessionInfo session_info_;
   bool in_explicit_transaction_{false};
   CurrentDB current_db_;
@@ -402,7 +409,11 @@ class Interpreter final {
 
   void ResetUser();
 
+#ifdef MG_ENTERPRISE
+  void SetUser(std::shared_ptr<QueryUserOrRole> user, std::shared_ptr<utils::UserResources> user_resource = nullptr);
+#else
   void SetUser(std::shared_ptr<QueryUserOrRole> user);
+#endif
 
   void SetSessionInfo(std::string uuid, std::string username, std::string login_timestamp);
 
@@ -486,7 +497,7 @@ class Interpreter final {
   std::optional<std::function<void(std::string_view)>> on_change_{};
   void SetupInterpreterTransaction(const QueryExtras &extras);
   void SetupDatabaseTransaction(bool couldCommit,
-                                storage::Storage::Accessor::Type acc_type = storage::Storage::Accessor::Type::WRITE);
+                                storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE);
 };
 
 template <typename TStream>

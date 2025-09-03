@@ -161,6 +161,8 @@ class HashJoin;
 class RollUpApply;
 class PeriodicCommit;
 class PeriodicSubquery;
+class SetNestedProperty;
+class RemoveNestedProperty;
 
 using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     Once, CreateNode, CreateExpand, ScanAll, ScanAllByLabel, ScanAllByLabelProperties, ScanAllById, ScanAllByEdge,
@@ -170,7 +172,7 @@ using LogicalOperatorCompositeVisitor = utils::CompositeVisitor<
     Delete, SetProperty, SetProperties, SetLabels, RemoveProperty, RemoveLabels, EdgeUniquenessFilter, Accumulate,
     Aggregate, Skip, Limit, OrderBy, Merge, Optional, Unwind, Distinct, Union, Cartesian, CallProcedure, LoadCsv,
     Foreach, EmptyResult, EvaluatePatternFilter, Apply, IndexedJoin, HashJoin, RollUpApply, PeriodicCommit,
-    PeriodicSubquery>;
+    PeriodicSubquery, SetNestedProperty, RemoveNestedProperty>;
 
 using LogicalOperatorLeafVisitor = utils::LeafVisitor<Once>;
 
@@ -1067,7 +1069,7 @@ class ExpandVariable : public memgraph::query::plan::LogicalOperator {
                  Symbol edge_symbol, EdgeAtom::Type type, EdgeAtom::Direction direction,
                  const std::vector<storage::EdgeTypeId> &edge_types, bool is_reverse, Expression *lower_bound,
                  Expression *upper_bound, bool existing_node, ExpansionLambda filter_lambda,
-                 std::optional<ExpansionLambda> weight_lambda, std::optional<Symbol> total_weight);
+                 std::optional<ExpansionLambda> weight_lambda, std::optional<Symbol> total_weight, Expression *limit);
 
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
@@ -1090,6 +1092,9 @@ class ExpandVariable : public memgraph::query::plan::LogicalOperator {
   memgraph::query::plan::ExpansionLambda filter_lambda_;
   std::optional<memgraph::query::plan::ExpansionLambda> weight_lambda_;
   std::optional<Symbol> total_weight_;
+
+  /// Limit for the number of paths returned in kshortest path expansion.
+  Expression *limit_;
 
   std::string_view OperatorName() const;
 
@@ -1295,6 +1300,12 @@ class SetProperty : public memgraph::query::plan::LogicalOperator {
 
   SetProperty(const std::shared_ptr<LogicalOperator> &input, storage::PropertyId property, PropertyLookup *lhs,
               Expression *rhs);
+
+  std::shared_ptr<LogicalOperator> input_;
+  storage::PropertyId property_;
+  PropertyLookup *lhs_;
+  Expression *rhs_;
+
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -1302,11 +1313,6 @@ class SetProperty : public memgraph::query::plan::LogicalOperator {
   bool HasSingleInput() const override { return true; }
   std::shared_ptr<LogicalOperator> input() const override { return input_; }
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
-
-  std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
-  storage::PropertyId property_;
-  PropertyLookup *lhs_;
-  Expression *rhs_;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 
@@ -1320,6 +1326,45 @@ class SetProperty : public memgraph::query::plan::LogicalOperator {
 
    private:
     const SetProperty &self_;
+    const UniqueCursorPtr input_cursor_;
+  };
+};
+
+class SetNestedProperty : public memgraph::query::plan::LogicalOperator {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  SetNestedProperty() = default;
+
+  SetNestedProperty(const std::shared_ptr<LogicalOperator> &input, std::vector<storage::PropertyId> property_path,
+                    PropertyLookup *lhs, Expression *rhs);
+
+  std::shared_ptr<LogicalOperator> input_;
+  std::vector<storage::PropertyId> property_path_;
+  PropertyLookup *lhs_;
+  Expression *rhs_;
+
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+ private:
+  class SetNestedPropertyCursor : public Cursor {
+   public:
+    SetNestedPropertyCursor(const SetNestedProperty &, utils::MemoryResource *);
+    bool Pull(Frame &, ExecutionContext &) override;
+    void Shutdown() override;
+    void Reset() override;
+
+   private:
+    const SetNestedProperty &self_;
     const UniqueCursorPtr input_cursor_;
   };
 };
@@ -1424,6 +1469,11 @@ class RemoveProperty : public memgraph::query::plan::LogicalOperator {
   RemoveProperty() = default;
 
   RemoveProperty(const std::shared_ptr<LogicalOperator> &input, storage::PropertyId property, PropertyLookup *lhs);
+
+  std::shared_ptr<LogicalOperator> input_;
+  storage::PropertyId property_;
+  PropertyLookup *lhs_;
+
   bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
   UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
   std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
@@ -1431,10 +1481,6 @@ class RemoveProperty : public memgraph::query::plan::LogicalOperator {
   bool HasSingleInput() const override { return true; }
   std::shared_ptr<LogicalOperator> input() const override { return input_; }
   void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
-
-  std::shared_ptr<memgraph::query::plan::LogicalOperator> input_;
-  storage::PropertyId property_;
-  PropertyLookup *lhs_;
 
   std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
 
@@ -1448,6 +1494,45 @@ class RemoveProperty : public memgraph::query::plan::LogicalOperator {
 
    private:
     const RemoveProperty &self_;
+    const UniqueCursorPtr input_cursor_;
+  };
+};
+
+/// Logical operator for removing a nested property from an edge or a vertex.
+class RemoveNestedProperty : public memgraph::query::plan::LogicalOperator {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  RemoveNestedProperty() = default;
+
+  RemoveNestedProperty(const std::shared_ptr<LogicalOperator> &input, std::vector<storage::PropertyId> property_path,
+                       PropertyLookup *lhs);
+
+  std::shared_ptr<LogicalOperator> input_;
+  std::vector<storage::PropertyId> property_path_;
+  PropertyLookup *lhs_;
+
+  bool Accept(HierarchicalLogicalOperatorVisitor &visitor) override;
+  UniqueCursorPtr MakeCursor(utils::MemoryResource *) const override;
+  std::vector<Symbol> ModifiedSymbols(const SymbolTable &) const override;
+
+  bool HasSingleInput() const override { return true; }
+  std::shared_ptr<LogicalOperator> input() const override { return input_; }
+  void set_input(std::shared_ptr<LogicalOperator> input) override { input_ = input; }
+
+  std::unique_ptr<LogicalOperator> Clone(AstStorage *storage) const override;
+
+ private:
+  class RemoveNestedPropertyCursor : public Cursor {
+   public:
+    RemoveNestedPropertyCursor(const RemoveNestedProperty &, utils::MemoryResource *);
+    bool Pull(Frame &, ExecutionContext &) override;
+    void Shutdown() override;
+    void Reset() override;
+
+   private:
+    const RemoveNestedProperty &self_;
     const UniqueCursorPtr input_cursor_;
   };
 };

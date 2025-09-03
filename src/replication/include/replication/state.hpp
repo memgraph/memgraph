@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "flags/coordination.hpp"
 #include "kvstore/kvstore.hpp"
 #include "replication/config.hpp"
 #include "replication/replication_client.hpp"
@@ -43,7 +44,7 @@ struct RoleMainData {
   RoleMainData(RoleMainData &&) = default;
   RoleMainData &operator=(RoleMainData &&) = default;
 
-  std::list<ReplicationClient> registered_replicas_{};
+  std::list<ReplicationClient> registered_replicas_;
   utils::UUID uuid_;  // also used in ReplicationStorageClient but important thing is that at both places, the value is
   // immutable.
   bool writing_enabled_{false};
@@ -53,12 +54,12 @@ struct RoleReplicaData {
   ReplicationServerConfig config;
   std::unique_ptr<ReplicationServer> server;
   // uuid of main instance that replica is listening to
-  std::optional<utils::UUID> uuid_;
+  utils::UUID uuid_;
 };
 
 // Global (instance) level object
 struct ReplicationState {
-  explicit ReplicationState(std::optional<std::filesystem::path> durability_dir);
+  explicit ReplicationState(std::optional<std::filesystem::path> durability_dir, bool ha_cluster = false);
   ~ReplicationState() = default;
 
   ReplicationState(ReplicationState const &) = delete;
@@ -85,7 +86,7 @@ struct ReplicationState {
 
   auto IsMainWriteable() const -> bool {
     if (auto const *main = std::get_if<RoleMainData>(&replication_data_)) {
-      return main->writing_enabled_;
+      return !part_of_ha_cluster_ || main->writing_enabled_;
     }
     return false;
   }
@@ -121,7 +122,7 @@ struct ReplicationState {
   bool HasDurability() const { return nullptr != durability_; }
 
   bool TryPersistRoleMain(utils::UUID main_uuid);
-  bool TryPersistRoleReplica(const ReplicationServerConfig &config, const std::optional<utils::UUID> &main_uuid);
+  bool TryPersistRoleReplica(const ReplicationServerConfig &config, utils::UUID const &main_uuid);
   bool TryPersistUnregisterReplica(std::string_view name);
   bool TryPersistRegisteredReplica(const ReplicationClientConfig &config, utils::UUID main_uuid);
 
@@ -131,7 +132,7 @@ struct ReplicationState {
 
   bool SetReplicationRoleMain(const utils::UUID &main_uuid);
   bool SetReplicationRoleReplica(const ReplicationServerConfig &config,
-                                 const std::optional<utils::UUID> &main_uuid = std::nullopt);
+                                 std::optional<utils::UUID> const &maybe_main_uuid);
 
  private:
   bool HandleVersionMigration(durability::ReplicationRoleEntry &data) const;
@@ -139,6 +140,7 @@ struct ReplicationState {
   std::unique_ptr<kvstore::KVStore> durability_;
   ReplicationData_t replication_data_;
   std::atomic<RolePersisted> role_persisted = RolePersisted::UNKNOWN_OR_NO;
+  bool part_of_ha_cluster_{false};
 };
 
 }  // namespace memgraph::replication
