@@ -261,15 +261,13 @@ struct RenameDatabase : memgraph::system::ISystemAction {
   }
 
   bool DoReplication(replication::ReplicationClient &client, const utils::UUID &main_uuid,
-                     replication::ReplicationEpoch const &epoch,
                      memgraph::system::Transaction const &txn) const override {
     auto check_response = [](const storage::replication::RenameDatabaseRes &response) {
       return response.result != storage::replication::RenameDatabaseRes::Result::FAILURE;
     };
 
     return client.StreamAndFinalizeDelta<storage::replication::RenameDatabaseRpc>(
-        check_response, main_uuid, std::string(epoch.id()), txn.last_committed_system_timestamp(), txn.timestamp(),
-        uuid_, old_name_, new_name_);
+        check_response, main_uuid, txn.last_committed_system_timestamp(), txn.timestamp(), uuid_, old_name_, new_name_);
   }
 
   void PostReplication(replication::RoleMainData &mainData) const override {}

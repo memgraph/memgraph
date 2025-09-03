@@ -135,7 +135,7 @@ void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_s
 
 void RenameDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
                            const std::optional<utils::UUID> &current_main_uuid, DbmsHandler &dbms_handler,
-                           slk::Reader *req_reader, slk::Builder *res_builder) {
+                           uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) {
   using memgraph::storage::replication::RenameDatabaseRes;
   RenameDatabaseRes res(RenameDatabaseRes::Result::FAILURE);
 
@@ -145,16 +145,16 @@ void RenameDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
         "Handling RenameDatabase, an enterprise RPC message, without license. Check your license status by running "
         "SHOW "
         "LICENSE INFO.");
-    rpc::SendFinalResponse(res, res_builder);
+    rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
   memgraph::storage::replication::RenameDatabaseReq req;
-  memgraph::storage::replication::RenameDatabaseReq::Load(&req, req_reader);
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
 
   if (!current_main_uuid.has_value() || req.main_uuid != current_main_uuid) [[unlikely]] {
     LogWrongMain(current_main_uuid, req.main_uuid, memgraph::storage::replication::RenameDatabaseReq::kType.name);
-    rpc::SendFinalResponse(res, res_builder);
+    rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
@@ -166,7 +166,7 @@ void RenameDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
   if (req.expected_group_timestamp != system_state_access.LastCommitedTS()) {
     spdlog::debug("RenameDatabaseHandler: bad expected timestamp {},{}", req.expected_group_timestamp,
                   system_state_access.LastCommitedTS());
-    rpc::SendFinalResponse(res, res_builder);
+    rpc::SendFinalResponse(res, request_version, res_builder);
     return;
   }
 
@@ -191,7 +191,7 @@ void RenameDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
     spdlog::trace(R"(RenameDatabaseHandler: Failed to rename database "{}" to "{}".)", req.old_name, req.new_name);
   }
 
-  rpc::SendFinalResponse(res, res_builder);
+  rpc::SendFinalResponse(res, request_version, res_builder);
 }
 
 bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage::SalientConfig> &database_configs) {
@@ -273,8 +273,9 @@ void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAc
         DropDatabaseHandler(system_state_access, data.uuid_, dbms_handler, request_version, req_reader, res_builder);
       });
   data.server->rpc_server_.Register<storage::replication::RenameDatabaseRpc>(
-      [&data, system_state_access, &dbms_handler](auto *req_reader, auto *res_builder) mutable {
-        RenameDatabaseHandler(system_state_access, data.uuid_, dbms_handler, req_reader, res_builder);
+      [&data, system_state_access, &dbms_handler](uint64_t const request_version, auto *req_reader,
+                                                  auto *res_builder) mutable {
+        RenameDatabaseHandler(system_state_access, data.uuid_, dbms_handler, request_version, req_reader, res_builder);
       });
 }
 #endif

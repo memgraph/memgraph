@@ -121,7 +121,6 @@ void Load(memgraph::storage::replication::DropDatabaseRes *self, memgraph::slk::
 
 void Save(const memgraph::storage::replication::RenameDatabaseReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.main_uuid, builder);
-  memgraph::slk::Save(self.epoch_id, builder);
   memgraph::slk::Save(self.expected_group_timestamp, builder);
   memgraph::slk::Save(self.new_group_timestamp, builder);
   memgraph::slk::Save(self.uuid, builder);
@@ -131,7 +130,6 @@ void Save(const memgraph::storage::replication::RenameDatabaseReq &self, memgrap
 
 void Load(memgraph::storage::replication::RenameDatabaseReq *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->main_uuid, reader);
-  memgraph::slk::Load(&self->epoch_id, reader);
   memgraph::slk::Load(&self->expected_group_timestamp, reader);
   memgraph::slk::Load(&self->new_group_timestamp, reader);
   memgraph::slk::Load(&self->uuid, reader);
