@@ -24,19 +24,40 @@ bool Builder::IsEmpty() const { return pos_ == 0; }
 
 size_t Builder::GetPos() const { return pos_; }
 
-void Builder::Save(const uint8_t *data, uint64_t size, bool const file_data) {
+void Builder::Save(const uint8_t *data, uint64_t size) {
   size_t offset = 0;
   while (size > 0) {
-    FlushSegment(false, file_data);
+    FlushSegment(false);
 
     size_t const to_write = std::min(size, kSegmentMaxDataSize - pos_);
 
-    memcpy(segment_.data() + sizeof(SegmentSize) + pos_, data + offset, to_write);
-    spdlog::warn("Position before saving: {}", pos_);
+    if (file_data_) {
+      memcpy(segment_.data() + pos_, data + offset, to_write);
+    } else {
+      memcpy(segment_.data() + sizeof(SegmentSize) + pos_, data + offset, to_write);
+    }
+    // spdlog::warn("Position before saving: {}", pos_);
     size -= to_write;
     pos_ += to_write;
-    spdlog::warn("Position after saving: {}", pos_);
+    /// spdlog::warn("Position after saving: {}", pos_);
 
+    offset += to_write;
+  }
+}
+
+void Builder::SaveFileBuffer(const uint8_t *data, uint64_t size) {
+  size_t offset = 0;
+  file_data_ = true;
+  while (size > 0) {
+    FlushFileSegment();
+
+    size_t const to_write = std::min(size, kSegmentMaxDataSize - pos_);
+
+    memcpy(segment_.data() + pos_, data + offset, to_write);
+    // spdlog::warn("Position before saving: {}", pos_);
+    size -= to_write;
+    pos_ += to_write;
+    /// spdlog::warn("Position after saving: {}", pos_);
     offset += to_write;
   }
 }
@@ -56,34 +77,46 @@ void Builder::PrepareForFileSending() {
 
   // File data needs to start at the beginning of the new segment
   pos_ = 0;
+
+  const auto kVar = kFileSegmentMask;
+  memcpy(segment_.data(), &kVar, sizeof(SegmentSize));
+  spdlog::warn("Flushed file mask");
+  pos_ += sizeof(SegmentSize);
+  file_data_ = true;
 }
 
 void Builder::Finalize() { FlushSegment(true); }
 
-void Builder::FlushSegment(bool const final_segment, bool const file_data) {
+void Builder::FlushFileSegment() {
+  if (pos_ < kSegmentMaxDataSize) return;
+  MG_ASSERT(pos_ > 0, "Trying to flush out a segment that has no data in it!");
+  write_func_(segment_.data(), pos_, true);
+  pos_ = 0;
+}
+
+void Builder::FlushSegment(bool const final_segment) {
   if (!final_segment && pos_ < kSegmentMaxDataSize) return;
   MG_ASSERT(pos_ > 0, "Trying to flush out a segment that has no data in it!");
 
-  // If the data I want to flush is part of the file, I need to send special marker to the server could know how to
-  // interpret it
-  if (file_data) {
-    // TODO: (andi) Not sure if I can pass pointer to constexpr
-    spdlog::warn("Flushing file_data mask. Final segment: {}, Pos: {}", final_segment, pos_);
-    const auto kVar = kFileSegmentMask;
-    memcpy(segment_.data(), &kVar, sizeof(SegmentSize));
-  } else {
+  auto total_size = std::invoke([&]() -> size_t {
+    if (!file_data_) {
+      return sizeof(SegmentSize) + pos_;
+    }
+    return pos_;
+  });
+
+  if (!file_data_) {
     SegmentSize const data_size = pos_;
     spdlog::warn("Flushing non-file_dat segment with data size: {}. Final segment: {}. Pos: {}", data_size,
                  final_segment, pos_);
     memcpy(segment_.data(), &data_size, sizeof(SegmentSize));
-  }
 
-  size_t total_size = sizeof(SegmentSize) + pos_;
-
-  if (final_segment) {
-    SegmentSize footer = 0;
-    memcpy(segment_.data() + total_size, &footer, sizeof(SegmentSize));
-    total_size += sizeof(SegmentSize);
+    if (final_segment) {
+      SegmentSize footer = 0;
+      memcpy(segment_.data() + total_size, &footer, sizeof(SegmentSize));
+      total_size += sizeof(SegmentSize);
+      spdlog::trace("Size of the final segment: {}", total_size);
+    }
   }
 
   write_func_(segment_.data(), total_size, !final_segment);
@@ -103,7 +136,7 @@ void Reader::Load(uint8_t *data, uint64_t size) {
     if (to_read > have_) {
       to_read = have_;
     }
-    spdlog::warn("Reading from position {}. Should read: {}", pos_, size);
+    // spdlog::warn("Reading from position {}. Should read: {}", pos_, size);
     memcpy(data + offset, data_ + pos_, to_read);
     pos_ += to_read;
     have_ -= to_read;
@@ -117,7 +150,7 @@ size_t Reader::GetPos() const { return pos_; }
 void Reader::Finalize() { GetSegment(true); }
 
 void Reader::GetSegment(bool should_be_final) {
-  spdlog::warn("Position when entering GetSegment: {}", pos_);
+  // spdlog::warn("Position when entering GetSegment: {}", pos_);
   if (have_ != 0) {
     if (should_be_final) {
       throw SlkReaderLeftoverDataException("There is still leftover data in the SLK stream!");
@@ -144,13 +177,14 @@ void Reader::GetSegment(bool should_be_final) {
   pos_ += sizeof(SegmentSize);
 
   if (pos_ + len > size_) {
-    throw SlkReaderException("There isn't enough data in the SLK stream!");
+    throw SlkReaderException("There isn't enough data in the SLK stream! Pos_ {}, len: {}, size_: {}", pos_, len,
+                             size_);
   }
   have_ = len;
-  spdlog::warn("Position when exiting GetSegment: {}", pos_);
+  // spdlog::warn("Position when exiting GetSegment: {}", pos_);
 }
 
-StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size) {
+StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size, std::optional<uint64_t> remaining_file_size) {
   size_t found_segments = 0;
   size_t data_size = 0;
 
@@ -167,9 +201,23 @@ StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size) {
 
     pos += sizeof(SegmentSize);
 
+    // Start of the new segment
     if (len == kFileSegmentMask) {
       spdlog::trace("File segment read at: {}. Found segments: {}", pos - sizeof(SegmentSize), found_segments);
       return {.status = StreamStatus::FILE_DATA, .stream_size = pos, .encoded_data_size = data_size, .pos = pos};
+    }
+
+    // TODO: (andi) Check for overflow
+
+    // Not new segment but should still be written into the file
+    if (remaining_file_size.has_value()) {
+      if (remaining_file_size.value() > 0) {
+        spdlog::trace("Remaining file size is: {}", remaining_file_size.value());
+        return {.status = StreamStatus::FILE_DATA, .stream_size = 0, .encoded_data_size = data_size, .pos = 0};
+      }
+      // TODO: (andi) We should never get here, assert
+      spdlog::trace("Fully read file while checking status");
+      return {.status = StreamStatus::COMPLETE, .stream_size = 0, .encoded_data_size = data_size, .pos = 0};
     }
 
     if (len == 0) {
