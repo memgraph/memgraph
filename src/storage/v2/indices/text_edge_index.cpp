@@ -11,7 +11,9 @@
 
 #include "storage/v2/indices/text_edge_index.hpp"
 
+#include "flags/experimental.hpp"
 #include "mgcxx_text_search.hpp"
+#include "query/exceptions.hpp"
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
@@ -156,6 +158,9 @@ bool TextEdgeIndex::IndexExists(const std::string &index_name) const { return in
 
 std::vector<EdgeTextSearchResult> TextEdgeIndex::Search(const std::string &index_name, const std::string &search_query,
                                                         text_search_mode search_mode) {
+  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    throw query::TextSearchDisabledException();
+  }
   auto &context = std::invoke([&]() -> mgcxx::text_search::Context & {
     if (const auto it = index_.find(index_name); it != index_.end()) {
       return it->second.context;

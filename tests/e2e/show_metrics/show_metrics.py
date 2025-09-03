@@ -125,6 +125,7 @@ def test_all_show_metrics_info_values_are_present(memgraph):
         {"name": "ActiveLabelPropertyIndices", "type": "Index", "metric type": "Counter"},
         {"name": "ActivePointIndices", "type": "Index", "metric type": "Counter"},
         {"name": "ActiveTextIndices", "type": "Index", "metric type": "Counter"},
+        {"name": "ActiveTextEdgeIndices", "type": "Index", "metric type": "Counter"},
         {"name": "ActiveVectorEdgeIndices", "type": "Index", "metric type": "Counter"},
         {"name": "ActiveVectorIndices", "type": "Index", "metric type": "Counter"},
         {"name": "UnreleasedDeltaObjects", "type": "Memory", "metric type": "Counter"},
