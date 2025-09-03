@@ -1,13 +1,20 @@
 set(test_prefix memgraph__unit__)
 
+# Include conan-generated dependencies
+include(conandeps_legacy)
+
 find_package(fmt REQUIRED)
-find_package(gflags REQUIRED)
 find_package(Threads REQUIRED)
+find_package(antlr4-runtime REQUIRED)
+find_package(antlr4 REQUIRED)
+
+
+include_directories(${antlr4-runtime_INCLUDE_DIR})
 
 add_custom_target(memgraph__unit)
 
 add_library(memgraph_unit_main OBJECT main.cpp)
-target_link_libraries(memgraph_unit_main mg-memory mg-utils gtest gmock Threads::Threads dl atomic)
+target_link_libraries(memgraph_unit_main mg-memory mg-utils GTest::gtest GTest::gmock Threads::Threads dl atomic)
 target_precompile_headers(memgraph_unit_main PRIVATE
     <gtest/gtest.h>
 )
@@ -34,7 +41,7 @@ function(_add_unit_test test_cpp custom_main)
   if(NOT ${custom_main})
     target_link_libraries(${target_name} memgraph_unit_main)
   else()
-    target_link_libraries(${target_name} gtest gmock Threads::Threads dl)
+    target_link_libraries(${target_name} GTest::gtest GTest::gmock Threads::Threads dl)
   endif()
 
   # OUTPUT_NAME sets the real name of a target when it is built and can be
@@ -58,13 +65,15 @@ endfunction(_add_unit_test)
 add_library(storage_test_utils storage_test_utils.cpp)
 target_link_libraries(storage_test_utils mg::storage)
 
+find_package(OpenSSL REQUIRED)
+
 # Test integrations-kafka
 add_library(kafka-mock STATIC kafka_mock.cpp)
-target_link_libraries(kafka-mock mg-utils librdkafka++ librdkafka Threads::Threads gtest)
+target_link_libraries(kafka-mock mg-utils librdkafka++ librdkafka Threads::Threads GTest::gtest)
 
 # Include directories are intentionally not set, because kafka-mock isn't meant to be used apart from unit tests
 add_unit_test(integrations_kafka_consumer.cpp kafka_mock.cpp)
-target_link_libraries(${test_prefix}integrations_kafka_consumer kafka-mock mg-integrations-kafka)
+target_link_libraries(${test_prefix}integrations_kafka_consumer kafka-mock mg-integrations-kafka openssl::openssl)
 
 add_unit_test(mgp_kafka_c_api.cpp)
 target_link_libraries(${test_prefix}mgp_kafka_c_api mg-query mg-integrations-kafka)
@@ -293,13 +302,13 @@ add_unit_test(small_vector.cpp)
 target_link_libraries(${test_prefix}small_vector mg-utils)
 
 add_unit_test(utils_mask_sensitive_information.cpp)
-target_link_libraries(${test_prefix}utils_mask_sensitive_information mg-utils fmt)
+target_link_libraries(${test_prefix}utils_mask_sensitive_information mg-utils fmt::fmt)
 
 add_unit_test(utils_file_locker.cpp)
-target_link_libraries(${test_prefix}utils_file_locker mg-utils fmt)
+target_link_libraries(${test_prefix}utils_file_locker mg-utils fmt::fmt)
 
 add_unit_test(utils_thread_pool.cpp)
-target_link_libraries(${test_prefix}utils_thread_pool mg-utils fmt)
+target_link_libraries(${test_prefix}utils_thread_pool mg-utils fmt::fmt)
 
 add_unit_test(csv_csv_parsing.cpp)
 target_link_libraries(${test_prefix}csv_csv_parsing mg::csv)
@@ -328,11 +337,13 @@ target_link_libraries(${test_prefix}lru_cache mg-utils)
 add_unit_test(utils_static_vector.cpp)
 target_link_libraries(${test_prefix}utils_static_vector mg::utils)
 
+find_package(range-v3 REQUIRED)
+
 add_unit_test(exponential_backoff exponential_backoff.cpp)
-target_link_libraries(${test_prefix}exponential_backoff mg-utils lib::rangev3)
+target_link_libraries(${test_prefix}exponential_backoff mg-utils range-v3::range-v3)
 
 add_unit_test(utils_compressor.cpp)
-target_link_libraries(${test_prefix}utils_compressor mg-utils)
+target_link_libraries(${test_prefix}utils_compressor mg-utils gflags)
 
 add_unit_test(utils_observer.cpp)
 target_link_libraries(${test_prefix}utils_observer mg-utils)
@@ -393,13 +404,13 @@ add_unit_test(storage_v2_name_id_mapper.cpp)
 target_link_libraries(${test_prefix}storage_v2_name_id_mapper mg::storage)
 
 add_unit_test_with_custom_main(storage_v2_property_store.cpp)
-target_link_libraries(${test_prefix}storage_v2_property_store mg::storage fmt)
+target_link_libraries(${test_prefix}storage_v2_property_store mg::storage fmt::fmt)
 
 add_unit_test(storage_v2_wal_file.cpp)
-target_link_libraries(${test_prefix}storage_v2_wal_file mg::storage storage_test_utils fmt)
+target_link_libraries(${test_prefix}storage_v2_wal_file mg::storage storage_test_utils fmt::fmt)
 
 add_unit_test(storage_v2_replication.cpp)
-target_link_libraries(${test_prefix}storage_v2_replication mg::storage mg-dbms fmt mg-repl_coord_glue)
+target_link_libraries(${test_prefix}storage_v2_replication mg::storage mg-dbms fmt::fmt mg-repl_coord_glue)
 
 add_unit_test(storage_v2_isolation_level.cpp)
 target_link_libraries(${test_prefix}storage_v2_isolation_level mg::storage)
@@ -470,10 +481,10 @@ if(MG_ENTERPRISE)
 endif()
 
 add_unit_test(slk_core.cpp)
-target_link_libraries(${test_prefix}slk_core mg-slk gflags fmt)
+target_link_libraries(${test_prefix}slk_core mg-slk gflags fmt::fmt)
 
 add_unit_test(slk_streams.cpp)
-target_link_libraries(${test_prefix}slk_streams mg-slk gflags fmt)
+target_link_libraries(${test_prefix}slk_streams mg-slk gflags fmt::fmt)
 
 # Test utilities
 add_library(rpc_messages rpc_messages.cpp)

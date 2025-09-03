@@ -82,13 +82,13 @@ jobs:
       - name: Build docker image
         run: |
           if [[ "${{ inputs.arch }}" == "arm" ]]; then
-            MGBUILD_IMAGE=memgraph/mgbuild:v6_ubuntu-24.04-arm
+            MGBUILD_IMAGE=memgraph/mgbuild:v7_ubuntu-24.04-arm
           else
-            MGBUILD_IMAGE=memgraph/mgbuild:v6_ubuntu-24.04
+            MGBUILD_IMAGE=memgraph/mgbuild:v7_ubuntu-24.04
           fi
 
           docker buildx build \
-          --build-arg TOOLCHAIN_VERSION=toolchain-v6 \
+          --build-arg TOOLCHAIN_VERSION=toolchain-v7 \
           --build-arg MGBUILD_IMAGE=$MGBUILD_IMAGE \
           --tag ${{ env.REPO_TAG }} \
           --file ${{ env.DOCKERFILE }} \

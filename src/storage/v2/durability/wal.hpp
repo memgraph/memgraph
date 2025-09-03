@@ -450,8 +450,7 @@ uint64_t EncodeTransactionStart(Encoder<utils::OutputFile> *encoder, uint64_t ti
 
 /// Function use to encode the transaction start
 /// Used for replication
-void EncodeTransactionStart(BaseEncoder *encoder, uint64_t timestamp, bool commit,
-                            StorageAccessType access_type);
+void EncodeTransactionStart(BaseEncoder *encoder, uint64_t timestamp, bool commit, StorageAccessType access_type);
 
 /// Function used to encode the transaction end.
 void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp);
@@ -589,7 +588,7 @@ class fmt::formatter<memgraph::storage::durability::CompositePropertyPaths> {
   constexpr auto parse(format_parse_context &ctx) { return ctx.begin(); }
 
   template <typename FormatContext>
-  auto format(const memgraph::storage::durability::CompositePropertyPaths &wrapper, FormatContext &ctx) {
+  auto format(const memgraph::storage::durability::CompositePropertyPaths &wrapper, FormatContext &ctx) const {
     auto out = ctx.out();
     bool first_path = true;
 

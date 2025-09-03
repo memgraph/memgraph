@@ -13,7 +13,7 @@ jobs:
       MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
       MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
       OS: ubuntu-24.04
-      TOOLCHAIN: v6
+      TOOLCHAIN: v7
       ARCH: amd
       BUILD_TYPE: Release
 
