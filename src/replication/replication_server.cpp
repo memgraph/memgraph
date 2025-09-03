@@ -14,6 +14,10 @@
 
 #include <spdlog/spdlog.h>
 
+namespace memgraph::rpc {
+class FileReplicationHandler;
+}  // namespace memgraph::rpc
+
 namespace memgraph::replication {
 namespace {
 
@@ -34,7 +38,8 @@ ReplicationServer::ReplicationServer(const memgraph::replication::ReplicationSer
     : rpc_server_context_{CreateServerContext(config)},
       rpc_server_{config.repl_server, &rpc_server_context_, kReplicationServerThreads} {
   rpc_server_.Register<replication_coordination_glue::FrequentHeartbeatRpc>(
-      [](uint64_t const request_version, auto *req_reader, auto *res_builder) {
+      [](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+         uint64_t const request_version, auto *req_reader, auto *res_builder) {
         replication_coordination_glue::FrequentHeartbeatHandler(request_version, req_reader, res_builder);
       });
 }

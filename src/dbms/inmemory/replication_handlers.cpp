@@ -208,40 +208,51 @@ void LogWrongMain(const std::optional<utils::UUID> &current_main_uuid, const uti
 
 TwoPCCache InMemoryReplicationHandlers::two_pc_cache_;
 
+namespace memgraph::rpc {
+class FileReplicationHandler;
+}  // namespace memgraph::rpc
+
 void InMemoryReplicationHandlers::Register(dbms::DbmsHandler *dbms_handler, replication::RoleReplicaData &data) {
   auto &server = *data.server;
   server.rpc_server_.Register<storage::replication::HeartbeatRpc>(
-      [&data, dbms_handler](uint64_t const request_version, auto *req_reader, auto *res_builder) {
+      [&data, dbms_handler](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                            uint64_t const request_version, auto *req_reader, auto *res_builder) {
         InMemoryReplicationHandlers::HeartbeatHandler(dbms_handler, data.uuid_, request_version, req_reader,
                                                       res_builder);
       });
   server.rpc_server_.Register<storage::replication::PrepareCommitRpc>(
-      [&data, dbms_handler](uint64_t const request_version, auto *req_reader, auto *res_builder) {
+      [&data, dbms_handler](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                            uint64_t const request_version, auto *req_reader, auto *res_builder) {
         InMemoryReplicationHandlers::PrepareCommitHandler(dbms_handler, data.uuid_, request_version, req_reader,
                                                           res_builder);
       });
   server.rpc_server_.Register<storage::replication::FinalizeCommitRpc>(
-      [&data, dbms_handler](uint64_t const request_version, auto *req_reader, auto *res_builder) {
+      [&data, dbms_handler](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                            uint64_t const request_version, auto *req_reader, auto *res_builder) {
         InMemoryReplicationHandlers::FinalizeCommitHandler(dbms_handler, data.uuid_, request_version, req_reader,
                                                            res_builder);
       });
   server.rpc_server_.Register<storage::replication::SnapshotRpc>(
-      [&data, dbms_handler](uint64_t const request_version, auto *req_reader, auto *res_builder) {
+      [&data, dbms_handler](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                            uint64_t const request_version, auto *req_reader, auto *res_builder) {
         InMemoryReplicationHandlers::SnapshotHandler(dbms_handler, data.uuid_, request_version, req_reader,
                                                      res_builder);
       });
   server.rpc_server_.Register<storage::replication::WalFilesRpc>(
-      [&data, dbms_handler](uint64_t const request_version, auto *req_reader, auto *res_builder) {
+      [&data, dbms_handler](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                            uint64_t const request_version, auto *req_reader, auto *res_builder) {
         InMemoryReplicationHandlers::WalFilesHandler(dbms_handler, data.uuid_, request_version, req_reader,
                                                      res_builder);
       });
   server.rpc_server_.Register<storage::replication::CurrentWalRpc>(
-      [&data, dbms_handler](uint64_t const request_version, auto *req_reader, auto *res_builder) {
+      [&data, dbms_handler](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                            uint64_t const request_version, auto *req_reader, auto *res_builder) {
         InMemoryReplicationHandlers::CurrentWalHandler(dbms_handler, data.uuid_, request_version, req_reader,
                                                        res_builder);
       });
   server.rpc_server_.Register<replication_coordination_glue::SwapMainUUIDRpc>(
-      [&data, dbms_handler](uint64_t const request_version, auto *req_reader, auto *res_builder) {
+      [&data, dbms_handler](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                            uint64_t const request_version, auto *req_reader, auto *res_builder) {
         InMemoryReplicationHandlers::SwapMainUUIDHandler(dbms_handler, data, request_version, req_reader, res_builder);
       });
 }
@@ -987,7 +998,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
     }
 
     // NOLINTNEXTLINE (google-build-using-namespace)
-    using namespace memgraph::storage::durability;
+    using namespace storage::durability;
     auto *mapper = storage->name_id_mapper_.get();
     auto delta_apply = utils::Overloaded{
         [&](WalVertexCreate const &data) {

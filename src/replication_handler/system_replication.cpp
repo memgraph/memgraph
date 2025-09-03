@@ -19,6 +19,10 @@
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 #include "system/rpc.hpp"
 
+namespace memgraph::rpc {
+class FileReplicationHandler;
+}  // namespace memgraph::rpc
+
 namespace memgraph::replication {
 
 #ifdef MG_ENTERPRISE
@@ -101,15 +105,17 @@ void Register(replication::RoleReplicaData const &data, system::System &system, 
 
   // need to tell REPLICA the uuid to use for "memgraph" default database
   data.server->rpc_server_.Register<replication::SystemRecoveryRpc>(
-      [&data, system_state_access, &dbms_handler, &auth](uint64_t const request_version, auto *req_reader,
-                                                         auto *res_builder) mutable {
+      [&data, system_state_access, &dbms_handler, &auth](
+          std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version, auto *req_reader, auto *res_builder) mutable {
         SystemRecoveryHandler(system_state_access, data.uuid_, dbms_handler, auth, request_version, req_reader,
                               res_builder);
       });
 
   // Generic finalize message
   data.server->rpc_server_.Register<replication::FinalizeSystemTxRpc>(
-      [&data, system_state_access](uint64_t const request_version, auto *req_reader, auto *res_builder) mutable {
+      [&data, system_state_access](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                                   uint64_t const request_version, auto *req_reader, auto *res_builder) mutable {
         FinalizeSystemTxHandler(system_state_access, data.uuid_, request_version, req_reader, res_builder);
       });
 
