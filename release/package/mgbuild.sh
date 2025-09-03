@@ -870,9 +870,33 @@ test_memgraph() {
     ;;
     mgbench)
       shift 1
-      local DATASET=${1:-'pokec'}
-      local DATASET_SIZE=${2:-'medium'}
-      local EXPORT_RESULTS_FILE=${2:-'benchmark_result.json'}
+      local DATASET='pokec'
+      local DATASET_SIZE='medium'
+      local EXPORT_RESULTS_FILE='benchmark_result.json'
+
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --dataset)
+            DATASET="$2"
+            shift 2
+          ;;
+          --size)
+            DATASET_SIZE="$2"
+            shift 2
+          ;;
+          --export-results)
+            EXPORT_RESULTS_FILE="$2"
+            shift 2
+          ;;
+          *)
+            echo "Error: Unknown flag '$1' for mgbench"
+            echo "Supported flags: --dataset, --size, --export-results"
+            exit 1
+          ;;
+        esac
+      done
+
+      check_support pokec_size $DATASET_SIZE
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 12 --export-results $EXPORT_RESULTS_FILE $DATASET/$DATASET_SIZE/*/*"
     ;;
     upload-to-bench-graph)
