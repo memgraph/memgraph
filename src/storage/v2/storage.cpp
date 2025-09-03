@@ -396,7 +396,7 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
   }
 
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    // TODO (@DavIvek): This is slow, implement gc
+    // TODO (@DavIvek): Consider cleaning up text index in the background thread
     for (auto *node : nodes_to_delete) {
       storage_->indices_.text_index_.RemoveNode(node, transaction_);
     }
