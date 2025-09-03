@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <functional>
 #include <limits>
+#include <optional>
 #include <utility>
 
 #include "utils/exceptions.hpp"
@@ -64,9 +65,9 @@ class Builder {
   }
 
   /// Function used internally by SLK to serialize the data.
-  /// @param file_data: Whether data I am saving represents some part of the file. We need this info so we could send
-  /// special marker to annotate that we are sending the file
-  void Save(const uint8_t *data, uint64_t size, bool file_data = false);
+  void Save(const uint8_t *data, uint64_t size);
+
+  void SaveFileBuffer(const uint8_t *data, uint64_t size);
 
   // Flushes the previous segment because sending the file requires that we start with the segment start. File data
   // cannot start in the middle of the segment.
@@ -82,9 +83,9 @@ class Builder {
 
  private:
   /// @param final_segment: Whether the flush should finalize the message
-  /// @param file_data: Whether data I am saving represents some part of the file. We need this info so we could send
-  /// special marker to annotate that we are sending the file
-  void FlushSegment(bool final_segment, bool file_data = false);
+  void FlushSegment(bool final_segment);
+  void FlushFileSegment();
+  bool file_data_{false};
 
   std::function<void(const uint8_t *, size_t, bool)> write_func_;
   size_t pos_{0};
@@ -155,6 +156,7 @@ struct StreamInfo {
 /// size of the data stream. It is used to indicate to the network stack how
 /// much data it should receive before it makes sense to retry decoding of the
 /// segment data.
-StreamInfo CheckStreamStatus(const uint8_t *data, size_t size);
+StreamInfo CheckStreamStatus(const uint8_t *data, size_t size,
+                             std::optional<uint64_t> remaining_file_size = std::nullopt);
 
 }  // namespace memgraph::slk

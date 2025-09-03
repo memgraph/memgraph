@@ -60,7 +60,8 @@ void Encoder::WriteExternalPropertyValue(const ExternalPropertyValue &value) {
 }
 
 void Encoder::WriteFileBuffer(const uint8_t *buffer, const size_t buffer_size) {
-  builder_->Save(buffer, buffer_size, /*file_data*/ true);
+  // builder_->Save(buffer, buffer_size);
+  builder_->SaveFileBuffer(buffer, buffer_size);
 }
 
 void Encoder::WriteFileData(utils::InputFile *file) {
@@ -85,14 +86,15 @@ bool Encoder::WriteFile(const std::filesystem::path &path) {
     return false;
   }
   const auto &filename = path.filename().generic_string();
-  spdlog::trace("Position before saving filename: {}", builder_->GetPos());
+  // spdlog::trace("Position before saving filename: {}", builder_->GetPos());
   WriteString(filename);
-  spdlog::trace("Position after saving filename: {}", builder_->GetPos());
+  // spdlog::trace("Position after saving filename: {}", builder_->GetPos());
   auto const file_size = file.GetSize();
+  spdlog::trace("File size is: {}", file_size);
   WriteUint(file_size);
-  spdlog::trace("Position after saving file size: {}", builder_->GetPos());
+  // spdlog::trace("Position after saving file size: {}", builder_->GetPos());
   WriteFileData(&file);
-  spdlog::trace("Position after saving file data: {}", builder_->GetPos());
+  // spdlog::trace("Position after saving file data: {}", builder_->GetPos());
   return true;
 }
 
@@ -125,7 +127,7 @@ std::optional<double> Decoder::ReadDouble() {
 }
 
 std::optional<std::string> Decoder::ReadString() {
-  spdlog::warn("Reader position before reading string: {}", reader_->GetPos());
+  // spdlog::warn("Reader position before reading string: {}", reader_->GetPos());
   const auto marker = ReadMarker();
   if (!marker) {
     spdlog::warn("Marker is invalid");

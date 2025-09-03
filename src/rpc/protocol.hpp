@@ -38,7 +38,7 @@ class FileReplicationHandler final {
 
   void WriteToFile(const uint8_t *data, size_t size);
 
- private:
+  // TODO: (andi) make private
   utils::OutputFile file_;
   uint64_t file_size_;
   // How many bytes we wrote to the file

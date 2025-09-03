@@ -33,9 +33,9 @@ const auto kTempDirectory =
 
 FileReplicationHandler::FileReplicationHandler(const uint8_t *data, size_t const size) : written_(0) {
   slk::Reader req_reader(data, size, size);
-  spdlog::warn("Reader pos before creating decoder: {}", req_reader.GetPos());
+  // spdlog::warn("Reader pos before creating decoder: {}", req_reader.GetPos());
   storage::replication::Decoder decoder(&req_reader);
-  spdlog::warn("Reader pos after creating decoder: {}", req_reader.GetPos());
+  // spdlog::warn("Reader pos after creating decoder: {}", req_reader.GetPos());
 
   // We should be able to always read filename and filesize since file data starts with the new segment
   auto const maybe_filename = decoder.ReadString();
@@ -61,7 +61,8 @@ FileReplicationHandler::FileReplicationHandler(const uint8_t *data, size_t const
     req_reader.Load(buffer, chunk_size);
     file_.Write(buffer, chunk_size);
     to_write -= chunk_size;
-    spdlog::warn("Written {} bytes to file in the constructor, remaining {}", chunk_size, to_write);
+    written_ += chunk_size;
+    spdlog::warn("Written {} bytes to file in the constructor, remaining {}", chunk_size, file_size_ - written_);
   }
 }
 
@@ -69,7 +70,7 @@ FileReplicationHandler::~FileReplicationHandler() { file_.Close(); }
 
 void FileReplicationHandler::WriteToFile(const uint8_t *data, size_t const size) {
   spdlog::warn("Got the request to write {} bytes to the file", size);
-  slk::Reader req_reader(data, size);
+  slk::Reader req_reader(data, size, size);
   uint8_t buffer[utils::kFileBufferSize];
   auto to_write = size;
   while (to_write > 0) {
@@ -77,7 +78,8 @@ void FileReplicationHandler::WriteToFile(const uint8_t *data, size_t const size)
     req_reader.Load(buffer, chunk_size);
     file_.Write(buffer, chunk_size);
     to_write -= chunk_size;
-    spdlog::warn("Written {} bytes to file, remaining {}", chunk_size, to_write);
+    written_ += chunk_size;
+    spdlog::warn("Written {} bytes to file in the method, remaining {}", chunk_size, file_size_ - written_);
   }
 }
 
@@ -89,7 +91,14 @@ RpcMessageDeliverer::RpcMessageDeliverer(Server *server, io::network::Endpoint c
 void RpcMessageDeliverer::Execute() {
   // spdlog::trace("Memory at the start of execute: {}", utils::GetReadableSize(utils::GetMemoryRES()));
   spdlog::trace("Input stream size at the Execute Start: {}", input_stream_->size());
-  auto ret = slk::CheckStreamStatus(input_stream_->data(), input_stream_->size());
+
+  auto const remaining_file_size = std::invoke([&]() -> std::optional<uint64_t> {
+    if (!file_replication_handler_.has_value()) {
+      return std::nullopt;
+    }
+    return file_replication_handler_->file_size_ - file_replication_handler_->written_;
+  });
+  auto ret = slk::CheckStreamStatus(input_stream_->data(), input_stream_->size(), remaining_file_size);
 
   if (ret.status == slk::StreamStatus::INVALID) {
     throw SessionException("Received an invalid SLK stream!");
@@ -104,8 +113,8 @@ void RpcMessageDeliverer::Execute() {
 
   // Use info whether file_replication_handler already exists + you need to copy previous data so you can initalize
   // message request
-
   // TODO: (andi) What if file is smaller than one segment? file_data_size is probably invalid then
+  // TODO: (andi) Solve memory leak when closing file
   if (ret.status == slk::StreamStatus::FILE_DATA) {
     const uint8_t *file_data_start = input_stream_->data() + ret.pos;
     size_t const file_data_size = input_stream_->size() - ret.pos;
@@ -117,15 +126,20 @@ void RpcMessageDeliverer::Execute() {
           input_stream_->data(), input_stream_->data() + (input_stream_->size() - ret.pos - sizeof(slk::SegmentSize))};
       file_replication_handler_.emplace(file_data_start, file_data_size);
     } else {
+      // Continue writing to the file
       file_replication_handler_->WriteToFile(file_data_start, file_data_size);
     }
     input_stream_->Clear();
-    return;
+
+    if (file_replication_handler_->file_size_ > file_replication_handler_->written_) {
+      return;
+    }
   }
 
   // Remove the data from the stream on scope exit.
   auto const shift_data = utils::OnScopeExit{[&, ret] {
     input_stream_->Shift(ret.stream_size);
+    // TODO: (andi) This shouldn't be needed
     input_stream_->ShrinkBuffer(kBufferRetainLimit);
   }};
 
@@ -133,9 +147,14 @@ void RpcMessageDeliverer::Execute() {
   slk::Reader req_reader = std::invoke([&]() {
     // File data wasn't received
     if (header_request_.empty()) {
-      spdlog::warn("Using original buffer for reading header and request");
+      if (file_replication_handler_.has_value() &&
+          file_replication_handler_->written_ == file_replication_handler_->file_size_) {
+        LOG_FATAL("Using original buffer for reading header and request");
+      }
       return slk::Reader{input_stream_->data(), input_stream_->size()};
     }
+    MG_ASSERT(file_replication_handler_.has_value() &&
+              file_replication_handler_->written_ == file_replication_handler_->file_size_);
     spdlog::warn("Using buffer copy for reading header and request");
     // File data received
     return slk::Reader{header_request_.data(), header_request_.size()};
