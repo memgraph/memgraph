@@ -28,6 +28,7 @@ target_sources(mg-utils
     skip_list.cpp
     priority_thread_pool.cpp
     resource_monitoring.cpp
+    safe_string.cpp
 
     PUBLIC
     FILE_SET HEADERS
@@ -47,6 +48,7 @@ target_sources(mg-utils
     transparent_compare.hpp
     compile_time.hpp
     resource_monitoring.hpp
+    safe_string.hpp
 )
 
 find_package(Boost REQUIRED CONFIG)
