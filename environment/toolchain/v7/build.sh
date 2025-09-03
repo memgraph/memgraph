@@ -1412,7 +1412,7 @@ if [ ! -f $PREFIX/lib/librdtsc.a ]; then
     popd
 fi
 
-MGCXX_TAG="v0.0.7"
+MGCXX_TAG="v0.0.9"
 log_tool_name "mgcxx $MGCXX_TAG"
 if [ ! -f $PREFIX/lib/libmgcxx_text_search.a ]; then
     if [ -d mgcxx ]; then
