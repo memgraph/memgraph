@@ -436,6 +436,9 @@ add_subdirectory(libs EXCLUDE_FROM_ALL)
 set(MG_PYTHON_VERSION "" CACHE STRING "Specify the exact Python version used by the query modules")
 set(MG_PYTHON_PATH "" CACHE STRING "Specify the exact Python path used by the query modules")
 
+option(MG_ENABLE_TESTING "Set this to OFF to disable building test binaries" ON)
+message(STATUS "MG_ENABLE_TESTING: ${MG_ENABLE_TESTING}")
+
 # Common
 if (MG_ENABLE_TESTING)
   enable_testing()
@@ -448,9 +451,6 @@ add_subdirectory(src)
 
 # Release configuration
 add_subdirectory(release)
-
-option(MG_ENABLE_TESTING "Set this to OFF to disable building test binaries" ON)
-message(STATUS "MG_ENABLE_TESTING: ${MG_ENABLE_TESTING}")
 
 if (MG_ENABLE_TESTING)
   enable_testing()
