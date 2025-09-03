@@ -503,17 +503,11 @@ TEST_F(MultiTenantTest, ForceDropDatabaseWithActiveTransactions) {
   ForceDropDatabase(interpreter2, "db1", "Successfully deleted db1");
 
   // 4 - Verify transaction termination behavior
-  // Active transactions should still work even after force drop
-  auto res = RunQuery(interpreter1, "MATCH(:Node{on:\"db1\"}) RETURN count(*)");
-  ASSERT_EQ(res.size(), 1);
-  ASSERT_EQ(res[0].size(), 1);
-  ASSERT_EQ(res[0][0].ValueInt(), 2);
-
-  // But attempting to commit should fail
+  // Active transactions should abort as soon as possible
   try {
-    RunQuery(interpreter1, "COMMIT");
+    RunQuery(interpreter1, "MATCH(:Node{on:\"db1\"}) RETURN count(*)");
   } catch (const memgraph::utils::BasicException &e) {
-    ASSERT_TRUE(std::string_view(e.what()).starts_with("Aborting"));
+    ASSERT_TRUE(std::string_view(e.what()).starts_with("Transaction was asked to abort by another user."));
     interpreter1.Abort();  // Client will do this automatically
   }
 
