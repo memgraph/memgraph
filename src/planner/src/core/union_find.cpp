@@ -11,14 +11,15 @@
 
 #include "planner/core/union_find.hpp"
 
-#include <climits>
+#include <bit>
 #include <limits>
 
 namespace memgraph::planner::core {
 
 // Static assertion to ensure UnionFind::rank_t rank storage is sufficient
 // Maximum rank in a union-find is O(log n)
-static_assert(sizeof(UnionFind::id_t) * CHAR_BIT <= std::numeric_limits<UnionFind::rank_t>::max(),
+static_assert(std::bit_width(std::numeric_limits<UnionFind::id_t>::max()) <
+                  std::numeric_limits<UnionFind::rank_t>::max(),
               "8-bit rank storage insufficient for expected maximum tree depth");
 
 auto UnionFind::MakeSet() -> id_t {
