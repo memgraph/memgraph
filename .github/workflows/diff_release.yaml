@@ -253,7 +253,7 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph mgbench --export-results ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
+          test-memgraph mgbench --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
 
       - name: Upload mgbench results
         run: |

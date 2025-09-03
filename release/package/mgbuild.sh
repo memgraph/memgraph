@@ -147,7 +147,7 @@ print_help () {
   echo -e "\nmgbench options:"
   echo -e "  --dataset string              Specify dataset to benchmark (default \"pokec\")"
   echo -e "  --size string                 Specify dataset size: (for pokec: small, medium, large) (default \"medium\")"
-  echo -e "  --export-results string       Specify output file for benchmark results (default \"benchmark_result.json\")"
+  echo -e "  --export-results-file string  Specify output file for benchmark results (default \"benchmark_result.json\")"
 
   echo -e "\nToolchain v4 supported OSs:"
   echo -e "  \"${SUPPORTED_OS_V4[*]}\""
@@ -165,7 +165,7 @@ print_help () {
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd --build-type RelWithDebInfo build-memgraph --disable-testing"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd --build-type RelWithDebInfo test-memgraph unit"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd test-memgraph mgbench --dataset pokec --size large"
-  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd test-memgraph mgbench --dataset ldbc_bi --size medium --export-results my_results.json"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd test-memgraph mgbench --dataset ldbc_bi --size medium --export-results-file my_results.json"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd package"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd copy --package"
   echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd copy --use-make-install --dest-dir build/install"
@@ -891,20 +891,20 @@ test_memgraph() {
             DATASET_SIZE="$2"
             shift 2
           ;;
-          --export-results)
+          --export-results-file)
             EXPORT_RESULTS_FILE="$2"
             shift 2
           ;;
           *)
             echo "Error: Unknown flag '$1' for mgbench"
-            echo "Supported flags: --dataset, --size, --export-results"
+            echo "Supported flags: --dataset, --size, --export-results-file"
             exit 1
           ;;
         esac
       done
 
       check_support pokec_size $DATASET_SIZE
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 12 --export-results $EXPORT_RESULTS_FILE $DATASET/$DATASET_SIZE/*/*"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 12 --export-results-file $EXPORT_RESULTS_FILE $DATASET/$DATASET_SIZE/*/*"
     ;;
     upload-to-bench-graph)
       shift 1
