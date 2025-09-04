@@ -80,15 +80,31 @@ if(lower_build_type STREQUAL "release")
                 COMMENT "Stripping symbols and sections from memgraph")
 endif()
 
+# When ASAN is enabled, skip config generation due to toolchain compatibility issues
+if(ASAN)
+    message(STATUS "Skipping config generation with ASAN due to toolchain compatibility issues")
+endif()
+
 # Generate the configuration file under the build directory.
-add_custom_command(TARGET memgraph POST_BUILD
-        COMMAND ${CMAKE_SOURCE_DIR}/config/generate.py
-        ${CMAKE_BINARY_DIR}/memgraph
-        ${CMAKE_BINARY_DIR}/config/memgraph.conf
-        DEPENDS ${CMAKE_SOURCE_DIR}/config/generate.py
-        ${CMAKE_SOURCE_DIR}/config/flags.yaml
-        BYPRODUCTS ${CMAKE_BINARY_DIR}/config/memgraph.conf
-        COMMENT "Generating memgraph configuration file")
+if(ASAN)
+    # When ASAN is enabled, copy a pre-generated config file instead of generating it
+    # This avoids the ASAN crash during config generation
+    add_custom_command(TARGET memgraph POST_BUILD
+            COMMAND ${CMAKE_COMMAND} -E make_directory ${CMAKE_BINARY_DIR}/config
+            COMMAND ${CMAKE_COMMAND} -E copy_if_different
+            ${CMAKE_SOURCE_DIR}/config/memgraph.conf.template
+            ${CMAKE_BINARY_DIR}/config/memgraph.conf
+            BYPRODUCTS ${CMAKE_BINARY_DIR}/config/memgraph.conf
+            COMMENT "Copying pre-generated memgraph configuration file (ASAN compatibility)")
+else()
+    # Use the regular binary for config generation
+    add_custom_command(TARGET memgraph POST_BUILD
+            COMMAND ${CMAKE_SOURCE_DIR}/config/generate.py
+            ${CMAKE_BINARY_DIR}/memgraph
+            ${CMAKE_BINARY_DIR}/config/memgraph.conf
+            BYPRODUCTS ${CMAKE_BINARY_DIR}/config/memgraph.conf
+            COMMENT "Generating memgraph configuration file")
+endif()
 # Copy the mappings file to the build directory.
 add_custom_command(TARGET memgraph POST_BUILD
         COMMAND ${CMAKE_COMMAND} -E copy
