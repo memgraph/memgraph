@@ -1467,7 +1467,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
                                                         std::move(found_index->properties), std::move(expr_ranges),
                                                         view);
     }
-    if (!labels.empty()) {
+    if (!labels.empty() && or_labels.empty()) {
       auto maybe_label = FindBestLabelIndex(labels);
       if (maybe_label) {
         const auto &label = *maybe_label;
