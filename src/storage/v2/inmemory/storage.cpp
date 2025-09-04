@@ -2338,7 +2338,8 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
           while (current_delta != nullptr && !visited.count(current_delta)) {
             visited.insert(current_delta);
             auto ts = current_delta->timestamp->load();
-            if (ts >= kTransactionInitialId) {
+            if (ts >= kTransactionInitialId && !commit_log_->IsFinished(ts)) {
+              spdlog::trace("Waiting for transaction {} (IsFinished={})", ts, commit_log_->IsFinished(ts));
               all_contributors_committed = false;
               break;
             }
