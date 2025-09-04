@@ -14,11 +14,11 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
-#include "rpc_messages.hpp"
-
 #include "rpc/client.hpp"
+#include "rpc/file_replication_handler.hpp"
 #include "rpc/server.hpp"
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
+#include "rpc_messages.hpp"
 
 using memgraph::communication::ClientContext;
 using memgraph::communication::ServerContext;
@@ -44,7 +44,8 @@ TEST(RpcInProgress, SingleProgress) {
     rpc_server.AwaitShutdown();
   }};
 
-  rpc_server.Register<Sum>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
+  rpc_server.Register<Sum>([](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                              uint64_t const request_version, auto *req_reader, auto *res_builder) {
     spdlog::trace("Started executing sum callback");
     SumReq req;
     memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
@@ -86,7 +87,8 @@ TEST(RpcInProgress, MultipleProgresses) {
     rpc_server.AwaitShutdown();
   }};
 
-  rpc_server.Register<Sum>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
+  rpc_server.Register<Sum>([](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                              uint64_t const request_version, auto *req_reader, auto *res_builder) {
     spdlog::trace("Started executing sum callback");
     SumReq req;
     memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
@@ -137,7 +139,8 @@ TEST(RpcInProgress, Timeout) {
     rpc_server.AwaitShutdown();
   }};
 
-  rpc_server.Register<Sum>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
+  rpc_server.Register<Sum>([](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                              uint64_t const request_version, auto *req_reader, auto *res_builder) {
     spdlog::trace("Started executing sum callback");
     SumReq req;
     memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
@@ -177,7 +180,8 @@ TEST(RpcInProgress, NoTimeout) {
     rpc_server.AwaitShutdown();
   }};
 
-  rpc_server.Register<Sum>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
+  rpc_server.Register<Sum>([](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                              uint64_t const request_version, auto *req_reader, auto *res_builder) {
     spdlog::trace("Started executing sum callback");
     SumReq req;
     memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
