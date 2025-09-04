@@ -33,6 +33,7 @@ constexpr uint64_t kSegmentMaxTotalSize =
 // We require that the segment which contains file data (also file name and file size) starts in its own segment
 // To annotate that, we use mask 0xFFFFFFFF
 constexpr SegmentSize kFileSegmentMask = std::numeric_limits<SegmentSize>::max();
+constexpr SegmentSize kFooter = 0;
 
 static_assert(kSegmentMaxDataSize <= std::numeric_limits<SegmentSize>::max(),
               "The SLK segment can't be larger than the type used to store its size!");
@@ -158,6 +159,6 @@ struct StreamInfo {
 /// much data it should receive before it makes sense to retry decoding of the
 /// segment data.
 StreamInfo CheckStreamStatus(const uint8_t *data, size_t size,
-                             std::optional<uint64_t> remaining_file_size = std::nullopt);
+                             std::optional<uint64_t> const &remaining_file_size = std::nullopt);
 
 }  // namespace memgraph::slk

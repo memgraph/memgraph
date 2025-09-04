@@ -31,47 +31,43 @@ void Builder::Save(const uint8_t *data, uint64_t size) {
 
     size_t const to_write = std::min(size, kSegmentMaxDataSize - pos_);
 
+    // TODO: (andi) What is this exactly used for?
     if (file_data_) {
       memcpy(segment_.data() + pos_, data + offset, to_write);
     } else {
       memcpy(segment_.data() + sizeof(SegmentSize) + pos_, data + offset, to_write);
     }
-    // spdlog::warn("Position before saving: {}", pos_);
     size -= to_write;
     pos_ += to_write;
-    /// spdlog::warn("Position after saving: {}", pos_);
 
     offset += to_write;
   }
 }
 
+// Differs from saving normal buffer by not leaving space of 4B at the beginning of the buffer for size
 void Builder::SaveFileBuffer(const uint8_t *data, uint64_t size) {
   size_t offset = 0;
   file_data_ = true;
   while (size > 0) {
     FlushFileSegment();
-
     size_t const to_write = std::min(size, kSegmentMaxDataSize - pos_);
-
     memcpy(segment_.data() + pos_, data + offset, to_write);
-    // spdlog::warn("Position before saving: {}", pos_);
     size -= to_write;
     pos_ += to_write;
-    /// spdlog::warn("Position after saving: {}", pos_);
     offset += to_write;
   }
 }
 
+// This should be invoked before preparing every file. The function writes kFileSegmentMask at the current position
 void Builder::PrepareForFileSending() {
-  const auto kVar = kFileSegmentMask;
-  memcpy(segment_.data() + pos_, &kVar, sizeof(SegmentSize));
+  memcpy(segment_.data() + pos_, &kFileSegmentMask, sizeof(SegmentSize));
   pos_ += sizeof(SegmentSize);
-  // TODO: (andi) Do we have one builder for one request?
   file_data_ = true;
 }
 
 void Builder::Finalize() { FlushSegment(true); }
 
+// Flushes data and resets position
 void Builder::FlushFileSegment() {
   if (pos_ < kSegmentMaxDataSize) return;
   MG_ASSERT(pos_ > 0, "Trying to flush out a segment that has no data in it!");
@@ -92,16 +88,12 @@ void Builder::FlushSegment(bool const final_segment, bool const force_flush) {
 
   if (!file_data_) {
     SegmentSize const data_size = pos_;
-    spdlog::warn("Flushing non-file_dat segment with data size: {}. Final segment: {}. Pos: {}", data_size,
-                 final_segment, pos_);
     memcpy(segment_.data(), &data_size, sizeof(SegmentSize));
   }
 
   if (final_segment) {
-    SegmentSize footer = 0;
-    memcpy(segment_.data() + total_size, &footer, sizeof(SegmentSize));
+    memcpy(segment_.data() + total_size, &kFooter, sizeof(SegmentSize));
     total_size += sizeof(SegmentSize);
-    spdlog::trace("Size of the final segment: {}", total_size);
   }
 
   write_func_(segment_.data(), total_size, !final_segment);
@@ -121,7 +113,6 @@ void Reader::Load(uint8_t *data, uint64_t size) {
     if (to_read > have_) {
       to_read = have_;
     }
-    // spdlog::warn("Reading from position {}. Should read: {}", pos_, size);
     memcpy(data + offset, data_ + pos_, to_read);
     pos_ += to_read;
     have_ -= to_read;
@@ -135,7 +126,6 @@ size_t Reader::GetPos() const { return pos_; }
 void Reader::Finalize() { GetSegment(true); }
 
 void Reader::GetSegment(bool should_be_final) {
-  // spdlog::warn("Position when entering GetSegment: {}", pos_);
   if (have_ != 0) {
     if (should_be_final) {
       throw SlkReaderLeftoverDataException("There is still leftover data in the SLK stream!");
@@ -150,6 +140,7 @@ void Reader::GetSegment(bool should_be_final) {
   }
   memcpy(&len, data_ + pos_, sizeof(SegmentSize));
 
+  // 4B after header and request could be file mask for WalFilesRpc, CurrentWalRpc and SnapshotRpc
   if (len == kFileSegmentMask) {
     if (should_be_final) {
       have_ = 0;
@@ -179,33 +170,36 @@ void Reader::GetSegment(bool should_be_final) {
                              size_);
   }
   have_ = len;
-  // spdlog::warn("Position when exiting GetSegment: {}", pos_);
 }
 
-StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size, std::optional<uint64_t> remaining_file_size) {
+StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size,
+                             std::optional<uint64_t> const &remaining_file_size) {
   size_t found_segments = 0;
   size_t data_size = 0;
   size_t pos = 0;
 
   while (true) {
-    // First check if we are receiving file data
-    // TODO: (andi) Check for overflow
-    // Not new segment but should still be written into the file
+    // This block handles 2 situations. The first one is if the whole buffer should be written into the file. In that
+    // case remaining_file_size_val will be >= size, and we return FILE_DATA If not whole buffer should be written into
+    // the file, then we remember the pos, increment found_segments and data_size and fallthrough
     if (remaining_file_size.has_value()) {
-      // TODO: (andi) This check should be valid
-      auto const rem_file_size_val = *remaining_file_size;
-      MG_ASSERT(rem_file_size_val > 0, "Remaining file size must be > 0");
-      spdlog::trace("Remaining file size is: {}. Stream size is: {}", rem_file_size_val, size);
+      auto const remaining_file_size_val = *remaining_file_size;
+      MG_ASSERT(remaining_file_size_val > 0, "Remaining file size must be > 0");
 
-      if (rem_file_size_val >= size) {
+      if (remaining_file_size_val >= size) {
         return {.status = StreamStatus::FILE_DATA, .stream_size = size, .encoded_data_size = data_size, .pos = 0};
       }
 
-      pos += rem_file_size_val;
+      pos += remaining_file_size_val;
       ++found_segments;
-      data_size += rem_file_size_val;
+      data_size += remaining_file_size_val;
     }
 
+    // TODO: (andi) Not ideal the 2nd situation
+    // There are 2 possible situations in which we return partial status. The first one is improbable, and it happens
+    // when the header+message request take more than 64KiB
+    // The second situation happens when there is less than 4B available at the end of the stream to read file data mask
+    // or footer but only when files are exchanged
     SegmentSize len = 0;
     if (pos + sizeof(SegmentSize) > size) {
       return {.status = StreamStatus::PARTIAL,
@@ -220,17 +214,15 @@ StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size, std::option
 
     // Start of the new segment
     if (len == kFileSegmentMask) {
-      spdlog::trace("File segment read at: {}. Found segments: {}", pos - sizeof(SegmentSize), found_segments);
+      // Pos is important here and it points to the byte after mask
       return {.status = StreamStatus::NEW_FILE, .stream_size = size, .encoded_data_size = data_size, .pos = pos};
     }
 
-    if (len == 0) {
-      spdlog::trace("Read footer");
+    if (len == kFooter) {
       break;
     }
 
-    spdlog::trace("Read len of: {}", len);
-
+    // TODO: (andi) Could this ever happen?
     if (pos + len > size) {
       return {.status = StreamStatus::PARTIAL,
               .stream_size = pos + kSegmentMaxTotalSize,
