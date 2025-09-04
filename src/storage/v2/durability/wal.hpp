@@ -35,7 +35,6 @@
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/schema_info.hpp"
 #include "storage/v2/ttl.hpp"
-#include "storage/v2/vertex.hpp"
 #include "utils/file_locker.hpp"
 #include "utils/skip_list.hpp"
 
@@ -450,8 +449,7 @@ uint64_t EncodeTransactionStart(Encoder<utils::OutputFile> *encoder, uint64_t ti
 
 /// Function use to encode the transaction start
 /// Used for replication
-void EncodeTransactionStart(BaseEncoder *encoder, uint64_t timestamp, bool commit,
-                            StorageAccessType access_type);
+void EncodeTransactionStart(BaseEncoder *encoder, uint64_t timestamp, bool commit, StorageAccessType access_type);
 
 /// Function used to encode the transaction end.
 void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp);

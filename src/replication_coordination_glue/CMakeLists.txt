@@ -11,6 +11,8 @@ target_sources(mg-repl_coord_glue
 
         PRIVATE
         messages.cpp
+        mode.cpp
+        role.cpp
 )
 
 target_link_libraries(mg-repl_coord_glue mg-rpc mg-slk)

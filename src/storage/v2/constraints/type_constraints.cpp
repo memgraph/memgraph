@@ -13,8 +13,10 @@
 
 #include <storage/v2/snapshot_observer_info.hpp>
 #include "storage/v2/constraints/type_constraints_kind.hpp"
+#include "storage/v2/constraints/type_constraints_validator.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/vertex.hpp"
 #include "utils/algorithm.hpp"
 
 #include <optional>

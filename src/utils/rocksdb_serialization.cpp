@@ -9,18 +9,14 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+#include "utils/rocksdb_serialization.hpp"
 
-#include <cstdint>
+#include "storage/v2/vertex.hpp"
 
-#include <nlohmann/json_fwd.hpp>
+namespace memgraph::utils {
 
-namespace memgraph::replication_coordination_glue {
-
-enum class ReplicationRole : uint8_t { MAIN, REPLICA };
-
-// JSON serialization functions
-void to_json(nlohmann::json &j, const ReplicationRole &role);
-void from_json(const nlohmann::json &j, ReplicationRole &role);
-
-}  // namespace memgraph::replication_coordination_glue
+std::string SerializeVertex(storage::Vertex const &vertex) {
+  const std::string result = utils::SerializeLabels(TransformIDsToString(vertex.labels)) + "|";
+  return result + vertex.gid.ToString();
+}
+}  // namespace memgraph::utils

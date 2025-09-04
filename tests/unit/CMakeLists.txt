@@ -9,7 +9,7 @@ add_custom_target(memgraph__unit)
 add_library(memgraph_unit_main OBJECT main.cpp)
 target_link_libraries(memgraph_unit_main mg-memory mg-utils gtest gmock Threads::Threads dl atomic)
 target_precompile_headers(memgraph_unit_main PRIVATE
-    <gtest/gtest.h>
+    ${CMAKE_CURRENT_SOURCE_DIR}/precompiled.hpp
 )
 
 function(add_unit_test test_cpp)
@@ -30,6 +30,11 @@ function(_add_unit_test test_cpp custom_main)
     ${ARGN})
 
   add_executable(${target_name} ${source_files})
+
+  # Add precompiled header to speed up compilation
+  target_precompile_headers(${target_name} PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/precompiled.hpp
+  )
 
   if(NOT ${custom_main})
     target_link_libraries(${target_name} memgraph_unit_main)

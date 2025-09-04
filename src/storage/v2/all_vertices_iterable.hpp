@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "storage/v2/vertex.hpp"  // needed for `utils::SkipList<Vertex>::Accessor`
 #include "storage/v2/vertex_accessor.hpp"
 #include "utils/skip_list.hpp"
 
@@ -43,11 +44,10 @@ class AllVerticesIterable final {
   };
 
   AllVerticesIterable(utils::SkipList<Vertex>::Accessor vertices_accessor, Storage *storage, Transaction *transaction,
-                      View view)
-      : vertices_accessor_(std::move(vertices_accessor)), storage_(storage), transaction_(transaction), view_(view) {}
+                      View view);
 
-  Iterator begin() { return {this, vertices_accessor_.begin()}; }
-  Iterator end() { return {this, vertices_accessor_.end()}; }
+  Iterator begin();
+  Iterator end();
 };
 
 }  // namespace memgraph::storage

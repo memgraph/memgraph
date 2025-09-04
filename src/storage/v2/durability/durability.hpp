@@ -11,24 +11,16 @@
 
 #pragma once
 
-#include <atomic>
-#include <cstdint>
-#include <filesystem>
-#include <optional>
-#include <string>
-
-#include "storage/v2/config.hpp"
-#include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/durability/metadata.hpp"
-#include "storage/v2/durability/recovery_type.hpp"
-#include "storage/v2/durability/wal.hpp"
-#include "storage/v2/edge.hpp"
-#include "storage/v2/indices/indices.hpp"
-#include "storage/v2/name_id_mapper.hpp"
-#include "storage/v2/replication/replication_storage_state.hpp"
 #include "storage/v2/schema_info.hpp"
-#include "storage/v2/vertex.hpp"
-#include "utils/skip_list.hpp"
+
+namespace memgraph::storage {
+struct Vertex;
+struct Edge;
+struct EdgeMetadata;
+struct EnumStore;
+struct ReplicationStorageState;
+}  // namespace memgraph::storage
 
 namespace memgraph::storage::durability {
 
