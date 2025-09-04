@@ -2060,7 +2060,7 @@ memgraph::storage::PropertyValue ToPropertyValue(const mgp_list &list,
 
 memgraph::storage::PropertyValue ToPropertyValue(const mgp_map &map, memgraph::storage::NameIdMapper *name_id_mapper) {
   auto result_map = memgraph::storage::PropertyValue::map_t{};
-  size_t size = std::visit([](const auto &items) { return items.size(); }, map.items);
+  const size_t size = std::visit([](const auto &items) { return items.size(); }, map.items);
   do_reserve(result_map, size);
 
   std::visit(
@@ -2133,7 +2133,7 @@ memgraph::storage::ExternalPropertyValue ToExternalPropertyValue(const mgp_list 
 
 memgraph::storage::ExternalPropertyValue ToExternalPropertyValue(const mgp_map &map) {
   auto result_map = memgraph::storage::ExternalPropertyValue::map_t{};
-  size_t size = std::visit([](const auto &items) { return items.size(); }, map.items);
+  const size_t size = std::visit([](const auto &items) { return items.size(); }, map.items);
   do_reserve(result_map, size);
 
   std::visit(
@@ -4843,7 +4843,7 @@ mgp_error mgp_untrack_current_thread_allocations(mgp_graph *graph) {
 }
 
 mgp_execution_headers::mgp_execution_headers(memgraph::utils::pmr::vector<memgraph::utils::pmr::string> &&storage)
-    : headers(std::move(storage)) {};
+    : headers(std::move(storage)){};
 
 mgp_error mgp_execution_headers_size(mgp_execution_headers *headers, size_t *result) {
   static_assert(noexcept(headers->headers.size()));
@@ -4890,7 +4890,7 @@ struct MgProcedureResultStream final {
 
 memgraph::storage::ExternalPropertyValue::map_t CreateQueryParams(mgp_map *params) {
   auto query_params = memgraph::storage::ExternalPropertyValue::map_t{};
-  size_t size = std::visit([](const auto &items) { return items.size(); }, params->items);
+  const size_t size = std::visit([](const auto &items) { return items.size(); }, params->items);
   do_reserve(query_params, size);
 
   std::visit(
