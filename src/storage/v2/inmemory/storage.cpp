@@ -2040,7 +2040,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   }
 
   // Diagnostic trace
-  utils::Timer timer;
+  const utils::Timer timer;
   spdlog::trace("Storage GC on '{}' started [{}]", name(), periodic ? "periodic" : "forced");
   auto trace_on_exit = utils::OnScopeExit{[&] {
     auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed());
@@ -2271,7 +2271,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
 
   // Used to determine whether the Index GC should be run for performance reasons (removing redundant entries). It
   // should be run when hinted by FastDiscardOfDeltas or by the deltas we processed this GC run.
-  utils::Timer skiplist_cleanup_timer;
+  const utils::Timer skiplist_cleanup_timer;
   auto index_cleanup_vertex_performance =
       gc_index_cleanup_vertex_performance_.exchange(false, std::memory_order_acq_rel) ||
       index_impact.impacts_vertex_indexes();
