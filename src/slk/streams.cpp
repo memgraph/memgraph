@@ -222,7 +222,7 @@ StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size, std::option
     // Start of the new segment
     if (len == kFileSegmentMask) {
       spdlog::trace("File segment read at: {}. Found segments: {}", pos - sizeof(SegmentSize), found_segments);
-      return {.status = StreamStatus::FILE_DATA, .stream_size = size, .encoded_data_size = data_size, .pos = pos};
+      return {.status = StreamStatus::NEW_FILE, .stream_size = size, .encoded_data_size = data_size, .pos = pos};
     }
 
     if (len == 0) {
