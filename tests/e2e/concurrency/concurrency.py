@@ -12,7 +12,7 @@
 import sys
 
 import pytest
-from common import execute_and_fetch_all, first_connection, second_connection
+from common import execute_and_fetch_all, first_connection, memgraph, second_connection
 
 
 def test_concurrency_if_no_delta_on_same_node_property_update(first_connection, second_connection):
@@ -32,6 +32,33 @@ def test_concurrency_if_no_delta_on_same_node_property_update(first_connection, 
         test_has_error = True
 
     assert test_has_error is False
+
+
+def test_metrics_on_write_write_conflicts_increment(first_connection, second_connection, memgraph):
+    m1c = first_connection.cursor()
+    m2c = second_connection.cursor()
+
+    begin_metrics = list(memgraph.execute_and_fetch("SHOW METRICS INFO"))
+    begin_amount_of_conflicts = [x for x in begin_metrics if x["name"] == "WriteWriteConflicts"][0]["value"]
+    begin_amount_of_transient_errors = [x for x in begin_metrics if x["name"] == "TransientErrors"][0]["value"]
+
+    execute_and_fetch_all(m1c, "CREATE (:Node {prop: 1})")
+    first_connection.commit()
+
+    try:
+        m1c.execute("MATCH (n) SET n.prop = 2")
+        m2c.execute("MATCH (n) SET n.prop = 2")
+        first_connection.commit()
+        second_connection.commit()
+    except Exception as e:
+        pass
+
+    end_metrics = list(memgraph.execute_and_fetch("SHOW METRICS INFO"))
+
+    end_amount_of_conflicts = [x for x in end_metrics if x["name"] == "WriteWriteConflicts"][0]["value"]
+    end_amount_of_transient_errors = [x for x in end_metrics if x["name"] == "TransientErrors"][0]["value"]
+    assert end_amount_of_conflicts == begin_amount_of_conflicts + 1
+    assert end_amount_of_transient_errors == begin_amount_of_transient_errors + 1
 
 
 def test_concurrency_if_no_delta_on_same_edge_property_update(first_connection, second_connection):

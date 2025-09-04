@@ -40,13 +40,14 @@ constexpr uint64_t kTxnStart{28};
 constexpr uint64_t kTextIndexWithProperties{29};
 constexpr uint64_t kNumCommittedTxns{30};
 constexpr uint64_t kTtlSupport{30};
+constexpr uint64_t kTextEdgeIndex{31};
 
 // The current version of snapshot and WAL encoding / decoding.
 // IMPORTANT: Please bump this version for every snapshot and/or WAL format
 // change!!!
 
 // #### CURRENT VERSION vvv
-constexpr uint64_t kVersion{kTtlSupport};
+constexpr uint64_t kVersion{kTextEdgeIndex};
 // #### CURRENT VERSION ^^^
 
 // Magic values written to the start of a snapshot/WAL file to identify it.
