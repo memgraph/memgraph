@@ -9,8 +9,11 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
+#include <algorithm>
+#include <cmath>
 #include <iostream>
 #include <mgp.hpp>
+#include <numeric>
 #include <string_view>
 
 namespace VectorSearch {
@@ -35,9 +38,14 @@ static constexpr std::string_view kReturnSize = "size";
 static constexpr std::string_view kReturnScalarKind = "scalar_kind";
 static constexpr std::string_view kReturnIndexType = "index_type";
 
+static constexpr std::string_view kProcedureCosineSimilarity = "cosine_similarity";
+static constexpr std::string_view kParameterVector1 = "vector1";
+static constexpr std::string_view kParameterVector2 = "vector2";
+
 void Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 void SearchEdges(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 void ShowIndexInfo(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
+void CosineSimilarity(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 }  // namespace VectorSearch
 
 void VectorSearch::Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory) {
@@ -118,6 +126,62 @@ void VectorSearch::ShowIndexInfo(mgp_list *args, mgp_graph *memgraph_graph, mgp_
   }
 }
 
+void VectorSearch::CosineSimilarity(mgp_list *args, mgp_graph * /*memgraph_graph*/, mgp_result *result,
+                                    mgp_memory *memory) {
+  mgp::MemoryDispatcherGuard guard{memory};
+  const auto record_factory = mgp::RecordFactory(result);
+  const auto arguments = mgp::List(args);
+
+  try {
+    const auto vector1 = arguments[0].ValueList();
+    const auto vector2 = arguments[1].ValueList();
+
+    if (vector1.Size() == 0 || vector1.Size() != vector2.Size()) {
+      throw std::invalid_argument("Vectors must be non-empty and have the same dimension");
+    }
+
+    std::vector<double> v1;
+    std::vector<double> v2;
+    v1.reserve(vector1.Size());
+    v2.reserve(vector2.Size());
+
+    std::transform(vector1.begin(), vector1.end(), std::back_inserter(v1), [](const auto &val) {
+      if (val.IsDouble()) {
+        return val.ValueDouble();
+      }
+      if (val.IsInt()) {
+        return static_cast<double>(val.ValueInt());
+      }
+      throw std::invalid_argument("Vector elements must be numeric (int or double)");
+    });
+    std::transform(vector2.begin(), vector2.end(), std::back_inserter(v2), [](const auto &val) {
+      if (val.IsDouble()) {
+        return val.ValueDouble();
+      }
+      if (val.IsInt()) {
+        return static_cast<double>(val.ValueInt());
+      }
+      throw std::invalid_argument("Vector elements must be numeric (int or double)");
+    });
+
+    const auto dot_product = std::inner_product(v1.begin(), v1.end(), v2.begin(), 0.0);
+
+    const auto magnitude1 = std::sqrt(std::inner_product(v1.begin(), v1.end(), v1.begin(), 0.0));
+    const auto magnitude2 = std::sqrt(std::inner_product(v2.begin(), v2.end(), v2.begin(), 0.0));
+
+    if (magnitude1 == 0.0 || magnitude2 == 0.0) {
+      throw std::invalid_argument("Cannot calculate cosine similarity for zero vectors");
+    }
+
+    const auto cosine_similarity = dot_product / (magnitude1 * magnitude2);
+    auto record = record_factory.NewRecord();
+    record.Insert(VectorSearch::kReturnSimilarity.data(), cosine_similarity);
+
+  } catch (const std::exception &e) {
+    record_factory.SetErrorMessage(e.what());
+  }
+}
+
 extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   try {
     mgp::MemoryDispatcherGuard guard{memory};
@@ -157,6 +221,16 @@ extern "C" int mgp_init_module(struct mgp_module *module, struct mgp_memory *mem
                  {
                      mgp::Return(VectorSearch::kReturnEdge, mgp::Type::Relationship),
                      mgp::Return(VectorSearch::kReturnDistance, mgp::Type::Double),
+                     mgp::Return(VectorSearch::kReturnSimilarity, mgp::Type::Double),
+                 },
+                 module, memory);
+
+    AddProcedure(VectorSearch::CosineSimilarity, VectorSearch::kProcedureCosineSimilarity, mgp::ProcedureType::Read,
+                 {
+                     mgp::Parameter(VectorSearch::kParameterVector1, {mgp::Type::List, mgp::Type::Any}),
+                     mgp::Parameter(VectorSearch::kParameterVector2, {mgp::Type::List, mgp::Type::Any}),
+                 },
+                 {
                      mgp::Return(VectorSearch::kReturnSimilarity, mgp::Type::Double),
                  },
                  module, memory);
