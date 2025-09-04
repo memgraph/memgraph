@@ -188,27 +188,4 @@ bool Decoder::SkipExternalPropertyValue() {
   return true;
 }
 
-std::optional<std::filesystem::path> Decoder::ReadFile(const std::filesystem::path &directory) {
-  MG_ASSERT(std::filesystem::exists(directory) && std::filesystem::is_directory(directory),
-            "Sent path for streamed files should be a valid directory!");
-  utils::OutputFile file;
-  const auto maybe_filename = ReadString();
-  MG_ASSERT(maybe_filename, "Filename missing for the file");
-  const auto filename = *maybe_filename;
-  auto path = directory / filename;
-
-  file.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING);
-  std::optional<size_t> maybe_file_size = ReadUint();
-  MG_ASSERT(maybe_file_size, "File size missing");
-  auto file_size = *maybe_file_size;
-  uint8_t buffer[utils::kFileBufferSize];
-  while (file_size > 0) {
-    const auto chunk_size = std::min(file_size, utils::kFileBufferSize);
-    reader_->Load(buffer, chunk_size);
-    file.Write(buffer, chunk_size);
-    file_size -= chunk_size;
-  }
-  file.Close();
-  return std::move(path);
-}
 }  // namespace memgraph::storage::replication

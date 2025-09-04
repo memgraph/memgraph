@@ -17,6 +17,7 @@
 
 namespace memgraph::rpc {
 // TODO: (andi) Theoretically you could be unable to read string and int from the initial data
+// TODO: (andi) Move everything under one method
 FileReplicationHandler::FileReplicationHandler(const uint8_t *data, size_t const size) : written_(0) {
   const auto kTempDirectory =
       std::filesystem::temp_directory_path() / "memgraph" / storage::durability::kReplicaDurabilityDirectory;
@@ -46,7 +47,8 @@ FileReplicationHandler::FileReplicationHandler(const uint8_t *data, size_t const
   spdlog::warn("File size is: {}", file_size_);
 
   uint8_t buffer[utils::kFileBufferSize];
-  auto to_write = size - req_reader.GetPos();
+  // std::min needed so we avoid writing footer if unnecessary
+  auto to_write = std::min(size - req_reader.GetPos(), file_size_);
   while (to_write > 0) {
     const auto chunk_size = std::min(to_write, utils::kFileBufferSize);
     req_reader.Load(buffer, chunk_size);
@@ -63,10 +65,10 @@ FileReplicationHandler::~FileReplicationHandler() {
 
 void FileReplicationHandler::WriteToFile(const uint8_t *data, size_t const size) {
   spdlog::warn("Got the request to write {} bytes to the file", size);
-  // TODO: (andi) Try to avoid slk::Reader here
+  // TODO: (andi) Try to avoid slk::Reader here to optimize further
   slk::Reader req_reader(data, size, size);
   uint8_t buffer[utils::kFileBufferSize];
-  auto to_write = size;
+  auto to_write = std::min(size, file_size_ - written_);
   while (to_write > 0) {
     const auto chunk_size = std::min(to_write, utils::kFileBufferSize);
     req_reader.Load(buffer, chunk_size);
@@ -74,6 +76,12 @@ void FileReplicationHandler::WriteToFile(const uint8_t *data, size_t const size)
     to_write -= chunk_size;
     written_ += chunk_size;
     spdlog::warn("Written {} bytes to file in the method, remaining {}", chunk_size, file_size_ - written_);
+  }
+
+  if (written_ == file_size_ && file_.IsOpen()) {
+    file_.Close();
+    written_ = 0;
+    file_size_ = 0;
   }
 }
 }  // namespace memgraph::rpc

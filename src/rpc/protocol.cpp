@@ -77,10 +77,12 @@ void RpcMessageDeliverer::Execute() {
       file_replication_handler_->WriteToFile(file_data_start, file_data_size);
     }
     input_stream_->Clear();
+    return;
+  }
 
-    if (file_replication_handler_->file_size_ > file_replication_handler_->written_) {
-      return;
-    }
+  // Writing last segment
+  if (ret.status == slk::StreamStatus::COMPLETE && file_replication_handler_.has_value()) {
+    file_replication_handler_->WriteToFile(input_stream_->data(), input_stream_->size());
   }
 
   // Remove the data from the stream on scope exit.
@@ -101,10 +103,10 @@ void RpcMessageDeliverer::Execute() {
       return slk::Reader{input_stream_->data(), input_stream_->size()};
     }
     MG_ASSERT(file_replication_handler_.has_value() &&
-              file_replication_handler_->written_ == file_replication_handler_->file_size_);
+                  file_replication_handler_->written_ == file_replication_handler_->file_size_,
+              "Written != file_size {}: {}", file_replication_handler_->written_,
+              file_replication_handler_->file_size_);
 
-    // TODO: (andi) Move it in better place
-    file_replication_handler_->file_.Close();
     spdlog::warn("Using buffer copy for reading header and request");
     // File data received
     return slk::Reader{header_request_.data(), header_request_.size()};
