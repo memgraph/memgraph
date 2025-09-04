@@ -38,10 +38,10 @@ auto UnionFind::Find(id_t id) -> id_t {
   // Path halving is faster than full compression for find-heavy workloads
   auto current = id;
   while (parent_[current] != current) [[likely]] {
-      auto const next = parent_[current];
-      parent_[current] = parent_[next];
-      current = next;
-    }
+    auto const next = parent_[current];
+    parent_[current] = parent_[next];
+    current = next;
+  }
 
   return current;
 }
@@ -71,10 +71,10 @@ auto UnionFind::UnionSets(id_t a, id_t b) -> id_t {
   // Decrement component count when merging
   num_of_sets_--;
 
-  auto rank_comparison = rank_[root_a] <=> rank_[root_b];
-  bool a_is_parent = rank_comparison == std::strong_ordering::greater;
-  auto parent_root = a_is_parent ? root_a : root_b;
-  auto child_root = a_is_parent ? root_b : root_a;
+  auto const rank_comparison = rank_[root_a] <=> rank_[root_b];
+  auto const a_is_parent = rank_comparison == std::strong_ordering::greater;
+  auto const parent_root = a_is_parent ? root_a : root_b;
+  auto const child_root = a_is_parent ? root_b : root_a;
 
   parent_[child_root] = parent_root;
   if (rank_comparison == std::strong_ordering::equivalent) {

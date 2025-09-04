@@ -13,7 +13,8 @@
 
 #include "planner/core/union_find.hpp"
 
-using namespace memgraph::planner::core;
+using memgraph::planner::core::UnionFind;
+using memgraph::planner::core::UnionFindContext;
 
 TEST(UnionFind, InitAndMergeSets) {
   UnionFind uf;

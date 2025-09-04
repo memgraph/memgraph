@@ -11,7 +11,6 @@
 
 #include "planner/core/union_find.hpp"
 
-#include <random>
 #include <vector>
 
 #include <benchmark/benchmark.h>
@@ -19,22 +18,24 @@
 constexpr auto kRangeLow = 64;
 constexpr auto kRangeHigh = 1024 * 4;
 
-using namespace memgraph::planner::core;
+namespace {
 
-static void BM_UnionFind_MakeSet(benchmark::State &state) {
+using memgraph::planner::core::UnionFind;
+using memgraph::planner::core::UnionFindContext;
+
+void BM_UnionFind_MakeSet(benchmark::State &state) {
   UnionFind uf;
-  for (auto _ : state) {
+  for (auto _ : state) {  // NOLINT(clang-analyzer-deadcode.DeadStores)
     uf.Clear();
     for (int i = 0; i < state.range(0); ++i) {
       benchmark::DoNotOptimize(uf.MakeSet());
     }
   }
-  state.SetItemsProcessed(state.iterations() * state.range(0));
+  state.SetItemsProcessed(static_cast<int64_t>(state.iterations()) * state.range(0));
   state.SetComplexityN(state.range(0));
 }
-BENCHMARK(BM_UnionFind_MakeSet)->Range(kRangeLow, kRangeHigh)->Complexity();
 
-static void BM_UnionFind_Find(benchmark::State &state) {
+void BM_UnionFind_Find(benchmark::State &state) {
   UnionFind uf;
   std::vector<uint32_t> ids;
 
@@ -49,17 +50,16 @@ static void BM_UnionFind_Find(benchmark::State &state) {
     uf.UnionSets(ids[i], ids[i + state.range(0) / 2]);
   }
 
-  for (auto _ : state) {
+  for (auto _ : state) {  // NOLINT(clang-analyzer-deadcode.DeadStores)
     for (auto id : ids) {
       benchmark::DoNotOptimize(uf.Find(id));
     }
   }
-  state.SetItemsProcessed(state.iterations() * ids.size());
+  state.SetItemsProcessed(static_cast<int64_t>(state.iterations() * ids.size()));
   state.SetComplexityN(state.range(0));
 }
-BENCHMARK(BM_UnionFind_Find)->Range(kRangeLow, kRangeHigh)->Complexity();
 
-static void BM_UnionFind_Find_OnAChain(benchmark::State &state) {
+void BM_UnionFind_Find_OnAChain(benchmark::State &state) {
   UnionFind uf;
   std::vector<uint32_t> ids;
 
@@ -73,21 +73,20 @@ static void BM_UnionFind_Find_OnAChain(benchmark::State &state) {
     uf.UnionSets(ids[i], ids[i + 1]);
   }
 
-  for (auto _ : state) {
+  for (auto _ : state) {  // NOLINT(clang-analyzer-deadcode.DeadStores)
     // Benchmark find on the first element (should trigger path halving)
     for (int i = 0; i < 1000; ++i) {
       benchmark::DoNotOptimize(uf.Find(ids[0]));
     }
   }
-  state.SetItemsProcessed(state.iterations() * 1000);
+  state.SetItemsProcessed(static_cast<int64_t>(state.iterations()) * 1000);
   state.SetComplexityN(state.range(0));
 }
-BENCHMARK(BM_UnionFind_Find_OnAChain)->Range(kRangeLow, kRangeHigh)->Complexity();
 
-static void BM_UnionFind_Union(benchmark::State &state) {
+void BM_UnionFind_Union(benchmark::State &state) {
   UnionFind uf;
   std::vector<uint32_t> ids;
-  for (auto _ : state) {
+  for (auto _ : state) {  // NOLINT(clang-analyzer-deadcode.DeadStores)
     state.PauseTiming();
     uf.Clear();
     ids.clear();
@@ -104,18 +103,17 @@ static void BM_UnionFind_Union(benchmark::State &state) {
       benchmark::DoNotOptimize(uf.UnionSets(ids[i], ids[i + 1]));
     }
   }
-  state.SetItemsProcessed(state.iterations() * ids.size());
+  state.SetItemsProcessed(static_cast<int64_t>(state.iterations() * ids.size()));
   state.SetComplexityN(state.range(0));
 }
-BENCHMARK(BM_UnionFind_Union)->Range(kRangeLow, kRangeHigh)->Complexity();
 
-static void BM_UnionFind_BulkUnion(benchmark::State &state) {
+void BM_UnionFind_BulkUnion(benchmark::State &state) {
   UnionFind uf;
   std::vector<uint32_t> ids;
   UnionFindContext ctx;
 
   auto size = state.range(0);
-  for (auto _ : state) {
+  for (auto _ : state) {  // NOLINT(clang-analyzer-deadcode.DeadStores)
     state.PauseTiming();
     uf.Clear();
     ids.clear();
@@ -134,8 +132,15 @@ static void BM_UnionFind_BulkUnion(benchmark::State &state) {
   }
 
   state.SetComplexityN(size);
-  state.SetItemsProcessed(state.iterations() * size);
+  state.SetItemsProcessed(static_cast<int64_t>(state.iterations()) * size);
 }
+
+}  // namespace
+
+BENCHMARK(BM_UnionFind_MakeSet)->Range(kRangeLow, kRangeHigh)->Complexity();
+BENCHMARK(BM_UnionFind_Find)->Range(kRangeLow, kRangeHigh)->Complexity();
+BENCHMARK(BM_UnionFind_Find_OnAChain)->Range(kRangeLow, kRangeHigh)->Complexity();
+BENCHMARK(BM_UnionFind_Union)->Range(kRangeLow, kRangeHigh)->Complexity();
 BENCHMARK(BM_UnionFind_BulkUnion)->Range(kRangeLow, kRangeHigh)->Complexity();
 
 BENCHMARK_MAIN();
