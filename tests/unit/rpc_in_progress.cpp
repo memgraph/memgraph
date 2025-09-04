@@ -14,11 +14,12 @@
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
+#include "rpc_messages.hpp"
+
 #include "rpc/client.hpp"
 #include "rpc/file_replication_handler.hpp"
 #include "rpc/server.hpp"
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
-#include "rpc_messages.hpp"
 
 using memgraph::communication::ClientContext;
 using memgraph::communication::ServerContext;
