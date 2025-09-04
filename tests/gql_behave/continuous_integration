@@ -49,6 +49,8 @@ def wait_for_server(port, process, delay=0.01):
             
             sys.exit(1)
         count += 1
+
+    print(f"Memgraph started in {count*0.01} seconds")
     time.sleep(delay)
 
 
