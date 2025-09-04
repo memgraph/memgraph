@@ -181,7 +181,6 @@ struct Transaction {
   delta_container deltas;
   utils::pmr::list<MetadataDelta> md_deltas;
   bool has_serialization_error{};
-  bool has_interleaved_deltas{};
   IsolationLevel isolation_level{};
   StorageMode storage_mode{};
   bool edge_import_mode_active{false};

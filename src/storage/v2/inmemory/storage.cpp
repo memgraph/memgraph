@@ -538,14 +538,12 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
 
   auto from_result = PrepareForCommutativeWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE);
   if (from_result == WriteResult::CONFLICT) return std::unexpected{Error::SERIALIZATION_ERROR};
-  if (from_result == WriteResult::COMMUTATIVE) transaction_.has_interleaved_deltas = true;
   if (from_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
 
   WriteResult to_result = WriteResult::SUCCESS;
   if (to_vertex != from_vertex) {
     to_result = PrepareForCommutativeWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE);
     if (to_result == WriteResult::CONFLICT) return std::unexpected{Error::SERIALIZATION_ERROR};
-    if (to_result == WriteResult::COMMUTATIVE) transaction_.has_interleaved_deltas = true;
     if (to_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
   }
 
@@ -660,14 +658,12 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
 
   auto from_result = PrepareForCommutativeWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE);
   if (from_result == WriteResult::CONFLICT) return std::unexpected{Error::SERIALIZATION_ERROR};
-  if (from_result == WriteResult::COMMUTATIVE) transaction_.has_interleaved_deltas = true;
   if (from_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
 
   WriteResult to_result = WriteResult::SUCCESS;
   if (to_vertex != from_vertex) {
     to_result = PrepareForCommutativeWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE);
     if (to_result == WriteResult::CONFLICT) return std::unexpected{Error::SERIALIZATION_ERROR};
-    if (to_result == WriteResult::COMMUTATIVE) transaction_.has_interleaved_deltas = true;
     if (to_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
   }
 
@@ -1469,17 +1465,10 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
     mem_storage->commit_log_->MarkFinished(*commit_timestamp_);
 
     if (!transaction_.deltas.empty()) {
-      if (transaction_.has_interleaved_deltas) {
-        mem_storage->waiting_gc_deltas_.WithLock([&](auto &waiting_list) {
-          waiting_list.emplace_back(
-              InMemoryStorage::GCDeltas(0, std::move(transaction_.deltas), std::move(transaction_.commit_timestamp)));
-        });
-      } else {
-        mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) {
-          committed_transactions.emplace_back(0, std::move(transaction_.deltas),
-                                              std::move(transaction_.commit_timestamp));
-        });
-      }
+      mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) {
+        committed_transactions.emplace_back(0, std::move(transaction_.deltas),
+                                            std::move(transaction_.commit_timestamp));
+      });
     }
     commit_timestamp_.reset();
   }
@@ -2319,45 +2308,6 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   // ones.
 
   uint64_t oldest_active_start_timestamp = commit_log_->OldestActive();
-
-  // Process waiting list for interleaved delta chains ready to move to GC
-  waiting_gc_deltas_.WithLock([&](auto &waiting_list) {
-    auto it = waiting_list.begin();
-    while (it != waiting_list.end()) {
-      // @TODO(colinbarry): can we improve this? Have to traverse delta
-      // chains is not a quick operation. Basically, we know upfront upon which
-      // transactions the waiting list is waiting: we need some quick method
-      // or saying: "are all these transactions finished"?
-      // Check if all downstream deltas are now committed by re-traversing chains
-      bool all_contributors_committed = true;
-      std::unordered_set<const Delta *> visited;
-
-      for (const auto &delta : it->deltas_.deltas_) {
-        if (IsOperationInterleaved(delta) && !visited.count(&delta)) {
-          auto *current_delta = &delta;
-          while (current_delta != nullptr && !visited.count(current_delta)) {
-            visited.insert(current_delta);
-            auto ts = current_delta->timestamp->load();
-            if (ts >= kTransactionInitialId && !commit_log_->IsFinished(ts)) {
-              spdlog::trace("Waiting for transaction {} (IsFinished={})", ts, commit_log_->IsFinished(ts));
-              all_contributors_committed = false;
-              break;
-            }
-            current_delta = current_delta->next.load();
-          }
-          if (!all_contributors_committed) break;
-        }
-      }
-
-      if (all_contributors_committed) {
-        committed_transactions_.WithLock(
-            [&](auto &committed_transactions) { committed_transactions.emplace_back(std::move(it->deltas_)); });
-        it = waiting_list.erase(it);
-      } else {
-        ++it;
-      }
-    }
-  });
 
   {
     auto guard = std::unique_lock{engine_lock_};
