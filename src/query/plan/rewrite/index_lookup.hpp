@@ -1478,7 +1478,8 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
           return std::make_unique<ScanAllByLabel>(input, node_symbol, GetLabel(label), view);
         }
       }
-    } else if (!or_labels.empty()) {
+    }
+    if (!or_labels.empty()) {
       auto best_group = FindBestIndexGroup(node_symbol, bound_symbols, or_labels);
       // If we satisfy max_vertex_count and if there is a group for which we can find an index let's use it and chain it
       // in unions
