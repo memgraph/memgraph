@@ -387,6 +387,9 @@ target_link_libraries(${test_prefix}storage_v2_edge_ondisk mg::storage)
 add_unit_test(storage_v2_gc.cpp)
 target_link_libraries(${test_prefix}storage_v2_gc mg::storage)
 
+add_unit_test(transaction_dependencies.cpp)
+target_link_libraries(${test_prefix}transaction_dependencies mg::storage)
+
 add_unit_test(storage_v2_indices.cpp)
 target_link_libraries(${test_prefix}storage_v2_indices mg::storage mg-utils)
 
