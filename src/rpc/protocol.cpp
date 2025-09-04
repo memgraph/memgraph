@@ -63,21 +63,18 @@ void RpcMessageDeliverer::Execute() {
     input_stream_->ShrinkBuffer(kBufferRetainLimit);
   }};
 
-  // Use info whether file_replication_handler already exists + you need to copy previous data so you can initialize
-  // message request
   // TODO: (andi) What if file is smaller than one segment? file_data_size is probably invalid then
-
   if (ret.status == slk::StreamStatus::NEW_FILE) {
-    const uint8_t *file_data_start = input_stream_->data() + ret.pos;
-    size_t const file_data_size = input_stream_->size() - ret.pos;
     if (!file_replication_handler_.has_value()) {
-      spdlog::warn("Initializing file replication handler. Stream size: {} Stream pos: {}", input_stream_->size(),
-                   ret.pos);
-      // Will be used at the end to construct slk::Reader. Contains message header and request
+      // Will be used at the end to construct slk::Reader. Contains message header and request. It is correct to do this
+      // only when initializing FileReplicationHandler
       header_request_ = std::vector<uint8_t>{
           input_stream_->data(), input_stream_->data() + (input_stream_->size() - ret.pos - sizeof(slk::SegmentSize))};
-      file_replication_handler_.emplace(file_data_start, file_data_size);
+      file_replication_handler_.emplace();
     }
+    const uint8_t *file_data_start = input_stream_->data() + ret.pos;
+    size_t const file_data_size = input_stream_->size() - ret.pos;
+    file_replication_handler_->OpenFile(file_data_start, file_data_size);
     return;
   }
 
