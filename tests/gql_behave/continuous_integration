@@ -37,20 +37,22 @@ def wait_for_server(port, process, delay=0.01):
     while subprocess.call(cmd) != 0:
         time.sleep(0.01)
         if count > 20 / 0.01:
-            print("Could not wait for server on port", port, "to startup!")
+            print("Could not wait for server on port", port, "to startup!", flush=True)
             
             # Check if the process is still running
-            print("Memgraph PID: ", process.pid)
+            print("Memgraph PID: ", process.pid, flush=True)
             exit_code = process.poll()
             if exit_code is None:
-                print("Process is still running but server is not responding")
+                print("Process is still running but server is not responding", flush=True)
             else:
-                print(f"Process has exited with code: {exit_code}")
+                print(f"Process has exited with code: {exit_code}", flush=True)
             
+            sys.stdout.flush()
+            sys.stderr.flush()
             sys.exit(1)
         count += 1
 
-    print(f"Memgraph started in {count*0.01} seconds")
+    print(f"Memgraph started in {count*0.01} seconds", flush=True)
     time.sleep(delay)
 
 
