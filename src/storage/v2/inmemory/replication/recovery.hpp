@@ -49,7 +49,6 @@ std::enable_if_t<std::is_same_v<T, std::vector<std::filesystem::path>>, bool> Wr
     const T &paths, replication::Encoder &encoder) {
   for (const auto &path : paths) {
     // Flush the segment so the file data could start at the beginning of the next segment
-    encoder.GetBuilder()->PrepareForFileSending();
     if (!encoder.WriteFile(path)) {
       spdlog::error("File {} couldn't be loaded so it won't be transferred to the replica.", path);
       return false;
@@ -81,6 +80,8 @@ std::optional<typename T::Response> TransferDurabilityFiles(const R &files, rpc:
   }
 
   slk::Builder *builder = maybe_stream_result->GetBuilder();
+
+  builder->FlushSegment(/*final_segment*/ false, /*force_flush*/ true);
 
   // If writing files failed, fail the task by returning empty optional
   if (replication::Encoder encoder(builder); !WriteFiles(files, encoder)) {

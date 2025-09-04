@@ -63,25 +63,10 @@ void Builder::SaveFileBuffer(const uint8_t *data, uint64_t size) {
 }
 
 void Builder::PrepareForFileSending() {
-  MG_ASSERT(pos_ > 0, "Trying to flush out a segment that has no data in it when preparing for sending file!");
-
-  // Write data size at the beginning of the stream
-  SegmentSize const data_size = pos_;
-  memcpy(segment_.data(), &data_size, sizeof(SegmentSize));
-
-  spdlog::warn("PrepareForFileSending, data size is: {}", data_size);
-
-  // Data size + 4B at the beginning to annotate stream size
-  size_t const total_size = sizeof(SegmentSize) + pos_;
-  write_func_(segment_.data(), total_size, /*have_more*/ true);
-
-  // File data needs to start at the beginning of the new segment
-  pos_ = 0;
-
   const auto kVar = kFileSegmentMask;
-  memcpy(segment_.data(), &kVar, sizeof(SegmentSize));
-  spdlog::warn("Flushed file mask");
+  memcpy(segment_.data() + pos_, &kVar, sizeof(SegmentSize));
   pos_ += sizeof(SegmentSize);
+  // TODO: (andi) Do we have one builder for one request?
   file_data_ = true;
 }
 
@@ -94,8 +79,8 @@ void Builder::FlushFileSegment() {
   pos_ = 0;
 }
 
-void Builder::FlushSegment(bool const final_segment) {
-  if (!final_segment && pos_ < kSegmentMaxDataSize) return;
+void Builder::FlushSegment(bool const final_segment, bool const force_flush) {
+  if (!force_flush && !final_segment && pos_ < kSegmentMaxDataSize) return;
   MG_ASSERT(pos_ > 0, "Trying to flush out a segment that has no data in it!");
 
   auto total_size = std::invoke([&]() -> size_t {
@@ -166,8 +151,12 @@ void Reader::GetSegment(bool should_be_final) {
   memcpy(&len, data_ + pos_, sizeof(SegmentSize));
 
   if (should_be_final && len != 0) {
-    throw SlkReaderException("Got a non-empty SLK segment when expecting the final segment!");
+    throw SlkReaderException(
+        "Got a non-empty SLK segment when expecting the final segment! Have_: {}, Pos: {}, Size_: {}. Should be final: "
+        "{}, Len: {}",
+        have_, pos_, size_, should_be_final, len);
   }
+
   if (!should_be_final && len == 0) {
     throw SlkReaderException("Got an empty SLK segment when expecting a non-empty segment!");
   }
@@ -195,16 +184,17 @@ StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size, std::option
     // Not new segment but should still be written into the file
     if (remaining_file_size.has_value()) {
       // TODO: (andi) This check should be valid
-      MG_ASSERT(*remaining_file_size > 0, "Remaining file size must be > 0");
-      spdlog::trace("Remaining file size is: {}. Stream size is: {}", remaining_file_size.value(), size);
+      auto const rem_file_size_val = *remaining_file_size;
+      MG_ASSERT(rem_file_size_val > 0, "Remaining file size must be > 0");
+      spdlog::trace("Remaining file size is: {}. Stream size is: {}", rem_file_size_val, size);
 
-      if (remaining_file_size >= size) {
+      if (rem_file_size_val >= size) {
         return {.status = StreamStatus::FILE_DATA, .stream_size = size, .encoded_data_size = data_size, .pos = 0};
       }
 
-      pos += *remaining_file_size;
+      pos += rem_file_size_val;
       ++found_segments;
-      data_size += *remaining_file_size;
+      data_size += rem_file_size_val;
     }
 
     SegmentSize len = 0;
