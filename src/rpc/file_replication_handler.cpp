@@ -16,9 +16,18 @@
 #include "utils/logging.hpp"
 
 namespace memgraph::rpc {
+
+// TODO: (andi) Add abstract method for resetting file replication handler
+FileReplicationHandler::~FileReplicationHandler() {
+  if (file_.IsOpen()) {
+    file_.Close();
+    written_ = 0;
+    file_size_ = 0;
+  }
+}
+
 // TODO: (andi) Theoretically you could be unable to read string and int from the initial data
-// TODO: (andi) Move everything under one method
-FileReplicationHandler::FileReplicationHandler(const uint8_t *data, size_t const size) : written_(0) {
+void FileReplicationHandler::OpenFile(const uint8_t *data, size_t const size) {
   const auto kTempDirectory =
       std::filesystem::temp_directory_path() / "memgraph" / storage::durability::kReplicaDurabilityDirectory;
 
@@ -46,31 +55,14 @@ FileReplicationHandler::FileReplicationHandler(const uint8_t *data, size_t const
 
   spdlog::warn("File size is: {}", file_size_);
 
-  uint8_t buffer[utils::kFileBufferSize];
-  // std::min needed so we avoid writing footer if unnecessary
-  auto to_write = std::min(size - req_reader.GetPos(), file_size_);
-  while (to_write > 0) {
-    const auto chunk_size = std::min(to_write, utils::kFileBufferSize);
-    req_reader.Load(buffer, chunk_size);
-    file_.Write(buffer, chunk_size);
-    to_write -= chunk_size;
-    written_ += chunk_size;
-    spdlog::warn("Written {} bytes to file in the constructor, remaining {}", chunk_size, file_size_ - written_);
-  }
-}
-
-// TODO: (andi) Add abstract method for resetting file replication handler
-FileReplicationHandler::~FileReplicationHandler() {
-  if (file_.IsOpen()) {
-    file_.Close();
-    written_ = 0;
-    file_size_ = 0;
-  }
+  // Because first N bytes are file_name and file_size, therefore we don't read full size
+  WriteToFile(data + req_reader.GetPos(), size - req_reader.GetPos());
 }
 
 void FileReplicationHandler::WriteToFile(const uint8_t *data, size_t const size) {
   spdlog::warn("Got the request to write to file. Stream size is {}", size);
   if (!file_.IsOpen()) {
+    spdlog::warn("Cannot write to file since it's closed");
     return;
   }
   // TODO: (andi) Try to avoid slk::Reader here to optimize further

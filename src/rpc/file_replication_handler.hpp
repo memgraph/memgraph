@@ -16,7 +16,7 @@
 namespace memgraph::rpc {
 class FileReplicationHandler final {
  public:
-  FileReplicationHandler(const uint8_t *data, size_t size);
+  FileReplicationHandler() = default;
   ~FileReplicationHandler();
 
   FileReplicationHandler(const FileReplicationHandler &) = delete;
@@ -24,6 +24,8 @@ class FileReplicationHandler final {
 
   FileReplicationHandler(FileReplicationHandler &&) = default;
   FileReplicationHandler &operator=(FileReplicationHandler &&) = default;
+
+  void OpenFile(const uint8_t *data, size_t size);
 
   void WriteToFile(const uint8_t *data, size_t size);
 
