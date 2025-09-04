@@ -92,23 +92,15 @@ void RpcMessageDeliverer::Execute() {
   if (file_replication_handler_.has_value()) {
     spdlog::trace("Writing last segment to the file before completing the stream");
     file_replication_handler_->WriteToFile(input_stream_->data(), input_stream_->size());
+    MG_ASSERT(!file_replication_handler_->file_.IsOpen(), "File should be closed after completing the stream");
   }
 
   // Prepare SLK reader and builder.
   slk::Reader req_reader = std::invoke([&]() {
     // File data wasn't received
     if (header_request_.empty()) {
-      if (file_replication_handler_.has_value() &&
-          file_replication_handler_->written_ == file_replication_handler_->file_size_) {
-        LOG_FATAL("Using original buffer for reading header and request");
-      }
       return slk::Reader{input_stream_->data(), input_stream_->size()};
     }
-    MG_ASSERT(file_replication_handler_.has_value() &&
-                  file_replication_handler_->written_ == file_replication_handler_->file_size_,
-              "Written != file_size {}: {}", file_replication_handler_->written_,
-              file_replication_handler_->file_size_);
-
     spdlog::warn("Using buffer copy for reading header and request");
     // File data received
     return slk::Reader{header_request_.data(), header_request_.size()};
@@ -150,6 +142,10 @@ void RpcMessageDeliverer::Execute() {
     it->second.callback(file_replication_handler_, maybe_message_header->message_version, &req_reader, &res_builder);
     // Finalize the SLK stream.
     req_reader.Finalize();
+    file_replication_handler_.reset();
+    if (!header_request_.empty()) {
+      header_request_.clear();
+    }
   }
   // NOLINTNEXTLINE
   catch (const slk::SlkReaderLeftoverDataException &) {
@@ -158,6 +154,7 @@ void RpcMessageDeliverer::Execute() {
     spdlog::error("Error occurred in the callback: {}", e.what());
     throw SlkRpcFailedException();
   }
+  // Finally block to clean resources?
 }
 
 }  // namespace memgraph::rpc
