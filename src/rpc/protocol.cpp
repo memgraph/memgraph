@@ -18,7 +18,6 @@
 #include "rpc/version.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
-#include "storage/v2/durability/paths.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/stat.hpp"
@@ -34,13 +33,13 @@ RpcMessageDeliverer::RpcMessageDeliverer(Server *server, io::network::Endpoint c
     : server_(server), input_stream_(input_stream), output_stream_(output_stream) {}
 
 void RpcMessageDeliverer::Execute() {
-  // spdlog::trace("Memory at the start of execute: {}", utils::GetReadableSize(utils::GetMemoryRES()));
-  spdlog::trace("Input stream size at the Execute Start: {}", input_stream_->size());
+  spdlog::trace("Memory at the start of execute: {}", utils::GetReadableSize(utils::GetMemoryRES()));
 
   auto const remaining_file_size = std::invoke([&]() -> std::optional<uint64_t> {
     if (!file_replication_handler_.has_value() || !file_replication_handler_->file_.IsOpen()) {
       return std::nullopt;
     }
+    // If we are here it means that the file is open, hence this check is valid
     return file_replication_handler_->file_size_ - file_replication_handler_->written_;
   });
 
@@ -52,7 +51,6 @@ void RpcMessageDeliverer::Execute() {
   // We resize the stream if the initial header+request cannot fit into the input stream or if we couldn't read
   // 0xFFFF/0x0000 segment
   if (ret.status == slk::StreamStatus::PARTIAL) {
-    spdlog::trace("Resizing input stream to {}", ret.stream_size);
     input_stream_->Resize(ret.stream_size);
     return;
   }
@@ -63,7 +61,6 @@ void RpcMessageDeliverer::Execute() {
     input_stream_->ShrinkBuffer(kBufferRetainLimit);
   }};
 
-  // TODO: (andi) What if file is smaller than one segment? file_data_size is probably invalid then
   if (ret.status == slk::StreamStatus::NEW_FILE) {
     if (!file_replication_handler_.has_value()) {
       // Will be used at the end to construct slk::Reader. Contains message header and request. It is correct to do this
@@ -86,11 +83,8 @@ void RpcMessageDeliverer::Execute() {
     return;
   }
 
-  spdlog::trace("Stream is complete now");
-
   // Writing last segment
   if (file_replication_handler_.has_value()) {
-    spdlog::trace("Writing last segment to the file before completing the stream");
     file_replication_handler_->WriteToFile(input_stream_->data(), input_stream_->size());
     MG_ASSERT(!file_replication_handler_->file_.IsOpen(), "File should be closed after completing the stream");
   }
@@ -101,7 +95,6 @@ void RpcMessageDeliverer::Execute() {
     if (header_request_.empty()) {
       return slk::Reader{input_stream_->data(), input_stream_->size()};
     }
-    spdlog::warn("Using buffer copy for reading header and request");
     // File data received
     return slk::Reader{header_request_.data(), header_request_.size()};
   });
@@ -138,14 +131,16 @@ void RpcMessageDeliverer::Execute() {
   spdlog::trace("[RpcServer] received {}, version {}", it->second.req_type.name, maybe_message_header->message_version);
   spdlog::trace("Memory when RPC {} received: {}", it->second.req_type.name,
                 utils::GetReadableSize(utils::GetMemoryRES()));
+
+  auto const on_exit = utils::OnScopeExit{[&] {
+    file_replication_handler_.reset();
+    header_request_.clear();
+  }};
+
   try {
     it->second.callback(file_replication_handler_, maybe_message_header->message_version, &req_reader, &res_builder);
     // Finalize the SLK stream.
     req_reader.Finalize();
-    file_replication_handler_.reset();
-    if (!header_request_.empty()) {
-      header_request_.clear();
-    }
   }
   // NOLINTNEXTLINE
   catch (const slk::SlkReaderLeftoverDataException &) {

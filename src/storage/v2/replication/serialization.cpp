@@ -60,7 +60,6 @@ void Encoder::WriteExternalPropertyValue(const ExternalPropertyValue &value) {
 }
 
 void Encoder::WriteFileBuffer(const uint8_t *buffer, const size_t buffer_size) {
-  // builder_->Save(buffer, buffer_size);
   builder_->SaveFileBuffer(buffer, buffer_size);
 }
 
