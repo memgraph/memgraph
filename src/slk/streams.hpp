@@ -134,7 +134,7 @@ class Reader {
 };
 
 /// Stream status that is returned by the `CheckStreamComplete` function.
-enum class StreamStatus : uint8_t { PARTIAL, COMPLETE, INVALID, FILE_DATA };
+enum class StreamStatus : uint8_t { PARTIAL, COMPLETE, INVALID, NEW_FILE, FILE_DATA };
 
 /// Stream information retuned by the `CheckStreamComplete` function.
 struct StreamInfo {

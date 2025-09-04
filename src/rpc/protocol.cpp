@@ -66,9 +66,8 @@ void RpcMessageDeliverer::Execute() {
   // Use info whether file_replication_handler already exists + you need to copy previous data so you can initialize
   // message request
   // TODO: (andi) What if file is smaller than one segment? file_data_size is probably invalid then
-  // TODO: (andi) Solve memory leak when closing file
-  // TODO: (andi) Footer should be the end because of the multiple files
-  if (ret.status == slk::StreamStatus::FILE_DATA) {
+
+  if (ret.status == slk::StreamStatus::NEW_FILE) {
     const uint8_t *file_data_start = input_stream_->data() + ret.pos;
     size_t const file_data_size = input_stream_->size() - ret.pos;
     if (!file_replication_handler_.has_value()) {
@@ -78,10 +77,14 @@ void RpcMessageDeliverer::Execute() {
       header_request_ = std::vector<uint8_t>{
           input_stream_->data(), input_stream_->data() + (input_stream_->size() - ret.pos - sizeof(slk::SegmentSize))};
       file_replication_handler_.emplace(file_data_start, file_data_size);
-    } else {
-      // Continue writing to the file
-      file_replication_handler_->WriteToFile(file_data_start, file_data_size);
     }
+    return;
+  }
+
+  if (ret.status == slk::StreamStatus::FILE_DATA) {
+    // When FILE_DATA status is received, we know that we should read from the stream start
+    // Continue writing to the file
+    file_replication_handler_->WriteToFile(input_stream_->data(), input_stream_->size());
     return;
   }
 
