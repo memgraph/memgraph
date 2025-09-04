@@ -38,7 +38,7 @@ void RpcMessageDeliverer::Execute() {
   spdlog::trace("Input stream size at the Execute Start: {}", input_stream_->size());
 
   auto const remaining_file_size = std::invoke([&]() -> std::optional<uint64_t> {
-    if (!file_replication_handler_.has_value()) {
+    if (!file_replication_handler_.has_value() || !file_replication_handler_->file_.IsOpen()) {
       return std::nullopt;
     }
     return file_replication_handler_->file_size_ - file_replication_handler_->written_;
@@ -49,13 +49,19 @@ void RpcMessageDeliverer::Execute() {
   if (ret.status == slk::StreamStatus::INVALID) {
     throw SessionException("Received an invalid SLK stream!");
   }
-  // We resize the stream only if the initial header+request cannot fit into the input stream. We don't resize it in
-  // order to receive the whole file into the buffer
+  // We resize the stream if the initial header+request cannot fit into the input stream or if we couldn't read
+  // 0xFFFF/0x0000 segment
   if (ret.status == slk::StreamStatus::PARTIAL) {
     spdlog::trace("Resizing input stream to {}", ret.stream_size);
     input_stream_->Resize(ret.stream_size);
     return;
   }
+
+  // Remove the data from the stream on scope exit.
+  auto const shift_data = utils::OnScopeExit{[&, ret] {
+    input_stream_->Shift(ret.stream_size);
+    input_stream_->ShrinkBuffer(kBufferRetainLimit);
+  }};
 
   // Use info whether file_replication_handler already exists + you need to copy previous data so you can initialize
   // message request
@@ -76,21 +82,16 @@ void RpcMessageDeliverer::Execute() {
       // Continue writing to the file
       file_replication_handler_->WriteToFile(file_data_start, file_data_size);
     }
-    input_stream_->Clear();
     return;
   }
 
+  spdlog::trace("Stream is complete now");
+
   // Writing last segment
-  if (ret.status == slk::StreamStatus::COMPLETE && file_replication_handler_.has_value()) {
+  if (file_replication_handler_.has_value()) {
+    spdlog::trace("Writing last segment to the file before completing the stream");
     file_replication_handler_->WriteToFile(input_stream_->data(), input_stream_->size());
   }
-
-  // Remove the data from the stream on scope exit.
-  auto const shift_data = utils::OnScopeExit{[&, ret] {
-    input_stream_->Shift(ret.stream_size);
-    // TODO: (andi) This shouldn't be needed
-    input_stream_->ShrinkBuffer(kBufferRetainLimit);
-  }};
 
   // Prepare SLK reader and builder.
   slk::Reader req_reader = std::invoke([&]() {

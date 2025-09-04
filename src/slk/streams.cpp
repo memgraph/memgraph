@@ -194,26 +194,17 @@ StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size, std::option
     // TODO: (andi) Check for overflow
     // Not new segment but should still be written into the file
     if (remaining_file_size.has_value()) {
+      // TODO: (andi) This check should be valid
       MG_ASSERT(*remaining_file_size > 0, "Remaining file size must be > 0");
       spdlog::trace("Remaining file size is: {}. Stream size is: {}", remaining_file_size.value(), size);
 
       if (remaining_file_size >= size) {
-        return {.status = StreamStatus::FILE_DATA,
-                .stream_size = *remaining_file_size,
-                .encoded_data_size = data_size,
-                .pos = 0};
+        return {.status = StreamStatus::FILE_DATA, .stream_size = size, .encoded_data_size = data_size, .pos = 0};
       }
-      MG_ASSERT(size - sizeof(SegmentSize) == *remaining_file_size,
-                "Input stream larger than *remaining file size for more than 4B. {} > {}", size, *remaining_file_size);
 
-      SegmentSize footer{1};
-      memcpy(&footer, data + *remaining_file_size, sizeof(SegmentSize));
-      MG_ASSERT(footer == 0, "Invalid file footer {}", footer);
-      spdlog::trace("Read file footer");
-      return {.status = StreamStatus::COMPLETE,
-              .stream_size = *remaining_file_size,
-              .encoded_data_size = data_size,
-              .pos = 0};
+      pos += *remaining_file_size;
+      ++found_segments;
+      data_size += *remaining_file_size;
     }
 
     SegmentSize len = 0;
@@ -223,6 +214,7 @@ StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size, std::option
               .encoded_data_size = data_size,
               .pos = pos};
     }
+
     memcpy(&len, data + pos, sizeof(SegmentSize));
 
     pos += sizeof(SegmentSize);
@@ -230,10 +222,11 @@ StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size, std::option
     // Start of the new segment
     if (len == kFileSegmentMask) {
       spdlog::trace("File segment read at: {}. Found segments: {}", pos - sizeof(SegmentSize), found_segments);
-      return {.status = StreamStatus::FILE_DATA, .stream_size = pos, .encoded_data_size = data_size, .pos = pos};
+      return {.status = StreamStatus::FILE_DATA, .stream_size = size, .encoded_data_size = data_size, .pos = pos};
     }
 
     if (len == 0) {
+      spdlog::trace("Read footer");
       break;
     }
 
