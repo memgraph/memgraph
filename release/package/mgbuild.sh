@@ -591,7 +591,6 @@ build_memgraph () {
 
   # Configure with CMake using Conan preset and additional options
   echo "Configuring CMake with Conan preset: $PRESET"
-  local cmake_preset_cmd="cmake --preset $PRESET"
 
   # Add additional CMake options if any are specified
   local additional_options=""
@@ -621,13 +620,19 @@ build_memgraph () {
     echo "Adding additional CMake options: $additional_options"
   fi
 
-  echo "Running CMake with preset: $cmake_preset_cmd"
-  docker exec -u mg "$build_container" bash -c "$CMD_START && $cmake_preset_cmd"
+  # Configure CMake with additional options if any are specified
+  if [[ -n "$additional_options" ]]; then
+    echo "Running CMake configure with additional options: $additional_options"
+    docker exec -u mg "$build_container" bash -c "$CMD_START && cmake -S . -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=build/generators/conan_toolchain.cmake -DCMAKE_BUILD_TYPE=$build_type $additional_options"
+  else
+    echo "Running CMake with preset: $PRESET"
+    docker exec -u mg "$build_container" bash -c "$CMD_START && cmake --preset $PRESET"
+  fi
 
   if [[ "$cmake_only" == "true" ]]; then
     build_target(){
       target=$1
-      docker exec -u mg "$build_container" bash -c "$CMD_START && cmake --build --preset $PRESET --target $target $additional_options -- -j"'$(nproc)'
+      docker exec -u mg "$build_container" bash -c "$CMD_START && cmake --build --preset $PRESET --target $target -- -j"'$(nproc)'
     }
     # Force build that generate the header files needed by analysis (ie. clang-tidy)
     build_target generated_code
@@ -637,10 +642,10 @@ build_memgraph () {
   # Build using Conan preset
   echo "Building with Conan preset: $PRESET"
   if [[ "$threads" == "$DEFAULT_THREADS" ]]; then
-    docker exec -u mg "$build_container" bash -c "$CMD_START && cmake --build --preset $PRESET $additional_options -- -j"'$(nproc)'
+    docker exec -u mg "$build_container" bash -c "$CMD_START && cmake --build --preset $PRESET -- -j"'$(nproc)'
   else
     local EXPORT_THREADS="export THREADS=$threads"
-    docker exec -u mg "$build_container" bash -c "$CMD_START && $EXPORT_THREADS && cmake --build --preset $PRESET $additional_options-- -j\$THREADS"
+    docker exec -u mg "$build_container" bash -c "$CMD_START && $EXPORT_THREADS && cmake --build --preset $PRESET -- -j\$THREADS"
   fi
 
   # Show ccache statistics if ccache is enabled
