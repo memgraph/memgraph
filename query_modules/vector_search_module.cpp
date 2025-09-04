@@ -12,9 +12,10 @@
 #include <algorithm>
 #include <cmath>
 #include <iostream>
-#include <mgp.hpp>
 #include <numeric>
 #include <string_view>
+
+#include <mgp.hpp>
 
 namespace VectorSearch {
 static constexpr std::string_view kProcedureSearch = "search";
