@@ -168,6 +168,10 @@ jobs:
           --arch $ARCH \
           stop --remove
 
+      - name: Clean up Docker
+        run: |
+          ./tools/docker_cleanup.sh
+
   benchmark:
     if: ${{ inputs.run_benchmark == 'true' }}
     name: "Benchmark"
@@ -278,6 +282,10 @@ jobs:
           --arch $ARCH \
           stop --remove
 
+      - name: Clean up Docker
+        run: |
+          ./tools/docker_cleanup.sh
+
   e2e:
     if: ${{ inputs.run_e2e == 'true' }}
     name: "End to end tests"
@@ -375,6 +383,10 @@ jobs:
           --arch $ARCH \
           stop --remove
 
+      - name: Clean up Docker
+        run: |
+          ./tools/docker_cleanup.sh
+
   stress:
     if: ${{ inputs.run_stress == 'true' }}
     name: "Stress tests"
@@ -466,6 +478,10 @@ jobs:
           --arch $ARCH \
           stop --remove
 
+      - name: Clean up Docker
+        run: |
+          ./tools/docker_cleanup.sh
+
   query_modules:
     if: ${{ inputs.run_query_modules == 'true' }}
     name: "Query modules tests"
@@ -543,3 +559,7 @@ jobs:
           --os $OS \
           --arch $ARCH \
           stop --remove
+
+      - name: Clean up Docker
+        run: |
+          ./tools/docker_cleanup.sh
