@@ -59,12 +59,20 @@ FileReplicationHandler::FileReplicationHandler(const uint8_t *data, size_t const
   }
 }
 
+// TODO: (andi) Add abstract method for resetting file replication handler
 FileReplicationHandler::~FileReplicationHandler() {
-  if (file_.IsOpen()) file_.Close();
+  if (file_.IsOpen()) {
+    file_.Close();
+    written_ = 0;
+    file_size_ = 0;
+  }
 }
 
 void FileReplicationHandler::WriteToFile(const uint8_t *data, size_t const size) {
-  spdlog::warn("Got the request to write {} bytes to the file", size);
+  spdlog::warn("Got the request to write to file. Stream size is {}", size);
+  if (!file_.IsOpen()) {
+    return;
+  }
   // TODO: (andi) Try to avoid slk::Reader here to optimize further
   slk::Reader req_reader(data, size, size);
   uint8_t buffer[utils::kFileBufferSize];
@@ -79,6 +87,7 @@ void FileReplicationHandler::WriteToFile(const uint8_t *data, size_t const size)
   }
 
   if (written_ == file_size_ && file_.IsOpen()) {
+    spdlog::trace("Closing file: {}", file_.path());
     file_.Close();
     written_ = 0;
     file_size_ = 0;

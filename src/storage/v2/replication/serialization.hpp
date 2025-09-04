@@ -48,6 +48,8 @@ class Encoder final : public durability::BaseEncoder {
 
   bool WriteFile(const std::filesystem::path &path);
 
+  slk::Builder *GetBuilder() const { return builder_; }
+
  private:
   slk::Builder *builder_;
 };
