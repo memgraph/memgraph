@@ -78,14 +78,20 @@ else
     exit 1
 fi
 
-# Configure cmake
-cmake --preset $PRESET
-
-# Build command with optional target and additional cmake arguments
-if [[ -n "$TARGET" ]]; then
-    cmake --build --preset $PRESET --target $TARGET $CMAKE_ARGS
+# Configure cmake with additional arguments
+if [[ -n "$CMAKE_ARGS" ]]; then
+    # If we have additional CMake arguments, we need to configure manually with Conan toolchain
+    cmake -S . -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=build/generators/conan_toolchain.cmake -DCMAKE_BUILD_TYPE=$BUILD_TYPE $CMAKE_ARGS
 else
-    cmake --build --preset $PRESET $CMAKE_ARGS
+    # Use preset if no additional arguments
+    cmake --preset $PRESET
+fi
+
+# Build command with optional target
+if [[ -n "$TARGET" ]]; then
+    cmake --build build --target $TARGET -j $(nproc)
+else
+    cmake --build build -j $(nproc)
 fi
 
 deactivate
