@@ -63,7 +63,6 @@
 using namespace std::chrono_literals;
 
 namespace r = ranges;
-namespace rv = r::views;
 namespace {
 constexpr auto kCheckIfSnapshotAborted = 3s;
 }  // namespace
@@ -1750,7 +1749,6 @@ RecoveredSnapshot LoadSnapshotVersion15(Decoder &snapshot, const std::filesystem
         if (!label) throw RecoveryFailure("Couldn't read label for label property index!");
         auto property = snapshot.ReadUint();
         if (!property) throw RecoveryFailure("Couldn't read property for label property index");
-
         AddRecoveredIndexConstraint(
             &indices_constraints.indices.label_properties,
             {snapshot_id_map.GetActualLabelId(*label), {snapshot_id_map.GetActualPropertyId(*property)}},
@@ -4242,7 +4240,7 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
                               std::views::transform([](const auto &property_id) { return PropertyPath{property_id}; }) |
                               r::to_vector;
         AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties,
-                                    {snapshot_id_map.GetActualLabelId(*label), std::move(property_paths)},
+                                    {snapshot_id_map.GetActualLabelId(*label), property_paths},
                                     "The label+property index already exists!");
         SPDLOG_TRACE("Recovered metadata of label+property index for :{}({})",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
@@ -4822,7 +4820,7 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
         if (!label) throw RecoveryFailure("Couldn't read label for label properties index.");
         auto property_paths = get_property_paths("label properties index");
         AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties,
-                                    {snapshot_id_map.GetActualLabelId(*label), std::move(property_paths)},
+                                    {snapshot_id_map.GetActualLabelId(*label), property_paths},
                                     "The label+property index already exists!");
         SPDLOG_TRACE("Recovered metadata of label+property index for :{}({})",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
@@ -5389,7 +5387,7 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
         if (!label) throw RecoveryFailure("Couldn't read label for label properties index.");
         auto property_paths = get_property_paths("label properties index");
         AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties,
-                                    {snapshot_id_map.GetActualLabelId(*label), std::move(property_paths)},
+                                    {snapshot_id_map.GetActualLabelId(*label), property_paths},
                                     "The label+property index already exists!");
         SPDLOG_TRACE("Recovered metadata of label+property index for :{}({})",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
@@ -5959,7 +5957,7 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
         if (!label) throw RecoveryFailure("Couldn't read label for label properties index.");
         auto property_paths = get_property_paths("label properties index");
         AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties,
-                                    {snapshot_id_map.GetActualLabelId(*label), std::move(property_paths)},
+                                    {snapshot_id_map.GetActualLabelId(*label), property_paths},
                                     "The label+property index already exists!");
         SPDLOG_TRACE("Recovered metadata of label+property index for :{}({})",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
@@ -6577,7 +6575,7 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
         if (!label) throw RecoveryFailure("Couldn't read label for label properties index.");
         auto property_paths = get_property_paths("label properties index");
         AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties,
-                                    {snapshot_id_map.GetActualLabelId(*label), std::move(property_paths)},
+                                    {snapshot_id_map.GetActualLabelId(*label), property_paths},
                                     "The label+property index already exists!");
         SPDLOG_TRACE("Recovered metadata of label+property index for :{}({})",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
@@ -7206,7 +7204,7 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
         if (!label) throw RecoveryFailure("Couldn't read label for label properties index.");
         auto property_paths = get_property_paths("label properties index");
         AddRecoveredIndexConstraint(&indices_constraints.indices.label_properties,
-                                    {snapshot_id_map.GetActualLabelId(*label), std::move(property_paths)},
+                                    {snapshot_id_map.GetActualLabelId(*label), property_paths},
                                     "The label+property index already exists!");
         SPDLOG_TRACE("Recovered metadata of label+property index for :{}({})",
                      name_id_mapper->IdToName(snapshot_id_map.at(*label)),
