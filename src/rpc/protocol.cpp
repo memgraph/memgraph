@@ -71,10 +71,11 @@ void RpcMessageDeliverer::Execute() {
       header_request_ = std::vector<uint8_t>{
           input_stream_->data(), input_stream_->data() + (input_stream_->size() - ret.pos - sizeof(slk::SegmentSize))};
       file_replication_handler_.emplace();
+    } else {
+      // If file replication handler is already active, it means that we should first finalize prior file
+      file_replication_handler_->WriteToFile(input_stream_->data(), ret.pos - sizeof(slk::SegmentSize));
     }
-    const uint8_t *file_data_start = input_stream_->data() + ret.pos;
-    size_t const file_data_size = input_stream_->size() - ret.pos;
-    file_replication_handler_->OpenFile(file_data_start, file_data_size);
+    file_replication_handler_->OpenFile(input_stream_->data() + ret.pos, input_stream_->size() - ret.pos);
     return;
   }
 

@@ -76,6 +76,7 @@ void Encoder::WriteFileData(utils::InputFile *file) {
 }
 
 bool Encoder::WriteFile(const std::filesystem::path &path) {
+  builder_->PrepareForFileSending();
   utils::InputFile file;
   if (!file.Open(path)) {
     spdlog::error("Failed to open file {}.", path);
