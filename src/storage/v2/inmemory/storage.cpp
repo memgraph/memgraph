@@ -2043,10 +2043,10 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   utils::Timer timer;
   spdlog::trace("Storage GC on '{}' started [{}]", name(), periodic ? "periodic" : "forced");
   auto trace_on_exit = utils::OnScopeExit{[&] {
-    auto elapsed_us = std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed()).count();
-    memgraph::metrics::Measure(memgraph::metrics::GCLatency_us, elapsed_us);
+    auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed());
+    memgraph::metrics::Measure(memgraph::metrics::GCLatency_us, elapsed.count());
     spdlog::trace("Storage GC on '{}' finished [{}]. Duration: {:.3f}s", name(), periodic ? "periodic" : "forced",
-                  std::chrono::duration<double>(elapsed_us).count());
+                  std::chrono::duration<double>(elapsed).count());
   }};
 
   // Garbage collection must be performed in two phases. In the first phase,
