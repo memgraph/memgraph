@@ -17,6 +17,7 @@
 #include "rpc_messages.hpp"
 
 #include "rpc/client.hpp"
+#include "rpc/file_replication_handler.hpp"
 #include "rpc/server.hpp"
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 
@@ -48,7 +49,8 @@ TEST(RpcVersioning, SumUpgrade) {
     rpc_server.AwaitShutdown();
   }};
 
-  rpc_server.Register<Sum>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
+  rpc_server.Register<Sum>([](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                              uint64_t const request_version, auto *req_reader, auto *res_builder) {
     SumReq req;
     memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
 
