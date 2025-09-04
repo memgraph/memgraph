@@ -273,7 +273,12 @@ popd
 
 # mgcxx (text search)
 mgcxx_tag="v0.0.9"
-repo_clone_try_double "${primary_urls[mgcxx]}" "${secondary_urls[mgcxx]}" "mgcxx" "$mgcxx_tag" true
+if [ -f "${MG_TOOLCHAIN_ROOT}/lib/libmgcxx_text_search.a" ] && [ "$mgcxx_tag" == "v0.0.9" ]; then
+  echo "Skipping mgcxx download because it's already under the toolchain v$MG_TOOLCHAIN_VERSION"
+else
+  echo "Downloading mgcxx"
+  repo_clone_try_double "${primary_urls[mgcxx]}" "${secondary_urls[mgcxx]}" "mgcxx" "$mgcxx_tag" true
+fi
 
 # usearch (shallow clone to reduce flakiness)
 usearch_ref="v2.15.3"
