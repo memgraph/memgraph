@@ -1,0 +1,14 @@
+serialization_cluster: &serialization_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
+      log_file: "serialization.log"
+      setup_queries: []
+      validation_queries: []
+
+
+workloads:
+  - name: "Serialization"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["serialization/serialization.py"]
+    <<: *serialization_cluster

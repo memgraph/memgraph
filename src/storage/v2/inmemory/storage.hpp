@@ -527,8 +527,8 @@ class InMemoryStorage final : public Storage {
     /// View is not needed because a new rtree gets created for each transaction and it is always
     /// using the latest version
     auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
-                       PropertyValue const &bottom_left, PropertyValue const &top_right,
-                       WithinBBoxCondition condition) -> PointIterable override;
+                       PropertyValue const &bottom_left, PropertyValue const &top_right, WithinBBoxCondition condition)
+        -> PointIterable override;
 
     std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearchOnNodes(
         const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) override;
@@ -771,7 +771,6 @@ class InMemoryStorage final : public Storage {
     std::unique_ptr<std::atomic<uint64_t>> commit_timestamp_{};  //!< the timestamp the deltas are pointing at
   };
 
-  // Ownership of linked deltas is transferred to committed_transactions_ once transaction is commited
   utils::Synchronized<std::list<GCDeltas>, utils::SpinLock> committed_transactions_{};
 
   // Ownership of unlinked deltas is transferred to garabage_undo_buffers once transaction is commited/aborted

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -96,12 +96,57 @@ template <typename TObj>
 inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
   if (object->delta == nullptr) return true;
   auto ts = object->delta->timestamp->load(std::memory_order_acquire);
-  if (ts == transaction->transaction_id || ts < transaction->start_timestamp) {
+  if (ts == transaction->transaction_id) {
+    // If head delta from same transaction is interleaved, cannot add non-commutative operation
+    if (IsOperationInterleaved(*object->delta)) {
+      transaction->must_abort = true;
+      return false;
+    }
+    return true;
+  }
+
+  if (ts < transaction->start_timestamp) {
     return true;
   }
 
   transaction->must_abort = true;
   return false;
+}
+
+enum class WriteResult { SUCCESS, COMMUTATIVE, CONFLICT };
+
+template <typename TObj>
+inline WriteResult PrepareForCommutativeWrite(Transaction *transaction, TObj *object, Delta::Action action) {
+  DMG_ASSERT(IsActionCommutative(action));
+
+  if (object->delta == nullptr) return WriteResult::SUCCESS;
+
+  auto ts = object->delta->timestamp->load(std::memory_order_acquire);
+  if (ts == transaction->transaction_id) {
+    // If the head delta belongs to the same transaction and is interleaved,
+    // then only another commutative action delta can be prepended.
+    if (IsOperationInterleaved(*object->delta)) {
+      return WriteResult::COMMUTATIVE;
+    }
+    // Head delta from same transaction is not interleaved - allow any new delta
+    return WriteResult::SUCCESS;
+  }
+
+  // Standard MVCC visibility rules: if the head delta was committed before
+  // this transaction started, any delta action can be prepended.
+  if (ts < transaction->start_timestamp) {
+    return WriteResult::SUCCESS;
+  }
+
+  // If the head delta resulted from a commutative operation from another
+  // (as yet uncommited) transaction, we can prepend an interleaved delta.
+  if (IsResultOfCommutativeOperation(object->delta->action)) {
+    return WriteResult::COMMUTATIVE;
+  }
+
+  // Standard MVCC serialization conflict.
+  transaction->must_abort = true;
+  return WriteResult::CONFLICT;
 }
 
 /// This function creates a `DELETE_OBJECT` delta in the transaction and returns
@@ -180,6 +225,7 @@ inline void CreateAndLinkDelta(Transaction *transaction, TObj *object, Args &&..
   if (object->delta) {
     object->delta->prev.Set(delta);
   }
+
   // 4. Finally, we need to set the object's delta to the new delta. The garbage
   // collector and other transactions will acquire the object lock to read the
   // delta from the object. Because the lock is held during the whole time this
