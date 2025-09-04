@@ -150,6 +150,15 @@ void Reader::GetSegment(bool should_be_final) {
   }
   memcpy(&len, data_ + pos_, sizeof(SegmentSize));
 
+  if (len == kFileSegmentMask) {
+    if (should_be_final) {
+      have_ = 0;
+      pos_ += sizeof(SegmentSize);
+      return;
+    }
+    throw SlkReaderException("Read kFileSegmentMask but the segment should not be final");
+  }
+
   if (should_be_final && len != 0) {
     throw SlkReaderException(
         "Got a non-empty SLK segment when expecting the final segment! Have_: {}, Pos: {}, Size_: {}. Should be final: "
