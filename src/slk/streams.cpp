@@ -110,13 +110,13 @@ void Builder::FlushSegment(bool const final_segment) {
     spdlog::warn("Flushing non-file_dat segment with data size: {}. Final segment: {}. Pos: {}", data_size,
                  final_segment, pos_);
     memcpy(segment_.data(), &data_size, sizeof(SegmentSize));
+  }
 
-    if (final_segment) {
-      SegmentSize footer = 0;
-      memcpy(segment_.data() + total_size, &footer, sizeof(SegmentSize));
-      total_size += sizeof(SegmentSize);
-      spdlog::trace("Size of the final segment: {}", total_size);
-    }
+  if (final_segment) {
+    SegmentSize footer = 0;
+    memcpy(segment_.data() + total_size, &footer, sizeof(SegmentSize));
+    total_size += sizeof(SegmentSize);
+    spdlog::trace("Size of the final segment: {}", total_size);
   }
 
   write_func_(segment_.data(), total_size, !final_segment);
@@ -187,9 +187,35 @@ void Reader::GetSegment(bool should_be_final) {
 StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size, std::optional<uint64_t> remaining_file_size) {
   size_t found_segments = 0;
   size_t data_size = 0;
-
   size_t pos = 0;
+
   while (true) {
+    // First check if we are receiving file data
+    // TODO: (andi) Check for overflow
+    // Not new segment but should still be written into the file
+    if (remaining_file_size.has_value()) {
+      MG_ASSERT(*remaining_file_size > 0, "Remaining file size must be > 0");
+      spdlog::trace("Remaining file size is: {}. Stream size is: {}", remaining_file_size.value(), size);
+
+      if (remaining_file_size >= size) {
+        return {.status = StreamStatus::FILE_DATA,
+                .stream_size = *remaining_file_size,
+                .encoded_data_size = data_size,
+                .pos = 0};
+      }
+      MG_ASSERT(size - sizeof(SegmentSize) == *remaining_file_size,
+                "Input stream larger than *remaining file size for more than 4B. {} > {}", size, *remaining_file_size);
+
+      SegmentSize footer{1};
+      memcpy(&footer, data + *remaining_file_size, sizeof(SegmentSize));
+      MG_ASSERT(footer == 0, "Invalid file footer {}", footer);
+      spdlog::trace("Read file footer");
+      return {.status = StreamStatus::COMPLETE,
+              .stream_size = *remaining_file_size,
+              .encoded_data_size = data_size,
+              .pos = 0};
+    }
+
     SegmentSize len = 0;
     if (pos + sizeof(SegmentSize) > size) {
       return {.status = StreamStatus::PARTIAL,
@@ -207,19 +233,6 @@ StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size, std::option
       return {.status = StreamStatus::FILE_DATA, .stream_size = pos, .encoded_data_size = data_size, .pos = pos};
     }
 
-    // TODO: (andi) Check for overflow
-
-    // Not new segment but should still be written into the file
-    if (remaining_file_size.has_value()) {
-      if (remaining_file_size.value() > 0) {
-        spdlog::trace("Remaining file size is: {}", remaining_file_size.value());
-        return {.status = StreamStatus::FILE_DATA, .stream_size = 0, .encoded_data_size = data_size, .pos = 0};
-      }
-      // TODO: (andi) We should never get here, assert
-      spdlog::trace("Fully read file while checking status");
-      return {.status = StreamStatus::COMPLETE, .stream_size = 0, .encoded_data_size = data_size, .pos = 0};
-    }
-
     if (len == 0) {
       break;
     }
@@ -232,8 +245,8 @@ StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size, std::option
               .encoded_data_size = data_size,
               .pos = pos};
     }
-    pos += len;
 
+    pos += len;
     ++found_segments;
     data_size += len;
   }

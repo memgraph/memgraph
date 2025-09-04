@@ -78,11 +78,6 @@ class Decoder final : public durability::BaseDecoder {
 
   bool SkipExternalPropertyValue() override;
 
-  /// Read the file and save it inside the specified directory.
-  /// @param directory Directory which will contain the read file.
-  /// @return If the read was successful, path to the read file.
-  std::optional<std::filesystem::path> ReadFile(const std::filesystem::path &directory);
-
  private:
   slk::Reader *reader_;
 };
