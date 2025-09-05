@@ -81,7 +81,7 @@ class Memgraph:
         runner_bin = self.args.runner_bin
 
         # start memgraph
-        self.database_bin.run(runner_bin, database_args, timeout=600)
+        self.database_bin.run(runner_bin, database_args, timeout=600, env=os.environ.copy())
         wait_for_server(self.args.port)
 
     def stop(self):
@@ -127,7 +127,8 @@ class Neo:
 
             # environment
             cwd = os.path.dirname(self.args.runner_bin)
-            env = {"NEO4J_HOME": self.neo4j_home_path}
+            env = os.environ.copy()
+            env["NEO4J_HOME"] = self.neo4j_home_path
 
             self.database_bin.run(self.args.runner_bin, args=["console"], env=env, timeout=600, cwd=cwd)
         except:
