@@ -17,3 +17,8 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: ["drop_queries/drop_all_indexes.py"]
     <<: *drop_queries_cluster
+
+  - name: "Drop all constraints"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["drop_queries/drop_all_constraints.py"]
+    <<: *drop_queries_cluster

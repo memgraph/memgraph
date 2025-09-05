@@ -10,8 +10,8 @@
 # licenses/APL.txt.
 
 import sys
-
 import pytest
+
 from common import get_results_length, memgraph
 
 
@@ -28,7 +28,6 @@ def test_drop_all_indexes(memgraph):
         CREATE (p1)-[:KNOWS {strength: 0.8}]->(p2)
     """)
 
-    # Create all types of indexes
     memgraph.execute("CREATE INDEX ON :Person")
     memgraph.execute("CREATE INDEX ON :Person(name)")
     memgraph.execute("CREATE EDGE INDEX ON :WORKS_AT")
@@ -46,7 +45,6 @@ def test_drop_all_indexes(memgraph):
     index_info_after = list(memgraph.execute_and_fetch("SHOW INDEX INFO"))
     assert len(index_info_after) == 0, f"Expected 0 indexes after DROP ALL INDEXES, but got {len(index_info_after)}: {index_info_after}"
     
-    # Verify data is still intact
     person_count = get_results_length(memgraph, "MATCH (n:Person) RETURN n")
     company_count = get_results_length(memgraph, "MATCH (n:Company) RETURN n")
     edge_count = get_results_length(memgraph, "MATCH ()-[r]->() RETURN r")
