@@ -84,7 +84,7 @@ class Database {
   /**
    * @brief Unique storage identified (name)
    *
-   * @return const std::string&
+   * @return std::string
    */
   std::string name() const { return storage_->name(); }
   auto name_view() const { return storage_->name_view(); }
