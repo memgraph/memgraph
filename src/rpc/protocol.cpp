@@ -33,6 +33,7 @@ RpcMessageDeliverer::RpcMessageDeliverer(Server *server, io::network::Endpoint c
     : server_(server), input_stream_(input_stream), output_stream_(output_stream) {}
 
 void RpcMessageDeliverer::Execute() {
+  // NOLINTNEXTLINE
   spdlog::trace("Memory at the start of execute: {}", utils::GetReadableSize(utils::GetMemoryRES()));
 
   auto const remaining_file_size = std::invoke([&]() -> std::optional<uint64_t> {
@@ -129,6 +130,7 @@ void RpcMessageDeliverer::Execute() {
   }
 
   spdlog::trace("[RpcServer] received {}, version {}", it->second.req_type.name, maybe_message_header->message_version);
+  // NOLINTNEXTLINE
   spdlog::trace("Memory when RPC {} received: {}", it->second.req_type.name,
                 utils::GetReadableSize(utils::GetMemoryRES()));
 
