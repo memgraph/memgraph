@@ -27,6 +27,7 @@
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
 #include "memory/query_memory_control.hpp"
+#include "plan/preprocess.hpp"
 #include "query/common.hpp"
 #include "spdlog/spdlog.h"
 
@@ -749,8 +750,9 @@ VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(Frame &frame, Exec
 
 // Thread Local Section
 namespace {
-thread_local int thread_id = -1;                                                           // NOLINT
-thread_local std::optional<utils::SkipList<storage::Vertex>::Chunk> chunk = std::nullopt;  // NOLINT
+thread_local int thread_id = -1;  // NOLINT
+// TODO This is a hack to create a parallel plan while reusing the same operators
+bool create_parallel_plan = false;  //  NOLINT
 // NOTE: For now testing only 4 threads (hardcoded)
 }  // namespace
 
@@ -999,14 +1001,24 @@ ACCEPT_WITH_INPUT(ScanAll)
 UniqueCursorPtr ScanAll::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);
 
-  auto vertices = std::function<VerticesChunkCollection(Frame &, ExecutionContext &)>{
-      [this](Frame &, ExecutionContext &context) mutable {
-        auto *db = context.db_accessor;
-        // std::cout << "Creating chunks" << std::endl;
-        return db->VerticesChunks(view_, 4);
-      }};
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
-                                                                view_, std::move(vertices), "ScanAll");
+  // TODO: This is a hack since we are reusing the same operators for parallel and single thread execution
+  if (create_parallel_plan) {
+    auto vertices = std::function<VerticesChunkCollection(Frame &, ExecutionContext &)>{
+        [this](Frame &, ExecutionContext &context) mutable {
+          auto *db = context.db_accessor;
+          // std::cout << "Creating chunks" << std::endl;
+          return db->VerticesChunks(view_, 4);
+        }};
+    return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
+                                                                  view_, std::move(vertices), "ScanAll");
+  } else {
+    auto vertices = [this](Frame &, ExecutionContext &context) {
+      auto *db = context.db_accessor;
+      return std::make_optional(db->Vertices(view_));
+    };
+    return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
+                                                                  view_, std::move(vertices), "ScanAll");
+  }
 }
 
 std::vector<Symbol> ScanAll::ModifiedSymbols(const SymbolTable &table) const {
@@ -1034,18 +1046,25 @@ ACCEPT_WITH_INPUT(ScanAllByLabel)
 UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByLabelOperator);
 
-  // auto vertices = [this](Frame &, ExecutionContext &context) {
-  //   auto *db = context.db_accessor;
-  //   return std::make_optional(db->Vertices(view_, label_));
-  // };
-  // Ignore label for now
-  auto vertices = std::function<VerticesChunkCollection(Frame &, ExecutionContext &)>{
-      [this](Frame &, ExecutionContext &context) mutable {
-        auto *db = context.db_accessor;
-        return db->VerticesChunks(view_, 4);
-      }};
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
-                                                                view_, std::move(vertices), "ScanAllByLabel");
+  // TODO: This is a hack since we are reusing the same operators for parallel and single thread execution
+  if (create_parallel_plan) {
+    // TODO: This doesn't actually scan over the label (hack to use it in tests)
+    auto vertices = std::function<VerticesChunkCollection(Frame &, ExecutionContext &)>{
+        [this](Frame &, ExecutionContext &context) mutable {
+          auto *db = context.db_accessor;
+          // std::cout << "Creating chunks" << std::endl;
+          return db->VerticesChunks(view_, 4);
+        }};
+    return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
+                                                                  view_, std::move(vertices), "ScanAllByLabel");
+  } else {
+    auto vertices = [this](Frame &, ExecutionContext &context) {
+      auto *db = context.db_accessor;
+      return std::make_optional(db->Vertices(view_, label_));
+    };
+    return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
+                                                                  view_, std::move(vertices), "ScanAllByLabel");
+  }
 }
 
 std::string ScanAllByLabel::ToString() const {
@@ -5706,8 +5725,14 @@ class AggregateCursor : public Cursor {
  public:
   AggregateCursor(const Aggregate &self, utils::MemoryResource *mem)
       : self_(self),
-        input_cursor_(self_.input_->MakeCursor(mem)),
+        input_cursor_(std::invoke([&]() {
+          create_parallel_plan = false;  // Hack to create a parallel plan
+          return self_.input_->MakeCursor(mem);
+        })),
         input_cursors_(std::invoke([&]() {
+          // Currently parallel execution is set in the context, so we just create these branches, but might not need
+          // them later
+          create_parallel_plan = true;  // Hack to create a parallel plan
           std::vector<UniqueCursorPtr> cursors;
           // Hardcode for now
           cursors.reserve(4);
@@ -5832,105 +5857,124 @@ class AggregateCursor : public Cursor {
    * aggregation results, and not on the number of inputs.
    */
   bool ProcessAll(Frame *frame, ExecutionContext *context) {
-    // ExpressionEvaluator evaluator(frame, context->symbol_table, context->evaluation_context, context->db_accessor,
-    //                               storage::View::NEW, nullptr, &context->number_of_hops);
-    // bool pulled = false;
-    // while (input_cursor_->Pull(*frame, *context)) {
-    //   ProcessOne(*frame, &evaluator, reused_group_by_, self_.group_by_, aggregation_, self_.aggregations_,
-    //              self_.remember_);
-    //   pulled = true;
-    // }
-    // if (!pulled) return false;
+    if (!context->parallel_execution) {
+      // Single thread execution
+      ExpressionEvaluator evaluator(frame, context->symbol_table, context->evaluation_context, context->db_accessor,
+                                    storage::View::NEW, nullptr, &context->number_of_hops);
+      bool pulled = false;
+      while (input_cursor_->Pull(*frame, *context)) {
+        ProcessOne(*frame, &evaluator, reused_group_by_, self_.group_by_, aggregation_, self_.aggregations_,
+                   self_.remember_);
+        pulled = true;
+      }
+      if (!pulled) return false;
+    } else {
+      // Parallel execution
+      std::vector<std::jthread> threads;
+      threads.reserve(3);
+      std::atomic<int> pulled = 0;
 
-    std::vector<std::jthread> threads;
-    threads.reserve(4);
-    std::atomic<int> pulled = 0;
+      std::vector<decltype(aggregation_)> aggregation_threads(4);
+      std::vector<decltype(reused_group_by_)> reused_group_by_threads(4);
 
-    std::vector<decltype(aggregation_)> aggregation_threads(4);
-    std::vector<decltype(reused_group_by_)> reused_group_by_threads(4);
+      auto process_chunk = [this, context, &pulled, &aggregation_threads, &reused_group_by_threads](
+                               int id, Frame &frame) mutable {
+        ExpressionEvaluator evaluator(&frame, context->symbol_table, context->evaluation_context, context->db_accessor,
+                                      storage::View::NEW, nullptr, &context->number_of_hops);
+        // Set thread id
+        thread_id = id;
+        called = 0;
+        auto reset_thread_id_on_exit = utils::OnScopeExit([]() { thread_id = -1; });
+        while (input_cursors_[id]->Pull(frame, *context)) {
+          ProcessOne(frame, &evaluator, reused_group_by_threads[id], self_.group_by_, aggregation_threads[id],
+                     self_.aggregations_, self_.remember_);
+        }
+        // std::cout << "Thread " << id << " called " << called << " times" << std::endl;
+        pulled++;
+      };
 
-    for (int i = 0; i < 4; i++) {
-      threads.emplace_back(
-          // TODO: context might not be thread safe
-          [this, i, frame = Frame{static_cast<int64_t>(frame->elems().size()), frame->get_allocator()}, context,
-           &pulled, &aggregation_threads, &reused_group_by_threads]() mutable {
-            ExpressionEvaluator evaluator(&frame, context->symbol_table, context->evaluation_context,
-                                          context->db_accessor, storage::View::NEW, nullptr, &context->number_of_hops);
-            // Set thread id
-            thread_id = i;
-            called = 0;
-            auto reset_thread_id_on_exit = utils::OnScopeExit([]() { thread_id = -1; });
-            while (input_cursors_[i]->Pull(frame, *context)) {
-              ProcessOne(frame, &evaluator, reused_group_by_threads[i], self_.group_by_, aggregation_threads[i],
-                         self_.aggregations_, self_.remember_);
-            }
-            // std::cout << "Thread " << i << " called " << called << " times" << std::endl;
-            pulled++;
-          });
-    }
-    for (auto &thread : threads) {
-      thread.join();
-    }
+      auto *thread_local_memory = dynamic_cast<utils::ThreadLocalMemoryResource *>(context->evaluation_context.memory);
+      if (thread_local_memory == nullptr) {
+        throw QueryRuntimeException("Thread local memory resource is not a thread local memory resource");
+      }
+      const auto frame_size = frame->elems().size();
+      for (int i = 1; i < 4; i++) {
+        threads.emplace_back([&, i, thread_local_memory, frame_size]() {
+          // Initialize thread local memory resource
+          thread_local_memory->Initialize(i);
+          auto cleanup = utils::OnScopeExit([]() { utils::ThreadLocalMemoryResource::ResetThread(); });
+          Frame frame{static_cast<int64_t>(frame_size), thread_local_memory};
+          process_chunk(i, frame);
+        });
+      }
 
-    if (pulled != 4) return false;
+      // Process 0th chunk in main thread
+      process_chunk(0, *frame);  // TODO reuse aggregation threads and reused group by threads
 
-    // Combine the results from the threads
-    aggregation_ = std::move(aggregation_threads[0]);
-    for (int i = 1; i < 4; i++) {
-      auto &other_aggregation = aggregation_threads[i];
-      for (const auto &[other_key, other_value] : other_aggregation) {
-        auto it = aggregation_.find(other_key);
-        if (it != aggregation_.end()) {
-          // Key exists, merge the values
-          auto &value = it->second;
-          for (size_t pos = 0; pos < self_.aggregations_.size(); ++pos) {
-            switch (self_.aggregations_[pos].op) {
-              case Aggregation::Op::MIN: {
-                const auto is_min = other_value.values_[pos] < value.values_[pos];
-                if (is_min.IsBool() && is_min.ValueBool()) {
-                  value.values_[pos] = other_value.values_[pos];
+      for (auto &thread : threads) {
+        thread.join();
+      }
+
+      if (pulled != 4) return false;
+
+      // Combine the results from the threads
+      aggregation_ = std::move(aggregation_threads[0]);
+      for (int i = 1; i < 4; i++) {
+        auto &other_aggregation = aggregation_threads[i];
+        for (const auto &[other_key, other_value] : other_aggregation) {
+          auto it = aggregation_.find(other_key);
+          if (it != aggregation_.end()) {
+            // Key exists, merge the values
+            auto &value = it->second;
+            for (size_t pos = 0; pos < self_.aggregations_.size(); ++pos) {
+              switch (self_.aggregations_[pos].op) {
+                case Aggregation::Op::MIN: {
+                  const auto is_min = other_value.values_[pos] < value.values_[pos];
+                  if (is_min.IsBool() && is_min.ValueBool()) {
+                    value.values_[pos] = other_value.values_[pos];
+                  }
+                  break;
                 }
-                break;
-              }
-              case Aggregation::Op::MAX: {
-                const auto is_max = other_value.values_[pos] > value.values_[pos];
-                if (is_max.IsBool() && is_max.ValueBool()) {
-                  value.values_[pos] = other_value.values_[pos];
+                case Aggregation::Op::MAX: {
+                  const auto is_max = other_value.values_[pos] > value.values_[pos];
+                  if (is_max.IsBool() && is_max.ValueBool()) {
+                    value.values_[pos] = other_value.values_[pos];
+                  }
+                  break;
                 }
-                break;
-              }
-              case Aggregation::Op::SUM:
-              case Aggregation::Op::AVG:
-                // For SUM and AVG, we need to add the values
-                // Note: AVG will be calculated in post-processing
-                value.values_[pos] = value.values_[pos] + other_value.values_[pos];
-                value.counts_[pos] += other_value.counts_[pos];
-                break;
-              case Aggregation::Op::COUNT:
-                value.counts_[pos] += other_value.counts_[pos];
-                break;
-              case Aggregation::Op::COLLECT_LIST:
-                // For COLLECT_LIST, we need to concatenate the lists
-                // This is a simplified implementation - in practice, you might need more sophisticated merging
-                break;
-              case Aggregation::Op::PROJECT_PATH: {
-                // PROJECT_PATH operations might need special handling
-                break;
-              }
-              case Aggregation::Op::PROJECT_LISTS: {
-                // PROJECT_LISTS operations might need special handling
-                break;
-              }
-              case Aggregation::Op::COLLECT_MAP: {
-                // For COLLECT_MAP, we need to merge the maps
-                // This is a simplified implementation - in practice, you might need more sophisticated merging
-                break;
+                case Aggregation::Op::SUM:
+                case Aggregation::Op::AVG:
+                  // For SUM and AVG, we need to add the values
+                  // Note: AVG will be calculated in post-processing
+                  value.values_[pos] = value.values_[pos] + other_value.values_[pos];
+                  value.counts_[pos] += other_value.counts_[pos];
+                  break;
+                case Aggregation::Op::COUNT:
+                  value.counts_[pos] += other_value.counts_[pos];
+                  break;
+                case Aggregation::Op::COLLECT_LIST:
+                  // For COLLECT_LIST, we need to concatenate the lists
+                  // This is a simplified implementation - in practice, you might need more sophisticated merging
+                  break;
+                case Aggregation::Op::PROJECT_PATH: {
+                  // PROJECT_PATH operations might need special handling
+                  break;
+                }
+                case Aggregation::Op::PROJECT_LISTS: {
+                  // PROJECT_LISTS operations might need special handling
+                  break;
+                }
+                case Aggregation::Op::COLLECT_MAP: {
+                  // For COLLECT_MAP, we need to merge the maps
+                  // This is a simplified implementation - in practice, you might need more sophisticated merging
+                  break;
+                }
               }
             }
+          } else {
+            // Key doesn't exist, insert the new entry
+            aggregation_.emplace(other_key, other_value);
           }
-        } else {
-          // Key doesn't exist, insert the new entry
-          aggregation_.emplace(other_key, other_value);
         }
       }
     }
