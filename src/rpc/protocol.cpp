@@ -34,55 +34,83 @@ RpcMessageDeliverer::RpcMessageDeliverer(Server *server, io::network::Endpoint c
 
 void RpcMessageDeliverer::Execute() {
   // NOLINTNEXTLINE
-  spdlog::trace("Memory at the start of execute: {}", utils::GetReadableSize(utils::GetMemoryRES()));
+  spdlog::trace("Memory at the start of execute: {}. Stream size: {}", utils::GetReadableSize(utils::GetMemoryRES()),
+                input_stream_->size());
 
-  auto const remaining_file_size = std::invoke([&]() -> std::optional<uint64_t> {
-    if (!file_replication_handler_.has_value() || !file_replication_handler_->file_.IsOpen()) {
-      return std::nullopt;
+  size_t processed_bytes{0};
+
+  while (true) {
+    auto const remaining_file_size = std::invoke([&]() -> std::optional<uint64_t> {
+      if (!file_replication_handler_.has_value() || !file_replication_handler_->file_.IsOpen()) {
+        return std::nullopt;
+      }
+      // If we are here it means that the file is open, hence this check is valid
+      return file_replication_handler_->file_size_ - file_replication_handler_->written_;
+    });
+    spdlog::trace("Processed bytes before checking stream: {}", processed_bytes);
+    slk::StreamInfo const ret =
+        slk::CheckStreamStatus(input_stream_->data() + processed_bytes, input_stream_->size() - processed_bytes,
+                               remaining_file_size, processed_bytes);
+
+    if (ret.status == slk::StreamStatus::INVALID) {
+      input_stream_->Clear();
+      throw SessionException("Received an invalid SLK stream!");
     }
-    // If we are here it means that the file is open, hence this check is valid
-    return file_replication_handler_->file_size_ - file_replication_handler_->written_;
-  });
+    // We resize the stream if the initial header+request cannot fit into the input stream or if we couldn't read
+    // 0xFFFF/0x0000 segment
+    if (ret.status == slk::StreamStatus::PARTIAL) {
+      spdlog::trace("Resizing input stream");
+      input_stream_->Resize(ret.stream_size);
+      return;
+    }
 
-  auto ret = slk::CheckStreamStatus(input_stream_->data(), input_stream_->size(), remaining_file_size);
+    if (ret.status == slk::StreamStatus::NEW_FILE) {
+      if (!file_replication_handler_.has_value()) {
+        // Will be used at the end to construct slk::Reader. Contains message header and request. It is correct to do
+        // this only when initializing FileReplicationHandler
+        header_request_ =
+            std::vector<uint8_t>{input_stream_->data(),
+                                 input_stream_->data() + (input_stream_->size() - ret.pos - sizeof(slk::SegmentSize))};
+        file_replication_handler_.emplace();
+      } else {
+        // If file replication handler is already active, it means that we should first finalize prior file
+        file_replication_handler_->WriteToFile(input_stream_->data(), ret.pos - sizeof(slk::SegmentSize));
+      }
+      // We processed them either when processing header and request of the 1st file or also if writing part of the old
+      // file
+      processed_bytes += ret.pos;
+      spdlog::trace("Processed bytes before opening file: {}", processed_bytes);
+      processed_bytes += file_replication_handler_->OpenFile(input_stream_->data() + processed_bytes,
+                                                             input_stream_->size() - processed_bytes);
+      spdlog::trace("Processed bytes after opening file: {}", processed_bytes);
 
-  if (ret.status == slk::StreamStatus::INVALID) {
-    throw SessionException("Received an invalid SLK stream!");
-  }
-  // We resize the stream if the initial header+request cannot fit into the input stream or if we couldn't read
-  // 0xFFFF/0x0000 segment
-  if (ret.status == slk::StreamStatus::PARTIAL) {
-    input_stream_->Resize(ret.stream_size);
-    return;
+      if (processed_bytes == input_stream_->size()) {
+        input_stream_->Clear();
+        input_stream_->ShrinkBuffer(kBufferRetainLimit);
+        return;
+      }
+
+      continue;
+    }
+
+    if (ret.status == slk::StreamStatus::FILE_DATA) {
+      // When FILE_DATA status is received, we know that we should read from the stream start and that we finalized
+      // whole stream Continue writing to the file
+      spdlog::trace("handling file data");
+      file_replication_handler_->WriteToFile(input_stream_->data(), input_stream_->size());
+      input_stream_->Clear();
+      return;
+    }
+
+    spdlog::trace("Status is complete");
+    break;
   }
 
   // Remove the data from the stream on scope exit.
-  auto const shift_data = utils::OnScopeExit{[&, ret] {
-    input_stream_->Shift(ret.stream_size);
+  auto const shift_data = utils::OnScopeExit{[&] {
+    input_stream_->Clear();
     input_stream_->ShrinkBuffer(kBufferRetainLimit);
   }};
-
-  if (ret.status == slk::StreamStatus::NEW_FILE) {
-    if (!file_replication_handler_.has_value()) {
-      // Will be used at the end to construct slk::Reader. Contains message header and request. It is correct to do this
-      // only when initializing FileReplicationHandler
-      header_request_ = std::vector<uint8_t>{
-          input_stream_->data(), input_stream_->data() + (input_stream_->size() - ret.pos - sizeof(slk::SegmentSize))};
-      file_replication_handler_.emplace();
-    } else {
-      // If file replication handler is already active, it means that we should first finalize prior file
-      file_replication_handler_->WriteToFile(input_stream_->data(), ret.pos - sizeof(slk::SegmentSize));
-    }
-    file_replication_handler_->OpenFile(input_stream_->data() + ret.pos, input_stream_->size() - ret.pos);
-    return;
-  }
-
-  if (ret.status == slk::StreamStatus::FILE_DATA) {
-    // When FILE_DATA status is received, we know that we should read from the stream start
-    // Continue writing to the file
-    file_replication_handler_->WriteToFile(input_stream_->data(), input_stream_->size());
-    return;
-  }
 
   // Writing last segment
   if (file_replication_handler_.has_value()) {

@@ -159,6 +159,7 @@ struct StreamInfo {
 /// much data it should receive before it makes sense to retry decoding of the
 /// segment data.
 StreamInfo CheckStreamStatus(const uint8_t *data, size_t size,
-                             std::optional<uint64_t> const &remaining_file_size = std::nullopt);
+                             std::optional<uint64_t> const &remaining_file_size = std::nullopt,
+                             size_t processed_bytes = 0);
 
 }  // namespace memgraph::slk

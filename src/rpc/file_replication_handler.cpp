@@ -20,14 +20,12 @@ namespace memgraph::rpc {
 // TODO: (andi) Add abstract method for resetting file replication handler
 FileReplicationHandler::~FileReplicationHandler() {
   if (file_.IsOpen()) {
-    file_.Close();
-    written_ = 0;
-    file_size_ = 0;
+    ResetCurrentFile();
   }
 }
 
 // TODO: (andi) Theoretically you could be unable to read string and int from the initial data
-void FileReplicationHandler::OpenFile(const uint8_t *data, size_t const size) {
+size_t FileReplicationHandler::OpenFile(const uint8_t *data, size_t const size) {
   const auto kTempDirectory =
       std::filesystem::temp_directory_path() / "memgraph" / storage::durability::kReplicaDurabilityDirectory;
 
@@ -56,29 +54,40 @@ void FileReplicationHandler::OpenFile(const uint8_t *data, size_t const size) {
   spdlog::warn("File size is: {}", file_size_);
 
   // Because first N bytes are file_name and file_size, therefore we don't read full size
-  WriteToFile(data + req_reader.GetPos(), size - req_reader.GetPos());
+  size_t const processed_bytes = req_reader.GetPos();
+  return processed_bytes + WriteToFile(data + processed_bytes, size - processed_bytes);
 }
 
-void FileReplicationHandler::WriteToFile(const uint8_t *data, size_t const size) {
+size_t FileReplicationHandler::WriteToFile(const uint8_t *data, size_t const size) {
   spdlog::warn("Got the request to write to file. Stream size is {}", size);
   if (!file_.IsOpen()) {
     spdlog::warn("Cannot write to file since it's closed");
-    return;
+    return 0;
   }
+
+  size_t processed_bytes{0};
+
   auto to_write = std::min(size, file_size_ - written_);
   while (to_write > 0) {
     const auto chunk_size = std::min(to_write, utils::kFileBufferSize);
     file_.Write(data, chunk_size);
     to_write -= chunk_size;
     written_ += chunk_size;
+    processed_bytes += chunk_size;
     spdlog::warn("Written {} bytes to file in the method, remaining {}", chunk_size, file_size_ - written_);
   }
 
   if (written_ == file_size_ && file_.IsOpen()) {
     spdlog::trace("Closing file: {}", file_.path());
-    file_.Close();
-    written_ = 0;
-    file_size_ = 0;
+    ResetCurrentFile();
   }
+  return processed_bytes;
 }
+
+void FileReplicationHandler::ResetCurrentFile() {
+  file_.Close();
+  written_ = 0;
+  file_size_ = 0;
+}
+
 }  // namespace memgraph::rpc

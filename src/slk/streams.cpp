@@ -48,6 +48,7 @@ void Builder::Save(const uint8_t *data, uint64_t size) {
 void Builder::SaveFileBuffer(const uint8_t *data, uint64_t size) {
   size_t offset = 0;
   file_data_ = true;
+  spdlog::trace("pos before file buffer {}", pos_);
   while (size > 0) {
     FlushFileSegment();
     size_t const to_write = std::min(size, kSegmentMaxDataSize - pos_);
@@ -56,10 +57,12 @@ void Builder::SaveFileBuffer(const uint8_t *data, uint64_t size) {
     pos_ += to_write;
     offset += to_write;
   }
+  spdlog::trace("after before file buffer {}", pos_);
 }
 
 // This should be invoked before preparing every file. The function writes kFileSegmentMask at the current position
 void Builder::PrepareForFileSending() {
+  spdlog::trace("Flushed fileSegmentMask at pos {}", pos_);
   memcpy(segment_.data() + pos_, &kFileSegmentMask, sizeof(SegmentSize));
   pos_ += sizeof(SegmentSize);
   file_data_ = true;
@@ -172,15 +175,16 @@ void Reader::GetSegment(bool should_be_final) {
   have_ = len;
 }
 
-StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size,
-                             std::optional<uint64_t> const &remaining_file_size) {
+StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size, std::optional<uint64_t> const &remaining_file_size,
+                             size_t const processed_bytes) {
+  spdlog::trace("Stream status enter. Size: {}, Processed bytes: {}", size, processed_bytes);
   size_t found_segments = 0;
   size_t data_size = 0;
   size_t pos = 0;
 
   while (true) {
     // This block handles 2 situations. The first one is if the whole buffer should be written into the file. In that
-    // case remaining_file_size_val will be >= size, and we return FILE_DATA If not whole buffer should be written into
+    // case remaining_file_size_val will be >= size, and we return FILE_DATA/ If not whole buffer should be written into
     // the file, then we remember the pos, increment found_segments and data_size and fallthrough
     if (remaining_file_size.has_value()) {
       auto const remaining_file_size_val = *remaining_file_size;
@@ -193,6 +197,7 @@ StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size,
       pos += remaining_file_size_val;
       ++found_segments;
       data_size += remaining_file_size_val;
+      spdlog::trace("Pos is {}, fallthrough from file_data", pos);
     }
 
     // TODO: (andi) Not ideal the 2nd situation
@@ -209,16 +214,17 @@ StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size,
     }
 
     memcpy(&len, data + pos, sizeof(SegmentSize));
-
     pos += sizeof(SegmentSize);
 
     // Start of the new segment
     if (len == kFileSegmentMask) {
+      spdlog::trace("Read file mask");
       // Pos is important here and it points to the byte after mask
       return {.status = StreamStatus::NEW_FILE, .stream_size = size, .encoded_data_size = data_size, .pos = pos};
     }
 
     if (len == kFooter) {
+      spdlog::trace("Read footer");
       break;
     }
 
@@ -235,7 +241,9 @@ StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size,
     data_size += len;
   }
 
-  if (found_segments < 1) {
+  // Remaining file size has value means that we are handling files. In that case, the situation in which I don't have
+  // segments is fine
+  if (found_segments < 1 && processed_bytes == 0) {
     return {.status = StreamStatus::INVALID, .stream_size = 0, .encoded_data_size = 0, .pos = pos};
   }
 
