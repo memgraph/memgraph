@@ -4017,6 +4017,80 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
       RWType::W};
 }
 
+PreparedQuery PrepareDropAllIndexesQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                                         std::vector<Notification> *notifications, CurrentDB &current_db) {
+  if (in_explicit_transaction) {
+    throw IndexInMulticommandTxException();
+  }
+  std::function<void(Notification &)> handler;
+
+  MG_ASSERT(current_db.db_acc_, "Drop all indexes query expects a current DB");
+  auto &db_acc = *current_db.db_acc_;
+
+  MG_ASSERT(current_db.db_transactional_accessor_, "Drop all indexes query expects a current DB transaction");
+  auto *dba = &*current_db.execution_db_accessor_;
+
+  auto const invalidate_plan_cache = [plan_cache = db_acc->plan_cache()] {
+    plan_cache->WithLock([&](auto &cache) { cache.reset(); });
+  };
+
+  Notification index_notification(SeverityLevel::INFO);
+  index_notification.code = NotificationCode::DROP_INDEX;
+  index_notification.title = "Dropped all indexes.";
+
+  handler = [dba, invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification & /**/) {
+    utils::OnScopeExit const invalidator(invalidate_plan_cache);
+    auto indices_info = dba->ListAllIndices();
+
+    for (const auto &label_id : indices_info.label) {
+      [[maybe_unused]] auto maybe_error = dba->DropIndex(label_id);
+    }
+
+    for (auto &[label_id, properties] : indices_info.label_properties) {
+      [[maybe_unused]] auto maybe_error = dba->DropIndex(label_id, std::move(properties));
+    }
+
+    for (const auto &edge_type_id : indices_info.edge_type) {
+      [[maybe_unused]] auto maybe_error = dba->DropIndex(edge_type_id);
+    }
+
+    for (const auto &[edge_type_id, property_id] : indices_info.edge_type_property) {
+      [[maybe_unused]] auto maybe_error = dba->DropIndex(edge_type_id, property_id);
+    }
+
+    for (const auto &property_id : indices_info.edge_property) {
+      [[maybe_unused]] auto maybe_error = dba->DropGlobalEdgeIndex(property_id);
+    }
+
+    for (const auto &[label_id, property_id] : indices_info.point_label_property) {
+      [[maybe_unused]] auto maybe_error = dba->DropPointIndex(label_id, property_id);
+    }
+
+    for (const auto &text_index_spec : indices_info.text_indices) {
+      [[maybe_unused]] auto maybe_error = dba->DropTextIndex(text_index_spec.index_name_);
+    }
+
+    for (const auto &vector_index_spec : indices_info.vector_indices_spec) {
+      [[maybe_unused]] auto maybe_error = dba->DropVectorIndex(vector_index_spec.index_name);
+    }
+
+    for (const auto &vector_edge_index_spec : indices_info.vector_edge_indices_spec) {
+      [[maybe_unused]] auto maybe_error = dba->DropVectorIndex(vector_edge_index_spec.index_name);
+    }
+  };
+
+  return PreparedQuery{
+      {},
+      std::move(parsed_query.required_privileges),
+      [handler = std::move(handler), notifications, index_notification = std::move(index_notification)](
+          AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
+        handler(index_notification);
+        notifications->push_back(index_notification);
+        return QueryHandlerResult::COMMIT;
+      },
+      RWType::W};
+}
+
 #ifdef MG_ENTERPRISE
 PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                               std::vector<Notification> *notifications, CurrentDB &current_db,
@@ -6855,6 +6929,7 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   void Visit(VectorIndexQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
   void Visit(CreateVectorEdgeIndexQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
   void Visit(ConstraintQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
+  void Visit(DropAllIndexesQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
   void Visit(DropGraphQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
   void Visit(CreateEnumQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
   void Visit(AlterEnumAddValueQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
@@ -7074,6 +7149,9 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     } else if (utils::Downcast<IndexQuery>(parsed_query.query)) {
       prepared_query = PrepareIndexQuery(std::move(parsed_query), in_explicit_transaction_,
                                          &query_execution->notifications, current_db_, make_stopping_context());
+    } else if (utils::Downcast<DropAllIndexesQuery>(parsed_query.query)) {
+      prepared_query = PrepareDropAllIndexesQuery(std::move(parsed_query), in_explicit_transaction_,
+                                                  &query_execution->notifications, current_db_);
     } else if (utils::Downcast<EdgeIndexQuery>(parsed_query.query)) {
       prepared_query = PrepareEdgeIndexQuery(std::move(parsed_query), in_explicit_transaction_,
                                              &query_execution->notifications, current_db_, make_stopping_context());

@@ -24,6 +24,7 @@ memgraphCypherKeyword : cypherKeyword
                       | ACTIVE
                       | ADD
                       | AFTER
+                      | ALL
                       | ALTER
                       | ANALYZE
                       | ASYNC
@@ -236,6 +237,7 @@ query : cypherQuery
       | showDatabases
       | edgeImportModeQuery
       | coordinatorQuery
+      | dropAllIndexesQuery
       | dropGraphQuery
       | createEnumQuery
       | showEnumsQuery
@@ -709,6 +711,8 @@ createVectorEdgeIndex: CREATE VECTOR EDGE INDEX indexName ON ':' labelName ( '('
 dropVectorIndex : DROP VECTOR INDEX indexName ;
 
 vectorIndexQuery : createVectorIndex | dropVectorIndex ;
+
+dropAllIndexesQuery : DROP ALL INDEXES ;
 
 dropGraphQuery : DROP GRAPH ;
 
