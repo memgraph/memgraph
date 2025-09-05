@@ -883,14 +883,21 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         // If the license is not valid we create users with admin access
         if (!valid_enterprise_license) {
           spdlog::warn("Granting all the privileges to {}.", username);
-          auth->GrantPrivilege(username, kPrivilegesAll
+          auth->GrantPrivilege(
+              username, kPrivilegesAll
 #ifdef MG_ENTERPRISE
-                               ,
-                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
-                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}}
+              ,
+              {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
+              {
+                {
+                  {
+                    AuthQuery::FineGrainedPrivilege::CREATE_DELETE, { query::kAsterisk }
+                  }
+                }
+              }
 #endif
-                               ,
-                               &*interpreter->system_transaction_);
+              ,
+              &*interpreter->system_transaction_);
         }
 
         return std::vector<std::vector<TypedValue>>();
@@ -2188,7 +2195,7 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
 
         callback.fn = [db_acc, streams = db_acc->streams(), stream_name = stream_query->stream_name_, batch_limit,
                        timeout]() {
-          if (db_acc.is_deleting()) {
+          if (db_acc.is_marked_for_deletion()) {
             throw QueryException("Can not start stream while database is being dropped.");
           }
           streams->StartWithLimit(stream_name, static_cast<uint64_t>(batch_limit.value()), timeout);
@@ -2196,7 +2203,7 @@ Callback HandleStreamQuery(StreamQuery *stream_query, const Parameters &paramete
         };
       } else {
         callback.fn = [db_acc, streams = db_acc->streams(), stream_name = stream_query->stream_name_]() {
-          if (db_acc.is_deleting()) {
+          if (db_acc.is_marked_for_deletion()) {
             throw QueryException("Can not start stream while database is being dropped.");
           }
           streams->Start(stream_name);
@@ -2441,16 +2448,16 @@ struct TxTimeout {
 };
 
 struct PullPlan {
-  explicit PullPlan(std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, bool is_profile_query,
-                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
-                    std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
-                    storage::DatabaseProtectorPtr protector, std::optional<QueryLogger> &query_logger,
-                    TriggerContextCollector *trigger_context_collector = nullptr,
-                    std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr,
-                    std::optional<int64_t> hops_limit = {}
+  explicit PullPlan(
+      std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, bool is_profile_query, DbAccessor *dba,
+      InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
+      std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
+      storage::DatabaseProtectorPtr protector, std::optional<QueryLogger> &query_logger,
+      TriggerContextCollector *trigger_context_collector = nullptr, std::optional<size_t> memory_limit = {},
+      FrameChangeCollector *frame_change_collector_ = nullptr, std::optional<int64_t> hops_limit = {}
 #ifdef MG_ENTERPRISE
-                    ,
-                    std::shared_ptr<utils::UserResources> user_resource = {}
+      ,
+      std::shared_ptr<utils::UserResources> user_resource = {}
 #endif
   );
 
@@ -2501,7 +2508,9 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
       query_logger_(query_logger)
 #ifdef MG_ENTERPRISE
       ,
-      user_resource_{std::move(user_resource)}
+      user_resource_ {
+  std::move(user_resource)
+}
 #endif
 {
   ctx_.hops_limit = query::HopsLimit{hops_limit};
@@ -2693,8 +2702,8 @@ auto DetermineTxTimeout(std::optional<int64_t> tx_timeout_ms, InterpreterConfig 
   return TxTimeout{};
 }
 
-auto CreateTimeoutTimer(QueryExtras const &extras,
-                        InterpreterConfig const &config) -> std::shared_ptr<utils::AsyncTimer> {
+auto CreateTimeoutTimer(QueryExtras const &extras, InterpreterConfig const &config)
+    -> std::shared_ptr<utils::AsyncTimer> {
   if (auto const timeout = DetermineTxTimeout(extras.tx_timeout, config)) {
     return std::make_shared<utils::AsyncTimer>(timeout.ValueUnsafe().count());
   }
@@ -2791,14 +2800,14 @@ inline static void TryCaching(const AstStorage &ast_storage, FrameChangeCollecto
   }
 }
 
-PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
-                                 InterpreterContext *interpreter_context, CurrentDB &current_db,
-                                 utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
-                                 std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
-                                 Interpreter &interpreter, FrameChangeCollector *frame_change_collector = nullptr
+PreparedQuery PrepareCypherQuery(
+    ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
+    CurrentDB &current_db, utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
+    std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context, Interpreter &interpreter,
+    FrameChangeCollector *frame_change_collector = nullptr
 #ifdef MG_ENTERPRISE
-                                 ,
-                                 std::shared_ptr<utils::UserResources> user_resource = {}
+    ,
+    std::shared_ptr<utils::UserResources> user_resource = {}
 #endif
 ) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
@@ -2955,15 +2964,14 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
                        RWType::NONE};
 }
 
-PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                  std::map<std::string, TypedValue> *summary, std::vector<Notification> *notifications,
-                                  InterpreterContext *interpreter_context, Interpreter &interpreter,
-                                  CurrentDB &current_db, utils::MemoryResource *execution_memory,
-                                  std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
-                                  FrameChangeCollector *frame_change_collector
+PreparedQuery PrepareProfileQuery(
+    ParsedQuery parsed_query, bool in_explicit_transaction, std::map<std::string, TypedValue> *summary,
+    std::vector<Notification> *notifications, InterpreterContext *interpreter_context, Interpreter &interpreter,
+    CurrentDB &current_db, utils::MemoryResource *execution_memory, std::shared_ptr<QueryUserOrRole> user_or_role,
+    StoppingContext stopping_context, FrameChangeCollector *frame_change_collector
 #ifdef MG_ENTERPRISE
-                                  ,
-                                  std::shared_ptr<utils::UserResources> user_resource = {}
+    ,
+    std::shared_ptr<utils::UserResources> user_resource = {}
 #endif
 ) {
   const std::string kProfileQueryStart = "profile ";
@@ -3386,11 +3394,11 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
   std::vector<std::vector<TypedValue>> results;
   results.reserve(label_results.size() + label_prop_results.size());
 
-  std::transform(label_results.begin(), label_results.end(), std::back_inserter(results),
-                 [execution_db_accessor](const auto &label_index) {
-                   return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)),
-                                                  TypedValue("")};
-                 });
+  std::transform(
+      label_results.begin(), label_results.end(), std::back_inserter(results),
+      [execution_db_accessor](const auto &label_index) {
+        return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)), TypedValue("")};
+      });
 
   auto const prop_path_to_name = [&](storage::PropertyPath const &property_path) {
     return TypedValue{PropertyPathToName(execution_db_accessor, property_path)};
@@ -5110,17 +5118,23 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
     case TransactionQueueQuery::Action::TERMINATE_TRANSACTIONS: {
       auto evaluation_context = EvaluationContext{.timestamp = QueryTimestamp(), .parameters = parameters};
       auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
-      std::vector<std::string> maybe_kill_transaction_ids;
+      std::vector<uint64_t> maybe_kill_transaction_ids;
       std::transform(transaction_query->transaction_id_list_.begin(), transaction_query->transaction_id_list_.end(),
                      std::back_inserter(maybe_kill_transaction_ids), [&evaluator](Expression *expression) {
-                       return std::string(expression->Accept(evaluator).ValueString());
+                       try {
+                         return std::stoul(expression->Accept(evaluator).ValueString().c_str());
+                       } catch (std::exception & /* unused */) {
+                         return std::numeric_limits<uint64_t>::max();
+                       }
                      });
       callback.header = {"transaction_id", "killed"};
       callback.fn = [interpreter_context, maybe_kill_transaction_ids = std::move(maybe_kill_transaction_ids),
                      user_or_role = std::move(user_or_role),
                      privilege_checker = std::move(privilege_checker)]() mutable {
-        return interpreter_context->TerminateTransactions(std::move(maybe_kill_transaction_ids), user_or_role.get(),
-                                                          std::move(privilege_checker));
+        return interpreter_context->interpreters.WithLock([&](auto &interpreters) mutable {
+          return interpreter_context->TerminateTransactions(interpreters, std::move(maybe_kill_transaction_ids),
+                                                            user_or_role.get(), std::move(privilege_checker));
+        });
       };
       break;
     }
@@ -5899,8 +5913,9 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
       return PreparedQuery{
           {"STATUS"},
           std::move(parsed_query.required_privileges),
-          [db_name = query->db_name_, db_handler, auth = interpreter_context->auth, interpreter = &interpreter](
-              AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
+          [db_name = query->db_name_, force = query->force_, db_handler, interpreter_context,
+           auth = interpreter_context->auth,
+           interpreter = &interpreter](AnyStream *stream, std::optional<int> n) -> std::optional<QueryHandlerResult> {
             if (!interpreter->system_transaction_) {
               throw QueryException("Expected to be in a system transaction");
             }
@@ -5909,7 +5924,28 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
 
             try {
               // Remove database
-              auto success = db_handler->TryDelete(db_name, &*interpreter->system_transaction_);
+              dbms::DbmsHandler::DeleteResult success;
+              if (force) {
+                success = db_handler->Delete(db_name, &*interpreter->system_transaction_);
+                if (!success.HasError()) {
+                  // Try to terminate all interpreters using the database
+                  // Best effort approach, if it fails, user will continue using the db until they commit/abort
+                  // Get access to the interpreter context to notify all active interpreters
+                  interpreter_context->interpreters.WithLock(
+                      [db_name, interpreter_context, interpreter](auto &interpreters) {
+                        auto privilege_checker = [](QueryUserOrRole *user_or_role, std::string const &db_name) {
+                          return user_or_role &&
+                                 user_or_role->IsAuthorized({query::AuthQuery::Privilege::TRANSACTION_MANAGEMENT},
+                                                            db_name, &query::up_to_date_policy);
+                        };
+                        interpreter_context->TerminateTransactions(
+                            interpreters, interpreter_context->ShowTransactionsUsingDBName(interpreters, db_name),
+                            interpreter->user_or_role_.get(), privilege_checker);
+                      });
+                }
+              } else {
+                success = db_handler->TryDelete(db_name, &*interpreter->system_transaction_);
+              }
               if (!success.HasError()) {
                 // Remove from auth
                 if (auth) auth->DeleteDatabase(db_name, &*interpreter->system_transaction_);
@@ -6840,12 +6876,15 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   void Visit(IsolationLevelQuery & /*unused*/) override {}
   void Visit(StorageModeQuery & /*unused*/) override {}
   void Visit(CreateSnapshotQuery & /*unused*/)
-      override { /*CreateSnapshot is also used in a periodic way so internally will arrange its own access*/ }
+      override { /*CreateSnapshot is also used in a periodic way so internally will arrange its own access*/
+  }
   void Visit(ShowSnapshotsQuery & /*unused*/) override {}
   void Visit(ShowNextSnapshotQuery & /* unused */) override {}
   void Visit(EdgeImportModeQuery & /*unused*/) override {}
-  void Visit(AlterEnumRemoveValueQuery & /*unused*/) override { /* Not implemented yet */ }
-  void Visit(DropEnumQuery & /*unused*/) override { /* Not implemented yet */ }
+  void Visit(AlterEnumRemoveValueQuery & /*unused*/) override { /* Not implemented yet */
+  }
+  void Visit(DropEnumQuery & /*unused*/) override { /* Not implemented yet */
+  }
   void Visit(SessionTraceQuery & /*unused*/) override {}
 
   // Some queries require an active transaction in order to be prepared.
