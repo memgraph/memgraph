@@ -224,7 +224,7 @@ class DiskStorage final : public Storage {
 
     ConstraintsInfo ListAllConstraints() const override;
 
-    void DropAllIndices() override;
+    void DropAllIndexes() override;
 
     void DropAllConstraints() override;
 

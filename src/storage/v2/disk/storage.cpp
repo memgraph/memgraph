@@ -2421,7 +2421,7 @@ ConstraintsInfo DiskStorage::DiskAccessor::ListAllConstraints() const {
           disk_storage->constraints_.type_constraints_->ListConstraints()};
 }
 
-void DiskStorage::DiskAccessor::DropAllIndices() {
+void DiskStorage::DiskAccessor::DropAllIndexes() {
   throw utils::NotYetImplemented("DROP ALL INDEXES is not supported for disk storage. {}", kErrorMessage);
 }
 

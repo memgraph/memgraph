@@ -641,7 +641,7 @@ class DbAccessor final {
 
   storage::ConstraintsInfo ListAllConstraints() const { return accessor_->ListAllConstraints(); }
 
-  void DropAllIndices() { accessor_->DropAllIndices(); }
+  void DropAllIndexes() { accessor_->DropAllIndexes(); }
 
   void DropAllConstraints() { accessor_->DropAllConstraints(); }
 
