@@ -18,12 +18,14 @@
 
 namespace memgraph::storage {
 
+enum class WaitResult { SUCCESS, CIRCULAR_DEPENDENCY };
+
 class TransactionDependencies {
  public:
   void RegisterTransaction(uint64_t transaction_id);
   void UnregisterTransaction(uint64_t transaction_id);
 
-  bool WaitFor(uint64_t dependent_transaction_id, uint64_t prerequisite_transaction_id);
+  WaitResult WaitFor(uint64_t dependent_transaction_id, uint64_t prerequisite_transaction_id);
 
  private:
   std::mutex mutex_;
