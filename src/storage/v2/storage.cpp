@@ -126,11 +126,10 @@ Storage::Accessor::Accessor(SharedAccess /* tag */, Storage *storage, IsolationL
       storage_guard_(CreateSharedGuard(storage, rw_type, timeout)),
       unique_guard_(storage_->main_lock_, std::defer_lock),
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
+      registration_(storage_, transaction_.transaction_id),
       is_transaction_active_(true),
       original_access_type_(rw_type),
-      creation_storage_mode_(storage_mode) {
-  storage_->RegisterTransaction(transaction_.transaction_id);
-}
+      creation_storage_mode_(storage_mode) {}
 
 Storage::Accessor::Accessor(UniqueAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
                             StorageMode storage_mode, const std::optional<std::chrono::milliseconds> timeout)
@@ -141,11 +140,10 @@ Storage::Accessor::Accessor(UniqueAccess /* tag */, Storage *storage, IsolationL
       storage_guard_(storage_->main_lock_, {/* unused */}, std::defer_lock),
       unique_guard_(CreateUniqueGuard(storage, timeout)),
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
+      registration_(storage_, transaction_.transaction_id),
       is_transaction_active_(true),
       original_access_type_(StorageAccessType::UNIQUE),
-      creation_storage_mode_(storage_mode) {
-  storage_->RegisterTransaction(transaction_.transaction_id);
-}
+      creation_storage_mode_(storage_mode) {}
 
 Storage::Accessor::Accessor(ReadOnlyAccess /* tag */, Storage *storage, IsolationLevel isolation_level,
                             StorageMode storage_mode, const std::optional<std::chrono::milliseconds> timeout)
@@ -156,17 +154,17 @@ Storage::Accessor::Accessor(ReadOnlyAccess /* tag */, Storage *storage, Isolatio
       storage_guard_(CreateSharedGuard(storage, READ_ONLY, timeout)),
       unique_guard_(storage_->main_lock_, std::defer_lock),
       transaction_(storage->CreateTransaction(isolation_level, storage_mode)),
+      registration_(storage_, transaction_.transaction_id),
       is_transaction_active_(true),
       original_access_type_(StorageAccessType::READ_ONLY),
-      creation_storage_mode_(storage_mode) {
-  storage_->RegisterTransaction(transaction_.transaction_id);
-}
+      creation_storage_mode_(storage_mode) {}
 
 Storage::Accessor::Accessor(Accessor &&other) noexcept
     : storage_(other.storage_),
       storage_guard_(std::move(other.storage_guard_)),
       unique_guard_(std::move(other.unique_guard_)),
       transaction_(std::move(other.transaction_)),
+      registration_(std::move(other.registration_)),
       commit_timestamp_(other.commit_timestamp_),
       is_transaction_active_(other.is_transaction_active_),
       original_access_type_(other.original_access_type_),
@@ -174,12 +172,6 @@ Storage::Accessor::Accessor(Accessor &&other) noexcept
   // Don't allow the other accessor to abort our transaction in destructor.
   other.is_transaction_active_ = false;
   other.commit_timestamp_.reset();
-}
-
-Storage::Accessor::~Accessor() {
-  if (is_transaction_active_) {
-    storage_->UnregisterTransaction(transaction_.transaction_id);
-  }
 }
 
 StorageMode Storage::GetStorageMode() const noexcept { return storage_mode_; }
@@ -796,6 +788,37 @@ void Storage::RegisterTransaction(uint64_t transaction_id) {
 
 void Storage::UnregisterTransaction(uint64_t transaction_id) {
   transaction_dependencies_.UnregisterTransaction(transaction_id);
+}
+
+//==============================================================================
+
+TransactionRegistration::TransactionRegistration(Storage *storage, uint64_t transaction_id)
+    : storage_(storage), transaction_id_(transaction_id), is_registered_(true) {
+  storage_->RegisterTransaction(transaction_id_);
+}
+
+TransactionRegistration::TransactionRegistration(TransactionRegistration &&other) noexcept
+    : storage_(other.storage_), transaction_id_(other.transaction_id_), is_registered_(other.is_registered_) {
+  other.is_registered_ = false;
+}
+
+TransactionRegistration &TransactionRegistration::operator=(TransactionRegistration &&other) noexcept {
+  if (this != &other) {
+    if (is_registered_) {
+      storage_->UnregisterTransaction(transaction_id_);
+    }
+    storage_ = other.storage_;
+    transaction_id_ = other.transaction_id_;
+    is_registered_ = other.is_registered_;
+    other.is_registered_ = false;
+  }
+  return *this;
+}
+
+TransactionRegistration::~TransactionRegistration() {
+  if (is_registered_) {
+    storage_->UnregisterTransaction(transaction_id_);
+  }
 }
 
 }  // namespace memgraph::storage
