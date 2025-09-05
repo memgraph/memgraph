@@ -337,6 +337,7 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
     return;
   }
 
+  // TODO: (andi) This?
   // Read at the beginning so that SLK stream gets cleared even when the request is invalid
   storage::replication::Decoder decoder(req_reader);
   auto maybe_epoch_id = decoder.ReadString();
@@ -521,18 +522,21 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
   }
   auto const &curr_wal_files = *maybe_curr_wal_files;
 
-  DMG_ASSERT(file_replication_handler.file_names_.size() == 1, "Received {} snapshot files but expecting only one!",
-             curr_wal_files.size());
+  MG_ASSERT(file_replication_handler.file_names_.size() == 1, "Received snapshot files but expecting only one!");
   auto const snapshot_wal_name = file_replication_handler.file_names_[0];
   auto const src_snapshot_file = std::filesystem::temp_directory_path() / "memgraph" /
                                  storage::durability::kReplicaDurabilityDirectory / snapshot_wal_name;
   auto const dst_snapshot_file = current_snapshot_dir / snapshot_wal_name;
 
-  if (!utils::RenamePath(src_snapshot_file, dst_snapshot_file)) {
-    spdlog::error("Couldn't move {} to {}", src_snapshot_file, dst_snapshot_file);
-    rpc::SendFinalResponse(storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder,
-                           fmt::format("db: {}", storage->name()));
-  }
+  memgraph::utils::FileRetainer file_retainer;
+  file_retainer.RenameFile(src_snapshot_file, dst_snapshot_file);
+
+  // if (!utils::MoveFileSafely(src_snapshot_file, dst_snapshot_file)) {
+  //   spdlog::error("Couldn't move {} to {}", src_snapshot_file, dst_snapshot_file);
+  //   rpc::SendFinalResponse(storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder,
+  //                          fmt::format("db: {}", storage->name()));
+  //   return;
+  // }
 
   spdlog::info("Received snapshot saved to {}", dst_snapshot_file);
   {

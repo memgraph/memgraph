@@ -22,8 +22,6 @@ Builder::Builder(std::function<void(const uint8_t *, size_t, bool)> write_func) 
 
 bool Builder::IsEmpty() const { return pos_ == 0; }
 
-size_t Builder::GetPos() const { return pos_; }
-
 void Builder::Save(const uint8_t *data, uint64_t size) {
   size_t offset = 0;
   while (size > 0) {
@@ -47,7 +45,6 @@ void Builder::Save(const uint8_t *data, uint64_t size) {
 // Differs from saving normal buffer by not leaving space of 4B at the beginning of the buffer for size
 void Builder::SaveFileBuffer(const uint8_t *data, uint64_t size) {
   size_t offset = 0;
-  file_data_ = true;
   spdlog::trace("pos before file buffer {}", pos_);
   while (size > 0) {
     FlushFileSegment();
@@ -103,6 +100,8 @@ void Builder::FlushSegment(bool const final_segment, bool const force_flush) {
 
   pos_ = 0;
 }
+
+bool Builder::GetFileData() const { return file_data_; }
 
 Reader::Reader(const uint8_t *data, size_t const size) : data_(data), size_(size) {}
 
@@ -177,7 +176,6 @@ void Reader::GetSegment(bool should_be_final) {
 
 StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size, std::optional<uint64_t> const &remaining_file_size,
                              size_t const processed_bytes) {
-  spdlog::trace("Stream status enter. Size: {}, Processed bytes: {}", size, processed_bytes);
   size_t found_segments = 0;
   size_t data_size = 0;
   size_t pos = 0;

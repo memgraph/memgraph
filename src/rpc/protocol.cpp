@@ -18,6 +18,7 @@
 #include "rpc/version.hpp"
 #include "slk/serialization.hpp"
 #include "slk/streams.hpp"
+#include "storage/v2/durability/paths.hpp"
 #include "utils/on_scope_exit.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/stat.hpp"
@@ -169,6 +170,12 @@ void RpcMessageDeliverer::Execute() {
   }};
 
   try {
+    if (file_replication_handler_.has_value()) {
+      auto const path = std::filesystem::temp_directory_path() / "memgraph" /
+                        storage::durability::kReplicaDurabilityDirectory / file_replication_handler_->file_names_[0];
+      MG_ASSERT(std::filesystem::exists(path), "Source file {} doesn't exist", path);
+      spdlog::info("Path exists");
+    }
     it->second.callback(file_replication_handler_, maybe_message_header->message_version, &req_reader, &res_builder);
     // Finalize the SLK stream.
     req_reader.Finalize();
