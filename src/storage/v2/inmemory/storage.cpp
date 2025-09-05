@@ -538,9 +538,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
       // Wait for blocking transaction
       auto wait_result = storage_->transaction_dependencies_.WaitFor(transaction_.transaction_id,
                                                                      *from_result.wait_for_transaction_id);
-      if (wait_result == WaitResult::CIRCULAR_DEPENDENCY) {
-        return std::unexpected{Error::SERIALIZATION_ERROR};
-      }
+      if (wait_result == WaitResult::CIRCULAR_DEPENDENCY) return std::unexpected{Error::SERIALIZATION_ERROR};
       continue;  // Retry with fresh locks
     }
 
@@ -704,9 +702,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
       // Wait for blocking transaction
       auto wait_result = storage_->transaction_dependencies_.WaitFor(transaction_.transaction_id,
                                                                      *from_result.wait_for_transaction_id);
-      if (wait_result == WaitResult::CIRCULAR_DEPENDENCY) {
-        return std::unexpected{Error::SERIALIZATION_ERROR};
-      }
+      if (wait_result == WaitResult::CIRCULAR_DEPENDENCY) return std::unexpected{Error::SERIALIZATION_ERROR};
       continue;  // Retry with fresh locks
     }
 
