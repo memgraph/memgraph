@@ -115,8 +115,8 @@ constexpr auto ActionToStorageOperation(MetadataDelta::Action const action) -> d
 #undef add_case
 }
 
-auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex, VertexAccessor *to_vertex)
-    -> Result<EdgesVertexAccessorResult> {
+auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex,
+               VertexAccessor *to_vertex) -> Result<EdgesVertexAccessorResult> {
   auto use_out_edges = [](Vertex const *from_vertex, Vertex const *to_vertex) {
     // Obtain the locks by `gid` order to avoid lock cycles.
     auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
@@ -3306,6 +3306,62 @@ ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {
   return {mem_storage->constraints_.existence_constraints_->ListConstraints(),
           mem_storage->constraints_.unique_constraints_->ListConstraints(),
           mem_storage->constraints_.type_constraints_->ListConstraints()};
+}
+
+void InMemoryStorage::InMemoryAccessor::DropAllIndexes() {
+  auto indices_info = ListAllIndices();
+
+  for (const auto &label_id : indices_info.label) {
+    [[maybe_unused]] auto maybe_error = DropIndex(label_id);
+  }
+
+  for (auto &[label_id, properties] : indices_info.label_properties) {
+    [[maybe_unused]] auto maybe_error = DropIndex(label_id, std::move(properties));
+  }
+
+  for (const auto &edge_type_id : indices_info.edge_type) {
+    [[maybe_unused]] auto maybe_error = DropIndex(edge_type_id);
+  }
+
+  for (const auto &[edge_type_id, property_id] : indices_info.edge_type_property) {
+    [[maybe_unused]] auto maybe_error = DropIndex(edge_type_id, property_id);
+  }
+
+  for (const auto &property_id : indices_info.edge_property) {
+    [[maybe_unused]] auto maybe_error = DropGlobalEdgeIndex(property_id);
+  }
+
+  for (const auto &[label_id, property_id] : indices_info.point_label_property) {
+    [[maybe_unused]] auto maybe_error = DropPointIndex(label_id, property_id);
+  }
+
+  for (const auto &text_index_spec : indices_info.text_indices) {
+    [[maybe_unused]] auto maybe_error = DropTextIndex(text_index_spec.index_name_);
+  }
+
+  for (const auto &vector_index_spec : indices_info.vector_indices_spec) {
+    [[maybe_unused]] auto maybe_error = DropVectorIndex(vector_index_spec.index_name);
+  }
+
+  for (const auto &vector_edge_index_spec : indices_info.vector_edge_indices_spec) {
+    [[maybe_unused]] auto maybe_error = DropVectorIndex(vector_edge_index_spec.index_name);
+  }
+}
+
+void InMemoryStorage::InMemoryAccessor::DropAllConstraints() {
+  auto constraints_info = ListAllConstraints();
+
+  for (const auto &[label_id, property_id] : constraints_info.existence) {
+    [[maybe_unused]] auto maybe_error = DropExistenceConstraint(label_id, property_id);
+  }
+
+  for (const auto &[label_id, properties] : constraints_info.unique) {
+    [[maybe_unused]] auto maybe_error = DropUniqueConstraint(label_id, properties);
+  }
+
+  for (const auto &[label_id, property_id, type] : constraints_info.type) {
+    [[maybe_unused]] auto maybe_error = DropTypeConstraint(label_id, property_id, type);
+  }
 }
 
 void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) {

@@ -89,7 +89,7 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
     }
   }
 
-  void Visit(ConstraintQuery &constraint_query) override { AddPrivilege(AuthQuery::Privilege::CONSTRAINT); }
+  void Visit(ConstraintQuery & /*constraint_query*/) override { AddPrivilege(AuthQuery::Privilege::CONSTRAINT); }
 
   void Visit(CypherQuery &query) override {
     query.single_query_->Accept(*this);
@@ -134,6 +134,12 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(EdgeImportModeQuery & /*edge_import_mode_query*/) override {}
 
+  void Visit(DropAllIndexesQuery & /*drop_all_indexes_query*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
+
+  void Visit(DropAllConstraintsQuery & /*drop_all_constraints_query*/) override {
+    AddPrivilege(AuthQuery::Privilege::CONSTRAINT);
+  }
+
   void Visit(DropGraphQuery & /*drop_graph_query*/) override {}
 
   void Visit(VersionQuery & /*version_query*/) override { AddPrivilege(AuthQuery::Privilege::STATS); }
@@ -149,8 +155,7 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(UseDatabaseQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_USE); }
 
-  void Visit(ShowDatabaseQuery & /*unused*/) override { /* no privilege needed to show current database */
-  }
+  void Visit(ShowDatabaseQuery & /*unused*/) override { /* no privilege needed to show current database */ }
 
   void Visit(ShowDatabasesQuery & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_USE); /* OR EDIT */
