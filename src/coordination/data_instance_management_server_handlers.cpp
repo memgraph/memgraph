@@ -18,59 +18,72 @@
 
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 
+namespace memgraph::rpc {
+class FileReplicationHandler;
+}  // namespace memgraph::rpc
+
 namespace memgraph::dbms {
 
 void DataInstanceManagementServerHandlers::Register(memgraph::coordination::DataInstanceManagementServer &server,
                                                     replication::ReplicationHandler &replication_handler) {
   server.Register<coordination::StateCheckRpc>(
-      [&](uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) -> void {
+      [&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) -> void {
         StateCheckHandler(replication_handler, request_version, req_reader, res_builder);
       });
 
   server.Register<coordination::PromoteToMainRpc>(
-      [&](uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) -> void {
+      [&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) -> void {
         PromoteToMainHandler(replication_handler, request_version, req_reader, res_builder);
       });
 
-  server.Register<coordination::DemoteMainToReplicaRpc>([&replication_handler](uint64_t const request_version,
-                                                                               slk::Reader *req_reader,
-                                                                               slk::Builder *res_builder) -> void {
-    DemoteMainToReplicaHandler(replication_handler, request_version, req_reader, res_builder);
-  });
+  server.Register<coordination::DemoteMainToReplicaRpc>(
+      [&replication_handler](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                             uint64_t const request_version, slk::Reader *req_reader,
+                             slk::Builder *res_builder) -> void {
+        DemoteMainToReplicaHandler(replication_handler, request_version, req_reader, res_builder);
+      });
 
   server.Register<replication_coordination_glue::SwapMainUUIDRpc>(
-      [&replication_handler](uint64_t const request_version, slk::Reader *req_reader,
+      [&replication_handler](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                             uint64_t const request_version, slk::Reader *req_reader,
                              slk::Builder *res_builder) -> void {
         SwapMainUUIDHandler(replication_handler, request_version, req_reader, res_builder);
       });
 
-  server.Register<coordination::UnregisterReplicaRpc>([&replication_handler](uint64_t const request_version,
-                                                                             slk::Reader *req_reader,
-                                                                             slk::Builder *res_builder) -> void {
-    UnregisterReplicaHandler(replication_handler, request_version, req_reader, res_builder);
-  });
+  server.Register<coordination::UnregisterReplicaRpc>(
+      [&replication_handler](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                             uint64_t const request_version, slk::Reader *req_reader,
+                             slk::Builder *res_builder) -> void {
+        UnregisterReplicaHandler(replication_handler, request_version, req_reader, res_builder);
+      });
 
-  server.Register<coordination::ReplicationLagRpc>([&replication_handler](uint64_t const request_version,
-                                                                          slk::Reader *req_reader,
-                                                                          slk::Builder *res_builder) -> void {
-    GetReplicationLagHandler(replication_handler, request_version, req_reader, res_builder);
-  });
-  server.Register<coordination::EnableWritingOnMainRpc>([&replication_handler](uint64_t const request_version,
-                                                                               slk::Reader *req_reader,
-                                                                               slk::Builder *res_builder) -> void {
-    EnableWritingOnMainHandler(replication_handler, request_version, req_reader, res_builder);
-  });
+  server.Register<coordination::ReplicationLagRpc>(
+      [&replication_handler](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                             uint64_t const request_version, slk::Reader *req_reader,
+                             slk::Builder *res_builder) -> void {
+        GetReplicationLagHandler(replication_handler, request_version, req_reader, res_builder);
+      });
+  server.Register<coordination::EnableWritingOnMainRpc>(
+      [&replication_handler](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                             uint64_t const request_version, slk::Reader *req_reader,
+                             slk::Builder *res_builder) -> void {
+        EnableWritingOnMainHandler(replication_handler, request_version, req_reader, res_builder);
+      });
 
-  server.Register<coordination::GetDatabaseHistoriesRpc>([&replication_handler](uint64_t const request_version,
-                                                                                slk::Reader *req_reader,
-                                                                                slk::Builder *res_builder) -> void {
-    GetDatabaseHistoriesHandler(replication_handler, request_version, req_reader, res_builder);
-  });
-  server.Register<coordination::RegisterReplicaOnMainRpc>([&replication_handler](uint64_t const request_version,
-                                                                                 slk::Reader *req_reader,
-                                                                                 slk::Builder *res_builder) -> void {
-    RegisterReplicaOnMainHandler(replication_handler, request_version, req_reader, res_builder);
-  });
+  server.Register<coordination::GetDatabaseHistoriesRpc>(
+      [&replication_handler](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                             uint64_t const request_version, slk::Reader *req_reader,
+                             slk::Builder *res_builder) -> void {
+        GetDatabaseHistoriesHandler(replication_handler, request_version, req_reader, res_builder);
+      });
+  server.Register<coordination::RegisterReplicaOnMainRpc>(
+      [&replication_handler](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                             uint64_t const request_version, slk::Reader *req_reader,
+                             slk::Builder *res_builder) -> void {
+        RegisterReplicaOnMainHandler(replication_handler, request_version, req_reader, res_builder);
+      });
 }
 
 void DataInstanceManagementServerHandlers::StateCheckHandler(const replication::ReplicationHandler &replication_handler,

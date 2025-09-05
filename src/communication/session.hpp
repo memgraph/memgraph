@@ -154,7 +154,7 @@ class Session final {
     utils::OnScopeExit on_exit([this] { RefreshLastEventTime(false); });
 
     // Allocate the buffer to fill the data.
-    auto buf = input_buffer_.write_end()->Allocate();
+    auto buf = input_buffer_.write_end()->GetBuffer();
 
     if (ssl_) {
       // We clear errors here to prevent errors piling up in the internal

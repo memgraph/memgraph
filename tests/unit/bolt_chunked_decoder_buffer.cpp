@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -30,7 +30,7 @@ TEST_F(BoltBuffer, CorrectChunk) {
   uint8_t tmp[2000];
   BufferT buffer;
   DecoderBufferT decoder_buffer(*buffer.read_end());
-  StreamBufferT sb = buffer.write_end()->Allocate();
+  StreamBufferT sb = buffer.write_end()->GetBuffer();
 
   sb.data[0] = 0x03;
   sb.data[1] = 0xe8;
@@ -52,7 +52,7 @@ TEST_F(BoltBuffer, CorrectChunkTrailingData) {
   uint8_t tmp[2000];
   BufferT buffer;
   DecoderBufferT decoder_buffer(*buffer.read_end());
-  StreamBufferT sb = buffer.write_end()->Allocate();
+  StreamBufferT sb = buffer.write_end()->GetBuffer();
 
   sb.data[0] = 0x03;
   sb.data[1] = 0xe8;
@@ -76,7 +76,7 @@ TEST_F(BoltBuffer, GraduallyPopulatedChunk) {
   uint8_t tmp[2000];
   BufferT buffer;
   DecoderBufferT decoder_buffer(*buffer.read_end());
-  StreamBufferT sb = buffer.write_end()->Allocate();
+  StreamBufferT sb = buffer.write_end()->GetBuffer();
 
   sb.data[0] = 0x03;
   sb.data[1] = 0xe8;
@@ -84,12 +84,12 @@ TEST_F(BoltBuffer, GraduallyPopulatedChunk) {
 
   for (int i = 0; i < 5; ++i) {
     ASSERT_EQ(decoder_buffer.GetChunk(), ChunkStateT::Partial);
-    sb = buffer.write_end()->Allocate();
+    sb = buffer.write_end()->GetBuffer();
     memcpy(sb.data, data + 200 * i, 200);
     buffer.write_end()->Written(200);
   }
 
-  sb = buffer.write_end()->Allocate();
+  sb = buffer.write_end()->GetBuffer();
   sb.data[0] = 0;
   sb.data[1] = 0;
   buffer.write_end()->Written(2);
@@ -106,7 +106,7 @@ TEST_F(BoltBuffer, GraduallyPopulatedChunkTrailingData) {
   uint8_t tmp[2000];
   BufferT buffer;
   DecoderBufferT decoder_buffer(*buffer.read_end());
-  StreamBufferT sb = buffer.write_end()->Allocate();
+  StreamBufferT sb = buffer.write_end()->GetBuffer();
 
   sb.data[0] = 0x03;
   sb.data[1] = 0xe8;
@@ -114,17 +114,17 @@ TEST_F(BoltBuffer, GraduallyPopulatedChunkTrailingData) {
 
   for (int i = 0; i < 5; ++i) {
     ASSERT_EQ(decoder_buffer.GetChunk(), ChunkStateT::Partial);
-    sb = buffer.write_end()->Allocate();
+    sb = buffer.write_end()->GetBuffer();
     memcpy(sb.data, data + 200 * i, 200);
     buffer.write_end()->Written(200);
   }
 
-  sb = buffer.write_end()->Allocate();
+  sb = buffer.write_end()->GetBuffer();
   sb.data[0] = 0;
   sb.data[1] = 0;
   buffer.write_end()->Written(2);
 
-  sb = buffer.write_end()->Allocate();
+  sb = buffer.write_end()->GetBuffer();
   memcpy(sb.data, data, 1000);
   buffer.write_end()->Written(1000);
 

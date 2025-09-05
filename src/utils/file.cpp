@@ -78,7 +78,37 @@ bool CopyFile(const std::filesystem::path &src, const std::filesystem::path &dst
 bool RenamePath(const std::filesystem::path &src, const std::filesystem::path &dst) {
   std::error_code error_code;  // For exception suppression.
   std::filesystem::rename(src, dst, error_code);
+  spdlog::trace("Error code message: {}", error_code.message());
   return !error_code;
+}
+
+bool MoveFileSafely(const fs::path &source, const fs::path &destination) {
+  try {
+    // Check if source exists
+    if (!fs::exists(source)) {
+      spdlog::error("Error: Source file does not exist: {}", source);
+      return false;
+    }
+
+    // Create destination directory if needed
+    fs::path dest_dir = destination.parent_path();
+    if (!dest_dir.empty() && !fs::exists(dest_dir)) {
+      fs::create_directories(dest_dir);
+    }
+
+    // Move the file
+    fs::rename(source, destination);
+
+    spdlog::info("Successfully moved: {} -> {}", source, destination);
+    return true;
+
+  } catch (const fs::filesystem_error &ex) {
+    spdlog::error("Filesystem error: {}. Error code: {}", ex.what(), ex.code());
+    return false;
+  } catch (const std::exception &ex) {
+    spdlog::error("Exception: {}", ex.what());
+    return false;
+  }
 }
 
 bool HasReadAccess(const std::filesystem::path &path) { return access(path.c_str(), R_OK) == 0; }
