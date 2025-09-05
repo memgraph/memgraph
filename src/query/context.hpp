@@ -109,6 +109,7 @@ struct ExecutionContext {
   int64_t number_of_hops{0};
   HopsLimit hops_limit;
   std::optional<uint64_t> periodic_commit_frequency;
+  bool parallel_execution{false};
 #ifdef MG_ENTERPRISE
   std::unique_ptr<FineGrainedAuthChecker> auth_checker{nullptr};
 #endif

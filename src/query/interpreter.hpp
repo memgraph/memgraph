@@ -53,11 +53,12 @@ struct QueryAllocator {
 
   auto resource() -> utils::MemoryResource * {
 #ifndef MG_MEMORY_PROFILE
-    return &pool;
+    return &thread_local_pool;
 #else
     return upstream_resource();
 #endif
   }
+  // TODO Check if this is used
   auto resource_without_pool() -> utils::MemoryResource * {
 #ifndef MG_MEMORY_PROFILE
     return &monotonic;
@@ -65,6 +66,7 @@ struct QueryAllocator {
     return upstream_resource();
 #endif
   }
+  // TODO Check if this is used
   auto resource_without_pool_or_mono() -> utils::MemoryResource * { return upstream_resource(); }
 
  private:
@@ -85,8 +87,11 @@ struct QueryAllocator {
   }
 
 #ifndef MG_MEMORY_PROFILE
-  memgraph::utils::MonotonicBufferResource monotonic{kMonotonicInitialSize, upstream_resource()};
-  memgraph::utils::PoolResource pool{kPoolBlockPerChunk, &monotonic, upstream_resource()};
+  memgraph::utils::ThreadSafeMonotonicBufferResource monotonic{kMonotonicInitialSize, upstream_resource()};
+  // memgraph::utils::PoolResource pool{kPoolBlockPerChunk, &monotonic, upstream_resource()};
+  memgraph::utils::ThreadLocalMemoryResource thread_local_pool{[monotonic = &monotonic]() {
+    return std::make_unique<memgraph::utils::PoolResource>(kPoolBlockPerChunk, monotonic, upstream_resource());
+  }};
 #endif
 };
 

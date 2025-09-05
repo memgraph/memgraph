@@ -15,6 +15,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <forward_list>
 #include <memory>
 #include <tuple>
@@ -31,7 +32,7 @@
 #include "utils/logging.hpp"
 #include "utils/math.hpp"
 #include "utils/memory_tracker.hpp"
-#include "utils/spin_lock.hpp"
+#include "utils/rw_spin_lock.hpp"
 
 #include "boost/container/detail/pair.hpp"
 
@@ -164,6 +165,111 @@ class MonotonicBufferResource final : public MemoryResource {
   void do_deallocate(void *, size_t, size_t) override {}
 
   bool do_is_equal(const MemoryResource &other) const noexcept override { return this == &other; }
+};
+
+/// Thread-safe version of MonotonicBufferResource using atomic head pointer.
+///
+/// This variant uses an atomic head pointer to the current block, where each block contains:
+/// - A pointer to the memory (constant)
+/// - The current allocation size (atomic)
+/// - The total capacity (constant)
+/// - A pointer to the next block (for cleanup)
+///
+/// Allocation works by:
+/// 1. Getting the head block atomically
+/// 2. Reserving space for the worst case (fetch_add)
+/// 3. Checking if there's enough space
+/// 4. On failure locking and allocating new block
+class ThreadSafeMonotonicBufferResource : public std::pmr::memory_resource {
+ public:
+  /// Construct with initial buffer and size
+  explicit ThreadSafeMonotonicBufferResource(void *buffer, size_t size, MemoryResource *memory = NewDeleteResource())
+      : memory_(memory) {
+    // Need to align to Block alignment
+    size_t alignment = alignof(Block);
+    void *aligned_buffer = reinterpret_cast<char *>(buffer);
+    size_t available = size;
+    if (!std::align(alignment, sizeof(Block), aligned_buffer, available)) {
+      throw BadAlloc("Buffer too small for initial block");
+    }
+
+    if (aligned_buffer != buffer) {
+      throw BadAlloc("Buffer not aligned");
+    }
+
+    // Create initial block at the beginning of the buffer
+    auto *initial_block = static_cast<Block *>(aligned_buffer);
+    initial_block->capacity = available;
+    initial_block->size.store(0, std::memory_order_relaxed);
+    head_.store(initial_block, std::memory_order_release);
+  }
+
+  explicit ThreadSafeMonotonicBufferResource(size_t initial_size = 1024, MemoryResource *memory = NewDeleteResource())
+      : memory_(memory), next_buffer_size_(initial_size) {
+    auto *new_block = allocate_new_block(nullptr, initial_size);
+    if (!new_block) {
+      throw BadAlloc("Failed to allocate new block");
+    }
+    head_.store(new_block, std::memory_order_release);
+  }
+
+  /// Destructor - releases all allocated memory
+  ~ThreadSafeMonotonicBufferResource() { Release(); }
+
+  // Non-copyable, non-movable
+  ThreadSafeMonotonicBufferResource(const ThreadSafeMonotonicBufferResource &) = delete;
+  ThreadSafeMonotonicBufferResource &operator=(const ThreadSafeMonotonicBufferResource &) = delete;
+  ThreadSafeMonotonicBufferResource(ThreadSafeMonotonicBufferResource &&other) noexcept
+      : memory_(std::exchange(other.memory_, nullptr)),
+        head_(std::atomic_exchange(&other.head_, nullptr)),
+        next_buffer_size_(std::exchange(other.next_buffer_size_, 0)) {}
+
+  ThreadSafeMonotonicBufferResource &operator=(ThreadSafeMonotonicBufferResource &&other) noexcept {
+    if (this != &other) {
+      Release();
+      memory_ = std::exchange(other.memory_, nullptr);
+      head_ = std::atomic_exchange(&other.head_, nullptr);
+      next_buffer_size_ = std::exchange(other.next_buffer_size_, 0);
+    }
+    return *this;
+  }
+
+  void Release();  // NOT THREAD SAFE!
+
+  /// Get the upstream memory resource
+  MemoryResource *GetUpstreamResource() const { return memory_; }
+
+ private:
+  /// Memory block structure - stored at the beginning of allocated memory
+  struct Block {
+    Block *next{nullptr};         // Next block (for cleanup)
+    std::atomic<size_t> size{0};  // Current allocation size (atomic)
+    size_t capacity;              // Total capacity (constant)
+
+    char *begin() { return reinterpret_cast<char *>(this) + sizeof(*this); }
+    char *data() { return begin() + size.load(std::memory_order_acquire); }
+
+    size_t total_size() const { return sizeof(*this) + capacity; }
+  };
+
+  MemoryResource *memory_{NewDeleteResource()};
+  std::atomic<Block *> head_{nullptr};  // Atomic head pointer
+  mutable std::mutex alloc_mutex_;      // For allocating new blocks
+  size_t next_buffer_size_{1024};       // Track next buffer size for exponential growth
+
+  // Resource methods
+  void *do_allocate(size_t bytes, size_t alignment) override;
+
+  void do_deallocate(void *, size_t, size_t) override {}
+
+  bool do_is_equal(const MemoryResource &other) const noexcept override { return this == &other; }
+
+  // Local methods
+  std::pair<Block *, void *> try_lock_free_allocation(size_t bytes, size_t alignment);
+
+  void *allocate_with_lock(Block *last_block, size_t bytes, size_t alignment);
+
+  Block *allocate_new_block(Block *current_head, size_t min_size);
 };
 
 namespace impl {
@@ -427,6 +533,7 @@ class PoolResource final : public std::pmr::memory_resource {
   std::pmr::memory_resource *unpooled_memory_;
 };
 
+// NOTE: Used only for procedure calls (single threaded)
 class MemoryTrackingResource final : public std::pmr::memory_resource {
  public:
   explicit MemoryTrackingResource(std::pmr::memory_resource *memory, size_t max_allocated_bytes)
@@ -474,5 +581,86 @@ class ResourceWithOutOfMemoryException : public MemoryResource {
   }
 
   MemoryResource *upstream_{utils::NewDeleteResource()};
+};
+
+// Can't use thread::id because the same pull plan might be called on multiple threads
+class ThreadLocalMemoryResource : public MemoryResource {
+ public:
+  using memory_t = std::unique_ptr<std::pmr::memory_resource>;
+
+  explicit ThreadLocalMemoryResource(std::function<memory_t()> resource_factory) : resource_factory_{resource_factory} {
+    // Initialize the 0th thread
+    const auto [it, inserted] = upstreams_.emplace(0, resource_factory_());
+    DMG_ASSERT(inserted);
+    default_upstream_ = it->second.get();
+  }
+
+  static std::pmr::memory_resource *&GetUpstream() noexcept {
+    static thread_local MemoryResource *upstream_;  // NOLINT
+    return upstream_;
+  }
+
+  void Initialize(uint16_t id) {
+    std::pmr::memory_resource *upstream = nullptr;
+
+    // Shared by all threads
+    {
+      // read access for search
+      std::shared_lock lock(mutex_);
+      auto it = upstreams_.find(id);
+      if (it != upstreams_.end()) {
+        upstream = it->second.get();
+      }
+    }
+    if (!upstream) {
+      // write access for update
+      std::unique_lock lock(mutex_);
+      auto [it, _] = upstreams_.emplace(id, resource_factory_());
+      upstream = it->second.get();
+    }
+
+    // Thread local
+    thread_id_ = id;
+    GetUpstream() = upstream;
+  }
+
+  static void ResetThread() {
+    thread_id_ = -1;
+    GetUpstream() = nullptr;
+  }
+
+ private:
+  std::pmr::memory_resource *ResolveUpstream() const noexcept {
+    // Note: We default to 0 id to simplify usage
+    auto *upstream = GetUpstream();
+    return upstream ? upstream : default_upstream_;
+  }
+
+  void *do_allocate(size_t bytes, size_t alignment) override {
+    auto *const upstream = ResolveUpstream();
+    // DMG_ASSERT(thread_id_ != -1);
+    DMG_ASSERT(upstream != nullptr);
+    return upstream->allocate(bytes, alignment);
+  }
+
+  void do_deallocate(void *p, size_t bytes, size_t alignment) override {
+    auto *const upstream = ResolveUpstream();
+    // DMG_ASSERT(thread_id_ != -1);
+    DMG_ASSERT(upstream != nullptr);
+    upstream->deallocate(p, bytes, alignment);
+  }
+
+  bool do_is_equal(const std::pmr::memory_resource &other) const noexcept override {
+    auto *const upstream = ResolveUpstream();
+    // DMG_ASSERT(thread_id_ != -1);
+    DMG_ASSERT(upstream != nullptr);
+    return upstream->is_equal(other);
+  }
+
+  static thread_local uint16_t thread_id_;  // NOLINT
+  std::pmr::memory_resource *default_upstream_{nullptr};
+  mutable utils::RWSpinLock mutex_;
+  std::unordered_map<uint16_t, memory_t> upstreams_;
+  std::function<memory_t()> resource_factory_;
 };
 }  // namespace memgraph::utils
