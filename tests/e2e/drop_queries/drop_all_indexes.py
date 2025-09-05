@@ -36,15 +36,16 @@ def test_drop_all_indexes(memgraph):
     memgraph.execute("CREATE POINT INDEX ON :Person(location)")
     memgraph.execute("CREATE TEXT INDEX personTextIndex ON :Person")
     memgraph.execute("CREATE VECTOR INDEX personVectorIndex ON :Person(embedding) WITH CONFIG {'dimension': 2, 'capacity': 100}")
+    memgraph.execute("CREATE VECTOR EDGE INDEX vector_index_name ON :WORKS_AT(embedding) WITH CONFIG {'dimension': 2, 'capacity': 100}")
 
     index_info = list(memgraph.execute_and_fetch("SHOW INDEX INFO"))    
-    assert len(index_info) == 8, f"Expected exactly 8 indexes, but got {len(index_info)}"
-    
+    assert len(index_info) == 9, f"Expected exactly 9 indexes, but got {len(index_info)}"
+
     memgraph.execute("DROP ALL INDEXES")
     
     index_info_after = list(memgraph.execute_and_fetch("SHOW INDEX INFO"))
     assert len(index_info_after) == 0, f"Expected 0 indexes after DROP ALL INDEXES, but got {len(index_info_after)}: {index_info_after}"
-    
+
     person_count = get_results_length(memgraph, "MATCH (n:Person) RETURN n")
     company_count = get_results_length(memgraph, "MATCH (n:Company) RETURN n")
     edge_count = get_results_length(memgraph, "MATCH ()-[r]->() RETURN r")
