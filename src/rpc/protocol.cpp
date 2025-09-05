@@ -132,6 +132,7 @@ void RpcMessageDeliverer::Execute() {
   spdlog::trace("[RpcServer] received {}, version {}", it->second.req_type.name, maybe_message_header->message_version);
   // NOLINTNEXTLINE
   spdlog::trace("Memory when RPC {} received: {}", it->second.req_type.name,
+                // NOLINTNEXTLINE
                 utils::GetReadableSize(utils::GetMemoryRES()));
 
   auto const on_exit = utils::OnScopeExit{[&] {
