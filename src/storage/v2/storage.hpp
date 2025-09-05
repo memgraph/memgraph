@@ -389,6 +389,10 @@ class Storage {
 
     virtual ConstraintsInfo ListAllConstraints() const = 0;
 
+    virtual void DropAllIndices() = 0;
+
+    virtual void DropAllConstraints() = 0;
+
     // NOLINTNEXTLINE(google-default-arguments)
     virtual utils::BasicResult<StorageManipulationError, void> PrepareForCommitPhase(CommitArgs commit_args) = 0;
 

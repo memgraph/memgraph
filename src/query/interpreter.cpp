@@ -4022,10 +4022,15 @@ PreparedQuery PrepareDropAllIndexesQuery(ParsedQuery parsed_query, bool in_expli
   if (in_explicit_transaction) {
     throw IndexInMulticommandTxException();
   }
-  std::function<void(Notification &)> handler;
 
   MG_ASSERT(current_db.db_acc_, "Drop all indexes query expects a current DB");
   auto &db_acc = *current_db.db_acc_;
+
+  if (db_acc->storage()->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+    throw DropAllIndexesDisabledOnDiskStorage();
+  }
+
+  std::function<void(Notification &)> handler;
 
   MG_ASSERT(current_db.db_transactional_accessor_, "Drop all indexes query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
@@ -4040,43 +4045,7 @@ PreparedQuery PrepareDropAllIndexesQuery(ParsedQuery parsed_query, bool in_expli
 
   handler = [dba, invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification & /**/) {
     utils::OnScopeExit const invalidator(invalidate_plan_cache);
-    auto indices_info = dba->ListAllIndices();
-
-    for (const auto &label_id : indices_info.label) {
-      [[maybe_unused]] auto maybe_error = dba->DropIndex(label_id);
-    }
-
-    for (auto &[label_id, properties] : indices_info.label_properties) {
-      [[maybe_unused]] auto maybe_error = dba->DropIndex(label_id, std::move(properties));
-    }
-
-    for (const auto &edge_type_id : indices_info.edge_type) {
-      [[maybe_unused]] auto maybe_error = dba->DropIndex(edge_type_id);
-    }
-
-    for (const auto &[edge_type_id, property_id] : indices_info.edge_type_property) {
-      [[maybe_unused]] auto maybe_error = dba->DropIndex(edge_type_id, property_id);
-    }
-
-    for (const auto &property_id : indices_info.edge_property) {
-      [[maybe_unused]] auto maybe_error = dba->DropGlobalEdgeIndex(property_id);
-    }
-
-    for (const auto &[label_id, property_id] : indices_info.point_label_property) {
-      [[maybe_unused]] auto maybe_error = dba->DropPointIndex(label_id, property_id);
-    }
-
-    for (const auto &text_index_spec : indices_info.text_indices) {
-      [[maybe_unused]] auto maybe_error = dba->DropTextIndex(text_index_spec.index_name_);
-    }
-
-    for (const auto &vector_index_spec : indices_info.vector_indices_spec) {
-      [[maybe_unused]] auto maybe_error = dba->DropVectorIndex(vector_index_spec.index_name);
-    }
-
-    for (const auto &vector_edge_index_spec : indices_info.vector_edge_indices_spec) {
-      [[maybe_unused]] auto maybe_error = dba->DropVectorIndex(vector_edge_index_spec.index_name);
-    }
+    dba->DropAllIndices();
   };
 
   return PreparedQuery{
@@ -4097,12 +4066,14 @@ PreparedQuery PrepareDropAllConstraintsQuery(ParsedQuery parsed_query, bool in_e
     throw ConstraintInMulticommandTxException();
   }
 
-  auto *drop_all_constraints_query = utils::Downcast<DropAllConstraintsQuery>(parsed_query.query);
-  (void)drop_all_constraints_query;  // Suppress unused variable warning
-  std::function<void(Notification &)> handler;
-
   MG_ASSERT(current_db.db_acc_, "Drop all constraints query expects a current DB");
   auto &db_acc = *current_db.db_acc_;
+
+  if (db_acc->storage()->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
+    throw DropAllConstraintsDisabledOnDiskStorage();
+  }
+
+  std::function<void(Notification &)> handler;
 
   MG_ASSERT(current_db.db_transactional_accessor_, "Drop all constraints query expects a current DB transaction");
   auto *dba = &*current_db.execution_db_accessor_;
@@ -4117,19 +4088,7 @@ PreparedQuery PrepareDropAllConstraintsQuery(ParsedQuery parsed_query, bool in_e
 
   handler = [dba, invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification & /**/) {
     utils::OnScopeExit const invalidator(invalidate_plan_cache);
-    auto constraints_info = dba->ListAllConstraints();
-
-    for (const auto &[label_id, property_id] : constraints_info.existence) {
-      [[maybe_unused]] auto maybe_error = dba->DropExistenceConstraint(label_id, property_id);
-    }
-
-    for (const auto &[label_id, properties] : constraints_info.unique) {
-      [[maybe_unused]] auto maybe_error = dba->DropUniqueConstraint(label_id, properties);
-    }
-
-    for (const auto &[label_id, property_id, type] : constraints_info.type) {
-      [[maybe_unused]] auto maybe_error = dba->DropTypeConstraint(label_id, property_id, type);
-    }
+    dba->DropAllConstraints();
   };
 
   return PreparedQuery{

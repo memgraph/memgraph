@@ -349,6 +349,10 @@ class InMemoryStorage final : public Storage {
 
     ConstraintsInfo ListAllConstraints() const override;
 
+    void DropAllIndices() override;
+
+    void DropAllConstraints() override;
+
     // Represents the 1st phase of 2PC protocol.
     // If there is only a single MG instance, this method serves as commit method. The method itself calls
     // finalize commit method which will bump ldt, update commit ts etc.

@@ -641,6 +641,10 @@ class DbAccessor final {
 
   storage::ConstraintsInfo ListAllConstraints() const { return accessor_->ListAllConstraints(); }
 
+  void DropAllIndices() { accessor_->DropAllIndices(); }
+
+  void DropAllConstraints() { accessor_->DropAllConstraints(); }
+
   const std::string &id() const { return accessor_->id(); }
 
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateIndex(
