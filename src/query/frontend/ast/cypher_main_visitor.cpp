@@ -379,6 +379,8 @@ antlrcpp::Any CypherMainVisitor::visitPreQueryDirectives(MemgraphCypher::PreQuer
         throw SyntaxException("Hops limit can be set only once in the USING statement.");
       }
       pre_query_directives.hops_limit_ = std::any_cast<Expression *>(pre_query_directive->hopsLimit()->accept(this));
+    } else if (pre_query_directive->parallelExecution()) {
+      pre_query_directives.parallel_execution_ = true;
     } else {
       throw SyntaxException("Unknown pre query directive!");
     }
