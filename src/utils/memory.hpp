@@ -32,7 +32,7 @@
 #include "utils/logging.hpp"
 #include "utils/math.hpp"
 #include "utils/memory_tracker.hpp"
-#include "utils/spin_lock.hpp"
+#include "utils/rw_spin_lock.hpp"
 
 #include "boost/container/detail/pair.hpp"
 
@@ -533,6 +533,7 @@ class PoolResource final : public std::pmr::memory_resource {
   std::pmr::memory_resource *unpooled_memory_;
 };
 
+// NOTE: Used only for procedure calls (single threaded)
 class MemoryTrackingResource final : public std::pmr::memory_resource {
  public:
   explicit MemoryTrackingResource(std::pmr::memory_resource *memory, size_t max_allocated_bytes)
@@ -580,5 +581,86 @@ class ResourceWithOutOfMemoryException : public MemoryResource {
   }
 
   MemoryResource *upstream_{utils::NewDeleteResource()};
+};
+
+// Can't use thread::id because the same pull plan might be called on multiple threads
+class ThreadLocalMemoryResource : public MemoryResource {
+ public:
+  using memory_t = std::unique_ptr<std::pmr::memory_resource>;
+
+  explicit ThreadLocalMemoryResource(std::function<memory_t()> resource_factory) : resource_factory_{resource_factory} {
+    // Initialize the 0th thread
+    const auto [it, inserted] = upstreams_.emplace(0, resource_factory_());
+    DMG_ASSERT(inserted);
+    default_upstream_ = it->second.get();
+  }
+
+  static std::pmr::memory_resource *&GetUpstream() noexcept {
+    static thread_local MemoryResource *upstream_;  // NOLINT
+    return upstream_;
+  }
+
+  void Initialize(uint16_t id) {
+    std::pmr::memory_resource *upstream = nullptr;
+
+    // Shared by all threads
+    {
+      // read access for search
+      std::shared_lock lock(mutex_);
+      auto it = upstreams_.find(id);
+      if (it != upstreams_.end()) {
+        upstream = it->second.get();
+      }
+    }
+    if (!upstream) {
+      // write access for update
+      std::unique_lock lock(mutex_);
+      auto [it, _] = upstreams_.emplace(id, resource_factory_());
+      upstream = it->second.get();
+    }
+
+    // Thread local
+    thread_id_ = id;
+    GetUpstream() = upstream;
+  }
+
+  static void ResetThread() {
+    thread_id_ = -1;
+    GetUpstream() = nullptr;
+  }
+
+ private:
+  std::pmr::memory_resource *ResolveUpstream() const noexcept {
+    // Note: We default to 0 id to simplify usage
+    auto *upstream = GetUpstream();
+    return upstream ? upstream : default_upstream_;
+  }
+
+  void *do_allocate(size_t bytes, size_t alignment) override {
+    auto *const upstream = ResolveUpstream();
+    // DMG_ASSERT(thread_id_ != -1);
+    DMG_ASSERT(upstream != nullptr);
+    return upstream->allocate(bytes, alignment);
+  }
+
+  void do_deallocate(void *p, size_t bytes, size_t alignment) override {
+    auto *const upstream = ResolveUpstream();
+    // DMG_ASSERT(thread_id_ != -1);
+    DMG_ASSERT(upstream != nullptr);
+    upstream->deallocate(p, bytes, alignment);
+  }
+
+  bool do_is_equal(const std::pmr::memory_resource &other) const noexcept override {
+    auto *const upstream = ResolveUpstream();
+    // DMG_ASSERT(thread_id_ != -1);
+    DMG_ASSERT(upstream != nullptr);
+    return upstream->is_equal(other);
+  }
+
+  static thread_local uint16_t thread_id_;  // NOLINT
+  std::pmr::memory_resource *default_upstream_{nullptr};
+  mutable utils::RWSpinLock mutex_;
+  std::unordered_map<uint16_t, memory_t> upstreams_;
+  std::function<memory_t()> resource_factory_;
 };
 }  // namespace memgraph::utils
