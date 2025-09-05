@@ -3308,7 +3308,7 @@ ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {
           mem_storage->constraints_.type_constraints_->ListConstraints()};
 }
 
-void InMemoryStorage::InMemoryAccessor::DropAllIndices() {
+void InMemoryStorage::InMemoryAccessor::DropAllIndexes() {
   auto indices_info = ListAllIndices();
 
   for (const auto &label_id : indices_info.label) {

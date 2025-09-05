@@ -4045,7 +4045,7 @@ PreparedQuery PrepareDropAllIndexesQuery(ParsedQuery parsed_query, bool in_expli
 
   handler = [dba, invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification & /**/) {
     utils::OnScopeExit const invalidator(invalidate_plan_cache);
-    dba->DropAllIndices();
+    dba->DropAllIndexes();
   };
 
   return PreparedQuery{

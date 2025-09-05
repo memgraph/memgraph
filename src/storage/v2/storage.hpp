@@ -389,7 +389,7 @@ class Storage {
 
     virtual ConstraintsInfo ListAllConstraints() const = 0;
 
-    virtual void DropAllIndices() = 0;
+    virtual void DropAllIndexes() = 0;
 
     virtual void DropAllConstraints() = 0;
 
