@@ -1,0 +1,19 @@
+drop_queries_cluster: &drop_queries_cluster
+  cluster:
+    main:
+      args: ["--bolt-port", "7687", "--log-level=TRACE", "--experimental-enabled=text-search"]
+      log_file: "drop_queries.log"
+      setup_queries: []
+      validation_queries: []
+
+
+workloads:
+  - name: "Drop graph"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["drop_queries/drop_graph.py"]
+    <<: *drop_queries_cluster
+
+  - name: "Drop all indexes"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["drop_queries/drop_all_indexes.py"]
+    <<: *drop_queries_cluster

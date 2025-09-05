@@ -450,6 +450,12 @@ antlrcpp::Any CypherMainVisitor::visitDropIndex(MemgraphCypher::DropIndexContext
   return index_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitDropAllIndexesQuery(MemgraphCypher::DropAllIndexesQueryContext *ctx) {
+  auto *drop_all_indexes_query = storage_->Create<DropAllIndexesQuery>();
+  query_ = drop_all_indexes_query;
+  return drop_all_indexes_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitEdgeIndexQuery(MemgraphCypher::EdgeIndexQueryContext *ctx) {
   MG_ASSERT(ctx->children.size() == 1, "EdgeIndexQuery should have exactly one child!");
   auto *index_query = std::any_cast<EdgeIndexQuery *>(ctx->children[0]->accept(this));

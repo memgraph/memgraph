@@ -239,6 +239,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitCoordinatorQuery(MemgraphCypher::CoordinatorQueryContext *ctx) override;
 
   /**
+   * @return DropAllIndexesQuery*
+   */
+  antlrcpp::Any visitDropAllIndexesQuery(MemgraphCypher::DropAllIndexesQueryContext *ctx) override;
+
+  /**
    * @return DropGraphQuery*
    */
   antlrcpp::Any visitDropGraphQuery(MemgraphCypher::DropGraphQueryContext *ctx) override;
