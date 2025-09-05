@@ -44,6 +44,7 @@ struct MetadataDelta {
     GLOBAL_EDGE_PROPERTY_INDEX_CREATE,
     GLOBAL_EDGE_PROPERTY_INDEX_DROP,
     TEXT_INDEX_CREATE,
+    TEXT_EDGE_INDEX_CREATE,
     TEXT_INDEX_DROP,
     EXISTENCE_CONSTRAINT_CREATE,
     EXISTENCE_CONSTRAINT_DROP,
@@ -96,6 +97,8 @@ struct MetadataDelta {
   } global_edge_property_index_drop;
   static constexpr struct TextIndexCreate {
   } text_index_create;
+  static constexpr struct TextEdgeIndexCreate {
+  } text_edge_index_create;
   static constexpr struct TextIndexDrop {
   } text_index_drop;
   static constexpr struct VectorIndexCreate {
@@ -167,6 +170,9 @@ struct MetadataDelta {
 
   MetadataDelta(TextIndexCreate /*tag*/, TextIndexSpec text_index_info)
       : action(Action::TEXT_INDEX_CREATE), text_index(std::move(text_index_info)) {}
+
+  MetadataDelta(TextEdgeIndexCreate /*tag*/, TextEdgeIndexSpec text_edge_index_info)
+      : action(Action::TEXT_EDGE_INDEX_CREATE), text_edge_index(std::move(text_edge_index_info)) {}
 
   MetadataDelta(TextIndexDrop /*tag*/, std::string index_name)
       : action(Action::TEXT_INDEX_DROP), index_name{std::move(index_name)} {}
@@ -314,6 +320,10 @@ struct MetadataDelta {
         std::destroy_at(&text_index);
         break;
       }
+      case TEXT_EDGE_INDEX_CREATE: {
+        std::destroy_at(&text_edge_index);
+        break;
+      }
       case TEXT_INDEX_DROP: {
         std::destroy_at(&index_name);
         break;
@@ -387,6 +397,7 @@ struct MetadataDelta {
     } enum_alter_update_info;
 
     TextIndexSpec text_index;
+    TextEdgeIndexSpec text_edge_index;
     struct {
       durability::TtlOperationType operation_type;
       std::optional<std::chrono::microseconds> period;

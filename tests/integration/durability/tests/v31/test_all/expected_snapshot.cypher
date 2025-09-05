@@ -17,6 +17,8 @@ CREATE (:__mg_vertex__:`nested` {__mg_id__: 14, `a`: {`b`: {`c`: 1}}});
 CREATE (:__mg_vertex__:`text` {__mg_id__: 15, `prop2`: "second text", `prop1`: "first text", `prop3`: "third text"});
 CREATE (:__mg_vertex__ {__mg_id__: 16});
 CREATE (:__mg_vertex__ {__mg_id__: 17});
+CREATE (:__mg_vertex__ {__mg_id__: 18});
+CREATE (:__mg_vertex__ {__mg_id__: 19});
 CREATE INDEX ON :__mg_vertex__(__mg_id__);
 MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 1 AND v.__mg_id__ = 0 CREATE (u)-[:`link` {`prop`: -1, `ext`: [false, {`k`: "l"}]}]->(v);
 MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 1 AND v.__mg_id__ = 1 CREATE (u)-[:`link` {`prop`: -1, `ext`: [false, {`k`: "l"}]}]->(v);
@@ -26,6 +28,7 @@ MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 8 AND v.__mg_id__
 MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 8 AND v.__mg_id__ = 9 CREATE (u)-[:`edge_type` {`prop`: 1}]->(v);
 MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 8 AND v.__mg_id__ = 9 CREATE (u)-[:`edge_type` {`ttl`: 4102444800}]->(v);
 MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 16 AND v.__mg_id__ = 17 CREATE (u)-[:`REL` {`embedding`: [1, 2, 3]}]->(v);
+MATCH (u:__mg_vertex__), (v:__mg_vertex__) WHERE u.__mg_id__ = 18 AND v.__mg_id__ = 19 CREATE (u)-[:`TEXT_REL` {`prop2`: "second text", `prop1`: "first text", `prop3`: "third text"}]->(v);
 DROP INDEX ON :__mg_vertex__(__mg_id__);
 MATCH (u) REMOVE u:__mg_vertex__, u.__mg_id__;
 CREATE INDEX ON :`label`;

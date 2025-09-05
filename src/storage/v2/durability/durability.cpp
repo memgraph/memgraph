@@ -305,19 +305,37 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
 
   // Text idx
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    spdlog::info("Recreating {} text indices from metadata.", indices_metadata.text_indices.size());
-    auto &mem_text_index = indices->text_index_;
-    for (const auto &text_index_info : indices_metadata.text_indices) {
-      try {
-        // TODO: parallel execution
-        mem_text_index.RecoverIndex(text_index_info, snapshot_info);
-      } catch (...) {
-        throw RecoveryFailure("The text index must be created here!");
+    // Text index on nodes
+    {
+      spdlog::info("Recreating {} text indices from metadata.", indices_metadata.text_indices.size());
+      auto &mem_text_index = indices->text_index_;
+      for (const auto &text_index_info : indices_metadata.text_indices) {
+        try {
+          // TODO: parallel execution
+          mem_text_index.RecoverIndex(text_index_info, snapshot_info);
+        } catch (...) {
+          throw RecoveryFailure("The text index must be created here!");
+        }
+        spdlog::info("Text index {} on :{} is recreated from metadata", text_index_info.index_name,
+                     name_id_mapper->IdToName(text_index_info.label.AsUint()));
       }
-      spdlog::info("Text index {} on :{} is recreated from metadata", text_index_info.index_name_,
-                   name_id_mapper->IdToName(text_index_info.label_.AsUint()));
+      spdlog::info("Text indices are recreated.");
     }
-    spdlog::info("Text indices are recreated.");
+    // Text index on edges
+    {
+      auto &mem_text_edge_index = indices->text_edge_index_;
+      for (const auto &text_edge_index_info : indices_metadata.text_edge_indices) {
+        try {
+          // TODO: parallel execution
+          mem_text_edge_index.RecoverIndex(text_edge_index_info, snapshot_info);
+        } catch (...) {
+          throw RecoveryFailure("The text edge index must be created here!");
+        }
+        spdlog::info("Text edge index {} on :{} is recreated from metadata", text_edge_index_info.index_name,
+                     name_id_mapper->IdToName(text_edge_index_info.edge_type.AsUint()));
+      }
+      spdlog::info("Text edge indices are recreated.");
+    }
   }
 
   // Point idx

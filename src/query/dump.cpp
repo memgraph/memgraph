@@ -324,11 +324,24 @@ void DumpLabelPropertiesIndex(std::ostream *os, query::DbAccessor *dba, storage:
 }
 
 void DumpTextIndex(std::ostream *os, query::DbAccessor *dba, const storage::TextIndexSpec &text_index) {
-  *os << "CREATE TEXT INDEX " << EscapeName(text_index.index_name_)
-      << " ON :" << EscapeName(dba->LabelToName(text_index.label_));
+  *os << "CREATE TEXT INDEX " << EscapeName(text_index.index_name)
+      << " ON :" << EscapeName(dba->LabelToName(text_index.label));
 
-  if (!text_index.properties_.empty()) {
-    auto prop_names = text_index.properties_ |
+  if (!text_index.properties.empty()) {
+    auto prop_names = text_index.properties |
+                      rv::transform([&](auto property_id) { return EscapeName(dba->PropertyToName(property_id)); }) |
+                      rv::join(", "sv) | r::to<std::string>();
+    *os << "(" << prop_names << ")";
+  }
+  *os << ";";
+}
+
+void DumpTextEdgeIndex(std::ostream *os, query::DbAccessor *dba, const storage::TextEdgeIndexSpec &text_edge_index) {
+  *os << "CREATE TEXT EDGE INDEX " << EscapeName(text_edge_index.index_name)
+      << " ON :" << EscapeName(dba->EdgeTypeToName(text_edge_index.edge_type));
+
+  if (!text_edge_index.properties.empty()) {
+    auto prop_names = text_edge_index.properties |
                       rv::transform([&](auto property_id) { return EscapeName(dba->PropertyToName(property_id)); }) |
                       rv::join(", "sv) | r::to<std::string>();
     *os << "(" << prop_names << ")";
@@ -691,6 +704,33 @@ PullPlanDump::PullChunk PullPlanDump::CreateTextIndicesPullChunk() {
       std::ostringstream os;
       const auto &text_index = text[global_index];
       DumpTextIndex(&os, dba_, text_index);
+      stream->Result({TypedValue(os.str())});
+      ++global_index;
+      ++local_counter;
+    }
+
+    if (global_index == text.size()) {
+      return local_counter;
+    }
+
+    return std::nullopt;
+  };
+}
+
+PullPlanDump::PullChunk PullPlanDump::CreateTextEdgeIndicesPullChunk() {
+  // Dump all text edge indices
+  return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
+    // Delay the construction of indices vectors
+    if (!indices_info_) {
+      indices_info_.emplace(dba_->ListAllIndices());
+    }
+    const auto &text = indices_info_->text_edge_indices;
+
+    size_t local_counter = 0;
+    while (global_index < text.size() && (!n || local_counter < *n)) {
+      std::ostringstream os;
+      const auto &text_index = text[global_index];
+      DumpTextEdgeIndex(&os, dba_, text_index);
       stream->Result({TypedValue(os.str())});
       ++global_index;
       ++local_counter;

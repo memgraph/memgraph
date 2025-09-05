@@ -2146,6 +2146,35 @@ class TextIndexQuery : public memgraph::query::Query {
   friend class AstStorage;
 };
 
+class CreateTextEdgeIndexQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  CreateTextEdgeIndexQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  memgraph::query::EdgeTypeIx edge_type_;
+  std::vector<memgraph::query::PropertyIx> properties_;
+  std::string index_name_;
+
+  CreateTextEdgeIndexQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<CreateTextEdgeIndexQuery>();
+    object->edge_type_ = edge_type_;
+    object->index_name_ = index_name_;
+    object->properties_ = properties_;
+    return object;
+  }
+
+ protected:
+  CreateTextEdgeIndexQuery(EdgeTypeIx edge_type, std::vector<PropertyIx> properties, std::string index_name)
+      : edge_type_(std::move(edge_type)), properties_(std::move(properties)), index_name_(std::move(index_name)) {}
+
+ private:
+  friend class AstStorage;
+};
+
 class VectorIndexQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;

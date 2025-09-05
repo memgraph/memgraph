@@ -26,14 +26,14 @@
 namespace memgraph::storage {
 
 struct TextIndexData {
-  mutable mgcxx::text_search::Context context_;
-  LabelId scope_;
-  std::vector<PropertyId> properties_;
-  std::mutex write_mutex_;  // Only used for exclusive locking during writes. IndexReader and IndexWriter are
-                            // independent, so no lock is required when reading.
+  mutable mgcxx::text_search::Context context;
+  LabelId scope;
+  std::vector<PropertyId> properties;
+  std::mutex write_mutex;  // Only used for exclusive locking during writes. IndexReader and IndexWriter are
+                           // independent, so no lock is required when reading.
 
   TextIndexData(mgcxx::text_search::Context context, LabelId scope, std::vector<PropertyId> properties)
-      : context_(std::move(context)), scope_(scope), properties_(std::move(properties)) {}
+      : context(std::move(context)), scope(scope), properties(std::move(properties)) {}
 };
 
 class TextIndex {
@@ -62,13 +62,13 @@ class TextIndex {
 
   ~TextIndex() = default;
 
-  void RemoveNode(Vertex *vertex_after_update, Transaction &tx);
+  void UpdateOnAddLabel(LabelId label, const Vertex *vertex, Transaction &tx);
 
-  void UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx);
+  void UpdateOnRemoveLabel(LabelId label, const Vertex *vertex, Transaction &tx);
 
-  void UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx);
+  void UpdateOnSetProperty(const Vertex *vertex, Transaction &tx);
 
-  void UpdateOnSetProperty(Vertex *vertex, Transaction &tx);
+  void RemoveNode(const Vertex *vertex_after_update, Transaction &tx);
 
   void CreateIndex(const TextIndexSpec &index_info, VerticesIterable vertices, NameIdMapper *name_id_mapper);
 

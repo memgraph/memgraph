@@ -213,6 +213,9 @@ struct Transaction {
   /// Text index change tracking (batched apply on commit)
   TextIndexChangeCollector text_index_change_collector_;
 
+  /// Text edge index change tracking (batched apply on commit)
+  TextEdgeIndexChangeCollector text_edge_index_change_collector_;
+
   /// Last durable timestamp at the moment of transaction creation
   std::optional<uint64_t> last_durable_ts_;
 

@@ -72,8 +72,8 @@ namespace memgraph::storage {
 
 namespace {
 
-auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex,
-               VertexAccessor *to_vertex) -> Result<EdgesVertexAccessorResult> {
+auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex, VertexAccessor *to_vertex)
+    -> Result<EdgesVertexAccessorResult> {
   auto use_out_edges = [](Vertex const *from_vertex, Vertex const *to_vertex) {
     // Obtain the locks by `gid` order to avoid lock cycles.
     auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
@@ -978,7 +978,13 @@ std::optional<VertexAccessor> DiskStorage::DiskAccessor::FindVertex(storage::Gid
   return disk_storage->FindVertex(gid, &transaction_, view);
 }
 
-std::optional<EdgeAccessor> DiskStorage::DiskAccessor::FindEdge(storage::Gid gid, View view) {
+std::optional<EdgeAccessor> DiskStorage::DiskAccessor::FindEdge(storage::Gid /*gid*/, View /*view*/) {
+  throw utils::NotYetImplemented("Id based lookup for on-disk storage mode is not yet implemented on edges. {}",
+                                 kErrorMessage);
+}
+
+std::optional<EdgeAccessor> DiskStorage::DiskAccessor::FindEdge(Gid /*edge_gid*/, Gid /*from_vertex_gid*/,
+                                                                View /*view*/) {
   throw utils::NotYetImplemented("Id based lookup for on-disk storage mode is not yet implemented on edges. {}",
                                  kErrorMessage);
 }
@@ -1769,6 +1775,10 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Pr
             return StorageManipulationError{PersistenceError{}};
           }
         } break;
+        case MetadataDelta::Action::TEXT_EDGE_INDEX_CREATE: {
+          throw utils::NotYetImplemented("Text edge indexing is not yet implemented for on-disk storage. {}",
+                                         kErrorMessage);
+        } break;
         case MetadataDelta::Action::EXISTENCE_CONSTRAINT_CREATE: {
           const auto &info = md_delta.label_property;
           if (!disk_storage->durable_metadata_.PersistLabelPropertyIndexAndExistenceConstraintCreation(
@@ -2305,8 +2315,8 @@ std::vector<VectorEdgeIndexInfo> DiskStorage::DiskAccessor::ListAllVectorEdgeInd
 
 auto DiskStorage::DiskAccessor::PointVertices(LabelId /*label*/, PropertyId /*property*/,
                                               CoordinateReferenceSystem /*crs*/, PropertyValue const & /*bottom_left*/,
-                                              PropertyValue const & /*top_right*/,
-                                              WithinBBoxCondition /*condition*/) -> PointIterable {
+                                              PropertyValue const & /*top_right*/, WithinBBoxCondition /*condition*/)
+    -> PointIterable {
   throw utils::NotYetImplemented("Point Vertices is not yet implemented for on-disk storage. {}", kErrorMessage);
 };
 
@@ -2404,13 +2414,13 @@ bool DiskStorage::DiskAccessor::PointIndexExists(LabelId /*label*/, PropertyId /
 }
 
 IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
-  auto &text_index = storage_->indices_.text_index_;
   return {transaction_.active_indices_.label_->ListIndices(transaction_.start_timestamp),
           transaction_.active_indices_.label_properties_->ListIndices(transaction_.start_timestamp),
           {/* edge type indices */},
           {/* edge_type_property */},
           {/*edge property*/},
-          text_index.ListIndices(),
+          storage_->indices_.text_index_.ListIndices(),
+          {/* text edge indices */},
           {/* point indices */},
           {/* vector indices */}};
 }

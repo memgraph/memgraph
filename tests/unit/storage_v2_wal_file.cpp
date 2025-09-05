@@ -346,11 +346,17 @@ class DeltaGenerator final {
       }
       case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_CREATE: {
         apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
-          EncodeTextIndex(encoder, mapper_, memgraph::storage::TextIndexSpec{name, label_id, property_ids});
+          EncodeTextIndexSpec(encoder, mapper_, memgraph::storage::TextIndexSpec{name, label_id, property_ids});
         });
         break;
       }
-
+      case memgraph::storage::durability::StorageMetadataOperation::TEXT_EDGE_INDEX_CREATE: {
+        apply_encode(operation, [&](memgraph::storage::durability::BaseEncoder &encoder) {
+          EncodeTextEdgeIndexSpec(encoder, mapper_,
+                                  memgraph::storage::TextEdgeIndexSpec{name, *edge_type_id, property_ids});
+        });
+        break;
+      }
       case memgraph::storage::durability::StorageMetadataOperation::TEXT_INDEX_DROP: {
         apply_encode(operation,
                      [&](memgraph::storage::durability::BaseEncoder &encoder) { EncodeIndexName(encoder, name); });
@@ -453,6 +459,8 @@ class DeltaGenerator final {
             return {WalEdgePropertyIndexDrop{first_property}};
           case TEXT_INDEX_CREATE:
             return {WalTextIndexCreate{name, label, properties}};
+          case TEXT_EDGE_INDEX_CREATE:
+            return {WalTextEdgeIndexCreate{name, edge_type, properties}};
           case TEXT_INDEX_DROP:
             return {WalTextIndexDrop{name}};
           case EXISTENCE_CONSTRAINT_CREATE:

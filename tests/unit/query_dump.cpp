@@ -37,7 +37,6 @@
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge_accessor.hpp"
-#include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/temporal.hpp"
@@ -81,10 +80,16 @@ struct DatabaseState {
     std::vector<std::string> properties;
   };
 
-  struct TextItem {
+  struct TextNodeItem {
     std::string index_name;
     std::string label;
     std::optional<std::vector<std::string>> properties;
+  };
+
+  struct TextEdgeItem {
+    std::string index_name;
+    std::string edge_type;
+    std::vector<std::string> properties;
   };
 
   struct LabelPropertiesItem {
@@ -112,7 +117,8 @@ struct DatabaseState {
   std::set<Edge> edges;
   std::set<LabelItem> label_indices;
   std::set<OrderedLabelPropertiesItem> label_property_indices;
-  std::set<TextItem> text_indices;
+  std::set<TextNodeItem> text_indices;
+  std::set<TextEdgeItem> edge_text_indices;
   std::set<PointItem> point_indices;
   std::set<LabelPropertyItem> existence_constraints;
   std::set<LabelPropertiesItem> unique_constraints;
@@ -147,8 +153,12 @@ bool operator<(const DatabaseState::LabelPropertyItem &first, const DatabaseStat
   return first.property < second.property;
 }
 
-bool operator<(const DatabaseState::TextItem &first, const DatabaseState::TextItem &second) {
-  return first.index_name < second.index_name && first.label < second.label;
+bool operator<(const DatabaseState::TextNodeItem &first, const DatabaseState::TextNodeItem &second) {
+  return first.index_name < second.index_name;
+}
+
+bool operator<(const DatabaseState::TextEdgeItem &first, const DatabaseState::TextEdgeItem &second) {
+  return first.index_name < second.index_name;
 }
 
 bool operator<(const DatabaseState::PointItem &first, const DatabaseState::PointItem &second) {
@@ -188,8 +198,12 @@ bool operator==(const DatabaseState::LabelPropertyItem &first, const DatabaseSta
   return first.label == second.label && first.property == second.property;
 }
 
-bool operator==(const DatabaseState::TextItem &first, const DatabaseState::TextItem &second) {
-  return first.index_name == second.index_name && first.label == second.label;
+bool operator==(const DatabaseState::TextNodeItem &first, const DatabaseState::TextNodeItem &second) {
+  return first.index_name == second.index_name;
+}
+
+bool operator==(const DatabaseState::TextEdgeItem &first, const DatabaseState::TextEdgeItem &second) {
+  return first.index_name == second.index_name;
 }
 
 bool operator==(const DatabaseState::PointItem &first, const DatabaseState::PointItem &second) {
@@ -258,9 +272,9 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
   // Capture all indices
   std::set<DatabaseState::LabelItem> label_indices;
   std::set<DatabaseState::OrderedLabelPropertiesItem> label_properties_indices;
-  std::set<DatabaseState::TextItem> text_indices;
+  std::set<DatabaseState::TextNodeItem> text_indices;
   std::set<DatabaseState::PointItem> point_indices;
-  // TODO: where are the edge types indices?
+  std::set<DatabaseState::TextEdgeItem> text_edge_indices;
 
   {
     auto info = dba->ListAllIndices();
@@ -280,6 +294,11 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
     }
     for (const auto &item : info.point_label_property) {
       point_indices.insert({dba->LabelToName(item.first), dba->PropertyToName(item.second)});
+    }
+    for (const auto &[name, edge_type, properties] : info.text_edge_indices) {
+      auto prop_names =
+          properties | rv::transform([&](auto prop_id) { return dba->PropertyToName(prop_id); }) | r::to_vector;
+      text_edge_indices.emplace(name, dba->EdgeTypeToName(edge_type), std::move(prop_names));
     }
   }
 
@@ -304,9 +323,8 @@ DatabaseState GetState(memgraph::storage::Storage *db) {
     }
   }
 
-  return {vertices,        edges,         label_indices,         label_properties_indices,
-          text_indices,    point_indices, existence_constraints, unique_constraints,
-          type_constraints};
+  return {vertices,          edges,         label_indices,         label_properties_indices, text_indices,
+          text_edge_indices, point_indices, existence_constraints, unique_constraints,       type_constraints};
 }
 
 auto Execute(memgraph::query::InterpreterContext *context, memgraph::dbms::DatabaseAccess db,
@@ -1292,6 +1310,28 @@ TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
                                                                         {this->db->storage()->NameToProperty("name")}})
                      .HasError());
     ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+  // At the moment, text index on edges isn't supported for on-disk storage
+  if constexpr (std::is_same_v<StorageTypes, memgraph::storage::InMemoryStorage>) {
+    {
+      auto unique_acc = this->db->UniqueAccess();
+      ASSERT_FALSE(unique_acc
+                       ->CreateTextEdgeIndex(memgraph::storage::TextEdgeIndexSpec{
+                           "text_edge_index_without_properties", this->db->storage()->NameToEdgeType("RELATES_TO"), {}})
+                       .HasError());
+      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    }
+    {
+      auto unique_acc = this->db->UniqueAccess();
+      ASSERT_FALSE(
+          unique_acc
+              ->CreateTextEdgeIndex(memgraph::storage::TextEdgeIndexSpec{
+                  "text_edge_index_with_properties",
+                  this->db->storage()->NameToEdgeType("RELATES_TO"),
+                  {this->db->storage()->NameToProperty("title"), this->db->storage()->NameToProperty("content")}})
+              .HasError());
+      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    }
   }
 
   const auto &db_initial_state = GetState(this->db->storage());
