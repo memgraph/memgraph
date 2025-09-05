@@ -1,0 +1,184 @@
+// Copyright 2025 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
+
+#include <gtest/gtest.h>
+#include <latch>
+
+#include "storage/v2/inmemory/storage.hpp"
+#include "tests/test_commit_args_helper.hpp"
+
+namespace ms = memgraph::storage;
+
+// @TODO tests for non commutative ops, such as SetProp
+
+TEST(StorageV2Mvcc, CanUpdateAnObjectWithNoDeltas) {
+  auto storage = std::make_unique<ms::InMemoryStorage>(ms::Config{});
+
+  ms::Gid v1_gid, v2_gid;
+  {
+    auto acc = storage->Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  auto acc = storage->Access();
+  auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
+  auto v2 = acc->FindVertex(v2_gid, ms::View::OLD);
+  ASSERT_TRUE(v1.has_value() && v2.has_value());
+
+  auto edge_result = acc->CreateEdge(&*v1, &*v2, acc->NameToEdgeType("TestEdge"));
+  EXPECT_TRUE(edge_result.HasValue());
+}
+
+TEST(StorageV2Mvcc, CanUpdateAnObjectWithCommittedDeltas) {
+  auto storage = std::make_unique<ms::InMemoryStorage>(ms::Config{});
+
+  ms::Gid v1_gid, v2_gid;
+  {
+    auto acc = storage->Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+
+    auto edge_result = acc->CreateEdge(&v1, &v2, acc->NameToEdgeType("Edge1"));
+    ASSERT_TRUE(edge_result.HasValue());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  auto acc = storage->Access();
+  auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
+  auto v2 = acc->FindVertex(v2_gid, ms::View::OLD);
+  ASSERT_TRUE(v1.has_value() && v2.has_value());
+
+  auto edge_result = acc->CreateEdge(&*v1, &*v2, acc->NameToEdgeType("Edge2"));
+  EXPECT_TRUE(edge_result.HasValue());
+}
+
+TEST(StorageV2Mvcc, CanWaitForUncommittedCommutativeTransaction) {
+  auto storage = std::make_unique<ms::InMemoryStorage>(ms::Config{});
+
+  ms::Gid v1_gid, v2_gid;
+  {
+    auto acc = storage->Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  std::latch t2_started{2};
+  std::jthread t2([&]() {
+    auto acc2 = storage->Access();
+    auto v1_acc2 = acc2->FindVertex(v1_gid, ms::View::OLD);
+    auto v2_acc2 = acc2->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1_acc2.has_value() && v2_acc2.has_value());
+
+    t2_started.arrive_and_wait();
+
+    auto edge2_result = acc2->CreateEdge(&*v1_acc2, &*v2_acc2, acc2->NameToEdgeType("Edge2"));
+    EXPECT_TRUE(edge2_result.HasValue());
+  });
+
+  {
+    auto acc1 = storage->Access();
+    auto v1_acc1 = acc1->FindVertex(v1_gid, ms::View::OLD);
+    auto v2_acc1 = acc1->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1_acc1.has_value() && v2_acc1.has_value());
+
+    auto edge1_result = acc1->CreateEdge(&*v1_acc1, &*v2_acc1, acc1->NameToEdgeType("Edge1"));
+    ASSERT_TRUE(edge1_result.HasValue());
+
+    t2_started.arrive_and_wait();
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    ASSERT_FALSE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  t2.join();
+}
+
+TEST(StorageV2Mvcc, TwoWayCircularDependencyDetected) {
+  auto storage = std::make_unique<ms::InMemoryStorage>(ms::Config{});
+
+  ms::Gid a_gid, b_gid, c_gid, d_gid;
+  {
+    auto acc = storage->Access();
+    auto a = acc->CreateVertex();
+    auto b = acc->CreateVertex();
+    auto c = acc->CreateVertex();
+    auto d = acc->CreateVertex();
+    a_gid = a.Gid();
+    b_gid = b.Gid();
+    c_gid = c.Gid();
+    d_gid = d.Gid();
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  std::latch all_initial_edges_created{2};
+  std::latch all_final_edges_created{2};  // @TODO rename
+  std::atomic<int> conflicts_detected{0};
+
+  {
+    std::jthread t1([&]() {
+      auto acc1 = storage->Access();
+      auto a = acc1->FindVertex(a_gid, ms::View::OLD);
+      auto b = acc1->FindVertex(b_gid, ms::View::OLD);
+      auto c = acc1->FindVertex(c_gid, ms::View::OLD);
+      auto d = acc1->FindVertex(d_gid, ms::View::OLD);
+      ASSERT_TRUE(a.has_value() && b.has_value() && c.has_value() && d.has_value());
+
+      auto edge1_result = acc1->CreateEdge(&*a, &*b, acc1->NameToEdgeType("AB"));
+      ASSERT_TRUE(edge1_result.HasValue());
+
+      all_initial_edges_created.arrive_and_wait();
+
+      auto edge2_result = acc1->CreateEdge(&*c, &*d, acc1->NameToEdgeType("CD_from_T1"));
+      if (edge2_result.HasError() && edge2_result.GetError() == ms::Error::SERIALIZATION_ERROR) {
+        conflicts_detected++;
+        acc1.reset();
+      } else {
+        ASSERT_FALSE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      }
+      all_final_edges_created.arrive_and_wait();
+    });
+
+    std::jthread t2([&]() {
+      auto acc2 = storage->Access();
+      auto a = acc2->FindVertex(a_gid, ms::View::OLD);
+      auto b = acc2->FindVertex(b_gid, ms::View::OLD);
+      auto c = acc2->FindVertex(c_gid, ms::View::OLD);
+      auto d = acc2->FindVertex(d_gid, ms::View::OLD);
+      ASSERT_TRUE(a.has_value() && b.has_value() && c.has_value() && d.has_value());
+
+      auto edge1_result = acc2->CreateEdge(&*c, &*d, acc2->NameToEdgeType("CD"));
+      ASSERT_TRUE(edge1_result.HasValue());
+
+      all_initial_edges_created.arrive_and_wait();
+
+      auto edge2_result = acc2->CreateEdge(&*a, &*b, acc2->NameToEdgeType("AB_from_T2"));
+      if (edge2_result.HasError() && edge2_result.GetError() == ms::Error::SERIALIZATION_ERROR) {
+        conflicts_detected++;
+        acc2.reset();
+      } else {
+        ASSERT_FALSE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      }
+      all_final_edges_created.arrive_and_wait();
+    });
+  }
+
+  EXPECT_GE(conflicts_detected.load(), 1);
+}
