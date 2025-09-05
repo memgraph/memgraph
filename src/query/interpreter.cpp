@@ -4100,7 +4100,7 @@ PreparedQuery PrepareDropAllConstraintsQuery(ParsedQuery parsed_query, bool in_e
         notifications->push_back(constraint_notification);
         return QueryHandlerResult::COMMIT;
       },
-      RWType::W};
+      RWType::NONE};
 }
 
 #ifdef MG_ENTERPRISE
