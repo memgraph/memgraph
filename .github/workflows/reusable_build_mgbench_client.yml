@@ -130,3 +130,7 @@ jobs:
         with:
           name: ${{ env.IMAGE_NAME }}
           path: ${{ env.IMAGE_NAME }}
+
+      - name: Clean up Docker
+        run: |
+          ./tools/docker_cleanup.sh
