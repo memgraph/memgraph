@@ -9,10 +9,8 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <algorithm>
 #include <cmath>
 #include <iostream>
-#include <numeric>
 #include <string_view>
 
 #include <mgp.hpp>
@@ -136,48 +134,39 @@ void VectorSearch::CosineSimilarity(mgp_list *args, mgp_graph * /*memgraph_graph
   try {
     const auto vector1 = arguments[0].ValueList();
     const auto vector2 = arguments[1].ValueList();
-
     if (vector1.Size() == 0 || vector1.Size() != vector2.Size()) {
       throw std::invalid_argument("Vectors must be non-empty and have the same dimension");
     }
 
-    std::vector<double> v1;
-    std::vector<double> v2;
-    v1.reserve(vector1.Size());
-    v2.reserve(vector2.Size());
+    auto dot_product = 0.0;
+    auto magnitude1 = 0.0;
+    auto magnitude2 = 0.0;
+    for (auto i = 0; i < vector1.Size(); ++i) {
+      auto get_numeric_value = [&](const mgp::Value &val) {
+        if (val.IsDouble()) {
+          return val.ValueDouble();
+        }
+        if (val.IsInt()) {
+          return static_cast<double>(val.ValueInt());
+        }
+        throw std::invalid_argument("Vector elements must be numeric (int or double)");
+      };
+      const auto val1 = get_numeric_value(vector1[i]);
+      const auto val2 = get_numeric_value(vector2[i]);
 
-    std::transform(vector1.begin(), vector1.end(), std::back_inserter(v1), [](const auto &val) {
-      if (val.IsDouble()) {
-        return val.ValueDouble();
-      }
-      if (val.IsInt()) {
-        return static_cast<double>(val.ValueInt());
-      }
-      throw std::invalid_argument("Vector elements must be numeric (int or double)");
-    });
-    std::transform(vector2.begin(), vector2.end(), std::back_inserter(v2), [](const auto &val) {
-      if (val.IsDouble()) {
-        return val.ValueDouble();
-      }
-      if (val.IsInt()) {
-        return static_cast<double>(val.ValueInt());
-      }
-      throw std::invalid_argument("Vector elements must be numeric (int or double)");
-    });
-
-    const auto dot_product = std::inner_product(v1.begin(), v1.end(), v2.begin(), 0.0);
-
-    const auto magnitude1 = std::sqrt(std::inner_product(v1.begin(), v1.end(), v1.begin(), 0.0));
-    const auto magnitude2 = std::sqrt(std::inner_product(v2.begin(), v2.end(), v2.begin(), 0.0));
-
-    if (magnitude1 == 0.0 || magnitude2 == 0.0) {
+      dot_product += val1 * val2;
+      magnitude1 += val1 * val1;
+      magnitude2 += val2 * val2;
+    }
+    magnitude1 = std::sqrt(magnitude1);
+    magnitude2 = std::sqrt(magnitude2);
+    if (magnitude1 == 0.0 || magnitude2 == 0.0) [[unlikely]] {
       throw std::invalid_argument("Cannot calculate cosine similarity for zero vectors");
     }
 
     const auto cosine_similarity = dot_product / (magnitude1 * magnitude2);
     auto record = record_factory.NewRecord();
     record.Insert(VectorSearch::kReturnSimilarity.data(), cosine_similarity);
-
   } catch (const std::exception &e) {
     record_factory.SetErrorMessage(e.what());
   }
