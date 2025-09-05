@@ -31,6 +31,50 @@ BUILD_DIR = os.path.join(BASE_DIR, "build")
 LOG_LEVEL = "TRACE"
 
 
+def check_server_process(process):
+    # Check if the process is still running
+    print("Memgraph PID: ", process.pid, flush=True)
+    exit_code = process.poll()
+    if exit_code is None:
+        print("Process is still running but server is not responding", flush=True)
+        
+        # Get basic process information using standard library
+        try:
+            # Try to send signal 0 to check if process exists
+            os.kill(process.pid, 0)
+            print("Process exists and is accessible", flush=True)
+            
+            # Try to get process info from /proc (Linux only)
+            try:
+                with open(f"/proc/{process.pid}/stat", "r") as f:
+                    stat_info = f.read().split()
+                    if len(stat_info) > 2:
+                        state = stat_info[2]
+                        print(f"Process state from /proc: {state}", flush=True)
+                        if state == 'Z':
+                            print("WARNING: Process is in zombie state!", flush=True)
+                        elif state == 'T':
+                            print("Process is stopped", flush=True)
+                        elif state == 'S':
+                            print("Process is sleeping", flush=True)
+                        elif state == 'R':
+                            print("Process is running", flush=True)
+            except (FileNotFoundError, PermissionError):
+                print("Cannot access /proc info (not Linux or no permission)", flush=True)
+                
+        except ProcessLookupError:
+            print("Process no longer exists", flush=True)
+        except PermissionError:
+            print("No permission to check process", flush=True)
+        except Exception as e:
+            print(f"Could not get process details: {e}", flush=True)
+            
+    else:
+        print(f"Process has exited with code: {exit_code}", flush=True)
+    
+    return exit_code
+
+
 def wait_for_server(port, process, delay=0.01):
     cmd = ["nc", "-z", "-w", "1", "127.0.0.1", str(port)]
     count = 0
@@ -39,45 +83,12 @@ def wait_for_server(port, process, delay=0.01):
         if count > 20 / 0.01:
             print("Could not wait for server on port", port, "to startup!", flush=True)
             
-            # Check if the process is still running
-            print("Memgraph PID: ", process.pid, flush=True)
-            exit_code = process.poll()
+            exit_code = check_server_process(process)
+
             if exit_code is None:
-                print("Process is still running but server is not responding", flush=True)
-                
-                # Get basic process information using standard library
-                try:
-                    # Try to send signal 0 to check if process exists
-                    os.kill(process.pid, 0)
-                    print("Process exists and is accessible", flush=True)
-                    
-                    # Try to get process info from /proc (Linux only)
-                    try:
-                        with open(f"/proc/{process.pid}/stat", "r") as f:
-                            stat_info = f.read().split()
-                            if len(stat_info) > 2:
-                                state = stat_info[2]
-                                print(f"Process state from /proc: {state}", flush=True)
-                                if state == 'Z':
-                                    print("WARNING: Process is in zombie state!", flush=True)
-                                elif state == 'T':
-                                    print("Process is stopped", flush=True)
-                                elif state == 'S':
-                                    print("Process is sleeping", flush=True)
-                                elif state == 'R':
-                                    print("Process is running", flush=True)
-                    except (FileNotFoundError, PermissionError):
-                        print("Cannot access /proc info (not Linux or no permission)", flush=True)
-                        
-                except ProcessLookupError:
-                    print("Process no longer exists", flush=True)
-                except PermissionError:
-                    print("No permission to check process", flush=True)
-                except Exception as e:
-                    print(f"Could not get process details: {e}", flush=True)
-                    
-            else:
-                print(f"Process has exited with code: {exit_code}", flush=True)
+                print("Waiting for 10 seconds to see if the process is still running...", flush=True)
+                time.sleep(10)
+                check_server_process(process)
             
             sys.stdout.flush()
             sys.stderr.flush()
