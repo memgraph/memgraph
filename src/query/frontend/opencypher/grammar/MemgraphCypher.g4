@@ -24,7 +24,6 @@ memgraphCypherKeyword : cypherKeyword
                       | ACTIVE
                       | ADD
                       | AFTER
-                      | ALL
                       | ALTER
                       | ANALYZE
                       | ASYNC
