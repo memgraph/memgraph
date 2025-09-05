@@ -66,6 +66,8 @@ namespace rv = r::views;
 
 namespace memgraph::metrics {
 extern const Event PeakMemoryRes;
+extern const Event GCLatency_us;
+extern const Event GCSkiplistCleanupLatency_us;
 }  // namespace memgraph::metrics
 
 namespace memgraph::storage {
@@ -2038,9 +2040,14 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   }
 
   // Diagnostic trace
+  const utils::Timer timer;
   spdlog::trace("Storage GC on '{}' started [{}]", name(), periodic ? "periodic" : "forced");
-  auto trace_on_exit = utils::OnScopeExit{
-      [&] { spdlog::trace("Storage GC on '{}' finished [{}]", name(), periodic ? "periodic" : "forced"); }};
+  auto trace_on_exit = utils::OnScopeExit{[&] {
+    auto elapsed = std::chrono::duration_cast<std::chrono::microseconds>(timer.Elapsed());
+    memgraph::metrics::Measure(memgraph::metrics::GCLatency_us, elapsed.count());
+    spdlog::trace("Storage GC on '{}' finished [{}]. Duration: {:.3f}s", name(), periodic ? "periodic" : "forced",
+                  std::chrono::duration<double>(elapsed).count());
+  }};
 
   // Garbage collection must be performed in two phases. In the first phase,
   // deltas that won't be applied by any transaction anymore are unlinked from
@@ -2264,6 +2271,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
 
   // Used to determine whether the Index GC should be run for performance reasons (removing redundant entries). It
   // should be run when hinted by FastDiscardOfDeltas or by the deltas we processed this GC run.
+  const utils::Timer skiplist_cleanup_timer;
   auto index_cleanup_vertex_performance =
       gc_index_cleanup_vertex_performance_.exchange(false, std::memory_order_acq_rel) ||
       index_impact.impacts_vertex_indexes();
@@ -2286,6 +2294,9 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       indices_.RemoveObsoleteEdgeEntries(oldest_active_start_timestamp, token);
     }
   }
+  memgraph::metrics::Measure(
+      memgraph::metrics::GCSkiplistCleanupLatency_us,
+      std::chrono::duration_cast<std::chrono::microseconds>(skiplist_cleanup_timer.Elapsed()).count());
 
   {
     auto guard = std::unique_lock{engine_lock_};

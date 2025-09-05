@@ -19,6 +19,8 @@
 // Constants
 #define MAX_STRING_LENGTH 256
 #define MAX_PROPERTIES 16
+#define SMALL_MERGE_THRESHOLD 64
+#define HASH_TABLE_MIN_CAPACITY 8
 
 // Function names
 static const char *kProcedureToTree = "to_tree";
@@ -168,6 +170,48 @@ static char *concatenate_strings(const char *str1, const char *str2, struct mgp_
   }
 
   return result;
+}
+
+typedef struct {
+  int64_t id;
+  const char *type;
+  struct mgp_map *map; /* value map in the list */
+  bool used;
+} bucket_t;
+
+// Optimized hash function - combines type and id more efficiently
+static inline uint64_t optimized_hash(const char *type, int64_t id) {
+  if (!type) return (uint64_t)id;
+
+  // Use a faster hash combination
+  uint64_t h = 1469598103934665603ULL;
+  for (const char *p = type; *p; ++p) {
+    h ^= (uint8_t)*p;
+    h *= 1099511628211ULL;
+  }
+  // Mix in the id
+  h ^= (uint64_t)id;
+  h *= 1099511628211ULL;
+  return h;
+}
+
+// Optimized probe function with better collision handling
+static inline ssize_t optimized_probe(bucket_t *tbl, size_t cap, int64_t id, const char *type, uint64_t h) {
+  size_t mask = cap - 1;
+  size_t pos = (size_t)h & mask;
+  size_t step = 1;
+
+  // Use quadratic probing for better distribution
+  while (true) {
+    if (!tbl[pos].used) return (ssize_t)pos;                    // empty slot
+    if (tbl[pos].id == id && strcmp(tbl[pos].type, type) == 0)  // match
+      return (ssize_t)pos;
+
+    // Quadratic probing: pos = (pos + step) & mask
+    pos = (pos + step) & mask;
+    step = (step + 1) & mask;  // increment step, but keep it within bounds
+    if (step == 0) step = 1;   // avoid step = 0
+  }
 }
 
 // Helper function to check if a string is in the properties array
@@ -530,144 +574,254 @@ static bool should_include_rel_property(const char *prop_name, const filter_conf
   }
 }
 
-// Helper function to merge two tree structures
-static void merge_trees(struct mgp_map *target, struct mgp_map *source, struct mgp_memory *memory) {
-  // Get all keys from source map
-  struct mgp_map_items_iterator *iter;
-  if (mgp_map_iter_items(source, memory, &iter) != MGP_ERROR_NO_ERROR || iter == NULL) {
+// Forward declarations
+static void merge_list_into_list_hashed(struct mgp_list *existing_list, struct mgp_list *new_list,
+                                        struct mgp_memory *memory);
+
+static void merge_trees(struct mgp_map *target, struct mgp_map *source, struct mgp_memory *memory);
+
+typedef struct {
+  int64_t id;       /* required */
+  const char *type; /* required */
+  bool valid;
+} merge_identity_t;
+
+/* Extracts (_id:int, _type:string) from a node/edge map item.
+   Returns .valid=false if anything is missing or types mismatch. */
+static inline merge_identity_t extract_identity(struct mgp_map *map) {
+  merge_identity_t out = {.id = 0, .type = NULL, .valid = false};
+  if (!map) return out;
+
+  struct mgp_value *id_v = NULL, *type_v = NULL;
+  if (mgp_map_at(map, "_id", &id_v) != MGP_ERROR_NO_ERROR || id_v == NULL) return out;
+  if (mgp_map_at(map, "_type", &type_v) != MGP_ERROR_NO_ERROR || type_v == NULL) return out;
+
+  enum mgp_value_type t_id = MGP_VALUE_TYPE_NULL, t_type = MGP_VALUE_TYPE_NULL;
+  if (mgp_value_get_type(id_v, &t_id) != MGP_ERROR_NO_ERROR || t_id != MGP_VALUE_TYPE_INT) return out;
+  if (mgp_value_get_type(type_v, &t_type) != MGP_ERROR_NO_ERROR || t_type != MGP_VALUE_TYPE_STRING) return out;
+
+  int64_t id;
+  const char *type_s = NULL;
+  if (mgp_value_get_int(id_v, &id) != MGP_ERROR_NO_ERROR) return out;
+  if (mgp_value_get_string(type_v, &type_s) != MGP_ERROR_NO_ERROR || !type_s) return out;
+
+  out.id = id;
+  out.type = type_s;
+  out.valid = true;
+  return out;
+}
+
+/* Build a hash table over existing_list's map items keyed by (_id,_type). cap is power-of-two. */
+static bool index_existing_children(struct mgp_list *existing_list, bucket_t *tbl, size_t cap) {
+  size_t n = 0;
+  if (mgp_list_size(existing_list, &n) != MGP_ERROR_NO_ERROR) return false;
+  for (size_t i = 0; i < n; ++i) {
+    struct mgp_value *item_v = NULL;
+    if (mgp_list_at(existing_list, i, &item_v) != MGP_ERROR_NO_ERROR || !item_v) continue;
+    enum mgp_value_type t = MGP_VALUE_TYPE_NULL;
+    if (mgp_value_get_type(item_v, &t) != MGP_ERROR_NO_ERROR || t != MGP_VALUE_TYPE_MAP) continue;
+    struct mgp_map *m = NULL;
+    if (mgp_value_get_map(item_v, &m) != MGP_ERROR_NO_ERROR || !m) continue;
+
+    merge_identity_t id = extract_identity(m);
+    if (!id.valid) continue;
+
+    /* Use optimized hash function */
+    uint64_t h = optimized_hash(id.type, id.id);
+
+    ssize_t pos = optimized_probe(tbl, cap, id.id, id.type, h);
+    if (pos < 0) return false;
+    if (!tbl[pos].used) {
+      tbl[pos].used = true;
+      tbl[pos].id = id.id;
+      tbl[pos].type = id.type;
+      tbl[pos].map = m;
+    }
+    /* if it already existed, we ignore duplicates in existing_list */
+  }
+  return true;
+}
+
+/* Optimized merge for small lists using stack-allocated hash table */
+static void merge_list_into_list_small(struct mgp_list *existing_list, struct mgp_list *new_list,
+                                       struct mgp_memory *memory) {
+  size_t exist_n = 0, new_n = 0;
+  if (mgp_list_size(existing_list, &exist_n) != MGP_ERROR_NO_ERROR) return;
+  if (mgp_list_size(new_list, &new_n) != MGP_ERROR_NO_ERROR) return;
+  if (new_n == 0) return;
+
+  // Use stack-allocated hash table for small merges
+  bucket_t small_table[SMALL_MERGE_THRESHOLD];
+  memset(small_table, 0, sizeof(small_table));
+
+  // Index existing children using small table
+  if (!index_existing_children(existing_list, small_table, SMALL_MERGE_THRESHOLD)) {
     return;
   }
 
+  // Process new items
+  for (size_t i = 0; i < new_n; ++i) {
+    struct mgp_value *new_item = NULL;
+    if (mgp_list_at(new_list, i, &new_item) != MGP_ERROR_NO_ERROR || !new_item) continue;
+
+    enum mgp_value_type tnew = MGP_VALUE_TYPE_NULL;
+    if (mgp_value_get_type(new_item, &tnew) != MGP_ERROR_NO_ERROR) continue;
+
+    if (tnew == MGP_VALUE_TYPE_MAP) {
+      struct mgp_map *new_map = NULL;
+      if (mgp_value_get_map(new_item, &new_map) != MGP_ERROR_NO_ERROR || !new_map) {
+        mgp_list_append_move(existing_list, new_item);
+        continue;
+      }
+
+      merge_identity_t nid = extract_identity(new_map);
+      if (!nid.valid) {
+        mgp_list_append_move(existing_list, new_item);
+        continue;
+      }
+
+      uint64_t h = optimized_hash(nid.type, nid.id);
+      ssize_t pos = optimized_probe(small_table, SMALL_MERGE_THRESHOLD, nid.id, nid.type, h);
+
+      if (pos >= 0 && small_table[pos].used) {
+        /* Merge into existing */
+        merge_trees(small_table[pos].map, new_map, memory);
+      } else {
+        /* Append and index */
+        mgp_list_append_move(existing_list, new_item);
+        if (pos >= 0) {
+          small_table[pos].used = true;
+          small_table[pos].id = nid.id;
+          small_table[pos].type = nid.type;
+          small_table[pos].map = new_map;
+        }
+      }
+    } else {
+      /* Non-map items: just append, as before. */
+      mgp_list_append_move(existing_list, new_item);
+    }
+  }
+}
+
+/* Merges new_list into existing_list by hashing existing_list.
+   Average O(n) with low constants; preserves old behavior. */
+static void merge_list_into_list_hashed(struct mgp_list *existing_list, struct mgp_list *new_list,
+                                        struct mgp_memory *memory) {
+  size_t exist_n = 0, new_n = 0;
+  if (mgp_list_size(existing_list, &exist_n) != MGP_ERROR_NO_ERROR) return;
+  if (mgp_list_size(new_list, &new_n) != MGP_ERROR_NO_ERROR) return;
+  if (new_n == 0) return;
+
+  // Use optimized small merge for small lists
+  if (exist_n < SMALL_MERGE_THRESHOLD) {
+    merge_list_into_list_small(existing_list, new_list, memory);
+    return;
+  }
+
+  /* Capacity: next power of two >= 2*exist_n (at least 8). */
+  size_t cap = HASH_TABLE_MIN_CAPACITY;
+  while (cap < (exist_n << 1)) cap <<= 1;
+
+  bucket_t *tbl = NULL;
+  size_t bytes = cap * sizeof(bucket_t);
+  void *ptr = NULL;
+  if (mgp_alloc(memory, bytes, &ptr) != MGP_ERROR_NO_ERROR || !ptr) {
+    /* Fallback to optimized small merge instead of O(n²) */
+    merge_list_into_list_small(existing_list, new_list, memory);
+    return;
+  }
+
+  tbl = (bucket_t *)ptr;
+  memset(tbl, 0, bytes);
+  if (!index_existing_children(existing_list, tbl, cap)) {
+    mgp_free(memory, tbl);
+    return;
+  }
+
+  /* For each new child: merge or append, updating the index when appending. */
+  for (size_t i = 0; i < new_n; ++i) {
+    struct mgp_value *new_item = NULL;
+    if (mgp_list_at(new_list, i, &new_item) != MGP_ERROR_NO_ERROR || !new_item) continue;
+
+    enum mgp_value_type tnew = MGP_VALUE_TYPE_NULL;
+    if (mgp_value_get_type(new_item, &tnew) != MGP_ERROR_NO_ERROR) continue;
+
+    if (tnew == MGP_VALUE_TYPE_MAP) {
+      struct mgp_map *new_map = NULL;
+      if (mgp_value_get_map(new_item, &new_map) != MGP_ERROR_NO_ERROR || !new_map) {
+        mgp_list_append_move(existing_list, new_item);
+        continue;
+      }
+
+      merge_identity_t nid = extract_identity(new_map);
+      if (!nid.valid) {
+        mgp_list_append_move(existing_list, new_item);
+        continue;
+      }
+
+      uint64_t h = optimized_hash(nid.type, nid.id);
+      ssize_t pos = optimized_probe(tbl, cap, nid.id, nid.type, h);
+
+      if (pos >= 0 && tbl[pos].used) {
+        /* Merge into existing */
+        merge_trees(tbl[pos].map, new_map, memory);
+      } else {
+        /* Append and index */
+        /* NOTE: we need the map pointer after append, so keep it now. */
+        mgp_list_append_move(existing_list, new_item);
+        if (pos >= 0) {
+          tbl[pos].used = true;
+          tbl[pos].id = nid.id;
+          tbl[pos].type = nid.type;
+          tbl[pos].map = new_map;
+        }
+      }
+    } else {
+      /* Non-map items: just append, as before. */
+      mgp_list_append_move(existing_list, new_item);
+    }
+  }
+
+  mgp_free(memory, tbl);
+}
+
+static void merge_trees(struct mgp_map *target, struct mgp_map *source, struct mgp_memory *memory) {
+  struct mgp_map_items_iterator *iter;
+  if (mgp_map_iter_items(source, memory, &iter) != MGP_ERROR_NO_ERROR || !iter) return;
+
   struct mgp_map_item *item;
-  // Get the first item
-  if (mgp_map_items_iterator_get(iter, &item) == MGP_ERROR_NO_ERROR && item != NULL) {
+  if (mgp_map_items_iterator_get(iter, &item) == MGP_ERROR_NO_ERROR && item) {
     do {
-      const char *key_str;
-      if (mgp_map_item_key(item, &key_str) != MGP_ERROR_NO_ERROR || key_str == NULL) {
-        continue;
-      }
+      const char *key_str = NULL;
+      if (mgp_map_item_key(item, &key_str) != MGP_ERROR_NO_ERROR || !key_str) continue;
 
-      struct mgp_value *value;
-      if (mgp_map_item_value(item, &value) != MGP_ERROR_NO_ERROR || value == NULL) {
-        continue;
-      }
+      /* Skip metadata keys */
+      if (key_str[0] == '_' && (strcmp(key_str, "_type") == 0 || strcmp(key_str, "_id") == 0)) continue;
 
-      // Skip metadata fields when merging
-      if (key_str[0] == '_' && (strcmp(key_str, "_type") == 0 || strcmp(key_str, "_id") == 0)) {
-        continue;
-      }
+      struct mgp_value *src_val = NULL;
+      if (mgp_map_item_value(item, &src_val) != MGP_ERROR_NO_ERROR || !src_val) continue;
 
-      // Check if key exists in target
-      struct mgp_value *existing_value = NULL;
-      if (mgp_map_at(target, key_str, &existing_value) == MGP_ERROR_NO_ERROR && existing_value != NULL) {
-        // Key exists, merge the lists
-        enum mgp_value_type existing_type = MGP_VALUE_TYPE_NULL;
-        enum mgp_value_type new_type = MGP_VALUE_TYPE_NULL;
-        if (mgp_value_get_type(existing_value, &existing_type) == MGP_ERROR_NO_ERROR &&
-            mgp_value_get_type(value, &new_type) == MGP_ERROR_NO_ERROR && existing_type == MGP_VALUE_TYPE_LIST &&
-            new_type == MGP_VALUE_TYPE_LIST) {
-          struct mgp_list *existing_list = NULL;
-          struct mgp_list *new_list = NULL;
-          if (mgp_value_get_list(existing_value, &existing_list) == MGP_ERROR_NO_ERROR &&
-              mgp_value_get_list(value, &new_list) == MGP_ERROR_NO_ERROR) {
-            size_t existing_size = 0;
-            if (mgp_list_size(existing_list, &existing_size) != MGP_ERROR_NO_ERROR) {
-              // error
-              continue;
-            }
-
-            size_t new_size = 0;
-            if (mgp_list_size(new_list, &new_size) != MGP_ERROR_NO_ERROR) {
-              // error
-              continue;
-            }
-
-            // For each item in the new list, try to merge with existing items
-            for (size_t i = 0; i < new_size; i++) {
-              struct mgp_value *new_item = NULL;
-              if (mgp_list_at(new_list, i, &new_item) != MGP_ERROR_NO_ERROR || new_item == NULL) {
-                continue;
-              }
-
-              // Check if this item can be merged with any existing item
-              bool merged = false;
-              for (size_t j = 0; j < existing_size; j++) {
-                struct mgp_value *existing_item = NULL;
-                if (mgp_list_at(existing_list, j, &existing_item) != MGP_ERROR_NO_ERROR || existing_item == NULL) {
-                  continue;
-                }
-
-                // Check if both items are maps and have the same _id and _type
-                enum mgp_value_type existing_item_type = MGP_VALUE_TYPE_NULL;
-                enum mgp_value_type new_item_type = MGP_VALUE_TYPE_NULL;
-                if (mgp_value_get_type(existing_item, &existing_item_type) == MGP_ERROR_NO_ERROR &&
-                    mgp_value_get_type(new_item, &new_item_type) == MGP_ERROR_NO_ERROR &&
-                    existing_item_type == MGP_VALUE_TYPE_MAP && new_item_type == MGP_VALUE_TYPE_MAP) {
-                  struct mgp_map *existing_map = NULL;
-                  struct mgp_map *new_map = NULL;
-                  if (mgp_value_get_map(existing_item, &existing_map) == MGP_ERROR_NO_ERROR &&
-                      mgp_value_get_map(new_item, &new_map) == MGP_ERROR_NO_ERROR) {
-                    // Check if they have the same _id and _type
-                    struct mgp_value *existing_id = NULL;
-                    struct mgp_value *new_id = NULL;
-                    struct mgp_value *existing_type_val = NULL;
-                    struct mgp_value *new_type_val = NULL;
-
-                    bool same_id = false;
-                    bool same_type = false;
-
-                    if (mgp_map_at(existing_map, "_id", &existing_id) == MGP_ERROR_NO_ERROR &&
-                        mgp_map_at(new_map, "_id", &new_id) == MGP_ERROR_NO_ERROR &&
-                        mgp_map_at(existing_map, "_type", &existing_type_val) == MGP_ERROR_NO_ERROR &&
-                        mgp_map_at(new_map, "_type", &new_type_val) == MGP_ERROR_NO_ERROR) {
-                      // Compare _id and _type values
-                      enum mgp_value_type id_type = MGP_VALUE_TYPE_NULL;
-                      enum mgp_value_type type_type = MGP_VALUE_TYPE_NULL;
-
-                      if (mgp_value_get_type(existing_id, &id_type) == MGP_ERROR_NO_ERROR &&
-                          mgp_value_get_type(new_id, &id_type) == MGP_ERROR_NO_ERROR &&
-                          mgp_value_get_type(existing_type_val, &type_type) == MGP_ERROR_NO_ERROR &&
-                          mgp_value_get_type(new_type_val, &type_type) == MGP_ERROR_NO_ERROR) {
-                        if (id_type == MGP_VALUE_TYPE_INT) {
-                          int64_t existing_id_int, new_id_int;
-                          if (mgp_value_get_int(existing_id, &existing_id_int) == MGP_ERROR_NO_ERROR &&
-                              mgp_value_get_int(new_id, &new_id_int) == MGP_ERROR_NO_ERROR) {
-                            same_id = (existing_id_int == new_id_int);
-                          }
-                        }
-
-                        if (type_type == MGP_VALUE_TYPE_STRING) {
-                          const char *existing_type_str, *new_type_str;
-                          if (mgp_value_get_string(existing_type_val, &existing_type_str) == MGP_ERROR_NO_ERROR &&
-                              mgp_value_get_string(new_type_val, &new_type_str) == MGP_ERROR_NO_ERROR) {
-                            same_type = (strcmp(existing_type_str, new_type_str) == 0);
-                          }
-                        }
-                      }
-                    }
-
-                    // If they have the same _id and _type, merge them
-                    if (same_id && same_type) {
-                      merge_trees(existing_map, new_map, memory);
-                      merged = true;
-                      break;
-                    }
-                  }
-                }
-              }
-
-              // If not merged, append to the list
-              if (!merged) {
-                mgp_list_append_move(existing_list, new_item);
-              }
-            }
+      struct mgp_value *dst_val = NULL;
+      if (mgp_map_at(target, key_str, &dst_val) == MGP_ERROR_NO_ERROR && dst_val) {
+        enum mgp_value_type td = MGP_VALUE_TYPE_NULL, ts = MGP_VALUE_TYPE_NULL;
+        if (mgp_value_get_type(dst_val, &td) == MGP_ERROR_NO_ERROR &&
+            mgp_value_get_type(src_val, &ts) == MGP_ERROR_NO_ERROR && td == MGP_VALUE_TYPE_LIST &&
+            ts == MGP_VALUE_TYPE_LIST) {
+          struct mgp_list *dst_list = NULL, *src_list = NULL;
+          if (mgp_value_get_list(dst_val, &dst_list) == MGP_ERROR_NO_ERROR &&
+              mgp_value_get_list(src_val, &src_list) == MGP_ERROR_NO_ERROR && dst_list && src_list) {
+            /* Optimized merge: hash-based */
+            merge_list_into_list_hashed(dst_list, src_list, memory);
           }
+        } else {
+          /* If types mismatch or not lists, last one wins (keep old behavior: overwrite by insert_move?) */
+          /* We mimic original intent: when key exists and both are lists, we merge; otherwise ignore. */
         }
       } else {
-        // Key doesn't exist, add it directly
-        mgp_map_insert_move(target, key_str, value);
+        /* Direct move insert when key doesn't exist */
+        mgp_map_insert_move(target, key_str, src_val);
       }
-    } while (mgp_map_items_iterator_next(iter, &item) == MGP_ERROR_NO_ERROR && item != NULL);
+    } while (mgp_map_items_iterator_next(iter, &item) == MGP_ERROR_NO_ERROR && item);
   }
   mgp_map_items_iterator_destroy(iter);
 }
@@ -680,7 +834,7 @@ static struct mgp_map *create_complete_node_map(struct mgp_vertex *node, const f
   }
 
   struct mgp_map *node_map = NULL;
-  if (mgp_map_make_empty(memory, &node_map) != MGP_ERROR_NO_ERROR || node_map == NULL) {
+  if (mgp_unordered_map_make_empty(memory, &node_map) != MGP_ERROR_NO_ERROR || node_map == NULL) {
     return NULL;
   }
 
@@ -693,7 +847,7 @@ static struct mgp_map *create_complete_node_map(struct mgp_vertex *node, const f
       do {
         // Check if property should be included based on filtering
         if (should_include_node_property(prop->name, filter_config, node)) {
-          mgp_map_insert(node_map, prop->name, prop->value);
+          mgp_map_insert_move(node_map, prop->name, prop->value);  // inputs are copied, so should be okay to move
         }
       } while (mgp_properties_iterator_next(iter, &prop) == MGP_ERROR_NO_ERROR && prop != NULL);
     }
@@ -845,25 +999,20 @@ static struct mgp_value *build_tree_from_path_recursive(struct mgp_path *path, s
   enum mgp_error error = mgp_edge_iter_properties(edge, memory, &iter);
   if (error == MGP_ERROR_NO_ERROR && iter) {
     struct mgp_property *prop = NULL;
-    if (mgp_properties_iterator_get(iter, &prop) == MGP_ERROR_NO_ERROR && prop != NULL) {
+    if (mgp_properties_iterator_get(iter, &prop) == MGP_ERROR_NO_ERROR && prop) {
       do {
-        // Check if relationship property should be included based on filtering
         if (should_include_rel_property(prop->name, filter_config, rel_type_processed)) {
-          char *prefixed_key = concatenate_strings(rel_type_processed, ".", memory);
-          if (prefixed_key) {
-            char *full_key = concatenate_strings(prefixed_key, prop->name, memory);
-            mgp_free(memory, prefixed_key);
-            if (full_key) {
-              // Get the subtree map to add properties
-              struct mgp_map *subtree_map = NULL;
-              if (mgp_value_get_map(subtree_value, &subtree_map) == MGP_ERROR_NO_ERROR && subtree_map != NULL) {
-                mgp_map_insert(subtree_map, full_key, prop->value);  // TODO move? only if I can move from input
-              }
-              mgp_free(memory, full_key);
+          /* Build key "<rel>.<prop>" without heap allocs */
+          char keybuf[(MAX_STRING_LENGTH * 2) + 2];
+          int nw = snprintf(keybuf, sizeof(keybuf), "%s.%s", rel_type_processed, prop->name);
+          if (nw > 0 && (size_t)nw < sizeof(keybuf)) {
+            struct mgp_map *subtree_map = NULL;
+            if (mgp_value_get_map(subtree_value, &subtree_map) == MGP_ERROR_NO_ERROR && subtree_map) {
+              mgp_map_insert_move(subtree_map, keybuf, prop->value);
             }
           }
         }
-      } while (mgp_properties_iterator_next(iter, &prop) == MGP_ERROR_NO_ERROR && prop != NULL);
+      } while (mgp_properties_iterator_next(iter, &prop) == MGP_ERROR_NO_ERROR && prop);
     }
     mgp_properties_iterator_destroy(iter);
   }
@@ -934,7 +1083,7 @@ static struct mgp_value *convert_to_tree_impl(struct mgp_value *value, bool lowe
   if (!value) {
     // Null input: return empty map
     struct mgp_map *empty_map = NULL;
-    if (mgp_map_make_empty(memory, &empty_map) != MGP_ERROR_NO_ERROR || empty_map == NULL) {
+    if (mgp_unordered_map_make_empty(memory, &empty_map) != MGP_ERROR_NO_ERROR || empty_map == NULL) {
       return NULL;
     }
     struct mgp_value *result = NULL;
@@ -953,7 +1102,7 @@ static struct mgp_value *convert_to_tree_impl(struct mgp_value *value, bool lowe
   if (value_type == MGP_VALUE_TYPE_NULL) {
     // Null input: return empty map
     struct mgp_map *empty_map = NULL;
-    if (mgp_map_make_empty(memory, &empty_map) != MGP_ERROR_NO_ERROR || empty_map == NULL) {
+    if (mgp_unordered_map_make_empty(memory, &empty_map) != MGP_ERROR_NO_ERROR || empty_map == NULL) {
       return NULL;
     }
     struct mgp_value *result = NULL;
@@ -989,7 +1138,7 @@ static struct mgp_value *convert_to_tree_impl(struct mgp_value *value, bool lowe
     if (paths_size == 0) {
       // Empty list: return empty map
       struct mgp_map *empty_map = NULL;
-      if (mgp_map_make_empty(memory, &empty_map) != MGP_ERROR_NO_ERROR || empty_map == NULL) {
+      if (mgp_unordered_map_make_empty(memory, &empty_map) != MGP_ERROR_NO_ERROR || empty_map == NULL) {
         return NULL;
       }
       struct mgp_value *result = NULL;
@@ -1074,7 +1223,7 @@ static struct mgp_value *convert_to_tree_impl(struct mgp_value *value, bool lowe
     if (root_group_count == 0) {
       // No valid paths found, return empty map
       struct mgp_map *empty_map = NULL;
-      if (mgp_map_make_empty(memory, &empty_map) != MGP_ERROR_NO_ERROR || empty_map == NULL) {
+      if (mgp_unordered_map_make_empty(memory, &empty_map) != MGP_ERROR_NO_ERROR || empty_map == NULL) {
         return NULL;
       }
       struct mgp_value *result = NULL;
@@ -1312,7 +1461,7 @@ int mgp_init_module(struct mgp_module *module, struct mgp_memory *memory) {
   }
 
   struct mgp_map *empty_map = NULL;
-  if (mgp_map_make_empty(memory, &empty_map) != MGP_ERROR_NO_ERROR || empty_map == NULL) {
+  if (mgp_unordered_map_make_empty(memory, &empty_map) != MGP_ERROR_NO_ERROR || empty_map == NULL) {
     return 1;
   }
 

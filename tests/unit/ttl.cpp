@@ -41,6 +41,88 @@ int GetPart(auto &current) {
   current -= T{whole_part};
   return whole_part;
 }
+
+// Common helper functions for TTL tests
+
+// Helper function to wait for a condition with polling
+// Returns true if condition was met within timeout, false otherwise
+template <typename Condition>
+bool WaitForCondition(Condition condition, std::chrono::milliseconds timeout = std::chrono::seconds(3),
+                      std::chrono::milliseconds poll_interval = std::chrono::milliseconds(50)) {
+  auto deadline = std::chrono::steady_clock::now() + timeout;
+  while (std::chrono::steady_clock::now() < deadline) {
+    if (condition()) return true;
+    std::this_thread::sleep_for(poll_interval);
+  }
+  return false;
+}
+
+// Helper function to verify a condition remains true until a specific timepoint
+// Returns true if condition stayed true until the deadline
+// Returns false if condition became false before the deadline
+template <typename Condition>
+bool VerifyUnchangedUntil(Condition condition, std::chrono::steady_clock::time_point until,
+                          std::chrono::milliseconds poll_interval = std::chrono::milliseconds(50)) {
+  while (std::chrono::steady_clock::now() < until) {
+    bool result = condition();
+    if (!result) {
+      return until <= std::chrono::steady_clock::now();
+    }
+    std::this_thread::sleep_for(poll_interval);
+  }
+  return true;
+}
+
+// Helper function to count visible vertices
+template <typename DbAccess>
+size_t CountVisibleVertices(DbAccess &db) {
+  auto acc = db->Access();
+  size_t count = 0;
+  for (const auto v : acc->Vertices(memgraph::storage::View::NEW))
+    if (v.IsVisible(memgraph::storage::View::NEW)) ++count;
+  return count;
+}
+
+// Helper function to count visible edges
+template <typename DbAccess>
+size_t CountVisibleEdges(DbAccess &db) {
+  auto acc = db->Access();
+  size_t edge_count = 0;
+  for (const auto v : acc->Vertices(memgraph::storage::View::NEW)) {
+    if (v.IsVisible(memgraph::storage::View::NEW)) {
+      auto edges = v.OutEdges(memgraph::storage::View::NEW);
+      if (edges.HasValue()) {
+        for (const auto e : edges.GetValue().edges) {
+          edge_count += e.IsVisible(memgraph::storage::View::NEW);
+        }
+      }
+    }
+  }
+  return edge_count;
+}
+
+// Helper function to wait for a specific vertex count
+template <typename DbAccess>
+bool WaitForVertexCount(DbAccess &db, size_t expected_count,
+                        std::chrono::milliseconds timeout = std::chrono::seconds(3)) {
+  return WaitForCondition([&]() { return CountVisibleVertices(db) == expected_count; }, timeout);
+}
+
+// Helper function to wait for specific vertex and edge counts
+template <typename DbAccess>
+bool WaitForVertexAndEdgeCount(DbAccess &db, size_t expected_vertices, size_t expected_edges,
+                               std::chrono::milliseconds timeout = std::chrono::seconds(3)) {
+  return WaitForCondition(
+      [&]() { return CountVisibleVertices(db) == expected_vertices && CountVisibleEdges(db) == expected_edges; },
+      timeout);
+}
+
+// Helper function to verify vertex count remains unchanged until timepoint
+template <typename DbAccess>
+bool VerifyVertexCountUnchangedUntil(DbAccess &db, size_t expected_count, std::chrono::steady_clock::time_point until) {
+  return VerifyUnchangedUntil([&]() { return CountVisibleVertices(db) == expected_count; }, until);
+}
+
 }  // namespace
 
 template <typename TestType>
@@ -235,23 +317,16 @@ TYPED_TEST(TTLFixture, Periodic) {
   EXPECT_NO_THROW(this->ttl_->SetInterval(std::chrono::milliseconds(700)));
   this->ttl_->Resume();
   this->EnsureTTLIndicesReady();  // Ensure indices are created and ready
-  std::this_thread::sleep_for(std::chrono::seconds(1));
-  {
-    auto acc = this->db_->Access();
-    auto all_v = acc->Vertices(memgraph::storage::View::NEW);
-    size_t size = 0;
-    for (const auto v : acc->Vertices(memgraph::storage::View::NEW))
-      if (v.IsVisible(memgraph::storage::View::NEW)) ++size;
-    EXPECT_EQ(size, 5);
-  }
-  std::this_thread::sleep_for(std::chrono::seconds(3));
-  {
-    auto acc = this->db_->Access();
-    size_t size = 0;
-    for (const auto v : acc->Vertices(memgraph::storage::View::NEW))
-      if (v.IsVisible(memgraph::storage::View::NEW)) ++size;
-    EXPECT_EQ(size, 4);
-  }
+
+  // Wait for first TTL deletion (vertex with older timestamp)
+  // TTL runs every 700ms, so we expect deletion within ~1.4s max
+  ASSERT_TRUE(WaitForVertexCount(this->db_, 5, std::chrono::milliseconds(1400)))
+      << "Failed to observe first TTL deletion (expected 5 vertices)";
+
+  // Wait for second TTL deletion (vertex with newer timestamp)
+  // newer timestamp is 3s in future, so wait up to 4s total
+  ASSERT_TRUE(WaitForVertexCount(this->db_, 4, std::chrono::seconds(4)))
+      << "Failed to observe second TTL deletion (expected 4 vertices)";
 }
 
 TYPED_TEST(TTLFixture, StartTime) {
@@ -294,34 +369,20 @@ TYPED_TEST(TTLFixture, StartTime) {
   EXPECT_NO_THROW(this->ttl_->SetInterval(std::chrono::milliseconds(100),
                                           std::chrono::system_clock::now() + std::chrono::seconds(3)));
   this->ttl_->Resume();
-  // Shouldn't start still
-  for (int i = 0; i < 3; ++i) {
-    std::this_thread::sleep_for(std::chrono::milliseconds(800));
-    {
-      auto acc = this->db_->Access();
-      auto all_v = acc->Vertices(memgraph::storage::View::NEW);
-      size_t size = 0;
-      for (const auto v : acc->Vertices(memgraph::storage::View::NEW))
-        if (v.IsVisible(memgraph::storage::View::NEW)) ++size;
-      EXPECT_EQ(size, 6);
-    }
-  }
-  std::this_thread::sleep_for(std::chrono::milliseconds(800));
-  {
-    auto acc = this->db_->Access();
-    size_t size = 0;
-    for (const auto v : acc->Vertices(memgraph::storage::View::NEW))
-      if (v.IsVisible(memgraph::storage::View::NEW)) ++size;
-    EXPECT_EQ(size, 5);
-  }
-  std::this_thread::sleep_for(std::chrono::seconds(1));
-  {
-    auto acc = this->db_->Access();
-    size_t size = 0;
-    for (const auto v : acc->Vertices(memgraph::storage::View::NEW))
-      if (v.IsVisible(memgraph::storage::View::NEW)) ++size;
-    EXPECT_EQ(size, 4);
-  }
+
+  // TTL shouldn't run for first 3 seconds due to start time
+  // Verify count stays at 6 for at least 2.5 seconds (leaving 0.5s buffer)
+  auto no_delete_until = std::chrono::steady_clock::now() + std::chrono::milliseconds(2500);
+  EXPECT_TRUE(VerifyVertexCountUnchangedUntil(this->db_, 6, no_delete_until))
+      << "TTL ran before the configured start time (expected to wait 3 seconds)";
+
+  // After 3 seconds, TTL should start running (interval is 100ms)
+  // Wait for first deletion
+  ASSERT_TRUE(WaitForVertexCount(this->db_, 5, std::chrono::milliseconds(1500)))
+      << "Failed to observe first TTL deletion after start time";
+
+  // Wait for second deletion (newer timestamp is 4s in future from test start)
+  ASSERT_TRUE(WaitForVertexCount(this->db_, 4, std::chrono::seconds(2))) << "Failed to observe second TTL deletion";
 }
 
 TYPED_TEST(TTLFixture, Edge) {
@@ -383,50 +444,26 @@ TYPED_TEST(TTLFixture, Edge) {
   EXPECT_NO_THROW(this->ttl_->SetInterval(std::chrono::milliseconds(700)));
   this->ttl_->Resume();
   this->EnsureTTLIndicesReady();  // Ensure indices are created and ready
-  std::this_thread::sleep_for(std::chrono::seconds(1));
-  {
-    auto acc = this->db_->Access();
-    size_t size = 0;
-    size_t edge_size = 0;
-    for (const auto v : acc->Vertices(memgraph::storage::View::NEW)) {
-      if (v.IsVisible(memgraph::storage::View::NEW)) {
-        ++size;
-        auto edges = v.OutEdges(memgraph::storage::View::NEW);
-        ASSERT_TRUE(edges.HasValue());
-        for (const auto e : edges.GetValue().edges) {
-          edge_size += e.IsVisible(memgraph::storage::View::NEW);
-        }
-      }
-    }
-    EXPECT_EQ(size, 5);
-    if (this->RunEdgeTTL()) {
-      EXPECT_EQ(edge_size, 2);
-    } else {
-      EXPECT_EQ(edge_size, 4);
-    }
-  }
-  std::this_thread::sleep_for(std::chrono::seconds(3));
-  {
-    auto acc = this->db_->Access();
-    size_t size = 0;
-    size_t edge_size = 0;
-    for (const auto v : acc->Vertices(memgraph::storage::View::NEW)) {
-      if (v.IsVisible(memgraph::storage::View::NEW)) {
-        ++size;
-        auto edges = v.OutEdges(memgraph::storage::View::NEW);
-        ASSERT_TRUE(edges.HasValue());
-        for (const auto e : edges.GetValue().edges) {
-          edge_size += e.IsVisible(memgraph::storage::View::NEW);
-        }
-      }
-    }
-    EXPECT_EQ(size, 4);
-    if (this->RunEdgeTTL()) {
-      EXPECT_EQ(edge_size, 1);
-    } else {
-      EXPECT_EQ(edge_size, 3);
-    }
-  }
+
+  // Expected counts after TTL deletions
+  const size_t expected_vertices_first = 5;                        // One vertex with older TTL deleted
+  const size_t expected_edges_first = this->RunEdgeTTL() ? 2 : 4;  // Edges may be deleted if edge TTL enabled
+  const size_t expected_vertices_second = 4;                       // Second vertex with newer TTL deleted
+  const size_t expected_edges_second = this->RunEdgeTTL() ? 1 : 3;
+
+  // Wait for first TTL deletion (vertex with older timestamp and possibly edges)
+  // TTL runs every 700ms, so we expect deletion within ~1.4s max
+  ASSERT_TRUE(WaitForVertexAndEdgeCount(this->db_, expected_vertices_first, expected_edges_first,
+                                        std::chrono::milliseconds(1400)))
+      << "Failed to observe first TTL deletion (expected " << expected_vertices_first << " vertices and "
+      << expected_edges_first << " edges)";
+
+  // Wait for second TTL deletion (vertex with newer timestamp)
+  // newer timestamp is 3s in future, so wait up to 4s total
+  ASSERT_TRUE(
+      WaitForVertexAndEdgeCount(this->db_, expected_vertices_second, expected_edges_second, std::chrono::seconds(4)))
+      << "Failed to observe second TTL deletion (expected " << expected_vertices_second << " vertices and "
+      << expected_edges_second << " edges)";
 }
 
 // Needs user-defined timezone
@@ -573,12 +610,7 @@ TEST(TTLUserCheckTest, UserCheckFunctionality) {
   }
 
   // Verify initial count (should be 3 vertices)
-  {
-    auto acc = db_acc->Access();
-    size_t size = 0;
-    for (const auto v : acc->Vertices(memgraph::storage::View::NEW)) ++size;
-    EXPECT_EQ(size, 3) << "Initial vertex count should be 3";
-  }
+  EXPECT_EQ(CountVisibleVertices(db_acc), 3) << "Initial vertex count should be 3";
 
   // Test 1: Set user check to always return false (simulating replica) - TTL should not run
   ttl->Enable();
@@ -587,30 +619,19 @@ TEST(TTLUserCheckTest, UserCheckFunctionality) {
   ttl->SetUserCheck([]() -> bool { return false; });
   ttl->Resume();
 
-  // Wait for TTL to potentially run - but it shouldn't because user check returns false
-  std::this_thread::sleep_for(std::chrono::milliseconds(500));
-
-  // Verify vertices are still there (TTL should not have run)
-  {
-    auto acc = db_acc->Access();
-    size_t size = 0;
-    for (const auto v : acc->Vertices(memgraph::storage::View::NEW)) ++size;
-    EXPECT_EQ(size, 3) << "Vertices should still be there when user check returns false";
-  }
+  // Wait a bit to ensure TTL has had chances to run (but shouldn't due to user check)
+  // Verify count stays at 3 for at least 400ms
+  auto no_delete_until = std::chrono::steady_clock::now() + std::chrono::milliseconds(400);
+  EXPECT_TRUE(VerifyVertexCountUnchangedUntil(db_acc, 3, no_delete_until))
+      << "TTL should not run when user check returns false";
 
   // Test 2: Set user check to always return true (simulating main) - TTL should run
   ttl->SetUserCheck([]() -> bool { return true; });
 
   // Wait for TTL to run and delete the older vertices
-  std::this_thread::sleep_for(std::chrono::milliseconds(500));
-
-  // Verify only 1 vertex remains (the newer one)
-  {
-    auto acc = db_acc->Access();
-    size_t size = 0;
-    for (const auto v : acc->Vertices(memgraph::storage::View::NEW)) ++size;
-    EXPECT_EQ(size, 1) << "Only the newer vertex should remain when user check returns true";
-  }
+  // TTL runs every 100ms, should delete within 200ms
+  ASSERT_TRUE(WaitForVertexCount(db_acc, 1, std::chrono::milliseconds(300)))
+      << "Failed to observe TTL deletion when user check returns true";
 
   // Set user check to false - TTL should not run
   bool user_bool = false;
@@ -626,34 +647,20 @@ TEST(TTLUserCheckTest, UserCheckFunctionality) {
   }
 
   // Verify we now have 2 vertices
-  {
-    auto acc = db_acc->Access();
-    size_t size = 0;
-    for (const auto v : acc->Vertices(memgraph::storage::View::NEW)) ++size;
-    EXPECT_EQ(size, 2) << "Should have 2 vertices after adding new one";
-  }
+  EXPECT_EQ(CountVisibleVertices(db_acc), 2) << "Should have 2 vertices after adding new one";
 
-  std::this_thread::sleep_for(std::chrono::milliseconds(500));
-
-  // Verify vertices are still there
-  {
-    auto acc = db_acc->Access();
-    size_t size = 0;
-    for (const auto v : acc->Vertices(memgraph::storage::View::NEW)) ++size;
-    EXPECT_EQ(size, 2) << "Vertices should still be there when user check returns false";
-  }
+  // Wait to ensure TTL doesn't run (user check is false)
+  // Verify count stays at 2 for at least 400ms
+  auto no_delete_until2 = std::chrono::steady_clock::now() + std::chrono::milliseconds(400);
+  EXPECT_TRUE(VerifyVertexCountUnchangedUntil(db_acc, 2, no_delete_until2))
+      << "TTL should not run when user check returns false";
 
   // Set user check back to true - TTL should run and delete the older vertex
   user_bool = true;
-  std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
-  // Verify only 1 vertex remains again
-  {
-    auto acc = db_acc->Access();
-    size_t size = 0;
-    for (const auto v : acc->Vertices(memgraph::storage::View::NEW)) ++size;
-    EXPECT_EQ(size, 1) << "Only the newer vertex should remain after TTL runs again";
-  }
+  // Wait for TTL to delete the older vertex
+  ASSERT_TRUE(WaitForVertexCount(db_acc, 1, std::chrono::milliseconds(300)))
+      << "Failed to observe TTL deletion after re-enabling user check";
 
   // Cleanup
   ttl->Disable();

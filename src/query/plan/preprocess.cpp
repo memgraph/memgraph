@@ -308,7 +308,7 @@ void Filters::EraseLabelFilter(const Symbol &symbol, const LabelIx &label, std::
     }
     filter_it->labels.erase(label_it);
     DMG_ASSERT(!utils::Contains(filter_it->labels, label), "Didn't expect duplicated labels");
-    if (filter_it->labels.empty()) {
+    if (filter_it->labels.empty() && filter_it->or_labels.empty()) {
       // If there are no labels to filter, then erase the whole FilterInfo.
       if (removed_filters) {
         removed_filters->push_back(filter_it->expression);
@@ -339,7 +339,7 @@ void Filters::EraseOrLabelFilter(const Symbol &symbol, const std::vector<LabelIx
     }
     filter_it->or_labels.erase(label_vec_it);
     DMG_ASSERT(!utils::Contains(filter_it->or_labels, labels), "Didn't expect duplicated labels");
-    if (filter_it->or_labels.empty()) {
+    if (filter_it->or_labels.empty() && filter_it->labels.empty()) {
       // If there are no labels to filter, then erase the whole FilterInfo.
       if (removed_filters) {
         removed_filters->push_back(filter_it->expression);
