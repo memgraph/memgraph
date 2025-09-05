@@ -80,9 +80,9 @@ class Builder {
 
   bool IsEmpty() const;
 
-  size_t GetPos() const;
-
   void FlushSegment(bool final_segment, bool force_flush = false);
+
+  bool GetFileData() const;
 
  private:
   /// @param final_segment: Whether the flush should finalize the message

@@ -21,10 +21,8 @@ void Encoder::WriteBool(bool value) {
 }
 
 void Encoder::WriteUint(uint64_t value) {
-  spdlog::warn("Pos before saving uint: {}", builder_->GetPos());
   WriteMarker(durability::Marker::TYPE_INT);
   slk::Save(value, builder_);
-  spdlog::warn("Pos after saving uint: {}", builder_->GetPos());
 }
 
 void Encoder::WriteDouble(double value) {
@@ -33,10 +31,8 @@ void Encoder::WriteDouble(double value) {
 }
 
 void Encoder::WriteString(const std::string_view value) {
-  spdlog::warn("Pos before saving string: {}", builder_->GetPos());
   WriteMarker(durability::Marker::TYPE_STRING);
   slk::Save(value, builder_);
-  spdlog::warn("Pos after saving string: {}", builder_->GetPos());
 }
 
 void Encoder::WriteEnum(storage::Enum value) {
@@ -141,7 +137,6 @@ std::optional<std::string> Decoder::ReadString() {
 
   std::string value;
   slk::Load(&value, reader_);
-  spdlog::warn("Reader position after reading string: {}", reader_->GetPos());
   return std::move(value);
 }
 

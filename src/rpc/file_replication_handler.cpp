@@ -29,6 +29,7 @@ size_t FileReplicationHandler::OpenFile(const uint8_t *data, size_t const size) 
   const auto kTempDirectory =
       std::filesystem::temp_directory_path() / "memgraph" / storage::durability::kReplicaDurabilityDirectory;
 
+  // TODO: (andi) Try to move the other constructor
   slk::Reader req_reader(data, size, size);
   // spdlog::warn("Reader pos before creating decoder: {}", req_reader.GetPos());
   storage::replication::Decoder decoder(&req_reader);
@@ -81,10 +82,14 @@ size_t FileReplicationHandler::WriteToFile(const uint8_t *data, size_t const siz
     spdlog::trace("Closing file: {}", file_.path());
     ResetCurrentFile();
   }
+  auto const path = std::filesystem::temp_directory_path() / "memgraph" /
+                    storage::durability::kReplicaDurabilityDirectory / file_names_[0];
+  MG_ASSERT(std::filesystem::exists(path), "Source file {} doesn't exist", path);
   return processed_bytes;
 }
 
 void FileReplicationHandler::ResetCurrentFile() {
+  file_.Sync();
   file_.Close();
   written_ = 0;
   file_size_ = 0;

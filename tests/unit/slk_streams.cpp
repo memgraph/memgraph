@@ -136,6 +136,69 @@ TEST(Builder, MultipleSegments) {
   ASSERT_EQ(splits[4], footer_expected);
 }
 
+TEST(Builder, PrepareForFileSending) {
+  std::vector<uint8_t> buffer;
+  memgraph::slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
+    for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
+  });
+
+  auto input = GetRandomData(100);
+  builder.PrepareForFileSending();
+  ASSERT_TRUE(builder.GetFileData());
+  builder.SaveFileBuffer(input.data(), input.size());
+  builder.Finalize();
+
+  ASSERT_EQ(buffer.size(), input.size() + sizeof(memgraph::slk::SegmentSize) + sizeof(memgraph::slk::SegmentSize));
+
+  // Test kFileSegmentMask
+  {
+    memgraph::slk::SegmentSize len;
+    memcpy(&len, buffer.data(), sizeof(memgraph::slk::SegmentSize));
+    ASSERT_EQ(len, memgraph::slk::kFileSegmentMask);
+  }
+
+  // Test footer at the end
+  {
+    memgraph::slk::SegmentSize footer;
+    memcpy(&footer, buffer.data() + input.size() + sizeof(memgraph::slk::SegmentSize),
+           sizeof(memgraph::slk::SegmentSize));
+    ASSERT_EQ(footer, memgraph::slk::kFooter);
+  }
+}
+
+TEST(Builder, FlushWithoutFile) {
+  std::vector<uint8_t> buffer;
+  memgraph::slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
+    for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
+  });
+
+  auto input = GetRandomData(20);
+  builder.Save(input.data(), input.size());
+  builder.Finalize();
+  ASSERT_EQ(buffer.size(), input.size() + 2 * sizeof(memgraph::slk::SegmentSize));
+
+  // Test that 4B at the beginning represent size of the content
+  {
+    memgraph::slk::SegmentSize len;
+    memcpy(&len, buffer.data(), sizeof(memgraph::slk::SegmentSize));
+    ASSERT_EQ(len, 20);
+  }
+
+  // Test footer at the end
+  {
+    memgraph::slk::SegmentSize footer;
+    memcpy(&footer, buffer.data() + input.size() + sizeof(memgraph::slk::SegmentSize),
+           sizeof(memgraph::slk::SegmentSize));
+    ASSERT_EQ(footer, memgraph::slk::kFooter);
+  }
+}
+
+TEST(Reader, InitializeReaderWithHave) {
+  auto input = GetRandomData(5);
+
+  memgraph::slk::Reader(input.data(), input.size(), input.size());
+}
+
 TEST(Reader, SingleSegment) {
   std::vector<uint8_t> buffer;
   memgraph::slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
