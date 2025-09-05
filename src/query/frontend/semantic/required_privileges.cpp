@@ -27,8 +27,6 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(IndexQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
 
-  void Visit(DropAllIndexesQuery & /*unused*/) { AddPrivilege(AuthQuery::Privilege::INDEX); }
-
   void Visit(EdgeIndexQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
 
   void Visit(PointIndexQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
@@ -91,7 +89,7 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
     }
   }
 
-  void Visit(ConstraintQuery &constraint_query) override { AddPrivilege(AuthQuery::Privilege::CONSTRAINT); }
+  void Visit(ConstraintQuery & /*constraint_query*/) override { AddPrivilege(AuthQuery::Privilege::CONSTRAINT); }
 
   void Visit(CypherQuery &query) override {
     query.single_query_->Accept(*this);
@@ -135,6 +133,10 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
   void Visit(TransactionQueueQuery & /*transaction_queue_query*/) override {}
 
   void Visit(EdgeImportModeQuery & /*edge_import_mode_query*/) override {}
+
+  void Visit(DropAllIndexesQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
+
+  void Visit(DropAllConstraintsQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::CONSTRAINT); }
 
   void Visit(DropGraphQuery & /*drop_graph_query*/) override {}
 

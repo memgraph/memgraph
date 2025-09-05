@@ -295,6 +295,9 @@ constexpr utils::TypeInfo query::CoordinatorQuery::kType{utils::TypeId::AST_COOR
 constexpr utils::TypeInfo query::DropAllIndexesQuery::kType{utils::TypeId::AST_DROP_ALL_INDEXES_QUERY,
                                                             "DropAllIndexesQuery", &query::Query::kType};
 
+constexpr utils::TypeInfo query::DropAllConstraintsQuery::kType{utils::TypeId::AST_DROP_ALL_CONSTRAINTS_QUERY,
+                                                                "DropAllConstraintsQuery", &query::Query::kType};
+
 constexpr utils::TypeInfo query::DropGraphQuery::kType{utils::TypeId::AST_DROP_GRAPH_QUERY, "DropGraphQuery",
                                                        &query::Query::kType};
 

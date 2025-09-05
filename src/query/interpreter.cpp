@@ -4091,6 +4091,59 @@ PreparedQuery PrepareDropAllIndexesQuery(ParsedQuery parsed_query, bool in_expli
       RWType::W};
 }
 
+PreparedQuery PrepareDropAllConstraintsQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                                             std::vector<Notification> *notifications, CurrentDB &current_db) {
+  if (in_explicit_transaction) {
+    throw ConstraintInMulticommandTxException();
+  }
+
+  auto *drop_all_constraints_query = utils::Downcast<DropAllConstraintsQuery>(parsed_query.query);
+  (void)drop_all_constraints_query;  // Suppress unused variable warning
+  std::function<void(Notification &)> handler;
+
+  MG_ASSERT(current_db.db_acc_, "Drop all constraints query expects a current DB");
+  auto &db_acc = *current_db.db_acc_;
+
+  MG_ASSERT(current_db.db_transactional_accessor_, "Drop all constraints query expects a current DB transaction");
+  auto *dba = &*current_db.execution_db_accessor_;
+
+  auto const invalidate_plan_cache = [plan_cache = db_acc->plan_cache()] {
+    plan_cache->WithLock([&](auto &cache) { cache.reset(); });
+  };
+
+  Notification constraint_notification(SeverityLevel::INFO);
+  constraint_notification.code = NotificationCode::DROP_CONSTRAINT;
+  constraint_notification.title = "Dropped all constraints.";
+
+  handler = [dba, invalidate_plan_cache = std::move(invalidate_plan_cache)](Notification & /**/) {
+    utils::OnScopeExit const invalidator(invalidate_plan_cache);
+    auto constraints_info = dba->ListAllConstraints();
+
+    for (const auto &[label_id, property_id] : constraints_info.existence) {
+      [[maybe_unused]] auto maybe_error = dba->DropExistenceConstraint(label_id, property_id);
+    }
+
+    for (const auto &[label_id, properties] : constraints_info.unique) {
+      [[maybe_unused]] auto maybe_error = dba->DropUniqueConstraint(label_id, properties);
+    }
+
+    for (const auto &[label_id, property_id, type] : constraints_info.type) {
+      [[maybe_unused]] auto maybe_error = dba->DropTypeConstraint(label_id, property_id, type);
+    }
+  };
+
+  return PreparedQuery{
+      {},
+      std::move(parsed_query.required_privileges),
+      [handler = std::move(handler), notifications, constraint_notification = std::move(constraint_notification)](
+          AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
+        handler(constraint_notification);
+        notifications->push_back(constraint_notification);
+        return QueryHandlerResult::COMMIT;
+      },
+      RWType::W};
+}
+
 #ifdef MG_ENTERPRISE
 PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
                               std::vector<Notification> *notifications, CurrentDB &current_db,
@@ -6930,6 +6983,7 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   void Visit(CreateVectorEdgeIndexQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
   void Visit(ConstraintQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
   void Visit(DropAllIndexesQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
+  void Visit(DropAllConstraintsQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
   void Visit(DropGraphQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
   void Visit(CreateEnumQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
   void Visit(AlterEnumAddValueQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
@@ -7152,6 +7206,9 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     } else if (utils::Downcast<DropAllIndexesQuery>(parsed_query.query)) {
       prepared_query = PrepareDropAllIndexesQuery(std::move(parsed_query), in_explicit_transaction_,
                                                   &query_execution->notifications, current_db_);
+    } else if (utils::Downcast<DropAllConstraintsQuery>(parsed_query.query)) {
+      prepared_query = PrepareDropAllConstraintsQuery(std::move(parsed_query), in_explicit_transaction_,
+                                                      &query_execution->notifications, current_db_);
     } else if (utils::Downcast<EdgeIndexQuery>(parsed_query.query)) {
       prepared_query = PrepareEdgeIndexQuery(std::move(parsed_query), in_explicit_transaction_,
                                              &query_execution->notifications, current_db_, make_stopping_context());

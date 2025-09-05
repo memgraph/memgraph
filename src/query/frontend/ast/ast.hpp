@@ -3036,6 +3036,24 @@ class DropAllIndexesQuery : public memgraph::query::Query {
   friend class AstStorage;
 };
 
+class DropAllConstraintsQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DropAllConstraintsQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  DropAllConstraintsQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<DropAllConstraintsQuery>();
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
 class DropGraphQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;

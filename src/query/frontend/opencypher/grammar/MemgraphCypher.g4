@@ -238,6 +238,7 @@ query : cypherQuery
       | edgeImportModeQuery
       | coordinatorQuery
       | dropAllIndexesQuery
+      | dropAllConstraintsQuery
       | dropGraphQuery
       | createEnumQuery
       | showEnumsQuery
@@ -713,6 +714,8 @@ dropVectorIndex : DROP VECTOR INDEX indexName ;
 vectorIndexQuery : createVectorIndex | dropVectorIndex ;
 
 dropAllIndexesQuery : DROP ALL INDEXES ;
+
+dropAllConstraintsQuery : DROP ALL CONSTRAINTS ;
 
 dropGraphQuery : DROP GRAPH ;
 

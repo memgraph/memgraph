@@ -456,6 +456,12 @@ antlrcpp::Any CypherMainVisitor::visitDropAllIndexesQuery(MemgraphCypher::DropAl
   return drop_all_indexes_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitDropAllConstraintsQuery(MemgraphCypher::DropAllConstraintsQueryContext *ctx) {
+  auto *drop_all_constraints_query = storage_->Create<DropAllConstraintsQuery>();
+  query_ = drop_all_constraints_query;
+  return drop_all_constraints_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitEdgeIndexQuery(MemgraphCypher::EdgeIndexQueryContext *ctx) {
   MG_ASSERT(ctx->children.size() == 1, "EdgeIndexQuery should have exactly one child!");
   auto *index_query = std::any_cast<EdgeIndexQuery *>(ctx->children[0]->accept(this));
