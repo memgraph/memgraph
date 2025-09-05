@@ -25,9 +25,13 @@ class FileReplicationHandler final {
   FileReplicationHandler(FileReplicationHandler &&) = default;
   FileReplicationHandler &operator=(FileReplicationHandler &&) = default;
 
-  void OpenFile(const uint8_t *data, size_t size);
+  // Returns the number of processed bytes
+  size_t OpenFile(const uint8_t *data, size_t size);
 
-  void WriteToFile(const uint8_t *data, size_t size);
+  // Returns the number of processed bytes
+  size_t WriteToFile(const uint8_t *data, size_t size);
+
+  void ResetCurrentFile();
 
   // TODO: (andi) make private
   utils::OutputFile file_;
