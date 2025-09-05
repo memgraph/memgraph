@@ -408,6 +408,9 @@ target_link_libraries(${test_prefix}storage_v2_replication mg::storage mg-dbms f
 add_unit_test(storage_v2_isolation_level.cpp)
 target_link_libraries(${test_prefix}storage_v2_isolation_level mg::storage)
 
+add_unit_test(storage_v2_mvcc.cpp)
+target_link_libraries(${test_prefix}storage_v2_mvcc mg::storage)
+
 add_unit_test(storage_v2_show_storage_info.cpp)
 target_link_libraries(${test_prefix}storage_v2_show_storage_info mg::storage)
 
