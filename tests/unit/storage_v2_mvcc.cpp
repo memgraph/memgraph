@@ -149,10 +149,10 @@ TEST(StorageV2Mvcc, TwoWayCircularDependencyDetected) {
       auto edge2_result = acc1->CreateEdge(&*c, &*d, acc1->NameToEdgeType("CD_from_T1"));
       if (edge2_result.HasError() && edge2_result.GetError() == ms::Error::SERIALIZATION_ERROR) {
         conflicts_detected++;
-        acc1.reset();
       } else {
         ASSERT_FALSE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
       }
+      acc1.reset();
       all_final_edges_created.arrive_and_wait();
     });
 
@@ -172,10 +172,109 @@ TEST(StorageV2Mvcc, TwoWayCircularDependencyDetected) {
       auto edge2_result = acc2->CreateEdge(&*a, &*b, acc2->NameToEdgeType("AB_from_T2"));
       if (edge2_result.HasError() && edge2_result.GetError() == ms::Error::SERIALIZATION_ERROR) {
         conflicts_detected++;
-        acc2.reset();
       } else {
         ASSERT_FALSE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
       }
+      acc2.reset();
+      all_final_edges_created.arrive_and_wait();
+    });
+  }
+
+  EXPECT_GE(conflicts_detected.load(), 1);
+}
+
+TEST(StorageV2Mvcc, ThreeWayCircularDependencyDetected) {
+  auto storage = std::make_unique<ms::InMemoryStorage>(ms::Config{});
+
+  ms::Gid a_gid, b_gid, c_gid, d_gid, e_gid, f_gid;
+  {
+    auto acc = storage->Access();
+    auto a = acc->CreateVertex();
+    auto b = acc->CreateVertex();
+    auto c = acc->CreateVertex();
+    auto d = acc->CreateVertex();
+    auto e = acc->CreateVertex();
+    auto f = acc->CreateVertex();
+    a_gid = a.Gid();
+    b_gid = b.Gid();
+    c_gid = c.Gid();
+    d_gid = d.Gid();
+    e_gid = e.Gid();
+    f_gid = f.Gid();
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  std::latch all_initial_edges_created{3};
+  std::latch all_final_edges_created{3};
+  std::atomic<int> conflicts_detected{0};
+
+  {
+    std::jthread t1([&]() {
+      auto acc1 = storage->Access();
+      auto a = acc1->FindVertex(a_gid, ms::View::OLD);
+      auto b = acc1->FindVertex(b_gid, ms::View::OLD);
+      auto c = acc1->FindVertex(c_gid, ms::View::OLD);
+      auto d = acc1->FindVertex(d_gid, ms::View::OLD);
+      ASSERT_TRUE(a.has_value() && b.has_value() && c.has_value() && d.has_value());
+
+      auto edge1_result = acc1->CreateEdge(&*a, &*b, acc1->NameToEdgeType("AB"));
+      ASSERT_TRUE(edge1_result.HasValue());
+
+      all_initial_edges_created.arrive_and_wait();
+
+      auto edge2_result = acc1->CreateEdge(&*c, &*d, acc1->NameToEdgeType("CD_from_T1"));
+      if (edge2_result.HasError() && edge2_result.GetError() == ms::Error::SERIALIZATION_ERROR) {
+        conflicts_detected++;
+      } else {
+        ASSERT_FALSE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      }
+      acc1.reset();
+      all_final_edges_created.arrive_and_wait();
+    });
+
+    std::jthread t2([&]() {
+      auto acc2 = storage->Access();
+      auto c = acc2->FindVertex(c_gid, ms::View::OLD);
+      auto d = acc2->FindVertex(d_gid, ms::View::OLD);
+      auto e = acc2->FindVertex(e_gid, ms::View::OLD);
+      auto f = acc2->FindVertex(f_gid, ms::View::OLD);
+      ASSERT_TRUE(c.has_value() && d.has_value() && e.has_value() && f.has_value());
+
+      auto edge1_result = acc2->CreateEdge(&*c, &*d, acc2->NameToEdgeType("CD"));
+      ASSERT_TRUE(edge1_result.HasValue());
+
+      all_initial_edges_created.arrive_and_wait();
+
+      auto edge2_result = acc2->CreateEdge(&*e, &*f, acc2->NameToEdgeType("EF_from_T2"));
+      if (edge2_result.HasError() && edge2_result.GetError() == ms::Error::SERIALIZATION_ERROR) {
+        conflicts_detected++;
+      } else {
+        ASSERT_FALSE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      }
+      acc2.reset();
+      all_final_edges_created.arrive_and_wait();
+    });
+
+    std::jthread t3([&]() {
+      auto acc3 = storage->Access();
+      auto e = acc3->FindVertex(e_gid, ms::View::OLD);
+      auto f = acc3->FindVertex(f_gid, ms::View::OLD);
+      auto a = acc3->FindVertex(a_gid, ms::View::OLD);
+      auto b = acc3->FindVertex(b_gid, ms::View::OLD);
+      ASSERT_TRUE(e.has_value() && f.has_value() && a.has_value() && b.has_value());
+
+      auto edge1_result = acc3->CreateEdge(&*e, &*f, acc3->NameToEdgeType("EF"));
+      ASSERT_TRUE(edge1_result.HasValue());
+
+      all_initial_edges_created.arrive_and_wait();
+
+      auto edge2_result = acc3->CreateEdge(&*a, &*b, acc3->NameToEdgeType("AB_from_T3"));
+      if (edge2_result.HasError() && edge2_result.GetError() == ms::Error::SERIALIZATION_ERROR) {
+        conflicts_detected++;
+      } else {
+        ASSERT_FALSE(acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+      }
+      acc3.reset();
       all_final_edges_created.arrive_and_wait();
     });
   }
