@@ -26,7 +26,6 @@ import CypherLexer ;
 ACTIVE                  : A C T I V E ;
 ADD                     : A D D ;
 AFTER                   : A F T E R ;
-ALL                     : A L L ;
 ALTER                   : A L T E R ;
 ANALYZE                 : A N A L Y Z E ;
 ASYNC                   : A S Y N C ;
