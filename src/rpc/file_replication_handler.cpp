@@ -65,14 +65,10 @@ void FileReplicationHandler::WriteToFile(const uint8_t *data, size_t const size)
     spdlog::warn("Cannot write to file since it's closed");
     return;
   }
-  // TODO: (andi) Try to avoid slk::Reader here to optimize further
-  slk::Reader req_reader(data, size, size);
-  uint8_t buffer[utils::kFileBufferSize];
   auto to_write = std::min(size, file_size_ - written_);
   while (to_write > 0) {
     const auto chunk_size = std::min(to_write, utils::kFileBufferSize);
-    req_reader.Load(buffer, chunk_size);
-    file_.Write(buffer, chunk_size);
+    file_.Write(data, chunk_size);
     to_write -= chunk_size;
     written_ += chunk_size;
     spdlog::warn("Written {} bytes to file in the method, remaining {}", chunk_size, file_size_ - written_);
