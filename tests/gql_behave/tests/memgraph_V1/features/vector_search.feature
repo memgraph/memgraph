@@ -300,3 +300,67 @@ Feature: Vector search related features
             CALL vector_search.search_edges("test_index", 1, ["invalid", "invalid"]) YIELD * RETURN edge;
             """
         Then an error should be raised
+
+    Scenario: Cosine similarity of identical vectors
+        Given an empty graph
+        When executing query:
+            """
+            CALL vector_search.cosine_similarity([1.0, 2.0, 3.0], [1.0, 2.0, 3.0]) YIELD similarity RETURN similarity;
+            """
+        Then the result should be:
+            | similarity |
+            | 1.0        |
+
+    Scenario: Cosine similarity of orthogonal vectors
+        Given an empty graph
+        When executing query:
+            """
+            CALL vector_search.cosine_similarity([1.0, 0.0], [0.0, 1.0]) YIELD similarity RETURN similarity;
+            """
+        Then the result should be:
+            | similarity |
+            | 0.0        |
+
+    Scenario: Cosine similarity of opposite vectors
+        Given an empty graph
+        When executing query:
+            """
+            CALL vector_search.cosine_similarity([1.0, 0.0], [-1.0, 0.0]) YIELD similarity RETURN similarity;
+            """
+        Then the result should be:
+            | similarity |
+            | -1.0       |
+
+    Scenario: Cosine similarity with mixed integer and float values
+        Given an empty graph
+        When executing query:
+            """
+            CALL vector_search.cosine_similarity([1, 2.0, 3], [2.0, 4, 6.0]) YIELD similarity RETURN similarity;
+            """
+        Then the result should be:
+            | similarity |
+            | 1.0        |
+
+    Scenario: Cosine similarity raises error for empty vectors
+        Given an empty graph
+        When executing query:
+            """
+            CALL vector_search.cosine_similarity([], []) YIELD similarity RETURN similarity;
+            """
+        Then an error should be raised
+
+    Scenario: Cosine similarity raises error for different dimension vectors
+        Given an empty graph
+        When executing query:
+            """
+            CALL vector_search.cosine_similarity([1.0, 2.0], [1.0, 2.0, 3.0]) YIELD similarity RETURN similarity;
+            """
+        Then an error should be raised
+
+    Scenario: Cosine similarity raises error for zero vectors
+        Given an empty graph
+        When executing query:
+            """
+            CALL vector_search.cosine_similarity([0.0, 0.0], [1.0, 2.0]) YIELD similarity RETURN similarity;
+            """
+        Then an error should be raised
