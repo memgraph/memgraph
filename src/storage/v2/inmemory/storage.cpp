@@ -523,28 +523,70 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   // Obtain the locks by `gid` order to avoid lock cycles.
   auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
   auto guard_to = std::unique_lock{to_vertex->lock, std::defer_lock};
-  if (from_vertex->gid < to_vertex->gid) {
-    guard_from.lock();
-    guard_to.lock();
-  } else if (from_vertex->gid > to_vertex->gid) {
-    guard_to.lock();
-    guard_from.lock();
-  } else {
-    // The vertices are the same vertex, only lock one.
-    guard_from.lock();
-  }
 
   transaction_.async_index_helper_.Track(edge_type);
 
-  auto from_result = PrepareForCommutativeWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE);
-  if (from_result == WriteResult::CONFLICT) return std::unexpected{Error::SERIALIZATION_ERROR};
-  if (from_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
+  WritePreparationResult from_result;
+  WritePreparationResult to_result = {WriteResult::SUCCESS, {}};
 
-  WriteResult to_result = WriteResult::SUCCESS;
-  if (to_vertex != from_vertex) {
-    to_result = PrepareForCommutativeWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE);
-    if (to_result == WriteResult::CONFLICT) return std::unexpected{Error::SERIALIZATION_ERROR};
-    if (to_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
+  // Retry loop for handling conflicts with dependency waiting
+  while (true) {
+    // Acquire locks in gid order
+    if (from_vertex->gid < to_vertex->gid) {
+      guard_from.lock();
+      guard_to.lock();
+    } else if (from_vertex->gid > to_vertex->gid) {
+      guard_to.lock();
+      guard_from.lock();
+    } else {
+      // The vertices are the same vertex, only lock one.
+      guard_from.lock();
+    }
+
+    from_result = PrepareForCommutativeWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE,
+                                             &storage_->transaction_dependencies_);
+
+    if (from_result.result == WriteResult::CONFLICT && from_result.wait_for_transaction_id) {
+      // Release locks before waiting
+      guard_from.unlock();
+      if (to_vertex != from_vertex) guard_to.unlock();
+
+      // Wait for blocking transaction
+      auto wait_result = storage_->transaction_dependencies_.WaitFor(transaction_.transaction_id,
+                                                                     *from_result.wait_for_transaction_id);
+      if (wait_result == WaitResult::CIRCULAR_DEPENDENCY) {
+        return std::unexpected{Error::SERIALIZATION_ERROR};
+      }
+      continue;  // Retry with fresh locks
+    }
+
+    if (from_result.result == WriteResult::CONFLICT) return std::unexpected{Error::SERIALIZATION_ERROR};
+    if (from_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
+
+    if (to_vertex != from_vertex) {
+      to_result = PrepareForCommutativeWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE,
+                                             &storage_->transaction_dependencies_);
+
+      if (to_result.result == WriteResult::CONFLICT && to_result.wait_for_transaction_id) {
+        // Release locks before waiting
+        guard_from.unlock();
+        guard_to.unlock();
+
+        // Wait for blocking transaction
+        auto wait_result = storage_->transaction_dependencies_.WaitFor(transaction_.transaction_id,
+                                                                       *to_result.wait_for_transaction_id);
+        if (wait_result == WaitResult::CIRCULAR_DEPENDENCY) {
+          return std::unexpected{Error::SERIALIZATION_ERROR};
+        }
+        continue;  // Retry with fresh locks
+      }
+
+      if (to_result.result == WriteResult::CONFLICT) return std::unexpected{Error::SERIALIZATION_ERROR};
+      if (to_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
+    }
+
+    // If we get here, both preparations succeeded
+    break;
   }
 
   if (storage_->config_.salient.items.enable_schema_metadata) {
@@ -571,8 +613,8 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
     }
   }
 
-  bool const from_interleaved = (from_result == WriteResult::COMMUTATIVE);
-  bool const to_interleaved = (to_result == WriteResult::COMMUTATIVE);
+  bool const from_interleaved = (from_result.result == WriteResult::COMMUTATIVE);
+  bool const to_interleaved = (to_result.result == WriteResult::COMMUTATIVE);
 
   utils::AtomicMemoryBlock([this, edge, from_vertex = from_vertex, edge_type = edge_type, to_vertex = to_vertex,
                             &schema_acc, from_interleaved, to_interleaved]() {
@@ -645,26 +687,72 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   // Obtain the locks by `gid` order to avoid lock cycles.
   auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
   auto guard_to = std::unique_lock{to_vertex->lock, std::defer_lock};
-  if (from_vertex->gid < to_vertex->gid) {
-    guard_from.lock();
-    guard_to.lock();
-  } else if (from_vertex->gid > to_vertex->gid) {
-    guard_to.lock();
-    guard_from.lock();
-  } else {
-    // The vertices are the same vertex, only lock one.
-    guard_from.lock();
-  }
 
-  auto from_result = PrepareForCommutativeWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE);
-  if (from_result == WriteResult::CONFLICT) return std::unexpected{Error::SERIALIZATION_ERROR};
-  if (from_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
+  // @TODO tidy this code (and CreateEdge)
+  // @TODO while(true) loop: and what happens when we are shutting down? No stop
+  // signal or anything here...
 
-  WriteResult to_result = WriteResult::SUCCESS;
-  if (to_vertex != from_vertex) {
-    to_result = PrepareForCommutativeWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE);
-    if (to_result == WriteResult::CONFLICT) return std::unexpected{Error::SERIALIZATION_ERROR};
-    if (to_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
+  WritePreparationResult from_result;
+  WritePreparationResult to_result = {WriteResult::SUCCESS, {}};
+
+  // Retry loop for handling conflicts with dependency waiting
+  while (true) {
+    // Acquire locks in gid order
+    if (from_vertex->gid < to_vertex->gid) {
+      guard_from.lock();
+      guard_to.lock();
+    } else if (from_vertex->gid > to_vertex->gid) {
+      guard_to.lock();
+      guard_from.lock();
+    } else {
+      // The vertices are the same vertex, only lock one.
+      guard_from.lock();
+    }
+
+    from_result = PrepareForCommutativeWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE,
+                                             &storage_->transaction_dependencies_);
+
+    if (from_result.result == WriteResult::CONFLICT && from_result.wait_for_transaction_id) {
+      // Release locks before waiting
+      guard_from.unlock();
+      if (to_vertex != from_vertex) guard_to.unlock();
+
+      // Wait for blocking transaction
+      auto wait_result = storage_->transaction_dependencies_.WaitFor(transaction_.transaction_id,
+                                                                     *from_result.wait_for_transaction_id);
+      if (wait_result == WaitResult::CIRCULAR_DEPENDENCY) {
+        return std::unexpected{Error::SERIALIZATION_ERROR};
+      }
+      continue;  // Retry with fresh locks
+    }
+
+    if (from_result.result == WriteResult::CONFLICT) return std::unexpected{Error::SERIALIZATION_ERROR};
+    if (from_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
+
+    if (to_vertex != from_vertex) {
+      to_result = PrepareForCommutativeWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE,
+                                             &storage_->transaction_dependencies_);
+
+      if (to_result.result == WriteResult::CONFLICT && to_result.wait_for_transaction_id) {
+        // Release locks before waiting
+        guard_from.unlock();
+        guard_to.unlock();
+
+        // Wait for blocking transaction
+        auto wait_result = storage_->transaction_dependencies_.WaitFor(transaction_.transaction_id,
+                                                                       *to_result.wait_for_transaction_id);
+        if (wait_result == WaitResult::CIRCULAR_DEPENDENCY) {
+          return std::unexpected{Error::SERIALIZATION_ERROR};
+        }
+        continue;  // Retry with fresh locks
+      }
+
+      if (to_result.result == WriteResult::CONFLICT) return std::unexpected{Error::SERIALIZATION_ERROR};
+      if (to_vertex->deleted) return std::unexpected{Error::DELETED_OBJECT};
+    }
+
+    // If we get here, both preparations succeeded
+    break;
   }
 
   if (storage_->config_.salient.items.enable_schema_metadata) {
@@ -699,8 +787,8 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
     }
   }
 
-  bool const from_interleaved = (from_result == WriteResult::COMMUTATIVE);
-  bool const to_interleaved = (to_result == WriteResult::COMMUTATIVE);
+  bool const from_interleaved = (from_result.result == WriteResult::COMMUTATIVE);
+  bool const to_interleaved = (to_result.result == WriteResult::COMMUTATIVE);
 
   utils::AtomicMemoryBlock([this, edge, from_vertex = from_vertex, edge_type = edge_type, to_vertex = to_vertex,
                             &schema_acc, from_interleaved, to_interleaved]() {
@@ -1465,7 +1553,9 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
     mem_storage->commit_log_->MarkFinished(*commit_timestamp_);
 
     if (!transaction_.deltas.empty()) {
+      // Only hand over delta to be GC'ed if there was any deltas
       mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) {
+        // using mark of 0 as GC will assign a mark_timestamp after unlinking
         committed_transactions.emplace_back(0, std::move(transaction_.deltas),
                                             std::move(transaction_.commit_timestamp));
       });

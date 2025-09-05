@@ -686,6 +686,8 @@ add_unit_test(storage_v2_get_info
     SOURCES storage_v2_get_info.cpp
     LINK_TARGETS mg::storage
 )
+add_unit_test(storage_v2_show_storage_info.cpp)
+target_link_libraries(${test_prefix}storage_v2_show_storage_info mg::storage)
 
 add_unit_test(database_get_info
     SOURCES database_get_info.cpp

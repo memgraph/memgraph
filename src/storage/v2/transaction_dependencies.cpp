@@ -35,15 +35,15 @@ void TransactionDependencies::UnregisterTransaction(uint64_t transaction_id) {
   cv_.notify_all();
 }
 
-bool TransactionDependencies::WaitFor(uint64_t dependent_transaction_id, uint64_t prerequisite_transaction_id) {
+WaitResult TransactionDependencies::WaitFor(uint64_t dependent_transaction_id, uint64_t prerequisite_transaction_id) {
   std::unique_lock l{mutex_};
 
   if (active_transactions_.count(prerequisite_transaction_id) == 0) {
-    return true;
+    return WaitResult::SUCCESS;
   }
 
   if (IsWaitingFor(dependencies_, prerequisite_transaction_id, dependent_transaction_id)) {
-    return false;
+    return WaitResult::CIRCULAR_DEPENDENCY;
   }
 
   dependencies_[dependent_transaction_id] = prerequisite_transaction_id;
@@ -51,7 +51,7 @@ bool TransactionDependencies::WaitFor(uint64_t dependent_transaction_id, uint64_
   cv_.wait(l, [&]() { return active_transactions_.count(prerequisite_transaction_id) == 0; });
 
   dependencies_.erase(dependent_transaction_id);
-  return true;
+  return WaitResult::SUCCESS;
 }
 
 }  // namespace memgraph::storage

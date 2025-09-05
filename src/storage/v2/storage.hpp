@@ -60,6 +60,26 @@ extern const Event ActiveTypeConstraints;
 
 namespace memgraph::storage {
 
+// RAII wrapper for registering and unregister transactions with the global
+// list.
+class TransactionRegistration {
+ public:
+  TransactionRegistration(Storage *storage, uint64_t transaction_id);
+
+  TransactionRegistration(TransactionRegistration &&other) noexcept;
+  TransactionRegistration &operator=(TransactionRegistration &&other) noexcept;
+
+  TransactionRegistration(const TransactionRegistration &) = delete;
+  TransactionRegistration &operator=(const TransactionRegistration &) = delete;
+
+  ~TransactionRegistration();
+
+ private:
+  Storage *storage_;
+  uint64_t transaction_id_;
+  bool is_registered_;
+};
+
 class SharedAccessTimeout : public utils::BasicException {
  public:
   SharedAccessTimeout()
@@ -198,6 +218,7 @@ class Storage {
   friend class ReplicationServer;
   friend class ReplicationStorageClient;
   friend class VectorIndex;
+  friend class TransactionRegistration;
 
  public:
   Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator,
@@ -242,7 +263,7 @@ class Storage {
 
     Accessor(Accessor &&other) noexcept;
 
-    virtual ~Accessor();
+    virtual ~Accessor() = default;
 
     StorageAccessType original_access_type() const { return original_access_type_; }
 
@@ -682,6 +703,7 @@ class Storage {
     std::unique_lock<utils::ResourceLock> unique_guard_;  // TODO: Split the accessor into Shared/Unique
     /// IMPORTANT: transaction_ has to be constructed after the guards (so that destruction is in correct order)
     Transaction transaction_;
+    TransactionRegistration registration_;
     std::optional<uint64_t> commit_timestamp_;
     bool is_transaction_active_;
     StorageAccessType original_access_type_;
