@@ -13,7 +13,6 @@
 
 #include "utils/event_counter.hpp"
 #include "utils/exceptions.hpp"
-#include "utils/message.hpp"
 
 #include <fmt/core.h>
 #include <fmt/format.h>
@@ -434,6 +433,18 @@ class EdgeImportModeQueryDisabledOnDiskStorage final : public DisabledForOnDisk 
  public:
   EdgeImportModeQueryDisabledOnDiskStorage() : DisabledForOnDisk("Edge import mode") {}
   SPECIALIZE_GET_EXCEPTION_NAME(EdgeImportModeQueryDisabledOnDiskStorage)
+};
+
+class DropAllIndexesDisabledOnDiskStorage final : public DisabledForOnDisk {
+ public:
+  DropAllIndexesDisabledOnDiskStorage() : DisabledForOnDisk("DROP ALL INDEXES") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(DropAllIndexesDisabledOnDiskStorage)
+};
+
+class DropAllConstraintsDisabledOnDiskStorage final : public DisabledForOnDisk {
+ public:
+  DropAllConstraintsDisabledOnDiskStorage() : DisabledForOnDisk("DROP ALL CONSTRAINTS") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(DropAllConstraintsDisabledOnDiskStorage)
 };
 
 class SettingConfigInMulticommandTxException final : public MulticommandTxException {

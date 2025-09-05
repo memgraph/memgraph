@@ -224,6 +224,10 @@ class DiskStorage final : public Storage {
 
     ConstraintsInfo ListAllConstraints() const override;
 
+    void DropAllIndices() override;
+
+    void DropAllConstraints() override;
+
     // NOLINTNEXTLINE(google-default-arguments)
     utils::BasicResult<StorageManipulationError, void> PrepareForCommitPhase(CommitArgs commit_args) override;
 

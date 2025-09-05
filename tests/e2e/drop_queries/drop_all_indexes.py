@@ -16,8 +16,8 @@ from common import get_results_length, memgraph
 
 
 def test_drop_all_indexes(memgraph):
-    memgraph.execute("CREATE (:Person {name: 'John', age: 30, location: point({x: 1, y: 2}), embedding: [1.0, 2.0]})")
-    memgraph.execute("CREATE (:Person {name: 'Jane', age: 25, location: point({x: 3, y: 4}), embedding: [3.0, 4.0]})")
+    memgraph.execute("CREATE (:Person {name: 'John', age: 30, embedding: [1.0, 2.0]})")
+    memgraph.execute("CREATE (:Person {name: 'Jane', age: 25, embedding: [3.0, 4.0]})")
     memgraph.execute("CREATE (:Company {name: 'Acme Corp'})")
     memgraph.execute("""
         MATCH (p:Person {name: 'John'}), (c:Company {name: 'Acme Corp'})
