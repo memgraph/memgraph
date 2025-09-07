@@ -82,6 +82,8 @@ class Builder {
 
   void FlushSegment(bool final_segment, bool force_flush = false);
 
+  void SaveFooter(uint64_t total_size);
+
   bool GetFileData() const;
 
  private:

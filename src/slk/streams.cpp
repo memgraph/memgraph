@@ -76,6 +76,10 @@ void Builder::FlushFileSegment() {
   pos_ = 0;
 }
 
+void Builder::SaveFooter(uint64_t const total_size) {
+  memcpy(segment_.data() + total_size, &kFooter, sizeof(SegmentSize));
+}
+
 void Builder::FlushSegment(bool const final_segment, bool const force_flush) {
   if (!force_flush && !final_segment && pos_ < kSegmentMaxDataSize) return;
   MG_ASSERT(pos_ > 0, "Trying to flush out a segment that has no data in it!");
@@ -93,12 +97,11 @@ void Builder::FlushSegment(bool const final_segment, bool const force_flush) {
   }
 
   if (final_segment) {
-    memcpy(segment_.data() + total_size, &kFooter, sizeof(SegmentSize));
+    SaveFooter(total_size);
     total_size += sizeof(SegmentSize);
   }
 
   write_func_(segment_.data(), total_size, !final_segment);
-
   pos_ = 0;
 }
 
@@ -185,7 +188,10 @@ StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size, std::option
     // the file, then we remember the pos, increment found_segments and data_size and fallthrough
     if (remaining_file_size.has_value()) {
       auto const remaining_file_size_val = *remaining_file_size;
-      MG_ASSERT(remaining_file_size_val > 0, "Remaining file size must be > 0");
+      if (remaining_file_size_val == 0) {
+        spdlog::error("Remaining file size must be > 0");
+        return {.status = StreamStatus::INVALID, .stream_size = 0, .encoded_data_size = 0, .pos = pos};
+      }
 
       if (remaining_file_size_val >= size) {
         return {.status = StreamStatus::FILE_DATA, .stream_size = size, .encoded_data_size = data_size, .pos = 0};
@@ -197,7 +203,6 @@ StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size, std::option
       spdlog::trace("Pos is {}, fallthrough from file_data", pos);
     }
 
-    // TODO: (andi) Not ideal the 2nd situation
     // There are 2 possible situations in which we return partial status. The first one is improbable, and it happens
     // when the header+message request take more than 64KiB
     // The second situation happens when there is less than 4B available at the end of the stream to read file data mask
@@ -225,7 +230,6 @@ StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size, std::option
       break;
     }
 
-    // TODO: (andi) Could this ever happen?
     if (pos + len > size) {
       return {.status = StreamStatus::PARTIAL,
               .stream_size = pos + kSegmentMaxTotalSize,

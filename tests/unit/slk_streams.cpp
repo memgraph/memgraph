@@ -359,7 +359,7 @@ TEST(Reader, MultipleSegments) {
   }
 }
 
-TEST(CheckStreamComplete, SingleSegment) {
+TEST(CheckStreamStatus, SingleSegment) {
   std::vector<uint8_t> buffer;
   memgraph::slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
     for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
@@ -408,7 +408,7 @@ TEST(CheckStreamComplete, SingleSegment) {
   }
 }
 
-TEST(CheckStreamComplete, MultipleSegments) {
+TEST(CheckStreamStatus, MultipleSegments) {
   std::vector<uint8_t> buffer;
   memgraph::slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
     for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
@@ -474,10 +474,95 @@ TEST(CheckStreamComplete, MultipleSegments) {
   }
 }
 
-TEST(CheckStreamComplete, InvalidSegment) {
+TEST(CheckStreamStatus, InvalidSegment) {
   auto input = SizeToBinaryData(0);
   auto [status, stream_size, data_size, pos] = memgraph::slk::CheckStreamStatus(input.data(), input.size());
   ASSERT_EQ(status, memgraph::slk::StreamStatus::INVALID);
   ASSERT_EQ(stream_size, 0);
   ASSERT_EQ(data_size, 0);
+}
+
+TEST(CheckStreamStatus, StreamCompleteNoFileData) {
+  std::vector<uint8_t> buffer;
+  memgraph::slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
+    for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
+  });
+
+  auto const input = GetRandomData(20);
+  ASSERT_FALSE(builder.GetFileData());
+  builder.Save(input.data(), input.size());
+  ASSERT_FALSE(builder.GetFileData());
+  builder.Finalize();
+  ASSERT_FALSE(builder.GetFileData());
+
+  auto const res = memgraph::slk::CheckStreamStatus(buffer.data(), buffer.size());
+  ASSERT_EQ(res.status, memgraph::slk::StreamStatus::COMPLETE);
+}
+
+TEST(CheckStreamStatus, WholeFileInSegment) {
+  std::vector<uint8_t> buffer;
+  memgraph::slk::Builder builder([&buffer](const uint8_t *data, size_t size, bool have_more) {
+    for (size_t i = 0; i < size; ++i) buffer.push_back(data[i]);
+  });
+
+  auto const file_data = GetRandomData(5);
+  builder.PrepareForFileSending();
+  builder.SaveFileBuffer(file_data.data(), file_data.size());
+  builder.Finalize();
+
+  auto const res = memgraph::slk::CheckStreamStatus(buffer.data(), buffer.size());
+  ASSERT_EQ(res.status, memgraph::slk::StreamStatus::NEW_FILE);
+  ASSERT_EQ(res.pos, sizeof(memgraph::slk::SegmentSize));
+}
+
+TEST(CheckStreamStatus, FooterOnly) {
+  uint8_t constexpr footer[] = {0x0, 0x0, 0x0, 0x0};
+
+  {
+    // Intentionally set size to some large value
+    auto const res = memgraph::slk::CheckStreamStatus(footer, 30);
+    ASSERT_EQ(res.status, memgraph::slk::StreamStatus::INVALID);
+  }
+  {
+    // Intentionally set size to some large value. When we already processed some bytes, the stream should be considered
+    // complete
+    auto const res = memgraph::slk::CheckStreamStatus(footer, 30, std::nullopt, 10);
+    ASSERT_EQ(res.status, memgraph::slk::StreamStatus::COMPLETE);
+  }
+}
+
+TEST(CheckStreamStatus, FileDataStatus) {
+  auto const file_data = GetRandomData(5);
+
+  // When remaining file size is larger than what we can read, we return FILE_DATA
+  auto const res = memgraph::slk::CheckStreamStatus(file_data.data(), file_data.size(), 20);
+  ASSERT_EQ(res.status, memgraph::slk::StreamStatus::FILE_DATA);
+}
+
+TEST(CheckStreamStatus, FileDataAndFooter) {
+  uint8_t constexpr footer[] = {0x0, 0x0, 0x0, 0x0};
+
+  // When remaining file size is larger than what we can read, we return FILE_DATA
+  auto const res = memgraph::slk::CheckStreamStatus(footer, sizeof(footer), 0);
+  ASSERT_EQ(res.status, memgraph::slk::StreamStatus::INVALID);
+}
+
+TEST(CheckStreamStatus, PartialHeaderOnly) {
+  // Provide fewer than sizeof(SegmentSize) bytes
+  auto data = GetRandomData(sizeof(memgraph::slk::SegmentSize) - 1);
+  auto const res = memgraph::slk::CheckStreamStatus(data.data(), data.size());
+  ASSERT_EQ(res.status, memgraph::slk::StreamStatus::PARTIAL);
+  ASSERT_GE(res.stream_size, memgraph::slk::kSegmentMaxTotalSize);
+  ASSERT_EQ(res.encoded_data_size, 0);
+}
+
+TEST(CheckStreamStatus, SegmentLargerThanAvailable) {
+  std::vector<uint8_t> buffer;
+  memgraph::slk::SegmentSize fake_len = 100;
+  buffer.resize(sizeof(fake_len));
+  memcpy(buffer.data(), &fake_len, sizeof(fake_len));
+
+  // Not enough payload bytes after header
+  auto const res = memgraph::slk::CheckStreamStatus(buffer.data(), buffer.size());
+  ASSERT_EQ(res.status, memgraph::slk::StreamStatus::PARTIAL);
 }

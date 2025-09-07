@@ -28,7 +28,6 @@ size_t FileReplicationHandler::OpenFile(const uint8_t *data, size_t const size) 
   const auto kTempDirectory =
       std::filesystem::temp_directory_path() / "memgraph" / storage::durability::kReplicaDurabilityDirectory;
 
-  // TODO: (andi) Try to move the other constructor
   slk::Reader req_reader(data, size, size);
   // spdlog::warn("Reader pos before creating decoder: {}", req_reader.GetPos());
   storage::replication::Decoder decoder(&req_reader);
