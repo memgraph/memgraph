@@ -387,6 +387,22 @@ target_link_libraries(nuraft INTERFACE openssl::openssl)
 
 
 # mg_build_if_needed(build_mgcxx "mgcxx")
+macro(build_mgcxx)
+  # Setup mgcxx (provides: text search)
+  set(MGCXX_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/include
+    CACHE PATH "Path to mgcxx include directory" FORCE)
+  set(TANTIVY_TEXT_SEARCH_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/lib/libtantivy_text_search.a
+    CACHE FILEPATH "Path to mgcxx tantivy library (internal one)" FORCE)
+  set(MGCXX_TEXT_SEARCH_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/lib/libmgcxx_text_search.a
+    CACHE FILEPATH "Path to mgcxx text search library" FORCE)
+  add_external_project(mgcxx
+    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx
+    CMAKE_ARGS -DENABLE_TESTS=OFF)
+  mark_as_advanced(MGCXX_INCLUDE_DIR TANTIVY_TEXT_SEARCH_LIBRARY MGCXX_TEXT_SEARCH_LIBRARY)
+  import_library(tantivy_text_search STATIC ${TANTIVY_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
+  import_library(mgcxx_text_search STATIC ${MGCXX_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
+endmacro()
+mg_build_if_needed(build_mgcxx "mgcxx")
 mg_create_linkable_if_no_cmake(tantivy_text_search STATIC "${MG_TOOLCHAIN_ROOT}/lib/libtantivy_text_search.a" "${MG_TOOLCHAIN_ROOT}/include")
 mg_create_linkable_if_no_cmake(mgcxx_text_search STATIC "${MG_TOOLCHAIN_ROOT}/lib/libmgcxx_text_search.a" "${MG_TOOLCHAIN_ROOT}/include")
 

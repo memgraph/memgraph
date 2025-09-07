@@ -541,7 +541,6 @@ if(DEFINED MG_TOOLCHAIN_VERSION)
     # NOTE: The rest of the generated code should already under toolchain.
     add_custom_target(generated_code DEPENDS
         generate_opencypher_parser
-        mgcxx-proj
     )
   else()
     add_custom_target(generated_code DEPENDS
