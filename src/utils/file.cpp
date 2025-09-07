@@ -91,7 +91,7 @@ bool MoveFileSafely(const fs::path &source, const fs::path &destination) {
     }
 
     // Create destination directory if needed
-    fs::path dest_dir = destination.parent_path();
+    fs::path const dest_dir = destination.parent_path();
     if (!dest_dir.empty() && !fs::exists(dest_dir)) {
       fs::create_directories(dest_dir);
     }

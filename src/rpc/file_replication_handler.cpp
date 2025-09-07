@@ -17,7 +17,6 @@
 
 namespace memgraph::rpc {
 
-// TODO: (andi) Add abstract method for resetting file replication handler
 FileReplicationHandler::~FileReplicationHandler() {
   if (file_.IsOpen()) {
     ResetCurrentFile();

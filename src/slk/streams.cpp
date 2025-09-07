@@ -11,6 +11,7 @@
 
 #include "slk/streams.hpp"
 
+#include <algorithm>
 #include <cstring>
 #include <utility>
 
@@ -112,9 +113,7 @@ void Reader::Load(uint8_t *data, uint64_t size) {
   while (size > 0) {
     GetSegment();
     size_t to_read = size;
-    if (to_read > have_) {
-      to_read = have_;
-    }
+    to_read = std::min(to_read, have_);
     memcpy(data + offset, data_ + pos_, to_read);
     pos_ += to_read;
     have_ -= to_read;
@@ -239,8 +238,6 @@ StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size, std::option
     data_size += len;
   }
 
-  // Remaining file size has value means that we are handling files. In that case, the situation in which I don't have
-  // segments is fine
   if (found_segments < 1 && processed_bytes == 0) {
     return {.status = StreamStatus::INVALID, .stream_size = 0, .encoded_data_size = 0, .pos = pos};
   }
