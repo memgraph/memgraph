@@ -13,7 +13,7 @@ dataset:
 
 customWorkloads:
   tests:
-    - name: metrics-monitoring
+    - name: metrics-monitoring-basic
       memgraph_args: ["--memory-limit=4000"]
       querying:
         host: "localhost"
