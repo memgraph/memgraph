@@ -408,11 +408,8 @@ class Client {
     ProtocolMessageHeader const message_header{.protocol_version = current_protocol_version,
                                                .message_id = req_type.id,
                                                .message_version = TRequestResponse::Request::kVersion};
-    // spdlog::warn("Position before saving header: {}", handler.GetBuilder()->GetPos());
     SaveMessageHeader(message_header, handler.GetBuilder());
-    // spdlog::warn("Position after saving header: {}", handler.GetBuilder()->GetPos());
     TRequestResponse::Request::Save(request, handler.GetBuilder());
-    // spdlog::warn("Position after saving request: {}", handler.GetBuilder()->GetPos());
 
     // Return the handler to the user.
     return handler;

@@ -37,13 +37,13 @@ class FileReplicationHandler final {
 
   uint64_t GetRemainingBytesToWrite() const;
 
-  const std::vector<std::string> &GetActiveFileNames() const;
+  const std::vector<std::filesystem::path> &GetActiveFileNames() const;
 
  private:
   utils::OutputFile file_;
   uint64_t file_size_;
   uint64_t written_;
   // Files part of the current request
-  std::vector<std::string> file_names_;
+  std::vector<std::filesystem::path> paths_;
 };
 }  // namespace memgraph::rpc

@@ -27,8 +27,10 @@ FileReplicationHandler::~FileReplicationHandler() {
 // Currently, they are taking few hundred bytes at most so this should be a valid assumption. Also, we aren't expecting
 // big growth in message size/
 std::optional<size_t> FileReplicationHandler::OpenFile(const uint8_t *data, size_t const size) {
+  auto const random_str = utils::GenerateUUID();
+
   const auto kTempDirectory =
-      std::filesystem::temp_directory_path() / "memgraph" / storage::durability::kReplicaDurabilityDirectory;
+      std::filesystem::temp_directory_path() / random_str / storage::durability::kReplicaDurabilityDirectory;
 
   if (!utils::EnsureDir(kTempDirectory)) {
     spdlog::error("Failed to create temporary directory {}", kTempDirectory);
@@ -40,8 +42,8 @@ std::optional<size_t> FileReplicationHandler::OpenFile(const uint8_t *data, size
 
   auto const maybe_filename = decoder.ReadString();
   MG_ASSERT(maybe_filename.has_value(), "Filename missing for the received file over the RPC");
-  file_names_.emplace_back(*maybe_filename);
   auto const path = kTempDirectory / *maybe_filename;
+  paths_.emplace_back(path);
 
   spdlog::info("Read path {} in file replication handler", path);
 
@@ -89,6 +91,6 @@ bool FileReplicationHandler::HasOpenedFile() const { return file_.IsOpen(); }
 
 uint64_t FileReplicationHandler::GetRemainingBytesToWrite() const { return file_size_ - written_; }
 
-const std::vector<std::string> &FileReplicationHandler::GetActiveFileNames() const { return file_names_; }
+const std::vector<std::filesystem::path> &FileReplicationHandler::GetActiveFileNames() const { return paths_; }
 
 }  // namespace memgraph::rpc

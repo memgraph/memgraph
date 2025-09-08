@@ -519,18 +519,14 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
                            fmt::format("db: {}", storage->name()));
     return;
   }
+
   auto const &curr_wal_files = *maybe_curr_wal_files;
-
   auto const &active_files = file_replication_handler.GetActiveFileNames();
-
   MG_ASSERT(active_files.size() == 1, "Received {} snapshot files but expecting only one!", active_files.size());
-  auto const snapshot_file_name = active_files[0];
-  auto const src_snapshot_file = std::filesystem::temp_directory_path() / "memgraph" /
-                                 storage::durability::kReplicaDurabilityDirectory / snapshot_file_name;
+  auto const src_snapshot_file = active_files[0];
+  auto const dst_snapshot_file = current_snapshot_dir / active_files[0].filename();
 
-  auto const dst_snapshot_file = current_snapshot_dir / snapshot_file_name;
-
-  if (!utils::CopyFile(src_snapshot_file, dst_snapshot_file)) {
+  if (!utils::RenamePath(src_snapshot_file, dst_snapshot_file)) {
     spdlog::error("Couldn't copy file from {} to {}", src_snapshot_file, dst_snapshot_file);
     rpc::SendFinalResponse(storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder,
                            fmt::format("db: {}", storage->name()));
@@ -789,7 +785,9 @@ void InMemoryReplicationHandlers::CurrentWalHandler(rpc::FileReplicationHandler 
 
   // Even if loading wal file failed, we return last_durable_timestamp to the main because it is not a fatal error
   // When loading a single WAL file, we don't care about saving number of deltas
-  auto const load_wal_res = LoadWal(file_replication_handler.GetActiveFileNames()[0], storage, res_builder);
+  auto const &active_files = file_replication_handler.GetActiveFileNames();
+  MG_ASSERT(active_files.size() == 1, "Received {} files but expected 1 in CurrentWalHandler", active_files.size());
+  auto const load_wal_res = LoadWal(active_files[0], storage, res_builder);
   if (!load_wal_res.success) {
     spdlog::debug(
         "Replication recovery from current WAL didn't end successfully but the error is non-fatal error. DB {}.",
@@ -817,22 +815,17 @@ void InMemoryReplicationHandlers::CurrentWalHandler(rpc::FileReplicationHandler 
 // 4.) If reading WAL info fails
 // 5.) If applying some of the deltas failed
 // If WAL file doesn't contain any new changes, we ignore it and consider WAL file as successfully applied.
-InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(std::string const &wal_file_name,
+InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(std::filesystem::path const &wal_path,
                                                                                 storage::InMemoryStorage *storage,
                                                                                 slk::Builder *res_builder,
-                                                                                uint32_t start_batch_counter) {
-  auto const rpc_dir =
-      std::filesystem::temp_directory_path() / "memgraph" / storage::durability::kReplicaDurabilityDirectory;
-
-  auto const rpc_wal_path = rpc_dir / wal_file_name;
-
-  spdlog::trace("Received WAL saved to {}", rpc_wal_path);
+                                                                                uint32_t const start_batch_counter) {
+  spdlog::trace("Received WAL saved to {}", wal_path);
 
   std::optional<storage::durability::WalInfo> maybe_wal_info;
   try {
-    maybe_wal_info.emplace(storage::durability::ReadWalInfo(rpc_wal_path));
+    maybe_wal_info.emplace(storage::durability::ReadWalInfo(wal_path));
   } catch (const utils::BasicException &e) {
-    spdlog::error("Loading WAL info from {} failed because of {}.", rpc_wal_path, e.what());
+    spdlog::error("Loading WAL info from {} failed because of {}.", wal_path, e.what());
     return LoadWalStatus{.success = false, .current_batch_counter = 0, .num_txns_committed = 0};
   }
 
@@ -863,13 +856,13 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
   if (storage->wal_file_) {
     storage->wal_file_->FinalizeWal();
     storage->wal_file_.reset();
-    spdlog::trace("WAL file {} finalized successfully", rpc_wal_path);
+    spdlog::trace("WAL file {} finalized successfully", wal_path);
   }
 
-  spdlog::trace("Loading WAL deltas from {}", rpc_wal_path);
+  spdlog::trace("Loading WAL deltas from {}", wal_path);
   storage::durability::Decoder wal_decoder;
-  const auto version = wal_decoder.Initialize(rpc_wal_path, storage::durability::kWalMagic);
-  spdlog::debug("WAL file {} loaded successfully", rpc_wal_path);
+  const auto version = wal_decoder.Initialize(wal_path, storage::durability::kWalMagic);
+  spdlog::debug("WAL file {} loaded successfully", wal_path);
   if (!version) {
     spdlog::error("Couldn't read WAL magic and/or version!");
     return LoadWalStatus{.success = false, .current_batch_counter = 0, .num_txns_committed = 0};
@@ -897,7 +890,7 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
     }
   }
 
-  spdlog::trace("Replication from WAL file {} successful!", rpc_wal_path);
+  spdlog::trace("Replication from WAL file {} successful!", wal_path);
   return LoadWalStatus{
       .success = true, .current_batch_counter = local_batch_counter, .num_txns_committed = num_txns_committed};
 }

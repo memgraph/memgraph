@@ -64,7 +64,7 @@ class InMemoryReplicationHandlers {
   static void SwapMainUUIDHandler(dbms::DbmsHandler *dbms_handler, replication::RoleReplicaData &role_replica_data,
                                   uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 
-  static LoadWalStatus LoadWal(std::string const &wal_file_name, storage::InMemoryStorage *storage,
+  static LoadWalStatus LoadWal(std::filesystem::path const &wal_path, storage::InMemoryStorage *storage,
                                slk::Builder *res_builder, uint32_t start_batch_counter = 0);
 
   // If the connection between MAIN and REPLICA dies just after sending PrepareCommitRes and receiving
