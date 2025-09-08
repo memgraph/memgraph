@@ -624,13 +624,14 @@ antlrcpp::Any CypherMainVisitor::visitEdgeImportModeQuery(MemgraphCypher::EdgeIm
   return edge_import_mode_query;
 }
 
-antlrcpp::Any CypherMainVisitor::visitDropAllIndexesQuery(MemgraphCypher::DropAllIndexesQueryContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitDropAllIndexesQuery(MemgraphCypher::DropAllIndexesQueryContext * /*ctx*/) {
   auto *drop_all_indexes_query = storage_->Create<DropAllIndexesQuery>();
   query_ = drop_all_indexes_query;
   return drop_all_indexes_query;
 }
 
-antlrcpp::Any CypherMainVisitor::visitDropAllConstraintsQuery(MemgraphCypher::DropAllConstraintsQueryContext *ctx) {
+antlrcpp::Any CypherMainVisitor::visitDropAllConstraintsQuery(
+    MemgraphCypher::DropAllConstraintsQueryContext * /*ctx*/) {
   auto *drop_all_constraints_query = storage_->Create<DropAllConstraintsQuery>();
   query_ = drop_all_constraints_query;
   return drop_all_constraints_query;
