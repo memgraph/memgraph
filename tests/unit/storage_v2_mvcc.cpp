@@ -230,14 +230,11 @@ TEST(StorageV2Mvcc, NonCommutativeOperationOnInterleavedDeltaFails) {
 }
 
 TEST(StorageV2Mvcc, SnapshotIsolationHasCorrectInterleavedDeltaVisibility) {
-  auto config = ms::Config{};
-  config.durability.snapshot_wal_mode = ms::Config::Durability::SnapshotWalMode::DISABLED;
-  config.salient.items.properties_on_edges = false;
-  auto storage = std::make_unique<ms::InMemoryStorage>(config);
+  auto storage = std::make_unique<ms::InMemoryStorage>(ms::Config{});
 
   ms::Gid v1_gid, v2_gid;
   {
-    auto acc = storage->Access(ms::IsolationLevel::SNAPSHOT_ISOLATION);
+    auto acc = storage->Access();
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     v1_gid = v1.Gid();
@@ -247,7 +244,7 @@ TEST(StorageV2Mvcc, SnapshotIsolationHasCorrectInterleavedDeltaVisibility) {
 
   std::latch sync_point{2};
   std::jthread t1([&]() {
-    auto acc = storage->Access(ms::IsolationLevel::SNAPSHOT_ISOLATION);
+    auto acc = storage->Access();
     auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
     auto v2 = acc->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1.has_value() && v2.has_value());
@@ -270,7 +267,7 @@ TEST(StorageV2Mvcc, SnapshotIsolationHasCorrectInterleavedDeltaVisibility) {
   });
 
   std::jthread t2([&]() {
-    auto acc = storage->Access(ms::IsolationLevel::SNAPSHOT_ISOLATION);
+    auto acc = storage->Access();
     auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
     auto v2 = acc->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1.has_value() && v2.has_value());
@@ -293,14 +290,11 @@ TEST(StorageV2Mvcc, SnapshotIsolationHasCorrectInterleavedDeltaVisibility) {
 }
 
 TEST(StorageV2Mvcc, ReadCommitedHasCorrectInterleavedDeltaVisibility) {
-  auto config = ms::Config{};
-  config.durability.snapshot_wal_mode = ms::Config::Durability::SnapshotWalMode::DISABLED;
-  config.salient.items.properties_on_edges = false;
-  auto storage = std::make_unique<ms::InMemoryStorage>(config);
+  auto storage = std::make_unique<ms::InMemoryStorage>(ms::Config{});
 
   ms::Gid v1_gid, v2_gid;
   {
-    auto acc = storage->Access(ms::IsolationLevel::READ_COMMITTED);
+    auto acc = storage->Access();
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     v1_gid = v1.Gid();
@@ -311,7 +305,7 @@ TEST(StorageV2Mvcc, ReadCommitedHasCorrectInterleavedDeltaVisibility) {
   std::latch sync_point{2};
 
   std::jthread writer([&]() {
-    auto acc1 = storage->Access(ms::IsolationLevel::READ_COMMITTED);
+    auto acc1 = storage->Access();
     auto v1 = acc1->FindVertex(v1_gid, ms::View::OLD);
     auto v2 = acc1->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1.has_value() && v2.has_value());
@@ -336,23 +330,24 @@ TEST(StorageV2Mvcc, ReadCommitedHasCorrectInterleavedDeltaVisibility) {
     auto edge2_result = acc2->CreateEdge(&*v1, &*v2, acc2->NameToEdgeType("T2_Interleaved"));
     EXPECT_TRUE(edge2_result.HasValue());
 
-    auto degree_result = v1->OutDegree(ms::View::OLD);
-    ASSERT_TRUE(degree_result.HasValue());
-    EXPECT_EQ(degree_result.GetValue(), 2);
+    auto degree_result_old = v1->OutDegree(ms::View::OLD);
+    ASSERT_TRUE(degree_result_old.HasValue());
+    EXPECT_EQ(degree_result_old.GetValue(), 1);
+
+    auto degree_result_new = v1->OutDegree(ms::View::NEW);
+    ASSERT_TRUE(degree_result_new.HasValue());
+    EXPECT_EQ(degree_result_new.GetValue(), 2);
 
     ASSERT_FALSE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
 TEST(StorageV2Mvcc, ReadUncommitedHasCorrectInterleavedDeltaVisibility) {
-  auto config = ms::Config{};
-  config.durability.snapshot_wal_mode = ms::Config::Durability::SnapshotWalMode::DISABLED;
-  config.salient.items.properties_on_edges = false;
-  auto storage = std::make_unique<ms::InMemoryStorage>(config);
+  auto storage = std::make_unique<ms::InMemoryStorage>(ms::Config{});
 
   ms::Gid v1_gid, v2_gid;
   {
-    auto acc = storage->Access(ms::IsolationLevel::READ_UNCOMMITTED);
+    auto acc = storage->Access();
     auto v1 = acc->CreateVertex();
     auto v2 = acc->CreateVertex();
     v1_gid = v1.Gid();
@@ -363,7 +358,7 @@ TEST(StorageV2Mvcc, ReadUncommitedHasCorrectInterleavedDeltaVisibility) {
   std::latch sync_point{2};
 
   std::jthread t1([&]() {
-    auto acc = storage->Access(ms::IsolationLevel::READ_UNCOMMITTED);
+    auto acc = storage->Access();
     auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
     auto v2 = acc->FindVertex(v2_gid, ms::View::OLD);
     ASSERT_TRUE(v1.has_value() && v2.has_value());
