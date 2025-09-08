@@ -69,7 +69,7 @@ customWorkloads:
         # Metrics collection worker - runs continuously during the test
         - name: metrics-collector
           type: metrics
-          num_repetitions: 36
+          num_repetitions: 20
           sleep_millis: 5000
           querying:
             host: "localhost"
@@ -84,10 +84,10 @@ customWorkloads:
 
         # Writer worker - simulates write workload
         - name: write-queries
-          type: writer
+          type: retriable-writer
           query: "UNWIND range(1, 1000) as x MATCH (s:Supernode) CREATE (s)-[:CONNECTED_TO]->(:Node)"
           num_repetitions: 100
-          sleep_millis:
+          sleep_millis: 0
           step: 1
           replicas: 5
-      timeout_min: 4
+      timeout_min: 2

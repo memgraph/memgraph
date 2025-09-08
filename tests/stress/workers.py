@@ -83,6 +83,7 @@ class RetriableBasicWorker(BasicWorker):
                 memgraph.execute(query)
                 break
             except:
+                print("Query failed, retrying...")
                 time.sleep(0.1)
 
 

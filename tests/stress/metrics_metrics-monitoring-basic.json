@@ -1,0 +1,152 @@
+{
+  "workload_name": "metrics-monitoring-basic",
+  "timestamp": 1757340732.8548884,
+  "date": "2025-09-08T16:12:12.854888",
+  "worker_name": "metrics-collector",
+  "metrics_data": [
+    {
+      "timestamp": 1757340672.7774892,
+      "date": "2025-09-08T16:11:12.777489",
+      "data": {
+        "vertex_count": 10000,
+        "PeakMemoryRes": 216469504,
+        "UnreleasedDeltaObjects": 0,
+        "QueryExecutionLatency_us_50p": 262565,
+        "QueryExecutionLatency_us_90p": 18011512,
+        "QueryExecutionLatency_us_99p": 18011512
+      }
+    },
+    {
+      "timestamp": 1757340677.7884324,
+      "date": "2025-09-08T16:11:17.788432",
+      "data": {
+        "vertex_count": 10043,
+        "PeakMemoryRes": 219607040,
+        "UnreleasedDeltaObjects": 0,
+        "QueryExecutionLatency_us_50p": 424,
+        "QueryExecutionLatency_us_90p": 31873,
+        "QueryExecutionLatency_us_99p": 18011512
+      }
+    },
+    {
+      "timestamp": 1757340682.7952895,
+      "date": "2025-09-08T16:11:22.795290",
+      "data": {
+        "vertex_count": 10091,
+        "PeakMemoryRes": 219607040,
+        "UnreleasedDeltaObjects": 4,
+        "QueryExecutionLatency_us_50p": 424,
+        "QueryExecutionLatency_us_90p": 31188,
+        "QueryExecutionLatency_us_99p": 262565
+      }
+    },
+    {
+      "timestamp": 1757340687.8007777,
+      "date": "2025-09-08T16:11:27.800778",
+      "data": {
+        "vertex_count": 10140,
+        "PeakMemoryRes": 219607040,
+        "UnreleasedDeltaObjects": 0,
+        "QueryExecutionLatency_us_50p": 393,
+        "QueryExecutionLatency_us_90p": 30517,
+        "QueryExecutionLatency_us_99p": 33653
+      }
+    },
+    {
+      "timestamp": 1757340692.8074605,
+      "date": "2025-09-08T16:11:32.807461",
+      "data": {
+        "vertex_count": 10188,
+        "PeakMemoryRes": 219607040,
+        "UnreleasedDeltaObjects": 0,
+        "QueryExecutionLatency_us_50p": 389,
+        "QueryExecutionLatency_us_90p": 29538,
+        "QueryExecutionLatency_us_99p": 32574
+      }
+    },
+    {
+      "timestamp": 1757340697.8142743,
+      "date": "2025-09-08T16:11:37.814274",
+      "data": {
+        "vertex_count": 10237,
+        "PeakMemoryRes": 219607040,
+        "UnreleasedDeltaObjects": 4,
+        "QueryExecutionLatency_us_50p": 376,
+        "QueryExecutionLatency_us_90p": 29538,
+        "QueryExecutionLatency_us_99p": 32574
+      }
+    },
+    {
+      "timestamp": 1757340702.820335,
+      "date": "2025-09-08T16:11:42.820335",
+      "data": {
+        "vertex_count": 10286,
+        "PeakMemoryRes": 219607040,
+        "UnreleasedDeltaObjects": 0,
+        "QueryExecutionLatency_us_50p": 368,
+        "QueryExecutionLatency_us_90p": 29538,
+        "QueryExecutionLatency_us_99p": 32574
+      }
+    },
+    {
+      "timestamp": 1757340707.8275545,
+      "date": "2025-09-08T16:11:47.827554",
+      "data": {
+        "vertex_count": 10334,
+        "PeakMemoryRes": 219607040,
+        "UnreleasedDeltaObjects": 0,
+        "QueryExecutionLatency_us_50p": 364,
+        "QueryExecutionLatency_us_90p": 29538,
+        "QueryExecutionLatency_us_99p": 32574
+      }
+    },
+    {
+      "timestamp": 1757340712.8342786,
+      "date": "2025-09-08T16:11:52.834279",
+      "data": {
+        "vertex_count": 10383,
+        "PeakMemoryRes": 219607040,
+        "UnreleasedDeltaObjects": 4,
+        "QueryExecutionLatency_us_50p": 356,
+        "QueryExecutionLatency_us_90p": 29538,
+        "QueryExecutionLatency_us_99p": 32574
+      }
+    },
+    {
+      "timestamp": 1757340717.8401186,
+      "date": "2025-09-08T16:11:57.840119",
+      "data": {
+        "vertex_count": 10432,
+        "PeakMemoryRes": 219607040,
+        "UnreleasedDeltaObjects": 0,
+        "QueryExecutionLatency_us_50p": 353,
+        "QueryExecutionLatency_us_90p": 29538,
+        "QueryExecutionLatency_us_99p": 32574
+      }
+    },
+    {
+      "timestamp": 1757340722.8470144,
+      "date": "2025-09-08T16:12:02.847014",
+      "data": {
+        "vertex_count": 10480,
+        "PeakMemoryRes": 219607040,
+        "UnreleasedDeltaObjects": 0,
+        "QueryExecutionLatency_us_50p": 349,
+        "QueryExecutionLatency_us_90p": 29538,
+        "QueryExecutionLatency_us_99p": 32221
+      }
+    },
+    {
+      "timestamp": 1757340727.8539045,
+      "date": "2025-09-08T16:12:07.853904",
+      "data": {
+        "vertex_count": 10529,
+        "PeakMemoryRes": 219607040,
+        "UnreleasedDeltaObjects": 4,
+        "QueryExecutionLatency_us_50p": 341,
+        "QueryExecutionLatency_us_90p": 29538,
+        "QueryExecutionLatency_us_99p": 32221
+      }
+    }
+  ]
+}

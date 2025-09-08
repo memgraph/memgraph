@@ -78,7 +78,7 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph stress-daily
 
-      - name: Upload custom stress test results
+      - name: Upload basic stress test results
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -89,6 +89,21 @@ jobs:
           test-memgraph upload-to-bench-graph \
           --benchmark-name "stress-daily" \
           --benchmark-results "../../tests/stress/metrics_metrics-monitoring-basic.json" \
+          --github-run-id "${{ github.run_id }}" \
+          --github-run-number "${{ github.run_number }}" \
+          --head-branch-name "${{ env.BRANCH_NAME }}"
+
+      - name: Upload write write conflicts stress test results
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph upload-to-bench-graph \
+          --benchmark-name "stress-daily" \
+          --benchmark-results "../../tests/stress/metrics_write-write-conflicts.json" \
           --github-run-id "${{ github.run_id }}" \
           --github-run-number "${{ github.run_number }}" \
           --head-branch-name "${{ env.BRANCH_NAME }}"
