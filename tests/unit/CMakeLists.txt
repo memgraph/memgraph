@@ -648,8 +648,10 @@ add_unit_test(storage_v2_indices
     SOURCES storage_v2_indices.cpp
     LINK_TARGETS mg::storage mg-utils
 )
-add_unit_test(transaction_dependencies.cpp)
-target_link_libraries(${test_prefix}transaction_dependencies mg::storage)
+
+add_unit_test(transaction_dependencies
+    SOURCES transaction_dependencies.cpp
+    LINK_TARGETS mg::storage)
 
 add_unit_test(storage_v2_name_id_mapper
     SOURCES storage_v2_name_id_mapper.cpp
@@ -686,8 +688,10 @@ add_unit_test(storage_v2_get_info
     SOURCES storage_v2_get_info.cpp
     LINK_TARGETS mg::storage
 )
-add_unit_test(storage_v2_show_storage_info.cpp)
-target_link_libraries(${test_prefix}storage_v2_show_storage_info mg::storage)
+
+add_unit_test(storage_v2_mvcc
+    SOURCES storage_v2_mvcc.cpp
+    LINK_TARGETS mg::storage)
 
 add_unit_test(database_get_info
     SOURCES database_get_info.cpp
