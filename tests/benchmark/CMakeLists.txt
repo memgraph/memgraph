@@ -1,8 +1,7 @@
-set(test_prefix memgraph__benchmark__)
+set(test_prefix ${test_bench_prefix})
 
 find_package(gflags REQUIRED)
 
-add_custom_target(memgraph__benchmark)
 
 function(add_benchmark test_cpp)
   # get exec name (remove extension from the abs path)

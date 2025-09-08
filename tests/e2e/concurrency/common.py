@@ -13,6 +13,7 @@ import typing
 
 import mgclient
 import pytest
+from gqlalchemy import Memgraph
 
 
 def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}) -> typing.List[tuple]:
@@ -58,3 +59,9 @@ def second_connection(**kwargs) -> mgclient.Connection:
     execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
     connection.autocommit = False
     yield connection
+
+
+@pytest.fixture
+def memgraph(**kwargs) -> Memgraph:
+    mg = Memgraph("localhost", 7687, **kwargs)
+    yield mg

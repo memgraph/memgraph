@@ -67,7 +67,7 @@ jobs:
             --arch $ARCH \
             --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
             --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-            test-memgraph mgbench large
+            test-memgraph mgbench --dataset pokec --size large
 
         - name: Upload mgbench results
           run: |
@@ -92,3 +92,7 @@ jobs:
             --os $OS \
             --arch $ARCH \
             stop --remove
+
+        - name: Clean up Docker
+          run: |
+            ./tools/docker_cleanup.sh

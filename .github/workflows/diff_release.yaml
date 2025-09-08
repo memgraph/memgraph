@@ -46,6 +46,7 @@ env:
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
   OS: ${{ inputs.os }}
   TOOLCHAIN: ${{ inputs.toolchain }}
+  DEFAULT_MGBENCH_EXPORT_RESULTS_FILE: 'benchmark_result.json'
 
 jobs:
   core:
@@ -168,6 +169,10 @@ jobs:
           --arch $ARCH \
           stop --remove
 
+      - name: Clean up Docker
+        run: |
+          ./tools/docker_cleanup.sh
+
   benchmark:
     if: ${{ inputs.run_benchmark == 'true' }}
     name: "Benchmark"
@@ -252,7 +257,7 @@ jobs:
           --arch $ARCH \
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
-          test-memgraph mgbench
+          test-memgraph mgbench --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
 
       - name: Upload mgbench results
         run: |
@@ -264,7 +269,7 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph upload-to-bench-graph \
           --benchmark-name "mgbench" \
-          --benchmark-results "../../tests/mgbench/benchmark_result.json" \
+          --benchmark-results "../../tests/mgbench/${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}" \
           --github-run-id "${{ github.run_id }}" \
           --github-run-number "${{ github.run_number }}" \
           --head-branch-name "${{ env.BRANCH_NAME }}"
@@ -277,6 +282,10 @@ jobs:
           --os $OS \
           --arch $ARCH \
           stop --remove
+
+      - name: Clean up Docker
+        run: |
+          ./tools/docker_cleanup.sh
 
   e2e:
     if: ${{ inputs.run_e2e == 'true' }}
@@ -375,6 +384,10 @@ jobs:
           --arch $ARCH \
           stop --remove
 
+      - name: Clean up Docker
+        run: |
+          ./tools/docker_cleanup.sh
+
   stress:
     if: ${{ inputs.run_stress == 'true' }}
     name: "Stress tests"
@@ -466,6 +479,10 @@ jobs:
           --arch $ARCH \
           stop --remove
 
+      - name: Clean up Docker
+        run: |
+          ./tools/docker_cleanup.sh
+
   query_modules:
     if: ${{ inputs.run_query_modules == 'true' }}
     name: "Query modules tests"
@@ -543,3 +560,7 @@ jobs:
           --os $OS \
           --arch $ARCH \
           stop --remove
+
+      - name: Clean up Docker
+        run: |
+          ./tools/docker_cleanup.sh
