@@ -996,7 +996,7 @@ jobs:
   stress_test_large:
     if: ${{ inputs.run_stress_large == 'true' }}
     name: "Stress test large"
-    runs-on: [self-hosted, DockerMgBuild, BigMemory, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
+    runs-on: [self-hosted, DockerMgBuild, "${{ inputs.arch == 'arm' && 'ARM64' || 'X64' }}"]
     timeout-minutes: 720
 
     steps:
