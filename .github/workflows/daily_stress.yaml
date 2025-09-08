@@ -2,6 +2,7 @@ name: Daily Stress Tests
 
 on:
   workflow_dispatch:
+  push:
   schedule:
     - cron: "0 22 * * *"
 
