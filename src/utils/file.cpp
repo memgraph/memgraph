@@ -72,13 +72,19 @@ bool DeleteFile(const std::filesystem::path &file) noexcept {
 
 bool CopyFile(const std::filesystem::path &src, const std::filesystem::path &dst) noexcept {
   std::error_code error_code;  // For exception suppression.
-  return std::filesystem::copy_file(src, dst, error_code);
+  auto const res = std::filesystem::copy_file(src, dst, error_code);
+  if (!res) {
+    spdlog::error("Error code message: {}", error_code.message());
+  }
+  return res;
 }
 
 bool RenamePath(const std::filesystem::path &src, const std::filesystem::path &dst) {
   std::error_code error_code;  // For exception suppression.
   std::filesystem::rename(src, dst, error_code);
-  spdlog::trace("Error code message: {}", error_code.message());
+  if (error_code) {
+    spdlog::error("Error code message: {}", error_code.message());
+  }
   return !error_code;
 }
 
