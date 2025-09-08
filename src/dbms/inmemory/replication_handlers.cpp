@@ -838,7 +838,7 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
   auto const new_wal_path = temp_wal_directory / wal_file_name;
   auto const rpc_wal_path = rpc_dir / wal_file_name;
 
-  if (!utils::RenamePath(rpc_wal_path, new_wal_path)) {
+  if (!utils::CopyFile(rpc_wal_path, new_wal_path)) {
     spdlog::error("Couldn't move the file from {} to {}", rpc_wal_path, new_wal_path);
     return LoadWalStatus{.success = false, .current_batch_counter = 0, .num_txns_committed = 0};
   }
