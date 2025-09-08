@@ -32,8 +32,8 @@ DEFINE_VALIDATED_int32(query_plan_cache_max_size, 1000, "Maximum number of query
 namespace memgraph::query {
 PlanWrapper::PlanWrapper(std::unique_ptr<LogicalPlan> plan) : plan_(std::move(plan)) {}
 
-auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters)
-    -> Parameters {
+auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query,
+                            UserParameters const &user_parameters) -> Parameters {
   // Copy over the parameters that were introduced during stripping.
   Parameters parameters{stripped_query.literals()};
   // Check that all user-specified parameters are provided.
