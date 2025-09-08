@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -138,6 +138,35 @@ class Handler {
    * @return true if a T is already associated with the name
    */
   bool Has(std::string_view name) const { return items_.find(name) != items_.end(); }
+
+  /**
+   * @brief Rename the context associated with the name.
+   *
+   * @param old_name Name associated with the context to rename
+   * @param new_name New name for the context
+   * @return true on success, false if new_name already exists or context is in use
+   */
+  utils::BasicResult<RenameError> Rename(std::string_view old_name, std::string_view new_name) {
+    if (old_name == new_name) {
+      return {};  // No-op
+    }
+
+    auto old_itr = items_.find(old_name);
+    if (old_itr == items_.end()) {
+      return RenameError::NON_EXISTENT;
+    }
+
+    auto new_itr = items_.find(new_name);
+    if (new_itr != items_.end()) {
+      return RenameError::ALREADY_EXISTS;
+    }
+
+    // Move the gatekeeper to the new name
+    auto gatekeeper = std::move(old_itr->second);
+    items_.erase(old_itr);
+    items_.emplace(new_name, std::move(gatekeeper));
+    return {};
+  }
 
   auto begin() { return items_.begin(); }
   auto end() { return items_.end(); }
