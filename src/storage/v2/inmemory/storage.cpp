@@ -3339,6 +3339,62 @@ ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {
           mem_storage->constraints_.type_constraints_->ListConstraints()};
 }
 
+void InMemoryStorage::InMemoryAccessor::DropAllIndexes() {
+  auto indices_info = ListAllIndices();
+
+  for (const auto &label_id : indices_info.label) {
+    [[maybe_unused]] auto maybe_error = DropIndex(label_id);
+  }
+
+  for (auto &[label_id, properties] : indices_info.label_properties) {
+    [[maybe_unused]] auto maybe_error = DropIndex(label_id, std::move(properties));
+  }
+
+  for (const auto &edge_type_id : indices_info.edge_type) {
+    [[maybe_unused]] auto maybe_error = DropIndex(edge_type_id);
+  }
+
+  for (const auto &[edge_type_id, property_id] : indices_info.edge_type_property) {
+    [[maybe_unused]] auto maybe_error = DropIndex(edge_type_id, property_id);
+  }
+
+  for (const auto &property_id : indices_info.edge_property) {
+    [[maybe_unused]] auto maybe_error = DropGlobalEdgeIndex(property_id);
+  }
+
+  for (const auto &[label_id, property_id] : indices_info.point_label_property) {
+    [[maybe_unused]] auto maybe_error = DropPointIndex(label_id, property_id);
+  }
+
+  for (const auto &text_index_spec : indices_info.text_indices) {
+    [[maybe_unused]] auto maybe_error = DropTextIndex(text_index_spec.index_name_);
+  }
+
+  for (const auto &vector_index_spec : indices_info.vector_indices_spec) {
+    [[maybe_unused]] auto maybe_error = DropVectorIndex(vector_index_spec.index_name);
+  }
+
+  for (const auto &vector_edge_index_spec : indices_info.vector_edge_indices_spec) {
+    [[maybe_unused]] auto maybe_error = DropVectorIndex(vector_edge_index_spec.index_name);
+  }
+}
+
+void InMemoryStorage::InMemoryAccessor::DropAllConstraints() {
+  auto constraints_info = ListAllConstraints();
+
+  for (const auto &[label_id, property_id] : constraints_info.existence) {
+    [[maybe_unused]] auto maybe_error = DropExistenceConstraint(label_id, property_id);
+  }
+
+  for (const auto &[label_id, properties] : constraints_info.unique) {
+    [[maybe_unused]] auto maybe_error = DropUniqueConstraint(label_id, properties);
+  }
+
+  for (const auto &[label_id, property_id, type] : constraints_info.type) {
+    [[maybe_unused]] auto maybe_error = DropTypeConstraint(label_id, property_id, type);
+  }
+}
+
 void InMemoryStorage::InMemoryAccessor::SetIndexStats(const storage::LabelId &label, const LabelIndexStats &stats) {
   static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get())->SetIndexStats(label, stats);
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_stats_set, label, stats);

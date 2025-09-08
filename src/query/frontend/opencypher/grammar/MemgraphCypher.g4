@@ -237,6 +237,8 @@ query : cypherQuery
       | showDatabases
       | edgeImportModeQuery
       | coordinatorQuery
+      | dropAllIndexesQuery
+      | dropAllConstraintsQuery
       | dropGraphQuery
       | createEnumQuery
       | showEnumsQuery
@@ -712,6 +714,10 @@ createVectorEdgeIndex: CREATE VECTOR EDGE INDEX indexName ON ':' labelName ( '('
 dropVectorIndex : DROP VECTOR INDEX indexName ;
 
 vectorIndexQuery : createVectorIndex | dropVectorIndex ;
+
+dropAllIndexesQuery : DROP ALL INDEXES ;
+
+dropAllConstraintsQuery : DROP ALL CONSTRAINTS ;
 
 dropGraphQuery : DROP GRAPH ;
 

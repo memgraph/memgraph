@@ -3047,6 +3047,42 @@ class CoordinatorQuery : public memgraph::query::Query {
   friend class AstStorage;
 };
 
+class DropAllIndexesQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DropAllIndexesQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  DropAllIndexesQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<DropAllIndexesQuery>();
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class DropAllConstraintsQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DropAllConstraintsQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  DropAllConstraintsQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<DropAllConstraintsQuery>();
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
 class DropGraphQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
