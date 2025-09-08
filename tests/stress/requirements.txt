@@ -1,3 +1,5 @@
 neo4j-driver==4.1.1
 PyYAML==6.0.1
 GQLAlchemy==1.6.0
+matplotlib>=3.5.0
+tk-tools==0.17.0
