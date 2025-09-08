@@ -1374,7 +1374,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           const auto edge_type = storage->NameToEdgeType(data.edge_type);
           const auto properties_str = std::invoke([&]() -> std::string {
-            if (data.properties.empty()) {
+            if (!data.properties.empty()) {
               return fmt::format(" ({})", rv::join(data.properties, ", ") | r::to<std::string>);
             }
             return {};

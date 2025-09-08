@@ -65,7 +65,6 @@ void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx) {
   vector_index_.UpdateOnAddLabel(label, vertex);
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     text_index_.UpdateOnAddLabel(label, vertex, tx);
-    text_index_.UpdateOnAddLabel(label, vertex, tx);
   }
 }
 
