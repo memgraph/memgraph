@@ -18,6 +18,7 @@ class WorkerType(Enum):
     WRITER = "writer"
     LAB_SIMULATOR = "lab-simulator"
     METRICS = "metrics"
+    RETRIABLE_WRITER = "retriable-writer"
 
 
 class Worker(ABC):
@@ -49,7 +50,7 @@ class BasicWorker(Worker):
         memgraph = Memgraph(self._query_host, self._query_port)
         for i in range(self._repetitions):
             print(f"Worker '{self._name}' executing query: {self._query}")
-            memgraph.execute(self._query)
+            self._execute_query(memgraph, self._query)
 
             if self._sleep_millis > 0:
                 time.sleep(self._sleep_millis / 1000.0)
@@ -67,6 +68,22 @@ class BasicWorker(Worker):
                 print(f"Worker finished in {duration} seconds")
                 continue
             raise Exception(f"Unknown worker metric {metric}")
+
+    def _execute_query(self, memgraph, query):
+        memgraph.execute(query)
+
+
+class RetriableBasicWorker(BasicWorker):
+    def __init__(self, worker):
+        super().__init__(worker)
+
+    def _execute_query(self, memgraph, query):
+        while True:
+            try:
+                memgraph.execute(query)
+                break
+            except:
+                time.sleep(0.1)
 
 
 class LabSimulator(Worker):
@@ -207,6 +224,8 @@ def get_worker_object(worker) -> Worker:
         return LabSimulator(worker)
     if worker_type == WorkerType.METRICS:
         return MetricsWorker(worker)
+    if worker_type == WorkerType.RETRIABLE_WRITER:
+        return RetriableBasicWorker(worker)
 
     raise Exception(f"Unhandled worker type: '{worker_type}'!")
 

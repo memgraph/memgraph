@@ -56,3 +56,38 @@ customWorkloads:
           sleep_millis: 100
           step: 1
       timeout_min: 2
+    - name: write-write-conflicts
+      memgraph_args: ["--memory-limit=4000"]
+      querying:
+        host: "localhost"
+        port: 7687
+      import:
+        queries:
+          - "CREATE (:Supernode)"
+          - "CREATE INDEX ON :Supernode"
+      workers:
+        # Metrics collection worker - runs continuously during the test
+        - name: metrics-collector
+          type: metrics
+          num_repetitions: 36
+          sleep_millis: 5000
+          querying:
+            host: "localhost"
+            port: 9091
+          step: 1
+          metrics:
+            - vertex_count
+            - QueryExecutionLatency_us_50p
+            - QueryExecutionLatency_us_90p
+            - QueryExecutionLatency_us_99p
+            - WriteWriteConflicts
+
+        # Writer worker - simulates write workload
+        - name: write-queries
+          type: writer
+          query: "UNWIND range(1, 1000) as x MATCH (s:Supernode) CREATE (s)-[:CONNECTED_TO]->(:Node)"
+          num_repetitions: 100
+          sleep_millis:
+          step: 1
+          replicas: 5
+      timeout_min: 4
