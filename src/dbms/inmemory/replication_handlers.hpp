@@ -65,8 +65,7 @@ class InMemoryReplicationHandlers {
                                   uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 
   static LoadWalStatus LoadWal(std::string const &wal_file_name, storage::InMemoryStorage *storage,
-                               storage::replication::Decoder *decoder, slk::Builder *res_builder,
-                               uint32_t start_batch_counter = 0);
+                               slk::Builder *res_builder, uint32_t start_batch_counter = 0);
 
   // If the connection between MAIN and REPLICA dies just after sending PrepareCommitRes and receiving
   // FinalizeCommitReq, then there is the possibility that the cached_commit_accessor_ will stay alive for too long
