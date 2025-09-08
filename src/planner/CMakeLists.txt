@@ -6,17 +6,20 @@ target_sources(mg-planner
     FILE_SET HEADERS
     BASE_DIRS include
     FILES
-    include/planner/core/union_find.hpp
-    include/planner/core/enode.hpp
     include/planner/core/eclass.hpp
+    include/planner/core/enode.hpp
+    include/planner/core/hashcons.hpp
+    include/planner/core/union_find.hpp
+    include/planner/core/fwd.hpp
 
     PRIVATE
-    src/core/union_find.cpp
-    src/core/enode.cpp
     src/core/eclass.cpp
+    src/core/enode.cpp
+    src/core/hashcons.cpp
+    src/core/union_find.cpp
 )
 
-target_link_libraries(mg-planner PRIVATE mg-utils)
+target_link_libraries(mg-planner PRIVATE mg-utils absl::flat_hash_map)
 
 if(MG_ENABLE_TESTING)
   add_subdirectory(test)
