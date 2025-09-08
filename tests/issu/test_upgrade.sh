@@ -1,17 +1,21 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
-# --- config you already use ---
 SC_NAME="csi-hostpath-delayed"
 RELEASE="memgraph-db"
 
-# --- colors (optional) ---
 RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'; NC='\033[0m'
 
-# --- cleanup that always runs exactly once ---
+TEST_ROUTING=${TEST_ROUTING:-false}
+for arg in "${@:-}"; do
+  case "$arg" in
+    --test-routing|--test-routing=true) TEST_ROUTING=true ;;
+    --test-routing=false|--no-test-routing) TEST_ROUTING=false ;;
+  esac
+done
+
 _CLEANED=false
 cleanup() {
-   # ignore any failures during cleanup
   set +e
   helm uninstall "$RELEASE" >/dev/null 2>&1 || true
   kubectl delete pvc --all >/dev/null 2>&1 || true
@@ -20,13 +24,11 @@ cleanup() {
   echo -e "${GREEN}Cleanup finished.${NC}"
 }
 
-# Run cleanup on any exit (success, error, SIGINT/SIGTERM)
 trap cleanup EXIT
 trap 'echo -e "'"${RED}"'"Error on line $LINENO. Exiting…'"${NC}"'" >&2' ERR
 trap 'echo -e "'"${RED}"'SIGINT received. Exiting…'"${NC}"' >&2' INT
 trap 'echo -e "'"${RED}"'SIGTERM received. Exiting…'"${NC}"' >&2' TERM
 
-# --- your script body below (unchanged) ---
 # Create CSI storage class
 kubectl apply -f sc.yaml
 echo "Created $SC_NAME storage class"
@@ -117,6 +119,25 @@ kubectl cp post_upgrade_mg.cypherl memgraph-data-1-0:/var/lib/memgraph/post_upgr
 kubectl cp post_upgrade_db1.cypherl memgraph-data-1-0:/var/lib/memgraph/post_upgrade_db1.cypherl
 kubectl exec memgraph-data-1-0 -- bash -c "mgconsole < /var/lib/memgraph/post_upgrade_mg.cypherl --username=system_admin_user --password=admin_password" 
 kubectl exec memgraph-data-1-0 -- bash -c "mgconsole < /var/lib/memgraph/post_upgrade_db1.cypherl --username=tenant1_admin_user --password=t1_admin_pass" 
+
+# Auth post
+kubectl cp auth_post_upgrade.cypherl memgraph-data-1-0:/var/lib/memgraph/auth_post_upgrade.cypherl
+kubectl exec memgraph-data-1-0 -- bash -c "mgconsole < /var/lib/memgraph/auth_post_upgrade.cypherl --username=system_admin_user --password=admin_password" 
+
+if [[ "$TEST_ROUTING" == "true" ]]; then
+  # Setup routing on coordinators
+  kubectl cp routing.py memgraph-coordinator-1-0:/var/lib/memgraph/routing.py
+  kubectl cp routing.py memgraph-coordinator-2-0:/var/lib/memgraph/routing.py
+  kubectl cp routing.py memgraph-coordinator-3-0:/var/lib/memgraph/routing.py
+  kubectl exec memgraph-coordinator-1-0 -- bash -c "python3.12 -m venv ~/env && source ~/env/bin/activate && pip install neo4j"
+  kubectl exec memgraph-coordinator-2-0 -- bash -c "python3.12 -m venv ~/env && source ~/env/bin/activate && pip install neo4j"
+  kubectl exec memgraph-coordinator-3-0 -- bash -c "python3.12 -m venv ~/env && source ~/env/bin/activate && pip install neo4j"
+  kubectl exec memgraph-coordinator-1-0 -- bash -c "source ~/env/bin/activate && python3.12 /var/lib/memgraph/routing.py" 
+  kubectl exec memgraph-coordinator-2-0 -- bash -c "source ~/env/bin/activate && python3.12 /var/lib/memgraph/routing.py" 
+  kubectl exec memgraph-coordinator-3-0 -- bash -c "source ~/env/bin/activate && python3.12 /var/lib/memgraph/routing.py" 
+else
+  echo -e "${YELLOW}test_routing=false → skipping routing setup${NC}"
+fi
 
 echo "Test successfully finished!"
 # (No explicit cleanup here—trap will run it)

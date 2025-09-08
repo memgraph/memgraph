@@ -2,7 +2,9 @@ image:
   repository: memgraph/memgraph
   # It is a bad practice to set the image tag name to latest as it can trigger automatic upgrade of the charts
   # With some of the pullPolicy values. Please consider fixing the tag to a specific Memgraph version
-  tag: 3.5.0
+  # tag: 3.5.0
+  # tag: 3.5.0_3_5e192412b520-relwithdebinfo
+  tag: 3.5.0_5_56c7108feb03-relwithdebinfo
   pullPolicy: IfNotPresent
 
 env:
@@ -210,7 +212,6 @@ coordinators:
   - "--log-level=TRACE"
   - "--coordinator-hostname=memgraph-coordinator-1.default.svc.cluster.local"
   - "--log-file=/var/log/memgraph/memgraph.log"
-  - "--nuraft-log-file=/var/log/memgraph/memgraph.log"
   - "--data-directory=/var/lib/memgraph/mg_data"
 
 - id: "2"
@@ -225,7 +226,6 @@ coordinators:
   - "--log-level=TRACE"
   - "--coordinator-hostname=memgraph-coordinator-2.default.svc.cluster.local"
   - "--log-file=/var/log/memgraph/memgraph.log"
-  - "--nuraft-log-file=/var/log/memgraph/memgraph.log"
   - "--data-directory=/var/lib/memgraph/mg_data"
 
 - id: "3"
@@ -240,5 +240,4 @@ coordinators:
   - "--log-level=TRACE"
   - "--coordinator-hostname=memgraph-coordinator-3.default.svc.cluster.local"
   - "--log-file=/var/log/memgraph/memgraph.log"
-  - "--nuraft-log-file=/var/log/memgraph/memgraph.log"
   - "--data-directory=/var/lib/memgraph/mg_data"
