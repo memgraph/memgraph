@@ -62,9 +62,6 @@ bool CopyFile(const std::filesystem::path &src, const std::filesystem::path &dst
 /// Renames the path from `src` to `dst`. If the `dst` contains directories that
 /// don't exist, the renaming fails. Symlinks are not followed.
 bool RenamePath(const std::filesystem::path &src, const std::filesystem::path &dst);
-namespace fs = std::filesystem;
-
-bool MoveFileSafely(const fs::path &source, const fs::path &destination);
 
 /// Checks if process has read access to the file.
 bool HasReadAccess(const std::filesystem::path &path);

@@ -27,15 +27,14 @@ void Builder::Save(const uint8_t *data, uint64_t size) {
   size_t offset = 0;
   while (size > 0) {
     FlushSegment(false);
-
     size_t const to_write = std::min(size, kSegmentMaxDataSize - pos_);
 
-    // TODO: (andi) What is this exactly used for?
     if (file_data_) {
       memcpy(segment_.data() + pos_, data + offset, to_write);
     } else {
       memcpy(segment_.data() + sizeof(SegmentSize) + pos_, data + offset, to_write);
     }
+
     size -= to_write;
     pos_ += to_write;
 
@@ -200,8 +199,6 @@ StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size, std::option
 
     // There are 2 possible situations in which we return partial status. The first one is improbable, and it happens
     // when the header+message request take more than 64KiB
-    // The second situation happens when there is less than 4B available at the end of the stream to read file data mask
-    // or footer but only when files are exchanged
     SegmentSize len = 0;
     if (pos + sizeof(SegmentSize) > size) {
       return {.status = StreamStatus::PARTIAL,
@@ -215,7 +212,7 @@ StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size, std::option
 
     // Start of the new segment
     if (len == kFileSegmentMask) {
-      // Pos is important here and it points to the byte after mask
+      // Pos is important here and it points to the byte after the mask
       return {.status = StreamStatus::NEW_FILE, .stream_size = size, .encoded_data_size = data_size, .pos = pos};
     }
 

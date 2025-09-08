@@ -88,35 +88,6 @@ bool RenamePath(const std::filesystem::path &src, const std::filesystem::path &d
   return !error_code;
 }
 
-bool MoveFileSafely(const fs::path &source, const fs::path &destination) {
-  try {
-    // Check if source exists
-    if (!fs::exists(source)) {
-      spdlog::error("Error: Source file does not exist: {}", source);
-      return false;
-    }
-
-    // Create destination directory if needed
-    fs::path const dest_dir = destination.parent_path();
-    if (!dest_dir.empty() && !fs::exists(dest_dir)) {
-      fs::create_directories(dest_dir);
-    }
-
-    // Move the file
-    fs::rename(source, destination);
-
-    spdlog::info("Successfully moved: {} -> {}", source, destination);
-    return true;
-
-  } catch (const fs::filesystem_error &ex) {
-    spdlog::error("Filesystem error: {}. Error code: {}", ex.what(), ex.code());
-    return false;
-  } catch (const std::exception &ex) {
-    spdlog::error("Exception: {}", ex.what());
-    return false;
-  }
-}
-
 bool HasReadAccess(const std::filesystem::path &path) { return access(path.c_str(), R_OK) == 0; }
 
 static_assert(std::is_same_v<off_t, ssize_t>, "off_t must fit into ssize_t!");
