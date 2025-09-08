@@ -119,8 +119,10 @@ jobs:
           stop --remove
 
       - name: Clean up Docker
+        if: always()
+        continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh || true
+          ./tools/docker_cleanup.sh
 
   coverage_build:
     if: ${{ inputs.run_release_tests == 'true' }}
@@ -208,8 +210,10 @@ jobs:
           stop --remove
 
       - name: Clean up Docker
+        if: always()
+        continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh || true
+          ./tools/docker_cleanup.sh
 
   debug_build:
     if: ${{ inputs.run_release_tests == 'true' }}
@@ -318,8 +322,10 @@ jobs:
           stop --remove
 
       - name: Clean up Docker
+        if: always()
+        continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh || true
+          ./tools/docker_cleanup.sh
 
   debug_integration_test:
     if: ${{ inputs.run_release_tests == 'true' }}
@@ -389,8 +395,10 @@ jobs:
           stop --remove
 
       - name: Clean up Docker
+        if: always()
+        continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh || true
+          ./tools/docker_cleanup.sh
 
 
   malloc_build:
@@ -492,8 +500,10 @@ jobs:
           stop --remove
 
       - name: Clean up Docker
+        if: always()
+        continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh || true
+          ./tools/docker_cleanup.sh
 
   release_build:
     name: "Release build"
@@ -600,8 +610,10 @@ jobs:
           stop --remove
 
       - name: Clean up Docker
+        if: always()
+        continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh || true
+          ./tools/docker_cleanup.sh
 
   release_benchmark_tests:
     if: ${{ inputs.run_release_tests == 'true' }}
@@ -688,8 +700,10 @@ jobs:
           stop --remove
 
       - name: Clean up Docker
+        if: always()
+        continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh || true
+          ./tools/docker_cleanup.sh
 
   release_e2e_test:
     if: ${{ inputs.run_release_tests == 'true' }}
@@ -775,8 +789,10 @@ jobs:
           stop --remove
 
       - name: Clean up Docker
+        if: always()
+        continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh || true
+          ./tools/docker_cleanup.sh
 
   release_durability_stress_tests:
     if: ${{ inputs.run_release_tests == 'true' }}
@@ -873,8 +889,10 @@ jobs:
           stop --remove
 
       - name: Clean up Docker
+        if: always()
+        continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh || true
+          ./tools/docker_cleanup.sh
 
   release_jepsen_test:
     if: ${{ inputs.run_release_tests == 'true' }}
@@ -990,8 +1008,10 @@ jobs:
           stop --remove
 
       - name: Clean up Docker
+        if: always()
+        continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh || true
+          ./tools/docker_cleanup.sh
 
   stress_test_large:
     if: ${{ inputs.run_stress_large == 'true' }}
@@ -1058,8 +1078,10 @@ jobs:
           stop --remove
 
       - name: Clean up Docker
+        if: always()
+        continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh || true
+          ./tools/docker_cleanup.sh
 
   release_query_modules_test:
     if: ${{ inputs.run_release_tests == 'true' }}
@@ -1126,8 +1148,10 @@ jobs:
           stop --remove
 
       - name: Clean up Docker
+        if: always()
+        continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh || true
+          ./tools/docker_cleanup.sh
 
   aggregate_results:
     name: "Aggregate Test Results"

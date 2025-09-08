@@ -152,8 +152,10 @@ jobs:
           stop --remove
 
       - name: Clean up Docker
+        if: always()
+        continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh || true
+          ./tools/docker_cleanup.sh
 
   clang-tidy-community:
     if: ${{ inputs.run_clang_tidy == 'true' }}
@@ -220,8 +222,10 @@ jobs:
           stop --remove
 
       - name: Clean up Docker
+        if: always()
+        continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh || true
+          ./tools/docker_cleanup.sh
 
   clang-tidy-enterprise:
     if: ${{ inputs.run_clang_tidy == 'true' }}
@@ -288,5 +292,7 @@ jobs:
           stop --remove
 
       - name: Clean up Docker
+        if: always()
+        continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh || true
+          ./tools/docker_cleanup.sh

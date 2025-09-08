@@ -236,5 +236,7 @@ jobs:
           DEST_DIR: "${{ inputs.s3_dest_dir }}/${{ env.ARTIFACT_NAME }}/"
 
       - name: "Clean up Docker"
+        if: always()
+        continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh || true
+          ./tools/docker_cleanup.sh

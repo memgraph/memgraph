@@ -145,5 +145,7 @@ jobs:
           done
 
       - name: Clean up Docker
+        if: always()
+        continue-on-error: true
         run: |
-          ./tools/docker_cleanup.sh || true
+          ./tools/docker_cleanup.sh
