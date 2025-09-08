@@ -96,4 +96,4 @@ jobs:
 
       - name: Clean up Docker
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/docker_cleanup.sh || true

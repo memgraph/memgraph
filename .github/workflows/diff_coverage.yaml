@@ -153,7 +153,7 @@ jobs:
 
       - name: Clean up Docker
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/docker_cleanup.sh || true
 
   clang-tidy-community:
     if: ${{ inputs.run_clang_tidy == 'true' }}
@@ -221,7 +221,7 @@ jobs:
 
       - name: Clean up Docker
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/docker_cleanup.sh || true
 
   clang-tidy-enterprise:
     if: ${{ inputs.run_clang_tidy == 'true' }}
@@ -289,4 +289,4 @@ jobs:
 
       - name: Clean up Docker
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/docker_cleanup.sh || true

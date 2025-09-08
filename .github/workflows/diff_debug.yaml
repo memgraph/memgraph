@@ -145,7 +145,7 @@ jobs:
 
       - name: Clean up Docker
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/docker_cleanup.sh || true
 
   integration:
     if: ${{ inputs.run_integration == 'true' }}
@@ -210,4 +210,4 @@ jobs:
 
       - name: Clean up Docker
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/docker_cleanup.sh || true

@@ -171,7 +171,7 @@ jobs:
 
       - name: Clean up Docker
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/docker_cleanup.sh || true
 
   benchmark:
     if: ${{ inputs.run_benchmark == 'true' }}
@@ -285,7 +285,7 @@ jobs:
 
       - name: Clean up Docker
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/docker_cleanup.sh || true
 
   e2e:
     if: ${{ inputs.run_e2e == 'true' }}
@@ -386,7 +386,7 @@ jobs:
 
       - name: Clean up Docker
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/docker_cleanup.sh || true
 
   stress:
     if: ${{ inputs.run_stress == 'true' }}
@@ -481,7 +481,7 @@ jobs:
 
       - name: Clean up Docker
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/docker_cleanup.sh || true
 
   query_modules:
     if: ${{ inputs.run_query_modules == 'true' }}
@@ -563,4 +563,4 @@ jobs:
 
       - name: Clean up Docker
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/docker_cleanup.sh || true

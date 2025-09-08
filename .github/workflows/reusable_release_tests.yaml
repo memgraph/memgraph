@@ -120,7 +120,7 @@ jobs:
 
       - name: Clean up Docker
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/docker_cleanup.sh || true
 
   coverage_build:
     if: ${{ inputs.run_release_tests == 'true' }}
@@ -209,7 +209,7 @@ jobs:
 
       - name: Clean up Docker
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/docker_cleanup.sh || true
 
   debug_build:
     if: ${{ inputs.run_release_tests == 'true' }}
@@ -319,7 +319,7 @@ jobs:
 
       - name: Clean up Docker
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/docker_cleanup.sh || true
 
   debug_integration_test:
     if: ${{ inputs.run_release_tests == 'true' }}
@@ -390,7 +390,7 @@ jobs:
 
       - name: Clean up Docker
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/docker_cleanup.sh || true
 
 
   malloc_build:
@@ -493,7 +493,7 @@ jobs:
 
       - name: Clean up Docker
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/docker_cleanup.sh || true
 
   release_build:
     name: "Release build"
@@ -601,7 +601,7 @@ jobs:
 
       - name: Clean up Docker
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/docker_cleanup.sh || true
 
   release_benchmark_tests:
     if: ${{ inputs.run_release_tests == 'true' }}
@@ -689,7 +689,7 @@ jobs:
 
       - name: Clean up Docker
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/docker_cleanup.sh || true
 
   release_e2e_test:
     if: ${{ inputs.run_release_tests == 'true' }}
@@ -776,7 +776,7 @@ jobs:
 
       - name: Clean up Docker
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/docker_cleanup.sh || true
 
   release_durability_stress_tests:
     if: ${{ inputs.run_release_tests == 'true' }}
@@ -874,7 +874,7 @@ jobs:
 
       - name: Clean up Docker
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/docker_cleanup.sh || true
 
   release_jepsen_test:
     if: ${{ inputs.run_release_tests == 'true' }}
@@ -991,7 +991,7 @@ jobs:
 
       - name: Clean up Docker
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/docker_cleanup.sh || true
 
   stress_test_large:
     if: ${{ inputs.run_stress_large == 'true' }}
@@ -1059,7 +1059,7 @@ jobs:
 
       - name: Clean up Docker
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/docker_cleanup.sh || true
 
   release_query_modules_test:
     if: ${{ inputs.run_release_tests == 'true' }}
@@ -1127,7 +1127,7 @@ jobs:
 
       - name: Clean up Docker
         run: |
-          ./tools/docker_cleanup.sh
+          ./tools/docker_cleanup.sh || true
 
   aggregate_results:
     name: "Aggregate Test Results"
