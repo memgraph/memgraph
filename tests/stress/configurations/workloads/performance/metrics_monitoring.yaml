@@ -19,7 +19,7 @@ customWorkloads:
         host: "localhost"
         port: 7687
       import:
-        queries: 
+        queries:
           - "UNWIND range(1, 10000) as x CREATE (:Node {id: x})"
           - "MATCH (n1), (n2) WHERE n1.id < n2.id AND n1.id % 100 = 0 CREATE (n1)-[:CONNECTED_TO]->(n2)"
       workers:
@@ -32,20 +32,20 @@ customWorkloads:
             host: "localhost"
             port: 9091
           step: 1
-        
+
         # Reader worker - simulates read workload
         - name: read-queries
           type: reader
           query: "MATCH (n) RETURN count(n) LIMIT 1"
-          num_repetitions: 1000
+          num_repetitions: 600
           sleep_millis: 100
           step: 1
-        
+
         # Writer worker - simulates write workload
         - name: write-queries
           type: writer
           query: "CREATE (:TestNode {timestamp: timestamp(), value: rand()})"
-          num_repetitions: 500
-          sleep_millis: 200
+          num_repetitions: 600
+          sleep_millis: 100
           step: 1
-      timeout_min: 15
+      timeout_min: 2

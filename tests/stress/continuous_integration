@@ -7,10 +7,10 @@ import subprocess
 import time
 from argparse import Namespace as Args
 from typing import Dict, List, Optional
-from gqlalchemy import Memgraph
-import yaml
-from workers import get_worker_object, get_worker_steps
 
+import yaml
+from gqlalchemy import Memgraph
+from workers import WorkerType, get_worker_object, get_worker_steps
 
 # Paths
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -126,6 +126,11 @@ def _find_test_binary(args: Args, config: Config, test: str) -> List[str]:
     raise Exception(f"Test '{test}' binary not supported!")
 
 
+def _is_metrics_worker(worker) -> bool:
+    """Check if a worker is of type metrics."""
+    return worker.get("type") == WorkerType.METRICS.value
+
+
 def run_custom_workloads(script_path: str, config: Config) -> Optional[Dict[str, float]]:
     """Runs custom workloads on Memgraph using GQLAlchemy."""
     print("Running custom workloads...")
@@ -143,10 +148,10 @@ def run_custom_workloads(script_path: str, config: Config) -> Optional[Dict[str,
 
             # Run import queries
             print(f"Started import for workload '{workload_name}'")
-            
+
             query_host = workload.get("querying", {}).get("host", "127.0.0.1")
             query_port = workload.get("querying", {}).get("port", 7687)
-            
+
             memgraph = Memgraph(host=query_host, port=query_port)
             for query in workload.get("import", {}).get("queries", []):
                 print(f"Executing query: {query}")
@@ -156,15 +161,28 @@ def run_custom_workloads(script_path: str, config: Config) -> Optional[Dict[str,
             # Execute workers in steps
             processes = []
             workers = workload.get("workers", [])
+
+            # Validate that there's only one metrics worker per workload
+            metrics_worker_count = sum(1 for worker in workers if _is_metrics_worker(worker))
+            if metrics_worker_count > 1:
+                raise Exception(
+                    f"Workload '{workload_name}' has {metrics_worker_count} metrics workers. Only one metrics worker per workload is allowed."
+                )
+
             steps = get_worker_steps(workers)
 
             for step in steps:
                 print(f"Running step {step}.")
 
-                for worker in [x for x in workers if x.get("step", 1) == step]:              
+                for worker in [x for x in workers if x.get("step", 1) == step]:
                     # Override with workload global querying if not set on the worker
                     if "querying" not in worker.keys():
                         worker["querying"] = {"host": query_host, "port": query_port}
+
+                    # Add workload name to worker config for metrics workers
+                    if _is_metrics_worker(worker):
+                        worker["workload_name"] = workload_name
+
                     worker_object = get_worker_object(worker)
 
                     for i in range(worker.get("replicas", 1)):
