@@ -27,6 +27,7 @@ class Worker(ABC):
         self._worker_type = worker["type"]
         self._query_host = worker.get("querying", {}).get("host", None)
         self._query_port = worker.get("querying", {}).get("port", None)
+        self._metrics = worker.get("metrics", [])
 
     def run(self):
         pass
@@ -40,7 +41,6 @@ class BasicWorker(Worker):
         self._query = worker["query"]
         self._repetitions = worker["num_repetitions"]
         self._sleep_millis = worker.get("sleep_millis", 0)
-        self._worker_metrics = worker.get("metrics", [])
 
     def run(self):
         """Executes the assigned query in a loop."""
@@ -57,7 +57,7 @@ class BasicWorker(Worker):
         end = time.time()
         print(f"Worker '{self._name}' finished.")
 
-        for metric in self._worker_metrics:
+        for metric in self._metrics:
             if metric == "throughput":
                 throughput = self._repetitions / (end - start)
                 print(f"Throughput: {throughput} QPS")
@@ -113,32 +113,25 @@ class MetricsWorker(Worker):
         self._sleep_millis = worker.get("sleep_millis", 5000)  # Default 5 seconds
         self._metrics_data = []
         self._workload_name = worker.get("workload_name", "unknown")
-        # Get metrics host from metrics section, fallback to query host, then localhost
-        metrics_config = worker.get("metrics", {})
-        self._metrics_host = metrics_config.get("host", self._query_host or "localhost")
-        # Default metrics port is 9091
-        self._metrics_port = metrics_config.get("port", 9091)
 
     def run(self):
         """Executes requests to get metrics in a loop and stores results."""
         print(f"Starting metrics worker '{self._name}'...")
-        metrics_url = f"http://{self._metrics_host}:{self._metrics_port}"
+        metrics_url = f"http://{self._query_host}:{self._query_port}"
 
-        for i in range(self._repetitions):
-            print(f"Worker '{self._name}' fetching metrics from {metrics_url} (iteration {i+1}/{self._repetitions})")
-
+        for _ in range(self._repetitions):
             try:
                 # Use requests to get metrics
                 response = requests.get(metrics_url, timeout=30)
                 response.raise_for_status()  # Raises an HTTPError for bad responses
 
                 # Parse the JSON response
-                try:
-                    metrics_json = response.json()
-                except json.JSONDecodeError:
-                    # If response is not valid JSON, store as text
-                    metrics_json = response.text
+                metrics_json = response.json()
 
+                # Flatten dictionary and extract metrics provided from the configuration
+                extracted_metrics = {}
+                for value in metrics_json.values():
+                    extracted_metrics.update({k: v for (k, v) in value.items() if k in self._metrics})
             except requests.exceptions.Timeout:
                 raise Exception("Error: Request timeout")
             except requests.exceptions.ConnectionError:
@@ -153,8 +146,7 @@ class MetricsWorker(Worker):
             metrics_entry = {
                 "timestamp": current_time,
                 "date": datetime.fromtimestamp(current_time).isoformat(),
-                "iteration": i + 1,
-                "data": metrics_json,
+                "data": extracted_metrics,
             }
             self._metrics_data.append(metrics_entry)
 

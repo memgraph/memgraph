@@ -26,12 +26,19 @@ customWorkloads:
         # Metrics collection worker - runs continuously during the test
         - name: metrics-collector
           type: metrics
-          num_repetitions: 12  # Run for 1 minute
-          sleep_millis: 5000   # Collect metrics every 5 seconds
-          metrics:
+          num_repetitions: 12 # Run for 1 minute
+          sleep_millis: 5000 # Collect metrics every 5 seconds
+          querying:
             host: "localhost"
             port: 9091
           step: 1
+          metrics:
+            - vertex_count
+            - QueryExecutionLatency_us_50p
+            - QueryExecutionLatency_us_90p
+            - QueryExecutionLatency_us_99p
+            - PeakMemoryRes
+            - UnreleasedDeltaObjects
 
         # Reader worker - simulates read workload
         - name: read-queries

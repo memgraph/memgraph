@@ -83,15 +83,13 @@ customWorkloads:
           query: "<Cypher Query>"  # Cypher query executed by the worker.
           # Optional: if the worker is connecting in a different way from the custom workload querying.
           # If nothing is specified, the querying type will be injected from the workload.
+          # Additional info: "metrics" worker will query the http endpoint based on these information provided
           querying:
             host: "localhost"
             port: 7687
-          # For "metrics" worker type, you can specify metrics endpoint configuration:
-          metrics:
-            host: "localhost"  # Metrics endpoint host (defaults to querying.host or localhost)
-            port: 9091         # Metrics endpoint port (defaults to 9091)
           num_repetitions: <int>  # Number of times the query should be executed.
           sleep_millis: <int>  # Sleep duration in milliseconds between executions.
+          replicas: <int> # Amount of workers spawned with the same configuration
           step: <int>
           # (Optional) Step number for phased executions. If nothing is specified, worker will have step of value (1), which means
           # it will be executed first. For phased execution, you can specify different non-negative integer numbers. Each step
@@ -100,6 +98,7 @@ customWorkloads:
           # Values for metrics:
           # "duration" -> will display how long the worker took to finish
           # "throughput" -> will display the throughput in amount of queries per second after the execution is done
+          # Any of the "SHOW METRICS" values can be inserted here for the "metrics" worker
       timeout_min: <int>
       # Maximum execution time for the workload in minutes. Failing to execute the workload in this amount of minutes
       # will result in a failure of the stress test
@@ -108,5 +107,7 @@ customWorkloads:
 ## Running the Test Suite
 To run the stress test suite, ensure you have the necessary dependencies installed and execute the following command:
 ```sh
-python run_stress_test.py --config <path-to-config.yaml>
+python3 continuous_integration --config-file <path-to-config.yaml>
 ```
+
+If no config file is provided, the stress tests are going to execute on the default argument provided in the script.
