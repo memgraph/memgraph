@@ -90,7 +90,7 @@ void RpcMessageDeliverer::Execute() {
                                  input_stream_->data() + (input_stream_->size() - ret.pos - sizeof(slk::SegmentSize))};
         file_replication_handler_.emplace();
       } else {
-        // If file replication handler is already active and we received NEW_FILE status it means we should create new
+        // If file replication handler is already active, and we received NEW_FILE status it means we should create new
         // file but before that, we should first finalize writing to the prior file
         file_replication_handler_->WriteToFile(input_stream_->data(), ret.pos - sizeof(slk::SegmentSize));
       }
@@ -98,8 +98,13 @@ void RpcMessageDeliverer::Execute() {
       // file
       consumed_bytes += ret.pos;
       // In OpenFile, we process file name, file size and file data contained in this segment
-      consumed_bytes += file_replication_handler_->OpenFile(input_stream_->data() + consumed_bytes,
-                                                            input_stream_->size() - consumed_bytes);
+      auto const res = file_replication_handler_->OpenFile(input_stream_->data() + consumed_bytes,
+                                                           input_stream_->size() - consumed_bytes);
+      if (!res.has_value()) {
+        throw SessionException("Failed to open file in RpcMessageDeliverer!");
+      }
+
+      consumed_bytes += *res;
 
       // If we consumed all bytes, clear the buffer
       if (consumed_bytes == input_stream_->size()) {

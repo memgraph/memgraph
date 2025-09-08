@@ -26,7 +26,7 @@ class FileReplicationHandler final {
   FileReplicationHandler &operator=(FileReplicationHandler &&) = default;
 
   // Returns the number of processed bytes
-  size_t OpenFile(const uint8_t *data, size_t size);
+  std::optional<size_t> OpenFile(const uint8_t *data, size_t size);
 
   // Returns the number of processed bytes
   size_t WriteToFile(const uint8_t *data, size_t size);

@@ -23,26 +23,27 @@ FileReplicationHandler::~FileReplicationHandler() {
   }
 }
 
-// TODO: (andi) Theoretically you could be unable to read string and int from the initial data
-size_t FileReplicationHandler::OpenFile(const uint8_t *data, size_t const size) {
+// The assumption is that the header, request, file name and file size will always fit into the buffer size = 64KiB
+// Currently, they are taking few hundred bytes at most so this should be a valid assumption. Also, we aren't expecting
+// big growth in message size/
+std::optional<size_t> FileReplicationHandler::OpenFile(const uint8_t *data, size_t const size) {
   const auto kTempDirectory =
       std::filesystem::temp_directory_path() / "memgraph" / storage::durability::kReplicaDurabilityDirectory;
 
-  slk::Reader req_reader(data, size, size);
-  // spdlog::warn("Reader pos before creating decoder: {}", req_reader.GetPos());
-  storage::replication::Decoder decoder(&req_reader);
-  // spdlog::warn("Reader pos after creating decoder: {}", req_reader.GetPos());
+  if (!utils::EnsureDir(kTempDirectory)) {
+    spdlog::error("Failed to create temporary directory {}", kTempDirectory);
+    return std::nullopt;
+  }
 
-  // We should be able to always read filename and filesize since file data starts with the new segment
+  slk::Reader req_reader(data, size, size);
+  storage::replication::Decoder decoder(&req_reader);
+
   auto const maybe_filename = decoder.ReadString();
-  MG_ASSERT(maybe_filename, "Filename missing for the received file over the RPC");
+  MG_ASSERT(maybe_filename.has_value(), "Filename missing for the received file over the RPC");
   file_names_.emplace_back(*maybe_filename);
   auto const path = kTempDirectory / *maybe_filename;
 
-  // TODO: (andi) Handle error, don't crash if dir cannot be created
-  utils::EnsureDirOrDie(kTempDirectory);
-
-  spdlog::warn("Path {} will be used", path);
+  spdlog::info("Read path {} in file replication handler", path);
 
   file_.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING);
 
@@ -50,7 +51,7 @@ size_t FileReplicationHandler::OpenFile(const uint8_t *data, size_t const size) 
   MG_ASSERT(maybe_file_size, "File size missing");
   file_size_ = *maybe_file_size;
 
-  // Because first N bytes are file_name and file_size, therefore we don't read full size
+  // First N bytes are file_name and file_size, therefore we don't read full size
   size_t const processed_bytes = req_reader.GetPos();
   return processed_bytes + WriteToFile(data + processed_bytes, size - processed_bytes);
 }
@@ -74,9 +75,6 @@ size_t FileReplicationHandler::WriteToFile(const uint8_t *data, size_t const siz
   if (written_ == file_size_ && file_.IsOpen()) {
     ResetCurrentFile();
   }
-  auto const path = std::filesystem::temp_directory_path() / "memgraph" /
-                    storage::durability::kReplicaDurabilityDirectory / file_names_[0];
-  MG_ASSERT(std::filesystem::exists(path), "Source file {} doesn't exist", path);
   return processed_bytes;
 }
 
