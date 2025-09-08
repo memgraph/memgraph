@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,18 +12,17 @@
 #pragma once
 
 #include <compare>
-#include <functional>
+#include <cstdint>
 #include <string>
-#include <system_error>
+#include <string_view>
 #include <type_traits>
 
 #include <boost/functional/hash.hpp>
 #include "utils/cast.hpp"
-#include "utils/string.hpp"
 
 namespace memgraph::storage {
 
-#define STORAGE_DEFINE_ID_TYPE(name, type_store, type_conv, parse)                        \
+#define STORAGE_DEFINE_ID_TYPE(name, type_store, type_conv)                               \
   class name final {                                                                      \
    private:                                                                               \
     explicit name(type_store id) : id_{id} {}                                             \
@@ -36,21 +35,25 @@ namespace memgraph::storage {
     static name FromInt(type_conv id) { return name{utils::MemcpyCast<type_store>(id)}; } \
     type_store AsUint() const { return id_; }                                             \
     type_conv AsInt() const { return utils::MemcpyCast<type_conv>(id_); }                 \
-    static name FromString(std::string_view id) { return name{parse(id)}; }               \
-    std::string ToString() const { return std::to_string(id_); }                          \
+    static name FromString(std::string_view id);                                          \
+    std::string ToString() const;                                                         \
     friend bool operator==(const name &, const name &) = default;                         \
     friend bool operator<(const name &, const name &) = default;                          \
     friend std::strong_ordering operator<=>(const name &, const name &) = default;        \
+    friend std::ostream &operator<<(std::ostream &os, const name &id) {                   \
+      os << id.ToString();                                                                \
+      return os;                                                                          \
+    }                                                                                     \
                                                                                           \
    private:                                                                               \
     type_store id_;                                                                       \
   };                                                                                      \
   static_assert(std::is_trivially_copyable_v<name>, "storage::" #name " must be trivially copyable!");
 
-STORAGE_DEFINE_ID_TYPE(Gid, uint64_t, int64_t, utils::ParseStringToUint64);
-STORAGE_DEFINE_ID_TYPE(LabelId, uint32_t, int32_t, utils::ParseStringToUint32);
-STORAGE_DEFINE_ID_TYPE(PropertyId, uint32_t, int32_t, utils::ParseStringToUint32);
-STORAGE_DEFINE_ID_TYPE(EdgeTypeId, uint32_t, int32_t, utils::ParseStringToUint32);
+STORAGE_DEFINE_ID_TYPE(Gid, uint64_t, int64_t);
+STORAGE_DEFINE_ID_TYPE(LabelId, uint32_t, int32_t);
+STORAGE_DEFINE_ID_TYPE(PropertyId, uint32_t, int32_t);
+STORAGE_DEFINE_ID_TYPE(EdgeTypeId, uint32_t, int32_t);
 
 #undef STORAGE_DEFINE_ID_TYPE
 
@@ -63,6 +66,19 @@ struct LabelPropKey {
 
  private:
   LabelId label_;
+  PropertyId property_;
+};
+
+struct EdgeTypePropKey {
+  EdgeTypePropKey(EdgeTypeId const &edge_type, PropertyId const &property)
+      : edge_type_(edge_type), property_(property) {}
+  friend auto operator<=>(EdgeTypePropKey const &, EdgeTypePropKey const &) = default;
+
+  auto edge_type() const -> EdgeTypeId { return edge_type_; }
+  auto property() const -> PropertyId { return property_; }
+
+ private:
+  EdgeTypeId edge_type_;
   PropertyId property_;
 };
 
@@ -96,6 +112,16 @@ struct hash<memgraph::storage::LabelPropKey> {
     std::size_t seed = 0;
     boost::hash_combine(seed, lpk.label().AsUint());
     boost::hash_combine(seed, lpk.property().AsUint());
+    return seed;
+  }
+};
+
+template <>
+struct hash<memgraph::storage::EdgeTypePropKey> {
+  size_t operator()(const memgraph::storage::EdgeTypePropKey &etpk) const noexcept {
+    std::size_t seed = 0;
+    boost::hash_combine(seed, etpk.edge_type().AsUint());
+    boost::hash_combine(seed, etpk.property().AsUint());
     return seed;
   }
 };

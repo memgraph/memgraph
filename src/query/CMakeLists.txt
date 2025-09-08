@@ -35,6 +35,7 @@ target_sources(mg-query
     frontend/ast/pretty_print.cpp
     frontend/parsing.cpp
     frontend/semantic/required_privileges.cpp
+    frontend/semantic/rw_checker.cpp
     frontend/semantic/symbol_generator.cpp
     frontend/stripped.cpp
     interpret/awesome_memgraph_functions.cpp
@@ -47,6 +48,7 @@ target_sources(mg-query
     plan/pretty_print.cpp
     plan/profile.cpp
     plan/read_write_type_checker.cpp
+    plan/used_index_checker.cpp
     plan/rewrite/index_lookup.cpp
     plan/rewrite/general.cpp
     plan/rewrite/range.cpp
@@ -70,7 +72,6 @@ target_sources(mg-query
     auth_query_handler.cpp
     interpreter_context.cpp
     query_user.cpp
-    time_to_live/time_to_live.cpp
     query_logger.cpp
     vertex_accessor.cpp
     context.cpp
@@ -86,6 +87,19 @@ target_sources(mg-query
     edge_accessor.hpp
     procedure/cypher_types.hpp
     vertex_accessor.hpp
+    frontend/ast/ast.hpp
+    frontend/ast/query/aggregation.hpp
+    frontend/ast/query/auth_query.hpp
+    frontend/ast/query/binary_operator.hpp
+    frontend/ast/query/exists.hpp
+    frontend/ast/query/expression.hpp
+    frontend/ast/query/identifier.hpp
+    frontend/ast/query/named_expression.hpp
+    frontend/ast/query/pattern.hpp
+    frontend/ast/query/pattern_comprehension.hpp
+    frontend/ast/query/query.hpp
+    plan/used_index_checker.hpp
+    plan/read_write_type_checker.hpp
 )
 
 
@@ -97,11 +111,11 @@ target_link_libraries(mg-query
     Python3::Python
     mg-integrations-pulsar
     mg-integrations-kafka
-    mg-storage-v2
+    mg::storage
     mg-license
     mg-utils
     mg-kvstore
-    mg-memory
+    mg-memory-utils
     mg::csv
     mg::system
     mg-flags

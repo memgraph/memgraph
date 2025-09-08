@@ -15,7 +15,6 @@
 
 #include "storage/v2/durability/marker.hpp"
 #include "storage/v2/durability/serialization.hpp"
-
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/temporal.hpp"
 #include "utils/cast.hpp"
@@ -29,37 +28,51 @@ namespace memgraph::storage::durability {
 //////////////////////////
 
 namespace {
-void WriteSize(Encoder *encoder, uint64_t size) {
+template <typename FileType>
+void WriteSize(Encoder<FileType> *encoder, uint64_t size) {
   size = utils::HostToLittleEndian(size);
   encoder->Write(reinterpret_cast<const uint8_t *>(&size), sizeof(size));
 }
 }  // namespace
 
-void Encoder::Initialize(const std::filesystem::path &path, const std::string_view magic, uint64_t version) {
-  file_.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING);
+template <typename FileType>
+void Encoder<FileType>::Initialize(const std::filesystem::path &path) {
+  file_.Open(path, FileType::Mode::OVERWRITE_EXISTING);
+}
+
+template <typename FileType>
+void Encoder<FileType>::Initialize(const std::filesystem::path &path, const std::string_view magic, uint64_t version) {
+  Initialize(path);
   Write(reinterpret_cast<const uint8_t *>(magic.data()), magic.size());
   auto version_encoded = utils::HostToLittleEndian(version);
   Write(reinterpret_cast<const uint8_t *>(&version_encoded), sizeof(version_encoded));
 }
 
-void Encoder::OpenExisting(const std::filesystem::path &path) {
-  file_.Open(path, utils::OutputFile::Mode::APPEND_TO_EXISTING);
+template <typename FileType>
+void Encoder<FileType>::OpenExisting(const std::filesystem::path &path) {
+  file_.Open(path, FileType::Mode::APPEND_TO_EXISTING);
 }
 
-void Encoder::Close() {
+template <typename FileType>
+void Encoder<FileType>::Close() {
   if (file_.IsOpen()) {
     file_.Close();
   }
 }
 
-void Encoder::Write(const uint8_t *data, uint64_t size) { file_.Write(data, size); }
+template <typename FileType>
+void Encoder<FileType>::Write(const uint8_t *data, uint64_t size) {
+  file_.Write(data, size);
+}
 
-void Encoder::WriteMarker(Marker marker) {
+template <typename FileType>
+void Encoder<FileType>::WriteMarker(Marker marker) {
   auto value = static_cast<uint8_t>(marker);
   Write(&value, sizeof(value));
 }
 
-void Encoder::WriteBool(bool value) {
+template <typename FileType>
+void Encoder<FileType>::WriteBool(bool const value) {
   WriteMarker(Marker::TYPE_BOOL);
   if (value) {
     WriteMarker(Marker::VALUE_TRUE);
@@ -68,26 +81,30 @@ void Encoder::WriteBool(bool value) {
   }
 }
 
-void Encoder::WriteUint(uint64_t value) {
+template <typename FileType>
+void Encoder<FileType>::WriteUint(uint64_t value) {
   value = utils::HostToLittleEndian(value);
   WriteMarker(Marker::TYPE_INT);
   Write(reinterpret_cast<const uint8_t *>(&value), sizeof(value));
 }
 
-void Encoder::WriteDouble(double value) {
+template <typename FileType>
+void Encoder<FileType>::WriteDouble(double value) {
   auto value_uint = utils::MemcpyCast<uint64_t>(value);
   value_uint = utils::HostToLittleEndian(value_uint);
   WriteMarker(Marker::TYPE_DOUBLE);
   Write(reinterpret_cast<const uint8_t *>(&value_uint), sizeof(value_uint));
 }
 
-void Encoder::WriteString(const std::string_view value) {
+template <typename FileType>
+void Encoder<FileType>::WriteString(const std::string_view value) {
   WriteMarker(Marker::TYPE_STRING);
   WriteSize(this, value.size());
   Write(reinterpret_cast<const uint8_t *>(value.data()), value.size());
 }
 
-void Encoder::WriteEnum(storage::Enum value) {
+template <typename FileType>
+void Encoder<FileType>::WriteEnum(storage::Enum value) {
   WriteMarker(Marker::TYPE_ENUM);
   auto etype = utils::HostToLittleEndian(value.type_id().value_of());
   Write(reinterpret_cast<const uint8_t *>(&etype), sizeof(etype));
@@ -95,14 +112,16 @@ void Encoder::WriteEnum(storage::Enum value) {
   Write(reinterpret_cast<const uint8_t *>(&evalue), sizeof(evalue));
 }
 
-void Encoder::WritePoint2d(storage::Point2d value) {
+template <typename FileType>
+void Encoder<FileType>::WritePoint2d(storage::Point2d value) {
   WriteMarker(Marker::TYPE_POINT_2D);
   WriteUint(CrsToSrid(value.crs()).value_of());
   WriteDouble(value.x());
   WriteDouble(value.y());
 }
 
-void Encoder::WritePoint3d(storage::Point3d value) {
+template <typename FileType>
+void Encoder<FileType>::WritePoint3d(storage::Point3d value) {
   WriteMarker(Marker::TYPE_POINT_3D);
   WriteUint(CrsToSrid(value.crs()).value_of());
   WriteDouble(value.x());
@@ -110,56 +129,57 @@ void Encoder::WritePoint3d(storage::Point3d value) {
   WriteDouble(value.z());
 }
 
-void Encoder::WritePropertyValue(const PropertyValue &value) {
+template <typename FileType>
+void Encoder<FileType>::WriteExternalPropertyValue(const ExternalPropertyValue &value) {
   WriteMarker(Marker::TYPE_PROPERTY_VALUE);
   switch (value.type()) {
-    case PropertyValue::Type::Null: {
+    case ExternalPropertyValue::Type::Null: {
       WriteMarker(Marker::TYPE_NULL);
       break;
     }
-    case PropertyValue::Type::Bool: {
+    case ExternalPropertyValue::Type::Bool: {
       WriteBool(value.ValueBool());
       break;
     }
-    case PropertyValue::Type::Int: {
+    case ExternalPropertyValue::Type::Int: {
       WriteUint(utils::MemcpyCast<uint64_t>(value.ValueInt()));
       break;
     }
-    case PropertyValue::Type::Double: {
+    case ExternalPropertyValue::Type::Double: {
       WriteDouble(value.ValueDouble());
       break;
     }
-    case PropertyValue::Type::String: {
+    case ExternalPropertyValue::Type::String: {
       WriteString(value.ValueString());
       break;
     }
-    case PropertyValue::Type::List: {
+    case ExternalPropertyValue::Type::List: {
       const auto &list = value.ValueList();
       WriteMarker(Marker::TYPE_LIST);
       WriteSize(this, list.size());
       for (const auto &item : list) {
-        WritePropertyValue(item);
+        WriteExternalPropertyValue(item);
       }
       break;
     }
-    case PropertyValue::Type::Map: {
+    case ExternalPropertyValue::Type::Map: {
       const auto &map = value.ValueMap();
       WriteMarker(Marker::TYPE_MAP);
       WriteSize(this, map.size());
       for (const auto &item : map) {
         WriteString(item.first);
-        WritePropertyValue(item.second);
+        WriteExternalPropertyValue(item.second);
       }
       break;
     }
-    case PropertyValue::Type::TemporalData: {
+    case ExternalPropertyValue::Type::TemporalData: {
       const auto temporal_data = value.ValueTemporalData();
       WriteMarker(Marker::TYPE_TEMPORAL_DATA);
       WriteUint(static_cast<uint64_t>(temporal_data.type));
       WriteUint(utils::MemcpyCast<uint64_t>(temporal_data.microseconds));
       break;
     }
-    case PropertyValue::Type::ZonedTemporalData: {
+    case ExternalPropertyValue::Type::ZonedTemporalData: {
       const auto zoned_temporal_data = value.ValueZonedTemporalData();
       WriteMarker(Marker::TYPE_ZONED_TEMPORAL_DATA);
       WriteUint(static_cast<uint64_t>(zoned_temporal_data.type));
@@ -171,41 +191,69 @@ void Encoder::WritePropertyValue(const PropertyValue &value) {
       }
       break;
     }
-    case PropertyValue::Type::Enum: {
+    case ExternalPropertyValue::Type::Enum: {
       WriteEnum(value.ValueEnum());
       break;
     }
-    case PropertyValue::Type::Point2d: {
+    case ExternalPropertyValue::Type::Point2d: {
       WritePoint2d(value.ValuePoint2d());
       break;
     }
-    case PropertyValue::Type::Point3d: {
+    case ExternalPropertyValue::Type::Point3d: {
       WritePoint3d(value.ValuePoint3d());
       break;
     }
   }
 }
 
-uint64_t Encoder::GetPosition() { return file_.GetPosition(); }
+template <typename FileType>
+uint64_t Encoder<FileType>::GetPosition() {
+  return file_.GetPosition();
+}
 
-void Encoder::SetPosition(uint64_t position) { file_.SetPosition(utils::OutputFile::Position::SET, position); }
+template <typename FileType>
+void Encoder<FileType>::SetPosition(uint64_t position) {
+  file_.SetPosition(FileType::Position::SET, position);
+}
 
-void Encoder::Sync() { file_.Sync(); }
+template <typename FileType>
+void Encoder<FileType>::Sync() {
+  file_.Sync();
+}
 
-void Encoder::Finalize() {
+template <typename FileType>
+void Encoder<FileType>::Finalize() {
   file_.Sync();
   file_.Close();
 }
 
-void Encoder::DisableFlushing() { file_.DisableFlushing(); }
+template <typename FileType>
+void Encoder<FileType>::DisableFlushing() requires std::same_as<FileType, utils::OutputFile> {
+  file_.DisableFlushing();
+}
 
-void Encoder::EnableFlushing() { file_.EnableFlushing(); }
+template <typename FileType>
+void Encoder<FileType>::EnableFlushing() requires std::same_as<FileType, utils::OutputFile> {
+  file_.EnableFlushing();
+}
 
-void Encoder::TryFlushing() { file_.TryFlushing(); }
+template <typename FileType>
+void Encoder<FileType>::TryFlushing() requires std::same_as<FileType, utils::OutputFile> {
+  file_.TryFlushing();
+}
 
-std::pair<const uint8_t *, size_t> Encoder::CurrentFileBuffer() const { return file_.CurrentBuffer(); }
+template <typename FileType>
+std::pair<const uint8_t *, size_t> Encoder<FileType>::CurrentFileBuffer() const {
+  return file_.CurrentBuffer();
+}
 
-size_t Encoder::GetSize() { return file_.GetSize(); }
+template <typename FileType>
+size_t Encoder<FileType>::GetSize() {
+  return file_.GetSize();
+}
+
+template class Encoder<utils::OutputFile>;
+template class Encoder<utils::NonConcurrentOutputFile>;
 
 //////////////////////////
 // Decoder implementation.
@@ -407,7 +455,7 @@ std::optional<ZonedTemporalData> ReadZonedTemporalData(Decoder &decoder) {
 }
 }  // namespace
 
-std::optional<PropertyValue> Decoder::ReadPropertyValue() {
+std::optional<ExternalPropertyValue> Decoder::ReadExternalPropertyValue() {
   auto pv_marker = ReadMarker();
   if (!pv_marker || *pv_marker != Marker::TYPE_PROPERTY_VALUE) return std::nullopt;
 
@@ -417,82 +465,82 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
     case Marker::TYPE_NULL: {
       auto inner_marker = ReadMarker();
       if (!inner_marker || *inner_marker != Marker::TYPE_NULL) return std::nullopt;
-      return PropertyValue();
+      return ExternalPropertyValue();
     }
     case Marker::TYPE_BOOL: {
       auto value = ReadBool();
       if (!value) return std::nullopt;
-      return PropertyValue(*value);
+      return ExternalPropertyValue(*value);
     }
     case Marker::TYPE_INT: {
       auto value = ReadUint();
       if (!value) return std::nullopt;
-      return PropertyValue(utils::MemcpyCast<int64_t>(*value));
+      return ExternalPropertyValue(utils::MemcpyCast<int64_t>(*value));
     }
     case Marker::TYPE_DOUBLE: {
       auto value = ReadDouble();
       if (!value) return std::nullopt;
-      return PropertyValue(*value);
+      return ExternalPropertyValue(*value);
     }
     case Marker::TYPE_STRING: {
       auto value = ReadString();
       if (!value) return std::nullopt;
-      return PropertyValue(std::move(*value));
+      return ExternalPropertyValue(std::move(*value));
     }
     case Marker::TYPE_LIST: {
       auto inner_marker = ReadMarker();
       if (!inner_marker || *inner_marker != Marker::TYPE_LIST) return std::nullopt;
       auto size = ReadSize(this);
       if (!size) return std::nullopt;
-      std::vector<PropertyValue> value;
+      std::vector<ExternalPropertyValue> value;
       value.reserve(*size);
       for (uint64_t i = 0; i < *size; ++i) {
-        auto item = ReadPropertyValue();
+        auto item = ReadExternalPropertyValue();
         if (!item) return std::nullopt;
         value.emplace_back(std::move(*item));
       }
-      return PropertyValue(std::move(value));
+      return ExternalPropertyValue(std::move(value));
     }
     case Marker::TYPE_MAP: {
       auto inner_marker = ReadMarker();
       if (!inner_marker || *inner_marker != Marker::TYPE_MAP) return std::nullopt;
       auto size = ReadSize(this);
       if (!size) return std::nullopt;
-      auto value = PropertyValue::map_t{};
-      value.reserve(*size);
+      auto value = ExternalPropertyValue::map_t{};
+      do_reserve(value, *size);
       for (uint64_t i = 0; i < *size; ++i) {
         auto key = ReadString();
         if (!key) return std::nullopt;
-        auto item = ReadPropertyValue();
+        auto item = ReadExternalPropertyValue();
         if (!item) return std::nullopt;
         value.emplace(std::move(*key), std::move(*item));
       }
-      return PropertyValue(std::move(value));
+      return ExternalPropertyValue(std::move(value));
     }
     case Marker::TYPE_TEMPORAL_DATA: {
       const auto maybe_temporal_data = ReadTemporalData(*this);
       if (!maybe_temporal_data) return std::nullopt;
-      return PropertyValue(*maybe_temporal_data);
+      return ExternalPropertyValue(*maybe_temporal_data);
     }
     case Marker::TYPE_ZONED_TEMPORAL_DATA: {
       const auto maybe_zoned_temporal_data = ReadZonedTemporalData(*this);
       if (!maybe_zoned_temporal_data) return std::nullopt;
-      return PropertyValue(*maybe_zoned_temporal_data);
+      return ExternalPropertyValue(*maybe_zoned_temporal_data);
     }
     case Marker::TYPE_ENUM: {
       const auto maybe_enum_value = ReadEnumValue();
       if (!maybe_enum_value) return std::nullopt;
-      return PropertyValue(*maybe_enum_value);
+      return ExternalPropertyValue(*maybe_enum_value);
     }
     case Marker::TYPE_POINT_2D: {
       const auto maybe_point_2d_value = ReadPoint2dValue();
       if (!maybe_point_2d_value) return std::nullopt;
-      return PropertyValue(*maybe_point_2d_value);
+      return ExternalPropertyValue(*maybe_point_2d_value);
     }
     case Marker::TYPE_POINT_3D: {
       const auto maybe_point_3d_value = ReadPoint3dValue();
       if (!maybe_point_3d_value) return std::nullopt;
-      return PropertyValue(*maybe_point_3d_value);
+      return ExternalPropertyValue(*maybe_point_3d_value);
     }
 
     case Marker::TYPE_PROPERTY_VALUE:
@@ -507,6 +555,7 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
     case Marker::SECTION_EDGE_INDICES:
     case Marker::SECTION_OFFSETS:
     case Marker::SECTION_ENUMS:
+    case Marker::SECTION_TTL:
     case Marker::DELTA_VERTEX_CREATE:
     case Marker::DELTA_VERTEX_DELETE:
     case Marker::DELTA_VERTEX_ADD_LABEL:
@@ -515,13 +564,14 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
     case Marker::DELTA_EDGE_CREATE:
     case Marker::DELTA_EDGE_DELETE:
     case Marker::DELTA_EDGE_SET_PROPERTY:
+    case Marker::DELTA_TRANSACTION_START:
     case Marker::DELTA_TRANSACTION_END:
     case Marker::DELTA_LABEL_INDEX_CREATE:
     case Marker::DELTA_LABEL_INDEX_DROP:
     case Marker::DELTA_LABEL_INDEX_STATS_SET:
     case Marker::DELTA_LABEL_INDEX_STATS_CLEAR:
-    case Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_SET:
-    case Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_CLEAR:
+    case Marker::DELTA_LABEL_PROPERTIES_INDEX_STATS_SET:
+    case Marker::DELTA_LABEL_PROPERTIES_INDEX_STATS_CLEAR:
     case Marker::DELTA_LABEL_PROPERTIES_INDEX_CREATE:
     case Marker::DELTA_LABEL_PROPERTIES_INDEX_DROP:
     case Marker::DELTA_EDGE_INDEX_CREATE:
@@ -542,7 +592,9 @@ std::optional<PropertyValue> Decoder::ReadPropertyValue() {
     case Marker::DELTA_POINT_INDEX_CREATE:
     case Marker::DELTA_POINT_INDEX_DROP:
     case Marker::DELTA_VECTOR_INDEX_CREATE:
+    case Marker::DELTA_VECTOR_EDGE_INDEX_CREATE:
     case Marker::DELTA_VECTOR_INDEX_DROP:
+    case Marker::DELTA_TTL_OPERATION:
     case Marker::DELTA_TYPE_CONSTRAINT_CREATE:
     case Marker::DELTA_TYPE_CONSTRAINT_DROP:
     case Marker::VALUE_FALSE:
@@ -569,7 +621,7 @@ bool Decoder::SkipString() {
   return true;
 }
 
-bool Decoder::SkipPropertyValue() {
+bool Decoder::SkipExternalPropertyValue() {
   auto pv_marker = ReadMarker();
   if (!pv_marker || *pv_marker != Marker::TYPE_PROPERTY_VALUE) return false;
 
@@ -598,7 +650,7 @@ bool Decoder::SkipPropertyValue() {
       auto size = ReadSize(this);
       if (!size) return false;
       for (uint64_t i = 0; i < *size; ++i) {
-        if (!SkipPropertyValue()) return false;
+        if (!SkipExternalPropertyValue()) return false;
       }
       return true;
     }
@@ -609,7 +661,7 @@ bool Decoder::SkipPropertyValue() {
       if (!size) return false;
       for (uint64_t i = 0; i < *size; ++i) {
         if (!SkipString()) return false;
-        if (!SkipPropertyValue()) return false;
+        if (!SkipExternalPropertyValue()) return false;
       }
       return true;
     }
@@ -641,6 +693,7 @@ bool Decoder::SkipPropertyValue() {
     case Marker::SECTION_EDGE_INDICES:
     case Marker::SECTION_OFFSETS:
     case Marker::SECTION_ENUMS:
+    case Marker::SECTION_TTL:
     case Marker::DELTA_VERTEX_CREATE:
     case Marker::DELTA_VERTEX_DELETE:
     case Marker::DELTA_VERTEX_ADD_LABEL:
@@ -649,13 +702,14 @@ bool Decoder::SkipPropertyValue() {
     case Marker::DELTA_EDGE_CREATE:
     case Marker::DELTA_EDGE_DELETE:
     case Marker::DELTA_EDGE_SET_PROPERTY:
+    case Marker::DELTA_TRANSACTION_START:
     case Marker::DELTA_TRANSACTION_END:
     case Marker::DELTA_LABEL_INDEX_CREATE:
     case Marker::DELTA_LABEL_INDEX_DROP:
     case Marker::DELTA_LABEL_INDEX_STATS_SET:
     case Marker::DELTA_LABEL_INDEX_STATS_CLEAR:
-    case Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_SET:
-    case Marker::DELTA_LABEL_PROPERTY_INDEX_STATS_CLEAR:
+    case Marker::DELTA_LABEL_PROPERTIES_INDEX_STATS_SET:
+    case Marker::DELTA_LABEL_PROPERTIES_INDEX_STATS_CLEAR:
     case Marker::DELTA_LABEL_PROPERTIES_INDEX_CREATE:
     case Marker::DELTA_LABEL_PROPERTIES_INDEX_DROP:
     case Marker::DELTA_EDGE_INDEX_CREATE:
@@ -676,7 +730,9 @@ bool Decoder::SkipPropertyValue() {
     case Marker::DELTA_POINT_INDEX_CREATE:
     case Marker::DELTA_POINT_INDEX_DROP:
     case Marker::DELTA_VECTOR_INDEX_CREATE:
+    case Marker::DELTA_VECTOR_EDGE_INDEX_CREATE:
     case Marker::DELTA_VECTOR_INDEX_DROP:
+    case Marker::DELTA_TTL_OPERATION:
     case Marker::DELTA_TYPE_CONSTRAINT_CREATE:
     case Marker::DELTA_TYPE_CONSTRAINT_DROP:
     case Marker::VALUE_FALSE:

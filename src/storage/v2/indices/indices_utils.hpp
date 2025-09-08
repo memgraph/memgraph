@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include "storage/v2/common_function_signatures.hpp"
 #include "storage/v2/delta.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/mvcc.hpp"
@@ -197,33 +198,10 @@ inline bool CurrentEdgeVersionHasProperty(const Edge &edge, PropertyId key, cons
   return exists && !deleted && current_value_equal_to_value;
 }
 
-template <typename TIndexAccessor>
-inline void TryInsertLabelIndex(Vertex &vertex, LabelId label, TIndexAccessor &index_accessor) {
-  if (vertex.deleted || !utils::Contains(vertex.labels, label)) {
-    return;
-  }
-
-  index_accessor.insert({&vertex, 0});
-}
-
-template <typename TIndexAccessor>
-inline void TryInsertLabelPropertyIndex(Vertex &vertex, std::tuple<LabelId, PropertyId> label_property,
-                                        TIndexAccessor &index_accessor) {
-  if (vertex.deleted || !utils::Contains(vertex.labels, std::get<LabelId>(label_property))) {
-    return;
-  }
-  auto value = vertex.properties.GetProperty(std::get<PropertyId>(label_property));
-  if (value.IsNull()) {
-    return;
-  }
-  index_accessor.insert({std::move(value), &vertex, 0});
-}
-
 template <typename TSkipListAccessorFactory, typename TFunc>
 inline void PopulateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vertices,
                                            TSkipListAccessorFactory &&accessor_factory, const TFunc &func,
-                                           durability::ParallelizedSchemaCreationInfo const &parallel_exec_info,
-                                           std::optional<SnapshotObserverInfo> const &snapshot_info) {
+                                           durability::ParallelizedSchemaCreationInfo const &parallel_exec_info) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
   const auto &vertex_batches = parallel_exec_info.vertex_recovery_info;
@@ -242,7 +220,7 @@ inline void PopulateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &ve
     threads.reserve(thread_count);
 
     for (auto i{0U}; i < thread_count; ++i) {
-      threads.emplace_back([&]() mutable {
+      threads.emplace_back([&, func /*local copy incase there is local state*/]() {
         auto acc = accessor_factory();
         while (!maybe_error.Lock()->has_value()) {
           const auto batch_index = batch_counter++;
@@ -255,9 +233,6 @@ inline void PopulateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &ve
           try {
             for (auto i{0U}; i < batch.second; ++i, ++it) {
               func(*it, acc);
-              if (snapshot_info) {
-                snapshot_info->Update(UpdateType::VERTICES);
-              }
             }
 
           } catch (utils::OutOfMemoryException &failure) {
@@ -276,47 +251,50 @@ inline void PopulateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &ve
 
 template <typename TSkipListAccessorFactory, typename TFunc>
 inline void PopulateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &vertices,
-                                        TSkipListAccessorFactory &&accessor_factory, const TFunc &func,
-                                        std::optional<SnapshotObserverInfo> const &snapshot_info) {
+                                        TSkipListAccessorFactory &&accessor_factory, const TFunc &func) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
   auto acc = accessor_factory();
   for (Vertex &vertex : vertices) {
     func(vertex, acc);
-    if (snapshot_info) {
-      snapshot_info->Update(UpdateType::VERTICES);
-    }
   }
 }
 
+struct PopulateCancel : std::exception {};
+
 template <typename TSkipListAccessorFactory, typename TFunc>
-inline void PopulateIndex(utils::SkipList<Vertex>::Accessor &vertices, TSkipListAccessorFactory &&accessor_factory,
-                          const TFunc &func,
-                          std::optional<durability::ParallelizedSchemaCreationInfo> const &parallel_exec_info,
-                          std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) {
+inline void PopulateIndexDispatch(utils::SkipList<Vertex>::Accessor &vertices,
+                                  TSkipListAccessorFactory &&accessor_factory, const TFunc &insert_function,
+                                  CheckCancelFunction &&cancel_check,
+                                  std::optional<durability::ParallelizedSchemaCreationInfo> const &parallel_exec_info) {
+  auto checked_insert_function =
+      [&, cancel_check = std::move(cancel_check) /*need to be owned, if parallel these will be copied per thread*/](
+          Vertex &vertex, auto &index_accessor) {
+        if (cancel_check()) {
+          throw PopulateCancel{};
+        }
+        insert_function(vertex, index_accessor);
+      };
+
   if (parallel_exec_info && parallel_exec_info->thread_count > 1) {
-    PopulateIndexOnMultipleThreads(vertices, std::forward<TSkipListAccessorFactory>(accessor_factory), func,
-                                   *parallel_exec_info, snapshot_info);
+    PopulateIndexOnMultipleThreads(vertices, std::forward<TSkipListAccessorFactory>(accessor_factory),
+                                   checked_insert_function, *parallel_exec_info);
   } else {
-    PopulateIndexOnSingleThread(vertices, std::forward<TSkipListAccessorFactory>(accessor_factory), func,
-                                snapshot_info);
+    PopulateIndexOnSingleThread(vertices, std::forward<TSkipListAccessorFactory>(accessor_factory),
+                                checked_insert_function);
   }
 }
 
 // @TODO Is `Create` the correct term here? Should this be `PopulateIndexOnSingleThread`?
 template <typename TSkiplistIter, typename TIndex, typename TFunc>
 inline void CreateIndexOnSingleThread(utils::SkipList<Vertex>::Accessor &vertices, TSkiplistIter it, TIndex &index,
-                                      const TFunc &func,
-                                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) {
+                                      const TFunc &func) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
   try {
     auto acc = it->second.access();
     for (Vertex &vertex : vertices) {
       func(vertex, acc);
-      if (snapshot_info) {
-        snapshot_info->Update(UpdateType::VERTICES);
-      }
     }
   } catch (const utils::OutOfMemoryException &) {
     utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
@@ -329,8 +307,7 @@ template <typename TIndex, typename TSKiplistIter, typename TFunc>
 inline void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vertices, TSKiplistIter skiplist_iter,
                                          TIndex &index,
                                          const durability::ParallelizedSchemaCreationInfo &parallel_exec_info,
-                                         const TFunc &func,
-                                         std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt) {
+                                         const TFunc &func) {
   utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
 
   const auto &vertex_batches = parallel_exec_info.vertex_recovery_info;
@@ -362,9 +339,6 @@ inline void CreateIndexOnMultipleThreads(utils::SkipList<Vertex>::Accessor &vert
           try {
             for (auto i{0U}; i < batch.second; ++i, ++it) {
               func(*it, index_accessor);
-              if (snapshot_info) {
-                snapshot_info->Update(UpdateType::VERTICES);
-              }
             }
 
           } catch (utils::OutOfMemoryException &failure) {

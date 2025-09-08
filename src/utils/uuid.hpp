@@ -17,7 +17,7 @@
 
 #include <array>
 // NOLINTNEXTLINE
-#include <nlohmann/json.hpp>
+#include <nlohmann/json_fwd.hpp>
 #include <string>
 
 namespace memgraph::utils {
@@ -62,6 +62,7 @@ struct UUID {
   explicit operator arr_t() const { return uuid; }
 
   friend bool operator==(UUID const &, UUID const &) = default;
+  friend bool operator==(UUID const &lhs, std::string_view rhs) { return std::string(lhs) == rhs; };
 
  private:
   friend void to_json(nlohmann::json &j, const UUID &uuid);
@@ -71,13 +72,5 @@ struct UUID {
 
   arr_t uuid;
 };
-
-inline void to_json(nlohmann::json &j, const UUID &uuid) { j = nlohmann::json(uuid.uuid); }
-
-inline void from_json(const nlohmann::json &j, UUID &uuid) {
-  auto arr = UUID::arr_t{};
-  j.get_to(arr);
-  uuid = UUID(arr);
-}
 
 }  // namespace memgraph::utils

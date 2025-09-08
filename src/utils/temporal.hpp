@@ -20,6 +20,7 @@
 #include "utils/exceptions.hpp"
 #include "utils/fnv.hpp"
 #include "utils/logging.hpp"
+#include "utils/variant_helpers.hpp"
 
 namespace memgraph::utils {
 
@@ -344,7 +345,7 @@ struct LocalDateTime {
   /**
    * @brief Return calendar time (local/user timezone)
    *
-   * @return Date
+   * @return LocalTime
    */
   LocalTime local_time() const;
 
@@ -523,6 +524,17 @@ struct ZonedDateTime {
   explicit ZonedDateTime(const std::chrono::local_time<std::chrono::microseconds> duration, const Timezone timezone);
   explicit ZonedDateTime(const std::chrono::zoned_time<std::chrono::microseconds, Timezone> &zoned_time);
 
+  /**
+   * @brief Construct a new LocalDateTime object using local/calendar date and time.
+   *
+   * This constructor will take in the calendar date-time and convert it to system time using the instance timezone.
+   *
+   * @param date_parameters
+   * @param local_time_parameters
+   */
+  explicit ZonedDateTime(const DateParameters &date_parameters, const LocalTimeParameters &local_time_parameters,
+                         Timezone timezone);
+
   std::chrono::sys_time<std::chrono::microseconds> SysTimeSinceEpoch() const;
   std::chrono::microseconds SysMicrosecondsSinceEpoch() const;
   std::chrono::seconds SysSecondsSinceEpoch() const;
@@ -535,6 +547,10 @@ struct ZonedDateTime {
   std::strong_ordering operator<=>(const ZonedDateTime &other) const;
 
   std::chrono::minutes OffsetDuration() const {
+    return zoned_time.get_time_zone().OffsetDuration(zoned_time.get_sys_time());
+  }
+
+  std::chrono::seconds OffsetSeconds() const {
     return zoned_time.get_time_zone().OffsetDuration(zoned_time.get_sys_time());
   }
 
@@ -572,6 +588,20 @@ struct ZonedDateTime {
     return (subseconds - std::chrono::duration_cast<std::chrono::milliseconds>(subseconds)).count();
   }
 
+  /**
+   * @brief Return local date (local to the `zoned_time` timezone)
+   *
+   * @return Date
+   */
+  Date AsLocalDate() const;
+
+  /**
+   * @brief Return calendar time (local to the `zoned_time` timezone)
+   *
+   * @return LocalTime
+   */
+  LocalTime AsLocalTime() const;
+
   std::chrono::zoned_time<std::chrono::microseconds, Timezone> zoned_time;
 };
 
@@ -593,20 +623,17 @@ struct hash<memgraph::utils::Timezone> {
   size_t operator()(memgraph::utils::Timezone const &tz) const noexcept {
     auto const &offset{tz.GetOffset()};
 
-    if (std::holds_alternative<std::chrono::minutes>(offset)) {
-      return memgraph::utils::HashCombine<size_t, size_t>{}(
-          std::hash<size_t>{}(offset.index()), std::hash<uint64_t>{}(std::get<std::chrono::minutes>(offset).count()));
-    } else if (std::holds_alternative<std::chrono::time_zone const *>(offset)) {
-      return memgraph::utils::HashCombine<size_t, size_t>{}(
-          std::hash<size_t>{}(offset.index()),
-          std::hash<std::string_view>{}(std::get<std::chrono::time_zone const *>(offset)->name()));
-    } else {
-      DMG_ASSERT("No hash algorithm defined for Timezone alternative");
-      return 0;
-    }
-
-    // std::variant<std::chrono::minutes, const std::chrono::time_zone *> GetOffset() const { return offset_; }}
-    return 0;
+    return std::visit(memgraph::utils::Overloaded{
+                          [&](std::chrono::minutes const &minutes) {
+                            return memgraph::utils::HashCombine<size_t, size_t>{}(
+                                std::hash<size_t>{}(offset.index()), std::hash<uint64_t>{}(minutes.count()));
+                          },
+                          [&](std::chrono::time_zone const *time_zone) {
+                            return memgraph::utils::HashCombine<size_t, size_t>{}(
+                                std::hash<size_t>{}(offset.index()), std::hash<std::string_view>{}(time_zone->name()));
+                          },
+                      },
+                      offset);
   }
 };
 

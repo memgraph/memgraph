@@ -18,6 +18,7 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "utils/functional.hpp"
 #include "utils/synchronized.hpp"
+#include "utils/timer.hpp"
 
 #include <spdlog/spdlog.h>
 
@@ -117,7 +118,6 @@ inline std::optional<query::RegisterReplicaError> HandleRegisterReplicaStatus(
     switch (instance_client.GetError()) {
       case RegisterReplicaStatus::NOT_MAIN:
         MG_ASSERT(false, "Only main instance can register a replica!");
-        return {};
       case RegisterReplicaStatus::NAME_EXISTS:
         return query::RegisterReplicaError::NAME_EXISTS;
       case RegisterReplicaStatus::ENDPOINT_EXISTS:
@@ -143,34 +143,35 @@ void StartReplicaClient(replication::ReplicationClient &client, dbms::DbmsHandle
   spdlog::trace("Replication client started at: {}", endpoint.SocketAddress());  // non-resolved IP
   client.StartFrequentCheck(
       [&, license = license::global_license_checker.IsEnterpriseValidFast(),
-       main_uuid](ReplicationClient &client) mutable {
+       main_uuid](ReplicationClient &local_client) mutable {
         // Working connection
-        if (client.try_set_uuid && replication_coordination_glue::SendSwapMainUUIDRpc(client.rpc_client_, main_uuid)) {
-          client.try_set_uuid = false;
+        if (local_client.try_set_uuid &&
+            replication_coordination_glue::SendSwapMainUUIDRpc(local_client.rpc_client_, main_uuid)) {
+          local_client.try_set_uuid = false;
         }
         // Check if license has changed
         if (const auto new_license = license::global_license_checker.IsEnterpriseValidFast(); new_license != license) {
           license = new_license;
-          client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
+          local_client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
         }
 #ifdef MG_ENTERPRISE
-        SystemRestore<true>(client, system, dbms_handler, main_uuid, auth);
+        SystemRestore<true>(local_client, system, dbms_handler, main_uuid, auth);
 #endif
         // Check if any database has been left behind
-        dbms_handler.ForEach([&name = client.name_](dbms::DatabaseAccess db_acc) {
+        dbms_handler.ForEach([&name = local_client.name_](dbms::DatabaseAccess db_acc) {
           // Specific database <-> replica client
           db_acc->storage()->repl_storage_state_.WithClient(name, [&](storage::ReplicationStorageClient &client) {
             if (client.State() == storage::replication::ReplicaState::MAYBE_BEHIND) {
               // Database <-> replica might be behind, check and recover
-              client.TryCheckReplicaStateAsync(db_acc->storage(), db_acc);
+              client.TryCheckReplicaStateAsync(db_acc->storage(), dbms::DatabaseProtector{db_acc});
             }
           });
         });
       },
-      [&](ReplicationClient &client) {
+      [&](ReplicationClient &local_client) {
         // Connection lost, instance could be behind
-        client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
-        dbms_handler.ForEach([&name = client.name_](dbms::DatabaseAccess db_acc) {
+        local_client.state_.WithLock([](auto &state) { state = ReplicationClient::State::BEHIND; });
+        dbms_handler.ForEach([&name = local_client.name_](dbms::DatabaseAccess db_acc) {
           db_acc->storage()->repl_storage_state_.WithClient(name, [&](storage::ReplicationStorageClient &client) {
             // Specific database <-> replica client
             client.SetMaybeBehind();
@@ -196,11 +197,14 @@ ReplicationHandler::ReplicationHandler(utils::Synchronized<ReplicationState, uti
 bool ReplicationHandler::SetReplicationRoleMain() { return DoToMainPromotion({}, false); }
 
 bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig &config,
-                                                   const std::optional<utils::UUID> &main_uuid) {
+                                                   std::optional<utils::UUID> const &maybe_main_uuid) {
   try {
     auto locked_repl_state = repl_state_.TryLock();
 
     dbms_handler_.ForEach([](dbms::DatabaseAccess db_acc) {
+      // Pause TTL
+      db_acc->ttl().Pause();
+      // Stop any snapshots
       auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
       storage->snapshot_runner_.Pause();
       storage->abort_snapshot_.store(true, std::memory_order_release);
@@ -230,23 +234,22 @@ bool ReplicationHandler::SetReplicationRoleReplica(const ReplicationServerConfig
       });
     }
 
-    return SetReplicationRoleReplica_<true>(locked_repl_state, config, main_uuid);
+    return SetReplicationRoleReplica_<true>(locked_repl_state, config, maybe_main_uuid);
   } catch (const utils::TryLockException & /* unused */) {
     return false;
   }
 }
 
-bool ReplicationHandler::TrySetReplicationRoleReplica(const ReplicationServerConfig &config,
-                                                      const std::optional<utils::UUID> &main_uuid) {
+bool ReplicationHandler::TrySetReplicationRoleReplica(const ReplicationServerConfig &config) {
   try {
     auto locked_repl_state = repl_state_.TryLock();
-    return SetReplicationRoleReplica_<false>(locked_repl_state, config, main_uuid);
+    return SetReplicationRoleReplica_<false>(locked_repl_state, config);
   } catch (const utils::TryLockException & /* unused */) {
     return false;
   }
 }
 
-bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool force) {
+bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool const force) {
   try {
     auto locked_repl_state = repl_state_.TryLock();
 
@@ -282,17 +285,29 @@ bool ReplicationHandler::DoToMainPromotion(const utils::UUID &main_uuid, bool fo
       return false;
     }
 
+    // All DBs should have the same epoch
+    auto const new_epoch = ReplicationEpoch();
+    spdlog::trace("Generated new epoch {}", new_epoch.id());
+
     // STEP 3) We are now MAIN, update storage local epoch
-    const auto &epoch = std::get<replication::RoleMainData>(locked_repl_state->ReplicationData()).epoch_;
     dbms_handler_.ForEach([&](dbms::DatabaseAccess db_acc) {
       auto *storage = db_acc->storage();
-      storage->repl_storage_state_.epoch_ = epoch;
+      storage->repl_storage_state_.epoch_ = new_epoch;
+
+      // Modifying storage->timestamp_ needs to be done under the engine lock.
+      // Engine lock needs to be acquired after the repl state lock
+      auto lock = std::lock_guard{storage->engine_lock_};
 
       // Durability is tracking last durable timestamp from MAIN, whereas timestamp_ is dependent on MVCC
       // We need to take bigger timestamp not to lose durability ordering
-      storage->timestamp_ =
-          std::max(storage->timestamp_, storage->repl_storage_state_.last_durable_timestamp_.load() + 1);
-      spdlog::trace("New timestamp on the MAIN is {} for the database {}.", storage->timestamp_, db_acc->name());
+      if (auto const ldt = storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_;
+          ldt >= storage->timestamp_) {
+        // Mark all txns finished with IDs in range [old_storage_ts, global_ldt]
+        static_cast<storage::InMemoryStorage *>(storage)->commit_log_->MarkFinishedInRange(storage->timestamp_, ldt);
+        spdlog::trace("Txn IDs in ranges [{},{}] marked as finished", storage->timestamp_, ldt);
+        storage->timestamp_ = ldt + 1;
+      }
+      spdlog::trace("New timestamp is {} for the database {}.", storage->timestamp_, db_acc->name());
     });
 
     // STEP 4) Resume TTL
@@ -370,11 +385,40 @@ auto ReplicationHandler::GetDatabasesHistories() const -> replication_coordinati
   dbms_handler_.ForEach([&results](dbms::DatabaseAccess db_acc) {
     auto const &repl_storage_state = db_acc->storage()->repl_storage_state_;
     results.dbs_info.emplace_back(std::string{db_acc->storage()->uuid()},
-                                  repl_storage_state.last_durable_timestamp_.load(std::memory_order_acquire));
+                                  repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).ldt_);
   });
 
   return results;
 }
+
+auto ReplicationHandler::GetReplicationLag() const -> coordination::ReplicationLagInfo {
+  coordination::ReplicationLagInfo lag_info;
+
+  dbms_handler_.ForEach([&lag_info](dbms::DatabaseAccess db_acc) {
+    auto &repl_storage_state = db_acc->storage()->repl_storage_state_;
+    auto const db_name = db_acc->name();
+    auto const num_main_committed_txns =
+        repl_storage_state.commit_ts_info_.load(std::memory_order_acquire).num_committed_txns_;
+    lag_info.dbs_main_committed_txns_.emplace(db_name, num_main_committed_txns);
+
+    repl_storage_state.replication_storage_clients_.WithLock([&db_name, &lag_info,
+                                                              &num_main_committed_txns](auto &storage_clients) {
+      for (auto &repl_storage_client : storage_clients) {
+        auto const replica_name = repl_storage_client->Name();
+        auto const num_committed_txns_repl = repl_storage_client->GetNumCommittedTxns();
+        auto const replica_lag = num_main_committed_txns - num_committed_txns_repl;
+        // Insert or find the already inserted element
+        auto [replica_it, _] =
+            lag_info.replicas_info_.try_emplace(replica_name, std::map<std::string, coordination::ReplicaDBLagData>{});
+        replica_it->second.emplace(db_name,
+                                   coordination::ReplicaDBLagData{.num_committed_txns_ = num_committed_txns_repl,
+                                                                  .num_txns_behind_main_ = replica_lag});
+      }
+    });
+  });
+  return lag_info;
+}
+
 #endif
 
 bool ReplicationHandler::IsMain() const { return repl_state_.ReadLock()->IsMain(); }
@@ -414,9 +458,10 @@ auto ReplicationHandler::ShowReplicas() const -> utils::BasicResult<query::ShowR
       // Already locked on system transaction via the interpreter
       const auto ts = system_.LastCommittedSystemTimestamp();
       // NOTE: no system behind at the moment
-      query::ReplicaSystemInfoState system_info{ts, 0 /* behind ts not implemented */, *replica.state_.ReadLock()};
+      query::ReplicaSystemInfoState const system_info{ts, 0 /* behind ts not implemented */,
+                                                      *replica.state_.ReadLock()};
 #else
-      query::ReplicaSystemInfoState system_info{};
+      query::ReplicaSystemInfoState const system_info{};
 #endif
       // STEP 3: add entry
       entries.emplace_back(replica.name_, replica.rpc_client_.Endpoint().SocketAddress(), replica.mode_, system_info,

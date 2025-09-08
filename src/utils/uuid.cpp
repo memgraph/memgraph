@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -13,7 +13,17 @@
 
 #include "slk/serialization.hpp"
 
+#include <nlohmann/json.hpp>
+
 namespace memgraph::utils {
+
+void to_json(nlohmann::json &j, const UUID &uuid) { j = nlohmann::json(uuid.uuid); }
+
+void from_json(const nlohmann::json &j, UUID &uuid) {
+  auto arr = UUID::arr_t{};
+  j.get_to(arr);
+  uuid = UUID(arr);
+}
 
 std::string GenerateUUID() {
   uuid_t uuid;

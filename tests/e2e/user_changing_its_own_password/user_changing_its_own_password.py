@@ -12,7 +12,6 @@
 import sys
 
 import pytest
-from common import memgraph
 from neo4j import GraphDatabase
 from neo4j.exceptions import AuthError
 
@@ -22,33 +21,83 @@ URI = "bolt://localhost:7687"
 def execute_query(query: str, AUTH):
     with GraphDatabase.driver(URI, auth=AUTH) as driver:
         with driver.session() as session:
-            session.run(query)
+            return list(session.run(query))
 
 
-def test_create_user():
+def test_admin():
     try:
         AUTH = ("", "")
-        execute_query("CREATE USER IF NOT EXISTS testuser IDENTIFIED BY 'testpassword';", AUTH)
+        execute_query("CREATE USER IF NOT EXISTS admin IDENTIFIED BY 'testpassword';", AUTH)
     except Exception as e:
-        print("User not created properly.")
-    AUTH = ("testuser", "testpassword")
+        print("User not created properly. Error: ", e)
+        assert False
+    AUTH = ("admin", "testpassword")
     execute_query("SET PASSWORD TO 'newPassword' REPLACE 'testpassword';", AUTH)
 
 
 def test_wrong_credentials():
-    AUTH = ("testuser", "testpassword")
+    AUTH = ("admin", "testpassword")
 
     with pytest.raises(Exception):
-        execute_query("SHOW DATABASE SETTINGS;", AUTH)
-        print("Authentication failed")
+        assert "admin" == execute_query("SHOW CURRENT USER;", AUTH)[0]["user"]
+        print("Authentication failed. Error: ", e)
+        assert False
 
 
 def test_right_credentials():
     try:
-        AUTH = ("testuser", "newPassword")
-        execute_query("SHOW DATABASE SETTINGS;", AUTH)
+        AUTH = ("admin", "newPassword")
+        assert "admin" == execute_query("SHOW CURRENT USER;", AUTH)[0]["user"]
     except AuthError as e:
+        print("Authentication failed. Error: ", e)
+        assert False
+
+
+# First user is admin (has all permissions), second user has no permissions
+def test_user():
+    try:
+        AUTH = ("admin", "newPassword")
+        execute_query("CREATE USER IF NOT EXISTS user IDENTIFIED BY 'testpassword';", AUTH)
+    except Exception as e:
+        print("User not created properly.")
+        assert False
+    AUTH = ("user", "testpassword")
+    execute_query("SET PASSWORD TO 'newPassword' REPLACE 'testpassword';", AUTH)
+    AUTH = ("user", "newPassword")
+    assert "user" == execute_query("SHOW CURRENT USER;", AUTH)[0]["user"]
+
+
+def test_wrong_credentials_user():
+    AUTH = ("user", "testpassword")
+
+    with pytest.raises(Exception):
+        assert "user" == execute_query("SHOW CURRENT USER;", AUTH)[0]["user"]
         print("Authentication failed")
+
+
+def test_right_credentials_user():
+    try:
+        AUTH = ("user", "newPassword")
+        assert "user" == execute_query("SHOW CURRENT USER;", AUTH)[0]["user"]
+    except AuthError as e:
+        print("Authentication failed. Error: ", e)
+        assert False
+
+
+def test_multi_tenant():
+    try:
+        AUTH = ("admin", "newPassword")
+        execute_query("CREATE DATABASE db1;", AUTH)
+        execute_query("GRANT DATABASE db1 TO user;", AUTH)
+        execute_query("SET MAIN DATABASE db1 FOR user;", AUTH)
+        execute_query("DENY DATABASE memgraph FROM user;", AUTH)
+        AUTH = ("user", "newPassword")
+        execute_query("SET PASSWORD TO 'anotherPassword' REPLACE 'newPassword';", AUTH)
+        AUTH = ("user", "anotherPassword")
+        assert "user" == execute_query("SHOW CURRENT USER;", AUTH)[0]["user"]
+    except Exception as e:
+        print("Multi-tenant test failed. Error: ", e)
+        assert False
 
 
 if __name__ == "__main__":

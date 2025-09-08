@@ -162,6 +162,7 @@ memgraphCypherKeyword : cypherKeyword
                       | STORAGE_MODE
                       | STREAM
                       | STREAMS
+                      | STRICT_SYNC
                       | STRING
                       | SYNC
                       | TERMINATE
@@ -204,6 +205,7 @@ query : cypherQuery
       | pointIndexQuery
       | textIndexQuery
       | vectorIndexQuery
+      | createVectorEdgeIndex
       | explainQuery
       | profileQuery
       | databaseInfoQuery
@@ -222,6 +224,7 @@ query : cypherQuery
       | createSnapshotQuery
       | recoverSnapshotQuery
       | showSnapshotsQuery
+      | showNextSnapshotQuery
       | streamQuery
       | settingQuery
       | versionQuery
@@ -243,6 +246,7 @@ query : cypherQuery
       | showSchemaInfoQuery
       | ttlQuery
       | setSessionTraceQuery
+      | userProfileQuery
       ;
 
 cypherQuery : ( preQueryDirectives )? singleQuery ( cypherUnion )* ( queryMemoryLimit )? ;
@@ -255,6 +259,7 @@ authQuery : createRole
           | changePassword
           | dropUser
           | showCurrentUser
+          | showCurrentRole
           | showUsers
           | setRole
           | clearRole
@@ -291,6 +296,10 @@ coordinatorQuery : registerInstanceOnCoordinator
                  | removeCoordinatorInstance
                  | forceResetClusterStateOnCoordinator
                  | demoteInstanceOnCoordinator
+                 | yieldLeadership
+                 | setCoordinatorSetting
+                 | showCoordinatorSettings
+                 | showReplicationLag
                  ;
 
 triggerQuery : createTrigger
@@ -331,7 +340,7 @@ hopsLimit: HOPS LIMIT literal ;
 
 indexHints: INDEX indexHint ( ',' indexHint )* ;
 
-indexHint: ':' labelName ( '(' propertyKeyName ( ',' propertyKeyName )*  ')' )? ;
+indexHint: ':' labelName ( '(' nestedPropertyKeyNames ( ',' nestedPropertyKeyNames )*  ')' )? ;
 
 periodicCommit : PERIODIC COMMIT periodicCommitNumber=literal ;
 
@@ -404,11 +413,13 @@ dropUser : DROP USER user=userOrRoleName ;
 
 showCurrentUser : SHOW CURRENT USER ;
 
+showCurrentRole : SHOW CURRENT ( ROLE | ROLES ) ;
+
 showUsers : SHOW USERS ;
 
-setRole : SET ROLE FOR user=userOrRoleName TO role=userOrRoleName;
+setRole : SET ( ROLE | ROLES ) FOR user=userOrRoleName TO roles=listOfSymbolicNames ( ON db=listOfSymbolicNames )? ;
 
-clearRole : CLEAR ROLE FOR user=userOrRoleName ;
+clearRole : CLEAR ( ROLE | ROLES ) FOR user=userOrRoleName ( ON db=listOfSymbolicNames )? ;
 
 grantPrivilege : GRANT ( ALL PRIVILEGES | privileges=grantPrivilegesList ) TO userOrRole=userOrRoleName ;
 
@@ -463,6 +474,7 @@ privilege : CREATE
           | MULTI_DATABASE_USE
           | COORDINATOR
           | IMPERSONATE_USER
+          | PROFILE_RESTRICTION
           ;
 
 granularPrivilege : NOTHING | READ | UPDATE | CREATE_DELETE ;
@@ -489,9 +501,9 @@ listOfColonSymbolicNames : colonSymbolicName ( ',' colonSymbolicName )* ;
 
 colonSymbolicName : COLON symbolicName ;
 
-showPrivileges : SHOW PRIVILEGES FOR userOrRole=userOrRoleName ;
+showPrivileges : SHOW PRIVILEGES FOR userOrRole=userOrRoleName ( ON ( MAIN | CURRENT | DATABASE db=symbolicName ) )? ;
 
-showRoleForUser : SHOW ROLE FOR user=userOrRoleName ;
+showRoleForUser : SHOW ( ROLE | ROLES ) FOR user=userOrRoleName ( ON ( MAIN | CURRENT | DATABASE db=symbolicName ) )? ;
 
 showUsersForRole : SHOW USERS FOR role=userOrRoleName ;
 
@@ -511,14 +523,14 @@ instanceName : symbolicName ;
 
 socketAddress : literal ;
 
-registerReplica : REGISTER REPLICA instanceName ( SYNC | ASYNC )
+registerReplica : REGISTER REPLICA instanceName ( SYNC | ASYNC | STRICT_SYNC )
                 TO socketAddress ;
 
 configKeyValuePair : literal ':' literal ;
 
 configMap : '{' ( configKeyValuePair ( ',' configKeyValuePair )* )? '}' ;
 
-registerInstanceOnCoordinator : REGISTER INSTANCE instanceName ( AS ASYNC ) ? WITH CONFIG configsMap=configMap ;
+registerInstanceOnCoordinator : REGISTER INSTANCE instanceName ( AS ASYNC | AS STRICT_SYNC ) ? WITH CONFIG configsMap=configMap ;
 
 unregisterInstanceOnCoordinator : UNREGISTER INSTANCE instanceName ;
 
@@ -527,6 +539,14 @@ forceResetClusterStateOnCoordinator : FORCE RESET CLUSTER STATE ;
 demoteInstanceOnCoordinator : DEMOTE INSTANCE instanceName ;
 
 setInstanceToMain : SET INSTANCE instanceName TO MAIN ;
+
+yieldLeadership : YIELD LEADERSHIP ;
+
+setCoordinatorSetting: SET COORDINATOR SETTING settingName TO settingValue ;
+
+showCoordinatorSettings: SHOW COORDINATOR SETTINGS ;
+
+showReplicationLag: SHOW REPLICATION LAG ;
 
 coordinatorServerId : literal ;
 
@@ -555,7 +575,7 @@ createTrigger : CREATE TRIGGER triggerName ( ON ( emptyVertex | emptyEdge ) ? ( 
 
 dropTrigger : DROP TRIGGER triggerName ;
 
-showTriggers : SHOW TRIGGERS ;
+showTriggers : SHOW TRIGGERS | SHOW TRIGGER INFO ;
 
 isolationLevel : SNAPSHOT ISOLATION | READ COMMITTED | READ UNCOMMITTED ;
 
@@ -572,6 +592,8 @@ createSnapshotQuery : CREATE SNAPSHOT ;
 recoverSnapshotQuery : RECOVER SNAPSHOT path=literal ( FORCE )? ;
 
 showSnapshotsQuery : SHOW SNAPSHOTS ;
+
+showNextSnapshotQuery : SHOW NEXT SNAPSHOT ;
 
 streamName : symbolicName ;
 
@@ -650,7 +672,7 @@ dropDatabase : DROP DATABASE databaseName ;
 
 useDatabase : USE DATABASE databaseName ;
 
-showDatabase : SHOW DATABASE ;
+showDatabase : SHOW ( CURRENT )? DATABASE ;
 
 showDatabases : SHOW DATABASES ;
 
@@ -664,11 +686,11 @@ createGlobalEdgeIndex : CREATE GLOBAL EDGE INDEX ON ':' ( '(' propertyKeyName ')
 
 dropGlobalEdgeIndex : DROP GLOBAL EDGE INDEX ON ':' ( '(' propertyKeyName ')' )?;
 
-edgeIndexQuery : createEdgeIndex | dropEdgeIndex | createGlobalEdgeIndex | dropGlobalEdgeIndex; 
+edgeIndexQuery : createEdgeIndex | dropEdgeIndex | createGlobalEdgeIndex | dropGlobalEdgeIndex;
 
 indexName : symbolicName ;
 
-createTextIndex : CREATE TEXT INDEX indexName ON ':' labelName ;
+createTextIndex : CREATE TEXT INDEX indexName ON ':' labelName ( '(' propertyKeyName ( ',' propertyKeyName )* ')' )* ;
 
 dropTextIndex : DROP TEXT INDEX indexName ;
 
@@ -681,6 +703,8 @@ dropPointIndex : DROP POINT INDEX ON ':' labelName '(' propertyKeyName ')' ;
 pointIndexQuery : createPointIndex | dropPointIndex ;
 
 createVectorIndex : CREATE VECTOR INDEX indexName ON ':' labelName ( '(' propertyKeyName ')' )? WITH CONFIG configsMap=configMap ;
+
+createVectorEdgeIndex: CREATE VECTOR EDGE INDEX indexName ON ':' labelName ( '(' propertyKeyName ')' )? WITH CONFIG configsMap=configMap ;
 
 dropVectorIndex : DROP VECTOR INDEX indexName ;
 
@@ -729,3 +753,33 @@ typeConstraintType : BOOLEAN
              | ENUM
              | POINT
              ;
+
+
+memoryLimitValue : literal ( MB | KB ) ;
+
+limitValue : UNLIMITED | mem_limit=memoryLimitValue | quantity=literal ;
+
+limitKV : key=symbolicName val=limitValue ;
+
+listOfLimits : limitKV (',' limitKV )* ;
+
+createUserProfile : ( CREATE | UPDATE ) PROFILE profile=symbolicName ( LIMIT list=listOfLimits )? ;
+dropUserProfile : DROP PROFILE profile=symbolicName ;
+showUserProfiles : SHOW PROFILES ;
+showUserProfile : SHOW PROFILE profile=symbolicName ;
+showUserProfileForUser : SHOW PROFILE FOR user=userOrRoleName ;
+showUserProfileForProfile : SHOW ( USERS | ROLES ) FOR PROFILE profile=symbolicName ;
+setUserProfile : SET PROFILE FOR user=userOrRoleName TO profile=symbolicName ;
+clearUserProfile : CLEAR PROFILE FOR user=userOrRoleName ;
+showResourceConsumption : SHOW RESOURCE USAGE FOR user=userOrRoleName ;
+
+userProfileQuery : createUserProfile
+                 | dropUserProfile
+                 | showUserProfiles
+                 | showUserProfile
+                 | showUserProfileForUser
+                 | showUserProfileForProfile
+                 | setUserProfile
+                 | clearUserProfile
+                 | showResourceConsumption
+                 ;

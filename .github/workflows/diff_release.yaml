@@ -60,7 +60,7 @@ jobs:
           fetch-depth: 0
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: ./.github/actions/docker-login
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -81,6 +81,14 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           build-memgraph
+
+      - name: Initialize tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          init-tests
 
       - name: Run GQL Behave tests
         run: |
@@ -160,6 +168,10 @@ jobs:
           --arch $ARCH \
           stop --remove
 
+      - name: Clean up Docker
+        run: |
+          ./tools/docker_cleanup.sh
+
   benchmark:
     if: ${{ inputs.run_benchmark == 'true' }}
     name: "Benchmark"
@@ -172,7 +184,7 @@ jobs:
           fetch-depth: 0
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: ./.github/actions/docker-login
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -193,6 +205,14 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           build-memgraph
+
+      - name: Initialize tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          init-tests
 
       - name: Run macro benchmarks
         run: |
@@ -262,6 +282,10 @@ jobs:
           --arch $ARCH \
           stop --remove
 
+      - name: Clean up Docker
+        run: |
+          ./tools/docker_cleanup.sh
+
   e2e:
     if: ${{ inputs.run_e2e == 'true' }}
     name: "End to end tests"
@@ -274,7 +298,7 @@ jobs:
           fetch-depth: 0
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: ./.github/actions/docker-login
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -295,6 +319,14 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           build-memgraph
+
+      - name: Initialize tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          init-tests
 
       # This step will be skipped because the e2e stream tests have been disabled
       # We need to fix this as soon as possible
@@ -351,6 +383,10 @@ jobs:
           --arch $ARCH \
           stop --remove
 
+      - name: Clean up Docker
+        run: |
+          ./tools/docker_cleanup.sh
+
   stress:
     if: ${{ inputs.run_stress == 'true' }}
     name: "Stress tests"
@@ -363,7 +399,7 @@ jobs:
           fetch-depth: 0
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: ./.github/actions/docker-login
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -384,6 +420,14 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           build-memgraph
+
+      - name: Initialize tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          init-tests
 
       - name: Run stress test (plain)
         run: |
@@ -434,6 +478,10 @@ jobs:
           --arch $ARCH \
           stop --remove
 
+      - name: Clean up Docker
+        run: |
+          ./tools/docker_cleanup.sh
+
   query_modules:
     if: ${{ inputs.run_query_modules == 'true' }}
     name: "Query modules tests"
@@ -446,7 +494,7 @@ jobs:
           fetch-depth: 0
 
       - name: Log in to Docker Hub
-        uses: docker/login-action@v3
+        uses: ./.github/actions/docker-login
         with:
           username: ${{ secrets.DOCKERHUB_USERNAME }}
           password: ${{ secrets.DOCKERHUB_TOKEN }}
@@ -467,6 +515,14 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           build-memgraph
+
+      - name: Initialize tests
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          init-tests
 
       - name: Run query modules e2e tests
         run: |
@@ -503,3 +559,7 @@ jobs:
           --os $OS \
           --arch $ARCH \
           stop --remove
+
+      - name: Clean up Docker
+        run: |
+          ./tools/docker_cleanup.sh

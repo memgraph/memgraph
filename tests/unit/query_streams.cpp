@@ -38,14 +38,18 @@ namespace {
 const static std::string kTopicName{"TrialTopic"};
 
 struct FakeUser : memgraph::query::QueryUserOrRole {
-  FakeUser() : memgraph::query::QueryUserOrRole{std::nullopt, std::nullopt} {}
+  FakeUser() : memgraph::query::QueryUserOrRole{std::nullopt, {}} {}
 
-  bool IsAuthorized(const std::vector<memgraph::query::AuthQuery::Privilege> &privileges, std::string_view db_name,
-                    memgraph::query::UserPolicy *policy) const {
+  bool IsAuthorized(const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
+                    std::optional<std::string_view> db_name, memgraph::query::UserPolicy *policy) const {
     return true;
   }
+  std::vector<std::string> GetRolenames(std::optional<std::string> db_name) const override { return {}; }
 #ifdef MG_ENTERPRISE
-  virtual bool CanImpersonate(const std::string &target, memgraph::query::UserPolicy *policy) const { return true; }
+  virtual bool CanImpersonate(const std::string &target, memgraph::query::UserPolicy *policy,
+                              std::optional<std::string_view> db_name = std::nullopt) const {
+    return true;
+  }
   std::string GetDefaultDB() const { return "memgraph"; }
 #endif
 };
@@ -128,6 +132,7 @@ class StreamsTestFixture : public ::testing::Test {
                                                            system_state,
 #ifdef MG_ENTERPRISE
                                                            std::nullopt,
+                                                           nullptr,
 #endif
                                                            nullptr,
                                                            &auth_checker};

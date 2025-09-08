@@ -11,10 +11,7 @@
 
 #pragma once
 
-#include <chrono>
-
 #include "communication/session.hpp"
-#include "rpc/messages.hpp"
 
 /**
  * @brief Protocol
@@ -40,25 +37,28 @@ class SessionException : public utils::BasicException {
 };
 
 /**
- * Distributed Protocol Session
- *
- * This class is responsible for handling a single client connection.
+ * This class represents a communication link from the server's side. It is something between a fair-loss link
+ * and perfect link (see Introduction to Reliable and Secure Distributed Programming book). It's not a perfect link
+ * because we don't guarantee that a message sent once will be always eventually delivered to the process.
+ * Fair-loss property:
+ *   If a client sends infinitely often a message m to a correct (non-Byzantine) process q,
+ *   this class will deliver the message to the server_ an infinite numer of times.
+ * No creation:
+ *   If we deliver the message m to the server_ it means the message m was previously sent by some process p. We also
+ *   rely on TCP for that.
+ * No duplication:
+ *   For this property, we rely on TCP protocol. It says that a message m won't be delivered to the server_ more than
+ * once. This class is responsible for handling a single client connection.
  */
-class Session {
+class RpcMessageDeliverer {
  public:
-  Session(Server *server, io::network::Endpoint endpoint, communication::InputStream *input_stream,
-          communication::OutputStream *output_stream);
+  RpcMessageDeliverer(Server *server, io::network::Endpoint const & /*endpoint*/,
+                      communication::InputStream *input_stream, communication::OutputStream *output_stream);
 
-  /**
-   * Executes the protocol after data has been read into the stream.
-   * Goes through the protocol states in order to execute commands from the
-   * client.
-   */
-  void Execute();
+  void Execute() const;
 
  private:
   Server *server_;
-  io::network::Endpoint endpoint_;
   communication::InputStream *input_stream_;
   communication::OutputStream *output_stream_;
 };

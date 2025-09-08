@@ -91,6 +91,7 @@ struct LicenseChecker {
   void CheckEnvLicense();
   void SetLicenseInfoOverride(std::string license_key, std::string organization_name);
   void EnableTesting(LicenseType license_type = LicenseType::ENTERPRISE);
+  void DisableTesting();
   // Checks if license is valid and if enterprise is enabled
   LicenseCheckResult IsEnterpriseValid(const utils::Settings &settings) const;
   bool IsEnterpriseValidFast() const;

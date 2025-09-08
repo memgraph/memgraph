@@ -29,6 +29,7 @@ $mg_binary_dir/memgraph \
     --cartesian-product-enabled=false \
     --data-directory=$tmpdir \
     --query-execution-timeout-sec=5 \
+    --storage-access-timeout-sec=1 \
     --log-file=$tmpdir/logs/memgraph.log \
     --also-log-to-stderr \
     --telemetry-enabled=false \

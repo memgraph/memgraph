@@ -24,12 +24,12 @@
 (defn random-coord
   "Get random leader."
   [nodes]
-  (nth nodes (+ 2 (rand-int 3)))) ; Runs under assumption that first 2 instances are data instances and last 3 are coordinators.
+  (nth nodes (+ 3 (rand-int 3)))) ; Runs under assumption that first 3 instances are data instances and last 3 are coordinators.
 
 (defn random-data-instance
   "Get random data instance."
   [nodes]
-  (nth nodes (rand-int 2))) ; Runs under assumption that first 2 instances are data instances
+  (nth nodes (rand-int 3))) ; Runs under assumption that first 3 instances are data instances
 
 (defn register-replication-instances
   "Register replication instances."
@@ -453,6 +453,16 @@
                               first
                               (:num-edges))
 
+            n3-num-nodes (->> ok-get-num-nodes
+                              (filter #(= "n3" (:node %)))
+                              first
+                              (:num-nodes))
+
+            n3-num-edges (->> ok-get-num-edges
+                              (filter #(= "n3" (:node %)))
+                              first
+                              (:num-edges))
+
             failed-setup-cluster (->> history
                                       (filter #(= :fail (:type %)))
                                       (filter #(= :setup-cluster (:f %)))
@@ -509,7 +519,7 @@
                            (map :value))
 
             partial-instances (->> si-reads
-                                   (filter #(not= 5 (count (:instances %)))))
+                                   (filter #(not= 6 (count (:instances %)))))
             ; All reads grouped by node {node->instances}
             coord->instances (->> si-reads
                                   (group-by :node)
@@ -528,7 +538,7 @@
             coordinators (set (keys coord->instances))
 
             initial-result {:valid? (and
-                                     (= coordinators #{"n3" "n4" "n5"})
+                                     (= coordinators #{"n4" "n5" "n6"})
                                      (empty? partial-coordinators)
                                      (empty? more-than-one-main)
                                      (empty? partial-instances)
@@ -542,15 +552,20 @@
                                      (empty? failed-delete-ttl-edges)
                                      (every? #(= % pokec-medium-expected-num-nodes) n1-num-nodes)
                                      (every? #(= % pokec-medium-expected-num-nodes) n2-num-nodes)
+                                     (every? #(= % pokec-medium-expected-num-nodes) n3-num-nodes)
                                      (every? #(= % pokec-medium-expected-num-edges) n1-num-edges)
-                                     (every? #(= % pokec-medium-expected-num-edges) n2-num-edges))
+                                     (every? #(= % pokec-medium-expected-num-edges) n2-num-edges)
+                                     (every? #(= % pokec-medium-expected-num-edges) n3-num-edges)
+                                     )
                             :empty-partial-coordinators? (empty? partial-coordinators) ; coordinators which have missing coordinators in their reads
                             :empty-more-than-one-main-nodes? (empty? more-than-one-main) ; nodes on which more-than-one-main was detected
-                            :correct-coordinators? (= coordinators #{"n3" "n4" "n5"})
+                            :correct-coordinators? (= coordinators #{"n4" "n5" "n6"})
                             :n1-all-nodes? (every? #(= % pokec-medium-expected-num-nodes) n1-num-nodes)
                             :n1-all-edges? (every? #(= % pokec-medium-expected-num-edges) n1-num-edges)
                             :n2-all-nodes? (every? #(= % pokec-medium-expected-num-nodes) n2-num-nodes)
                             :n2-all-edges? (every? #(= % pokec-medium-expected-num-edges) n2-num-edges)
+                            :n3-all-nodes? (every? #(= % pokec-medium-expected-num-nodes) n3-num-nodes)
+                            :n3-all-edges? (every? #(= % pokec-medium-expected-num-edges) n3-num-edges)
                             :empty-failed-setup-cluster? (empty? failed-setup-cluster) ; There shouldn't be any failed setup cluster operations.
                             :empty-failed-create-databases? (empty? failed-create-databases) ; There shouldn't be any failed create-databases operations.
                             :empty-failed-import-nodes? (empty? failed-import-nodes) ; There shouldn't be any failed import-nodes operations.
@@ -569,6 +584,8 @@
                      {:key :n1-not-all-edges :condition (not (:n1-all-edges? initial-result)) :value n1-num-edges}
                      {:key :n2-not-all-nodes :condition (not (:n2-all-nodes? initial-result)) :value n2-num-nodes}
                      {:key :n2-not-all-edges :condition (not (:n2-all-edges? initial-result)) :value n2-num-edges}
+                     {:key :n3-not-all-nodes :condition (not (:n3-all-nodes? initial-result)) :value n3-num-nodes}
+                     {:key :n3-not-all-edges :condition (not (:n3-all-edges? initial-result)) :value n3-num-edges}
                      {:key :failed-setup-cluster :condition (not (:empty-failed-setup-cluster? initial-result)) :value failed-setup-cluster}
                      {:key :failed-create-databases :condition (not (:empty-failed-create-databases? initial-result)) :value failed-create-databases}
                      {:key :failed-import-nodes :condition (not (:empty-failed-import-nodes? initial-result)) :value failed-import-nodes}
@@ -670,7 +687,8 @@
         license (:license opts)
         num-tenants (:num-tenants opts)
         recovery-time (:recovery-time opts)
-        nemesis-start-sleep (:nemesis-start-sleep opts)]
+        nemesis-start-sleep (:nemesis-start-sleep opts)
+        ]
     {:client    (Client. nodes-config first-leader first-main license organization num-tenants)
      :checker   (checker/compose
                  {:ha-mt     (checker)

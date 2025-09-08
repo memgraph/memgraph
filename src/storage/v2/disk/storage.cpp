@@ -72,8 +72,8 @@ namespace memgraph::storage {
 
 namespace {
 
-auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex, VertexAccessor *to_vertex)
-    -> Result<EdgesVertexAccessorResult> {
+auto FindEdges(const View view, EdgeTypeId edge_type, const VertexAccessor *from_vertex,
+               VertexAccessor *to_vertex) -> Result<EdgesVertexAccessorResult> {
   auto use_out_edges = [](Vertex const *from_vertex, Vertex const *to_vertex) {
     // Obtain the locks by `gid` order to avoid lock cycles.
     auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
@@ -229,8 +229,10 @@ bool IsPropertyValueWithinInterval(const PropertyValue &value,
 
 }  // namespace
 
-DiskStorage::DiskStorage(Config config)
-    : Storage(config, StorageMode::ON_DISK_TRANSACTIONAL),
+DiskStorage::DiskStorage(Config config, PlanInvalidatorPtr invalidator,
+                         std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
+    : Storage(config, StorageMode::ON_DISK_TRANSACTIONAL, std::move(invalidator),
+              std::move(database_protector_factory)),
       kvstore_(std::make_unique<RocksDBStorage>()),
       durable_metadata_(config) {
   LoadPersistingMetadataInfo();
@@ -285,6 +287,16 @@ DiskStorage::~DiskStorage() {
   }
   delete kvstore_->options_.comparator;
   kvstore_->options_.comparator = nullptr;
+}
+
+DiskStorage::DiskAccessor::DiskAccessor(Accessor::SharedAccess tag, DiskStorage *storage,
+                                        IsolationLevel isolation_level, StorageMode storage_mode,
+                                        StorageAccessType rw_type)
+    : Accessor(tag, storage, isolation_level, storage_mode, rw_type, /*no timeout*/ std::nullopt) {
+  rocksdb::WriteOptions write_options;
+  auto txOptions = rocksdb::TransactionOptions{.set_snapshot = true};
+  transaction_.disk_transaction_ = storage->kvstore_->db_->BeginTransaction(write_options, txOptions);
+  transaction_.disk_transaction_->SetReadTimestampForValidation(transaction_.start_timestamp);
 }
 
 DiskStorage::DiskAccessor::DiskAccessor(auto tag, DiskStorage *storage, IsolationLevel isolation_level,
@@ -587,16 +599,17 @@ VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, PropertyId p
   return VerticesIterable(AllVerticesIterable(indexed_vertices->access(), storage_, &transaction_, view));
 }
 
-VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, std::span<storage::PropertyId const> properties,
+VerticesIterable DiskStorage::DiskAccessor::Vertices(LabelId label, std::span<storage::PropertyPath const> properties,
                                                      std::span<storage::PropertyValueRange const> property_ranges,
                                                      View view) {
   if (properties.size() != 1) throw utils::NotYetImplemented("composite index");
+  if (properties[0].size() != 1) throw utils::NotYetImplemented("nested index");
 
   auto const &range{property_ranges.front()};
   if (range.type_ == PropertyRangeType::IS_NOT_NULL) {
-    return Vertices(label, properties.front(), view);
+    return Vertices(label, properties[0][0], view);
   } else {
-    return Vertices(label, properties.front(), range.lower_, range.upper_, view);
+    return Vertices(label, properties[0][0], range.lower_, range.upper_, view);
   }
 }
 
@@ -1271,10 +1284,16 @@ bool DiskStorage::DeleteEdgeFromConnectivityIndex(Transaction *transaction, std:
   auto *disk_label_index = static_cast<DiskLabelIndex *>(indices_.label_index_.get());
   auto *disk_label_property_index = static_cast<DiskLabelPropertyIndex *>(indices_.label_property_index_.get());
 
+  auto *label_active_indices = static_cast<DiskLabelIndex::ActiveIndices *>(transaction->active_indices_.label_.get());
+  auto *label_properties_active_indices =
+      static_cast<DiskLabelPropertyIndex::ActiveIndices *>(transaction->active_indices_.label_properties_.get());
+
   auto commit_ts = transaction->commit_timestamp->load(std::memory_order_relaxed);
   if (!disk_unique_constraints->DeleteVerticesWithRemovedConstraintLabel(transaction->start_timestamp, commit_ts) ||
-      !disk_label_index->DeleteVerticesWithRemovedIndexingLabel(transaction->start_timestamp, commit_ts) ||
-      !disk_label_property_index->DeleteVerticesWithRemovedIndexingLabel(transaction->start_timestamp, commit_ts)) {
+      !disk_label_index->DeleteVerticesWithRemovedIndexingLabel(transaction->start_timestamp, commit_ts,
+                                                                label_active_indices->entries_for_deletion_) ||
+      !disk_label_property_index->DeleteVerticesWithRemovedIndexingLabel(
+          transaction->start_timestamp, commit_ts, label_properties_active_indices->entries_for_deletion_)) {
     return StorageManipulationError{SerializationError{}};
   }
   return {};
@@ -1660,8 +1679,8 @@ DiskStorage::CheckExistingVerticesBeforeCreatingUniqueConstraint(LabelId label,
 }
 
 // NOLINTNEXTLINE(google-default-arguments)
-utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Commit(
-    CommitReplArgs reparg, DatabaseAccessProtector /*db_acc*/) {
+utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::PrepareForCommitPhase(
+    CommitArgs /*commit_args*/) {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
   MG_ASSERT(!transaction_.must_abort, "The transaction can't be committed!");
 
@@ -1732,22 +1751,21 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
           throw utils::NotYetImplemented("ClearIndexStats(stats) is not implemented for DiskStorage. {}",
                                          kErrorMessage);
         } break;
-        case MetadataDelta::Action::LABEL_PROPERTY_INDEX_STATS_SET: {
+        case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_STATS_SET: {
           throw utils::NotYetImplemented("SetIndexStats(stats) is not implemented for DiskStorage. {}", kErrorMessage);
         } break;
-        case MetadataDelta::Action::LABEL_PROPERTY_INDEX_STATS_CLEAR: {
+        case MetadataDelta::Action::LABEL_PROPERTIES_INDEX_STATS_CLEAR: {
           throw utils::NotYetImplemented("ClearIndexStats(stats) is not implemented for DiskStorage. {}",
                                          kErrorMessage);
         } break;
         case MetadataDelta::Action::TEXT_INDEX_CREATE: {
           const auto &info = md_delta.text_index;
-          if (!disk_storage->durable_metadata_.PersistTextIndexCreation(info.index_name, info.label)) {
+          if (!disk_storage->durable_metadata_.PersistTextIndexCreation(info)) {
             return StorageManipulationError{PersistenceError{}};
           }
         } break;
         case MetadataDelta::Action::TEXT_INDEX_DROP: {
-          const auto &info = md_delta.text_index;
-          if (!disk_storage->durable_metadata_.PersistTextIndexDeletion(info.index_name, info.label)) {
+          if (!disk_storage->durable_metadata_.PersistTextIndexDeletion(md_delta.index_name)) {
             return StorageManipulationError{PersistenceError{}};
           }
         } break;
@@ -1794,8 +1812,11 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
         case MetadataDelta::Action::POINT_INDEX_DROP:
           throw utils::NotYetImplemented("Point index is not implemented for DiskStorage. {}", kErrorMessage);
         case MetadataDelta::Action::VECTOR_INDEX_CREATE:
+        case MetadataDelta::Action::VECTOR_EDGE_INDEX_CREATE:
         case MetadataDelta::Action::VECTOR_INDEX_DROP:
           throw utils::NotYetImplemented("Vector index is not implemented for DiskStorage. {}", kErrorMessage);
+        case MetadataDelta::Action::TTL_OPERATION:
+          throw utils::NotYetImplemented("TTL operations are not implemented for DiskStorage. {}", kErrorMessage);
       }
     }
   } else if (transaction_.deltas.empty() ||
@@ -1872,7 +1893,7 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
 
   spdlog::trace("rocksdb: Commit successful");
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    disk_storage->indices_.text_index_.Commit();
+    memgraph::storage::TextIndex::ApplyTrackedChanges(transaction_, disk_storage->name_id_mapper_.get());
   }
   disk_storage->durable_metadata_.UpdateMetaData(disk_storage->timestamp_, disk_storage->vertex_count_,
                                                  disk_storage->edge_count_);
@@ -1883,7 +1904,7 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Co
 
 // NOLINTNEXTLINE(google-default-arguments)
 utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::PeriodicCommit(
-    CommitReplArgs /*reparg*/, DatabaseAccessProtector /*db_acc*/) {
+    CommitArgs /*commit_args*/) {
   throw utils::NotYetImplemented("Periodic commit is not yet supported using on-disk storage mode. {}", kErrorMessage);
 };
 
@@ -1999,9 +2020,7 @@ void DiskStorage::DiskAccessor::Abort() {
   // query_plan_accumulate_aggregate.cpp
   transaction_.disk_transaction_->Rollback();
   transaction_.disk_transaction_->ClearSnapshot();
-  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    storage_->indices_.text_index_.Rollback();
-  }
+
   delete transaction_.disk_transaction_;
   transaction_.disk_transaction_ = nullptr;
   is_transaction_active_ = false;
@@ -2022,15 +2041,20 @@ void DiskStorage::DiskAccessor::FinalizeTransaction() {
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(
-    LabelId label, bool unique_access_needed) {
-  if (unique_access_needed) {
-    MG_ASSERT(unique_guard_.owns_lock(), "Create index requires unique access to the storage!");
-  }
+    LabelId label, CheckCancelFunction /*cancel_check*/) {
+  MG_ASSERT(type() == UNIQUE, "Create index requires unique access to the storage!");
+
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
   if (!disk_label_index->CreateIndex(label, on_disk->SerializeVerticesForLabelIndex(label))) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
+
+  // disk is under unique lock, no need to publish
+  // but we still need to call the outer publisher to ensure plan cache is cleared
+  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(always_invalidate_plan_cache);
+  publisher(0 /*timestamp is ignored*/);
+
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_create, label);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelIndices);
@@ -2038,20 +2062,29 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(
-    LabelId label, std::vector<storage::PropertyId> &&properties) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+    LabelId label, PropertiesPaths properties, CheckCancelFunction /*cancel_check*/) {
+  MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
 
   if (properties.size() != 1) {
     throw utils::NotYetImplemented("composite index");
+  }
+  if (properties[0].size() != 1) {
+    throw utils::NotYetImplemented("nested index");
   }
 
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_property_index =
       static_cast<DiskLabelPropertyIndex *>(on_disk->indices_.label_property_index_.get());
-  if (!disk_label_property_index->CreateIndex(label, properties[0],
-                                              on_disk->SerializeVerticesForLabelPropertyIndex(label, properties[0]))) {
+  if (!disk_label_property_index->CreateIndex(
+          label, properties[0][0], on_disk->SerializeVerticesForLabelPropertyIndex(label, properties[0][0]))) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
+
+  // disk is under unique lock, no need to publish
+  // but we still need to call the outer publisher to ensure plan cache is cleared
+  auto publisher = storage_->invalidator_->invalidate_for_timestamp_wrapper(always_invalidate_plan_cache);
+  publisher(0 /*timestamp is ignored*/);
+
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_create, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
@@ -2059,30 +2092,35 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(
-    EdgeTypeId /*edge_type*/, bool /*unique_access_needed*/) {
+    EdgeTypeId /*edge_type*/, CheckCancelFunction /*cancel_check*/) {
   throw utils::NotYetImplemented(
       "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
 
-utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(EdgeTypeId /*edge_type*/,
-                                                                                             PropertyId /*property*/) {
+utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateIndex(
+    EdgeTypeId /*edge_type*/, PropertyId /*property*/, CheckCancelFunction /*cancel_check*/) {
   throw utils::NotYetImplemented(
       "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateGlobalEdgeIndex(
-    PropertyId /*property*/) {
+    PropertyId /*property*/, CheckCancelFunction /*cancel_check*/) {
   throw utils::NotYetImplemented(
       "Edge-type index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(LabelId label) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
   if (!disk_label_index->DropIndex(label)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
+
+  // disk is under unique lock, no need to publish
+  // but we still need to call the outer publisher to ensure plan cache is cleared
+  storage_->invalidator_->invalidate_now(always_invalidate_plan_cache);
+
   transaction_.md_deltas.emplace_back(MetadataDelta::label_index_drop, label);
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelIndices);
@@ -2090,11 +2128,14 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
 }
 
 utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::DropIndex(
-    LabelId label, std::vector<storage::PropertyId> &&properties) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Create index requires a unique access to the storage!");
+    LabelId label, std::vector<storage::PropertyPath> &&properties) {
+  MG_ASSERT(type() == UNIQUE, "Create index requires a unique access to the storage!");
 
   if (properties.size() != 1) {
     throw utils::NotYetImplemented("composite index");
+  }
+  if (properties[0].size() != 1) {
+    throw utils::NotYetImplemented("nested index");
   }
 
   auto *on_disk = static_cast<DiskStorage *>(storage_);
@@ -2103,6 +2144,11 @@ utils::BasicResult<StorageIndexDefinitionError, void> DiskStorage::DiskAccessor:
   if (!disk_label_property_index->DropIndex(label, properties)) {
     return StorageIndexDefinitionError{IndexDefinitionError{}};
   }
+
+  // disk is under unique lock, no need to publish
+  // but we still need to call the outer publisher to ensure plan cache is cleared
+  storage_->invalidator_->invalidate_now(always_invalidate_plan_cache);
+
   transaction_.md_deltas.emplace_back(MetadataDelta::label_property_index_drop, label, std::move(properties));
   // We don't care if there is a replication error because on main node the change will go through
   memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveLabelPropertyIndices);
@@ -2150,9 +2196,15 @@ utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::Disk
                                  kErrorMessage);
 }
 
+utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::DiskAccessor::CreateVectorEdgeIndex(
+    VectorEdgeIndexSpec /*spec*/) {
+  throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
+                                 kErrorMessage);
+}
+
 utils::BasicResult<StorageExistenceConstraintDefinitionError, void>
 DiskStorage::DiskAccessor::CreateExistenceConstraint(LabelId label, PropertyId property) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Create existence constraint requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE, "Create existence constraint requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *existence_constraints = on_disk->constraints_.existence_constraints_.get();
   if (existence_constraints->ConstraintExists(label, property)) {
@@ -2169,7 +2221,7 @@ DiskStorage::DiskAccessor::CreateExistenceConstraint(LabelId label, PropertyId p
 
 utils::BasicResult<StorageExistenceConstraintDroppingError, void> DiskStorage::DiskAccessor::DropExistenceConstraint(
     LabelId label, PropertyId property) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Drop existence constraint requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE, "Drop existence constraint requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *existence_constraints = on_disk->constraints_.existence_constraints_.get();
   if (!existence_constraints->DropConstraint(label, property)) {
@@ -2181,7 +2233,7 @@ utils::BasicResult<StorageExistenceConstraintDroppingError, void> DiskStorage::D
 
 utils::BasicResult<StorageUniqueConstraintDefinitionError, UniqueConstraints::CreationStatus>
 DiskStorage::DiskAccessor::CreateUniqueConstraint(LabelId label, const std::set<PropertyId> &properties) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Create unique constraint requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE, "Create unique constraint requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(on_disk->constraints_.unique_constraints_.get());
   if (auto constraint_check = disk_unique_constraints->CheckIfConstraintCanBeCreated(label, properties);
@@ -2201,7 +2253,7 @@ DiskStorage::DiskAccessor::CreateUniqueConstraint(LabelId label, const std::set<
 
 UniqueConstraints::DeletionStatus DiskStorage::DiskAccessor::DropUniqueConstraint(
     LabelId label, const std::set<PropertyId> &properties) {
-  MG_ASSERT(unique_guard_.owns_lock(), "Drop unique constraint requires a unique access to the storage!");
+  MG_ASSERT(type() == UNIQUE, "Drop unique constraint requires a unique access to the storage!");
   auto *on_disk = static_cast<DiskStorage *>(storage_);
   auto *disk_unique_constraints = static_cast<DiskUniqueConstraints *>(on_disk->constraints_.unique_constraints_.get());
   if (auto ret = disk_unique_constraints->DropConstraint(label, properties);
@@ -2233,7 +2285,12 @@ auto DiskStorage::DiskAccessor::PointVertices(LabelId /*label*/, PropertyId /*pr
   throw utils::NotYetImplemented("Point Vertices is not yet implemented for on-disk storage. {}", kErrorMessage);
 }
 
-std::vector<std::tuple<VertexAccessor, double, double>> DiskStorage::DiskAccessor::VectorIndexSearch(
+std::vector<std::tuple<VertexAccessor, double, double>> DiskStorage::DiskAccessor::VectorIndexSearchOnNodes(
+    const std::string & /*index_name*/, uint64_t /*number_of_results*/, const std::vector<float> & /*vector*/) {
+  throw utils::NotYetImplemented("Vector index is not yet implemented for on-disk storage. {}", kErrorMessage);
+}
+
+std::vector<std::tuple<EdgeAccessor, double, double>> DiskStorage::DiskAccessor::VectorIndexSearchOnEdges(
     const std::string & /*index_name*/, uint64_t /*number_of_results*/, const std::vector<float> & /*vector*/) {
   throw utils::NotYetImplemented("Vector index is not yet implemented for on-disk storage. {}", kErrorMessage);
 }
@@ -2242,10 +2299,14 @@ std::vector<VectorIndexInfo> DiskStorage::DiskAccessor::ListAllVectorIndices() c
   throw utils::NotYetImplemented("Vector index is not yet implemented for on-disk storage. {}", kErrorMessage);
 };
 
+std::vector<VectorEdgeIndexInfo> DiskStorage::DiskAccessor::ListAllVectorEdgeIndices() const {
+  throw utils::NotYetImplemented("Vector index is not yet implemented for on-disk storage. {}", kErrorMessage);
+};
+
 auto DiskStorage::DiskAccessor::PointVertices(LabelId /*label*/, PropertyId /*property*/,
                                               CoordinateReferenceSystem /*crs*/, PropertyValue const & /*bottom_left*/,
-                                              PropertyValue const & /*top_right*/, WithinBBoxCondition /*condition*/)
-    -> PointIterable {
+                                              PropertyValue const & /*top_right*/,
+                                              WithinBBoxCondition /*condition*/) -> PointIterable {
   throw utils::NotYetImplemented("Point Vertices is not yet implemented for on-disk storage. {}", kErrorMessage);
 };
 
@@ -2259,11 +2320,13 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
   uint64_t transaction_id = 0;
   uint64_t start_timestamp = 0;
   bool edge_import_mode_active{false};
+  std::optional<ActiveIndices> active_indices;
   {
     auto guard = std::lock_guard{engine_lock_};
     transaction_id = transaction_id_++;
     start_timestamp = timestamp_++;
     edge_import_mode_active = edge_import_status_ == EdgeImportMode::ACTIVE;
+    active_indices = GetActiveIndices();
   }
 
   return {transaction_id,
@@ -2272,19 +2335,21 @@ Transaction DiskStorage::CreateTransaction(IsolationLevel isolation_level, Stora
           storage_mode,
           edge_import_mode_active,
           !constraints_.empty(),
-          empty_point_index_.CreatePointIndexContext()};
+          empty_point_index_.CreatePointIndexContext(),
+          *std::move(active_indices)};
 }
 
 uint64_t DiskStorage::GetCommitTimestamp() { return timestamp_++; }
 
-std::unique_ptr<Storage::Accessor> DiskStorage::Access(std::optional<IsolationLevel> override_isolation_level,
+std::unique_ptr<Storage::Accessor> DiskStorage::Access(StorageAccessType rw_type,
+                                                       std::optional<IsolationLevel> override_isolation_level,
                                                        std::optional<std::chrono::milliseconds> /*timeout*/) {
   auto isolation_level = override_isolation_level.value_or(isolation_level_);
   if (isolation_level != IsolationLevel::SNAPSHOT_ISOLATION) {
     throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level. {}", kErrorMessage);
   }
   return std::unique_ptr<DiskAccessor>(
-      new DiskAccessor{Storage::Accessor::shared_access, this, isolation_level, storage_mode_});
+      new DiskAccessor{Storage::Accessor::shared_access, this, isolation_level, storage_mode_, rw_type});
 }
 std::unique_ptr<Storage::Accessor> DiskStorage::UniqueAccess(std::optional<IsolationLevel> override_isolation_level,
                                                              std::optional<std::chrono::milliseconds> /*timeout*/) {
@@ -2296,13 +2361,28 @@ std::unique_ptr<Storage::Accessor> DiskStorage::UniqueAccess(std::optional<Isola
       new DiskAccessor{Storage::Accessor::unique_access, this, isolation_level, storage_mode_});
 }
 
-bool DiskStorage::DiskAccessor::EdgeTypeIndexExists(EdgeTypeId /*edge_type*/) const {
+std::unique_ptr<Storage::Accessor> DiskStorage::ReadOnlyAccess(std::optional<IsolationLevel> override_isolation_level,
+                                                               std::optional<std::chrono::milliseconds> /*timeout*/) {
+  auto isolation_level = override_isolation_level.value_or(isolation_level_);
+  if (isolation_level != IsolationLevel::SNAPSHOT_ISOLATION) {
+    throw utils::NotYetImplemented("Disk storage supports only SNAPSHOT isolation level. {}", kErrorMessage);
+  }
+  return std::unique_ptr<DiskAccessor>(
+      new DiskAccessor{Storage::Accessor::read_only_access, this, isolation_level, storage_mode_});
+}
+
+bool DiskStorage::DiskAccessor::LabelPropertyIndexExists(LabelId label,
+                                                         std::span<PropertyPath const> properties) const {
+  return transaction_.active_indices_.label_properties_->IndexExists(label, properties);
+}
+
+bool DiskStorage::DiskAccessor::EdgeTypeIndexReady(EdgeTypeId /*edge_type*/) const {
   spdlog::info("Edge-type index related operations are not yet supported using on-disk storage mode. {}",
                kErrorMessage);
   return false;
 }
 
-bool DiskStorage::DiskAccessor::EdgeTypePropertyIndexExists(EdgeTypeId /*edge_type*/, PropertyId /*property*/) const {
+bool DiskStorage::DiskAccessor::EdgeTypePropertyIndexReady(EdgeTypeId /*edge_type*/, PropertyId /*property*/) const {
   spdlog::info("Edge-type index related operations are not yet supported using on-disk storage mode. {}",
                kErrorMessage);
   return false;
@@ -2313,19 +2393,20 @@ bool DiskStorage::DiskAccessor::EdgePropertyIndexExists(PropertyId /*property*/)
   return false;
 }
 
+bool DiskStorage::DiskAccessor::EdgePropertyIndexReady(PropertyId /*property*/) const {
+  spdlog::info("Edge index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
+  return false;
+}
+
 bool DiskStorage::DiskAccessor::PointIndexExists(LabelId /*label*/, PropertyId /*property*/) const {
   spdlog::info("Point index related operations are not yet supported using on-disk storage mode. {}", kErrorMessage);
   return false;
 }
 
 IndicesInfo DiskStorage::DiskAccessor::ListAllIndices() const {
-  auto *on_disk = static_cast<DiskStorage *>(storage_);
-  auto *disk_label_index = static_cast<DiskLabelIndex *>(on_disk->indices_.label_index_.get());
-  auto *disk_label_property_index =
-      static_cast<DiskLabelPropertyIndex *>(on_disk->indices_.label_property_index_.get());
   auto &text_index = storage_->indices_.text_index_;
-  return {disk_label_index->ListIndices(),
-          disk_label_property_index->ListIndices(),
+  return {transaction_.active_indices_.label_->ListIndices(transaction_.start_timestamp),
+          transaction_.active_indices_.label_properties_->ListIndices(transaction_.start_timestamp),
           {/* edge type indices */},
           {/* edge_type_property */},
           {/*edge property*/},

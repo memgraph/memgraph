@@ -17,9 +17,9 @@
 #include <string_view>
 
 #include "coordination/coordinator_communication_config.hpp"
+#include "coordination/coordinator_ops_status.hpp"
 #include "coordination/coordinator_state.hpp"
 #include "coordination/instance_status.hpp"
-#include "coordination/register_main_replica_coordinator_status.hpp"
 
 #include <vector>
 
@@ -46,12 +46,21 @@ class CoordinatorHandler {
   auto ShowInstance() const -> coordination::InstanceStatus;
   auto ShowInstances() const -> std::vector<coordination::InstanceStatus>;
 
+  auto YieldLeadership() const -> coordination::YieldLeadershipStatus;
+
+  auto SetCoordinatorSetting(std::string_view setting_name, std::string_view setting_value) const
+      -> coordination::SetCoordinatorSettingStatus;
+
+  auto ShowCoordinatorSettings() const -> std::vector<std::pair<std::string, std::string>>;
+
   auto AddCoordinatorInstance(coordination::CoordinatorInstanceConfig const &config)
       -> coordination::AddCoordinatorInstanceStatus;
 
   auto RemoveCoordinatorInstance(int32_t coordinator_id) -> coordination::RemoveCoordinatorInstanceStatus;
 
   auto GetLeaderCoordinatorData() const -> std::optional<coordination::LeaderCoordinatorData>;
+
+  auto ShowReplicationLag() const -> std::map<std::string, std::map<std::string, coordination::ReplicaDBLagData>>;
 
  private:
   // NOLINTNEXTLINE

@@ -17,6 +17,7 @@
 #include <utility>
 #include <variant>
 
+#include "frontend/ast/query/identifier.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
@@ -208,7 +209,7 @@ auto MatchesIdentifier(Identifier *identifier) {
 
 PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &symbol, PropertyIx property,
                                Expression *value, Type type)
-    : symbol_(symbol), property_(std::move(property)), type_(type), value_(value) {
+    : symbol_(symbol), property_ids_({std::move(property)}), type_(type), value_(value) {
   MG_ASSERT(type != Type::RANGE);
   UsedSymbolsCollector collector(symbol_table);
   value->Accept(collector);
@@ -219,7 +220,34 @@ PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &sy
                                const std::optional<PropertyFilter::Bound> &lower_bound,
                                const std::optional<PropertyFilter::Bound> &upper_bound)
     : symbol_(symbol),
-      property_(std::move(property)),
+      property_ids_({std::move(property)}),
+      type_(Type::RANGE),
+      lower_bound_(lower_bound),
+      upper_bound_(upper_bound) {
+  UsedSymbolsCollector collector(symbol_table);
+  if (lower_bound) {
+    lower_bound->value()->Accept(collector);
+  }
+  if (upper_bound) {
+    upper_bound->value()->Accept(collector);
+  }
+  is_symbol_in_value_ = utils::Contains(collector.symbols_, symbol);
+}
+
+PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &symbol, PropertyIxPath properties,
+                               Expression *value, Type type)
+    : symbol_(symbol), property_ids_(std::move(properties)), type_(type), value_(value) {
+  MG_ASSERT(type != Type::RANGE);
+  UsedSymbolsCollector collector(symbol_table);
+  value->Accept(collector);
+  is_symbol_in_value_ = utils::Contains(collector.symbols_, symbol);
+}
+
+PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &symbol, PropertyIxPath properties,
+                               const std::optional<PropertyFilter::Bound> &lower_bound,
+                               const std::optional<PropertyFilter::Bound> &upper_bound)
+    : symbol_(symbol),
+      property_ids_(std::move(properties)),
       type_(Type::RANGE),
       lower_bound_(lower_bound),
       upper_bound_(upper_bound) {
@@ -234,13 +262,16 @@ PropertyFilter::PropertyFilter(const SymbolTable &symbol_table, const Symbol &sy
 }
 
 PropertyFilter::PropertyFilter(Symbol symbol, PropertyIx property, Type type)
-    : symbol_(std::move(symbol)), property_(std::move(property)), type_(type) {
+    : symbol_(std::move(symbol)), property_ids_({std::move(property)}), type_(type) {
   // As this constructor is used for property filters where
   // we don't have to evaluate the filter expression, we set
   // the is_symbol_in_value_ to false, although the filter
   // expression may actually contain the symbol whose property
   // we may be looking up.
 }
+
+PropertyFilter::PropertyFilter(Symbol symbol, PropertyIxPath properties, Type type)
+    : symbol_(std::move(symbol)), property_ids_(std::move(properties)), type_(type) {}
 
 IdFilter::IdFilter(const SymbolTable &symbol_table, const Symbol &symbol, Expression *value)
     : symbol_(symbol), value_(value) {
@@ -277,7 +308,38 @@ void Filters::EraseLabelFilter(const Symbol &symbol, const LabelIx &label, std::
     }
     filter_it->labels.erase(label_it);
     DMG_ASSERT(!utils::Contains(filter_it->labels, label), "Didn't expect duplicated labels");
-    if (filter_it->labels.empty()) {
+    if (filter_it->labels.empty() && filter_it->or_labels.empty()) {
+      // If there are no labels to filter, then erase the whole FilterInfo.
+      if (removed_filters) {
+        removed_filters->push_back(filter_it->expression);
+      }
+      filter_it = all_filters_.erase(filter_it);
+    } else {
+      ++filter_it;
+    }
+  }
+}
+
+// Tries to erase the filter which contains a vector of labels of a symbol
+void Filters::EraseOrLabelFilter(const Symbol &symbol, const std::vector<LabelIx> &labels,
+                                 std::vector<Expression *> *removed_filters) {
+  for (auto filter_it = all_filters_.begin(); filter_it != all_filters_.end();) {
+    if (filter_it->type != FilterInfo::Type::Label) {
+      ++filter_it;
+      continue;
+    }
+    if (!utils::Contains(filter_it->used_symbols, symbol)) {
+      ++filter_it;
+      continue;
+    }
+    auto label_vec_it = std::find(filter_it->or_labels.begin(), filter_it->or_labels.end(), labels);
+    if (label_vec_it == filter_it->or_labels.end()) {
+      ++filter_it;
+      continue;
+    }
+    filter_it->or_labels.erase(label_vec_it);
+    DMG_ASSERT(!utils::Contains(filter_it->or_labels, labels), "Didn't expect duplicated labels");
+    if (filter_it->or_labels.empty() && filter_it->labels.empty()) {
       // If there are no labels to filter, then erase the whole FilterInfo.
       if (removed_filters) {
         removed_filters->push_back(filter_it->expression);
@@ -373,20 +435,45 @@ void Filters::CollectPatternFilters(Pattern &pattern, SymbolTable &symbol_table,
       auto it = std::find_if(all_filters_.begin(), all_filters_.end(), MatchesIdentifier(node->identifier_));
       if (it == all_filters_.end()) {
         // No existing LabelTest for this identifier
-        auto *labels_test = storage.Create<LabelsTest>(node->identifier_, labels);
+        auto *labels_test = storage.Create<LabelsTest>(node->identifier_, labels, node->label_expression_);
         auto label_filter = FilterInfo{FilterInfo::Type::Label, labels_test, std::unordered_set<Symbol>{node_symbol}};
         label_filter.labels = labels;
         all_filters_.emplace_back(label_filter);
       } else {
-        // Add these labels to existing LabelsTest
+        // Add to existing LabelsTest
+        // First cover OR expressions in LabelsTest
         auto *existing_labels_test = dynamic_cast<LabelsTest *>(it->expression);
-        auto &existing_labels = existing_labels_test->labels_;
-        auto as_set = std::unordered_set(existing_labels.begin(), existing_labels.end());
-        auto before_count = as_set.size();
-        as_set.insert(labels.begin(), labels.end());
-        if (as_set.size() != before_count) {
-          existing_labels = std::vector(as_set.begin(), as_set.end());
-          it->labels = existing_labels;
+        // If it's an OR expression, we are adding to the OR labels of the existing LabelsTest
+        if (node->label_expression_) {
+          auto &existing_or_labels = existing_labels_test->or_labels_;
+          std::unordered_set<LabelIx> as_set;
+          for (const auto &label_vec : existing_or_labels) {
+            for (const auto &label : label_vec) {
+              as_set.insert(label);
+            }
+          }
+
+          std::vector<LabelIx> labels_vec_to_add;
+          for (const auto &label : labels) {
+            if (as_set.insert(label).second) {
+              // If the label was not already in the current labels set, add it to the vector
+              labels_vec_to_add.push_back(label);
+            }
+          }
+          if (!labels_vec_to_add.empty()) {
+            existing_or_labels.push_back(std::move(labels_vec_to_add));
+          }
+          it->or_labels = existing_or_labels;
+        } else {
+          // If it's an AND expression, we are adding to the AND labels of the existing LabelsTest
+          auto &existing_labels = existing_labels_test->labels_;
+          auto as_set = std::unordered_set(existing_labels.begin(), existing_labels.end());
+          auto before_count = as_set.size();
+          as_set.insert(labels.begin(), labels.end());
+          if (as_set.size() != before_count) {
+            existing_labels = std::vector(as_set.begin(), as_set.end());
+            it->labels = existing_labels;
+          }
         }
       }
     }
@@ -417,7 +504,7 @@ void Filters::CollectWhereFilter(Where &where, const SymbolTable &symbol_table) 
 // Adds the expression to `all_filters_` and collects additional
 // information for potential property and label indexing.
 void Filters::CollectFilterExpression(Expression *expr, const SymbolTable &symbol_table) {
-  auto filters = SplitExpressionOnAnd(expr);
+  auto filters = SplitExpression(expr);
   for (const auto &filter : filters) {
     AnalyzeAndStoreFilter(filter, symbol_table);
   }
@@ -434,28 +521,48 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     return (prop_lookup = utils::Downcast<PropertyLookup>(maybe_lookup)) &&
            (ident = utils::Downcast<Identifier>(prop_lookup->expression_));
   };
+  auto is_nested_property_lookup = [](auto *maybe_lookup) {
+    return utils::Downcast<PropertyLookup>(maybe_lookup) &&
+           utils::Downcast<PropertyLookup>(utils::Downcast<PropertyLookup>(maybe_lookup)->expression_);
+  };
+  auto extract_nested_property_lookup = [&](auto *maybe_lookup) {
+    auto *expr = utils::Downcast<PropertyLookup>(maybe_lookup);
+    auto *prev_expr = expr;
+    auto nested_properties = std::vector<memgraph::query::PropertyIx>{};
+    while (expr) {
+      nested_properties.emplace_back(expr->property_);
+      prev_expr = expr;
+      expr = utils::Downcast<PropertyLookup>(expr->expression_);
+    }
+
+    // Properties are reversed because the AST walk produces them in reverse
+    // order. This returns them to the order as specified in the grammar.
+    std::reverse(nested_properties.begin(), nested_properties.end());
+
+    return std::pair<Identifier *, PropertyIxPath>{utils::Downcast<Identifier>(prev_expr->expression_),
+                                                   std::move(nested_properties)};
+  };
   // Checks if maybe_lookup is a property lookup, stores it as a
   // PropertyFilter and returns true. If it isn't, returns false.
-  auto add_prop_equal = [&](auto *maybe_lookup, auto *val_expr) -> bool {
+  auto try_add_prop_filter = [&](auto *maybe_lookup, auto *val_expr, PropertyFilter::Type type) -> bool {
     PropertyLookup *prop_lookup = nullptr;
     Identifier *ident = nullptr;
-    if (get_property_lookup(maybe_lookup, prop_lookup, ident)) {
+    if (is_nested_property_lookup(maybe_lookup)) {
+      auto [ident, nested_properties] = extract_nested_property_lookup(maybe_lookup);
+      if (!ident) {
+        return false;
+      }
       auto filter = make_filter(FilterInfo::Type::Property);
-      filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), prop_lookup->property_, val_expr,
-                                              PropertyFilter::Type::EQUAL);
+      filter.property_filter =
+          PropertyFilter(symbol_table, symbol_table.at(*ident), std::move(nested_properties), val_expr, type);
       all_filters_.emplace_back(filter);
       return true;
     }
-    return false;
-  };
-  // Like add_prop_equal, but for adding regex match property filter.
-  auto add_prop_regex_match = [&](auto *maybe_lookup, auto *val_expr) -> bool {
-    PropertyLookup *prop_lookup = nullptr;
-    Identifier *ident = nullptr;
+
     if (get_property_lookup(maybe_lookup, prop_lookup, ident)) {
       auto filter = make_filter(FilterInfo::Type::Property);
-      filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), prop_lookup->property_, val_expr,
-                                              PropertyFilter::Type::REGEX_MATCH);
+      filter.property_filter =
+          PropertyFilter(symbol_table, symbol_table.at(*ident), prop_lookup->property_, val_expr, type);
       all_filters_.emplace_back(filter);
       return true;
     }
@@ -584,7 +691,15 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     // We need to get both possible lookups `n.prop > thing` and `thing > n.prop`
     // Only one can be used in the rewrite, so even when we add both into all_filters_ only one can be used
     // example where two can be inserted `n0.propA > n1.propB`, the rewritten scan could be for n0 or n1
-    if (get_property_lookup(expr1, prop_lookup, ident)) {
+    if (is_nested_property_lookup(expr1)) {
+      auto [ident, nested_properties] = extract_nested_property_lookup(expr1);
+      if (ident) {
+        auto filter = make_filter(FilterInfo::Type::Property);
+        filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), nested_properties,
+                                                Bound(expr2, bound_type), std::nullopt);
+        all_filters_.emplace_back(filter);
+      }
+    } else if (get_property_lookup(expr1, prop_lookup, ident)) {
       // n.prop > value
       auto filter = make_filter(FilterInfo::Type::Property);
       filter.property_filter.emplace(symbol_table, symbol_table.at(*ident), prop_lookup->property_,
@@ -592,7 +707,15 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       all_filters_.emplace_back(filter);
       is_prop_filter = true;
     }
-    if (get_property_lookup(expr2, prop_lookup, ident)) {
+    if (is_nested_property_lookup(expr2)) {
+      auto [ident, nested_properties] = extract_nested_property_lookup(expr2);
+      if (ident) {
+        auto filter = make_filter(FilterInfo::Type::Property);
+        filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), std::move(nested_properties),
+                                                std::nullopt, Bound(expr1, bound_type));
+        all_filters_.emplace_back(filter);
+      }
+    } else if (get_property_lookup(expr2, prop_lookup, ident)) {
       // value > n.prop
       auto filter = make_filter(FilterInfo::Type::Property);
       filter.property_filter.emplace(symbol_table, symbol_table.at(*ident), prop_lookup->property_, std::nullopt,
@@ -627,6 +750,17 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     if (!utils::Downcast<ListLiteral>(val_expr)) return false;
     PropertyLookup *prop_lookup = nullptr;
     Identifier *ident = nullptr;
+    if (is_nested_property_lookup(maybe_lookup)) {
+      auto [ident, nested_properties] = extract_nested_property_lookup(maybe_lookup);
+      if (!ident) {
+        return false;
+      }
+      auto filter = make_filter(FilterInfo::Type::Property);
+      filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), std::move(nested_properties),
+                                              val_expr, PropertyFilter::Type::IN);
+      all_filters_.emplace_back(filter);
+      return true;
+    }
     if (get_property_lookup(maybe_lookup, prop_lookup, ident)) {
       auto filter = make_filter(FilterInfo::Type::Property);
       filter.property_filter = PropertyFilter(symbol_table, symbol_table.at(*ident), prop_lookup->property_, val_expr,
@@ -654,15 +788,25 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     PropertyLookup *prop_lookup = nullptr;
     Identifier *ident = nullptr;
 
-    if (!get_property_lookup(maybe_is_null_check->expression_, prop_lookup, ident)) {
-      return false;
+    if (get_property_lookup(maybe_is_null_check->expression_, prop_lookup, ident)) {
+      auto filter = make_filter(FilterInfo::Type::Property);
+      filter.property_filter =
+          PropertyFilter(symbol_table.at(*ident), prop_lookup->property_, PropertyFilter::Type::IS_NOT_NULL);
+      all_filters_.emplace_back(filter);
+      return true;
     }
-
-    auto filter = make_filter(FilterInfo::Type::Property);
-    filter.property_filter =
-        PropertyFilter(symbol_table.at(*ident), prop_lookup->property_, PropertyFilter::Type::IS_NOT_NULL);
-    all_filters_.emplace_back(filter);
-    return true;
+    if (is_nested_property_lookup(maybe_is_null_check->expression_)) {
+      auto [ident, nested_properties] = extract_nested_property_lookup(maybe_is_null_check->expression_);
+      if (!ident) {
+        return false;
+      }
+      auto filter = make_filter(FilterInfo::Type::Property);
+      filter.property_filter =
+          PropertyFilter(symbol_table.at(*ident), std::move(nested_properties), PropertyFilter::Type::IS_NOT_NULL);
+      all_filters_.emplace_back(filter);
+      return true;
+    }
+    return false;
   };
   // We are only interested to see the insides of And, because Or prevents
   // indexing since any labels and properties found there may be optional.
@@ -676,13 +820,37 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
         // No existing LabelTest for this identifier
         auto filter = make_filter(FilterInfo::Type::Label);
         filter.labels = labels_test->labels_;
+        filter.or_labels = labels_test->or_labels_;
         all_filters_.emplace_back(filter);
       } else {
         // Add these labels to existing LabelsTest
+        // First cover OR expressions in LabelsTest
         auto *existing_labels_test = dynamic_cast<LabelsTest *>(it->expression);
-        auto &existing_labels = existing_labels_test->labels_;
-        auto as_set = std::unordered_set(existing_labels.begin(), existing_labels.end());
+        auto &existing_or_labels = existing_labels_test->or_labels_;
+        std::unordered_set<LabelIx> as_set;
+        for (const auto &label_vec : existing_or_labels) {
+          for (const auto &label : label_vec) {
+            as_set.insert(label);
+          }
+        }
+
         auto before_count = as_set.size();
+        for (auto &label_vec : labels_test->or_labels_) {
+          label_vec.erase(std::remove_if(label_vec.begin(), label_vec.end(),
+                                         [&](const auto &label) { return !as_set.insert(label).second; }),
+                          label_vec.end());
+        }
+        if (as_set.size() != before_count) {
+          for (const auto &label_vec : labels_test->or_labels_) {
+            existing_or_labels.push_back(label_vec);
+          }
+          it->or_labels = existing_or_labels;
+        }
+
+        // Then cover AND expressions in LabelsTest
+        auto &existing_labels = existing_labels_test->labels_;
+        as_set = std::unordered_set(existing_labels.begin(), existing_labels.end());
+        before_count = as_set.size();
         as_set.insert(labels_test->labels_.begin(), labels_test->labels_.end());
         if (as_set.size() != before_count) {
           existing_labels = std::vector(as_set.begin(), as_set.end());
@@ -704,9 +872,9 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     // Here the `prop` may be different than `value` resulting in `false`. This
     // would compare with the top level `false`, producing `true`. Therefore, it
     // is incorrect to pick up `n.prop = value` for scanning by property index.
-    bool is_prop_filter = add_prop_equal(eq->expression1_, eq->expression2_);
+    bool is_prop_filter = try_add_prop_filter(eq->expression1_, eq->expression2_, PropertyFilter::Type::EQUAL);
     // And reversed.
-    is_prop_filter |= add_prop_equal(eq->expression2_, eq->expression1_);
+    is_prop_filter |= try_add_prop_filter(eq->expression2_, eq->expression1_, PropertyFilter::Type::EQUAL);
     // Try to get ID equality filter.
     bool is_id_filter = add_id_equal(eq->expression1_, eq->expression2_);
     is_id_filter |= add_id_equal(eq->expression2_, eq->expression1_);
@@ -721,7 +889,7 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
   } else if (auto *regex_match = utils::Downcast<RegexMatch>(expr)) {
-    if (!add_prop_regex_match(regex_match->string_expr_, regex_match->regex_)) {
+    if (!try_add_prop_filter(regex_match->string_expr_, regex_match->regex_, PropertyFilter::Type::REGEX_MATCH)) {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
   } else if (auto *range = utils::Downcast<RangeOperator>(expr)) {
@@ -790,6 +958,77 @@ void Filters::AnalyzeAndStoreFilter(Expression *expr, const SymbolTable &symbol_
     if (!add_point_withinbbox_filter_unary(expr, WithinBBoxCondition::INSIDE)) {
       all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
     }
+  } else if (auto *or_operator = utils::Downcast<OrOperator>(expr)) {
+    auto filters = SplitExpression(or_operator, SplitExpressionMode::OR);
+    // If each filter is LabelsTest we aim to cover basic case and put them in existing LabelsTest
+    // If there is a non-LabelsTest filter we fallback to generic
+    auto is_each_labels_test = std::all_of(filters.begin(), filters.end(), [](auto &filter) {
+      auto *labels_test = utils::Downcast<LabelsTest>(filter);
+      if (!labels_test) {
+        return false;
+      }
+      return labels_test->labels_.size() == 1;
+    });
+    if (is_each_labels_test) {
+      std::unordered_map<uint32_t, std::vector<LabelIx> *> already_seen_symbols;
+      for (auto &filter : filters) {
+        auto *labels_test = utils::Downcast<LabelsTest>(filter);
+        auto *identifier = utils::Downcast<Identifier>(labels_test->expression_);
+        auto it = std::find_if(all_filters_.begin(), all_filters_.end(), MatchesIdentifier(identifier));
+        if (it == all_filters_.end()) {
+          // No existing LabelTest for this identifier
+          auto filter_info = FilterInfo{FilterInfo::Type::Label, labels_test, collector.symbols_};
+          filter_info.or_labels.push_back(labels_test->labels_);
+
+          // Transfer labels to or_labels since we are in OR expression
+          labels_test->or_labels_.push_back(std::move(labels_test->labels_));
+          labels_test->labels_.clear();
+          already_seen_symbols[identifier->symbol_pos_] = &labels_test->or_labels_.back();
+          all_filters_.emplace_back(filter_info);
+        } else {
+          // Add to existing LabelsTest
+          // First cover OR expressions in LabelsTest
+          auto *existing_labels_test = dynamic_cast<LabelsTest *>(it->expression);
+          auto &existing_or_labels = existing_labels_test->or_labels_;
+          std::unordered_set<LabelIx> as_set;
+          for (const auto &label_vec : existing_or_labels) {
+            for (const auto &label : label_vec) {
+              as_set.insert(label);
+            }
+          }
+
+          auto before_count = as_set.size();
+          // If symbol isn't already seen in this OR expression emplace back new vector of or labels
+          std::vector<LabelIx> *or_labels_vec = nullptr;
+          auto existing_or_labels_vec_it = already_seen_symbols.find(identifier->symbol_pos_);
+          if (existing_or_labels_vec_it == already_seen_symbols.end()) {
+            existing_or_labels.emplace_back();
+            already_seen_symbols[identifier->symbol_pos_] = &existing_or_labels.back();
+            or_labels_vec = &existing_or_labels.back();
+          } else {
+            or_labels_vec = existing_or_labels_vec_it->second;
+          }
+          for (auto &label : labels_test->labels_) {
+            if (as_set.insert(label).second) {
+              or_labels_vec->push_back(label);
+            }
+          }
+          if (as_set.size() != before_count) {
+            it->or_labels = existing_or_labels;
+          }
+        }
+      }
+      // cleanup all already_seen_symbols vectors that are empty
+      for (auto it = already_seen_symbols.begin(); it != already_seen_symbols.end();) {
+        if (it->second->empty()) {
+          it = already_seen_symbols.erase(it);
+        } else {
+          ++it;
+        }
+      }
+    } else {
+      all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
+    }
   } else {
     all_filters_.emplace_back(make_filter(FilterInfo::Type::Generic));
   }
@@ -844,6 +1083,7 @@ void AddMatching(const Match &match, SymbolTable &symbol_table, AstStorage &stor
 
     filter.expression->Accept(visitor);
     filter.matchings = visitor.getFilterMatchings();
+    filter.pattern_comprehension_matchings = visitor.getPatternComprehensionMatchings();
   }
 }
 
@@ -854,14 +1094,24 @@ PatternVisitor::PatternVisitor(PatternVisitor &&) noexcept = default;
 PatternVisitor::~PatternVisitor() = default;
 
 void PatternVisitor::Visit(Exists &op) {
-  std::vector<Pattern *> patterns;
-  patterns.push_back(op.pattern_);
-
   FilterMatching filter_matching;
-  AddMatching(patterns, nullptr, symbol_table_, storage_, filter_matching);
-
-  filter_matching.type = PatternFilterType::EXISTS;
   filter_matching.symbol = std::make_optional<Symbol>(symbol_table_.at(op));
+
+  if (op.HasPattern()) {
+    std::vector<Pattern *> patterns;
+    patterns.push_back(op.GetPattern());
+    AddMatching(patterns, nullptr, symbol_table_, storage_, filter_matching);
+    filter_matching.type = PatternFilterType::EXISTS_PATTERN;
+  } else if (op.HasSubquery()) {
+    // For subqueries, collect the full QueryParts and store in filter_matching
+    filter_matching.type = PatternFilterType::EXISTS_SUBQUERY;
+    filter_matching.subquery =
+        std::make_shared<QueryParts>(CollectQueryParts(symbol_table_, storage_, op.GetSubquery(), true));
+  } else {
+    throw SemanticException(
+        "EXISTS semantic is neither of type pattern, or subquery! Please contact Memgraph support as this scenario "
+        "should not happen!");
+  }
 
   filter_matchings_.push_back(std::move(filter_matching));
 }
@@ -901,6 +1151,15 @@ void PatternVisitor::Visit(NamedExpression &op) { op.expression_->Accept(*this);
 void PatternVisitor::Visit(PatternComprehension &op) {
   PatternComprehensionMatching matching;
   AddMatching({op.pattern_}, op.filter_, symbol_table_, storage_, matching);
+
+  for (auto &filter : matching.filters) {
+    PatternVisitor nested_visitor(symbol_table_, storage_);
+
+    filter.expression->Accept(nested_visitor);
+    filter.matchings = nested_visitor.getFilterMatchings();
+    filter.pattern_comprehension_matchings = nested_visitor.getPatternComprehensionMatchings();
+  }
+
   matching.result_expr = storage_.Create<NamedExpression>(symbol_table_.at(op).name(), op.resultExpr_);
   matching.result_expr->MapTo(symbol_table_.at(op));
   matching.result_symbol = symbol_table_.at(op);
@@ -923,7 +1182,7 @@ std::vector<SingleQueryPart> CollectSingleQueryParts(SymbolTable &symbol_table, 
         query_part = &query_parts.back();
       }
       if (match->optional_) {
-        query_part->optional_matching.emplace_back(Matching{});
+        query_part->optional_matching.emplace_back();
         AddMatching(*match, symbol_table, storage, query_part->optional_matching.back());
       } else {
         DMG_ASSERT(query_part->optional_matching.empty(), "Match clause cannot follow optional match.");
@@ -979,22 +1238,33 @@ QueryParts CollectQueryParts(SymbolTable &symbol_table, AstStorage &storage, Cyp
   return QueryParts{query_parts, distinct, query->pre_query_directives_.commit_frequency_, is_subquery};
 }
 
-std::vector<Expression *> SplitExpressionOnAnd(Expression *expression) {
-  // TODO: Think about converting all filtering expression into CNF to improve
-  // the granularity of filters which can be stand alone.
+// TODO: Think about converting all filtering expression into CNF to improve
+// the granularity of filters which can be stand alone.
+std::vector<Expression *> SplitExpression(Expression *expression, SplitExpressionMode mode) {
   std::vector<Expression *> expressions;
   std::stack<Expression *> pending_expressions;
   pending_expressions.push(expression);
   while (!pending_expressions.empty()) {
     auto *current_expression = pending_expressions.top();
     pending_expressions.pop();
-    if (auto *and_op = utils::Downcast<AndOperator>(current_expression)) {
-      pending_expressions.push(and_op->expression1_);
-      pending_expressions.push(and_op->expression2_);
-    } else {
-      expressions.push_back(current_expression);
+
+    if (mode == SplitExpressionMode::AND) {
+      if (auto *and_op = utils::Downcast<AndOperator>(current_expression)) {
+        pending_expressions.push(and_op->expression1_);
+        pending_expressions.push(and_op->expression2_);
+        continue;
+      }
+    } else if (mode == SplitExpressionMode::OR) {
+      if (auto *or_op = utils::Downcast<OrOperator>(current_expression)) {
+        pending_expressions.push(or_op->expression1_);
+        pending_expressions.push(or_op->expression2_);
+        continue;
+      }
     }
+
+    expressions.push_back(current_expression);
   }
+
   return expressions;
 }
 

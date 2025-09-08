@@ -1,0 +1,95 @@
+name: "Jepsen HA Stress Tests"
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref_name }}
+  cancel-in-progress: true
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: "Jepsen mode"
+        type: choice
+        options:
+          - sync_mixed
+          - sync
+          - strict_sync
+          - strict_sync_mixed
+        default: strict_sync
+      run-mt:
+        description: "Run MT tests"
+        type: boolean
+        default: true
+      run-non-mt:
+        description: "Run non-MT tests"
+        type: boolean
+        default: true
+      time-limit-mt:
+        description: "Time limit for MT test (in seconds)"
+        type: string
+        default: "7200"
+      time-limit-non-mt:
+        description: "Time limit for non-MT test (in seconds)"
+        type: string
+        default: "25200"
+
+  schedule:
+    - cron: "0 0 * * *"  # Run daily at midnight
+
+jobs:
+  determine-sync:
+    if: ${{ github.event_name != 'workflow_dispatch' }}
+    name: "Determine Sync Mode"
+    runs-on: ubuntu-latest
+    outputs:
+      mode: ${{ steps.set_sync.outputs.mode }}
+    steps:
+      - name: Determine in which mode test should run based on day
+        id: set_sync
+        run: |
+          # Get the current day of the month (leading zeros are stripped)
+          DAY=$(date +%d)
+          MOD=$((10#$DAY % 4))
+
+          if [ $MOD -eq 0 ]; then
+            echo "mode=sync" >> $GITHUB_OUTPUT
+          elif [ $MOD -eq 1 ]; then
+            echo "mode=sync_mixed" >> $GITHUB_OUTPUT
+          elif [ $MOD -eq 2 ]; then
+            echo "mode=strict_sync" >> $GITHUB_OUTPUT
+          else
+            echo "mode=strict_sync_mixed" >> $GITHUB_OUTPUT
+          fi
+
+  run-jepsen-tests:
+    needs: determine-sync
+    strategy:
+      fail-fast: false
+      matrix:
+        mt: [true, false]
+    uses: ./.github/workflows/reusable_stress_jepsen.yaml
+    with:
+      name: "${{ needs.determine-sync.outputs.mode }}${{ matrix.mt && '-mt' || '' }}"
+      mt: ${{ matrix.mt }}
+      mode: ${{ needs.determine-sync.outputs.mode }}
+      time-limit: ${{ matrix.mt && '7200' || '25200' }}
+    secrets: inherit
+
+  run-manual-jepsen-tests:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run-non-mt }}
+    uses: ./.github/workflows/reusable_stress_jepsen.yaml
+    with:
+      name: "${{ inputs.mode }}"
+      mt: false
+      mode: ${{ inputs.mode }}
+      time-limit: ${{ inputs.time-limit-non-mt }}
+    secrets: inherit
+
+  run-manual-jepsen-tests-mt:
+    if: ${{ github.event_name == 'workflow_dispatch' && inputs.run-mt }}
+    uses: ./.github/workflows/reusable_stress_jepsen.yaml
+    with:
+      name: "${{ inputs.mode }}-mt"
+      mt: true
+      mode: ${{ inputs.mode }}
+      time-limit: ${{ inputs.time-limit-mt }}
+    secrets: inherit

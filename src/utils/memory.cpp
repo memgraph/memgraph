@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -77,7 +77,7 @@ void MonotonicBufferResource::Release() {
     auto alloc_size = b->size();
     auto alignment = b->alignment;
     b->~Buffer();
-    memory_->Deallocate(b, alloc_size, alignment);
+    memory_->deallocate(b, alloc_size, alignment);
     b = next;
   }
   current_buffer_ = nullptr;
@@ -85,12 +85,12 @@ void MonotonicBufferResource::Release() {
   allocated_ = 0U;
 }
 
-void *MonotonicBufferResource::DoAllocate(size_t bytes, size_t alignment) {
+void *MonotonicBufferResource::do_allocate(size_t bytes, size_t alignment) {
   static_assert(std::is_same_v<size_t, uintptr_t>);
   static_assert(std::is_same_v<size_t, uint64_t>);
   auto push_current_buffer = [this, bytes, alignment](size_t next_size) {
     // Set size so that the bytes fit.
-    const size_t size = next_size > bytes ? next_size : bytes;
+    const size_t size = std::max(next_size, bytes);
     // Simplify alignment by always using values greater or equal to max_align
     const size_t alloc_align = std::max(alignment, alignof(std::max_align_t));
     // Setup the Buffer area before `Buffer::data` such that `Buffer::data` is
@@ -106,9 +106,12 @@ void *MonotonicBufferResource::DoAllocate(size_t bytes, size_t alignment) {
     if (!maybe_bytes_for_buffer) throw BadAlloc("Allocation size overflow");
     const size_t bytes_for_buffer = *maybe_bytes_for_buffer;
     // TODO : use better function than RoundUint64ToMultiple because we know alloc_align is a power of 2
+    if (size > std::numeric_limits<uint64_t>::max() - bytes_for_buffer) {
+      throw BadAlloc("Allocation size overflow");
+    }
     const auto alloc_size = RoundUint64ToMultiple(bytes_for_buffer + size, alloc_align);
     if (!alloc_size) throw BadAlloc("Allocation size overflow");
-    void *ptr = memory_->Allocate(*alloc_size, alloc_align);
+    void *ptr = memory_->allocate(*alloc_size, alloc_align);
     // Instantiate the Buffer at the start of the allocated block.
     current_buffer_ = new (ptr) Buffer{current_buffer_, *alloc_size - bytes_for_buffer, alloc_align};
     allocated_ = 0;
@@ -167,7 +170,7 @@ Pool::~Pool() {
     auto const dataSize = blocks_per_chunk_ * block_size_;
     auto const alignment = Ceil2(block_size_);
     for (auto &chunk : chunks_) {
-      resource->Deallocate(chunk.raw_data, dataSize, alignment);
+      resource->deallocate(chunk.raw_data, dataSize, alignment);
     }
     chunks_.clear();
   }
@@ -180,12 +183,12 @@ void *Pool::Allocate() {
     auto const data_size = blocks_per_chunk_ * block_size_;
     auto const alignment = Ceil2(block_size_);
     auto *resource = GetUpstreamResource();
-    auto *data = reinterpret_cast<std::byte *>(resource->Allocate(data_size, alignment));
+    auto *data = reinterpret_cast<std::byte *>(resource->allocate(data_size, alignment));
     try {
       auto &new_chunk = chunks_.emplace_front(data);
       free_list_ = new_chunk.build_freelist(block_size_, blocks_per_chunk_);
     } catch (...) {
-      resource->Deallocate(data, data_size, alignment);
+      resource->deallocate(data, data_size, alignment);
       throw;
     }
   }
@@ -207,13 +210,13 @@ struct NullMemoryResourceImpl final : public MemoryResource {
   ~NullMemoryResourceImpl() override = default;
 
  private:
-  void *DoAllocate(size_t /*bytes*/, size_t /*alignment*/) override {
+  void *do_allocate(size_t /*bytes*/, size_t /*alignment*/) override {
     throw BadAlloc{"NullMemoryResource doesn't allocate"};
   }
-  void DoDeallocate(void * /*p*/, size_t /*bytes*/, size_t /*alignment*/) override {
+  void do_deallocate(void * /*p*/, size_t /*bytes*/, size_t /*alignment*/) override {
     throw BadAlloc{"NullMemoryResource doesn't deallocate"};
   }
-  bool DoIsEqual(MemoryResource const &other) const noexcept override {
+  bool do_is_equal(MemoryResource const &other) const noexcept override {
     return dynamic_cast<NullMemoryResourceImpl const *>(&other) != nullptr;
   }
 };
@@ -275,7 +278,7 @@ static_assert(bin_index<2>(24U) == 2);
 
 }  // namespace impl
 
-void *PoolResource::DoAllocate(size_t bytes, size_t alignment) {
+void *PoolResource::do_allocate(size_t bytes, size_t alignment) {
   // Take the max of `bytes` and `alignment` so that we simplify handling
   // alignment requests.
   size_t block_size = std::max({bytes, alignment, 1UL});
@@ -299,9 +302,9 @@ void *PoolResource::DoAllocate(size_t bytes, size_t alignment) {
   if (block_size <= 1024) {
     return pools_5bit_.allocate(block_size);
   }
-  return unpooled_memory_->Allocate(bytes, alignment);
+  return unpooled_memory_->allocate(bytes, alignment);
 }
-void PoolResource::DoDeallocate(void *p, size_t bytes, size_t alignment) {
+void PoolResource::do_deallocate(void *p, size_t bytes, size_t alignment) {
   size_t block_size = std::max({bytes, alignment, 1UL});
   DMG_ASSERT(block_size % alignment == 0);
 
@@ -314,8 +317,8 @@ void PoolResource::DoDeallocate(void *p, size_t bytes, size_t alignment) {
   } else if (block_size <= 1024) {
     pools_5bit_.deallocate(p, block_size);
   } else {
-    unpooled_memory_->Deallocate(p, bytes, alignment);
+    unpooled_memory_->deallocate(p, bytes, alignment);
   }
 }
-bool PoolResource::DoIsEqual(MemoryResource const &other) const noexcept { return this == &other; }
+bool PoolResource::do_is_equal(const std::pmr::memory_resource &other) const noexcept { return this == &other; }
 }  // namespace memgraph::utils

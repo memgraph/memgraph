@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,16 +11,18 @@
 
 #pragma once
 
+#include <atomic>
 #include <memory>
 #include <type_traits>
 
-#include "query/common.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/metadata.hpp"
 #include "query/parameters.hpp"
 #include "query/plan/profile.hpp"
 #include "query/trigger.hpp"
+#include "storage/v2/commit_args.hpp"
 #include "utils/async_timer.hpp"
+#include "utils/counter.hpp"
 
 #include "query/frame_change.hpp"
 #include "query/hops_limit.hpp"
@@ -63,12 +65,39 @@ std::vector<storage::PropertyId> NamesToProperties(const std::vector<std::string
 
 std::vector<storage::LabelId> NamesToLabels(const std::vector<std::string> &label_names, DbAccessor *dba);
 
+struct StoppingContext {
+  // Even though this is called `StoppingContext`. TransactionStatus is used for more
+  std::atomic<TransactionStatus> *transaction_status{nullptr};
+  std::atomic<bool> *is_shutting_down{nullptr};
+  std::shared_ptr<utils::AsyncTimer> timer{};
+
+  auto MustAbort() const noexcept -> AbortReason {
+    if (transaction_status && transaction_status->load(std::memory_order_acquire) == TransactionStatus::TERMINATED)
+        [[unlikely]] {
+      return AbortReason::TERMINATED;
+    }
+    if (is_shutting_down && is_shutting_down->load(std::memory_order_acquire)) [[unlikely]] {
+      return AbortReason::SHUTDOWN;
+    }
+    if (timer && timer->IsExpired()) [[unlikely]] {
+      return AbortReason::TIMEOUT;
+    }
+    return AbortReason::NO_ABORT;
+  }
+
+  auto MakeMaybeAborter(std::size_t n = 20) const noexcept {
+    return [maybe_check_abort = utils::ResettableCounter{n}, ctx = *this]() -> AbortReason {
+      // Not thread safe
+      return maybe_check_abort() ? ctx.MustAbort() : AbortReason::NO_ABORT;
+    };
+  }
+};
+
 struct ExecutionContext {
   DbAccessor *db_accessor{nullptr};
   SymbolTable symbol_table;
   EvaluationContext evaluation_context;
-  std::atomic<bool> *is_shutting_down{nullptr};
-  std::atomic<TransactionStatus> *transaction_status{nullptr};
+  StoppingContext stopping_context;
   bool is_profile_query{false};
   std::chrono::duration<double> profile_execution_time;
   plan::ProfilingStats stats;
@@ -76,7 +105,6 @@ struct ExecutionContext {
   ExecutionStats execution_stats;
   TriggerContextCollector *trigger_context_collector{nullptr};
   FrameChangeCollector *frame_change_collector{nullptr};
-  std::shared_ptr<utils::AsyncTimer> timer;
   std::shared_ptr<QueryUserOrRole> user_or_role;
   int64_t number_of_hops{0};
   HopsLimit hops_limit;
@@ -84,25 +112,13 @@ struct ExecutionContext {
 #ifdef MG_ENTERPRISE
   std::unique_ptr<FineGrainedAuthChecker> auth_checker{nullptr};
 #endif
-  DatabaseAccessProtector db_acc;
+  std::shared_ptr<storage::DatabaseProtector> protector;
+  bool is_main{true};
+  auto commit_args() -> storage::CommitArgs;
 };
 
 static_assert(std::is_move_assignable_v<ExecutionContext>, "ExecutionContext must be move assignable!");
 static_assert(std::is_move_constructible_v<ExecutionContext>, "ExecutionContext must be move constructible!");
-
-inline auto MustAbort(const ExecutionContext &context) noexcept -> AbortReason {
-  if (context.transaction_status != nullptr &&
-      context.transaction_status->load(std::memory_order_acquire) == TransactionStatus::TERMINATED) {
-    return AbortReason::TERMINATED;
-  }
-  if (context.is_shutting_down != nullptr && context.is_shutting_down->load(std::memory_order_acquire)) {
-    return AbortReason::SHUTDOWN;
-  }
-  if (context.timer && context.timer->IsExpired()) {
-    return AbortReason::TIMEOUT;
-  }
-  return AbortReason::NO_ABORT;
-}
 
 inline plan::ProfilingStatsWithTotalTime GetStatsWithTotalTime(const ExecutionContext &context) {
   return plan::ProfilingStatsWithTotalTime{context.stats, context.profile_execution_time};

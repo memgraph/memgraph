@@ -42,6 +42,7 @@ BASIC_PRIVILEGES = [
     "MULTI_DATABASE_USE",
     "COORDINATOR",
     "IMPERSONATE_USER",
+    "PROFILE_RESTRICTION",
 ]
 
 
@@ -63,9 +64,9 @@ def test_lba_procedures_show_privileges_first_user():
     ]
 
     cursor = connect(username="Josip", password="").cursor()
-    result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR Josip;")
+    result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR Josip ON MAIN;")
 
-    assert len(result) == 36
+    assert len(result) == 37
 
     fine_privilege_results = [res for res in result if res[0] not in BASIC_PRIVILEGES]
 
@@ -86,7 +87,7 @@ def test_lba_procedures_show_privileges_second_user():
     ]
 
     cursor = connect(username="Boris", password="").cursor()
-    result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR Boris;")
+    result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR Boris ON MAIN;")
 
     assert len(result) == len(expected_assertions_boris)
     assert set(result) == set(expected_assertions_boris)
@@ -99,7 +100,7 @@ def test_lba_procedures_show_privileges_third_user():
     ]
 
     cursor = connect(username="Niko", password="").cursor()
-    result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR Niko;")
+    result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR Niko ON MAIN;")
 
     assert len(result) == len(expected_assertions_niko)
     assert set(result) == set(expected_assertions_niko)
@@ -114,7 +115,7 @@ def test_lba_procedures_show_privileges_fourth_user():
     # TODO: Revisit behaviour of this test
 
     cursor = connect(username="Bruno", password="").cursor()
-    result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR Bruno;")
+    result = execute_and_fetch_all(cursor, "SHOW PRIVILEGES FOR Bruno ON MAIN;")
 
     assert len(result) == len(expected_assertions_bruno)
     assert set(result) == set(expected_assertions_bruno)

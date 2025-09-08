@@ -12,8 +12,6 @@
 /// @file commit_log.hpp
 #pragma once
 
-#include <cstdint>
-
 #include "utils/memory.hpp"
 #include "utils/spin_lock.hpp"
 
@@ -49,11 +47,26 @@ class CommitLog final {
   /// @throw std::bad_alloc
   void MarkFinished(uint64_t id);
 
+  /**
+   * Marks transactions that are in range [start_id, end_id] as finished.
+   * @param start_id Start txn timestamp
+   * @param end_id End txn timestamp
+   */
+  void MarkFinishedInRange(uint64_t start_id, uint64_t end_id);
+
   /// Retrieve the oldest transaction still not marked as finished.
   uint64_t OldestActive();
 
+  /**
+   * Checks if txn is finished.
+   * @param id Check if txn with id is finished
+   * @return bool true if finished, false otherwise
+   */
+  bool IsFinished(uint64_t id) const;
+
  private:
   static constexpr uint64_t kBlockSize = 8192;
+  // 64 bits
   static constexpr uint64_t kIdsInField = sizeof(uint64_t) * 8;
   static constexpr uint64_t kIdsInBlock = kBlockSize * kIdsInField;
 

@@ -59,7 +59,7 @@ struct ReplicationClient {
                              try {
                                {
                                  auto stream{rpc_client_.Stream<replication_coordination_glue::FrequentHeartbeatRpc>()};
-                                 stream.AwaitResponse();
+                                 stream.SendAndWait();
                                }
                                succ_cb(*this);
                                failed_attempts = 0U;
@@ -92,7 +92,7 @@ struct ReplicationClient {
           return false;
         }
         try {
-          if (check(stream.AwaitResponse())) {
+          if (check(stream.SendAndWait())) {
             return true;
           }
         } catch (rpc::GenericRpcFailedException const &) {
@@ -134,7 +134,7 @@ struct ReplicationClient {
 
   utils::Synchronized<State, utils::WritePrioritizedRWLock> state_{State::BEHIND};
 
-  replication_coordination_glue::ReplicationMode mode_{replication_coordination_glue::ReplicationMode::SYNC};
+  replication_coordination_glue::ReplicationMode mode_{replication_coordination_glue::ReplicationMode::STRICT_SYNC};
   // This thread pool is used for background tasks so we don't
   // block the main storage thread
   // We use only 1 thread for 2 reasons:

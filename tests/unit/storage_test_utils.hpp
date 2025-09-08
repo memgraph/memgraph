@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <gtest/gtest.h>
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/view.hpp"
@@ -53,21 +52,30 @@ inline bool ConfrontJSON(const nlohmann::json &lhs, const nlohmann::json &rhs) {
   return lhs == rhs;
 }
 
+/** Test helper to validate the properties of any vertices within the given
+ * property ranges.
+ * @return number of vertices matching the property ranges.
+ */
 template <typename Accessor>
-auto CheckVertexProperties(std::unique_ptr<Accessor> acc, memgraph::storage::LabelId label,
-                           std::span<memgraph::storage::PropertyId const> props,
-                           std::span<memgraph::storage::PropertyValueRange const> ranges, size_t expected_num_vertices,
-                           auto &&props_validator) {
+std::size_t CheckVertexProperties(std::unique_ptr<Accessor> acc, memgraph::storage::LabelId label,
+                                  std::span<memgraph::storage::PropertyPath const> props,
+                                  std::span<memgraph::storage::PropertyValueRange const> ranges,
+                                  auto &&props_validator) {
   auto iterable = acc->Vertices(label, props, ranges, memgraph::storage::View::OLD);
   size_t found_vertices = 0;
   for (auto it = iterable.begin(); it != iterable.end(); ++it) {
     auto vertex = *it;
-    auto results =
-        props |
-        ranges::views::transform([&](auto &&prop) { return *vertex.GetProperty(prop, memgraph::storage::View::OLD); }) |
-        ranges::to_vector;
+    auto results = props | ranges::views::transform([&](auto &&prop) {
+                     auto result = vertex.GetProperty(prop[0], memgraph::storage::View::OLD);
+                     if (!result.HasValue()) {
+                       return memgraph::storage::PropertyValue{};
+                     }
+                     auto value = ReadNestedPropertyValue(*result, prop | ranges::views::drop(1));
+                     return value ? *value : memgraph::storage::PropertyValue{};
+                   }) |
+                   ranges::to_vector;
     props_validator(results);
     ++found_vertices;
   }
-  EXPECT_EQ(found_vertices, expected_num_vertices);
+  return found_vertices;
 };

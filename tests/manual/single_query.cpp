@@ -45,14 +45,14 @@ int main(int argc, char *argv[]) {
                                                           system_state
 #ifdef MG_ENTERPRISE
                                                           ,
-                                                          std::nullopt
+                                                          std::nullopt, nullptr
 #endif
   );
   memgraph::query::Interpreter interpreter{&interpreter_context, db_acc};
 
   ResultStreamFaker stream(db_acc->storage());
   memgraph::query::AllowEverythingAuthChecker auth_checker;
-  interpreter.SetUser(auth_checker.GenQueryUser(std::nullopt, std::nullopt));
+  interpreter.SetUser(auth_checker.GenQueryUser(std::nullopt, {}));
   auto [header, _1, qid, _2] = interpreter.Prepare(argv[1], memgraph::query::no_params_fn, {});
   stream.Header(header);
   auto summary = interpreter.PullAll(&stream);

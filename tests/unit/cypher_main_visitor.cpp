@@ -14,6 +14,7 @@
 #include <limits>
 #include <optional>
 #include <string>
+#include <type_traits>
 #include <unordered_map>
 #include <variant>
 #include <vector>
@@ -35,7 +36,9 @@
 
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
+#include "query/frontend/ast/query/user_profile.hpp"
 #include "query/frontend/opencypher/parser.hpp"
+#include "query/frontend/semantic/rw_checker.hpp"
 #include "query/frontend/stripped.hpp"
 #include "query/parameters.hpp"
 #include "query/procedure/cypher_types.hpp"
@@ -55,6 +58,9 @@ using testing::ElementsAre;
 using testing::NotNull;
 using testing::Pair;
 using testing::UnorderedElementsAre;
+
+namespace r = ranges;
+namespace rv = ranges::views;
 
 // Base class for all test types
 class Base {
@@ -194,7 +200,7 @@ class CachedAstGenerator : public Base {
     context_.is_query_cached = true;
     StrippedQuery stripped(query_string);
     parameters_ = stripped.literals();
-    ::frontend::opencypher::Parser parser(stripped.query());
+    ::frontend::opencypher::Parser parser(stripped.stripped_query().str());
     Parameters parameters;
     AstStorage tmp_storage;
     CypherMainVisitor visitor(context_, &tmp_storage, &parameters);
@@ -212,6 +218,23 @@ class CachedAstGenerator : public Base {
 
   AstStorage ast_storage_;
 };
+
+constexpr bool kRead = false;
+constexpr bool kWrite = !kRead;
+void CheckRWType(const CypherQuery *cypher_query, bool is_write) {
+  memgraph::query::RWChecker rw_checker;
+  const_cast<CypherQuery *>(cypher_query)->Accept(rw_checker);
+  EXPECT_EQ(is_write, rw_checker.IsWrite());
+}
+void CheckRWType(const ProfileQuery *query, bool is_write) { CheckRWType(query->cypher_query_, is_write); }
+template <typename T, typename = std::enable_if_t<!std::is_same_v<T, CypherQuery> && !std::is_same_v<T, ProfileQuery>>>
+void CheckRWType(T *query, bool is_write) {
+  if (const auto *cypher_query = memgraph::utils::Downcast<CypherQuery>(query))
+    CheckRWType(cypher_query, is_write);
+  else if (const auto *profile_query = memgraph::utils::Downcast<ProfileQuery>(query))
+    CheckRWType(profile_query, is_write);
+  // NO OTHER TYPE IS CHECKED
+}
 
 class MockModule : public procedure::Module {
  public:
@@ -237,9 +260,9 @@ class MockModule : public procedure::Module {
   std::map<std::string, mgp_func, std::less<>> functions{};
 };
 
-void DummyProcCallback(mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result * /*result*/, mgp_memory * /*memory*/) {};
+void DummyProcCallback(mgp_list * /*args*/, mgp_graph * /*graph*/, mgp_result * /*result*/, mgp_memory * /*memory*/){};
 void DummyFuncCallback(mgp_list * /*args*/, mgp_func_context * /*func_ctx*/, mgp_func_result * /*result*/,
-                       mgp_memory * /*memory*/) {};
+                       mgp_memory * /*memory*/){};
 
 enum class ProcedureType { WRITE, READ };
 
@@ -354,6 +377,7 @@ TEST_P(CypherMainVisitorTest, PropertyLookup) {
   ASSERT_TRUE(identifier);
   ASSERT_EQ(identifier->name_, "n");
   ASSERT_EQ(property_lookup->property_, ast_generator.Prop("x"));
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, LabelsTest) {
@@ -370,6 +394,7 @@ TEST_P(CypherMainVisitorTest, LabelsTest) {
   ASSERT_TRUE(identifier);
   ASSERT_EQ(identifier->name_, "n");
   ASSERT_THAT(labels_test->labels_, ElementsAre(ast_generator.Label("x"), ast_generator.Label("y")));
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, EscapedLabel) {
@@ -384,6 +409,7 @@ TEST_P(CypherMainVisitorTest, EscapedLabel) {
   auto identifier = dynamic_cast<Identifier *>(labels_test->expression_);
   ASSERT_EQ(identifier->name_, "n");
   ASSERT_THAT(labels_test->labels_, ElementsAre(ast_generator.Label("l-$\"'ab`e``l")));
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, KeywordLabel) {
@@ -399,6 +425,7 @@ TEST_P(CypherMainVisitorTest, KeywordLabel) {
     auto identifier = dynamic_cast<Identifier *>(labels_test->expression_);
     ASSERT_EQ(identifier->name_, "n");
     ASSERT_THAT(labels_test->labels_, ElementsAre(ast_generator.Label(label)));
+    CheckRWType(query, kRead);
   }
 }
 
@@ -414,6 +441,7 @@ TEST_P(CypherMainVisitorTest, HexLetterLabel) {
   auto identifier = dynamic_cast<Identifier *>(labels_test->expression_);
   EXPECT_EQ(identifier->name_, "n");
   ASSERT_THAT(labels_test->labels_, ElementsAre(ast_generator.Label("a")));
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, ReturnNoDistinctNoBagSemantics) {
@@ -430,6 +458,7 @@ TEST_P(CypherMainVisitorTest, ReturnNoDistinctNoBagSemantics) {
   ASSERT_FALSE(return_clause->body_.limit);
   ASSERT_FALSE(return_clause->body_.skip);
   ASSERT_FALSE(return_clause->body_.distinct);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, ReturnDistinct) {
@@ -441,6 +470,7 @@ TEST_P(CypherMainVisitorTest, ReturnDistinct) {
   ASSERT_EQ(single_query->clauses_.size(), 1U);
   auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
   ASSERT_TRUE(return_clause->body_.distinct);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, ReturnLimit) {
@@ -453,6 +483,7 @@ TEST_P(CypherMainVisitorTest, ReturnLimit) {
   auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
   ASSERT_TRUE(return_clause->body_.limit);
   ast_generator.CheckLiteral(return_clause->body_.limit, 5);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, ReturnSkip) {
@@ -465,6 +496,7 @@ TEST_P(CypherMainVisitorTest, ReturnSkip) {
   auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
   ASSERT_TRUE(return_clause->body_.skip);
   ast_generator.CheckLiteral(return_clause->body_.skip, 5);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, ReturnOrderBy) {
@@ -483,6 +515,7 @@ TEST_P(CypherMainVisitorTest, ReturnOrderBy) {
   }
   ASSERT_THAT(ordering,
               UnorderedElementsAre(Pair(Ordering::ASC, "z"), Pair(Ordering::ASC, "x"), Pair(Ordering::DESC, "y")));
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, ReturnNamedIdentifier) {
@@ -497,6 +530,7 @@ TEST_P(CypherMainVisitorTest, ReturnNamedIdentifier) {
   ASSERT_EQ(named_expr->name_, "var5");
   auto *identifier = dynamic_cast<Identifier *>(named_expr->expression_);
   ASSERT_EQ(identifier->name_, "var");
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, ReturnAsterisk) {
@@ -508,6 +542,7 @@ TEST_P(CypherMainVisitorTest, ReturnAsterisk) {
   auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
   ASSERT_TRUE(return_clause->body_.all_identifiers);
   ASSERT_EQ(return_clause->body_.named_expressions.size(), 0U);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, IntegerLiteral) {
@@ -518,6 +553,7 @@ TEST_P(CypherMainVisitorTest, IntegerLiteral) {
   auto *single_query = query->single_query_;
   auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
   ast_generator.CheckLiteral(return_clause->body_.named_expressions[0]->expression_, 42, 1);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, IntegerLiteralTooLarge) {
@@ -533,6 +569,7 @@ TEST_P(CypherMainVisitorTest, BooleanLiteralTrue) {
   auto *single_query = query->single_query_;
   auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
   ast_generator.CheckLiteral(return_clause->body_.named_expressions[0]->expression_, true, 1);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, BooleanLiteralFalse) {
@@ -543,6 +580,7 @@ TEST_P(CypherMainVisitorTest, BooleanLiteralFalse) {
   auto *single_query = query->single_query_;
   auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
   ast_generator.CheckLiteral(return_clause->body_.named_expressions[0]->expression_, false, 1);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, NullLiteral) {
@@ -553,6 +591,7 @@ TEST_P(CypherMainVisitorTest, NullLiteral) {
   auto *single_query = query->single_query_;
   auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
   ast_generator.CheckLiteral(return_clause->body_.named_expressions[0]->expression_, TypedValue(), 1);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, ParenthesizedExpression) {
@@ -563,6 +602,7 @@ TEST_P(CypherMainVisitorTest, ParenthesizedExpression) {
   auto *single_query = query->single_query_;
   auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
   ast_generator.CheckLiteral(return_clause->body_.named_expressions[0]->expression_, 2);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, OrOperator) {
@@ -582,6 +622,7 @@ TEST_P(CypherMainVisitorTest, OrOperator) {
   auto *operand3 = dynamic_cast<Identifier *>(or_operator2->expression2_);
   ASSERT_TRUE(operand3);
   ASSERT_EQ(operand3->name_, "n");
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, XorOperator) {
@@ -594,6 +635,7 @@ TEST_P(CypherMainVisitorTest, XorOperator) {
   auto *xor_operator = dynamic_cast<XorOperator *>(return_clause->body_.named_expressions[0]->expression_);
   ast_generator.CheckLiteral(xor_operator->expression1_, true);
   ast_generator.CheckLiteral(xor_operator->expression2_, false);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, AndOperator) {
@@ -606,6 +648,7 @@ TEST_P(CypherMainVisitorTest, AndOperator) {
   auto *and_operator = dynamic_cast<AndOperator *>(return_clause->body_.named_expressions[0]->expression_);
   ast_generator.CheckLiteral(and_operator->expression1_, true);
   ast_generator.CheckLiteral(and_operator->expression2_, false);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, AdditionSubtractionOperators) {
@@ -622,6 +665,7 @@ TEST_P(CypherMainVisitorTest, AdditionSubtractionOperators) {
   ast_generator.CheckLiteral(subtraction_operator->expression1_, 1);
   ast_generator.CheckLiteral(subtraction_operator->expression2_, 2);
   ast_generator.CheckLiteral(addition_operator->expression2_, 3);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, MulitplicationOperator) {
@@ -634,6 +678,7 @@ TEST_P(CypherMainVisitorTest, MulitplicationOperator) {
   auto *mult_operator = dynamic_cast<MultiplicationOperator *>(return_clause->body_.named_expressions[0]->expression_);
   ast_generator.CheckLiteral(mult_operator->expression1_, 2);
   ast_generator.CheckLiteral(mult_operator->expression2_, 3);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, DivisionOperator) {
@@ -646,6 +691,7 @@ TEST_P(CypherMainVisitorTest, DivisionOperator) {
   auto *div_operator = dynamic_cast<DivisionOperator *>(return_clause->body_.named_expressions[0]->expression_);
   ast_generator.CheckLiteral(div_operator->expression1_, 2);
   ast_generator.CheckLiteral(div_operator->expression2_, 3);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, ModOperator) {
@@ -658,6 +704,7 @@ TEST_P(CypherMainVisitorTest, ModOperator) {
   auto *mod_operator = dynamic_cast<ModOperator *>(return_clause->body_.named_expressions[0]->expression_);
   ast_generator.CheckLiteral(mod_operator->expression1_, 2);
   ast_generator.CheckLiteral(mod_operator->expression2_, 3);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, ExponentiationOperator) {
@@ -670,6 +717,7 @@ TEST_P(CypherMainVisitorTest, ExponentiationOperator) {
   auto *exp_operator = dynamic_cast<ExponentiationOperator *>(return_clause->body_.named_expressions[0]->expression_);
   ast_generator.CheckLiteral(exp_operator->expression1_, 2);
   ast_generator.CheckLiteral(exp_operator->expression2_, 3);
+  CheckRWType(query, kRead);
 }
 
 #define CHECK_COMPARISON(TYPE, VALUE1, VALUE2)                             \
@@ -701,6 +749,7 @@ TEST_P(CypherMainVisitorTest, ComparisonOperators) {
   ASSERT_TRUE(cmp_operator);
   ast_generator.CheckLiteral(cmp_operator->expression1_, 2);
   ast_generator.CheckLiteral(cmp_operator->expression2_, 3);
+  CheckRWType(query, kRead);
 }
 
 #undef CHECK_COMPARISON
@@ -717,6 +766,7 @@ TEST_P(CypherMainVisitorTest, ListIndexing) {
   auto *list = dynamic_cast<ListLiteral *>(list_index_op->expression1_);
   EXPECT_TRUE(list);
   ast_generator.CheckLiteral(list_index_op->expression2_, 2);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, ListSlicingOperatorNoBounds) {
@@ -737,6 +787,25 @@ TEST_P(CypherMainVisitorTest, ListSlicingOperator) {
   EXPECT_TRUE(list);
   EXPECT_FALSE(list_slicing_op->lower_bound_);
   ast_generator.CheckLiteral(list_slicing_op->upper_bound_, 2);
+  CheckRWType(query, kRead);
+}
+
+TEST_P(CypherMainVisitorTest, MemberOfListElement) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN [{x: 42}][0].x"));
+  ASSERT_TRUE(query);
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
+  auto *property_lookup_op = dynamic_cast<PropertyLookup *>(return_clause->body_.named_expressions[0]->expression_);
+  ASSERT_TRUE(property_lookup_op);
+  EXPECT_EQ(property_lookup_op->property_, ast_generator.Prop("x"));
+  auto *list_index_op = dynamic_cast<SubscriptOperator *>(property_lookup_op->expression_);
+  ASSERT_TRUE(list_index_op);
+  auto *list = dynamic_cast<ListLiteral *>(list_index_op->expression1_);
+  ASSERT_TRUE(list);
+  ast_generator.CheckLiteral(list_index_op->expression2_, 0);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, InListOperator) {
@@ -751,6 +820,7 @@ TEST_P(CypherMainVisitorTest, InListOperator) {
   ast_generator.CheckLiteral(in_list_operator->expression1_, 5);
   auto *list = dynamic_cast<ListLiteral *>(in_list_operator->expression2_);
   ASSERT_TRUE(list);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, InWithListIndexing) {
@@ -768,6 +838,7 @@ TEST_P(CypherMainVisitorTest, InWithListIndexing) {
   auto *list = dynamic_cast<ListLiteral *>(list_indexing->expression1_);
   EXPECT_TRUE(list);
   ast_generator.CheckLiteral(list_indexing->expression2_, 0);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, CaseGenericForm) {
@@ -790,6 +861,7 @@ TEST_P(CypherMainVisitorTest, CaseGenericForm) {
   ASSERT_TRUE(condition2);
   ast_generator.CheckLiteral(if_operator2->then_expression_, 2);
   ast_generator.CheckLiteral(if_operator2->else_expression_, TypedValue());
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, CaseGenericFormElse) {
@@ -804,6 +876,7 @@ TEST_P(CypherMainVisitorTest, CaseGenericFormElse) {
   ASSERT_TRUE(condition);
   ast_generator.CheckLiteral(if_operator->then_expression_, 1);
   ast_generator.CheckLiteral(if_operator->else_expression_, 2);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, CaseSimpleForm) {
@@ -820,6 +893,7 @@ TEST_P(CypherMainVisitorTest, CaseSimpleForm) {
   ast_generator.CheckLiteral(condition->expression2_, 10);
   ast_generator.CheckLiteral(if_operator->then_expression_, 1);
   ast_generator.CheckLiteral(if_operator->else_expression_, TypedValue());
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, IsNull) {
@@ -831,6 +905,7 @@ TEST_P(CypherMainVisitorTest, IsNull) {
   auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
   auto *is_type_operator = dynamic_cast<IsNullOperator *>(return_clause->body_.named_expressions[0]->expression_);
   ast_generator.CheckLiteral(is_type_operator->expression_, 2);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, IsNotNull) {
@@ -843,6 +918,7 @@ TEST_P(CypherMainVisitorTest, IsNotNull) {
   auto *not_operator = dynamic_cast<NotOperator *>(return_clause->body_.named_expressions[0]->expression_);
   auto *is_type_operator = dynamic_cast<IsNullOperator *>(not_operator->expression_);
   ast_generator.CheckLiteral(is_type_operator->expression_, 2);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, NotOperator) {
@@ -854,6 +930,7 @@ TEST_P(CypherMainVisitorTest, NotOperator) {
   auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
   auto *not_operator = dynamic_cast<NotOperator *>(return_clause->body_.named_expressions[0]->expression_);
   ast_generator.CheckLiteral(not_operator->expression_, true);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, UnaryMinusPlusOperators) {
@@ -869,6 +946,7 @@ TEST_P(CypherMainVisitorTest, UnaryMinusPlusOperators) {
   auto *unary_plus_operator = dynamic_cast<UnaryPlusOperator *>(unary_minus_operator->expression_);
   ASSERT_TRUE(unary_plus_operator);
   ast_generator.CheckLiteral(unary_plus_operator->expression_, 5);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, Aggregation) {
@@ -895,6 +973,7 @@ TEST_P(CypherMainVisitorTest, Aggregation) {
   ASSERT_TRUE(aggregation);
   ASSERT_EQ(aggregation->op_, Aggregation::Op::COUNT);
   ASSERT_FALSE(aggregation->expression1_);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, UndefinedFunction) {
@@ -922,6 +1001,7 @@ TEST_P(CypherMainVisitorTest, Function) {
   auto *function = dynamic_cast<Function *>(return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(function);
   ASSERT_TRUE(function->function_);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, MagicFunction) {
@@ -936,6 +1016,7 @@ TEST_P(CypherMainVisitorTest, MagicFunction) {
   auto *function = dynamic_cast<Function *>(return_clause->body_.named_expressions[0]->expression_);
   ASSERT_TRUE(function);
   ASSERT_TRUE(function->function_);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, StringLiteralDoubleQuotes) {
@@ -946,6 +1027,7 @@ TEST_P(CypherMainVisitorTest, StringLiteralDoubleQuotes) {
   auto *single_query = query->single_query_;
   auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
   ast_generator.CheckLiteral(return_clause->body_.named_expressions[0]->expression_, "mi'rko", 1);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, StringLiteralSingleQuotes) {
@@ -956,6 +1038,7 @@ TEST_P(CypherMainVisitorTest, StringLiteralSingleQuotes) {
   auto *single_query = query->single_query_;
   auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
   ast_generator.CheckLiteral(return_clause->body_.named_expressions[0]->expression_, "mi\"rko", 1);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, StringLiteralEscapedChars) {
@@ -967,6 +1050,7 @@ TEST_P(CypherMainVisitorTest, StringLiteralEscapedChars) {
   auto *single_query = query->single_query_;
   auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
   ast_generator.CheckLiteral(return_clause->body_.named_expressions[0]->expression_, "\\'\"\b\b\f\f\n\n\r\r\t\t", 1);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, StringLiteralEscapedUtf16) {
@@ -982,6 +1066,7 @@ TEST_P(CypherMainVisitorTest, StringLiteralEscapedUtf16) {
                              "\xE2\x88\x9D"
                              "aaa",
                              1);  // u8"\u221daaa\u221daaa"
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, StringLiteralEscapedUtf16Error) {
@@ -1002,6 +1087,7 @@ TEST_P(CypherMainVisitorTest, StringLiteralEscapedUtf32) {
                              "\xF0\x9F\x98\x80"
                              "aaaaaaaa",
                              1);  // u8"\U0001F600aaaa\U0001F600aaaaaaaa"
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, DoubleLiteral) {
@@ -1012,6 +1098,7 @@ TEST_P(CypherMainVisitorTest, DoubleLiteral) {
   auto *single_query = query->single_query_;
   auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
   ast_generator.CheckLiteral(return_clause->body_.named_expressions[0]->expression_, 3.5, 1);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, DoubleLiteralExponent) {
@@ -1022,6 +1109,7 @@ TEST_P(CypherMainVisitorTest, DoubleLiteralExponent) {
   auto *single_query = query->single_query_;
   auto *return_clause = dynamic_cast<Return *>(single_query->clauses_[0]);
   ast_generator.CheckLiteral(return_clause->body_.named_expressions[0]->expression_, 0.5, 1);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, ListLiteral) {
@@ -1039,6 +1127,7 @@ TEST_P(CypherMainVisitorTest, ListLiteral) {
   ASSERT_TRUE(elem_1);
   EXPECT_EQ(0, elem_1->elements_.size());
   ast_generator.CheckLiteral(list_literal->elements_[2], "johhny");
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, MapLiteral) {
@@ -1059,6 +1148,7 @@ TEST_P(CypherMainVisitorTest, MapLiteral) {
   auto *elem_2_1 = dynamic_cast<MapLiteral *>(elem_2->elements_[1]);
   ASSERT_TRUE(elem_2_1);
   EXPECT_EQ(1, elem_2_1->elements_.size());
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, MapProjectionLiteral) {
@@ -1084,6 +1174,7 @@ TEST_P(CypherMainVisitorTest, MapProjectionLiteral) {
             std::string(typeid(ast_generator).name()).ends_with("CachedAstGenerator")
                 ? std::string("ParameterLookup")
                 : std::string("PrimitiveLiteral"));
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, MapProjectionRepeatedKeySameTypeValue) {
@@ -1098,6 +1189,7 @@ TEST_P(CypherMainVisitorTest, MapProjectionRepeatedKeySameTypeValue) {
   ASSERT_TRUE(map_projection_literal);
   // When multiple map properties have the same name, only one gets in
   ASSERT_EQ(1, map_projection_literal->elements_.size());
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, MapProjectionRepeatedKeyDifferentTypeValue) {
@@ -1116,6 +1208,7 @@ TEST_P(CypherMainVisitorTest, MapProjectionRepeatedKeyDifferentTypeValue) {
   // The last-given map property is the one that gets in
   ASSERT_EQ(std::string(map_projection_literal->elements_[ast_generator.Prop("a")]->GetTypeInfo().name),
             std::string("Identifier"));
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, NodePattern) {
@@ -1147,6 +1240,7 @@ TEST_P(CypherMainVisitorTest, NodePattern) {
     properties[x.first] = value.ValueInt();
   }
   EXPECT_THAT(properties, UnorderedElementsAre(Pair(ast_generator.Prop("a"), 5), Pair(ast_generator.Prop("b"), 10)));
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, PropertyMapSameKeyAppearsTwice) {
@@ -1171,6 +1265,7 @@ TEST_P(CypherMainVisitorTest, NodePatternIdentifier) {
   EXPECT_TRUE(node->identifier_->user_declared_);
   EXPECT_THAT(node->labels_, UnorderedElementsAre());
   EXPECT_THAT(std::get<0>(node->properties_), UnorderedElementsAre());
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, RelationshipPatternNoDetails) {
@@ -1204,6 +1299,7 @@ TEST_P(CypherMainVisitorTest, RelationshipPatternNoDetails) {
   EXPECT_FALSE(edge->identifier_->user_declared_);
   EXPECT_FALSE(node2->identifier_->user_declared_);
   EXPECT_EQ(edge->direction_, EdgeAtom::Direction::BOTH);
+  CheckRWType(query, kRead);
 }
 
 // PatternPart in braces.
@@ -1237,6 +1333,7 @@ TEST_P(CypherMainVisitorTest, PatternPartBraces) {
   EXPECT_FALSE(edge->identifier_->user_declared_);
   EXPECT_FALSE(node2->identifier_->user_declared_);
   EXPECT_EQ(edge->direction_, EdgeAtom::Direction::BOTH);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, RelationshipPatternDetails) {
@@ -1262,6 +1359,7 @@ TEST_P(CypherMainVisitorTest, RelationshipPatternDetails) {
     properties[x.first] = value.ValueInt();
   }
   EXPECT_THAT(properties, UnorderedElementsAre(Pair(ast_generator.Prop("a"), 5), Pair(ast_generator.Prop("b"), 10)));
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, RelationshipPatternVariable) {
@@ -1280,6 +1378,7 @@ TEST_P(CypherMainVisitorTest, RelationshipPatternVariable) {
   ASSERT_TRUE(edge->identifier_);
   EXPECT_THAT(edge->identifier_->name_, "var");
   EXPECT_TRUE(edge->identifier_->user_declared_);
+  CheckRWType(query, kRead);
 }
 
 // Assert that match has a single pattern with a single edge atom and store it
@@ -1305,6 +1404,7 @@ TEST_P(CypherMainVisitorTest, RelationshipPatternUnbounded) {
   EXPECT_EQ(edge->type_, EdgeAtom::Type::DEPTH_FIRST);
   EXPECT_EQ(edge->lower_bound_, nullptr);
   EXPECT_EQ(edge->upper_bound_, nullptr);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, RelationshipPatternLowerBounded) {
@@ -1320,6 +1420,7 @@ TEST_P(CypherMainVisitorTest, RelationshipPatternLowerBounded) {
   EXPECT_EQ(edge->type_, EdgeAtom::Type::DEPTH_FIRST);
   ast_generator.CheckLiteral(edge->lower_bound_, 42);
   EXPECT_EQ(edge->upper_bound_, nullptr);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, RelationshipPatternUpperBounded) {
@@ -1335,6 +1436,7 @@ TEST_P(CypherMainVisitorTest, RelationshipPatternUpperBounded) {
   EXPECT_EQ(edge->type_, EdgeAtom::Type::DEPTH_FIRST);
   EXPECT_EQ(edge->lower_bound_, nullptr);
   ast_generator.CheckLiteral(edge->upper_bound_, 42);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, RelationshipPatternLowerUpperBounded) {
@@ -1350,6 +1452,7 @@ TEST_P(CypherMainVisitorTest, RelationshipPatternLowerUpperBounded) {
   EXPECT_EQ(edge->type_, EdgeAtom::Type::DEPTH_FIRST);
   ast_generator.CheckLiteral(edge->lower_bound_, 24);
   ast_generator.CheckLiteral(edge->upper_bound_, 42);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, RelationshipPatternFixedRange) {
@@ -1365,6 +1468,7 @@ TEST_P(CypherMainVisitorTest, RelationshipPatternFixedRange) {
   EXPECT_EQ(edge->type_, EdgeAtom::Type::DEPTH_FIRST);
   ast_generator.CheckLiteral(edge->lower_bound_, 42);
   ast_generator.CheckLiteral(edge->upper_bound_, 42);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, RelationshipPatternFloatingUpperBound) {
@@ -1381,6 +1485,7 @@ TEST_P(CypherMainVisitorTest, RelationshipPatternFloatingUpperBound) {
   EXPECT_EQ(edge->type_, EdgeAtom::Type::DEPTH_FIRST);
   ast_generator.CheckLiteral(edge->lower_bound_, 1);
   ast_generator.CheckLiteral(edge->upper_bound_, 0.2);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, RelationshipPatternUnboundedWithProperty) {
@@ -1397,6 +1502,7 @@ TEST_P(CypherMainVisitorTest, RelationshipPatternUnboundedWithProperty) {
   EXPECT_EQ(edge->lower_bound_, nullptr);
   EXPECT_EQ(edge->upper_bound_, nullptr);
   ast_generator.CheckLiteral(std::get<0>(edge->properties_)[ast_generator.Prop("prop")], 42);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, RelationshipPatternDotsUnboundedWithEdgeTypeProperty) {
@@ -1417,6 +1523,7 @@ TEST_P(CypherMainVisitorTest, RelationshipPatternDotsUnboundedWithEdgeTypeProper
   ASSERT_EQ(edge->edge_types_.size(), 1U);
   auto edge_type = ast_generator.EdgeType("edge_type");
   EXPECT_EQ(*std::get_if<EdgeTypeIx>(&edge->edge_types_[0]), edge_type);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, RelationshipPatternUpperBoundedWithProperty) {
@@ -1433,6 +1540,7 @@ TEST_P(CypherMainVisitorTest, RelationshipPatternUpperBoundedWithProperty) {
   EXPECT_EQ(edge->lower_bound_, nullptr);
   ast_generator.CheckLiteral(edge->upper_bound_, 2);
   ast_generator.CheckLiteral(std::get<0>(edge->properties_)[ast_generator.Prop("prop")], 42);
+  CheckRWType(query, kRead);
 }
 
 // TODO maybe uncomment
@@ -1469,6 +1577,7 @@ TEST_P(CypherMainVisitorTest, ReturnUnanemdIdentifier) {
   ASSERT_TRUE(identifier);
   ASSERT_EQ(identifier->name_, "var");
   ASSERT_TRUE(identifier->user_declared_);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, Create) {
@@ -1487,6 +1596,7 @@ TEST_P(CypherMainVisitorTest, Create) {
   ASSERT_TRUE(node);
   ASSERT_TRUE(node->identifier_);
   ASSERT_EQ(node->identifier_->name_, "n");
+  CheckRWType(query, kWrite);
 }
 
 TEST_P(CypherMainVisitorTest, Delete) {
@@ -1506,6 +1616,7 @@ TEST_P(CypherMainVisitorTest, Delete) {
   auto *identifier2 = dynamic_cast<Identifier *>(del->expressions_[1]);
   ASSERT_TRUE(identifier2);
   ASSERT_EQ(identifier2->name_, "m");
+  CheckRWType(query, kWrite);
 }
 
 TEST_P(CypherMainVisitorTest, DeleteDetach) {
@@ -1522,6 +1633,7 @@ TEST_P(CypherMainVisitorTest, DeleteDetach) {
   auto *identifier1 = dynamic_cast<Identifier *>(del->expressions_[0]);
   ASSERT_TRUE(identifier1);
   ASSERT_EQ(identifier1->name_, "n");
+  CheckRWType(query, kWrite);
 }
 
 TEST_P(CypherMainVisitorTest, OptionalMatchWhere) {
@@ -1538,6 +1650,7 @@ TEST_P(CypherMainVisitorTest, OptionalMatchWhere) {
   auto *identifier = dynamic_cast<Identifier *>(match->where_->expression_);
   ASSERT_TRUE(identifier);
   ASSERT_EQ(identifier->name_, "m");
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, Set) {
@@ -1587,6 +1700,7 @@ TEST_P(CypherMainVisitorTest, Set) {
     ASSERT_EQ(set_labels->identifier_->name_, "g");
     ASSERT_THAT(set_labels->labels_, UnorderedElementsAre(ast_generator.Label("h"), ast_generator.Label("i")));
   }
+  CheckRWType(query, kWrite);
 }
 
 TEST_P(CypherMainVisitorTest, Remove) {
@@ -1612,6 +1726,7 @@ TEST_P(CypherMainVisitorTest, Remove) {
     ASSERT_EQ(remove_labels->identifier_->name_, "g");
     ASSERT_THAT(remove_labels->labels_, UnorderedElementsAre(ast_generator.Label("h"), ast_generator.Label("i")));
   }
+  CheckRWType(query, kWrite);
 }
 
 TEST_P(CypherMainVisitorTest, With) {
@@ -1633,6 +1748,7 @@ TEST_P(CypherMainVisitorTest, With) {
   ASSERT_EQ(named_expr->name_, "m");
   auto *identifier = dynamic_cast<Identifier *>(named_expr->expression_);
   ASSERT_EQ(identifier->name_, "n");
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, WithNonAliasedExpression) {
@@ -1654,6 +1770,7 @@ TEST_P(CypherMainVisitorTest, WithNonAliasedVariable) {
   ASSERT_EQ(named_expr->name_, "n");
   auto *identifier = dynamic_cast<Identifier *>(named_expr->expression_);
   ASSERT_EQ(identifier->name_, "n");
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, WithDistinct) {
@@ -1671,6 +1788,7 @@ TEST_P(CypherMainVisitorTest, WithDistinct) {
   ASSERT_EQ(named_expr->name_, "m");
   auto *identifier = dynamic_cast<Identifier *>(named_expr->expression_);
   ASSERT_EQ(identifier->name_, "n");
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, WithBag) {
@@ -1688,6 +1806,7 @@ TEST_P(CypherMainVisitorTest, WithBag) {
   ASSERT_EQ(with->body_.order_by.size(), 1U);
   ASSERT_TRUE(with->body_.limit);
   ASSERT_TRUE(with->body_.skip);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, WithWhere) {
@@ -1708,6 +1827,7 @@ TEST_P(CypherMainVisitorTest, WithWhere) {
   ASSERT_EQ(named_expr->name_, "m");
   auto *identifier2 = dynamic_cast<Identifier *>(named_expr->expression_);
   ASSERT_EQ(identifier2->name_, "n");
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, WithAnonymousVariableCapture) {
@@ -1726,6 +1846,7 @@ TEST_P(CypherMainVisitorTest, WithAnonymousVariableCapture) {
   auto *atom = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
   ASSERT_TRUE(atom);
   ASSERT_NE("anon1", atom->identifier_->name_);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, ClausesOrdering) {
@@ -1742,32 +1863,33 @@ TEST_P(CypherMainVisitorTest, ClausesOrdering) {
   ASSERT_THROW(ast_generator.ParseQuery("RETURN 1 AS n UNWIND n AS x RETURN x"), SemanticException);
 
   ASSERT_THROW(ast_generator.ParseQuery("OPTIONAL MATCH (n) MATCH (m) RETURN n, m"), SemanticException);
-  ast_generator.ParseQuery("OPTIONAL MATCH (n) WITH n MATCH (m) RETURN n, m");
-  ast_generator.ParseQuery("OPTIONAL MATCH (n) OPTIONAL MATCH (m) RETURN n, m");
-  ast_generator.ParseQuery("MATCH (n) OPTIONAL MATCH (m) RETURN n, m");
 
-  ast_generator.ParseQuery("CREATE (n)");
+  CheckRWType(ast_generator.ParseQuery("OPTIONAL MATCH (n) WITH n MATCH (m) RETURN n, m"), kRead);
+  CheckRWType(ast_generator.ParseQuery("OPTIONAL MATCH (n) OPTIONAL MATCH (m) RETURN n, m"), kRead);
+  CheckRWType(ast_generator.ParseQuery("MATCH (n) OPTIONAL MATCH (m) RETURN n, m"), kRead);
+
+  CheckRWType(ast_generator.ParseQuery("CREATE (n)"), kWrite);
   ASSERT_THROW(ast_generator.ParseQuery("SET n:x MATCH (n) RETURN n"), SemanticException);
-  ast_generator.ParseQuery("REMOVE n.x SET n.x = 1");
-  ast_generator.ParseQuery("REMOVE n:L RETURN n");
-  ast_generator.ParseQuery("SET n.x = 1 WITH n AS m RETURN m");
+  CheckRWType(ast_generator.ParseQuery("REMOVE n.x SET n.x = 1"), kWrite);
+  CheckRWType(ast_generator.ParseQuery("REMOVE n:L RETURN n"), kWrite);
+  CheckRWType(ast_generator.ParseQuery("SET n.x = 1 WITH n AS m RETURN m"), kWrite);
 
   ASSERT_THROW(ast_generator.ParseQuery("MATCH (n)"), SemanticException);
-  ast_generator.ParseQuery("MATCH (n) MATCH (n) RETURN n");
-  ast_generator.ParseQuery("MATCH (n) SET n = m");
-  ast_generator.ParseQuery("MATCH (n) RETURN n");
-  ast_generator.ParseQuery("MATCH (n) WITH n AS m RETURN m");
+  CheckRWType(ast_generator.ParseQuery("MATCH (n) MATCH (n) RETURN n"), kRead);
+  CheckRWType(ast_generator.ParseQuery("MATCH (n) SET n = m"), kWrite);
+  CheckRWType(ast_generator.ParseQuery("MATCH (n) RETURN n"), kRead);
+  CheckRWType(ast_generator.ParseQuery("MATCH (n) WITH n AS m RETURN m"), kRead);
 
   ASSERT_THROW(ast_generator.ParseQuery("WITH 1 AS n"), SemanticException);
-  ast_generator.ParseQuery("WITH 1 AS n WITH n AS m RETURN m");
-  ast_generator.ParseQuery("WITH 1 AS n RETURN n");
-  ast_generator.ParseQuery("WITH 1 AS n SET n += m");
-  ast_generator.ParseQuery("WITH 1 AS n MATCH (n) RETURN n");
+  CheckRWType(ast_generator.ParseQuery("WITH 1 AS n WITH n AS m RETURN m"), kRead);
+  CheckRWType(ast_generator.ParseQuery("WITH 1 AS n RETURN n"), kRead);
+  CheckRWType(ast_generator.ParseQuery("WITH 1 AS n SET n += m"), kWrite);
+  CheckRWType(ast_generator.ParseQuery("WITH 1 AS n MATCH (n) RETURN n"), kRead);
 
   ASSERT_THROW(ast_generator.ParseQuery("UNWIND [1,2,3] AS x"), SemanticException);
   ASSERT_THROW(ast_generator.ParseQuery("CREATE (n) UNWIND [1,2,3] AS x RETURN x"), SemanticException);
-  ast_generator.ParseQuery("UNWIND [1,2,3] AS x CREATE (n) RETURN x");
-  ast_generator.ParseQuery("CREATE (n) WITH n UNWIND [1,2,3] AS x RETURN x");
+  CheckRWType(ast_generator.ParseQuery("UNWIND [1,2,3] AS x CREATE (n) RETURN x"), kWrite);
+  CheckRWType(ast_generator.ParseQuery("CREATE (n) WITH n UNWIND [1,2,3] AS x RETURN x"), kWrite);
 }
 
 TEST_P(CypherMainVisitorTest, Merge) {
@@ -1787,6 +1909,7 @@ TEST_P(CypherMainVisitorTest, Merge) {
   EXPECT_TRUE(dynamic_cast<SetProperties *>(merge->on_match_[1]));
   ASSERT_EQ(merge->on_create_.size(), 1U);
   EXPECT_TRUE(dynamic_cast<SetLabels *>(merge->on_create_[0]));
+  CheckRWType(query, kWrite);
 }
 
 TEST_P(CypherMainVisitorTest, Unwind) {
@@ -1805,6 +1928,7 @@ TEST_P(CypherMainVisitorTest, Unwind) {
   auto *expr = unwind->named_expression_->expression_;
   ASSERT_TRUE(expr);
   ASSERT_TRUE(dynamic_cast<ListLiteral *>(expr));
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, UnwindWithoutAsError) {
@@ -1818,8 +1942,8 @@ TEST_P(CypherMainVisitorTest, CreateIndex) {
   ASSERT_TRUE(index_query);
   EXPECT_EQ(index_query->action_, IndexQuery::Action::CREATE);
   EXPECT_EQ(index_query->label_, ast_generator.Label("mirko"));
-  std::vector<PropertyIx> expected_properties{ast_generator.Prop("slavko")};
-  EXPECT_EQ(index_query->properties_, expected_properties);
+  PropertyIxPath expected_properties{ast_generator.Prop("slavko")};
+  EXPECT_EQ(index_query->properties_[0], expected_properties);
 }
 
 TEST_P(CypherMainVisitorTest, CreateIndexWithMultipleProperties) {
@@ -1829,8 +1953,24 @@ TEST_P(CypherMainVisitorTest, CreateIndexWithMultipleProperties) {
   ASSERT_TRUE(index_query);
   EXPECT_EQ(index_query->action_, IndexQuery::Action::CREATE);
   EXPECT_EQ(index_query->label_, ast_generator.Label("Person"));
-  std::vector<PropertyIx> expected_properties{ast_generator.Prop("name"), ast_generator.Prop("birthDate"),
-                                              ast_generator.Prop("email")};
+  PropertyIxPath expected_properties{ast_generator.Prop("name"), ast_generator.Prop("birthDate"),
+                                     ast_generator.Prop("email")};
+  EXPECT_EQ(index_query->properties_ | rv::transform([](auto &&vec) { return vec.path[0]; }) | r::to_vector,
+            expected_properties);
+}
+
+TEST_P(CypherMainVisitorTest, CreateIndexWithMultipleNestedProperties) {
+  auto &ast_generator = *GetParam();
+  auto *index_query = dynamic_cast<IndexQuery *>(
+      ast_generator.ParseQuery("CREATE INDEX ON :Person(name.first, name.second, address.country.code)"));
+  ASSERT_TRUE(index_query);
+  EXPECT_EQ(index_query->action_, IndexQuery::Action::CREATE);
+  EXPECT_EQ(index_query->label_, ast_generator.Label("Person"));
+  auto expected_properties{std::vector{
+      PropertyIxPath{ast_generator.Prop("name"), ast_generator.Prop("first")},
+      PropertyIxPath{ast_generator.Prop("name"), ast_generator.Prop("second")},
+      PropertyIxPath{ast_generator.Prop("address"), ast_generator.Prop("country"), ast_generator.Prop("code")}}};
+
   EXPECT_EQ(index_query->properties_, expected_properties);
 }
 
@@ -1840,13 +1980,40 @@ TEST_P(CypherMainVisitorTest, DropIndex) {
   ASSERT_TRUE(index_query);
   EXPECT_EQ(index_query->action_, IndexQuery::Action::DROP);
   EXPECT_EQ(index_query->label_, ast_generator.Label("mirko"));
-  std::vector<PropertyIx> expected_properties{ast_generator.Prop("slavko")};
+  PropertyIxPath expected_properties{ast_generator.Prop("slavko")};
+  EXPECT_EQ(index_query->properties_[0], expected_properties);
+}
+
+TEST_P(CypherMainVisitorTest, DropIndexWithMultipleNestedProperties) {
+  auto &ast_generator = *GetParam();
+  auto *index_query = dynamic_cast<IndexQuery *>(
+      ast_generator.ParseQuery("DROP INDEX ON :Person(name.first, name.second, address.country.code)"));
+  ASSERT_TRUE(index_query);
+  EXPECT_EQ(index_query->action_, IndexQuery::Action::DROP);
+  EXPECT_EQ(index_query->label_, ast_generator.Label("Person"));
+  auto expected_properties = std::vector{
+      PropertyIxPath{ast_generator.Prop("name"), ast_generator.Prop("first")},
+      PropertyIxPath{ast_generator.Prop("name"), ast_generator.Prop("second")},
+      PropertyIxPath{ast_generator.Prop("address"), ast_generator.Prop("country"), ast_generator.Prop("code")}};
+
   EXPECT_EQ(index_query->properties_, expected_properties);
 }
 
 TEST_P(CypherMainVisitorTest, CannotCreateCompositeIndexWithRepeatedProperty) {
   auto &ast_generator = *GetParam();
-  EXPECT_THROW(ast_generator.ParseQuery("CREATE INDEX ON :Person(name, birthDate, name, email)"), SyntaxException);
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE INDEX ON :Person(name, birthDate, name, email)"), SemanticException);
+}
+
+TEST_P(CypherMainVisitorTest, CannotCreateCompositeNestedIndexWithRepeatedProperty) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE INDEX ON :Person(name.first, tax_ref, name.second, name.second)"),
+               SemanticException);
+}
+
+TEST_P(CypherMainVisitorTest, CannotCreateCompositeNestedIndexWithRepeatedRootProperty) {
+  auto &ast_generator = *GetParam();
+  EXPECT_THROW(ast_generator.ParseQuery("CREATE INDEX ON :Person(name.first, nane.second, address.postcode, address)"),
+               SemanticException);
 }
 
 TEST_P(CypherMainVisitorTest, DropIndexWithoutProperties) {
@@ -1861,9 +2028,10 @@ TEST_P(CypherMainVisitorTest, DropIndexWithMultipleProperties) {
   ASSERT_TRUE(index_query);
   EXPECT_EQ(index_query->action_, IndexQuery::Action::DROP);
   EXPECT_EQ(index_query->label_, ast_generator.Label("Person"));
-  std::vector<PropertyIx> expected_properties{ast_generator.Prop("name"), ast_generator.Prop("birthDate"),
-                                              ast_generator.Prop("email")};
-  EXPECT_EQ(index_query->properties_, expected_properties);
+  PropertyIxPath expected_properties{ast_generator.Prop("name"), ast_generator.Prop("birthDate"),
+                                     ast_generator.Prop("email")};
+  EXPECT_EQ(index_query->properties_ | rv::transform([](auto &&vec) { return vec.path[0]; }) | r::to_vector,
+            expected_properties);
 }
 
 TEST_P(CypherMainVisitorTest, ReturnAll) {
@@ -1888,6 +2056,7 @@ TEST_P(CypherMainVisitorTest, ReturnAll) {
     EXPECT_TRUE(list_literal);
     auto *eq = dynamic_cast<EqualOperator *>(all->where_->expression_);
     EXPECT_TRUE(eq);
+    CheckRWType(query, kRead);
   }
 }
 
@@ -1912,6 +2081,7 @@ TEST_P(CypherMainVisitorTest, ReturnSingle) {
   EXPECT_TRUE(list_literal);
   auto *eq = dynamic_cast<EqualOperator *>(single->where_->expression_);
   EXPECT_TRUE(eq);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, ReturnReduce) {
@@ -1933,6 +2103,7 @@ TEST_P(CypherMainVisitorTest, ReturnReduce) {
   EXPECT_TRUE(list_literal);
   auto *add = dynamic_cast<AdditionOperator *>(reduce->expression_);
   EXPECT_TRUE(add);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, ReturnExtract) {
@@ -1952,6 +2123,7 @@ TEST_P(CypherMainVisitorTest, ReturnExtract) {
   EXPECT_TRUE(list_literal);
   auto *add = dynamic_cast<AdditionOperator *>(extract->expression_);
   EXPECT_TRUE(add);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, MatchBfsReturn) {
@@ -1979,17 +2151,18 @@ TEST_P(CypherMainVisitorTest, MatchBfsReturn) {
   ast_generator.CheckLiteral(bfs->upper_bound_, 10);
   auto *eq = dynamic_cast<EqualOperator *>(bfs->filter_lambda_.expression);
   ASSERT_TRUE(eq);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, MatchBfsFilterByPathReturn) {
   auto &ast_generator = *GetParam();
   {
-    const auto *query = dynamic_cast<CypherQuery *>(
+    auto *query = dynamic_cast<CypherQuery *>(
         ast_generator.ParseQuery("MATCH pth=(r:type1 {id: 1})<-[*BFS ..10 (e, n, p | startNode(relationships(e)[-1]) = "
                                  "c:type2)]->(:type3 {id: 3}) RETURN pth;"));
     ASSERT_TRUE(query);
     ASSERT_TRUE(query->single_query_);
-    const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+    auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
     ASSERT_TRUE(match);
     ASSERT_EQ(match->patterns_.size(), 1U);
     ASSERT_EQ(match->patterns_[0]->atoms_.size(), 3U);
@@ -2003,6 +2176,7 @@ TEST_P(CypherMainVisitorTest, MatchBfsFilterByPathReturn) {
     EXPECT_EQ(bfs->filter_lambda_.accumulated_path->name_, "p");
     EXPECT_TRUE(bfs->filter_lambda_.accumulated_path->user_declared_);
     EXPECT_EQ(bfs->filter_lambda_.accumulated_weight, nullptr);
+    CheckRWType(query, kRead);
   }
 }
 
@@ -2032,6 +2206,7 @@ TEST_P(CypherMainVisitorTest, MatchVariableLambdaSymbols) {
   ASSERT_TRUE(var_expand->IsVariable());
   EXPECT_FALSE(var_expand->filter_lambda_.inner_edge->user_declared_);
   EXPECT_FALSE(var_expand->filter_lambda_.inner_node->user_declared_);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, MatchWShortestReturn) {
@@ -2070,6 +2245,7 @@ TEST_P(CypherMainVisitorTest, MatchWShortestReturn) {
   ASSERT_TRUE(shortest->total_weight_);
   EXPECT_EQ(shortest->total_weight_->name_, "total_weight");
   EXPECT_TRUE(shortest->total_weight_->user_declared_);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, MatchWShortestFilterByPathReturn) {
@@ -2094,6 +2270,7 @@ TEST_P(CypherMainVisitorTest, MatchWShortestFilterByPathReturn) {
     EXPECT_EQ(shortestPath->filter_lambda_.accumulated_path->name_, "p");
     EXPECT_TRUE(shortestPath->filter_lambda_.accumulated_path->user_declared_);
     EXPECT_EQ(shortestPath->filter_lambda_.accumulated_weight, nullptr);
+    CheckRWType(query, kRead);
   }
 }
 
@@ -2120,6 +2297,7 @@ TEST_P(CypherMainVisitorTest, MatchWShortestFilterByPathWeightReturn) {
     EXPECT_TRUE(shortestPath->filter_lambda_.accumulated_path->user_declared_);
     EXPECT_EQ(shortestPath->filter_lambda_.accumulated_weight->name_, "w");
     EXPECT_TRUE(shortestPath->filter_lambda_.accumulated_weight->user_declared_);
+    CheckRWType(query, kRead);
   }
 }
 
@@ -2156,6 +2334,7 @@ TEST_P(CypherMainVisitorTest, MatchWShortestNoFilterReturn) {
   ast_generator.CheckLiteral(shortest->weight_lambda_.expression, 42);
   ASSERT_TRUE(shortest->total_weight_);
   EXPECT_FALSE(shortest->total_weight_->user_declared_);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, SemanticExceptionOnWShortestLowerBound) {
@@ -2167,6 +2346,171 @@ TEST_P(CypherMainVisitorTest, SemanticExceptionOnWShortestLowerBound) {
 TEST_P(CypherMainVisitorTest, SemanticExceptionOnWShortestWithoutLambda) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("MATCH ()-[r *wShortest]-() RETURN r"), SemanticException);
+}
+
+TEST_P(CypherMainVisitorTest, MatchKShortestReturn) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH ()-[r:type1|type2 *kShortest]->() RETURN r"));
+  ASSERT_TRUE(query);
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  ASSERT_EQ(single_query->clauses_.size(), 2U);
+  auto *match = dynamic_cast<Match *>(single_query->clauses_[0]);
+  ASSERT_TRUE(match);
+  ASSERT_EQ(match->patterns_.size(), 1U);
+  ASSERT_EQ(match->patterns_[0]->atoms_.size(), 3U);
+  auto *shortest = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
+  ASSERT_TRUE(shortest);
+  EXPECT_TRUE(shortest->IsVariable());
+  EXPECT_EQ(shortest->type_, EdgeAtom::Type::KSHORTEST);
+  EXPECT_EQ(shortest->direction_, EdgeAtom::Direction::OUT);
+  EXPECT_THAT(shortest->edge_types_,
+              UnorderedElementsAre(ast_generator.EdgeType("type1"), ast_generator.EdgeType("type2")));
+  EXPECT_FALSE(shortest->upper_bound_);
+  EXPECT_FALSE(shortest->lower_bound_);
+  EXPECT_EQ(shortest->identifier_->name_, "r");
+  EXPECT_FALSE(shortest->filter_lambda_.expression);
+  EXPECT_FALSE(shortest->filter_lambda_.inner_edge->user_declared_);
+  EXPECT_FALSE(shortest->filter_lambda_.inner_node->user_declared_);
+  CheckRWType(query, kRead);
+}
+
+TEST_P(CypherMainVisitorTest, MatchKShortestWithFilterReturn) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("MATCH ()-[r:type1 *kShortest (e, n | e.prop = 42)]->() RETURN r"),
+               SemanticException);
+}
+
+TEST_P(CypherMainVisitorTest, MatchKShortestFilterByPathReturn) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("MATCH pth=()-[r:type1 *kShortest (e, n, p | startNode(relationships(e)[-1]) = "
+                                        "c:type3)]->(:type2) RETURN pth"),
+               SemanticException);
+}
+
+TEST_P(CypherMainVisitorTest, MatchKShortestFilterByPathWeightReturn) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("MATCH pth=()-[r:type1 *kShortest (e, n, p, w | "
+                                        "startNode(relationships(e)[-1]) = c:type3 AND w < 50)]->(:type2) RETURN pth"),
+               SemanticException);
+}
+
+TEST_P(CypherMainVisitorTest, SemanticExceptionOnKShortestWithRangeBounds) {
+  auto &ast_generator = *GetParam();
+
+  {
+    const auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH ()-[r *kShortest..10]->() RETURN r"));
+    ASSERT_TRUE(query);
+    ASSERT_TRUE(query->single_query_);
+    auto *single_query = query->single_query_;
+    ASSERT_EQ(single_query->clauses_.size(), 2U);
+    auto *match = dynamic_cast<Match *>(single_query->clauses_[0]);
+    ASSERT_TRUE(match);
+    ASSERT_EQ(match->patterns_.size(), 1U);
+    ASSERT_EQ(match->patterns_[0]->atoms_.size(), 3U);
+    auto *shortest = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
+    ASSERT_TRUE(shortest);
+    EXPECT_TRUE(shortest->IsVariable());
+    EXPECT_EQ(shortest->type_, EdgeAtom::Type::KSHORTEST);
+    EXPECT_EQ(shortest->direction_, EdgeAtom::Direction::OUT);
+    EXPECT_TRUE(shortest->upper_bound_);
+    EXPECT_FALSE(shortest->lower_bound_);
+    EXPECT_FALSE(shortest->limit_);
+    EXPECT_EQ(shortest->identifier_->name_, "r");
+    EXPECT_FALSE(shortest->filter_lambda_.expression);
+    EXPECT_FALSE(shortest->filter_lambda_.inner_edge->user_declared_);
+    EXPECT_FALSE(shortest->filter_lambda_.inner_node->user_declared_);
+    CheckRWType(query, kRead);
+  }
+
+  {
+    const auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH ()-[r *kShortest 5..10]->() RETURN r"));
+    ASSERT_TRUE(query);
+    ASSERT_TRUE(query->single_query_);
+    auto *single_query = query->single_query_;
+    ASSERT_EQ(single_query->clauses_.size(), 2U);
+    auto *match = dynamic_cast<Match *>(single_query->clauses_[0]);
+    ASSERT_TRUE(match);
+    ASSERT_EQ(match->patterns_.size(), 1U);
+    ASSERT_EQ(match->patterns_[0]->atoms_.size(), 3U);
+    auto *shortest = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
+    ASSERT_TRUE(shortest);
+    EXPECT_TRUE(shortest->IsVariable());
+    EXPECT_EQ(shortest->type_, EdgeAtom::Type::KSHORTEST);
+    EXPECT_EQ(shortest->direction_, EdgeAtom::Direction::OUT);
+    EXPECT_TRUE(shortest->upper_bound_);
+    EXPECT_TRUE(shortest->lower_bound_);
+    EXPECT_FALSE(shortest->limit_);
+    EXPECT_EQ(shortest->identifier_->name_, "r");
+    EXPECT_FALSE(shortest->filter_lambda_.expression);
+    EXPECT_FALSE(shortest->filter_lambda_.inner_edge->user_declared_);
+    EXPECT_FALSE(shortest->filter_lambda_.inner_node->user_declared_);
+    CheckRWType(query, kRead);
+  }
+
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH ()-[r *kShortest..]->() RETURN r"));
+    ASSERT_TRUE(query);
+    ASSERT_TRUE(query->single_query_);
+    auto *single_query = query->single_query_;
+    ASSERT_EQ(single_query->clauses_.size(), 2U);
+    auto *match = dynamic_cast<Match *>(single_query->clauses_[0]);
+    ASSERT_TRUE(match);
+    ASSERT_EQ(match->patterns_.size(), 1U);
+    ASSERT_EQ(match->patterns_[0]->atoms_.size(), 3U);
+    auto *shortest = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
+    ASSERT_TRUE(shortest);
+    EXPECT_TRUE(shortest->IsVariable());
+    EXPECT_EQ(shortest->type_, EdgeAtom::Type::KSHORTEST);
+    EXPECT_EQ(shortest->direction_, EdgeAtom::Direction::OUT);
+    EXPECT_FALSE(shortest->upper_bound_);
+    EXPECT_FALSE(shortest->lower_bound_);
+    EXPECT_EQ(shortest->identifier_->name_, "r");
+    EXPECT_FALSE(shortest->filter_lambda_.expression);
+    EXPECT_FALSE(shortest->filter_lambda_.inner_edge->user_declared_);
+    EXPECT_FALSE(shortest->filter_lambda_.inner_node->user_declared_);
+    EXPECT_FALSE(shortest->limit_);
+    CheckRWType(query, kRead);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, MatchKShortestWithLimitReturn) {
+  auto &ast_generator = *GetParam();
+  auto *query =
+      dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH ()-[r:type1|type2 *kShortest|5]->() RETURN r"));
+  ASSERT_TRUE(query);
+  ASSERT_TRUE(query->single_query_);
+  auto *single_query = query->single_query_;
+  ASSERT_EQ(single_query->clauses_.size(), 2U);
+  auto *match = dynamic_cast<Match *>(single_query->clauses_[0]);
+  ASSERT_TRUE(match);
+  ASSERT_EQ(match->patterns_.size(), 1U);
+  ASSERT_EQ(match->patterns_[0]->atoms_.size(), 3U);
+  auto *shortest = dynamic_cast<EdgeAtom *>(match->patterns_[0]->atoms_[1]);
+  ASSERT_TRUE(shortest);
+  EXPECT_TRUE(shortest->IsVariable());
+  EXPECT_EQ(shortest->type_, EdgeAtom::Type::KSHORTEST);
+  EXPECT_EQ(shortest->direction_, EdgeAtom::Direction::OUT);
+  EXPECT_THAT(shortest->edge_types_,
+              UnorderedElementsAre(ast_generator.EdgeType("type1"), ast_generator.EdgeType("type2")));
+  EXPECT_FALSE(shortest->upper_bound_);
+  EXPECT_FALSE(shortest->lower_bound_);
+  EXPECT_TRUE(shortest->limit_);
+  EXPECT_EQ(shortest->identifier_->name_, "r");
+  EXPECT_FALSE(shortest->filter_lambda_.expression);
+  EXPECT_FALSE(shortest->filter_lambda_.inner_edge->user_declared_);
+  EXPECT_FALSE(shortest->filter_lambda_.inner_node->user_declared_);
+  CheckRWType(query, kRead);
+}
+
+TEST_P(CypherMainVisitorTest, SemanticExceptionOnLimitWithNonKShortest) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("MATCH ()-[r:type1 *bfs|5]->() RETURN r"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("MATCH ()-[r:type1 *wshortest|5]->() RETURN r"), SemanticException);
+  ASSERT_THROW(ast_generator.ParseQuery("MATCH ()-[r:type1 *allshortest|5]->() RETURN r"), SemanticException);
 }
 
 TEST_P(CypherMainVisitorTest, SemanticExceptionOnUnionTypeMix) {
@@ -2207,6 +2551,7 @@ TEST_P(CypherMainVisitorTest, Union) {
   ASSERT_FALSE(return_clause->body_.limit);
   ASSERT_FALSE(return_clause->body_.skip);
   ASSERT_FALSE(return_clause->body_.distinct);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, UnionAll) {
@@ -2253,10 +2598,11 @@ TEST_P(CypherMainVisitorTest, UnionAll) {
   ASSERT_FALSE(return_clause->body_.limit);
   ASSERT_FALSE(return_clause->body_.skip);
   ASSERT_FALSE(return_clause->body_.distinct);
+  CheckRWType(query, kRead);
 }
 
 void check_auth_query(
-    Base *ast_generator, std::string input, AuthQuery::Action action, std::string user, std::string role,
+    Base *ast_generator, std::string input, AuthQuery::Action action, std::string user, std::vector<std::string> roles,
     std::string user_or_role, std::optional<TypedValue> password, std::vector<AuthQuery::Privilege> privileges,
     std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> label_privileges,
     std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges) {
@@ -2264,7 +2610,7 @@ void check_auth_query(
   ASSERT_TRUE(auth_query);
   EXPECT_EQ(auth_query->action_, action);
   EXPECT_EQ(auth_query->user_, user);
-  EXPECT_EQ(auth_query->role_, role);
+  EXPECT_EQ(auth_query->roles_, roles);
   EXPECT_EQ(auth_query->user_or_role_, user_or_role);
   ASSERT_EQ(static_cast<bool>(auth_query->password_), static_cast<bool>(password));
   if (password) {
@@ -2277,48 +2623,49 @@ void check_auth_query(
 
 TEST_P(CypherMainVisitorTest, UserOrRoleName) {
   auto &ast_generator = *GetParam();
-  check_auth_query(&ast_generator, "CREATE ROLE `user`", AuthQuery::Action::CREATE_ROLE, "", "user", "", {}, {}, {},
+  check_auth_query(&ast_generator, "CREATE ROLE `user`", AuthQuery::Action::CREATE_ROLE, "", {"user"}, "", {}, {}, {},
                    {});
-  check_auth_query(&ast_generator, "CREATE ROLE us___er", AuthQuery::Action::CREATE_ROLE, "", "us___er", "", {}, {}, {},
+  check_auth_query(&ast_generator, "CREATE ROLE us___er", AuthQuery::Action::CREATE_ROLE, "", {"us___er"}, "", {}, {},
+                   {}, {});
+  check_auth_query(&ast_generator, "CREATE ROLE `us+er`", AuthQuery::Action::CREATE_ROLE, "", {"us+er"}, "", {}, {}, {},
                    {});
-  check_auth_query(&ast_generator, "CREATE ROLE `us+er`", AuthQuery::Action::CREATE_ROLE, "", "us+er", "", {}, {}, {},
+  check_auth_query(&ast_generator, "CREATE ROLE `us|er`", AuthQuery::Action::CREATE_ROLE, "", {"us|er"}, "", {}, {}, {},
                    {});
-  check_auth_query(&ast_generator, "CREATE ROLE `us|er`", AuthQuery::Action::CREATE_ROLE, "", "us|er", "", {}, {}, {},
-                   {});
-  check_auth_query(&ast_generator, "CREATE ROLE `us er`", AuthQuery::Action::CREATE_ROLE, "", "us er", "", {}, {}, {},
+  check_auth_query(&ast_generator, "CREATE ROLE `us er`", AuthQuery::Action::CREATE_ROLE, "", {"us er"}, "", {}, {}, {},
                    {});
 }
 
 TEST_P(CypherMainVisitorTest, CreateRole) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("CREATE ROLE"), SyntaxException);
-  check_auth_query(&ast_generator, "CREATE ROLE rola", AuthQuery::Action::CREATE_ROLE, "", "rola", "", {}, {}, {}, {});
+  check_auth_query(&ast_generator, "CREATE ROLE rola", AuthQuery::Action::CREATE_ROLE, "", {"rola"}, "", {}, {}, {},
+                   {});
   ASSERT_THROW(ast_generator.ParseQuery("CREATE ROLE lagano rolamo"), SyntaxException);
 }
 
 TEST_P(CypherMainVisitorTest, DropRole) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("DROP ROLE"), SyntaxException);
-  check_auth_query(&ast_generator, "DROP ROLE rola", AuthQuery::Action::DROP_ROLE, "", "rola", "", {}, {}, {}, {});
+  check_auth_query(&ast_generator, "DROP ROLE rola", AuthQuery::Action::DROP_ROLE, "", {"rola"}, "", {}, {}, {}, {});
   ASSERT_THROW(ast_generator.ParseQuery("DROP ROLE lagano rolamo"), SyntaxException);
 }
 
 TEST_P(CypherMainVisitorTest, ShowRoles) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("SHOW ROLES ROLES"), SyntaxException);
-  check_auth_query(&ast_generator, "SHOW ROLES", AuthQuery::Action::SHOW_ROLES, "", "", "", {}, {}, {}, {});
+  check_auth_query(&ast_generator, "SHOW ROLES", AuthQuery::Action::SHOW_ROLES, "", {}, "", {}, {}, {}, {});
 }
 
 TEST_P(CypherMainVisitorTest, CreateUser) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("CREATE USER"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("CREATE USER 123"), SyntaxException);
-  check_auth_query(&ast_generator, "CREATE USER user", AuthQuery::Action::CREATE_USER, "user", "", "", {}, {}, {}, {});
+  check_auth_query(&ast_generator, "CREATE USER user", AuthQuery::Action::CREATE_USER, "user", {}, "", {}, {}, {}, {});
   check_auth_query(&ast_generator, "CREATE USER user IDENTIFIED BY 'password'", AuthQuery::Action::CREATE_USER, "user",
-                   "", "", TypedValue("password"), {}, {}, {});
-  check_auth_query(&ast_generator, "CREATE USER user IDENTIFIED BY ''", AuthQuery::Action::CREATE_USER, "user", "", "",
+                   {}, "", TypedValue("password"), {}, {}, {});
+  check_auth_query(&ast_generator, "CREATE USER user IDENTIFIED BY ''", AuthQuery::Action::CREATE_USER, "user", {}, "",
                    TypedValue(""), {}, {}, {});
-  check_auth_query(&ast_generator, "CREATE USER user IDENTIFIED BY null", AuthQuery::Action::CREATE_USER, "user", "",
+  check_auth_query(&ast_generator, "CREATE USER user IDENTIFIED BY null", AuthQuery::Action::CREATE_USER, "user", {},
                    "", TypedValue(), {}, {}, {});
   ASSERT_THROW(ast_generator.ParseQuery("CRATE USER user IDENTIFIED BY password"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("CREATE USER user IDENTIFIED BY 5"), SyntaxException);
@@ -2329,9 +2676,9 @@ TEST_P(CypherMainVisitorTest, SetPassword) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("SET PASSWORD FOR"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("SET PASSWORD FOR user "), SyntaxException);
-  check_auth_query(&ast_generator, "SET PASSWORD FOR user TO null", AuthQuery::Action::SET_PASSWORD, "user", "", "",
+  check_auth_query(&ast_generator, "SET PASSWORD FOR user TO null", AuthQuery::Action::SET_PASSWORD, "user", {}, "",
                    TypedValue(), {}, {}, {});
-  check_auth_query(&ast_generator, "SET PASSWORD FOR user TO 'password'", AuthQuery::Action::SET_PASSWORD, "user", "",
+  check_auth_query(&ast_generator, "SET PASSWORD FOR user TO 'password'", AuthQuery::Action::SET_PASSWORD, "user", {},
                    "", TypedValue("password"), {}, {}, {});
   ASSERT_THROW(ast_generator.ParseQuery("SET PASSWORD FOR user To 5"), SyntaxException);
 }
@@ -2339,21 +2686,30 @@ TEST_P(CypherMainVisitorTest, SetPassword) {
 TEST_P(CypherMainVisitorTest, DropUser) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("DROP USER"), SyntaxException);
-  check_auth_query(&ast_generator, "DROP USER user", AuthQuery::Action::DROP_USER, "user", "", "", {}, {}, {}, {});
+  check_auth_query(&ast_generator, "DROP USER user", AuthQuery::Action::DROP_USER, "user", {}, "", {}, {}, {}, {});
   ASSERT_THROW(ast_generator.ParseQuery("DROP USER lagano rolamo"), SyntaxException);
 }
 
 TEST_P(CypherMainVisitorTest, ShowCurrentUser) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("SHOW CURRENT USERNAME"), SyntaxException);
-  check_auth_query(&ast_generator, "SHOW CURRENT USER", AuthQuery::Action::SHOW_CURRENT_USER, "", "", "", {}, {}, {},
+  check_auth_query(&ast_generator, "SHOW CURRENT USER", AuthQuery::Action::SHOW_CURRENT_USER, "", {}, "", {}, {}, {},
+                   {});
+}
+
+TEST_P(CypherMainVisitorTest, ShowCurrentRole) {
+  auto &ast_generator = *GetParam();
+  ASSERT_THROW(ast_generator.ParseQuery("SHOW CURRENT ROLENAME"), SyntaxException);
+  check_auth_query(&ast_generator, "SHOW CURRENT ROLE", AuthQuery::Action::SHOW_CURRENT_ROLE, "", {}, "", {}, {}, {},
+                   {});
+  check_auth_query(&ast_generator, "SHOW CURRENT ROLES", AuthQuery::Action::SHOW_CURRENT_ROLE, "", {}, "", {}, {}, {},
                    {});
 }
 
 TEST_P(CypherMainVisitorTest, ShowUsers) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("SHOW USERS ROLES"), SyntaxException);
-  check_auth_query(&ast_generator, "SHOW USERS", AuthQuery::Action::SHOW_USERS, "", "", "", {}, {}, {}, {});
+  check_auth_query(&ast_generator, "SHOW USERS", AuthQuery::Action::SHOW_USERS, "", {}, "", {}, {}, {}, {});
 }
 
 TEST_P(CypherMainVisitorTest, SetRole) {
@@ -2362,10 +2718,28 @@ TEST_P(CypherMainVisitorTest, SetRole) {
   ASSERT_THROW(ast_generator.ParseQuery("SET ROLE user"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("SET ROLE FOR user"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("SET ROLE FOR user TO"), SyntaxException);
-  check_auth_query(&ast_generator, "SET ROLE FOR user TO role", AuthQuery::Action::SET_ROLE, "user", "role", "", {}, {},
-                   {}, {});
-  check_auth_query(&ast_generator, "SET ROLE FOR user TO null", AuthQuery::Action::SET_ROLE, "user", "null", "", {}, {},
-                   {}, {});
+
+  // Single role tests (backward compatibility)
+  check_auth_query(&ast_generator, "SET ROLE FOR user TO role", AuthQuery::Action::SET_ROLE, "user", {"role"}, "", {},
+                   {}, {}, {});
+  check_auth_query(&ast_generator, "SET ROLE FOR user TO null", AuthQuery::Action::SET_ROLE, "user", {"null"}, "", {},
+                   {}, {}, {});
+
+  // Multiple roles tests
+  check_auth_query(&ast_generator, "SET ROLE FOR user TO role1, role2", AuthQuery::Action::SET_ROLE, "user",
+                   {"role1", "role2"}, "", {}, {}, {}, {});
+  check_auth_query(&ast_generator, "SET ROLE FOR user TO admin, moderator, reader", AuthQuery::Action::SET_ROLE, "user",
+                   {"admin", "moderator", "reader"}, "", {}, {}, {}, {});
+  check_auth_query(&ast_generator, "SET ROLE FOR user TO role1, role2, role3, role4", AuthQuery::Action::SET_ROLE,
+                   "user", {"role1", "role2", "role3", "role4"}, "", {}, {}, {}, {});
+
+  // Edge cases with special characters in role names
+  check_auth_query(&ast_generator, "SET ROLE FOR user TO `role-with-dash`, `role_with_underscore`",
+                   AuthQuery::Action::SET_ROLE, "user", {"role-with-dash", "role_with_underscore"}, "", {}, {}, {}, {});
+
+  // Test with quoted role names
+  check_auth_query(&ast_generator, "SET ROLE FOR user TO `admin role`, `moderator role`", AuthQuery::Action::SET_ROLE,
+                   "user", {"admin role", "moderator role"}, "", {}, {}, {}, {});
 }
 
 TEST_P(CypherMainVisitorTest, ClearRole) {
@@ -2373,7 +2747,7 @@ TEST_P(CypherMainVisitorTest, ClearRole) {
   ASSERT_THROW(ast_generator.ParseQuery("CLEAR ROLE"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("CLEAR ROLE user"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("CLEAR ROLE FOR user TO"), SyntaxException);
-  check_auth_query(&ast_generator, "CLEAR ROLE FOR user", AuthQuery::Action::CLEAR_ROLE, "user", "", "", {}, {}, {},
+  check_auth_query(&ast_generator, "CLEAR ROLE FOR user", AuthQuery::Action::CLEAR_ROLE, "user", {}, "", {}, {}, {},
                    {});
 }
 
@@ -2384,96 +2758,96 @@ TEST_P(CypherMainVisitorTest, GrantPrivilege) {
   ASSERT_THROW(ast_generator.ParseQuery("GRANT BLABLA TO user"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("GRANT MATCH, TO user"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("GRANT MATCH, BLABLA TO user"), SyntaxException);
-  check_auth_query(&ast_generator, "GRANT MATCH TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT MATCH TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::MATCH}, {}, {});
-  check_auth_query(&ast_generator, "GRANT MATCH, AUTH TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT MATCH, AUTH TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::MATCH, AuthQuery::Privilege::AUTH}, {}, {});
   // Verify that all privileges are correctly visited.
-  check_auth_query(&ast_generator, "GRANT CREATE TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT CREATE TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::CREATE}, {}, {});
-  check_auth_query(&ast_generator, "GRANT DELETE TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT DELETE TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::DELETE}, {}, {});
-  check_auth_query(&ast_generator, "GRANT MERGE TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT MERGE TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::MERGE}, {}, {});
-  check_auth_query(&ast_generator, "GRANT SET TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT SET TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::SET}, {}, {});
-  check_auth_query(&ast_generator, "GRANT REMOVE TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT REMOVE TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::REMOVE}, {}, {});
-  check_auth_query(&ast_generator, "GRANT INDEX TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT INDEX TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::INDEX}, {}, {});
-  check_auth_query(&ast_generator, "GRANT STATS TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT STATS TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::STATS}, {}, {});
-  check_auth_query(&ast_generator, "GRANT AUTH TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT AUTH TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::AUTH}, {}, {});
-  check_auth_query(&ast_generator, "GRANT CONSTRAINT TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT CONSTRAINT TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::CONSTRAINT}, {}, {});
-  check_auth_query(&ast_generator, "GRANT DUMP TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT DUMP TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::DUMP}, {}, {});
-  check_auth_query(&ast_generator, "GRANT REPLICATION TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT REPLICATION TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::REPLICATION}, {}, {});
-  check_auth_query(&ast_generator, "GRANT DURABILITY TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT DURABILITY TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::DURABILITY}, {}, {});
-  check_auth_query(&ast_generator, "GRANT READ_FILE TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT READ_FILE TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::READ_FILE}, {}, {});
-  check_auth_query(&ast_generator, "GRANT FREE_MEMORY TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT FREE_MEMORY TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::FREE_MEMORY}, {}, {});
-  check_auth_query(&ast_generator, "GRANT TRIGGER TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT TRIGGER TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::TRIGGER}, {}, {});
-  check_auth_query(&ast_generator, "GRANT CONFIG TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT CONFIG TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::CONFIG}, {}, {});
-  check_auth_query(&ast_generator, "GRANT STREAM TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT STREAM TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::STREAM}, {}, {});
-  check_auth_query(&ast_generator, "GRANT WEBSOCKET TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT WEBSOCKET TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::WEBSOCKET}, {}, {});
-  check_auth_query(&ast_generator, "GRANT MODULE_READ TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT MODULE_READ TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::MODULE_READ}, {}, {});
-  check_auth_query(&ast_generator, "GRANT MODULE_WRITE TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "GRANT MODULE_WRITE TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::MODULE_WRITE}, {}, {});
 
   std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> label_privileges{};
   std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges{};
 
   label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"*"}}}});
-  check_auth_query(&ast_generator, "GRANT READ ON LABELS * TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user",
+  check_auth_query(&ast_generator, "GRANT READ ON LABELS * TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user",
                    {}, {}, label_privileges, {});
   label_privileges.clear();
 
   label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::UPDATE}, {{"*"}}}});
-  check_auth_query(&ast_generator, "GRANT UPDATE ON LABELS * TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", "",
+  check_auth_query(&ast_generator, "GRANT UPDATE ON LABELS * TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {},
                    "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
   label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE}, {{"*"}}}});
   check_auth_query(&ast_generator, "GRANT CREATE_DELETE ON LABELS * TO user", AuthQuery::Action::GRANT_PRIVILEGE, "",
-                   "", "user", {}, {}, label_privileges, {});
+                   {}, "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
   label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"Label1"}, {"Label2"}}}});
   check_auth_query(&ast_generator, "GRANT READ ON LABELS :Label1, :Label2 TO user", AuthQuery::Action::GRANT_PRIVILEGE,
-                   "", "", "user", {}, {}, label_privileges, {});
+                   "", {}, "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
   label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::UPDATE}, {{"Label1"}, {"Label2"}}}});
   check_auth_query(&ast_generator, "GRANT UPDATE ON LABELS :Label1, :Label2 TO user",
-                   AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {}, {}, label_privileges, {});
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
   label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE}, {{"Label1"}, {"Label2"}}}});
   check_auth_query(&ast_generator, "GRANT CREATE_DELETE ON LABELS :Label1, :Label2 TO user",
-                   AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {}, {}, label_privileges, {});
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
   label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"Label1"}, {"Label2"}}},
                               {{AuthQuery::FineGrainedPrivilege::UPDATE}, {{"Label3"}}}});
   check_auth_query(&ast_generator, "GRANT READ ON LABELS :Label1, :Label2, UPDATE ON LABELS :Label3 TO user",
-                   AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {}, {}, label_privileges, {});
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
   label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"Label1"}, {"Label2"}}}});
   edge_type_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"Edge1"}, {"Edge2"}, {"Edge3"}}}});
   check_auth_query(&ast_generator,
                    "GRANT READ ON LABELS :Label1, :Label2, READ ON EDGE_TYPES :Edge1, :Edge2, :Edge3 TO user",
-                   AuthQuery::Action::GRANT_PRIVILEGE, "", "", "user", {}, {}, label_privileges, edge_type_privileges);
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, edge_type_privileges);
   label_privileges.clear();
   edge_type_privileges.clear();
 }
@@ -2485,36 +2859,36 @@ TEST_P(CypherMainVisitorTest, DenyPrivilege) {
   ASSERT_THROW(ast_generator.ParseQuery("DENY BLABLA TO user"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("DENY MATCH, TO user"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("DENY MATCH, BLABLA TO user"), SyntaxException);
-  check_auth_query(&ast_generator, "DENY MATCH TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "DENY MATCH TO user", AuthQuery::Action::DENY_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::MATCH}, {}, {});
-  check_auth_query(&ast_generator, "DENY MATCH, AUTH TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "DENY MATCH, AUTH TO user", AuthQuery::Action::DENY_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::MATCH, AuthQuery::Privilege::AUTH}, {}, {});
   // Verify that all privileges are correctly visited.
-  check_auth_query(&ast_generator, "DENY CREATE TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "DENY CREATE TO user", AuthQuery::Action::DENY_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::CREATE}, {}, {});
-  check_auth_query(&ast_generator, "DENY DELETE TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "DENY DELETE TO user", AuthQuery::Action::DENY_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::DELETE}, {}, {});
-  check_auth_query(&ast_generator, "DENY MERGE TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "DENY MERGE TO user", AuthQuery::Action::DENY_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::MERGE}, {}, {});
-  check_auth_query(&ast_generator, "DENY SET TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "DENY SET TO user", AuthQuery::Action::DENY_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::SET}, {}, {});
-  check_auth_query(&ast_generator, "DENY REMOVE TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "DENY REMOVE TO user", AuthQuery::Action::DENY_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::REMOVE}, {}, {});
-  check_auth_query(&ast_generator, "DENY INDEX TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "DENY INDEX TO user", AuthQuery::Action::DENY_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::INDEX}, {}, {});
-  check_auth_query(&ast_generator, "DENY STATS TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "DENY STATS TO user", AuthQuery::Action::DENY_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::STATS}, {}, {});
-  check_auth_query(&ast_generator, "DENY AUTH TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "DENY AUTH TO user", AuthQuery::Action::DENY_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::AUTH}, {}, {});
-  check_auth_query(&ast_generator, "DENY CONSTRAINT TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "DENY CONSTRAINT TO user", AuthQuery::Action::DENY_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::CONSTRAINT}, {}, {});
-  check_auth_query(&ast_generator, "DENY DUMP TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "DENY DUMP TO user", AuthQuery::Action::DENY_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::DUMP}, {}, {});
-  check_auth_query(&ast_generator, "DENY WEBSOCKET TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "DENY WEBSOCKET TO user", AuthQuery::Action::DENY_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::WEBSOCKET}, {}, {});
-  check_auth_query(&ast_generator, "DENY MODULE_READ TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "DENY MODULE_READ TO user", AuthQuery::Action::DENY_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::MODULE_READ}, {}, {});
-  check_auth_query(&ast_generator, "DENY MODULE_WRITE TO user", AuthQuery::Action::DENY_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "DENY MODULE_WRITE TO user", AuthQuery::Action::DENY_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::MODULE_WRITE}, {}, {});
 }
 
@@ -2525,58 +2899,58 @@ TEST_P(CypherMainVisitorTest, RevokePrivilege) {
   ASSERT_THROW(ast_generator.ParseQuery("REVOKE BLABLA FROM user"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("REVOKE MATCH, FROM user"), SyntaxException);
   ASSERT_THROW(ast_generator.ParseQuery("REVOKE MATCH, BLABLA FROM user"), SyntaxException);
-  check_auth_query(&ast_generator, "REVOKE MATCH FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "REVOKE MATCH FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::MATCH}, {}, {});
-  check_auth_query(&ast_generator, "REVOKE MATCH, AUTH FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user",
+  check_auth_query(&ast_generator, "REVOKE MATCH, AUTH FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user",
                    {}, {AuthQuery::Privilege::MATCH, AuthQuery::Privilege::AUTH}, {}, {});
-  check_auth_query(&ast_generator, "REVOKE ALL PRIVILEGES FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "",
+  check_auth_query(&ast_generator, "REVOKE ALL PRIVILEGES FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", {},
                    "user", {}, kPrivilegesAll, {}, {});
   // Verify that all privileges are correctly visited.
-  check_auth_query(&ast_generator, "REVOKE CREATE FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "REVOKE CREATE FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::CREATE}, {}, {});
-  check_auth_query(&ast_generator, "REVOKE DELETE FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "REVOKE DELETE FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::DELETE}, {}, {});
-  check_auth_query(&ast_generator, "REVOKE MERGE FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "REVOKE MERGE FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::MERGE}, {}, {});
-  check_auth_query(&ast_generator, "REVOKE SET FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "REVOKE SET FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::SET}, {}, {});
-  check_auth_query(&ast_generator, "REVOKE REMOVE FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "REVOKE REMOVE FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::REMOVE}, {}, {});
-  check_auth_query(&ast_generator, "REVOKE INDEX FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "REVOKE INDEX FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::INDEX}, {}, {});
-  check_auth_query(&ast_generator, "REVOKE STATS FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "REVOKE STATS FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::STATS}, {}, {});
-  check_auth_query(&ast_generator, "REVOKE AUTH FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "REVOKE AUTH FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::AUTH}, {}, {});
-  check_auth_query(&ast_generator, "REVOKE CONSTRAINT FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user",
+  check_auth_query(&ast_generator, "REVOKE CONSTRAINT FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user",
                    {}, {AuthQuery::Privilege::CONSTRAINT}, {}, {});
-  check_auth_query(&ast_generator, "REVOKE DUMP FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "REVOKE DUMP FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {},
                    {AuthQuery::Privilege::DUMP}, {}, {});
-  check_auth_query(&ast_generator, "REVOKE WEBSOCKET FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user",
+  check_auth_query(&ast_generator, "REVOKE WEBSOCKET FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user",
                    {}, {AuthQuery::Privilege::WEBSOCKET}, {}, {});
-  check_auth_query(&ast_generator, "REVOKE MODULE_READ FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user",
+  check_auth_query(&ast_generator, "REVOKE MODULE_READ FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user",
                    {}, {AuthQuery::Privilege::MODULE_READ}, {}, {});
-  check_auth_query(&ast_generator, "REVOKE MODULE_WRITE FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user",
+  check_auth_query(&ast_generator, "REVOKE MODULE_WRITE FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user",
                    {}, {AuthQuery::Privilege::MODULE_WRITE}, {}, {});
 
   std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> label_privileges{};
   std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges{};
 
   label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE}, {{"*"}}}});
-  check_auth_query(&ast_generator, "REVOKE LABELS * FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {},
+  check_auth_query(&ast_generator, "REVOKE LABELS * FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {},
                    {}, label_privileges, {});
   label_privileges.clear();
 
   label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE}, {{"Label1"}, {"Label2"}}}});
   check_auth_query(&ast_generator, "REVOKE LABELS :Label1, :Label2 FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "",
-                   "", "user", {}, {}, label_privileges, {});
+                   {}, "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
   label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE}, {{"Label1"}, {"Label2"}}}});
   edge_type_privileges.push_back(
       {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE}, {{"Edge1"}, {"Edge2"}, {"Edge3"}}}});
   check_auth_query(&ast_generator, "REVOKE LABELS :Label1, :Label2, EDGE_TYPES :Edge1, :Edge2, :Edge3 FROM user",
-                   AuthQuery::Action::REVOKE_PRIVILEGE, "", "", "user", {}, {}, label_privileges, edge_type_privileges);
+                   AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, edge_type_privileges);
 
   label_privileges.clear();
   edge_type_privileges.clear();
@@ -2585,15 +2959,75 @@ TEST_P(CypherMainVisitorTest, RevokePrivilege) {
 TEST_P(CypherMainVisitorTest, ShowPrivileges) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("SHOW PRIVILEGES FOR"), SyntaxException);
-  check_auth_query(&ast_generator, "SHOW PRIVILEGES FOR user", AuthQuery::Action::SHOW_PRIVILEGES, "", "", "user", {},
+  check_auth_query(&ast_generator, "SHOW PRIVILEGES FOR user", AuthQuery::Action::SHOW_PRIVILEGES, "", {}, "user", {},
                    {}, {}, {});
   ASSERT_THROW(ast_generator.ParseQuery("SHOW PRIVILEGES FOR user1, user2"), SyntaxException);
 }
 
+#ifdef MG_ENTERPRISE
+TEST_P(CypherMainVisitorTest, ShowPrivilegesOnMain) {
+  auto &ast_generator = *GetParam();
+  auto *auth = dynamic_cast<AuthQuery *>(ast_generator.ParseQuery("SHOW PRIVILEGES FOR user ON MAIN"));
+  ASSERT_TRUE(auth);
+  EXPECT_EQ(auth->action_, AuthQuery::Action::SHOW_PRIVILEGES);
+  EXPECT_EQ(auth->user_or_role_, "user");
+  EXPECT_EQ(auth->database_specification_, AuthQuery::DatabaseSpecification::MAIN);
+}
+
+TEST_P(CypherMainVisitorTest, ShowPrivilegesOnCurrent) {
+  auto &ast_generator = *GetParam();
+  auto *auth = dynamic_cast<AuthQuery *>(ast_generator.ParseQuery("SHOW PRIVILEGES FOR user ON CURRENT"));
+  ASSERT_TRUE(auth);
+  EXPECT_EQ(auth->action_, AuthQuery::Action::SHOW_PRIVILEGES);
+  EXPECT_EQ(auth->user_or_role_, "user");
+  EXPECT_EQ(auth->database_specification_, AuthQuery::DatabaseSpecification::CURRENT);
+}
+
+TEST_P(CypherMainVisitorTest, ShowPrivilegesOnDatabase) {
+  auto &ast_generator = *GetParam();
+  auto *auth = dynamic_cast<AuthQuery *>(ast_generator.ParseQuery("SHOW PRIVILEGES FOR user ON DATABASE testdb"));
+  ASSERT_TRUE(auth);
+  EXPECT_EQ(auth->action_, AuthQuery::Action::SHOW_PRIVILEGES);
+  EXPECT_EQ(auth->user_or_role_, "user");
+  EXPECT_EQ(auth->database_specification_, AuthQuery::DatabaseSpecification::DATABASE);
+  EXPECT_EQ(auth->database_, "testdb");
+}
+
+TEST_P(CypherMainVisitorTest, ShowPrivilegesOnDatabaseWithSpecialChars) {
+  auto &ast_generator = *GetParam();
+  auto *auth = dynamic_cast<AuthQuery *>(ast_generator.ParseQuery("SHOW PRIVILEGES FOR user ON DATABASE `test-db`"));
+  ASSERT_TRUE(auth);
+  EXPECT_EQ(auth->action_, AuthQuery::Action::SHOW_PRIVILEGES);
+  EXPECT_EQ(auth->user_or_role_, "user");
+  EXPECT_EQ(auth->database_specification_, AuthQuery::DatabaseSpecification::DATABASE);
+  EXPECT_EQ(auth->database_, "test-db");
+}
+
+TEST_P(CypherMainVisitorTest, ShowPrivilegesOnDatabaseMain) {
+  auto &ast_generator = *GetParam();
+  auto *auth = dynamic_cast<AuthQuery *>(ast_generator.ParseQuery("SHOW PRIVILEGES FOR user ON DATABASE MAIN"));
+  ASSERT_TRUE(auth);
+  EXPECT_EQ(auth->action_, AuthQuery::Action::SHOW_PRIVILEGES);
+  EXPECT_EQ(auth->user_or_role_, "user");
+  EXPECT_EQ(auth->database_specification_, AuthQuery::DatabaseSpecification::DATABASE);
+  EXPECT_EQ(auth->database_, "MAIN");
+}
+
+TEST_P(CypherMainVisitorTest, ShowPrivilegesOnDatabaseCurrent) {
+  auto &ast_generator = *GetParam();
+  auto *auth = dynamic_cast<AuthQuery *>(ast_generator.ParseQuery("SHOW PRIVILEGES FOR user ON DATABASE CURRENT"));
+  ASSERT_TRUE(auth);
+  EXPECT_EQ(auth->action_, AuthQuery::Action::SHOW_PRIVILEGES);
+  EXPECT_EQ(auth->user_or_role_, "user");
+  EXPECT_EQ(auth->database_specification_, AuthQuery::DatabaseSpecification::DATABASE);
+  EXPECT_EQ(auth->database_, "CURRENT");
+}
+#endif
+
 TEST_P(CypherMainVisitorTest, ShowRoleForUser) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("SHOW ROLE FOR "), SyntaxException);
-  check_auth_query(&ast_generator, "SHOW ROLE FOR user", AuthQuery::Action::SHOW_ROLE_FOR_USER, "user", "", "", {}, {},
+  check_auth_query(&ast_generator, "SHOW ROLE FOR user", AuthQuery::Action::SHOW_ROLE_FOR_USER, "user", {}, "", {}, {},
                    {}, {});
   ASSERT_THROW(ast_generator.ParseQuery("SHOW ROLE FOR user1, user2"), SyntaxException);
 }
@@ -2601,7 +3035,7 @@ TEST_P(CypherMainVisitorTest, ShowRoleForUser) {
 TEST_P(CypherMainVisitorTest, ShowUsersForRole) {
   auto &ast_generator = *GetParam();
   ASSERT_THROW(ast_generator.ParseQuery("SHOW USERS FOR "), SyntaxException);
-  check_auth_query(&ast_generator, "SHOW USERS FOR role", AuthQuery::Action::SHOW_USERS_FOR_ROLE, "", "role", "", {},
+  check_auth_query(&ast_generator, "SHOW USERS FOR role", AuthQuery::Action::SHOW_USERS_FOR_ROLE, "", {"role"}, "", {},
                    {}, {}, {});
   ASSERT_THROW(ast_generator.ParseQuery("SHOW USERS FOR role1, role2"), SyntaxException);
 }
@@ -2672,22 +3106,38 @@ TEST_P(CypherMainVisitorTest, TestSetReplicationMode) {
 TEST_P(CypherMainVisitorTest, TestRegisterReplicationQuery) {
   auto &ast_generator = *GetParam();
 
-  const std::string faulty_query = "REGISTER REPLICA TO";
-  ASSERT_THROW(ast_generator.ParseQuery(faulty_query), SyntaxException);
+  {
+    const std::string faulty_query = "REGISTER REPLICA TO";
+    ASSERT_THROW(ast_generator.ParseQuery(faulty_query), SyntaxException);
+  }
 
-  const std::string faulty_query_with_timeout = R"(REGISTER REPLICA replica1 SYNC WITH TIMEOUT 1.0 TO "127.0.0.1")";
-  ASSERT_THROW(ast_generator.ParseQuery(faulty_query_with_timeout), SyntaxException);
+  {
+    const std::string faulty_query_with_timeout = R"(REGISTER REPLICA replica1 SYNC WITH TIMEOUT 1.0 TO "127.0.0.1")";
+    ASSERT_THROW(ast_generator.ParseQuery(faulty_query_with_timeout), SyntaxException);
+  }
 
-  const std::string correct_query = R"(REGISTER REPLICA replica1 SYNC TO "127.0.0.1")";
-  auto *correct_query_parsed = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(correct_query));
-  check_replication_query(&ast_generator, correct_query_parsed, "replica1", TypedValue("127.0.0.1"),
-                          ReplicationQuery::SyncMode::SYNC);
+  {
+    const std::string correct_query = R"(REGISTER REPLICA replica1 SYNC TO "127.0.0.1")";
+    auto *correct_query_parsed = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(correct_query));
+    check_replication_query(&ast_generator, correct_query_parsed, "replica1", TypedValue("127.0.0.1"),
+                            ReplicationQuery::SyncMode::SYNC);
+  }
 
-  std::string full_query = R"(REGISTER REPLICA replica2 SYNC TO "1.1.1.1:10000")";
-  auto *full_query_parsed = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(full_query));
-  ASSERT_TRUE(full_query_parsed);
-  check_replication_query(&ast_generator, full_query_parsed, "replica2", TypedValue("1.1.1.1:10000"),
-                          ReplicationQuery::SyncMode::SYNC);
+  {
+    std::string full_query = R"(REGISTER REPLICA replica2 SYNC TO "1.1.1.1:10000")";
+    auto *full_query_parsed = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(full_query));
+    ASSERT_TRUE(full_query_parsed);
+    check_replication_query(&ast_generator, full_query_parsed, "replica2", TypedValue("1.1.1.1:10000"),
+                            ReplicationQuery::SyncMode::SYNC);
+  }
+
+  {
+    std::string full_query = R"(REGISTER REPLICA replica2 STRICT_SYNC TO "1.1.1.1:10000")";
+    auto *full_query_parsed = dynamic_cast<ReplicationQuery *>(ast_generator.ParseQuery(full_query));
+    ASSERT_TRUE(full_query_parsed);
+    check_replication_query(&ast_generator, full_query_parsed, "replica2", TypedValue("1.1.1.1:10000"),
+                            ReplicationQuery::SyncMode::STRICT_SYNC);
+  }
 }
 
 #ifdef MG_ENTERPRISE
@@ -2736,6 +3186,39 @@ TEST_P(CypherMainVisitorTest, TestRegisterAsyncInstance) {
 
   EXPECT_EQ(parsed_query->action_, CoordinatorQuery::Action::REGISTER_INSTANCE);
   EXPECT_EQ(parsed_query->sync_mode_, CoordinatorQuery::SyncMode::ASYNC);
+
+  auto const evaluate_config_map = [&ast_generator](std::unordered_map<Expression *, Expression *> const &config_map)
+      -> std::map<std::string, std::string, std::less<>> {
+    auto const expr_to_str = [&ast_generator](Expression *expression) {
+      return std::string{ast_generator.GetLiteral(expression, ast_generator.context_.is_query_cached).ValueString()};
+    };
+
+    return ranges::views::transform(config_map,
+                                    [&expr_to_str](auto const &expr_pair) {
+                                      return std::pair{expr_to_str(expr_pair.first), expr_to_str(expr_pair.second)};
+                                    }) |
+           ranges::to<std::map<std::string, std::string, std::less<>>>;
+  };
+
+  auto const config_map = evaluate_config_map(parsed_query->configs_);
+  ASSERT_EQ(config_map.size(), 3);
+  EXPECT_EQ(config_map.find(memgraph::query::kBoltServer)->second, "127.0.0.1:7688");
+  EXPECT_EQ(config_map.find(memgraph::query::kManagementServer)->second, "127.0.0.1:10011");
+  EXPECT_EQ(config_map.find(memgraph::query::kReplicationServer)->second, "127.0.0.1:10001");
+}
+
+TEST_P(CypherMainVisitorTest, TestRegisterStrictSyncInstance) {
+  auto &ast_generator = *GetParam();
+
+  std::string const async_instance =
+      R"(REGISTER INSTANCE instance_1 AS STRICT_SYNC WITH CONFIG {"bolt_server": "127.0.0.1:7688",
+    "replication_server": "127.0.0.1:10001",
+    "management_server": "127.0.0.1:10011"})";
+
+  auto *parsed_query = dynamic_cast<CoordinatorQuery *>(ast_generator.ParseQuery(async_instance));
+
+  EXPECT_EQ(parsed_query->action_, CoordinatorQuery::Action::REGISTER_INSTANCE);
+  EXPECT_EQ(parsed_query->sync_mode_, CoordinatorQuery::SyncMode::STRICT_SYNC);
 
   auto const evaluate_config_map = [&ast_generator](std::unordered_map<Expression *, Expression *> const &config_map)
       -> std::map<std::string, std::string, std::less<>> {
@@ -2835,17 +3318,21 @@ TEST_P(CypherMainVisitorTest, TestExplainAuthQuery) {
 TEST_P(CypherMainVisitorTest, TestProfileRegularQuery) {
   {
     auto &ast_generator = *GetParam();
-    EXPECT_TRUE(dynamic_cast<ProfileQuery *>(ast_generator.ParseQuery("PROFILE RETURN n")));
+    auto *query = ast_generator.ParseQuery("PROFILE RETURN n");
+    EXPECT_TRUE(dynamic_cast<ProfileQuery *>(query));
+    CheckRWType(query, kRead);
   }
 }
 
 TEST_P(CypherMainVisitorTest, TestProfileComplicatedQuery) {
   {
     auto &ast_generator = *GetParam();
-    EXPECT_TRUE(
-        dynamic_cast<ProfileQuery *>(ast_generator.ParseQuery("profile optional match (n) where n.hello = 5 "
-                                                              "return n union optional match (n) where n.there = 10 "
-                                                              "return n")));
+    auto *query = ast_generator.ParseQuery(
+        "profile optional match (n) where n.hello = 5 "
+        "return n union optional match (n) where n.there = 10 "
+        "return n");
+    EXPECT_TRUE(dynamic_cast<ProfileQuery *>(query));
+    CheckRWType(query, kRead);
   }
 }
 
@@ -2867,17 +3354,35 @@ TEST_P(CypherMainVisitorTest, TestShowStorageInfo) {
 }
 
 TEST_P(CypherMainVisitorTest, TestShowIndexInfo) {
-  auto &ast_generator = *GetParam();
-  auto *query = dynamic_cast<DatabaseInfoQuery *>(ast_generator.ParseQuery("SHOW INDEX INFO"));
-  ASSERT_TRUE(query);
-  EXPECT_EQ(query->info_type_, DatabaseInfoQuery::InfoType::INDEX);
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<DatabaseInfoQuery *>(ast_generator.ParseQuery("SHOW INDEX INFO"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->info_type_, DatabaseInfoQuery::InfoType::INDEX);
+  }
+
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<DatabaseInfoQuery *>(ast_generator.ParseQuery("SHOW INDEXES"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->info_type_, DatabaseInfoQuery::InfoType::INDEX);
+  }
 }
 
 TEST_P(CypherMainVisitorTest, TestShowConstraintInfo) {
-  auto &ast_generator = *GetParam();
-  auto *query = dynamic_cast<DatabaseInfoQuery *>(ast_generator.ParseQuery("SHOW CONSTRAINT INFO"));
-  ASSERT_TRUE(query);
-  EXPECT_EQ(query->info_type_, DatabaseInfoQuery::InfoType::CONSTRAINT);
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<DatabaseInfoQuery *>(ast_generator.ParseQuery("SHOW CONSTRAINT INFO"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->info_type_, DatabaseInfoQuery::InfoType::CONSTRAINT);
+  }
+
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<DatabaseInfoQuery *>(ast_generator.ParseQuery("SHOW CONSTRAINTS"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->info_type_, DatabaseInfoQuery::InfoType::CONSTRAINT);
+  }
 }
 
 TEST_P(CypherMainVisitorTest, CreateConstraintSyntaxError) {
@@ -3095,6 +3600,7 @@ TEST_P(CypherMainVisitorTest, RegexMatch) {
     ASSERT_TRUE(regex_match);
     ASSERT_TRUE(dynamic_cast<PropertyLookup *>(regex_match->string_expr_));
     ast_generator.CheckLiteral(regex_match->regex_, ".*bla.*");
+    CheckRWType(query, kRead);
   }
   {
     auto &ast_generator = *GetParam();
@@ -3111,6 +3617,7 @@ TEST_P(CypherMainVisitorTest, RegexMatch) {
     ASSERT_TRUE(regex_match);
     ast_generator.CheckLiteral(regex_match->string_expr_, "text");
     ast_generator.CheckLiteral(regex_match->regex_, ".*bla.*");
+    CheckRWType(query, kRead);
   }
 }
 
@@ -3133,7 +3640,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithDotsInName) {
   ASSERT_EQ(single_query->clauses_.size(), 1U);
   auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
   ASSERT_TRUE(call_proc);
-  ASSERT_EQ(call_proc->procedure_name_, "mock_module.with.dots.in.name.proc");
+  EXPECT_EQ(call_proc->procedure_name_, "mock_module.with.dots.in.name.proc");
   ASSERT_TRUE(call_proc->arguments_.empty());
   std::vector<std::string> identifier_names;
   identifier_names.reserve(call_proc->result_identifiers_.size());
@@ -3144,6 +3651,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithDotsInName) {
   std::vector<std::string> expected_names{"res"};
   ASSERT_EQ(identifier_names, expected_names);
   ASSERT_EQ(identifier_names, call_proc->result_fields_);
+  CheckRWType(query, kWrite);
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithDashesInName) {
@@ -3158,7 +3666,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithDashesInName) {
   ASSERT_EQ(single_query->clauses_.size(), 1U);
   auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
   ASSERT_TRUE(call_proc);
-  ASSERT_EQ(call_proc->procedure_name_, "mock_module.proc-with-dashes");
+  EXPECT_EQ(call_proc->procedure_name_, "mock_module.proc-with-dashes");
   ASSERT_TRUE(call_proc->arguments_.empty());
   std::vector<std::string> identifier_names;
   identifier_names.reserve(call_proc->result_identifiers_.size());
@@ -3169,6 +3677,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithDashesInName) {
   std::vector<std::string> expected_names{"res"};
   ASSERT_EQ(identifier_names, expected_names);
   ASSERT_EQ(identifier_names, call_proc->result_fields_);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithYieldSomeFields) {
@@ -3200,6 +3709,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithYieldSomeFields) {
     std::vector<std::string> expected_names{"fst", "field-with-dashes", "last_field"};
     ASSERT_EQ(identifier_names, expected_names);
     ASSERT_EQ(identifier_names, call_proc->result_fields_);
+    CheckRWType(query, type == ProcedureType::WRITE ? kWrite : kRead);
   };
   check_proc(ProcedureType::READ);
   check_proc(ProcedureType::WRITE);
@@ -3232,6 +3742,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithYieldAliasedFields) {
   ASSERT_EQ(identifier_names, aliased_names);
   std::vector<std::string> field_names{"fst", "snd", "thrd"};
   ASSERT_EQ(call_proc->result_fields_, field_names);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithArguments) {
@@ -3258,6 +3769,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithArguments) {
   std::vector<std::string> expected_names{"res"};
   ASSERT_EQ(identifier_names, expected_names);
   ASSERT_EQ(identifier_names, call_proc->result_fields_);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureYieldAsterisk) {
@@ -3279,6 +3791,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureYieldAsterisk) {
   }
   ASSERT_THAT(identifier_names, UnorderedElementsAre("name", "signature", "is_write", "path", "is_editable"));
   ASSERT_EQ(identifier_names, call_proc->result_fields_);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureYieldAsteriskReturnAsterisk) {
@@ -3303,6 +3816,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureYieldAsteriskReturnAsterisk) {
   }
   ASSERT_THAT(identifier_names, UnorderedElementsAre("name", "signature", "is_write", "path", "is_editable"));
   ASSERT_EQ(identifier_names, call_proc->result_fields_);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithoutYield) {
@@ -3318,6 +3832,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithoutYield) {
   ASSERT_TRUE(call_proc->arguments_.empty());
   ASSERT_TRUE(call_proc->result_fields_.empty());
   ASSERT_TRUE(call_proc->result_identifiers_.empty());
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithMemoryLimitWithoutYield) {
@@ -3336,6 +3851,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithMemoryLimitWithoutYield) {
   ASSERT_TRUE(call_proc->result_identifiers_.empty());
   ast_generator.CheckLiteral(call_proc->memory_limit_, 32);
   ASSERT_EQ(call_proc->memory_scale_, 1024);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithMemoryUnlimitedWithoutYield) {
@@ -3352,6 +3868,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithMemoryUnlimitedWithoutYield) {
   ASSERT_TRUE(call_proc->result_fields_.empty());
   ASSERT_TRUE(call_proc->result_identifiers_.empty());
   ASSERT_FALSE(call_proc->memory_limit_);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithMemoryLimit) {
@@ -3377,6 +3894,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithMemoryLimit) {
   ASSERT_EQ(identifier_names, call_proc->result_fields_);
   ast_generator.CheckLiteral(call_proc->memory_limit_, 32);
   ASSERT_EQ(call_proc->memory_scale_, 1024 * 1024);
+  CheckRWType(query, kRead);
 }
 
 TEST_P(CypherMainVisitorTest, CallProcedureWithMemoryUnlimited) {
@@ -3401,6 +3919,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureWithMemoryUnlimited) {
   ASSERT_EQ(identifier_names, expected_names);
   ASSERT_EQ(identifier_names, call_proc->result_fields_);
   ASSERT_FALSE(call_proc->memory_limit_);
+  CheckRWType(query, kRead);
 }
 
 namespace {
@@ -3577,6 +4096,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryPartsBefore) {
       const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
       ASSERT_NE(query, nullptr);
       check_parsed_call_proc(*query, write_proc, ProcedureType::WRITE, kQueryParts);
+      CheckRWType(query, kWrite);
     }
     {
       SCOPED_TRACE("Read proc");
@@ -3584,6 +4104,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryPartsBefore) {
       const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
       ASSERT_NE(query, nullptr);
       check_parsed_call_proc(*query, read_proc, ProcedureType::READ, kQueryParts);
+      CheckRWType(query, kRead);
     }
   }
   {
@@ -3602,6 +4123,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureMultipleQueryPartsBefore) {
       const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
       ASSERT_NE(query, nullptr);
       check_parsed_call_proc(*query, read_proc, ProcedureType::READ, kQueryParts);
+      CheckRWType(query, kWrite);
     }
   }
 }
@@ -3624,6 +4146,7 @@ TEST_P(CypherMainVisitorTest, CallProcedureMultipleProcedures) {
 
     CheckParsedCallProcedure(*query, ast_generator, read_proc, args, ProcedureType::READ, kQueryParts, 0);
     CheckParsedCallProcedure(*query, ast_generator, write_proc, args, ProcedureType::WRITE, kQueryParts, 1);
+    CheckRWType(query, kWrite);
   }
   {
     SCOPED_TRACE("Write then read");
@@ -3638,6 +4161,45 @@ TEST_P(CypherMainVisitorTest, CallProcedureMultipleProcedures) {
     TestInvalidQueryWithMessage<SemanticException>(
         query_str, ast_generator,
         "CALL can't be put after calling a writeable procedure, only RETURN clause can be put after.");
+  }
+}
+
+TEST_P(CypherMainVisitorTest, CallProcedureFromSubquery) {
+  auto &ast_generator = *GetParam();
+  static constexpr std::string_view fst{"fst"};
+  static constexpr std::string_view snd{"snd"};
+  const std::vector args{fst, snd};
+
+  const auto read_proc = CreateProcByType(ProcedureType::READ, args);
+  const auto write_proc = CreateProcByType(ProcedureType::WRITE, args);
+
+  {
+    SCOPED_TRACE("Read query w read proc");
+    const auto query_str = fmt::format("MATCH(n) CALL {{ CALL {}() YIELD * RETURN * }} RETURN 1", read_proc);
+    const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
+    ASSERT_NE(query, nullptr);
+    CheckRWType(query, kRead);
+  }
+  {
+    SCOPED_TRACE("Write query w read proc");
+    const auto query_str = fmt::format("MERGE(n) CALL {{ CALL {}() YIELD * RETURN * }} RETURN 1", read_proc);
+    const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
+    ASSERT_NE(query, nullptr);
+    CheckRWType(query, kWrite);
+  }
+  {
+    SCOPED_TRACE("Read query w write proc");
+    const auto query_str = fmt::format("MATCH(n) CALL {{ CALL {}() YIELD * RETURN * }} RETURN 1", write_proc);
+    const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
+    ASSERT_NE(query, nullptr);
+    CheckRWType(query, kWrite);
+  }
+  {
+    SCOPED_TRACE("Write query w write proc");
+    const auto query_str = fmt::format("MERGE(n) CALL {{ CALL {}() YIELD * RETURN * }} RETURN 1", write_proc);
+    const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query_str));
+    ASSERT_NE(query, nullptr);
+    CheckRWType(query, kWrite);
   }
 }
 
@@ -3814,6 +4376,7 @@ TEST_P(CypherMainVisitorTest, MemoryLimit) {
     auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("RETURN x"));
     ASSERT_TRUE(query);
     ASSERT_FALSE(query->memory_limit_);
+    CheckRWType(query, kRead);
   }
 
   {
@@ -3822,6 +4385,7 @@ TEST_P(CypherMainVisitorTest, MemoryLimit) {
     ASSERT_TRUE(query->memory_limit_);
     ast_generator.CheckLiteral(query->memory_limit_, 12);
     ASSERT_EQ(query->memory_scale_, 1024U);
+    CheckRWType(query, kRead);
   }
 
   {
@@ -3830,6 +4394,7 @@ TEST_P(CypherMainVisitorTest, MemoryLimit) {
     ASSERT_TRUE(query->memory_limit_);
     ast_generator.CheckLiteral(query->memory_limit_, 12);
     ASSERT_EQ(query->memory_scale_, 1024U * 1024U);
+    CheckRWType(query, kRead);
   }
 
   {
@@ -3844,6 +4409,7 @@ TEST_P(CypherMainVisitorTest, MemoryLimit) {
     auto *single_query = query->single_query_;
     ASSERT_EQ(single_query->clauses_.size(), 2U);
     [[maybe_unused]] auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+    CheckRWType(query, kRead);
   }
 
   {
@@ -3861,6 +4427,7 @@ TEST_P(CypherMainVisitorTest, MemoryLimit) {
     ASSERT_TRUE(call_proc->memory_limit_);
     ast_generator.CheckLiteral(call_proc->memory_limit_, 3);
     ASSERT_EQ(call_proc->memory_scale_, 1024U);
+    CheckRWType(query, kRead);
   }
 
   {
@@ -3876,6 +4443,7 @@ TEST_P(CypherMainVisitorTest, MemoryLimit) {
     ASSERT_TRUE(call_proc->memory_limit_);
     ast_generator.CheckLiteral(call_proc->memory_limit_, 3);
     ASSERT_EQ(call_proc->memory_scale_, 1024U);
+    CheckRWType(query, kRead);
   }
 
   {
@@ -3891,6 +4459,7 @@ TEST_P(CypherMainVisitorTest, MemoryLimit) {
     ASSERT_TRUE(call_proc->memory_limit_);
     ast_generator.CheckLiteral(call_proc->memory_limit_, 3);
     ASSERT_EQ(call_proc->memory_scale_, 1024U);
+    CheckRWType(query, kRead);
   }
 
   {
@@ -3904,6 +4473,7 @@ TEST_P(CypherMainVisitorTest, MemoryLimit) {
     auto *single_query = query->single_query_;
     ASSERT_EQ(single_query->clauses_.size(), 1U);
     [[maybe_unused]] auto *call_proc = dynamic_cast<CallProcedure *>(single_query->clauses_[0]);
+    CheckRWType(query, kRead);
   }
 }
 
@@ -3919,13 +4489,27 @@ TEST_P(CypherMainVisitorTest, DropTrigger) {
 }
 
 TEST_P(CypherMainVisitorTest, ShowTriggers) {
-  auto &ast_generator = *GetParam();
+  {
+    auto &ast_generator = *GetParam();
+    TestInvalidQuery("SHOW TR", ast_generator);
+  }
 
-  TestInvalidQuery("SHOW TR", ast_generator);
-  TestInvalidQuery("SHOW TRIGGER", ast_generator);
+  {
+    auto &ast_generator = *GetParam();
+    TestInvalidQuery("SHOW TRIGGER", ast_generator);
+  }
 
-  auto *parsed_query = dynamic_cast<TriggerQuery *>(ast_generator.ParseQuery("SHOW TRIGGERS"));
-  EXPECT_EQ(parsed_query->action_, TriggerQuery::Action::SHOW_TRIGGERS);
+  {
+    auto &ast_generator = *GetParam();
+    auto *parsed_query = dynamic_cast<TriggerQuery *>(ast_generator.ParseQuery("SHOW TRIGGERS"));
+    EXPECT_EQ(parsed_query->action_, TriggerQuery::Action::SHOW_TRIGGERS);
+  }
+
+  {
+    auto &ast_generator = *GetParam();
+    auto *parsed_query = dynamic_cast<TriggerQuery *>(ast_generator.ParseQuery("SHOW TRIGGER INFO"));
+    EXPECT_EQ(parsed_query->action_, TriggerQuery::Action::SHOW_TRIGGERS);
+  }
 }
 
 namespace {
@@ -4055,6 +4639,11 @@ TEST_P(CypherMainVisitorTest, RecoverSnapshotQuery) {
 TEST_P(CypherMainVisitorTest, ShowSnapshotsQuery) {
   auto &ast_generator = *GetParam();
   ASSERT_TRUE(dynamic_cast<ShowSnapshotsQuery *>(ast_generator.ParseQuery("SHOW SNAPSHOTS")));
+}
+
+TEST_P(CypherMainVisitorTest, ShowNextSnapshotQuery) {
+  auto &ast_generator = *GetParam();
+  ASSERT_TRUE(dynamic_cast<ShowNextSnapshotQuery *>(ast_generator.ParseQuery("SHOW NEXT SNAPSHOT")));
 }
 
 void CheckOptionalExpression(Base &ast_generator, Expression *expression, const std::optional<TypedValue> &expected) {
@@ -4616,6 +5205,7 @@ TEST_P(CypherMainVisitorTest, Foreach) {
     const auto &clauses = foreach->clauses_;
     ASSERT_TRUE(clauses.size() == 1);
     ASSERT_TRUE(dynamic_cast<Create *>(clauses.front()));
+    CheckRWType(query, kWrite);
   }
   // SET
   {
@@ -4625,6 +5215,7 @@ TEST_P(CypherMainVisitorTest, Foreach) {
     const auto &clauses = foreach->clauses_;
     ASSERT_TRUE(clauses.size() == 1);
     ASSERT_TRUE(dynamic_cast<SetProperty *>(clauses.front()));
+    CheckRWType(query, kWrite);
   }
   // REMOVE
   {
@@ -4633,6 +5224,7 @@ TEST_P(CypherMainVisitorTest, Foreach) {
     const auto &clauses = foreach->clauses_;
     ASSERT_TRUE(clauses.size() == 1);
     ASSERT_TRUE(dynamic_cast<RemoveProperty *>(clauses.front()));
+    CheckRWType(query, kWrite);
   }
   // MERGE
   {
@@ -4643,6 +5235,7 @@ TEST_P(CypherMainVisitorTest, Foreach) {
     const auto &clauses = foreach->clauses_;
     ASSERT_TRUE(clauses.size() == 1);
     ASSERT_TRUE(dynamic_cast<Merge *>(clauses.front()));
+    CheckRWType(query, kWrite);
   }
   // CYPHER DELETE
   {
@@ -4651,6 +5244,7 @@ TEST_P(CypherMainVisitorTest, Foreach) {
     const auto &clauses = foreach->clauses_;
     ASSERT_TRUE(clauses.size() == 1);
     ASSERT_TRUE(dynamic_cast<Delete *>(clauses.front()));
+    CheckRWType(query, kWrite);
   }
   // nested FOREACH
   {
@@ -4661,6 +5255,7 @@ TEST_P(CypherMainVisitorTest, Foreach) {
     const auto &clauses = foreach->clauses_;
     ASSERT_TRUE(clauses.size() == 1);
     ASSERT_TRUE(dynamic_cast<Foreach *>(clauses.front()));
+    CheckRWType(query, kWrite);
   }
   // Multiple update clauses
   {
@@ -4671,6 +5266,7 @@ TEST_P(CypherMainVisitorTest, Foreach) {
     ASSERT_TRUE(clauses.size() == 2);
     ASSERT_TRUE(dynamic_cast<SetProperty *>(clauses.front()));
     ASSERT_TRUE(dynamic_cast<RemoveProperty *>(*++clauses.begin()));
+    CheckRWType(query, kWrite);
   }
 }
 
@@ -4681,11 +5277,11 @@ TEST_P(CypherMainVisitorTest, ExistsThrow) {
                                                "Identifiers are not supported in exists(...).");
 
   TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) WHERE exists() RETURN n;", ast_generator,
-                                               "EXISTS supports only a single relation as its input.");
+                                               "EXISTS supports only a single relation or a subquery as its input.");
   TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) WHERE exists((n)) RETURN n;", ast_generator,
-                                               "EXISTS supports only a single relation as its input.");
+                                               "EXISTS supports only a single relation or a subquery as its input.");
   TestInvalidQueryWithMessage<SyntaxException>("MATCH (n) WHERE exists((n)-[]) RETURN n;", ast_generator,
-                                               "EXISTS supports only a single relation as its input.");
+                                               "EXISTS supports only a single relation or a subquery as its input.");
 }
 
 TEST_P(CypherMainVisitorTest, Exists) {
@@ -4699,7 +5295,7 @@ TEST_P(CypherMainVisitorTest, Exists) {
 
     ASSERT_TRUE(exists);
 
-    const auto pattern = exists->pattern_;
+    const auto pattern = exists->GetPattern();
     ASSERT_TRUE(pattern->atoms_.size() == 3);
 
     const auto *node1 = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
@@ -4709,6 +5305,7 @@ TEST_P(CypherMainVisitorTest, Exists) {
     ASSERT_TRUE(node1);
     ASSERT_TRUE(edge);
     ASSERT_TRUE(node2);
+    CheckRWType(query, kRead);
   }
 
   {
@@ -4720,7 +5317,7 @@ TEST_P(CypherMainVisitorTest, Exists) {
 
     ASSERT_TRUE(exists);
 
-    const auto pattern = exists->pattern_;
+    const auto pattern = exists->GetPattern();
     ASSERT_TRUE(pattern->atoms_.size() == 5);
 
     const auto *node1 = dynamic_cast<NodeAtom *>(pattern->atoms_[0]);
@@ -4734,6 +5331,7 @@ TEST_P(CypherMainVisitorTest, Exists) {
     ASSERT_TRUE(node2);
     ASSERT_TRUE(edge2);
     ASSERT_TRUE(node3);
+    CheckRWType(query, kRead);
   }
 }
 
@@ -4757,6 +5355,7 @@ TEST_P(CypherMainVisitorTest, CallSubquery) {
 
     const auto *match = dynamic_cast<Match *>(subquery->single_query_->clauses_[0]);
     ASSERT_TRUE(match);
+    CheckRWType(query, kRead);
   }
 
   {
@@ -4772,6 +5371,7 @@ TEST_P(CypherMainVisitorTest, CallSubquery) {
 
     const auto unions = subquery->cypher_unions_;
     ASSERT_TRUE(unions.size() == 1);
+    CheckRWType(query, kRead);
   }
 
   {
@@ -4787,6 +5387,7 @@ TEST_P(CypherMainVisitorTest, CallSubquery) {
 
     const auto unions = subquery->cypher_unions_;
     ASSERT_TRUE(unions.size() == 1);
+    CheckRWType(query, kRead);
   }
 
   {
@@ -4808,6 +5409,28 @@ TEST_P(CypherMainVisitorTest, CallSubquery) {
 
     const auto *nested_match = dynamic_cast<Match *>(nested_cypher->single_query_->clauses_[0]);
     ASSERT_TRUE(nested_match);
+    CheckRWType(query, kRead);
+  }
+
+  {
+    const auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) CALL { CREATE () } RETURN n;"));
+    const auto *call_subquery = dynamic_cast<CallSubquery *>(query->single_query_->clauses_[1]);
+
+    const auto *subquery = dynamic_cast<CypherQuery *>(call_subquery->cypher_query_);
+    ASSERT_TRUE(subquery);
+
+    CheckRWType(query, kWrite);
+  }
+
+  {
+    const auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) CALL { MATCH (m) SET m.p = 1 } RETURN n;"));
+    const auto *call_subquery = dynamic_cast<CallSubquery *>(query->single_query_->clauses_[1]);
+
+    const auto *subquery = dynamic_cast<CypherQuery *>(call_subquery->cypher_query_);
+    ASSERT_TRUE(subquery);
+
+    CheckRWType(query, kWrite);
   }
 }
 
@@ -4842,6 +5465,7 @@ TEST_P(CypherMainVisitorTest, PatternComprehensionInReturn) {
     // Check for resultExpr_
     const auto *result_expr = pc->resultExpr_;
     ASSERT_TRUE(result_expr);
+    CheckRWType(query, kRead);
   }
   {
     const auto *query = dynamic_cast<CypherQuery *>(
@@ -4874,6 +5498,7 @@ TEST_P(CypherMainVisitorTest, PatternComprehensionInReturn) {
     // Check for resultExpr_
     const auto *result_expr = pc->resultExpr_;
     ASSERT_TRUE(result_expr);
+    CheckRWType(query, kRead);
   }
   {
     const auto *query = dynamic_cast<CypherQuery *>(
@@ -4906,6 +5531,7 @@ TEST_P(CypherMainVisitorTest, PatternComprehensionInReturn) {
     // Check for resultExpr_
     const auto *result_expr = pc->resultExpr_;
     ASSERT_TRUE(result_expr);
+    CheckRWType(query, kRead);
   }
 }
 
@@ -4941,6 +5567,7 @@ TEST_P(CypherMainVisitorTest, PatternComprehensionInWith) {
     // Check for resultExpr_
     const auto *result_expr = pc->resultExpr_;
     ASSERT_TRUE(result_expr);
+    CheckRWType(query, kRead);
   }
   {
     const auto *query = dynamic_cast<CypherQuery *>(
@@ -4973,6 +5600,7 @@ TEST_P(CypherMainVisitorTest, PatternComprehensionInWith) {
     // Check for resultExpr_
     const auto *result_expr = pc->resultExpr_;
     ASSERT_TRUE(result_expr);
+    CheckRWType(query, kRead);
   }
   {
     const auto *query = dynamic_cast<CypherQuery *>(
@@ -5005,6 +5633,7 @@ TEST_P(CypherMainVisitorTest, PatternComprehensionInWith) {
     // Check for resultExpr_
     const auto *result_expr = pc->resultExpr_;
     ASSERT_TRUE(result_expr);
+    CheckRWType(query, kRead);
   }
 }
 
@@ -5132,19 +5761,14 @@ TEST_P(CypherMainVisitorTest, TopLevelPeriodicCommitQuery) {
     ASSERT_TRUE(query->pre_query_directives_.commit_frequency_);
 
     ast_generator.CheckLiteral(query->pre_query_directives_.commit_frequency_, 10);
+    CheckRWType(query, kWrite);
   }
 
-  {
-    ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT 'a' CREATE (n);"), SyntaxException);
-  }
+  { ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT 'a' CREATE (n);"), SyntaxException); }
 
-  {
-    ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT -1 CREATE (n);"), SyntaxException);
-  }
+  { ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT -1 CREATE (n);"), SyntaxException); }
 
-  {
-    ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT 3.0 CREATE (n);"), SyntaxException);
-  }
+  { ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT 3.0 CREATE (n);"), SyntaxException); }
 
   {
     ASSERT_THROW(ast_generator.ParseQuery("USING PERIODIC COMMIT 10, PERIODIC COMMIT 10 CREATE (n);"), SyntaxException);
@@ -5171,6 +5795,7 @@ TEST_P(CypherMainVisitorTest, NestedPeriodicCommitQuery) {
     ASSERT_TRUE(nested_query->pre_query_directives_.commit_frequency_);
 
     ast_generator.CheckLiteral(nested_query->pre_query_directives_.commit_frequency_, 10);
+    CheckRWType(query, kWrite);
   }
 
   {
@@ -5210,14 +5835,14 @@ TEST_P(CypherMainVisitorTest, TtlQuery) {
   {
     const auto *query = dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("ENABLE TTL;"));
     ASSERT_NE(query, nullptr);
-    ASSERT_EQ(query->type_, TtlQuery::Type::ENABLE);
+    ASSERT_EQ(query->type_, TtlQuery::Type::START);
     ASSERT_EQ(query->period_, nullptr);
     ASSERT_EQ(query->specific_time_, nullptr);
   }
   {
     const auto *query = dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("ENABLE TTL AT \"01:23:45\";"));
     ASSERT_NE(query, nullptr);
-    ASSERT_EQ(query->type_, TtlQuery::Type::ENABLE);
+    ASSERT_EQ(query->type_, TtlQuery::Type::CONFIGURE);
     ASSERT_EQ(query->period_, nullptr);
     ASSERT_NE(query->specific_time_, nullptr);
     auto st = ast_generator.LiteralValue(query->specific_time_);
@@ -5227,7 +5852,7 @@ TEST_P(CypherMainVisitorTest, TtlQuery) {
     const auto *query =
         dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("ENABLE TTL AT \"21:09:53\" EVERY \"3h18s\";"));
     ASSERT_NE(query, nullptr);
-    ASSERT_EQ(query->type_, TtlQuery::Type::ENABLE);
+    ASSERT_EQ(query->type_, TtlQuery::Type::CONFIGURE);
     ASSERT_NE(query->period_, nullptr);
     ASSERT_NE(query->specific_time_, nullptr);
     auto p = ast_generator.LiteralValue(query->period_);
@@ -5238,7 +5863,7 @@ TEST_P(CypherMainVisitorTest, TtlQuery) {
   {
     const auto *query = dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("ENABLE TTL EVERY \"5m10s\";"));
     ASSERT_NE(query, nullptr);
-    ASSERT_EQ(query->type_, TtlQuery::Type::ENABLE);
+    ASSERT_EQ(query->type_, TtlQuery::Type::CONFIGURE);
     ASSERT_NE(query->period_, nullptr);
     ASSERT_EQ(query->specific_time_, nullptr);
     auto p = ast_generator.LiteralValue(query->period_);
@@ -5247,7 +5872,7 @@ TEST_P(CypherMainVisitorTest, TtlQuery) {
   {
     const auto *query = dynamic_cast<TtlQuery *>(ast_generator.ParseQuery("ENABLE TTL EVERY \"56m\" AT \"16:45:00\";"));
     ASSERT_NE(query, nullptr);
-    ASSERT_EQ(query->type_, TtlQuery::Type::ENABLE);
+    ASSERT_EQ(query->type_, TtlQuery::Type::CONFIGURE);
     ASSERT_NE(query->period_, nullptr);
     ASSERT_NE(query->specific_time_, nullptr);
     auto p = ast_generator.LiteralValue(query->period_);
@@ -5328,7 +5953,7 @@ TEST_P(CypherMainVisitorTest, ListComprehension) {
   }
 }
 
-TEST_P(CypherMainVisitorTest, UseHintCompositeIndices) {
+TEST_P(CypherMainVisitorTest, UseHintWithCompositeIndices) {
   auto &ast_generator = *GetParam();
   auto *query =
       dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("USING INDEX :Person(name, country) MATCH (p:Person) WHERE "
@@ -5336,10 +5961,504 @@ TEST_P(CypherMainVisitorTest, UseHintCompositeIndices) {
   ASSERT_THAT(query, NotNull());
   auto const &hints{query->pre_query_directives_.index_hints_};
   ASSERT_EQ(hints.size(), 1);
-  EXPECT_EQ(hints[0].index_type_, memgraph::query::IndexHint::IndexType::LABEL_PROPERTY);
+  EXPECT_EQ(hints[0].index_type_, memgraph::query::IndexHint::IndexType::LABEL_PROPERTIES);
   EXPECT_EQ(hints[0].label_ix_.name, "Person");
-  ASSERT_TRUE(hints[0].property_ixs_);
-  ASSERT_EQ(hints[0].property_ixs_->size(), 2);
-  EXPECT_EQ((*hints[0].property_ixs_)[0].name, "name");
-  EXPECT_EQ((*hints[0].property_ixs_)[1].name, "country");
+  ASSERT_EQ(hints[0].property_ixs_.size(), 2);
+  EXPECT_EQ((hints[0].property_ixs_)[0].path[0].name, "name");
+  EXPECT_EQ((hints[0].property_ixs_)[1].path[0].name, "country");
+}
+
+TEST_P(CypherMainVisitorTest, UseHintWithNestedCompositeIndices) {
+  auto &ast_generator = *GetParam();
+  auto *query = dynamic_cast<CypherQuery *>(
+      ast_generator.ParseQuery("USING INDEX :Person(name.first, name.second, country) MATCH (p:Person) WHERE "
+                               "p.name.first = 'Alice' AND p.name.second  = 'Smith' AND p.country = 'UK' RETURN *"));
+  ASSERT_THAT(query, NotNull());
+  auto const &hints{query->pre_query_directives_.index_hints_};
+  ASSERT_EQ(hints.size(), 1);
+  EXPECT_EQ(hints[0].index_type_, memgraph::query::IndexHint::IndexType::LABEL_PROPERTIES);
+  EXPECT_EQ(hints[0].label_ix_.name, "Person");
+  ASSERT_EQ(hints[0].property_ixs_.size(), 3);
+
+  ASSERT_EQ(hints[0].property_ixs_[0].path.size(), 2);
+  EXPECT_EQ((hints[0].property_ixs_)[0].path[0].name, "name");
+  EXPECT_EQ((hints[0].property_ixs_)[0].path[1].name, "first");
+
+  ASSERT_EQ(hints[0].property_ixs_[1].path.size(), 2);
+  EXPECT_EQ((hints[0].property_ixs_)[1].path[0].name, "name");
+  EXPECT_EQ((hints[0].property_ixs_)[1].path[1].name, "second");
+
+  ASSERT_EQ(hints[0].property_ixs_[2].path.size(), 1);
+  EXPECT_EQ((hints[0].property_ixs_)[2].path[0].name, "country");
+}
+
+TEST_P(CypherMainVisitorTest, ExistsSubqueries) {
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
+        "MATCH (person:Person) WHERE EXISTS { (person)-[:HAS_DOG]->(:Dog) } RETURN person.name AS name"));
+    ASSERT_THAT(query, NotNull());
+    ASSERT_EQ(query->single_query_->clauses_.size(), 2);
+
+    const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+    ASSERT_NE(exists, nullptr);
+
+    const auto *pattern = exists->GetPattern();
+    ASSERT_NE(pattern, nullptr);
+    const auto *subquery = exists->GetSubquery();
+    ASSERT_EQ(subquery, nullptr);
+
+    const auto *exists_pattern = exists->GetPattern();
+    ASSERT_TRUE(exists_pattern->atoms_.size() == 3);
+
+    const auto *node1 = dynamic_cast<NodeAtom *>(exists_pattern->atoms_[0]);
+    const auto *edge = dynamic_cast<EdgeAtom *>(exists_pattern->atoms_[1]);
+    const auto *node2 = dynamic_cast<NodeAtom *>(exists_pattern->atoms_[2]);
+
+    ASSERT_TRUE(node1);
+    ASSERT_TRUE(edge);
+    ASSERT_TRUE(node2);
+
+    CheckRWType(query, kRead);
+  }
+
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("MATCH (person:Person) WHERE EXISTS { MATCH (person)-[:HAS_DOG]->(dog:Dog) WHERE "
+                                 "person.name = dog.name } RETURN person.name AS name;"));
+    ASSERT_THAT(query, NotNull());
+    ASSERT_EQ(query->single_query_->clauses_.size(), 2);
+
+    const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+    ASSERT_NE(exists, nullptr);
+
+    const auto *pattern = exists->GetPattern();
+    ASSERT_EQ(pattern, nullptr);
+    const auto *subquery = exists->GetSubquery();
+    ASSERT_NE(subquery, nullptr);
+
+    ASSERT_EQ(subquery->single_query_->clauses_.size(), 1);
+    const auto *subquery_match = dynamic_cast<Match *>(subquery->single_query_->clauses_[0]);
+    ASSERT_NE(subquery_match, nullptr);
+    const auto *subquery_where = dynamic_cast<Where *>(subquery_match->where_);
+    ASSERT_NE(subquery_where, nullptr);
+
+    CheckRWType(query, kRead);
+  }
+
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
+        "WITH 'Peter' as name MATCH (person:Person {name: name}) WHERE EXISTS { WITH 'Ozzy' AS name MATCH "
+        "(person)-[:HAS_DOG]->(d:Dog) WHERE d.name = name } RETURN person.name AS name;"));
+    ASSERT_THAT(query, NotNull());
+    ASSERT_EQ(query->single_query_->clauses_.size(), 3);
+
+    const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[1]);
+    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+    ASSERT_NE(exists, nullptr);
+
+    const auto *pattern = exists->GetPattern();
+    ASSERT_EQ(pattern, nullptr);
+    const auto *subquery = exists->GetSubquery();
+    ASSERT_NE(subquery, nullptr);
+
+    ASSERT_EQ(subquery->single_query_->clauses_.size(), 2);
+    const auto *subquery_match = dynamic_cast<Match *>(subquery->single_query_->clauses_[1]);
+    ASSERT_NE(subquery_match, nullptr);
+    const auto *subquery_where = dynamic_cast<Where *>(subquery_match->where_);
+    ASSERT_NE(subquery_where, nullptr);
+
+    CheckRWType(query, kRead);
+  }
+
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("MATCH (person:Person) WHERE EXISTS { WITH 'Ozzy' AS dogName MATCH "
+                                 "(person)-[:HAS_DOG]->(d:Dog) WHERE d.name = dogName } RETURN person.name AS name;"));
+    ASSERT_THAT(query, NotNull());
+    ASSERT_EQ(query->single_query_->clauses_.size(), 2);
+
+    const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+    ASSERT_NE(exists, nullptr);
+
+    const auto *pattern = exists->GetPattern();
+    ASSERT_EQ(pattern, nullptr);
+    const auto *subquery = exists->GetSubquery();
+    ASSERT_NE(subquery, nullptr);
+
+    ASSERT_EQ(subquery->single_query_->clauses_.size(), 2);
+    const auto *subquery_match = dynamic_cast<Match *>(subquery->single_query_->clauses_[1]);
+    ASSERT_NE(subquery_match, nullptr);
+    const auto *subquery_where = dynamic_cast<Where *>(subquery_match->where_);
+    ASSERT_NE(subquery_where, nullptr);
+
+    CheckRWType(query, kRead);
+  }
+
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("MATCH (person:Person) WHERE EXISTS { WITH 'Ozzy' AS dogName MATCH "
+                                 "(person)-[:HAS_DOG]->(d:Dog) WHERE d.name = dogName } RETURN person.name AS name;"));
+    ASSERT_THAT(query, NotNull());
+    ASSERT_EQ(query->single_query_->clauses_.size(), 2);
+
+    const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+    ASSERT_NE(exists, nullptr);
+
+    const auto *pattern = exists->GetPattern();
+    ASSERT_EQ(pattern, nullptr);
+    const auto *subquery = exists->GetSubquery();
+    ASSERT_NE(subquery, nullptr);
+
+    ASSERT_EQ(subquery->single_query_->clauses_.size(), 2);
+    const auto *subquery_match = dynamic_cast<Match *>(subquery->single_query_->clauses_[1]);
+    ASSERT_NE(subquery_match, nullptr);
+    const auto *subquery_where = dynamic_cast<Where *>(subquery_match->where_);
+    ASSERT_NE(subquery_where, nullptr);
+
+    CheckRWType(query, kRead);
+  }
+
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("MATCH (person:Person) WHERE EXISTS { MATCH (person)-[:HAS_DOG]->(:Dog) RETURN "
+                                 "person.name } RETURN person.name AS name;"));
+    ASSERT_THAT(query, NotNull());
+    ASSERT_EQ(query->single_query_->clauses_.size(), 2);
+
+    const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+    ASSERT_NE(exists, nullptr);
+
+    const auto *pattern = exists->GetPattern();
+    ASSERT_EQ(pattern, nullptr);
+    const auto *subquery = exists->GetSubquery();
+    ASSERT_NE(subquery, nullptr);
+
+    ASSERT_EQ(subquery->single_query_->clauses_.size(), 2);
+    const auto *subquery_match = dynamic_cast<Match *>(subquery->single_query_->clauses_[0]);
+    ASSERT_NE(subquery_match, nullptr);
+    const auto *subquery_where = dynamic_cast<Where *>(subquery_match->where_);
+    ASSERT_EQ(subquery_where, nullptr);
+
+    CheckRWType(query, kRead);
+  }
+
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(
+        "MATCH (person:Person) WHERE EXISTS { MATCH (person)-[:HAS_DOG]->(dog:Dog) WHERE EXISTS { MATCH "
+        "(dog)-[:HAS_TOY]->(toy:Toy) WHERE toy.name = 'Banana' } } RETURN person.name AS name;"));
+    ASSERT_THAT(query, NotNull());
+    ASSERT_EQ(query->single_query_->clauses_.size(), 2);
+
+    const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+    ASSERT_NE(exists, nullptr);
+
+    const auto *pattern = exists->GetPattern();
+    ASSERT_EQ(pattern, nullptr);
+    const auto *subquery = exists->GetSubquery();
+    ASSERT_NE(subquery, nullptr);
+
+    ASSERT_EQ(subquery->single_query_->clauses_.size(), 1);
+    const auto *subquery_match = dynamic_cast<Match *>(subquery->single_query_->clauses_[0]);
+    ASSERT_NE(subquery_match, nullptr);
+    const auto *subquery_where = dynamic_cast<Where *>(subquery_match->where_);
+    ASSERT_NE(subquery_where, nullptr);
+
+    const auto *subquery_exists = dynamic_cast<Exists *>(subquery_where->expression_);
+    ASSERT_NE(subquery_exists, nullptr);
+
+    const auto *nested_pattern = subquery_exists->GetPattern();
+    ASSERT_EQ(nested_pattern, nullptr);
+    const auto *nested_subquery = subquery_exists->GetSubquery();
+    ASSERT_NE(nested_subquery, nullptr);
+
+    ASSERT_EQ(nested_subquery->single_query_->clauses_.size(), 1);
+    const auto *nested_subquery_match = dynamic_cast<Match *>(nested_subquery->single_query_->clauses_[0]);
+    ASSERT_NE(nested_subquery_match, nullptr);
+    const auto *nested_subquery_where = dynamic_cast<Where *>(subquery_match->where_);
+    ASSERT_NE(nested_subquery_where, nullptr);
+
+    CheckRWType(query, kRead);
+  }
+
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<CypherQuery *>(
+        ast_generator.ParseQuery("MATCH (person:Person) WHERE EXISTS { MATCH (person)-[:HAS_DOG]->(:Dog) UNION MATCH "
+                                 "(person)-[:HAS_CAT]->(:Cat) } RETURN person.name AS name;"));
+    ASSERT_THAT(query, NotNull());
+    ASSERT_EQ(query->single_query_->clauses_.size(), 2);
+
+    const auto *match = dynamic_cast<Match *>(query->single_query_->clauses_[0]);
+    const auto *exists = dynamic_cast<Exists *>(match->where_->expression_);
+    ASSERT_NE(exists, nullptr);
+
+    const auto *pattern = exists->GetPattern();
+    ASSERT_EQ(pattern, nullptr);
+    const auto *subquery = exists->GetSubquery();
+    ASSERT_NE(subquery, nullptr);
+
+    ASSERT_EQ(subquery->single_query_->clauses_.size(), 1);
+    ASSERT_EQ(subquery->cypher_unions_.size(), 1);
+    const auto *union_query = dynamic_cast<CypherUnion *>(subquery->cypher_unions_[0]);
+    ASSERT_NE(union_query, nullptr);
+    const auto *union_single_query = dynamic_cast<SingleQuery *>(union_query->single_query_);
+    ASSERT_NE(union_single_query, nullptr);
+    ASSERT_EQ(union_single_query->clauses_.size(), 1);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, TestShowMetricsInfo) {
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<DatabaseInfoQuery *>(ast_generator.ParseQuery("SHOW METRICS INFO"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->info_type_, DatabaseInfoQuery::InfoType::METRICS);
+  }
+
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<DatabaseInfoQuery *>(ast_generator.ParseQuery("SHOW METRICS"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->info_type_, DatabaseInfoQuery::InfoType::METRICS);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, TestShowVectorIndexInfo) {
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<DatabaseInfoQuery *>(ast_generator.ParseQuery("SHOW VECTOR INDEX INFO"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->info_type_, DatabaseInfoQuery::InfoType::VECTOR_INDEX);
+  }
+
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<DatabaseInfoQuery *>(ast_generator.ParseQuery("SHOW VECTOR INDEXES"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->info_type_, DatabaseInfoQuery::InfoType::VECTOR_INDEX);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, TestShowActiveUsersInfo) {
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<SystemInfoQuery *>(ast_generator.ParseQuery("SHOW ACTIVE USERS INFO"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->info_type_, SystemInfoQuery::InfoType::ACTIVE_USERS);
+  }
+
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<SystemInfoQuery *>(ast_generator.ParseQuery("SHOW ACTIVE USERS"));
+    ASSERT_TRUE(query);
+    EXPECT_EQ(query->info_type_, SystemInfoQuery::InfoType::ACTIVE_USERS);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, TestNestedPropertyUpdate) {
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) SET n.details.age = 21"));
+    ASSERT_NE(query, nullptr);
+
+    ASSERT_EQ(query->single_query_->clauses_.size(), 2);
+    auto *set_property = dynamic_cast<SetProperty *>(query->single_query_->clauses_[1]);
+    ASSERT_NE(set_property, nullptr);
+
+    ASSERT_EQ(set_property->property_lookup_->property_path_.size(), 2);
+    ASSERT_EQ(set_property->property_lookup_->lookup_mode_, PropertyLookup::LookupMode::REPLACE);
+  }
+  {
+    auto &ast_generator = *GetParam();
+    auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) SET n.details.details2 += {age: 21}"));
+    ASSERT_NE(query, nullptr);
+
+    ASSERT_EQ(query->single_query_->clauses_.size(), 2);
+    auto *set_property = dynamic_cast<SetProperty *>(query->single_query_->clauses_[1]);
+    ASSERT_NE(set_property, nullptr);
+
+    ASSERT_EQ(set_property->property_lookup_->property_path_.size(), 2);
+    ASSERT_EQ(set_property->property_lookup_->lookup_mode_, PropertyLookup::LookupMode::APPEND);
+  }
+  {
+    auto &ast_generator = *GetParam();
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (n) REMOVE n.details.age"));
+    ASSERT_NE(query, nullptr);
+
+    ASSERT_EQ(query->single_query_->clauses_.size(), 2);
+    auto *remove_property = dynamic_cast<RemoveProperty *>(query->single_query_->clauses_[1]);
+    ASSERT_NE(remove_property, nullptr);
+
+    ASSERT_EQ(remove_property->property_lookup_->property_path_.size(), 2);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, UserProfiles) {
+  auto &ast_generator = *GetParam();
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("CREATE PROFILE profile"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "profile");
+    ASSERT_EQ(query->limits_.size(), 0);
+    ASSERT_FALSE(query->user_or_role_);
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::CREATE);
+  }
+  {
+    auto *query =
+        dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("CREATE PROFILE profile LIMIT sessions 10"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "profile");
+    ASSERT_EQ(query->limits_.size(), 1);
+    ASSERT_FALSE(query->user_or_role_);
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::CREATE);
+  }
+  {
+    bool failed = false;
+    try {
+      (void)dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("CREATE PROFILE profile1 profile2"));
+    } catch (...) {
+      failed = true;
+    }
+    ASSERT_TRUE(failed);
+  }
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(
+        ast_generator.ParseQuery("UPDATE PROFILE profile"));  // TODO Should we support this?
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "profile");
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::UPDATE);
+  }
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(
+        ast_generator.ParseQuery("UPDATE PROFILE profile LIMIT session 1, transactions_memory 1MB"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "profile");
+    ASSERT_EQ(query->limits_.size(), 2);
+    ASSERT_FALSE(query->user_or_role_);
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::UPDATE);
+  }
+  {
+    bool failed = false;
+    try {
+      (void)ast_generator.ParseQuery("UPDATE PROFILE profile LIMIT session 1 transactions_memory 1MB");
+    } catch (...) {
+      failed = true;
+    }
+    ASSERT_TRUE(failed);
+  }
+  {
+    bool failed = false;
+    try {
+      (void)ast_generator.ParseQuery("UPDATE PROFILE profile LIMIT session 1 1MB");
+    } catch (...) {
+      failed = true;
+    }
+    ASSERT_TRUE(failed);
+  }
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("DROP PROFILE profile"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "profile");
+    ASSERT_EQ(query->limits_.size(), 0);
+    ASSERT_FALSE(query->user_or_role_);
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::DROP);
+  }
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("SHOW PROFILE profile"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "profile");
+    ASSERT_EQ(query->limits_.size(), 0);
+    ASSERT_FALSE(query->user_or_role_);
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::SHOW_ONE);
+  }
+  {
+    bool failed = false;
+    try {
+      (void)ast_generator.ParseQuery("SHOW PROFILE profile profile2");
+    } catch (...) {
+      failed = true;
+    }
+    ASSERT_TRUE(failed);
+  }
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("SHOW PROFILES"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "");
+    ASSERT_EQ(query->limits_.size(), 0);
+    ASSERT_FALSE(query->user_or_role_);
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::SHOW_ALL);
+  }
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("SHOW USERS FOR PROFILE profile"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "profile");
+    ASSERT_EQ(query->limits_.size(), 0);
+    ASSERT_FALSE(query->user_or_role_);
+    ASSERT_TRUE(query->show_user_);
+    ASSERT_TRUE(query->show_user_.value());
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::SHOW_USERS);
+  }
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("SHOW ROLES FOR PROFILE profile"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "profile");
+    ASSERT_EQ(query->limits_.size(), 0);
+    ASSERT_FALSE(query->user_or_role_);
+    ASSERT_TRUE(query->show_user_);
+    ASSERT_FALSE(query->show_user_.value());
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::SHOW_USERS);
+  }
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("SHOW PROFILE FOR user"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "");
+    ASSERT_EQ(query->limits_.size(), 0);
+    ASSERT_EQ(query->user_or_role_, "user");
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::SHOW_FOR);
+  }
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("SET PROFILE FOR user TO profile"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "profile");
+    ASSERT_EQ(query->limits_.size(), 0);
+    ASSERT_EQ(query->user_or_role_, "user");
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::SET);
+  }
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("CLEAR PROFILE FOR user"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "");
+    ASSERT_EQ(query->limits_.size(), 0);
+    ASSERT_EQ(query->user_or_role_, "user");
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::CLEAR);
+  }
+  {
+    auto *query = dynamic_cast<UserProfileQuery *>(ast_generator.ParseQuery("SHOW RESOURCE USAGE FOR user"));
+    ASSERT_TRUE(query);
+    ASSERT_EQ(query->profile_name_, "");
+    ASSERT_EQ(query->limits_.size(), 0);
+    ASSERT_EQ(query->user_or_role_, "user");
+    ASSERT_EQ(query->action_, UserProfileQuery::Action::SHOW_RESOURCE_USAGE);
+  }
+  {
+    try {
+      (void)ast_generator.ParseQuery("SHOW RESOURCE USAGE FOR user user2");
+      FAIL();
+    } catch (...) {
+    }
+  }
 }

@@ -21,14 +21,16 @@
 namespace memgraph::query::plan {
 
 PRE_VISIT(CreateNode, RWType::W, true)
-PRE_VISIT(CreateExpand, RWType::R, true)  // ?? RWType::RW
+PRE_VISIT(CreateExpand, RWType::RW, false)
 PRE_VISIT(Delete, RWType::W, true)
 
 PRE_VISIT(SetProperty, RWType::W, true)
+PRE_VISIT(SetNestedProperty, RWType::W, true)
 PRE_VISIT(SetProperties, RWType::W, true)
 PRE_VISIT(SetLabels, RWType::W, true)
 
 PRE_VISIT(RemoveProperty, RWType::W, true)
+PRE_VISIT(RemoveNestedProperty, RWType::W, true)
 PRE_VISIT(RemoveLabels, RWType::W, true)
 
 PRE_VISIT(ScanAll, RWType::R, true)

@@ -12,7 +12,6 @@
 #pragma once
 
 #include <algorithm>
-#include <chrono>
 #include <string>
 #include <unordered_map>
 #include <unordered_set>
@@ -202,5 +201,32 @@ class Iterable {
   TIterator begin_;
   TIterator end_;
 };
+
+/**
+ * Computes the cartesian product of the elements of the given vectors,
+ * and invokes the callback function for each product element.
+ * For example, given a vectors [[1, 2], [3, 4]], the callback would be invoked
+ * for [1, 3], [1, 4], [2, 3], [2, 4].
+ */
+template <typename T, typename CallbackFn>
+void cartesian_product(const std::vector<std::vector<T>> &vecs, CallbackFn callback) {
+  if (vecs.empty()) return;
+
+  std::function<void(std::size_t, std::vector<T> &)> const cartesian_product_impl = [&](size_t depth,
+                                                                                        std::vector<T> &temp) {
+    if (depth == vecs.size()) {
+      std::invoke(callback, temp);
+      return;
+    }
+
+    for (auto const &val : vecs[depth]) {
+      temp[depth] = val;
+      cartesian_product_impl(depth + 1, temp);
+    }
+  };
+
+  std::vector<T> temp(vecs.size());
+  cartesian_product_impl(0, temp);
+}
 
 }  // namespace memgraph::utils

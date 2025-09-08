@@ -112,7 +112,9 @@ def retry(retry_limit, timeout=100):
 
 @retry(3)
 def get_output(*cmd, multiple=False):
-    ret = subprocess.run(cmd, stdout=subprocess.PIPE, check=True)
+    shell = any(["|" in x for x in cmd])
+    cmd = " ".join(cmd) if shell else cmd
+    ret = subprocess.run(cmd, stdout=subprocess.PIPE, check=True, shell=shell)
     if multiple:
         return list(map(lambda x: x.strip(), ret.stdout.decode("utf-8").strip().split("\n")))
     return ret.stdout.decode("utf-8").strip()
@@ -221,7 +223,9 @@ except Exception:
 
 # Get current commit hashes.
 current_hash = get_output("git", "rev-parse", "HEAD")
-current_hash_short = get_output("git", "rev-parse", "--short", "HEAD")
+
+# --short option can be of variable length, this will fix the length to 12
+current_hash_short = get_output("git", "rev-parse", "HEAD", "|", "cut", "-c1-12")
 
 # We want to find branches that exist on some remote and that are named
 # `release/[0-9]+\.[0-9]+`.

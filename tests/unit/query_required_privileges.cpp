@@ -16,8 +16,8 @@
 #include "license/license.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
+#include "query/frontend/ast/query/user_profile.hpp"
 #include "query/frontend/semantic/required_privileges.hpp"
-#include "storage/v2/id_types.hpp"
 
 #include "query_common.hpp"
 
@@ -104,7 +104,7 @@ TEST_F(TestPrivilegeExtractor, AuthQuery) {
   auto label_privileges = std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>{};
   auto edge_type_privileges =
       std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>>{};
-  auto *query = AUTH_QUERY(AuthQuery::Action::CREATE_ROLE, "", "role", "", false, nullptr, "",
+  auto *query = AUTH_QUERY(AuthQuery::Action::CREATE_ROLE, "", std::vector<std::string>{"role"}, "", false, nullptr, "",
                            std::vector<AuthQuery::Privilege>{}, label_privileges, edge_type_privileges,
                            std::vector<std::string>{});
   EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::AUTH));
@@ -237,4 +237,9 @@ TEST_F(TestPrivilegeExtractor, CallProcedureQuery) {
     auto *query = QUERY(SINGLE_QUERY(CALL_PROCEDURE("mg.delete_module_file", {LITERAL("some_name.py")})));
     EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::MODULE_WRITE));
   }
+}
+
+TEST_F(TestPrivilegeExtractor, UserProfile) {
+  auto *query = storage.Create<UserProfileQuery>();
+  EXPECT_THAT(GetRequiredPrivileges(query), UnorderedElementsAre(AuthQuery::Privilege::PROFILE_RESTRICTION));
 }

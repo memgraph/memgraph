@@ -12,6 +12,7 @@
 import random
 
 from benchmark_context import BenchmarkContext
+from constants import GraphVendors
 from workloads.base import Workload
 from workloads.importers.importer_pokec import ImporterPokec
 
@@ -27,6 +28,12 @@ class Pokec(Workload):
         "medium": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/benchmark/pokec_medium_import.cypher",
         "large": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/benchmark/pokec_large.setup.cypher.gz",
     }
+
+    SQL_URL_FILE = {
+        "small": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/benchmark/pokec_small_import.sql",
+        "medium": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/benchmark/pokec_medium_import.sql",
+    }
+
     SIZES = {
         "small": {"vertices": 10000, "edges": 121716},
         "medium": {"vertices": 100000, "edges": 1768515},
@@ -34,8 +41,10 @@ class Pokec(Workload):
     }
 
     URL_INDEX_FILE = {
-        "memgraph": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/benchmark/memgraph.cypher",
-        "neo4j": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/benchmark/neo4j.cypher",
+        GraphVendors.MEMGRAPH: "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/benchmark/memgraph.cypher",
+        GraphVendors.NEO4J: "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/benchmark/neo4j.cypher",
+        GraphVendors.FALKORDB: "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/benchmark/falkordb.cypher",
+        GraphVendors.POSTGRESQL: "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/pokec/benchmark/postgresql.sql",
     }
 
     PROPERTIES_ON_EDGES = False
@@ -43,9 +52,10 @@ class Pokec(Workload):
     def __init__(self, variant: str = None, benchmark_context: BenchmarkContext = None):
         super().__init__(variant, benchmark_context=benchmark_context)
 
-    def custom_import(self) -> bool:
+    def custom_import(self, client) -> bool:
         importer = ImporterPokec(
             benchmark_context=self.benchmark_context,
+            client=client,
             dataset_name=self.NAME,
             index_file=self._file_index,
             dataset_file=self._file,
@@ -69,348 +79,1305 @@ class Pokec(Workload):
     # Arango benchmarks
 
     def benchmark__arango__single_vertex_read(self):
-        return ("MATCH (n:User {id : $id}) RETURN n", {"id": self._get_random_vertex()})
+        vertex_id = self._get_random_vertex()
 
-    def benchmark__arango__single_vertex_write(self):
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = "SELECT * FROM users WHERE id = %(id)s"
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "MATCH (n:User {id : $id}) RETURN n"
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
+
+    def benchmark__arango__unwind_range_vertex_write(self):
         return (
-            "CREATE (n:UserTemp {id : $id}) RETURN n",
-            {"id": random.randint(1, self._num_vertices * 10)},
-        )
-
-    def benchmark__arango__single_edge_write(self):
-        vertex_from, vertex_to = self._get_random_from_to()
-        return (
-            "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m " "CREATE (n)-[e:Temp]->(m) RETURN e",
-            {"from": vertex_from, "to": vertex_to},
-        )
-
-    def benchmark__arango__aggregate(self):
-        return ("MATCH (n:User) RETURN n.age, COUNT(*)", {})
-
-    def benchmark__arango__aggregate_with_distinct(self):
-        return ("MATCH (n:User) RETURN COUNT(DISTINCT n.age)", {})
-
-    def benchmark__arango__aggregate_with_filter(self):
-        return ("MATCH (n:User) WHERE n.age >= 18 RETURN n.age, COUNT(*)", {})
-
-    def benchmark__arango__expansion_1(self):
-        return (
-            "MATCH (s:User {id: $id})-->(n:User) " "RETURN n.id",
-            {"id": self._get_random_vertex()},
-        )
-
-    def benchmark__arango__expansion_1_with_filter(self):
-        return (
-            "MATCH (s:User {id: $id})-->(n:User) " "WHERE n.age >= 18 " "RETURN n.id",
-            {"id": self._get_random_vertex()},
-        )
-
-    def benchmark__arango__expansion_2(self):
-        return (
-            "MATCH (s:User {id: $id})-->()-->(n:User) " "RETURN DISTINCT n.id",
-            {"id": self._get_random_vertex()},
-        )
-
-    def benchmark__arango__expansion_2_with_filter(self):
-        return (
-            "MATCH (s:User {id: $id})-->()-->(n:User) " "WHERE n.age >= 18 " "RETURN DISTINCT n.id",
-            {"id": self._get_random_vertex()},
-        )
-
-    def benchmark__arango__expansion_3(self):
-        return (
-            "MATCH (s:User {id: $id})-->()-->()-->(n:User) " "RETURN DISTINCT n.id",
-            {"id": self._get_random_vertex()},
-        )
-
-    def benchmark__arango__expansion_3_with_filter(self):
-        return (
-            "MATCH (s:User {id: $id})-->()-->()-->(n:User) " "WHERE n.age >= 18 " "RETURN DISTINCT n.id",
-            {"id": self._get_random_vertex()},
-        )
-
-    def benchmark__arango__expansion_4(self):
-        return (
-            "MATCH (s:User {id: $id})-->()-->()-->()-->(n:User) " "RETURN DISTINCT n.id",
-            {"id": self._get_random_vertex()},
-        )
-
-    def benchmark__arango__expansion_4_with_filter(self):
-        return (
-            "MATCH (s:User {id: $id})-->()-->()-->()-->(n:User) " "WHERE n.age >= 18 " "RETURN DISTINCT n.id",
-            {"id": self._get_random_vertex()},
-        )
-
-    def benchmark__arango__neighbours_2(self):
-        return (
-            "MATCH (s:User {id: $id})-[*1..2]->(n:User) " "RETURN DISTINCT n.id",
-            {"id": self._get_random_vertex()},
-        )
-
-    def benchmark__arango__neighbours_2_with_filter(self):
-        return (
-            "MATCH (s:User {id: $id})-[*1..2]->(n:User) " "WHERE n.age >= 18 " "RETURN DISTINCT n.id",
-            {"id": self._get_random_vertex()},
-        )
-
-    def benchmark__arango__neighbours_2_with_data(self):
-        return (
-            "MATCH (s:User {id: $id})-[*1..2]->(n:User) " "RETURN DISTINCT n.id, n",
-            {"id": self._get_random_vertex()},
-        )
-
-    def benchmark__arango__neighbours_2_with_data_and_filter(self):
-        return (
-            "MATCH (s:User {id: $id})-[*1..2]->(n:User) " "WHERE n.age >= 18 " "RETURN DISTINCT n.id, n",
-            {"id": self._get_random_vertex()},
-        )
-
-    def benchmark__arango__shortest_path(self):
-        vertex_from, vertex_to = self._get_random_from_to()
-        memgraph = (
-            "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
-            "MATCH p=(n)-[*bfs..15]->(m) "
-            "RETURN extract(n in nodes(p) | n.id) AS path",
-            {"from": vertex_from, "to": vertex_to},
-        )
-        neo4j = (
-            "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
-            "MATCH p=shortestPath((n)-[*..15]->(m)) "
-            "RETURN [n in nodes(p) | n.id] AS path",
-            {"from": vertex_from, "to": vertex_to},
-        )
-        if self._vendor == "memgraph":
-            return memgraph
-        else:
-            return neo4j
-
-    def benchmark__arango__shortest_path_with_filter(self):
-        vertex_from, vertex_to = self._get_random_from_to()
-        memgraph = (
-            "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
-            "MATCH p=(n)-[*bfs..15 (e, n | n.age >= 18)]->(m) "
-            "RETURN extract(n in nodes(p) | n.id) AS path",
-            {"from": vertex_from, "to": vertex_to},
-        )
-
-        neo4j = (
-            "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
-            "MATCH p=shortestPath((n)-[*..15]->(m)) "
-            "WHERE all(node in nodes(p) WHERE node.age >= 18) "
-            "RETURN [n in nodes(p) | n.id] AS path",
-            {"from": vertex_from, "to": vertex_to},
-        )
-        if self._vendor == "memgraph":
-            return memgraph
-        else:
-            return neo4j
-
-    def benchmark__arango__allshortest_paths(self):
-        vertex_from, vertex_to = self._get_random_from_to()
-        memgraph = (
-            "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
-            "MATCH p=(n)-[*allshortest 2 (r, n | 1) total_weight]->(m) "
-            "RETURN extract(n in nodes(p) | n.id) AS path",
-            {"from": vertex_from, "to": vertex_to},
-        )
-        neo4j = (
-            "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m "
-            "MATCH p = allShortestPaths((n)-[*..2]->(m)) "
-            "RETURN [node in nodes(p) | node.id] AS path",
-            {"from": vertex_from, "to": vertex_to},
-        )
-        if self._vendor == "memgraph":
-            return memgraph
-        else:
-            return neo4j
-
-    # Our benchmark queries
-
-    def benchmark__create__edge(self):
-        vertex_from, vertex_to = self._get_random_from_to()
-        return (
-            "MATCH (a:User {id: $from}), (b:User {id: $to}) " "CREATE (a)-[:TempEdge]->(b)",
-            {"from": vertex_from, "to": vertex_to},
-        )
-
-    def benchmark__create__pattern(self):
-        return ("CREATE ()-[:TempEdge]->()", {})
-
-    def benchmark__create__vertex(self):
-        return ("CREATE ()", {})
-
-    def benchmark__create__vertex_big(self):
-        return (
-            "CREATE (:L1:L2:L3:L4:L5:L6:L7 {p1: true, p2: 42, "
+            "UNWIND range(1, 100) as x CREATE (:L1:L2:L3:L4:L5:L6:L7 {p1: true, p2: 42, "
             'p3: "Here is some text that is not extremely short", '
             'p4:"Short text", p5: 234.434, p6: 11.11, p7: false})',
             {},
         )
 
+    def benchmark__arango__single_vertex_write(self):
+        vertex_id = random.randint(1, self._num_vertices * 10)
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = "INSERT INTO users_temp (id) VALUES (%(id)s) RETURNING *"
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "CREATE (n:UserTemp {id : $id}) RETURN n"
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
+
+    def benchmark__arango__single_edge_write(self):
+        vertex_from, vertex_to = self._get_random_from_to()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = "INSERT INTO friendships (user_id, friend_id) VALUES (%(from)s, %(to)s) RETURNING *"
+                params = {"from": vertex_from, "to": vertex_to}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = """
+                    MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m
+                    CREATE (n)-[e:Temp]->(m) RETURN e
+                """
+                params = {"from": vertex_from, "to": vertex_to}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
+
+    def benchmark__arango__aggregate(self):
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = "SELECT age, COUNT(*) FROM users GROUP BY age"
+                params = {}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "MATCH (n:User) RETURN n.age, COUNT(*)"
+                params = {}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
+
+    def benchmark__arango__aggregate_with_distinct(self):
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = "SELECT COUNT(DISTINCT age) FROM users"
+                params = {}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "MATCH (n:User) RETURN COUNT(DISTINCT n.age)"
+                params = {}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
+
+    def benchmark__arango__aggregate_with_filter(self):
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = "SELECT age, COUNT(*) FROM users WHERE age >= 18 GROUP BY age"
+                params = {}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "MATCH (n:User) WHERE n.age >= 18 RETURN n.age, COUNT(*)"
+                params = {}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
+
+    def benchmark__arango__expansion_1(self):
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = "SELECT f.friend_id FROM friendships f WHERE f.user_id = %(id)s"
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "MATCH (s:User {id: $id})-->(n:User) RETURN n.id"
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
+
+    def benchmark__arango__expansion_1_with_filter(self):
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = """
+                    SELECT f.friend_id
+                    FROM friendships f
+                    JOIN users u ON f.friend_id = u.id
+                    WHERE f.user_id = %(id)s AND u.age >= 18
+                """
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = """
+                    MATCH (s:User {id: $id})-->(n:User)
+                    WHERE n.age >= 18
+                    RETURN n.id
+                """
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
+
+    def benchmark__arango__expansion_2(self):
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = """
+                    SELECT DISTINCT f2.friend_id
+                    FROM friendships f1
+                    JOIN friendships f2 ON f1.friend_id = f2.user_id
+                    WHERE f1.user_id = %(id)s
+                """
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "MATCH (s:User {id: $id})-->()-->(n:User) RETURN DISTINCT n.id"
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
+
+    def benchmark__arango__expansion_2_with_filter(self):
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = """
+                    SELECT DISTINCT f2.friend_id
+                    FROM friendships f1
+                    JOIN friendships f2 ON f1.friend_id = f2.user_id
+                    JOIN users u ON f2.friend_id = u.id
+                    WHERE f1.user_id = %(id)s AND u.age >= 18
+                """
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = """
+                    MATCH (s:User {id: $id})-->()-->(n:User)
+                    WHERE n.age >= 18
+                    RETURN DISTINCT n.id
+                """
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
+
+    def benchmark__arango__expansion_3(self):
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = """
+                    SELECT DISTINCT f3.friend_id
+                    FROM friendships f1
+                    JOIN friendships f2 ON f1.friend_id = f2.user_id
+                    JOIN friendships f3 ON f2.friend_id = f3.user_id
+                    WHERE f1.user_id = %(id)s
+                """
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "MATCH (s:User {id: $id})-->()-->()-->(n:User) RETURN DISTINCT n.id"
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
+
+    def benchmark__arango__expansion_3_with_filter(self):
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = """
+                    SELECT DISTINCT f3.friend_id
+                    FROM friendships f1
+                    JOIN friendships f2 ON f1.friend_id = f2.user_id
+                    JOIN friendships f3 ON f2.friend_id = f3.user_id
+                    JOIN users u ON f3.friend_id = u.id
+                    WHERE f1.user_id = %(id)s AND u.age >= 18
+                """
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = """
+                    MATCH (s:User {id: $id})-->()-->()-->(n:User)
+                    WHERE n.age >= 18
+                    RETURN DISTINCT n.id
+                """
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
+
+    def benchmark__arango__expansion_4(self):
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = """
+                    SELECT DISTINCT f4.friend_id
+                    FROM friendships f1
+                    JOIN friendships f2 ON f1.friend_id = f2.user_id
+                    JOIN friendships f3 ON f2.friend_id = f3.user_id
+                    JOIN friendships f4 ON f3.friend_id = f4.user_id
+                    WHERE f1.user_id = %(id)s
+                """
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "MATCH (s:User {id: $id})-->()-->()-->()-->(n:User) RETURN DISTINCT n.id"
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
+
+    def benchmark__arango__expansion_4_with_filter(self):
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = """
+                    SELECT DISTINCT f4.friend_id
+                    FROM friendships f1
+                    JOIN friendships f2 ON f1.friend_id = f2.user_id
+                    JOIN friendships f3 ON f2.friend_id = f3.user_id
+                    JOIN friendships f4 ON f3.friend_id = f4.user_id
+                    JOIN users u ON f4.friend_id = u.id
+                    WHERE f1.user_id = %(id)s AND u.age >= 18
+                """
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = """
+                    MATCH (s:User {id: $id})-->()-->()-->()-->(n:User)
+                    WHERE n.age >= 18
+                    RETURN DISTINCT n.id
+                """
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
+
+    def benchmark__arango__neighbours_2(self):
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = """
+                    WITH RECURSIVE friends AS (
+                        SELECT user_id, friend_id, 1 as depth
+                        FROM friendships
+                        WHERE user_id = %(id)s
+                        UNION ALL
+                        SELECT f.user_id, f.friend_id, fr.depth + 1
+                        FROM friendships f
+                        JOIN friends fr ON f.user_id = fr.friend_id
+                        WHERE fr.depth < 2
+                    )
+                    SELECT DISTINCT friend_id FROM friends
+                """
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "MATCH (s:User {id: $id})-[*1..2]->(n:User) RETURN DISTINCT n.id"
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
+
+    def benchmark__arango__neighbours_2_with_filter(self):
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = """
+                    WITH RECURSIVE friends AS (
+                        SELECT user_id, friend_id, 1 as depth
+                        FROM friendships
+                        WHERE user_id = %(id)s
+                        UNION ALL
+                        SELECT f.user_id, f.friend_id, fr.depth + 1
+                        FROM friendships f
+                        JOIN friends fr ON f.user_id = fr.friend_id
+                        WHERE fr.depth < 2
+                    )
+                    SELECT DISTINCT f.friend_id
+                    FROM friends f
+                    JOIN users u ON f.friend_id = u.id
+                    WHERE u.age >= 18
+                """
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = """
+                    MATCH (s:User {id: $id})-[*1..2]->(n:User)
+                    WHERE n.age >= 18
+                    RETURN DISTINCT n.id
+                """
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
+
+    def benchmark__arango__neighbours_2_with_data(self):
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = """
+                    WITH RECURSIVE friends AS (
+                        SELECT user_id, friend_id, 1 as depth
+                        FROM friendships
+                        WHERE user_id = %(id)s
+                        UNION ALL
+                        SELECT f.user_id, f.friend_id, fr.depth + 1
+                        FROM friendships f
+                        JOIN friends fr ON f.user_id = fr.friend_id
+                        WHERE fr.depth < 2
+                    )
+                    SELECT DISTINCT u.*
+                    FROM friends f
+                    JOIN users u ON f.friend_id = u.id
+                """
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "MATCH (s:User {id: $id})-[*1..2]->(n:User) RETURN DISTINCT n.id, n"
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
+
+    def benchmark__arango__neighbours_2_with_data_and_filter(self):
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = """
+                    WITH RECURSIVE friends AS (
+                        SELECT user_id, friend_id, 1 as depth
+                        FROM friendships
+                        WHERE user_id = %(id)s
+                        UNION ALL
+                        SELECT f.user_id, f.friend_id, fr.depth + 1
+                        FROM friendships f
+                        JOIN friends fr ON f.user_id = fr.friend_id
+                        WHERE fr.depth < 2
+                    )
+                    SELECT DISTINCT u.*
+                    FROM friends f
+                    JOIN users u ON f.friend_id = u.id
+                    WHERE u.age >= 18
+                """
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = """
+                    MATCH (s:User {id: $id})-[*1..2]->(n:User)
+                    WHERE n.age >= 18
+                    RETURN DISTINCT n.id, n
+                """
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
+
+    def benchmark__arango__shortest_path(self):
+        vertex_from, vertex_to = self._get_random_from_to()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = """
+                    WITH RECURSIVE path AS (
+                        SELECT user_id, friend_id, ARRAY[user_id, friend_id] as path, 1 as depth
+                        FROM friendships
+                        WHERE user_id = %(from)s
+                        UNION ALL
+                        SELECT p.user_id, f.friend_id, p.path || f.friend_id, p.depth + 1
+                        FROM path p
+                        JOIN friendships f ON p.friend_id = f.user_id
+                        WHERE f.friend_id != ALL(p.path)
+                        AND p.depth < 15
+                    )
+                    SELECT path
+                    FROM path
+                    WHERE friend_id = %(to)s
+                    ORDER BY depth
+                    LIMIT 1
+                """
+                params = {"from": vertex_from, "to": vertex_to}
+            case GraphVendors.MEMGRAPH:
+                query = """
+                    MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m
+                    MATCH p=(n)-[*bfs..15]->(m)
+                    RETURN extract(n in nodes(p) | n.id) AS path
+                """
+                params = {"from": vertex_from, "to": vertex_to}
+            case GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = """
+                    MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m
+                    MATCH p=shortestPath((n)-[*..15]->(m))
+                    RETURN [n in nodes(p) | n.id] AS path
+                """
+                params = {"from": vertex_from, "to": vertex_to}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
+
+    def benchmark__arango__shortest_path_with_filter(self):
+        vertex_from, vertex_to = self._get_random_from_to()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = """
+                    WITH RECURSIVE path AS (
+                        SELECT user_id, friend_id, ARRAY[user_id, friend_id] as path, 1 as depth
+                        FROM friendships f
+                        JOIN users u ON f.friend_id = u.id
+                        WHERE f.user_id = %(from)s AND u.age >= 18
+                        UNION ALL
+                        SELECT p.user_id, f.friend_id, p.path || f.friend_id, p.depth + 1
+                        FROM path p
+                        JOIN friendships f ON p.friend_id = f.user_id
+                        JOIN users u ON f.friend_id = u.id
+                        WHERE f.friend_id != ALL(p.path)
+                        AND p.depth < 15
+                        AND u.age >= 18
+                    )
+                    SELECT path
+                    FROM path
+                    WHERE friend_id = %(to)s
+                    ORDER BY depth
+                    LIMIT 1
+                """
+                params = {"from": vertex_from, "to": vertex_to}
+            case GraphVendors.MEMGRAPH:
+                query = """
+                    MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m
+                    MATCH p=(n)-[*bfs..15 (e, n | n.age >= 18)]->(m)
+                    RETURN extract(n in nodes(p) | n.id) AS path
+                """
+                params = {"from": vertex_from, "to": vertex_to}
+            case GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = """
+                    MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m
+                    MATCH p=shortestPath((n)-[*..15]->(m))
+                    WHERE all(node in nodes(p) WHERE node.age >= 18)
+                    RETURN [n in nodes(p) | n.id] AS path
+                """
+                params = {"from": vertex_from, "to": vertex_to}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
+
+    def benchmark__arango__allshortest_paths(self):
+        vertex_from, vertex_to = self._get_random_from_to()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = """
+                    WITH RECURSIVE paths AS (
+                        SELECT user_id, friend_id, ARRAY[user_id, friend_id] as path, 1 as depth
+                        FROM friendships
+                        WHERE user_id = %(from)s
+                        UNION ALL
+                        SELECT p.user_id, f.friend_id, p.path || f.friend_id, p.depth + 1
+                        FROM paths p
+                        JOIN friendships f ON p.friend_id = f.user_id
+                        WHERE f.friend_id != ALL(p.path)
+                        AND p.depth < 2
+                    )
+                    SELECT path
+                    FROM paths
+                    WHERE friend_id = %(to)s
+                """
+                params = {"from": vertex_from, "to": vertex_to}
+            case GraphVendors.MEMGRAPH:
+                query = """
+                    MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m
+                    MATCH p=(n)-[*allshortest 2 (r, n | 1) total_weight]->(m)
+                    RETURN extract(n in nodes(p) | n.id) AS path
+                """
+                params = {"from": vertex_from, "to": vertex_to}
+            case GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = """
+                    MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m
+                    MATCH p = allShortestPaths((n)-[*..2]->(m))
+                    RETURN [node in nodes(p) | node.id] AS path
+                """
+                params = {"from": vertex_from, "to": vertex_to}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
+
+    # Our benchmark queries
+
+    def benchmark__create__edge(self):
+        vertex_from, vertex_to = self._get_random_from_to()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = "INSERT INTO friendships (user_id, friend_id) VALUES (%(from)s, %(to)s) RETURNING *"
+                params = {"from": vertex_from, "to": vertex_to}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "MATCH (a:User {id: $from}), (b:User {id: $to}) CREATE (a)-[:TempEdge]->(b)"
+                params = {"from": vertex_from, "to": vertex_to}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
+
+    def benchmark__create__pattern(self):
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = "INSERT INTO friendships (user_id, friend_id) VALUES (1, 2) RETURNING *"
+                params = {}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "CREATE ()-[:TempEdge]->()"
+                params = {}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
+
+    def benchmark__create__vertex(self):
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = "INSERT INTO users_temp (id) VALUES (1) RETURNING *"
+                params = {}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "CREATE ()"
+                params = {}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
+
+    def benchmark__create__vertex_big(self):
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = """
+                    INSERT INTO users_temp (
+                        id, p1, p2, p3, p4, p5, p6, p7
+                    ) VALUES (
+                        1, true, 42, 'Here is some text that is not extremely short',
+                        'Short text', 234.434, 11.11, false
+                    ) RETURNING *
+                """
+                params = {}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = """
+                    CREATE (:L1:L2:L3:L4:L5:L6:L7 {
+                        p1: true, p2: 42,
+                        p3: "Here is some text that is not extremely short",
+                        p4: "Short text", p5: 234.434, p6: 11.11, p7: false
+                    })
+                """
+                params = {}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
+
     def benchmark__aggregation__count(self):
-        return ("MATCH (n) RETURN count(n), count(n.age)", {})
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = "SELECT COUNT(*), COUNT(age) FROM users"
+                params = {}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "MATCH (n) RETURN count(n), count(n.age)"
+                params = {}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
 
     def benchmark__aggregation__min_max_avg(self):
-        return ("MATCH (n) RETURN min(n.age), max(n.age), avg(n.age)", {})
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = "SELECT MIN(age), MAX(age), AVG(age) FROM users"
+                params = {}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "MATCH (n) RETURN min(n.age), max(n.age), avg(n.age)"
+                params = {}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
 
     def benchmark__match__pattern_cycle(self):
-        return (
-            "MATCH (n:User {id: $id})-[e1]->(m)-[e2]->(n) " "RETURN e1, m, e2",
-            {"id": self._get_random_vertex()},
-        )
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = """
+                    WITH RECURSIVE cycle AS (
+                        SELECT f1.user_id, f1.friend_id, f2.user_id as cycle_user_id
+                        FROM friendships f1
+                        JOIN friendships f2 ON f1.friend_id = f2.user_id
+                        WHERE f1.user_id = %(id)s AND f2.friend_id = %(id)s
+                    )
+                    SELECT * FROM cycle
+                """
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "MATCH (n:User {id: $id})-[e1]->(m)-[e2]->(n) RETURN e1, m, e2"
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
 
     def benchmark__match__pattern_long(self):
-        return (
-            "MATCH (n1:User {id: $id})-[e1]->(n2)-[e2]->" "(n3)-[e3]->(n4)<-[e4]-(n5) " "RETURN n5 LIMIT 1",
-            {"id": self._get_random_vertex()},
-        )
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = """
+                    SELECT f5.user_id
+                    FROM friendships f1
+                    JOIN friendships f2 ON f1.friend_id = f2.user_id
+                    JOIN friendships f3 ON f2.friend_id = f3.user_id
+                    JOIN friendships f4 ON f3.friend_id = f4.user_id
+                    JOIN friendships f5 ON f4.friend_id = f5.user_id
+                    WHERE f1.user_id = %(id)s
+                    LIMIT 1
+                """
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = """
+                    MATCH (n1:User {id: $id})-[e1]->(n2)-[e2]->(n3)-[e3]->(n4)<-[e4]-(n5)
+                    RETURN n5 LIMIT 1
+                """
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
 
     def benchmark__match__pattern_short(self):
-        return (
-            "MATCH (n:User {id: $id})-[e]->(m) " "RETURN m LIMIT 1",
-            {"id": self._get_random_vertex()},
-        )
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = "SELECT friend_id FROM friendships WHERE user_id = %(id)s LIMIT 1"
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "MATCH (n:User {id: $id})-[e]->(m) RETURN m LIMIT 1"
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
 
     def benchmark__match__vertex_on_label_property(self):
-        return (
-            "MATCH (n:User) WITH n WHERE n.id = $id RETURN n",
-            {"id": self._get_random_vertex()},
-        )
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = "SELECT * FROM users WHERE id = %(id)s"
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "MATCH (n:User) WITH n WHERE n.id = $id RETURN n"
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
 
     def benchmark__match__vertex_on_label_property_index(self):
-        return ("MATCH (n:User {id: $id}) RETURN n", {"id": self._get_random_vertex()})
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = "SELECT * FROM users WHERE id = %(id)s"
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "MATCH (n:User {id: $id}) RETURN n"
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
 
     def benchmark__match__vertex_on_property(self):
-        return ("MATCH (n:User {id: $id}) RETURN n", {"id": self._get_random_vertex()})
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = "SELECT * FROM users WHERE id = %(id)s"
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "MATCH (n:User {id: $id}) RETURN n"
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
 
     def benchmark__update__vertex_on_property(self):
-        return (
-            "MATCH (n {id: $id}) SET n.property = -1",
-            {"id": self._get_random_vertex()},
-        )
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = "UPDATE users SET property = -1 WHERE id = %(id)s RETURNING *"
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "MATCH (n {id: $id}) SET n.property = -1"
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
 
     # Basic benchmark queries
 
     def benchmark__basic__single_vertex_read_read(self):
-        return ("MATCH (n:User {id : $id}) RETURN n", {"id": self._get_random_vertex()})
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = "SELECT * FROM users WHERE id = %(id)s"
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "MATCH (n:User {id : $id}) RETURN n"
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
 
     def benchmark__basic__single_vertex_write_write(self):
-        return (
-            "CREATE (n:UserTemp {id : $id}) RETURN n",
-            {"id": random.randint(1, self._num_vertices * 10)},
-        )
+        vertex_id = random.randint(1, self._num_vertices * 10)
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = "INSERT INTO users_temp (id) VALUES (%(id)s) RETURNING *"
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "CREATE (n:UserTemp {id : $id}) RETURN n"
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
 
     def benchmark__basic__single_vertex_property_update_update(self):
-        return (
-            "MATCH (n:User {id: $id}) SET n.property = -1",
-            {"id": self._get_random_vertex()},
-        )
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = "UPDATE users SET property = -1 WHERE id = %(id)s RETURNING *"
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "MATCH (n:User {id: $id}) SET n.property = -1"
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
 
     def benchmark__basic__single_edge_write_write(self):
         vertex_from, vertex_to = self._get_random_from_to()
-        return (
-            "MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m " "CREATE (n)-[e:Temp]->(m) RETURN e",
-            {"from": vertex_from, "to": vertex_to},
-        )
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = "INSERT INTO friendships (user_id, friend_id) VALUES (%(from)s, %(to)s) RETURNING *"
+                params = {"from": vertex_from, "to": vertex_to}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = """
+                    MATCH (n:User {id: $from}), (m:User {id: $to}) WITH n, m
+                    CREATE (n)-[e:Temp]->(m) RETURN e
+                """
+                params = {"from": vertex_from, "to": vertex_to}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
 
     def benchmark__basic__aggregate_aggregate(self):
-        return ("MATCH (n:User) RETURN n.age, COUNT(*)", {})
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = "SELECT age, COUNT(*) FROM users GROUP BY age"
+                params = {}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "MATCH (n:User) RETURN n.age, COUNT(*)"
+                params = {}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
 
     def benchmark__basic__aggregate_count_aggregate(self):
-        return ("MATCH (n) RETURN count(n), count(n.age)", {})
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = "SELECT COUNT(*), COUNT(age) FROM users"
+                params = {}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "MATCH (n) RETURN count(n), count(n.age)"
+                params = {}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
 
     def benchmark__basic__aggregate_with_filter_aggregate(self):
-        return ("MATCH (n:User) WHERE n.age >= 18 RETURN n.age, COUNT(*)", {})
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = "SELECT age, COUNT(*) FROM users WHERE age >= 18 GROUP BY age"
+                params = {}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "MATCH (n:User) WHERE n.age >= 18 RETURN n.age, COUNT(*)"
+                params = {}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
 
     def benchmark__basic__min_max_avg_aggregate(self):
-        return ("MATCH (n) RETURN min(n.age), max(n.age), avg(n.age)", {})
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = "SELECT MIN(age), MAX(age), AVG(age) FROM users"
+                params = {}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "MATCH (n) RETURN min(n.age), max(n.age), avg(n.age)"
+                params = {}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
 
     def benchmark__basic__expansion_1_analytical(self):
-        return (
-            "MATCH (s:User {id: $id})-->(n:User) " "RETURN n.id",
-            {"id": self._get_random_vertex()},
-        )
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = "SELECT friend_id FROM friendships WHERE user_id = %(id)s"
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "MATCH (s:User {id: $id})-->(n:User) RETURN n.id"
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
 
     def benchmark__basic__expansion_1_with_filter_analytical(self):
-        return (
-            "MATCH (s:User {id: $id})-->(n:User) " "WHERE n.age >= 18 " "RETURN n.id",
-            {"id": self._get_random_vertex()},
-        )
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = """
+                    SELECT f.friend_id
+                    FROM friendships f
+                    JOIN users u ON f.friend_id = u.id
+                    WHERE f.user_id = %(id)s AND u.age >= 18
+                """
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = """
+                    MATCH (s:User {id: $id})-->(n:User)
+                    WHERE n.age >= 18
+                    RETURN n.id
+                """
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
 
     def benchmark__basic__expansion_2_analytical(self):
-        return (
-            "MATCH (s:User {id: $id})-->()-->(n:User) " "RETURN DISTINCT n.id",
-            {"id": self._get_random_vertex()},
-        )
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = """
+                    SELECT DISTINCT f2.friend_id
+                    FROM friendships f1
+                    JOIN friendships f2 ON f1.friend_id = f2.user_id
+                    WHERE f1.user_id = %(id)s
+                """
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "MATCH (s:User {id: $id})-->()-->(n:User) RETURN DISTINCT n.id"
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
 
     def benchmark__basic__expansion_2_with_filter_analytical(self):
-        return (
-            "MATCH (s:User {id: $id})-->()-->(n:User) " "WHERE n.age >= 18 " "RETURN DISTINCT n.id",
-            {"id": self._get_random_vertex()},
-        )
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = """
+                    SELECT DISTINCT f2.friend_id
+                    FROM friendships f1
+                    JOIN friendships f2 ON f1.friend_id = f2.user_id
+                    JOIN users u ON f2.friend_id = u.id
+                    WHERE f1.user_id = %(id)s AND u.age >= 18
+                """
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = """
+                    MATCH (s:User {id: $id})-->()-->(n:User)
+                    WHERE n.age >= 18
+                    RETURN DISTINCT n.id
+                """
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
 
     def benchmark__basic__expansion_3_analytical(self):
-        return (
-            "MATCH (s:User {id: $id})-->()-->()-->(n:User) " "RETURN DISTINCT n.id",
-            {"id": self._get_random_vertex()},
-        )
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = """
+                    SELECT DISTINCT f3.friend_id
+                    FROM friendships f1
+                    JOIN friendships f2 ON f1.friend_id = f2.user_id
+                    JOIN friendships f3 ON f2.friend_id = f3.user_id
+                    WHERE f1.user_id = %(id)s
+                """
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "MATCH (s:User {id: $id})-->()-->()-->(n:User) RETURN DISTINCT n.id"
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
 
     def benchmark__basic__expansion_3_with_filter_analytical(self):
-        return (
-            "MATCH (s:User {id: $id})-->()-->()-->(n:User) " "WHERE n.age >= 18 " "RETURN DISTINCT n.id",
-            {"id": self._get_random_vertex()},
-        )
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = """
+                    SELECT DISTINCT f3.friend_id
+                    FROM friendships f1
+                    JOIN friendships f2 ON f1.friend_id = f2.user_id
+                    JOIN friendships f3 ON f2.friend_id = f3.user_id
+                    JOIN users u ON f3.friend_id = u.id
+                    WHERE f1.user_id = %(id)s AND u.age >= 18
+                """
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = """
+                    MATCH (s:User {id: $id})-->()-->()-->(n:User)
+                    WHERE n.age >= 18
+                    RETURN DISTINCT n.id
+                """
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
 
     def benchmark__basic__expansion_4_analytical(self):
-        return (
-            "MATCH (s:User {id: $id})-->()-->()-->()-->(n:User) " "RETURN DISTINCT n.id",
-            {"id": self._get_random_vertex()},
-        )
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = """
+                    SELECT DISTINCT f4.friend_id
+                    FROM friendships f1
+                    JOIN friendships f2 ON f1.friend_id = f2.user_id
+                    JOIN friendships f3 ON f2.friend_id = f3.user_id
+                    JOIN friendships f4 ON f3.friend_id = f4.user_id
+                    WHERE f1.user_id = %(id)s
+                """
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "MATCH (s:User {id: $id})-->()-->()-->()-->(n:User) RETURN DISTINCT n.id"
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
 
     def benchmark__basic__expansion_4_with_filter_analytical(self):
-        return (
-            "MATCH (s:User {id: $id})-->()-->()-->()-->(n:User) " "WHERE n.age >= 18 " "RETURN DISTINCT n.id",
-            {"id": self._get_random_vertex()},
-        )
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = """
+                    SELECT DISTINCT f4.friend_id
+                    FROM friendships f1
+                    JOIN friendships f2 ON f1.friend_id = f2.user_id
+                    JOIN friendships f3 ON f2.friend_id = f3.user_id
+                    JOIN friendships f4 ON f3.friend_id = f4.user_id
+                    JOIN users u ON f4.friend_id = u.id
+                    WHERE f1.user_id = %(id)s AND u.age >= 18
+                """
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = """
+                    MATCH (s:User {id: $id})-->()-->()-->()-->(n:User)
+                    WHERE n.age >= 18
+                    RETURN DISTINCT n.id
+                """
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
 
     def benchmark__basic__neighbours_2_analytical(self):
-        return (
-            "MATCH (s:User {id: $id})-[*1..2]->(n:User) " "RETURN DISTINCT n.id",
-            {"id": self._get_random_vertex()},
-        )
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = """
+                    WITH RECURSIVE friends AS (
+                        SELECT user_id, friend_id, 1 as depth
+                        FROM friendships
+                        WHERE user_id = %(id)s
+                        UNION ALL
+                        SELECT f.user_id, f.friend_id, fr.depth + 1
+                        FROM friendships f
+                        JOIN friends fr ON f.user_id = fr.friend_id
+                        WHERE fr.depth < 2
+                    )
+                    SELECT DISTINCT friend_id FROM friends
+                """
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "MATCH (s:User {id: $id})-[*1..2]->(n:User) RETURN DISTINCT n.id"
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
 
     def benchmark__basic__neighbours_2_with_filter_analytical(self):
-        return (
-            "MATCH (s:User {id: $id})-[*1..2]->(n:User) " "WHERE n.age >= 18 " "RETURN DISTINCT n.id",
-            {"id": self._get_random_vertex()},
-        )
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = """
+                    WITH RECURSIVE friends AS (
+                        SELECT user_id, friend_id, 1 as depth
+                        FROM friendships
+                        WHERE user_id = %(id)s
+                        UNION ALL
+                        SELECT f.user_id, f.friend_id, fr.depth + 1
+                        FROM friendships f
+                        JOIN friends fr ON f.user_id = fr.friend_id
+                        WHERE fr.depth < 2
+                    )
+                    SELECT DISTINCT f.friend_id
+                    FROM friends f
+                    JOIN users u ON f.friend_id = u.id
+                    WHERE u.age >= 18
+                """
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = """
+                    MATCH (s:User {id: $id})-[*1..2]->(n:User)
+                    WHERE n.age >= 18
+                    RETURN DISTINCT n.id
+                """
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
 
     def benchmark__basic__neighbours_2_with_data_analytical(self):
-        return (
-            "MATCH (s:User {id: $id})-[*1..2]->(n:User) " "RETURN DISTINCT n.id, n",
-            {"id": self._get_random_vertex()},
-        )
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = """
+                    WITH RECURSIVE friends AS (
+                        SELECT user_id, friend_id, 1 as depth
+                        FROM friendships
+                        WHERE user_id = %(id)s
+                        UNION ALL
+                        SELECT f.user_id, f.friend_id, fr.depth + 1
+                        FROM friendships f
+                        JOIN friends fr ON f.user_id = fr.friend_id
+                        WHERE fr.depth < 2
+                    )
+                    SELECT DISTINCT u.*
+                    FROM friends f
+                    JOIN users u ON f.friend_id = u.id
+                """
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "MATCH (s:User {id: $id})-[*1..2]->(n:User) RETURN DISTINCT n.id, n"
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
 
     def benchmark__basic__neighbours_2_with_data_and_filter_analytical(self):
-        return (
-            "MATCH (s:User {id: $id})-[*1..2]->(n:User) " "WHERE n.age >= 18 " "RETURN DISTINCT n.id, n",
-            {"id": self._get_random_vertex()},
-        )
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = """
+                    WITH RECURSIVE friends AS (
+                        SELECT user_id, friend_id, 1 as depth
+                        FROM friendships
+                        WHERE user_id = %(id)s
+                        UNION ALL
+                        SELECT f.user_id, f.friend_id, fr.depth + 1
+                        FROM friendships f
+                        JOIN friends fr ON f.user_id = fr.friend_id
+                        WHERE fr.depth < 2
+                    )
+                    SELECT DISTINCT u.*
+                    FROM friends f
+                    JOIN users u ON f.friend_id = u.id
+                    WHERE u.age >= 18
+                """
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = """
+                    MATCH (s:User {id: $id})-[*1..2]->(n:User)
+                    WHERE n.age >= 18
+                    RETURN DISTINCT n.id, n
+                """
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
 
     def benchmark__basic__pattern_cycle_analytical(self):
-        return (
-            "MATCH (n:User {id: $id})-[e1]->(m)-[e2]->(n) " "RETURN e1, m, e2",
-            {"id": self._get_random_vertex()},
-        )
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = """
+                    WITH RECURSIVE cycle AS (
+                        SELECT f1.user_id, f1.friend_id, f2.user_id as cycle_user_id
+                        FROM friendships f1
+                        JOIN friendships f2 ON f1.friend_id = f2.user_id
+                        WHERE f1.user_id = %(id)s AND f2.friend_id = %(id)s
+                    )
+                    SELECT * FROM cycle
+                """
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "MATCH (n:User {id: $id})-[e1]->(m)-[e2]->(n) RETURN e1, m, e2"
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
 
     def benchmark__basic__pattern_long_analytical(self):
-        return (
-            "MATCH (n1:User {id: $id})-[e1]->(n2)-[e2]->" "(n3)-[e3]->(n4)<-[e4]-(n5) " "RETURN n5 LIMIT 1",
-            {"id": self._get_random_vertex()},
-        )
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = """
+                    SELECT f5.user_id
+                    FROM friendships f1
+                    JOIN friendships f2 ON f1.friend_id = f2.user_id
+                    JOIN friendships f3 ON f2.friend_id = f3.user_id
+                    JOIN friendships f4 ON f3.friend_id = f4.user_id
+                    JOIN friendships f5 ON f4.friend_id = f5.user_id
+                    WHERE f1.user_id = %(id)s
+                    LIMIT 1
+                """
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = """
+                    MATCH (n1:User {id: $id})-[e1]->(n2)-[e2]->(n3)-[e3]->(n4)<-[e4]-(n5)
+                    RETURN n5 LIMIT 1
+                """
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
 
     def benchmark__basic__pattern_short_analytical(self):
-        return (
-            "MATCH (n:User {id: $id})-[e]->(m) " "RETURN m LIMIT 1",
-            {"id": self._get_random_vertex()},
-        )
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = "SELECT friend_id FROM friendships WHERE user_id = %(id)s LIMIT 1"
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = "MATCH (n:User {id: $id})-[e]->(m) RETURN m LIMIT 1"
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
+
+    def benchmark__basic__neighbours_3_with_data_and_filter_analytical(self):
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = """
+                    WITH RECURSIVE friends AS (
+                        SELECT user_id, friend_id, 1 as depth
+                        FROM friendships
+                        WHERE user_id = %(id)s
+                        UNION ALL
+                        SELECT f.user_id, f.friend_id, fr.depth + 1
+                        FROM friendships f
+                        JOIN friends fr ON f.user_id = fr.friend_id
+                        WHERE fr.depth < 3
+                    )
+                    SELECT DISTINCT u.*
+                    FROM friends f
+                    JOIN users u ON f.friend_id = u.id
+                    WHERE u.age >= 18
+                """
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = """
+                    MATCH (s:User {id: $id})-[*1..3]->(n:User)
+                    WHERE n.age >= 18
+                    RETURN DISTINCT n.id, n
+                """
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params
+
+    def benchmark__basic__neighbours_4_with_data_and_filter_analytical(self):
+        vertex_id = self._get_random_vertex()
+
+        match self._vendor:
+            case GraphVendors.POSTGRESQL:
+                query = """
+                    WITH RECURSIVE friends AS (
+                        SELECT user_id, friend_id, 1 as depth
+                        FROM friendships
+                        WHERE user_id = %(id)s
+                        UNION ALL
+                        SELECT f.user_id, f.friend_id, fr.depth + 1
+                        FROM friendships f
+                        JOIN friends fr ON f.user_id = fr.friend_id
+                        WHERE fr.depth < 4
+                    )
+                    SELECT DISTINCT u.*
+                    FROM friends f
+                    JOIN users u ON f.friend_id = u.id
+                    WHERE u.age >= 18
+                """
+                params = {"id": vertex_id}
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
+                query = """
+                    MATCH (s:User {id: $id})-[*1..4]->(n:User)
+                    WHERE n.age >= 18
+                    RETURN DISTINCT n.id, n
+                """
+                params = {"id": vertex_id}
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
+        return query, params

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -22,22 +22,21 @@ using CachedType = utils::pmr::unordered_map<size_t, utils::pmr::vector<TypedVal
 
 struct CachedValue {
   using allocator_type = utils::Allocator<CachedValue>;
+  using alloc_traits = std::allocator_traits<allocator_type>;
 
   // Cached value, this can be probably templateized
   CachedType cache_;
 
-  explicit CachedValue(utils::MemoryResource *mem) : cache_{mem} {};
-  CachedValue(const CachedValue &other, utils::MemoryResource *mem) : cache_(other.cache_, mem) {}
-  CachedValue(CachedValue &&other, utils::MemoryResource *mem) : cache_(std::move(other.cache_), mem){};
+  explicit CachedValue(allocator_type alloc) : cache_{alloc} {};
+  CachedValue(const CachedValue &other, allocator_type alloc) : cache_(other.cache_, alloc) {}
+  CachedValue(CachedValue &&other, allocator_type alloc) : cache_(std::move(other.cache_), alloc){};
 
-  CachedValue(CachedValue &&other) noexcept : CachedValue(std::move(other), other.GetMemoryResource()) {}
+  CachedValue(CachedValue &&other) noexcept : CachedValue(std::move(other), other.get_allocator()) {}
 
   CachedValue(const CachedValue &other)
-      : CachedValue(other, std::allocator_traits<allocator_type>::select_on_container_copy_construction(
-                               other.GetMemoryResource())
-                               .GetMemoryResource()) {}
+      : CachedValue(other, alloc_traits::select_on_container_copy_construction(other.get_allocator())) {}
 
-  utils::MemoryResource *GetMemoryResource() const { return cache_.get_allocator().GetMemoryResource(); }
+  auto get_allocator() const -> allocator_type { return cache_.get_allocator(); }
 
   CachedValue &operator=(const CachedValue &) = delete;
   CachedValue &operator=(CachedValue &&) = delete;
@@ -85,22 +84,21 @@ struct CachedValue {
 class FrameChangeCollector {
   /** Allocator type so that STL containers are aware that we need one */
   using allocator_type = utils::Allocator<FrameChangeCollector>;
+  using alloc_traits = std::allocator_traits<allocator_type>;
 
  public:
-  explicit FrameChangeCollector(utils::MemoryResource *mem = utils::NewDeleteResource()) : tracked_values_{mem} {}
+  explicit FrameChangeCollector(allocator_type alloc = {}) : tracked_values_{alloc} {}
 
-  FrameChangeCollector(FrameChangeCollector &&other, utils::MemoryResource *mem)
-      : tracked_values_(std::move(other.tracked_values_), mem) {}
-  FrameChangeCollector(const FrameChangeCollector &other, utils::MemoryResource *mem)
-      : tracked_values_(other.tracked_values_, mem) {}
+  FrameChangeCollector(FrameChangeCollector &&other, allocator_type alloc)
+      : tracked_values_(std::move(other.tracked_values_), alloc) {}
+  FrameChangeCollector(const FrameChangeCollector &other, allocator_type alloc)
+      : tracked_values_(other.tracked_values_, alloc) {}
 
   FrameChangeCollector(const FrameChangeCollector &other)
-      : FrameChangeCollector(other, std::allocator_traits<allocator_type>::select_on_container_copy_construction(
-                                        other.GetMemoryResource())
-                                        .GetMemoryResource()){};
+      : FrameChangeCollector(other, alloc_traits::select_on_container_copy_construction(other.get_allocator())){};
 
   FrameChangeCollector(FrameChangeCollector &&other) noexcept
-      : FrameChangeCollector(std::move(other), other.GetMemoryResource()) {}
+      : FrameChangeCollector(std::move(other), other.get_allocator()) {}
 
   /** Copy assign other, utils::MemoryResource of `this` is used */
   FrameChangeCollector &operator=(const FrameChangeCollector &) = default;
@@ -108,7 +106,7 @@ class FrameChangeCollector {
   /** Move assign other, utils::MemoryResource of `this` is used. */
   FrameChangeCollector &operator=(FrameChangeCollector &&) noexcept = default;
 
-  utils::MemoryResource *GetMemoryResource() const { return tracked_values_.get_allocator().GetMemoryResource(); }
+  auto get_allocator() const -> allocator_type { return tracked_values_.get_allocator(); }
 
   CachedValue &AddTrackingKey(const std::string &key) {
     const auto &[it, _] = tracked_values_.emplace(

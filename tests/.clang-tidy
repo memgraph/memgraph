@@ -58,7 +58,6 @@ Checks: '*,
          -readability-named-parameter'
 WarningsAsErrors: ''
 HeaderFilterRegex: ''
-AnalyzeTemporaryDtors: false
 FormatStyle:     none
 CheckOptions:
   - key:             google-readability-braces-around-statements.ShortStatementLines

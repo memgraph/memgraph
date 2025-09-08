@@ -436,7 +436,9 @@ TypedValue Properties(const TypedValue *args, int64_t nargs, const FunctionConte
       }
     }
     for (const auto &property : *maybe_props) {
-      properties.emplace(TypedValue::TString(dba->PropertyToName(property.first), ctx.memory), property.second);
+      auto typed_value =
+          TypedValue(property.second, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory);
+      properties.emplace(TypedValue::TString(dba->PropertyToName(property.first), ctx.memory), std::move(typed_value));
     }
     return TypedValue(std::move(properties));
   };
@@ -739,7 +741,8 @@ TypedValue Values(const TypedValue *args, int64_t nargs, const FunctionContext &
       }
     }
     for (const auto &[key, value] : *maybe_props) {
-      values.emplace_back(std::move(value));
+      auto typed_value = TypedValue(value, ctx.db_accessor->GetStorageAccessor()->GetNameIdMapper(), ctx.memory);
+      values.emplace_back(std::move(typed_value));
     }
     return TypedValue(std::move(values));
   };
@@ -1465,7 +1468,7 @@ TypedValue LocalDateTime(const TypedValue *args, int64_t nargs, const FunctionCo
   }
 
   if (args[0].IsString()) {
-    const auto &[date_parameters, local_time_parameters] = ParseLocalDateTimeParameters(args[0].ValueString());
+    const auto &[date_parameters, local_time_parameters] = utils::ParseLocalDateTimeParameters(args[0].ValueString());
     return TypedValue(utils::LocalDateTime(date_parameters, local_time_parameters), ctx.memory);
   }
 
@@ -1491,7 +1494,7 @@ TypedValue Duration(const TypedValue *args, int64_t nargs, const FunctionContext
   FType<Or<String, Map>>("duration", args, nargs);
 
   if (args[0].IsString()) {
-    return TypedValue(utils::Duration(ParseDurationParameters(args[0].ValueString())), ctx.memory);
+    return TypedValue(utils::Duration(utils::ParseDurationParameters(args[0].ValueString())), ctx.memory);
   }
 
   utils::DurationParameters duration_parameters;
@@ -1534,7 +1537,7 @@ TypedValue DateTime(const TypedValue *args, int64_t nargs, const FunctionContext
   }
 
   if (args[0].IsString()) {
-    const auto &zoned_date_time_parameters = ParseZonedDateTimeParameters(args[0].ValueString());
+    const auto &zoned_date_time_parameters = utils::ParseZonedDateTimeParameters(args[0].ValueString());
     return TypedValue(utils::ZonedDateTime(zoned_date_time_parameters), ctx.memory);
   }
 
@@ -1584,7 +1587,7 @@ TypedValue Point(const TypedValue *args, int64_t nargs, const FunctionContext &c
 
   for (auto const &[k, v] : input) {
     if (v.IsNull()) {
-      return TypedValue{ctx.memory};
+      return TypedValue(ctx.memory);
     }
   }
 
@@ -1762,6 +1765,11 @@ TypedValue WithinBBox(const TypedValue *args, int64_t nargs, const FunctionConte
              : std::invoke(within_bbox_func, args[0].ValuePoint3d(), args[1].ValuePoint3d(), args[2].ValuePoint3d());
 }
 
+// Returns the current hops limit if set, otherwise null.
+TypedValue GetHopsCounter(const TypedValue * /*args*/, int64_t /*nargs*/, const FunctionContext &ctx) {
+  return TypedValue(ctx.hops_counter, ctx.memory);
+}
+
 auto const builtin_functions = absl::flat_hash_map<std::string, func_impl>{
     // Predicate functions
     {"ISEMPTY", IsEmpty},
@@ -1859,6 +1867,9 @@ auto const builtin_functions = absl::flat_hash_map<std::string, func_impl>{
     {"POINT", Point},
     {"POINT.DISTANCE", Distance},
     {"POINT.WITHINBBOX", WithinBBox},
+
+    // Functions for internal objects
+    {"GETHOPSCOUNTER", GetHopsCounter},
 };
 
 auto UserFunction(const mgp_func &func, const std::string &fully_qualified_name) -> func_impl {

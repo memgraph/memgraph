@@ -178,6 +178,9 @@ struct mgp_local_time;
 /// Local date-time stored in Memgraph.
 struct mgp_local_date_time;
 
+/// Zoned date-time stored in Memgraph.
+struct mgp_zoned_date_time;
+
 /// Duration stored in Memgraph.
 struct mgp_duration;
 
@@ -198,6 +201,7 @@ enum mgp_value_type {
   MGP_VALUE_TYPE_LOCAL_TIME,
   MGP_VALUE_TYPE_LOCAL_DATE_TIME,
   MGP_VALUE_TYPE_DURATION,
+  MGP_VALUE_TYPE_ZONED_DATE_TIME
 };
 
 enum mgp_error mgp_value_copy(struct mgp_value *val, struct mgp_memory *memory, struct mgp_value **result);
@@ -295,6 +299,14 @@ enum mgp_error mgp_value_make_local_time(struct mgp_local_time *val, struct mgp_
 /// mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate a mgp_value.
 enum mgp_error mgp_value_make_local_date_time(struct mgp_local_date_time *val, struct mgp_value **result);
 
+/// Create a mgp_value storing a mgp_zoned_date_time.
+/// You need to free the instance through mgp_value_destroy. The ownership of
+/// the zoned date-time is transferred to the created mgp_value and destroying the mgp_value will
+/// destroy the mgp_zoned_date_time. Therefore, if a mgp_value is successfully created you
+/// must not call mgp_zoned_date_time_destroy on the given zoned date-time.
+/// mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate a mgp_value.
+enum mgp_error mgp_value_make_zoned_date_time(struct mgp_zoned_date_time *val, struct mgp_value **result);
+
 /// Create a mgp_value storing a mgp_duration.
 /// You need to free the instance through mgp_value_destroy. The ownership of
 /// the duration is transferred to the created mgp_value and destroying the mgp_value will
@@ -363,6 +375,10 @@ enum mgp_error mgp_value_is_local_date_time(struct mgp_value *val, int *result);
 /// Current implementation always returns without errors.
 enum mgp_error mgp_value_is_duration(struct mgp_value *val, int *result);
 
+/// Result is non-zero if the given mgp_value stores a zoned date-time.
+/// Current implementation always returns without errors.
+enum mgp_error mgp_value_is_zoned_date_time(struct mgp_value *val, int *result);
+
 /// Get the contained boolean value.
 /// Non-zero values represent `true`, while zero represents `false`.
 /// Result is undefined if mgp_value does not contain the expected type.
@@ -429,6 +445,11 @@ enum mgp_error mgp_value_get_local_date_time(struct mgp_value *val, struct mgp_l
 /// Current implementation always returns without errors.
 enum mgp_error mgp_value_get_duration(struct mgp_value *val, struct mgp_duration **result);
 
+/// Get the contained zoned date-time.
+/// Result is undefined if mgp_value does not contain the expected type.
+/// Current implementation always returns without errors.
+enum mgp_error mgp_value_get_zoned_date_time(struct mgp_value *val, struct mgp_zoned_date_time **result);
+
 /// Create an empty list with given capacity.
 /// You need to free the created instance with mgp_list_destroy.
 /// The created list will have allocated enough memory for `capacity` elements
@@ -462,6 +483,8 @@ enum mgp_error mgp_list_append(struct mgp_list *list, struct mgp_value *val);
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_value.
 enum mgp_error mgp_list_append_extend(struct mgp_list *list, struct mgp_value *val);
 
+enum mgp_error mgp_list_append_move(struct mgp_list *list, struct mgp_value *val);
+
 /// Ensure the underlying capacity of the mgp_list is at least n.
 /// Current implementation always returns without errors.
 enum mgp_error mgp_list_reserve(struct mgp_list *list, size_t n);
@@ -483,6 +506,7 @@ enum mgp_error mgp_list_at(struct mgp_list *list, size_t index, struct mgp_value
 /// You need to free the created instance with mgp_map_destroy.
 /// mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate a mgp_map.
 enum mgp_error mgp_map_make_empty(struct mgp_memory *memory, struct mgp_map **result);
+enum mgp_error mgp_unordered_map_make_empty(struct mgp_memory *memory, struct mgp_map **result);
 
 enum mgp_error mgp_map_copy(struct mgp_map *map, struct mgp_memory *memory, struct mgp_map **result);
 
@@ -501,6 +525,8 @@ enum mgp_error mgp_map_contains_deleted(struct mgp_map *map, int *result);
 /// Return mgp_error::MGP_ERROR_KEY_ALREADY_EXISTS if a previous mapping already exists.
 enum mgp_error mgp_map_insert(struct mgp_map *map, const char *key, struct mgp_value *value);
 
+enum mgp_error mgp_map_insert_move(struct mgp_map *map, const char *key, struct mgp_value *value);
+
 /// Insert a mapping from a NULL terminated character string to a value.
 /// If a mapping with the same key already exists, it is replaced.
 /// In case of update, both the string and the value are copied into the map.
@@ -508,6 +534,8 @@ enum mgp_error mgp_map_insert(struct mgp_map *map, const char *key, struct mgp_v
 /// you still need to free their memory explicitly.
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate for insertion.
 enum mgp_error mgp_map_update(struct mgp_map *map, const char *key, struct mgp_value *value);
+
+enum mgp_error mgp_map_update_move(struct mgp_map *map, const char *key, struct mgp_value *value);
 
 // Erase a mapping by key.
 // If the key doesn't exist in the map nothing happens
@@ -945,6 +973,10 @@ enum mgp_error mgp_graph_aggregate_over_text_index(struct mgp_graph *graph, cons
 enum mgp_error mgp_graph_search_vector_index(struct mgp_graph *graph, const char *index_name, struct mgp_list *query,
                                              int result_size, struct mgp_memory *memory, struct mgp_map **result);
 
+enum mgp_error mgp_graph_search_vector_index_on_edges(struct mgp_graph *graph, const char *index_name,
+                                                      struct mgp_list *query, int result_size,
+                                                      struct mgp_memory *memory, struct mgp_map **result);
+
 enum mgp_error mgp_graph_show_index_info(struct mgp_graph *graph, struct mgp_memory *memory, struct mgp_map **result);
 
 /// Creates label index for given label.
@@ -993,13 +1025,13 @@ enum mgp_error mgp_list_all_existence_constraints(struct mgp_graph *graph, struc
 /// Creates unique constraint for given label and properties.
 /// mgp_error::MGP_ERROR_NO_ERROR is always returned.
 /// if creating unique constraint failed, result will be 0, otherwise 1.
-enum mgp_error mgp_create_unique_constraint(struct mgp_graph *graph, const char *label, struct mgp_value *properties,
+enum mgp_error mgp_create_unique_constraint(struct mgp_graph *graph, const char *label, struct mgp_list *properties,
                                             int *result);
 
 /// Drops unique constraint for given label and properties.
 /// mgp_error::MGP_ERROR_NO_ERROR is always returned.
 /// if dropping unique constraint failed, result will be 0, otherwise 1.
-enum mgp_error mgp_drop_unique_constraint(struct mgp_graph *graph, const char *label, struct mgp_value *properties,
+enum mgp_error mgp_drop_unique_constraint(struct mgp_graph *graph, const char *label, struct mgp_list *properties,
                                           int *result);
 
 /// List all unique constraints
@@ -1232,6 +1264,16 @@ struct mgp_local_date_time_parameters {
   struct mgp_local_time_parameters *local_time_parameters;
 };
 
+struct mgp_zoned_date_time_parameters {
+  struct mgp_date_parameters *date_parameters;
+  struct mgp_local_time_parameters *local_time_parameters;
+  union {
+    int32_t offset_in_minutes;
+    const char *timezone_name;
+  } timezone_info;
+  int is_named_timezone;
+};
+
 /// Create a local date-time from a string following the ISO 8601 format.
 /// Resulting local date-time must be freed with mgp_local_date_time_destroy.
 /// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if the string cannot be parsed correctly.
@@ -1311,6 +1353,92 @@ enum mgp_error mgp_local_date_time_sub_duration(struct mgp_local_date_time *loca
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_local_date_time.
 enum mgp_error mgp_local_date_time_diff(struct mgp_local_date_time *first, struct mgp_local_date_time *second,
                                         struct mgp_memory *memory, struct mgp_duration **result);
+
+/// Create a zoned date-time from a string following the ISO 8601 format.
+/// Resulting zoned date-time must be freed with mgp_zoned_date_time_destroy.
+/// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if the string cannot be parsed correctly.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_zoned_date_time.
+enum mgp_error mgp_zoned_date_time_from_string(const char *string, struct mgp_memory *memory,
+                                               struct mgp_zoned_date_time **zoned_date_time);
+
+/// Create a zoned date-time from mgp_zoned_date_time_parameters.
+/// Resulting zoned date-time must be freed with mgp_zoned_date_time_destroy.
+/// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if the parameters cannot be parsed correctly.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_zobed_date_time.
+enum mgp_error mgp_zoned_date_time_from_parameters(struct mgp_zoned_date_time_parameters *parameters,
+                                                   struct mgp_memory *memory,
+                                                   struct mgp_zoned_date_time **zoned_date_time);
+
+/// Copy a mgp_zoned_date_time.
+/// Resulting pointer must be freed with mgp_zoned_date_time_destroy.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_zoned_date_time.
+enum mgp_error mgp_zoned_date_time_copy(struct mgp_zoned_date_time *zoned_date_time, struct mgp_memory *memory,
+                                        struct mgp_zoned_date_time **result);
+
+/// Free the memory used by a mgp_zoned_date_time.
+void mgp_zoned_date_time_destroy(struct mgp_zoned_date_time *zoned_date_time);
+
+/// Result is non-zero if given zoned date-times are equal, otherwise 0.
+enum mgp_error mgp_zoned_date_time_equal(struct mgp_zoned_date_time *first, struct mgp_zoned_date_time *second,
+                                         int *result);
+
+/// Get the year property of the zoned date-time
+enum mgp_error mgp_zoned_date_time_get_year(struct mgp_zoned_date_time *zoned_date_time, int *year);
+
+/// Get the month property of the zoned date-time.
+enum mgp_error mgp_zoned_date_time_get_month(struct mgp_zoned_date_time *zoned_date_time, int *month);
+
+/// Get the day property of the zoned date-time.
+enum mgp_error mgp_zoned_date_time_get_day(struct mgp_zoned_date_time *zoned_date_time, int *day);
+
+/// Get the hour property of the zoned date-time.
+enum mgp_error mgp_zoned_date_time_get_hour(struct mgp_zoned_date_time *zoned_date_time, int *hour);
+
+/// Get the minute property of the zoned date-time.
+enum mgp_error mgp_zoned_date_time_get_minute(struct mgp_zoned_date_time *zoned_date_time, int *minute);
+
+/// Get the second property of the zoned date-time.
+enum mgp_error mgp_zoned_date_time_get_second(struct mgp_zoned_date_time *zoned_date_time, int *second);
+
+/// Get the milisecond property of the zoned date-time.
+enum mgp_error mgp_zoned_date_time_get_millisecond(struct mgp_zoned_date_time *zoned_date_time, int *millisecond);
+
+/// Get the microsecond property of the zoned date-time.
+enum mgp_error mgp_zoned_date_time_get_microsecond(struct mgp_zoned_date_time *zoned_date_time, int *microsecond);
+
+/// Get the local date-time as microseconds from Unix epoch.
+enum mgp_error mgp_zoned_date_time_timestamp(struct mgp_zoned_date_time *zoned_date_time, int64_t *timestamp);
+
+/// Get the timezone property of the zoned date-time.
+enum mgp_error mgp_zoned_date_time_get_timezone(struct mgp_zoned_date_time *zoned_date_time, char const **timezone);
+
+/// Get the offset of the zoned date-time.
+enum mgp_error mgp_zoned_date_time_get_offset(struct mgp_zoned_date_time *zoned_date_time, int *offset);
+
+/// Add a duration to the zoned date-time.
+/// Resulting zoned date-time must be freed with mgp_zoned_date_time_destroy.
+/// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if the operation results in an invalid zoned date-time.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_zoned_date_time.
+enum mgp_error mgp_zoned_date_time_add_duration(struct mgp_zoned_date_time *zoned_date_time, struct mgp_duration *dur,
+                                                struct mgp_memory *memory, struct mgp_zoned_date_time **result);
+
+/// Subtract a duration from the zoned date-time.
+/// Resulting zoned date-time must be freed with mgp_zoned_date_time_destroy.
+/// Return mgp_error::MGP_ERROR_INVALID_ARGUMENT if the operation results in an invalid zoned date-time.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_zoned_date_time.
+enum mgp_error mgp_zoned_date_time_sub_duration(struct mgp_zoned_date_time *zoned_date_time, struct mgp_duration *dur,
+                                                struct mgp_memory *memory, struct mgp_zoned_date_time **result);
+
+/// Get a duration between two zoned date-times.
+/// Resulting duration must be freed with mgp_duration_destroy.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_zoned_date_time.
+enum mgp_error mgp_zoned_date_time_diff(struct mgp_zoned_date_time *first, struct mgp_zoned_date_time *second,
+                                        struct mgp_memory *memory, struct mgp_duration **result);
+
+/// Get the zoned date-time representing current date and time.
+/// Resulting zoned date-time must be freed with mgp_zoned_date_time_destroy.
+/// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if unable to allocate a mgp_zoned_date_time.
+enum mgp_error mgp_zoned_date_time_now(struct mgp_memory *memory, struct mgp_zoned_date_time **zoned_date_time);
 
 struct mgp_duration_parameters {
   double day;

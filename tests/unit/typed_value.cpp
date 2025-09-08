@@ -138,47 +138,6 @@ TEST(TypedValue, CreationValues) {
   EXPECT_EQ(TypedValue(point3d_val).ValuePoint3d(), point3d_val);
 }
 
-TEST(TypedValue, CreationValuesFromPropertyValues) {
-  auto pv_true = PropertyValue{true};
-  EXPECT_EQ(TypedValue(pv_true).ValueBool(), true);
-  EXPECT_EQ(TypedValue(PropertyValue{true}).ValueBool(), true);
-
-  auto pv_false = PropertyValue{false};
-  EXPECT_EQ(TypedValue(pv_false).ValueBool(), false);
-  EXPECT_EQ(TypedValue(PropertyValue{false}).ValueBool(), false);
-
-  auto pv_str1 = PropertyValue{std::string("bla")};
-  EXPECT_EQ(TypedValue(pv_str1).ValueString(), "bla");
-  EXPECT_EQ(TypedValue(PropertyValue{std::string("bla")}).ValueString(), "bla");
-
-  auto pv_str2 = PropertyValue{"bla2"};
-  EXPECT_EQ(TypedValue(pv_str2).ValueString(), "bla2");
-  EXPECT_EQ(TypedValue(PropertyValue{"bla2"}).ValueString(), "bla2");
-
-  auto pv_int = PropertyValue{55};
-  EXPECT_EQ(TypedValue(pv_int).ValueInt(), 55);
-  EXPECT_EQ(TypedValue(PropertyValue{55}).ValueInt(), 55);
-
-  auto pv_double = PropertyValue{66.6};
-  EXPECT_FLOAT_EQ(TypedValue(pv_double).ValueDouble(), 66.6);
-  EXPECT_FLOAT_EQ(TypedValue(PropertyValue{66.6}).ValueDouble(), 66.6);
-
-  auto enum_val = Enum{EnumTypeId{2}, EnumValueId{42}};
-  auto pv_enum = PropertyValue{enum_val};
-  EXPECT_EQ(TypedValue(pv_enum).ValueEnum(), enum_val);
-  EXPECT_EQ(TypedValue(PropertyValue{enum_val}).ValueEnum(), enum_val);
-
-  auto point2d_val = Point2d{Cartesian_2d, 1.0, 2.0};
-  auto pv_point2d = PropertyValue{point2d_val};
-  EXPECT_EQ(TypedValue(pv_point2d).ValuePoint2d(), point2d_val);
-  EXPECT_EQ(TypedValue(PropertyValue{pv_point2d}).ValuePoint2d(), point2d_val);
-
-  auto point3d_val = Point3d{Cartesian_3d, 1.0, 2.0, 3.0};
-  auto pv_point3d = PropertyValue{point3d_val};
-  EXPECT_EQ(TypedValue(pv_point3d).ValuePoint3d(), point3d_val);
-  EXPECT_EQ(TypedValue(PropertyValue{pv_point3d}).ValuePoint3d(), point3d_val);
-}
-
 TEST(TypedValue, Equals) {
   EXPECT_PROP_EQ(TypedValue(true), TypedValue(true));
   EXPECT_PROP_NE(TypedValue(true), TypedValue(false));
@@ -343,6 +302,47 @@ TEST(TypedValue, Hash) {
   EXPECT_NE(hash(TypedValue{Point2d{Cartesian_2d, 1.0, 2.0}}), hash(TypedValue{Point2d{WGS84_2d, 1.0, 2.0}}));
   EXPECT_NE(hash(TypedValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}}), hash(TypedValue{Point3d{WGS84_3d, 1.0, 2.0, 3.0}}));
   EXPECT_NE(hash(TypedValue{Point3d{WGS84_3d, 1.0, 2.0, 3.0}}), hash(TypedValue{Point3d{WGS84_3d, 1.0, 2.0, 0.0}}));
+}
+
+TYPED_TEST(AllTypesFixture, CreationValuesFromPropertyValues) {
+  auto pv_true = PropertyValue{true};
+  EXPECT_EQ(TypedValue(pv_true, this->storage_dba->GetNameIdMapper()).ValueBool(), true);
+  EXPECT_EQ(TypedValue(PropertyValue{true}, this->storage_dba->GetNameIdMapper()).ValueBool(), true);
+
+  auto pv_false = PropertyValue{false};
+  EXPECT_EQ(TypedValue(pv_false, this->storage_dba->GetNameIdMapper()).ValueBool(), false);
+  EXPECT_EQ(TypedValue(PropertyValue{false}, this->storage_dba->GetNameIdMapper()).ValueBool(), false);
+
+  auto pv_str1 = PropertyValue{std::string("bla")};
+  EXPECT_EQ(TypedValue(pv_str1, this->storage_dba->GetNameIdMapper()).ValueString(), "bla");
+  EXPECT_EQ(TypedValue(PropertyValue{std::string("bla")}, this->storage_dba->GetNameIdMapper()).ValueString(), "bla");
+
+  auto pv_str2 = PropertyValue{"bla2"};
+  EXPECT_EQ(TypedValue(pv_str2, this->storage_dba->GetNameIdMapper()).ValueString(), "bla2");
+  EXPECT_EQ(TypedValue(PropertyValue{"bla2"}, this->storage_dba->GetNameIdMapper()).ValueString(), "bla2");
+
+  auto pv_int = PropertyValue{55};
+  EXPECT_EQ(TypedValue(pv_int, this->storage_dba->GetNameIdMapper()).ValueInt(), 55);
+  EXPECT_EQ(TypedValue(PropertyValue{55}, this->storage_dba->GetNameIdMapper()).ValueInt(), 55);
+
+  auto pv_double = PropertyValue{66.6};
+  EXPECT_FLOAT_EQ(TypedValue(pv_double, this->storage_dba->GetNameIdMapper()).ValueDouble(), 66.6);
+  EXPECT_FLOAT_EQ(TypedValue(PropertyValue{66.6}, this->storage_dba->GetNameIdMapper()).ValueDouble(), 66.6);
+
+  auto enum_val = Enum{EnumTypeId{2}, EnumValueId{42}};
+  auto pv_enum = PropertyValue{enum_val};
+  EXPECT_EQ(TypedValue(pv_enum, this->storage_dba->GetNameIdMapper()).ValueEnum(), enum_val);
+  EXPECT_EQ(TypedValue(PropertyValue{enum_val}, this->storage_dba->GetNameIdMapper()).ValueEnum(), enum_val);
+
+  auto point2d_val = Point2d{Cartesian_2d, 1.0, 2.0};
+  auto pv_point2d = PropertyValue{point2d_val};
+  EXPECT_EQ(TypedValue(pv_point2d, this->storage_dba->GetNameIdMapper()).ValuePoint2d(), point2d_val);
+  EXPECT_EQ(TypedValue(PropertyValue{pv_point2d}, this->storage_dba->GetNameIdMapper()).ValuePoint2d(), point2d_val);
+
+  auto point3d_val = Point3d{Cartesian_3d, 1.0, 2.0, 3.0};
+  auto pv_point3d = PropertyValue{point3d_val};
+  EXPECT_EQ(TypedValue(pv_point3d, this->storage_dba->GetNameIdMapper()).ValuePoint3d(), point3d_val);
+  EXPECT_EQ(TypedValue(PropertyValue{pv_point3d}, this->storage_dba->GetNameIdMapper()).ValuePoint3d(), point3d_val);
 }
 
 TYPED_TEST(AllTypesFixture, Less) {
@@ -704,12 +704,12 @@ TYPED_TEST(AllTypesFixture, ConstructionWithMemoryResource) {
   memgraph::utils::MonotonicBufferResource monotonic_memory(1024);
   std::vector<TypedValue> values_with_custom_memory;
   for (const auto &value : this->values_) {
-    EXPECT_EQ(value.GetMemoryResource(), memgraph::utils::NewDeleteResource());
+    EXPECT_EQ(value.get_allocator().resource(), memgraph::utils::NewDeleteResource());
     TypedValue copy_constructed_value(value, &monotonic_memory);
-    EXPECT_EQ(copy_constructed_value.GetMemoryResource(), &monotonic_memory);
+    EXPECT_EQ(copy_constructed_value.get_allocator().resource(), &monotonic_memory);
     values_with_custom_memory.emplace_back(std::move(copy_constructed_value));
     const auto &move_constructed_value = values_with_custom_memory.back();
-    EXPECT_EQ(move_constructed_value.GetMemoryResource(), &monotonic_memory);
+    EXPECT_EQ(move_constructed_value.get_allocator().resource(), &monotonic_memory);
   }
 }
 
@@ -717,15 +717,15 @@ TYPED_TEST(AllTypesFixture, ConstructionWithMemoryResource) {
 TYPED_TEST(AllTypesFixture, AssignmentWithMemoryResource) {
   std::vector<TypedValue> values_with_default_memory;
   memgraph::utils::MonotonicBufferResource monotonic_memory(1024);
-  for (const auto &value : this->values_) {
-    EXPECT_EQ(value.GetMemoryResource(), memgraph::utils::NewDeleteResource());
+  for (TypedValue const &value : this->values_) {
+    ASSERT_EQ(value.get_allocator().resource(), memgraph::utils::NewDeleteResource());
     TypedValue copy_assigned_value(&monotonic_memory);
     copy_assigned_value = value;
-    EXPECT_EQ(copy_assigned_value.GetMemoryResource(), &monotonic_memory);
+    ASSERT_TRUE(copy_assigned_value.get_allocator().resource()->is_equal(monotonic_memory)) << value.type();
     values_with_default_memory.emplace_back(memgraph::utils::NewDeleteResource());
     auto &move_assigned_value = values_with_default_memory.back();
     move_assigned_value = std::move(copy_assigned_value);
-    EXPECT_EQ(move_assigned_value.GetMemoryResource(), memgraph::utils::NewDeleteResource());
+    ASSERT_EQ(move_assigned_value.get_allocator().resource(), memgraph::utils::NewDeleteResource());
   }
 }
 
@@ -734,15 +734,15 @@ TYPED_TEST(AllTypesFixture, PropagationOfMemoryOnConstruction) {
   memgraph::utils::MonotonicBufferResource monotonic_memory(1024);
   std::vector<TypedValue, memgraph::utils::Allocator<TypedValue>> values_with_custom_memory(&monotonic_memory);
   for (const auto &value : this->values_) {
-    EXPECT_EQ(value.GetMemoryResource(), memgraph::utils::NewDeleteResource());
+    EXPECT_EQ(value.get_allocator().resource(), memgraph::utils::NewDeleteResource());
     values_with_custom_memory.emplace_back(value);
     const auto &copy_constructed_value = values_with_custom_memory.back();
-    EXPECT_EQ(copy_constructed_value.GetMemoryResource(), &monotonic_memory);
+    EXPECT_EQ(copy_constructed_value.get_allocator().resource(), &monotonic_memory);
     TypedValue copy(values_with_custom_memory.back());
-    EXPECT_EQ(copy.GetMemoryResource(), memgraph::utils::NewDeleteResource());
+    EXPECT_EQ(copy.get_allocator().resource(), memgraph::utils::NewDeleteResource());
     values_with_custom_memory.emplace_back(std::move(copy));
     const auto &move_constructed_value = values_with_custom_memory.back();
-    EXPECT_EQ(move_constructed_value.GetMemoryResource(), &monotonic_memory);
+    EXPECT_EQ(move_constructed_value.get_allocator().resource(), &monotonic_memory);
     if (value.type() == TypedValue::Type::List) {
       ASSERT_EQ(move_constructed_value.type(), value.type());
       const auto &original = value.ValueList();
@@ -751,9 +751,9 @@ TYPED_TEST(AllTypesFixture, PropagationOfMemoryOnConstruction) {
       ASSERT_EQ(moved.size(), original.size());
       ASSERT_EQ(copied.size(), original.size());
       for (size_t i = 0; i < value.ValueList().size(); ++i) {
-        EXPECT_EQ(original[i].GetMemoryResource(), memgraph::utils::NewDeleteResource());
-        EXPECT_EQ(moved[i].GetMemoryResource(), &monotonic_memory);
-        EXPECT_EQ(copied[i].GetMemoryResource(), &monotonic_memory);
+        EXPECT_EQ(original[i].get_allocator().resource(), memgraph::utils::NewDeleteResource());
+        EXPECT_EQ(moved[i].get_allocator().resource(), &monotonic_memory);
+        EXPECT_EQ(copied[i].get_allocator().resource(), &monotonic_memory);
         EXPECT_TRUE(TypedValue::BoolEqual{}(original[i], moved[i]));
         EXPECT_TRUE(TypedValue::BoolEqual{}(original[i], copied[i]));
       }
@@ -763,8 +763,8 @@ TYPED_TEST(AllTypesFixture, PropagationOfMemoryOnConstruction) {
       const auto &moved = move_constructed_value.ValueMap();
       const auto &copied = copy_constructed_value.ValueMap();
       auto expect_allocator = [](const auto &kv, auto *memory_resource) {
-        EXPECT_EQ(*kv.first.get_allocator().GetMemoryResource(), *memory_resource);
-        EXPECT_EQ(*kv.second.GetMemoryResource(), *memory_resource);
+        EXPECT_EQ(*kv.first.get_allocator().resource(), *memory_resource);
+        EXPECT_EQ(*kv.second.get_allocator().resource(), *memory_resource);
       };
       for (const auto &kv : original) {
         expect_allocator(kv, memgraph::utils::NewDeleteResource());
@@ -782,25 +782,25 @@ TYPED_TEST(AllTypesFixture, PropagationOfMemoryOnConstruction) {
       const auto &original = value.ValuePath();
       const auto &moved = move_constructed_value.ValuePath();
       const auto &copied = copy_constructed_value.ValuePath();
-      EXPECT_EQ(original.GetMemoryResource(), memgraph::utils::NewDeleteResource());
+      EXPECT_EQ(original.get_allocator().resource(), memgraph::utils::NewDeleteResource());
       EXPECT_EQ(moved.vertices(), original.vertices());
       EXPECT_EQ(moved.edges(), original.edges());
-      EXPECT_EQ(moved.GetMemoryResource(), &monotonic_memory);
+      EXPECT_EQ(moved.get_allocator().resource(), &monotonic_memory);
       EXPECT_EQ(copied.vertices(), original.vertices());
       EXPECT_EQ(copied.edges(), original.edges());
-      EXPECT_EQ(copied.GetMemoryResource(), &monotonic_memory);
+      EXPECT_EQ(copied.get_allocator().resource(), &monotonic_memory);
     } else if (value.type() == TypedValue::Type::Graph) {
       ASSERT_EQ(move_constructed_value.type(), value.type());
       const auto &original = value.ValueGraph();
       const auto &moved = move_constructed_value.ValueGraph();
       const auto &copied = copy_constructed_value.ValueGraph();
-      EXPECT_EQ(original.GetMemoryResource(), memgraph::utils::NewDeleteResource());
+      EXPECT_EQ(original.get_allocator().resource(), memgraph::utils::NewDeleteResource());
       EXPECT_EQ(moved.vertices(), original.vertices());
       EXPECT_EQ(moved.edges(), original.edges());
-      EXPECT_EQ(moved.GetMemoryResource(), &monotonic_memory);
+      EXPECT_EQ(moved.get_allocator().resource(), &monotonic_memory);
       EXPECT_EQ(copied.vertices(), original.vertices());
       EXPECT_EQ(copied.edges(), original.edges());
-      EXPECT_EQ(copied.GetMemoryResource(), &monotonic_memory);
+      EXPECT_EQ(copied.get_allocator().resource(), &monotonic_memory);
     }
   }
 }

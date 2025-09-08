@@ -16,9 +16,11 @@
 #include <string_view>
 #include <vector>
 
-#include "query/frontend/ast/ast.hpp"  // overkill
+#include "query/frontend/ast/query/auth_query.hpp"
+#include "query/frontend/ast/query/user_profile.hpp"
 #include "query/typed_value.hpp"
 #include "system/system.hpp"
+#include "utils/resource_monitoring.hpp"
 
 namespace memgraph::query {
 
@@ -62,9 +64,14 @@ class AuthQueryHandler {
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void RevokeDatabase(const std::string &db, const std::string &username, system::Transaction *system_tx) = 0;
 
+  using DatabasePrivileges = std::vector<std::vector<memgraph::query::TypedValue>>;
+
   /// Returns database access rights for the user
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::vector<std::vector<memgraph::query::TypedValue>> GetDatabasePrivileges(const std::string &username) = 0;
+  virtual DatabasePrivileges GetDatabasePrivileges(const std::string &user, const std::vector<std::string> &roles) = 0;
+  DatabasePrivileges GetDatabasePrivileges(const std::string &user_or_role) {
+    return GetDatabasePrivileges(user_or_role, {user_or_role});
+  }
 
   /// Return true if main database set successfully
   /// @throw QueryRuntimeException if an error ocurred.
@@ -73,6 +80,11 @@ class AuthQueryHandler {
   /// Delete database from all users
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void DeleteDatabase(std::string_view db, system::Transaction *system_tx) = 0;
+
+  /// Get the main database for a user or role
+  /// @return Optional database access if user/role exists and has a main database set
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual std::optional<std::string> GetMainDatabase(const std::string &user_or_role) = 0;
 #endif
 
   /// Return false if the role already exists.
@@ -83,6 +95,10 @@ class AuthQueryHandler {
   /// @throw QueryRuntimeException if an error ocurred.
   virtual bool DropRole(const std::string &rolename, system::Transaction *system_tx) = 0;
 
+  /// Return true if the role exists.
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual bool HasRole(const std::string &rolename) = 0;
+
   /// @throw QueryRuntimeException if an error ocurred.
   virtual std::vector<memgraph::query::TypedValue> GetUsernames() = 0;
 
@@ -90,18 +106,25 @@ class AuthQueryHandler {
   virtual std::vector<memgraph::query::TypedValue> GetRolenames() = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual std::optional<std::string> GetRolenameForUser(const std::string &username) = 0;
+  virtual std::vector<std::string> GetRolenamesForUser(const std::string &username,
+                                                       std::optional<std::string> db_name) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual std::vector<memgraph::query::TypedValue> GetUsernamesForRole(const std::string &rolename) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void SetRole(const std::string &username, const std::string &rolename, system::Transaction *system_tx) = 0;
+  virtual void SetRoles(const std::string &username, const std::vector<std::string> &roles,
+                        const std::unordered_set<std::string> &role_databases, system::Transaction *system_tx) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
-  virtual void ClearRole(const std::string &username, system::Transaction *system_tx) = 0;
+  virtual void RemoveRole(const std::string &username, const std::string &rolename, system::Transaction *system_tx) = 0;
 
-  virtual std::vector<std::vector<memgraph::query::TypedValue>> GetPrivileges(const std::string &user_or_role) = 0;
+  /// @throw QueryRuntimeException if an error ocurred.
+  virtual void ClearRoles(const std::string &username, const std::unordered_set<std::string> &role_databases,
+                          system::Transaction *system_tx) = 0;
+
+  virtual std::vector<std::vector<memgraph::query::TypedValue>> GetPrivileges(const std::string &user_or_role,
+                                                                              std::optional<std::string>) = 0;
 
   /// @throw QueryRuntimeException if an error ocurred.
   virtual void GrantPrivilege(
@@ -141,6 +164,25 @@ class AuthQueryHandler {
                                     system::Transaction *system_tx) = 0;
   virtual void DenyImpersonateUser(const std::string &user_or_role, const std::vector<std::string> &targets,
                                    system::Transaction *system_tx) = 0;
+#endif
+
+// User profiles
+#ifdef MG_ENTERPRISE
+  virtual void CreateProfile(const std::string &profile_name, const UserProfileQuery::limits_t &defined_limits,
+                             const std::unordered_set<std::string> &usernames, system::Transaction *system_tx) = 0;
+  virtual void UpdateProfile(const std::string &profile_name, const UserProfileQuery::limits_t &updated_limits,
+                             system::Transaction *system_tx) = 0;
+  virtual void DropProfile(const std::string &profile_name, system::Transaction *system_tx) = 0;
+  virtual UserProfileQuery::limits_t GetProfile(std::string_view name) = 0;
+  virtual std::vector<std::pair<std::string, UserProfileQuery::limits_t>> AllProfiles() = 0;
+  virtual void SetProfile(const std::string &profile_name, const std::string &user_or_role,
+                          system::Transaction *system_tx) = 0;
+  virtual void RevokeProfile(const std::string &user_or_role, system::Transaction *system_tx) = 0;
+  virtual std::optional<std::string> GetProfileForUser(const std::string &user_or_role) = 0;
+  virtual std::vector<std::string> GetUsernamesForProfile(const std::string &profile_name) = 0;
+  // Role-based profile management is no longer supported
+  virtual std::optional<std::string> GetProfileForRole(const std::string &user_or_role) = 0;
+  virtual std::vector<std::string> GetRolenamesForProfile(const std::string &profile_name) = 0;
 #endif
 };
 

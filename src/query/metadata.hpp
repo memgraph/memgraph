@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,7 +14,6 @@
 #include <cstdint>
 #include <map>
 #include <string>
-#include <string_view>
 #include <type_traits>
 
 #include "query/typed_value.hpp"
@@ -49,6 +48,7 @@ enum class NotificationCode : uint8_t {
   UNREGISTER_INSTANCE,
   DEMOTE_INSTANCE_TO_REPLICA,
   FORCE_RESET_CLUSTER_STATE,
+  YIELD_LEADERSHIP,
 #endif
   SET_REPLICA,
   START_STREAM,

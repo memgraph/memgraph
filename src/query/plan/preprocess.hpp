@@ -19,10 +19,15 @@
 #include <utility>
 #include <vector>
 
+// TODO: remove once ast is split over multiple files
+#include "frontend/ast/query/pattern_comprehension.hpp"
 #include "query/frontend/ast/ast.hpp"
+
 #include "query/frontend/ast/ast_visitor.hpp"
+#include "query/frontend/ast/query/identifier.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/point_distance_condition.hpp"
+#include "utils/transparent_compare.hpp"
 
 namespace memgraph::query::plan {
 
@@ -79,19 +84,41 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
   }
 
   bool Visit(Identifier &ident) override {
-    if (!in_exists || ident.user_declared_) {
+    const bool is_ordinary_flow = !in_exists && !in_pattern_comprehension;
+    if (is_ordinary_flow) {
+      symbols_.insert(symbol_table_.at(ident));
+    } else if (ident.user_declared_) {
       symbols_.insert(symbol_table_.at(ident));
     }
-
     return true;
   }
 
   bool PreVisit(Exists &exists) override {
     in_exists = true;
 
-    // We do not visit pattern identifier since we're in exists filter pattern
-    for (auto &atom : exists.pattern_->atoms_) {
-      atom->Accept(*this);
+    if (exists.HasPattern()) {
+      // We do not visit pattern identifier since we're in exists filter pattern
+      for (auto &atom : exists.GetPattern()->atoms_) {
+        atom->Accept(*this);
+      }
+    } else if (exists.HasSubquery()) {
+      // For subqueries, we need to collect symbols from the subquery
+      auto *single_query = exists.GetSubquery()->single_query_;
+      if (single_query) {
+        for (auto *clause : single_query->clauses_) {
+          if (auto *match = utils::Downcast<Match>(clause)) {
+            for (auto *pattern : match->patterns_) {
+              for (auto &atom : pattern->atoms_) {
+                atom->Accept(*this);
+              }
+            }
+          }
+        }
+      }
+    } else {
+      throw SemanticException(
+          "EXISTS semantic is neither of type pattern, or subquery! Please contact Memgraph support as this scenario "
+          "should not happen!");
     }
 
     return false;
@@ -99,6 +126,18 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
 
   bool PostVisit(Exists & /*exists*/) override {
     in_exists = false;
+    return true;
+  }
+
+  bool PreVisit(PatternComprehension &pc) override {
+    in_pattern_comprehension = true;
+    pc.pattern_->Accept(*this);
+
+    return false;
+  }
+
+  bool PostVisit(PatternComprehension & /*pc*/) override {
+    in_pattern_comprehension = false;
     return true;
   }
 
@@ -111,6 +150,7 @@ class UsedSymbolsCollector : public HierarchicalTreeVisitor {
 
  private:
   bool in_exists{false};
+  bool in_pattern_comprehension{false};
 };
 
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
@@ -164,10 +204,13 @@ struct Expansion {
   bool expand_from_edge{false};
 };
 
+/// @brief Determine if the given expression is splitted on AND or OR operators.
+enum class SplitExpressionMode { AND, OR };
+
 struct PatternComprehensionMatching;
 struct FilterMatching;
 
-enum class PatternFilterType { EXISTS };
+enum class PatternFilterType { EXISTS_PATTERN, EXISTS_SUBQUERY };
 
 /// Collects matchings that include patterns
 class PatternVisitor : public ExpressionVisitor<void> {
@@ -351,18 +394,18 @@ class PatternVisitor : public ExpressionVisitor<void> {
       op.expression_->Accept(*this);
     }
   }
-  void Visit(Identifier &op) override {};
-  void Visit(PrimitiveLiteral &op) override {};
-  void Visit(PropertyLookup &op) override {};
-  void Visit(AllPropertiesLookup &op) override {};
-  void Visit(ParameterLookup &op) override {};
+  void Visit(Identifier &op) override{};
+  void Visit(PrimitiveLiteral &op) override{};
+  void Visit(PropertyLookup &op) override{};
+  void Visit(AllPropertiesLookup &op) override{};
+  void Visit(ParameterLookup &op) override{};
   void Visit(RegexMatch &op) override {
     op.string_expr_->Accept(*this);
     op.regex_->Accept(*this);
   }
   void Visit(NamedExpression &op) override;
   void Visit(PatternComprehension &op) override;
-  void Visit(EnumValueAccess &op) override {};
+  void Visit(EnumValueAccess &op) override{};
 
   std::vector<FilterMatching> getFilterMatchings();
   std::vector<PatternComprehensionMatching> getPatternComprehensionMatchings();
@@ -392,15 +435,21 @@ class PropertyFilter {
   /// Construct the range based filter.
   PropertyFilter(const SymbolTable &, const Symbol &, PropertyIx, const std::optional<Bound> &,
                  const std::optional<Bound> &);
+  /// Construct with Expression being the equality or regex match check used for multiple properties.
+  PropertyFilter(const SymbolTable &, const Symbol &, PropertyIxPath, Expression *, Type);
+  /// Construct the range based filter used for multiple properties.
+  PropertyFilter(const SymbolTable &, const Symbol &, PropertyIxPath, const std::optional<Bound> &,
+                 const std::optional<Bound> &);
   /// Construct a filter without an expression that produces a value.
   /// Used for the "PROP IS NOT NULL" filter, and can be used for any
   /// property filter that doesn't need to use an expression to produce
   /// values that should be filtered further.
   PropertyFilter(Symbol, PropertyIx, Type);
+  PropertyFilter(Symbol, PropertyIxPath, Type);
 
   /// Symbol whose property is looked up.
   Symbol symbol_;
-  PropertyIx property_;
+  PropertyIxPath property_ids_;
   Type type_;
   /// True if the same symbol is used in expressions for value or bounds.
   bool is_symbol_in_value_ = false;
@@ -436,7 +485,9 @@ struct PointFilter {
       : symbol_(std::move(symbol)),
         property_(std::move(property)),
         function_(Function::WITHINBBOX),
-        withinbbox_{.bottom_left_ = bottom_left, .top_right_ = top_right, .boundary_value_ = boundary_value} {}
+        withinbbox_{
+            .bottom_left_ = bottom_left, .top_right_ = top_right, .boundary_value_ = boundary_value, .condition_ = {}} {
+  }
 
   /// Symbol whose property is looked up.
   Symbol symbol_;
@@ -500,6 +551,8 @@ struct FilterInfo {
   std::unordered_set<Symbol> used_symbols{};
   /// Labels for Type::Label filtering.
   std::vector<LabelIx> labels{};
+  /// Labels for Type::Label OR filtering.
+  std::vector<std::vector<LabelIx>> or_labels{};
   /// Property information for Type::Property filtering.
   std::optional<PropertyFilter> property_filter{};
   /// Information for Type::Id filtering.
@@ -507,6 +560,7 @@ struct FilterInfo {
   /// Matchings for filters that include patterns
   /// NOTE: The vector is not defined here because FilterMatching is forward declared above.
   std::vector<FilterMatching> matchings;
+  std::vector<PatternComprehensionMatching> pattern_comprehension_matchings;
   /// Information for Type::Point filtering.
   std::optional<PointFilter> point_filter{};
 };
@@ -535,7 +589,8 @@ class Filters final {
   void SetFilters(std::vector<FilterInfo> &&all_filters) { all_filters_ = std::move(all_filters); }
 
   auto FilteredLabels(const Symbol &symbol) const -> std::unordered_set<LabelIx>;
-  auto FilteredProperties(const Symbol &symbol) const -> std::unordered_set<PropertyIx>;
+  auto FilteredOrLabels(const Symbol &symbol) const -> std::vector<std::vector<LabelIx>>;
+  auto FilteredProperties(const Symbol &symbol) const -> std::set<PropertyIxPath>;
 
   /// Remove a filter; may invalidate iterators.
   /// Removal is done by comparing only the expression, so that multiple
@@ -547,6 +602,12 @@ class Filters final {
   /// `Expression *` which are now completely removed.
   void EraseLabelFilter(const Symbol &symbol, const LabelIx &label,
                         std::vector<Expression *> *removed_filters = nullptr);
+
+  /// Remove a label filter for OR expression for symbol; may invalidate iterators.
+  /// If removed_filters is not nullptr, fills the vector with original
+  /// `Expression *` which are now completely removed.
+  void EraseOrLabelFilter(const Symbol &symbol, const std::vector<LabelIx> &labels,
+                          std::vector<Expression *> *removed_filters = nullptr);
 
   /// Returns a vector of FilterInfo for properties.
   auto PropertyFilters(const Symbol &symbol) const -> std::vector<FilterInfo>;
@@ -622,6 +683,8 @@ struct FilterMatching : Matching {
   PatternFilterType type;
   /// Symbol for the filter expression
   std::optional<Symbol> symbol;
+  /// For EXISTS_SUBQUERY, holds the full subquery QueryParts
+  std::shared_ptr<QueryParts> subquery;
 };
 
 inline auto Filters::erase(Filters::iterator pos) -> iterator { return all_filters_.erase(pos); }
@@ -645,12 +708,21 @@ inline auto Filters::FilteredLabels(const Symbol &symbol) const -> std::unordere
   return labels;
 }
 
-inline auto Filters::FilteredProperties(const Symbol &symbol) const -> std::unordered_set<PropertyIx> {
-  std::unordered_set<PropertyIx> properties;
+inline auto Filters::FilteredOrLabels(const Symbol &symbol) const -> std::vector<std::vector<LabelIx>> {
+  std::vector<std::vector<LabelIx>> or_labels;
+  for (const auto &filter : all_filters_) {
+    if (filter.type == FilterInfo::Type::Label && utils::Contains(filter.used_symbols, symbol)) {
+      or_labels.insert(or_labels.end(), filter.or_labels.begin(), filter.or_labels.end());
+    }
+  }
+  return or_labels;
+}
 
+inline auto Filters::FilteredProperties(const Symbol &symbol) const -> std::set<PropertyIxPath> {
+  std::set<PropertyIxPath> properties;
   for (const auto &filter : all_filters_) {
     if (filter.type == FilterInfo::Type::Property && filter.property_filter->symbol_ == symbol) {
-      properties.insert(filter.property_filter->property_);
+      properties.insert(filter.property_filter->property_ids_);
     }
   }
   return properties;
@@ -782,7 +854,7 @@ QueryParts CollectQueryParts(SymbolTable &, AstStorage &, CypherQuery *, bool is
  * @param expression
  * @return std::vector<Expression *>
  */
-std::vector<Expression *> SplitExpressionOnAnd(Expression *expression);
+std::vector<Expression *> SplitExpression(Expression *expression, SplitExpressionMode mode = SplitExpressionMode::AND);
 
 /**
  * @brief Substitute an expression with a new one.

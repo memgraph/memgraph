@@ -11,29 +11,14 @@
 
 #pragma once
 
-#include <atomic>
-#include <cmath>
-#include <cstdint>
-#include <cstdlib>
-#include <limits>
-#include <mutex>
-#include <optional>
-#include <random>
-#include <utility>
-
-#include "spdlog/spdlog.h"
 #include "utils/bound.hpp"
 #include "utils/counter.hpp"
-#include "utils/linux.hpp"
-#include "utils/logging.hpp"
+#include "utils/math.hpp"
 #include "utils/memory.hpp"
-#include "utils/memory_tracker.hpp"
-#include "utils/on_scope_exit.hpp"
-#include "utils/readable_size.hpp"
 #include "utils/rw_spin_lock.hpp"
-#include "utils/spin_lock.hpp"
 #include "utils/stack.hpp"
-#include "utils/stat.hpp"
+
+#include <random>
 
 // This code heavily depends on atomic operations. For a more detailed
 // description of how exactly atomic operations work, see:
@@ -76,6 +61,15 @@ constexpr uint64_t kSkipListGcStackSize = 8191;
 
 namespace detail {
 
+bool &SkipListGcRunning();
+bool IsSkipListGcRunning();
+
+class SkipListGcMarker {
+ public:
+  SkipListGcMarker() { SkipListGcRunning() = true; }
+  ~SkipListGcMarker() { SkipListGcRunning() = false; }
+};
+
 auto thread_local_mt19937() -> std::mt19937 &;
 
 struct SkipListNode_base {
@@ -90,7 +84,7 @@ struct SkipListNode_base {
                   "utils::SkipList::gen_height is implemented only for heights "
                   "up to 32!");
     uint32_t value = thread_local_mt19937()();
-    if (value == 0) return kSkipListMaxHeight;
+    if (value < 1UL << (32 - kSkipListMaxHeight)) return kSkipListMaxHeight;
     // The value should have exactly `kSkipListMaxHeight` bits.
     value >>= (32 - kSkipListMaxHeight);
     // ffs = find first set
@@ -314,6 +308,7 @@ class SkipListGc final {
   }
 
   void Run() {
+    detail::SkipListGcMarker marker;  // mark when gc is running
     // This method can be called after any skip list method, including the add method
     // which could have OOMException enabled in its thread so to ensure no exception
     // is thrown while cleaning the skip list, we add the blocker.
@@ -371,7 +366,7 @@ class SkipListGc final {
       if (item->first < last_dead) {
         size_t bytes = SkipListNodeSize(*item->second);
         item->second->~TNode();
-        memory_->Deallocate(item->second, bytes, SkipListNodeAlign<TObj>());
+        memory_->deallocate(item->second, bytes, SkipListNodeAlign<TObj>());
       } else {
         leftover.Push(*item);
       }
@@ -399,7 +394,7 @@ class SkipListGc final {
       while ((item = deleted_.Pop())) {
         size_t bytes = SkipListNodeSize(*item->second);
         item->second->~TNode();
-        memory_->Deallocate(item->second, bytes, SkipListNodeAlign<TObj>());
+        memory_->deallocate(item->second, bytes, SkipListNodeAlign<TObj>());
       }
     }
 
@@ -619,11 +614,13 @@ class SkipList final : detail::SkipListNode_base {
     friend bool operator==(Iterator const &lhs, Iterator const &rhs) { return lhs.node_ == rhs.node_; }
 
     Iterator &operator++() {
+      auto current = node_;
       while (true) {
-        node_ = node_->nexts[0].load(std::memory_order_acquire);
-        if (node_ != nullptr && node_->marked.load(std::memory_order_acquire)) [[unlikely]] {
+        current = current->nexts[0].load(std::memory_order_acquire);
+        if (current != nullptr && current->marked.load(std::memory_order_acquire)) [[unlikely]] {
           continue;
         } else {
+          node_ = current;
           return *this;
         }
       }
@@ -752,7 +749,7 @@ class SkipList final : detail::SkipListNode_base {
     ~Accessor() {
       if (skiplist_ != nullptr) {
         skiplist_->gc_.ReleaseId(id_);
-        thread_local auto gc_run_interval = utils::ResettableCounter<1024>();
+        thread_local auto gc_run_interval = utils::ResettableCounter(1024);
         if (gc_run_interval()) {
           skiplist_->run_gc();
         }
@@ -995,7 +992,7 @@ class SkipList final : detail::SkipListNode_base {
 
   explicit SkipList(MemoryResource *memory) : gc_(memory) {
     static_assert(kSkipListMaxHeight <= 32, "The SkipList height must be less or equal to 32!");
-    void *ptr = memory->Allocate(MaxSkipListNodeSize<TObj>(), SkipListNodeAlign<TObj>());
+    void *ptr = memory->allocate(MaxSkipListNodeSize<TObj>(), SkipListNodeAlign<TObj>());
     // `calloc` would be faster, but the API has no such call.
     memset(ptr, 0, MaxSkipListNodeSize<TObj>());
     // Here we don't call the `SkipListNode` constructor so that the `TObj`
@@ -1021,7 +1018,7 @@ class SkipList final : detail::SkipListNode_base {
       TNode *succ = head->nexts[0].load(std::memory_order_acquire);
       size_t bytes = SkipListNodeSize(*head);
       head->~TNode();
-      GetMemoryResource()->Deallocate(head, bytes, SkipListNodeAlign<TObj>());
+      GetMemoryResource()->deallocate(head, bytes, SkipListNodeAlign<TObj>());
       head = succ;
     }
     head_ = other.head_;
@@ -1042,7 +1039,7 @@ class SkipList final : detail::SkipListNode_base {
       // constructor (see the note in the `SkipList` constructor). We mustn't
       // call the `TObj` destructor because we didn't call its constructor.
       head_->lock.~SpinLock();
-      GetMemoryResource()->Deallocate(head_, SkipListNodeSize(*head_), SkipListNodeAlign<TObj>());
+      GetMemoryResource()->deallocate(head_, SkipListNodeSize(*head_), SkipListNodeAlign<TObj>());
     }
   }
 
@@ -1066,7 +1063,7 @@ class SkipList final : detail::SkipListNode_base {
       TNode *succ = curr->nexts[0].load(std::memory_order_acquire);
       size_t bytes = SkipListNodeSize(*curr);
       curr->~TNode();
-      GetMemoryResource()->Deallocate(curr, bytes, SkipListNodeAlign<TObj>());
+      GetMemoryResource()->deallocate(curr, bytes, SkipListNodeAlign<TObj>());
       curr = succ;
     }
     for (int layer = 0; layer < kSkipListMaxHeight; ++layer) {
@@ -1080,7 +1077,8 @@ class SkipList final : detail::SkipListNode_base {
 
  private:
   template <GCPolicy policy = GCPolicy::Random, typename TKey>
-  int find_node(const TKey &key, TNode *preds[], TNode *succs[]) const {
+  int find_node(const TKey &key, std::array<TNode *, kSkipListMaxHeight> &preds,
+                std::array<TNode *, kSkipListMaxHeight> &succs) const {
     int layer_found = -1;
     TNode *pred = head_;
     for (int layer = kSkipListMaxHeight - 1; layer >= 0; --layer) {
@@ -1125,7 +1123,8 @@ class SkipList final : detail::SkipListNode_base {
   template <typename TObjUniv>
   std::pair<Iterator, bool> insert(TObjUniv &&object) {
     int top_layer = gen_height();
-    TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
+    std::array<TNode *, kSkipListMaxHeight> preds{};
+    std::array<TNode *, kSkipListMaxHeight> succs{};
     if (top_layer >= kSkipListGcHeightTrigger) gc_.Run();
     while (true) {
       int layer_found = find_node(object, preds, succs);
@@ -1174,7 +1173,7 @@ class SkipList final : detail::SkipListNode_base {
         size_t node_bytes = sizeof(TNode) + top_layer * sizeof(std::atomic<TNode *>);
 
         MemoryResource *memoryResource = GetMemoryResource();
-        void *ptr = memoryResource->Allocate(node_bytes, SkipListNodeAlign<TObj>());
+        void *ptr = memoryResource->allocate(node_bytes, SkipListNodeAlign<TObj>());
         new_node = static_cast<TNode *>(ptr);
 
         // Construct through allocator so it propagates if needed.
@@ -1199,7 +1198,8 @@ class SkipList final : detail::SkipListNode_base {
 
   template <typename TKey>
   SkipListNode<TObj> *find_(const TKey &key) const {
-    TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
+    std::array<TNode *, kSkipListMaxHeight> preds{};
+    std::array<TNode *, kSkipListMaxHeight> succs{};
     while (true) {
       int layer_found = find_node(key, preds, succs);
       if (layer_found == -1) [[unlikely]] {
@@ -1232,7 +1232,8 @@ class SkipList final : detail::SkipListNode_base {
 
   template <typename TKey>
   Iterator find_equal_or_greater_(const TKey &key) const {
-    TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
+    std::array<TNode *, kSkipListMaxHeight> preds{};
+    std::array<TNode *, kSkipListMaxHeight> succs{};
     while (true) {
       find_node(key, preds, succs);
       if (!succs[0]) {
@@ -1263,7 +1264,8 @@ class SkipList final : detail::SkipListNode_base {
     MG_ASSERT(max_layer_for_estimation >= 1 && max_layer_for_estimation <= kSkipListMaxHeight,
               "Invalid layer for SkipList count estimation!");
 
-    TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
+    std::array<TNode *, kSkipListMaxHeight> preds{};
+    std::array<TNode *, kSkipListMaxHeight> succs{};
     int layer_found = find_node(key, preds, succs);
     if (layer_found == -1) {
       return 0;
@@ -1297,7 +1299,8 @@ class SkipList final : detail::SkipListNode_base {
     MG_ASSERT(max_layer_for_estimation >= 1 && max_layer_for_estimation <= kSkipListMaxHeight,
               "Invalid layer for SkipList count estimation!");
 
-    TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
+    std::array<TNode *, kSkipListMaxHeight> preds{};
+    std::array<TNode *, kSkipListMaxHeight> succs{};
     int layer_found = -1;
     if (lower) {
       layer_found = find_node(lower->value(), preds, succs);
@@ -1442,7 +1445,8 @@ class SkipList final : detail::SkipListNode_base {
     TNode *node_to_delete = nullptr;
     bool is_marked = false;
     int top_layer = -1;
-    TNode *preds[kSkipListMaxHeight], *succs[kSkipListMaxHeight];
+    std::array<TNode *, kSkipListMaxHeight> preds{};
+    std::array<TNode *, kSkipListMaxHeight> succs{};
     std::unique_lock<SpinLock> node_guard;
     while (true) {
       int layer_found = find_node<GCPolicy::DoNotRun>(key, preds, succs);

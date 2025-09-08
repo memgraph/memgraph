@@ -57,12 +57,14 @@ template_cluster: &template_cluster
 workloads:
   - name: "Constraints"
     binary: "tests/e2e/replication/memgraph__e2e__replication__constraints"
-    args: []
+    args:
+     - "--database_endpoints=127.0.0.1:7687,127.0.0.1:7688,127.0.0.1:7689,127.0.0.1:7690"
     <<: *template_cluster
 
   - name: "Read-write benchmark"
     binary: "tests/e2e/replication/memgraph__e2e__replication__read_write_benchmark"
-    args: []
+    args:
+      - "--database_endpoints=127.0.0.1:7687,127.0.0.1:7688,127.0.0.1:7689,127.0.0.1:7690"
     <<: *template_cluster
 
   - name: "Show"
@@ -112,9 +114,17 @@ workloads:
     binary: "tests/e2e/pytest_runner.sh"
     args: [ "replication/replicate_spatial_feature.py" ]
 
-  - name: "Replicate vector search"
+  - name: "Replicate vector index"
     binary: "tests/e2e/pytest_runner.sh"
-    args: [ "replication/replicate_vector_search.py" ]
+    args: [ "replication/replicate_vector_index.py" ]
+
+  - name: "Replicate vector edge index"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: [ "replication/replicate_vector_edge_index.py" ]
+
+  - name: "Replicate text index"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: [ "replication/replicate_text_index.py" ]
 
   - name: "Delete edge replication"
     binary: "tests/e2e/pytest_runner.sh"

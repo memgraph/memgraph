@@ -17,6 +17,7 @@ from pathlib import Path
 
 import helpers
 from benchmark_context import BenchmarkContext
+from constants import GraphVendors
 from workloads.base import Workload
 from workloads.importers.importer_ldbc_interactive import *
 
@@ -47,8 +48,9 @@ class LDBC_Interactive(Workload):
     }
 
     URL_INDEX_FILE = {
-        "memgraph": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/interactive/memgraph_interactive_index.cypher",
-        "neo4j": "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/interactive/neo4j_interactive_index.cypher",
+        GraphVendors.MEMGRAPH: "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/interactive/memgraph_interactive_index.cypher",
+        GraphVendors.NEO4J: "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/interactive/neo4j_interactive_index.cypher",
+        GraphVendors.FALKORDB: "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/dataset/ldbc/benchmark/interactive/memgraph_interactive_index.cypher",
     }
 
     PROPERTIES_ON_EDGES = True
@@ -59,9 +61,10 @@ class LDBC_Interactive(Workload):
         "sf3": "https://repository.surfsara.nl/datasets/cwi/snb/files/substitution_parameters/substitution_parameters-sf3.tar.zst",
     }
 
-    def custom_import(self) -> bool:
+    def custom_import(self, client) -> bool:
         importer = ImporterLDBCInteractive(
             benchmark_context=self.benchmark_context,
+            client=client,
             dataset_name=self.NAME,
             variant=self._variant,
             index_file=self._file_index,
@@ -213,13 +216,17 @@ class LDBC_Interactive(Workload):
             ),
             self._get_query_parameters(),
         )
-        if self._vendor == "memgraph":
-            return memgraph
-        else:
-            return neo4j
+
+        match self._vendor:
+            case GraphVendors.MEMGRAPH:
+                return memgraph
+            case GraphVendors.NEO4J:
+                return neo4j
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     def benchmark__interactive__complex_query_2_analytical(self):
-        return (
+        cypher_query = (
             """
             MATCH (:Person {id: $personId })-[:KNOWS]-(friend:Person)<-[:HAS_CREATOR]-(message:Message)
             WHERE message.creationDate <= localDateTime($maxDate)
@@ -239,6 +246,12 @@ class LDBC_Interactive(Workload):
             ),
             self._get_query_parameters(),
         )
+
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return cypher_query
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     def benchmark__interactive__complex_query_3_analytical(self):
         memgraph = (
@@ -312,10 +325,13 @@ class LDBC_Interactive(Workload):
             self._get_query_parameters(),
         )
 
-        if self._vendor == "memgraph":
-            return memgraph
-        else:
-            return neo4j
+        match self._vendor:
+            case GraphVendors.MEMGRAPH:
+                return memgraph
+            case GraphVendors.NEO4J:
+                return neo4j
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     def benchmark__interactive__complex_query_4_analytical(self):
         memgraph = (
@@ -368,13 +384,16 @@ class LDBC_Interactive(Workload):
             self._get_query_parameters(),
         )
 
-        if self._vendor == "memgraph":
-            return memgraph
-        else:
-            return neo4j
+        match self._vendor:
+            case GraphVendors.MEMGRAPH:
+                return memgraph
+            case GraphVendors.NEO4J:
+                return neo4j
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     def benchmark__interactive__complex_query_5_analytical(self):
-        return (
+        cypher_query = (
             """
             MATCH (person:Person { id: $personId })-[:KNOWS*1..2]-(friend)
             WHERE
@@ -405,8 +424,14 @@ class LDBC_Interactive(Workload):
             self._get_query_parameters(),
         )
 
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return cypher_query
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
     def benchmark__interactive__complex_query_6_analytical(self):
-        return (
+        cypher_query = (
             """
             MATCH (knownTag:Tag { name: $tagName })
             WITH knownTag.id as knownTagId
@@ -436,6 +461,12 @@ class LDBC_Interactive(Workload):
             ),
             self._get_query_parameters(),
         )
+
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return cypher_query
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     def benchmark__interactive__complex_query_7_analytical(self):
         memgraph = (
@@ -488,13 +519,17 @@ class LDBC_Interactive(Workload):
             ),
             self._get_query_parameters(),
         )
-        if self._vendor == "memgraph":
-            return memgraph
-        else:
-            return neo4j
+
+        match self._vendor:
+            case GraphVendors.MEMGRAPH:
+                return memgraph
+            case GraphVendors.NEO4J:
+                return neo4j
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     def benchmark__interactive__complex_query_8_analytical(self):
-        return (
+        cypher_query = (
             """
             MATCH (start:Person {id: $personId})<-[:HAS_CREATOR]-(:Message)<-[:REPLY_OF]-(comment:Comment)-[:HAS_CREATOR]->(person:Person)
             RETURN
@@ -514,8 +549,14 @@ class LDBC_Interactive(Workload):
             self._get_query_parameters(),
         )
 
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return cypher_query
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
     def benchmark__interactive__complex_query_9_analytical(self):
-        return (
+        cypher_query = (
             """
             MATCH (root:Person {id: $personId })-[:KNOWS*1..2]-(friend:Person)
             WHERE NOT friend = root
@@ -540,8 +581,14 @@ class LDBC_Interactive(Workload):
             self._get_query_parameters(),
         )
 
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return cypher_query
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
     def benchmark__interactive__complex_query_11_analytical(self):
-        return (
+        cypher_query = (
             """
             MATCH (person:Person {id: $personId })-[:KNOWS*1..2]-(friend:Person)
             WHERE not(person=friend)
@@ -565,8 +612,14 @@ class LDBC_Interactive(Workload):
             self._get_query_parameters(),
         )
 
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return cypher_query
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
+
     def benchmark__interactive__complex_query_12_analytical(self):
-        return (
+        cypher_query = (
             """
             MATCH (tag:Tag)-[:HAS_TYPE|IS_SUBCLASS_OF*0..]->(baseTagClass:TagClass)
             WHERE tag.name = $tagClassName OR baseTagClass.name = $tagClassName
@@ -588,6 +641,12 @@ class LDBC_Interactive(Workload):
             ),
             self._get_query_parameters(),
         )
+
+        match self._vendor:
+            case GraphVendors.MEMGRAPH | GraphVendors.NEO4J:
+                return cypher_query
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     def benchmark__interactive__complex_query_13_analytical(self):
         memgraph = (
@@ -624,7 +683,10 @@ class LDBC_Interactive(Workload):
             self._get_query_parameters(),
         )
 
-        if self._vendor == "memgraph":
-            return memgraph
-        else:
-            return neo4j
+        match self._vendor:
+            case GraphVendors.MEMGRAPH:
+                return memgraph
+            case GraphVendors.NEO4J:
+                return neo4j
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")

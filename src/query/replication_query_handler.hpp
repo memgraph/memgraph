@@ -51,16 +51,16 @@ enum class ShowReplicaError : uint8_t {
 
 struct ReplicaSystemInfoState {
   uint64_t ts_;
-  uint64_t behind_;
+  int64_t behind_;
   replication::ReplicationClient::State state_;
 };
 
 struct ReplicaInfoState {
-  ReplicaInfoState(uint64_t ts, uint64_t behind, storage::replication::ReplicaState state)
+  ReplicaInfoState(uint64_t const ts, int64_t const behind, storage::replication::ReplicaState state)
       : ts_(ts), behind_(behind), state_(state) {}
 
   uint64_t ts_;
-  uint64_t behind_;
+  int64_t behind_;
   storage::replication::ReplicaState state_;
 };
 
@@ -94,11 +94,10 @@ struct ReplicationQueryHandler {
   virtual bool SetReplicationRoleMain() = 0;
 
   // as MAIN, become REPLICA
-  virtual bool SetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config,
-                                         const std::optional<utils::UUID> &main_uuid) = 0;
+  virtual bool SetReplicationRoleReplica(const replication::ReplicationServerConfig &config,
+                                         std::optional<utils::UUID> const &maybe_main_uuid) = 0;
 
-  virtual bool TrySetReplicationRoleReplica(const memgraph::replication::ReplicationServerConfig &config,
-                                            const std::optional<utils::UUID> &main_uuid) = 0;
+  virtual bool TrySetReplicationRoleReplica(const replication::ReplicationServerConfig &config) = 0;
 
   // as MAIN, define and connect to REPLICAs
   virtual auto TryRegisterReplica(const memgraph::replication::ReplicationClientConfig &config)

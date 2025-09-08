@@ -20,6 +20,7 @@
 
 #include "audit/log.hpp"
 #include "auth/auth.hpp"
+#include "auth/profiles/user_profiles.hpp"
 #include "communication/v2/server.hpp"
 #include "communication/websocket/auth.hpp"
 #include "communication/websocket/server.hpp"
@@ -61,11 +62,15 @@
 #include "utils/event_gauge.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
+#include "utils/readable_size.hpp"
+#include "utils/resource_monitoring.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/signals.hpp"
+#include "utils/stat.hpp"
 #include "utils/sysinfo/memory.hpp"
 #include "utils/system_info.hpp"
 #include "utils/terminate_handler.hpp"
+#include "utils/variant_helpers.hpp"
 #include "version.hpp"
 
 #include <spdlog/spdlog.h>
@@ -93,7 +98,7 @@ void InitFromCypherlFile(memgraph::query::InterpreterContext &ctx, memgraph::dbm
   // Temporary empty user
   // TODO: Double check with buda
   memgraph::query::AllowEverythingAuthChecker tmp_auth_checker;
-  auto tmp_user = tmp_auth_checker.GenQueryUser(std::nullopt, std::nullopt);
+  auto tmp_user = tmp_auth_checker.GenEmptyUser();
   interpreter.SetUser(tmp_user);
 
   std::ifstream file(cypherl_file_path);
@@ -365,7 +370,9 @@ int main(int argc, char **argv) {
                      .snapshot_on_exit = FLAGS_storage_snapshot_on_exit,
                      .restore_replication_state_on_startup = FLAGS_replication_restore_state_on_startup,
                      .items_per_batch = FLAGS_storage_items_per_batch,
+                     .snapshot_thread_count = FLAGS_storage_snapshot_thread_count,
                      .recovery_thread_count = FLAGS_storage_recovery_thread_count,
+                     .allow_parallel_snapshot_creation = FLAGS_storage_parallel_snapshot_creation,
                      .allow_parallel_schema_creation = FLAGS_storage_parallel_schema_recovery},
       .transaction = {.isolation_level = memgraph::flags::ParseIsolationLevel()},
       .disk = {.main_storage_directory = FLAGS_data_directory + "/rocksdb_main_storage",
@@ -476,8 +483,15 @@ int main(int argc, char **argv) {
   std::unique_ptr<memgraph::query::AuthQueryHandler> auth_handler;
   std::unique_ptr<memgraph::query::AuthChecker> auth_checker;
   std::unique_ptr<memgraph::auth::SynchedAuth> auth_;
+#ifdef MG_ENTERPRISE
+  // Resource monitoring
+  auto resource_monitoring = memgraph::utils::ResourceMonitoring{};
+  try {
+    auth_ = std::make_unique<memgraph::auth::SynchedAuth>(data_directory / "auth", auth_config, &resource_monitoring);
+#else
   try {
     auth_ = std::make_unique<memgraph::auth::SynchedAuth>(data_directory / "auth", auth_config);
+#endif
   } catch (std::exception const &e) {
     spdlog::error("Exception was thrown on creating SyncedAuth object, shutting down Memgraph. {}", e.what());
     exit(1);
@@ -490,9 +504,6 @@ int main(int argc, char **argv) {
   memgraph::flags::SetFinalCoordinationSetup();
   auto const &coordination_setup = memgraph::flags::CoordinationSetupInstance();
 #endif
-  // singleton replication state
-  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
-      ReplicationStateRootPath(db_config)};
 
   int const extracted_bolt_port = [&]() {
     if (auto *maybe_env_bolt_port = std::getenv(kMgBoltPort); maybe_env_bolt_port) {
@@ -558,6 +569,15 @@ int main(int argc, char **argv) {
 
 #endif
 
+  // singleton replication state
+  memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
+      ReplicationStateRootPath(db_config)
+#ifdef MG_ENTERPRISE
+          ,
+      coordinator_state.has_value() && coordinator_state->IsDataInstance()
+#endif
+  };
+
   memgraph::dbms::DbmsHandler dbms_handler(db_config, repl_state
 #ifdef MG_ENTERPRISE
                                            ,
@@ -593,6 +613,7 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
       coordinator_state ? std::optional<std::reference_wrapper<CoordinatorState>>{std::ref(*coordinator_state)}
                         : std::nullopt,
+      &resource_monitoring,
 #endif
       auth_handler.get(), auth_checker.get(), &replication_handler);
 
@@ -633,12 +654,17 @@ int main(int argc, char **argv) {
     spdlog::trace("Triggers restored.");
     dbms_handler.RestoreStreams(&interpreter_context_);
     spdlog::trace("Streams restored.");
-    if (memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
-#ifdef MG_ENTERPRISE
-      dbms_handler.RestoreTTL(&interpreter_context_);
-      spdlog::trace("TTL restored.");
-#endif
-    }
+  }
+
+  // Global worker pool!
+  // Used by sessions to schedule tasks.
+  std::optional<memgraph::utils::PriorityThreadPool> worker_pool_;
+  unsigned io_n_threads = FLAGS_bolt_num_workers;
+
+  if (GetSchedulerType() == SchedulerType::PRIORITY_QUEUE_WITH_SIDECAR) {
+    worker_pool_.emplace(/* low priority */ static_cast<uint16_t>(FLAGS_bolt_num_workers),
+                         /* high priority */ 1U);
+    io_n_threads = 1U;
   }
 
   ServerContext context;
@@ -654,12 +680,13 @@ int main(int argc, char **argv) {
   auto server_endpoint = memgraph::communication::v2::ServerEndpoint{
       boost::asio::ip::address::from_string(FLAGS_bolt_address), static_cast<uint16_t>(extracted_bolt_port)};
 #ifdef MG_ENTERPRISE
-  Context session_context{&interpreter_context_, auth_.get(), &audit_log};
+  memgraph::glue::Context session_context{server_endpoint, &interpreter_context_, auth_.get(), &audit_log,
+                                          worker_pool_ ? &*worker_pool_ : nullptr};
 #else
-  Context session_context{&interpreter_context_, auth_.get()};
+  memgraph::glue::Context session_context{server_endpoint, &interpreter_context_, auth_.get(),
+                                          worker_pool_ ? &*worker_pool_ : nullptr};
 #endif
-  memgraph::glue::ServerT server(memgraph::communication::v2::handle_errors_t, server_endpoint, &session_context,
-                                 &context, FLAGS_bolt_session_inactivity_timeout, service_name, FLAGS_bolt_num_workers);
+  memgraph::glue::ServerT server(server_endpoint, &session_context, &context, service_name, io_n_threads);
 
   const auto machine_id = memgraph::utils::GetMachineId();
 
@@ -711,10 +738,12 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
                       &coordinator_state, &metrics_server,
 #endif
-                      &websocket_server, &server, &interpreter_context_, &dbms_handler] {
+                      &websocket_server, &server, &interpreter_context_, &dbms_handler, &worker_pool_] {
     // Server needs to be shutdown first and then the database. This prevents
     // a race condition when a transaction is accepted during server shutdown.
     spdlog::trace("Shutting down handler!");
+    spdlog::info("Workers shutting down.");
+    if (worker_pool_) worker_pool_->ShutDown();  // Workers can enqueue io tasks, so they need to be stopped first
     // Shutdown communication server
     server.Shutdown();
     // Stop all triggers, streams and ttl
@@ -764,8 +793,9 @@ int main(int argc, char **argv) {
     spdlog::info("Running queries from init data file successfully finished.");
   }
 
-  spdlog::info("Memgraph succesfully started!");
+  spdlog::info("Memgraph successfully started!");
 
+  if (worker_pool_) worker_pool_->AwaitShutdown();
   server.AwaitShutdown();
   websocket_server.AwaitShutdown();
   memgraph::memory::UnsetHooks();

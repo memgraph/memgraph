@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,6 +14,7 @@
 
 #include "kvstore/kvstore.hpp"
 #include "utils/file.hpp"
+#include "utils/logging.hpp"
 
 namespace memgraph::kvstore {
 
@@ -23,15 +24,15 @@ struct KVStore::impl {
   rocksdb::Options options;
 };
 
-KVStore::KVStore(std::filesystem::path const &storage) : pimpl_(std::make_unique<impl>()) {
-  pimpl_->storage = storage;
+KVStore::KVStore(std::filesystem::path storage) : pimpl_(std::make_unique<impl>()) {
+  pimpl_->storage = std::move(storage);
   if (!utils::EnsureDir(pimpl_->storage))
     throw KVStoreError("Folder for the key-value store " + pimpl_->storage.string() + " couldn't be initialized!");
   pimpl_->options.create_if_missing = true;
   rocksdb::DB *db = nullptr;
-  auto s = rocksdb::DB::Open(pimpl_->options, storage.c_str(), &db);
+  auto s = rocksdb::DB::Open(pimpl_->options, pimpl_->storage.c_str(), &db);
   if (!s.ok())
-    throw KVStoreError("RocksDB couldn't be initialized inside " + storage.string() + " -- " +
+    throw KVStoreError("RocksDB couldn't be initialized inside " + pimpl_->storage.string() + " -- " +
                        std::string(s.ToString()));
   pimpl_->db.reset(db);
 }

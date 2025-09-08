@@ -27,7 +27,7 @@ namespace memgraph::replication_coordination_glue {
 
 inline bool SendSwapMainUUIDRpc(rpc::Client &rpc_client_, const utils::UUID &uuid) {
   try {
-    if (auto stream{rpc_client_.Stream<SwapMainUUIDRpc>(uuid)}; !stream.AwaitResponse().success) {
+    if (auto stream{rpc_client_.Stream<SwapMainUUIDRpc>(uuid)}; !stream.SendAndWait().success) {
       spdlog::error("Received unsuccessful response to SwapMainUUIDReq");
       metrics::IncrementCounter(metrics::SwapMainUUIDRpcFail);
       return false;
@@ -41,11 +41,10 @@ inline bool SendSwapMainUUIDRpc(rpc::Client &rpc_client_, const utils::UUID &uui
   return false;
 }
 
-inline void FrequentHeartbeatHandler(slk::Reader *req_reader, slk::Builder *res_builder) {
+inline void FrequentHeartbeatHandler(uint64_t const request_version, slk::Reader *req_reader,
+                                     slk::Builder *res_builder) {
   FrequentHeartbeatReq req;
-  FrequentHeartbeatReq::Load(&req, req_reader);
-  memgraph::slk::Load(&req, req_reader);
-  FrequentHeartbeatRes const res{};
-  rpc::SendFinalResponse(res, res_builder);
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
+  rpc::SendFinalResponse(FrequentHeartbeatRes{}, request_version, res_builder);
 }
 }  // namespace memgraph::replication_coordination_glue

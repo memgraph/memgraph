@@ -36,9 +36,9 @@ enum class ObjectType : uint8_t {
 };
 }  // namespace
 
-nlohmann::json SerializePropertyValue(const storage::PropertyValue &property_value,
-                                      memgraph::storage::Storage::Accessor *storage_acc) {
-  using Type = storage::PropertyValue::Type;
+nlohmann::json SerializeExternalPropertyValue(const storage::ExternalPropertyValue &property_value,
+                                              memgraph::storage::Storage::Accessor *storage_acc) {
+  using Type = storage::ExternalPropertyValue::Type;
   switch (property_value.type()) {
     case Type::Null:
       return {};
@@ -51,9 +51,9 @@ nlohmann::json SerializePropertyValue(const storage::PropertyValue &property_val
     case Type::String:
       return property_value.ValueString();
     case Type::List:
-      return SerializePropertyValueVector(property_value.ValueList(), storage_acc);
+      return SerializeExternalPropertyValueVector(property_value.ValueList(), storage_acc);
     case Type::Map:
-      return SerializePropertyValueMap(property_value.ValueMap(), storage_acc);
+      return SerializeExternalPropertyValueMap(property_value.ValueMap(), storage_acc);
     case Type::TemporalData: {
       const auto temporal_data = property_value.ValueTemporalData();
       auto data = nlohmann::json::object();
@@ -77,7 +77,7 @@ nlohmann::json SerializePropertyValue(const storage::PropertyValue &property_val
       data.emplace("value", properties);
       return data;
     }
-    case storage::PropertyValue::Type::Enum: {
+    case storage::ExternalPropertyValue::Type::Enum: {
       nlohmann::json data = nlohmann::json::object();
       data.emplace("type", static_cast<uint64_t>(ObjectType::ENUM));
       auto enum_val = property_value.ValueEnum();
@@ -86,7 +86,7 @@ nlohmann::json SerializePropertyValue(const storage::PropertyValue &property_val
       data.emplace("value", *std::move(enum_str));
       return data;
     }
-    case storage::PropertyValue::Type::Point2d: {
+    case storage::ExternalPropertyValue::Type::Point2d: {
       nlohmann::json data = nlohmann::json::object();
       data.emplace("type", static_cast<uint64_t>(ObjectType::POINT_2D));
       auto const &point_2d = property_value.ValuePoint2d();
@@ -95,7 +95,7 @@ nlohmann::json SerializePropertyValue(const storage::PropertyValue &property_val
       data.emplace("y", point_2d.y());
       return data;
     }
-    case storage::PropertyValue::Type::Point3d: {
+    case storage::ExternalPropertyValue::Type::Point3d: {
       nlohmann::json data = nlohmann::json::object();
       data.emplace("type", static_cast<uint64_t>(ObjectType::POINT_3D));
       auto const &point_3d = property_value.ValuePoint3d();
@@ -108,110 +108,112 @@ nlohmann::json SerializePropertyValue(const storage::PropertyValue &property_val
   }
 }
 
-nlohmann::json SerializePropertyValueVector(const std::vector<storage::PropertyValue> &values,
-                                            memgraph::storage::Storage::Accessor *storage_acc) {
+nlohmann::json SerializeExternalPropertyValueVector(const std::vector<storage::ExternalPropertyValue> &values,
+                                                    storage::Storage::Accessor *storage_acc) {
   nlohmann::json array = nlohmann::json::array();
   for (const auto &value : values) {
-    array.push_back(SerializePropertyValue(value, storage_acc));
+    array.push_back(SerializeExternalPropertyValue(value, storage_acc));
   }
   return array;
 }
 
-nlohmann::json SerializePropertyValueMap(storage::PropertyValue::map_t const &parameters,
-                                         memgraph::storage::Storage::Accessor *storage_acc) {
+nlohmann::json SerializeExternalPropertyValueMap(storage::ExternalPropertyValue::map_t const &map,
+                                                 storage::Storage::Accessor *storage_acc) {
   nlohmann::json data = nlohmann::json::object();
   data.emplace("type", static_cast<uint64_t>(ObjectType::MAP));
   data.emplace("value", nlohmann::json::object());
 
-  for (const auto &[key, value] : parameters) {
-    data["value"][key] = SerializePropertyValue(value, storage_acc);
+  for (const auto &[key, value] : map) {
+    data["value"][key] = SerializeExternalPropertyValue(value, storage_acc);
   }
 
   return data;
-};
+}
 
-storage::PropertyValue DeserializePropertyValue(const nlohmann::json &data, storage::Storage::Accessor *storage_acc) {
+storage::ExternalPropertyValue DeserializeExternalPropertyValue(const nlohmann::json &data,
+                                                                storage::Storage::Accessor *storage_acc) {
   if (data.is_null()) {
-    return storage::PropertyValue();
+    return storage::ExternalPropertyValue();
   }
 
   if (data.is_boolean()) {
-    return storage::PropertyValue(data.get<bool>());
+    return storage::ExternalPropertyValue(data.get<bool>());
   }
 
   if (data.is_number_integer()) {
-    return storage::PropertyValue(data.get<int64_t>());
+    return storage::ExternalPropertyValue(data.get<int64_t>());
   }
 
   if (data.is_number_float()) {
-    return storage::PropertyValue(data.get<double>());
+    return storage::ExternalPropertyValue(data.get<double>());
   }
 
   if (data.is_string()) {
-    return storage::PropertyValue(data.get<std::string>());
+    return storage::ExternalPropertyValue(data.get<std::string>());
   }
 
   if (data.is_array()) {
-    return storage::PropertyValue(DeserializePropertyValueList(data, storage_acc));
+    return storage::ExternalPropertyValue(DeserializeExternalPropertyValueList(data, storage_acc));
   }
 
   MG_ASSERT(data.is_object(), "Unknown type found in the trigger storage");
 
   switch (data["type"].get<ObjectType>()) {
     case ObjectType::MAP:
-      return storage::PropertyValue(DeserializePropertyValueMap(data, storage_acc));
+      return storage::ExternalPropertyValue(DeserializeExternalPropertyValueMap(data, storage_acc));
     case ObjectType::TEMPORAL_DATA:
-      return storage::PropertyValue(storage::TemporalData{data["value"]["type"].get<storage::TemporalType>(),
-                                                          data["value"]["microseconds"].get<int64_t>()});
+      return storage::ExternalPropertyValue(storage::TemporalData{data["value"]["type"].get<storage::TemporalType>(),
+                                                                  data["value"]["microseconds"].get<int64_t>()});
     case ObjectType::ZONED_TEMPORAL_DATA:
-      return storage::PropertyValue(
+      return storage::ExternalPropertyValue(
           storage::ZonedTemporalData{data["value"]["type"].get<storage::ZonedTemporalType>(),
                                      utils::AsSysTime(data["value"]["microseconds"].get<int64_t>()),
                                      utils::Timezone(data["value"]["timezone"].get<std::string>())});
     case ObjectType::OFFSET_ZONED_TEMPORAL_DATA:
-      return storage::PropertyValue(
+      return storage::ExternalPropertyValue(
           storage::ZonedTemporalData{data["value"]["type"].get<storage::ZonedTemporalType>(),
                                      utils::AsSysTime(data["value"]["microseconds"].get<int64_t>()),
                                      utils::Timezone(std::chrono::minutes{data["value"]["timezone"].get<int64_t>()})});
     case ObjectType::ENUM: {
       auto enum_val = storage_acc->GetEnumValue(data["value"].get<std::string>());
       MG_ASSERT(enum_val.HasValue(), "Unknown enum found in the trigger storage");
-      return storage::PropertyValue(*enum_val);
+      return storage::ExternalPropertyValue(*enum_val);
     }
     case ObjectType::POINT_2D: {
       auto crs_opt = storage::SridToCrs(storage::Srid{data["srid"].get<uint16_t>()});
       MG_ASSERT(crs_opt.has_value(), "Unknown srid");
-      return storage::PropertyValue(storage::Point2d{*crs_opt, data["x"].get<double>(), data["y"].get<double>()});
+      return storage::ExternalPropertyValue(
+          storage::Point2d{*crs_opt, data["x"].get<double>(), data["y"].get<double>()});
     }
     case ObjectType::POINT_3D: {
       auto crs_opt = storage::SridToCrs(storage::Srid{data["srid"].get<uint16_t>()});
       MG_ASSERT(crs_opt.has_value(), "Unknown srid");
-      return storage::PropertyValue(
+      return storage::ExternalPropertyValue(
           storage::Point3d{*crs_opt, data["x"].get<double>(), data["y"].get<double>(), data["z"].get<double>()});
     }
   }
 }
 
-std::vector<storage::PropertyValue> DeserializePropertyValueList(const nlohmann::json::array_t &data,
-                                                                 storage::Storage::Accessor *storage_acc) {
-  std::vector<storage::PropertyValue> property_values;
+std::vector<storage::ExternalPropertyValue> DeserializeExternalPropertyValueList(
+    const nlohmann::json::array_t &data, storage::Storage::Accessor *storage_acc) {
+  std::vector<storage::ExternalPropertyValue> property_values;
   property_values.reserve(data.size());
   for (const auto &value : data) {
-    property_values.emplace_back(DeserializePropertyValue(value, storage_acc));
+    property_values.emplace_back(DeserializeExternalPropertyValue(value, storage_acc));
   }
 
   return property_values;
 }
 
-storage::PropertyValue::map_t DeserializePropertyValueMap(nlohmann::json::object_t const &data,
-                                                          storage::Storage::Accessor *storage_acc) {
+storage::ExternalPropertyValue::map_t DeserializeExternalPropertyValueMap(nlohmann::json::object_t const &data,
+                                                                          storage::Storage::Accessor *storage_acc) {
   MG_ASSERT(data.at("type").get<ObjectType>() == ObjectType::MAP, "Invalid map serialization");
   const nlohmann::json::object_t &values = data.at("value");
 
-  auto property_values = storage::PropertyValue::map_t{};
-  property_values.reserve(values.size());
+  auto property_values = storage::ExternalPropertyValue::map_t{};
+  do_reserve(property_values, values.size());
   for (const auto &[key, value] : values) {
-    property_values.emplace(key, DeserializePropertyValue(value, storage_acc));
+    property_values.emplace(key, DeserializeExternalPropertyValue(value, storage_acc));
   }
 
   return property_values;

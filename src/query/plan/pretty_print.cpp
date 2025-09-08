@@ -18,6 +18,9 @@
 #include "query/plan/operator.hpp"
 #include "utils/string.hpp"
 
+namespace r = ranges;
+namespace rv = r::views;
+
 namespace memgraph::query::plan {
 
 PlanPrinter::PlanPrinter(const DbAccessor *dba, std::ostream *out) : dba_(dba), out_(out) {}
@@ -159,6 +162,8 @@ bool PlanPrinter::PreVisit(query::plan::Produce &op) {
 
 PRE_VISIT(ConstructNamedPath);
 PRE_VISIT(SetProperty);
+PRE_VISIT(SetNestedProperty);
+PRE_VISIT(RemoveNestedProperty);
 PRE_VISIT(SetProperties);
 PRE_VISIT(SetLabels);
 PRE_VISIT(RemoveProperty);
@@ -356,6 +361,8 @@ std::string ToString(EdgeAtom::Type type) {
       return "wsp";
     case EdgeAtom::Type::ALL_SHORTEST_PATHS:
       return "asp";
+    case EdgeAtom::Type::KSHORTEST:
+      return "shortest_first";
     case EdgeAtom::Type::SINGLE:
       return "single";
   }
@@ -399,6 +406,11 @@ json ToJson(storage::EdgeTypeId edge_type, const DbAccessor &dba) { return dba.E
 json ToJson(storage::LabelId label, const DbAccessor &dba) { return dba.LabelToName(label); }
 
 json ToJson(storage::PropertyId property, const DbAccessor &dba) { return dba.PropertyToName(property); }
+
+json ToJson(storage::PropertyPath path, const DbAccessor &dba) {
+  return path | rv::transform([&](auto &&property_id) { return dba.PropertyToName(property_id); }) | rv::join('.') |
+         r::to<std::string>;
+}
 
 json ToJson(NamedExpression *nexpr, const DbAccessor &dba) {
   json json;
@@ -751,6 +763,9 @@ bool PlanToJsonVisitor::PreVisit(ExpandVariable &op) {
   self["is_reverse"] = op.is_reverse_;
   self["lower_bound"] = op.lower_bound_ ? ToJson(op.lower_bound_, *dba_) : json();
   self["upper_bound"] = op.upper_bound_ ? ToJson(op.upper_bound_, *dba_) : json();
+  if (op.type_ == EdgeAtom::Type::KSHORTEST) {
+    self["limit"] = op.limit_ ? ToJson(op.limit_, *dba_) : json();
+  }
   self["existing_node"] = op.common_.existing_node;
 
   self["filter_lambda"] = op.filter_lambda_.expression ? ToJson(op.filter_lambda_.expression, *dba_) : json();
@@ -838,6 +853,20 @@ bool PlanToJsonVisitor::PreVisit(SetProperty &op) {
   return false;
 }
 
+bool PlanToJsonVisitor::PreVisit(SetNestedProperty &op) {
+  json self;
+  self["name"] = "SetNestedProperty";
+  self["property_path"] = ToJson(op.property_path_, *dba_);
+  self["lhs"] = ToJson(op.lhs_, *dba_);
+  self["rhs"] = ToJson(op.rhs_, *dba_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
 bool PlanToJsonVisitor::PreVisit(SetProperties &op) {
   json self;
   self["name"] = "SetProperties";
@@ -876,6 +905,19 @@ bool PlanToJsonVisitor::PreVisit(RemoveProperty &op) {
   json self;
   self["name"] = "RemoveProperty";
   self["property"] = ToJson(op.property_, *dba_);
+  self["lhs"] = ToJson(op.lhs_, *dba_);
+
+  op.input_->Accept(*this);
+  self["input"] = PopOutput();
+
+  output_ = std::move(self);
+  return false;
+}
+
+bool PlanToJsonVisitor::PreVisit(RemoveNestedProperty &op) {
+  json self;
+  self["name"] = "RemoveNestedProperty";
+  self["property_path"] = ToJson(op.property_path_, *dba_);
   self["lhs"] = ToJson(op.lhs_, *dba_);
 
   op.input_->Accept(*this);

@@ -38,7 +38,6 @@
 #include <memory>
 #include <sstream>
 #include <string>
-#include <unordered_map>
 #include <utility>
 #include <vector>
 
@@ -47,6 +46,7 @@
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/pretty_print.hpp"
+#include "query/frontend/ast/query/exists.hpp"
 #include "utils/string.hpp"
 
 #include "storage/v2/inmemory/storage.hpp"
@@ -172,6 +172,32 @@ auto GetPropertyLookup(AstStorage &storage, TDbAccessor &, Expression *expr,
   return storage.Create<PropertyLookup>(expr, storage.GetPropertyIx(prop_pair.first));
 }
 
+template <class TDbAccessor>
+auto GetPropertyLookup(AstStorage &storage, TDbAccessor &dba, Expression *expr,
+                       std::vector<memgraph::storage::PropertyId> property_path) {
+  std::vector<PropertyIx> property_path_ix;
+  property_path_ix.reserve(property_path.size());
+  for (const auto &prop : property_path) {
+    property_path_ix.emplace_back(storage.GetPropertyIx(dba.PropertyToName(prop)));
+  }
+
+  return storage.Create<PropertyLookup>(expr, property_path_ix);
+}
+
+template <class TDbAccessor>
+auto GetPropertyLookup(AstStorage &storage, TDbAccessor &dba, Expression *expr,
+                       std::vector<memgraph::storage::PropertyId> property_path, PropertyLookup::LookupMode mode) {
+  std::vector<PropertyIx> property_path_ix;
+  property_path_ix.reserve(property_path.size());
+  for (const auto &prop : property_path) {
+    property_path_ix.emplace_back(storage.GetPropertyIx(dba.PropertyToName(prop)));
+  }
+
+  auto *property_lookup = storage.Create<PropertyLookup>(expr, property_path_ix);
+  property_lookup->lookup_mode_ = mode;
+  return property_lookup;
+}
+
 /// Create an AllPropertiesLookup from the given name.
 auto GetAllPropertiesLookup(AstStorage &storage, const std::string &name) {
   return storage.Create<AllPropertiesLookup>(storage.Create<Identifier>(name));
@@ -236,6 +262,19 @@ auto GetNode(AstStorage &storage, const std::string &name, std::optional<std::st
              const bool user_declared = true) {
   auto *node = storage.Create<NodeAtom>(storage.Create<Identifier>(name, user_declared));
   if (label) node->labels_.emplace_back(storage.GetLabelIx(*label));
+  return node;
+}
+
+/// Create a NodeAtom with given name and labels.
+///
+/// Name is used to create the Identifier which is assigned to the node.
+auto GetNodeWithMultipleLabels(AstStorage &storage, const std::string &name, std::vector<std::string> labels,
+                               bool label_expression = true, const bool user_declared = true) {
+  auto *node = storage.Create<NodeAtom>(storage.Create<Identifier>(name, user_declared));
+  for (const auto &label : labels) {
+    node->labels_.emplace_back(storage.GetLabelIx(label));
+  }
+  node->label_expression_ = label_expression;
   return node;
 }
 
@@ -557,6 +596,13 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
   return storage.Create<query::Foreach>(named_expr, clauses);
 }
 
+auto GetExistsSubquery(AstStorage &storage, CypherQuery *subquery) {
+  auto *exists_subquery = storage.Create<query::Exists>();
+  exists_subquery->content_ = std::move(subquery);
+
+  return exists_subquery;
+}
+
 }  // namespace memgraph::query::test_common
 
 /// All the following macros implicitly pass `storage` variable to functions.
@@ -570,6 +616,7 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
 ///   auto query = QUERY(MATCH(PATTERN(NODE("n"), EDGE("r"), NODE("m"))),
 ///                      RETURN(NEXPR("new_name"), IDENT("m")));
 #define NODE(...) memgraph::query::test_common::GetNode(this->storage, __VA_ARGS__)
+#define NODE_WITH_LABELS(...) memgraph::query::test_common::GetNodeWithMultipleLabels(this->storage, __VA_ARGS__)
 #define EDGE(...) memgraph::query::test_common::GetEdge(this->storage, __VA_ARGS__)
 #define EDGE_VARIABLE(...) memgraph::query::test_common::GetEdgeVariable(this->storage, __VA_ARGS__)
 #define PATTERN(...) memgraph::query::test_common::GetPattern(this->storage, {__VA_ARGS__})
@@ -593,7 +640,8 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
   this->storage.template Create<memgraph::query::MapProjectionLiteral>( \
       (memgraph::query::Expression *){map_variable},                    \
       std::unordered_map<memgraph::query::PropertyIx, memgraph::query::Expression *>{elements})
-#define LABELS_TEST(expr, labels) this->storage.template Create<memgraph::query::LabelsTest>(expr, labels)
+#define LABELS_TEST(expr, labels, ...) \
+  this->storage.template Create<memgraph::query::LabelsTest>(expr, labels, ##__VA_ARGS__)
 #define PROPERTY_PAIR(dba, property_name) std::make_pair(property_name, dba.NameToProperty(property_name))
 #define PROPERTY_LOOKUP(dba, ...) memgraph::query::test_common::GetPropertyLookup(this->storage, dba, __VA_ARGS__)
 #define ALL_PROPERTIES_LOOKUP(expr) memgraph::query::test_common::GetAllPropertiesLookup(this->storage, expr)
@@ -629,7 +677,7 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
   }
 #define CREATE_INDEX_ON(label, property)                                                            \
   storage.Create<memgraph::query::IndexQuery>(memgraph::query::IndexQuery::Action::CREATE, (label), \
-                                              std::vector<memgraph::query::PropertyIx>{(property)})
+                                              std::vector<memgraph::query::PropertyIxPath>{{(property)}})
 #define QUERY(...) memgraph::query::test_common::GetQuery(this->storage, __VA_ARGS__)
 #define PERIODIC_QUERY(...) memgraph::query::test_common::GetPeriodicQuery(this->storage, __VA_ARGS__)
 #define SINGLE_QUERY(...) \
@@ -695,6 +743,7 @@ auto GetForeach(AstStorage &storage, NamedExpression *named_expr, const std::vec
   this->storage.template Create<memgraph::query::Extract>( \
       this->storage.template Create<memgraph::query::Identifier>(variable), list, expr)
 #define EXISTS(pattern) this->storage.template Create<memgraph::query::Exists>(pattern)
+#define EXISTS_SUBQUERY(...) memgraph::query::test_common::GetExistsSubquery(this->storage, __VA_ARGS__)
 #define AUTH_QUERY(action, user, role, user_or_role, if_not_exists, password, database, privileges, labels, edgeTypes, \
                    impersonation_target)                                                                               \
   storage.Create<memgraph::query::AuthQuery>((action), (user), (role), (user_or_role), (if_not_exists), password,      \

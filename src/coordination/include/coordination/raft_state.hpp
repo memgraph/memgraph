@@ -12,12 +12,13 @@
 #pragma once
 
 #ifdef MG_ENTERPRISE
+
 #include <optional>
 
-#include <flags/replication.hpp>
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_state_machine.hpp"
 #include "coordination/coordinator_state_manager.hpp"
+#include "coordination/utils.hpp"
 #include "coordination_observer.hpp"
 
 #include <libnuraft/logger.hxx>
@@ -30,7 +31,6 @@ struct DataInstanceConfig;
 
 using BecomeLeaderCb = std::function<void()>;
 using BecomeFollowerCb = std::function<void()>;
-using RoutingTable = std::vector<std::pair<std::vector<std::string>, std::string>>;
 
 using nuraft::asio_service;
 using nuraft::buffer;
@@ -72,9 +72,7 @@ class RaftState {
   auto IsLeader() const -> bool;
   auto GetLeaderId() const -> int32_t;
 
-  auto AppendClusterUpdate(std::vector<DataInstanceContext> data_instances,
-                           std::vector<CoordinatorInstanceContext> coordinator_instances, utils::UUID uuid) const
-      -> bool;
+  auto AppendClusterUpdate(CoordinatorClusterStateDelta const &delta_state) const -> bool;
 
   auto GetDataInstancesContext() const -> std::vector<DataInstanceContext>;
   auto GetCoordinatorInstancesContext() const -> std::vector<CoordinatorInstanceContext>;
@@ -89,6 +87,7 @@ class RaftState {
   auto GetCurrentMainUUID() const -> utils::UUID;
 
   auto GetLeaderCoordinatorData() const -> std::optional<LeaderCoordinatorData>;
+  auto YieldLeadership() const -> void;
   auto GetRoutingTable() const -> RoutingTable;
 
   // Returns elapsed time in ms since last successful response from the coordinator with id srv_id
@@ -96,6 +95,9 @@ class RaftState {
   // Return empty optional in the case when user didn't add coordinator on which setup of the cluster has been done
   auto GetBoltServer(int32_t coordinator_id) const -> std::optional<std::string>;
   auto GetMyBoltServer() const -> std::optional<std::string>;
+
+  auto GetEnabledReadsOnMain() const -> bool;
+  auto GetSyncFailoverOnly() const -> bool;
 
  private:
   uint16_t coordinator_port_;

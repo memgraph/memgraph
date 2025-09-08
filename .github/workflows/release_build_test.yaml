@@ -1,6 +1,6 @@
 name: Release build test
 concurrency:
-  group: ${{ github.workflow }}-${{ github.ref_name }}
+  group: Release-build-test-${{ github.workflow }}-${{ github.ref_name }}
   cancel-in-progress: true
 
 on:
@@ -8,8 +8,6 @@ on:
     tags:
       - "v*.*.*-rc*"
       - "v*.*-rc*"
-  schedule:
-    - cron: "0 22 * * *" #UTC
   workflow_dispatch:
     inputs:
       build_type:
@@ -35,9 +33,10 @@ on:
           - ubuntu-22.04
           - ubuntu-24.04
 
+
 jobs:
   TestIndividual:
-    if: ${{ !github.event.inputs.os || github.event.inputs.os != 'all' }}
+    if: ${{ (!github.event.inputs.os || github.event.inputs.os != 'all') && !contains(github.event.head_commit.message, '[skip tests]') }}
     uses: ./.github/workflows/reusable_release_tests.yaml
     with:
       os: ${{ github.event.inputs.os || 'ubuntu-24.04' }}
@@ -62,7 +61,7 @@ jobs:
     secrets: inherit
 
   PackageArtifact:
-    if: github.ref_type == 'tag'
+    if: ${{ github.ref_type == 'tag' && !contains(github.event.head_commit.message, '[skip build]') }}
     needs: [TestIndividual]
     strategy:
       fail-fast: false
@@ -111,18 +110,14 @@ jobs:
     secrets: inherit
 
   DockerArtifact:
-    if: github.ref_type == 'tag'
+    if: ${{ github.ref_type == 'tag' && !contains(github.event.head_commit.message, '[skip build]') }}
     needs: [TestIndividual]
     strategy:
       fail-fast: false
       matrix:
         os: [ubuntu-24.04]
         arch: [amd, arm]
-        build_type: [Release]
-        include: # Add RelwithDebInfo build for amd docker image
-          - os: ubuntu-24.04
-            arch: amd
-            build_type: RelWithDebInfo
+        build_type: [Release, RelWithDebInfo]
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: ${{ matrix.os }}

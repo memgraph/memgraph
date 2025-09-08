@@ -1,0 +1,136 @@
+name: "Build mgbench client"
+
+on:
+  workflow_call:
+    inputs:
+      arch:
+        type: string
+        required: true
+        description: "CPU architecture (amd|arm)"
+      version:
+        type: string
+        description: "Mgbench bolt client version to publish on Dockerhub."
+        required: true
+      push_to_dockerhub:
+        type: boolean
+        default: false
+        description: "Push images to dockerhub"
+      test_docker_push:
+        type: boolean
+        default: false
+        description: "Push images to dockerhub-test"
+      force_release:
+        type: boolean
+        required: false
+        default: false
+      image_type:
+        type: string
+        description: "Image to build (client|full)"
+        required: true
+      upload_artifact:
+        type: boolean
+        description: "create downloadable artifact"
+        default: false
+
+jobs:
+  mgbench_docker_publish:
+    name: "Build mgbench image"
+    runs-on: ${{ (inputs.arch == 'arm') && fromJSON('["self-hosted", "DockerMgBuild", "ARM64", "Linux"]') || fromJSON('["self-hosted", "DockerMgBuild", "X64", "Linux"]') }}
+    env:
+      DOCKER_ORGANIZATION_NAME: memgraph
+      DOCKER_REPOSITORY_NAME: mgbench-client${{ inputs.test_docker_push && '-test' || '' }}
+
+    steps:
+      - name: Verify image type
+        run: |
+          if [[ "${{ inputs.image_type }}" != "client" && "${{ inputs.image_type }}" != "full" ]]; then
+            echo "Image type must be either 'client' or 'full'"
+            exit 1
+          fi
+
+          if [[ "${{ inputs.image_type }}" == "client" ]]; then
+            repo_tag="$DOCKER_ORGANIZATION_NAME/$DOCKER_REPOSITORY_NAME:${{ inputs.version }}"
+            dockerfile="tests/mgbench/Dockerfile.mgbench_client"
+          else
+            repo_tag="$DOCKER_ORGANIZATION_NAME/$DOCKER_REPOSITORY_NAME:${{ inputs.version }}-full"
+            dockerfile="tests/mgbench/Dockerfile.mgbench_full"
+          fi
+
+          repo_tag="${repo_tag}-${{ inputs.arch }}64"
+
+          echo "Building image: ${repo_tag}"
+          echo "REPO_TAG=${repo_tag}" >> $GITHUB_ENV
+          echo "DOCKERFILE=${dockerfile}" >> $GITHUB_ENV
+
+      - name: Checkout
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          fetch-tags: true
+
+      - name: Set up Docker Buildx
+        id: buildx
+        uses: docker/setup-buildx-action@v2
+
+      - name: Log in to Docker Hub
+        if: ${{ inputs.push_to_dockerhub }}
+        uses: docker/login-action@v2
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+      - name: Build docker image
+        run: |
+          if [[ "${{ inputs.arch }}" == "arm" ]]; then
+            MGBUILD_IMAGE=memgraph/mgbuild:v6_ubuntu-24.04-arm
+          else
+            MGBUILD_IMAGE=memgraph/mgbuild:v6_ubuntu-24.04
+          fi
+
+          docker buildx build \
+          --build-arg TOOLCHAIN_VERSION=toolchain-v6 \
+          --build-arg MGBUILD_IMAGE=$MGBUILD_IMAGE \
+          --tag ${{ env.REPO_TAG }} \
+          --file ${{ env.DOCKERFILE }} \
+          --load .
+
+      - name: Check if specified version is already pushed
+        if: ${{ inputs.push_to_dockerhub }}
+        run: |
+          EXISTS=$(docker manifest inspect ${{ env.REPO_TAG }} > /dev/null; echo $?)
+          echo $EXISTS
+          if [[ ${EXISTS} -eq 0 ]]; then
+              echo 'The specified version has been already released to DockerHub.'
+              if [[ ${{ inputs.force_release }} = true ]]; then
+                echo 'Forcing the release!'
+              else
+                echo 'Stopping the release!'
+                exit 1
+              fi
+          else
+              echo 'All good the specified version has not been release to DockerHub.'
+          fi
+
+      - name: Push docker image(s)
+        if: ${{ inputs.push_to_dockerhub }}
+        run: |
+          docker push ${{ env.REPO_TAG }}
+
+      - name: Save image as tar.gz
+        if: ${{ inputs.upload_artifact }}
+        run: |
+          tag="${REPO_TAG#*:}"
+          image_name="mgbench-${tag}-${{ inputs.arch }}.tar.gz"
+          docker save ${{ env.REPO_TAG }} | gzip > $image_name
+          echo "IMAGE_NAME=${image_name}" >> $GITHUB_ENV
+
+      - name: Upload Docker image artifact
+        if: ${{ inputs.upload_artifact }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: ${{ env.IMAGE_NAME }}
+          path: ${{ env.IMAGE_NAME }}
+
+      - name: Clean up Docker
+        run: |
+          ./tools/docker_cleanup.sh

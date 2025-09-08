@@ -57,6 +57,19 @@ CREATE_DB_QUERIES = [
     ("CREATE DATABASE clean", {}),
 ]
 
+AUTH_QUERIES = [
+    ("CREATE USER admin", {}),
+    ("CREATE USER user1", {}),
+    ("CREATE USER user2", {}),
+    ("GRANT IMPERSONATE_USER * TO admin", {}),
+    ("GRANT MULTI_DATABASE_USE TO user1", {}),
+    ("GRANT MULTI_DATABASE_USE TO user2", {}),
+    ("GRANT DATABASE memgraph TO user1", {}),
+    ("GRANT DATABASE memgraph TO user2", {}),
+]
+
+IMP_USER_QUERY = "RETURN 123"  # Used only to test if impersonation is audited correctly
+
 
 def wait_for_server(port, delay=0.1):
     cmd = ["nc", "-z", "-w", "1", "127.0.0.1", str(port)]
@@ -93,18 +106,24 @@ def execute_test(memgraph_binary, tester_binary):
     # Register cleanup function
     @atexit.register
     def cleanup():
-        pid = memgraph.pid
+        memgraph.terminate()
         try:
-            os.kill(pid, SIGNAL_SIGTERM)
-        except os.OSError:
-            assert False
+            memgraph.wait(timeout=10)
+        except subprocess.TimeoutExpired:
+            memgraph.kill()
+            memgraph.wait()
+            assert False, "Memgraph process did not terminate in time"
 
-        time.sleep(1)
-
-    def execute_queries(queries):
+    def execute_queries(queries, username=None, imp_user=None):
         for db, query, params in queries:
             print(query, params)
             args = [tester_binary, "--query", query, "--use-db", db, "--params-json", json.dumps(params)]
+            if username is not None:
+                args.append("--username")
+                args.append(username)
+            if imp_user is not None:
+                args.append("--imp_user")
+                args.append(imp_user)
             subprocess.run(args).check_returncode()
 
     # Test default db
@@ -127,12 +146,18 @@ def execute_test(memgraph_binary, tester_binary):
     execute_queries(mt_queries3)
     print("\033[1;36m~~ Finished query execution on clean database ~~\033[0m\n")
 
-    pid = memgraph.pid
-    try:
-        os.kill(pid, SIGNAL_SIGTERM)
-    except os.OSError:
-        assert False
-    time.sleep(1)
+    # Execute queries while impersonation users
+    print("\033[1;36m~~ Starting query execution with user impersonation ~~\033[0m")
+    auth_queries = gen_mt_queries(AUTH_QUERIES, DEFAULT_DB)
+    execute_queries([auth_queries[0]])  # Make admin
+    execute_queries(auth_queries[1:], "admin")  # Run other queries as admin
+    users = ["admin", "user1", "user2"]
+    for user in users:
+        execute_queries([(DEFAULT_DB, IMP_USER_QUERY, {})], "admin", user)
+    print("\033[1;36m~~ Finished query execution with user impersonation ~~\033[0m\n")
+
+    # Close the memgraph process (flush the audit log)
+    cleanup()
 
     # Verify the written log
     print("\033[1;36m~~ Starting log verification ~~\033[0m")
@@ -149,19 +174,31 @@ def execute_test(memgraph_binary, tester_binary):
             strict=True,
         )
         queries = []
+        user_i = 0
         for line in reader:
             timestamp, address, username, database, query, params = line
             params = json.loads(params)
-            if query.startswith("USE DATABASE"):
-                continue  # Skip all databases switching queries
-            queries.append((database, query, params))
             print(database, query, params)
+            # Skip all databases switching queries
+            if query.startswith("USE DATABASE"):
+                continue
+            # Special case used to verify user impersonation
+            if query == IMP_USER_QUERY:
+                assert (
+                    username == users[user_i]
+                ), f"Logged incorrect user. Expecting '{users[user_i]}'; got '{username}'"
+                user_i = user_i + 1
+                continue
+            # Append to list of all queries
+            queries.append((database, query, params))
 
+        assert user_i == len(users), f"Expected to impersonate {len(users)} users, actually logged {user_i}"
         # Combine all queries executed
         all_queries = mt_queries
         all_queries += mt_queries2
         all_queries += mt_queries3
-        assert queries == all_queries, "Logged queries don't match " "executed queries!"
+        all_queries += auth_queries
+        assert queries == all_queries, f"Logged queries:\n{queries}\ndon't match executed queries:\n{all_queries}\n"
     print("\033[1;36m~~ Finished log verification ~~\033[0m\n")
 
 

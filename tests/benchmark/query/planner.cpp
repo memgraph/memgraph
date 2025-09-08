@@ -20,6 +20,7 @@
 #include "query/plan/rewrite/index_lookup.hpp"
 #include "query/plan/vertex_count_cache.hpp"
 #include "storage/v2/inmemory/storage.hpp"
+#include "tests/test_commit_args_helper.hpp"
 
 using memgraph::replication_coordination_glue::ReplicationRole;
 
@@ -110,7 +111,7 @@ static auto CreateIndexedVertices(int index_count, int vertex_count, memgraph::s
       MG_ASSERT(vertex.SetProperty(prop, memgraph::storage::PropertyValue(index)).HasValue());
     }
   }
-  MG_ASSERT(!dba->Commit().HasError());
+  MG_ASSERT(!dba->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   return std::make_pair("label", "prop");
 }
 

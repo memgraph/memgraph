@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -55,8 +55,13 @@ namespace memgraph::utils {
 
 // Don't use anonymous namespace, because each translation unit will then get a
 // unique type. This may cause errors if one wants to check the type.
+
 namespace detail {
 
+// No need to dispatch virtual destructor to base classes because visitor is stateless
+// Virtual destructor moved to Visitor
+#pragma clang diagnostic push
+#pragma clang diagnostic ignored "-Wnon-virtual-dtor"
 template <typename R, class... T>
 class VisitorBase;
 
@@ -67,18 +72,16 @@ class VisitorBase<R, Head, Tail...> : public VisitorBase<R, Tail...> {
   using VisitorBase<R, Tail...>::Visit;
   virtual ReturnType Visit(Head &) = 0;
 };
-
 template <typename R, class T>
 class VisitorBase<R, T> {
  public:
   /// @brief ReturnType of the @c Visit method.
   using ReturnType = R;
-  virtual ~VisitorBase() = default;
 
   /// @brief Visit an instance of @c T.
   virtual ReturnType Visit(T &) = 0;
 };
-
+#pragma clang diagnostic pop
 template <class... T>
 class CompositeVisitorBase;
 
@@ -162,6 +165,7 @@ class CompositeVisitorBase<T> {
 template <typename TReturn, class... TVisitable>
 class Visitor : public detail::VisitorBase<TReturn, TVisitable...> {
  public:
+  virtual ~Visitor() = default;
   using typename detail::VisitorBase<TReturn, TVisitable...>::ReturnType;
   using detail::VisitorBase<TReturn, TVisitable...>::Visit;
 };
@@ -268,6 +272,7 @@ class Visitable {
   virtual ~Visitable() = default;
   /// @brief Accept the @c TVisitor instance and call its @c Visit method.
   virtual typename TVisitor::ReturnType Accept(TVisitor &) = 0;
+};
 
 /// Default implementation for @c utils::Visitable::Accept, which works for
 /// visitors of @c TVisitor type. This should be used to implement regular
@@ -277,6 +282,10 @@ class Visitable {
 /// @sa utils::Visitable
 #define DEFVISITABLE(TVisitor) \
   TVisitor::ReturnType Accept(TVisitor &visitor) override { return visitor.Visit(*this); }
-};
+
+#define DEFINE_VISITABLE(AST, TVisitor) \
+  TVisitor::ReturnType AST::Accept(TVisitor &visitor) { return visitor.Visit(*this); }
+
+#define DECLARE_VISITABLE(TVisitor) TVisitor::ReturnType Accept(TVisitor &visitor) override
 
 }  // namespace memgraph::utils

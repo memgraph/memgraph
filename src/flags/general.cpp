@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -45,8 +45,6 @@ DEFINE_string(init_file, "",
 DEFINE_string(init_data_file, "", "Path to cypherl file that is used for creating data after server starts.");
 
 // General purpose flags.
-// NOTE: The `data_directory` flag must be the same here and in
-// `mg_import_csv`. If you change it, make sure to change it there as well.
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_string(data_directory, "mg_data", "Path to directory in which to save all permanent data.");
 
@@ -69,8 +67,7 @@ DEFINE_VALIDATED_uint64(storage_gc_cycle_sec, 30, "Storage garbage collector int
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_VALIDATED_uint64(storage_python_gc_cycle_sec, 180,
                         "Storage python full garbage collection interval (in seconds).", FLAG_IN_RANGE(1, 24UL * 3600));
-// NOTE: The `storage_properties_on_edges` flag must be the same here and in
-// `mg_import_csv`. If you change it, make sure to change it there as well.
+
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_properties_on_edges, false, "Controls whether edges have properties.");
 
@@ -111,6 +108,16 @@ DEFINE_VALIDATED_bool(
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(storage_parallel_schema_recovery, false,
             "Controls whether the indices and constraints creation can be done in a multithreaded fashion.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_bool(storage_parallel_snapshot_creation, false,
+            "If true, snapshots will be created using --storage-snapshot-thread-count number of treads.");
+
+// NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
+DEFINE_uint64(storage_snapshot_thread_count,
+              std::max(static_cast<uint64_t>(std::thread::hardware_concurrency()),
+                       memgraph::storage::Config::Durability().snapshot_thread_count),
+              "The number of threads used to create snapshots.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_uint64(storage_recovery_thread_count,

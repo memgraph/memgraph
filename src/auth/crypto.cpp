@@ -20,6 +20,8 @@
 #include "utils/enum.hpp"
 #include "utils/flag_validation.hpp"
 
+#include <nlohmann/json.hpp>
+
 namespace {
 using namespace std::literals;
 
@@ -326,7 +328,7 @@ void from_json(const nlohmann::json &j, HashedPassword &p) {
   // NOLINTNEXTLINE(cppcoreguidelines-init-variables)
   PasswordHashAlgorithm hash_algo;
   j.at(kHashAlgo).get_to(hash_algo);
-  auto password_hash = j.value(kPasswordHash, std::string());
+  std::string password_hash = j.at(kPasswordHash);
   p = HashedPassword{hash_algo, std::move(password_hash)};
 }
 

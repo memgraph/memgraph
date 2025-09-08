@@ -11,17 +11,13 @@
 
 #pragma once
 
-#include <chrono>
-#include <cstdint>
 #include <optional>
-#include <string>
 #include <variant>
 
-#include <nlohmann/json.hpp>
+#include <nlohmann/json_fwd.hpp>
 
 #include "replication/config.hpp"
 #include "replication/epoch.hpp"
-#include "replication_coordination_glue/role.hpp"
 
 namespace memgraph::replication::durability {
 
@@ -33,27 +29,27 @@ enum class DurabilityVersion : uint8_t {
   V1,  // no distinct key for replicas
   V2,  // epoch, replica prefix introduced
   V3,  // version where main uuid was introduced
-  V4   // addresses as provided by users are saved to disk instead of eager evaluation
+  V4,  // addresses as provided by users are saved to disk instead of eager evaluation
+  V5   // epoch from main role is removed
 };
 
 // fragment of key: "__replication_role"
 struct MainRole {
-  ReplicationEpoch epoch{};
   std::optional<utils::UUID> main_uuid{};
   friend bool operator==(MainRole const &, MainRole const &) = default;
 };
 
 // fragment of key: "__replication_role"
 struct ReplicaRole {
-  ReplicationServerConfig config{};
-  std::optional<utils::UUID> main_uuid{};
+  ReplicationServerConfig config;
+  utils::UUID main_uuid;
   friend bool operator==(ReplicaRole const &, ReplicaRole const &) = default;
 };
 
 // from key: "__replication_role"
 struct ReplicationRoleEntry {
   DurabilityVersion version =
-      DurabilityVersion::V4;  // if not latest has been read then migration required to the latest
+      DurabilityVersion::V5;  // if not latest has been read then migration required to the latest
   std::variant<MainRole, ReplicaRole> role;
 
   friend bool operator==(ReplicationRoleEntry const &, ReplicationRoleEntry const &) = default;

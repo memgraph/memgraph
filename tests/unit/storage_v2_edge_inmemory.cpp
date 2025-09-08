@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,6 +16,7 @@
 
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
+#include "tests/test_commit_args_helper.hpp"
 
 using memgraph::replication_coordination_glue::ReplicationRole;
 using testing::UnorderedElementsAre;
@@ -39,7 +40,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
     auto vertex_to = acc->CreateVertex();
     gid_from = vertex_from.Gid();
     gid_to = vertex_to.Gid();
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Create edge
@@ -113,7 +114,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::NEW, {et, other_et}, &*vertex_from)->edges.size(), 1);
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::NEW, {et, other_et}, &*vertex_to)->edges.size(), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Check whether the edge exists
@@ -212,7 +213,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerCommit) {
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::OLD, {et, other_et}, &*vertex_to)->edges.size(), 0);
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::NEW, {et, other_et}, &*vertex_to)->edges.size(), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -230,7 +231,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerCommit) {
     auto vertex_from = acc->CreateVertex();
     gid_to = vertex_to.Gid();
     gid_from = vertex_from.Gid();
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Create edge
@@ -298,7 +299,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerCommit) {
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::NEW, {}, &*vertex_from)->edges.size(), 1);
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::NEW, {}, &*vertex_to)->edges.size(), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Check whether the edge exists
@@ -385,7 +386,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerCommit) {
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::OLD, {}, &*vertex_to)->edges.size(), 0);
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::NEW, {}, &*vertex_to)->edges.size(), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -400,7 +401,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSameCommit) {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
     gid_vertex = vertex.Gid();
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Create edge
@@ -458,7 +459,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSameCommit) {
     ASSERT_EQ(vertex->InEdges(memgraph::storage::View::NEW, {}, &*vertex)->edges.size(), 1);
     ASSERT_EQ(vertex->InEdges(memgraph::storage::View::NEW, {other_et}, &*vertex)->edges.size(), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Check whether the edge exists
@@ -531,7 +532,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSameCommit) {
     ASSERT_EQ(vertex->OutEdges(memgraph::storage::View::NEW, {}, &*vertex)->edges.size(), 1);
     ASSERT_EQ(vertex->OutEdges(memgraph::storage::View::NEW, {other_et}, &*vertex)->edges.size(), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -549,7 +550,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerAbort) {
     auto vertex_to = acc->CreateVertex();
     gid_from = vertex_from.Gid();
     gid_to = vertex_to.Gid();
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Create edge, but abort the transaction
@@ -646,7 +647,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerAbort) {
     ASSERT_EQ(vertex_to->OutEdges(memgraph::storage::View::NEW)->edges.size(), 0);
     ASSERT_EQ(*vertex_to->OutDegree(memgraph::storage::View::NEW), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Create edge
@@ -714,7 +715,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerAbort) {
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::NEW, {}, &*vertex_from)->edges.size(), 1);
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::NEW, {}, &*vertex_to)->edges.size(), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Check whether the edge exists
@@ -801,7 +802,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSmallerAbort) {
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::OLD, {}, &*vertex_to)->edges.size(), 0);
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::NEW, {}, &*vertex_to)->edges.size(), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -819,7 +820,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
     auto vertex_from = acc->CreateVertex();
     gid_to = vertex_to.Gid();
     gid_from = vertex_from.Gid();
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Create edge, but abort the transaction
@@ -916,7 +917,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
     ASSERT_EQ(vertex_to->OutEdges(memgraph::storage::View::NEW)->edges.size(), 0);
     ASSERT_EQ(*vertex_to->OutDegree(memgraph::storage::View::NEW), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Create edge
@@ -984,7 +985,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::NEW, {}, &*vertex_from)->edges.size(), 1);
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::NEW, {}, &*vertex_to)->edges.size(), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Check whether the edge exists
@@ -1071,7 +1072,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromLargerAbort) {
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::OLD, {}, &*vertex_to)->edges.size(), 0);
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::NEW, {}, &*vertex_to)->edges.size(), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -1086,7 +1087,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSameAbort) {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
     gid_vertex = vertex.Gid();
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Create edge, but abort the transaction
@@ -1163,7 +1164,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSameAbort) {
     ASSERT_EQ(vertex->OutEdges(memgraph::storage::View::NEW)->edges.size(), 0);
     ASSERT_EQ(*vertex->OutDegree(memgraph::storage::View::NEW), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Create edge
@@ -1221,7 +1222,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSameAbort) {
     ASSERT_EQ(vertex->InEdges(memgraph::storage::View::NEW, {}, &*vertex)->edges.size(), 1);
     ASSERT_EQ(vertex->InEdges(memgraph::storage::View::NEW, {other_et}, &*vertex)->edges.size(), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Check whether the edge exists
@@ -1298,7 +1299,7 @@ TEST_P(StorageEdgeTest, EdgeCreateFromSameAbort) {
     ASSERT_EQ(vertex->OutEdges(memgraph::storage::View::OLD, {other_et}, &*vertex)->edges.size(), 0);
     ASSERT_EQ(vertex->OutEdges(memgraph::storage::View::NEW, {other_et}, &*vertex)->edges.size(), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -1316,7 +1317,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
     auto vertex_to = acc->CreateVertex();
     gid_from = vertex_from.Gid();
     gid_to = vertex_to.Gid();
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Create edge
@@ -1384,7 +1385,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::NEW, {}, &*vertex_from)->edges.size(), 1);
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::NEW, {}, &*vertex_to)->edges.size(), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Check whether the edge exists
@@ -1471,7 +1472,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::OLD, {}, &*vertex_to)->edges.size(), 0);
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::NEW, {}, &*vertex_to)->edges.size(), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Delete edge
@@ -1538,7 +1539,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::OLD, {}, &*vertex_from)->edges.size(), 1);
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::OLD, {}, &*vertex_to)->edges.size(), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Check whether the edge exists
@@ -1567,7 +1568,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerCommit) {
     ASSERT_EQ(vertex_to->OutEdges(memgraph::storage::View::NEW)->edges.size(), 0);
     ASSERT_EQ(*vertex_to->OutDegree(memgraph::storage::View::NEW), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -1585,7 +1586,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerCommit) {
     auto vertex_from = acc->CreateVertex();
     gid_from = vertex_from.Gid();
     gid_to = vertex_to.Gid();
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Create edge
@@ -1653,7 +1654,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerCommit) {
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::NEW, {}, &*vertex_from)->edges.size(), 1);
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::NEW, {}, &*vertex_to)->edges.size(), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Check whether the edge exists
@@ -1740,7 +1741,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerCommit) {
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::OLD, {}, &*vertex_to)->edges.size(), 0);
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::NEW, {}, &*vertex_to)->edges.size(), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Delete edge
@@ -1807,7 +1808,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerCommit) {
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::OLD, {}, &*vertex_from)->edges.size(), 1);
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::OLD, {}, &*vertex_to)->edges.size(), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Check whether the edge exists
@@ -1836,7 +1837,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerCommit) {
     ASSERT_EQ(vertex_to->OutEdges(memgraph::storage::View::NEW)->edges.size(), 0);
     ASSERT_EQ(*vertex_to->OutDegree(memgraph::storage::View::NEW), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -1851,7 +1852,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameCommit) {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
     gid_vertex = vertex.Gid();
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Create edge
@@ -1909,7 +1910,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameCommit) {
     ASSERT_EQ(vertex->InEdges(memgraph::storage::View::NEW, {}, &*vertex)->edges.size(), 1);
     ASSERT_EQ(vertex->InEdges(memgraph::storage::View::NEW, {other_et}, &*vertex)->edges.size(), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Check whether the edge exists
@@ -1986,7 +1987,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameCommit) {
     ASSERT_EQ(vertex->OutEdges(memgraph::storage::View::OLD, {other_et}, &*vertex)->edges.size(), 0);
     ASSERT_EQ(vertex->OutEdges(memgraph::storage::View::NEW, {other_et}, &*vertex)->edges.size(), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Delete edge
@@ -2043,7 +2044,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameCommit) {
     ASSERT_EQ(vertex->OutEdges(memgraph::storage::View::OLD, {}, &*vertex)->edges.size(), 1);
     ASSERT_EQ(vertex->OutEdges(memgraph::storage::View::OLD, {other_et}, &*vertex)->edges.size(), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Check whether the edge exists
@@ -2062,7 +2063,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameCommit) {
     ASSERT_EQ(vertex->OutEdges(memgraph::storage::View::NEW)->edges.size(), 0);
     ASSERT_EQ(*vertex->OutDegree(memgraph::storage::View::NEW), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -2080,7 +2081,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerAbort) {
     auto vertex_to = acc->CreateVertex();
     gid_from = vertex_from.Gid();
     gid_to = vertex_to.Gid();
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Create edge
@@ -2148,7 +2149,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerAbort) {
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::NEW, {}, &*vertex_from)->edges.size(), 1);
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::NEW, {}, &*vertex_to)->edges.size(), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Check whether the edge exists
@@ -2235,7 +2236,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerAbort) {
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::OLD, {}, &*vertex_to)->edges.size(), 0);
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::NEW, {}, &*vertex_to)->edges.size(), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Delete the edge, but abort the transaction
@@ -2389,7 +2390,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerAbort) {
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::OLD, {}, &*vertex_to)->edges.size(), 0);
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::NEW, {}, &*vertex_to)->edges.size(), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Delete the edge
@@ -2456,7 +2457,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerAbort) {
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::OLD, {}, &*vertex_from)->edges.size(), 1);
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::OLD, {}, &*vertex_to)->edges.size(), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Check whether the edge exists
@@ -2485,7 +2486,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSmallerAbort) {
     ASSERT_EQ(vertex_to->OutEdges(memgraph::storage::View::NEW)->edges.size(), 0);
     ASSERT_EQ(*vertex_to->OutDegree(memgraph::storage::View::NEW), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -2503,7 +2504,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
     auto vertex_to = acc->CreateVertex();
     gid_from = vertex_from.Gid();
     gid_to = vertex_to.Gid();
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Create edge
@@ -2571,7 +2572,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::NEW, {}, &*vertex_from)->edges.size(), 1);
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::NEW, {}, &*vertex_to)->edges.size(), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Check whether the edge exists
@@ -2658,7 +2659,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::OLD, {}, &*vertex_to)->edges.size(), 0);
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::NEW, {}, &*vertex_to)->edges.size(), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Delete the edge, but abort the transaction
@@ -2813,7 +2814,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::OLD, {}, &*vertex_to)->edges.size(), 0);
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::NEW, {}, &*vertex_to)->edges.size(), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Delete the edge
@@ -2880,7 +2881,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::OLD, {}, &*vertex_from)->edges.size(), 1);
     ASSERT_EQ(vertex_to->InEdges(memgraph::storage::View::OLD, {}, &*vertex_to)->edges.size(), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Check whether the edge exists
@@ -2909,7 +2910,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromLargerAbort) {
     ASSERT_EQ(vertex_to->OutEdges(memgraph::storage::View::NEW)->edges.size(), 0);
     ASSERT_EQ(*vertex_to->OutDegree(memgraph::storage::View::NEW), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -2924,7 +2925,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameAbort) {
     auto acc = store->Access();
     auto vertex = acc->CreateVertex();
     gid_vertex = vertex.Gid();
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Create edge
@@ -2982,7 +2983,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameAbort) {
     ASSERT_EQ(vertex->InEdges(memgraph::storage::View::NEW, {}, &*vertex)->edges.size(), 1);
     ASSERT_EQ(vertex->InEdges(memgraph::storage::View::NEW, {other_et}, &*vertex)->edges.size(), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Check whether the edge exists
@@ -3059,7 +3060,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameAbort) {
     ASSERT_EQ(vertex->OutEdges(memgraph::storage::View::OLD, {other_et}, &*vertex)->edges.size(), 0);
     ASSERT_EQ(vertex->OutEdges(memgraph::storage::View::NEW, {other_et}, &*vertex)->edges.size(), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Delete the edge, but abort the transaction
@@ -3193,7 +3194,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameAbort) {
     ASSERT_EQ(vertex->OutEdges(memgraph::storage::View::OLD, {other_et}, &*vertex)->edges.size(), 0);
     ASSERT_EQ(vertex->OutEdges(memgraph::storage::View::NEW, {other_et}, &*vertex)->edges.size(), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Delete the edge
@@ -3250,7 +3251,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameAbort) {
     ASSERT_EQ(vertex->OutEdges(memgraph::storage::View::OLD, {}, &*vertex)->edges.size(), 1);
     ASSERT_EQ(vertex->OutEdges(memgraph::storage::View::OLD, {other_et}, &*vertex)->edges.size(), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Check whether the edge exists
@@ -3269,7 +3270,7 @@ TEST_P(StorageEdgeTest, EdgeDeleteFromSameAbort) {
     ASSERT_EQ(vertex->OutEdges(memgraph::storage::View::NEW)->edges.size(), 0);
     ASSERT_EQ(*vertex->OutDegree(memgraph::storage::View::NEW), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 }
 
@@ -3326,7 +3327,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
     ASSERT_EQ(vertex_to.OutEdges(memgraph::storage::View::NEW)->edges.size(), 0);
     ASSERT_EQ(*vertex_to.OutDegree(memgraph::storage::View::NEW), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Detach delete vertex
@@ -3390,7 +3391,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleCommit) {
     ASSERT_EQ(vertex_to->OutEdges(memgraph::storage::View::NEW)->edges.size(), 0);
     ASSERT_EQ(*vertex_to->OutDegree(memgraph::storage::View::NEW), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Check dataset
@@ -3544,7 +3545,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleCommit) {
       }
     }
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Detach delete vertex
@@ -3682,7 +3683,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleCommit) {
       ASSERT_EQ(e.ToVertex(), *vertex2);
     }
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Check dataset
@@ -3796,7 +3797,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleAbort) {
     ASSERT_EQ(vertex_to.OutEdges(memgraph::storage::View::NEW)->edges.size(), 0);
     ASSERT_EQ(*vertex_to.OutDegree(memgraph::storage::View::NEW), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Detach delete vertex, but abort the transaction
@@ -3901,7 +3902,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleAbort) {
     ASSERT_EQ(vertex_to->OutEdges(memgraph::storage::View::NEW)->edges.size(), 0);
     ASSERT_EQ(*vertex_to->OutDegree(memgraph::storage::View::NEW), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Detach delete vertex
@@ -3965,7 +3966,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteSingleAbort) {
     ASSERT_EQ(vertex_to->OutEdges(memgraph::storage::View::NEW)->edges.size(), 0);
     ASSERT_EQ(*vertex_to->OutDegree(memgraph::storage::View::NEW), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Check dataset
@@ -4119,7 +4120,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
       }
     }
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Detach delete vertex, but abort the transaction
@@ -4435,7 +4436,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
       }
     }
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Detach delete vertex
@@ -4573,7 +4574,7 @@ TEST_P(StorageEdgeTest, VertexDetachDeleteMultipleAbort) {
       ASSERT_EQ(e.ToVertex(), *vertex2);
     }
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Check dataset
@@ -4680,7 +4681,7 @@ TEST(StorageWithProperties, EdgePropertyCommit) {
       ASSERT_EQ(properties[property].ValueString(), "nandare");
     }
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto acc = store->Access();
@@ -4741,7 +4742,7 @@ TEST(StorageWithProperties, EdgePropertyCommit) {
       ASSERT_TRUE(old_value->IsNull());
     }
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto acc = store->Access();
@@ -4781,7 +4782,7 @@ TEST(StorageWithProperties, EdgePropertyAbort) {
     ASSERT_EQ(edge.EdgeType(), et);
     ASSERT_EQ(edge.FromVertex(), vertex);
     ASSERT_EQ(edge.ToVertex(), vertex);
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Set property 5 to "nandare", but abort the transaction.
@@ -4885,7 +4886,7 @@ TEST(StorageWithProperties, EdgePropertyAbort) {
       ASSERT_EQ(properties[property].ValueString(), "nandare");
     }
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Check that property 5 is "nandare".
@@ -5031,7 +5032,7 @@ TEST(StorageWithProperties, EdgePropertyAbort) {
     ASSERT_TRUE(edge.GetProperty(property, memgraph::storage::View::NEW)->IsNull());
     ASSERT_EQ(edge.Properties(memgraph::storage::View::NEW)->size(), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   // Check that property 5 is null.
@@ -5071,7 +5072,7 @@ TEST(StorageWithProperties, EdgePropertySerializationError) {
     ASSERT_EQ(edge.EdgeType(), et);
     ASSERT_EQ(edge.FromVertex(), vertex);
     ASSERT_EQ(edge.ToVertex(), vertex);
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   auto acc1 = store->Access();
@@ -5135,7 +5136,7 @@ TEST(StorageWithProperties, EdgePropertySerializationError) {
   }
 
   // Finalize both accessors.
-  ASSERT_FALSE(acc1->Commit().HasError());
+  ASSERT_FALSE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   acc2->Abort();
 
   // Check which properties exist.
@@ -5188,7 +5189,7 @@ TEST(StorageWithProperties, EdgePropertyClear) {
     ASSERT_TRUE(old_value.HasValue());
     ASSERT_TRUE(old_value->IsNull());
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto acc = store->Access();
@@ -5233,7 +5234,7 @@ TEST(StorageWithProperties, EdgePropertyClear) {
     ASSERT_TRUE(old_value.HasValue());
     ASSERT_TRUE(old_value->IsNull());
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto acc = store->Access();
@@ -5267,7 +5268,7 @@ TEST(StorageWithProperties, EdgePropertyClear) {
     ASSERT_TRUE(edge.GetProperty(property2, memgraph::storage::View::NEW)->IsNull());
     ASSERT_EQ(edge.Properties(memgraph::storage::View::NEW).GetValue().size(), 0);
 
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto acc = store->Access();
@@ -5297,7 +5298,7 @@ TEST(StorageWithoutProperties, EdgePropertyAbort) {
     ASSERT_EQ(edge.EdgeType(), et);
     ASSERT_EQ(edge.FromVertex(), vertex);
     ASSERT_EQ(edge.ToVertex(), vertex);
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto acc = store->Access();
@@ -5366,7 +5367,7 @@ TEST(StorageWithoutProperties, EdgePropertyClear) {
     ASSERT_EQ(edge.EdgeType(), et);
     ASSERT_EQ(edge.FromVertex(), vertex);
     ASSERT_EQ(edge.ToVertex(), vertex);
-    ASSERT_FALSE(acc->Commit().HasError());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
   {
     auto acc = store->Access();
@@ -5412,5 +5413,5 @@ TEST(StorageWithProperties, EdgeNonexistentPropertyAPI) {
   ASSERT_EQ(edge->Properties(memgraph::storage::View::NEW)->size(), 1);
   ASSERT_EQ(*edge->GetProperty(property, memgraph::storage::View::NEW), memgraph::storage::PropertyValue("value"));
 
-  ASSERT_FALSE(acc->Commit().HasError());
+  ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
 }

@@ -17,6 +17,7 @@
 #include <cstdint>
 #include <functional>
 #include <optional>
+#include <type_traits>
 #include <unordered_map>
 
 #include "slk/serialization.hpp"
@@ -136,12 +137,13 @@ void LicenseChecker::RevalidateLicense(const std::string &license_key, const std
   const bool same_license_info = locked_previous_license_info &&
                                  locked_previous_license_info->license_key == license_key &&
                                  locked_previous_license_info->organization_name == organization_name;
-  // If we already know it's invalid skip the check
-  if (same_license_info && !locked_previous_license_info->is_valid) {
+  if (!same_license_info) {
+    // New license, reset the previous license info
+    locked_previous_license_info.emplace(license_key, organization_name);
+  } else if (!locked_previous_license_info->is_valid) {
+    // If we already know it's invalid skip the check
     return;
   }
-
-  locked_previous_license_info.emplace(license_key, organization_name);
 
   auto maybe_license = GetLicense(locked_previous_license_info->license_key);
   if (!maybe_license) {
@@ -164,6 +166,8 @@ void LicenseChecker::RevalidateLicense(const std::string &license_key, const std
     return;
   }
 
+  // If we got here, the license is valid; update if the license changed (same but invalid license would already have
+  // returned)
   if (!same_license_info) {
     license_type_ = maybe_license->type;
     if (license_type_ == LicenseType::ENTERPRISE) {
@@ -183,6 +187,12 @@ void LicenseChecker::EnableTesting(const LicenseType license_type) {
   is_valid_.store(true, std::memory_order_relaxed);
   license_type_ = license_type;
   spdlog::info("The license type {} is set for testing.", LicenseTypeToString(license_type));
+}
+
+void LicenseChecker::DisableTesting() {
+  enterprise_enabled_ = false;
+  is_valid_.store(false, std::memory_order_relaxed);
+  spdlog::info("The license is disabled for testing.");
 }
 
 void LicenseChecker::CheckEnvLicense() {

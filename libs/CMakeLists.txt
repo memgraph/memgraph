@@ -237,7 +237,7 @@ mg_create_linkable_if_no_cmake(benchmark STATIC
 set(RC_ENABLE_GTEST ON CACHE BOOL "Build Google Test integration" FORCE)
 set(RC_ENABLE_GMOCK ON CACHE BOOL "Build Google Mock integration" FORCE)
 mark_as_advanced(RC_ENABLE_GTEST RC_ENABLE_GMOCK)
-add_subdirectory(rapidcheck EXCLUDE_FROM_ALL)
+add_subdirectory(rapidcheck EXCLUDE_FROM_ALL SYSTEM)
 
 macro(build_gtest)
   add_external_project(gtest SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/googletest
@@ -328,7 +328,7 @@ mg_build_if_needed(build_mgconsole "mgconsole")
 
 # Setup spdlog
 set(SPDLOG_FMT_EXTERNAL ON)
-add_subdirectory(spdlog)
+add_subdirectory(spdlog SYSTEM)
 
 macro(build_kafka)
     import_external_library(librdkafka STATIC
@@ -409,19 +409,19 @@ import_header_library(ctre ${CMAKE_CURRENT_SOURCE_DIR})
 
 # setup absl (cmake sub_directory tolerant)
 set(ABSL_PROPAGATE_CXX_STD ON)
-add_subdirectory(absl EXCLUDE_FROM_ALL)
+add_subdirectory(absl EXCLUDE_FROM_ALL SYSTEM)
 
-macro(link_jmalloc)
-  set_path_external_library(jemalloc STATIC
-    ${CMAKE_CURRENT_SOURCE_DIR}/jemalloc/lib/libjemalloc.a
-    ${CMAKE_CURRENT_SOURCE_DIR}/jemalloc/include/)
-endmacro()
-mg_build_if_needed(link_jmalloc "jemalloc")
-if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
-  if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
-    set_path_external_library(jemalloc STATIC "${MG_TOOLCHAIN_ROOT}/lib/libjemalloc.a" "${MG_TOOLCHAIN_ROOT}/include")
-  endif()
-endif()
+# macro(link_jmalloc)
+set_path_external_library(jemalloc STATIC
+  ${CMAKE_CURRENT_SOURCE_DIR}/jemalloc/lib/libjemalloc.a
+  ${CMAKE_CURRENT_SOURCE_DIR}/jemalloc/include/)
+# endmacro()
+# mg_build_if_needed(link_jmalloc "jemalloc")
+# if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
+#   if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
+#     set_path_external_library(jemalloc STATIC "${MG_TOOLCHAIN_ROOT}/lib/libjemalloc.a" "${MG_TOOLCHAIN_ROOT}/include")
+#   endif()
+# endif()
 
 import_header_library(rangev3 ${CMAKE_CURRENT_SOURCE_DIR}/rangev3/include)
 
@@ -435,29 +435,29 @@ mg_create_linkable_if_no_cmake(nuraft STATIC "${MG_TOOLCHAIN_ROOT}/lib/libnuraft
 find_package(OpenSSL REQUIRED)
 target_link_libraries(nuraft INTERFACE ${OPENSSL_LIBRARIES})
 
-macro(build_mgcxx)
-  # Setup mgcxx (provides: text search)
-  set(MGCXX_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/include
-    CACHE PATH "Path to mgcxx include directory" FORCE)
-  set(TANTIVY_TEXT_SEARCH_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/lib/libtantivy_text_search.a
-    CACHE FILEPATH "Path to mgcxx tantivy library (internal one)" FORCE)
-  set(MGCXX_TEXT_SEARCH_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/lib/libmgcxx_text_search.a
-    CACHE FILEPATH "Path to mgcxx text search library" FORCE)
-  add_external_project(mgcxx
-    SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx
-    CMAKE_ARGS -DENABLE_TESTS=OFF)
-  mark_as_advanced(MGCXX_INCLUDE_DIR TANTIVY_TEXT_SEARCH_LIBRARY MGCXX_TEXT_SEARCH_LIBRARY)
-  import_library(tantivy_text_search STATIC ${TANTIVY_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
-  import_library(mgcxx_text_search STATIC ${MGCXX_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
-endmacro()
-mg_build_if_needed(build_mgcxx "mgcxx")
-mg_create_linkable_if_no_cmake(tantivy_text_search STATIC "${MG_TOOLCHAIN_ROOT}/lib/libtantivy_text_search.a" "${MG_TOOLCHAIN_ROOT}/include")
-mg_create_linkable_if_no_cmake(mgcxx_text_search STATIC "${MG_TOOLCHAIN_ROOT}/lib/libmgcxx_text_search.a" "${MG_TOOLCHAIN_ROOT}/include")
+# Always build mgcxx locally (not from toolchain)
+set(MGCXX_INCLUDE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/include
+  CACHE PATH "Path to mgcxx include directory" FORCE)
+set(TANTIVY_TEXT_SEARCH_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/lib/libtantivy_text_search.a
+  CACHE FILEPATH "Path to mgcxx tantivy library (internal one)" FORCE)
+set(MGCXX_TEXT_SEARCH_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/lib/libmgcxx_text_search.a
+  CACHE FILEPATH "Path to mgcxx text search library" FORCE)
+add_external_project(mgcxx
+  SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx
+  CMAKE_ARGS -DENABLE_TESTS=OFF)
+mark_as_advanced(MGCXX_INCLUDE_DIR TANTIVY_TEXT_SEARCH_LIBRARY MGCXX_TEXT_SEARCH_LIBRARY)
+import_library(tantivy_text_search STATIC ${TANTIVY_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
+import_library(mgcxx_text_search STATIC ${MGCXX_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
+
+# Prepend local mgcxx include directory to ensure it's found before toolchain headers
+file(MAKE_DIRECTORY ${MGCXX_INCLUDE_DIR})
+include_directories(BEFORE ${MGCXX_INCLUDE_DIR})
+
 target_link_libraries(tantivy_text_search INTERFACE ${CMAKE_DL_LIBS})
 target_link_libraries(mgcxx_text_search INTERFACE ${CMAKE_DL_LIBS})
 
 # setup strong_type (cmake sub_directory tolerant)
-add_subdirectory(strong_type EXCLUDE_FROM_ALL)
+add_subdirectory(strong_type EXCLUDE_FROM_ALL SYSTEM)
 
 # setup usearch
 import_header_library(usearch ${CMAKE_CURRENT_SOURCE_DIR}/usearch/include)
@@ -466,5 +466,9 @@ set_property(TARGET usearch PROPERTY INTERFACE_INCLUDE_DIRECTORIES
   ${CMAKE_CURRENT_SOURCE_DIR}/usearch/fp16/include
   ${CMAKE_CURRENT_SOURCE_DIR}/usearch/stringzilla/include)
 
+# suppress usearch-specific #warnings like:
+# "It's recommended to use SimSIMD and fp16lib for half-precision numerics"
+target_compile_options(usearch INTERFACE -Wno-cpp)
+
 # setup croncpp
-add_subdirectory(croncpp EXCLUDE_FROM_ALL)
+add_subdirectory(croncpp EXCLUDE_FROM_ALL SYSTEM)

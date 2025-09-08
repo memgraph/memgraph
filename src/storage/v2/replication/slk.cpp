@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -89,57 +89,57 @@ void Load(storage::Gid *gid, slk::Reader *reader) {
   *gid = storage::Gid::FromUint(value);
 }
 
-void Load(storage::PropertyValue::Type *type, slk::Reader *reader) {
-  using PVTypeUnderlyingType = std::underlying_type_t<storage::PropertyValue::Type>;
+void Load(storage::ExternalPropertyValue::Type *type, slk::Reader *reader) {
+  using PVTypeUnderlyingType = std::underlying_type_t<storage::ExternalPropertyValue::Type>;
   PVTypeUnderlyingType value{};
   slk::Load(&value, reader);
   bool valid;
   switch (value) {
-    case utils::UnderlyingCast(storage::PropertyValue::Type::Null):
-    case utils::UnderlyingCast(storage::PropertyValue::Type::Bool):
-    case utils::UnderlyingCast(storage::PropertyValue::Type::Int):
-    case utils::UnderlyingCast(storage::PropertyValue::Type::Double):
-    case utils::UnderlyingCast(storage::PropertyValue::Type::String):
-    case utils::UnderlyingCast(storage::PropertyValue::Type::List):
-    case utils::UnderlyingCast(storage::PropertyValue::Type::Map):
-    case utils::UnderlyingCast(storage::PropertyValue::Type::TemporalData):
-    case utils::UnderlyingCast(storage::PropertyValue::Type::ZonedTemporalData):
-    case utils::UnderlyingCast(storage::PropertyValue::Type::Enum):
-    case utils::UnderlyingCast(storage::PropertyValue::Type::Point2d):
-    case utils::UnderlyingCast(storage::PropertyValue::Type::Point3d):
+    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::Null):
+    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::Bool):
+    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::Int):
+    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::Double):
+    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::String):
+    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::List):
+    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::Map):
+    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::TemporalData):
+    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::ZonedTemporalData):
+    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::Enum):
+    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::Point2d):
+    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::Point3d):
       valid = true;
       break;
     default:
       valid = false;
       break;
   }
-  if (!valid) throw slk::SlkDecodeException("Trying to load unknown storage::PropertyValue!");
-  *type = static_cast<storage::PropertyValue::Type>(value);
+  if (!valid) throw slk::SlkDecodeException("Trying to load unknown storage::ExternalPropertyValue!");
+  *type = static_cast<storage::ExternalPropertyValue::Type>(value);
 }
 
-void Save(const storage::PropertyValue &value, slk::Builder *builder) {
+void Save(const storage::ExternalPropertyValue &value, slk::Builder *builder) {
   switch (value.type()) {
-    case storage::PropertyValue::Type::Null:
-      slk::Save(storage::PropertyValue::Type::Null, builder);
+    case storage::ExternalPropertyValue::Type::Null:
+      slk::Save(storage::ExternalPropertyValue::Type::Null, builder);
       return;
-    case storage::PropertyValue::Type::Bool:
-      slk::Save(storage::PropertyValue::Type::Bool, builder);
+    case storage::ExternalPropertyValue::Type::Bool:
+      slk::Save(storage::ExternalPropertyValue::Type::Bool, builder);
       slk::Save(value.ValueBool(), builder);
       return;
-    case storage::PropertyValue::Type::Int:
-      slk::Save(storage::PropertyValue::Type::Int, builder);
+    case storage::ExternalPropertyValue::Type::Int:
+      slk::Save(storage::ExternalPropertyValue::Type::Int, builder);
       slk::Save(value.ValueInt(), builder);
       return;
-    case storage::PropertyValue::Type::Double:
-      slk::Save(storage::PropertyValue::Type::Double, builder);
+    case storage::ExternalPropertyValue::Type::Double:
+      slk::Save(storage::ExternalPropertyValue::Type::Double, builder);
       slk::Save(value.ValueDouble(), builder);
       return;
-    case storage::PropertyValue::Type::String:
-      slk::Save(storage::PropertyValue::Type::String, builder);
+    case storage::ExternalPropertyValue::Type::String:
+      slk::Save(storage::ExternalPropertyValue::Type::String, builder);
       slk::Save(value.ValueString(), builder);
       return;
-    case storage::PropertyValue::Type::List: {
-      slk::Save(storage::PropertyValue::Type::List, builder);
+    case storage::ExternalPropertyValue::Type::List: {
+      slk::Save(storage::ExternalPropertyValue::Type::List, builder);
       const auto &values = value.ValueList();
       size_t size = values.size();
       slk::Save(size, builder);
@@ -148,8 +148,8 @@ void Save(const storage::PropertyValue &value, slk::Builder *builder) {
       }
       return;
     }
-    case storage::PropertyValue::Type::Map: {
-      slk::Save(storage::PropertyValue::Type::Map, builder);
+    case storage::ExternalPropertyValue::Type::Map: {
+      slk::Save(storage::ExternalPropertyValue::Type::Map, builder);
       const auto &map = value.ValueMap();
       size_t size = map.size();
       slk::Save(size, builder);
@@ -158,126 +158,126 @@ void Save(const storage::PropertyValue &value, slk::Builder *builder) {
       }
       return;
     }
-    case storage::PropertyValue::Type::TemporalData: {
-      slk::Save(storage::PropertyValue::Type::TemporalData, builder);
+    case storage::ExternalPropertyValue::Type::TemporalData: {
+      slk::Save(storage::ExternalPropertyValue::Type::TemporalData, builder);
       const auto temporal_data = value.ValueTemporalData();
       slk::Save(temporal_data.type, builder);
       slk::Save(temporal_data.microseconds, builder);
       return;
     }
-    case storage::PropertyValue::Type::ZonedTemporalData: {
-      slk::Save(storage::PropertyValue::Type::ZonedTemporalData, builder);
+    case storage::ExternalPropertyValue::Type::ZonedTemporalData: {
+      slk::Save(storage::ExternalPropertyValue::Type::ZonedTemporalData, builder);
       const auto zoned_temporal_data = value.ValueZonedTemporalData();
       slk::Save(zoned_temporal_data.type, builder);
       slk::Save(zoned_temporal_data.IntMicroseconds(), builder);
       if (zoned_temporal_data.timezone.InTzDatabase()) {
-        slk::Save(storage::PropertyValue::Type::String, builder);
+        slk::Save(storage::ExternalPropertyValue::Type::String, builder);
         slk::Save(zoned_temporal_data.timezone.TimezoneName(), builder);
       } else {
-        slk::Save(storage::PropertyValue::Type::Int, builder);
+        slk::Save(storage::ExternalPropertyValue::Type::Int, builder);
         slk::Save(zoned_temporal_data.timezone.DefiningOffset(), builder);
       }
       return;
     }
-    case storage::PropertyValue::Type::Enum: {
-      slk::Save(storage::PropertyValue::Type::Enum, builder);
+    case storage::ExternalPropertyValue::Type::Enum: {
+      slk::Save(storage::ExternalPropertyValue::Type::Enum, builder);
       slk::Save(value.ValueEnum(), builder);
       return;
     }
-    case storage::PropertyValue::Type::Point2d: {
-      slk::Save(storage::PropertyValue::Type::Point2d, builder);
+    case storage::ExternalPropertyValue::Type::Point2d: {
+      slk::Save(storage::ExternalPropertyValue::Type::Point2d, builder);
       slk::Save(value.ValuePoint2d(), builder);
       return;
     }
-    case storage::PropertyValue::Type::Point3d: {
-      slk::Save(storage::PropertyValue::Type::Point3d, builder);
+    case storage::ExternalPropertyValue::Type::Point3d: {
+      slk::Save(storage::ExternalPropertyValue::Type::Point3d, builder);
       slk::Save(value.ValuePoint3d(), builder);
       return;
     }
   }
 }
 
-void Load(storage::PropertyValue *value, slk::Reader *reader) {
-  storage::PropertyValue::Type type{};
+void Load(storage::ExternalPropertyValue *value, slk::Reader *reader) {
+  storage::ExternalPropertyValue::Type type{};
   slk::Load(&type, reader);
   switch (type) {
-    case storage::PropertyValue::Type::Null:
-      *value = storage::PropertyValue();
+    case storage::ExternalPropertyValue::Type::Null:
+      *value = storage::ExternalPropertyValue();
       return;
-    case storage::PropertyValue::Type::Bool: {
+    case storage::ExternalPropertyValue::Type::Bool: {
       bool v;
       slk::Load(&v, reader);
-      *value = storage::PropertyValue(v);
+      *value = storage::ExternalPropertyValue(v);
       return;
     }
-    case storage::PropertyValue::Type::Int: {
+    case storage::ExternalPropertyValue::Type::Int: {
       int64_t v;
       slk::Load(&v, reader);
-      *value = storage::PropertyValue(v);
+      *value = storage::ExternalPropertyValue(v);
       return;
     }
-    case storage::PropertyValue::Type::Double: {
+    case storage::ExternalPropertyValue::Type::Double: {
       double v;
       slk::Load(&v, reader);
-      *value = storage::PropertyValue(v);
+      *value = storage::ExternalPropertyValue(v);
       return;
     }
-    case storage::PropertyValue::Type::String: {
+    case storage::ExternalPropertyValue::Type::String: {
       std::string v;
       slk::Load(&v, reader);
-      *value = storage::PropertyValue(std::move(v));
+      *value = storage::ExternalPropertyValue(std::move(v));
       return;
     }
-    case storage::PropertyValue::Type::List: {
+    case storage::ExternalPropertyValue::Type::List: {
       size_t size;
       slk::Load(&size, reader);
-      std::vector<storage::PropertyValue> list(size);
+      std::vector<storage::ExternalPropertyValue> list(size);
       for (size_t i = 0; i < size; ++i) {
         slk::Load(&list[i], reader);
       }
-      *value = storage::PropertyValue(std::move(list));
+      *value = storage::ExternalPropertyValue(std::move(list));
       return;
     }
-    case storage::PropertyValue::Type::Map: {
+    case storage::ExternalPropertyValue::Type::Map: {
       size_t size;
       slk::Load(&size, reader);
-      auto map = storage::PropertyValue::map_t{};
-      map.reserve(size);
+      auto map = storage::ExternalPropertyValue::map_t{};
+      do_reserve(map, size);
       for (size_t i = 0; i < size; ++i) {
-        std::pair<std::string, storage::PropertyValue> kv;
+        std::pair<std::string, storage::ExternalPropertyValue> kv;
         slk::Load(&kv, reader);
         map.insert(kv);
       }
-      *value = storage::PropertyValue(std::move(map));
+      *value = storage::ExternalPropertyValue(std::move(map));
       return;
     }
-    case storage::PropertyValue::Type::TemporalData: {
+    case storage::ExternalPropertyValue::Type::TemporalData: {
       storage::TemporalType temporal_type{};
       slk::Load(&temporal_type, reader);
       int64_t microseconds{0};
       slk::Load(&microseconds, reader);
-      *value = storage::PropertyValue(storage::TemporalData{temporal_type, microseconds});
+      *value = storage::ExternalPropertyValue(storage::TemporalData{temporal_type, microseconds});
       return;
     }
-    case storage::PropertyValue::Type::ZonedTemporalData: {
+    case storage::ExternalPropertyValue::Type::ZonedTemporalData: {
       storage::ZonedTemporalType temporal_type{};
       slk::Load(&temporal_type, reader);
       int64_t microseconds{0};
       slk::Load(&microseconds, reader);
-      storage::PropertyValue::Type timezone_representation_type{};
+      storage::ExternalPropertyValue::Type timezone_representation_type{};
       slk::Load(&timezone_representation_type, reader);
       switch (timezone_representation_type) {
-        case storage::PropertyValue::Type::String: {
+        case storage::ExternalPropertyValue::Type::String: {
           std::string timezone_name;
           slk::Load(&timezone_name, reader);
-          *value = storage::PropertyValue(storage::ZonedTemporalData{temporal_type, utils::AsSysTime(microseconds),
-                                                                     utils::Timezone(timezone_name)});
+          *value = storage::ExternalPropertyValue(storage::ZonedTemporalData{
+              temporal_type, utils::AsSysTime(microseconds), utils::Timezone(timezone_name)});
           return;
         }
-        case storage::PropertyValue::Type::Int: {
+        case storage::ExternalPropertyValue::Type::Int: {
           int64_t offset_minutes{0};
           slk::Load(&offset_minutes, reader);
-          *value = storage::PropertyValue(storage::ZonedTemporalData{
+          *value = storage::ExternalPropertyValue(storage::ZonedTemporalData{
               temporal_type, utils::AsSysTime(microseconds), utils::Timezone(std::chrono::minutes{offset_minutes})});
           return;
         }
@@ -286,22 +286,22 @@ void Load(storage::PropertyValue *value, slk::Reader *reader) {
       }
       return;
     }
-    case storage::PropertyValue::Type::Enum: {
+    case storage::ExternalPropertyValue::Type::Enum: {
       storage::Enum v;
       slk::Load(&v, reader);
-      *value = storage::PropertyValue(v);
+      *value = storage::ExternalPropertyValue(v);
       return;
     }
-    case storage::PropertyValue::Type::Point2d: {
+    case storage::ExternalPropertyValue::Type::Point2d: {
       storage::Point2d v;
       slk::Load(&v, reader);
-      *value = storage::PropertyValue(v);
+      *value = storage::ExternalPropertyValue(v);
       return;
     }
-    case storage::PropertyValue::Type::Point3d: {
+    case storage::ExternalPropertyValue::Type::Point3d: {
       storage::Point3d v;
       slk::Load(&v, reader);
-      *value = storage::PropertyValue(v);
+      *value = storage::ExternalPropertyValue(v);
       return;
     }
   }

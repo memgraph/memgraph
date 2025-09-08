@@ -523,3 +523,315 @@ Feature: WHERE exists
           MATCH (n) RETURN exists((n)-[]-());
           """
       Then an error should be raised
+
+  Scenario: Test basic EXISTS subquery with pattern
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'John'})-[:HAS_DOG]->(:Dog {name: 'Rex'})
+          """
+      When executing query:
+          """
+          MATCH (person:Person) WHERE EXISTS { (person)-[:HAS_DOG]->(:Dog) } RETURN person.name AS name;
+          """
+      Then the result should be:
+          | name   |
+          | 'John' |
+
+  Scenario: Test EXISTS subquery with WHERE clause
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'John'})-[:HAS_DOG]->(:Dog {name: 'John'})
+          CREATE (:Person {name: 'Alice'})-[:HAS_DOG]->(:Dog {name: 'Rex'})
+          """
+      When executing query:
+          """
+          MATCH (person:Person) WHERE EXISTS { MATCH (person)-[:HAS_DOG]->(dog:Dog) WHERE person.name = dog.name } RETURN person.name AS name;
+          """
+      Then the result should be:
+          | name   |
+          | 'John' |
+
+  Scenario: Test EXISTS subquery with WITH clause
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'John'})-[:HAS_DOG]->(:Dog {name: 'Ozzy'})
+          CREATE (:Person {name: 'Alice'})-[:HAS_DOG]->(:Dog {name: 'Rex'})
+          """
+      When executing query:
+          """
+          WITH 'Peter' as name MATCH (person:Person {name: name}) WHERE EXISTS { WITH "Ozzy" AS name MATCH (person)-[:HAS_DOG]->(d:Dog) WHERE d.name = name } RETURN person.name AS name;
+          """
+      Then the result should be empty
+
+  Scenario: Test EXISTS subquery with nested WITH
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'John'})-[:HAS_DOG]->(:Dog {name: 'Ozzy'})
+          CREATE (:Person {name: 'Alice'})-[:HAS_DOG]->(:Dog {name: 'Rex'})
+          """
+      When executing query:
+          """
+          MATCH (person:Person) WHERE EXISTS { WITH 'Ozzy' AS dogName MATCH (person)-[:HAS_DOG]->(d:Dog) WHERE d.name = dogName } RETURN person.name AS name;
+          """
+      Then the result should be:
+          | name   |
+          | 'John' |
+
+  Scenario: Test EXISTS subquery with RETURN clause
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'John'})-[:HAS_DOG]->(:Dog {name: 'Rex'})
+          """
+      When executing query:
+          """
+          MATCH (person:Person) WHERE EXISTS { MATCH (person)-[:HAS_DOG]->(:Dog) RETURN person.name } RETURN person.name AS name;
+          """
+      Then the result should be:
+          | name   |
+          | 'John' |
+
+  Scenario: Test nested EXISTS subqueries
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'John'})-[:HAS_DOG]->(:Dog {name: 'Rex'})-[:HAS_TOY]->(:Toy {name: 'Banana'})
+          CREATE (:Person {name: 'Alice'})-[:HAS_DOG]->(:Dog {name: 'Max'})-[:HAS_TOY]->(:Toy {name: 'Ball'})
+          """
+      When executing query:
+          """
+          MATCH (person:Person)
+          WHERE EXISTS {
+            MATCH (person)-[:HAS_DOG]->(dog:Dog)
+            WHERE EXISTS {
+              MATCH (dog)-[:HAS_TOY]->(toy:Toy)
+              WHERE toy.name = 'Banana'
+            }
+          }
+          RETURN person.name AS name;
+          """
+      Then the result should be:
+          | name   |
+          | 'John' |
+
+  Scenario: Test EXISTS subquery with multiple patterns
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'John'})-[:HAS_DOG]->(:Dog {name: 'Rex'})-[:HAS_TOY]->(:Toy {name: 'Ball'})
+          CREATE (:Person {name: 'Alice'})-[:HAS_DOG]->(:Dog {name: 'Max'})
+          """
+      When executing query:
+          """
+          MATCH (person:Person)
+          WHERE EXISTS {
+            MATCH (person)-[:HAS_DOG]->(dog:Dog)-[:HAS_TOY]->(:Toy)
+          }
+          RETURN person.name AS name;
+          """
+      Then the result should be:
+          | name   |
+          | 'John' |
+
+  Scenario: Test not EXISTS subquery with multiple patterns
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'John'})-[:HAS_DOG]->(:Dog {name: 'Rex'})-[:HAS_TOY]->(:Toy {name: 'Ball'})
+          CREATE (:Person {name: 'Alice'})-[:HAS_DOG]->(:Dog {name: 'Max'})
+          """
+      When executing query:
+          """
+          MATCH (person:Person)
+          WHERE NOT EXISTS {
+            MATCH (person)-[:HAS_DOG]->(dog:Dog)-[:HAS_TOY]->(:Toy)
+          }
+          RETURN person.name AS name;
+          """
+      Then the result should be:
+          | name    |
+          | 'Alice' |
+
+  Scenario: Test EXISTS subquery with variable from outer scope
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'John', age: 30})-[:HAS_DOG]->(:Dog {name: 'Rex', age: 5})
+          CREATE (:Person {name: 'Alice', age: 25})-[:HAS_DOG]->(:Dog {name: 'Max', age: 3})
+          """
+      When executing query:
+          """
+          MATCH (person:Person)
+          WHERE EXISTS {
+            MATCH (person)-[:HAS_DOG]->(dog:Dog)
+            WHERE dog.age < person.age
+          }
+          RETURN person.name AS name;
+          """
+      Then the result should be:
+          | name    |
+          | 'John'  |
+          | 'Alice' |
+
+  Scenario: Test EXISTS subquery with multiple conditions
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'John'})-[:HAS_DOG]->(:Dog {name: 'Rex', age: 5})
+          CREATE (:Person {name: 'Alice'})-[:HAS_DOG]->(:Dog {name: 'Max', age: 3})
+          """
+      When executing query:
+          """
+          MATCH (person:Person)
+          WHERE EXISTS {
+            MATCH (person)-[:HAS_DOG]->(dog:Dog)
+            WHERE dog.age > 4 AND dog.name = 'Rex'
+          }
+          RETURN person.name AS name;
+          """
+      Then the result should be:
+          | name   |
+          | 'John' |
+
+  Scenario: Test invalid RETURN EXISTS
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'John'})-[:HAS_DOG]->(:Dog {name: 'Rex'})
+          """
+      When executing query:
+          """
+          MATCH (person:Person) RETURN EXISTS { (person)-[:HAS_DOG]->(:Dog) } AS has_dog;
+          """
+      Then an error should be raised
+
+  Scenario: Test invalid SET inside EXISTS
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'John'})-[:HAS_DOG]->(:Dog {name: 'Rex'})
+          """
+      When executing query:
+          """
+          MATCH (person:Person)
+          WHERE EXISTS {
+            MATCH (person)-[:HAS_DOG]->(dog:Dog)
+            SET dog.name = 'NewName'
+          }
+          RETURN person.name AS name;
+          """
+      Then an error should be raised
+
+  Scenario: Test invalid CREATE inside EXISTS
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'John'})
+          """
+      When executing query:
+          """
+          MATCH (person:Person)
+          WHERE EXISTS {
+            CREATE (person)-[:HAS_DOG]->(:Dog {name: 'Rex'})
+          }
+          RETURN person.name AS name;
+          """
+      Then an error should be raised
+
+  Scenario: Test invalid DELETE inside EXISTS
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'John'})-[:HAS_DOG]->(:Dog {name: 'Rex'})
+          """
+      When executing query:
+          """
+          MATCH (person:Person)
+          WHERE EXISTS {
+            MATCH (person)-[:HAS_DOG]->(dog:Dog)
+            DELETE dog
+          }
+          RETURN person.name AS name;
+          """
+      Then an error should be raised
+
+  Scenario: Test invalid DETACH DELETE inside EXISTS
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'John'})-[:HAS_DOG]->(:Dog {name: 'Rex'})
+          """
+      When executing query:
+          """
+          MATCH (person:Person)
+          WHERE EXISTS {
+            MATCH (person)-[:HAS_DOG]->(dog:Dog)
+            DETACH DELETE dog
+          }
+          RETURN person.name AS name;
+          """
+      Then an error should be raised
+
+  Scenario: Test invalid REMOVE inside EXISTS
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'John'})-[:HAS_DOG]->(:Dog {name: 'Rex'})
+          """
+      When executing query:
+          """
+          MATCH (person:Person)
+          WHERE EXISTS {
+            MATCH (person)-[:HAS_DOG]->(dog:Dog)
+            REMOVE dog.name
+          }
+          RETURN person.name AS name;
+          """
+      Then an error should be raised
+
+  Scenario: Test invalid EXISTS with UNION in RETURN
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'John'})-[:HAS_DOG]->(:Dog {name: 'Rex'})
+          CREATE (:Person {name: 'Alice'})-[:HAS_CAT]->(:Cat {name: 'Whiskers'})
+          """
+      When executing query:
+          """
+          MATCH (person:Person)
+          RETURN
+              person.name AS name,
+              EXISTS {
+                  MATCH (person)-[:HAS_DOG]->(:Dog)
+                  UNION
+                  MATCH (person)-[:HAS_CAT]->(:Cat)
+              } AS hasPet;
+          """
+      Then an error should be raised
+
+  Scenario: Test valid EXISTS with UNION in WHERE
+      Given an empty graph
+      And having executed:
+          """
+          CREATE (:Person {name: 'John'})-[:HAS_DOG]->(:Dog {name: 'Rex'})
+          CREATE (:Person {name: 'Alice'})-[:HAS_CAT]->(:Cat {name: 'Whiskers'})
+          CREATE (:Person {name: 'Bob'})
+          """
+      When executing query:
+          """
+          MATCH (person:Person)
+          WHERE EXISTS {
+              MATCH (person)-[:HAS_DOG]->(:Dog)
+              UNION
+              MATCH (person)-[:HAS_CAT]->(:Cat)
+          }
+          RETURN person.name AS name;
+          """
+      Then the result should be:
+          | name    |
+          | 'John'  |
+          | 'Alice' |

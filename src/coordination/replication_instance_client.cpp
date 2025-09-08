@@ -89,7 +89,7 @@ auto ReplicationInstanceClient::SendStateCheckRpc() const -> std::optional<Insta
   try {
     utils::MetricsTimer const timer{metrics::StateCheckRpc_us};
     auto stream{rpc_client_.Stream<StateCheckRpc>()};
-    auto res = stream.AwaitResponse();
+    auto res = stream.SendAndWait();
     metrics::IncrementCounter(metrics::StateCheckRpcSuccess);
     return res.state;
   } catch (rpc::RpcFailedException const &e) {
@@ -104,13 +104,24 @@ auto ReplicationInstanceClient::SendGetDatabaseHistoriesRpc() const
   try {
     utils::MetricsTimer const timer{metrics::GetDatabaseHistoriesRpc_us};
     auto stream{rpc_client_.Stream<GetDatabaseHistoriesRpc>()};
-    auto res = stream.AwaitResponse();
+    auto res = stream.SendAndWait();
     metrics::IncrementCounter(metrics::GetDatabaseHistoriesRpcSuccess);
     return res.instance_info;
 
   } catch (const rpc::RpcFailedException &e) {
     spdlog::error("Failed to receive response to GetDatabaseHistoriesReq. Error occurred: {}", e.what());
     metrics::IncrementCounter(metrics::GetDatabaseHistoriesRpcFail);
+    return {};
+  }
+}
+
+auto ReplicationInstanceClient::SendGetReplicationLagRpc() const -> std::optional<ReplicationLagInfo> {
+  try {
+    auto stream{rpc_client_.Stream<ReplicationLagRpc>()};
+    auto res = stream.SendAndWait();
+    return res.lag_info_;
+  } catch (const rpc::RpcFailedException &e) {
+    spdlog::error("Failed to receive response to ReplicationLagRpc. Error occurred: {}", e.what());
     return {};
   }
 }

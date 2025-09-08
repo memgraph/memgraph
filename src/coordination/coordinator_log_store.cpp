@@ -12,7 +12,7 @@
 #ifdef MG_ENTERPRISE
 
 #include "coordination/coordinator_log_store.hpp"
-#include "coordination/constants_log_durability.hpp"
+#include "coordination/constants.hpp"
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/utils.hpp"
 #include "utils/logging.hpp"
@@ -57,22 +57,25 @@ bool CoordinatorLogStore::HandleVersionMigration(LogStoreVersion const stored_ve
         is_first_start = true;
       }
       if (is_first_start) {
-        start_idx_ = 1;
-        durability_->Put(kStartIdx, "1");
-        durability_->Put(kLastLogEntry, "0");
+        start_idx_.store(kInitialStartIdx, std::memory_order_release);
+        std::map<std::string, std::string> batch;
+        batch.emplace(kStartIdx, std::to_string(kInitialStartIdx));
+        batch.emplace(kLastLogEntry, std::to_string(kInitialLastLogEntry));
+        durability_->PutMultiple(batch);
         return true;
       }
 
       uint64_t const last_log_entry = std::stoull(maybe_last_log_entry.value());
-      start_idx_ = std::stoull(maybe_start_idx.value());
+      auto const durable_start_idx_value = std::stoull(maybe_start_idx.value());
+      start_idx_.store(durable_start_idx_value, std::memory_order_release);
 
       // Compaction might have happened so we might be missing some logs.
-      for (auto const id : std::ranges::iota_view{start_idx_.load(), last_log_entry + 1}) {
+      for (auto const id : std::ranges::iota_view{durable_start_idx_value, last_log_entry + 1}) {
         auto const entry = durability_->Get(fmt::format("{}{}", kLogEntryPrefix, id));
 
         if (!entry.has_value()) {
-          logger_.Log(nuraft_log_level::TRACE,
-                      fmt::format("Missing entry with id {} in range [{}:{}]", id, start_idx_.load(), last_log_entry));
+          logger_.Log(nuraft_log_level::TRACE, fmt::format("Missing entry with id {} in range [{}:{}]", id,
+                                                           durable_start_idx_value, last_log_entry));
           continue;
         }
 
@@ -126,9 +129,11 @@ uint64_t CoordinatorLogStore::next_slot() const {
   return GetNextSlot();
 }
 
-auto CoordinatorLogStore::GetNextSlot() const -> uint64_t { return start_idx_ + logs_.size(); }
+auto CoordinatorLogStore::GetNextSlot() const -> uint64_t {
+  return start_idx_.load(std::memory_order_acquire) + logs_.size();
+}
 
-uint64_t CoordinatorLogStore::start_index() const { return start_idx_; }
+uint64_t CoordinatorLogStore::start_index() const { return start_idx_.load(std::memory_order_acquire); }
 
 std::shared_ptr<log_entry> CoordinatorLogStore::last_entry() const {
   auto lock = std::lock_guard{logs_lock_};
@@ -280,31 +285,42 @@ void CoordinatorLogStore::apply_pack(uint64_t index, buffer &pack) {
   {
     auto lock = std::lock_guard{logs_lock_};
     if (auto const entry = logs_.upper_bound(0); entry != logs_.end()) {
-      start_idx_ = entry->first;
-      durability_->Put(kStartIdx, std::to_string(start_idx_.load()));
+      start_idx_.store(entry->first, std::memory_order_release);
+      durability_->Put(kStartIdx, std::to_string(entry->first));
     } else {
-      start_idx_ = 1;
+      start_idx_.store(1, std::memory_order_release);
     }
   }
 }
 
 // NOTE: Remove all logs up to given 'last_log_index' (inclusive).
+// NOTE: Remove all logs up to given 'last_log_index' (inclusive).
 bool CoordinatorLogStore::compact(uint64_t last_log_index) {
   logger_.Log(nuraft_log_level::TRACE, fmt::format("Compacting logs up to {}", last_log_index));
   auto lock = std::lock_guard{logs_lock_};
-  for (uint64_t ii = start_idx_; ii <= last_log_index; ++ii) {
+  auto const old_start_idx = start_idx_.load(std::memory_order_acquire);
+
+  std::vector<std::string> del_batch;
+
+  for (uint64_t ii = old_start_idx; ii <= last_log_index; ++ii) {
     auto const entry = logs_.find(ii);
     if (entry == logs_.end()) {
       continue;
     }
     logs_.erase(entry);
-    durability_->Delete(fmt::format("{}{}", kLogEntryPrefix, ii));
+    del_batch.emplace_back(fmt::format("{}{}", kLogEntryPrefix, ii));
   }
 
-  if (start_idx_ <= last_log_index) {
-    start_idx_ = last_log_index + 1;
-    durability_->Put(kStartIdx, std::to_string(start_idx_.load()));
+  std::map<std::string, std::string> put_batch;
+
+  if (old_start_idx <= last_log_index) {
+    auto const new_idx = last_log_index + 1;
+    start_idx_.store(new_idx, std::memory_order_release);
+    put_batch.emplace(kStartIdx, std::to_string(new_idx));
   }
+
+  durability_->PutAndDeleteMultiple(put_batch, del_batch);
+
   return true;
 }
 
@@ -338,13 +354,17 @@ bool CoordinatorLogStore::StoreEntryToDisk(const std::shared_ptr<log_entry> &clo
   auto const log_term_json = nlohmann::json(
       {{kLogEntryTermKey, clone->get_term()}, {kLogEntryDataKey, data_string}, {kLogEntryValTypeKey, clone_val}});
   auto const log_term_str = log_term_json.dump();
-  auto const key = fmt::format("{}{}", kLogEntryPrefix, key_id);
-  durability_->Put(key, log_term_str);
+  auto const log_entry_key = fmt::format("{}{}", kLogEntryPrefix, key_id);
+
+  std::map<std::string, std::string> put_batch;
+  put_batch.emplace(log_entry_key, log_term_str);
 
   if (is_newest_entry) {
     logger_.Log(nuraft_log_level::TRACE, fmt::format("Storing newest entry to disk {}", key_id));
-    durability_->Put(kLastLogEntry, std::to_string(key_id));
+    put_batch.emplace(kLastLogEntry, std::to_string(key_id));
   }
+
+  durability_->PutMultiple(put_batch);
 
   return true;
 }

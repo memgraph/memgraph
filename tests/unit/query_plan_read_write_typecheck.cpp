@@ -25,6 +25,7 @@
 
 using namespace memgraph::query;
 using namespace memgraph::query::plan;
+namespace ms = memgraph::storage;
 using RWType = ReadWriteTypeChecker::RWType;
 
 template <typename StorageType>
@@ -82,12 +83,14 @@ TYPED_TEST(ReadWriteTypeCheckTest, Filter) {
 
 TYPED_TEST(ReadWriteTypeCheckTest, ScanAllBy) {
   std::shared_ptr<LogicalOperator> last_op = std::make_shared<ScanAllByLabelProperties>(
-      nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"), std::vector{this->dba.NameToProperty("prop")},
+      nullptr, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+      std::vector{ms::PropertyPath{this->dba.NameToProperty("prop")}},
       std::vector{ExpressionRange::Range(memgraph::utils::MakeBoundInclusive<Expression *>(LITERAL(1)),
                                          memgraph::utils::MakeBoundExclusive<Expression *>(LITERAL(20)))});
-  last_op = std::make_shared<ScanAllByLabelProperties>(
-      last_op, this->GetSymbol("node"), this->dba.NameToLabel("Label"), std::vector{this->dba.NameToProperty("prop")},
-      std::vector{ExpressionRange::Equal(ADD(LITERAL(21), LITERAL(21)))});
+  last_op =
+      std::make_shared<ScanAllByLabelProperties>(last_op, this->GetSymbol("node"), this->dba.NameToLabel("Label"),
+                                                 std::vector{ms::PropertyPath{this->dba.NameToProperty("prop")}},
+                                                 std::vector{ExpressionRange::Equal(ADD(LITERAL(21), LITERAL(21)))});
   this->CheckPlanType(last_op.get(), RWType::R);
 }
 
@@ -140,7 +143,7 @@ TYPED_TEST(ReadWriteTypeCheckTest, ExpandVariable) {
       false, LITERAL(2), LITERAL(5), false,
       ExpansionLambda{this->GetSymbol("inner_node"), this->GetSymbol("inner_edge"),
                       PROPERTY_LOOKUP(this->dba, "inner_node", this->dba.NameToProperty("unblocked"))},
-      std::nullopt, std::nullopt);
+      std::nullopt, std::nullopt, nullptr);
 
   this->CheckPlanType(last_op.get(), RWType::R);
 }

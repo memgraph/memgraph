@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,12 +10,16 @@
 // licenses/APL.txt.
 
 #include "query/cypher_query_interpreter.hpp"
+#include "frontend/ast/ast.hpp"
 #include "frontend/semantic/required_privileges.hpp"
+#include "frontend/semantic/rw_checker.hpp"
 #include "frontend/semantic/symbol_generator.hpp"
+#include "plan/read_write_type_checker.hpp"
 #include "query/frontend/ast/cypher_main_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
 #include "query/plan/planner.hpp"
 #include "query/plan/rule_based_planner.hpp"
+#include "query/plan/used_index_checker.hpp"
 #include "query/plan/vertex_count_cache.hpp"
 #include "utils/flag_validation.hpp"
 
@@ -59,7 +63,7 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
   auto query_parameters = PrepareQueryParameters(stripped_query, user_parameters);
 
   // Cache the query's AST if it isn't already.
-  auto hash = stripped_query.hash();
+  auto hash = stripped_query.stripped_query().hash();
   auto accessor = cache->access();
   auto it = accessor.find(hash);
   std::unique_ptr<frontend::opencypher::Parser> parser;
@@ -75,11 +79,12 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
 
     result.query = cached_query.query->Clone(&result.ast_storage);
     result.required_privileges = cached_query.required_privileges;
+    result.is_cypher_read = cached_query.is_cypher_read;
   };
 
   if (it == accessor.end()) {
     try {
-      parser = std::make_unique<frontend::opencypher::Parser>(stripped_query.query());
+      parser = std::make_unique<frontend::opencypher::Parser>(stripped_query.stripped_query().str());
     } catch (const SyntaxException &e) {
       // There is a syntax exception in the stripped query. Re-run the parser
       // on the original query to get an appropriate error messsage.
@@ -101,8 +106,17 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
       throw utils::BasicException("Load CSV not allowed on this instance because it was disabled by a config.");
     }
 
+    auto read_check = [&] {
+      query::RWChecker rw_checker;
+      if (auto *cypher_query = utils::Downcast<CypherQuery>(visitor.query())) cypher_query->Accept(rw_checker);
+      if (auto *profile_query = utils::Downcast<ProfileQuery>(visitor.query()))
+        profile_query->cypher_query_->Accept(rw_checker);
+      return !rw_checker.IsWrite();
+    };
+
     if (visitor.GetQueryInfo().is_cacheable) {
-      CachedQuery cached_query{std::move(ast_storage), visitor.query(), query::GetRequiredPrivileges(visitor.query())};
+      CachedQuery cached_query{std::move(ast_storage), visitor.query(), query::GetRequiredPrivileges(visitor.query()),
+                               read_check()};
       it = accessor.insert({hash, std::move(cached_query)}).first;
 
       get_information_from_cache(it->second);
@@ -112,6 +126,7 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
       result.query = visitor.query();
       result.ast_storage = std::move(ast_storage);
 
+      result.is_cypher_read = read_check();
       is_cacheable = false;
     }
   } else {
@@ -124,6 +139,7 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
       std::move(result.ast_storage),
       result.query,
       std::move(result.required_privileges),
+      result.is_cypher_read,
       is_cacheable,
       user_parameters,
       std::move(query_parameters),
@@ -137,18 +153,39 @@ std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery
   auto symbol_table = MakeSymbolTable(query, predefined_identifiers);
   auto planning_context = plan::MakePlanningContext(&ast_storage, &symbol_table, query, &vertex_counts);
   auto [root, cost] = plan::MakeLogicalPlan(&planning_context, parameters, FLAGS_query_cost_planner);
-  return std::make_unique<SingleNodeLogicalPlan>(std::move(root), cost, std::move(ast_storage),
-                                                 std::move(symbol_table));
+  auto rw_type_checker = plan::ReadWriteTypeChecker();
+  rw_type_checker.InferRWType(*root);
+  return std::make_unique<SingleNodeLogicalPlan>(std::move(root), cost, std::move(ast_storage), std::move(symbol_table),
+                                                 rw_type_checker.type);
 }
 
-std::shared_ptr<PlanWrapper> CypherQueryToPlan(uint64_t hash, AstStorage ast_storage, CypherQuery *query,
-                                               const Parameters &parameters, PlanCacheLRU *plan_cache,
-                                               DbAccessor *db_accessor,
+std::shared_ptr<PlanWrapper> CypherQueryToPlan(frontend::StrippedQuery const &stripped_query, AstStorage ast_storage,
+                                               CypherQuery *query, const Parameters &parameters,
+                                               PlanCacheLRU *plan_cache, DbAccessor *db_accessor,
                                                const std::vector<Identifier *> &predefined_identifiers) {
   if (plan_cache) {
-    auto existing_plan = plan_cache->WithLock([&](auto &cache) { return cache.get(hash); });
+    auto existing_plan =
+        plan_cache->WithLock([&](utils::LRUCache<frontend::HashedString, std::shared_ptr<query::PlanWrapper>> &cache) {
+          return cache.get(stripped_query.stripped_query());
+        });
     if (existing_plan.has_value()) {
-      return existing_plan.value();
+      // validate the index usage
+      auto &ptr = existing_plan.value();
+      auto &plan = ptr->plan();
+
+      auto checker = plan::UsedIndexChecker{};
+      // G_Lloyd: I am so SORRY, const_cast is BAD, but I'm not fixing Visitable and HierarchicalLogicalOperatorVisitor
+      //          ATM to work with a const visitor. This maybe addressed when the planner is redone.
+      const_cast<plan::LogicalOperator &>(plan).Accept(checker);
+
+      auto const all_satisfied = db_accessor->CheckIndicesAreReady(checker.required_indices_);
+      if (all_satisfied) {
+        return ptr;
+      } else {
+        plan_cache->WithLock([&](utils::LRUCache<frontend::HashedString, std::shared_ptr<query::PlanWrapper>> &cache) {
+          cache.invalidate(stripped_query.stripped_query());
+        });
+      }
     }
   }
 
@@ -156,16 +193,20 @@ std::shared_ptr<PlanWrapper> CypherQueryToPlan(uint64_t hash, AstStorage ast_sto
       MakeLogicalPlan(std::move(ast_storage), query, parameters, db_accessor, predefined_identifiers));
 
   if (plan_cache) {
-    plan_cache->WithLock([&](auto &cache) { cache.put(hash, plan); });
+    plan_cache->WithLock([&](auto &cache) { cache.put(stripped_query.stripped_query(), plan); });
   }
 
   return plan;
 }
 
 SingleNodeLogicalPlan::SingleNodeLogicalPlan(std::unique_ptr<plan::LogicalOperator> root, double cost,
-                                             AstStorage storage, SymbolTable symbol_table)
-    : root_(std::move(root)), cost_(cost), storage_(std::move(storage)), symbol_table_(std::move(symbol_table)) {}
+                                             AstStorage storage, SymbolTable symbol_table,
+                                             plan::ReadWriteTypeChecker::RWType rw_type)
+    : root_(std::move(root)),
+      cost_(cost),
+      storage_(std::move(storage)),
+      symbol_table_(std::move(symbol_table)),
+      rw_type_{rw_type} {}
 
 const SymbolTable &SingleNodeLogicalPlan::GetSymbolTable() const { return symbol_table_; }
-
 }  // namespace memgraph::query

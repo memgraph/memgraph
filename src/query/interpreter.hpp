@@ -11,42 +11,26 @@
 
 #pragma once
 
-#include <string_view>
-#include <unordered_set>
-
 #include <gflags/gflags.h>
 
 #include "dbms/database.hpp"
-#include "dbms/dbms_handler.hpp"
-#include "memory/query_memory_control.hpp"
-#include "query/auth_checker.hpp"
-#include "query/auth_query_handler.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
-#include "query/exceptions.hpp"
-#include "query/frontend/ast/ast.hpp"
-#include "query/frontend/ast/cypher_main_visitor.hpp"
-#include "query/metadata.hpp"
-#include "query/plan/operator.hpp"
-#include "query/plan/read_write_type_checker.hpp"
 #include "query/query_logger.hpp"
 #include "query/stream.hpp"
-#include "query/stream/streams.hpp"
-#include "query/trigger.hpp"
-#include "query/typed_value.hpp"
-#include "storage/v2/disk/storage.hpp"
-#include "storage/v2/isolation_level.hpp"
-#include "storage/v2/storage.hpp"
+#include "system/transaction.hpp"
 #include "utils/event_counter.hpp"
 #include "utils/event_trigger.hpp"
-#include "utils/logging.hpp"
 #include "utils/memory.hpp"
-#include "utils/skip_list.hpp"
+#include "utils/priorities.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"
 
 #ifdef MG_ENTERPRISE
 #include "coordination/instance_status.hpp"
+#include "coordination/raft_state.hpp"
+#include "coordination/replication_lag_info.hpp"
+#include "utils/resource_monitoring.hpp"
 #endif
 
 namespace memgraph::metrics {
@@ -161,6 +145,14 @@ class CoordinatorQueryHandler {
   virtual void DemoteInstanceToReplica(std::string_view instance_name) = 0;
 
   virtual void ForceResetClusterState() = 0;
+
+  virtual void YieldLeadership() = 0;
+
+  virtual void SetCoordinatorSetting(std::string_view setting_name, std::string_view setting_value) = 0;
+
+  virtual std::vector<std::pair<std::string, std::string>> ShowCoordinatorSettings() = 0;
+
+  virtual std::map<std::string, std::map<std::string, coordination::ReplicaDBLagData>> ShowReplicationLag() = 0;
 };
 #endif
 
@@ -191,6 +183,7 @@ struct PreparedQuery {
   std::function<std::optional<QueryHandlerResult>(AnyStream *stream, std::optional<int> n)> query_handler;
   plan::ReadWriteTypeChecker::RWType rw_type;
   std::optional<std::string> db{};
+  utils::Priority priority{utils::Priority::HIGH};
 };
 
 /**
@@ -198,8 +191,9 @@ struct PreparedQuery {
  * NOTE: maybe need to parse more in the future, ATM we ignore some parts from BOLT
  */
 struct QueryExtras {
-  storage::PropertyValue::map_t metadata_pv;
-  std::optional<int64_t> tx_timeout;
+  storage::ExternalPropertyValue::map_t metadata_pv{};
+  std::optional<int64_t> tx_timeout{};
+  bool is_read{false};
 };
 
 struct CurrentDB {
@@ -212,7 +206,7 @@ struct CurrentDB {
   CurrentDB &operator=(CurrentDB const &) = delete;
 
   void SetupDatabaseTransaction(std::optional<storage::IsolationLevel> override_isolation_level, bool could_commit,
-                                bool unique = false);
+                                storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE);
   void CleanupDBTransaction(bool abort);
   void SetCurrentDB(memgraph::dbms::DatabaseAccess new_db, bool in_explicit_db) {
     // do we lock here?
@@ -274,13 +268,16 @@ class Interpreter final {
   };
 
   std::shared_ptr<QueryUserOrRole> user_or_role_{};
+#ifdef MG_ENTERPRISE
+  std::shared_ptr<utils::UserResources> user_resource_;
+#endif
   SessionInfo session_info_;
   bool in_explicit_transaction_{false};
   CurrentDB current_db_;
 
   bool expect_rollback_{false};
   std::shared_ptr<utils::AsyncTimer> current_timeout_timer_{};
-  std::optional<storage::PropertyValue::map_t> metadata_{};  //!< User defined transaction metadata
+  std::optional<storage::ExternalPropertyValue::map_t> metadata_{};  //!< User defined transaction metadata
 
 #ifdef MG_ENTERPRISE
   void SetCurrentDB(std::string_view db_name, bool explicit_db);
@@ -289,6 +286,36 @@ class Interpreter final {
 #else
   void SetCurrentDB();
 #endif
+
+  utils::Priority GetQueryPriority(std::optional<int> qid) const {
+    const int qid_value = qid ? *qid : static_cast<int>(query_executions_.size() - 1);
+    if (qid_value < 0 || qid_value >= query_executions_.size()) {
+      throw InvalidArgumentsException("qid", "Query with specified ID does not exist!");
+    }
+    return query_executions_[qid_value]->prepared_query->priority;
+  }
+
+  utils::Priority ApproximateNextQueryPriority() const {
+    // If in transaction => low, we are for sure in a cypher query situation
+    // If not in transaction, we have to check the last query priority <- there can't be qid, so just check the last
+    return in_explicit_transaction_    ? utils::Priority::LOW
+           : query_executions_.empty() ? utils::Priority::HIGH
+                                       : query_executions_.back()->prepared_query->priority;
+  }
+
+  struct ParseInfo {
+    ParsedQuery parsed_query;
+    double parsing_time;
+    bool is_schema_assert_query;
+  };
+
+  enum class TransactionQuery : uint8_t { BEGIN, COMMIT, ROLLBACK };
+
+  using ParseRes = std::variant<ParseInfo, TransactionQuery>;
+
+  Interpreter::ParseRes Parse(const std::string &query, UserParameters_fn params_getter, QueryExtras const &extras);
+
+  Interpreter::PrepareResult Prepare(ParseRes parse_res, UserParameters_fn params_getter, QueryExtras const &extras);
 
   /**
    * Prepare a query for execution.
@@ -299,7 +326,19 @@ class Interpreter final {
    * @throw query::QueryException
    */
   Interpreter::PrepareResult Prepare(const std::string &query, UserParameters_fn params_getter,
-                                     QueryExtras const &extras);
+                                     QueryExtras const &extras) {
+    // Split Prepare in two (Parse and Prepare)
+    // This allows us to parse, deduce priority and schedule accordingly
+    // Leaving this one-shot version for back-compatiblity
+    return Prepare(Parse(query, params_getter, extras), params_getter, extras);
+  }
+
+  /**
+   * Checks if the user has the required privileges to execute the query.
+   *
+   * @throw query::QueryException
+   */
+  void CheckAuthorized(std::vector<AuthQuery::Privilege> const &privileges, std::optional<std::string> db = {});
 
 #ifdef MG_ENTERPRISE
   auto Route(std::map<std::string, std::string> const &routing) -> RouteResult;
@@ -370,7 +409,11 @@ class Interpreter final {
 
   void ResetUser();
 
+#ifdef MG_ENTERPRISE
+  void SetUser(std::shared_ptr<QueryUserOrRole> user, std::shared_ptr<utils::UserResources> user_resource = nullptr);
+#else
   void SetUser(std::shared_ptr<QueryUserOrRole> user);
+#endif
 
   void SetSessionInfo(std::string uuid, std::string username, std::string login_timestamp);
 
@@ -440,7 +483,7 @@ class Interpreter final {
   std::optional<storage::IsolationLevel> interpreter_isolation_level;
   std::optional<storage::IsolationLevel> next_transaction_isolation_level;
 
-  PreparedQuery PrepareTransactionQuery(std::string_view query_upper, QueryExtras const &extras = {});
+  PreparedQuery PrepareTransactionQuery(Interpreter::TransactionQuery tx_query_enum, QueryExtras const &extras = {});
   void Commit();
   void AdvanceCommand();
   void AbortCommand(std::unique_ptr<QueryExecution> *query_execution);
@@ -453,7 +496,8 @@ class Interpreter final {
 
   std::optional<std::function<void(std::string_view)>> on_change_{};
   void SetupInterpreterTransaction(const QueryExtras &extras);
-  void SetupDatabaseTransaction(bool couldCommit, bool unique = false);
+  void SetupDatabaseTransaction(bool couldCommit,
+                                storage::StorageAccessType acc_type = storage::StorageAccessType::WRITE);
 };
 
 template <typename TStream>
@@ -509,12 +553,13 @@ std::map<std::string, TypedValue> Interpreter::Pull(TStream *result_stream, std:
           case QueryHandlerResult::ABORT:
             Abort();
             break;
-          case QueryHandlerResult::NOTHING:
+          case QueryHandlerResult::NOTHING: {
             // The only cases in which we have nothing to do are those where
             // we're either in an explicit transaction or the query is such that
             // a transaction wasn't started on a call to `Prepare()`.
-            MG_ASSERT(in_explicit_transaction_ || !current_db_.db_transactional_accessor_);
+            MG_ASSERT(!current_db_.db_transactional_accessor_);
             break;
+          }
         }
         // As the transaction is done we can clear all the executions
         // NOTE: we cannot clear query_execution inside the Abort and Commit

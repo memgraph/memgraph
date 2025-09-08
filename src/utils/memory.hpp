@@ -15,18 +15,10 @@
 
 #pragma once
 
-#include <climits>
-#include <cstddef>
-#include <cstdint>
 #include <forward_list>
-#include <list>
 #include <memory>
-#include <mutex>
-#include <new>
 #include <tuple>
-#include <type_traits>
-#include <utility>
-#include <vector>
+
 // Although <memory_resource> is in C++17, gcc libstdc++ still needs to
 // implement it fully. It should be available in the next major release
 // version, i.e. gcc 9.x.
@@ -57,42 +49,9 @@ class BadAlloc final : public std::bad_alloc {
 };
 
 /// Abstract class for writing custom memory management, i.e. allocators.
-class MemoryResource {
- public:
-  virtual ~MemoryResource() = default;
+using MemoryResource = std::pmr::memory_resource;
 
-  /// Allocate storage with a size of at least `bytes` bytes.
-  ///
-  /// `bytes` must be greater than 0, while `alignment` must be a power of 2, if
-  /// they are not, `std::bad_alloc` is thrown.
-  ///
-  /// Some concrete implementations may have stricter requirements on `bytes`
-  /// and `alignment` values.
-  ///
-  /// @throw std::bad_alloc if the requested storage and alignment combination
-  ///     cannot be obtained.
-  void *Allocate(size_t bytes, size_t alignment = alignof(std::max_align_t)) {
-    if (bytes == 0U || !IsPow2(alignment)) throw BadAlloc("Invalid allocation request");
-    return DoAllocate(bytes, alignment);
-  }
-
-  void Deallocate(void *p, size_t bytes, size_t alignment = alignof(std::max_align_t)) {
-    return DoDeallocate(p, bytes, alignment);
-  }
-
-  bool IsEqual(const MemoryResource &other) const noexcept { return DoIsEqual(other); }
-
- private:
-  virtual void *DoAllocate(size_t bytes, size_t alignment) = 0;
-  virtual void DoDeallocate(void *p, size_t bytes, size_t alignment) = 0;
-  virtual bool DoIsEqual(const MemoryResource &other) const noexcept = 0;
-};
-
-inline bool operator==(const MemoryResource &a, const MemoryResource &b) noexcept { return &a == &b || a.IsEqual(b); }
-
-inline bool operator!=(const MemoryResource &a, const MemoryResource &b) noexcept { return !(a == b); }
-
-MemoryResource *NewDeleteResource() noexcept;
+std::pmr::memory_resource *NewDeleteResource() noexcept;
 
 /// Allocator for a concrete type T using the underlying MemoryResource
 ///
@@ -111,241 +70,20 @@ MemoryResource *NewDeleteResource() noexcept;
 /// implementations of MemoryResource.
 ///
 /// Classes which have a member allocator_type typedef to this allocator will
-/// receive an instance of `this->GetMemoryResource()` upon construction if the
+/// receive an instance of `this->get_allocator()` upon construction if the
 /// outer container also uses this allocator. For concrete behaviour on how this
 /// is done refer to `std::uses_allocator` in C++ reference.
 template <class T>
-class Allocator {
- public:
-  using value_type = T;
-  using propagate_on_container_copy_assignment = std::false_type;
-  using propagate_on_container_move_assignment = std::false_type;
-  using propagate_on_container_swap = std::false_type;
-
-  /// Implicit conversion from MemoryResource.
-  /// This makes working with STL containers much easier.
-  Allocator(MemoryResource *memory) : memory_(memory) {}
-
-  template <class U>
-  Allocator(const Allocator<U> &other) noexcept : memory_(other.GetMemoryResource()) {}
-
-  template <class U>
-  Allocator &operator=(const Allocator<U> &) = delete;
-
-  MemoryResource *GetMemoryResource() const { return memory_; }
-
-  T *allocate(size_t count_elements) {
-    return static_cast<T *>(memory_->Allocate(count_elements * sizeof(T), alignof(T)));
-  }
-
-  void deallocate(T *p, size_t count_elements) { memory_->Deallocate(p, count_elements * sizeof(T), alignof(T)); }
-
-  /// Return default NewDeleteResource() allocator.
-  Allocator select_on_container_copy_construction() const { return utils::NewDeleteResource(); }
-
-  template <class U, class... TArgs>
-  void construct(U *ptr, TArgs &&...args) {
-    if constexpr (std::uses_allocator_v<U, Allocator>) {
-      if constexpr (std::is_constructible_v<U, std::allocator_arg_t, MemoryResource *, TArgs...>) {
-        std::construct_at(ptr, std::allocator_arg, memory_, std::forward<TArgs>(args)...);
-      } else if constexpr (std::is_constructible_v<U, TArgs..., MemoryResource *>) {
-        std::construct_at(ptr, std::forward<TArgs>(args)..., memory_);
-      } else {
-        static_assert(!std::uses_allocator_v<U, Allocator>,
-                      "Class declares std::uses_allocator but has no valid "
-                      "constructor overload. Refer to 'Uses-allocator "
-                      "construction' rules in C++ reference.");
-      }
-    } else {
-      std::construct_at(ptr, std::forward<TArgs>(args)...);
-    }
-  }
-
-  // Overloads for constructing a std::pair. Needed until C++20, when allocator
-  // propagation to std::pair in std::map is resolved. These are all modeled
-  // after std::pmr::polymorphic_allocator<>::construct, documentation
-  // referenced here:
-  // https://en.cppreference.com/w/cpp/memory/polymorphic_allocator/construct
-
-  template <class T1, class T2, class... Args1, class... Args2>
-  void construct(std::pair<T1, T2> *p, std::piecewise_construct_t, std::tuple<Args1...> x, std::tuple<Args2...> y) {
-    auto xprime = MakePairElementArguments<T1>(&x);
-    auto yprime = MakePairElementArguments<T2>(&y);
-    ::new (p) std::pair<T1, T2>(std::piecewise_construct, std::move(xprime), std::move(yprime));
-  }
-
-  template <class T1, class T2>
-  void construct(std::pair<T1, T2> *p) {
-    construct(p, std::piecewise_construct, std::tuple<>(), std::tuple<>());
-  }
-
-  template <class T1, class T2, class U, class V>
-  void construct(std::pair<T1, T2> *p, U &&x, V &&y) {
-    construct(p, std::piecewise_construct, std::forward_as_tuple(std::forward<U>(x)),
-              std::forward_as_tuple(std::forward<V>(y)));
-  }
-
-  template <class T1, class T2, class U, class V>
-  void construct(std::pair<T1, T2> *p, const std::pair<U, V> &xy) {
-    construct(p, std::piecewise_construct, std::forward_as_tuple(xy.first), std::forward_as_tuple(xy.second));
-  }
-
-  template <class T1, class T2, class U, class V>
-  void construct(std::pair<T1, T2> *p, std::pair<U, V> &&xy) {
-    construct(p, std::piecewise_construct, std::forward_as_tuple(std::forward<U>(xy.first)),
-              std::forward_as_tuple(std::forward<V>(xy.second)));
-  }
-
-  // To ensure pair & doesn't use the generic overload, here is explicitly a non-const ref overload
-  template <class T1, class T2, class U, class V>
-  void construct(std::pair<T1, T2> *p, std::pair<U, V> &xy) {
-    construct(p, std::piecewise_construct, std::forward_as_tuple(xy.first), std::forward_as_tuple(xy.second));
-  }
-
-  template <class T1, class T2, class... Args1, class... Args2>
-  void construct(boost::container::dtl::pair<T1, T2> *p, std::piecewise_construct_t, std::tuple<Args1...> x,
-                 std::tuple<Args2...> y) {
-    auto xprime = MakePairElementArguments<T1>(&x);
-    auto yprime = MakePairElementArguments<T2>(&y);
-    std::construct_at(p, std::piecewise_construct, std::move(xprime), std::move(yprime));
-  }
-
-  template <class T1, class T2>
-  void construct(boost::container::dtl::pair<T1, T2> *p) {
-    construct(p, std::piecewise_construct, std::tuple<>(), std::tuple<>());
-  }
-
-  template <class T1, class T2, class U, class V>
-  void construct(boost::container::dtl::pair<T1, T2> *p, U &&x, V &&y) {
-    construct(p, std::piecewise_construct, std::forward_as_tuple(std::forward<U>(x)),
-              std::forward_as_tuple(std::forward<V>(y)));
-  }
-
-  template <class T1, class T2, class U, class V>
-  void construct(boost::container::dtl::pair<T1, T2> *p, const boost::container::dtl::pair<U, V> &xy) {
-    construct(p, std::piecewise_construct, std::forward_as_tuple(xy.first), std::forward_as_tuple(xy.second));
-  }
-
-  template <class T1, class T2, class U, class V>
-  void construct(boost::container::dtl::pair<T1, T2> *p, boost::container::dtl::pair<U, V> &&xy) {
-    construct(p, std::piecewise_construct, std::forward_as_tuple(std::forward<U>(xy.first)),
-              std::forward_as_tuple(std::forward<V>(xy.second)));
-  }
-
-  // To ensure pair & doesn't use the generic overload, here is explicitly a non-const ref overload
-  template <class T1, class T2, class U, class V>
-  void construct(boost::container::dtl::pair<T1, T2> *p, boost::container::dtl::pair<U, V> &xy) {
-    construct(p, std::piecewise_construct, std::forward_as_tuple(xy.first), std::forward_as_tuple(xy.second));
-  }
-
-  template <class U>
-  void destroy(U *p) {
-    p->~U();
-  }
-
-  template <class U, class... TArgs>
-  U *new_object(TArgs &&...args) {
-    U *p = static_cast<U *>(memory_->Allocate(sizeof(U), alignof(U)));
-    try {
-      construct(p, std::forward<TArgs>(args)...);
-    } catch (...) {
-      memory_->Deallocate(p, sizeof(U), alignof(U));
-      throw;
-    }
-    return p;
-  }
-
-  template <class U>
-  void delete_object(U *p) {
-    destroy(p);
-    memory_->Deallocate(p, sizeof(U), alignof(U));
-  }
-
- private:
-  MemoryResource *memory_;
-
-  template <class TElem, class... TArgs>
-  auto MakePairElementArguments(std::tuple<TArgs...> *args) {
-    if constexpr (std::uses_allocator_v<TElem, Allocator>) {
-      if constexpr (std::is_constructible_v<TElem, std::allocator_arg_t, MemoryResource *, TArgs...>) {
-        return std::tuple_cat(std::make_tuple(std::allocator_arg, memory_), std::move(*args));
-      } else if constexpr (std::is_constructible_v<TElem, TArgs..., MemoryResource *>) {
-        return std::tuple_cat(std::move(*args), std::make_tuple(memory_));
-      } else {
-        static_assert(!std::uses_allocator_v<TElem, Allocator>,
-                      "Class declares std::uses_allocator but has no valid "
-                      "constructor overload. Refer to 'Uses-allocator "
-                      "construction' rules in C++ reference.");
-      }
-    } else {
-      // Explicitly do a move as we don't want a needless copy of `*args`.
-      // Previous return statements return a temporary, so the compiler should
-      // optimize that.
-      return std::move(*args);
-    }
-  }
-};
-
-template <class T, class U>
-bool operator==(const Allocator<T> &a, const Allocator<U> &b) {
-  return *a.GetMemoryResource() == *b.GetMemoryResource();
-}
-
-template <class T, class U>
-bool operator!=(const Allocator<T> &a, const Allocator<U> &b) {
-  return !(a == b);
-}
+using Allocator = std::pmr::polymorphic_allocator<T>;
 
 auto NullMemoryResource() noexcept -> MemoryResource *;
 
-/// Wraps std::pmr::memory_resource for use with out MemoryResource
-class StdMemoryResource final : public MemoryResource {
- public:
-#if _GLIBCXX_RELEASE < 9
-  StdMemoryResource(std::experimental::pmr::memory_resource *memory) : memory_(memory) {}
-#else
-  /// Implicitly convert std::pmr::memory_resource to StdMemoryResource
-  StdMemoryResource(std::pmr::memory_resource *memory) : memory_(memory) {}
-#endif
-
- private:
-  void *DoAllocate(size_t bytes, size_t alignment) override {
-    // In the current implementation of libstdc++-8.3, standard memory_resource
-    // implementations don't check alignment overflows. Below is the copied
-    // implementation of _S_aligned_size, but we throw if it overflows.
-    // Currently, this only concerns new_delete_resource as there are no other
-    // memory_resource implementations available. This issue appears to persist
-    // in newer implementations, additionally pool_resource does no alignment of
-    // allocated pointers whatsoever.
-    size_t aligned_size = ((bytes - 1) | (alignment - 1)) + 1;
-    if (aligned_size < bytes) throw BadAlloc("Allocation alignment overflow");
-    return memory_->allocate(bytes, alignment);
-  }
-
-  void DoDeallocate(void *p, size_t bytes, size_t alignment) override {
-    return memory_->deallocate(p, bytes, alignment);
-  }
-
-  bool DoIsEqual(const MemoryResource &other) const noexcept override {
-    const auto *other_std = dynamic_cast<const StdMemoryResource *>(&other);
-    if (!other_std) return false;
-    return *memory_ == *other_std->memory_;
-  }
-
-#if _GLIBCXX_RELEASE < 9
-  std::experimental::pmr::memory_resource *memory_;
-#else
-  std::pmr::memory_resource *memory_;
-#endif
-};
-
 inline MemoryResource *NewDeleteResource() noexcept {
 #if _GLIBCXX_RELEASE < 9
-  static StdMemoryResource memory(std::experimental::pmr::new_delete_resource());
+  return std::experimental::pmr::new_delete_resource();
 #else
-  static StdMemoryResource memory(std::pmr::new_delete_resource());
+  return std::pmr::new_delete_resource();
 #endif
-  return &memory;
 }
 
 /// MemoryResource which releases the memory only when the resource is
@@ -421,11 +159,11 @@ class MonotonicBufferResource final : public MemoryResource {
   size_t next_buffer_size_{initial_size_};
   size_t allocated_{0U};
 
-  void *DoAllocate(size_t bytes, size_t alignment) override;
+  void *do_allocate(size_t bytes, size_t alignment) override;
 
-  void DoDeallocate(void *, size_t, size_t) override {}
+  void do_deallocate(void *, size_t, size_t) override {}
 
-  bool DoIsEqual(const MemoryResource &other) const noexcept override { return this == &other; }
+  bool do_is_equal(const MemoryResource &other) const noexcept override { return this == &other; }
 };
 
 namespace impl {
@@ -478,7 +216,7 @@ class Pool final {
   /// Destructor does not free blocks, you have to call `Release` before.
   ~Pool();
 
-  MemoryResource *GetUpstreamResource() const { return chunks_.get_allocator().GetMemoryResource(); }
+  auto GetUpstreamResource() const -> std::pmr::memory_resource * { return chunks_.get_allocator().resource(); }
 
   auto GetBlockSize() const { return block_size_; }
 
@@ -583,14 +321,14 @@ struct MultiPool {
 
   static constexpr auto n_bins = bin_index<Bits, LB>(UB) + 1U;
 
-  MultiPool(uint8_t blocks_per_chunk, MemoryResource *memory, MemoryResource *internal_memory)
+  MultiPool(uint8_t blocks_per_chunk, std::pmr::memory_resource *memory, std::pmr::memory_resource *internal_memory)
       : blocks_per_chunk_{blocks_per_chunk}, memory_{memory}, internal_memory_{internal_memory} {}
 
   ~MultiPool() {
     if (pools_) {
       auto pool_alloc = Allocator<Pool>(internal_memory_);
       for (auto i = 0U; i != n_bins; ++i) {
-        pool_alloc.destroy(&pools_[i]);
+        std::allocator_traits<Allocator<Pool>>::destroy(pool_alloc, &pools_[i]);
       }
       pool_alloc.deallocate(pools_, n_bins);
     }
@@ -627,8 +365,8 @@ struct MultiPool {
 
   Pool *pools_{};
   uint8_t blocks_per_chunk_{};
-  MemoryResource *memory_{};
-  MemoryResource *internal_memory_{};
+  std::pmr::memory_resource *memory_{};
+  std::pmr::memory_resource *internal_memory_{};
 };
 
 }  // namespace impl
@@ -656,10 +394,10 @@ struct MultiPool {
 ///   * Maximum number of blocks per chunk can be tuned by passing the
 ///     arguments to the constructor.
 
-class PoolResource final : public MemoryResource {
+class PoolResource final : public std::pmr::memory_resource {
  public:
-  PoolResource(uint8_t blocks_per_chunk, MemoryResource *memory = NewDeleteResource(),
-                MemoryResource *internal_memory = NewDeleteResource())
+  PoolResource(uint8_t blocks_per_chunk, std::pmr::memory_resource *memory = NewDeleteResource(),
+                std::pmr::memory_resource *internal_memory = NewDeleteResource())
       : mini_pools_{
             impl::Pool{8, blocks_per_chunk, memory},
             impl::Pool{16, blocks_per_chunk, memory},
@@ -677,61 +415,63 @@ class PoolResource final : public MemoryResource {
   ~PoolResource() override = default;
 
  private:
-  void *DoAllocate(size_t bytes, size_t alignment) override;
-  void DoDeallocate(void *p, size_t bytes, size_t alignment) override;
-  bool DoIsEqual(MemoryResource const &other) const noexcept override;
+  void *do_allocate(size_t bytes, size_t alignment) override;
+  void do_deallocate(void *p, size_t bytes, size_t alignment) override;
+  bool do_is_equal(std::pmr::memory_resource const &other) const noexcept override;
 
  private:
   std::array<impl::Pool, 8> mini_pools_;
   impl::MultiPool<3, 64, 128> pools_3bit_;
   impl::MultiPool<4, 128, 512> pools_4bit_;
   impl::MultiPool<5, 512, 1024> pools_5bit_;
-  MemoryResource *unpooled_memory_;
+  std::pmr::memory_resource *unpooled_memory_;
 };
 
-class MemoryTrackingResource final : public utils::MemoryResource {
+class MemoryTrackingResource final : public std::pmr::memory_resource {
  public:
-  explicit MemoryTrackingResource(utils::MemoryResource *memory, size_t max_allocated_bytes)
+  explicit MemoryTrackingResource(std::pmr::memory_resource *memory, size_t max_allocated_bytes)
       : memory_(memory), max_allocated_bytes_(max_allocated_bytes) {}
 
   size_t GetAllocatedBytes() const noexcept { return max_allocated_bytes_ - available_bytes_; }
 
  private:
-  utils::MemoryResource *memory_;
+  std::pmr::memory_resource *memory_;
   size_t max_allocated_bytes_;
   size_t available_bytes_{max_allocated_bytes_};
 
-  void *DoAllocate(size_t bytes, size_t alignment) override {
+  void *do_allocate(size_t bytes, size_t alignment) override {
     available_bytes_ -= bytes;
-    return memory_->Allocate(bytes, alignment);
+    return memory_->allocate(bytes, alignment);
   }
 
-  void DoDeallocate(void *p, size_t bytes, size_t alignment) override {
+  void do_deallocate(void *p, size_t bytes, size_t alignment) override {
     available_bytes_ += bytes;
-    return memory_->Deallocate(p, bytes, alignment);
+    return memory_->deallocate(p, bytes, alignment);
   }
 
-  bool DoIsEqual(const MemoryResource &other) const noexcept override { return this == &other; }
+  bool do_is_equal(const MemoryResource &other) const noexcept override { return this == &other; }
 };
 
 // Allocate memory with the OutOfMemoryException enabled if the requested size
 // puts total allocated amount over the limit.
 class ResourceWithOutOfMemoryException : public MemoryResource {
  public:
-  explicit ResourceWithOutOfMemoryException(utils::MemoryResource *upstream = utils::NewDeleteResource())
+  explicit ResourceWithOutOfMemoryException(std::pmr::memory_resource *upstream = utils::NewDeleteResource())
       : upstream_{upstream} {}
 
-  utils::MemoryResource *GetUpstream() noexcept { return upstream_; }
+  auto GetUpstream() noexcept -> std::pmr::memory_resource * { return upstream_; }
 
  private:
-  void *DoAllocate(size_t bytes, size_t alignment) override {
+  void *do_allocate(size_t bytes, size_t alignment) override {
     utils::MemoryTracker::OutOfMemoryExceptionEnabler exception_enabler;
-    return upstream_->Allocate(bytes, alignment);
+    return upstream_->allocate(bytes, alignment);
   }
 
-  void DoDeallocate(void *p, size_t bytes, size_t alignment) override { upstream_->Deallocate(p, bytes, alignment); }
+  void do_deallocate(void *p, size_t bytes, size_t alignment) override { upstream_->deallocate(p, bytes, alignment); }
 
-  bool DoIsEqual(const utils::MemoryResource &other) const noexcept override { return upstream_->IsEqual(other); }
+  bool do_is_equal(const std::pmr::memory_resource &other) const noexcept override {
+    return upstream_->is_equal(other);
+  }
 
   MemoryResource *upstream_{utils::NewDeleteResource()};
 };

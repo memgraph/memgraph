@@ -12,19 +12,17 @@
 #ifdef MG_ENTERPRISE
 
 #include <chrono>
-#include <cstdint>
 #include <functional>
 #include <optional>
 #include <string>
 #include <thread>
 #include <vector>
 
-#include "coordination/constants_log_durability.hpp"
+#include "coordination/constants.hpp"
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_exceptions.hpp"
 #include "coordination/logger_wrapper.hpp"
 #include "coordination/raft_state.hpp"
-#include "coordination/utils.hpp"
 #include "utils/counter.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
@@ -197,7 +195,7 @@ auto RaftState::InitRaftServer() -> void {
   // In the meantime, the election timer will trigger and the follower will enter the pre-vote protocol which should
   // fail because the leader is actually alive. So even if rpc listener is created (on follower), the initialization
   // isn't complete until leader sends him append_entries_request.
-  auto maybe_stop = utils::ResettableCounter<1200>();
+  auto maybe_stop = utils::ResettableCounter{1200};
   while (!maybe_stop()) {
     // Initialized is set to true after raft_callback_ is being executed (role as leader or follower)
     if (raft_server_->is_initialized()) {
@@ -286,7 +284,7 @@ auto RaftState::RemoveCoordinatorInstance(int32_t coordinator_id) const -> void 
 
   // Waiting for server to join
   constexpr int max_tries{10};
-  auto maybe_stop = utils::ResettableCounter<max_tries>();
+  auto maybe_stop = utils::ResettableCounter(max_tries);
   std::chrono::milliseconds const waiting_period{200};
   bool removed{false};
   while (!maybe_stop()) {
@@ -326,7 +324,7 @@ auto RaftState::AddCoordinatorInstance(CoordinatorInstanceConfig const &config) 
   }
   // Waiting for server to join
   constexpr int max_tries{10};
-  auto maybe_stop = utils::ResettableCounter<max_tries>();
+  auto maybe_stop = utils::ResettableCounter(max_tries);
   std::chrono::milliseconds const waiting_period{200};
   while (!maybe_stop()) {
     std::this_thread::sleep_for(waiting_period);
@@ -345,10 +343,7 @@ auto RaftState::CoordLastSuccRespMs(int32_t srv_id) const -> std::chrono::millis
   using std::chrono::milliseconds;
 
   auto const peer_info = raft_server_->get_peer_info(srv_id);
-  auto const elapsed_time_ms = duration_cast<milliseconds>(microseconds(peer_info.last_succ_resp_us_));
-  spdlog::trace("Elapsed time in milliseconds since last successful response from coordinator_{}: {}", srv_id,
-                elapsed_time_ms.count());
-  return elapsed_time_ms;
+  return duration_cast<milliseconds>(microseconds(peer_info.last_succ_resp_us_));
 }
 
 auto RaftState::GetLeaderCoordinatorData() const -> std::optional<LeaderCoordinatorData> {
@@ -365,13 +360,12 @@ auto RaftState::GetLeaderCoordinatorData() const -> std::optional<LeaderCoordina
   return LeaderCoordinatorData{.id = leader_id, .bolt_server = leader_data->bolt_server};
 }
 
+auto RaftState::YieldLeadership() const -> void { raft_server_->yield_leadership(); }
+
 auto RaftState::IsLeader() const -> bool { return raft_server_->is_leader(); }
 
-auto RaftState::AppendClusterUpdate(std::vector<DataInstanceContext> data_instances,
-                                    std::vector<CoordinatorInstanceContext> coordinator_instances,
-                                    utils::UUID uuid) const -> bool {
-  auto new_log = CoordinatorStateMachine::SerializeUpdateClusterState(std::move(data_instances),
-                                                                      std::move(coordinator_instances), uuid);
+auto RaftState::AppendClusterUpdate(CoordinatorClusterStateDelta const &delta_state) const -> bool {
+  auto new_log = CoordinatorStateMachine::SerializeUpdateClusterState(delta_state);
   auto const res = raft_server_->append_entries({new_log});
   if (!res->get_accepted()) {
     spdlog::error("Failed to accept request for updating cluster state.");
@@ -417,7 +411,7 @@ auto RaftState::GetMyCoordinatorInstanceAux() const -> CoordinatorInstanceAux {
 
 auto RaftState::GetCurrentMainUUID() const -> utils::UUID { return state_machine_->GetCurrentMainUUID(); }
 
-auto RaftState::IsCurrentMain(std::string_view instance_name) const -> bool {
+auto RaftState::IsCurrentMain(std::string_view const instance_name) const -> bool {
   return state_machine_->IsCurrentMain(instance_name);
 }
 
@@ -426,58 +420,21 @@ auto RaftState::TryGetCurrentMainName() const -> std::optional<std::string> {
 }
 
 auto RaftState::GetRoutingTable() const -> RoutingTable {
-  auto res = RoutingTable{};
-
-  auto const repl_instance_to_bolt = [](auto &&instance) {
-    return instance.config.BoltSocketAddress();  // non-resolved IP
-  };
-
-  auto const is_instance_main = [&](auto &&instance) { return IsCurrentMain(instance.config.instance_name); };
-
-  auto const is_instance_replica = [&](auto &&instance) { return !IsCurrentMain(instance.config.instance_name); };
-
+  auto const is_instance_main = [&](auto const &instance) { return IsCurrentMain(instance.config.instance_name); };
   // Fetch data instances from raft log
   auto const raft_log_data_instances = GetDataInstancesContext();
-
-  auto bolt_mains = raft_log_data_instances | ranges::views::filter(is_instance_main) |
-                    ranges::views::transform(repl_instance_to_bolt) | ranges::to_vector;
-  MG_ASSERT(bolt_mains.size() <= 1, "There can be at most one main instance active!");
-
-  spdlog::trace("WRITERS");
-  for (auto const &writer : bolt_mains) {
-    spdlog::trace("  {}", writer);
-  }
-
-  if (!std::ranges::empty(bolt_mains)) {
-    res.emplace_back(std::move(bolt_mains), "WRITE");
-  }
-
-  auto bolt_replicas = raft_log_data_instances | ranges::views::filter(is_instance_replica) |
-                       ranges::views::transform(repl_instance_to_bolt) | ranges::to_vector;
-
-  spdlog::trace("READERS:");
-  for (auto const &reader : bolt_replicas) {
-    spdlog::trace("  {}", reader);
-  }
-
-  if (!std::ranges::empty(bolt_replicas)) {
-    res.emplace_back(std::move(bolt_replicas), "READ");
-  }
-
-  auto const get_bolt_server = [](CoordinatorInstanceContext const &context) { return context.bolt_server; };
-
   auto const coord_servers = GetCoordinatorInstancesContext();
-  auto bolt_coords = coord_servers | ranges::views::transform(get_bolt_server) | ranges::to_vector;
-  spdlog::trace("ROUTERS:");
-  for (auto const &server : bolt_coords) {
-    spdlog::trace("  {}", server);
-  }
 
-  res.emplace_back(std::move(bolt_coords), "ROUTE");
-
-  return res;
+  return CreateRoutingTable(raft_log_data_instances, coord_servers, is_instance_main, GetEnabledReadsOnMain());
 }
 
 auto RaftState::GetLeaderId() const -> int32_t { return raft_server_->get_leader(); }
+
+auto RaftState::GetEnabledReadsOnMain() const -> bool { return state_machine_->GetEnabledReadsOnMain(); }
+
+auto RaftState::GetSyncFailoverOnly() const -> bool { return state_machine_->GetSyncFailoverOnly(); }
+
 }  // namespace memgraph::coordination
+
+// namespace memgraph::coordination
 #endif

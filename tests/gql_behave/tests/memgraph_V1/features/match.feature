@@ -848,3 +848,133 @@ Feature: Match
         Then the result should be:
             | n        |
             | ({k: 1}) |
+
+    Scenario: Using OR expression without index
+        Given an empty graph
+        And having executed:
+            """
+            CREATE (a:Label1)
+            CREATE (b:Label2)
+            CREATE (c:Label1:Label2)
+            CREATE (d:Label3)
+            """
+        When executing query:
+            """
+            MATCH (n:Label1|Label2) RETURN n;
+            """
+        Then the result should be:
+            | n                |
+            | (:Label1)        |
+            | (:Label2)        |
+            | (:Label1:Label2) |
+
+    Scenario: Using OR expression with index
+        Given an empty graph
+        And with new index :Label1
+        And with new index :Label2
+        And having executed:
+            """
+            CREATE (a:Label1)
+            CREATE (b:Label2)
+            CREATE (c:Label1:Label2)
+            CREATE (d:Label3)
+            """
+        When executing query:
+            """
+            MATCH (n:Label1|Label2) RETURN n;
+            """
+        Then the result should be:
+            | n                |
+            | (:Label1)        |
+            | (:Label2)        |
+            | (:Label1:Label2) |
+
+    Scenario: Using OR expression with label property index
+        Given an empty graph
+        And with new index :Label1(id)
+        And with new index :Label2(id)
+        And having executed:
+            """
+            CREATE (a:Label1 {id: 1})
+            CREATE (b:Label2 {id: 2})
+            CREATE (c:Label1:Label2 {id: 1})
+            CREATE (d:Label1:Label2 {id: 2})
+            CREATE (e:Label3 {id: 1})
+            """
+        When executing query:
+            """
+            MATCH (n:Label1|Label2) WHERE n.id < 2 RETURN n;
+            """
+        Then the result should be:
+            | n                        |
+            | (:Label1 {id: 1})        |
+            | (:Label1:Label2 {id: 1}) |
+
+    Scenario: Using OR expression in CREATE
+        Given an empty graph
+        When executing query:
+            """
+            CREATE (n:Label1|Label2);
+            """
+        Then an error should be raised
+
+    Scenario: Using OR expression in MERGE
+        Given an empty graph
+        When executing query:
+            """
+            MERGE (n:Label1|Label2) RETURN n;
+            """
+        Then an error should be raised
+
+    Scenario: Using OR expression with label index MATCH
+        Given an empty graph
+        And with new index :A
+        And with new index :B
+        And with new index :C
+        And having executed
+            """
+            CREATE (:A:B), (:A:C), (:A), (:D);
+            """
+        When executing query:
+            """
+            MATCH (n:A) WHERE (n:B OR n:C) RETURN n;
+            """
+        Then the result should be:
+            | n      |
+            | (:A:C) |
+            | (:A:B) |
+
+    Scenario: Using OR expression with mixed indexed and non-indexed labels
+        Given an empty graph
+        And with new index :A
+        And with new index :B
+        And having executed
+            """
+            CREATE (:A:B), (:A:Z), (:A), (:C);
+            """
+        When executing query:
+            """
+            MATCH (n:A) WHERE (n:B OR n:Z) RETURN n;
+            """
+        Then the result should be:
+            | n      |
+            | (:A:B) |
+            | (:A:Z) |
+
+    Scenario: Using OR expression with label index and prop filter
+        Given an empty graph
+        And with new index :A
+        And with new index :B
+        And with new index :C
+        And having executed
+            """
+            CREATE (:A:B {prop: 1}), (:A:C {prop: 2}), (:A:B {prop: 3}), (:A), (:D);
+            """
+        When executing query:
+            """
+            MATCH (n:A) WHERE (n:B OR n:C) AND n.prop > 1 RETURN n;
+            """
+        Then the result should be:
+            | n                |
+            | (:A:C {prop: 2}) |
+            | (:A:B {prop: 3}) |

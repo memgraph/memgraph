@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -207,14 +207,13 @@ struct Delta {
   Delta(RemoveLabelTag /*tag*/, LabelId label, std::atomic<uint64_t> *timestamp, uint64_t command_id)
       : timestamp(timestamp), command_id(command_id), label{.action = Action::REMOVE_LABEL, .value = label} {}
 
-  Delta(SetPropertyTag /*tag*/, PropertyId key, PropertyValue value, std::atomic<uint64_t> *timestamp,
+  Delta(SetPropertyTag /*tag*/, PropertyId key, PropertyValue const &value, std::atomic<uint64_t> *timestamp,
         uint64_t command_id, utils::PageSlabMemoryResource *res)
       : timestamp(timestamp),
         command_id(command_id),
-        property{
-            .action = Action::SET_PROPERTY,
-            .key = key,
-            .value = std::pmr::polymorphic_allocator<Delta>{res}.new_object<pmr::PropertyValue>(std::move(value))} {}
+        property{.action = Action::SET_PROPERTY,
+                 .key = key,
+                 .value = std::pmr::polymorphic_allocator<Delta>{res}.new_object<pmr::PropertyValue>(value)} {}
 
   Delta(SetPropertyTag /*tag*/, Vertex *out_vertex, PropertyId key, PropertyValue value,
         std::atomic<uint64_t> *timestamp, uint64_t command_id, utils::PageSlabMemoryResource *res)

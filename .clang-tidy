@@ -55,6 +55,7 @@ Checks: '*,
          -modernize-use-equals-default,
          -modernize-use-nodiscard,
          -modernize-use-trailing-return-type,
+         -modernize-use-constraints,
          -performance-unnecessary-value-param,
          -readability-braces-around-statements,
          -readability-else-after-return,
@@ -69,7 +70,6 @@ Checks: '*,
          -bugprone-unchecked-optional-access'
 WarningsAsErrors: ''
 HeaderFilterRegex: 'src/.*'
-AnalyzeTemporaryDtors: false
 FormatStyle:     none
 CheckOptions:
   - key:             google-readability-braces-around-statements.ShortStatementLines

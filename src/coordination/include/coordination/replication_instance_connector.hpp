@@ -19,9 +19,28 @@
 
 namespace memgraph::coordination {
 
-class ReplicationInstanceConnector;
+class TimedFailureDetector {
+ public:
+  explicit TimedFailureDetector(std::chrono::seconds instance_down_timeout_sec);
+
+  auto IsAlive() const -> bool;
+  auto LastSuccRespMs() const -> std::chrono::milliseconds;
+
+  // Notifies that a process p is suspected to have crashed
+  auto Suspect() -> bool;
+  // Notifies that a process p is not suspected anymore
+  auto Restore() -> void;
+
+  friend bool operator==(TimedFailureDetector const &first, TimedFailureDetector const &second) = default;
+
+ private:
+  std::chrono::seconds instance_down_timeout_sec_{5};
+  std::chrono::system_clock::time_point last_response_time_;
+  bool is_alive_{true};
+};
 
 // Class used for managing the connection from coordinator to the data instance.
+// Contains embedded timed failure detector
 class ReplicationInstanceConnector {
  public:
   ReplicationInstanceConnector(DataInstanceConfig const &config, CoordinatorInstance *coord_instance,
@@ -60,16 +79,12 @@ class ReplicationInstanceConnector {
   auto GetReplicationClientInfo() const -> ReplicationClientInfo;
   auto GetClient() const -> ReplicationInstanceClient const &;
 
- protected:
+ private:
   ReplicationInstanceClient client_;
-  std::chrono::system_clock::time_point last_response_time_{};
-  std::chrono::seconds instance_down_timeout_sec_{5};
-  bool is_alive_{false};
+  TimedFailureDetector timed_failure_detector_;
 
-  friend bool operator==(ReplicationInstanceConnector const &first, ReplicationInstanceConnector const &second) {
-    return first.client_ == second.client_ && first.last_response_time_ == second.last_response_time_ &&
-           first.is_alive_ == second.is_alive_;
-  }
+  friend bool operator==(ReplicationInstanceConnector const &first,
+                         ReplicationInstanceConnector const &second) = default;
 };
 
 }  // namespace memgraph::coordination

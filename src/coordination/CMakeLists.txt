@@ -2,7 +2,7 @@ add_library(mg-coordination STATIC)
 add_library(mg::coordination ALIAS mg-coordination)
 target_sources(mg-coordination
         PUBLIC
-        include/coordination/constants_log_durability.hpp
+        include/coordination/constants.hpp
         include/coordination/coordination_observer.hpp
         include/coordination/coordinator_cluster_state.hpp
         include/coordination/coordinator_communication_config.hpp
@@ -30,6 +30,7 @@ target_sources(mg-coordination
         include/coordination/raft_state.hpp
         include/coordination/replication_instance_client.hpp
         include/coordination/replication_instance_connector.hpp
+        include/coordination/replication_lag_info.hpp
         include/coordination/utils.hpp
 
 

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,6 +14,7 @@
 
 #include <atomic>
 #include <chrono>
+#include <thread>
 #include "tests/unit/timezone_handler.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/temporal.hpp"
@@ -416,3 +417,66 @@ TEST(Scheduler, CronSpecificDateTimeWTZ) {
   test();
 }
 #endif
+
+TEST(Scheduler, SkipSlowExecutions) {
+  std::atomic<int> x{0};
+  std::atomic_bool executed{false};
+  std::function<void()> func{[&x, &executed]() {
+    bool first = ++x == 1;
+    if (first) std::this_thread::sleep_for(std::chrono::seconds(5));
+    executed.store(true);
+    executed.notify_one();
+  }};
+  memgraph::utils::Scheduler scheduler;
+  scheduler.SetInterval(std::chrono::seconds(1));
+  scheduler.Run("Test", func);
+
+  // Wait for first execution to start
+  while (x < 1) std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  // Wait for first execution to end
+  executed.wait(false);
+
+  // Loop for a while and check that 5 missing execution are not run
+  const auto test_end = std::chrono::system_clock::now() + std::chrono::seconds(1);
+  while (std::chrono::system_clock::now() < test_end) {
+    ASSERT_LE(x.load(), 3);
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+  }
+
+  scheduler.Stop();
+}
+
+TEST(Scheduler, TimeDrift) {
+  std::atomic<int> x{0};
+  const auto start_time = std::chrono::system_clock::now();
+  const auto period = std::chrono::milliseconds(500);
+
+  std::function<void()> func{[&x, first_now = std::chrono::system_clock::time_point{}, start_time, period]() mutable {
+    ++x;
+    const auto now = std::chrono::system_clock::now();
+    if (x == 1) {
+      // First - cause a time drift
+      std::this_thread::sleep_for(std::chrono::seconds(2));
+      first_now = std::chrono::system_clock::now();
+    } else if (x == 2) {
+      // Second - next execution, execute right away
+      EXPECT_NEAR(
+          first_now.time_since_epoch().count(), now.time_since_epoch().count(),
+          std::chrono::duration_cast<std::chrono::system_clock::duration>(std::chrono::milliseconds(100)).count());
+    } else {
+      // From 3. should go back to the original time offset
+      const auto delta = now - start_time;
+      EXPECT_NEAR(delta / period, x.load() + 3.0 /* skipped executions */, 0.1);
+    }
+  }};
+
+  memgraph::utils::Scheduler scheduler;
+  scheduler.SetInterval(period, start_time);
+  scheduler.Run("Test", func);
+
+  // Wait for a few executions and check
+  std::this_thread::sleep_for(std::chrono::seconds(5));
+  ASSERT_GE(x.load(), 3);
+
+  scheduler.Stop();
+}

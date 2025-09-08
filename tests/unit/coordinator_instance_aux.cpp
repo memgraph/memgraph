@@ -13,6 +13,8 @@
 #include <gtest/gtest.h>
 #include <filesystem>
 
+#include <nlohmann/json.hpp>
+
 #ifdef MG_ENTERPRISE
 
 using memgraph::coordination::CoordinatorInstanceAux;

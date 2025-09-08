@@ -16,12 +16,14 @@
 #include <functional>
 #include <nlohmann/json.hpp>
 #include <tuple>
+#include <unordered_set>
 #include <utility>
 
 #include "storage/v2/enum_store.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
+#include "storage/v2/schema_info.hpp"
 #include "storage/v2/vertex.hpp"
 #include "utils/conccurent_unordered_map.hpp"
 #include "utils/small_vector.hpp"
@@ -194,7 +196,7 @@ struct TrackingInfo {
   }
 };
 
-struct SchemaInfoPostProcess {
+struct SchemaInfoEdge {
   EdgeRef edge_ref;
   EdgeTypeId edge_type;
   Vertex *from;
@@ -259,20 +261,29 @@ struct equal_to<memgraph::storage::EdgeKey> {
 };
 
 template <>
-class hash<memgraph::storage::SchemaInfoPostProcess> {
+class hash<memgraph::storage::SchemaInfoEdge> {
  public:
-  size_t operator()(const memgraph::storage::SchemaInfoPostProcess &pp) const {
+  size_t operator()(const memgraph::storage::SchemaInfoEdge &pp) const {
     return pp.edge_ref.gid.AsUint();  // Both ptr and gid are the same size and unique
   }
 };
 
 template <>
-class equal_to<memgraph::storage::SchemaInfoPostProcess> {
+class equal_to<memgraph::storage::SchemaInfoEdge> {
  public:
-  bool operator()(const memgraph::storage::SchemaInfoPostProcess &lhs,
-                  const memgraph::storage::SchemaInfoPostProcess &rhs) const {
+  bool operator()(const memgraph::storage::SchemaInfoEdge &lhs, const memgraph::storage::SchemaInfoEdge &rhs) const {
     // Edge ref is a pointer or gid, both are unique and should completely define the edge
     return lhs.edge_ref == rhs.edge_ref;
   }
 };
 }  // namespace std
+
+// After hashes/equals are defined
+namespace memgraph::storage {
+struct SchemaInfoPostProcess {
+  std::unordered_set<SchemaInfoEdge> edges;
+  std::unordered_map<const Vertex *, VertexKey> vertex_cache;
+  std::unordered_map<const Edge *, std::unordered_map<PropertyId, ExtendedPropertyType>>
+      edge_cache;  // TODO Do we need this
+};
+}  // namespace memgraph::storage

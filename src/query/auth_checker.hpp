@@ -17,8 +17,9 @@
 #include <vector>
 
 #include "dbms/constants.hpp"
-#include "query/frontend/ast/ast.hpp"
+#include "query/edge_accessor.hpp"
 #include "query/query_user.hpp"
+#include "query/vertex_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 
 namespace memgraph::query {
@@ -32,7 +33,9 @@ class AuthChecker {
   virtual ~AuthChecker() = default;
 
   virtual std::shared_ptr<QueryUserOrRole> GenQueryUser(const std::optional<std::string> &username,
-                                                        const std::optional<std::string> &rolename) const = 0;
+                                                        const std::vector<std::string> &rolenames) const = 0;
+
+  virtual std::shared_ptr<QueryUserOrRole> GenEmptyUser() const = 0;
 
 #ifdef MG_ENTERPRISE
   [[nodiscard]] virtual std::unique_ptr<FineGrainedAuthChecker> GetFineGrainedAuthChecker(
@@ -98,23 +101,29 @@ class AllowEverythingFineGrainedAuthChecker final : public FineGrainedAuthChecke
 class AllowEverythingAuthChecker final : public AuthChecker {
  public:
   struct User : query::QueryUserOrRole {
-    User() : query::QueryUserOrRole{std::nullopt, std::nullopt} {}
-    User(std::string name) : query::QueryUserOrRole{std::move(name), std::nullopt} {}
-    bool IsAuthorized(const std::vector<AuthQuery::Privilege> & /*privileges*/, std::string_view /*db_name*/,
-                      UserPolicy * /*policy*/) const override {
+    User() : query::QueryUserOrRole{{}, {}} {}
+    User(std::string name) : query::QueryUserOrRole{std::move(name), {}} {}
+    bool IsAuthorized(const std::vector<AuthQuery::Privilege> & /*privileges*/,
+                      std::optional<std::string_view> /*db_name*/, UserPolicy * /*policy*/) const override {
       return true;
     }
+    std::vector<std::string> GetRolenames(std::optional<std::string> /*db_name*/) const override { return {}; }
 #ifdef MG_ENTERPRISE
-    bool CanImpersonate(const std::string & /*target*/, query::UserPolicy * /*policy*/) const override { return true; }
+    bool CanImpersonate(const std::string & /*target*/, query::UserPolicy * /*policy*/,
+                        std::optional<std::string_view> /*db_name*/ = std::nullopt) const override {
+      return true;
+    }
     std::string GetDefaultDB() const override { return std::string{dbms::kDefaultDB}; }
 #endif
   };
 
   std::shared_ptr<query::QueryUserOrRole> GenQueryUser(const std::optional<std::string> &name,
-                                                       const std::optional<std::string> & /*role*/) const override {
-    if (name) return std::make_shared<User>(std::move(*name));
+                                                       const std::vector<std::string> & /*roles*/) const override {
+    if (name) return std::make_shared<User>(*name);
     return std::make_shared<User>();
   }
+
+  std::shared_ptr<QueryUserOrRole> GenEmptyUser() const override { return std::make_shared<User>(); }
 
 #ifdef MG_ENTERPRISE
   std::unique_ptr<FineGrainedAuthChecker> GetFineGrainedAuthChecker(std::shared_ptr<QueryUserOrRole> /*user*/,

@@ -353,7 +353,8 @@ std::optional<ConstraintViolation> InMemoryUniqueConstraints::DoValidate(
   return std::nullopt;
 }
 
-void InMemoryUniqueConstraints::AbortEntries(std::span<Vertex const *const> vertices, uint64_t exact_start_timestamp) {
+void InMemoryUniqueConstraints::AbortEntries(std::span<Vertex const *const> const vertices,
+                                             uint64_t const exact_start_timestamp) {
   for (const auto &vertex : vertices) {
     for (const auto &label : vertex->labels) {
       const auto &constraint = constraints_by_label_.find(label);
@@ -503,8 +504,9 @@ std::vector<std::pair<LabelId, std::set<PropertyId>>> InMemoryUniqueConstraints:
   return ret;
 }
 
-void InMemoryUniqueConstraints::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
-  auto maybe_stop = utils::ResettableCounter<2048>();
+void InMemoryUniqueConstraints::RemoveObsoleteEntries(uint64_t const oldest_active_start_timestamp,
+                                                      std::stop_token token) {
+  auto maybe_stop = utils::ResettableCounter(2048);
 
   for (auto &[label_props, storage] : constraints_) {
     // before starting constraint, check if stop_requested
@@ -518,6 +520,7 @@ void InMemoryUniqueConstraints::RemoveObsoleteEntries(uint64_t oldest_active_sta
       auto next_it = it;
       ++next_it;
 
+      // Cannot delete it yet
       if (it->timestamp >= oldest_active_start_timestamp) {
         it = next_it;
         continue;
@@ -537,10 +540,18 @@ void InMemoryUniqueConstraints::Clear() {
   constraints_.clear();
   constraints_by_label_.clear();
 }
+
 bool InMemoryUniqueConstraints::empty() const { return constraints_.empty() && constraints_by_label_.empty(); }
 
 void InMemoryUniqueConstraints::DropGraphClearConstraints() {
   constraints_.clear();
   constraints_by_label_.clear();
 }
+
+void InMemoryUniqueConstraints::RunGC() {
+  for (auto &[_, skip_list] : constraints_) {
+    skip_list.run_gc();
+  }
+}
+
 }  // namespace memgraph::storage

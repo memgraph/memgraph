@@ -17,7 +17,7 @@
 #include "query/frontend/opencypher/generated/MemgraphCypherBaseVisitor.h"
 #pragma pop_macro("EOF")  // bring EOF back
 
-#include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/ast_storage.hpp"
 #include "query/parameters.hpp"
 #include "utils/exceptions.hpp"
 #include "utils/logging.hpp"
@@ -25,6 +25,13 @@
 #include <string>
 #include <unordered_set>
 #include <utility>
+
+namespace memgraph::query {
+class Query;
+class Expression;
+class Identifier;
+class AuthQuery;
+}  // namespace memgraph::query
 
 namespace memgraph::query::frontend {
 
@@ -40,71 +47,12 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
       : context_(context), storage_(storage), parameters_(parameters) {}
 
  private:
-  Expression *CreateBinaryOperatorByToken(size_t token, Expression *e1, Expression *e2) {
-    switch (token) {
-      case MemgraphCypher::OR:
-        return storage_->Create<OrOperator>(e1, e2);
-      case MemgraphCypher::XOR:
-        return storage_->Create<XorOperator>(e1, e2);
-      case MemgraphCypher::AND:
-        return storage_->Create<AndOperator>(e1, e2);
-      case MemgraphCypher::PLUS:
-        return storage_->Create<AdditionOperator>(e1, e2);
-      case MemgraphCypher::MINUS:
-        return storage_->Create<SubtractionOperator>(e1, e2);
-      case MemgraphCypher::ASTERISK:
-        return storage_->Create<MultiplicationOperator>(e1, e2);
-      case MemgraphCypher::SLASH:
-        return storage_->Create<DivisionOperator>(e1, e2);
-      case MemgraphCypher::PERCENT:
-        return storage_->Create<ModOperator>(e1, e2);
-      case MemgraphCypher::CARET:
-        return storage_->Create<ExponentiationOperator>(e1, e2);
-      case MemgraphCypher::EQ:
-        return storage_->Create<EqualOperator>(e1, e2);
-      case MemgraphCypher::NEQ1:
-      case MemgraphCypher::NEQ2:
-        return storage_->Create<NotEqualOperator>(e1, e2);
-      case MemgraphCypher::LT:
-        return storage_->Create<LessOperator>(e1, e2);
-      case MemgraphCypher::GT:
-        return storage_->Create<GreaterOperator>(e1, e2);
-      case MemgraphCypher::LTE:
-        return storage_->Create<LessEqualOperator>(e1, e2);
-      case MemgraphCypher::GTE:
-        return storage_->Create<GreaterEqualOperator>(e1, e2);
-      default:
-        throw utils::NotYetImplemented("binary operator");
-    }
-  }
+  Expression *CreateBinaryOperatorByToken(size_t token, Expression *e1, Expression *e2);
 
-  Expression *CreateUnaryOperatorByToken(size_t token, Expression *e) {
-    switch (token) {
-      case MemgraphCypher::NOT:
-        return storage_->Create<NotOperator>(e);
-      case MemgraphCypher::PLUS:
-        return storage_->Create<UnaryPlusOperator>(e);
-      case MemgraphCypher::MINUS:
-        return storage_->Create<UnaryMinusOperator>(e);
-      default:
-        throw utils::NotYetImplemented("unary operator");
-    }
-  }
+  Expression *CreateUnaryOperatorByToken(size_t token, Expression *e);
 
   auto ExtractOperators(std::vector<antlr4::tree::ParseTree *> &all_children,
-                        const std::vector<size_t> &allowed_operators) {
-    std::vector<size_t> operators;
-    for (auto *child : all_children) {
-      antlr4::tree::TerminalNode *operator_node = nullptr;
-      if ((operator_node = dynamic_cast<antlr4::tree::TerminalNode *>(child))) {
-        if (std::find(allowed_operators.begin(), allowed_operators.end(), operator_node->getSymbol()->getType()) !=
-            allowed_operators.end()) {
-          operators.push_back(operator_node->getSymbol()->getType());
-        }
-      }
-    }
-    return operators;
-  }
+                        const std::vector<size_t> &allowed_operators) -> std::vector<size_t>;
 
   /**
    * Convert opencypher's n-ary production to ast binary operators.
@@ -343,6 +291,26 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitShowInstances(MemgraphCypher::ShowInstancesContext *ctx) override;
 
   /**
+   * @return CoordinatorQuery*
+   */
+  antlrcpp::Any visitYieldLeadership(MemgraphCypher::YieldLeadershipContext *ctx) override;
+
+  /**
+   * @return CoordinatorQuery*
+   */
+  antlrcpp::Any visitSetCoordinatorSetting(MemgraphCypher::SetCoordinatorSettingContext *ctx) override;
+
+  /**
+   * @return CoordinatorQuery*
+   */
+  antlrcpp::Any visitShowCoordinatorSettings(MemgraphCypher::ShowCoordinatorSettingsContext *ctx) override;
+
+  /**
+   * @return CoordinatorQuery*
+   */
+  antlrcpp::Any visitShowReplicationLag(MemgraphCypher::ShowReplicationLagContext *ctx) override;
+
+  /**
    * @return LockPathQuery*
    */
   antlrcpp::Any visitLockPathQuery(MemgraphCypher::LockPathQueryContext *ctx) override;
@@ -401,6 +369,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return ShowSnapshotsQuery*
    */
   antlrcpp::Any visitShowSnapshotsQuery(MemgraphCypher::ShowSnapshotsQueryContext *ctx) override;
+
+  /**
+   * @return ShowNextSnapshotQuery*
+   */
+  antlrcpp::Any visitShowNextSnapshotQuery(MemgraphCypher::ShowNextSnapshotQueryContext *ctx) override;
 
   /**
    * @return StreamQuery*
@@ -638,6 +611,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitDropVectorIndex(MemgraphCypher::DropVectorIndexContext *ctx) override;
 
   /**
+   * @return CreateCreateVectorEdgeIndexQuery*
+   */
+  antlrcpp::Any visitCreateVectorEdgeIndex(MemgraphCypher::CreateVectorEdgeIndexContext *ctx) override;
+
+  /**
    * @return AuthQuery*
    */
   antlrcpp::Any visitCreateUser(MemgraphCypher::CreateUserContext *ctx) override;
@@ -661,6 +639,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return AuthQuery*
    */
   antlrcpp::Any visitShowCurrentUser(MemgraphCypher::ShowCurrentUserContext *ctx) override;
+
+  /**
+   * @return AuthQuery*
+   */
+  antlrcpp::Any visitShowCurrentRole(MemgraphCypher::ShowCurrentRoleContext *ctx) override;
 
   /**
    * @return AuthQuery*
@@ -828,6 +811,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitNodeLabels(MemgraphCypher::NodeLabelsContext *ctx) override;
 
   /**
+   * @return vector<LabelIx>
+   */
+  antlrcpp::Any visitLabelExpression(MemgraphCypher::LabelExpressionContext *ctx) override;
+
+  /**
    * @return unordered_map<PropertyIx, Expression*>
    */
   antlrcpp::Any visitProperties(MemgraphCypher::PropertiesContext *ctx) override;
@@ -910,7 +898,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitRelationshipTypes(MemgraphCypher::RelationshipTypesContext *ctx) override;
 
   /**
-   * @return std::tuple<EdgeAtom::Type, int64_t, int64_t>.
+   * @return std::tuple<EdgeAtom::Type, Expression*, Expression*, Expression*>.
    */
   antlrcpp::Any visitVariableExpansion(MemgraphCypher::VariableExpansionContext *ctx) override;
 
@@ -1005,14 +993,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitStringAndNullOperators(MemgraphCypher::StringAndNullOperatorsContext *ctx) override;
 
   /**
-   * List indexing and slicing.
-   *
-   * @return Expression*
-   */
-  antlrcpp::Any visitExpression3b(MemgraphCypher::Expression3bContext *ctx) override;
-
-  /**
-   * Does nothing, everything is done in visitExpression3b.
+   * Does nothing, everything is done in visitExpression2b.
    */
   antlrcpp::Any visitListIndexingOrSlicing(MemgraphCypher::ListIndexingOrSlicingContext *ctx) override;
 
@@ -1024,7 +1005,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitExpression2a(MemgraphCypher::Expression2aContext *ctx) override;
 
   /**
-   * Property lookup.
+   * Property lookup, list indexing and slicing.
    *
    * @return Expression*
    */
@@ -1046,6 +1027,11 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    * @return Exists* (Expression)
    */
   antlrcpp::Any visitExistsExpression(MemgraphCypher::ExistsExpressionContext *ctx) override;
+
+  /**
+   * @return Exists* (Expression)
+   */
+  antlrcpp::Any visitExistsSubquery(MemgraphCypher::ExistsSubqueryContext *ctx) override;
 
   /**
    * @return pattern comprehension (Expression)
@@ -1251,6 +1237,61 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
    */
   antlrcpp::Any visitSetSessionTraceQuery(MemgraphCypher::SetSessionTraceQueryContext *ctx) override;
 
+  /**
+   * @return std::pair<std::string, UserProfileQuery::LimitValueResult>
+   */
+  antlrcpp::Any visitLimitKV(MemgraphCypher::LimitKVContext *ctx) override;
+
+  /**
+   * @return std::vector<std::pair<std::string, UserProfileQuery::LimitValueResult>>
+   */
+  antlrcpp::Any visitListOfLimits(MemgraphCypher::ListOfLimitsContext *ctx) override;
+
+  /**
+   * @return UserProfileQuery*
+   */
+  antlrcpp::Any visitCreateUserProfile(MemgraphCypher::CreateUserProfileContext *ctx) override;
+
+  /**
+   * @return UserProfileQuery*
+   */
+  antlrcpp::Any visitDropUserProfile(MemgraphCypher::DropUserProfileContext *ctx) override;
+
+  /**
+   * @return UserProfileQuery*
+   */
+  antlrcpp::Any visitShowUserProfiles(MemgraphCypher::ShowUserProfilesContext *ctx) override;
+
+  /**
+   * @return UserProfileQuery*
+   */
+  antlrcpp::Any visitShowUserProfile(MemgraphCypher::ShowUserProfileContext *ctx) override;
+
+  /**
+   * @return UserProfileQuery*
+   */
+  antlrcpp::Any visitShowUserProfileForUser(MemgraphCypher::ShowUserProfileForUserContext *ctx) override;
+
+  /**
+   * @return UserProfileQuery*
+   */
+  antlrcpp::Any visitShowUserProfileForProfile(MemgraphCypher::ShowUserProfileForProfileContext *ctx) override;
+
+  /**
+   * @return UserProfileQuery*
+   */
+  antlrcpp::Any visitSetUserProfile(MemgraphCypher::SetUserProfileContext *ctx) override;
+
+  /**
+   * @return UserProfileQuery*
+   */
+  antlrcpp::Any visitClearUserProfile(MemgraphCypher::ClearUserProfileContext *ctx) override;
+
+  /**
+   * @return UserProfileQuery*
+   */
+  antlrcpp::Any visitShowResourceConsumption(MemgraphCypher::ShowResourceConsumptionContext *ctx) override;
+
  public:
   Query *query() { return query_; }
   const static std::string kAnonPrefix;
@@ -1282,7 +1323,8 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   // We use this variable in visitReturnItem to check if we are in with or
   // return.
   bool in_with_ = false;
-
+  // Flag to indicate if we are parsing an EXISTS subquery
+  bool parsing_exists_subquery_ = false;
   Parameters *parameters_;
 
   QueryInfo query_info_;

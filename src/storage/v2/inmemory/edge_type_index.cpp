@@ -17,66 +17,211 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "utils/counter.hpp"
 
+namespace r = ranges;
+namespace rv = r::views;
+
 namespace memgraph::storage {
 
-bool InMemoryEdgeTypeIndex::CreateIndex(EdgeTypeId edge_type, utils::SkipList<Vertex>::Accessor vertices,
-                                        std::optional<SnapshotObserverInfo> const &snapshot_info) {
-  auto [it, emplaced] = index_.try_emplace(edge_type);
-  if (!emplaced) {
-    return false;
+namespace {
+inline void TryInsertEdgeTypeIndex(Vertex &from_vertex, EdgeTypeId edge_type, auto &&index_accessor,
+                                   std::optional<SnapshotObserverInfo> const &snapshot_info) {
+  if (from_vertex.deleted) {
+    return;
   }
 
-  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
-  try {
-    auto edge_acc = it->second.access();
-    for (auto &from_vertex : vertices) {
-      if (from_vertex.deleted) {
-        continue;
-      }
-
-      for (auto &edge : from_vertex.out_edges) {
-        const auto type = std::get<kEdgeTypeIdPos>(edge);
-        if (type == edge_type) {
-          auto *to_vertex = std::get<kVertexPos>(edge);
-          if (to_vertex->deleted) {
-            continue;
-          }
-          edge_acc.insert({&from_vertex, to_vertex, std::get<kEdgeRefPos>(edge).ptr, 0});
-          if (snapshot_info) {
-            snapshot_info->Update(UpdateType::EDGES);
-          }
-        }
-      }
+  for (auto const &[type, to_vertex, edge_ref] : from_vertex.out_edges) {
+    if (type != edge_type) continue;
+    if (to_vertex->deleted) {
+      continue;
     }
+    index_accessor.insert({&from_vertex, to_vertex, edge_ref.ptr, 0});
+    if (snapshot_info) {
+      snapshot_info->Update(UpdateType::EDGES);
+    }
+  }
+}
+
+inline void TryInsertEdgeTypeIndex(Vertex &from_vertex, EdgeTypeId edge_type, auto &&index_accessor,
+                                   std::optional<SnapshotObserverInfo> const &snapshot_info, Transaction const &tx) {
+  bool exists = true;
+  bool deleted = false;
+  Delta *delta = nullptr;
+  utils::small_vector<Vertex::EdgeTriple> edges;
+  auto matches_edge_type = [edge_type](auto const &each) { return std::get<EdgeTypeId>(each) == edge_type; };
+  {
+    auto guard = std::shared_lock{from_vertex.lock};
+    deleted = from_vertex.deleted;
+    delta = from_vertex.delta;
+    edges = from_vertex.out_edges | rv::filter(matches_edge_type) | r::to<utils::small_vector<Vertex::EdgeTriple>>;
+  }
+  // Create and drop index will always use snapshot isolation
+  if (delta) {
+    ApplyDeltasForRead(&tx, delta, View::OLD, [&](const Delta &delta) {
+      // clang-format off
+      DeltaDispatch(delta, utils::ChainedOverloaded{
+        Exists_ActionMethod(exists),
+        Deleted_ActionMethod(deleted),
+        Edges_ActionMethod<EdgeDirection::OUT>(edges, edge_type)
+      });
+      // clang-format on
+    });
+  }
+  if (!exists || deleted || edges.empty()) {
+    return;
+  }
+
+  for (auto const &[type, to_vertex, edge_ref] : edges) {
+    index_accessor.insert({&from_vertex, to_vertex, edge_ref.ptr, tx.start_timestamp});
+    if (snapshot_info) {
+      snapshot_info->Update(UpdateType::EDGES);
+    }
+  }
+}
+
+}  // namespace
+
+bool InMemoryEdgeTypeIndex::CreateIndexOnePass(EdgeTypeId edge_type, utils::SkipList<Vertex>::Accessor vertices,
+                                               std::optional<SnapshotObserverInfo> const &snapshot_info) {
+  auto res = RegisterIndex(edge_type);
+  if (!res) return false;
+  auto res2 = PopulateIndex(edge_type, std::move(vertices), snapshot_info);
+  if (res2.HasError()) {
+    MG_ASSERT(false, "Index population can't fail, there was no cancellation callback.");
+  }
+  return PublishIndex(edge_type, 0);
+}
+
+auto InMemoryEdgeTypeIndex::PopulateIndex(EdgeTypeId edge_type, utils::SkipList<Vertex>::Accessor vertices,
+                                          std::optional<SnapshotObserverInfo> const &snapshot_info,
+                                          Transaction const *tx, CheckCancelFunction cancel_check)
+    -> utils::BasicResult<IndexPopulateError> {
+  auto index = GetIndividualIndex(edge_type);
+  if (!index) {
+    MG_ASSERT(false, "It should not be possible to remove the index before populating it.");
+  }
+
+  try {
+    auto const accessor_factory = [&] { return index->skip_list_.access(); };
+    if (tx) {
+      // If we are in a transaction, we need to read the object with the correct MVCC snapshot isolation
+      auto const insert_function = [&](Vertex &from_vertex, auto &index_accessor) {
+        TryInsertEdgeTypeIndex(from_vertex, edge_type, index_accessor, snapshot_info, *tx);
+      };
+      PopulateIndexDispatch(vertices, accessor_factory, insert_function, std::move(cancel_check),
+                            {} /*TODO: parallel*/);
+    } else {
+      // If we are not in a transaction, we need to read the object as it is. (post recovery)
+      auto const insert_function = [&](Vertex &from_vertex, auto &index_accessor) {
+        TryInsertEdgeTypeIndex(from_vertex, edge_type, index_accessor, snapshot_info);
+      };
+      PopulateIndexDispatch(vertices, accessor_factory, insert_function, std::move(cancel_check),
+                            {} /*TODO: parallel*/);
+    }
+  } catch (const PopulateCancel &) {
+    DropIndex(edge_type);
+    return IndexPopulateError::Cancellation;
   } catch (const utils::OutOfMemoryException &) {
-    utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
-    index_.erase(it);
+    DropIndex(edge_type);
     throw;
   }
+  return {};
+}
 
+bool InMemoryEdgeTypeIndex::RegisterIndex(EdgeTypeId edge_type) {
+  return index_.WithLock([&](std::shared_ptr<IndicesContainer const> &indices_container) {
+    auto const &indices = indices_container->indices_;
+    {
+      auto it = indices.find(edge_type);
+      if (it != indices.end()) return false;  // already exists
+    }
+
+    // Register
+    auto new_container = std::make_shared<IndicesContainer>(*indices_container);
+    auto [new_it, _] = new_container->indices_.emplace(edge_type, std::make_shared<IndividualIndex>());
+
+    utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_blocker;
+    // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
+    all_indices_.WithLock([&](auto &all_indices) {
+      auto new_all_indices = *all_indices;
+      // NOLINTNEXTLINE(clang-analyzer-core.CallAndMessage)
+      new_all_indices.emplace_back(new_it->second);
+      all_indices = std::make_shared<std::vector<AllIndicesEntry>>(std::move(new_all_indices));
+    });
+    indices_container = new_container;
+    return true;
+  });
+}
+
+bool InMemoryEdgeTypeIndex::PublishIndex(EdgeTypeId edge_type, uint64_t commit_timestamp) {
+  auto index = GetIndividualIndex(edge_type);
+  if (!index) return false;
+  index->Publish(commit_timestamp);
   return true;
 }
 
-bool InMemoryEdgeTypeIndex::DropIndex(EdgeTypeId edge_type) { return index_.erase(edge_type) > 0; }
+void InMemoryEdgeTypeIndex::IndividualIndex::Publish(uint64_t commit_timestamp) {
+  status_.Commit(commit_timestamp);
+  memgraph::metrics::IncrementCounter(memgraph::metrics::ActiveEdgeTypeIndices);
+}
 
-bool InMemoryEdgeTypeIndex::IndexExists(EdgeTypeId edge_type) const { return index_.find(edge_type) != index_.end(); }
+InMemoryEdgeTypeIndex::IndividualIndex::~IndividualIndex() {
+  if (status_.IsReady()) {
+    memgraph::metrics::DecrementCounter(memgraph::metrics::ActiveEdgeTypeIndices);
+  }
+}
 
-std::vector<EdgeTypeId> InMemoryEdgeTypeIndex::ListIndices() const {
-  std::vector<EdgeTypeId> ret;
-  ret.reserve(index_.size());
-  for (const auto &item : index_) {
-    ret.push_back(item.first);
+bool InMemoryEdgeTypeIndex::DropIndex(EdgeTypeId edge_type) {
+  auto const result = index_.WithLock([&](std::shared_ptr<IndicesContainer const> &indices_container) {
+    {
+      auto const it = indices_container->indices_.find(edge_type);
+      if (it == indices_container->indices_.cend()) return false;
+    }
+
+    auto new_container = std::make_shared<IndicesContainer>();
+    for (auto const &[existing_edge_type, index] : indices_container->indices_) {
+      if (existing_edge_type != edge_type) {
+        new_container->indices_.emplace(existing_edge_type, index);
+      }
+    }
+    indices_container = new_container;
+    return true;
+  });
+  CleanupAllIndices();
+  return result;
+}
+
+bool InMemoryEdgeTypeIndex::ActiveIndices::IndexReady(memgraph::storage::EdgeTypeId edge_type) const {
+  auto const &indices = index_container_->indices_;
+  auto it = indices.find(edge_type);
+  if (it == indices.end()) return false;
+  return it->second->status_.IsReady();
+}
+
+bool InMemoryEdgeTypeIndex::ActiveIndices::IndexRegistered(EdgeTypeId edge_type) const {
+  return index_container_->indices_.find(edge_type) != index_container_->indices_.end();
+}
+
+std::vector<EdgeTypeId> InMemoryEdgeTypeIndex::ActiveIndices::ListIndices(uint64_t start_timestamp) const {
+  auto ret = std::vector<EdgeTypeId>{};
+  ret.reserve(index_container_->indices_.size());
+  for (auto const &[edge_type, index] : index_container_->indices_) {
+    if (index->status_.IsVisible(start_timestamp)) {
+      ret.emplace_back(edge_type);
+    }
   }
   return ret;
 }
 
 void InMemoryEdgeTypeIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_timestamp, std::stop_token token) {
-  auto maybe_stop = utils::ResettableCounter<2048>();
+  auto maybe_stop = utils::ResettableCounter(2048);
 
-  for (auto &[_, et_index] : index_) {
+  CleanupAllIndices();
+
+  auto cpy = all_indices_.WithReadLock(std::identity{});
+  for (auto &et_index : *cpy) {
     if (token.stop_requested()) return;
 
-    auto edges_acc = et_index.access();
+    auto edges_acc = et_index->skip_list_.access();
     for (auto it = edges_acc.begin(); it != edges_acc.end();) {
       if (maybe_stop() && token.stop_requested()) return;
 
@@ -107,48 +252,43 @@ void InMemoryEdgeTypeIndex::RemoveObsoleteEntries(uint64_t oldest_active_start_t
   }
 }
 
-uint64_t InMemoryEdgeTypeIndex::ApproximateEdgeCount(EdgeTypeId edge_type) const {
-  if (auto it = index_.find(edge_type); it != index_.end()) {
-    return it->second.size();
+uint64_t InMemoryEdgeTypeIndex::ActiveIndices::ApproximateEdgeCount(EdgeTypeId edge_type) const {
+  if (auto it = index_container_->indices_.find(edge_type); it != index_container_->indices_.end()) {
+    return it->second->skip_list_.size();
   }
   return 0;
 }
 
-void InMemoryEdgeTypeIndex::AbortEntries(EdgeTypeIndex::AbortableInfo const &info, uint64_t exact_start_timestamp) {
+void InMemoryEdgeTypeIndex::ActiveIndices::AbortEntries(EdgeTypeIndex::AbortableInfo const &info,
+                                                        uint64_t exact_start_timestamp) {
   for (auto const &[edge_type, edges] : info) {
-    auto const it = index_.find(edge_type);
-    DMG_ASSERT(it != index_.end());
+    auto const it = index_container_->indices_.find(edge_type);
+    DMG_ASSERT(it != index_container_->indices_.end());
 
     auto &index_storage = it->second;
-    auto acc = index_storage.access();
+    auto acc = index_storage->skip_list_.access();
     for (const auto &[from_vertex, to_vertex, edge] : edges) {
       acc.remove(Entry{from_vertex, to_vertex, edge, exact_start_timestamp});
     }
   }
 }
 
-void InMemoryEdgeTypeIndex::UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
-                                                 const Transaction &tx) {
-  auto it = index_.find(edge_type);
-  if (it == index_.end()) {
+void InMemoryEdgeTypeIndex::ActiveIndices::UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref,
+                                                                EdgeTypeId edge_type, const Transaction &tx) {
+  auto it = index_container_->indices_.find(edge_type);
+  if (it == index_container_->indices_.end()) {
     return;
   }
-  auto acc = it->second.access();
+  auto acc = it->second->skip_list_.access();
   acc.insert(Entry{from, to, edge_ref.ptr, tx.start_timestamp});
 }
 
-void InMemoryEdgeTypeIndex::UpdateOnEdgeModification(Vertex *old_from, Vertex *old_to, Vertex *new_from, Vertex *new_to,
-                                                     EdgeRef edge_ref, EdgeTypeId edge_type, const Transaction &tx) {
-  auto it = index_.find(edge_type);
-  if (it == index_.end()) {
-    return;
-  }
-
-  auto acc = it->second.access();
-  acc.insert(Entry{new_from, new_to, edge_ref.ptr, tx.start_timestamp});
+void InMemoryEdgeTypeIndex::DropGraphClearIndices() {
+  index_.WithLock([](std::shared_ptr<IndicesContainer const> &index) { index = std::make_shared<IndicesContainer>(); });
+  all_indices_.WithLock([](std::shared_ptr<std::vector<AllIndicesEntry> const> &all_indices) {
+    all_indices = std::make_unique<std::vector<AllIndicesEntry>>();
+  });
 }
-
-void InMemoryEdgeTypeIndex::DropGraphClearIndices() { index_.clear(); }
 
 InMemoryEdgeTypeIndex::Iterable::Iterable(utils::SkipList<Entry>::Accessor index_accessor,
                                           utils::SkipList<Vertex>::ConstAccessor vertex_accessor,
@@ -203,27 +343,58 @@ void InMemoryEdgeTypeIndex::Iterable::Iterator::AdvanceUntilValid() {
 }
 
 void InMemoryEdgeTypeIndex::RunGC() {
-  for (auto &index_entry : index_) {
-    index_entry.second.run_gc();
+  // Remove indices that are not used by any txn
+  CleanupAllIndices();
+
+  // For each skip_list remaining, run GC
+  auto cpy = all_indices_.WithReadLock(std::identity{});
+  for (auto &index : *cpy) {
+    index->skip_list_.run_gc();
   }
 }
 
-InMemoryEdgeTypeIndex::Iterable InMemoryEdgeTypeIndex::Edges(EdgeTypeId edge_type, View view, Storage *storage,
-                                                             Transaction *transaction) {
-  const auto it = index_.find(edge_type);
-  MG_ASSERT(it != index_.end(), "Index for edge-type {} doesn't exist", edge_type.AsUint());
+InMemoryEdgeTypeIndex::Iterable InMemoryEdgeTypeIndex::ActiveIndices::Edges(EdgeTypeId edge_type, View view,
+                                                                            Storage *storage,
+                                                                            Transaction *transaction) {
+  const auto it = index_container_->indices_.find(edge_type);
+  MG_ASSERT(it != index_container_->indices_.end(), "Index for edge-type {} doesn't exist", edge_type.AsUint());
   auto vertex_acc = static_cast<InMemoryStorage const *>(storage)->vertices_.access();
   auto edge_acc = static_cast<InMemoryStorage const *>(storage)->edges_.access();
-  return {it->second.access(), std::move(vertex_acc), std::move(edge_acc), edge_type, view, storage, transaction};
+  return {it->second->skip_list_.access(),
+          std::move(vertex_acc),
+          std::move(edge_acc),
+          edge_type,
+          view,
+          storage,
+          transaction};
 }
 
-EdgeTypeIndex::AbortProcessor InMemoryEdgeTypeIndex::GetAbortProcessor() const {
-  std::vector<EdgeTypeId> res;
-  res.reserve(index_.size());
-  for (const auto &[edge_type, _] : index_) {
-    res.emplace_back(edge_type);
-  }
-  return AbortProcessor{res};
+EdgeTypeIndex::AbortProcessor InMemoryEdgeTypeIndex::ActiveIndices::GetAbortProcessor() const {
+  auto edge_type_filter = index_container_->indices_ | std::views::keys | ranges::to_vector;
+  return AbortProcessor{edge_type_filter};
+}
+
+auto InMemoryEdgeTypeIndex::GetActiveIndices() const -> std::unique_ptr<EdgeTypeIndex::ActiveIndices> {
+  return std::make_unique<ActiveIndices>(index_.WithReadLock(std::identity{}));
+}
+
+auto InMemoryEdgeTypeIndex::GetIndividualIndex(EdgeTypeId edge_type) const -> std::shared_ptr<IndividualIndex> {
+  return index_.WithReadLock(
+      [&](std::shared_ptr<IndicesContainer const> const &index) -> std::shared_ptr<IndividualIndex> {
+        auto it = index->indices_.find(edge_type);
+        if (it == index->indices_.cend()) [[unlikely]]
+          return {};
+        return it->second;
+      });
+}
+
+void InMemoryEdgeTypeIndex::CleanupAllIndices() {
+  all_indices_.WithLock([](std::shared_ptr<std::vector<AllIndicesEntry> const> &indices) {
+    auto keep_condition = [](AllIndicesEntry const &entry) { return entry.use_count() != 1; };
+    if (!r::all_of(*indices, keep_condition)) {
+      indices = std::make_shared<std::vector<AllIndicesEntry>>(*indices | rv::filter(keep_condition) | r::to_vector);
+    }
+  });
 }
 
 }  // namespace memgraph::storage

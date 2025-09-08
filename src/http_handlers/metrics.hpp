@@ -18,7 +18,7 @@
 #include <spdlog/spdlog.h>
 #include <boost/beast/http.hpp>
 #include <boost/beast/version.hpp>
-#include <nlohmann/json.hpp>
+#include <nlohmann/json_fwd.hpp>
 
 #include "license/license_sender.hpp"
 #include "storage/v2/storage.hpp"

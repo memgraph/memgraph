@@ -25,11 +25,11 @@
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
-#include "query/frontend/ast/ast.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/interpret/frame.hpp"
 #include "query/typed_value.hpp"
 #include "spdlog/spdlog.h"
+#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/point.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "utils/cast.hpp"
@@ -188,19 +188,25 @@ class PrimitiveLiteralExpressionEvaluator : public ExpressionVisitor<TypedValue>
 class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
  public:
   ExpressionEvaluator(Frame *frame, const SymbolTable &symbol_table, const EvaluationContext &ctx, DbAccessor *dba,
-                      storage::View view, FrameChangeCollector *frame_change_collector = nullptr)
+                      storage::View view, FrameChangeCollector *frame_change_collector = nullptr,
+                      const int64_t *hops_counter = nullptr)
       : frame_(frame),
         symbol_table_(&symbol_table),
         ctx_(&ctx),
         dba_(dba),
         view_(view),
-        frame_change_collector_(frame_change_collector) {}
+        frame_change_collector_(frame_change_collector),
+        hops_counter_(hops_counter) {}
 
   using ExpressionVisitor<TypedValue>::Visit;
 
   utils::MemoryResource *GetMemoryResource() const { return ctx_->memory; }
 
+  storage::NameIdMapper *GetNameIdMapper() const { return dba_->GetStorageAccessor()->GetNameIdMapper(); }
+
   void ResetPropertyLookupCache() { property_lookup_cache_.clear(); }
+
+  int64_t GetHopsCounter() { return hops_counter_ != nullptr ? *hops_counter_ : 0; }
 
   TypedValue Visit(NamedExpression &named_expression) override {
     const auto &symbol = symbol_table_->at(named_expression);
@@ -434,12 +440,12 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
     if (lhs_ptr->IsVertex()) {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
-      return {GetProperty(lhs_ptr->ValueVertex(), index.ValueString()), ctx_->memory};
+      return {GetProperty(lhs_ptr->ValueVertex(), index.ValueString()), GetNameIdMapper(), ctx_->memory};
     }
 
     if (lhs_ptr->IsEdge()) {
       if (!index.IsString()) throw QueryRuntimeException("Expected a string as a property name, got {}.", index.type());
-      return {GetProperty(lhs_ptr->ValueEdge(), index.ValueString()), ctx_->memory};
+      return {GetProperty(lhs_ptr->ValueEdge(), index.ValueString()), GetNameIdMapper(), ctx_->memory};
     };
 
     // lhs is Null
@@ -514,7 +520,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
             // `OLD` view: `return old ? old : new`. That means that if the
             // `OLD` view didn't exist, it returned the NEW view. With this hack
             // we simulate that behavior.
-            // TODO (mferencevic, teon.banek): Remove once MERGE is
+            // TODO: Remove once MERGE is
             // reimplemented.
             has_label = vertex.HasLabel(storage::View::NEW, GetLabel(label));
           }
@@ -531,6 +537,41 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
             }
           }
           if (!*has_label) {
+            return TypedValue(false, ctx_->memory);
+          }
+        }
+        for (const auto &or_labels_pattern : labels_test.or_labels_) {
+          bool has_at_least_one_label = false;
+          for (const auto &label : or_labels_pattern) {
+            auto has_label = vertex.HasLabel(view_, GetLabel(label));
+            if (has_label.HasError() && has_label.GetError() == storage::Error::NONEXISTENT_OBJECT) {
+              // This is a very nasty and temporary hack in order to make MERGE
+              // work. The old storage had the following logic when returning an
+              // `OLD` view: `return old ? old : new`. That means that if the
+              // `OLD` view didn't exist, it returned the NEW view. With this hack
+              // we simulate that behavior.
+              // TODO: Remove once MERGE is
+              // reimplemented.
+              has_label = vertex.HasLabel(storage::View::NEW, GetLabel(label));
+            }
+            if (has_label.HasError()) {
+              switch (has_label.GetError()) {
+                case storage::Error::DELETED_OBJECT:
+                  throw QueryRuntimeException("Trying to access labels on a deleted node.");
+                case storage::Error::NONEXISTENT_OBJECT:
+                  throw query::QueryRuntimeException("Trying to access labels from a node that doesn't exist.");
+                case storage::Error::SERIALIZATION_ERROR:
+                case storage::Error::VERTEX_HAS_EDGES:
+                case storage::Error::PROPERTIES_DISABLED:
+                  throw QueryRuntimeException("Unexpected error when accessing labels.");
+              }
+            }
+            if (*has_label) {
+              has_at_least_one_label = true;
+              break;
+            }
+          }
+          if (!has_at_least_one_label) {
             return TypedValue(false, ctx_->memory);
           }
         }
@@ -616,7 +657,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(Function &function) override {
-    FunctionContext function_ctx{dba_, ctx_->memory, ctx_->timestamp, &ctx_->counters, view_};
+    FunctionContext function_ctx{dba_, ctx_->memory, ctx_->timestamp, &ctx_->counters, view_, GetHopsCounter()};
     bool is_transactional = storage::IsTransactional(dba_->GetStorageMode());
     TypedValue res(ctx_->memory);
     // Stack allocate evaluated arguments when there's a small number of them.
@@ -642,7 +683,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
       res = function.function_(arguments.data(), arguments.size(), function_ctx);
     }
-    MG_ASSERT(res.GetMemoryResource() == ctx_->memory);
+    MG_ASSERT(res.get_allocator().resource() == ctx_->memory);
     if (!is_transactional && res.ContainsDeleted()) [[unlikely]] {
       return TypedValue(ctx_->memory);
     }
@@ -743,7 +784,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
           "Unexpected behavior: Exists expected a function, got {}. Please report the problem on GitHub issues",
           frame_exists_value.type());
     }
-    TypedValue result{ctx_->memory};
+    TypedValue result(ctx_->memory);
     frame_exists_value.ValueFunction()(&result);
     return result;
   }
@@ -929,34 +970,6 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return TypedValue(*maybe_enum, ctx_->memory);
   }
 
- private:
-  template <class TRecordAccessor>
-  std::map<storage::PropertyId, storage::PropertyValue> GetAllProperties(const TRecordAccessor &record_accessor) {
-    auto maybe_props = record_accessor.Properties(view_);
-    if (maybe_props.HasError() && maybe_props.GetError() == storage::Error::NONEXISTENT_OBJECT) {
-      // This is a very nasty and temporary hack in order to make MERGE work.
-      // The old storage had the following logic when returning an `OLD` view:
-      // `return old ? old : new`. That means that if the `OLD` view didn't
-      // exist, it returned the NEW view. With this hack we simulate that
-      // behavior.
-      // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
-      maybe_props = record_accessor.Properties(storage::View::NEW);
-    }
-    if (maybe_props.HasError()) {
-      switch (maybe_props.GetError()) {
-        case storage::Error::DELETED_OBJECT:
-          throw QueryRuntimeException("Trying to get properties from a deleted object.");
-        case storage::Error::NONEXISTENT_OBJECT:
-          throw query::QueryRuntimeException("Trying to get properties from an object that doesn't exist.");
-        case storage::Error::SERIALIZATION_ERROR:
-        case storage::Error::VERTEX_HAS_EDGES:
-        case storage::Error::PROPERTIES_DISABLED:
-          throw QueryRuntimeException("Unexpected error when getting properties.");
-      }
-    }
-    return *std::move(maybe_props);
-  }
-
   template <class TRecordAccessor>
   storage::PropertyValue GetProperty(const TRecordAccessor &record_accessor, const PropertyIx &prop) {
     auto maybe_prop = record_accessor.GetProperty(view_, ctx_->properties[prop.ix]);
@@ -1011,6 +1024,34 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     return *maybe_prop;
   }
 
+ private:
+  template <class TRecordAccessor>
+  std::map<storage::PropertyId, storage::PropertyValue> GetAllProperties(const TRecordAccessor &record_accessor) {
+    auto maybe_props = record_accessor.Properties(view_);
+    if (maybe_props.HasError() && maybe_props.GetError() == storage::Error::NONEXISTENT_OBJECT) {
+      // This is a very nasty and temporary hack in order to make MERGE work.
+      // The old storage had the following logic when returning an `OLD` view:
+      // `return old ? old : new`. That means that if the `OLD` view didn't
+      // exist, it returned the NEW view. With this hack we simulate that
+      // behavior.
+      // TODO (mferencevic, teon.banek): Remove once MERGE is reimplemented.
+      maybe_props = record_accessor.Properties(storage::View::NEW);
+    }
+    if (maybe_props.HasError()) {
+      switch (maybe_props.GetError()) {
+        case storage::Error::DELETED_OBJECT:
+          throw QueryRuntimeException("Trying to get properties from a deleted object.");
+        case storage::Error::NONEXISTENT_OBJECT:
+          throw query::QueryRuntimeException("Trying to get properties from an object that doesn't exist.");
+        case storage::Error::SERIALIZATION_ERROR:
+        case storage::Error::VERTEX_HAS_EDGES:
+        case storage::Error::PROPERTIES_DISABLED:
+          throw QueryRuntimeException("Unexpected error when getting properties.");
+      }
+    }
+    return *std::move(maybe_props);
+  }
+
   storage::LabelId GetLabel(const LabelIx &label) { return ctx_->labels[label.ix]; }
 
   Frame *frame_;
@@ -1022,6 +1063,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   FrameChangeCollector *frame_change_collector_;
   /// Property lookup cache ({symbol: {property_id: property_value, ...}, ...})
   mutable std::unordered_map<int32_t, std::map<storage::PropertyId, storage::PropertyValue>> property_lookup_cache_{};
+  // use the getter function GetHopsCounter() to handle possible error for segfault
+  const int64_t *hops_counter_;
 };  // namespace memgraph::query
 
 /// A helper function for evaluating an expression that's an int.

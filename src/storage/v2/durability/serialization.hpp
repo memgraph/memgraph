@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -17,7 +17,6 @@
 
 #include "storage/v2/config.hpp"
 #include "storage/v2/durability/marker.hpp"
-#include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
 #include "utils/file.hpp"
 
@@ -38,12 +37,14 @@ class BaseEncoder {
   virtual void WriteEnum(storage::Enum value) = 0;
   virtual void WritePoint2d(storage::Point2d value) = 0;
   virtual void WritePoint3d(storage::Point3d value) = 0;
-  virtual void WritePropertyValue(const PropertyValue &value) = 0;
+  virtual void WriteExternalPropertyValue(const ExternalPropertyValue &value) = 0;
 };
 
 /// Encoder that is used to generate a snapshot/WAL.
+template <typename FileType>
 class Encoder final : public BaseEncoder {
  public:
+  void Initialize(const std::filesystem::path &path);
   void Initialize(const std::filesystem::path &path, std::string_view magic, uint64_t version);
 
   void OpenExisting(const std::filesystem::path &path);
@@ -61,7 +62,7 @@ class Encoder final : public BaseEncoder {
   void WriteEnum(storage::Enum value) override;
   void WritePoint2d(storage::Point2d value) override;
   void WritePoint3d(storage::Point3d value) override;
-  void WritePropertyValue(const PropertyValue &value) override;
+  void WriteExternalPropertyValue(const ExternalPropertyValue &value) override;
 
   uint64_t GetPosition();
   void SetPosition(uint64_t position);
@@ -71,19 +72,22 @@ class Encoder final : public BaseEncoder {
   void Finalize();
 
   // Disable flushing of the internal buffer.
-  void DisableFlushing();
+  void DisableFlushing() requires std::same_as<FileType, utils::OutputFile>;
   // Enable flushing of the internal buffer.
-  void EnableFlushing();
+  void EnableFlushing() requires std::same_as<FileType, utils::OutputFile>;
   // Try flushing the internal buffer.
-  void TryFlushing();
+  void TryFlushing() requires std::same_as<FileType, utils::OutputFile>;
   // Get the current internal buffer with its size.
   std::pair<const uint8_t *, size_t> CurrentFileBuffer() const;
 
   // Get the total size of the current file.
   size_t GetSize();
+  auto GetPath() const { return file_.path(); }
+
+  auto native_handle() const { return file_.fd(); }
 
  private:
-  utils::OutputFile file_;
+  FileType file_;
 };
 
 /// Decoder interface class. Used to implement streams from different sources
@@ -101,10 +105,10 @@ class BaseDecoder {
   virtual std::optional<Enum> ReadEnumValue() = 0;
   virtual std::optional<Point2d> ReadPoint2dValue() = 0;
   virtual std::optional<Point3d> ReadPoint3dValue() = 0;
-  virtual std::optional<PropertyValue> ReadPropertyValue() = 0;
+  virtual std::optional<ExternalPropertyValue> ReadExternalPropertyValue() = 0;
 
   virtual bool SkipString() = 0;
-  virtual bool SkipPropertyValue() = 0;
+  virtual bool SkipExternalPropertyValue() = 0;
 };
 
 /// Decoder that is used to read a generated snapshot/WAL.
@@ -127,10 +131,9 @@ class Decoder final : public BaseDecoder {
   std::optional<Enum> ReadEnumValue() override;
   std::optional<Point2d> ReadPoint2dValue() override;
   std::optional<Point3d> ReadPoint3dValue() override;
-  std::optional<PropertyValue> ReadPropertyValue() override;
-
+  std::optional<ExternalPropertyValue> ReadExternalPropertyValue() override;
   bool SkipString() override;
-  bool SkipPropertyValue() override;
+  bool SkipExternalPropertyValue() override;
 
   std::optional<uint64_t> GetSize();
   std::optional<uint64_t> GetPosition();

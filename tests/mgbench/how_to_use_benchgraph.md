@@ -159,11 +159,30 @@ The main script that manages benchmark execution is `benchmark.py`.
 
 To start the benchmark, you need to run the following command with your paths and options:
 
-```python3 benchmark.py vendor-docker --vendor-name (memgraph-docker||neo4j-docker) benchmarks demo/*/*/* --export-results result.json  --no-authorization```
+```python3 benchmark.py --vendor-name (memgraph||neo4j) --installation-type docker benchmarks demo/*/*/* --export-results result.json  --no-authorization```
 
 To run this on memgraph, the command looks like this:
 
-```python3 benchmark.py vendor-docker --vendor-name memgraph-docker benchmarks demo/*/*/* --export-results results.json --no-authorization```
+```python3 benchmark.py --vendor-name memgraph --installation-type docker benchmarks demo/*/*/* --export-results results.json --no-authorization```
+
+## Running Benchmarks with the `mgbench-client` Docker Image
+
+You can use the `memgraph/mgbench-client:<version>-full` Docker image to benchmark a Memgraph instance, just as you would by invoking `benchmark.py`. For example:
+
+```bash
+docker run --rm --network host --name mgbench \
+  memgraph/mgbench-client:0.0.4-full \
+  --installation-type external
+  --num-workers-for-benchmark 4 \
+  --export-results=benchmark_result.json \
+  --no-authorization \
+  pokec/small/arango/single_vertex_write \
+  --client-bolt-address 192.168.1.100
+```
+
+* **Image tag**: Replace `0.0.4` with the actual version of `mgbench-client` you’re using.
+* **`-full` suffix**: This variant includes the benchmarking code; the tag without `-full` contains only the client binary.
+* **`--client-bolt-address`**: IP or hostname of your Memgraph server (e.g. `192.168.1.100`).
 
 ## How to configure benchmark run
 

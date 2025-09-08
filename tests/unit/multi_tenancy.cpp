@@ -108,7 +108,8 @@ class MultiTenantTest : public ::testing::Test {
                               system
 #ifdef MG_ENTERPRISE
                               ,
-                              std::nullopt
+                              std::nullopt,
+                              nullptr
 #endif
           } {
       memgraph::utils::global_settings.Initialize(conf.durability.storage_directory / "settings");
@@ -319,9 +320,14 @@ TEST_F(MultiTenantTest, DbmsNewDelete) {
                memgraph::query::DatabaseContextRequiredException);
 
   // 5
-  using namespace std::chrono_literals;
-  std::this_thread::sleep_for(100ms);                          // Wait for the filesystem to be updated
-  ASSERT_EQ(GetDirs(data_directory / "databases").size(), 1);  // Databases deleted from disk
+  int tries = 0;
+  constexpr int max_tries = 50;
+  for (; tries < max_tries; tries++) {
+    if (GetDirs(data_directory / "databases").size() == 1) break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));  // Wait for the filesystem to be updated
+  }
+  ASSERT_LT(tries, max_tries) << "Failed to delete databases. Remaining databases "
+                              << GetDirs(data_directory / "databases").size();
   ASSERT_THROW(RunQuery(interpreter1, "MATCH(n) RETURN n"), memgraph::query::DatabaseContextRequiredException);
   ASSERT_THROW(RunQuery(interpreter2, "MATCH(n) RETURN n"), memgraph::query::DatabaseContextRequiredException);
 }
@@ -377,8 +383,14 @@ TEST_F(MultiTenantTest, DbmsNewDeleteWTx) {
   RunQuery(interpreter2, "COMMIT");
 
   // 5
-  using namespace std::chrono_literals;
-  std::this_thread::sleep_for(100ms);                          // Wait for the filesystem to be updated
+  int tries = 0;
+  constexpr int max_tries = 50;
+  for (; tries < max_tries; tries++) {
+    if (GetDirs(data_directory / "databases").size() == 1) break;
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));  // Wait for the filesystem to be updated
+  }
+  ASSERT_LT(tries, max_tries) << "Failed to delete databases. Remaining databases "
+                              << GetDirs(data_directory / "databases").size();
   ASSERT_EQ(GetDirs(data_directory / "databases").size(), 1);  // Only the active databases remain
   ASSERT_THROW(RunQuery(interpreter1, "MATCH(n) RETURN n"), memgraph::query::DatabaseContextRequiredException);
   ASSERT_THROW(RunQuery(interpreter2, "MATCH(n) RETURN n"), memgraph::query::DatabaseContextRequiredException);

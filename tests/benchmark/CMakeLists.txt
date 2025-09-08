@@ -1,8 +1,7 @@
-set(test_prefix memgraph__benchmark__)
+set(test_prefix ${test_bench_prefix})
 
 find_package(gflags REQUIRED)
 
-add_custom_target(memgraph__benchmark)
 
 function(add_benchmark test_cpp)
   # get exec name (remove extension from the abs path)
@@ -58,13 +57,13 @@ add_benchmark(expansion.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp)
 target_link_libraries(${test_prefix}expansion mg-query mg-communication mg-license)
 
 add_benchmark(storage_v2_gc.cpp)
-target_link_libraries(${test_prefix}storage_v2_gc mg-storage-v2)
+target_link_libraries(${test_prefix}storage_v2_gc mg::storage)
 
 add_benchmark(storage_v2_gc2.cpp)
-target_link_libraries(${test_prefix}storage_v2_gc2 mg-storage-v2)
+target_link_libraries(${test_prefix}storage_v2_gc2 mg::storage)
 
 add_benchmark(storage_v2_property_store.cpp)
-target_link_libraries(${test_prefix}storage_v2_property_store mg-storage-v2)
+target_link_libraries(${test_prefix}storage_v2_property_store mg::storage)
 
 add_benchmark(storage_v2_enum_store_bench.cpp)
-target_link_libraries(${test_prefix}storage_v2_enum_store_bench mg-storage-v2)
+target_link_libraries(${test_prefix}storage_v2_enum_store_bench mg::storage)

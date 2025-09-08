@@ -14,7 +14,7 @@
 #include <mutex>
 #include <string>
 
-#include <nlohmann/json.hpp>
+#include <nlohmann/json_fwd.hpp>
 
 namespace memgraph::auth {
 struct TargetArguments {

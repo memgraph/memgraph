@@ -12,7 +12,6 @@
 #include "query/dump.hpp"
 
 #include <algorithm>
-#include <iomanip>
 #include <limits>
 #include <map>
 #include <optional>
@@ -29,7 +28,9 @@
 #include "query/trigger_context.hpp"
 #include "query/typed_value.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
+#include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/indices/vector_index.hpp"
+#include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
 #include "storage/v2/temporal.hpp"
@@ -148,7 +149,7 @@ void DumpPoint3d(std::ostream &os, const storage::Point3d &value) { os << query:
 
 }  // namespace
 
-void DumpPropertyValue(std::ostream *os, const storage::PropertyValue &value, query::DbAccessor *dba) {
+void DumpPropertyValue(std::ostream *os, const storage::ExternalPropertyValue &value, query::DbAccessor *dba) {
   switch (value.type()) {
     case storage::PropertyValue::Type::Null:
       *os << "Null";
@@ -215,7 +216,11 @@ void DumpProperties(std::ostream *os, query::DbAccessor *dba,
   }
   utils::PrintIterable(*os, store, ", ", [&dba](auto &os, const auto &kv) {
     os << EscapeName(dba->PropertyToName(kv.first)) << ": ";
-    DumpPropertyValue(&os, kv.second, dba);
+
+    // Convert PropertyValue to ExternalPropertyValue to map keys from PropertyId to strings, preserving property order
+    // compatibility with previous database dumps.
+    DumpPropertyValue(&os, storage::ToExternalPropertyValue(kv.second, dba->GetStorageAccessor()->GetNameIdMapper()),
+                      dba);
   });
   *os << "}";
 }
@@ -306,24 +311,29 @@ void DumpEdgePropertyIndex(std::ostream *os, query::DbAccessor *dba, storage::Pr
 }
 
 void DumpLabelPropertiesIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
-                              std::span<storage::PropertyId const> properties) {
-  *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << "(";
+                              std::span<storage::PropertyPath const> properties) {
+  using namespace std::literals::string_view_literals;
+  auto const concat_nested_props = [&](auto &&path) {
+    return path | rv::transform([&](auto &&property_id) { return EscapeName(dba->PropertyToName(property_id)); }) |
+           rv::join("."sv) | r::to<std::string>();
+  };
 
-  bool needs_comma = false;
-  for (auto const &property : properties) {
-    if (needs_comma) {
-      *os << ", ";
-    } else {
-      needs_comma = true;
-    }
-    *os << EscapeName(dba->PropertyToName(property));
-  }
+  auto prop_names = properties | rv::transform(concat_nested_props) | rv::join(", "sv) | r::to<std::string>();
 
-  *os << ");";
+  *os << "CREATE INDEX ON :" << EscapeName(dba->LabelToName(label)) << "(" << prop_names << ");";
 }
 
-void DumpTextIndex(std::ostream *os, query::DbAccessor *dba, const std::string &index_name, storage::LabelId label) {
-  *os << "CREATE TEXT INDEX " << EscapeName(index_name) << " ON :" << EscapeName(dba->LabelToName(label)) << ";";
+void DumpTextIndex(std::ostream *os, query::DbAccessor *dba, const storage::TextIndexSpec &text_index) {
+  *os << "CREATE TEXT INDEX " << EscapeName(text_index.index_name_)
+      << " ON :" << EscapeName(dba->LabelToName(text_index.label_));
+
+  if (!text_index.properties_.empty()) {
+    auto prop_names = text_index.properties_ |
+                      rv::transform([&](auto property_id) { return EscapeName(dba->PropertyToName(property_id)); }) |
+                      rv::join(", "sv) | r::to<std::string>();
+    *os << "(" << prop_names << ")";
+  }
+  *os << ";";
 }
 
 void DumpPointIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId label, storage::PropertyId property) {
@@ -332,12 +342,24 @@ void DumpPointIndex(std::ostream *os, query::DbAccessor *dba, storage::LabelId l
 }
 
 void DumpVectorIndex(std::ostream *os, query::DbAccessor *dba, const storage::VectorIndexSpec &spec) {
-  *os << "CREATE VECTOR INDEX " << EscapeName(spec.index_name) << " ON :" << EscapeName(dba->LabelToName(spec.label))
+  *os << "CREATE VECTOR INDEX " << EscapeName(spec.index_name) << " ON :" << EscapeName(dba->LabelToName(spec.label_id))
       << "(" << EscapeName(dba->PropertyToName(spec.property)) << ") WITH CONFIG { "
       << "\"dimension\": " << spec.dimension << ", "
-      << R"("metric": ")" << storage::VectorIndex::NameFromMetric(spec.metric_kind) << "\", "
+      << R"("metric": ")" << storage::NameFromMetric(spec.metric_kind) << "\", "
       << "\"capacity\": " << spec.capacity << ", "
-      << "\"resize_coefficient\": " << spec.resize_coefficient << " };";
+      << "\"resize_coefficient\": " << spec.resize_coefficient << ", "
+      << R"("scalar_kind": ")" << storage::NameFromScalar(spec.scalar_kind) << "\" };";
+}
+
+void DumpVectorEdgeIndex(std::ostream *os, query::DbAccessor *dba, const storage::VectorEdgeIndexSpec &spec) {
+  *os << "CREATE VECTOR EDGE INDEX " << EscapeName(spec.index_name)
+      << " ON :" << EscapeName(dba->EdgeTypeToName(spec.edge_type_id)) << "("
+      << EscapeName(dba->PropertyToName(spec.property)) << ") WITH CONFIG { "
+      << "\"dimension\": " << spec.dimension << ", "
+      << R"("metric": ")" << storage::NameFromMetric(spec.metric_kind) << "\", "
+      << "\"capacity\": " << spec.capacity << ", "
+      << "\"resize_coefficient\": " << spec.resize_coefficient << ", "
+      << R"("scalar_kind": ")" << storage::NameFromScalar(spec.scalar_kind) << "\" };";
 }
 
 void DumpExistenceConstraint(std::ostream *os, query::DbAccessor *dba, storage::LabelId label,
@@ -376,8 +398,30 @@ PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc)
     : dba_(dba),
       db_acc_(db_acc),
       vertices_iterable_(dba->Vertices(storage::View::OLD)),
-      pull_chunks_{// Dump all enums
+      pull_chunks_{/*
+                    * IMPORTANT: the order here must reflex the order in `src/storage/v2/durability/snapshot.cpp`
+                    * this is so that we have a stable order
+                    */
+
+                   /// User defined Datatype Info
+                   // Dump all enums
                    CreateEnumsPullChunk(),
+
+                   /// Vertices
+                   // Dump all vertices
+                   CreateVertexPullChunk(),
+
+                   /// Edges
+                   // Create internal index for faster edge creation
+                   CreateInternalIndexPullChunk(),
+                   // Dump all edges
+                   CreateEdgePullChunk(),
+                   // Drop the internal index
+                   CreateDropInternalIndexPullChunk(),
+                   // Internal index cleanup
+                   CreateInternalIndexCleanupPullChunk(),
+
+                   /// Indices and constraints (Vertex)
                    // Dump all label indices
                    CreateLabelIndicesPullChunk(),
                    // Dump all label property indices
@@ -388,30 +432,30 @@ PullPlanDump::PullPlanDump(DbAccessor *dba, dbms::DatabaseAccess db_acc)
                    CreatePointIndicesPullChunk(),
                    // Dump all vector indices
                    CreateVectorIndicesPullChunk(),
+                   // Dump all vector edge indices
+                   CreateVectorEdgeIndicesPullChunk(),
                    // Dump all existence constraints
                    CreateExistenceConstraintsPullChunk(),
                    // Dump all unique constraints
                    CreateUniqueConstraintsPullChunk(),
                    // Dump all type constraints
                    CreateTypeConstraintsPullChunk(),
-                   // Create internal index for faster edge creation
-                   CreateInternalIndexPullChunk(),
-                   // Dump all vertices
-                   CreateVertexPullChunk(),
-                   // Dump all edges
-                   CreateEdgePullChunk(),
-                   // Drop the internal index
-                   CreateDropInternalIndexPullChunk(),
-                   // Internal index cleanup
-                   CreateInternalIndexCleanupPullChunk(),
-                   // Dump all triggers
-                   CreateTriggersPullChunk(),
+
+                   /// Indices and constraints (Edge)
                    // Dump all edge-type indices
                    CreateEdgeTypeIndicesPullChunk(),
                    // Dump all edge-type property indices
                    CreateEdgeTypePropertyIndicesPullChunk(),
                    // Dump all global edge property indices
-                   CreateEdgePropertyIndicesPullChunk()} {}
+                   CreateEdgePropertyIndicesPullChunk(),
+
+                   // Dump all TTL configuration
+                   CreateTTLConfigPullChunk(),
+
+                   // IMPORTANT NOTE: After this point stuff is restored from their owne KVStore not from our snapshot
+
+                   // Dump all triggers
+                   CreateTriggersPullChunk()} {}
 
 bool PullPlanDump::Pull(AnyStream *stream, std::optional<int> n) {
   // Iterate all functions that stream some results.
@@ -577,6 +621,35 @@ PullPlanDump::PullChunk PullPlanDump::CreateEdgePropertyIndicesPullChunk() {
   };
 }
 
+PullPlanDump::PullChunk PullPlanDump::CreateTTLConfigPullChunk() {
+  // Dump all TTL config if enabled
+  // NOLINTNEXTLINE(clang-diagnostic-unused-lambda-capture)
+  return [this](AnyStream *stream, std::optional<int> /*n*/) mutable -> std::optional<size_t> {
+#ifdef MG_ENTERPRISE
+    auto const &ttl = dba_->GetTtlConfig();
+    if (!ttl) {
+      return 0;
+    }
+
+    std::ostringstream os;
+    os << "ENABLE TTL";
+    if (ttl.period) {
+      os << " EVERY \"" << std::chrono::duration_cast<std::chrono::seconds>(*ttl.period).count() << "s\"";
+    }
+    if (ttl.start_time) {
+      // Use TtlInfo::StringifyStartTime to ensure consistent timezone handling
+      os << " AT \"" << storage::ttl::TtlInfo::StringifyStartTime(*ttl.start_time) << "\"";
+    }
+    os << ";";
+    stream->Result({TypedValue(os.str())});
+    return 1;
+#else
+    (void)stream;
+    return 0;
+#endif
+  };
+}
+
 PullPlanDump::PullChunk PullPlanDump::CreateLabelPropertiesIndicesPullChunk() {
   return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
     // Delay the construction of indices vectors
@@ -617,9 +690,8 @@ PullPlanDump::PullChunk PullPlanDump::CreateTextIndicesPullChunk() {
     while (global_index < text.size() && (!n || local_counter < *n)) {
       std::ostringstream os;
       const auto &text_index = text[global_index];
-      DumpTextIndex(&os, dba_, text_index.first, text_index.second);
+      DumpTextIndex(&os, dba_, text_index);
       stream->Result({TypedValue(os.str())});
-
       ++global_index;
       ++local_counter;
     }
@@ -679,6 +751,33 @@ PullPlanDump::PullChunk PullPlanDump::CreateVectorIndicesPullChunk() {
     }
 
     if (global_index == vector.size()) {
+      return local_counter;
+    }
+
+    return std::nullopt;
+  };
+}
+
+PullPlanDump::PullChunk PullPlanDump::CreateVectorEdgeIndicesPullChunk() {
+  return [this, global_index = 0U](AnyStream *stream, std::optional<int> n) mutable -> std::optional<size_t> {
+    // Delay the construction of indices vectors
+    if (!indices_info_) {
+      indices_info_.emplace(dba_->ListAllIndices());
+    }
+    const auto &vector_edge = indices_info_->vector_edge_indices_spec;
+
+    size_t local_counter = 0;
+    while (global_index < vector_edge.size() && (!n || local_counter < *n)) {
+      const auto &index = vector_edge[global_index];
+      std::ostringstream os;
+      DumpVectorEdgeIndex(&os, dba_, index);
+      stream->Result({TypedValue(os.str())});
+
+      ++global_index;
+      ++local_counter;
+    }
+
+    if (global_index == vector_edge.size()) {
       return local_counter;
     }
 

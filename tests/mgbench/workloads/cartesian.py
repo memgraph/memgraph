@@ -9,6 +9,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+from constants import GraphVendors
 from workloads.base import Workload
 
 
@@ -30,10 +31,22 @@ class Supernode(Workload):
         return queries
 
     def benchmark__test__plain_cartesian_filtering(self):
-        return ("MATCH (n1:Node), (n2:Node) WHERE n1.id < 100 and n2.id < 100 RETURN n1, n2;", {})
+        match self._vendor:
+            case GraphVendors.MEMGRAPH:
+                return ("MATCH (n1:Node), (n2:Node) WHERE n1.id < 100 and n2.id < 100 RETURN n1, n2;", {})
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     def benchmark__test__plain_cartesian_join(self):
-        return ("MATCH (n1:Node), (n2:Node) WHERE n1.id = n2.id RETURN n1, n2;", {})
+        match self._vendor:
+            case GraphVendors.MEMGRAPH:
+                return ("MATCH (n1:Node), (n2:Node) WHERE n1.id = n2.id RETURN n1, n2;", {})
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")
 
     def benchmark__test__plain_cartesian_different_props_join(self):
-        return ("MATCH (n1:Node), (n2:Node) WHERE n1.id = n2.id2 RETURN n1, n2;", {})
+        match self._vendor:
+            case GraphVendors.MEMGRAPH:
+                return ("MATCH (n1:Node), (n2:Node) WHERE n1.id = n2.id2 RETURN n1, n2;", {})
+            case _:
+                raise Exception(f"Unknown vendor {self._vendor}")

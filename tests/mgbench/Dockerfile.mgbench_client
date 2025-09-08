@@ -1,42 +1,54 @@
-FROM ubuntu:22.04 AS mg_bench_client_build_base
+# Use Memgraph build image with toolchain pre-installed
+ARG MGBUILD_IMAGE
+FROM $MGBUILD_IMAGE as mg_bench_client_build_base
 
 SHELL ["/bin/bash", "-c"]
-ARG TOOLCHAIN_VERSION
 ARG TARGETARCH
-
 ENV DEBIAN_FRONTEND=noninteractive
 
+# Copy repository into the build context
+COPY . /memgraph
+WORKDIR /memgraph
+
+# Install runtime and build dependencies for memgraph and mgbench
 USER root
+RUN apt-get update && apt-get install -y \
+    ca-certificates wget git curl python3-pip python3 \
+  && rm -rf /var/lib/apt/lists/*
 
-RUN apt update && apt install -y \
-    ca-certificates wget git
+# Install build dependencies using Memgraph scripts
+RUN cd /memgraph && \
+    if [ "$TARGETARCH" = "amd64" ]; then \
+      ./environment/os/ubuntu-24.04.sh install TOOLCHAIN_RUN_DEPS MEMGRAPH_BUILD_DEPS; \
+    else \
+      ./environment/os/ubuntu-24.04-arm.sh install TOOLCHAIN_RUN_DEPS MEMGRAPH_BUILD_DEPS; \
+    fi
 
-RUN wget -q https://s3-eu-west-1.amazonaws.com/deps.memgraph.io/${TOOLCHAIN_VERSION}/${TOOLCHAIN_VERSION}-binaries-ubuntu-22.04-${TARGETARCH}.tar.gz \
-    -O ${TOOLCHAIN_VERSION}-binaries-ubuntu-22.04-${TARGETARCH}.tar.gz \
-    && tar xzvf ${TOOLCHAIN_VERSION}-binaries-ubuntu-22.04-${TARGETARCH}.tar.gz -C /opt
+# Install Node.js 20 if needed by benchmarks
+RUN curl -fsSL https://deb.nodesource.com/setup_20.x | bash - \
+  && apt-get update && apt-get install -y nodejs \
+  && rm -rf /var/lib/apt/lists/*
 
-RUN git clone https://github.com/memgraph/memgraph.git
+# Create non-root user for build
+RUN useradd --create-home --shell /bin/bash memgraph \
+  && chown -R memgraph:memgraph /memgraph
+USER memgraph
+ENV HOME=/home/memgraph
 
-WORKDIR memgraph
-
-RUN if [ ${TARGETARCH} = "amd64" ] ; then ./environment/os/ubuntu-22.04.sh install TOOLCHAIN_RUN_DEPS ; else ./environment/os/ubuntu-22.04-arm.sh install TOOLCHAIN_RUN_DEPS ; fi
-RUN if [ ${TARGETARCH} = "amd64" ] ; then ./environment/os/ubuntu-22.04.sh install MEMGRAPH_BUILD_DEPS ; else ./environment/os/ubuntu-22.04-arm.sh install MEMGRAPH_BUILD_DEPS ; fi
-
-RUN source /opt/toolchain-v4/activate && \
-    ./init  && \
-    rm -r build && \
-    mkdir build && \
-    cd build && \
+# Initialize and build mgbench client
+RUN source /opt/toolchain-v6/activate && \
+    ./init && \
+    rm -rf build && mkdir build && cd build && \
     cmake -DCMAKE_BUILD_TYPE=release .. && \
-    make -j$(nproc) memgraph__mgbench__client && \
-    make .
+    make -j$(nproc) memgraph__mgbench__client
 
+# --- Final image ---
+FROM ubuntu:24.04
 
-FROM ubuntu:22.04
+RUN apt-get update && apt-get install -y wget libcurl4 && \
+    rm -rf /var/lib/apt/lists/*
 
-RUN apt-get update && apt-get install -y wget libcurl4
+# Copy mgbench client binary
+COPY --from=mg_bench_client_build_base /memgraph/build/tests/mgbench /bin
 
-# Copy mgbench client to clean image
-COPY --from=mg_bench_client_build_base /memgraph/build/tests/mgbench/client /bin/
-
-ENTRYPOINT ["bin/client"]
+ENTRYPOINT ["/bin/client"]

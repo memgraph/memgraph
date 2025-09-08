@@ -10,33 +10,76 @@
 // licenses/APL.txt.
 
 #include "glue/query_user.hpp"
+#include <unordered_set>
 
 #include "glue/auth_checker.hpp"
 
 namespace memgraph::glue {
 
-bool QueryUserOrRole::IsAuthorized(const std::vector<query::AuthQuery::Privilege> &privileges, std::string_view db_name,
-                                   query::UserPolicy *policy) const {
+bool QueryUserOrRole::IsAuthorized(const std::vector<query::AuthQuery::Privilege> &privileges,
+                                   std::optional<std::string_view> db_name, query::UserPolicy *policy) const {
   auto locked_auth = auth_->Lock();
   // Check policy and update if behind (and policy permits it)
   if (policy->DoUpdate() && !locked_auth->UpToDate(auth_epoch_)) {
     if (user_) user_ = locked_auth->GetUser(user_->username());
-    if (role_) role_ = locked_auth->GetRole(role_->rolename());
+    if (roles_) {
+      // For backward compatibility, update the first role
+      auto rolenames = roles_->rolenames();
+      std::unordered_set<auth::Role> updated_roles;
+      for (const auto &rolename : rolenames) {
+        auto role = locked_auth->GetRole(rolename);
+        if (role) {
+          updated_roles.insert(*role);
+        }
+      }
+      roles_ = auth::Roles(std::move(updated_roles));
+    }
   }
 
   if (user_) return AuthChecker::IsUserAuthorized(*user_, privileges, db_name);
-  if (role_) return AuthChecker::IsRoleAuthorized(*role_, privileges, db_name);
+  if (roles_) return AuthChecker::IsRoleAuthorized(*roles_, privileges, db_name);
 
   return !policy->DoUpdate() || !locked_auth->AccessControlled();
 }
 
+std::vector<std::string> QueryUserOrRole::GetRolenames(std::optional<std::string> db_name) const {
 #ifdef MG_ENTERPRISE
-bool QueryUserOrRole::CanImpersonate(const std::string &target, query::UserPolicy *policy) const {
+  std::unordered_set<auth::Role> roles;
+  if (user_) roles = user_->GetRoles(db_name);
+  if (roles_) roles = roles_->GetFilteredRoles(db_name);
+
+  std::vector<std::string> rolenames;
+  rolenames.reserve(roles.size());
+  for (const auto &role : roles) {
+    rolenames.push_back(role.rolename());
+  }
+  return rolenames;
+#else
+  if (user_) return user_->rolenames();
+  if (roles_) return roles_->rolenames();
+  return {};
+#endif
+}
+
+#ifdef MG_ENTERPRISE
+bool QueryUserOrRole::CanImpersonate(const std::string &target, query::UserPolicy *policy,
+                                     std::optional<std::string_view> db_name) const {
   auto locked_auth = auth_->Lock();
   // Check policy and update if behind (and policy permits it)
   if (policy->DoUpdate() && !locked_auth->UpToDate(auth_epoch_)) {
     if (user_) user_ = locked_auth->GetUser(user_->username());
-    if (role_) role_ = locked_auth->GetRole(role_->rolename());
+    if (roles_) {
+      // For backward compatibility, update the first role
+      auto rolenames = roles_->rolenames();
+      std::unordered_set<auth::Role> updated_roles;
+      for (const auto &rolename : rolenames) {
+        auto role = locked_auth->GetRole(rolename);
+        if (role) {
+          updated_roles.insert(*role);
+        }
+      }
+      roles_ = auth::Roles(std::move(updated_roles));
+    }
   }
 
   auto user_to_impersonate = locked_auth->GetUser(target);
@@ -44,16 +87,32 @@ bool QueryUserOrRole::CanImpersonate(const std::string &target, query::UserPolic
     return false;
   }
 
-  if (user_) return AuthChecker::CanImpersonate(*user_, *user_to_impersonate);
-  if (role_) return AuthChecker::CanImpersonate(*role_, *user_to_impersonate);
+  if (user_) return AuthChecker::CanImpersonate(*user_, *user_to_impersonate, db_name);
+  if (roles_) return AuthChecker::CanImpersonate(*roles_, *user_to_impersonate, db_name);
   return false;
 }
 
 std::string QueryUserOrRole::GetDefaultDB() const {
-  if (user_) return user_->db_access().GetMain();
-  if (role_) return role_->db_access().GetMain();
+  if (user_) return user_->GetMain();
+  if (roles_) return roles_->GetMain();
   return std::string{dbms::kDefaultDB};
 }
 #endif
+
+QueryUserOrRole::QueryUserOrRole(auth::SynchedAuth *auth, auth::UserOrRole user_or_role)
+    : query::QueryUserOrRole{std::visit(
+                                 utils::Overloaded{[](const auto &user_or_role) { return user_or_role.username(); }},
+                                 user_or_role),
+                             std::visit(
+                                 utils::Overloaded{[&](const auth::User &) -> std::vector<std::string> { return {}; },
+                                                   [&](const auth::Roles &roles) -> std::vector<std::string> {
+                                                     return roles.rolenames();
+                                                   }},
+                                 user_or_role)},
+      auth_{auth} {
+  std::visit(utils::Overloaded{[&](auth::User &&user) { user_.emplace(std::move(user)); },
+                               [&](auth::RoleWUsername &&roles) { roles_.emplace(std::move(roles)); }},
+             std::move(user_or_role));
+}
 
 }  // namespace memgraph::glue

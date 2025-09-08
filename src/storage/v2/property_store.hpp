@@ -18,6 +18,7 @@
 #include "utils/compressor.hpp"
 
 #include <gflags/gflags.h>
+#include <array>
 #include <cstdint>
 #include <map>
 #include <optional>
@@ -28,6 +29,8 @@
 DECLARE_bool(storage_property_store_compression_enabled);
 
 namespace memgraph::storage {
+
+struct PropertyPath;
 
 class PropertyStore {
   static_assert(std::endian::native == std::endian::little,
@@ -80,8 +83,8 @@ class PropertyStore {
 
   /// Extracts property values for all property ids in the span `ordered_properties`. Any missing properties will be
   /// represented by Null. The time complexity of this function is O(n).
-  /// @param ordered_properties: a pre-sorted collection of `PropertyId`
-  std::vector<PropertyValue> ExtractPropertyValuesMissingAsNull(std::span<PropertyId const> ordered_properties) const;
+  /// @param ordered_properties: a pre-sorted collection of `PropertyPath`
+  std::vector<PropertyValue> ExtractPropertyValuesMissingAsNull(std::span<PropertyPath const> ordered_properties) const;
 
   /// Checks whether the property `property` is equal to the specified value
   /// `value`. This function doesn't perform any memory allocations while
@@ -89,14 +92,14 @@ class PropertyStore {
   /// O(n).
   bool IsPropertyEqual(PropertyId property, const PropertyValue &value) const;
 
-  /// Checks whether the properties `ordered_properties` are equal to the specified values
-  /// `values`. This function doesn't perform any memory allocations while
-  /// performing the equality check. The time complexity of this function is
-  /// O(n). `position_lookup` is an ordering mapping of values to match given property from `ordered_properties`,
-  /// hence value for `ordered_properties[0]` is `values[position_lookup[0]]`
-  /// Like AreAllPropertiesEqual but returns a bool for each property
-  /// The returned results in std::vector<bool> correspond to `ordered_properties`
-  auto ArePropertiesEqual(std::span<PropertyId const> ordered_properties, std::span<PropertyValue const> values,
+  /// Checks whether the properties `ordered_properties` are equal to the
+  /// specified values `values`. This function doesn't perform any memory
+  /// allocations while performing the equality check. The time complexity of
+  /// this function is O(n). `position_lookup` is an ordering mapping of values
+  /// to match given property from `ordered_properties`, hence value for
+  /// `ordered_properties[0]` is `values[position_lookup[0]]`. The
+  /// returned results in std::vector<bool> correspond to `ordered_properties`
+  auto ArePropertiesEqual(std::span<PropertyPath const> ordered_properties, std::span<PropertyValue const> values,
                           std::span<std::size_t const> position_lookup) const -> std::vector<bool>;
 
   /// Returns all properties currently stored in the store. The time complexity
@@ -164,7 +167,7 @@ class PropertyStore {
   template <typename Func>
   auto WithReader(Func &&func) const;
 
-  uint8_t buffer_[sizeof(uint32_t) + sizeof(uint8_t *)];
+  std::array<uint8_t, sizeof(uint32_t) + sizeof(uint8_t *)> buffer_{};
 };
 
 }  // namespace memgraph::storage

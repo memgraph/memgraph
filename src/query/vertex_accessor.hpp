@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -12,6 +12,7 @@
 #pragma once
 
 #include <cstdint>
+#include <type_traits>
 #include <vector>
 
 #include "storage/v2/vertex_accessor.hpp"
@@ -111,6 +112,9 @@ class VertexAccessor final {
 
   bool operator!=(const VertexAccessor &v) const noexcept { return !(*this == v); }
 };
+
+static_assert(std::is_trivially_copyable<VertexAccessor>::value,
+              "VertexAccessor must be trivially copyable to be used in hash tables");
 
 }  // namespace memgraph::query
 

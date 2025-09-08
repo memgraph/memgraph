@@ -1,4 +1,3 @@
-CREATE INDEX ON :__mg_vertex__(__mg_id__);
 CREATE (:__mg_vertex__ {__mg_id__: 0});
 CREATE (:__mg_vertex__:`label` {__mg_id__: 1});
 CREATE (:__mg_vertex__:`label` {__mg_id__: 2, `prop`: false});
@@ -12,5 +11,6 @@ CREATE (:__mg_vertex__:`label1`:`label2` {__mg_id__: 9, `prop`: {`prop_nes`: "ka
 CREATE (:__mg_vertex__:`label` {__mg_id__: 10, `prop_array`: [1, false, Null, "str", {`prop2`: 2}]});
 CREATE (:__mg_vertex__:`label`:`label3` {__mg_id__: 11, `prop`: {`prop`: [1, false], `prop2`: {}, `prop3`: "test2", `prop4`: "test"}});
 CREATE (:__mg_vertex__ {__mg_id__: 12, `prop`: " \n\"\'\t\\%"});
+CREATE INDEX ON :__mg_vertex__(__mg_id__);
 DROP INDEX ON :__mg_vertex__(__mg_id__);
 MATCH (u) REMOVE u:__mg_vertex__, u.__mg_id__;

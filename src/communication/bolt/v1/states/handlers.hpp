@@ -27,9 +27,14 @@
 #include "communication/exceptions.hpp"
 #include "license/license_sender.hpp"
 #include "storage/v2/property_value.hpp"
+#include "utils/event_counter.hpp"
 #include "utils/logging.hpp"
 #include "utils/memory_tracker.hpp"
 #include "utils/message.hpp"
+
+namespace memgraph::metrics {
+extern const Event TransientErrors;
+}  // namespace memgraph::metrics
 
 namespace memgraph::communication::bolt {
 // TODO: Revise these error messages
@@ -60,6 +65,7 @@ inline std::pair<std::string, std::string> ExceptionToErrorMessage(const std::ex
     // database probably aborted transaction because of some timeout,
     // deadlock, serialization error or something similar. We return
     // TransientError since retry of same transaction could succeed.
+    memgraph::metrics::IncrementCounter(memgraph::metrics::TransientErrors);
     return {"Memgraph.TransientError.MemgraphError.MemgraphError", e.what()};
   }
   if (dynamic_cast<const std::bad_alloc *>(&e)) {
@@ -99,7 +105,7 @@ State HandlePullDiscard(TSession &session, std::optional<int> n, std::optional<i
     map_t summary;
     if constexpr (is_pull) {
       // Pull can throw.
-      summary = session.Pull(&session.encoder_, n, qid);
+      summary = session.Pull(n, qid);
     } else {
       summary = session.Discard(n, qid);
     }
@@ -197,6 +203,34 @@ inline State HandleFailure(TSession &session, const std::exception &e) {
 }
 
 template <typename TSession>
+State HandlePrepare(TSession &session) {
+  try {
+    // Interpret can throw.
+    const auto [header, qid] = session.InterpretPrepare();
+    // Convert std::string to Value
+    std::vector<Value> vec;
+    map_t data;
+    vec.reserve(header.size());
+    for (auto &i : header) vec.emplace_back(std::move(i));
+    data.emplace("fields", std::move(vec));
+    if (session.version_.major > 1) {
+      if (qid.has_value()) {
+        data.emplace("qid", Value{*qid});
+      }
+    }
+
+    // Send the header.
+    if (!session.encoder_.MessageSuccess(data)) {
+      spdlog::trace("Couldn't send query header!");
+      return State::Close;
+    }
+    return State::Result;
+  } catch (const std::exception &e) {
+    return HandleFailure(session, e);
+  }
+}
+
+template <typename TSession>
 State HandleRunV1(TSession &session, const State state, const Marker marker) {
   const auto expected_marker = Marker::TinyStruct2;
   if (marker != expected_marker) {
@@ -230,20 +264,13 @@ State HandleRunV1(TSession &session, const State state, const Marker marker) {
   IncrementQueryMetrics(session);
 
   try {
-    // Interpret can throw.
-    const auto [header, qid] = session.Interpret(query.ValueString(), params.ValueMap(), {});
-    // Convert std::string to Value
-    std::vector<Value> vec;
-    map_t data;
-    vec.reserve(header.size());
-    for (auto &i : header) vec.emplace_back(std::move(i));
-    data.emplace("fields", std::move(vec));
-    // Send the header.
-    if (!session.encoder_.MessageSuccess(data)) {
-      spdlog::trace("Couldn't send query header!");
-      return State::Close;
-    }
-    return State::Result;
+    // Split in 2 parts: Parsing and Preparing
+    // Parsing generates ast tree and metadata
+    //  - here we figure out which query has been sent and its priority
+    // Prepare actually makes the plan
+    //  - here we take the storage accessors, so priority is important to know
+    session.InterpretParse(query.ValueString(), params.ValueMap(), {});
+    return State::Parsed;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
   }
@@ -295,24 +322,13 @@ State HandleRunV4(TSession &session, const State state, const Marker marker) {
   IncrementQueryMetrics(session);
 
   try {
-    // Interpret can throw.
-    const auto [header, qid] = session.Interpret(query.ValueString(), params.ValueMap(), extra.ValueMap());
-    // Convert std::string to Value
-    std::vector<Value> vec;
-    map_t data;
-    vec.reserve(header.size());
-    for (auto &i : header) vec.emplace_back(std::move(i));
-    data.emplace("fields", std::move(vec));
-    if (qid.has_value()) {
-      data.emplace("qid", Value{*qid});
-    }
-
-    // Send the header.
-    if (!session.encoder_.MessageSuccess(data)) {
-      spdlog::trace("Couldn't send query header!");
-      return State::Close;
-    }
-    return State::Result;
+    // Split in 2 parts: Parsing and Preparing
+    // Parsing generates ast tree and metadata
+    //  - here we figure out which query has been sent and its priority
+    // Prepare actually makes the plan
+    //  - here we take the storage accessors, so priority is important to know
+    session.InterpretParse(query.ValueString(), params.ValueMap(), extra.ValueMap());
+    return State::Parsed;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
   }
@@ -382,6 +398,7 @@ State HandleReset(TSession &session, const Marker marker) {
       spdlog::trace("Couldn't send success message!");
       return State::Close;
     }
+    spdlog::trace("Session reset!");
     return State::Idle;
   } catch (const std::exception &e) {
     return HandleFailure(session, e);
@@ -537,8 +554,9 @@ State HandleRoute(TSession &session, const Marker marker) {
 }
 
 template <typename TSession>
-State HandleLogOff() {
-  // No arguments sent, the user just needs to reauthenticate
+State HandleLogOff(TSession &session) {
+  // No arguments and cannot fail
+  session.LogOff();
   return State::Init;
 }
 }  // namespace memgraph::communication::bolt

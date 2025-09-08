@@ -101,10 +101,27 @@ struct ReadWriteTypeChecker : public virtual HierarchicalLogicalOperatorVisitor 
   bool PreVisit(RollUpApply &) override;
   bool PreVisit(PeriodicSubquery &) override;
   bool PreVisit(PeriodicCommit &) override;
+  bool PreVisit(SetNestedProperty &) override;
+  bool PreVisit(RemoveNestedProperty &) override;
 
   bool Visit(Once &) override;
 
   void UpdateType(RWType op_type);
 };
+
+inline std::ostream &operator<<(std::ostream &os, ReadWriteTypeChecker::RWType type) {
+  switch (type) {
+    using enum ReadWriteTypeChecker::RWType;
+    case NONE:
+      return os << "NONE";
+    case R:
+      return os << "READ";
+    case W:
+      return os << "WRITE";
+    case RW:
+      return os << "READ-WRITE";
+  }
+  return os;
+}
 
 }  // namespace memgraph::query::plan

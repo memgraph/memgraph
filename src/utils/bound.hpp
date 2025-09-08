@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #pragma once
+
+#include <tuple>
 
 namespace memgraph::utils {
 
@@ -39,6 +41,10 @@ class Bound {
   auto type() const { return type_; }
   auto IsInclusive() const { return type_ == BoundType::INCLUSIVE; }
   auto IsExclusive() const { return type_ == BoundType::EXCLUSIVE; }
+
+  friend bool operator==(Bound const &lhs, Bound const &rhs) noexcept {
+    return std::tie(lhs.type_, lhs.value_) == std::tie(rhs.type_, rhs.value_);
+  }
 
  private:
   TValue value_;

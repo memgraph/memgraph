@@ -29,4 +29,5 @@ python3 server_name.py || exit 1
 python3 metadata.py || exit 1
 python3 multi_tenancy.py || exit 1
 python3 impersonate_user.py || exit 1
+# flaky due to unknown snapshot duration python3 create_snapshots.py || exit 1
 # python3 parallel_edge_import.py || exit 1
