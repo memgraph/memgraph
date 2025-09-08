@@ -183,6 +183,52 @@ TEST(StorageV2Mvcc, TwoWayCircularDependencyDetected) {
   EXPECT_GE(conflicts_detected.load(), 1);
 }
 
+TEST(StorageV2Mvcc, NonCommutativeOperationOnInterleavedDeltaFails) {
+  auto storage = std::make_unique<ms::InMemoryStorage>(ms::Config{});
+
+  ms::Gid v1_gid, v2_gid;
+  {
+    auto acc = storage->Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  std::latch t2_started{2};
+  std::jthread t2([&]() {
+    auto acc2 = storage->Access();
+    auto v1_acc2 = acc2->FindVertex(v1_gid, ms::View::OLD);
+    auto v2_acc2 = acc2->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1_acc2.has_value() && v2_acc2.has_value());
+
+    t2_started.arrive_and_wait();
+
+    auto edge2_result = acc2->CreateEdge(&*v1_acc2, &*v2_acc2, acc2->NameToEdgeType("Edge2"));
+    EXPECT_TRUE(edge2_result.HasValue());
+
+    auto prop_result = v1_acc2->SetProperty(acc2->NameToProperty("prop"), ms::PropertyValue(42));
+    ASSERT_TRUE(prop_result.HasError() && prop_result.GetError() == ms::Error::SERIALIZATION_ERROR);
+  });
+
+  {
+    auto acc1 = storage->Access();
+    auto v1_acc1 = acc1->FindVertex(v1_gid, ms::View::OLD);
+    auto v2_acc1 = acc1->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1_acc1.has_value() && v2_acc1.has_value());
+
+    auto edge1_result = acc1->CreateEdge(&*v1_acc1, &*v2_acc1, acc1->NameToEdgeType("Edge1"));
+    ASSERT_TRUE(edge1_result.HasValue());
+
+    t2_started.arrive_and_wait();
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+    ASSERT_FALSE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+}
+
 TEST(StorageV2Mvcc, ThreeWayCircularDependencyDetected) {
   auto storage = std::make_unique<ms::InMemoryStorage>(ms::Config{});
 
