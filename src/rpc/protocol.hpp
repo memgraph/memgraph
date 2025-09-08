@@ -15,6 +15,10 @@
 #include "rpc/file_replication_handler.hpp"
 #include "utils/file.hpp"
 
+namespace memgraph::slk {
+class Reader;
+}  // namespace memgraph::slk
+
 /**
  * @brief Protocol
  *
@@ -60,6 +64,9 @@ class RpcMessageDeliverer {
   void Execute();
 
  private:
+  auto GetRemainingFileSize() const -> std::optional<uint64_t>;
+  auto GetReqReader() const -> slk::Reader;
+
   Server *server_;
   communication::InputStream *input_stream_;
   communication::OutputStream *output_stream_;

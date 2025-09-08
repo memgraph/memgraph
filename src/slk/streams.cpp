@@ -46,7 +46,6 @@ void Builder::Save(const uint8_t *data, uint64_t size) {
 // Differs from saving normal buffer by not leaving space of 4B at the beginning of the buffer for size
 void Builder::SaveFileBuffer(const uint8_t *data, uint64_t size) {
   size_t offset = 0;
-  spdlog::trace("pos before file buffer {}", pos_);
   while (size > 0) {
     FlushFileSegment();
     size_t const to_write = std::min(size, kSegmentMaxDataSize - pos_);
@@ -55,12 +54,10 @@ void Builder::SaveFileBuffer(const uint8_t *data, uint64_t size) {
     pos_ += to_write;
     offset += to_write;
   }
-  spdlog::trace("after before file buffer {}", pos_);
 }
 
 // This should be invoked before preparing every file. The function writes kFileSegmentMask at the current position
 void Builder::PrepareForFileSending() {
-  spdlog::trace("Flushed fileSegmentMask at pos {}", pos_);
   memcpy(segment_.data() + pos_, &kFileSegmentMask, sizeof(SegmentSize));
   pos_ += sizeof(SegmentSize);
   file_data_ = true;
@@ -189,7 +186,6 @@ StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size, std::option
     if (remaining_file_size.has_value()) {
       auto const remaining_file_size_val = *remaining_file_size;
       if (remaining_file_size_val == 0) {
-        spdlog::error("Remaining file size must be > 0");
         return {.status = StreamStatus::INVALID, .stream_size = 0, .encoded_data_size = 0, .pos = pos};
       }
 
@@ -200,7 +196,6 @@ StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size, std::option
       pos += remaining_file_size_val;
       ++found_segments;
       data_size += remaining_file_size_val;
-      spdlog::trace("Pos is {}, fallthrough from file_data", pos);
     }
 
     // There are 2 possible situations in which we return partial status. The first one is improbable, and it happens
@@ -220,13 +215,11 @@ StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size, std::option
 
     // Start of the new segment
     if (len == kFileSegmentMask) {
-      spdlog::trace("Read file mask");
       // Pos is important here and it points to the byte after mask
       return {.status = StreamStatus::NEW_FILE, .stream_size = size, .encoded_data_size = data_size, .pos = pos};
     }
 
     if (len == kFooter) {
-      spdlog::trace("Read footer");
       break;
     }
 

@@ -50,17 +50,13 @@ size_t FileReplicationHandler::OpenFile(const uint8_t *data, size_t const size) 
   MG_ASSERT(maybe_file_size, "File size missing");
   file_size_ = *maybe_file_size;
 
-  spdlog::warn("File size is: {}", file_size_);
-
   // Because first N bytes are file_name and file_size, therefore we don't read full size
   size_t const processed_bytes = req_reader.GetPos();
   return processed_bytes + WriteToFile(data + processed_bytes, size - processed_bytes);
 }
 
 size_t FileReplicationHandler::WriteToFile(const uint8_t *data, size_t const size) {
-  spdlog::warn("Got the request to write to file. Stream size is {}", size);
   if (!file_.IsOpen()) {
-    spdlog::warn("Cannot write to file since it's closed");
     return 0;
   }
 
@@ -73,11 +69,9 @@ size_t FileReplicationHandler::WriteToFile(const uint8_t *data, size_t const siz
     to_write -= chunk_size;
     written_ += chunk_size;
     processed_bytes += chunk_size;
-    spdlog::warn("Written {} bytes to file in the method, remaining {}", chunk_size, file_size_ - written_);
   }
 
   if (written_ == file_size_ && file_.IsOpen()) {
-    spdlog::trace("Closing file: {}", file_.path());
     ResetCurrentFile();
   }
   auto const path = std::filesystem::temp_directory_path() / "memgraph" /
@@ -92,5 +86,11 @@ void FileReplicationHandler::ResetCurrentFile() {
   written_ = 0;
   file_size_ = 0;
 }
+
+bool FileReplicationHandler::HasOpenedFile() const { return file_.IsOpen(); }
+
+uint64_t FileReplicationHandler::GetRemainingBytesToWrite() const { return file_size_ - written_; }
+
+const std::vector<std::string> &FileReplicationHandler::GetActiveFileNames() const { return file_names_; }
 
 }  // namespace memgraph::rpc

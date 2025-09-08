@@ -521,9 +521,10 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
   }
   auto const &curr_wal_files = *maybe_curr_wal_files;
 
-  MG_ASSERT(file_replication_handler.file_names_.size() == 1, "Received {} snapshot files but expecting only one!",
-            file_replication_handler.file_names_.size());
-  auto const snapshot_file_name = file_replication_handler.file_names_[0];
+  auto const &active_files = file_replication_handler.GetActiveFileNames();
+
+  MG_ASSERT(active_files.size() == 1, "Received {} snapshot files but expecting only one!", active_files.size());
+  auto const snapshot_file_name = active_files[0];
   auto const src_snapshot_file = std::filesystem::temp_directory_path() / "memgraph" /
                                  storage::durability::kReplicaDurabilityDirectory / snapshot_file_name;
 
@@ -688,11 +689,12 @@ void InMemoryReplicationHandlers::WalFilesHandler(rpc::FileReplicationHandler co
   const auto wal_file_number = req.file_number;
   spdlog::debug("Received {} WAL files.", wal_file_number);
 
+  auto const &active_files = file_replication_handler.GetActiveFileNames();
+
   uint32_t local_batch_counter{0};
   uint64_t num_committed_txns{0};
   for (auto i = 0; i < wal_file_number; ++i) {
-    auto const load_wal_res =
-        LoadWal(file_replication_handler.file_names_[i], storage, res_builder, local_batch_counter);
+    auto const load_wal_res = LoadWal(active_files[i], storage, res_builder, local_batch_counter);
     if (!load_wal_res.success) {
       spdlog::debug("Replication recovery from WAL files failed while loading one of WAL files for db {}.",
                     storage->name());
@@ -787,7 +789,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(rpc::FileReplicationHandler 
 
   // Even if loading wal file failed, we return last_durable_timestamp to the main because it is not a fatal error
   // When loading a single WAL file, we don't care about saving number of deltas
-  auto const load_wal_res = LoadWal(file_replication_handler.file_names_[0], storage, res_builder);
+  auto const load_wal_res = LoadWal(file_replication_handler.GetActiveFileNames()[0], storage, res_builder);
   if (!load_wal_res.success) {
     spdlog::debug(
         "Replication recovery from current WAL didn't end successfully but the error is non-fatal error. DB {}.",

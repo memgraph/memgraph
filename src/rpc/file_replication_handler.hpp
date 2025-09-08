@@ -33,11 +33,17 @@ class FileReplicationHandler final {
 
   void ResetCurrentFile();
 
-  // TODO: (andi) make private
+  bool HasOpenedFile() const;
+
+  uint64_t GetRemainingBytesToWrite() const;
+
+  const std::vector<std::string> &GetActiveFileNames() const;
+
+ private:
   utils::OutputFile file_;
   uint64_t file_size_;
-  // How many bytes we wrote to the file
   uint64_t written_;
+  // Files part of the current request
   std::vector<std::string> file_names_;
 };
 }  // namespace memgraph::rpc
