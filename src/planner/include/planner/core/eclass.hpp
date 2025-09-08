@@ -11,9 +11,10 @@
 
 #pragma once
 
-#include <boost/unordered/unordered_flat_set.hpp>
 #include "planner/core/eids.hpp"
 #include "planner/core/enode.hpp"
+
+#include <boost/unordered/unordered_flat_set.hpp>
 
 namespace memgraph::planner::core {
 
@@ -22,32 +23,13 @@ namespace memgraph::planner::core {
  *
  * @details
  * An E-class represents a set of e-nodes that are known to be semantically
- * equivalent. This is the fundamental unit of an e-graph that enables
- * compact representation of many equivalent expressions in a single container.
+ * equivalent.
  *
  * @tparam Symbol The type used for operation symbols in e-nodes
  * @tparam Analysis Optional analysis type for attaching domain-specific data
  *
- * @par Core Concept:
- * When expressions are determined to be equivalent (through rewrite rules,
- * axiomatic equalities, or congruence), their e-nodes are placed in the same
- * e-class. This allows the e-graph to represent exponentially many equivalent
- * expressions compactly.
- *
- * @par Performance Characteristics:
- * - **Node addition**: O(1) average, O(n) worst case for hash conflicts
- * - **Node lookup**: O(1) average with boost::unordered_flat_set
- * - **Parent addition**: O(1) amortized with std::vector
- * - **Merge operations**: O(min(|this|, |other|)) by moving smaller to larger
- *
  * @par Thread Safety:
- * Not thread-safe. External synchronization required for concurrent access.
- * Designed for single-threaded e-graph algorithms.
- *
- * @complexity
- * - Space: O(nodes.size() + parents.size())
- * - Node operations: O(1) average for add/lookup
- * - Merge: O(smaller_class.size())
+ * Not thread-safe.
  */
 template <typename Symbol, typename Analysis>
 struct EClass {
@@ -67,7 +49,7 @@ struct EClass {
   void add_parent(ENodeId parent_enode_id, EClassId parent_class_id);
 
   /**
-   * @brief Move-optimized merge of another e-class into this one
+   * @brief Merge of another e-class into this one
    *
    * @param other The e-class to merge into this one (may be modified)
 
@@ -82,43 +64,16 @@ struct EClass {
 
   /**
    * @brief Get a representative ENodeId from this class
-   *
    */
   [[nodiscard]] auto representative_id() const -> ENodeId;
 
   /**
    * @brief Get a representative e-node value from this class
    *
-   * Returns a copy of an arbitrary e-node from this e-class.
-   * Requires EGraph reference to resolve the ENodeId to actual data.
-   * By design, every e-class is guaranteed to have at least one e-node.
-   *
-   * @param egraph The e-graph containing the e-node data
-   * @return Copy of a representative e-node
-   *
    * @warning Less efficient due to copying. Consider using representative_id()
-   *
-   * @complexity O(1) plus copy cost
-   * @threadsafety Thread-safe for reads
    */
   template <typename EGraphType>
   [[nodiscard]] auto representative_node(const EGraphType &egraph) const -> ENode<Symbol>;
-
-  /**
-   * @brief Get a representative ENodeId (backward compatible version)
-   *
-   * Backward compatible alias for representative_id(). No longer throws
-   * since by design every e-class has at least one e-node.
-   *
-   * @return ENodeId referencing a representative e-node
-   *
-   * @complexity O(1)
-   * @threadsafety Thread-safe for reads
-   */
-  [[nodiscard]] auto representative_id_or_throw() const -> ENodeId {
-    // By design, every e-class has at least one e-node
-    return representative_id();
-  }
 
  private:
   boost::unordered_flat_set<ENodeId> nodes;
@@ -138,14 +93,7 @@ struct EClass {
    *
    * Stores analysis-specific information attached to this e-class.
    * Only present when Analysis template parameter is not void.
-   * Common uses include cost models, type information, or abstract values.
-   *
-   * @par Examples:
-   * - Cost analysis: minimum cost among all equivalent expressions
-   * - Type analysis: inferred type for expressions in this class
-   * - Constant folding: computed constant value if determinable
-   * - Abstract interpretation: abstract domain values
-   *
+
    * @par Analysis Framework:
    * The analysis data is automatically maintained by the e-graph
    * using the Analysis template parameter's merge and modify methods.
@@ -185,8 +133,7 @@ auto EClass<Symbol, Analysis>::representative_id() const -> ENodeId {
 template <typename Symbol, typename Analysis>
 template <typename EGraphType>
 auto EClass<Symbol, Analysis>::representative_node(const EGraphType &egraph) const -> ENode<Symbol> {
-  // By design, every e-class has at least one e-node
-  return egraph.get_enode(representative_id());  // Get the e-node (guaranteed to exist)
+  return egraph.get_enode(representative_id());
 }
 
 }  // namespace memgraph::planner::core

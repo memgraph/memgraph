@@ -11,9 +11,6 @@
 
 #include <gtest/gtest.h>
 
-#include <unordered_map>
-#include <unordered_set>
-
 #include "planner/core/enode.hpp"
 #include "planner/core/union_find.hpp"
 
