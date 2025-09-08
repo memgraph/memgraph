@@ -34,7 +34,7 @@ env:
 jobs:
   ha-test:
     name: "Run Jepsen HA Tests"
-    runs-on: [self-hosted, Linux, X64, DockerMgBuild, JepsenControl]
+    runs-on: [self-hosted, Linux, X64, DockerMgBuild, x86-64-v3]
     timeout-minutes: 720
     steps:
       - name: Set up repository
