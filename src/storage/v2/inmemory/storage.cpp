@@ -3367,7 +3367,7 @@ void InMemoryStorage::InMemoryAccessor::DropAllIndexes() {
   }
 
   for (const auto &text_index_spec : indices_info.text_indices) {
-    [[maybe_unused]] auto maybe_error = DropTextIndex(text_index_spec.index_name_);
+    [[maybe_unused]] auto maybe_error = DropTextIndex(text_index_spec.index_name);
   }
 
   for (const auto &vector_index_spec : indices_info.vector_indices_spec) {
