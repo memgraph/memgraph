@@ -22,9 +22,9 @@ TEST(TransactionDependenciesTest, OneTransactionNeverWaits) {
   ms::TransactionDependencies tx_deps;
   tx_deps.RegisterTransaction(1);
 
-  bool result = tx_deps.WaitFor(1, 999);
+  auto result = tx_deps.WaitFor(1, 999);
 
-  EXPECT_TRUE(result);
+  EXPECT_EQ(result, ms::WaitResult::SUCCESS);
 }
 
 TEST(TransactionDependenciesTest, DisjointTransactionsNeverWait) {
@@ -33,13 +33,13 @@ TEST(TransactionDependenciesTest, DisjointTransactionsNeverWait) {
   tx_deps.RegisterTransaction(2);
   tx_deps.RegisterTransaction(3);
 
-  bool result1 = tx_deps.WaitFor(1, 4);
-  bool result2 = tx_deps.WaitFor(2, 5);
-  bool result3 = tx_deps.WaitFor(3, 6);
+  auto result1 = tx_deps.WaitFor(1, 4);
+  auto result2 = tx_deps.WaitFor(2, 5);
+  auto result3 = tx_deps.WaitFor(3, 6);
 
-  EXPECT_TRUE(result1);
-  EXPECT_TRUE(result2);
-  EXPECT_TRUE(result3);
+  EXPECT_EQ(result1, ms::WaitResult::SUCCESS);
+  EXPECT_EQ(result2, ms::WaitResult::SUCCESS);
+  EXPECT_EQ(result3, ms::WaitResult::SUCCESS);
 }
 
 TEST(TransactionDependenciesTest, DependentTransactionMustWait) {
@@ -51,8 +51,8 @@ TEST(TransactionDependenciesTest, DependentTransactionMustWait) {
 
   std::jthread waiter([&]() {
     waiter_started.count_down();
-    bool result = tx_deps.WaitFor(1, 2);
-    EXPECT_TRUE(result);
+    auto result = tx_deps.WaitFor(1, 2);
+    EXPECT_EQ(result, ms::WaitResult::SUCCESS);
   });
 
   waiter_started.wait();
@@ -70,14 +70,14 @@ TEST(TransactionDependenciesTest, TransitivelyDependentTransactionsMustWait) {
 
   std::jthread t1_waiter([&]() {
     both_started.count_down();
-    bool result = tx_deps.WaitFor(1, 2);
-    EXPECT_TRUE(result);
+    auto result = tx_deps.WaitFor(1, 2);
+    EXPECT_EQ(result, ms::WaitResult::SUCCESS);
   });
 
   std::jthread t2_waiter([&]() {
     both_started.count_down();
-    bool result = tx_deps.WaitFor(2, 3);
-    EXPECT_TRUE(result);
+    auto result = tx_deps.WaitFor(2, 3);
+    EXPECT_EQ(result, ms::WaitResult::SUCCESS);
   });
 
   both_started.wait();
@@ -97,14 +97,14 @@ TEST(TransactionDependenciesTest, MultipleTransactionsCanWaitOnOne) {
 
   std::jthread t1_waiter([&]() {
     both_started.count_down();
-    bool result = tx_deps.WaitFor(1, 3);
-    EXPECT_TRUE(result);
+    auto result = tx_deps.WaitFor(1, 3);
+    EXPECT_EQ(result, ms::WaitResult::SUCCESS);
   });
 
   std::jthread t2_waiter([&]() {
     both_started.count_down();
-    bool result = tx_deps.WaitFor(2, 3);
-    EXPECT_TRUE(result);
+    auto result = tx_deps.WaitFor(2, 3);
+    EXPECT_EQ(result, ms::WaitResult::SUCCESS);
   });
 
   both_started.wait();
@@ -123,15 +123,15 @@ TEST(TransactionDependenciesTest, CircularDependenciesAreUnresolvable) {
 
   std::jthread t1([&]() {
     both_started.count_down();
-    bool result = tx_deps.WaitFor(1, 2);
-    if (!result) num_unresolvable_conflicts++;
+    auto result = tx_deps.WaitFor(1, 2);
+    if (result == ms::WaitResult::CIRCULAR_DEPENDENCY) num_unresolvable_conflicts++;
   });
 
   std::jthread t2([&]() {
     both_started.count_down();
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    bool result = tx_deps.WaitFor(2, 1);
-    if (!result) num_unresolvable_conflicts++;
+    auto result = tx_deps.WaitFor(2, 1);
+    if (result == ms::WaitResult::CIRCULAR_DEPENDENCY) num_unresolvable_conflicts++;
   });
 
   both_started.wait();
@@ -154,22 +154,22 @@ TEST(TransactionDependenciesTest, TransitiveCircularDependenciesAreUnresolvable)
 
   std::jthread t1([&]() {
     all_started.count_down();
-    bool result = tx_deps.WaitFor(1, 2);
-    if (!result) num_unresolvable_conflicts++;
+    auto result = tx_deps.WaitFor(1, 2);
+    if (result == ms::WaitResult::CIRCULAR_DEPENDENCY) num_unresolvable_conflicts++;
   });
 
   std::jthread t2([&]() {
     all_started.count_down();
     std::this_thread::sleep_for(std::chrono::milliseconds(10));
-    bool result = tx_deps.WaitFor(2, 3);
-    if (!result) num_unresolvable_conflicts++;
+    auto result = tx_deps.WaitFor(2, 3);
+    if (result == ms::WaitResult::CIRCULAR_DEPENDENCY) num_unresolvable_conflicts++;
   });
 
   std::jthread t3([&]() {
     all_started.count_down();
     std::this_thread::sleep_for(std::chrono::milliseconds(20));
-    bool result = tx_deps.WaitFor(3, 1);
-    if (!result) num_unresolvable_conflicts++;
+    auto result = tx_deps.WaitFor(3, 1);
+    if (result == ms::WaitResult::CIRCULAR_DEPENDENCY) num_unresolvable_conflicts++;
   });
 
   all_started.wait();
