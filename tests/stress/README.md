@@ -78,12 +78,18 @@ customWorkloads:
           # 2. writer -> executes ingestion queries (is not different by nature from a reader, but used as a semantic distinction)
           # 3. lab-simulator -> executes a set of queries performed usually by Memgraph Lab to monitor the instance. Used for
           # users which frequently use Memgraph Lab to see if Lab is doing any instability in the database workload
+          # 4. metrics -> collects metrics data via HTTP endpoint using curl. Fetches metrics every 5 seconds (configurable)
+          # and stores them in an array for later analysis. Useful for monitoring system performance during stress tests.
           query: "<Cypher Query>"  # Cypher query executed by the worker.
           # Optional: if the worker is connecting in a different way from the custom workload querying.
           # If nothing is specified, the querying type will be injected from the workload.
           querying:
             host: "localhost"
             port: 7687
+          # For "metrics" worker type, you can specify metrics endpoint configuration:
+          metrics:
+            host: "localhost"  # Metrics endpoint host (defaults to querying.host or localhost)
+            port: 9091         # Metrics endpoint port (defaults to 9091)
           num_repetitions: <int>  # Number of times the query should be executed.
           sleep_millis: <int>  # Sleep duration in milliseconds between executions.
           step: <int>

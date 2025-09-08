@@ -1,4 +1,6 @@
+import json
 import random
+import subprocess
 import time
 from abc import ABC
 
@@ -24,7 +26,7 @@ class BasicWorker(Worker):
         self._query = worker["query"]
         self._repetitions = worker["num_repetitions"]
         self._sleep_millis = worker.get("sleep_millis", 0)
-        self._metrics = worker.get("metrics", [])
+        self._worker_metrics = worker.get("metrics", [])
 
     def run(self):
         """Executes the assigned query in a loop."""
@@ -41,7 +43,7 @@ class BasicWorker(Worker):
         end = time.time()
         print(f"Worker '{self._name}' finished.")
 
-        for metric in self._metrics:
+        for metric in self._worker_metrics:
             if metric == "throughput":
                 throughput = self._repetitions / (end - start)
                 print(f"Throughput: {throughput} QPS")
@@ -88,6 +90,65 @@ class LabSimulator(Worker):
         print(f"Worker '{self._name}' finished.")
 
 
+class MetricsWorker(Worker):
+    """Executes curl to get metrics every 5 seconds and stores results in an array."""
+
+    def __init__(self, worker):
+        super().__init__(worker)
+        self._repetitions = worker["num_repetitions"]
+        self._sleep_millis = worker.get("sleep_millis", 5000)  # Default 5 seconds
+        self._metrics_data = []
+        # Get metrics host from metrics section, fallback to query host, then localhost
+        metrics_config = worker.get("metrics", {})
+        self._metrics_host = metrics_config.get("host", self._query_host or "localhost")
+        # Default metrics port is 9091
+        self._metrics_port = metrics_config.get("port", 9091)
+
+    def run(self):
+        """Executes curl to get metrics in a loop and stores results."""
+        print(f"Starting metrics worker '{self._name}'...")
+        metrics_url = f"http://{self._metrics_host}:{self._metrics_port}"
+        
+        for i in range(self._repetitions):
+            print(f"Worker '{self._name}' fetching metrics from {metrics_url} (iteration {i+1}/{self._repetitions})")
+            
+            try:
+                # Use curl to get metrics
+                result = subprocess.run(
+                    ["curl", "-s", metrics_url],
+                    capture_output=True,
+                    text=True,
+                    timeout=30
+                )
+                
+                if result.returncode == 0:
+                    metrics_text = result.stdout
+                else:
+                    metrics_text = f"Error: {result.stderr}"
+                    
+            except subprocess.TimeoutExpired:
+                metrics_text = "Error: Request timeout"
+            except Exception as e:
+                metrics_text = f"Error: {str(e)}"
+            
+            # Store the metrics data with timestamp
+            metrics_entry = {
+                "timestamp": time.time(),
+                "iteration": i + 1,
+                "data": metrics_text
+            }
+            self._metrics_data.append(metrics_entry)
+            
+            if self._sleep_millis > 0:
+                time.sleep(self._sleep_millis / 1000.0)
+
+        print(f"Worker '{self._name}' finished. Collected {len(self._metrics_data)} metrics entries.")
+
+    def dump_metrics_json(self):
+        """Returns the collected metrics as a JSON string."""
+        return json.dumps(self._metrics_data, indent=2, default=str)
+
+
 def get_worker_object(worker) -> Worker:
     """Factory function to create the appropriate worker object."""
     worker_type = worker["type"]
@@ -96,6 +157,8 @@ def get_worker_object(worker) -> Worker:
         return BasicWorker(worker)
     if worker_type == "lab-simulator":
         return LabSimulator(worker)
+    if worker_type == "metrics":
+        return MetricsWorker(worker)
 
     raise Exception(f"Unknown worker type: '{worker_type}'!")
 
