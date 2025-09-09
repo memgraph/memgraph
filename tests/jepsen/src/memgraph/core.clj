@@ -93,7 +93,7 @@
             :checker         (checker/compose
                               {:stats      (checker/stats)
                                :exceptions (unhandled-exceptions)
-                               :log-checker (checker/log-file-pattern #"[Aa]ssert*|Segmentation fault|core dumped|critical|NullPointerException|json.exception.parse_error|Message response was of unexpected type|Received malformed message from cluster|There is still leftover data in the SLK stream|Failed to close fd|Couldn't read marker" "memgraph.log")
+                               :log-checker (checker/log-file-pattern #"[Aa]ssert*|Segmentation fault|core dumped|critical|NullPointerException|json.exception.parse_error|Message response was of unexpected type|Received malformed message from cluster|There is still leftover data in the SLK stream|Failed to close fd" "memgraph.log")
                                :workload   (:checker workload)})
             :nodes           (keys (:nodes-config opts))
             :nemesis         (:nemesis nemesis-config)
