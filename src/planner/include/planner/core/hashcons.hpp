@@ -137,8 +137,7 @@ struct Hashcons {
   /**
    * @brief Internal hash table storing ENode to e-class ID mappings
    */
-  boost::unordered_flat_map<ENode<Symbol> * /*TODO hold shared copy by ptr*/, EClassId, std::hash<ENode<Symbol>>>
-      table_;
+  boost::unordered_flat_map<ENodeRef<Symbol>, EClassId> table_;
 };
 
 }  // namespace memgraph::planner::core
@@ -146,7 +145,7 @@ struct Hashcons {
 // Template method implementations
 template <typename Symbol>
 auto memgraph::planner::core::Hashcons<Symbol>::lookup(const ENode<Symbol> &enode) const -> std::optional<EClassId> {
-  auto it = table_.find(enode);
+  auto it = table_.find(ENodeRef{enode});
   if (it != table_.end()) {
     return it->second;
   }
@@ -155,19 +154,19 @@ auto memgraph::planner::core::Hashcons<Symbol>::lookup(const ENode<Symbol> &enod
 
 template <typename Symbol>
 void memgraph::planner::core::Hashcons<Symbol>::insert(const ENode<Symbol> &enode, EClassId eclass_id) {
-  table_[enode] = eclass_id;
+  table_[ENodeRef{enode}] = eclass_id;
 }
 
 template <typename Symbol>
 void memgraph::planner::core::Hashcons<Symbol>::remove(const ENode<Symbol> &enode) {
-  table_.erase(enode);
+  table_.erase(ENodeRef{enode});
 }
 
 template <typename Symbol>
 void memgraph::planner::core::Hashcons<Symbol>::update(const ENode<Symbol> &old_enode, const ENode<Symbol> &new_enode,
                                                        EClassId eclass_id) {
-  table_.erase(old_enode);
-  table_[new_enode] = eclass_id;
+  table_.erase(ENodeRef{old_enode});
+  table_[ENodeRef{new_enode}] = eclass_id;
 }
 
 template <typename Symbol>

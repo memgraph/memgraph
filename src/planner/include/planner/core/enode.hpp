@@ -125,6 +125,9 @@ struct ENode : private detail::ENodeBase {
 
 template <typename Symbol>
 struct ENodeRef {
+  // Constructor needs to be public for hashcons to create ENodeRef instances
+  explicit ENodeRef(ENode<Symbol> const &enode) : ptr_(&enode) {}
+
   auto value() const -> const ENode<Symbol> & { return *ptr_; }
 
   friend bool operator==(const ENodeRef<Symbol> &rhs, const ENodeRef<Symbol> &lhs) { return *rhs.ptr_ == *lhs.ptr_; }
@@ -136,8 +139,15 @@ struct ENodeRef {
   [[nodiscard]] auto hash() const -> std::size_t { return ptr_->hash(); }
 
  private:
-  ENode<Symbol> *ptr_;
+  ENode<Symbol> const *ptr_;
 };
+
+// Boost hash support via ADL (Argument Dependent Lookup)
+// Boost expects a free function named hash_value in the same namespace
+template <typename Symbol>
+inline std::size_t hash_value(const ENodeRef<Symbol> &node_ref) {
+  return node_ref.hash();
+}
 
 }  // namespace memgraph::planner::core
 
