@@ -1,13 +1,13 @@
-/**
- * @file hashcons.hpp
- * @brief Hash consing data structure for efficient e-node deduplication using ENodeId
- *
- * This file contains the Hashcons class, which implements hash consing
- * for e-nodes using ENodeId references. Hash consing is a fundamental technique
- * in e-graph implementations that ensures each unique e-node structure exists
- * only once in memory, enabling efficient equality checking and
- * memory usage optimization.
- */
+// Copyright 2025 Memgraph Ltd.
+//
+// Use of this software is governed by the Business Source License
+// included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
+// License, and you may not use this file except in compliance with the Business Source License.
+//
+// As of the Change Date specified in that file, in accordance with
+// the Business Source License, use of this software will be governed
+// by the Apache License, Version 2.0, included in the file
+// licenses/APL.txt.
 
 #pragma once
 
@@ -21,9 +21,6 @@
 #include "planner/core/fwd.hpp"
 
 namespace memgraph::planner::core {
-
-template <typename Symbol, typename Analysis>
-class EGraph;
 
 /**
  * @brief Hash consing table for efficient e-node deduplication using direct ENode mapping
@@ -42,8 +39,7 @@ class EGraph;
  * @tparam Symbol The type used to represent operation symbols in e-nodes
  */
 template <typename Symbol>
-class Hashcons {
- public:
+struct Hashcons {
   Hashcons() {
     // Pre-size to avoid expensive rehashing during initial population
     // Based on performance analysis: prevents 70-80% of rehash operations
@@ -141,7 +137,8 @@ class Hashcons {
   /**
    * @brief Internal hash table storing ENode to e-class ID mappings
    */
-  boost::unordered_flat_map<ENode<Symbol> /*TODO hold shared copy by ptr*/, EClassId, std::hash<ENode<Symbol>>> table_;
+  boost::unordered_flat_map<ENode<Symbol> * /*TODO hold shared copy by ptr*/, EClassId, std::hash<ENode<Symbol>>>
+      table_;
 };
 
 }  // namespace memgraph::planner::core
