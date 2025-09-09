@@ -422,4 +422,21 @@ TEST(QueryStripper, CreateTriggerQuery) {
   }
 }
 
+TEST(QueryStripper, KeywordsCanBeUsedInStrippedQueries) {
+  {
+    StrippedQuery stripped("MATCH ()-[r:Resource]->() RETURN count(r)");
+    EXPECT_EQ(stripped.stripped_query().str(), "MATCH ( ) - [ r : Resource ] - > ( ) RETURN count ( r )");
+  }
+
+  {
+    StrippedQuery stripped("MATCH (n:Profiles) RETURN n");
+    EXPECT_EQ(stripped.stripped_query().str(), "MATCH ( n : Profiles ) RETURN n");
+  }
+
+  {
+    StrippedQuery stripped("MATCH (n:Constraints), (m:Indexes) RETURN n, m");
+    EXPECT_EQ(stripped.stripped_query().str(), "MATCH ( n : Constraints ) , ( m : Indexes ) RETURN n , m");
+  }
+}
+
 }  // namespace
