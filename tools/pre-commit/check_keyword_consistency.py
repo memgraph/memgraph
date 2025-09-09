@@ -18,7 +18,7 @@ def extract_lexer_tokens(lexer_file):
     with open(lexer_file, "r") as f:
         content = f.read()
 
-    pattern = r"^([A-Z_]+)\s*:\s*[A-Z\s]+;"
+    pattern = r"^([A-Z_]+)\s*:\s*(?:[A-Z]\s*)+;"
     for match in re.finditer(pattern, content, re.MULTILINE):
         token = match.group(1)
         if token not in [
