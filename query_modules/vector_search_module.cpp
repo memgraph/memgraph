@@ -44,8 +44,6 @@ static constexpr std::string_view kParameterVector2 = "vector2";
 void Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 void SearchEdges(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
 void ShowIndexInfo(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
-
-// Function declaration for cosine similarity
 void CosineSimilarityFunction(mgp_list *args, mgp_func_context *ctx, mgp_func_result *res, mgp_memory *memory);
 }  // namespace VectorSearch
 
@@ -166,8 +164,6 @@ void VectorSearch::CosineSimilarityFunction(mgp_list *args, mgp_func_context * /
     }
 
     const auto cosine_similarity = dot_product / (magnitude1 * magnitude2);
-
-    // Set the result using the function result API
     auto result = mgp::Result(res);
     result.SetValue(cosine_similarity);
   } catch (const std::exception &e) {
