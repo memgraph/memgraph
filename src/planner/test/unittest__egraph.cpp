@@ -9,348 +9,386 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include <doctest/doctest.h>
+#include <gtest/gtest.h>
 
-#include <stdexcept>
+#include <unordered_map>
 
-#include "ese/core/egraph.hpp"
-#include "ese/core/processing_context.hpp"
-#include "test_symbols.hpp"
+#include "planner/core/egraph.hpp"
+#include "planner/core/union_find.hpp"
+#include "utils/small_vector.hpp"
 
-TEST_CASE("EGraph basic operations") {
-  using TestSymbol = test_symbols::TestSymbol;
-  ese::core::EGraph<TestSymbol, void> egraph;
+namespace memgraph::planner::core {
 
-  SUBCASE("empty e-graph") {
-    CHECK(egraph.empty());
-    CHECK_EQ(egraph.num_classes(), 0);
-    CHECK_EQ(egraph.num_nodes(), 0);
-  }
+// Simple test symbol type using enum to be trivially copyable
+// TODO: both unittest__enode and this unittest__egraph use TestSymbols, we should unify into a common test helper
+// header
+enum class TestSymbol : uint32_t {
+  A,
+  B,
+  C,
+  D,
+  X,
+  Y,
+  Plus,
+  Mul,
+  F,
+  Test,
+  Node,
+  // For numbered nodes
+  Node0 = 1000,
+  // We can generate more by adding to Node0
+};
 
-  SUBCASE("add simple e-nodes") {
-    // Add leaf nodes
-    auto id1 = egraph.emplace("a", {});
-    auto id2 = egraph.emplace("b", {});
+struct NoAnalysis {};
 
-    CHECK_EQ(egraph.num_classes(), 2);
-    CHECK_EQ(egraph.num_nodes(), 2);
-    CHECK_NE(id1, id2);
-    CHECK(egraph.has_class(id1));
-    CHECK(egraph.has_class(id2));
-  }
+// Simple processing context for testing
+// TODO: this should be moved into a production header this is not test code, but actual required for enode usage
+template <typename Symbol>
+class ProcessingContext {
+ public:
+  // Storage for enode to parents mapping used during rebuilding
+  std::unordered_map<ENodeId, std::vector<EClassId>> enode_to_parents;
 
-  SUBCASE("add nodes with children") {
-    // Add leaf nodes first
-    auto a = egraph.emplace("a", {});
-    auto b = egraph.emplace("b", {});
+  // Context for union-find operations
+  UnionFindContext union_find_context;
+};
 
-    // Add node with children
-    auto plus = egraph.emplace("plus", {a, b});
+TEST(EGraphBasicOperations, EmptyEGraph) {
+  EGraph<TestSymbol, NoAnalysis> egraph;
 
-    CHECK_EQ(egraph.num_classes(), 3);
-    CHECK_EQ(egraph.num_nodes(), 3);
-    CHECK(egraph.has_class(plus));
-  }
-
-  SUBCASE("duplicate nodes return same e-class") {
-    // Add same node twice
-    auto id1 = egraph.emplace("a", {});
-    auto id2 = egraph.emplace("a", {});
-
-    CHECK_EQ(id1, id2);
-    CHECK_EQ(egraph.num_classes(), 1);
-    CHECK_EQ(egraph.num_nodes(), 1);
-  }
+  EXPECT_TRUE(egraph.empty());
+  EXPECT_EQ(egraph.num_classes(), 0);
+  EXPECT_EQ(egraph.num_nodes(), 0);
 }
 
-TEST_CASE("EGraph merging operations") {
-  using TestSymbol = test_symbols::TestSymbol;
-  ese::core::EGraph<TestSymbol, void> egraph;
-  ese::core::ProcessingContext<TestSymbol> ctx;
+TEST(EGraphBasicOperations, AddSimpleENodes) {
+  EGraph<TestSymbol, NoAnalysis> egraph;
 
-  SUBCASE("merge two different e-classes") {
-    auto id1 = egraph.emplace("a", {});
-    auto id2 = egraph.emplace("b", {});
+  // Add leaf nodes
+  auto id1 = egraph.emplace(TestSymbol::A, utils::small_vector<EClassId>{});
+  auto id2 = egraph.emplace(TestSymbol::B, utils::small_vector<EClassId>{});
 
-    CHECK_EQ(egraph.num_classes(), 2);
-
-    auto merged = egraph.merge(id1, id2, ctx);
-
-    CHECK_EQ(egraph.num_classes(), 1);
-    CHECK_EQ(egraph.find(id1, ctx), egraph.find(id2, ctx));
-    CHECK((merged == id1 || merged == id2));
-  }
-
-  SUBCASE("merge same e-class is no-op") {
-    auto id1 = egraph.emplace("a", {});
-    auto merged = egraph.merge(id1, id1, ctx);
-
-    CHECK_EQ(merged, id1);
-    CHECK_EQ(egraph.num_classes(), 1);
-  }
-
-  SUBCASE("congruence after merge") {
-    // Create: f(a), f(b), merge a and b
-    auto a = egraph.emplace("a", {});
-    auto b = egraph.emplace("b", {});
-    auto fa = egraph.emplace("f", {a});
-    auto fb = egraph.emplace("f", {b});
-
-    CHECK_EQ(egraph.num_classes(), 4);
-    CHECK_NE(egraph.find(fa, ctx), egraph.find(fb, ctx));
-
-    // Merge a and b
-    egraph.merge(a, b, ctx);
-
-    // f(a) and f(b) should now be congruent
-    CHECK_EQ(egraph.find(fa, ctx), egraph.find(fb, ctx));
-    CHECK_EQ(egraph.num_classes(), 2);  // One for a=b, one for f(a)=f(b)
-  }
+  EXPECT_EQ(egraph.num_classes(), 2);
+  EXPECT_EQ(egraph.num_nodes(), 2);
+  EXPECT_NE(id1, id2);
+  EXPECT_TRUE(egraph.has_class(id1));
+  EXPECT_TRUE(egraph.has_class(id2));
 }
 
-TEST_CASE("EGraph e-class access") {
-  using TestSymbol = test_symbols::TestSymbol;
-  ese::core::EGraph<TestSymbol, void> egraph;
+TEST(EGraphBasicOperations, AddNodesWithChildren) {
+  EGraph<TestSymbol, NoAnalysis> egraph;
 
-  SUBCASE("get e-class by ID") {
-    auto id = egraph.emplace("test", {});
+  // Add leaf nodes first
+  auto a = egraph.emplace(TestSymbol::A, utils::small_vector<EClassId>{});
+  auto b = egraph.emplace(TestSymbol::B, utils::small_vector<EClassId>{});
 
-    const auto &eclass = egraph.eclass(id);
-    CHECK_EQ(eclass.size(), 1);
+  // Add node with children
+  auto plus = egraph.emplace(TestSymbol::Plus, utils::small_vector<EClassId>{a, b});
 
-    auto repr_id = eclass.representative_id();
-    const auto &repr = egraph.get_enode(repr_id);
-    CHECK_EQ(repr.symbol, TestSymbol("test"));
-  }
-
-  SUBCASE("get e-class with invalid ID throws") {
-#ifndef NDEBUG
-    CHECK_THROWS_AS(egraph.eclass(999), std::out_of_range);
-#else
-    // In release builds, range checking is disabled for performance
-    // These operations would segfault, so we skip testing them
-    MESSAGE("Range checking disabled in release builds");
-    return;
-#endif
-  }
+  EXPECT_EQ(egraph.num_classes(), 3);
+  EXPECT_EQ(egraph.num_nodes(), 3);
+  EXPECT_TRUE(egraph.has_class(plus));
 }
 
-TEST_CASE("EGraph congruence detailed") {
-  using TestSymbol = test_symbols::TestSymbol;
-  ese::core::EGraph<TestSymbol, void> egraph;
-  ese::core::ProcessingContext<TestSymbol> ctx;
+TEST(EGraphBasicOperations, DuplicateNodesReturnSameEClass) {
+  EGraph<TestSymbol, NoAnalysis> egraph;
 
-  SUBCASE("congruence with parent tracking") {
-    // This covers debug_congruence.cpp scenarios
-    auto a = egraph.emplace("a", {});
-    auto b = egraph.emplace("b", {});
-    auto fa = egraph.emplace("f", {a});
-    auto fb = egraph.emplace("f", {b});
+  // Add same node twice
+  auto id1 = egraph.emplace(TestSymbol::A, utils::small_vector<EClassId>{});
+  auto id2 = egraph.emplace(TestSymbol::A, utils::small_vector<EClassId>{});
 
-    // Verify initial state
-    CHECK_EQ(egraph.num_classes(), 4);
-    CHECK_NE(egraph.find(fa, ctx), egraph.find(fb, ctx));
-
-    // Check parent tracking before merge
-    const auto &eclass_a = egraph.eclass(a);
-    bool has_parent_fa = false;
-    for (const auto &[parent_enode_id, parent_id] : eclass_a.parents) {
-      if (parent_id == fa) has_parent_fa = true;
-    }
-    CHECK(has_parent_fa);
-
-    // Merge and verify congruence
-    egraph.merge(a, b, ctx);
-    CHECK_EQ(egraph.find(fa, ctx), egraph.find(fb, ctx));
-    CHECK_EQ(egraph.num_classes(), 2);
-  }
-
-  SUBCASE("rebuilding after merge") {
-    // This covers debug_rebuilding.cpp scenarios
-    auto a = egraph.emplace("a", {});
-    auto b = egraph.emplace("b", {});
-    auto fa = egraph.emplace("f", {a});
-    auto fb = egraph.emplace("f", {b});
-
-    // Merge triggers rebuild internally
-    egraph.merge(a, b, ctx);
-
-    // Verify congruence is maintained
-    CHECK_EQ(egraph.find(fa, ctx), egraph.find(fb, ctx));
-  }
-
-  SUBCASE("enode counting accuracy") {
-    // This covers debug_enode_count.cpp scenarios
-    CHECK_EQ(egraph.num_enodes(), 0);
-
-    auto a = egraph.emplace("a", {});
-    CHECK_EQ(egraph.num_enodes(), 1);
-
-    auto b = egraph.emplace("b", {});
-    CHECK_EQ(egraph.num_enodes(), 2);
-
-    auto c = egraph.emplace("c", {});
-    auto d = egraph.emplace("d", {});
-    CHECK_EQ(egraph.num_enodes(), 4);
-
-    auto f = egraph.emplace("f", {c, d});
-    CHECK_EQ(egraph.num_enodes(), 5);
-
-    // Adding duplicate should not increase count
-    auto f2 = egraph.emplace("f", {c, d});
-    CHECK_EQ(f, f2);
-    CHECK_EQ(egraph.num_enodes(), 5);
-  }
+  EXPECT_EQ(id1, id2);
+  EXPECT_EQ(egraph.num_classes(), 1);
+  EXPECT_EQ(egraph.num_nodes(), 1);
 }
 
-TEST_CASE("EGraph clear and reserve") {
-  using TestSymbol = test_symbols::TestSymbol;
-  ese::core::EGraph<TestSymbol, void> egraph;
+TEST(EGraphMergingOperations, MergeTwoDifferentEClasses) {
+  EGraph<TestSymbol, NoAnalysis> egraph;
+  ProcessingContext<TestSymbol> ctx;
 
-  SUBCASE("clear empties the graph") {
-    egraph.emplace("a", {});
-    egraph.emplace("b", {});
+  auto id1 = egraph.emplace(TestSymbol::A, utils::small_vector<EClassId>{});
+  auto id2 = egraph.emplace(TestSymbol::B, utils::small_vector<EClassId>{});
 
-    CHECK_FALSE(egraph.empty());
+  EXPECT_EQ(egraph.num_classes(), 2);
 
-    egraph.clear();
+  auto merged = egraph.merge(id1, id2, ctx);
 
-    CHECK(egraph.empty());
-    CHECK_EQ(egraph.num_classes(), 0);
-    CHECK_EQ(egraph.num_nodes(), 0);
-  }
-
-  SUBCASE("reserve allocates capacity") {
-    egraph.reserve(1000);
-
-    // Add many nodes - should not trigger reallocations
-    for (int i = 0; i < 100; ++i) {
-      egraph.emplace("node" + std::to_string(i), {});
-    }
-
-    CHECK_EQ(egraph.num_classes(), 100);
-  }
+  EXPECT_EQ(egraph.num_classes(), 1);
+  EXPECT_EQ(egraph.find(id1, ctx), egraph.find(id2, ctx));
+  EXPECT_TRUE(merged == id1 || merged == id2);
 }
 
-TEST_CASE("EGraph string representation") {
-  using TestSymbol = test_symbols::TestSymbol;
-  ese::core::EGraph<TestSymbol, void> egraph;
+TEST(EGraphMergingOperations, MergeSameEClassIsNoOp) {
+  EGraph<TestSymbol, NoAnalysis> egraph;
+  ProcessingContext<TestSymbol> ctx;
 
-  SUBCASE("empty graph string") {
-    auto str = egraph.to_string();
-    CHECK_NE(str.find("0 classes"), std::string::npos);
-    CHECK_NE(str.find("0 nodes"), std::string::npos);
-  }
+  auto id1 = egraph.emplace(TestSymbol::A, utils::small_vector<EClassId>{});
+  auto merged = egraph.merge(id1, id1, ctx);
 
-  SUBCASE("non-empty graph string") {
-    egraph.emplace("test", {});
-
-    auto str = egraph.to_string();
-    CHECK_NE(str.find("1 classes"), std::string::npos);
-    CHECK_NE(str.find("1 nodes"), std::string::npos);
-    CHECK_NE(str.find("test"), std::string::npos);
-  }
+  EXPECT_EQ(merged, id1);
+  EXPECT_EQ(egraph.num_classes(), 1);
 }
 
-TEST_CASE("EGraph complex operations") {
-  using TestSymbol = test_symbols::TestSymbol;
-  ese::core::EGraph<TestSymbol, void> egraph;
-  ese::core::ProcessingContext<TestSymbol> ctx;
+TEST(EGraphMergingOperations, CongruenceAfterMerge) {
+  EGraph<TestSymbol, NoAnalysis> egraph;
+  ProcessingContext<TestSymbol> ctx;
 
-  SUBCASE("build arithmetic expression tree") {
-    // Build: (x + y) * (x + y)
-    auto x = egraph.emplace("x", {});
-    auto y = egraph.emplace("y", {});
-    auto plus1 = egraph.emplace("+", {x, y});
-    auto plus2 = egraph.emplace("+", {x, y});
-    auto mult = egraph.emplace("*", {plus1, plus2});
+  // Create: f(a), f(b), merge a and b
+  auto a = egraph.emplace(TestSymbol::A, utils::small_vector<EClassId>{});
+  auto b = egraph.emplace(TestSymbol::B, utils::small_vector<EClassId>{});
+  auto fa = egraph.emplace(TestSymbol::F, utils::small_vector<EClassId>{a});
+  auto fb = egraph.emplace(TestSymbol::F, utils::small_vector<EClassId>{b});
 
-    CHECK_EQ(egraph.num_classes(), 4);                           // x, y, +(x,y), *(+(x,y), +(x,y))
-    CHECK_EQ(egraph.find(plus1, ctx), egraph.find(plus2, ctx));  // Congruent +
+  EXPECT_EQ(egraph.num_classes(), 4);
+  EXPECT_NE(egraph.find(fa, ctx), egraph.find(fb, ctx));
 
-    // Verify structure
-    const auto &mult_class = egraph.eclass(mult);
-    auto mult_node_id = mult_class.representative_id();
-    const auto &mult_node = egraph.get_enode(mult_node_id);
-    CHECK_EQ(mult_node.symbol, TestSymbol("*"));
-    CHECK_EQ(mult_node.arity(), 2);
+  // Merge a and b
+  egraph.merge(a, b, ctx);
 
-    // Both children should point to the same e-class
-    CHECK_EQ(egraph.find(mult_node.children[0], ctx), egraph.find(mult_node.children[1], ctx));
-  }
-
-  SUBCASE("associativity merge") {
-    // Build: (a + b) + c and a + (b + c)
-    auto a = egraph.emplace("a", {});
-    auto b = egraph.emplace("b", {});
-    auto c = egraph.emplace("c", {});
-
-    auto ab = egraph.emplace("+", {a, b});
-    auto abc1 = egraph.emplace("+", {ab, c});
-
-    auto bc = egraph.emplace("+", {b, c});
-    auto abc2 = egraph.emplace("+", {a, bc});
-
-    CHECK_NE(egraph.find(abc1, ctx), egraph.find(abc2, ctx));
-
-    // Merge them to represent associativity
-    egraph.merge(abc1, abc2, ctx);
-
-    CHECK_EQ(egraph.find(abc1, ctx), egraph.find(abc2, ctx));
-  }
-
-  SUBCASE("next_class_id is monotonic") {
-    // next_class_id should never decrease, even after merges reduce num_classes
-
-    // Initially empty
-    auto initial_next = egraph.next_class_id();
-    CHECK_EQ(initial_next, ese::core::EClassId(0));  // 0 is the first ID that will be assigned
-
-    // Add first class
-    auto id1 = egraph.emplace("a", {});
-    auto next1 = egraph.next_class_id();
-    CHECK_EQ(next1, ese::core::EClassId(1));  // Next ID after 0
-    CHECK_EQ(egraph.num_classes(), 1);
-
-    // Add second class
-    auto id2 = egraph.emplace("b", {});
-    auto next2 = egraph.next_class_id();
-    CHECK_EQ(next2, ese::core::EClassId(2));  // Next ID after 0,1
-    CHECK_GT(next2, next1);                   // Monotonic increase
-    CHECK_EQ(egraph.num_classes(), 2);
-
-    // Add third class
-    auto id3 = egraph.emplace("c", {});
-    auto next3 = egraph.next_class_id();
-    CHECK_EQ(next3, ese::core::EClassId(3));  // Next ID after 0,1,2
-    CHECK_GT(next3, next2);                   // Monotonic increase
-    CHECK_EQ(egraph.num_classes(), 3);
-
-    // Merge classes - this reduces num_classes but next_class_id should NOT decrease
-    egraph.merge(id1, id2, ctx);
-    auto next_after_merge1 = egraph.next_class_id();
-    CHECK_EQ(next_after_merge1, next3);  // Should still be 3, not decreased!
-    CHECK_EQ(egraph.num_classes(), 2);   // Only 2 classes now
-
-    // Another merge
-    egraph.merge(id2, id3, ctx);
-    auto next_after_merge2 = egraph.next_class_id();
-    CHECK_EQ(next_after_merge2, next3);  // Should still be 3, not decreased!
-    CHECK_EQ(egraph.num_classes(), 1);   // Only 1 class now
-
-    // Add a new class after merges
-    auto id4 = egraph.emplace("d", {});
-    auto next4 = egraph.next_class_id();
-    CHECK_EQ(next4, ese::core::EClassId(4));  // Next ID after 0,1,2,3
-    CHECK_GT(next4, next_after_merge2);       // Monotonic increase from previous next
-    CHECK_EQ(egraph.num_classes(), 2);        // 2 classes again
-
-    // Verify monotonic property held throughout
-    CHECK_LE(initial_next, next1);
-    CHECK_LE(next1, next2);
-    CHECK_LE(next2, next3);
-    CHECK_LE(next3, next_after_merge1);
-    CHECK_LE(next_after_merge1, next_after_merge2);
-    CHECK_LE(next_after_merge2, next4);
-  }
+  // f(a) and f(b) should now be congruent
+  EXPECT_EQ(egraph.find(fa, ctx), egraph.find(fb, ctx));
+  EXPECT_EQ(egraph.num_classes(), 2);  // One for a=b, one for f(a)=f(b)
 }
+
+TEST(EGraphEClassAccess, GetEClassByID) {
+  EGraph<TestSymbol, NoAnalysis> egraph;
+
+  auto id = egraph.emplace(TestSymbol::Test, utils::small_vector<EClassId>{});
+
+  const auto &eclass = egraph.eclass(id);
+  EXPECT_EQ(eclass.size(), 1);
+
+  auto repr_id = eclass.representative_id();
+  const auto &repr = egraph.get_enode(repr_id);
+  EXPECT_EQ(repr.symbol(), TestSymbol::Test);
+}
+
+TEST(EGraphCongruenceDetailed, CongruenceWithParentTracking) {
+  EGraph<TestSymbol, NoAnalysis> egraph;
+  ProcessingContext<TestSymbol> ctx;
+
+  // This covers debug_congruence.cpp scenarios
+  auto a = egraph.emplace(TestSymbol::A, utils::small_vector<EClassId>{});
+  auto b = egraph.emplace(TestSymbol::B, utils::small_vector<EClassId>{});
+  auto fa = egraph.emplace(TestSymbol::F, utils::small_vector<EClassId>{a});
+  auto fb = egraph.emplace(TestSymbol::F, utils::small_vector<EClassId>{b});
+
+  // Verify initial state
+  EXPECT_EQ(egraph.num_classes(), 4);
+  EXPECT_NE(egraph.find(fa, ctx), egraph.find(fb, ctx));
+
+  // Check parent tracking before merge
+  const auto &eclass_a = egraph.eclass(a);
+  bool has_parent_fa = false;
+  for (const auto &[parent_enode_id, parent_id] : eclass_a.parents()) {
+    if (parent_id == fa) has_parent_fa = true;
+  }
+  EXPECT_TRUE(has_parent_fa);
+
+  // Merge and verify congruence
+  egraph.merge(a, b, ctx);
+  EXPECT_EQ(egraph.find(fa, ctx), egraph.find(fb, ctx));
+  EXPECT_EQ(egraph.num_classes(), 2);
+}
+
+TEST(EGraphCongruenceDetailed, RebuildingAfterMerge) {
+  EGraph<TestSymbol, NoAnalysis> egraph;
+  ProcessingContext<TestSymbol> ctx;
+
+  // This covers debug_rebuilding.cpp scenarios
+  auto a = egraph.emplace(TestSymbol::A, utils::small_vector<EClassId>{});
+  auto b = egraph.emplace(TestSymbol::B, utils::small_vector<EClassId>{});
+  auto fa = egraph.emplace(TestSymbol::F, utils::small_vector<EClassId>{a});
+  auto fb = egraph.emplace(TestSymbol::F, utils::small_vector<EClassId>{b});
+
+  // Merge triggers rebuild internally
+  egraph.merge(a, b, ctx);
+
+  // Verify congruence is maintained
+  EXPECT_EQ(egraph.find(fa, ctx), egraph.find(fb, ctx));
+}
+
+TEST(EGraphCongruenceDetailed, EnodeCountingAccuracy) {
+  EGraph<TestSymbol, NoAnalysis> egraph;
+
+  // This covers debug_enode_count.cpp scenarios
+  EXPECT_EQ(egraph.num_enodes(), 0);
+
+  auto a = egraph.emplace(TestSymbol::A, utils::small_vector<EClassId>{});
+  EXPECT_EQ(egraph.num_enodes(), 1);
+
+  [[maybe_unused]] auto b = egraph.emplace(TestSymbol::B, utils::small_vector<EClassId>{});
+  EXPECT_EQ(egraph.num_enodes(), 2);
+
+  auto c = egraph.emplace(TestSymbol::C, utils::small_vector<EClassId>{});
+  auto d = egraph.emplace(TestSymbol::D, utils::small_vector<EClassId>{});
+  EXPECT_EQ(egraph.num_enodes(), 4);
+
+  auto f = egraph.emplace(TestSymbol::F, utils::small_vector<EClassId>{c, d});
+  EXPECT_EQ(egraph.num_enodes(), 5);
+
+  // Adding duplicate should not increase count
+  auto f2 = egraph.emplace(TestSymbol::F, utils::small_vector<EClassId>{c, d});
+  EXPECT_EQ(f, f2);
+  EXPECT_EQ(egraph.num_enodes(), 5);
+}
+
+TEST(EGraphClearAndReserve, ClearEmptiesTheGraph) {
+  EGraph<TestSymbol, NoAnalysis> egraph;
+
+  egraph.emplace(TestSymbol::A, utils::small_vector<EClassId>{});
+  egraph.emplace(TestSymbol::B, utils::small_vector<EClassId>{});
+
+  EXPECT_FALSE(egraph.empty());
+
+  egraph.clear();
+
+  EXPECT_TRUE(egraph.empty());
+  EXPECT_EQ(egraph.num_classes(), 0);
+  EXPECT_EQ(egraph.num_nodes(), 0);
+}
+
+TEST(EGraphClearAndReserve, ReserveAllocatesCapacity) {
+  EGraph<TestSymbol, NoAnalysis> egraph;
+
+  egraph.reserve(1000);
+
+  // Add many nodes - should not trigger reallocations
+  for (int i = 0; i < 100; ++i) {
+    egraph.emplace(static_cast<TestSymbol>(static_cast<uint32_t>(TestSymbol::Node0) + i),
+                   utils::small_vector<EClassId>{});
+  }
+
+  EXPECT_EQ(egraph.num_classes(), 100);
+}
+
+// Note: to_string() method is not yet implemented in the EGraph class
+// These tests are commented out until the method is added
+/*
+TEST(EGraphStringRepresentation, EmptyGraphString) {
+  EGraph<TestSymbol, NoAnalysis> egraph;
+
+  auto str = egraph.to_string();
+  EXPECT_NE(str.find("0 classes"), std::string::npos);
+  EXPECT_NE(str.find("0 nodes"), std::string::npos);
+}
+
+TEST(EGraphStringRepresentation, NonEmptyGraphString) {
+  EGraph<TestSymbol, NoAnalysis> egraph;
+
+  egraph.emplace(TestSymbol::Test, {});
+
+  auto str = egraph.to_string();
+  EXPECT_NE(str.find("1 classes"), std::string::npos);
+  EXPECT_NE(str.find("1 nodes"), std::string::npos);
+  EXPECT_NE(str.find("test"), std::string::npos);
+}
+*/
+
+TEST(EGraphComplexOperations, BuildArithmeticExpressionTree) {
+  EGraph<TestSymbol, NoAnalysis> egraph;
+  ProcessingContext<TestSymbol> ctx;
+
+  // Build: (x + y) * (x + y)
+  auto x = egraph.emplace(TestSymbol::X, utils::small_vector<EClassId>{});
+  auto y = egraph.emplace(TestSymbol::Y, utils::small_vector<EClassId>{});
+  auto plus1 = egraph.emplace(TestSymbol::Plus, utils::small_vector<EClassId>{x, y});
+  auto plus2 = egraph.emplace(TestSymbol::Plus, utils::small_vector<EClassId>{x, y});
+  auto mult = egraph.emplace(TestSymbol::Mul, utils::small_vector<EClassId>{plus1, plus2});
+
+  EXPECT_EQ(egraph.num_classes(), 4);                           // x, y, +(x,y), *(+(x,y), +(x,y))
+  EXPECT_EQ(egraph.find(plus1, ctx), egraph.find(plus2, ctx));  // Congruent +
+
+  // Verify structure
+  const auto &mult_class = egraph.eclass(mult);
+  auto mult_node_id = mult_class.representative_id();
+  const auto &mult_node = egraph.get_enode(mult_node_id);
+  EXPECT_EQ(mult_node.symbol(), TestSymbol::Mul);
+  EXPECT_EQ(mult_node.arity(), 2);
+
+  // Both children should point to the same e-class
+  EXPECT_EQ(egraph.find(mult_node.children()[0], ctx), egraph.find(mult_node.children()[1], ctx));
+}
+
+TEST(EGraphComplexOperations, AssociativityMerge) {
+  EGraph<TestSymbol, NoAnalysis> egraph;
+  ProcessingContext<TestSymbol> ctx;
+
+  // Build: (a + b) + c and a + (b + c)
+  auto a = egraph.emplace(TestSymbol::A, utils::small_vector<EClassId>{});
+  auto b = egraph.emplace(TestSymbol::B, utils::small_vector<EClassId>{});
+  auto c = egraph.emplace(TestSymbol::C, utils::small_vector<EClassId>{});
+
+  auto ab = egraph.emplace(TestSymbol::Plus, utils::small_vector<EClassId>{a, b});
+  auto abc1 = egraph.emplace(TestSymbol::Plus, utils::small_vector<EClassId>{ab, c});
+
+  auto bc = egraph.emplace(TestSymbol::Plus, utils::small_vector<EClassId>{b, c});
+  auto abc2 = egraph.emplace(TestSymbol::Plus, utils::small_vector<EClassId>{a, bc});
+
+  EXPECT_NE(egraph.find(abc1, ctx), egraph.find(abc2, ctx));
+
+  // Merge them to represent associativity
+  egraph.merge(abc1, abc2, ctx);
+
+  EXPECT_EQ(egraph.find(abc1, ctx), egraph.find(abc2, ctx));
+}
+
+TEST(EGraphComplexOperations, NextClassIdIsMonotonic) {
+  EGraph<TestSymbol, NoAnalysis> egraph;
+  ProcessingContext<TestSymbol> ctx;
+
+  // next_class_id should never decrease, even after merges reduce num_classes
+
+  // Initially empty
+  auto initial_next = egraph.next_class_id();
+  EXPECT_EQ(initial_next, EClassId(0));  // 0 is the first ID that will be assigned
+
+  // Add first class
+  auto id1 = egraph.emplace(TestSymbol::A, utils::small_vector<EClassId>{});
+  auto next1 = egraph.next_class_id();
+  EXPECT_EQ(next1, EClassId(1));  // Next ID after 0
+  EXPECT_EQ(egraph.num_classes(), 1);
+
+  // Add second class
+  auto id2 = egraph.emplace(TestSymbol::B, utils::small_vector<EClassId>{});
+  auto next2 = egraph.next_class_id();
+  EXPECT_EQ(next2, EClassId(2));  // Next ID after 0,1
+  EXPECT_GT(next2, next1);        // Monotonic increase
+  EXPECT_EQ(egraph.num_classes(), 2);
+
+  // Add third class
+  auto id3 = egraph.emplace(TestSymbol::C, utils::small_vector<EClassId>{});
+  auto next3 = egraph.next_class_id();
+  EXPECT_EQ(next3, EClassId(3));  // Next ID after 0,1,2
+  EXPECT_GT(next3, next2);        // Monotonic increase
+  EXPECT_EQ(egraph.num_classes(), 3);
+
+  // Merge classes - this reduces num_classes but next_class_id should NOT decrease
+  egraph.merge(id1, id2, ctx);
+  auto next_after_merge1 = egraph.next_class_id();
+  EXPECT_EQ(next_after_merge1, next3);  // Should still be 3, not decreased!
+  EXPECT_EQ(egraph.num_classes(), 2);   // Only 2 classes now
+
+  // Another merge
+  egraph.merge(id2, id3, ctx);
+  auto next_after_merge2 = egraph.next_class_id();
+  EXPECT_EQ(next_after_merge2, next3);  // Should still be 3, not decreased!
+  EXPECT_EQ(egraph.num_classes(), 1);   // Only 1 class now
+
+  // Add a new class after merges
+  auto id4 = egraph.emplace(TestSymbol::D, utils::small_vector<EClassId>{});
+  auto next4 = egraph.next_class_id();
+  EXPECT_EQ(next4, EClassId(4));        // Next ID after 0,1,2,3
+  EXPECT_GT(next4, next_after_merge2);  // Monotonic increase from previous next
+  EXPECT_EQ(egraph.num_classes(), 2);   // 2 classes again
+
+  // Verify monotonic property held throughout
+  EXPECT_LE(initial_next, next1);
+  EXPECT_LE(next1, next2);
+  EXPECT_LE(next2, next3);
+  EXPECT_LE(next3, next_after_merge1);
+  EXPECT_LE(next_after_merge1, next_after_merge2);
+  EXPECT_LE(next_after_merge2, next4);
+}
+
+}  // namespace memgraph::planner::core

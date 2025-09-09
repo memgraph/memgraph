@@ -21,13 +21,13 @@ template <typename Symbol>
 requires ENodeSymbol<Symbol>
 struct ENode;
 
-template <typename Analysis = void>
+template <typename Analysis>
 struct EClass;
 
 template <typename Symbol>
 struct Hashcons;
 
-template <typename Symbol, typename Analysis = void>
+template <typename Symbol, typename Analysis>
 struct EGraph;
 
 struct UnionFind;
