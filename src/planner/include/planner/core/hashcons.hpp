@@ -154,6 +154,7 @@ auto memgraph::planner::core::Hashcons<Symbol>::lookup(const ENode<Symbol> &enod
 
 template <typename Symbol>
 void memgraph::planner::core::Hashcons<Symbol>::insert(const ENode<Symbol> &enode, EClassId eclass_id) {
+  // TODO: document that insert is actually create/update
   table_[ENodeRef{enode}] = eclass_id;
 }
 

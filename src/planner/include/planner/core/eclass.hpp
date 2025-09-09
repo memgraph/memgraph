@@ -84,8 +84,14 @@ struct EClassBase {
  * Not thread-safe.
  */
 template <typename Analysis>
-struct EClass : detail::EClassBase {
+struct EClass : private detail::EClassBase {
   explicit EClass(ENodeId initial_enode_id) : detail::EClassBase(initial_enode_id) {}
+
+  using EClassBase::add_parent;
+  using EClassBase::nodes;
+  using EClassBase::parents;
+  using EClassBase::representative_id;
+  using EClassBase::size;
 
   /**
    * @brief Merge of another e-class into this one

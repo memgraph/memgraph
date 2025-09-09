@@ -21,7 +21,7 @@ target_sources(mg-planner
     src/core/union_find.cpp
 )
 
-target_link_libraries(mg-planner PUBLIC absl::flat_hash_map mg-utils)
+target_link_libraries(mg-planner PUBLIC absl::flat_hash_map mg-utils lib::rangev3)
 
 if(MG_ENABLE_TESTING)
   add_subdirectory(test)
