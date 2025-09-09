@@ -77,7 +77,6 @@ size_t FileReplicationHandler::WriteToFile(const uint8_t *data, size_t const siz
   size_t processed_bytes{0};
   auto to_write = std::min(size, file_size_ - written_);
 
-  // While loop is at the moment not necessary since we write 256KiB at once while we read max 64KiB from the socket
   while (to_write > 0) {
     const auto chunk_size = std::min(to_write, utils::kFileBufferSize);
     file_.Write(data + processed_bytes, chunk_size);

@@ -200,8 +200,6 @@ StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size, std::option
       data_size += remaining_file_size_val;
     }
 
-    // There are 2 possible situations in which we return partial status. The first one is improbable, and it happens
-    // when the header+message request take more than 64KiB
     SegmentSize len = 0;
     if (pos + sizeof(SegmentSize) > size) {
       return {.status = StreamStatus::PARTIAL,
@@ -215,7 +213,7 @@ StreamInfo CheckStreamStatus(const uint8_t *data, size_t const size, std::option
 
     // Start of the new segment
     if (len == kFileSegmentMask) {
-      // Pos is important here and it points to the byte after the mask
+      // Pos is important here, and it points to the byte after the mask
       return {.status = StreamStatus::NEW_FILE, .stream_size = size, .encoded_data_size = data_size, .pos = pos};
     }
 
