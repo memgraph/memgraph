@@ -11,11 +11,10 @@
 
 #pragma once
 
-#include "eclass.hpp"
-#include "eids.hpp"
 #include "planner/core/eclass.hpp"
 #include "planner/core/enode.hpp"
 #include "planner/core/hashcons.hpp"  //TODO: inline
+#include "planner/core/processing_context.hpp"
 #include "planner/core/union_find.hpp"
 
 #include <boost/container/flat_set.hpp>
@@ -666,7 +665,7 @@ auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, utils::small_vector<EClass
 
   // Create new ENodeId for storage and reference
   auto [enode_ref, canonical_enode_id] = intern_enode(canonical_node);
-  hashcons_.insert(canonical_node, new_class_id);
+  hashcons_.insert(enode_ref.value(), new_class_id);
 
   // Create new e-class with the ENodeId
   auto eclass = std::make_unique<EClass<Analysis>>(canonical_enode_id);
@@ -1012,8 +1011,6 @@ void EGraph<Symbol, Analysis>::process_class_parents_for_rebuild(EClass<Analysis
 
   // Merge congruent parents using bulk operations for optimal performance
   for (const auto &[canonical_enode_ref, parent_ids] : canonical_to_parents) {
-    const auto &canonical_enode = canonical_enode_ref.value();
-
     if (parent_ids.size() > 1) {
       EClassId merged_root = union_find_.UnionSets(parent_ids, ctx.union_find_context);
       rebuild_worklist_.insert(merged_root);
@@ -1034,7 +1031,7 @@ void EGraph<Symbol, Analysis>::process_class_parents_for_rebuild(EClass<Analysis
 
     } else {
       // No merges needed - just update hashcons
-      repair_hashcons(*classes_[parent_ids[0]], parent_ids[0]);
+      //      repair_hashcons(*classes_[parent_ids[0]], parent_ids[0]);
     }
   }
 }

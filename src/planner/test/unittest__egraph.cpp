@@ -11,10 +11,8 @@
 
 #include <gtest/gtest.h>
 
-#include <unordered_map>
-
 #include "planner/core/egraph.hpp"
-#include "planner/core/union_find.hpp"
+#include "planner/core/processing_context.hpp"
 
 namespace memgraph::planner::core {
 
@@ -39,18 +37,6 @@ enum class TestSymbol : uint32_t {
 };
 
 struct NoAnalysis {};
-
-// Simple processing context for testing
-// TODO: this should be moved into a production header this is not test code, but actual required for enode usage
-template <typename Symbol>
-class ProcessingContext {
- public:
-  // Storage for enode to parents mapping used during rebuilding
-  std::unordered_map<ENodeRef<Symbol>, std::vector<EClassId>> enode_to_parents;
-
-  // Context for union-find operations
-  UnionFindContext union_find_context;
-};
 
 TEST(EGraphBasicOperations, EmptyEGraph) {
   EGraph<TestSymbol, NoAnalysis> egraph;
