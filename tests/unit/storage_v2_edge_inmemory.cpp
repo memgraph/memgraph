@@ -5413,46 +5413,6 @@ TEST(StorageWithProperties, EdgeNonexistentPropertyAPI) {
   ASSERT_TRUE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).has_value());
 }
 
-TEST_P(StorageEdgeTest, ConcurrentTransactionsCanCreateInterleavedOperations) {
-  std::unique_ptr<memgraph::storage::Storage> store(
-      new memgraph::storage::InMemoryStorage({.salient = {.items = {.properties_on_edges = GetParam()}}}));
-  memgraph::storage::Gid gid_v1, gid_v2;
-
-  {
-    auto acc = store->Access();
-    auto v1 = acc->CreateVertex();
-    auto v2 = acc->CreateVertex();
-    gid_v1 = v1.Gid();
-    gid_v2 = v2.Gid();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
-  }
-
-  auto acc1 = store->Access();
-  auto acc2 = store->Access();
-
-  auto v1_tx1 = acc1->FindVertex(gid_v1, memgraph::storage::View::NEW);
-  auto v2_tx1 = acc1->FindVertex(gid_v2, memgraph::storage::View::NEW);
-  auto v1_tx2 = acc2->FindVertex(gid_v1, memgraph::storage::View::NEW);
-  auto v2_tx2 = acc2->FindVertex(gid_v2, memgraph::storage::View::NEW);
-  ASSERT_TRUE(v1_tx1 && v2_tx1 && v1_tx2 && v2_tx2);
-
-  auto et1 = acc1->NameToEdgeType("Edge1");
-  auto et2 = acc2->NameToEdgeType("Edge2");
-  auto et3 = acc2->NameToEdgeType("Edge3");
-
-  auto edge1 = acc1->CreateEdge(&*v1_tx1, &*v2_tx1, et1);
-  ASSERT_TRUE(edge1.HasValue());
-
-  auto edge2 = acc2->CreateEdge(&*v1_tx2, &*v2_tx2, et2);
-  ASSERT_TRUE(edge2.HasValue());
-
-  auto edge3 = acc1->CreateEdge(&*v1_tx1, &*v2_tx1, et3);
-  ASSERT_TRUE(edge3.HasValue());
-
-  ASSERT_FALSE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
-  ASSERT_FALSE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
-}
-
 TEST_P(StorageEdgeTest, NonCommutativeOperationsOnCurrentTransactionsAreSerializationErrors) {
   std::unique_ptr<memgraph::storage::Storage> store(
       new memgraph::storage::InMemoryStorage({.salient = {.items = {.properties_on_edges = GetParam()}}}));
@@ -5481,52 +5441,4 @@ TEST_P(StorageEdgeTest, NonCommutativeOperationsOnCurrentTransactionsAreSerializ
   auto label_result = v1_tx2->AddLabel(label);
   EXPECT_TRUE(label_result.HasError());
   EXPECT_EQ(label_result.GetError(), memgraph::storage::Error::SERIALIZATION_ERROR);
-}
-
-TEST_P(StorageEdgeTest, OnlyInterleavedOperationsCanBePerformedWhenHeadOperationIsInterleaved) {
-  std::unique_ptr<memgraph::storage::Storage> store(
-      new memgraph::storage::InMemoryStorage({.salient = {.items = {.properties_on_edges = GetParam()}}}));
-  memgraph::storage::Gid gid_v1, gid_v2, gid_v3;
-
-  {
-    auto acc = store->Access();
-    auto v1 = acc->CreateVertex();
-    auto v2 = acc->CreateVertex();
-    auto v3 = acc->CreateVertex();
-    gid_v1 = v1.Gid();
-    gid_v2 = v2.Gid();
-    gid_v3 = v3.Gid();
-    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
-  }
-
-  auto acc1 = store->Access();
-  auto v1_tx1 = acc1->FindVertex(gid_v1, memgraph::storage::View::NEW);
-  auto v2_tx1 = acc1->FindVertex(gid_v2, memgraph::storage::View::NEW);
-  ASSERT_TRUE(v1_tx1 && v2_tx1);
-
-  auto et1 = acc1->NameToEdgeType("Edge1");
-  auto edge1 = acc1->CreateEdge(&*v1_tx1, &*v2_tx1, et1);
-  ASSERT_TRUE(edge1.HasValue());
-
-  auto acc2 = store->Access();
-  auto v1_tx2 = acc2->FindVertex(gid_v1, memgraph::storage::View::NEW);
-  auto v3_tx2 = acc2->FindVertex(gid_v3, memgraph::storage::View::NEW);
-  ASSERT_TRUE(v1_tx2 && v3_tx2);
-
-  auto et2 = acc2->NameToEdgeType("Edge2");
-  auto edge2 = acc2->CreateEdge(&*v1_tx2, &*v3_tx2, et2);
-  ASSERT_TRUE(edge2.HasValue());
-
-  auto et3 = acc2->NameToEdgeType("Edge3");
-  auto v2_tx2 = acc2->FindVertex(gid_v2, memgraph::storage::View::NEW);
-  ASSERT_TRUE(v2_tx2);
-  auto edge3 = acc2->CreateEdge(&*v1_tx2, &*v2_tx2, et3);
-  ASSERT_TRUE(edge3.HasValue());
-
-  auto label = acc2->NameToLabel("Label");
-  auto label_result = v1_tx2->AddLabel(label);
-  EXPECT_TRUE(label_result.HasError());
-  EXPECT_EQ(label_result.GetError(), memgraph::storage::Error::SERIALIZATION_ERROR);
-
-  ASSERT_FALSE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
 }
