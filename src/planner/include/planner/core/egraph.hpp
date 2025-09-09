@@ -988,9 +988,10 @@ template <typename Symbol, typename Analysis>
 void EGraph<Symbol, Analysis>::repair_hashcons(EClass<Analysis> const &eclass, EClassId eclass_id) {
   // Update hash consing for all nodes in this e-class
   for (const auto &enode_id : eclass.nodes()) {
+    // TODO: investigate, do make make new canonicalize enodes, if already canonical then we waste tempory allocations
     auto [enode_ref, _] = intern_enode(get_enode(enode_id).canonicalize(union_find_));
     // Update or insert canonical form
-    hashcons_.insert(enode_ref.value(), eclass_id);  // TODO: do we check enode != canonical? Do we remove enode?
+    hashcons_.insert(enode_ref.value(), eclass_id);  // TODO: Do we remove enode?
   }
 }
 
@@ -1034,17 +1035,6 @@ void EGraph<Symbol, Analysis>::process_class_parents_for_rebuild(EClass<Analysis
     } else {
       // No merges needed - just update hashcons
       repair_hashcons(*classes_[parent_ids[0]], parent_ids[0]);
-
-      //      // Update hash consing with representative
-      //      // TODO: why can't this wait for deferred processing?
-      //      //      hashcons_.insert(canonical_enode, parent_ids[0]);
-      //      auto found_eclass = hashcons_.lookup(canonical_enode);
-      //      if (!found_eclass) [[unlikely]] {
-      //        throw std::runtime_error("Failed to find canonical e-class");
-      //      }
-      //      if (found_eclass != parent_ids[0]) {
-      //        throw std::runtime_error("Failed to find canonical e-class");
-      //      }
     }
   }
 }
