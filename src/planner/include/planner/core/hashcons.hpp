@@ -141,9 +141,7 @@ class Hashcons {
   /**
    * @brief Internal hash table storing ENode to e-class ID mappings
    */
-  boost::unordered_flat_map<ENode<Symbol> /*TODO hold shared copy by ptr*/, EClassId,
-                            ENodeHash<Symbol> /*ENodePtrHash*/ /*ENodePtrEq*/>
-      table_;
+  boost::unordered_flat_map<ENode<Symbol> /*TODO hold shared copy by ptr*/, EClassId, std::hash<ENode<Symbol>>> table_;
 };
 
 }  // namespace memgraph::planner::core
