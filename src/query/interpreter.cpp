@@ -883,14 +883,21 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
         // If the license is not valid we create users with admin access
         if (!valid_enterprise_license) {
           spdlog::warn("Granting all the privileges to {}.", username);
-          auth->GrantPrivilege(username, kPrivilegesAll
+          auth->GrantPrivilege(
+              username, kPrivilegesAll
 #ifdef MG_ENTERPRISE
-                               ,
-                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
-                               {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}}
+              ,
+              {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
+              {
+                {
+                  {
+                    AuthQuery::FineGrainedPrivilege::CREATE_DELETE, { query::kAsterisk }
+                  }
+                }
+              }
 #endif
-                               ,
-                               &*interpreter->system_transaction_);
+              ,
+              &*interpreter->system_transaction_);
         }
 
         return std::vector<std::vector<TypedValue>>();
@@ -2441,16 +2448,16 @@ struct TxTimeout {
 };
 
 struct PullPlan {
-  explicit PullPlan(std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, bool is_profile_query,
-                    DbAccessor *dba, InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
-                    std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
-                    storage::DatabaseProtectorPtr protector, std::optional<QueryLogger> &query_logger,
-                    TriggerContextCollector *trigger_context_collector = nullptr,
-                    std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr,
-                    std::optional<int64_t> hops_limit = {}
+  explicit PullPlan(
+      std::shared_ptr<PlanWrapper> plan, const Parameters &parameters, bool is_profile_query, DbAccessor *dba,
+      InterpreterContext *interpreter_context, utils::MemoryResource *execution_memory,
+      std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
+      storage::DatabaseProtectorPtr protector, std::optional<QueryLogger> &query_logger,
+      TriggerContextCollector *trigger_context_collector = nullptr, std::optional<size_t> memory_limit = {},
+      FrameChangeCollector *frame_change_collector_ = nullptr, std::optional<int64_t> hops_limit = {}
 #ifdef MG_ENTERPRISE
-                    ,
-                    std::shared_ptr<utils::UserResources> user_resource = {}
+      ,
+      std::shared_ptr<utils::UserResources> user_resource = {}
 #endif
   );
 
@@ -2501,7 +2508,9 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
       query_logger_(query_logger)
 #ifdef MG_ENTERPRISE
       ,
-      user_resource_{std::move(user_resource)}
+      user_resource_ {
+  std::move(user_resource)
+}
 #endif
 {
   ctx_.hops_limit = query::HopsLimit{hops_limit};
@@ -2693,8 +2702,8 @@ auto DetermineTxTimeout(std::optional<int64_t> tx_timeout_ms, InterpreterConfig 
   return TxTimeout{};
 }
 
-auto CreateTimeoutTimer(QueryExtras const &extras,
-                        InterpreterConfig const &config) -> std::shared_ptr<utils::AsyncTimer> {
+auto CreateTimeoutTimer(QueryExtras const &extras, InterpreterConfig const &config)
+    -> std::shared_ptr<utils::AsyncTimer> {
   if (auto const timeout = DetermineTxTimeout(extras.tx_timeout, config)) {
     return std::make_shared<utils::AsyncTimer>(timeout.ValueUnsafe().count());
   }
@@ -2791,14 +2800,14 @@ inline static void TryCaching(const AstStorage &ast_storage, FrameChangeCollecto
   }
 }
 
-PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary,
-                                 InterpreterContext *interpreter_context, CurrentDB &current_db,
-                                 utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
-                                 std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
-                                 Interpreter &interpreter, FrameChangeCollector *frame_change_collector = nullptr
+PreparedQuery PrepareCypherQuery(
+    ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
+    CurrentDB &current_db, utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
+    std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context, Interpreter &interpreter,
+    FrameChangeCollector *frame_change_collector = nullptr
 #ifdef MG_ENTERPRISE
-                                 ,
-                                 std::shared_ptr<utils::UserResources> user_resource = {}
+    ,
+    std::shared_ptr<utils::UserResources> user_resource = {}
 #endif
 ) {
   auto *cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
@@ -2955,15 +2964,14 @@ PreparedQuery PrepareExplainQuery(ParsedQuery parsed_query, std::map<std::string
                        RWType::NONE};
 }
 
-PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                  std::map<std::string, TypedValue> *summary, std::vector<Notification> *notifications,
-                                  InterpreterContext *interpreter_context, Interpreter &interpreter,
-                                  CurrentDB &current_db, utils::MemoryResource *execution_memory,
-                                  std::shared_ptr<QueryUserOrRole> user_or_role, StoppingContext stopping_context,
-                                  FrameChangeCollector *frame_change_collector
+PreparedQuery PrepareProfileQuery(
+    ParsedQuery parsed_query, bool in_explicit_transaction, std::map<std::string, TypedValue> *summary,
+    std::vector<Notification> *notifications, InterpreterContext *interpreter_context, Interpreter &interpreter,
+    CurrentDB &current_db, utils::MemoryResource *execution_memory, std::shared_ptr<QueryUserOrRole> user_or_role,
+    StoppingContext stopping_context, FrameChangeCollector *frame_change_collector
 #ifdef MG_ENTERPRISE
-                                  ,
-                                  std::shared_ptr<utils::UserResources> user_resource = {}
+    ,
+    std::shared_ptr<utils::UserResources> user_resource = {}
 #endif
 ) {
   const std::string kProfileQueryStart = "profile ";
@@ -3386,11 +3394,11 @@ std::vector<std::vector<TypedValue>> AnalyzeGraphQueryHandler::AnalyzeGraphDelet
   std::vector<std::vector<TypedValue>> results;
   results.reserve(label_results.size() + label_prop_results.size());
 
-  std::transform(label_results.begin(), label_results.end(), std::back_inserter(results),
-                 [execution_db_accessor](const auto &label_index) {
-                   return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)),
-                                                  TypedValue("")};
-                 });
+  std::transform(
+      label_results.begin(), label_results.end(), std::back_inserter(results),
+      [execution_db_accessor](const auto &label_index) {
+        return std::vector<TypedValue>{TypedValue(execution_db_accessor->LabelToName(label_index)), TypedValue("")};
+      });
 
   auto const prop_path_to_name = [&](storage::PropertyPath const &property_path) {
     return TypedValue{PropertyPathToName(execution_db_accessor, property_path)};
@@ -3879,8 +3887,8 @@ PreparedQuery PrepareVectorIndexQuery(ParsedQuery parsed_query, bool in_explicit
       RWType::W};
 }
 
-PreparedQuery PrepareVectorEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
-                                          std::vector<Notification> *notifications, CurrentDB &current_db) {
+PreparedQuery PrepareCreateVectorEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                                                std::vector<Notification> *notifications, CurrentDB &current_db) {
   if (in_explicit_transaction) {
     throw IndexInMulticommandTxException();
   }
@@ -4004,6 +4012,56 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
       break;
     }
   }
+
+  return PreparedQuery{
+      {},
+      std::move(parsed_query.required_privileges),
+      [handler = std::move(handler), notifications, index_notification = std::move(index_notification)](
+          AnyStream * /*stream*/, std::optional<int> /*unused*/) mutable {
+        handler(index_notification);
+        notifications->push_back(index_notification);
+        return QueryHandlerResult::COMMIT;
+      },
+      RWType::W};
+}
+
+PreparedQuery PrepareCreateTextEdgeIndexQuery(ParsedQuery parsed_query, bool in_explicit_transaction,
+                                              std::vector<Notification> *notifications, CurrentDB &current_db) {
+  if (in_explicit_transaction) {
+    throw IndexInMulticommandTxException();
+  }
+
+  if (!current_db.db_acc_->get()->config().salient.items.properties_on_edges) {
+    throw EdgeIndexDisabledPropertiesOnEdgesException();
+  }
+
+  auto *text_edge_index_query = utils::Downcast<CreateTextEdgeIndexQuery>(parsed_query.query);
+  std::function<void(Notification &)> handler;
+
+  MG_ASSERT(current_db.db_acc_, "Text index query expects a current DB");
+  auto &db_acc = *current_db.db_acc_;
+
+  MG_ASSERT(current_db.db_transactional_accessor_, "Text index query expects a current DB transaction");
+  auto *dba = &*current_db.execution_db_accessor_;
+
+  auto *storage = db_acc->storage();
+  const auto edge_type_id = storage->NameToEdgeType(text_edge_index_query->edge_type_.name);
+  const auto &index_name = text_edge_index_query->index_name_;
+  auto property_ids = text_edge_index_query->properties_ |
+                      rv::transform([&](const auto &property) { return storage->NameToProperty(property.name); }) |
+                      r::to_vector;
+  Notification index_notification(SeverityLevel::INFO);
+  index_notification.code = NotificationCode::CREATE_INDEX;
+  index_notification.title = fmt::format("Created text index on label {}.", text_edge_index_query->edge_type_.name);
+  handler = [dba, edge_type_id, index_name, edge_type_name = std::move(text_edge_index_query->edge_type_.name),
+             property_ids = std::move(property_ids)](Notification &index_notification) {
+    auto maybe_error = dba->CreateTextEdgeIndex(storage::TextEdgeIndexSpec{index_name, edge_type_id, property_ids});
+    if (maybe_error.HasError()) {
+      index_notification.code = NotificationCode::EXISTENT_INDEX;
+      index_notification.title =
+          fmt::format("Text index on label {} with name {} already exists.", edge_type_name, index_name);
+    }
+  };
 
   return PreparedQuery{
       {},
@@ -5278,7 +5336,8 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
         const std::string_view edge_type_index_mark{"edge-type"};
         const std::string_view edge_type_property_index_mark{"edge-type+property"};
         const std::string_view edge_property_index_mark{"edge-property"};
-        const std::string_view text_index_mark{"text"};
+        const std::string_view text_label_index_mark{"label_text"};
+        const std::string_view text_edge_type_index_mark{"edge-type_text"};
         const std::string_view point_label_property_index_mark{"point"};
         const std::string_view vector_label_property_index_mark{"label+property_vector"};
         const std::string_view vector_edge_property_index_mark{"edge-type+property_vector"};
@@ -5317,11 +5376,21 @@ PreparedQuery PrepareDatabaseInfoQuery(ParsedQuery parsed_query, bool in_explici
           auto prop_names =
               properties |
               rv::transform([storage](auto prop_id) { return TypedValue(storage->PropertyToName(prop_id)); }) |
-              ranges::to_vector;
+              r::to_vector;
           results.push_back(
-              {TypedValue(fmt::format("{} (name: {})", text_index_mark, index_name)),
+              {TypedValue(fmt::format("{} (name: {})", text_label_index_mark, index_name)),
                TypedValue(storage->LabelToName(label)), TypedValue(std::move(prop_names)),
                TypedValue(static_cast<int>(storage_acc->ApproximateVerticesTextCount(index_name).value_or(0)))});
+        }
+        for (const auto &[index_name, label, properties] : info.text_edge_indices) {
+          auto prop_names =
+              properties |
+              rv::transform([storage](auto prop_id) { return TypedValue(storage->PropertyToName(prop_id)); }) |
+              r::to_vector;
+          results.push_back(
+              {TypedValue(fmt::format("{} (name: {})", text_edge_type_index_mark, index_name)),
+               TypedValue(storage->EdgeTypeToName(label)), TypedValue(std::move(prop_names)),
+               TypedValue(static_cast<int>(storage_acc->ApproximateEdgesTextCount(index_name).value_or(0)))});
         }
         for (const auto &[label_id, prop_id] : info.point_label_property) {
           results.push_back({TypedValue(point_label_property_index_mark), TypedValue(storage->LabelToName(label_id)),
@@ -6430,15 +6499,6 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
              {"type", "label+property_vector"}}));
       }
 
-      // Vertex edge type property_vector
-      for (const auto &spec : index_info.vector_edge_indices_spec) {
-        node_indexes.push_back(nlohmann::json::object(
-            {{"edge_type", {storage->EdgeTypeToName(spec.edge_type_id)}},
-             {"properties", {storage->PropertyToName(spec.property)}},
-             {"count", storage_acc->ApproximateEdgesVectorCount(spec.edge_type_id, spec.property).value_or(0)},
-             {"type", "edge_type+property_vector"}}));
-      }
-
       // Edge type indices
       for (const auto type : index_info.edge_type) {
         edge_indexes.push_back(nlohmann::json::object({
@@ -6464,6 +6524,26 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
             {"count", storage_acc->ApproximateEdgeCount(property)},
             {"type", "edge_property"},
         }));
+      }
+      // Edge type property_vector
+      for (const auto &spec : index_info.vector_edge_indices_spec) {
+        node_indexes.push_back(nlohmann::json::object(
+            {{"edge_type", {storage->EdgeTypeToName(spec.edge_type_id)}},
+             {"properties", {storage->PropertyToName(spec.property)}},
+             {"count", storage_acc->ApproximateEdgesVectorCount(spec.edge_type_id, spec.property).value_or(0)},
+             {"type", "edge_type+property_vector"}}));
+      }
+      // Edge type text
+      for (const auto &[index_name, edge_type, properties] : index_info.text_edge_indices) {
+        auto prop_names =
+            properties |
+            rv::transform([storage](storage::PropertyId property_id) { return storage->PropertyToName(property_id); }) |
+            r::to_vector;
+        node_indexes.push_back(
+            nlohmann::json::object({{"edge_type", {storage->EdgeTypeToName(edge_type)}},
+                                    {"properties", std::move(prop_names)},
+                                    {"count", storage_acc->ApproximateEdgesTextCount(index_name).value_or(0)},
+                                    {"type", "edge_type_text"}}));
       }
       json.emplace("node_indexes", std::move(node_indexes));
       json.emplace("edge_indexes", std::move(edge_indexes));
@@ -6926,18 +7006,22 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   void Visit(IsolationLevelQuery & /*unused*/) override {}
   void Visit(StorageModeQuery & /*unused*/) override {}
   void Visit(CreateSnapshotQuery & /*unused*/)
-      override { /*CreateSnapshot is also used in a periodic way so internally will arrange its own access*/ }
+      override { /*CreateSnapshot is also used in a periodic way so internally will arrange its own access*/
+  }
   void Visit(ShowSnapshotsQuery & /*unused*/) override {}
   void Visit(ShowNextSnapshotQuery & /* unused */) override {}
   void Visit(EdgeImportModeQuery & /*unused*/) override {}
-  void Visit(AlterEnumRemoveValueQuery & /*unused*/) override { /* Not implemented yet */ }
-  void Visit(DropEnumQuery & /*unused*/) override { /* Not implemented yet */ }
+  void Visit(AlterEnumRemoveValueQuery & /*unused*/) override { /* Not implemented yet */
+  }
+  void Visit(DropEnumQuery & /*unused*/) override { /* Not implemented yet */
+  }
   void Visit(SessionTraceQuery & /*unused*/) override {}
 
   // Some queries require an active transaction in order to be prepared.
   // Unique access required
   void Visit(PointIndexQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
   void Visit(TextIndexQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
+  void Visit(CreateTextEdgeIndexQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
   void Visit(VectorIndexQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
   void Visit(CreateVectorEdgeIndexQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
   void Visit(ConstraintQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::UNIQUE; }
@@ -7177,12 +7261,15 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     } else if (utils::Downcast<TextIndexQuery>(parsed_query.query)) {
       prepared_query = PrepareTextIndexQuery(std::move(parsed_query), in_explicit_transaction_,
                                              &query_execution->notifications, current_db_);
+    } else if (utils::Downcast<CreateTextEdgeIndexQuery>(parsed_query.query)) {
+      prepared_query = PrepareCreateTextEdgeIndexQuery(std::move(parsed_query), in_explicit_transaction_,
+                                                       &query_execution->notifications, current_db_);
     } else if (utils::Downcast<VectorIndexQuery>(parsed_query.query)) {
       prepared_query = PrepareVectorIndexQuery(std::move(parsed_query), in_explicit_transaction_,
                                                &query_execution->notifications, current_db_);
     } else if (utils::Downcast<CreateVectorEdgeIndexQuery>(parsed_query.query)) {
-      prepared_query = PrepareVectorEdgeIndexQuery(std::move(parsed_query), in_explicit_transaction_,
-                                                   &query_execution->notifications, current_db_);
+      prepared_query = PrepareCreateVectorEdgeIndexQuery(std::move(parsed_query), in_explicit_transaction_,
+                                                         &query_execution->notifications, current_db_);
     } else if (utils::Downcast<TtlQuery>(parsed_query.query)) {
 #ifdef MG_ENTERPRISE
       prepared_query = PrepareTtlQuery(std::move(parsed_query), in_explicit_transaction_,

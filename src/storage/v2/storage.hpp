@@ -45,6 +45,7 @@ extern const Event ActiveEdgeTypePropertyIndices;
 extern const Event ActiveEdgePropertyIndices;
 extern const Event ActivePointIndices;
 extern const Event ActiveTextIndices;
+extern const Event ActiveTextEdgeIndices;
 extern const Event ActiveVectorIndices;
 extern const Event ActiveVectorEdgeIndices;
 }  // namespace memgraph::metrics
@@ -86,6 +87,7 @@ struct IndicesInfo {
   std::vector<std::pair<EdgeTypeId, PropertyId>> edge_type_property;
   std::vector<PropertyId> edge_property;
   std::vector<TextIndexSpec> text_indices;
+  std::vector<TextEdgeIndexSpec> text_edge_indices;
   std::vector<std::pair<LabelId, PropertyId>> point_label_property;
   std::vector<VectorIndexSpec> vector_indices_spec;
   std::vector<VectorEdgeIndexSpec> vector_edge_indices_spec;
@@ -263,6 +265,8 @@ class Storage {
 
     virtual std::optional<EdgeAccessor> FindEdge(Gid gid, View view) = 0;
 
+    virtual std::optional<EdgeAccessor> FindEdge(Gid edge_gid, Gid from_vertex_gid, View view) = 0;
+
     virtual EdgesIterable Edges(EdgeTypeId edge_type, View view) = 0;
 
     virtual EdgesIterable Edges(EdgeTypeId edge_type, PropertyId property, View view) = 0;
@@ -328,6 +332,8 @@ class Storage {
 
     virtual std::optional<uint64_t> ApproximateVerticesTextCount(std::string_view index_name) const = 0;
 
+    virtual std::optional<uint64_t> ApproximateEdgesTextCount(std::string_view index_name) const = 0;
+
     virtual auto GetIndexStats(const storage::LabelId &label) const -> std::optional<storage::LabelIndexStats> = 0;
 
     virtual auto GetIndexStats(const storage::LabelId &label, std::span<storage::PropertyPath const> properties) const
@@ -356,8 +362,9 @@ class Storage {
 
     virtual bool LabelPropertyIndexExists(LabelId label, std::span<PropertyPath const> properties) const = 0;
 
-    auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels, std::span<PropertyPath const> properties)
-        const -> std::vector<LabelPropertiesIndicesInfo> {
+    auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
+                                            std::span<PropertyPath const> properties) const
+        -> std::vector<LabelPropertiesIndicesInfo> {
       return transaction_.active_indices_.label_properties_->RelevantLabelPropertiesIndicesInfo(labels, properties);
     };
 
@@ -381,6 +388,12 @@ class Storage {
     std::string TextIndexAggregate(const std::string &index_name, const std::string &search_query,
                                    const std::string &aggregation_query) const {
       return storage_->indices_.text_index_.Aggregate(index_name, search_query, aggregation_query);
+    }
+
+    std::vector<EdgeTextSearchResult> SearchEdgeTextIndex(const std::string &index_name,
+                                                          const std::string &search_query,
+                                                          text_search_mode search_mode) const {
+      return storage_->indices_.text_edge_index_.Search(index_name, search_query, search_mode);
     }
 
     virtual bool PointIndexExists(LabelId label, PropertyId property) const = 0;
@@ -471,6 +484,9 @@ class Storage {
 
     utils::BasicResult<storage::StorageIndexDefinitionError, void> DropTextIndex(const std::string &index_name);
 
+    utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateTextEdgeIndex(
+        const TextEdgeIndexSpec &text_edge_index_info);
+
     virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorIndex(VectorIndexSpec spec) = 0;
 
     virtual utils::BasicResult<storage::StorageIndexDefinitionError, void> DropVectorIndex(
@@ -507,8 +523,8 @@ class Storage {
     }
     auto GetEnumStoreShared() const -> EnumStore const & { return storage_->enum_store_; }
 
-    auto CreateEnum(std::string_view name,
-                    std::span<std::string const> values) -> memgraph::utils::BasicResult<EnumStorageError, EnumTypeId> {
+    auto CreateEnum(std::string_view name, std::span<std::string const> values)
+        -> memgraph::utils::BasicResult<EnumStorageError, EnumTypeId> {
       auto res = storage_->enum_store_.RegisterEnum(name, values);
       if (res.HasValue()) {
         transaction_.md_deltas.emplace_back(MetadataDelta::enum_create, res.GetValue());
@@ -516,8 +532,8 @@ class Storage {
       return res;
     }
 
-    auto EnumAlterAdd(std::string_view name,
-                      std::string_view value) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+    auto EnumAlterAdd(std::string_view name, std::string_view value)
+        -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
       auto res = storage_->enum_store_.AddValue(name, value);
       if (res.HasValue()) {
         transaction_.md_deltas.emplace_back(MetadataDelta::enum_alter_add, res.GetValue());
@@ -525,8 +541,8 @@ class Storage {
       return res;
     }
 
-    auto EnumAlterUpdate(std::string_view name, std::string_view old_value,
-                         std::string_view new_value) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+    auto EnumAlterUpdate(std::string_view name, std::string_view old_value, std::string_view new_value)
+        -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
       auto res = storage_->enum_store_.UpdateValue(name, old_value, new_value);
       if (res.HasValue()) {
         transaction_.md_deltas.emplace_back(MetadataDelta::enum_alter_update, res.GetValue(), std::string{old_value});
@@ -536,8 +552,8 @@ class Storage {
 
     auto ShowEnums() { return storage_->enum_store_.AllRegistered(); }
 
-    auto GetEnumValue(std::string_view name,
-                      std::string_view value) const -> utils::BasicResult<EnumStorageError, Enum> {
+    auto GetEnumValue(std::string_view name, std::string_view value) const
+        -> utils::BasicResult<EnumStorageError, Enum> {
       return storage_->enum_store_.ToEnum(name, value);
     }
 
