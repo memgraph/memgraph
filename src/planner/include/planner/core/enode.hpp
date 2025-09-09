@@ -28,8 +28,7 @@ template <typename T>
 concept ENodeSymbol = requires(T a, T b) {
   { std::hash<T>{}(a) } -> std::convertible_to<std::size_t>;
   { a == b } -> std::convertible_to<bool>;
-}
-&&std::is_trivially_copyable_v<T>;
+} && std::is_trivially_copyable_v<T>;
 
 struct UnionFind;
 
@@ -82,7 +81,7 @@ struct ENodeBase {
  * - Canonicalize() builds new ENode with updated child IDs after e-class merging
  */
 template <typename Symbol>
-requires ENodeSymbol<Symbol>
+  requires ENodeSymbol<Symbol>
 struct ENode : private detail::ENodeBase {
   ENode(Symbol sym, uint64_t disambig) : ENodeBase{disambig}, symbol_(std::move(sym)) {}
 

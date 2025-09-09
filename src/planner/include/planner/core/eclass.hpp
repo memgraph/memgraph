@@ -18,22 +18,9 @@
 
 namespace memgraph::planner::core {
 
-/**
- * @brief Equivalence class containing semantically equivalent e-nodes
- *
- * @details
- * An E-class represents a set of e-nodes that are known to be semantically
- * equivalent.
- *
- * @tparam Symbol The type used for operation symbols in e-nodes
- * @tparam Analysis Optional analysis type for attaching domain-specific data
- *
- * @par Thread Safety:
- * Not thread-safe.
- */
-template <typename Symbol, typename Analysis>
-struct EClass {
-  explicit EClass(ENodeId initial_enode_id) {
+namespace detail {
+struct EClassBase {
+  explicit EClassBase(ENodeId initial_enode_id) {
     nodes.reserve(8);
     parents.reserve(16);
 
@@ -49,15 +36,6 @@ struct EClass {
   void add_parent(ENodeId parent_enode_id, EClassId parent_class_id);
 
   /**
-   * @brief Merge of another e-class into this one
-   *
-   * @param other The e-class to merge into this one (may be modified)
-
-   * @complexity O(min(this.size(), other.size())) amortized
-   */
-  void merge_with(EClass &&other);
-
-  /**
    * @brief Get the number of e-nodes in this class
    */
   [[nodiscard]] auto size() const -> size_t { return nodes.size(); }
@@ -66,6 +44,43 @@ struct EClass {
    * @brief Get a representative ENodeId from this class
    */
   [[nodiscard]] auto representative_id() const -> ENodeId;
+
+  boost::unordered_flat_set<ENodeId> nodes;
+  /**
+   * @brief Parent references for congruence closure
+   *
+   * Maintains a list of "parent" e-node IDs that have this e-class as a child.
+   * Each entry is a pair of (parent_enode_id, parent_class_id), enabling
+   * efficient propagation during congruence closure algorithms.
+   * Uses ENodeId for memory efficiency and fast integer-based comparisons.
+   */
+  std::vector<std::pair<ENodeId, EClassId>> parents;  // TODO: is the right way to track parents
+};
+}  // namespace detail
+
+/**
+ * @brief Equivalence class containing semantically equivalent e-nodes
+ *
+ * @details
+ * An E-class represents a set of e-nodes that are known to be semantically
+ * equivalent.
+ *
+ * @tparam Symbol The type used for operation symbols in e-nodes
+ * @tparam Analysis Optional analysis type for attaching domain-specific data
+ *
+ * @par Thread Safety:
+ * Not thread-safe.
+ */
+template <typename Symbol, typename Analysis>
+struct EClass : detail::EClassBase {
+  explicit EClass(ENodeId initial_enode_id) : detail::EClassBase(initial_enode_id) {}
+
+  /**
+   * @brief Merge of another e-class into this one
+   *
+   * @param other The e-class to merge into this one (may be modified)
+   */
+  void merge_with(EClass &&other);
 
   /**
    * @brief Get a representative e-node value from this class
@@ -76,18 +91,6 @@ struct EClass {
   [[nodiscard]] auto representative_node(const EGraphType &egraph) const -> ENode<Symbol>;
 
  private:
-  boost::unordered_flat_set<ENodeId> nodes;
-
-  /**
-   * @brief Parent references for congruence closure
-   *
-   * Maintains a list of "parent" e-node IDs that have this e-class as a child.
-   * Each entry is a pair of (parent_enode_id, parent_class_id), enabling
-   * efficient propagation during congruence closure algorithms.
-   * Uses ENodeId for memory efficiency and fast integer-based comparisons.
-   */
-  std::vector<std::pair<ENodeId, EClassId>> parents;  // TODO: is the right way to track parents
-
   /**
    * @brief Domain-specific analysis data
    *
@@ -100,11 +103,6 @@ struct EClass {
    */
   Analysis analysis_data;
 };
-
-template <typename Symbol, typename Analysis>
-void EClass<Symbol, Analysis>::add_parent(ENodeId parent_enode_id, EClassId parent_class_id) {
-  parents.emplace_back(parent_enode_id, parent_class_id);
-}
 
 template <typename Symbol, typename Analysis>
 void EClass<Symbol, Analysis>::merge_with(EClass &&other) {
@@ -122,12 +120,6 @@ void EClass<Symbol, Analysis>::merge_with(EClass &&other) {
     // This would need to be implemented based on the analysis type
     // For now, just a placeholder
   }
-}
-
-template <typename Symbol, typename Analysis>
-auto EClass<Symbol, Analysis>::representative_id() const -> ENodeId {
-  // Every e-class has at least one e-node
-  return *nodes.begin();
 }
 
 template <typename Symbol, typename Analysis>
