@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -16,7 +16,6 @@
 #include "storage/v2/disk/rocksdb_storage.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_value.hpp"
-#include "storage/v2/transaction.hpp"
 #include "utils/rocksdb_serialization.hpp"
 #include "utils/synchronized.hpp"
 

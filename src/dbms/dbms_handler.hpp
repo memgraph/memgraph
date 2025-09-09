@@ -29,7 +29,6 @@
 #include "dbms/rpc.hpp"
 #include "kvstore/kvstore.hpp"
 #include "storage/v2/config.hpp"
-#include "storage/v2/transaction.hpp"
 #include "system/system.hpp"
 #include "utils/thread_pool.hpp"
 #ifdef MG_ENTERPRISE

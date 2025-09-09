@@ -13,7 +13,6 @@
 
 #include "storage/v2/schema_info.hpp"
 #include "storage/v2/storage.hpp"
-#include "storage/v2/transaction.hpp"
 
 namespace memgraph::storage {
 inline std::optional<SchemaInfo::ModifyingAccessor> SchemaInfoAccessor(Storage *storage, Transaction *transaction) {

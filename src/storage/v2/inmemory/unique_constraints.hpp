@@ -19,6 +19,7 @@
 #include "storage/v2/constraints/unique_constraints.hpp"
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/property_value.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
 #include "utils/logging.hpp"
 #include "utils/rw_spin_lock.hpp"

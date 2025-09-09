@@ -145,21 +145,12 @@ struct SchemaTracking final : public SchemaTrackingInterface {
 
 struct SchemaInfo {
   // Snapshot guaranteeing functions
-  nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store) const {
-    auto lock = std::unique_lock{operation_ordering_mutex_};  // No snapshot guarantees for ANALYTICAL
-    return tracking_.ToJson(name_id_mapper, enum_store);
-  }
+  nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store) const;
 
   void ProcessTransaction(LocalSchemaTracking &tracking, SchemaInfoPostProcess &post_process, uint64_t start_ts,
-                          uint64_t commit_ts, bool property_on_edges) {
-    auto lock = std::unique_lock{operation_ordering_mutex_};
-    tracking_.ProcessTransaction(tracking, post_process, start_ts, commit_ts, property_on_edges);
-  }
+                          uint64_t commit_ts, bool property_on_edges);
 
-  void Clear() {
-    auto lock = std::unique_lock{operation_ordering_mutex_};
-    tracking_.Clear();
-  }
+  void Clear();
 
   struct SchemaSize {
     size_t n_vertices;

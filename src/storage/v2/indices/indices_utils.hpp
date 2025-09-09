@@ -16,8 +16,6 @@
 #include "storage/v2/durability/recovery_type.hpp"
 #include "storage/v2/mvcc.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
-#include "storage/v2/transaction.hpp"
-#include "storage/v2/vertex.hpp"
 #include "storage/v2/vertex_info_helpers.hpp"
 #include "utils/spin_lock.hpp"
 #include "utils/synchronized.hpp"

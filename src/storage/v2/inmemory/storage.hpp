@@ -11,31 +11,12 @@
 
 #pragma once
 
-#include <cstdint>
-#include <memory>
-#include <utility>
-#include "flags/run_time_configurable.hpp"
 #include "storage/v2/commit_log.hpp"
-#include "storage/v2/indices/label_index_stats.hpp"
-#include "storage/v2/inmemory/edge_type_index.hpp"
-#include "storage/v2/inmemory/label_index.hpp"
-#include "storage/v2/inmemory/label_property_index.hpp"
-#include "storage/v2/inmemory/replication/recovery.hpp"
+#include "storage/v2/durability/durability.hpp"
 #include "storage/v2/inmemory/snapshot_info.hpp"
-#include "storage/v2/replication/replication_client.hpp"
+#include "storage/v2/replication/recovery.hpp"
 #include "storage/v2/storage.hpp"
-#include "storage/v2/storage_mode.hpp"
-#include "storage/v2/ttl.hpp"
-
-/// REPLICATION ///
-
-#include "storage/v2/delta_container.hpp"
-#include "storage/v2/replication/replication_storage_state.hpp"
-#include "storage/v2/replication/serialization.hpp"
-#include "storage/v2/transaction.hpp"
-#include "utils/observer.hpp"
-#include "utils/resource_lock.hpp"
-#include "utils/synchronized.hpp"
+#include "utils/file_locker.hpp"
 
 namespace memgraph::dbms {
 class InMemoryReplicationHandlers;
@@ -46,6 +27,10 @@ struct ReplicationHandler;
 }  // namespace memgraph::replication
 
 namespace memgraph::storage {
+
+namespace durability {
+class WalFile;
+}
 
 struct IndexPerformanceTracker {
   void update(Delta::Action action) {
@@ -531,8 +516,8 @@ class InMemoryStorage final : public Storage {
     /// View is not needed because a new rtree gets created for each transaction and it is always
     /// using the latest version
     auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
-                       PropertyValue const &bottom_left, PropertyValue const &top_right,
-                       WithinBBoxCondition condition) -> PointIterable override;
+                       PropertyValue const &bottom_left, PropertyValue const &top_right, WithinBBoxCondition condition)
+        -> PointIterable override;
 
     std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearchOnNodes(
         const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) override;
@@ -680,8 +665,6 @@ class InMemoryStorage final : public Storage {
   Transaction CreateTransaction(IsolationLevel isolation_level, StorageMode storage_mode) override;
 
   void SetStorageMode(StorageMode storage_mode);
-
-  const durability::Recovery &GetRecovery() const noexcept { return recovery_; }
 
   auto GetAsyncIndexer() -> AsyncIndexer & { return async_indexer_; }
 

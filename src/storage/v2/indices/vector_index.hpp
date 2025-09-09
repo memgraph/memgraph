@@ -17,10 +17,11 @@
 #include "storage/v2/indices/vector_index_utils.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/snapshot_observer_info.hpp"
-#include "storage/v2/vertex.hpp"
 #include "utils/skip_list.hpp"
 
 namespace memgraph::storage {
+
+struct Vertex;
 
 /// @struct VectorIndexInfo
 /// @brief Represents information about a vector index in the system.

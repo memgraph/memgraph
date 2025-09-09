@@ -12,6 +12,8 @@
 #include <optional>
 #include <variant>
 
+#include <nlohmann/json.hpp>
+
 #include "flags/coord_flag_env_handler.hpp"
 #include "replication/replication_client.hpp"
 #include "replication/replication_server.hpp"

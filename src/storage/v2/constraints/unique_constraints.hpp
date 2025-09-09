@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -14,10 +14,11 @@
 #include <set>
 
 #include "storage/v2/constraints/constraint_violation.hpp"
-#include "storage/v2/vertex.hpp"
 #include "utils/result.hpp"
 
 namespace memgraph::storage {
+
+struct Vertex;
 
 // NOLINTNEXTLINE(misc-definitions-in-headers)
 const size_t kUniqueConstraintsMaxProperties = 32;

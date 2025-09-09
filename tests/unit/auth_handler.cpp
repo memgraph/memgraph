@@ -17,6 +17,7 @@
 #include <atomic>
 #include <chrono>
 #include <latch>
+#include <nlohmann/json.hpp>
 #include <thread>
 #include <variant>
 
