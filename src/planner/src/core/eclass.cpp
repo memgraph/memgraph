@@ -8,3 +8,17 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
+#include "planner/core/eclass.hpp"
+
+namespace memgraph::planner::core::detail {
+
+void EClassBase::add_parent(ENodeId parent_enode_id, EClassId parent_class_id) {
+  parents.emplace_back(parent_enode_id, parent_class_id);
+}
+
+auto EClassBase::representative_id() const -> ENodeId {
+  // Every e-class has at least one e-node
+  return *nodes.begin();
+}
+
+}  // namespace memgraph::planner::core::detail
