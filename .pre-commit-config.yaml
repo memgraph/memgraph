@@ -33,3 +33,14 @@ repos:
 #        require_serial: true
 #        args: [--compile_commands_path=build]
 #        pass_filenames: false
+  - repo: local
+    hooks:
+      - id: keyword-consistency
+        name: keyword-consistency
+        description: Check consistency between lexer tokens, grammar keywords, and stripped constants
+        entry: python ./tools/pre-commit/check_keyword_consistency.py
+        language: python
+        files: ^(src/query/frontend/opencypher/grammar/.*\.g4|src/query/frontend/stripped_lexer_constants\.hpp)$
+        fail_fast: true
+        require_serial: true
+        pass_filenames: false
