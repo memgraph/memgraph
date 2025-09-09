@@ -18,17 +18,10 @@
 
 #include <boost/functional/hash.hpp>
 
-#include "planner/core/eids.hpp"
+#include "planner/core/fwd.hpp"
 #include "utils/small_vector.hpp"
 
 namespace memgraph::planner::core {
-
-/// Concept: Symbol must be hashable, trivially copyable, and equality comparable
-template <typename T>
-concept ENodeSymbol = requires(T a, T b) {
-  { std::hash<T>{}(a) } -> std::convertible_to<std::size_t>;
-  { a == b } -> std::convertible_to<bool>;
-} && std::is_trivially_copyable_v<T>;
 
 struct UnionFind;
 
@@ -81,7 +74,7 @@ struct ENodeBase {
  * - Canonicalize() builds new ENode with updated child IDs after e-class merging
  */
 template <typename Symbol>
-  requires ENodeSymbol<Symbol>
+requires ENodeSymbol<Symbol>
 struct ENode : private detail::ENodeBase {
   ENode(Symbol sym, uint64_t disambig) : ENodeBase{disambig}, symbol_(std::move(sym)) {}
 
@@ -130,6 +123,22 @@ struct ENode : private detail::ENodeBase {
   std::size_t hash_value_ = compute_hash();
 };
 
+template <typename Symbol>
+struct ENodeRef {
+  auto value() const -> const ENode<Symbol> & { return *ptr_; }
+
+  friend bool operator==(const ENodeRef<Symbol> &rhs, const ENodeRef<Symbol> &lhs) { return *rhs.ptr_ == *lhs.ptr_; }
+
+  friend bool operator==(const ENodeRef<Symbol> &rhs, const ENode<Symbol> &lhs) { return *rhs.ptr_ == lhs; }
+
+  friend bool operator==(const ENode<Symbol> &rhs, const ENodeRef<Symbol> &lhs) { return rhs == *lhs.ptr_; }
+
+  [[nodiscard]] auto hash() const -> std::size_t { return ptr_->hash(); }
+
+ private:
+  ENode<Symbol> *ptr_;
+};
+
 }  // namespace memgraph::planner::core
 
 namespace std {
@@ -137,4 +146,12 @@ template <typename Symbol>
 struct hash<memgraph::planner::core::ENode<Symbol>> {
   std::size_t operator()(memgraph::planner::core::ENode<Symbol> const &node) const noexcept { return node.hash(); }
 };
+
+template <typename Symbol>
+struct hash<memgraph::planner::core::ENodeRef<Symbol>> {
+  std::size_t operator()(memgraph::planner::core::ENodeRef<Symbol> const &node_ref) const noexcept {
+    return node_ref.hash();
+  }
+};
+
 }  // namespace std

@@ -9,31 +9,4 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
-
-#include <cstdint>
-#include "planner/core/concepts.hpp"
-#include "planner/core/eids.hpp"
-
-namespace memgraph::planner::core {
-
-template <typename Symbol>
-requires ENodeSymbol<Symbol>
-struct ENode;
-
-template <typename Analysis = void>
-struct EClass;
-
-template <typename Symbol>
-struct Hashcons;
-
-template <typename Symbol, typename Analysis = void>
-struct EGraph;
-
-struct UnionFind;
-struct UnionFindContext;
-
-template <typename Symbol>
-class ProcessingContext;
-
-}  // namespace memgraph::planner::core
+#include "planner/core/egraph.hpp"

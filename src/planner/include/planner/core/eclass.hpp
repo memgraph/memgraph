@@ -21,10 +21,10 @@ namespace memgraph::planner::core {
 namespace detail {
 struct EClassBase {
   explicit EClassBase(ENodeId initial_enode_id) {
-    nodes.reserve(8);
-    parents.reserve(16);
+    nodes_.reserve(8);
+    parents_.reserve(16);
 
-    nodes.emplace(initial_enode_id);
+    nodes_.emplace(initial_enode_id);
   }
 
   /**
@@ -38,23 +38,36 @@ struct EClassBase {
   /**
    * @brief Get the number of e-nodes in this class
    */
-  [[nodiscard]] auto size() const -> size_t { return nodes.size(); }
+  [[nodiscard]] auto size() const -> size_t { return nodes_.size(); }
 
   /**
    * @brief Get a representative ENodeId from this class
    */
   [[nodiscard]] auto representative_id() const -> ENodeId;
 
-  boost::unordered_flat_set<ENodeId> nodes;
+  auto nodes() const -> boost::unordered_flat_set<ENodeId> const & { return nodes_; }
+  auto parents() const -> std::vector<std::pair<ENodeId, EClassId>> const & { return parents_; }
+
+  auto merge_with(EClassBase &other) {
+    // Simple optimization: swap if other is significantly larger
+    if (other.nodes_.size() > nodes_.size()) {
+      nodes_.swap(other.nodes_);
+      parents_.swap(other.parents_);
+    }
+
+    nodes_.insert(other.nodes_.begin(), other.nodes_.end());
+    parents_.insert(parents_.end(), other.parents_.begin(), other.parents_.end());
+  }
+
+ private:
+  boost::unordered_flat_set<ENodeId> nodes_;
   /**
    * @brief Parent references for congruence closure
    *
    * Maintains a list of "parent" e-node IDs that have this e-class as a child.
-   * Each entry is a pair of (parent_enode_id, parent_class_id), enabling
-   * efficient propagation during congruence closure algorithms.
-   * Uses ENodeId for memory efficiency and fast integer-based comparisons.
+   * Each entry is a pair of (parent_enode_id, parent_class_id)
    */
-  std::vector<std::pair<ENodeId, EClassId>> parents;  // TODO: is the right way to track parents
+  std::vector<std::pair<ENodeId, EClassId>> parents_;  // TODO: is the right way to track parents
 };
 }  // namespace detail
 
@@ -65,13 +78,12 @@ struct EClassBase {
  * An E-class represents a set of e-nodes that are known to be semantically
  * equivalent.
  *
- * @tparam Symbol The type used for operation symbols in e-nodes
  * @tparam Analysis Optional analysis type for attaching domain-specific data
  *
  * @par Thread Safety:
  * Not thread-safe.
  */
-template <typename Symbol, typename Analysis>
+template <typename Analysis>
 struct EClass : detail::EClassBase {
   explicit EClass(ENodeId initial_enode_id) : detail::EClassBase(initial_enode_id) {}
 
@@ -80,15 +92,15 @@ struct EClass : detail::EClassBase {
    *
    * @param other The e-class to merge into this one (may be modified)
    */
-  void merge_with(EClass &&other);
+  void merge_with(EClass &&other) {
+    EClassBase::merge_with(other);
 
-  /**
-   * @brief Get a representative e-node value from this class
-   *
-   * @warning Less efficient due to copying. Consider using representative_id()
-   */
-  template <typename EGraphType>
-  [[nodiscard]] auto representative_node(const EGraphType &egraph) const -> ENode<Symbol>;
+    // Merge analysis data if present
+    if constexpr (!std::is_same_v<Analysis, void>) {
+      // This would need to be implemented based on the analysis type
+      // For now, just a placeholder
+    }
+  }
 
  private:
   /**
@@ -103,29 +115,5 @@ struct EClass : detail::EClassBase {
    */
   Analysis analysis_data;
 };
-
-template <typename Symbol, typename Analysis>
-void EClass<Symbol, Analysis>::merge_with(EClass &&other) {
-  // Simple optimization: swap if other is significantly larger
-  if (other.nodes.size() > nodes.size()) {
-    nodes.swap(other.nodes);
-    parents.swap(other.parents);
-  }
-
-  nodes.insert(other.nodes.begin(), other.nodes.end());
-  parents.insert(parents.end(), other.parents.begin(), other.parents.end());
-
-  // Merge analysis data if present
-  if constexpr (!std::is_same_v<Analysis, void>) {
-    // This would need to be implemented based on the analysis type
-    // For now, just a placeholder
-  }
-}
-
-template <typename Symbol, typename Analysis>
-template <typename EGraphType>
-auto EClass<Symbol, Analysis>::representative_node(const EGraphType &egraph) const -> ENode<Symbol> {
-  return egraph.get_enode(representative_id());
-}
 
 }  // namespace memgraph::planner::core
