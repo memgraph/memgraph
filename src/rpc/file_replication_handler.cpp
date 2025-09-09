@@ -61,8 +61,11 @@ std::optional<size_t> FileReplicationHandler::OpenFile(const uint8_t *data, size
   MG_ASSERT(maybe_file_size, "File size missing");
   file_size_ = *maybe_file_size;
 
+  spdlog::info("Replica will be using file {} with size {}", path, file_size_);
+
   // First N bytes are file_name and file_size, therefore we don't read full size
   size_t const processed_bytes = req_reader.GetPos();
+  spdlog::info("Processed {} bytes when opening file", processed_bytes);
   return processed_bytes + WriteToFile(data + processed_bytes, size - processed_bytes);
 }
 
