@@ -305,7 +305,7 @@ Feature: Vector search related features
         Given an empty graph
         When executing query:
             """
-            CALL vector_search.cosine_similarity([1.0, 2.0, 3.0], [1.0, 2.0, 3.0]) YIELD similarity RETURN similarity;
+            RETURN vector_search.cosine_similarity([1.0, 2.0, 3.0], [1.0, 2.0, 3.0]) AS similarity;
             """
         Then the result should be:
             | similarity |
@@ -315,7 +315,7 @@ Feature: Vector search related features
         Given an empty graph
         When executing query:
             """
-            CALL vector_search.cosine_similarity([1.0, 0.0], [0.0, 1.0]) YIELD similarity RETURN similarity;
+            RETURN vector_search.cosine_similarity([1.0, 0.0], [0.0, 1.0]) AS similarity;
             """
         Then the result should be:
             | similarity |
@@ -325,7 +325,7 @@ Feature: Vector search related features
         Given an empty graph
         When executing query:
             """
-            CALL vector_search.cosine_similarity([1.0, 0.0], [-1.0, 0.0]) YIELD similarity RETURN similarity;
+            RETURN vector_search.cosine_similarity([1.0, 0.0], [-1.0, 0.0]) AS similarity;
             """
         Then the result should be:
             | similarity |
@@ -335,7 +335,7 @@ Feature: Vector search related features
         Given an empty graph
         When executing query:
             """
-            CALL vector_search.cosine_similarity([1, 2.0, 3], [2.0, 4, 6.0]) YIELD similarity RETURN similarity;
+            RETURN vector_search.cosine_similarity([1, 2.0, 3], [2.0, 4, 6.0]) AS similarity;
             """
         Then the result should be:
             | similarity |
@@ -345,7 +345,7 @@ Feature: Vector search related features
         Given an empty graph
         When executing query:
             """
-            CALL vector_search.cosine_similarity([], []) YIELD similarity RETURN similarity;
+            RETURN vector_search.cosine_similarity([], []) AS similarity;
             """
         Then an error should be raised
 
@@ -353,7 +353,7 @@ Feature: Vector search related features
         Given an empty graph
         When executing query:
             """
-            CALL vector_search.cosine_similarity([1.0, 2.0], [1.0, 2.0, 3.0]) YIELD similarity RETURN similarity;
+            RETURN vector_search.cosine_similarity([1.0, 2.0], [1.0, 2.0, 3.0]) AS similarity;
             """
         Then an error should be raised
 
@@ -361,6 +361,6 @@ Feature: Vector search related features
         Given an empty graph
         When executing query:
             """
-            CALL vector_search.cosine_similarity([0.0, 0.0], [1.0, 2.0]) YIELD similarity RETURN similarity;
+            RETURN vector_search.cosine_similarity([0.0, 0.0], [1.0, 2.0]) AS similarity;
             """
         Then an error should be raised
