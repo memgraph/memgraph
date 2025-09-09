@@ -166,8 +166,9 @@ void memgraph::planner::core::Hashcons<Symbol>::remove(const ENode<Symbol> &enod
 template <typename Symbol>
 void memgraph::planner::core::Hashcons<Symbol>::update(const ENode<Symbol> &old_enode, const ENode<Symbol> &new_enode,
                                                        EClassId eclass_id) {
+  // TODO: old_enode != new_enode?
   table_.erase(ENodeRef{old_enode});
-  table_[ENodeRef{new_enode}] = eclass_id;
+  insert(new_enode, eclass_id);
 }
 
 template <typename Symbol>

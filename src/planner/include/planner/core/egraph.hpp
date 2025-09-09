@@ -11,6 +11,8 @@
 
 #pragma once
 
+#include "eclass.hpp"
+#include "eids.hpp"
 #include "planner/core/eclass.hpp"
 #include "planner/core/enode.hpp"
 #include "planner/core/hashcons.hpp"  //TODO: inline
@@ -102,6 +104,13 @@ struct EGraph {
    * over memory allocation.
    */
   auto merge(EClassId a, EClassId b) -> EClassId;
+
+  void merge_eclasses(EClass<Analysis> &destination, EClassId other_id) {
+    if (auto parent_it = classes_.find(other_id); parent_it != classes_.end()) {
+      destination.merge_with(std::move(*parent_it->second));
+      classes_.erase(parent_it);
+    }
+  }
 
   /**
    * @brief Get e-class by canonical ID (const access)
@@ -694,11 +703,7 @@ auto EGraph<Symbol, Analysis>::merge(EClassId a, EClassId b) -> EClassId {
   // Merge the e-classes
   EClassId other_id = (merged_id == canonical_a) ? canonical_b : canonical_a;
 
-  if (auto other_it = classes_.find(other_id); other_it != classes_.end()) {
-    // Use move-optimized merge since we're about to erase the other class
-    classes_[merged_id]->merge_with(std::move(*other_it->second));
-    classes_.erase(other_it);
-  }
+  merge_eclasses(*classes_[merged_id], other_id);
 
   // Handle congruence processing based on mode
   // Deferred mode: add both classes to worklist for later batch processing
@@ -720,10 +725,10 @@ auto EGraph<Symbol, Analysis>::eclass(EClassId id) const -> const EClass<Analysi
   EClassId canonical_id = union_find_.Find(id);
 
   // Ensure invariants are maintained in deferred mode
-  if (needs_rebuild()) {
-    core::ProcessingContext<Symbol> ctx;
-    const_cast<EGraph *>(this)->rebuild(ctx);
-  }
+  //  if (needs_rebuild()) {
+  //    core::ProcessingContext<Symbol> ctx;
+  //    const_cast<EGraph *>(this)->rebuild(ctx);
+  //  }
 
   auto it = classes_.find(canonical_id);
   if (it == classes_.end()) {
@@ -894,11 +899,7 @@ void EGraph<Symbol, Analysis>::process_parents_recursive(EClassId eclass_id, Pro
     EClassId new_merged_id = union_find_.UnionSets(canonical_from, canonical_to);
     EClassId other_id = (new_merged_id == canonical_from) ? canonical_to : canonical_from;
 
-    // Merge the e-classes
-    if (auto other_it = classes_.find(other_id); other_it != classes_.end()) {
-      classes_[new_merged_id]->merge_with(std::move(*other_it->second));
-      classes_.erase(other_it);
-    }
+    merge_eclasses(*classes_[new_merged_id], other_id);
 
     // Use selective cache invalidation
 
@@ -1003,9 +1004,9 @@ void EGraph<Symbol, Analysis>::process_class_parents_for_rebuild(EClass<Analysis
 
   // Group by canonical child being used by a parent + intern new connonical parent
   for (const auto &[parent_enode_id, parent_class_id] : eclass.parents()) {
+    EClassId canonical_parent = union_find_.Find(parent_class_id);
     auto [canonical_enode_ref, _] = intern_enode(get_enode(parent_enode_id).canonicalize(union_find_));
-    EClassId current_parent = union_find_.Find(parent_class_id);
-    canonical_to_parents[canonical_enode_ref].push_back(current_parent);
+    canonical_to_parents[canonical_enode_ref].push_back(canonical_parent);
   }
 
   // Merge congruent parents using bulk operations for optimal performance
@@ -1023,26 +1024,27 @@ void EGraph<Symbol, Analysis>::process_class_parents_for_rebuild(EClass<Analysis
       EClass<Analysis> &merged_eclass = *merged_it->second;
 
       // Merge e-class contents for all merged classes
-      for (auto parent_id : parent_ids) {
-        // TODO: when can `!classes_.contains(parent_id)` happen?
-        if (parent_id != merged_root && classes_.contains(parent_id)) {
-          merged_eclass.merge_with(std::move(*classes_[parent_id]));
-          classes_.erase(parent_id);
+      for (EClassId parent_id : parent_ids) {
+        if (parent_id != merged_root) {
+          merge_eclasses(merged_eclass, parent_id);
         }
       }
       // hashcons update can be defered to the next rebuild iteration because we inserted into the rebuild worklist
 
     } else {
-      // Update hash consing with representative
-      // TODO: why can't this wait for deferred processing?
-      //      hashcons_.insert(canonical_enode, parent_ids[0]);
-      auto found_eclass = hashcons_.lookup(canonical_enode);
-      if (!found_eclass) [[unlikely]] {
-        throw std::runtime_error("Failed to find canonical e-class");
-      }
-      if (found_eclass != parent_ids[0]) {
-        throw std::runtime_error("Failed to find canonical e-class");
-      }
+      // No merges needed - just update hashcons
+      repair_hashcons(*classes_[parent_ids[0]], parent_ids[0]);
+
+      //      // Update hash consing with representative
+      //      // TODO: why can't this wait for deferred processing?
+      //      //      hashcons_.insert(canonical_enode, parent_ids[0]);
+      //      auto found_eclass = hashcons_.lookup(canonical_enode);
+      //      if (!found_eclass) [[unlikely]] {
+      //        throw std::runtime_error("Failed to find canonical e-class");
+      //      }
+      //      if (found_eclass != parent_ids[0]) {
+      //        throw std::runtime_error("Failed to find canonical e-class");
+      //      }
     }
   }
 }
