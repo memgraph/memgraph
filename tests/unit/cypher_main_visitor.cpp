@@ -6423,3 +6423,17 @@ TEST_P(CypherMainVisitorTest, UserProfiles) {
     }
   }
 }
+
+TEST_P(CypherMainVisitorTest, KeywordsCanBeUsedAsLabels) {
+  auto &ast_generator = *GetParam();
+  {
+    auto *query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH ()-[r:Resource]->() RETURN r"));
+    ASSERT_TRUE(query);
+  }
+
+  {
+    auto *query =
+        dynamic_cast<CypherQuery *>(ast_generator.ParseQuery("MATCH (a:Resource)-[]->(b:Resource) RETURN a, b"));
+    ASSERT_TRUE(query);
+  }
+}

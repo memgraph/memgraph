@@ -45,6 +45,7 @@ memgraphCypherKeyword : cypherKeyword
                       | COMMITTED
                       | CONFIG
                       | CONFIGS
+                      | CONSTRAINTS
                       | CONSUMER_GROUP
                       | COORDINATOR
                       | CREATE_DELETE
@@ -85,10 +86,12 @@ memgraphCypherKeyword : cypherKeyword
                       | GRANTS
                       | GRAPH
                       | HEADER
+                      | HOPS
                       | IDENTIFIED
                       | IF
                       | IGNORE
                       | IMPERSONATE_USER
+                      | INDEXES
                       | IMPORT
                       | IN_MEMORY_ANALYTICAL
                       | IN_MEMORY_TRANSACTIONAL
@@ -99,6 +102,8 @@ memgraphCypherKeyword : cypherKeyword
                       | ISOLATION
                       | KAFKA
                       | LABELS
+                      | LAG
+                      | LEADERSHIP
                       | LEVEL
                       | LICENSE
                       | LIST
@@ -129,6 +134,8 @@ memgraphCypherKeyword : cypherKeyword
                       | POINT
                       | PORT
                       | PRIVILEGES
+                      | PROFILE_RESTRICTION
+                      | PROFILES
                       | PULSAR
                       | QUOTE
                       | QUOTE
@@ -141,6 +148,7 @@ memgraphCypherKeyword : cypherKeyword
                       | REPLICAS
                       | REPLICATION
                       | RESET
+                      | RESOURCE
                       | REVOKE
                       | ROLE
                       | ROLES
@@ -152,6 +160,7 @@ memgraphCypherKeyword : cypherKeyword
                       | SETTING
                       | SETTINGS
                       | SNAPSHOT
+                      | SNAPSHOTS
                       | START
                       | STATE
                       | STATISTICS
@@ -185,12 +194,14 @@ memgraphCypherKeyword : cypherKeyword
                       | USE
                       | USER
                       | USERS
+                      | USAGE
                       | USING
                       | VALUE
                       | VALUES
                       | VECTOR
                       | VERSION
                       | WEBSOCKET
+                      | YIELD
                       | ZONEDDATETIME
                       ;
 
