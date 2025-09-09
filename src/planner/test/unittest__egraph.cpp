@@ -193,4 +193,85 @@ TEST(EGraphClearAndReserve, ClearEmptiesTheGraph) {
   EXPECT_EQ(egraph.num_nodes(), 0);
 }
 
+TEST(EGraphRebuildHashconsConsistency, SingleParentHashconsCheck) {
+  EGraph<TestSymbol, NoAnalysis> egraph;
+  ProcessingContext<TestSymbol> ctx;
+
+  // Create a scenario where an e-class has a single parent
+  // This tests the corner case in process_class_parents_for_rebuild
+  // where parent_ids.size() == 1
+  auto a = egraph.emplace(TestSymbol::A);
+  auto fa = egraph.emplace(TestSymbol::F, {a});  // f(a) - single parent of a
+
+  // Create another independent e-class
+  auto b = egraph.emplace(TestSymbol::B);
+
+  EXPECT_EQ(egraph.num_classes(), 3);
+
+  // Merge a with b - this will trigger rebuild processing
+  // During rebuild, f(a) will be processed as a single parent
+  egraph.merge(a, b);
+
+  // The runtime checks should pass - hashcons should already have
+  // the correct mapping for the canonicalized f(a) -> fa e-class
+  EXPECT_NO_THROW(egraph.rebuild(ctx));
+
+  // Verify the merge worked correctly
+  EXPECT_EQ(egraph.find(a), egraph.find(b));
+  EXPECT_EQ(egraph.num_classes(), 2);
+}
+
+TEST(EGraphRebuildHashconsConsistency, MultipleParentsAfterMerge) {
+  EGraph<TestSymbol, NoAnalysis> egraph;
+  ProcessingContext<TestSymbol> ctx;
+
+  // Create scenario with multiple parents that become congruent after merge
+  auto a = egraph.emplace(TestSymbol::A);
+  auto b = egraph.emplace(TestSymbol::B);
+  auto c = egraph.emplace(TestSymbol::C);
+
+  // Create f(a, b) and f(c, b) - these will become congruent when a=c
+  auto fab = egraph.emplace(TestSymbol::F, {a, b});
+  auto fcb = egraph.emplace(TestSymbol::F, {c, b});
+
+  EXPECT_EQ(egraph.num_classes(), 5);
+  EXPECT_NE(egraph.find(fab), egraph.find(fcb));
+
+  // Merge a with c - this should make f(a,b) and f(c,b) congruent
+  egraph.merge(a, c);
+
+  // Rebuild should handle the multiple congruent parents case
+  EXPECT_NO_THROW(egraph.rebuild(ctx));
+
+  // Verify congruence after rebuild
+  EXPECT_EQ(egraph.find(fab), egraph.find(fcb));
+  EXPECT_EQ(egraph.num_classes(), 3);  // a=c, b, f(a,b)=f(c,b)
+}
+
+TEST(EGraphRebuildHashconsConsistency, DeepRebuildSingleParentChain) {
+  EGraph<TestSymbol, NoAnalysis> egraph;
+  ProcessingContext<TestSymbol> ctx;
+
+  // Create a chain: a -> f(a) -> g(f(a)) where each has single parent
+  auto a = egraph.emplace(TestSymbol::A);
+  auto fa = egraph.emplace(TestSymbol::F, {a});
+  auto gfa = egraph.emplace(TestSymbol::Plus, {fa});  // Using Plus as second function
+
+  // Create another chain: b -> h(b)
+  auto b = egraph.emplace(TestSymbol::B);
+  auto hb = egraph.emplace(TestSymbol::Mul, {b});  // Using Mul as third function
+
+  EXPECT_EQ(egraph.num_classes(), 5);
+
+  // Merge a chain element - this will cascade through single parents
+  egraph.merge(a, b);
+
+  // Each level should be processed with single parent logic
+  EXPECT_NO_THROW(egraph.rebuild(ctx));
+
+  // Verify the deep merge worked
+  EXPECT_EQ(egraph.find(a), egraph.find(b));
+  EXPECT_EQ(egraph.num_classes(), 4);
+}
+
 }  // namespace memgraph::planner::core
