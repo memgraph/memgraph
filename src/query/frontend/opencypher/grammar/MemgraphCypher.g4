@@ -45,7 +45,6 @@ memgraphCypherKeyword : cypherKeyword
                       | COMMITTED
                       | CONFIG
                       | CONFIGS
-
                       | CONSTRAINTS
                       | CONSUMER_GROUP
                       | COORDINATOR
