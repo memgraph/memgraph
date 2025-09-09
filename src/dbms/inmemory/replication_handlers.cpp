@@ -1367,6 +1367,30 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
             throw utils::BasicException("Failed to create text search index {} on {}.", data.index_name, data.label);
           }
         },
+        [&](WalTextEdgeIndexCreate const &data) {
+          if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+            throw query::TextSearchDisabledException();
+          }
+          auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
+          const auto edge_type = storage->NameToEdgeType(data.edge_type);
+          const auto properties_str = std::invoke([&]() -> std::string {
+            if (!data.properties.empty()) {
+              return fmt::format(" ({})", rv::join(data.properties, ", ") | r::to<std::string>);
+            }
+            return {};
+          });
+          spdlog::trace("   Delta {}. Create text search index {} on :{}{}", current_delta_idx, data.index_name,
+                        data.edge_type, properties_str);
+          auto prop_ids = data.properties |
+                          rv::transform([&](const auto &prop_name) { return storage->NameToProperty(prop_name); }) |
+                          r::to_vector;
+          const auto ret =
+              transaction->CreateTextEdgeIndex(storage::TextEdgeIndexSpec{data.index_name, edge_type, prop_ids});
+          if (ret.HasError()) {
+            throw utils::BasicException("Failed to create text search index {} on {}.", data.index_name,
+                                        data.edge_type);
+          }
+        },
         [&](WalTextIndexDrop const &data) {
           if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
             throw query::TextSearchDisabledException();

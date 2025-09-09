@@ -33,6 +33,8 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(TextIndexQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
 
+  void Visit(CreateTextEdgeIndexQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
+
   void Visit(VectorIndexQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
 
   void Visit(CreateVectorEdgeIndexQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::INDEX); }
@@ -155,7 +157,8 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
 
   void Visit(UseDatabaseQuery & /*unused*/) override { AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_USE); }
 
-  void Visit(ShowDatabaseQuery & /*unused*/) override { /* no privilege needed to show current database */ }
+  void Visit(ShowDatabaseQuery & /*unused*/) override { /* no privilege needed to show current database */
+  }
 
   void Visit(ShowDatabasesQuery & /*unused*/) override {
     AddPrivilege(AuthQuery::Privilege::MULTI_DATABASE_USE); /* OR EDIT */

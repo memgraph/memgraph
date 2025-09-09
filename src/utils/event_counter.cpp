@@ -89,6 +89,7 @@
   M(ActiveEdgePropertyIndices, Index, "Number of active edge property indices in the system.")                         \
   M(ActivePointIndices, Index, "Number of active point indices in the system.")                                        \
   M(ActiveTextIndices, Index, "Number of active text indices in the system.")                                          \
+  M(ActiveTextEdgeIndices, Index, "Number of active text edge indices in the system.")                                 \
   M(ActiveVectorIndices, Index, "Number of active vector indices in the system.")                                      \
   M(ActiveVectorEdgeIndices, Index, "Number of active vector edge indices in the system.")                             \
                                                                                                                        \

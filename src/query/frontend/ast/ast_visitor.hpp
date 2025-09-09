@@ -86,6 +86,7 @@ class IndexQuery;
 class EdgeIndexQuery;
 class PointIndexQuery;
 class TextIndexQuery;
+class CreateTextEdgeIndexQuery;
 class VectorIndexQuery;
 class CreateVectorEdgeIndexQuery;
 class DatabaseInfoQuery;
@@ -173,13 +174,14 @@ template <class TResult>
 class QueryVisitor
     : public utils::Visitor<
           TResult, CypherQuery, ExplainQuery, ProfileQuery, IndexQuery, EdgeIndexQuery, PointIndexQuery, TextIndexQuery,
-          VectorIndexQuery, CreateVectorEdgeIndexQuery, AuthQuery, DatabaseInfoQuery, SystemInfoQuery, ConstraintQuery,
-          DumpQuery, ReplicationQuery, ReplicationInfoQuery, LockPathQuery, FreeMemoryQuery, TriggerQuery,
-          IsolationLevelQuery, CreateSnapshotQuery, RecoverSnapshotQuery, ShowSnapshotsQuery, ShowNextSnapshotQuery,
-          StreamQuery, SettingQuery, VersionQuery, ShowConfigQuery, TransactionQueueQuery, StorageModeQuery,
-          AnalyzeGraphQuery, MultiDatabaseQuery, UseDatabaseQuery, ShowDatabaseQuery, ShowDatabasesQuery,
-          EdgeImportModeQuery, CoordinatorQuery, DropAllIndexesQuery, DropAllConstraintsQuery, DropGraphQuery,
-          CreateEnumQuery, ShowEnumsQuery, AlterEnumAddValueQuery, AlterEnumUpdateValueQuery, AlterEnumRemoveValueQuery,
-          DropEnumQuery, ShowSchemaInfoQuery, TtlQuery, SessionTraceQuery, UserProfileQuery> {};
+          CreateTextEdgeIndexQuery, VectorIndexQuery, CreateVectorEdgeIndexQuery, AuthQuery, DatabaseInfoQuery,
+          SystemInfoQuery, ConstraintQuery, DumpQuery, ReplicationQuery, ReplicationInfoQuery, LockPathQuery,
+          FreeMemoryQuery, TriggerQuery, IsolationLevelQuery, CreateSnapshotQuery, RecoverSnapshotQuery,
+          ShowSnapshotsQuery, ShowNextSnapshotQuery, StreamQuery, SettingQuery, VersionQuery, ShowConfigQuery,
+          TransactionQueueQuery, StorageModeQuery, AnalyzeGraphQuery, MultiDatabaseQuery, UseDatabaseQuery,
+          ShowDatabaseQuery, ShowDatabasesQuery, EdgeImportModeQuery, CoordinatorQuery, DropAllIndexesQuery,
+          DropAllConstraintsQuery, DropGraphQuery, CreateEnumQuery, ShowEnumsQuery, AlterEnumAddValueQuery,
+          AlterEnumUpdateValueQuery, AlterEnumRemoveValueQuery, DropEnumQuery, ShowSchemaInfoQuery, TtlQuery,
+          SessionTraceQuery, UserProfileQuery> {};
 
 }  // namespace memgraph::query

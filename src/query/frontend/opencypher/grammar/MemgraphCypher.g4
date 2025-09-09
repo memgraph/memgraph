@@ -204,6 +204,7 @@ query : cypherQuery
       | edgeIndexQuery
       | pointIndexQuery
       | textIndexQuery
+      | createTextEdgeIndex
       | vectorIndexQuery
       | createVectorEdgeIndex
       | explainQuery
@@ -697,6 +698,8 @@ createTextIndex : CREATE TEXT INDEX indexName ON ':' labelName ( '(' propertyKey
 dropTextIndex : DROP TEXT INDEX indexName ;
 
 textIndexQuery : createTextIndex | dropTextIndex;
+
+createTextEdgeIndex: CREATE TEXT EDGE INDEX indexName ON ':' labelName ( '(' propertyKeyName ( ',' propertyKeyName )* ')' )* ;
 
 createPointIndex : CREATE POINT INDEX ON ':' labelName '(' propertyKeyName ')';
 
