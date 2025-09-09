@@ -34,6 +34,6 @@ struct UnionFind;
 struct UnionFindContext;
 
 template <typename Symbol>
-class ProcessingContext;
+struct ProcessingContext;
 
 }  // namespace memgraph::planner::core

@@ -12,6 +12,7 @@ target_sources(mg-planner
     include/planner/core/union_find.hpp
     include/planner/core/egraph.hpp
     include/planner/core/fwd.hpp
+    include/planner/core/processing_context.hpp
 
     PRIVATE
     src/core/eclass.cpp
