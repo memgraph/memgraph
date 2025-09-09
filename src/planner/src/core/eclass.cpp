@@ -13,12 +13,12 @@
 namespace memgraph::planner::core::detail {
 
 void EClassBase::add_parent(ENodeId parent_enode_id, EClassId parent_class_id) {
-  parents.emplace_back(parent_enode_id, parent_class_id);
+  parents_.emplace_back(parent_enode_id, parent_class_id);
 }
 
 auto EClassBase::representative_id() const -> ENodeId {
   // Every e-class has at least one e-node
-  return *nodes.begin();
+  return *nodes_.begin();
 }
 
 }  // namespace memgraph::planner::core::detail

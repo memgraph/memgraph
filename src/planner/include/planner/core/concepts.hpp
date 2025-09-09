@@ -11,29 +11,16 @@
 
 #pragma once
 
-#include <cstdint>
-#include "planner/core/concepts.hpp"
-#include "planner/core/eids.hpp"
+#include <concepts>
+#include <functional>
 
 namespace memgraph::planner::core {
-
-template <typename Symbol>
-requires ENodeSymbol<Symbol>
-struct ENode;
-
-template <typename Analysis = void>
-struct EClass;
-
-template <typename Symbol>
-struct Hashcons;
-
-template <typename Symbol, typename Analysis = void>
-struct EGraph;
-
-struct UnionFind;
-struct UnionFindContext;
-
-template <typename Symbol>
-class ProcessingContext;
+/// Concept: Symbol must be hashable, trivially copyable, and equality comparable
+template <typename T>
+concept ENodeSymbol = requires(T a, T b) {
+  { std::hash<T>{}(a) } -> std::convertible_to<std::size_t>;
+  { a == b } -> std::convertible_to<bool>;
+}
+&&std::is_trivially_copyable_v<T>;
 
 }  // namespace memgraph::planner::core
