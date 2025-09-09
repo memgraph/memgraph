@@ -101,7 +101,7 @@ void RpcMessageDeliverer::Execute() {
       auto const res = file_replication_handler_->OpenFile(input_stream_->data() + consumed_bytes,
                                                            input_stream_->size() - consumed_bytes);
       if (!res.has_value()) {
-        throw SessionException("Failed to open file in RpcMessageDeliverer!");
+        throw SessionException("Error happened while opening file in RpcMessageDeliverer!");
       }
 
       consumed_bytes += *res;

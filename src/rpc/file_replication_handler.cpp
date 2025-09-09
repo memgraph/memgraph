@@ -17,23 +17,22 @@
 
 namespace memgraph::rpc {
 
-FileReplicationHandler::~FileReplicationHandler() {
-  if (file_.IsOpen()) {
-    ResetCurrentFile();
-  }
+FileReplicationHandler::~FileReplicationHandler() { ResetCurrentFile(); }
+
+std::filesystem::path FileReplicationHandler::GetRandomDir() {
+  auto const random_str = utils::GenerateUUID();
+  return std::filesystem::temp_directory_path() / "memgraph" / random_str /
+         storage::durability::kReplicaDurabilityDirectory;
 }
 
 // The assumption is that the header, request, file name and file size will always fit into the buffer size = 64KiB
 // Currently, they are taking few hundred bytes at most so this should be a valid assumption. Also, we aren't expecting
 // big growth in message size/
 std::optional<size_t> FileReplicationHandler::OpenFile(const uint8_t *data, size_t const size) {
-  auto const random_str = utils::GenerateUUID();
+  auto const tmp_rnd_dir = GetRandomDir();
 
-  const auto kTempDirectory =
-      std::filesystem::temp_directory_path() / random_str / storage::durability::kReplicaDurabilityDirectory;
-
-  if (!utils::EnsureDir(kTempDirectory)) {
-    spdlog::error("Failed to create temporary directory {}", kTempDirectory);
+  if (!utils::EnsureDir(tmp_rnd_dir)) {
+    spdlog::error("Failed to create temporary directory {}", tmp_rnd_dir);
     return std::nullopt;
   }
 
@@ -42,10 +41,19 @@ std::optional<size_t> FileReplicationHandler::OpenFile(const uint8_t *data, size
 
   auto const maybe_filename = decoder.ReadString();
   MG_ASSERT(maybe_filename.has_value(), "Filename missing for the received file over the RPC");
-  auto const path = kTempDirectory / *maybe_filename;
-  paths_.emplace_back(path);
 
-  spdlog::info("Read path {} in file replication handler", path);
+  if (maybe_filename->empty()) {
+    spdlog::error("Filename is empty");
+    return std::nullopt;
+  }
+  auto const file_path = std::filesystem::path(*maybe_filename);
+  if (file_path.has_parent_path()) {
+    spdlog::error("File cannot have a parent path{}", file_path.string());
+    return std::nullopt;
+  }
+
+  auto const path = tmp_rnd_dir / file_path;
+  paths_.emplace_back(path);
 
   file_.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING);
 
@@ -64,27 +72,30 @@ size_t FileReplicationHandler::WriteToFile(const uint8_t *data, size_t const siz
   }
 
   size_t processed_bytes{0};
-
   auto to_write = std::min(size, file_size_ - written_);
+
+  // While loop is at the moment not necessary since we write 256KiB at once while we read max 64KiB from the socket
   while (to_write > 0) {
     const auto chunk_size = std::min(to_write, utils::kFileBufferSize);
-    file_.Write(data, chunk_size);
+    file_.Write(data + processed_bytes, chunk_size);
     to_write -= chunk_size;
     written_ += chunk_size;
     processed_bytes += chunk_size;
   }
 
-  if (written_ == file_size_ && file_.IsOpen()) {
+  if (written_ == file_size_) {
     ResetCurrentFile();
   }
   return processed_bytes;
 }
 
 void FileReplicationHandler::ResetCurrentFile() {
-  file_.Sync();
-  file_.Close();
-  written_ = 0;
-  file_size_ = 0;
+  if (file_.IsOpen()) {
+    file_.Sync();
+    file_.Close();
+    written_ = 0;
+    file_size_ = 0;
+  }
 }
 
 bool FileReplicationHandler::HasOpenedFile() const { return file_.IsOpen(); }

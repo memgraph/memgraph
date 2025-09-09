@@ -64,12 +64,16 @@ void Builder::PrepareForFileSending() {
 
 void Builder::Finalize() { FlushSegment(true); }
 
+void Builder::FlushInternal(size_t const size, bool const has_more) {
+  write_func_(segment_.data(), size, has_more);
+  pos_ = 0;
+}
+
 // Flushes data and resets position
 void Builder::FlushFileSegment() {
   if (pos_ < kSegmentMaxDataSize) return;
   MG_ASSERT(pos_ > 0, "Trying to flush out a segment that has no data in it!");
-  write_func_(segment_.data(), pos_, true);
-  pos_ = 0;
+  FlushInternal(pos_, true);
 }
 
 void Builder::SaveFooter(uint64_t const total_size) {
@@ -97,8 +101,7 @@ void Builder::FlushSegment(bool const final_segment, bool const force_flush) {
     total_size += sizeof(SegmentSize);
   }
 
-  write_func_(segment_.data(), total_size, !final_segment);
-  pos_ = 0;
+  FlushInternal(total_size, !final_segment);
 }
 
 bool Builder::GetFileData() const { return file_data_; }

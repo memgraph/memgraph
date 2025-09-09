@@ -86,9 +86,11 @@ class Builder {
 
   bool GetFileData() const;
 
+  void FlushInternal(size_t size, bool has_more);
+
  private:
-  /// @param final_segment: Whether the flush should finalize the message
   void FlushFileSegment();
+
   bool file_data_{false};
 
   std::function<void(const uint8_t *, size_t, bool)> write_func_;

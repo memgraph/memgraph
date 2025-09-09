@@ -14,6 +14,7 @@
 #include <cstdint>
 #include <iosfwd>
 #include <memory>
+#include <random>
 #include <vector>
 
 #include <fmt/format.h>
@@ -21,6 +22,64 @@
 
 #include "slk/streams.hpp"
 #include "utils/logging.hpp"
+
+class BinaryData {
+ public:
+  BinaryData(const uint8_t *data, size_t const size) : data_(new uint8_t[size]), size_(size) {
+    memcpy(data_.get(), data, size);
+  }
+
+  BinaryData(std::unique_ptr<uint8_t[]> data, size_t size) : data_(std::move(data)), size_(size) {}
+
+  const uint8_t *data() const { return data_.get(); }
+  size_t size() const { return size_; }
+
+  bool operator==(const BinaryData &other) const {
+    if (size_ != other.size_) return false;
+    for (size_t i = 0; i < size_; ++i) {
+      if (data_[i] != other.data_[i]) return false;
+    }
+    return true;
+  }
+
+ private:
+  std::unique_ptr<uint8_t[]> data_;
+  size_t size_;
+};
+
+inline BinaryData operator+(const BinaryData &a, const BinaryData &b) {
+  std::unique_ptr<uint8_t[]> data(new uint8_t[a.size() + b.size()]);
+  memcpy(data.get(), a.data(), a.size());
+  memcpy(data.get() + a.size(), b.data(), b.size());
+  return BinaryData(std::move(data), a.size() + b.size());
+}
+
+inline BinaryData GetRandomData(size_t const size) {
+  std::mt19937 gen(std::random_device{}());
+  std::uniform_int_distribution<uint8_t> dis(0, 255);
+  std::unique_ptr<uint8_t[]> ret(new uint8_t[size]);
+  auto data = ret.get();
+  for (size_t i = 0; i < size; ++i) {
+    data[i] = dis(gen);
+  }
+  return BinaryData(std::move(ret), size);
+}
+
+inline std::vector<BinaryData> BufferToBinaryData(const uint8_t *data, size_t size, std::vector<size_t> sizes) {
+  std::vector<BinaryData> ret;
+  ret.reserve(sizes.size());
+  size_t pos = 0;
+  for (size_t i = 0; i < sizes.size(); ++i) {
+    EXPECT_GE(size, pos + sizes[i]);
+    ret.emplace_back(data + pos, sizes[i]);
+    pos += sizes[i];
+  }
+  return ret;
+}
+
+inline BinaryData SizeToBinaryData(memgraph::slk::SegmentSize size) {
+  return BinaryData(reinterpret_cast<const uint8_t *>(&size), sizeof(memgraph::slk::SegmentSize));
+}
 
 namespace memgraph::slk {
 
@@ -55,7 +114,7 @@ class Loopback {
     return reader_.get();
   }
 
-  size_t size() { return size_; }
+  size_t size() const { return size_; }
 
  private:
   void Write(const uint8_t *data, size_t size, bool have_more) {

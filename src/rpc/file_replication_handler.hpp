@@ -39,10 +39,12 @@ class FileReplicationHandler final {
 
   const std::vector<std::filesystem::path> &GetActiveFileNames() const;
 
+  static std::filesystem::path GetRandomDir();
+
  private:
   utils::OutputFile file_;
-  uint64_t file_size_;
-  uint64_t written_;
+  uint64_t file_size_{0};
+  uint64_t written_{0};
   // Files part of the current request
   std::vector<std::filesystem::path> paths_;
 };

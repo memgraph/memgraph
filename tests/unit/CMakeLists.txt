@@ -464,6 +464,11 @@ add_unit_test(utils_compressor
     LINK_TARGETS mg-utils
 )
 
+add_unit_test(file_replication_handler
+    SOURCES file_replication_handler.cpp
+    LINK_TARGETS mg-rpc mg-slk
+)
+
 add_unit_test(utils_observer
     SOURCES utils_observer.cpp
     LINK_TARGETS mg-utils
