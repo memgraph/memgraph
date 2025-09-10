@@ -39,7 +39,8 @@ jobs:
       next_image: ${{ inputs.next_image }}
       arch: ${{ inputs.arch }}
       test_routing: ${{ inputs.test_routing }}
-
+    secrets: inherit
+      
   both_test:
     if: ${{ inputs.test_routing == 'both' && github.event_name != 'push' }}
     uses: ./.github/workflows/reusable_issu_test.yaml
@@ -53,6 +54,7 @@ jobs:
       next_image: ${{ inputs.next_image }}
       arch: ${{ inputs.arch }}
       test_routing: ${{ matrix.test_routing }}
+    secrets: inherit
 
   # remove me before merge
   push_test:
@@ -68,3 +70,4 @@ jobs:
       next_image: "memgraph/memgraph:v3.5.0"
       arch: amd
       test_routing: ${{ matrix.test_routing }}
+    secrets: inherit
