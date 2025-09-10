@@ -1,0 +1,70 @@
+name: ISSU Test
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push:
+  workflow_dispatch:
+    inputs:
+      prev_image:
+        type: string
+        description: The previous tag/URL/version
+        required: true
+      next_image:
+        type: string
+        description: The next tag/URL/version
+        required: true
+      arch:
+        type: string
+        description: Image architecture (amd/arm)
+        required: true
+        default: amd
+      test_routing:
+        type: choice
+        options:
+          - true
+          - false
+          - both
+        description: Enable routing tests
+        default: both
+
+jobs:
+  single_test:
+    if: ${{ inputs.test_routing != 'both' && github.event_name != 'push' }}
+    uses: ./.github/workflows/reusable_issu_test.yaml
+    with:
+      last_image: ${{ inputs.prev_image }}
+      next_image: ${{ inputs.next_image }}
+      arch: ${{ inputs.arch }}
+      test_routing: ${{ inputs.test_routing }}
+
+  both_test:
+    if: ${{ inputs.test_routing == 'both' && github.event_name != 'push' }}
+    uses: ./.github/workflows/reusable_issu_test.yaml
+    strategy:
+      matrix:
+        test_routing:
+          - true
+          - false
+    with:
+      last_image: ${{ inputs.prev_image }}
+      next_image: ${{ inputs.next_image }}
+      arch: ${{ inputs.arch }}
+      test_routing: ${{ matrix.test_routing }}
+
+  # remove me before merge
+  push_test:
+    if: ${{ github.event_name == 'push' }}
+    uses: ./.github/workflows/reusable_issu_test.yaml
+    strategy:
+      matrix:
+        test_routing:
+          - true
+          - false
+    with:
+      last_image: "memgraph/memgraph:v3.4.0"
+      next_image: "memgraph/memgraph:v3.5.0"
+      arch: amd
+      test_routing: ${{ matrix.test_routing }}
