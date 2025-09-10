@@ -24,8 +24,8 @@ on:
 
 jobs:
   test:
-    name: ISSU Test "${{ inputs.last_image }} -> ${{ inputs.next_image }}"
-    runs-on: [self-hosted, ${{ inputs.arch == 'amd' && 'X64' || 'ARM64' }}, Linux]
+    name: ISSU Test
+    runs-on: ${{ (inputs.arch == 'arm') && fromJSON('["self-hosted", "DockerMgBuild", "ARM64"]') || '["self-hosted", "DockerMgBuild", "X64"]') }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
