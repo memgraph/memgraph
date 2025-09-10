@@ -91,3 +91,39 @@ customWorkloads:
           step: 1
           replicas: 5
       timeout_min: 2
+    - name: vector-ingestion-test
+      memgraph_args: []
+      querying:
+        host: "localhost"
+        port: 7687
+      import:
+        queries:
+          - "CREATE INDEX ON :VectorNode(id)"
+          - "CREATE INDEX ON :VectorNode"
+          - "CREATE VECTOR INDEX vector_index ON :VectorNode(vector) WITH CONFIG {'dimension': 1536, 'capacity': 1000000}"
+      workers:
+        # Metrics collection worker - runs continuously during the test
+        - name: metrics-collector
+          type: metrics
+          num_repetitions: 20
+          sleep_millis: 5000
+          querying:
+            host: "localhost"
+            port: 9091
+          metrics:
+            - vertex_count
+            - memory_usage
+            - QueryExecutionLatency_us_50p
+            - QueryExecutionLatency_us_90p
+            - QueryExecutionLatency_us_99p
+            - PeakMemoryRes
+            - UnreleasedDeltaObjects
+
+        # Vector ingestion worker - creates nodes with 1536-dimensional vectors
+        - name: vector-ingestion
+          type: writer
+          query: "WITH [x IN range(1, 1536) | rand()] as vector_template UNWIND range(1, 1000) as i CREATE (:VectorNode {id: i, vector: vector_template})"
+          num_repetitions: 20
+          sleep_millis: 0
+          replicas: 5
+      timeout_min: 10
