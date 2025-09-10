@@ -393,10 +393,19 @@ struct EGraph {
    * in O(N log N) time. This is the core innovation from the egg paper.
    *
    * @par Algorithm:
-   * 1. Process worklist of dirty e-classes
-   * 2. Repair hash consing for each
-   * 3. Check for and merge congruent parents
+   * 1. Make a batch copy of the worklist
+   * 2. Process the batch in chunks using ranges (chunk size: REBUILD_BATCH_SIZE)
+   * 3. For each chunk:
+   *    - Deduplicate by canonicalizing e-class IDs
+   *    - Repair hash consing for each e-class
+   *    - Check for and merge congruent parents
    * 4. Repeat until fixpoint
+   *
+   * @par Chunked Batching Optimization:
+   * The chunked batching strategy processes items in configurable groups,
+   * providing better memory locality and allowing for more efficient deduplication.
+   * Each chunk is deduplicated independently, reducing memory pressure and
+   * improving cache performance during processing.
    *
    * @complexity O(N log N) for full congruence closure
    */
@@ -963,22 +972,30 @@ void EGraph<Symbol, Analysis>::process_parents_recursive(EClassId eclass_id, Pro
 template <typename Symbol, typename Analysis>
 void EGraph<Symbol, Analysis>::rebuild(ProcessingContext<Symbol> &ctx) {
   while (!rebuild_worklist_.empty()) {
-    // Take current worklist and clear it for new additions
-    auto todo = std::exchange(rebuild_worklist_, {});
+    auto batch = std::exchange(rebuild_worklist_, {});
+    auto chunked_batches = batch | ranges::views::chunk(REBUILD_BATCH_SIZE);
 
-    for (EClassId eclass_id : todo) {
-      auto it = classes_.find(eclass_id);
-      if (it == classes_.end()) {
-        // This is possible, if during process_class_parents_for_rebuild we have merged eclass_id with another eclass
-        // In that case the merged eclass will exist in the rebuild_worklist_ for the next iteration of todos
-        continue;
+    for (auto chunk : chunked_batches) {
+      boost::container::flat_set<EClassId> canonicalized_chunk;
+      canonicalized_chunk.reserve(REBUILD_BATCH_SIZE);
+
+      for (EClassId eclass_id : chunk) {
+        EClassId canonical_id = union_find_.Find(eclass_id);
+        canonicalized_chunk.insert(canonical_id);
       }
-      const auto &eclass = *it->second;
 
-      // TODO: is it possible to accidentially process the same eclass twice?
-      //       if so is that a problem? Does that actually help us with correctness of concruence closure?
-      repair_hashcons(eclass, eclass_id);
-      process_class_parents_for_rebuild(eclass, ctx);
+      for (EClassId eclass_id : canonicalized_chunk) {
+        auto it = classes_.find(eclass_id);
+        if (it == classes_.end()) {
+          // This is possible if during process_class_parents_for_rebuild we have merged
+          // eclass_id with another eclass. In that case the merged eclass will exist
+          // in the rebuild_worklist_ for the next iteration of todos
+          continue;
+        }
+        const auto &eclass = *it->second;
+        repair_hashcons(eclass, eclass_id);
+        process_class_parents_for_rebuild(eclass, ctx);
+      }
     }
   }
 }
