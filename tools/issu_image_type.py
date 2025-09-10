@@ -39,12 +39,6 @@ def get_version_docker(version: str):
     convert version number to docker image tag
     """
 
-    parts = [int(x) for x in version.split(".")]
-
-    # remove patch version if == 0
-    if len(parts) == 3 and parts[-1] == 0:
-        version = version[:version.rfind(".")]
-
     repo_tag = f"memgraph/memgraph:{version}"
 
     return repo_tag
