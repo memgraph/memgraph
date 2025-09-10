@@ -166,10 +166,10 @@ done
 
 # Clone helm-charts repository if it doesn't exist
 HELM_CHARTS_DIR="helm-charts"
-if [ ! -d "$HELM_CHARTS_DIR" ]; then
-  echo -e "${GREEN}Cloning helm-charts repository...${NC}"
-  git clone https://github.com/memgraph/helm-charts.git "$HELM_CHARTS_DIR"
-else
+  if [ ! -d "$HELM_CHARTS_DIR" ]; then
+    echo -e "${GREEN}Cloning helm-charts repository...${NC}"
+    git clone https://github.com/memgraph/helm-charts.git "$HELM_CHARTS_DIR"
+  else
   echo -e "${GREEN}Updating helm-charts repository...${NC}"
   cd "$HELM_CHARTS_DIR"
   git pull
@@ -184,7 +184,6 @@ if [ ! -d "$HELM_CHART_PATH" ]; then
 fi
 
 # Install Helm chart
-helm repo update
 helm install "$RELEASE" "$HELM_CHART_PATH" -f old_values.yaml
 
 # Wait until pods became ready
