@@ -4837,6 +4837,29 @@ inline std::string AggregateOverTextIndex(mgp_graph *memgraph_graph, std::string
   return std::string(results_or_error.At(kAggregationResultsKey).ValueString());
 }
 
+inline std::string AggregateOverTextEdgeIndex(mgp_graph *memgraph_graph, std::string_view index_name,
+                                              std::string_view search_query, std::string_view aggregation_query) {
+  auto results_or_error = Map(mgp::MemHandlerCallback(graph_aggregate_over_text_edge_index, memgraph_graph,
+                                                      index_name.data(), search_query.data(), aggregation_query.data()),
+                              StealType{});
+
+  if (results_or_error.KeyExists(kErrorMsgKey)) {
+    if (!results_or_error.At(kErrorMsgKey).IsString()) {
+      throw TextSearchException{"The error message is not a string!"};
+    }
+    throw TextSearchException(results_or_error.At(kErrorMsgKey).ValueString().data());
+  }
+
+  if (!results_or_error.KeyExists(kAggregationResultsKey)) {
+    throw TextSearchException{"Incomplete text edge index aggregation results!"};
+  }
+
+  if (!results_or_error.At(kAggregationResultsKey).IsString()) {
+    throw TextSearchException{"Text edge index aggregation results have wrong type!"};
+  }
+  return std::string(results_or_error.At(kAggregationResultsKey).ValueString());
+}
+
 inline List SearchVectorIndex(mgp_graph *memgraph_graph, std::string_view index_name, List &query_vector,
                               size_t result_size) {
   auto results_or_error = Map(mgp::MemHandlerCallback(graph_search_vector_index, memgraph_graph, index_name.data(),

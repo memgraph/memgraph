@@ -11,6 +11,7 @@
 
 #pragma once
 
+#include <mgcxx_text_search.hpp>
 #include <mutex>
 #include <nlohmann/json_fwd.hpp>
 
@@ -34,6 +35,11 @@ struct TextIndexData {
 
   TextIndexData(mgcxx::text_search::Context context, LabelId scope, std::vector<PropertyId> properties)
       : context(std::move(context)), scope(scope), properties(std::move(properties)) {}
+};
+
+struct TextSearchResult {
+  Gid vertex_gid;
+  double score;
 };
 
 class TextIndex {
@@ -79,7 +85,8 @@ class TextIndex {
 
   bool IndexExists(const std::string &index_name) const;
 
-  std::vector<Gid> Search(const std::string &index_name, const std::string &search_query, text_search_mode search_mode);
+  std::vector<TextSearchResult> Search(const std::string &index_name, const std::string &search_query,
+                                       text_search_mode search_mode);
 
   std::string Aggregate(const std::string &index_name, const std::string &search_query,
                         const std::string &aggregation_query);

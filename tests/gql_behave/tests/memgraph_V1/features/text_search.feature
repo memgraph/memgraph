@@ -108,12 +108,12 @@ Feature: Text search related features
             """
         And having executed
             """
-            CREATE (:Document {title: 'Rules2024', version: 1, metadata: {gid: 10}})
-            CREATE (:Document {title: 'Rules2024', version: 2, metadata: {gid: 11}})
+            CREATE (:Document {title: 'Rules2024', version: 1})
+            CREATE (:Document {title: 'Rules2024', version: 2})
             """
         When executing query:
             """
-            CALL text_search.aggregate('complianceDocuments', 'data.title:Rules2024', '{"count":{"value_count":{"field":"metadata.gid"}}}') YIELD aggregation
+            CALL text_search.aggregate('complianceDocuments', 'data.title:Rules2024', '{"count":{"value_count":{"field":"data.version"}}}') YIELD aggregation
             RETURN aggregation
             """
         Then the result should be:
@@ -525,6 +525,26 @@ Feature: Text search related features
             | edge                                           |
             | [:RELATES_TO {fulltext: 'more words'}]         |
             | [:RELATES_TO {fulltext: 'words and things'}]   |
+
+    Scenario: Search edge aggregate
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT EDGE INDEX complianceEdges ON :RELATES_TO
+            """
+        And having executed
+            """
+            CREATE (d1:Document)-[:RELATES_TO {title: 'Rules2024', version: 1}]->(d2:Document)
+            CREATE (d3:Document)-[:RELATES_TO {title: 'Rules2024', version: 2}]->(d4:Document)
+            """
+        When executing query:
+            """
+            CALL text_search.aggregate_edges('complianceEdges', 'data.title:Rules2024', '{"count":{"value_count":{"field":"data.version"}}}') YIELD aggregation
+            RETURN aggregation
+            """
+        Then the result should be:
+            | aggregation              |
+            | '{"count":{"value":2.0}}'|
 
     Scenario: Search query with boolean logic on edges
         Given an empty graph

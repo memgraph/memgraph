@@ -155,7 +155,7 @@ void TextEdgeIndex::DropIndex(const std::string &index_name) {
 
 bool TextEdgeIndex::IndexExists(const std::string &index_name) const { return index_.contains(index_name); }
 
-std::vector<EdgeTextSearchResult> TextEdgeIndex::Search(const std::string &index_name, const std::string &search_query,
+std::vector<TextEdgeSearchResult> TextEdgeIndex::Search(const std::string &index_name, const std::string &search_query,
                                                         text_search_mode search_mode) {
   if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     throw query::TextSearchDisabledException();
@@ -183,7 +183,7 @@ std::vector<EdgeTextSearchResult> TextEdgeIndex::Search(const std::string &index
           "text_search.regex_search.");
   }
 
-  std::vector<EdgeTextSearchResult> found_edges;
+  std::vector<TextEdgeSearchResult> found_edges;
   for (const auto &doc : search_results.docs) {
     // Create string using both data pointer and length to avoid buffer overflow
     // The CXX .data() method may not null-terminate the string properly
@@ -194,23 +194,24 @@ std::vector<EdgeTextSearchResult> TextEdgeIndex::Search(const std::string &index
     const auto from_vertex_gid = storage::Gid::FromString(doc_json["metadata"]["from_vertex_gid"].dump());
     const auto to_vertex_gid = storage::Gid::FromString(doc_json["metadata"]["to_vertex_gid"].dump());
 
-    found_edges.emplace_back(edge_gid, from_vertex_gid, to_vertex_gid);
+    found_edges.emplace_back(edge_gid, from_vertex_gid, to_vertex_gid, doc.score);
   }
   return found_edges;
 }
 
 std::string TextEdgeIndex::Aggregate(const std::string &index_name, const std::string &search_query,
                                      const std::string &aggregation_query) {
-  if (!index_.contains(index_name)) {
-    throw query::TextSearchException("Text edge index {} doesn't exist.", index_name);
-  }
-
+  auto &context = std::invoke([&]() -> mgcxx::text_search::Context & {
+    if (const auto it = index_.find(index_name); it != index_.end()) {
+      return it->second.context;
+    }
+    throw query::TextSearchException("Text index {} doesn't exist.", index_name);
+  });
   mgcxx::text_search::DocumentOutput aggregation_result;
   try {
     aggregation_result = mgcxx::text_search::aggregate(
-        index_.at(index_name).context,
-        mgcxx::text_search::SearchInput{
-            .search_fields = {"all"}, .search_query = search_query, .aggregation_query = aggregation_query});
+        context, mgcxx::text_search::SearchInput{
+                     .search_fields = {"all"}, .search_query = search_query, .aggregation_query = aggregation_query});
 
   } catch (const std::exception &e) {
     throw query::TextSearchException("Tantivy error: {}", e.what());

@@ -22,6 +22,7 @@
 #include "storage/v2/edges_iterable.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/indices.hpp"
+#include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/replication/enums.hpp"
@@ -380,8 +381,8 @@ class Storage {
       return storage_->indices_.text_index_.IndexExists(index_name);
     }
 
-    std::vector<Gid> TextIndexSearch(const std::string &index_name, const std::string &search_query,
-                                     text_search_mode search_mode) const {
+    std::vector<TextSearchResult> TextIndexSearch(const std::string &index_name, const std::string &search_query,
+                                                  text_search_mode search_mode) const {
       return storage_->indices_.text_index_.Search(index_name, search_query, search_mode);
     }
 
@@ -390,10 +391,20 @@ class Storage {
       return storage_->indices_.text_index_.Aggregate(index_name, search_query, aggregation_query);
     }
 
-    std::vector<EdgeTextSearchResult> SearchEdgeTextIndex(const std::string &index_name,
+    std::string TextEdgeIndexAggregate(const std::string &index_name, const std::string &search_query,
+                                       const std::string &aggregation_query) const {
+      return storage_->indices_.text_edge_index_.Aggregate(index_name, search_query, aggregation_query);
+    }
+
+    std::vector<TextEdgeSearchResult> SearchEdgeTextIndex(const std::string &index_name,
                                                           const std::string &search_query,
                                                           text_search_mode search_mode) const {
       return storage_->indices_.text_edge_index_.Search(index_name, search_query, search_mode);
+    }
+
+    std::string EdgeTextIndexAggregate(const std::string &index_name, const std::string &search_query,
+                                       const std::string &aggregation_query) const {
+      return storage_->indices_.text_edge_index_.Aggregate(index_name, search_query, aggregation_query);
     }
 
     virtual bool PointIndexExists(LabelId label, PropertyId property) const = 0;
