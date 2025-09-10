@@ -68,8 +68,8 @@ jobs:
           - false
       fail-fast: false
     with:
-      last_image: "memgraph/memgraph:v3.4.0"
-      next_image: "memgraph/memgraph:v3.5.0"
+      last_image: "3.4.0"
+      next_image: "3.5.0"
       arch: amd
       test_routing: ${{ matrix.test_routing }}
     secrets: inherit
