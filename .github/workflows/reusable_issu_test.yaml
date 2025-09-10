@@ -25,7 +25,7 @@ on:
 jobs:
   test:
     name: ISSU Test
-    runs-on: ${{ inputs.arch == 'arm' && fromJSON('["self-hosted", "DockerMgBuild", "ARM64"]') || fromJSON('["self-hosted", "DockerMgBuild", "X64"]') }}
+    runs-on: ${{ inputs.arch == 'arm' && fromJSON('["self-hosted", "DockerMgBuild", "ARM64"]') || fromJSON('["self-hosted", "DockerMgBuild", "X64", "gambit"]') }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
