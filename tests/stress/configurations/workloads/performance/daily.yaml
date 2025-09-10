@@ -91,7 +91,7 @@ customWorkloads:
           step: 1
           replicas: 5
       timeout_min: 2
-    - name: vector-ingestion-test
+    - name: vector-ingestion
       memgraph_args: []
       querying:
         host: "localhost"
@@ -110,6 +110,7 @@ customWorkloads:
           querying:
             host: "localhost"
             port: 9091
+          step: 1
           metrics:
             - vertex_count
             - memory_usage
@@ -118,10 +119,9 @@ customWorkloads:
             - QueryExecutionLatency_us_99p
             - PeakMemoryRes
             - UnreleasedDeltaObjects
-
-        # Vector ingestion worker - creates nodes with 1536-dimensional vectors
-        - name: vector-ingestion
+        - name: ingestion-worker
           type: writer
+          step: 1
           query: "WITH [x IN range(1, 1536) | rand()] as vector_template UNWIND range(1, 1000) as i CREATE (:VectorNode {id: i, vector: vector_template})"
           num_repetitions: 20
           sleep_millis: 0
