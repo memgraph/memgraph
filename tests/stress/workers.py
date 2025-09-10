@@ -140,6 +140,7 @@ class MetricsWorker(Worker):
         for _ in range(self._repetitions):
             try:
                 # Use requests to get metrics
+                print(f"Metrics worker '{self._name}' getting metrics...")
                 response = requests.get(metrics_url, timeout=30)
                 response.raise_for_status()  # Raises an HTTPError for bad responses
 
