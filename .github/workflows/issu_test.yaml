@@ -49,6 +49,7 @@ jobs:
         test_routing:
           - true
           - false
+      fail-fast: false
     with:
       last_image: ${{ inputs.prev_image }}
       next_image: ${{ inputs.next_image }}
@@ -65,6 +66,7 @@ jobs:
         test_routing:
           - true
           - false
+      fail-fast: false
     with:
       last_image: "memgraph/memgraph:v3.4.0"
       next_image: "memgraph/memgraph:v3.5.0"
