@@ -67,20 +67,68 @@ done
 _CLEANED=false
 cleanup() {
   set +e
+  echo -e "${YELLOW}Starting cleanup...${NC}"
+  
+  # Clean up Helm release
   helm uninstall "$RELEASE" >/dev/null 2>&1 || true
+  
+  # Clean up Kubernetes resources
   kubectl delete pvc --all >/dev/null 2>&1 || true
   kubectl delete storageclass "$SC_NAME" --ignore-not-found >/dev/null 2>&1 || true
   
   # Clean up generated YAML files
   rm -f old_values.yaml new_values.yaml
+  
+  # Stop minikube cluster
+  if command -v minikube >/dev/null 2>&1; then
+    echo -e "${YELLOW}Stopping minikube cluster...${NC}"
+    minikube stop >/dev/null 2>&1 || true
+    minikube delete >/dev/null 2>&1 || true
+  fi
 
   echo -e "${GREEN}Cleanup finished.${NC}"
 }
 
 trap cleanup EXIT
-trap 'echo -e "'"${RED}"'"Error on line $LINENO. Exiting…'"${NC}"'" >&2' ERR
-trap 'echo -e "'"${RED}"'SIGINT received. Exiting…'"${NC}"' >&2' INT
-trap 'echo -e "'"${RED}"'SIGTERM received. Exiting…'"${NC}"' >&2' TERM
+trap 'echo -e "'"${RED}"'Error on line $LINENO. Exiting…'"${NC}"'" >&2' ERR
+trap 'echo -e "'"${RED}"'SIGINT received. Exiting…'"${NC}"'" >&2' INT
+trap 'echo -e "'"${RED}"'SIGTERM received. Exiting…'"${NC}"'" >&2' TERM
+
+# Check if minikube is available
+if ! command -v minikube >/dev/null 2>&1; then
+  echo -e "${RED}Error: minikube is not installed or not in PATH${NC}"
+  echo "Please install minikube: https://minikube.sigs.k8s.io/docs/start/"
+  exit 1
+fi
+
+# Check if kubectl is available
+if ! command -v kubectl >/dev/null 2>&1; then
+  echo -e "${RED}Error: kubectl is not installed or not in PATH${NC}"
+  echo "Please install kubectl: https://kubernetes.io/docs/tasks/tools/"
+  exit 1
+fi
+
+# Check if helm is available
+if ! command -v helm >/dev/null 2>&1; then
+  echo -e "${RED}Error: helm is not installed or not in PATH${NC}"
+  echo "Please install helm: https://helm.sh/docs/intro/install/"
+  exit 1
+fi
+
+# Start minikube cluster
+echo -e "${GREEN}Starting minikube cluster...${NC}"
+minikube start --driver=docker --memory=4096 --cpus=2 --disk-size=20g
+
+# Wait for cluster to be ready
+echo -e "${GREEN}Waiting for cluster to be ready...${NC}"
+kubectl wait --for=condition=ready node --all --timeout=300s
+
+# Check if storage class file exists
+if [ ! -f "sc.yaml" ]; then
+  echo -e "${RED}Error: sc.yaml not found${NC}"
+  echo "Please ensure sc.yaml exists in the current directory"
+  exit 1
+fi
 
 # Create CSI storage class
 kubectl apply -f sc.yaml
@@ -106,9 +154,17 @@ for i in "${!nodes[@]}"; do
   fi
 done
 
+# Check if Helm chart exists
+HELM_CHART_PATH="~/Memgraph/code/helm-charts/charts/memgraph-high-availability"
+if [ ! -d "${HELM_CHART_PATH/#\~/$HOME}" ]; then
+  echo -e "${RED}Error: Helm chart not found at $HELM_CHART_PATH${NC}"
+  echo "Please ensure the memgraph-high-availability chart exists"
+  exit 1
+fi
+
 # Install Helm chart
 helm repo update
-helm install "$RELEASE" ~/Memgraph/code/helm-charts/charts/memgraph-high-availability -f old_values.yaml
+helm install "$RELEASE" "$HELM_CHART_PATH" -f old_values.yaml
 
 # Wait until pods became ready
 echo "Waiting for 90s until all pods become ready"
@@ -136,7 +192,7 @@ kubectl exec memgraph-data-0-0 -- bash -c "mgconsole < /var/lib/memgraph/pre_upg
 echo "Run test queries on old version"
 
 # Upgrade to use newer version
-helm upgrade "$RELEASE" ~/Memgraph/code/helm-charts/charts/memgraph-high-availability -f new_values.yaml
+helm upgrade "$RELEASE" "$HELM_CHART_PATH" -f new_values.yaml
 echo "Updated versions"
 
 # Rolling restarts, waiting each time
