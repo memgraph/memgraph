@@ -25,7 +25,7 @@ on:
 jobs:
   test:
     name: ISSU Test "${{ inputs.last_image }} -> ${{ inputs.next_image }}"
-    runs-on: ${{ inputs.arch == 'amd' && '["self-hosted", "X64", "Linux"]' || '["self-hosted", "ARM64", "Linux"]' }}
+    runs-on: [self-hosted, ${{ inputs.arch == 'amd' && 'X64' || 'ARM64' }}, Linux]
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
