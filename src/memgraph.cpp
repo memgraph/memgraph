@@ -503,6 +503,11 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
   memgraph::flags::SetFinalCoordinationSetup();
   auto const &coordination_setup = memgraph::flags::CoordinationSetupInstance();
+  if (coordination_setup.IsDataInstanceManagedByCoordinator()) {
+    MG_ASSERT(db_config.durability.snapshot_wal_mode == PERIODIC_SNAPSHOT_WITH_WAL,
+              "Data instance must be started with flag --storage-wal-enabled=true");
+  }
+
 #endif
 
   int const extracted_bolt_port = [&]() {
