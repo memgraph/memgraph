@@ -1,0 +1,57 @@
+memgraph:
+  deployment:
+    # Script needs to be located in stress/configurations/deployments
+    script: "binary_standalone.sh"
+  args: [] # Any additional flags you need
+
+general:
+  verbose: false
+  use_ssl: false
+
+dataset:
+  tests: []
+
+customWorkloads:
+  tests:
+    - name: gc-skiplist-cleanup
+      memgraph_args: []
+      querying:
+        host: "localhost"
+        port: 7687
+      import:
+        queries:
+          - "STORAGE MODE IN_MEMORY_ANALYTICAL"
+          - "CREATE INDEX ON :Node"
+          - "CREATE INDEX ON :Node(id)"
+          - "CREATE INDEX ON :Node(timestamp)"
+          - "CREATE INDEX ON :Node(category)"
+          - "CREATE INDEX ON :Node(status)"
+          - "CREATE INDEX ON :Node(priority)"
+      workers:
+        # Metrics collection worker - runs continuously during the test
+        - name: metrics-collector
+          type: metrics
+          num_repetitions: 300
+          sleep_millis: 1000
+          querying:
+            host: "localhost"
+            port: 9091
+          step: 1
+          metrics:
+            - GCLatency_us_50p
+            - GCLatency_us_90p
+            - GCLatency_us_99p
+            - GCSkiplistCleanupLatency_us_50p
+            - GCSkiplistCleanupLatency_us_90p
+            - GCSkiplistCleanupLatency_us_99p
+            - memory_usage
+            - PeakMemoryRes
+
+        - name: write-sequence
+          type: writer
+          query: "UNWIND range(1, 1000000) as x MERGE (n:Node {id: x}) SET n.timestamp = timestamp(), n.category = ['A', 'B', 'C', 'D'][x % 4], n.status = 'online', n.priority = x"
+          num_repetitions: 10
+          sleep_millis: 0
+          replicas: 5
+          step: 1
+      timeout_min: 8
