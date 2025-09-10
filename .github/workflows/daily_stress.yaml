@@ -68,7 +68,7 @@ jobs:
             echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
           fi
 
-      - name: Run custom stress tests
+      - name: Run daily tests
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -78,7 +78,7 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph stress-daily
 
-      - name: Upload basic stress test results
+      - name: Upload daily basic stress test results
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -93,7 +93,7 @@ jobs:
           --github-run-number "${{ github.run_number }}" \
           --head-branch-name "${{ env.BRANCH_NAME }}"
 
-      - name: Upload write write conflicts stress test results
+      - name: Upload daily write write conflicts stress test results
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -108,7 +108,7 @@ jobs:
           --github-run-number "${{ github.run_number }}" \
           --head-branch-name "${{ env.BRANCH_NAME }}"
 
-      - name: Upload vector ingestion stress test results
+      - name: Upload daily vector ingestion stress test results
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
