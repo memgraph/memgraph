@@ -1,16 +1,66 @@
 #!/usr/bin/env bash
 set -Eeuo pipefail
 
+# Function to display usage
+usage() {
+  echo "Usage: $0 <last_tag> <next_tag> [options]"
+  echo ""
+  echo "Arguments:"
+  echo "  last_tag    The previous version tag (e.g., 2.3.3)"
+  echo "  next_tag    The new version tag (e.g., 2.3.4)"
+  echo ""
+  echo "Options:"
+  echo "  --test-routing, --test-routing=true    Enable routing tests"
+  echo "  --test-routing=false, --no-test-routing    Disable routing tests (default)"
+  echo ""
+  echo "Example:"
+  echo "  $0 2.3.3 2.3.4"
+  echo "  $0 2.3.3 2.3.4 --test-routing"
+  exit 1
+}
+
+# Check if at least 2 arguments are provided
+if [ $# -lt 2 ]; then
+  echo "Error: Missing required arguments"
+  usage
+fi
+
+# Extract required arguments
+LAST_TAG="$1"
+NEXT_TAG="$2"
+shift 2  # Remove the first two arguments from $@
+
 SC_NAME="csi-hostpath-delayed"
 RELEASE="memgraph-db"
 
 RED='\033[0;31m'; YELLOW='\033[1;33m'; GREEN='\033[0;32m'; NC='\033[0m'
+
+# Display the tags being used
+echo -e "${GREEN}Starting ISSU test:${NC}"
+echo -e "${GREEN}  Last tag: ${LAST_TAG}${NC}"
+echo -e "${GREEN}  Next tag: ${NEXT_TAG}${NC}"
+
+# Generate YAML files from template
+echo -e "${GREEN}Generating YAML files from template...${NC}"
+if [ ! -f "values_template.yaml" ]; then
+  echo -e "${RED}Error: values_template.yaml not found${NC}"
+  exit 1
+fi
+
+# Generate old_values.yaml with LAST_TAG
+sed "s/{{VERSION_TAG}}/${LAST_TAG}/g" values_template.yaml > old_values.yaml
+echo -e "${GREEN}Generated old_values.yaml with tag: ${LAST_TAG}${NC}"
+
+# Generate new_values.yaml with NEXT_TAG
+sed "s/{{VERSION_TAG}}/${NEXT_TAG}/g" values_template.yaml > new_values.yaml
+echo -e "${GREEN}Generated new_values.yaml with tag: ${NEXT_TAG}${NC}"
 
 TEST_ROUTING=${TEST_ROUTING:-false}
 for arg in "${@:-}"; do
   case "$arg" in
     --test-routing|--test-routing=true) TEST_ROUTING=true ;;
     --test-routing=false|--no-test-routing) TEST_ROUTING=false ;;
+    *) echo "Warning: Unknown option '$arg'" ;;
   esac
 done
 
@@ -20,6 +70,9 @@ cleanup() {
   helm uninstall "$RELEASE" >/dev/null 2>&1 || true
   kubectl delete pvc --all >/dev/null 2>&1 || true
   kubectl delete storageclass "$SC_NAME" --ignore-not-found >/dev/null 2>&1 || true
+  
+  # Clean up generated YAML files
+  rm -f old_values.yaml new_values.yaml
 
   echo -e "${GREEN}Cleanup finished.${NC}"
 }
