@@ -55,6 +55,13 @@ echo -e "${GREEN}Generated old_values.yaml with tag: ${LAST_TAG}${NC}"
 sed "s/{{VERSION_TAG}}/${NEXT_TAG}/g" values_template.yaml > new_values.yaml
 echo -e "${GREEN}Generated new_values.yaml with tag: ${NEXT_TAG}${NC}"
 
+# Debug: Show the generated values files
+echo -e "${YELLOW}Debug: Checking generated values files...${NC}"
+echo "old_values.yaml image tag:"
+grep "tag:" old_values.yaml || echo "No tag found in old_values.yaml"
+echo "new_values.yaml image tag:"
+grep "tag:" new_values.yaml || echo "No tag found in new_values.yaml"
+
 TEST_ROUTING=${TEST_ROUTING:-false}
 for arg in "${@:-}"; do
   case "$arg" in
@@ -183,11 +190,35 @@ if [ ! -d "$HELM_CHART_PATH" ]; then
   exit 1
 fi
 
+# Validate Helm chart
+echo -e "${GREEN}Validating Helm chart...${NC}"
+helm lint "$HELM_CHART_PATH" -f old_values.yaml
+
 # Install Helm chart
+echo -e "${GREEN}Installing Helm chart...${NC}"
 helm install "$RELEASE" "$HELM_CHART_PATH" -f old_values.yaml
 
+# Check if installation was successful
+if [ $? -ne 0 ]; then
+  echo -e "${RED}Error: Helm installation failed${NC}"
+  echo "Checking Helm status..."
+  helm status "$RELEASE" || true
+  echo "Checking Helm history..."
+  helm history "$RELEASE" || true
+  exit 1
+fi
+
+# Wait a moment for resources to be created
+echo -e "${GREEN}Waiting for resources to be created...${NC}"
+sleep 10
+
+# Check what resources were created
+echo -e "${GREEN}Checking created resources...${NC}"
+kubectl get all -l app.kubernetes.io/instance="$RELEASE" || true
+kubectl get pods || true
+
 # Wait until pods became ready
-echo "Waiting for 90s until all pods become ready"
+echo -e "${GREEN}Waiting for pods to become ready...${NC}"
 kubectl wait --for=condition=ready pod --all --timeout=90s
 sleep 5
 
