@@ -79,6 +79,9 @@ cleanup() {
   # Clean up generated YAML files
   rm -f old_values.yaml new_values.yaml
   
+  # Clean up cloned helm-charts directory
+  rm -rf helm-charts
+  
   # Stop minikube cluster
   if command -v minikube >/dev/null 2>&1; then
     echo -e "${YELLOW}Stopping minikube cluster...${NC}"
@@ -112,6 +115,13 @@ fi
 if ! command -v helm >/dev/null 2>&1; then
   echo -e "${RED}Error: helm is not installed or not in PATH${NC}"
   echo "Please install helm: https://helm.sh/docs/intro/install/"
+  exit 1
+fi
+
+# Check if git is available
+if ! command -v git >/dev/null 2>&1; then
+  echo -e "${RED}Error: git is not installed or not in PATH${NC}"
+  echo "Please install git: https://git-scm.com/downloads"
   exit 1
 fi
 
@@ -154,11 +164,22 @@ for i in "${!nodes[@]}"; do
   fi
 done
 
-# Check if Helm chart exists
-HELM_CHART_PATH="~/Memgraph/code/helm-charts/charts/memgraph-high-availability"
-if [ ! -d "${HELM_CHART_PATH/#\~/$HOME}" ]; then
+# Clone helm-charts repository if it doesn't exist
+HELM_CHARTS_DIR="helm-charts"
+if [ ! -d "$HELM_CHARTS_DIR" ]; then
+  echo -e "${GREEN}Cloning helm-charts repository...${NC}"
+  git clone https://github.com/memgraph/helm-charts.git "$HELM_CHARTS_DIR"
+else
+  echo -e "${GREEN}Updating helm-charts repository...${NC}"
+  cd "$HELM_CHARTS_DIR"
+  git pull
+  cd ..
+fi
+
+HELM_CHART_PATH="$HELM_CHARTS_DIR/charts/memgraph-high-availability"
+if [ ! -d "$HELM_CHART_PATH" ]; then
   echo -e "${RED}Error: Helm chart not found at $HELM_CHART_PATH${NC}"
-  echo "Please ensure the memgraph-high-availability chart exists"
+  echo "Please check the helm-charts repository structure"
   exit 1
 fi
 
