@@ -15,6 +15,7 @@
 #include <optional>
 
 #include "rpc/client.hpp"
+#include "rpc/file_replication_handler.hpp"
 #include "rpc/server.hpp"
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 #include "storage/v2/constraints/existence_constraints.hpp"
@@ -308,12 +309,14 @@ TEST_F(SnapshotRpcProgressTest, SnapshotRpcNoTimeout) {
     rpc_server.AwaitShutdown();
   }};
 
-  rpc_server.Register<SnapshotRpc>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
-    SnapshotReq req;
-    Load(&req, req_reader);
-    SnapshotRes res{1, 2};
-    memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
-  });
+  rpc_server.Register<SnapshotRpc>(
+      [](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+         uint64_t const request_version, auto *req_reader, auto *res_builder) {
+        SnapshotReq req;
+        Load(&req, req_reader);
+        SnapshotRes res{1, 2};
+        memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+      });
 
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
@@ -336,17 +339,19 @@ TEST_F(SnapshotRpcProgressTest, SnapshotRpcProgress) {
     rpc_server.AwaitShutdown();
   }};
 
-  rpc_server.Register<SnapshotRpc>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
-    SnapshotReq req;
-    Load(&req, req_reader);
-    std::this_thread::sleep_for(10ms);
-    memgraph::rpc::SendInProgressMsg(res_builder);
-    std::this_thread::sleep_for(10ms);
-    memgraph::rpc::SendInProgressMsg(res_builder);
-    std::this_thread::sleep_for(10ms);
-    SnapshotRes res{1, 1};
-    memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
-  });
+  rpc_server.Register<SnapshotRpc>(
+      [](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+         uint64_t const request_version, auto *req_reader, auto *res_builder) {
+        SnapshotReq req;
+        Load(&req, req_reader);
+        std::this_thread::sleep_for(10ms);
+        memgraph::rpc::SendInProgressMsg(res_builder);
+        std::this_thread::sleep_for(10ms);
+        memgraph::rpc::SendInProgressMsg(res_builder);
+        std::this_thread::sleep_for(10ms);
+        SnapshotRes res{1, 1};
+        memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+      });
 
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
@@ -369,15 +374,17 @@ TEST_F(SnapshotRpcProgressTest, SnapshotRpcTimeout) {
     rpc_server.AwaitShutdown();
   }};
 
-  rpc_server.Register<SnapshotRpc>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
-    SnapshotReq req;
-    Load(&req, req_reader);
-    std::this_thread::sleep_for(75ms);
-    memgraph::rpc::SendInProgressMsg(res_builder);
-    std::this_thread::sleep_for(10ms);
-    SnapshotRes res{1, 1};
-    memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
-  });
+  rpc_server.Register<SnapshotRpc>(
+      [](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+         uint64_t const request_version, auto *req_reader, auto *res_builder) {
+        SnapshotReq req;
+        Load(&req, req_reader);
+        std::this_thread::sleep_for(75ms);
+        memgraph::rpc::SendInProgressMsg(res_builder);
+        std::this_thread::sleep_for(10ms);
+        SnapshotRes res{1, 1};
+        memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+      });
 
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);

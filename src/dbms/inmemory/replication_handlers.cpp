@@ -14,6 +14,7 @@
 #include "dbms/dbms_handler.hpp"
 #include "flags/experimental.hpp"
 #include "replication/replication_server.hpp"
+#include "rpc/file_replication_handler.hpp"
 #include "rpc/utils.hpp"  // Include after all SLK definitions are present
 #include "storage/v2/constraints/type_constraints_kind.hpp"
 #include "storage/v2/durability/durability.hpp"
@@ -24,6 +25,7 @@
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/schema_info.hpp"
+#include "utils/file.hpp"
 #include "utils/observer.hpp"
 
 #include <spdlog/spdlog.h>
@@ -211,37 +213,47 @@ TwoPCCache InMemoryReplicationHandlers::two_pc_cache_;
 void InMemoryReplicationHandlers::Register(dbms::DbmsHandler *dbms_handler, replication::RoleReplicaData &data) {
   auto &server = *data.server;
   server.rpc_server_.Register<storage::replication::HeartbeatRpc>(
-      [&data, dbms_handler](uint64_t const request_version, auto *req_reader, auto *res_builder) {
+      [&data, dbms_handler](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                            uint64_t const request_version, auto *req_reader, auto *res_builder) {
         InMemoryReplicationHandlers::HeartbeatHandler(dbms_handler, data.uuid_, request_version, req_reader,
                                                       res_builder);
       });
   server.rpc_server_.Register<storage::replication::PrepareCommitRpc>(
-      [&data, dbms_handler](uint64_t const request_version, auto *req_reader, auto *res_builder) {
+      [&data, dbms_handler](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                            uint64_t const request_version, auto *req_reader, auto *res_builder) {
         InMemoryReplicationHandlers::PrepareCommitHandler(dbms_handler, data.uuid_, request_version, req_reader,
                                                           res_builder);
       });
   server.rpc_server_.Register<storage::replication::FinalizeCommitRpc>(
-      [&data, dbms_handler](uint64_t const request_version, auto *req_reader, auto *res_builder) {
+      [&data, dbms_handler](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                            uint64_t const request_version, auto *req_reader, auto *res_builder) {
         InMemoryReplicationHandlers::FinalizeCommitHandler(dbms_handler, data.uuid_, request_version, req_reader,
                                                            res_builder);
       });
   server.rpc_server_.Register<storage::replication::SnapshotRpc>(
-      [&data, dbms_handler](uint64_t const request_version, auto *req_reader, auto *res_builder) {
-        InMemoryReplicationHandlers::SnapshotHandler(dbms_handler, data.uuid_, request_version, req_reader,
-                                                     res_builder);
+      [&data, dbms_handler](std::optional<rpc::FileReplicationHandler> const &file_replication_handler,
+                            uint64_t const request_version, auto *req_reader, auto *res_builder) {
+        MG_ASSERT(file_replication_handler.has_value(), "File replication handler not prepared for SnapshotHandler");
+        InMemoryReplicationHandlers::SnapshotHandler(*file_replication_handler, dbms_handler, data.uuid_,
+                                                     request_version, req_reader, res_builder);
       });
   server.rpc_server_.Register<storage::replication::WalFilesRpc>(
-      [&data, dbms_handler](uint64_t const request_version, auto *req_reader, auto *res_builder) {
-        InMemoryReplicationHandlers::WalFilesHandler(dbms_handler, data.uuid_, request_version, req_reader,
-                                                     res_builder);
+      [&data, dbms_handler](std::optional<rpc::FileReplicationHandler> const &file_replication_handler,
+                            uint64_t const request_version, auto *req_reader, auto *res_builder) {
+        MG_ASSERT(file_replication_handler.has_value(), "File replication handler not prepared for WalFilesHandler");
+        InMemoryReplicationHandlers::WalFilesHandler(*file_replication_handler, dbms_handler, data.uuid_,
+                                                     request_version, req_reader, res_builder);
       });
   server.rpc_server_.Register<storage::replication::CurrentWalRpc>(
-      [&data, dbms_handler](uint64_t const request_version, auto *req_reader, auto *res_builder) {
-        InMemoryReplicationHandlers::CurrentWalHandler(dbms_handler, data.uuid_, request_version, req_reader,
-                                                       res_builder);
+      [&data, dbms_handler](std::optional<rpc::FileReplicationHandler> const &file_replication_handler,
+                            uint64_t const request_version, auto *req_reader, auto *res_builder) {
+        MG_ASSERT(file_replication_handler.has_value(), "File replication handle not prepared for CurrentWalHandler");
+        InMemoryReplicationHandlers::CurrentWalHandler(*file_replication_handler, dbms_handler, data.uuid_,
+                                                       request_version, req_reader, res_builder);
       });
   server.rpc_server_.Register<replication_coordination_glue::SwapMainUUIDRpc>(
-      [&data, dbms_handler](uint64_t const request_version, auto *req_reader, auto *res_builder) {
+      [&data, dbms_handler](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                            uint64_t const request_version, auto *req_reader, auto *res_builder) {
         InMemoryReplicationHandlers::SwapMainUUIDHandler(dbms_handler, data, request_version, req_reader, res_builder);
       });
 }
@@ -455,7 +467,8 @@ void InMemoryReplicationHandlers::AbortPrevTxnIfNeeded(storage::InMemoryStorage 
 // The semantic of snapshot handler is the following: Either handling snapshot request passes or it doesn't. If it
 // passes we return the current commit timestamp of the replica. If it doesn't pass, we return optional which will
 // signal to the caller that it shouldn't update the commit timestamp value.
-void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
+void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler const &file_replication_handler,
+                                                  DbmsHandler *dbms_handler,
                                                   const std::optional<utils::UUID> &current_main_uuid,
                                                   uint64_t const request_version, slk::Reader *req_reader,
                                                   slk::Builder *res_builder) {
@@ -506,19 +519,21 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
                            fmt::format("db: {}", storage->name()));
     return;
   }
-  auto const &curr_wal_files = *maybe_curr_wal_files;
 
-  storage::replication::Decoder decoder(req_reader);
-  const auto maybe_recovery_snapshot_path = decoder.ReadFile(current_snapshot_dir);
-  if (!maybe_recovery_snapshot_path.has_value()) {
-    spdlog::error("Failed to load snapshot from {}", current_snapshot_dir);
+  auto const &curr_wal_files = *maybe_curr_wal_files;
+  auto const &active_files = file_replication_handler.GetActiveFileNames();
+  MG_ASSERT(active_files.size() == 1, "Received {} snapshot files but expecting only one!", active_files.size());
+  auto const src_snapshot_file = active_files[0];
+  auto const dst_snapshot_file = current_snapshot_dir / active_files[0].filename();
+
+  if (!utils::RenamePath(src_snapshot_file, dst_snapshot_file)) {
+    spdlog::error("Couldn't copy file from {} to {}", src_snapshot_file, dst_snapshot_file);
     rpc::SendFinalResponse(storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder,
                            fmt::format("db: {}", storage->name()));
     return;
   }
-  auto const &recovery_snapshot_path = *maybe_recovery_snapshot_path;
 
-  spdlog::info("Received snapshot saved to {}", recovery_snapshot_path);
+  spdlog::info("Received snapshot saved to {}", dst_snapshot_file);
   {
     auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
     if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
@@ -540,7 +555,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
     try {
       spdlog::debug("Loading snapshot for db {}.", storage->name());
       auto [snapshot_info, recovery_info, indices_constraints] = storage::durability::LoadSnapshot(
-          recovery_snapshot_path, &storage->vertices_, &storage->edges_, &storage->edges_metadata_,
+          dst_snapshot_file, &storage->vertices_, &storage->edges_, &storage->edges_metadata_,
           &storage->repl_storage_state_.history, storage->name_id_mapper_.get(), &storage->edge_count_,
           storage->config_, &storage->enum_store_,
           storage->config_.salient.items.enable_schema_info ? &storage->schema_info_.Get() : nullptr, &storage->ttl_,
@@ -567,22 +582,22 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
       spdlog::error(
           "Couldn't load the snapshot from {} because of: {}. Storage will be cleared. Snapshot and WAL files are "
           "preserved so you can restore your data by restarting instance.",
-          *maybe_recovery_snapshot_path, e.what());
+          dst_snapshot_file, e.what());
       storage->Clear();
       const storage::replication::SnapshotRes res{std::nullopt, 0};
       rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
       return;
     }
   }
-  spdlog::debug("Snapshot from {} loaded successfully.", *maybe_recovery_snapshot_path);
+  spdlog::debug("Snapshot from {} loaded successfully.", dst_snapshot_file);
 
   auto const [ldt, num_committed_txns] = storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire);
 
   const storage::replication::SnapshotRes res{ldt, num_committed_txns};
   rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
 
-  auto const not_recovery_snapshot = [&recovery_snapshot_path](auto const &snapshot_info) {
-    return snapshot_info.path != recovery_snapshot_path;
+  auto const not_recovery_snapshot = [&dst_snapshot_file](auto const &snapshot_info) {
+    return snapshot_info.path != dst_snapshot_file;
   };
 
   auto snapshots_to_move = curr_snapshot_files | rv::filter(not_recovery_snapshot) | r::to_vector;
@@ -600,7 +615,8 @@ void InMemoryReplicationHandlers::SnapshotHandler(DbmsHandler *dbms_handler,
 // If loading all WAL files succeeded then main can continue recovery if it should send more recovery steps.
 // If loading one of WAL files partially succeeded, then recovery cannot be continue but commit timestamp can be
 // obtained.
-void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handler,
+void InMemoryReplicationHandlers::WalFilesHandler(rpc::FileReplicationHandler const &file_replication_handler,
+                                                  dbms::DbmsHandler *dbms_handler,
                                                   const std::optional<utils::UUID> &current_main_uuid,
                                                   uint64_t const request_version, slk::Reader *req_reader,
                                                   slk::Builder *res_builder) {
@@ -668,12 +684,13 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
 
   const auto wal_file_number = req.file_number;
   spdlog::debug("Received {} WAL files.", wal_file_number);
-  storage::replication::Decoder decoder(req_reader);
+
+  auto const &active_files = file_replication_handler.GetActiveFileNames();
 
   uint32_t local_batch_counter{0};
   uint64_t num_committed_txns{0};
   for (auto i = 0; i < wal_file_number; ++i) {
-    auto const load_wal_res = LoadWal(storage, &decoder, res_builder, local_batch_counter);
+    auto const load_wal_res = LoadWal(active_files[i], storage, res_builder, local_batch_counter);
     if (!load_wal_res.success) {
       spdlog::debug("Replication recovery from WAL files failed while loading one of WAL files for db {}.",
                     storage->name());
@@ -702,7 +719,8 @@ void InMemoryReplicationHandlers::WalFilesHandler(dbms::DbmsHandler *dbms_handle
 // 2.) UUID sent with the request is not the current MAIN's UUID which replica is listening to
 // If loading WAL file partially succeeded then we shouldn't continue recovery but commit timestamp can be updated on
 // main
-void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_handler,
+void InMemoryReplicationHandlers::CurrentWalHandler(rpc::FileReplicationHandler const &file_replication_handler,
+                                                    dbms::DbmsHandler *dbms_handler,
                                                     const std::optional<utils::UUID> &current_main_uuid,
                                                     uint64_t const request_version, slk::Reader *req_reader,
                                                     slk::Builder *res_builder) {
@@ -765,11 +783,11 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
     }
   }
 
-  storage::replication::Decoder decoder(req_reader);
-
   // Even if loading wal file failed, we return last_durable_timestamp to the main because it is not a fatal error
   // When loading a single WAL file, we don't care about saving number of deltas
-  auto const load_wal_res = LoadWal(storage, &decoder, res_builder);
+  auto const &active_files = file_replication_handler.GetActiveFileNames();
+  MG_ASSERT(active_files.size() == 1, "Received {} files but expected 1 in CurrentWalHandler", active_files.size());
+  auto const load_wal_res = LoadWal(active_files[0], storage, res_builder);
   if (!load_wal_res.success) {
     spdlog::debug(
         "Replication recovery from current WAL didn't end successfully but the error is non-fatal error. DB {}.",
@@ -797,30 +815,17 @@ void InMemoryReplicationHandlers::CurrentWalHandler(dbms::DbmsHandler *dbms_hand
 // 4.) If reading WAL info fails
 // 5.) If applying some of the deltas failed
 // If WAL file doesn't contain any new changes, we ignore it and consider WAL file as successfully applied.
-InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(storage::InMemoryStorage *storage,
-                                                                                storage::replication::Decoder *decoder,
+InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(std::filesystem::path const &wal_path,
+                                                                                storage::InMemoryStorage *storage,
                                                                                 slk::Builder *res_builder,
-                                                                                uint32_t start_batch_counter) {
-  const auto temp_wal_directory =
-      std::filesystem::temp_directory_path() / "memgraph" / storage::durability::kWalDirectory;
-
-  if (!utils::EnsureDir(temp_wal_directory)) {
-    spdlog::error("Couldn't get access to the current tmp directory while loading WAL file.");
-    return LoadWalStatus{.success = false, .current_batch_counter = 0, .num_txns_committed = 0};
-  }
-
-  auto maybe_wal_path = decoder->ReadFile(temp_wal_directory);
-  if (!maybe_wal_path) {
-    spdlog::error("Failed to load WAL file from {}!", temp_wal_directory);
-    return LoadWalStatus{.success = false, .current_batch_counter = 0, .num_txns_committed = 0};
-  }
-  spdlog::trace("Received WAL saved to {}", *maybe_wal_path);
+                                                                                uint32_t const start_batch_counter) {
+  spdlog::trace("Received WAL saved to {}", wal_path);
 
   std::optional<storage::durability::WalInfo> maybe_wal_info;
   try {
-    maybe_wal_info.emplace(storage::durability::ReadWalInfo(*maybe_wal_path));
+    maybe_wal_info.emplace(storage::durability::ReadWalInfo(wal_path));
   } catch (const utils::BasicException &e) {
-    spdlog::error("Loading WAL info from {} failed because of {}.", *maybe_wal_path, e.what());
+    spdlog::error("Loading WAL info from {} failed because of {}.", wal_path, e.what());
     return LoadWalStatus{.success = false, .current_batch_counter = 0, .num_txns_committed = 0};
   }
 
@@ -851,13 +856,13 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
   if (storage->wal_file_) {
     storage->wal_file_->FinalizeWal();
     storage->wal_file_.reset();
-    spdlog::trace("WAL file {} finalized successfully", *maybe_wal_path);
+    spdlog::trace("WAL file {} finalized successfully", wal_path);
   }
 
-  spdlog::trace("Loading WAL deltas from {}", *maybe_wal_path);
+  spdlog::trace("Loading WAL deltas from {}", wal_path);
   storage::durability::Decoder wal_decoder;
-  const auto version = wal_decoder.Initialize(*maybe_wal_path, storage::durability::kWalMagic);
-  spdlog::debug("WAL file {} loaded successfully", *maybe_wal_path);
+  const auto version = wal_decoder.Initialize(wal_path, storage::durability::kWalMagic);
+  spdlog::debug("WAL file {} loaded successfully", wal_path);
   if (!version) {
     spdlog::error("Couldn't read WAL magic and/or version!");
     return LoadWalStatus{.success = false, .current_batch_counter = 0, .num_txns_committed = 0};
@@ -885,7 +890,7 @@ InMemoryReplicationHandlers::LoadWalStatus InMemoryReplicationHandlers::LoadWal(
     }
   }
 
-  spdlog::trace("Replication from WAL file {} successful!", *maybe_wal_path);
+  spdlog::trace("Replication from WAL file {} successful!", wal_path);
   return LoadWalStatus{
       .success = true, .current_batch_counter = local_batch_counter, .num_txns_committed = num_txns_committed};
 }
@@ -987,7 +992,7 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
     }
 
     // NOLINTNEXTLINE (google-build-using-namespace)
-    using namespace memgraph::storage::durability;
+    using namespace storage::durability;
     auto *mapper = storage->name_id_mapper_.get();
     auto delta_apply = utils::Overloaded{
         [&](WalVertexCreate const &data) {
