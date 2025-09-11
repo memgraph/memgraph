@@ -503,7 +503,8 @@ int main(int argc, char **argv) {
 #ifdef MG_ENTERPRISE
   memgraph::flags::SetFinalCoordinationSetup();
   auto const &coordination_setup = memgraph::flags::CoordinationSetupInstance();
-  if (coordination_setup.IsDataInstanceManagedByCoordinator()) {
+  if (coordination_setup.IsDataInstanceManagedByCoordinator() &&
+      db_config.salient.storage_mode == IN_MEMORY_TRANSACTIONAL) {
     MG_ASSERT(db_config.durability.snapshot_wal_mode == PERIODIC_SNAPSHOT_WITH_WAL,
               "When running Memgraph in high availability mode, a data instance must be started with flag "
               "--storage-wal-enabled=true");
