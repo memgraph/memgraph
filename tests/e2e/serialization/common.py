@@ -31,22 +31,31 @@ def make_connection(**kwargs):
     return connection
 
 
-def execute_phase_1(query, args, barrier, shared_state, state_lock):
+def execute_phase_1(query, args, barrier, shared_state, state_lock, should_abort=False):
     """Phase 1 transactions execute the query, hit barrier, sleep to ensure Phase 2 hits dependency, then commit"""
     try:
         connection = make_connection()
         cursor = connection.cursor()
         cursor.execute(query, args)
         barrier.wait()
-        time.sleep(0.5)  # Half-a-second wait here is to "guarantee" that the
-        # phase 2 threads begin executing before we commit. In
-        # the unlikely event that it isn't enough time, tests
-        # will still pass, but we just won't be testing
-        # write/write conflicts this iteration. Think of it
-        # as happy flakiness.
-        connection.commit()
+
+        # Half-a-second wait here is to "guarantee" that the phase 2 threads
+        # begin executing before we commit. In the unlikely event that it isn't
+        # enough time, tests will still pass, but we just won't be testing
+        # write/write conflicts this iteration because transaction will be
+        # running on a serial schedule. Think of it as happy flakiness.
+        time.sleep(0.5)
+
+        if should_abort:
+            connection.rollback()
+        else:
+            connection.commit()
+
         with state_lock:
-            shared_state["passes"] += 1
+            if should_abort:
+                shared_state["fails"] += 1
+            else:
+                shared_state["passes"] += 1
     except Exception as e:
         with state_lock:
             shared_state["fails"] += 1
@@ -92,9 +101,10 @@ class SerializationFixture:
         barrier = Barrier(len(phase1_txs) + len(phase2_txs))
 
         for tx in phase1_txs:
+            should_abort = tx.get("abort", False)
             process = Process(
                 target=execute_phase_1,
-                args=(tx["query"], tx.get("args", {}), barrier, self.shared_state, self.state_lock),
+                args=(tx["query"], tx.get("args", {}), barrier, self.shared_state, self.state_lock, should_abort),
             )
             processes.append(process)
 
