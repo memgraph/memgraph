@@ -19,6 +19,7 @@
 #include "coordination/coordinator_rpc.hpp"
 #include "replication_handler/system_rpc.hpp"
 #include "rpc/client.hpp"
+#include "rpc/file_replication_handler.hpp"
 #include "rpc/server.hpp"
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 
@@ -61,13 +62,15 @@ TEST(RpcTimeout, TimeoutNoFailure) {
     rpc_server.AwaitShutdown();
   }};
 
-  rpc_server.Register<Echo>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
-    EchoMessage req;
-    memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
+  rpc_server.Register<Echo>(
+      [](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+         uint64_t const request_version, auto *req_reader, auto *res_builder) {
+        EchoMessage req;
+        memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
 
-    EchoMessage res{"Sending reply"};
-    memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
-  });
+        EchoMessage res{"Sending reply"};
+        memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+      });
 
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
@@ -92,14 +95,16 @@ TEST(RpcTimeout, TimeoutExecutionBlocks) {
     rpc_server.AwaitShutdown();
   }};
 
-  rpc_server.Register<Echo>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
-    EchoMessage req;
-    memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
+  rpc_server.Register<Echo>(
+      [](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+         uint64_t const request_version, auto *req_reader, auto *res_builder) {
+        EchoMessage req;
+        memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
 
-    std::this_thread::sleep_for(1100ms);
-    EchoMessage res{"Sending reply"};
-    memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
-  });
+        std::this_thread::sleep_for(1100ms);
+        EchoMessage res{"Sending reply"};
+        memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+      });
 
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
@@ -123,7 +128,8 @@ TEST(RpcTimeout, TimeoutServerBusy) {
     rpc_server.AwaitShutdown();
   }};
 
-  rpc_server.Register<Sum>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
+  rpc_server.Register<Sum>([](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                              uint64_t const request_version, auto *req_reader, auto *res_builder) {
     spdlog::trace("Received sum request.");
     SumReq req;
     memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
@@ -133,14 +139,16 @@ TEST(RpcTimeout, TimeoutServerBusy) {
     memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
   });
 
-  rpc_server.Register<Echo>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
-    spdlog::trace("Received echo request");
-    EchoMessage req;
-    memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
+  rpc_server.Register<Echo>(
+      [](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+         uint64_t const request_version, auto *req_reader, auto *res_builder) {
+        spdlog::trace("Received echo request");
+        EchoMessage req;
+        memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
 
-    EchoMessage res{"Sending reply"};
-    memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
-  });
+        EchoMessage res{"Sending reply"};
+        memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+      });
 
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
@@ -173,14 +181,16 @@ TEST(RpcTimeout, SendingToWrongSocket) {
     rpc_server.AwaitShutdown();
   }};
 
-  rpc_server.Register<Echo>([](uint64_t const request_version, auto *req_reader, auto *res_builder) {
-    EchoMessage req;
-    memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
+  rpc_server.Register<Echo>(
+      [](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+         uint64_t const request_version, auto *req_reader, auto *res_builder) {
+        EchoMessage req;
+        memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);
 
-    std::this_thread::sleep_for(1100ms);
-    EchoMessage res{"Sending reply"};
-    memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
-  });
+        std::this_thread::sleep_for(1100ms);
+        EchoMessage res{"Sending reply"};
+        memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+      });
 
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
@@ -195,7 +205,8 @@ TEST(RpcTimeout, SendingToWrongSocket) {
 
 template <memgraph::rpc::IsRpc T>
 void RegisterRpcCallback(Server &rpc_server) {
-  rpc_server.Register<T>([](uint64_t const request_version, auto *req_reader, auto /* *res_builder */) {
+  rpc_server.Register<T>([](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                            uint64_t const request_version, auto *req_reader, auto /* *res_builder */) {
     typename T::Request req;
     if constexpr (!std::is_same_v<T, EnableWritingOnMainRpc> && !std::is_same_v<T, GetDatabaseHistoriesRpc>) {
       memgraph::rpc::LoadWithUpgrade(req, request_version, req_reader);

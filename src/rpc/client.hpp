@@ -134,7 +134,7 @@ class Client {
         uint64_t response_data_size = 0;
         while (true) {
           // Even if in progress RPC message was sent, the stream will be complete
-          auto const ret = slk::CheckStreamComplete(self_->client_->GetData(), self_->client_->GetDataSize());
+          auto const ret = slk::CheckStreamStatus(self_->client_->GetData(), self_->client_->GetDataSize());
           if (ret.status == slk::StreamStatus::INVALID) {
             // Logically invalid state, connection is still up, defunct stream and release
             defunct_ = true;
@@ -214,7 +214,7 @@ class Client {
       // Receive the response.
       uint64_t response_data_size = 0;
       while (true) {
-        auto ret = slk::CheckStreamComplete(self_->client_->GetData(), self_->client_->GetDataSize());
+        auto ret = slk::CheckStreamStatus(self_->client_->GetData(), self_->client_->GetDataSize());
         if (ret.status == slk::StreamStatus::INVALID) {
           // Logically invalid state, connection is still up, defunct stream and release
           defunct_ = true;

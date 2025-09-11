@@ -16,12 +16,17 @@
 
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 
+namespace memgraph::rpc {
+class FileReplicationHandler;
+}  // namespace memgraph::rpc
+
 namespace memgraph::coordination {
 
 void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceManagementServer &server,
                                                            CoordinatorInstance const &coordinator_instance) {
   server.Register<coordination::ShowInstancesRpc>(
-      [&](uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) -> void {
+      [&](std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) -> void {
         CoordinatorInstanceManagementServerHandlers::ShowInstancesHandler(coordinator_instance, request_version,
                                                                           req_reader, res_builder);
       });

@@ -35,7 +35,7 @@ void Buffer::ReadEnd::ShrinkBuffer(size_t size) { buffer_->ShrinkBuffer(size); }
 
 Buffer::WriteEnd::WriteEnd(Buffer *buffer) : buffer_(buffer) {}
 
-io::network::StreamBuffer Buffer::WriteEnd::Allocate() { return buffer_->Allocate(); }
+io::network::StreamBuffer Buffer::WriteEnd::GetBuffer() { return buffer_->GetBuffer(); }
 
 void Buffer::WriteEnd::Written(size_t len) { buffer_->Written(len); }
 
@@ -63,12 +63,12 @@ void Buffer::Shift(size_t len) {
   }
 }
 
-io::network::StreamBuffer Buffer::Allocate() {
+io::network::StreamBuffer Buffer::GetBuffer() {
   DMG_ASSERT(have_ <= data_.size(),
              "The buffer thinks that there is more data "
              "in the buffer than there is underlying "
              "storage space!");
-  return {data_.data() + have_, data_.size() - have_};
+  return {.data = data_.data() + have_, .len = data_.size() - have_};
 }
 
 void Buffer::Written(size_t len) {

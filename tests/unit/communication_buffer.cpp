@@ -1,4 +1,4 @@
-// Copyright 2022 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -24,7 +24,7 @@ struct CommunicationBuffer : ::testing::Test {
 
 TEST_F(CommunicationBuffer, AllocateAndWritten) {
   Buffer buffer;
-  auto sb = buffer.write_end()->Allocate();
+  auto sb = buffer.write_end()->GetBuffer();
 
   memcpy(sb.data, data, 1000);
   buffer.write_end()->Written(1000);
@@ -37,12 +37,12 @@ TEST_F(CommunicationBuffer, AllocateAndWritten) {
 
 TEST_F(CommunicationBuffer, Shift) {
   Buffer buffer;
-  auto sb = buffer.write_end()->Allocate();
+  auto sb = buffer.write_end()->GetBuffer();
 
   memcpy(sb.data, data, 1000);
   buffer.write_end()->Written(1000);
 
-  sb = buffer.write_end()->Allocate();
+  sb = buffer.write_end()->GetBuffer();
   memcpy(sb.data, data + 1000, 1000);
   buffer.write_end()->Written(1000);
 
@@ -60,10 +60,10 @@ TEST_F(CommunicationBuffer, Shift) {
 
 TEST_F(CommunicationBuffer, Resize) {
   Buffer buffer;
-  auto sb = buffer.write_end()->Allocate();
+  auto sb = buffer.write_end()->GetBuffer();
 
   buffer.read_end()->Resize(sb.len + 1000);
 
-  auto sbn = buffer.write_end()->Allocate();
+  auto sbn = buffer.write_end()->GetBuffer();
   ASSERT_EQ(sb.len + 1000, sbn.len);
 }
