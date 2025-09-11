@@ -13,7 +13,7 @@ dataset:
 
 customWorkloads:
   tests:
-    - name: metrics-monitoring-basic
+    - name: metrics-monitoring-basic-ha
       memgraph_args: []
       querying:
         host: "localhost"
