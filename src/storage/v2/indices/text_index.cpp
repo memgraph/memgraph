@@ -171,8 +171,8 @@ std::vector<TextSearchResult> TextIndex::Search(const std::string &index_name, c
     }
     throw query::TextSearchException("Text index {} doesn't exist.", index_name);
   });
-  const auto search_results = PerformTextSearch(context, search_query, search_mode, limit);
 
+  const auto search_results = PerformTextSearch(context, search_query, search_mode, limit);
   std::vector<TextSearchResult> found_nodes;
   found_nodes.reserve(search_results.docs.size());
   for (const auto &doc : search_results.docs) {

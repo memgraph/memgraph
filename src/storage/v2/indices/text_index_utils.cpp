@@ -182,15 +182,19 @@ mgcxx::text_search::SearchOutput PerformTextSearch(mgcxx::text_search::Context &
     case text_search_mode::SPECIFIED_PROPERTIES:
       return mgcxx::text_search::search(
           context, mgcxx::text_search::SearchInput{.search_query = ToLowerCasePreservingBooleanOperators(search_query),
+                                                   .return_fields = {"metadata"},
                                                    .limit = limit});
     case text_search_mode::REGEX:
       return mgcxx::text_search::regex_search(
-          context, mgcxx::text_search::SearchInput{.search_query = ToLowerCasePreservingBooleanOperators(search_query),
+          context, mgcxx::text_search::SearchInput{.search_fields = {"all"},
+                                                   .search_query = ToLowerCasePreservingBooleanOperators(search_query),
+                                                   .return_fields = {"metadata"},
                                                    .limit = limit});
     case text_search_mode::ALL_PROPERTIES:
       return mgcxx::text_search::search(
           context, mgcxx::text_search::SearchInput{.search_fields = {"all"},
                                                    .search_query = ToLowerCasePreservingBooleanOperators(search_query),
+                                                   .return_fields = {"metadata"},
                                                    .limit = limit});
     default:
       throw query::TextSearchException(

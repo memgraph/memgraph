@@ -27,12 +27,12 @@ constexpr std::string_view kProcedureAggregateEdges = "aggregate_edges";
 constexpr std::string_view kParameterIndexName = "index_name";
 constexpr std::string_view kParameterSearchQuery = "search_query";
 constexpr std::string_view kParameterAggregationQuery = "aggregation_query";
-constexpr std::string_view kParameterLimit = "limit";
 constexpr std::string_view kReturnNode = "node";
 constexpr std::string_view kReturnEdge = "edge";
 constexpr std::string_view kReturnAggregation = "aggregation";
 constexpr std::string_view kReturnScore = "score";
 constexpr std::string_view kSearchAllPrefix = "all";
+constexpr std::string_view kParameterLimit = "limit";
 constexpr std::int64_t kDefaultLimit = 1000;
 
 void Search(mgp_list *args, mgp_graph *memgraph_graph, mgp_result *result, mgp_memory *memory);
