@@ -1282,22 +1282,20 @@ auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::s
       auto instance_info = *maybe_instance_info;
 
       bool replica_behind{false};
-      for (auto const &replica_db_info : instance_info.dbs_info) {
-        auto const main_db_info = main_num_txns_cache_.find(replica_db_info.db_uuid);
+      for (const auto &[db_uuid, num_committed_txns] : instance_info.dbs_info) {
+        auto const main_db_info = main_num_txns_cache_.find(db_uuid);
         // If database got deleted on main but that change still isn't replicated, we cannot conclude that replica is
         // too far behind using such a condition
         if (main_db_info == main_num_txns_cache_.end()) {
-          spdlog::trace("No entry for db: {}", replica_db_info.db_uuid);
+          spdlog::trace("No entry for db: {}", db_uuid);
           continue;
         }
 
-        if (main_db_info->second > replica_db_info.num_committed_txns &&
-            main_db_info->second - replica_db_info.num_committed_txns > max_allowed_lag) {
+        if (main_db_info->second > num_committed_txns && main_db_info->second - num_committed_txns > max_allowed_lag) {
           spdlog::info(
               "Instance {} won't be used in a failover because it's much behind the current main. Main has committed "
               "{} txns, while instance {} has committed {} txns for the database {}",
-              instance_name, main_db_info->second, instance_name, replica_db_info.num_committed_txns,
-              main_db_info->first);
+              instance_name, main_db_info->second, instance_name, num_committed_txns, main_db_info->first);
           replica_behind = true;
           break;
         }
