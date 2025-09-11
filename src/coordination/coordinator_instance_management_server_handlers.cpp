@@ -25,6 +25,12 @@ void CoordinatorInstanceManagementServerHandlers::Register(CoordinatorInstanceMa
         CoordinatorInstanceManagementServerHandlers::ShowInstancesHandler(coordinator_instance, request_version,
                                                                           req_reader, res_builder);
       });
+
+  server.Register<coordination::GetRoutingTableRpc>(
+    [&](uint64_t const request_version, slk::Reader *req_reader, slk::Builder *res_builder) -> void {
+      CoordinatorInstanceManagementServerHandlers::GetRoutingTableHandler(coordinator_instance, request_version,
+                                                                        req_reader, res_builder);
+    });
 }
 
 void CoordinatorInstanceManagementServerHandlers::ShowInstancesHandler(CoordinatorInstance const &coordinator_instance,
@@ -34,6 +40,15 @@ void CoordinatorInstanceManagementServerHandlers::ShowInstancesHandler(Coordinat
   ShowInstancesReq req;
   rpc::LoadWithUpgrade(req, request_version, req_reader);
   ShowInstancesRes const rpc_res{coordinator_instance.ShowInstancesAsLeader()};
+  rpc::SendFinalResponse(rpc_res, request_version, res_builder);
+}
+
+void CoordinatorInstanceManagementServerHandlers::GetRoutingTableHandler(
+    CoordinatorInstance const &coordinator_instance, uint64_t request_version, slk::Reader *req_reader,
+    slk::Builder *res_builder) {
+  GetRoutingTableReq req;
+  rpc::LoadWithUpgrade(req, request_version, req_reader);
+  GetRoutingTableRes const rpc_res{coordinator_instance.GetRoutingTable(req.db_name_)};
   rpc::SendFinalResponse(rpc_res, request_version, res_builder);
 }
 

@@ -90,7 +90,7 @@ class SessionHL final : public memgraph::communication::bolt::Session<memgraph::
   }
 
 #ifdef MG_ENTERPRISE
-  auto Route(bolt_map_t const &routing, std::vector<bolt_value_t> const &bookmarks,
+  auto Route(bolt_map_t const &routing, std::vector<bolt_value_t> const &bookmarks, std::optional<std::string> const &db,
              bolt_map_t const &extra) -> bolt_map_t;
 #endif
 

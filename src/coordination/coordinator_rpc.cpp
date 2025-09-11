@@ -97,6 +97,23 @@ void ShowInstancesRes::Load(ShowInstancesRes *self, memgraph::slk::Reader *reade
   memgraph::slk::Load(self, reader);
 }
 
+// GetRoutingTable
+void GetRoutingTableReq::Save(const GetRoutingTableReq &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void GetRoutingTableReq::Load(GetRoutingTableReq *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
+void GetRoutingTableRes::Save(const GetRoutingTableRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void GetRoutingTableRes::Load(GetRoutingTableRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
+}
+
 // StateCheckReq
 void StateCheckReqV1::Save(const StateCheckReqV1 &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
@@ -310,6 +327,23 @@ void Save(const memgraph::coordination::ShowInstancesRes &self, memgraph::slk::B
 
 void Load(memgraph::coordination::ShowInstancesRes *self, memgraph::slk::Reader *reader) {
   memgraph::slk::Load(&self->instances_status_, reader);
+}
+
+// GetRoutingTableRpc
+void Save(const memgraph::coordination::GetRoutingTableReq &self, memgraph::slk::Builder *builder) {
+  slk::Save(self.db_name_, builder);
+}
+
+void Load(memgraph::coordination::GetRoutingTableReq *self, memgraph::slk::Reader *reader) {
+  slk::Load(&self->db_name_, reader);
+}
+
+void Save(const memgraph::coordination::GetRoutingTableRes &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.routing_table_, builder);
+}
+
+void Load(memgraph::coordination::GetRoutingTableRes *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->routing_table_, reader);
 }
 
 // StateCheckReq

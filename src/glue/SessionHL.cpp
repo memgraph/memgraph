@@ -434,13 +434,23 @@ std::pair<std::vector<std::string>, std::optional<int>> SessionHL::InterpretPrep
 }
 
 #ifdef MG_ENTERPRISE
-auto SessionHL::Route(bolt_map_t const &routing, std::vector<bolt_value_t> const & /*bookmarks*/, bolt_map_t const &
+auto SessionHL::Route(bolt_map_t const &routing, std::vector<bolt_value_t> const & /*bookmarks*/, std::optional<std::string> const &db,
+                      bolt_map_t const &
                       /*extra*/) -> bolt_map_t {
   auto routing_map = ranges::views::transform(
                          routing, [](auto const &pair) { return std::pair(pair.first, pair.second.ValueString()); }) |
                      ranges::to<std::map<std::string, std::string>>();
 
-  auto routing_table_res = interpreter_.Route(routing_map);
+  auto const db_str = std::invoke([this, &db]() -> std::string {
+    if (db.has_value()) return *db;
+    if (interpreter_.user_or_role_) {
+      // If auth exception is thrown, that's fine
+      return interpreter_.user_or_role_->GetDefaultDB();
+    }
+    return std::string{memgraph::dbms::kDefaultDB};
+  });
+
+  auto routing_table_res = interpreter_.Route(routing_map, db_str);
 
   auto create_server = [](auto const &server_info) -> bolt_value_t {
     auto const &[addresses, role] = server_info;
