@@ -788,7 +788,6 @@ class InMemoryStorage final : public Storage {
     std::unique_ptr<std::atomic<uint64_t>> commit_timestamp_{};  //!< the timestamp the deltas are pointing at
   };
 
-  // Ownership of linked deltas is transferred to committed_transactions_ once transaction is commited
   utils::Synchronized<std::list<GCDeltas>, utils::SpinLock> committed_transactions_{};
 
   // Ownership of unlinked deltas is transferred to garabage_undo_buffers once transaction is commited/aborted

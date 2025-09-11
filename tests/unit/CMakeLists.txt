@@ -159,6 +159,7 @@ add_unit_test(transaction_queue_multiple
     LINK_TARGETS mg-communication mg-query mg-glue
 )
 
+
 # Test query functions
 add_unit_test(query_function_mgp_module
     SOURCES query_function_mgp_module.cpp
@@ -555,6 +556,10 @@ add_unit_test(storage_v2_indices
     LINK_TARGETS mg::storage mg-utils
 )
 
+add_unit_test(transaction_dependencies
+    SOURCES transaction_dependencies.cpp
+    LINK_TARGETS mg::storage)
+
 add_unit_test(storage_v2_name_id_mapper
     SOURCES storage_v2_name_id_mapper.cpp
     LINK_TARGETS mg::storage
@@ -590,6 +595,10 @@ add_unit_test(storage_v2_get_info
     SOURCES storage_v2_get_info.cpp
     LINK_TARGETS mg::storage
 )
+
+add_unit_test(storage_v2_mvcc
+    SOURCES storage_v2_mvcc.cpp
+    LINK_TARGETS mg::storage)
 
 add_unit_test(database_get_info
     SOURCES database_get_info.cpp

@@ -5415,3 +5415,33 @@ TEST(StorageWithProperties, EdgeNonexistentPropertyAPI) {
 
   ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
 }
+
+TEST_P(StorageEdgeTest, NonCommutativeOperationsOnCurrentTransactionsAreSerializationErrors) {
+  std::unique_ptr<memgraph::storage::Storage> store(
+      new memgraph::storage::InMemoryStorage({.salient = {.items = {.properties_on_edges = GetParam()}}}));
+  memgraph::storage::Gid gid_v1, gid_v2;
+
+  {
+    auto acc = store->Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    gid_v1 = v1.Gid();
+    gid_v2 = v2.Gid();
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  auto acc1 = store->Access();
+  auto v1_tx1 = acc1->FindVertex(gid_v1, memgraph::storage::View::NEW);
+  auto v2_tx1 = acc1->FindVertex(gid_v2, memgraph::storage::View::NEW);
+  ASSERT_TRUE(v1_tx1 && v2_tx1);
+  auto et = acc1->NameToEdgeType("Edge");
+  auto edge1 = acc1->CreateEdge(&*v1_tx1, &*v2_tx1, et);
+  ASSERT_TRUE(edge1.HasValue());
+
+  auto acc2 = store->Access();
+  auto v1_tx2 = acc2->FindVertex(gid_v1, memgraph::storage::View::NEW);
+  auto label = acc2->NameToLabel("Label");
+  auto label_result = v1_tx2->AddLabel(label);
+  EXPECT_TRUE(label_result.HasError());
+  EXPECT_EQ(label_result.GetError(), memgraph::storage::Error::SERIALIZATION_ERROR);
+}

@@ -467,25 +467,68 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
   // Obtain the locks by `gid` order to avoid lock cycles.
   auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
   auto guard_to = std::unique_lock{to_vertex->lock, std::defer_lock};
-  if (from_vertex->gid < to_vertex->gid) {
-    guard_from.lock();
-    guard_to.lock();
-  } else if (from_vertex->gid > to_vertex->gid) {
-    guard_to.lock();
-    guard_from.lock();
-  } else {
-    // The vertices are the same vertex, only lock one.
-    guard_from.lock();
-  }
 
   transaction_.async_index_helper_.Track(edge_type);
 
-  if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
-  if (from_vertex->deleted) return Error::DELETED_OBJECT;
+  WritePreparationResult from_result;
+  WritePreparationResult to_result = {WriteResult::SUCCESS, {}};
 
-  if (to_vertex != from_vertex) {
-    if (!PrepareForWrite(&transaction_, to_vertex)) return Error::SERIALIZATION_ERROR;
-    if (to_vertex->deleted) return Error::DELETED_OBJECT;
+  // Retry loop for handling conflicts with dependency waiting
+  while (true) {
+    // Acquire locks in gid order
+    if (from_vertex->gid < to_vertex->gid) {
+      guard_from.lock();
+      guard_to.lock();
+    } else if (from_vertex->gid > to_vertex->gid) {
+      guard_to.lock();
+      guard_from.lock();
+    } else {
+      // The vertices are the same vertex, only lock one.
+      guard_from.lock();
+    }
+
+    from_result = PrepareForCommutativeWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE,
+                                             &storage_->transaction_dependencies_);
+
+    if (from_result.result == WriteResult::CONFLICT && from_result.wait_for_transaction_id) {
+      // Release locks before waiting
+      guard_from.unlock();
+      if (to_vertex != from_vertex) guard_to.unlock();
+
+      // Wait for blocking transaction
+      auto wait_result = storage_->transaction_dependencies_.WaitFor(transaction_.transaction_id,
+                                                                     *from_result.wait_for_transaction_id);
+      if (wait_result == WaitResult::CIRCULAR_DEPENDENCY) return Error::SERIALIZATION_ERROR;
+      continue;  // Retry with fresh locks
+    }
+
+    if (from_result.result == WriteResult::CONFLICT) return Error::SERIALIZATION_ERROR;
+    if (from_vertex->deleted) return Error::DELETED_OBJECT;
+
+    if (to_vertex != from_vertex) {
+      to_result = PrepareForCommutativeWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE,
+                                             &storage_->transaction_dependencies_);
+
+      if (to_result.result == WriteResult::CONFLICT && to_result.wait_for_transaction_id) {
+        // Release locks before waiting
+        guard_from.unlock();
+        guard_to.unlock();
+
+        // Wait for blocking transaction
+        auto wait_result = storage_->transaction_dependencies_.WaitFor(transaction_.transaction_id,
+                                                                       *to_result.wait_for_transaction_id);
+        if (wait_result == WaitResult::CIRCULAR_DEPENDENCY) {
+          return Error::SERIALIZATION_ERROR;
+        }
+        continue;  // Retry with fresh locks
+      }
+
+      if (to_result.result == WriteResult::CONFLICT) return Error::SERIALIZATION_ERROR;
+      if (to_vertex->deleted) return Error::DELETED_OBJECT;
+    }
+
+    // If we get here, both preparations succeeded
+    break;
   }
 
   if (storage_->config_.salient.items.enable_schema_metadata) {
@@ -511,31 +554,37 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
       MG_ASSERT(inserted, "The edge must be inserted here!");
     }
   }
-  utils::AtomicMemoryBlock(
-      [this, edge, from_vertex = from_vertex, edge_type = edge_type, to_vertex = to_vertex, &schema_acc]() {
-        CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
-        from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
 
-        CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge);
-        to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
+  bool const from_interleaved = (from_result.result == WriteResult::COMMUTATIVE);
+  bool const to_interleaved = (to_result.result == WriteResult::COMMUTATIVE);
 
-        transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
-        transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
+  utils::AtomicMemoryBlock([this, edge, from_vertex = from_vertex, edge_type = edge_type, to_vertex = to_vertex,
+                            &schema_acc, from_interleaved, to_interleaved]() {
+    CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge,
+                       from_interleaved ? DeltaInterleaving::INTERLEAVED : DeltaInterleaving::NON_INTERLEAVED);
+    from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
 
-        // Update indices if they exist.
-        storage_->indices_.UpdateOnEdgeCreation(from_vertex, to_vertex, edge, edge_type, transaction_);
+    CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge,
+                       to_interleaved ? DeltaInterleaving::INTERLEAVED : DeltaInterleaving::NON_INTERLEAVED);
+    to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
-        // Increment edge count.
-        storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
+    transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
+    transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
 
-        if (schema_acc) {
-          std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
-                                         acc.CreateEdge(from_vertex, to_vertex, edge_type);
-                                       },
-                                       [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
-                     *schema_acc);
-        }
-      });
+    // Update indices if they exist.
+    storage_->indices_.UpdateOnEdgeCreation(from_vertex, to_vertex, edge, edge_type, transaction_);
+
+    // Increment edge count.
+    storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
+
+    if (schema_acc) {
+      std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
+                                     acc.CreateEdge(from_vertex, to_vertex, edge_type);
+                                   },
+                                   [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                 *schema_acc);
+    }
+  });
 
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, storage_, &transaction_);
 }
@@ -575,23 +624,70 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
   // Obtain the locks by `gid` order to avoid lock cycles.
   auto guard_from = std::unique_lock{from_vertex->lock, std::defer_lock};
   auto guard_to = std::unique_lock{to_vertex->lock, std::defer_lock};
-  if (from_vertex->gid < to_vertex->gid) {
-    guard_from.lock();
-    guard_to.lock();
-  } else if (from_vertex->gid > to_vertex->gid) {
-    guard_to.lock();
-    guard_from.lock();
-  } else {
-    // The vertices are the same vertex, only lock one.
-    guard_from.lock();
-  }
 
-  if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
-  if (from_vertex->deleted) return Error::DELETED_OBJECT;
+  // @TODO tidy this code (and CreateEdge)
+  // @TODO while(true) loop: and what happens when we are shutting down? No stop
+  // signal or anything here...
 
-  if (to_vertex != from_vertex) {
-    if (!PrepareForWrite(&transaction_, to_vertex)) return Error::SERIALIZATION_ERROR;
-    if (to_vertex->deleted) return Error::DELETED_OBJECT;
+  WritePreparationResult from_result;
+  WritePreparationResult to_result = {WriteResult::SUCCESS, {}};
+
+  // Retry loop for handling conflicts with dependency waiting
+  while (true) {
+    // Acquire locks in gid order
+    if (from_vertex->gid < to_vertex->gid) {
+      guard_from.lock();
+      guard_to.lock();
+    } else if (from_vertex->gid > to_vertex->gid) {
+      guard_to.lock();
+      guard_from.lock();
+    } else {
+      // The vertices are the same vertex, only lock one.
+      guard_from.lock();
+    }
+
+    from_result = PrepareForCommutativeWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE,
+                                             &storage_->transaction_dependencies_);
+
+    if (from_result.result == WriteResult::CONFLICT && from_result.wait_for_transaction_id) {
+      // Release locks before waiting
+      guard_from.unlock();
+      if (to_vertex != from_vertex) guard_to.unlock();
+
+      // Wait for blocking transaction
+      auto wait_result = storage_->transaction_dependencies_.WaitFor(transaction_.transaction_id,
+                                                                     *from_result.wait_for_transaction_id);
+      if (wait_result == WaitResult::CIRCULAR_DEPENDENCY) return Error::SERIALIZATION_ERROR;
+      continue;  // Retry with fresh locks
+    }
+
+    if (from_result.result == WriteResult::CONFLICT) return Error::SERIALIZATION_ERROR;
+    if (from_vertex->deleted) return Error::DELETED_OBJECT;
+
+    if (to_vertex != from_vertex) {
+      to_result = PrepareForCommutativeWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE,
+                                             &storage_->transaction_dependencies_);
+
+      if (to_result.result == WriteResult::CONFLICT && to_result.wait_for_transaction_id) {
+        // Release locks before waiting
+        guard_from.unlock();
+        guard_to.unlock();
+
+        // Wait for blocking transaction
+        auto wait_result = storage_->transaction_dependencies_.WaitFor(transaction_.transaction_id,
+                                                                       *to_result.wait_for_transaction_id);
+        if (wait_result == WaitResult::CIRCULAR_DEPENDENCY) {
+          return Error::SERIALIZATION_ERROR;
+        }
+        continue;  // Retry with fresh locks
+      }
+
+      if (to_result.result == WriteResult::CONFLICT) return Error::SERIALIZATION_ERROR;
+      if (to_vertex->deleted) return Error::DELETED_OBJECT;
+    }
+
+    // If we get here, both preparations succeeded
+    break;
   }
 
   if (storage_->config_.salient.items.enable_schema_metadata) {
@@ -627,31 +723,37 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
       MG_ASSERT(inserted, "The edge must be inserted here!");
     }
   }
-  utils::AtomicMemoryBlock(
-      [this, edge, from_vertex = from_vertex, edge_type = edge_type, to_vertex = to_vertex, &schema_acc]() {
-        CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
-        from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
 
-        CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge);
-        to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
+  bool const from_interleaved = (from_result.result == WriteResult::COMMUTATIVE);
+  bool const to_interleaved = (to_result.result == WriteResult::COMMUTATIVE);
 
-        transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
-        transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
+  utils::AtomicMemoryBlock([this, edge, from_vertex = from_vertex, edge_type = edge_type, to_vertex = to_vertex,
+                            &schema_acc, from_interleaved, to_interleaved]() {
+    CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge,
+                       from_interleaved ? DeltaInterleaving::INTERLEAVED : DeltaInterleaving::NON_INTERLEAVED);
+    from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
 
-        // Update indices if they exist.
-        storage_->indices_.UpdateOnEdgeCreation(from_vertex, to_vertex, edge, edge_type, transaction_);
+    CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge,
+                       to_interleaved ? DeltaInterleaving::INTERLEAVED : DeltaInterleaving::NON_INTERLEAVED);
+    to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
-        // Increment edge count.
-        storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
+    transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
+    transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
 
-        if (schema_acc) {
-          std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
-                                         acc.CreateEdge(from_vertex, to_vertex, edge_type);
-                                       },
-                                       [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
-                     *schema_acc);
-        }
-      });
+    // Update indices if they exist.
+    storage_->indices_.UpdateOnEdgeCreation(from_vertex, to_vertex, edge, edge_type, transaction_);
+
+    // Increment edge count.
+    storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
+
+    if (schema_acc) {
+      std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
+                                     acc.CreateEdge(from_vertex, to_vertex, edge_type);
+                                   },
+                                   [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                 *schema_acc);
+    }
+  });
 
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, storage_, &transaction_);
 }
@@ -1274,16 +1376,16 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 break;
               }
               case Delta::Action::ADD_IN_EDGE: {
-                auto link =
-                    std::tuple{current->vertex_edge.edge_type, current->vertex_edge.vertex, current->vertex_edge.edge};
+                auto link = std::tuple{current->vertex_edge.edge_type, current->vertex_edge.vertex.Get(),
+                                       current->vertex_edge.edge};
                 DMG_ASSERT(std::find(vertex->in_edges.begin(), vertex->in_edges.end(), link) == vertex->in_edges.end(),
                            "Invalid database state!");
                 vertex->in_edges.push_back(link);
                 break;
               }
               case Delta::Action::ADD_OUT_EDGE: {
-                auto link =
-                    std::tuple{current->vertex_edge.edge_type, current->vertex_edge.vertex, current->vertex_edge.edge};
+                auto link = std::tuple{current->vertex_edge.edge_type, current->vertex_edge.vertex.Get(),
+                                       current->vertex_edge.edge};
                 DMG_ASSERT(
                     std::find(vertex->out_edges.begin(), vertex->out_edges.end(), link) == vertex->out_edges.end(),
                     "Invalid database state!");
@@ -1314,7 +1416,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 if (!mem_storage->config_.salient.items.properties_on_edges) break;
 
                 auto const &[_, edge_type, to_vertex, edge] = current->vertex_edge;
-                index_abort_processor.CollectOnEdgeRemoval(edge_type, vertex, to_vertex, edge.ptr);
+                index_abort_processor.CollectOnEdgeRemoval(edge_type, vertex, to_vertex.Get(), edge.ptr);
                 // TODO: ensure collector also processeses for edge_type+property index
 
                 break;
@@ -2160,6 +2262,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
 
     for (Delta &delta : linked_entry->deltas_) {
       index_impact.update(delta.action);
+
       while (true) {
         auto prev = delta.prev.Get();
         switch (prev.type) {
