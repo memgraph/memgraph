@@ -1353,7 +1353,7 @@ TYPED_TEST(CppApiTestFixture, TestTextIndexOnNodes) {
   constexpr auto index_name = "node_text_index";
   constexpr auto label_name = "Document";
   constexpr auto property_name = "content";
-
+  constexpr auto text_search_limit = 10;
   // Create text index
   {
     auto storage_acc = this->storage->UniqueAccess();
@@ -1388,8 +1388,8 @@ TYPED_TEST(CppApiTestFixture, TestTextIndexOnNodes) {
     mgp_graph raw_graph = this->CreateGraph(db_acc.get());
 
     // Test search functionality
-    auto search_results =
-        mgp::SearchTextIndex(&raw_graph, index_name, "data.content:document", text_search_mode::SPECIFIED_PROPERTIES);
+    auto search_results = mgp::SearchTextIndex(&raw_graph, index_name, "data.content:document",
+                                               text_search_mode::SPECIFIED_PROPERTIES, text_search_limit);
     ASSERT_GE(search_results.Size(), 1);
   }
 
@@ -1409,6 +1409,7 @@ TYPED_TEST(CppApiTestFixture, TestTextIndexOnEdges) {
   constexpr auto index_name = "edge_text_index";
   constexpr auto edge_type = "CONTAINS";
   constexpr auto property_name = "description";
+  constexpr auto text_search_limit = 10;
 
   // Create text edge index
   {
@@ -1446,7 +1447,7 @@ TYPED_TEST(CppApiTestFixture, TestTextIndexOnEdges) {
 
     // Test search functionality
     auto search_results = mgp::SearchTextEdgeIndex(&raw_graph, index_name, "data.description:information",
-                                                   text_search_mode::SPECIFIED_PROPERTIES);
+                                                   text_search_mode::SPECIFIED_PROPERTIES, text_search_limit);
     ASSERT_GE(search_results.Size(), 1);
   }
 

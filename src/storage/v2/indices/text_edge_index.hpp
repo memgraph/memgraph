@@ -36,10 +36,11 @@ struct TextEdgeIndexData {
       : context(std::move(context)), scope(scope), properties(std::move(properties)) {}
 };
 
-struct EdgeTextSearchResult {
+struct TextEdgeSearchResult {
   Gid edge_gid;
   Gid from_vertex_gid;
   Gid to_vertex_gid;
+  double score;
 };
 
 class TextEdgeIndex {
@@ -82,8 +83,8 @@ class TextEdgeIndex {
 
   bool IndexExists(const std::string &index_name) const;
 
-  std::vector<EdgeTextSearchResult> Search(const std::string &index_name, const std::string &search_query,
-                                           text_search_mode search_mode);
+  std::vector<TextEdgeSearchResult> Search(const std::string &index_name, const std::string &search_query,
+                                           text_search_mode search_mode, std::size_t limit);
 
   std::string Aggregate(const std::string &index_name, const std::string &search_query,
                         const std::string &aggregation_query);

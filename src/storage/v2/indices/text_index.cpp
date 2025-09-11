@@ -160,8 +160,8 @@ void TextIndex::DropIndex(const std::string &index_name) {
 
 bool TextIndex::IndexExists(const std::string &index_name) const { return index_.contains(index_name); }
 
-std::vector<Gid> TextIndex::Search(const std::string &index_name, const std::string &search_query,
-                                   text_search_mode search_mode) {
+std::vector<TextSearchResult> TextIndex::Search(const std::string &index_name, const std::string &search_query,
+                                                text_search_mode search_mode, std::size_t limit) {
   if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     throw query::TextSearchDisabledException();
   }
@@ -171,30 +171,16 @@ std::vector<Gid> TextIndex::Search(const std::string &index_name, const std::str
     }
     throw query::TextSearchException("Text index {} doesn't exist.", index_name);
   });
-  mgcxx::text_search::SearchOutput search_results;
-  switch (search_mode) {
-    case text_search_mode::SPECIFIED_PROPERTIES:
-      search_results = SearchGivenProperties(ToLowerCasePreservingBooleanOperators(search_query), context);
-      break;
-    case text_search_mode::REGEX:
-      search_results = RegexSearch(ToLowerCasePreservingBooleanOperators(search_query), context);
-      break;
-    case text_search_mode::ALL_PROPERTIES:
-      search_results = SearchAllProperties(ToLowerCasePreservingBooleanOperators(search_query), context);
-      break;
-    default:
-      throw query::TextSearchException(
-          "Unsupported search mode: please use one of text_search.search, text_search.search_all, or "
-          "text_search.regex_search.");
-  }
 
-  std::vector<Gid> found_nodes;
+  const auto search_results = PerformTextSearch(context, search_query, search_mode, limit);
+  std::vector<TextSearchResult> found_nodes;
+  found_nodes.reserve(search_results.docs.size());
   for (const auto &doc : search_results.docs) {
     // Create string using both data pointer and length to avoid buffer overflow
     // The CXX .data() method may not null-terminate the string properly
     const std::string doc_string(doc.data.data(), doc.data.length());
     const auto doc_json = nlohmann::json::parse(doc_string);
-    found_nodes.push_back(storage::Gid::FromString(doc_json["metadata"]["gid"].dump()));
+    found_nodes.emplace_back(storage::Gid::FromString(doc_json["metadata"]["gid"].dump()), doc.score);
   }
   return found_nodes;
 }
