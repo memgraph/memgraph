@@ -47,12 +47,22 @@ if [ ! -f "values_template.yaml" ]; then
   exit 1
 fi
 
+# Set default values for enterprise license if not provided
+ENTERPRISE_LICENSE=${MEMGRAPH_ENTERPRISE_LICENSE:-""}
+ORGANIZATION_NAME=${MEMGRAPH_ORGANIZATION_NAME:-""}
+
 # Generate old_values.yaml with LAST_TAG
-sed "s/{{VERSION_TAG}}/${LAST_TAG}/g" values_template.yaml > old_values.yaml
+sed -e "s/{{VERSION_TAG}}/${LAST_TAG}/g" \
+    -e "s/{{ENTERPRISE_LICENSE}}/${ENTERPRISE_LICENSE}/g" \
+    -e "s/{{ORGANIZATION_NAME}}/${ORGANIZATION_NAME}/g" \
+    values_template.yaml > old_values.yaml
 echo -e "${GREEN}Generated old_values.yaml with tag: ${LAST_TAG}${NC}"
 
 # Generate new_values.yaml with NEXT_TAG
-sed "s/{{VERSION_TAG}}/${NEXT_TAG}/g" values_template.yaml > new_values.yaml
+sed -e "s/{{VERSION_TAG}}/${NEXT_TAG}/g" \
+    -e "s/{{ENTERPRISE_LICENSE}}/${ENTERPRISE_LICENSE}/g" \
+    -e "s/{{ORGANIZATION_NAME}}/${ORGANIZATION_NAME}/g" \
+    values_template.yaml > new_values.yaml
 echo -e "${GREEN}Generated new_values.yaml with tag: ${NEXT_TAG}${NC}"
 
 # Debug: Show the generated values files
@@ -142,14 +152,24 @@ kubectl wait --for=condition=ready node --all --timeout=300s
 
 # Check if storage class file exists
 if [ ! -f "sc.yaml" ]; then
-  echo -e "${RED}Error: sc.yaml not found${NC}"
-  echo "Please ensure sc.yaml exists in the current directory"
-  exit 1
+  echo -e "${YELLOW}Warning: sc.yaml not found, using minikube default storage class${NC}"
+  # Use minikube's default storage class
+  SC_NAME="standard"
+else
+  # Create CSI storage class
+  kubectl apply -f sc.yaml
+  echo "Created $SC_NAME storage class"
 fi
 
-# Create CSI storage class
-kubectl apply -f sc.yaml
-echo "Created $SC_NAME storage class"
+# Verify storage class exists
+echo -e "${GREEN}Checking available storage classes...${NC}"
+kubectl get storageclass
+if ! kubectl get storageclass "$SC_NAME" >/dev/null 2>&1; then
+  echo -e "${RED}Error: Storage class '$SC_NAME' not found${NC}"
+  echo "Available storage classes:"
+  kubectl get storageclass
+  exit 1
+fi
 
 # Start by bringing up nodes and labelling them
 nodes=($(kubectl get nodes --no-headers -o custom-columns=":metadata.name"))
@@ -219,8 +239,24 @@ kubectl get pods || true
 
 # Wait until pods became ready
 echo -e "${GREEN}Waiting for pods to become ready...${NC}"
-kubectl wait --for=condition=ready pod --all --timeout=90s
-sleep 5
+echo "Current pod status:"
+kubectl get pods -o wide
+
+# Wait for pods with a longer timeout and better error handling
+echo "Waiting up to 5 minutes for pods to be ready..."
+if ! kubectl wait --for=condition=ready pod --all --timeout=300s; then
+  echo -e "${YELLOW}Warning: Some pods may not be ready yet. Checking status...${NC}"
+  kubectl get pods -o wide
+  echo "Pod events:"
+  kubectl get events --sort-by=.metadata.creationTimestamp | tail -20
+  echo "Checking pod logs for any issues..."
+  for pod in $(kubectl get pods --no-headers -o custom-columns=":metadata.name"); do
+    echo "=== Logs for $pod ==="
+    kubectl logs "$pod" --tail=10 || true
+  done
+  echo -e "${YELLOW}Continuing anyway - some pods might still be starting...${NC}"
+fi
+sleep 10
 
 echo "All pods became ready"
 

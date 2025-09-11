@@ -9,8 +9,8 @@ image:
   pullPolicy: IfNotPresent
 
 env:
-  MEMGRAPH_ENTERPRISE_LICENSE: ""
-  MEMGRAPH_ORGANIZATION_NAME: ""
+  MEMGRAPH_ENTERPRISE_LICENSE: "{{ENTERPRISE_LICENSE}}"
+  MEMGRAPH_ORGANIZATION_NAME: "{{ORGANIZATION_NAME}}"
 
 storage:
   data:
@@ -18,10 +18,10 @@ storage:
     libStorageAccessMode: "ReadWriteOnce"
     # By default the name of the storage class isn't set which means that the default storage class will be used.
     # If you set any name, such storage class must exist.
-    libStorageClassName: csi-hostpath-delayed
+    libStorageClassName: standard
     logPVCSize: "1Gi"
     logStorageAccessMode: "ReadWriteOnce"
-    logStorageClassName: csi-hostpath-delayed
+    logStorageClassName: standard
     ## Create a Persistant Volume Claim for core dumps.
     createCoreDumpsClaim: false
     coreDumpsStorageClassName: 
@@ -32,10 +32,10 @@ storage:
     libStorageAccessMode: "ReadWriteOnce"
     # By default the name of the storage class isn't set which means that the default storage class will be used.
     # If you set any name, such storage class must exist.
-    libStorageClassName: csi-hostpath-delayed
+    libStorageClassName: standard
     logPVCSize: "1Gi"
     logStorageAccessMode: "ReadWriteOnce"
-    logStorageClassName: csi-hostpath-delayed
+    logStorageClassName: standard
     ## Create a Persistant Volume Claim for core dumps.
     createCoreDumpsClaim: false
     coreDumpsStorageClassName:
