@@ -180,8 +180,7 @@ std::vector<TextSearchResult> TextIndex::Search(const std::string &index_name, c
     // The CXX .data() method may not null-terminate the string properly
     const std::string doc_string(doc.data.data(), doc.data.length());
     const auto doc_json = nlohmann::json::parse(doc_string);
-    const auto gid = storage::Gid::FromString(doc_json["metadata"]["gid"].dump());
-    found_nodes.emplace_back(gid, doc.score);
+    found_nodes.emplace_back(storage::Gid::FromString(doc_json["metadata"]["gid"].dump()), doc.score);
   }
   return found_nodes;
 }
