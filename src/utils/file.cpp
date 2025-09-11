@@ -348,7 +348,7 @@ void OutputFile::Open(const std::filesystem::path &path, Mode mode) {
     }
   }
 
-  MG_ASSERT(fd_ != -1, "While trying to open {} for writing an error occured: {} ({})", path_, strerror(errno), errno);
+  MG_ASSERT(fd_ != -1, "While trying to open {} for writing an error occurred: {} ({})", path_, strerror(errno), errno);
 }
 
 bool OutputFile::IsOpen() const { return fd_ != -1; }

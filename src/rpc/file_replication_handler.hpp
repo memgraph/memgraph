@@ -42,6 +42,9 @@ class FileReplicationHandler final {
   static std::filesystem::path GetRandomDir();
 
  private:
+  static bool ValidateFilename(std::optional<std::string> const &maybe_filename);
+  static bool ValidateFileSize(std::optional<uint64_t> const &maybe_filesize);
+
   utils::OutputFile file_;
   uint64_t file_size_{0};
   uint64_t written_{0};

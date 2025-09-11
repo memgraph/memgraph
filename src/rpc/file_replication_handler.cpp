@@ -40,33 +40,59 @@ std::optional<size_t> FileReplicationHandler::OpenFile(const uint8_t *data, size
   storage::replication::Decoder decoder(&req_reader);
 
   auto const maybe_filename = decoder.ReadString();
-  MG_ASSERT(maybe_filename.has_value(), "Filename missing for the received file over the RPC");
+  if (!ValidateFilename(maybe_filename)) return std::nullopt;
 
-  if (maybe_filename->empty()) {
-    spdlog::error("Filename is empty");
-    return std::nullopt;
-  }
-  auto const file_path = std::filesystem::path(*maybe_filename);
-  if (file_path.has_parent_path()) {
-    spdlog::error("File cannot have a parent path{}", file_path.string());
-    return std::nullopt;
-  }
+  const auto maybe_file_size = decoder.ReadUint();
+  if (!ValidateFileSize(maybe_file_size)) return std::nullopt;
 
-  auto const path = tmp_rnd_dir / file_path;
+  file_size_ = *maybe_file_size;
+  auto const path = tmp_rnd_dir / *maybe_filename;
   paths_.emplace_back(path);
 
   file_.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING);
-
-  const auto maybe_file_size = decoder.ReadUint();
-  MG_ASSERT(maybe_file_size, "File size missing");
-  file_size_ = *maybe_file_size;
-
   spdlog::info("Replica will be using file {} with size {}", path, file_size_);
 
   // First N bytes are file_name and file_size, therefore we don't read full size
   size_t const processed_bytes = req_reader.GetPos();
-  spdlog::info("Processed {} bytes when opening file", processed_bytes);
   return processed_bytes + WriteToFile(data + processed_bytes, size - processed_bytes);
+}
+
+bool FileReplicationHandler::ValidateFilename(std::optional<std::string> const &maybe_filename) {
+  if (!maybe_filename.has_value()) {
+    spdlog::error("Filename missing for the received file over the RPC");
+    return false;
+  }
+
+  auto const &filename = *maybe_filename;
+  if (filename.empty()) {
+    spdlog::error("Filename is empty");
+    return false;
+  }
+
+  if (filename.find('/') != std::string::npos || filename.find('\\') != std::string::npos) {
+    spdlog::error("Filename must not contain path separators: {}", filename);
+    return false;
+  }
+
+  if (filename.find('.') != std::string::npos) {
+    spdlog::error("Filename must not contain extension: {}", filename);
+    return false;
+  }
+
+  if (auto const file_path = std::filesystem::path(filename); file_path.has_parent_path()) {
+    spdlog::error("File cannot have a parent path{}", file_path.string());
+    return false;
+  }
+
+  return true;
+}
+
+bool FileReplicationHandler::ValidateFileSize(std::optional<uint64_t> const &maybe_filesize) {
+  if (!maybe_filesize.has_value()) {
+    spdlog::error("Failed to read file size");
+    return false;
+  }
+  return true;
 }
 
 size_t FileReplicationHandler::WriteToFile(const uint8_t *data, size_t const size) {

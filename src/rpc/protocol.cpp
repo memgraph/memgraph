@@ -82,7 +82,6 @@ void RpcMessageDeliverer::Execute() {
     }
 
     if (ret.status == slk::StreamStatus::NEW_FILE) {
-      spdlog::info("Stream size when new file is received: {}", input_stream_->size());
       if (!file_replication_handler_.has_value()) {
         // Will be used at the end to construct slk::Reader. Contains message header and request. It is necessary to do
         // this only when initializing FileReplicationHandler
