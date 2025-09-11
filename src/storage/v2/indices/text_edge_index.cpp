@@ -156,7 +156,7 @@ void TextEdgeIndex::DropIndex(const std::string &index_name) {
 bool TextEdgeIndex::IndexExists(const std::string &index_name) const { return index_.contains(index_name); }
 
 std::vector<TextEdgeSearchResult> TextEdgeIndex::Search(const std::string &index_name, const std::string &search_query,
-                                                        text_search_mode search_mode) {
+                                                        text_search_mode search_mode, std::size_t limit) {
   if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     throw query::TextSearchDisabledException();
   }
@@ -166,22 +166,7 @@ std::vector<TextEdgeSearchResult> TextEdgeIndex::Search(const std::string &index
     }
     throw query::TextSearchException("Text index {} doesn't exist.", index_name);
   });
-  mgcxx::text_search::SearchOutput search_results;
-  switch (search_mode) {
-    case text_search_mode::SPECIFIED_PROPERTIES:
-      search_results = SearchGivenProperties(ToLowerCasePreservingBooleanOperators(search_query), context);
-      break;
-    case text_search_mode::REGEX:
-      search_results = RegexSearch(ToLowerCasePreservingBooleanOperators(search_query), context);
-      break;
-    case text_search_mode::ALL_PROPERTIES:
-      search_results = SearchAllProperties(ToLowerCasePreservingBooleanOperators(search_query), context);
-      break;
-    default:
-      throw query::TextSearchException(
-          "Unsupported search mode: please use one of text_search.search, text_search.search_all, or "
-          "text_search.regex_search.");
-  }
+  const auto search_results = PerformTextSearch(context, search_query, search_mode, limit);
 
   std::vector<TextEdgeSearchResult> found_edges;
   for (const auto &doc : search_results.docs) {

@@ -330,8 +330,8 @@ inline bool graph_has_text_index(mgp_graph *graph, const char *index_name) {
 }
 
 inline mgp_map *graph_search_text_index(mgp_graph *graph, const char *index_name, const char *search_query,
-                                        text_search_mode search_mode, mgp_memory *memory) {
-  return MgInvoke<mgp_map *>(mgp_graph_search_text_index, graph, index_name, search_query, search_mode, memory);
+                                        text_search_mode search_mode, std::size_t limit, mgp_memory *memory) {
+  return MgInvoke<mgp_map *>(mgp_graph_search_text_index, graph, index_name, search_query, search_mode, limit, memory);
 }
 
 inline mgp_map *graph_aggregate_over_text_index(mgp_graph *graph, const char *index_name, const char *search_query,
@@ -341,8 +341,9 @@ inline mgp_map *graph_aggregate_over_text_index(mgp_graph *graph, const char *in
 }
 
 inline mgp_map *graph_search_text_edge_index(mgp_graph *graph, const char *index_name, const char *search_query,
-                                             text_search_mode search_mode, mgp_memory *memory) {
-  return MgInvoke<mgp_map *>(mgp_graph_search_text_edge_index, graph, index_name, search_query, search_mode, memory);
+                                             text_search_mode search_mode, std::size_t limit, mgp_memory *memory) {
+  return MgInvoke<mgp_map *>(mgp_graph_search_text_edge_index, graph, index_name, search_query, search_mode, limit,
+                             memory);
 }
 
 inline mgp_map *graph_aggregate_over_text_edge_index(mgp_graph *graph, const char *index_name, const char *search_query,

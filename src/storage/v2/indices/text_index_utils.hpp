@@ -17,6 +17,7 @@
 #include <vector>
 
 #include "absl/container/flat_hash_set.h"
+#include "mg_procedure.h"
 #include "nlohmann/json_fwd.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/property_store.hpp"
@@ -53,15 +54,6 @@ std::string StringifyProperties(const std::map<PropertyId, PropertyValue> &prope
 // Extract properties from the property store and return them as a map
 std::map<PropertyId, PropertyValue> ExtractProperties(const PropertyStore &property_store,
                                                       std::span<PropertyId const> properties);
-
-// Search functions for the text index
-mgcxx::text_search::SearchOutput SearchGivenProperties(const std::string &search_query,
-                                                       mgcxx::text_search::Context &context);
-
-mgcxx::text_search::SearchOutput RegexSearch(const std::string &search_query, mgcxx::text_search::Context &context);
-
-mgcxx::text_search::SearchOutput SearchAllProperties(const std::string &search_query,
-                                                     mgcxx::text_search::Context &context);
 
 // Text index change tracking
 enum class TextIndexOp { ADD, UPDATE, REMOVE };
@@ -112,5 +104,10 @@ void TrackTextIndexChange(TextIndexChangeCollector &collector, std::span<TextInd
                           TextIndexOp op);
 void TrackTextEdgeIndexChange(TextEdgeIndexChangeCollector &collector, std::span<TextEdgeIndexData *> indices,
                               const Edge *edge, const Vertex *from_vertex, const Vertex *to_vertex, TextIndexOp op);
+
+// Text search utility functions
+mgcxx::text_search::SearchOutput PerformTextSearch(mgcxx::text_search::Context &context,
+                                                   const std::string &search_query, text_search_mode search_mode,
+                                                   std::size_t limit);
 
 }  // namespace memgraph::storage

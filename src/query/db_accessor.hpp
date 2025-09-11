@@ -523,8 +523,8 @@ class DbAccessor final {
   bool TextIndexExists(const std::string &index_name) const { return accessor_->TextIndexExists(index_name); }
 
   std::vector<storage::TextSearchResult> TextIndexSearch(const std::string &index_name, const std::string &search_query,
-                                                         text_search_mode search_mode) const {
-    return accessor_->TextIndexSearch(index_name, search_query, search_mode);
+                                                         text_search_mode search_mode, std::size_t limit) const {
+    return accessor_->TextIndexSearch(index_name, search_query, search_mode, limit);
   }
 
   std::string TextIndexAggregate(const std::string &index_name, const std::string &search_query,
@@ -539,8 +539,9 @@ class DbAccessor final {
 
   std::vector<storage::TextEdgeSearchResult> SearchEdgeTextIndex(const std::string &index_name,
                                                                  const std::string &search_query,
-                                                                 text_search_mode search_mode) const {
-    return accessor_->SearchEdgeTextIndex(index_name, search_query, search_mode);
+                                                                 text_search_mode search_mode,
+                                                                 std::size_t limit) const {
+    return accessor_->SearchEdgeTextIndex(index_name, search_query, search_mode, limit);
   }
 
   bool PointIndexExists(storage::LabelId label, storage::PropertyId prop) const {

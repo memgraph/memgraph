@@ -825,3 +825,48 @@ Feature: Text search related features
             | title              |
             | 'Database Systems' |
             | 'Query Languages'  |
+
+    Scenario: Test limit parameter on node search
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX limitTestIndex ON :Document
+            """
+        And having executed
+            """
+            CREATE (:Document {title: 'Document1', content: 'test content'})
+            CREATE (:Document {title: 'Document2', content: 'test content'})
+            CREATE (:Document {title: 'Document3', content: 'test content'})
+            CREATE (:Document {title: 'Document4', content: 'test content'})
+            CREATE (:Document {title: 'Document5', content: 'test content'})
+            """
+        When executing query:
+            """
+            CALL text_search.search('limitTestIndex', 'data.content:test', 3) YIELD node
+            RETURN count(node) AS count
+            """
+        Then the result should be:
+            | count |
+            | 3     |
+
+    Scenario: Test limit parameter on edge search
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT EDGE INDEX limitTestEdgeIndex ON :RELATES_TO
+            """
+        And having executed
+            """
+            CREATE (d1:Document)-[:RELATES_TO {type: 'reference', content: 'test data'}]->(d2:Document)
+            CREATE (d3:Document)-[:RELATES_TO {type: 'reference', content: 'test data'}]->(d4:Document)
+            CREATE (d5:Document)-[:RELATES_TO {type: 'reference', content: 'test data'}]->(d6:Document)
+            CREATE (d7:Document)-[:RELATES_TO {type: 'reference', content: 'test data'}]->(d8:Document)
+            """
+        When executing query:
+            """
+            CALL text_search.search_edges('limitTestEdgeIndex', 'data.content:test', 2) YIELD edge
+            RETURN count(edge) AS count
+            """
+        Then the result should be:
+            | count |
+            | 2     |

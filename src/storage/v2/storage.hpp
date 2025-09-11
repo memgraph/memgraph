@@ -382,8 +382,8 @@ class Storage {
     }
 
     std::vector<TextSearchResult> TextIndexSearch(const std::string &index_name, const std::string &search_query,
-                                                  text_search_mode search_mode) const {
-      return storage_->indices_.text_index_.Search(index_name, search_query, search_mode);
+                                                  text_search_mode search_mode, std::size_t limit = 1000) const {
+      return storage_->indices_.text_index_.Search(index_name, search_query, search_mode, limit);
     }
 
     std::string TextIndexAggregate(const std::string &index_name, const std::string &search_query,
@@ -397,9 +397,9 @@ class Storage {
     }
 
     std::vector<TextEdgeSearchResult> SearchEdgeTextIndex(const std::string &index_name,
-                                                          const std::string &search_query,
-                                                          text_search_mode search_mode) const {
-      return storage_->indices_.text_edge_index_.Search(index_name, search_query, search_mode);
+                                                          const std::string &search_query, text_search_mode search_mode,
+                                                          std::size_t limit = 1000) const {
+      return storage_->indices_.text_edge_index_.Search(index_name, search_query, search_mode, limit);
     }
 
     std::string EdgeTextIndexAggregate(const std::string &index_name, const std::string &search_query,

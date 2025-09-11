@@ -4767,9 +4767,9 @@ inline constexpr std::string_view kSearchResultsKey = "search_results";
 inline constexpr std::string_view kAggregationResultsKey = "aggregation_results";
 
 inline List SearchTextIndex(mgp_graph *memgraph_graph, std::string_view index_name, std::string_view search_query,
-                            text_search_mode search_mode) {
+                            text_search_mode search_mode, std::size_t limit) {
   auto results_or_error = Map(mgp::MemHandlerCallback(graph_search_text_index, memgraph_graph, index_name.data(),
-                                                      search_query.data(), search_mode),
+                                                      search_query.data(), search_mode, limit),
                               StealType{});
   if (results_or_error.KeyExists(kErrorMsgKey)) {
     if (!results_or_error.At(kErrorMsgKey).IsString()) {
@@ -4790,9 +4790,9 @@ inline List SearchTextIndex(mgp_graph *memgraph_graph, std::string_view index_na
 }
 
 inline List SearchTextEdgeIndex(mgp_graph *memgraph_graph, std::string_view index_name, std::string_view search_query,
-                                text_search_mode search_mode) {
+                                text_search_mode search_mode, std::size_t limit) {
   auto results_or_error = Map(mgp::MemHandlerCallback(graph_search_text_edge_index, memgraph_graph, index_name.data(),
-                                                      search_query.data(), search_mode),
+                                                      search_query.data(), search_mode, limit),
                               StealType{});
   if (results_or_error.KeyExists(kErrorMsgKey)) {
     if (!results_or_error.At(kErrorMsgKey).IsString()) {

@@ -86,7 +86,7 @@ class TextIndex {
   bool IndexExists(const std::string &index_name) const;
 
   std::vector<TextSearchResult> Search(const std::string &index_name, const std::string &search_query,
-                                       text_search_mode search_mode);
+                                       text_search_mode search_mode, std::size_t limit = 1000);
 
   std::string Aggregate(const std::string &index_name, const std::string &search_query,
                         const std::string &aggregation_query);
