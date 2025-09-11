@@ -135,7 +135,6 @@ def run_custom_workloads(script_path: str, config: Config) -> Optional[Dict[str,
     """Runs custom workloads on Memgraph using GQLAlchemy."""
     print("Running custom workloads...")
     runtimes = {}
-    err = False
 
     for workload in config.custom_workloads:
         workload_name = workload["name"]
@@ -190,40 +189,35 @@ def run_custom_workloads(script_path: str, config: Config) -> Optional[Dict[str,
                         processes.append((process, workload.get("timeout_min", 10) * 60))
                         process.start()
 
-                # Monitor processes and enforce timeouts
+                failed_processes = []
                 for process, timeout in processes:
                     process.join(timeout)
                     if process.is_alive():
                         print(f"Worker process exceeded timeout of {timeout // 60} minutes. Terminating...")
                         process.terminate()
                         process.join()
+                        failed_processes.append(process)
+                    elif process.exitcode != 0:
+                        print(f"Worker process failed with exit code {process.exitcode}")
+                        failed_processes.append(process)
+
+                if failed_processes:
+                    raise Exception(f"{len(failed_processes)} worker process(es) failed during step {step}")
 
             print(f"Finished workload '{workload_name}'")
             end = time.time()
             runtimes[workload_name] = end - start
 
         except Exception as ex:
-            print(f"Failed to execute workload {workload_name} with exception:", ex)
-            err = True
+            raise Exception(f"Failed to execute workload {workload_name} with exception:", ex)
         finally:
             stop_deployment(script_path)
-
-        if err:
-            return None
 
     return runtimes
 
 
-def run_stress_test_suite(args: Args, config: Config) -> Optional[Dict[str, float]]:
-    """Runs the stress test suite on Memgraph."""
+def run_old_stress_test_suite(script_path: str, args: Args, config: Config) -> Optional[Dict[str, float]]:
     runtimes = {}
-
-    script_path = config.script
-    if not script_path:
-        raise Exception("Memgraph deployment script not found!")
-    script_path = os.path.join(DEPLOYMENTS_DIR, script_path)
-    if not os.path.exists(script_path):
-        raise Exception(f"Memgraph deployment script not found: {script_path}!")
 
     for test in config.tests:
         test_name = test["name"]
@@ -233,26 +227,28 @@ def run_stress_test_suite(args: Args, config: Config) -> Optional[Dict[str, floa
 
         try:
             start_deployment(script_path, memgraph_flags)
-        except Exception as ex:
-            print("Exception occurred while starting Memgraph:", ex)
-            return None
-
-        err = False
-        try:
             runtime = run_test(args, config, test_name, test_flags, timeout)
             runtimes[os.path.splitext(test_name)[0]] = runtime
         except Exception as ex:
-            print(f"Failed to execute {test_name} with exception:", ex)
-            err = True
+            raise Exception(f"Failed to execute {test_name} with exception:", ex)
         finally:
             stop_deployment(script_path)
 
-        if err:
-            return None
+    return runtimes
 
+
+def run_stress_test_suite(args: Args, config: Config) -> Optional[Dict[str, float]]:
+    """Runs the stress test suite on Memgraph."""
+
+    script_path = config.script
+    if not script_path:
+        raise Exception("Memgraph deployment script not found!")
+    script_path = os.path.join(DEPLOYMENTS_DIR, script_path)
+    if not os.path.exists(script_path):
+        raise Exception(f"Memgraph deployment script not found: {script_path}!")
+
+    runtimes = run_old_stress_test_suite(script_path, args, config)
     workload_runtimes = run_custom_workloads(script_path, config)
-    if workload_runtimes is None:
-        return None
 
     return runtimes | workload_runtimes
 

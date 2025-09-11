@@ -1,0 +1,58 @@
+memgraph:
+  deployment:
+    # Script needs to be located in stress/configurations/deployments
+    script: "binary_ha.sh"
+  args: [] # Any additional flags you need
+
+general:
+  verbose: false
+  use_ssl: false
+
+dataset:
+  tests: []
+
+customWorkloads:
+  tests:
+    - name: metrics-monitoring-basic
+      memgraph_args: []
+      querying:
+        host: "localhost"
+        port: 7687
+      import:
+        queries:
+          - "UNWIND range(1, 10000) as x CREATE (:Node {id: x})"
+          - "MATCH (n1), (n2) WHERE n1.id < n2.id AND n1.id % 100 = 0 CREATE (n1)-[:CONNECTED_TO]->(n2)"
+      workers:
+        # Metrics collection worker - runs continuously during the test
+        - name: metrics-collector
+          type: metrics
+          num_repetitions: 12 # Run for 1 minute
+          sleep_millis: 5000 # Collect metrics every 5 seconds
+          querying:
+            host: "localhost"
+            port: 9091
+          step: 1
+          metrics:
+            - vertex_count
+            - QueryExecutionLatency_us_50p
+            - QueryExecutionLatency_us_90p
+            - QueryExecutionLatency_us_99p
+            - PeakMemoryRes
+            - UnreleasedDeltaObjects
+
+        # Reader worker - simulates read workload
+        - name: read-queries
+          type: reader
+          query: "MATCH (n) RETURN count(n) LIMIT 1"
+          num_repetitions: 600
+          sleep_millis: 100
+          step: 1
+
+        # Writer worker - simulates write workload
+        - name: write-queries
+          type: writer
+          query: "CREATE (:TestNode {timestamp: timestamp(), value: rand()})"
+          num_repetitions: 600
+          sleep_millis: 100
+          step: 1
+      timeout_min: 2

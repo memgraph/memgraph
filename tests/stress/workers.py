@@ -19,6 +19,7 @@ class WorkerType(Enum):
     LAB_SIMULATOR = "lab-simulator"
     METRICS = "metrics"
     RETRIABLE_WRITER = "retriable-writer"
+    FAILING = "failing"
 
 
 class Worker(ABC):
@@ -211,6 +212,15 @@ class MetricsWorker(Worker):
         return json.dumps(self._metrics_data, indent=2, default=str)
 
 
+class FailingWorker(Worker):
+    def __init__(self, worker):
+        super().__init__(worker)
+
+    def run(self):
+        print(f"Starting failing worker '{self._name}'...")
+        raise Exception("Failing worker deliberately failed.")
+
+
 def get_worker_object(worker) -> Worker:
     """Factory function to create the appropriate worker object."""
     worker_type_str = worker["type"]
@@ -228,6 +238,8 @@ def get_worker_object(worker) -> Worker:
         return MetricsWorker(worker)
     if worker_type == WorkerType.RETRIABLE_WRITER:
         return RetriableBasicWorker(worker)
+    if worker_type == WorkerType.FAILING:
+        return FailingWorker(worker)
 
     raise Exception(f"Unhandled worker type: '{worker_type}'!")
 

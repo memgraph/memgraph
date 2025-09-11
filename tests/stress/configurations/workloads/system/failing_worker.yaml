@@ -1,0 +1,28 @@
+memgraph:
+  deployment:
+    # Script needs to be located in stress/configurations/deployments
+    script: "binary_standalone.sh"
+  args: [] # Any additional flags you need
+
+general:
+  verbose: false
+  use_ssl: false
+
+dataset:
+  tests: []
+
+customWorkloads:
+  tests:
+    # This workload is a dummy workload used to test failure of the stress test suite
+    - name: failing-scenario
+      memgraph_args: []
+      querying:
+        host: "localhost"
+        port: 7687
+      import:
+        queries: []
+      workers:
+        - name: failing-worker
+          type: failing
+          step: 1
+      timeout_min: 1
