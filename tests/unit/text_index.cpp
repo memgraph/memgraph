@@ -29,6 +29,7 @@ using namespace memgraph::storage;
 
 static constexpr std::string_view test_index = "test_index";
 static constexpr std::string_view test_label = "test_label";
+static constexpr std::size_t default_limit = 10;
 
 class TextIndexTest : public testing::Test {
  public:
@@ -95,7 +96,7 @@ TEST_F(TextIndexTest, SimpleAbortTest) {
 
     // This is enough to check if abort works
     acc->Abort();
-    auto result = acc->TextIndexSearch(test_index.data(), "title.*", text_search_mode::REGEX);
+    auto result = acc->TextIndexSearch(test_index.data(), "title.*", text_search_mode::REGEX, default_limit);
     EXPECT_EQ(result.size(), 0);
   }
 }
@@ -115,7 +116,8 @@ TEST_F(TextIndexTest, DeletePropertyTest) {
   // Verify vertex is found before property deletion
   {
     auto acc = this->storage->Access();
-    auto result = acc->TextIndexSearch(test_index.data(), "data.title:Test", text_search_mode::SPECIFIED_PROPERTIES);
+    auto result = acc->TextIndexSearch(test_index.data(), "data.title:Test", text_search_mode::SPECIFIED_PROPERTIES,
+                                       default_limit);
     EXPECT_EQ(result.size(), 1);
   }
 
@@ -130,11 +132,13 @@ TEST_F(TextIndexTest, DeletePropertyTest) {
   // Expect the vertex to not be found when searching for title, as the property was removed
   {
     auto acc = this->storage->Access();
-    auto result = acc->TextIndexSearch(test_index.data(), "data.title:Test", text_search_mode::SPECIFIED_PROPERTIES);
+    auto result = acc->TextIndexSearch(test_index.data(), "data.title:Test", text_search_mode::SPECIFIED_PROPERTIES,
+                                       default_limit);
     EXPECT_EQ(result.size(), 0);
 
     // But content should still be searchable
-    result = acc->TextIndexSearch(test_index.data(), "data.content:Test", text_search_mode::SPECIFIED_PROPERTIES);
+    result = acc->TextIndexSearch(test_index.data(), "data.content:Test", text_search_mode::SPECIFIED_PROPERTIES,
+                                  default_limit);
     EXPECT_EQ(result.size(), 1);
   }
 }
@@ -158,7 +162,7 @@ TEST_F(TextIndexTest, ConcurrencyTest) {
 
   // Check that all entries ended up in the index by searching
   auto acc = this->storage->Access();
-  auto results = acc->TextIndexSearch(test_index.data(), "title.*", text_search_mode::REGEX);
+  auto results = acc->TextIndexSearch(test_index.data(), "title.*", text_search_mode::REGEX, default_limit);
   EXPECT_EQ(results.size(), index_size);
 }
 
@@ -178,7 +182,8 @@ TEST_F(TextIndexTest, ConcurrentDeleteAddAbortTest) {
   // Verify initial node is in the index
   {
     auto acc = this->storage->Access();
-    auto result = acc->TextIndexSearch(test_index.data(), "data.title:Initial", text_search_mode::SPECIFIED_PROPERTIES);
+    auto result = acc->TextIndexSearch(test_index.data(), "data.title:Initial", text_search_mode::SPECIFIED_PROPERTIES,
+                                       default_limit);
     EXPECT_EQ(result.size(), 1);
   }
 
@@ -207,22 +212,22 @@ TEST_F(TextIndexTest, ConcurrentDeleteAddAbortTest) {
     auto acc = this->storage->Access();
 
     // Original node should still be there (delete was aborted)
-    auto initial_result =
-        acc->TextIndexSearch(test_index.data(), "data.title:Initial", text_search_mode::SPECIFIED_PROPERTIES);
+    auto initial_result = acc->TextIndexSearch(test_index.data(), "data.title:Initial",
+                                               text_search_mode::SPECIFIED_PROPERTIES, default_limit);
     EXPECT_EQ(initial_result.size(), 1);
 
     // First new node should be there (add was committed)
-    auto new1_result =
-        acc->TextIndexSearch(test_index.data(), "data.title:\"New Title 1\"", text_search_mode::SPECIFIED_PROPERTIES);
+    auto new1_result = acc->TextIndexSearch(test_index.data(), "data.title:\"New Title 1\"",
+                                            text_search_mode::SPECIFIED_PROPERTIES, default_limit);
     EXPECT_EQ(new1_result.size(), 1);
 
     // Second new node should be there (add was committed)
-    auto new2_result =
-        acc->TextIndexSearch(test_index.data(), "data.title:\"New Title 2\"", text_search_mode::SPECIFIED_PROPERTIES);
+    auto new2_result = acc->TextIndexSearch(test_index.data(), "data.title:\"New Title 2\"",
+                                            text_search_mode::SPECIFIED_PROPERTIES, default_limit);
     EXPECT_EQ(new2_result.size(), 1);
 
     // Total should be 3 nodes (1 original + 2 new)
-    auto all_results = acc->TextIndexSearch(test_index.data(), "*", text_search_mode::ALL_PROPERTIES);
+    auto all_results = acc->TextIndexSearch(test_index.data(), "*", text_search_mode::ALL_PROPERTIES, default_limit);
     EXPECT_EQ(all_results.size(), 3);
   }
 }
