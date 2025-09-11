@@ -75,5 +75,38 @@ def test_supernode_concurrent_edges(serialization):
     assert fails == 0
 
 
+def test_bidirectional_edges(serialization):
+    serialization.setup("CREATE (:V1), (:V2)")
+
+    (passes, fails) = serialization.run(
+        [{"query": "MATCH (v1:V1), (v2:V2) CREATE (v1)-[:FORWARD]->(v2)"}],
+        [{"query": "MATCH (v1:V1), (v2:V2) CREATE (v2)-[:BACKWARD]->(v1)"}],
+    )
+    assert passes == 2
+    assert fails == 0
+
+
+def test_mixed_operations_should_fail(serialization):
+    serialization.setup("CREATE (:V1), (:V2)")
+
+    (passes, fails) = serialization.run(
+        [{"query": "MATCH (v1:V1) SET v1.prop = 'value'"}],
+        [{"query": "MATCH (v1:V1), (v2:V2) CREATE (v1)-[:R1]->(v2)"}],
+    )
+    assert passes == 1
+    assert fails == 1
+
+
+def test_transaction_abort_with_waiter(serialization):
+    serialization.setup("CREATE (:V1), (:V2)")
+
+    (passes, fails) = serialization.run(
+        [{"query": "MATCH (v1:V1), (v2:V2) CREATE (v1)-[:R1]->(v2)", "abort": True}],
+        [{"query": "MATCH (v1:V1), (v2:V2) CREATE (v1)-[:R2]->(v2)"}],
+    )
+    assert passes == 1
+    assert fails == 1
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
