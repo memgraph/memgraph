@@ -22,10 +22,14 @@ on:
         type: string
         default: 'amd'
 
+env:
+  MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+  MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+
 jobs:
   test:
     name: ISSU Test
-    runs-on: ${{ inputs.arch == 'arm' && fromJSON('["self-hosted", "DockerMgBuild", "ARM64"]') || fromJSON('["self-hosted", "DockerMgBuild", "X64", "gambit"]') }}
+    runs-on: ${{ inputs.arch == 'arm' && fromJSON('["self-hosted", "DockerMgBuild", "ARM64", "Kubernetes"]') || fromJSON('["self-hosted", "DockerMgBuild", "X64", "Kubernetes"]') }}
     steps:
       - name: Checkout code
         uses: actions/checkout@v4
