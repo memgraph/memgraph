@@ -5,7 +5,7 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  push:
+  push: # Remove before merge into master!!!!!!
   workflow_dispatch:
     inputs:
       prev_image:
@@ -57,7 +57,7 @@ jobs:
       test_routing: ${{ matrix.test_routing }}
     secrets: inherit
 
-  # remove me before merge
+  # remove me before merge!!!!!!
   push_test:
     if: ${{ github.event_name == 'push' }}
     uses: ./.github/workflows/reusable_issu_test.yaml
