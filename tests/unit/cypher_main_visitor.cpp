@@ -5953,6 +5953,81 @@ TEST_P(CypherMainVisitorTest, ListComprehension) {
   }
 }
 
+TEST_P(CypherMainVisitorTest, ForceDropDatabase) {
+  auto &ast_generator = *GetParam();
+
+  // Test normal DROP DATABASE without FORCE
+  {
+    auto *query = dynamic_cast<MultiDatabaseQuery *>(ast_generator.ParseQuery("DROP DATABASE testdb"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, MultiDatabaseQuery::Action::DROP);
+    EXPECT_EQ(query->db_name_, "testdb");
+    EXPECT_FALSE(query->force_);
+  }
+
+  // Test DROP DATABASE with FORCE
+  {
+    auto *query = dynamic_cast<MultiDatabaseQuery *>(ast_generator.ParseQuery("DROP DATABASE testdb FORCE"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, MultiDatabaseQuery::Action::DROP);
+    EXPECT_EQ(query->db_name_, "testdb");
+    EXPECT_TRUE(query->force_);
+  }
+
+  // Test DROP DATABASE with FORCE and different database names
+  {
+    auto *query = dynamic_cast<MultiDatabaseQuery *>(ast_generator.ParseQuery("DROP DATABASE production_db FORCE"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, MultiDatabaseQuery::Action::DROP);
+    EXPECT_EQ(query->db_name_, "production_db");
+    EXPECT_TRUE(query->force_);
+  }
+
+  // Test DROP DATABASE with FORCE and database name with underscores
+  {
+    auto *query = dynamic_cast<MultiDatabaseQuery *>(ast_generator.ParseQuery("DROP DATABASE test_database_123 FORCE"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, MultiDatabaseQuery::Action::DROP);
+    EXPECT_EQ(query->db_name_, "test_database_123");
+    EXPECT_TRUE(query->force_);
+  }
+}
+
+TEST_P(CypherMainVisitorTest, ForceDropDatabaseInvalidSyntax) {
+  auto &ast_generator = *GetParam();
+
+  // Test invalid syntax - FORCE before database name
+  TestInvalidQuery("DROP DATABASE FORCE testdb", ast_generator);
+
+  // Test invalid syntax - extra tokens after FORCE
+  TestInvalidQuery("DROP DATABASE testdb FORCE extra", ast_generator);
+
+  // Test invalid syntax - FORCE in wrong position
+  TestInvalidQuery("DROP FORCE DATABASE testdb", ast_generator);
+}
+
+TEST_P(CypherMainVisitorTest, CreateDatabaseStillWorks) {
+  auto &ast_generator = *GetParam();
+
+  // Test that CREATE DATABASE still works correctly
+  {
+    auto *query = dynamic_cast<MultiDatabaseQuery *>(ast_generator.ParseQuery("CREATE DATABASE testdb"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, MultiDatabaseQuery::Action::CREATE);
+    EXPECT_EQ(query->db_name_, "testdb");
+    EXPECT_FALSE(query->force_);  // CREATE should never have force flag set
+  }
+
+  // Test CREATE DATABASE with different names
+  {
+    auto *query = dynamic_cast<MultiDatabaseQuery *>(ast_generator.ParseQuery("CREATE DATABASE production_db"));
+    ASSERT_NE(query, nullptr);
+    EXPECT_EQ(query->action_, MultiDatabaseQuery::Action::CREATE);
+    EXPECT_EQ(query->db_name_, "production_db");
+    EXPECT_FALSE(query->force_);
+  }
+}
+
 TEST_P(CypherMainVisitorTest, UseHintWithCompositeIndices) {
   auto &ast_generator = *GetParam();
   auto *query =

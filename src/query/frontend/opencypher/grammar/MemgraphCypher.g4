@@ -682,7 +682,7 @@ multiDatabaseQuery : createDatabase
 
 createDatabase : CREATE DATABASE databaseName ;
 
-dropDatabase : DROP DATABASE databaseName ;
+dropDatabase: DROP DATABASE databaseName ( FORCE)?;
 
 useDatabase : USE DATABASE databaseName ;
 
