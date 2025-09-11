@@ -144,7 +144,8 @@ fi
 
 # Start minikube cluster
 echo -e "${GREEN}Starting minikube cluster...${NC}"
-minikube start --driver=docker --memory=4096 --cpus=2 --disk-size=20g
+
+minikube start --driver=docker --nodes=5
 
 # Wait for cluster to be ready
 echo -e "${GREEN}Waiting for cluster to be ready...${NC}"
