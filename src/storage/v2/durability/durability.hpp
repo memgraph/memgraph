@@ -89,9 +89,10 @@ struct WalDurabilityInfo {
 /// with seq_num < current_seq_num.
 /// @return List of WAL files. Each WAL file is defined with its sequence
 /// number, from timestamp, to timestamp and path.
-std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem::path &wal_directory,
-                                                          std::string_view uuid = "",
-                                                          std::optional<size_t> current_seq_num = {});
+std::vector<WalDurabilityInfo> GetWalFiles(const std::filesystem::path &wal_directory, std::string_view uuid = "",
+                                           std::optional<size_t> current_seq_num = {});
+
+bool ValidateDurabilityFile(std::filesystem::directory_entry const &dir_entry);
 
 // Helper function used to recover all discovered indices. The
 // indices must be recovered after the data recovery is done
