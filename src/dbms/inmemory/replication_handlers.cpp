@@ -112,13 +112,8 @@ auto ReadDurabilityFiles(
     std::filesystem::path const &current_snapshot_dir,
     std::optional<std::vector<storage::durability::WalDurabilityInfo>> &maybe_old_wal_files,
     std::filesystem::path const &current_wal_dir) -> bool {
-  auto maybe_wal_files = storage::durability::GetWalFiles(current_wal_dir);
-  // If there are 0 WAL files, replica will be recovered.
-  if (!maybe_wal_files.has_value()) {
-    spdlog::warn("Failed to read current WAL files. Replica won't be recovered.");
-    return false;
-  }
-  maybe_old_wal_files.emplace(std::move(*maybe_wal_files));
+  auto wal_files = storage::durability::GetWalFiles(current_wal_dir);
+  maybe_old_wal_files.emplace(std::move(wal_files));
   // Read all snapshot files
   maybe_old_snapshot_files.emplace(storage::durability::GetSnapshotFiles(current_snapshot_dir));
   return true;
@@ -507,20 +502,13 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
 
   // Read durability files
   auto const curr_snapshot_files = storage::durability::GetSnapshotFiles(current_snapshot_dir);
-  auto const maybe_curr_wal_files = storage::durability::GetWalFiles(current_wal_directory);
-  // If there are 0 WAL files, replica will be recovered.
-  if (!maybe_curr_wal_files.has_value()) {
-    spdlog::error("Cannot read current WAL files. Replica won't be recovered.");
-    rpc::SendFinalResponse(storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder,
-                           fmt::format("db: {}", storage->name()));
-    return;
-  }
-
-  auto const &curr_wal_files = *maybe_curr_wal_files;
+  auto const curr_wal_files = storage::durability::GetWalFiles(current_wal_directory);
+  
   auto const &active_files = file_replication_handler.GetActiveFileNames();
   MG_ASSERT(active_files.size() == 1, "Received {} snapshot files but expecting only one!", active_files.size());
   auto const src_snapshot_file = active_files[0];
   auto const dst_snapshot_file = current_snapshot_dir / active_files[0].filename();
+
 
   if (!utils::RenamePath(src_snapshot_file, dst_snapshot_file)) {
     spdlog::error("Couldn't copy file from {} to {}", src_snapshot_file, dst_snapshot_file);
