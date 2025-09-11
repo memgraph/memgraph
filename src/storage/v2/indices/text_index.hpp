@@ -36,6 +36,11 @@ struct TextIndexData {
       : context(std::move(context)), scope(scope), properties(std::move(properties)) {}
 };
 
+struct TextSearchResult {
+  Gid vertex_gid;
+  double score;
+};
+
 class TextIndex {
  private:
   std::filesystem::path text_index_storage_dir_;
@@ -79,7 +84,8 @@ class TextIndex {
 
   bool IndexExists(const std::string &index_name) const;
 
-  std::vector<Gid> Search(const std::string &index_name, const std::string &search_query, text_search_mode search_mode);
+  std::vector<TextSearchResult> Search(const std::string &index_name, const std::string &search_query,
+                                       text_search_mode search_mode, std::size_t limit);
 
   std::string Aggregate(const std::string &index_name, const std::string &search_query,
                         const std::string &aggregation_query);

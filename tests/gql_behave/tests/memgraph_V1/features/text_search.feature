@@ -108,12 +108,12 @@ Feature: Text search related features
             """
         And having executed
             """
-            CREATE (:Document {title: 'Rules2024', version: 1, metadata: {gid: 10}})
-            CREATE (:Document {title: 'Rules2024', version: 2, metadata: {gid: 11}})
+            CREATE (:Document {title: 'Rules2024', version: 1})
+            CREATE (:Document {title: 'Rules2024', version: 2})
             """
         When executing query:
             """
-            CALL text_search.aggregate('complianceDocuments', 'data.title:Rules2024', '{"count":{"value_count":{"field":"metadata.gid"}}}') YIELD aggregation
+            CALL text_search.aggregate('complianceDocuments', 'data.title:Rules2024', '{"count":{"value_count":{"field":"data.version"}}}') YIELD aggregation
             RETURN aggregation
             """
         Then the result should be:
@@ -526,6 +526,26 @@ Feature: Text search related features
             | [:RELATES_TO {fulltext: 'more words'}]         |
             | [:RELATES_TO {fulltext: 'words and things'}]   |
 
+    Scenario: Search edge aggregate
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT EDGE INDEX complianceEdges ON :RELATES_TO
+            """
+        And having executed
+            """
+            CREATE (d1:Document)-[:RELATES_TO {title: 'Rules2024', version: 1}]->(d2:Document)
+            CREATE (d3:Document)-[:RELATES_TO {title: 'Rules2024', version: 2}]->(d4:Document)
+            """
+        When executing query:
+            """
+            CALL text_search.aggregate_edges('complianceEdges', 'data.title:Rules2024', '{"count":{"value_count":{"field":"data.version"}}}') YIELD aggregation
+            RETURN aggregation
+            """
+        Then the result should be:
+            | aggregation              |
+            | '{"count":{"value":2.0}}'|
+
     Scenario: Search query with boolean logic on edges
         Given an empty graph
         And having executed
@@ -805,3 +825,88 @@ Feature: Text search related features
             | title              |
             | 'Database Systems' |
             | 'Query Languages'  |
+
+    Scenario: Test limit parameter on node search
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX limitTestIndex ON :Document
+            """
+        And having executed
+            """
+            CREATE (:Document {title: 'Document1', content: 'test content'})
+            CREATE (:Document {title: 'Document2', content: 'test content'})
+            CREATE (:Document {title: 'Document3', content: 'test content'})
+            CREATE (:Document {title: 'Document4', content: 'test content'})
+            CREATE (:Document {title: 'Document5', content: 'test content'})
+            """
+        When executing query:
+            """
+            CALL text_search.search('limitTestIndex', 'data.content:test', 3) YIELD node
+            RETURN count(node) AS count
+            """
+        Then the result should be:
+            | count |
+            | 3     |
+
+    Scenario: Test limit parameter on edge search
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT EDGE INDEX limitTestEdgeIndex ON :RELATES_TO
+            """
+        And having executed
+            """
+            CREATE (d1:Document)-[:RELATES_TO {type: 'reference', content: 'test data'}]->(d2:Document)
+            CREATE (d3:Document)-[:RELATES_TO {type: 'reference', content: 'test data'}]->(d4:Document)
+            CREATE (d5:Document)-[:RELATES_TO {type: 'reference', content: 'test data'}]->(d6:Document)
+            CREATE (d7:Document)-[:RELATES_TO {type: 'reference', content: 'test data'}]->(d8:Document)
+            """
+        When executing query:
+            """
+            CALL text_search.search_edges('limitTestEdgeIndex', 'data.content:test', 2) YIELD edge
+            RETURN count(edge) AS count
+            """
+        Then the result should be:
+            | count |
+            | 2     |
+
+    Scenario: Test search returns relevance score for nodes
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT INDEX scoreTestIndex ON :Document
+            """
+        And having executed
+            """
+            CREATE (:Document {title: 'Test Document', content: 'important content here'})
+            CREATE (:Document {title: 'Another Doc', content: 'less relevant text'})
+            """
+        When executing query:
+            """
+            CALL text_search.search('scoreTestIndex', 'data.content:important') YIELD node, score
+            RETURN node.title AS title, round(score) AS score
+            """
+        Then the result should be:
+            | title           | score  |
+            | 'Test Document' | 1.0    |
+
+    Scenario: Test search returns relevance score for edges
+        Given an empty graph
+        And having executed
+            """
+            CREATE TEXT EDGE INDEX scoreTestEdgeIndex ON :RELATES_TO
+            """
+        And having executed
+            """
+            CREATE (d1:Document)-[:RELATES_TO {type: 'primary', description: 'critical information'}]->(d2:Document)
+            CREATE (d3:Document)-[:RELATES_TO {type: 'secondary', description: 'minor details'}]->(d4:Document)
+            """
+        When executing query:
+            """
+            CALL text_search.search_edges('scoreTestEdgeIndex', 'data.description:critical') YIELD edge, score
+            RETURN edge.type AS type, round(score) AS score
+            """
+        Then the result should be:
+            | type      | score |
+            | 'primary' | 1.0   |

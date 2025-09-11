@@ -23,6 +23,7 @@
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/point_index.hpp"
+#include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
@@ -521,9 +522,9 @@ class DbAccessor final {
 
   bool TextIndexExists(const std::string &index_name) const { return accessor_->TextIndexExists(index_name); }
 
-  std::vector<storage::Gid> TextIndexSearch(const std::string &index_name, const std::string &search_query,
-                                            text_search_mode search_mode) const {
-    return accessor_->TextIndexSearch(index_name, search_query, search_mode);
+  std::vector<storage::TextSearchResult> TextIndexSearch(const std::string &index_name, const std::string &search_query,
+                                                         text_search_mode search_mode, std::size_t limit) const {
+    return accessor_->TextIndexSearch(index_name, search_query, search_mode, limit);
   }
 
   std::string TextIndexAggregate(const std::string &index_name, const std::string &search_query,
@@ -531,10 +532,16 @@ class DbAccessor final {
     return accessor_->TextIndexAggregate(index_name, search_query, aggregation_query);
   }
 
-  std::vector<storage::EdgeTextSearchResult> SearchEdgeTextIndex(const std::string &index_name,
+  std::string TextEdgeIndexAggregate(const std::string &index_name, const std::string &search_query,
+                                     const std::string &aggregation_query) {
+    return accessor_->TextEdgeIndexAggregate(index_name, search_query, aggregation_query);
+  }
+
+  std::vector<storage::TextEdgeSearchResult> SearchEdgeTextIndex(const std::string &index_name,
                                                                  const std::string &search_query,
-                                                                 text_search_mode search_mode) const {
-    return accessor_->SearchEdgeTextIndex(index_name, search_query, search_mode);
+                                                                 text_search_mode search_mode,
+                                                                 std::size_t limit) const {
+    return accessor_->SearchEdgeTextIndex(index_name, search_query, search_mode, limit);
   }
 
   bool PointIndexExists(storage::LabelId label, storage::PropertyId prop) const {

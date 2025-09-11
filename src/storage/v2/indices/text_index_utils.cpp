@@ -175,34 +175,31 @@ void TrackTextEdgeIndexChange(TextEdgeIndexChangeCollector &collector, std::span
   }
 }
 
-mgcxx::text_search::SearchOutput SearchGivenProperties(const std::string &search_query,
-                                                       mgcxx::text_search::Context &context) {
-  try {
-    return mgcxx::text_search::search(
-        context, mgcxx::text_search::SearchInput{.search_query = search_query, .return_fields = {"metadata"}});
-  } catch (const std::exception &e) {
-    throw query::TextSearchException("Tantivy error: {}", e.what());
-  }
-}
-
-mgcxx::text_search::SearchOutput RegexSearch(const std::string &search_query, mgcxx::text_search::Context &context) {
-  try {
-    return mgcxx::text_search::regex_search(
-        context, mgcxx::text_search::SearchInput{
-                     .search_fields = {"all"}, .search_query = search_query, .return_fields = {"metadata"}});
-  } catch (const std::exception &e) {
-    throw query::TextSearchException("Tantivy error: {}", e.what());
-  }
-}
-
-mgcxx::text_search::SearchOutput SearchAllProperties(const std::string &search_query,
-                                                     mgcxx::text_search::Context &context) {
-  try {
-    return mgcxx::text_search::search(
-        context, mgcxx::text_search::SearchInput{
-                     .search_fields = {"all"}, .search_query = search_query, .return_fields = {"metadata"}});
-  } catch (const std::exception &e) {
-    throw query::TextSearchException("Tantivy error: {}", e.what());
+mgcxx::text_search::SearchOutput PerformTextSearch(mgcxx::text_search::Context &context,
+                                                   const std::string &search_query, text_search_mode search_mode,
+                                                   std::size_t limit) {
+  switch (search_mode) {
+    case text_search_mode::SPECIFIED_PROPERTIES:
+      return mgcxx::text_search::search(
+          context, mgcxx::text_search::SearchInput{.search_query = ToLowerCasePreservingBooleanOperators(search_query),
+                                                   .return_fields = {"metadata"},
+                                                   .limit = limit});
+    case text_search_mode::REGEX:
+      return mgcxx::text_search::regex_search(
+          context, mgcxx::text_search::SearchInput{.search_fields = {"all"},
+                                                   .search_query = ToLowerCasePreservingBooleanOperators(search_query),
+                                                   .return_fields = {"metadata"},
+                                                   .limit = limit});
+    case text_search_mode::ALL_PROPERTIES:
+      return mgcxx::text_search::search(
+          context, mgcxx::text_search::SearchInput{.search_fields = {"all"},
+                                                   .search_query = ToLowerCasePreservingBooleanOperators(search_query),
+                                                   .return_fields = {"metadata"},
+                                                   .limit = limit});
+    default:
+      throw query::TextSearchException(
+          "Unsupported search mode: please use one of text_search.search, text_search.search_all, or "
+          "text_search.regex_search.");
   }
 }
 
