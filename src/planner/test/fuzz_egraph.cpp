@@ -154,12 +154,14 @@ bool ValidateEGraphInvariants(EGraph<Symbol, Analysis> &egraph, ProcessingContex
 class FuzzerState {
  public:
   bool execute_operation(uint8_t op, const uint8_t *data, size_t &pos, size_t size) {
-    //    if (operation_count++ > MAX_OPERATIONS) {
-    //      std::cerr << "Too many operations (" << operation_count << "), aborting\n";
-    //      return false;
-    //    }
+    operation_count++;
+    std::cerr << "\n--- Operation #" << operation_count << " ---\n";
 
-    switch (op % 5) {  // Expanded to 5 operations
+    int operation_type = op % 5;
+    const char *op_names[] = {"CREATE_LEAF", "CREATE_COMPOUND", "MERGE_CLASSES", "REBUILD", "CREATE_CONGRUENT"};
+    std::cerr << "Op: " << op_names[operation_type] << " (raw: " << (int)op << ")\n";
+
+    switch (operation_type) {
       case 0:
         return create_leaf_node(data, pos, size);
       case 1:
@@ -185,6 +187,8 @@ class FuzzerState {
     auto id = egraph.emplace(sym, disambiguator);
     created_ids.push_back(id);
 
+    std::cerr << "Created leaf: " << (char)('A' + symbol) << "(D" << disambiguator << ") -> " << id << "\n";
+    std::cerr << "Total classes: " << egraph.num_classes() << ", Total nodes: " << egraph.num_nodes() << "\n";
     return true;
   }
 
@@ -216,8 +220,11 @@ class FuzzerState {
 
     auto id1 = created_ids[idx1];
     auto id2 = created_ids[idx2];
-    egraph.merge(id1, id2);
 
+    std::cerr << "Merging class " << id1 << " with " << id2 << "\n";
+    auto merged_id = egraph.merge(id1, id2);
+    std::cerr << "Merge result: " << merged_id << "\n";
+    std::cerr << "Total classes: " << egraph.num_classes() << ", Worklist size: " << egraph.worklist_size() << "\n";
     return true;
   }
 
