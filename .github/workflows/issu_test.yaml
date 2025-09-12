@@ -1,0 +1,45 @@
+name: ISSU Test
+
+concurrency:
+  group: ${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+on:
+  push: # Remove before merge into master!!!!!!
+  workflow_dispatch:
+    inputs:
+      prev_image:
+        type: string
+        description: The previous tag/URL/version
+        required: true
+      next_image:
+        type: string
+        description: The next tag/URL/version
+        required: true
+      arch:
+        type: string
+        description: Image architecture (amd/arm)
+        required: true
+        default: amd
+
+jobs:
+  single_test:
+    if: ${{ github.event_name != 'push' }}
+    name: ISSU Test
+    uses: ./.github/workflows/reusable_issu_test.yaml
+    with:
+      last_image: ${{ inputs.prev_image }}
+      next_image: ${{ inputs.next_image }}
+      arch: ${{ inputs.arch }}
+    secrets: inherit
+
+  # remove me before merge!!!!!!
+  push_test:
+    if: ${{ github.event_name == 'push' }}
+    name: ISSU Test Push
+    uses: ./.github/workflows/reusable_issu_test.yaml
+    with:
+      last_image: "3.5.0"
+      next_image: "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/daily-build/memgraph/20250911/docker/memgraph-3.5.1_pr3227_22290c08c676-docker.tar.gz"
+      arch: amd
+    secrets: inherit
