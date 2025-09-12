@@ -380,16 +380,17 @@ void Initialize() {
   /*
    * Register periodic snapshot setting
    */
-  // Periodic snapshot setup is exclusive between interval_sec and config
-  if (FLAGS_storage_snapshot_interval_sec != 300) {  // Not default
-    if (!FLAGS_storage_snapshot_interval.empty()) {  // Not default
-      LOG_FATAL(
-          "Periodic snapshot schedule define via both --storage-snapshot-interval-sec and "
-          "--storage-snapshot-interval. Please use a single flag to define the schedule!");
+
+  if (FLAGS_storage_snapshot_interval_sec != 0) {
+    if (FLAGS_storage_snapshot_interval.empty()) {
+      FLAGS_storage_snapshot_interval = std::to_string(FLAGS_storage_snapshot_interval_sec);
+    } else {
+      spdlog::warn(
+          "Periodic snapshot schedule defined via both --storage-snapshot-interval-sec and "
+          "--storage-snapshot-interval. Memgraph will use the configuration flag from --storage-snapshot-interval!");
     }
-    // Update the combined flag to reflect the interval defined via FLAGS_storage_snapshot_interval_sec
-    FLAGS_storage_snapshot_interval = std::to_string(FLAGS_storage_snapshot_interval_sec);
   }
+
   // FATAL validation at startup; can't be part of the flag defintion, since we need to check for license
   ValidPeriodicSnapshot<true>(FLAGS_storage_snapshot_interval);
   register_flag(
