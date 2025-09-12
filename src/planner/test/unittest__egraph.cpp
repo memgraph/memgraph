@@ -151,6 +151,23 @@ TEST(EGraphMergingOperations, CongruenceAfterMergeAndRebuild) {
   EXPECT_EQ(egraph.num_classes(), 2);  // One for a=b, one for f(a)=f(b)
 }
 
+TEST(EGraphMergingOperations, CongruenceAfterMergeAndRebuildSelfReference) {
+  EGraph<TestSymbol, NoAnalysis> egraph;
+  ProcessingContext<TestSymbol> ctx;
+
+  auto a = egraph.emplace(TestSymbol::A);
+  auto b = egraph.emplace(TestSymbol::B);
+  auto fab = egraph.emplace(TestSymbol::F, {a, b});
+
+  EXPECT_EQ(egraph.num_classes(), 3);
+
+  egraph.merge(a, b);
+  egraph.merge(a, fab);
+  egraph.rebuild(ctx);
+
+  EXPECT_EQ(egraph.num_classes(), 1);
+}
+
 TEST(EGraphEClassAccess, GetEClassByID) {
   EGraph<TestSymbol, NoAnalysis> egraph;
 

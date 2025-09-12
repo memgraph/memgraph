@@ -1023,8 +1023,13 @@ void EGraph<Symbol, Analysis>::process_class_parents_for_rebuild(EClass<Analysis
   }
 
   // Merge congruent parents using bulk operations for optimal performance
-  for (const auto &[canonical_enode_ref, parent_ids] : canonical_to_parents) {
+  for (auto &[canonical_enode_ref, parent_ids] : canonical_to_parents) {
+    // deduplicate parent_ids
+    std::sort(parent_ids.begin(), parent_ids.end());
+    parent_ids.erase(std::unique(parent_ids.begin(), parent_ids.end()), parent_ids.end());
     if (parent_ids.size() > 1) {
+      // TODO: can we cheaply detect that UnionSet did anything?
+      //       if it did nothing we can skip the reset of parent rebuilding
       EClassId merged_root = union_find_.UnionSets(parent_ids, ctx.union_find_context);
       rebuild_worklist_.insert(merged_root);
 
@@ -1041,10 +1046,6 @@ void EGraph<Symbol, Analysis>::process_class_parents_for_rebuild(EClass<Analysis
         }
       }
       // hashcons update can be defered to the next rebuild iteration because we inserted into the rebuild worklist
-
-    } else {
-      // No merges needed - just update hashcons
-      //      repair_hashcons(*classes_[parent_ids[0]], parent_ids[0]);
     }
   }
 }

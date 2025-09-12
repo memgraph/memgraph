@@ -159,7 +159,7 @@ class FuzzerState {
     //      return false;
     //    }
 
-    switch (op % 4) {
+    switch (op % 5) {  // Expanded to 5 operations
       case 0:
         return create_leaf_node(data, pos, size);
       case 1:
@@ -168,6 +168,8 @@ class FuzzerState {
         return merge_classes(data, pos, size);
       case 3:
         return rebuild();
+      case 4:
+        return create_congruent_pattern(data, pos, size);  // NEW!
       default:
         return true;
     }
@@ -229,6 +231,38 @@ class FuzzerState {
       std::cerr << "Num classes: " << egraph.num_classes() << "\n";
       std::cerr << "Num nodes: " << egraph.num_nodes() << "\n";
       abort();
+    }
+
+    return true;
+  }
+
+  // NEW: Create congruent patterns that require merge_eclasses
+  // Pattern: f(a), f(b), then merge(a, b) - forces congruence detection
+  bool create_congruent_pattern(const uint8_t *data, size_t &pos, size_t size) {
+    if (size < pos + 2) return true;
+
+    // Create two distinct leaf nodes
+    uint8_t symbol_a = data[pos++] % 5;                         // A-E
+    uint8_t symbol_b = (symbol_a + 1 + (data[pos++] % 4)) % 5;  // Different from symbol_a
+
+    auto leaf_a = egraph.emplace(static_cast<FuzzSymbol>(symbol_a), pos);
+    auto leaf_b = egraph.emplace(static_cast<FuzzSymbol>(symbol_b), pos + 1);
+    created_ids.push_back(leaf_a);
+    created_ids.push_back(leaf_b);
+
+    // Create compound nodes with same symbol but different children: f(a), f(b)
+    if (pos < size) {
+      uint8_t compound_symbol = 10 + (data[pos++] % 5);  // F-Mul
+      auto fa = egraph.emplace(static_cast<FuzzSymbol>(compound_symbol), utils::small_vector<EClassId>{leaf_a});
+      auto fb = egraph.emplace(static_cast<FuzzSymbol>(compound_symbol), utils::small_vector<EClassId>{leaf_b});
+      created_ids.push_back(fa);
+      created_ids.push_back(fb);
+
+      // Now merge the leaves - this should make f(a) and f(b) congruent after rebuild
+      egraph.merge(leaf_a, leaf_b);
+
+      // Don't rebuild here - let the fuzzer decide when to rebuild
+      // When rebuild() is called later, it should trigger merge_eclasses for f(a) and f(b)
     }
 
     return true;
