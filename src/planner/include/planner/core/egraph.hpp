@@ -1048,8 +1048,7 @@ void EGraph<Symbol, Analysis>::process_class_parents_for_rebuild(EClass<Analysis
       // hashcons update can be defered to the next rebuild iteration because we inserted into the rebuild worklist
     } else if (parent_ids.size() == 1) {
       // Single parent case - update hashcons directly since no merging is needed
-      // TODO: uncomment when test is simplified
-      // hashcons_.insert(canonical_enode_ref.value(), parent_ids[0]);
+      hashcons_.insert(canonical_enode_ref.value(), parent_ids[0]);
     }
   }
 }

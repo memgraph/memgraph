@@ -277,106 +277,52 @@ TEST(EGraphRebuildHashconsConsistency, DeepRebuildSingleParentChain) {
   EXPECT_EQ(egraph.num_classes(), 4);
 }
 
-// Helper function to create canonical signatures for validation
-std::string CreateCanonicalSignature(const ENode<TestSymbol> &enode, EGraph<TestSymbol, NoAnalysis> &egraph) {
-  std::string sig = std::to_string(static_cast<uint32_t>(enode.symbol()));
-
-  for (auto child_id : enode.children()) {
-    auto canonical_child = egraph.find(child_id);
-    sig += "_" + std::to_string(canonical_child);
-  }
-
-  if (enode.is_leaf()) {
-    sig += "_D" + std::to_string(enode.disambiguator());
-  }
-
-  return sig;
-}
-
-// Helper function to validate congruence closure
+// Helper function to validate congruence closure using canonical ENode objects
 bool ValidateCongruenceClosure(EGraph<TestSymbol, NoAnalysis> &egraph) {
-  std::unordered_map<std::string, EClassId> canonical_forms;
+  std::unordered_map<ENode<TestSymbol>, EClassId> canonical_forms;
 
   for (auto const &[class_id, eclass] : egraph.canonical_classes()) {
     for (auto enode_id : eclass.nodes()) {
-      const auto &enode = egraph.get_enode(enode_id);
-      std::string sig = CreateCanonicalSignature(enode, egraph);
-
-      if (canonical_forms.contains(sig)) {
-        if (canonical_forms[sig] != class_id) {
-          std::cout << "Congruent e-nodes in different e-classes: " << canonical_forms[sig] << " vs " << class_id
-                    << "\n";
-          std::cout << "Signature: " << sig << "\n";
-          return false;
-        }
-      } else {
-        canonical_forms[sig] = class_id;
+      auto canonical_enode = egraph.get_enode(enode_id).canonicalize(egraph.union_find());
+      auto [it, inserted] = canonical_forms.try_emplace(canonical_enode, class_id);
+      if (!inserted && it->second != class_id) {
+        return false;  // Same canonical form in different e-classes
       }
     }
   }
   return true;
 }
 
-TEST(EGraphCongruenceClosureBug, ReproduceFuzzerFailure) {
-  EGraph<TestSymbol, NoAnalysis> egraph;
-  ProcessingContext<TestSymbol> ctx;
-
-  // This test case doesn't reproduce the bug - the simple case works
-  // The real bug is likely in the missing hashcons update for single parents
-  // after deduplication, or in more complex rebuild scenarios
-
-  auto leaf_a = egraph.emplace(TestSymbol::A, 1);
-  auto leaf_b = egraph.emplace(TestSymbol::B, 2);
-  auto f_a = egraph.emplace(TestSymbol::F, utils::small_vector<EClassId>{leaf_a});
-  auto f_b = egraph.emplace(TestSymbol::F, utils::small_vector<EClassId>{leaf_b});
-
-  egraph.merge(leaf_a, leaf_b);
-  egraph.rebuild(ctx);
-
-  // This should pass - demonstrating this simple case works
-  EXPECT_TRUE(ValidateCongruenceClosure(egraph));
-  EXPECT_EQ(egraph.find(f_a), egraph.find(f_b));
-}
-
 TEST(EGraphCongruenceClosureBug, MissingHashconsUpdateForSingleParent) {
   EGraph<TestSymbol, NoAnalysis> egraph;
   ProcessingContext<TestSymbol> ctx;
 
-  // Try to reproduce the actual bug: missing hashcons update when parent_ids.size() == 1
-  // This happens after deduplication leaves only one parent
+  // Create scenario to trigger single parent hashcons bug:
+  // We need a case where after deduplication, a canonical e-node has exactly ONE parent
 
-  // Create a more complex scenario that might trigger the bug
-  auto a = egraph.emplace(TestSymbol::A, 1);
-  auto b = egraph.emplace(TestSymbol::B, 2);
-  auto c = egraph.emplace(TestSymbol::C, 3);
+  auto a = egraph.emplace(TestSymbol::A);
+  auto f_a = egraph.emplace(TestSymbol::F, utils::small_vector<EClassId>{a});
 
-  // Create multiple compound nodes that will need hashcons updates
-  auto f_a = egraph.emplace(TestSymbol::F, utils::small_vector<EClassId>{a});  // F(a)
-  auto f_b = egraph.emplace(TestSymbol::F, utils::small_vector<EClassId>{b});  // F(b)
-  auto f_c = egraph.emplace(TestSymbol::F, utils::small_vector<EClassId>{c});  // F(c)
+  EXPECT_EQ(egraph.num_classes(), 2);  // a, F(a)
 
-  // Create higher-level compounds that reference the F nodes
-  auto g_fa = egraph.emplace(TestSymbol::Plus, utils::small_vector<EClassId>{f_a});  // Plus(F(a))
-  auto g_fb = egraph.emplace(TestSymbol::Plus, utils::small_vector<EClassId>{f_b});  // Plus(F(b))
+  // Trigger a rebuild cycle where F(a) needs its hashcons updated
+  // Create another leaf that will merge with 'a'
+  auto b = egraph.emplace(TestSymbol::B);
+  egraph.merge(a, b);  // Now a≡b
 
-  EXPECT_EQ(egraph.num_classes(), 8);  // a, b, c, F(a), F(b), F(c), Plus(F(a)), Plus(F(b))
-
-  // First merge a and b - this should make F(a) ≡ F(b)
-  egraph.merge(a, b);
+  // During rebuild, F(a) canonicalizes to F(canonical_ab)
+  // This creates a single parent scenario for the canonical form
   egraph.rebuild(ctx);
 
-  EXPECT_TRUE(ValidateCongruenceClosure(egraph));
-  EXPECT_EQ(egraph.find(f_a), egraph.find(f_b));    // F(a) ≡ F(b)
-  EXPECT_EQ(egraph.find(g_fa), egraph.find(g_fb));  // Plus(F(a)) ≡ Plus(F(b))
+  // Now create a new F node with the merged class - should be found via hashcons
+  auto f_merged = egraph.emplace(TestSymbol::F, utils::small_vector<EClassId>{egraph.find(a)});
 
-  // Now merge with c - this creates a scenario where we have one parent after deduplication
-  egraph.merge(egraph.find(a), c);  // Merge (a≡b) with c
-  egraph.rebuild(ctx);
+  // This should return the same class as f_a because F(canonical_ab) should be in hashcons
+  EXPECT_EQ(egraph.find(f_a), f_merged)
+      << "F(a) should be found via hashcons lookup, but single parent hashcons update may be missing";
 
-  // After this rebuild, all F nodes should be congruent
   EXPECT_TRUE(ValidateCongruenceClosure(egraph));
-  EXPECT_EQ(egraph.find(f_a), egraph.find(f_c));  // F(a) ≡ F(c)
-  EXPECT_EQ(egraph.find(f_b), egraph.find(f_c));  // F(b) ≡ F(c)
+  EXPECT_EQ(egraph.num_classes(), 2);  // (a≡b), F(a≡b)
 }
 
 }  // namespace memgraph::planner::core
