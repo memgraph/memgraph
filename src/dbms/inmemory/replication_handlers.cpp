@@ -349,20 +349,16 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
 
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
   auto &repl_storage_state = storage->repl_storage_state_;
-  if (*maybe_epoch_id != repl_storage_state.epoch_.id()) {
-    repl_storage_state.SaveLatestHistory();
-    repl_storage_state.epoch_.SetEpoch(*maybe_epoch_id);
-  }
 
-  // We do not care about incoming sequence numbers, after a snapshot recovery, the sequence number is 0
-  // This is because the snapshots completely wipes the storage and durability
-  // It is also the first recovery step, so the WAL chain needs to restart from 0, otherwise the instance won't be
-  // able to recover from durable data
-  if (storage->wal_file_) {
-    if (*maybe_epoch_id != repl_storage_state.epoch_.id()) {
+  if (*maybe_epoch_id != repl_storage_state.epoch_.id()) {
+    // We should first finalize WAL file and then update the epoch
+    if (storage->wal_file_) {
       storage->wal_file_->FinalizeWal();
       storage->wal_file_.reset();
     }
+
+    repl_storage_state.SaveLatestHistory();
+    repl_storage_state.epoch_.SetEpoch(*maybe_epoch_id);
   }
 
   // last_durable_timestamp could be set by snapshot; so we cannot guarantee exactly what's the previous timestamp
