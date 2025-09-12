@@ -58,6 +58,7 @@ $mg_binary_dir/memgraph \
     --also-log-to-stderr \
     --management-port=10011 \
     --telemetry-enabled=false \
+    --storage-wal-enabled=true \
     --log-level TRACE &
 
 pid_instance_1=$!
@@ -74,6 +75,7 @@ $mg_binary_dir/memgraph \
     --also-log-to-stderr \
     --management-port=10012 \
     --telemetry-enabled=false \
+    --storage-wal-enabled=true \
     --log-level TRACE &
 
 pid_instance_2=$!
@@ -90,6 +92,7 @@ $mg_binary_dir/memgraph \
     --also-log-to-stderr \
     --management-port=10013 \
     --telemetry-enabled=false \
+    --storage-wal-enabled=true \
     --log-level TRACE &
 
 pid_instance_3=$!

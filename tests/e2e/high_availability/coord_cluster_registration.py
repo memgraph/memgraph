@@ -10,26 +10,27 @@
 # licenses/APL.txt.
 
 import os
+import subprocess
 import sys
 from functools import partial
 
 import interactive_mg_runner
 import pytest
 from common import (
-    connect,
-    execute_and_fetch_all,
-    find_instance_and_assert_instances,
-    get_data_path,
-    get_logs_path,
-    get_vertex_count,
-    show_instances,
-    show_replicas,
-    update_tuple_value,
+  connect,
+  execute_and_fetch_all,
+  find_instance_and_assert_instances,
+  get_data_path,
+  get_logs_path,
+  get_vertex_count,
+  show_instances,
+  show_replicas,
+  update_tuple_value,
 )
 from mg_utils import (
-    mg_sleep_and_assert,
-    mg_sleep_and_assert_multiple,
-    mg_sleep_and_assert_until_role_change,
+  mg_sleep_and_assert,
+  mg_sleep_and_assert_multiple,
+  mg_sleep_and_assert_until_role_change,
 )
 
 interactive_mg_runner.SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -227,6 +228,23 @@ def cleanup_after_test():
     yield
     # Stop + delete directories after running the test
     interactive_mg_runner.kill_all(keep_directories=False)
+
+
+def test_data_instance_cannot_start_wal_disabled(test_name):
+    SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
+    PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", "..", ".."))
+    BUILD_DIR = os.path.join(PROJECT_DIR, "build")
+    MEMGRAPH_BINARY = os.path.join(BUILD_DIR, "memgraph")
+
+    cmd = [
+        MEMGRAPH_BINARY,
+        "--bolt-port=7687",
+        "--management-port=10000",
+        "--storage-wal-enabled=false",
+        f"{get_data_path(file, test_name)}/instance_1",
+    ]
+    result = subprocess.run(cmd, capture_output=True, text=True, cwd=BUILD_DIR)
+    assert result.returncode != 0
 
 
 def test_register_repl_instances_then_coordinators(test_name):
