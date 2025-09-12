@@ -768,14 +768,10 @@ auto EGraph<Symbol, Analysis>::num_classes() const -> size_t {
 
 template <typename Symbol, typename Analysis>
 auto EGraph<Symbol, Analysis>::num_nodes() const -> size_t {
-  // Lazy initialization for backward compatibility with existing e-graphs
-  // This only runs once per e-graph or after clear()
+  // TODO: is this needed?
   if (total_node_count_ == 0 && !classes_.empty()) {
     initialize_node_count();
   }
-
-  // O(1) access to cached count - major performance improvement!
-  // Previously this method consumed 30.40% of execution time due to O(classes) iteration
   return total_node_count_;
 }
 
