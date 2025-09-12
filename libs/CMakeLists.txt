@@ -85,21 +85,29 @@ macro(add_external_project_impl name)
 
   # Add MG_TOOLCHAIN_ROOT to KW_CMAKE_PREFIX_PATH
   if(KW_CMAKE_PREFIX_PATH)
-    set(KW_CMAKE_PREFIX_PATH "${MG_TOOLCHAIN_ROOT}${LIST_SEP}${KW_CMAKE_PREFIX_PATH}")
+    set(KW_CMAKE_PREFIX_PATH "${MG_TOOLCHAIN_ROOT};${KW_CMAKE_PREFIX_PATH}")
   else ()
     set(KW_CMAKE_PREFIX_PATH "${MG_TOOLCHAIN_ROOT}")
   endif ()
 
+  # Prepare CMAKE_ARGS with proper CMAKE_PREFIX_PATH handling
+  set(CMAKE_ARGS_LIST
+      -DCMAKE_BUILD_TYPE=${CMAKE_BUILD_TYPE}
+      -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
+      -DCMAKE_INSTALL_PREFIX=${source_dir}
+  )
+
+  if(KW_CMAKE_PREFIX_PATH)
+    list(APPEND CMAKE_ARGS_LIST "-DCMAKE_PREFIX_PATH=${KW_CMAKE_PREFIX_PATH}")
+  endif()
+
+  list(APPEND CMAKE_ARGS_LIST ${KW_CMAKE_ARGS})
+
   ExternalProject_Add(${name}-proj DEPENDS ${KW_DEPENDS}
       PREFIX ${source_dir} SOURCE_DIR ${source_dir}
       BUILD_IN_SOURCE ${build_in_source}
-      LIST_SEPARATOR "${LIST_SEP}"
       CONFIGURE_COMMAND ${KW_CONFIGURE_COMMAND}
-      CMAKE_ARGS -DCMAKE_BUILD_TYPE=Release
-      -DCMAKE_CXX_COMPILER=${CMAKE_CXX_COMPILER}
-      -DCMAKE_INSTALL_PREFIX=${source_dir}
-      $<$<BOOL:KW_CMAKE_PREFIX_PATH>:"-DCMAKE_PREFIX_PATH=${KW_CMAKE_PREFIX_PATH}">
-      ${KW_CMAKE_ARGS}
+      CMAKE_ARGS ${CMAKE_ARGS_LIST}
       INSTALL_COMMAND ${KW_INSTALL_COMMAND}
       BUILD_COMMAND ${KW_BUILD_COMMAND}
       BUILD_BYPRODUCTS ${KW_BUILD_BYPRODUCTS})
@@ -392,9 +400,19 @@ set(TANTIVY_TEXT_SEARCH_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/lib/libtantivy
   CACHE FILEPATH "Path to mgcxx tantivy library (internal one)" FORCE)
 set(MGCXX_TEXT_SEARCH_LIBRARY ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx/lib/libmgcxx_text_search.a
   CACHE FILEPATH "Path to mgcxx text search library" FORCE)
+
+# Ensure the include directory exists
+file(MAKE_DIRECTORY ${MGCXX_INCLUDE_DIR})
+
+# Add mgcxx as an external project with proper build configuration
 add_external_project(mgcxx
   SOURCE_DIR ${CMAKE_CURRENT_SOURCE_DIR}/mgcxx
-  CMAKE_ARGS -DENABLE_TESTS=OFF)
+  CMAKE_ARGS -DENABLE_TESTS=OFF
+  BUILD_BYPRODUCTS
+    ${MGCXX_TEXT_SEARCH_LIBRARY}
+    ${TANTIVY_TEXT_SEARCH_LIBRARY}
+    ${MGCXX_INCLUDE_DIR}/mgcxx_text_search.hpp)
+
 mark_as_advanced(MGCXX_INCLUDE_DIR TANTIVY_TEXT_SEARCH_LIBRARY MGCXX_TEXT_SEARCH_LIBRARY)
 import_library(tantivy_text_search STATIC ${TANTIVY_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
 import_library(mgcxx_text_search STATIC ${MGCXX_TEXT_SEARCH_LIBRARY} ${MGCXX_INCLUDE_DIR} mgcxx-proj)
