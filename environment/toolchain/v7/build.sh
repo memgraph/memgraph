@@ -1412,21 +1412,6 @@ if [ ! -f $PREFIX/lib/librdtsc.a ]; then
     popd
 fi
 
-MGCXX_TAG="v0.0.9"
-log_tool_name "mgcxx $MGCXX_TAG"
-if [ ! -f $PREFIX/lib/libmgcxx_text_search.a ]; then
-    if [ -d mgcxx ]; then
-      rm -rf mgcxx
-    fi
-    git clone https://github.com/memgraph/mgcxx.git mgcxx
-    pushd mgcxx
-    git checkout $MGCXX_TAG
-    cmake -B build $COMMON_CMAKE_FLAGS \
-      -DENABLE_TESTS=OFF
-    cmake --build build -j$CPUS --target install
-    popd
-fi
-
 # NOTE: Skip FBLIBS -> only used on project-pineapples
 #   * older versions don't compile on the latest GCC
 #   * newer versions don't work with OpenSSL 1.0 which is critical for CentOS7
