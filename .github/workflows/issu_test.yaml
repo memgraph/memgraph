@@ -24,7 +24,6 @@ on:
       test_routing:
         type: choice
         options:
-          - true
           - false
           - both
         description: Enable routing tests
@@ -47,7 +46,6 @@ jobs:
     strategy:
       matrix:
         test_routing:
-          - true
           - false
       fail-fast: false
     with:
@@ -64,7 +62,6 @@ jobs:
     strategy:
       matrix:
         test_routing:
-          - true
           - false
       fail-fast: false
     with:

@@ -305,9 +305,12 @@ echo "Upgrade of pod memgraph-coordinator-1-0 passed successfully"
 # --- Post-upgrade verification ---
 kubectl cp post_upgrade_mg.cypherl  memgraph-data-1-0:/var/lib/memgraph/post_upgrade_mg.cypherl
 kubectl cp post_upgrade_db1.cypherl memgraph-data-1-0:/var/lib/memgraph/post_upgrade_db1.cypherl
+echo "Running post-upgrade tests on database 'memgraph'"
 kubectl exec memgraph-data-1-0 -- bash -c "mgconsole < /var/lib/memgraph/post_upgrade_mg.cypherl  --username=system_admin_user --password=admin_password"
+echo "Running post-upgrade tests on database 'db1'"
 kubectl exec memgraph-data-1-0 -- bash -c "mgconsole < /var/lib/memgraph/post_upgrade_db1.cypherl --username=tenant1_admin_user --password=t1_admin_pass"
 
+echo "Running auth post-upgrade tests"
 kubectl cp auth_post_upgrade.cypherl memgraph-data-1-0:/var/lib/memgraph/auth_post_upgrade.cypherl
 kubectl exec memgraph-data-1-0 -- bash -c "mgconsole < /var/lib/memgraph/auth_post_upgrade.cypherl --username=system_admin_user --password=admin_password"
 
