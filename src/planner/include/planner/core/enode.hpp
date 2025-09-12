@@ -24,6 +24,7 @@
 namespace memgraph::planner::core {
 
 struct UnionFind;
+struct BaseProcessingContext;
 
 namespace detail {
 
@@ -42,6 +43,17 @@ struct ENodeBase {
   /// Returns copy with children updated to canonical e-class IDs via union-find
   /// @param uf Union-find structure (will be modified for path compression)
   auto canonicalize(UnionFind &uf) const -> ENodeBase;
+
+  /// Returns copy with children updated to canonical e-class IDs via union-find using context buffer
+  /// @param uf Union-find structure (will be modified for path compression)
+  /// @param ctx Base processing context containing reusable buffer for canonical children
+  auto canonicalize(UnionFind &uf, BaseProcessingContext &ctx) const -> ENodeBase;
+
+  /// In-place canonicalization that modifies this node's children
+  /// @param uf Union-find structure (will be modified for path compression)
+  /// @return true if any child was modified (i.e., canonicalization was needed)
+  /// @note Hash needs to be recomputed after calling this if it returns true
+  auto canonicalize_in_place(UnionFind &uf) -> bool;
 
   auto children() const -> utils::small_vector<EClassId> const & { return children_; }
   auto disambiguator() const -> uint64_t { return disambiguator_; }
@@ -98,6 +110,17 @@ struct ENode : private detail::ENodeBase {
 
   /// Returns copy with canonical child e-class IDs (modifies uf for path compression)
   auto canonicalize(UnionFind &uf) const -> ENode { return ENode{symbol_, ENodeBase::canonicalize(uf)}; }
+
+  /// In-place canonicalization that modifies this node's children and recomputes hash
+  /// @param uf Union-find structure (will be modified for path compression)
+  /// @return true if any child was modified (i.e., canonicalization was needed)
+  auto canonicalize_in_place(UnionFind &uf) -> bool {
+    bool changed = ENodeBase::canonicalize_in_place(uf);
+    if (changed) {
+      hash_value_ = compute_hash();
+    }
+    return changed;
+  }
 
   /// @return Pre-computed hash value (computed once at construction)
   /// @note Hash uses non-canonical children; canonicalize first for hash-consing

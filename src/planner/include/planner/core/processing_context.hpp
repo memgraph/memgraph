@@ -17,8 +17,32 @@
 #include "planner/core/eids.hpp"
 #include "planner/core/enode.hpp"
 #include "planner/core/union_find.hpp"
+#include "utils/small_vector.hpp"
 
 namespace memgraph::planner::core {
+
+/**
+ * @brief Base context with non-templated shared components
+ *
+ * Contains reusable buffers and state that don't depend on Symbol type.
+ */
+struct BaseProcessingContext {
+  /**
+   * @brief Reusable buffer for canonicalization operations
+   *
+   * Temporary storage for canonical children during e-node canonicalization.
+   * Reusing this buffer eliminates repeated allocations in hot paths.
+   */
+  mutable utils::small_vector<EClassId> canonical_children_buffer;
+
+  /**
+   * @brief Context for bulk union-find operations
+   *
+   * Provides temporary storage for efficient bulk merging of e-classes
+   * during congruence closure.
+   */
+  UnionFindContext union_find_context;
+};
 
 /**
  * @brief External context for e-graph operations
@@ -43,7 +67,7 @@ namespace memgraph::planner::core {
  * are cleared but capacity is retained, avoiding repeated allocations.
  */
 template <typename Symbol>
-struct ProcessingContext {
+struct ProcessingContext : public BaseProcessingContext {
   /**
    * @brief Map from canonical e-nodes to their parent e-classes
    *
@@ -51,14 +75,6 @@ struct ProcessingContext {
    * enabling efficient detection of congruent parents that should be merged.
    */
   std::unordered_map<ENodeRef<Symbol>, std::vector<EClassId>> enode_to_parents;
-
-  /**
-   * @brief Context for bulk union-find operations
-   *
-   * Provides temporary storage for efficient bulk merging of e-classes
-   * during congruence closure.
-   */
-  UnionFindContext union_find_context;
 
   /**
    * @brief Reserve capacity for expected number of unique e-nodes
