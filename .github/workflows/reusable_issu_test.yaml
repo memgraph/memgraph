@@ -11,11 +11,6 @@ on:
         description: 'The next/new Docker image (full repo:tag)'
         required: true
         type: string
-      test_routing:
-        description: 'Enable routing tests'
-        required: false
-        type: string
-        default: 'false'
       arch:
         description: 'Image architecture (amd/arm)'
         required: false
@@ -101,7 +96,7 @@ jobs:
       - name: Run ISSU Test
         run: |
           cd tests/issu
-          ./test_upgrade.sh ${{ env.MEMGRAPH_LAST_TAG }} ${{ env.MEMGRAPH_NEXT_TAG }} --test-routing="${{ inputs.test_routing }}" --debug=false
+          ./test_upgrade.sh ${{ env.MEMGRAPH_LAST_TAG }} ${{ env.MEMGRAPH_NEXT_TAG }} --test-routing=false --debug=false
 
       - name: Clean up Docker
         run: |

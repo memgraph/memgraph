@@ -21,52 +21,25 @@ on:
         description: Image architecture (amd/arm)
         required: true
         default: amd
-      test_routing:
-        type: choice
-        options:
-          - false
-          - both
-        description: Enable routing tests
-        default: both
 
 jobs:
   single_test:
-    if: ${{ inputs.test_routing != 'both' && github.event_name != 'push' }}
+    if: ${{ github.event_name != 'push' }}
+    name: ISSU Test
     uses: ./.github/workflows/reusable_issu_test.yaml
     with:
       last_image: ${{ inputs.prev_image }}
       next_image: ${{ inputs.next_image }}
       arch: ${{ inputs.arch }}
-      test_routing: ${{ inputs.test_routing }}
-    secrets: inherit
-      
-  both_test:
-    if: ${{ inputs.test_routing == 'both' && github.event_name != 'push' }}
-    uses: ./.github/workflows/reusable_issu_test.yaml
-    strategy:
-      matrix:
-        test_routing:
-          - false
-      fail-fast: false
-    with:
-      last_image: ${{ inputs.prev_image }}
-      next_image: ${{ inputs.next_image }}
-      arch: ${{ inputs.arch }}
-      test_routing: ${{ matrix.test_routing }}
     secrets: inherit
 
   # remove me before merge!!!!!!
   push_test:
     if: ${{ github.event_name == 'push' }}
+    name: ISSU Test Push
     uses: ./.github/workflows/reusable_issu_test.yaml
-    strategy:
-      matrix:
-        test_routing:
-          - false
-      fail-fast: false
     with:
       last_image: "3.5.0"
       next_image: "3.5.1"
       arch: amd
-      test_routing: ${{ matrix.test_routing }}
     secrets: inherit
