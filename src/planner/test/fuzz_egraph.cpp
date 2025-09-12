@@ -72,12 +72,9 @@ template <typename Symbol, typename Analysis>
 bool ValidateCongruenceClosure(EGraph<Symbol, Analysis> &egraph) {
   std::unordered_map<std::string, EClassId> canonical_forms;
 
-  for (auto class_id : egraph.canonical_class_ids()) {
-    const auto &eclass = egraph.eclass(class_id);
-
+  for (auto const &[class_id, eclass] : egraph.canonical_classes()) {
     for (auto enode_id : eclass.nodes()) {
-      const auto &enode = egraph.get_enode(enode_id);
-      std::string sig = CreateCanonicalSignature(enode, egraph);
+      std::string sig = CreateCanonicalSignature(egraph.get_enode(enode_id), egraph);
 
       if (canonical_forms.contains(sig)) {
         if (canonical_forms[sig] != class_id) {
@@ -96,9 +93,20 @@ bool ValidateCongruenceClosure(EGraph<Symbol, Analysis> &egraph) {
 
 template <typename Symbol, typename Analysis>
 bool ValidateParentChildRelationships(EGraph<Symbol, Analysis> &egraph) {
-  for (auto class_id : egraph.canonical_class_ids()) {
-    const auto &eclass = egraph.eclass(class_id);
+  // Single pass: collect all parent->child relationships from nodes
+  std::unordered_map<ENodeId, std::unordered_set<EClassId>> node_to_children;
 
+  for (auto const &[class_id, eclass] : egraph.canonical_classes()) {
+    for (auto enode_id : eclass.nodes()) {
+      const auto &enode = egraph.get_enode(enode_id);
+      for (auto child_id : enode.children()) {
+        node_to_children[enode_id].insert(egraph.find(child_id));
+      }
+    }
+  }
+
+  // Now validate: each parent reference should match actual children
+  for (auto const &[class_id, eclass] : egraph.canonical_classes()) {
     for (auto [parent_enode_id, parent_class_id] : eclass.parents()) {
       auto canonical_parent = egraph.find(parent_class_id);
 
@@ -108,20 +116,11 @@ bool ValidateParentChildRelationships(EGraph<Symbol, Analysis> &egraph) {
         return false;
       }
 
-      // Verify parent actually references this child
-      const auto &parent_enode = egraph.get_enode(parent_enode_id);
-      if (parent_enode.arity() > 0) {
-        bool has_child = false;
-        for (auto child_id : parent_enode.children()) {
-          if (egraph.find(child_id) == class_id) {
-            has_child = true;
-            break;
-          }
-        }
-        if (!has_child) {
-          std::cerr << "Parent e-node doesn't reference child e-class " << class_id << "\n";
-          return false;
-        }
+      // Check if this parent node actually references this child class
+      if (auto it = node_to_children.find(parent_enode_id);
+          it != node_to_children.end() && !it->second.contains(class_id)) {
+        std::cerr << "Parent e-node doesn't reference child e-class " << class_id << "\n";
+        return false;
       }
     }
   }
@@ -155,10 +154,10 @@ bool ValidateEGraphInvariants(EGraph<Symbol, Analysis> &egraph, ProcessingContex
 class FuzzerState {
  public:
   bool execute_operation(uint8_t op, const uint8_t *data, size_t &pos, size_t size) {
-    if (operation_count++ > MAX_OPERATIONS) {
-      std::cerr << "Too many operations (" << operation_count << "), aborting\n";
-      return false;
-    }
+    //    if (operation_count++ > MAX_OPERATIONS) {
+    //      std::cerr << "Too many operations (" << operation_count << "), aborting\n";
+    //      return false;
+    //    }
 
     switch (op % 4) {
       case 0:
@@ -188,29 +187,27 @@ class FuzzerState {
   }
 
   bool create_compound_node(const uint8_t *data, size_t &pos, size_t size) {
-    if (pos + 2 >= size) return true;
+    if (pos + 2 >= size || created_ids.empty()) return true;
 
     uint8_t symbol = data[pos++] % 5 + 10;       // F-Mul
     uint8_t num_children = data[pos++] % 3 + 1;  // 1-3 children
 
+    if (pos + num_children > size) return true;
+
     std::vector<EClassId> children;
-    for (uint8_t i = 0; i < num_children && pos < size; ++i) {
-      if (!created_ids.empty()) {
-        uint8_t child_idx = data[pos++] % created_ids.size();
-        children.push_back(created_ids[child_idx]);
-      }
+    for (uint8_t i = 0; i < num_children; ++i) {
+      uint8_t child_idx = data[pos++] % created_ids.size();
+      children.push_back(created_ids[child_idx]);
     }
 
-    if (!children.empty()) {
-      auto sym = static_cast<FuzzSymbol>(symbol);
-      auto id = egraph.emplace(sym, utils::small_vector<EClassId>(children.begin(), children.end()));
-      created_ids.push_back(id);
-    }
+    auto sym = static_cast<FuzzSymbol>(symbol);
+    auto id = egraph.emplace(sym, utils::small_vector<EClassId>(children.begin(), children.end()));
+    created_ids.push_back(id);
     return true;
   }
 
   bool merge_classes(const uint8_t *data, size_t &pos, size_t size) {
-    if (pos + 1 >= size || created_ids.size() < 2) return true;
+    if (size < pos + 2 || created_ids.empty()) return true;
 
     uint8_t idx1 = data[pos++] % created_ids.size();
     uint8_t idx2 = data[pos++] % created_ids.size();
@@ -250,7 +247,7 @@ class FuzzerState {
 // ============================================================================
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
-  if (size < 2 || size > 100) return 0;
+  if (size < 2) return 0;
 
   FuzzerState state;
   size_t pos = 0;
