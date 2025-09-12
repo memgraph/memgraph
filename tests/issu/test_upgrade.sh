@@ -181,14 +181,16 @@ kubectl wait --for=condition=ready node --all --timeout=300s
 
 # Load Docker images into minikube
 echo -e "${GREEN}Loading Docker images into minikube...${NC}"
-if docker images | grep -q "memgraph/memgraph:${LAST_TAG}"; then
+
+# Check if images exist using docker image inspect
+if docker image inspect "memgraph/memgraph:${LAST_TAG}" >/dev/null 2>&1; then
   echo "Loading memgraph/memgraph:${LAST_TAG} into minikube..."
   minikube image load "memgraph/memgraph:${LAST_TAG}"
 else
   echo -e "${YELLOW}Warning: memgraph/memgraph:${LAST_TAG} not found locally, will be pulled during pod creation${NC}"
 fi
 
-if docker images | grep -q "memgraph/memgraph:${NEXT_TAG}"; then
+if docker image inspect "memgraph/memgraph:${NEXT_TAG}" >/dev/null 2>&1; then
   echo "Loading memgraph/memgraph:${NEXT_TAG} into minikube..."
   minikube image load "memgraph/memgraph:${NEXT_TAG}"
 else
