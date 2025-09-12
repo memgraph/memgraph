@@ -43,9 +43,9 @@ struct EGraph {
     classes_.reserve(capacity);
     hashcons_.reserve(capacity);
   }
-  EGraph(const EGraph &) = default;
+  EGraph(const EGraph &other);
   EGraph(EGraph &&) noexcept = default;
-  auto operator=(const EGraph &) -> EGraph & = default;
+  auto operator=(const EGraph &other) -> EGraph &;
   auto operator=(EGraph &&) -> EGraph & = default;
 
   /**
@@ -182,7 +182,7 @@ struct EGraph {
    */
   auto canonical_classes() const {
     return std::views::transform(classes_,
-                                 [](const auto &pair) { return std::make_pair(pair.first, std::ref(*pair.second)); });
+                                 [](const auto &pair) { return std::make_pair(pair.first, std::cref(*pair.second)); });
   }
 
   /**
@@ -1081,6 +1081,66 @@ auto EGraph<Symbol, Analysis>::intern_enode(ENode<Symbol> enode) -> std::pair<EN
   enode_to_id_[ENodeRef{*enode_ptr}] = new_id;
 
   return {ENodeRef{*enode_ptr}, new_id};
+}
+
+// EGraph copy constructor and assignment operator implementations
+template <typename Symbol, typename Analysis>
+EGraph<Symbol, Analysis>::EGraph(const EGraph &other)
+    : union_find_(other.union_find_),
+      total_node_count_(other.total_node_count_),
+      next_enode_id_(other.next_enode_id_),
+      recursion_context_pool_(other.recursion_context_pool_),
+      max_recursion_depth_(other.max_recursion_depth_),
+      rebuild_worklist_(other.rebuild_worklist_) {
+  // Copy all e-nodes first
+  enode_storage_.reserve(other.enode_storage_.size());
+  for (const auto &[id, enode_ptr] : other.enode_storage_) {
+    enode_storage_[id] = std::make_unique<ENode<Symbol>>(*enode_ptr);
+    enode_to_id_[ENodeRef{*enode_storage_[id]}] = id;
+  }
+
+  // Copy all e-classes
+  classes_.reserve(other.classes_.size());
+  for (const auto &[id, eclass_ptr] : other.classes_) {
+    classes_[id] = std::make_unique<EClass<Analysis>>(*eclass_ptr);
+  }
+
+  // Copy hashcons table
+  hashcons_ = other.hashcons_;
+}
+
+template <typename Symbol, typename Analysis>
+auto EGraph<Symbol, Analysis>::operator=(const EGraph &other) -> EGraph & {
+  if (this == &other) return *this;
+
+  // Clear current state
+  clear();
+
+  // Copy all fields
+  union_find_ = other.union_find_;
+  total_node_count_ = other.total_node_count_;
+  next_enode_id_ = other.next_enode_id_;
+  recursion_context_pool_ = other.recursion_context_pool_;
+  max_recursion_depth_ = other.max_recursion_depth_;
+  rebuild_worklist_ = other.rebuild_worklist_;
+
+  // Copy all e-nodes first
+  enode_storage_.reserve(other.enode_storage_.size());
+  for (const auto &[id, enode_ptr] : other.enode_storage_) {
+    enode_storage_[id] = std::make_unique<ENode<Symbol>>(*enode_ptr);
+    enode_to_id_[ENodeRef{*enode_storage_[id]}] = id;
+  }
+
+  // Copy all e-classes
+  classes_.reserve(other.classes_.size());
+  for (const auto &[id, eclass_ptr] : other.classes_) {
+    classes_[id] = std::make_unique<EClass<Analysis>>(*eclass_ptr);
+  }
+
+  // Copy hashcons table
+  hashcons_ = other.hashcons_;
+
+  return *this;
 }
 
 }  // namespace memgraph::planner::core
