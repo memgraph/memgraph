@@ -59,6 +59,7 @@ if [[ $check_system_packages ]]; then
 else
   echo "Skipping package checks, good luck!"
 fi
+
 # create a default build directory
 mkdir -p ./build
 

@@ -154,6 +154,11 @@ print_help () {
   echo -e "\nstop options:"
   echo -e "  --remove                      Remove the stopped mgbuild container"
 
+  echo -e "\nmgbench options:"
+  echo -e "  --dataset string              Specify dataset to benchmark (default \"pokec\")"
+  echo -e "  --size string                 Specify dataset size: (for pokec: small, medium, large) (default \"medium\")"
+  echo -e "  --export-results-file string  Specify output file for benchmark results (default \"benchmark_result.json\")"
+
   echo -e "\nToolchain v4 supported OSs:"
   echo -e "  \"${SUPPORTED_OS_V4[*]}\""
 
@@ -167,15 +172,17 @@ print_help () {
   echo -e "  \"${SUPPORTED_OS_V7[*]}\""
 
   echo -e "\nExample usage:"
-  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd build --git-ref my-special-branch"
-  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd run"
-  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd --build-type RelWithDebInfo build-memgraph --community"
-  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd --build-type RelWithDebInfo build-memgraph --disable-testing"
-  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd --build-type RelWithDebInfo test-memgraph unit"
-  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd package"
-  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd copy --package"
-  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd copy --use-make-install --dest-dir build/install"
-  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v5 --arch amd stop --remove"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v6 --arch amd build --git-ref my-special-branch"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v6 --arch amd run"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v6 --arch amd --build-type RelWithDebInfo build-memgraph --community"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v6 --arch amd --build-type RelWithDebInfo build-memgraph --disable-testing"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v6 --arch amd --build-type RelWithDebInfo test-memgraph unit"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v6 --arch amd test-memgraph mgbench --dataset pokec --size large"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v6 --arch amd test-memgraph mgbench --dataset ldbc_bi --size medium --export-results-file my_results.json"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v6 --arch amd package"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v6 --arch amd copy --package"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v6 --arch amd copy --use-make-install --dest-dir build/install"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v6 --arch amd stop --remove"
 }
 
 check_support() {
@@ -225,7 +232,7 @@ check_support() {
         fi
       done
       if [[ "$is_supported" == false ]]; then
-        echo -e "TError: oolchain version $2 isn't supported!\nChoose from  ${SUPPORTED_TOOLCHAINS[*]}"
+        echo -e "Error: Toolchain version $2 isn't supported!\nChoose from  ${SUPPORTED_TOOLCHAINS[*]}"
         exit 1
       fi
     ;;
@@ -997,9 +1004,34 @@ test_memgraph() {
     ;;
     mgbench)
       shift 1
-      local POKEC_SIZE=${1:-'medium'}
-      check_support pokec_size $POKEC_SIZE
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 12 --export-results benchmark_result.json pokec/$POKEC_SIZE/*/*"
+      local DATASET='pokec'
+      local DATASET_SIZE='medium'
+      local EXPORT_RESULTS_FILE='benchmark_result.json'
+
+      while [[ $# -gt 0 ]]; do
+        case "$1" in
+          --dataset)
+            DATASET="$2"
+            shift 2
+          ;;
+          --size)
+            DATASET_SIZE="$2"
+            shift 2
+          ;;
+          --export-results-file)
+            EXPORT_RESULTS_FILE="$2"
+            shift 2
+          ;;
+          *)
+            echo "Error: Unknown flag '$1' for mgbench"
+            echo "Supported flags: --dataset, --size, --export-results-file"
+            exit 1
+          ;;
+        esac
+      done
+
+      check_support pokec_size $DATASET_SIZE
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/mgbench && ./benchmark.py --installation-type native --num-workers-for-benchmark 12 --export-results $EXPORT_RESULTS_FILE $DATASET/$DATASET_SIZE/*/*"
     ;;
     upload-to-bench-graph)
       shift 1

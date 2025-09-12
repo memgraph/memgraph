@@ -330,14 +330,26 @@ inline bool graph_has_text_index(mgp_graph *graph, const char *index_name) {
 }
 
 inline mgp_map *graph_search_text_index(mgp_graph *graph, const char *index_name, const char *search_query,
-                                        text_search_mode search_mode, mgp_memory *memory) {
-  return MgInvoke<mgp_map *>(mgp_graph_search_text_index, graph, index_name, search_query, search_mode, memory);
+                                        text_search_mode search_mode, std::size_t limit, mgp_memory *memory) {
+  return MgInvoke<mgp_map *>(mgp_graph_search_text_index, graph, index_name, search_query, search_mode, limit, memory);
 }
 
 inline mgp_map *graph_aggregate_over_text_index(mgp_graph *graph, const char *index_name, const char *search_query,
                                                 const char *aggregation_query, mgp_memory *memory) {
   return MgInvoke<mgp_map *>(mgp_graph_aggregate_over_text_index, graph, index_name, search_query, aggregation_query,
                              memory);
+}
+
+inline mgp_map *graph_search_text_edge_index(mgp_graph *graph, const char *index_name, const char *search_query,
+                                             text_search_mode search_mode, std::size_t limit, mgp_memory *memory) {
+  return MgInvoke<mgp_map *>(mgp_graph_search_text_edge_index, graph, index_name, search_query, search_mode, limit,
+                             memory);
+}
+
+inline mgp_map *graph_aggregate_over_text_edge_index(mgp_graph *graph, const char *index_name, const char *search_query,
+                                                     const char *aggregation_query, mgp_memory *memory) {
+  return MgInvoke<mgp_map *>(mgp_graph_aggregate_over_text_edge_index, graph, index_name, search_query,
+                             aggregation_query, memory);
 }
 
 inline mgp_vertices_iterator *graph_iter_vertices(mgp_graph *g, mgp_memory *memory) {
@@ -434,6 +446,9 @@ inline mgp_value *list_at(mgp_list *list, size_t index) { return MgInvoke<mgp_va
 // mgp_map
 
 inline mgp_map *map_make_empty(mgp_memory *memory) { return MgInvoke<mgp_map *>(mgp_map_make_empty, memory); }
+inline mgp_map *unordered_map_make_empty(mgp_memory *memory) {
+  return MgInvoke<mgp_map *>(mgp_unordered_map_make_empty, memory);
+}
 
 inline mgp_map *map_copy(mgp_map *map, mgp_memory *memory) { return MgInvoke<mgp_map *>(mgp_map_copy, map, memory); }
 

@@ -23,6 +23,7 @@
 #include "storage/v2/edge_accessor.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/point_index.hpp"
+#include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
@@ -287,6 +288,12 @@ class DbAccessor final {
     return std::nullopt;
   }
 
+  std::optional<EdgeAccessor> FindEdge(storage::Gid edge_gid, storage::Gid from_vertex_gid, storage::View view) {
+    auto maybe_edge = accessor_->FindEdge(edge_gid, from_vertex_gid, view);
+    if (maybe_edge) return EdgeAccessor(*maybe_edge);
+    return std::nullopt;
+  }
+
   void FinalizeTransaction() { accessor_->FinalizeTransaction(); }
 
   void TrackCurrentThreadAllocations() {
@@ -295,7 +302,7 @@ class DbAccessor final {
     memgraph::memory::StartTrackingCurrentThread(tracker);
   }
 
-  void UntrackCurrentThreadAllocations() { memgraph::memory::StopTrackingCurrentThread(); }
+  static void UntrackCurrentThreadAllocations() { memgraph::memory::StopTrackingCurrentThread(); }
 
   auto &GetTransactionMemoryTracker() { return accessor_->GetTransactionMemoryTracker(); }
 
@@ -318,8 +325,8 @@ class DbAccessor final {
                      plan::PointDistanceCondition condition) -> PointIterable;
 
   auto PointVertices(storage::LabelId label, storage::PropertyId property, storage::CoordinateReferenceSystem crs,
-                     TypedValue const &bottom_left, TypedValue const &top_right,
-                     plan::WithinBBoxCondition condition) -> PointIterable;
+                     TypedValue const &bottom_left, TypedValue const &top_right, plan::WithinBBoxCondition condition)
+      -> PointIterable;
 
   EdgesIterable Edges(storage::View view, storage::EdgeTypeId edge_type) {
     return EdgesIterable(accessor_->Edges(edge_type, view));
@@ -515,14 +522,26 @@ class DbAccessor final {
 
   bool TextIndexExists(const std::string &index_name) const { return accessor_->TextIndexExists(index_name); }
 
-  std::vector<storage::Gid> TextIndexSearch(const std::string &index_name, const std::string &search_query,
-                                            text_search_mode search_mode) const {
-    return accessor_->TextIndexSearch(index_name, search_query, search_mode);
+  std::vector<storage::TextSearchResult> TextIndexSearch(const std::string &index_name, const std::string &search_query,
+                                                         text_search_mode search_mode, std::size_t limit) const {
+    return accessor_->TextIndexSearch(index_name, search_query, search_mode, limit);
   }
 
   std::string TextIndexAggregate(const std::string &index_name, const std::string &search_query,
                                  const std::string &aggregation_query) const {
     return accessor_->TextIndexAggregate(index_name, search_query, aggregation_query);
+  }
+
+  std::string TextEdgeIndexAggregate(const std::string &index_name, const std::string &search_query,
+                                     const std::string &aggregation_query) {
+    return accessor_->TextEdgeIndexAggregate(index_name, search_query, aggregation_query);
+  }
+
+  std::vector<storage::TextEdgeSearchResult> SearchEdgeTextIndex(const std::string &index_name,
+                                                                 const std::string &search_query,
+                                                                 text_search_mode search_mode,
+                                                                 std::size_t limit) const {
+    return accessor_->SearchEdgeTextIndex(index_name, search_query, search_mode, limit);
   }
 
   bool PointIndexExists(storage::LabelId label, storage::PropertyId prop) const {
@@ -600,6 +619,10 @@ class DbAccessor final {
     return accessor_->ApproximateVerticesTextCount(index_name);
   }
 
+  std::optional<uint64_t> EdgesTextCount(std::string_view index_name) const {
+    return accessor_->ApproximateEdgesTextCount(index_name);
+  }
+
   int64_t EdgesCount() const { return accessor_->ApproximateEdgeCount(); }
 
   int64_t EdgesCount(storage::EdgeTypeId edge_type) const { return accessor_->ApproximateEdgeCount(edge_type); }
@@ -640,6 +663,10 @@ class DbAccessor final {
   storage::IndicesInfo ListAllIndices() const { return accessor_->ListAllIndices(); }
 
   storage::ConstraintsInfo ListAllConstraints() const { return accessor_->ListAllConstraints(); }
+
+  void DropAllIndexes() { accessor_->DropAllIndexes(); }
+
+  void DropAllConstraints() { accessor_->DropAllConstraints(); }
 
   const std::string &id() const { return accessor_->id(); }
 
@@ -711,6 +738,11 @@ class DbAccessor final {
     return accessor_->DropTextIndex(index_name);
   }
 
+  utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateTextEdgeIndex(
+      const storage::TextEdgeIndexSpec &text_edge_index_info) {
+    return accessor_->CreateTextEdgeIndex(text_edge_index_info);
+  }
+
   utils::BasicResult<storage::StorageIndexDefinitionError, void> CreateVectorIndex(storage::VectorIndexSpec spec) {
     return accessor_->CreateVectorIndex(std::move(spec));
   }
@@ -763,8 +795,8 @@ class DbAccessor final {
 
   auto ShowEnums() { return accessor_->ShowEnums(); }
 
-  auto GetEnumValue(std::string_view name,
-                    std::string_view value) const -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+  auto GetEnumValue(std::string_view name, std::string_view value) const
+      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
     return accessor_->GetEnumValue(name, value);
   }
   auto GetEnumValue(std::string_view enum_str) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
@@ -775,13 +807,13 @@ class DbAccessor final {
     return accessor_->GetEnumStoreShared().ToString(value);
   }
 
-  auto EnumAlterAdd(std::string_view name,
-                    std::string_view value) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+  auto EnumAlterAdd(std::string_view name, std::string_view value)
+      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
     return accessor_->EnumAlterAdd(name, value);
   }
 
-  auto EnumAlterUpdate(std::string_view name, std::string_view old_value,
-                       std::string_view new_value) -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
+  auto EnumAlterUpdate(std::string_view name, std::string_view old_value, std::string_view new_value)
+      -> utils::BasicResult<storage::EnumStorageError, storage::Enum> {
     return accessor_->EnumAlterUpdate(name, old_value, new_value);
   }
 
@@ -847,6 +879,8 @@ class SubgraphDbAccessor final {
   std::optional<VertexAccessor> FindVertex(storage::Gid gid, storage::View view);
 
   std::optional<EdgeAccessor> FindEdge(storage::Gid gid, storage::View view);
+
+  std::optional<EdgeAccessor> FindEdge(storage::Gid edge_gid, storage::Gid from_vertex_gid, storage::View view);
 
   Graph *getGraph();
 

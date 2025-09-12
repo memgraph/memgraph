@@ -272,7 +272,7 @@ make -j$CPUS install
 popd
 
 # mgcxx (text search)
-mgcxx_tag="v0.0.9"
+mgcxx_tag="v0.0.10"
 repo_clone_try_double "${primary_urls[mgcxx]}" "${secondary_urls[mgcxx]}" "mgcxx" "$mgcxx_tag" true
 
 # usearch (shallow clone to reduce flakiness)

@@ -143,3 +143,9 @@ jobs:
             curl -i -n -X DELETE -H "Authorization: JWT ${dockerhub_token}" \
               "https://hub.docker.com/v2/repositories/${DOCKER_ORGANIZATION_NAME}/${DOCKER_REPOSITORY_NAME}/tags/$t/"
           done
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/docker_cleanup.sh

@@ -45,6 +45,7 @@ memgraphCypherKeyword : cypherKeyword
                       | COMMITTED
                       | CONFIG
                       | CONFIGS
+                      | CONSTRAINTS
                       | CONSUMER_GROUP
                       | COORDINATOR
                       | CREATE_DELETE
@@ -85,10 +86,12 @@ memgraphCypherKeyword : cypherKeyword
                       | GRANTS
                       | GRAPH
                       | HEADER
+                      | HOPS
                       | IDENTIFIED
                       | IF
                       | IGNORE
                       | IMPERSONATE_USER
+                      | INDEXES
                       | IMPORT
                       | IN_MEMORY_ANALYTICAL
                       | IN_MEMORY_TRANSACTIONAL
@@ -99,6 +102,8 @@ memgraphCypherKeyword : cypherKeyword
                       | ISOLATION
                       | KAFKA
                       | LABELS
+                      | LAG
+                      | LEADERSHIP
                       | LEVEL
                       | LICENSE
                       | LIST
@@ -129,6 +134,8 @@ memgraphCypherKeyword : cypherKeyword
                       | POINT
                       | PORT
                       | PRIVILEGES
+                      | PROFILE_RESTRICTION
+                      | PROFILES
                       | PULSAR
                       | QUOTE
                       | QUOTE
@@ -141,6 +148,7 @@ memgraphCypherKeyword : cypherKeyword
                       | REPLICAS
                       | REPLICATION
                       | RESET
+                      | RESOURCE
                       | REVOKE
                       | ROLE
                       | ROLES
@@ -152,6 +160,7 @@ memgraphCypherKeyword : cypherKeyword
                       | SETTING
                       | SETTINGS
                       | SNAPSHOT
+                      | SNAPSHOTS
                       | START
                       | STATE
                       | STATISTICS
@@ -185,12 +194,14 @@ memgraphCypherKeyword : cypherKeyword
                       | USE
                       | USER
                       | USERS
+                      | USAGE
                       | USING
                       | VALUE
                       | VALUES
                       | VECTOR
                       | VERSION
                       | WEBSOCKET
+                      | YIELD
                       | ZONEDDATETIME
                       ;
 
@@ -204,6 +215,7 @@ query : cypherQuery
       | edgeIndexQuery
       | pointIndexQuery
       | textIndexQuery
+      | createTextEdgeIndex
       | vectorIndexQuery
       | createVectorEdgeIndex
       | explainQuery
@@ -236,6 +248,8 @@ query : cypherQuery
       | showDatabases
       | edgeImportModeQuery
       | coordinatorQuery
+      | dropAllIndexesQuery
+      | dropAllConstraintsQuery
       | dropGraphQuery
       | createEnumQuery
       | showEnumsQuery
@@ -696,6 +710,8 @@ dropTextIndex : DROP TEXT INDEX indexName ;
 
 textIndexQuery : createTextIndex | dropTextIndex;
 
+createTextEdgeIndex: CREATE TEXT EDGE INDEX indexName ON ':' labelName ( '(' propertyKeyName ( ',' propertyKeyName )* ')' )* ;
+
 createPointIndex : CREATE POINT INDEX ON ':' labelName '(' propertyKeyName ')';
 
 dropPointIndex : DROP POINT INDEX ON ':' labelName '(' propertyKeyName ')' ;
@@ -709,6 +725,10 @@ createVectorEdgeIndex: CREATE VECTOR EDGE INDEX indexName ON ':' labelName ( '('
 dropVectorIndex : DROP VECTOR INDEX indexName ;
 
 vectorIndexQuery : createVectorIndex | dropVectorIndex ;
+
+dropAllIndexesQuery : DROP ALL INDEXES ;
+
+dropAllConstraintsQuery : DROP ALL CONSTRAINTS ;
 
 dropGraphQuery : DROP GRAPH ;
 

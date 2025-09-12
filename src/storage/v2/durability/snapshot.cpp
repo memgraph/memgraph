@@ -8258,32 +8258,65 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
     // NOTE: while this is experimental and hence optional
     //       it must be last in the SECTION_INDICES
     if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-      auto size_opt = snapshot.ReadUint();
-      const auto size = size_opt.value_or(0);
-      spdlog::info("Recovering metadata of {} text indices.", size);
-      for (uint64_t i = 0; i < size; ++i) {
-        auto index_name = snapshot.ReadString();
-        if (!index_name.has_value()) throw RecoveryFailure("Couldn't read text index name!");
-        auto label = snapshot.ReadUint();
-        if (!label) throw RecoveryFailure("Couldn't read text index label!");
-        // Read properties
-        auto n_props = snapshot.ReadUint();
-        if (!n_props.has_value()) throw RecoveryFailure("Couldn't read text index properties count!");
-        std::vector<PropertyId> properties;
-        properties.reserve(*n_props);
-        for (uint64_t j = 0; j < *n_props; ++j) {
-          auto property = snapshot.ReadUint();
-          if (!property.has_value()) throw RecoveryFailure("Couldn't read text index property!");
-          properties.emplace_back(get_property_from_id(*property));
-        }
+      // Recover text indices on nodes
+      {
+        auto size_opt = snapshot.ReadUint();
+        const auto size = size_opt.value_or(0);
+        spdlog::info("Recovering metadata of {} text indices.", size);
+        for (uint64_t i = 0; i < size; ++i) {
+          auto index_name = snapshot.ReadString();
+          if (!index_name.has_value()) throw RecoveryFailure("Couldn't read text index name!");
+          auto label = snapshot.ReadUint();
+          if (!label) throw RecoveryFailure("Couldn't read text index label!");
+          // Read properties
+          auto n_props = snapshot.ReadUint();
+          if (!n_props.has_value()) throw RecoveryFailure("Couldn't read text index properties count!");
+          std::vector<PropertyId> properties;
+          properties.reserve(*n_props);
+          for (uint64_t j = 0; j < *n_props; ++j) {
+            auto property = snapshot.ReadUint();
+            if (!property.has_value()) throw RecoveryFailure("Couldn't read text index property!");
+            properties.emplace_back(get_property_from_id(*property));
+          }
 
-        AddRecoveredIndexConstraint(&indices_constraints.indices.text_indices,
-                                    TextIndexSpec{index_name.value(), get_label_from_id(*label), std::move(properties)},
-                                    "The text index already exists!");
-        SPDLOG_TRACE("Recovered metadata of text index {} for :{}", index_name.value(),
-                     name_id_mapper->IdToName(snapshot_id_map.at(*label)));
+          AddRecoveredIndexConstraint(
+              &indices_constraints.indices.text_indices,
+              TextIndexSpec{index_name.value(), get_label_from_id(*label), std::move(properties)},
+              "The text index already exists!");
+          SPDLOG_TRACE("Recovered metadata of text index {} for :{}", index_name.value(),
+                       name_id_mapper->IdToName(snapshot_id_map.at(*label)));
+        }
+        spdlog::info("Metadata of text indices are recovered.");
       }
-      spdlog::info("Metadata of text indices are recovered.");
+      // Recover text indices on edges
+      {
+        const auto size_opt = snapshot.ReadUint();
+        const auto size = size_opt.value_or(0);
+        spdlog::info("Recovering metadata of {} text indices.", size);
+        for (uint64_t i = 0; i < size; ++i) {
+          const auto index_name = snapshot.ReadString();
+          if (!index_name.has_value()) throw RecoveryFailure("Couldn't read text index name!");
+          const auto edge_type_id = snapshot.ReadUint();
+          if (!edge_type_id) throw RecoveryFailure("Couldn't read text index edge type!");
+          // Read properties
+          const auto n_props = snapshot.ReadUint();
+          if (!n_props.has_value()) throw RecoveryFailure("Couldn't read text index properties count!");
+          std::vector<PropertyId> properties;
+          properties.reserve(*n_props);
+          for (uint64_t j = 0; j < *n_props; ++j) {
+            const auto property = snapshot.ReadUint();
+            if (!property.has_value()) throw RecoveryFailure("Couldn't read text index property!");
+            properties.emplace_back(get_property_from_id(*property));
+          }
+          AddRecoveredIndexConstraint(
+              &indices_constraints.indices.text_edge_indices,
+              TextEdgeIndexSpec{index_name.value(), get_edge_type_from_id(*edge_type_id), std::move(properties)},
+              "The text edge index already exists!");
+          SPDLOG_TRACE("Recovered metadata of text edge index {} for :{}", index_name.value(),
+                       name_id_mapper->IdToName(snapshot_id_map.at(*edge_type_id)));
+        }
+        spdlog::info("Metadata of text edge indices are recovered.");
+      }
     }
 
     spdlog::info("Metadata of indices are recovered.");
@@ -9177,18 +9210,37 @@ std::optional<std::filesystem::path> CreateSnapshot(
 
     // Write text indices.
     if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-      auto text_indices = storage->indices_.text_index_.ListIndices();
-      snapshot.WriteUint(text_indices.size());
-      for (const auto &[index_name, label, properties] : text_indices) {
-        snapshot.WriteString(index_name);
-        write_mapping(label);
-        snapshot.WriteUint(properties.size());
-        for (const auto &property : properties) {
-          write_mapping(property);
+      // Text indices on nodes
+      {
+        const auto text_indices = storage->indices_.text_index_.ListIndices();
+        snapshot.WriteUint(text_indices.size());
+        for (const auto &[index_name, label, properties] : text_indices) {
+          snapshot.WriteString(index_name);
+          write_mapping(label);
+          snapshot.WriteUint(properties.size());
+          for (const auto &property : properties) {
+            write_mapping(property);
+          }
+        }
+        if (snapshot_aborted()) {
+          return std::nullopt;
         }
       }
-      if (snapshot_aborted()) {
-        return std::nullopt;
+      // Text indices on edges
+      {
+        const auto text_edge_indices = storage->indices_.text_edge_index_.ListIndices();
+        snapshot.WriteUint(text_edge_indices.size());
+        for (const auto &[index_name, edge_type, properties] : text_edge_indices) {
+          snapshot.WriteString(index_name);
+          write_mapping(edge_type);
+          snapshot.WriteUint(properties.size());
+          for (const auto &property : properties) {
+            write_mapping(property);
+          }
+        }
+        if (snapshot_aborted()) {
+          return std::nullopt;
+        }
       }
     }
   }

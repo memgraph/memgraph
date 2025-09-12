@@ -1,6 +1,0 @@
-id:ID(COMMENT_ID),country:string,browser:string,content:string,:LABEL
-0,Croatia,Chrome,yes,Message;Comment,not
-1,"United Kingdom",Chrome,thanks,Message;Comment,should
-2,Germany,,LOL,Message;Comment,not
-3,France,Firefox,I see,Message;Comment,appear
-4,Italy,Internet Explorer,fine,Message;Comment,anywhere

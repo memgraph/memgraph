@@ -2146,6 +2146,35 @@ class TextIndexQuery : public memgraph::query::Query {
   friend class AstStorage;
 };
 
+class CreateTextEdgeIndexQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  CreateTextEdgeIndexQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  memgraph::query::EdgeTypeIx edge_type_;
+  std::vector<memgraph::query::PropertyIx> properties_;
+  std::string index_name_;
+
+  CreateTextEdgeIndexQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<CreateTextEdgeIndexQuery>();
+    object->edge_type_ = edge_type_;
+    object->index_name_ = index_name_;
+    object->properties_ = properties_;
+    return object;
+  }
+
+ protected:
+  CreateTextEdgeIndexQuery(EdgeTypeIx edge_type, std::vector<PropertyIx> properties, std::string index_name)
+      : edge_type_(std::move(edge_type)), properties_(std::move(properties)), index_name_(std::move(index_name)) {}
+
+ private:
+  friend class AstStorage;
+};
+
 class VectorIndexQuery : public memgraph::query::Query {
  public:
   static const utils::TypeInfo kType;
@@ -3011,6 +3040,42 @@ class CoordinatorQuery : public memgraph::query::Query {
     object->setting_name_ = setting_name_ ? setting_name_->Clone(storage) : nullptr;
     object->setting_value_ = setting_value_ ? setting_value_->Clone(storage) : nullptr;
 
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class DropAllIndexesQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DropAllIndexesQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  DropAllIndexesQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<DropAllIndexesQuery>();
+    return object;
+  }
+
+ private:
+  friend class AstStorage;
+};
+
+class DropAllConstraintsQuery : public memgraph::query::Query {
+ public:
+  static const utils::TypeInfo kType;
+  const utils::TypeInfo &GetTypeInfo() const override { return kType; }
+
+  DropAllConstraintsQuery() = default;
+
+  DEFVISITABLE(QueryVisitor<void>);
+
+  DropAllConstraintsQuery *Clone(AstStorage *storage) const override {
+    auto *object = storage->Create<DropAllConstraintsQuery>();
     return object;
   }
 

@@ -51,14 +51,14 @@ def show_replicas_func(cursor):
 
 
 def test_text_index_replication(connection, test_name):
-    # Goal: Proof that text types are replicated to REPLICAs
+    # Goal: Proof that text indices (both node and edge) are replicated to REPLICAs
     # 0/ Setup replication
-    # 1/ Create text index on MAIN
-    # 2/ Validate text index has arrived at REPLICA
-    # 3/ Create text entries on MAIN
-    # 4/ Validate index count on REPLICA is correct
-    # 5/ Drop text index on MAIN
-    # 6/ Validate index has been droped on REPLICA
+    # 1/ Create text indices on MAIN (both node and edge)
+    # 2/ Validate text indices have arrived at REPLICAs
+    # 3/ Create text entries on MAIN (both nodes and edges)
+    # 4/ Validate index functionality on REPLICAs is correct
+    # 5/ Drop text indices on MAIN
+    # 6/ Validate indices have been dropped on REPLICAs
 
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
@@ -130,13 +130,14 @@ def test_text_index_replication(connection, test_name):
     cursor = connection(BOLT_PORTS["main"], "main").cursor()
 
     # 1/
+    # Create text indices on both nodes and edges
     execute_and_fetch_all(
         cursor,
-        "CREATE TEXT INDEX test_index ON :Node;",
+        "CREATE TEXT INDEX test_node_index ON :Node(name);",
     )
     execute_and_fetch_all(
         cursor,
-        "CREATE TEXT INDEX test_index1 ON :Node(prop1, prop2);",
+        "CREATE TEXT EDGE INDEX test_edge_index ON :RELATES_TO(title);",
     )
     wait_for_replication_change(cursor, 4)
 
@@ -148,8 +149,8 @@ def test_text_index_replication(connection, test_name):
         return connection(BOLT_PORTS[name], "replica").cursor()
 
     expected_result = [
-        ("text (name: test_index)", "Node", [], 0),
-        ("text (name: test_index1)", "Node", ["prop1", "prop2"], 0),
+        ("label_text (name: test_node_index)", "Node", ["name"], 0),
+        ("edge-type_text (name: test_edge_index)", "RELATES_TO", ["title"], 0),
     ]
     replica_1_info = get_show_index_info(get_replica_cursor("replica_1"))
     assert sorted(replica_1_info) == sorted(expected_result)
@@ -157,46 +158,53 @@ def test_text_index_replication(connection, test_name):
     assert sorted(replica_2_info) == sorted(expected_result)
 
     # 3/
+    # Create data with both nodes and edges
     execute_and_fetch_all(
         cursor,
-        "CREATE (:Node {name: 'test1', prop1: 'value1', prop2: 'value2'});",
+        """CREATE (n1:Node {name: 'test1', prop1: 'node value1', prop2: 'node value2'})
+           -[:RELATES_TO {title: 'relation title', content: 'edge content for testing'}]->
+           (n2:Node {name: 'test2', prop1: 'node value3', prop2: 'node value4'});""",
     )
     wait_for_replication_change(cursor, 6)
 
     # 4/
+    # Test node index replication on replica_1
     search_results = execute_and_fetch_all(
         get_replica_cursor("replica_1"),
-        "CALL text_search.search('test_index', 'data.name:test1') YIELD node RETURN node.name AS name;",
+        "CALL text_search.search('test_node_index', 'data.name:test1') YIELD node RETURN node.name AS name;",
     )
     assert search_results == [("test1",)]
 
-    search_results = execute_and_fetch_all(
-        get_replica_cursor("replica_2"),
-        "CALL text_search.search('test_index', 'data.name:test1') YIELD node RETURN node.name AS name;",
-    )
-    assert search_results == [("test1",)]
-
-    # Test the second index with specific properties
+    # Test edge index replication on replica_1
     search_results = execute_and_fetch_all(
         get_replica_cursor("replica_1"),
-        "CALL text_search.search('test_index1', 'data.prop1:value1') YIELD node RETURN node.prop1 AS prop1;",
+        "CALL text_search.search_edges('test_edge_index', 'data.title:relation') YIELD edge RETURN edge.title AS title;",
     )
-    assert search_results == [("value1",)]
+    assert search_results == [("relation title",)]
 
+    # Test node index replication on replica_2
     search_results = execute_and_fetch_all(
         get_replica_cursor("replica_2"),
-        "CALL text_search.search('test_index1', 'data.prop2:value2') YIELD node RETURN node.prop2 AS prop2;",
+        "CALL text_search.search('test_node_index', 'data.name:test2') YIELD node RETURN node.name AS name;",
     )
-    assert search_results == [("value2",)]
+    assert search_results == [("test2",)]
+
+    # Test edge index replication on replica_2
+    search_results = execute_and_fetch_all(
+        get_replica_cursor("replica_2"),
+        "CALL text_search.search_edges('test_edge_index', 'data.title:relation') YIELD edge RETURN edge.title AS title;",
+    )
+    assert search_results == [("relation title",)]
 
     # 5/
+    # Drop both text indices
     execute_and_fetch_all(
         cursor,
-        "DROP TEXT INDEX test_index;",
+        "DROP TEXT INDEX test_node_index;",
     )
     execute_and_fetch_all(
         cursor,
-        "DROP TEXT INDEX test_index1;",
+        "DROP TEXT INDEX test_edge_index;",
     )
     wait_for_replication_change(cursor, 10)
 

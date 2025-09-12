@@ -26,6 +26,7 @@ add_subdirectory(replication_handler)
 add_subdirectory(coordination)
 add_subdirectory(replication_coordination_glue)
 add_subdirectory(system)
+add_subdirectory(planner)
 
 string(TOLOWER ${CMAKE_BUILD_TYPE} lower_build_type)
 
@@ -208,32 +209,4 @@ install(CODE "file(MAKE_DIRECTORY \$ENV{DESTDIR}/var/log/memgraph
 
 # ----------------------------------------------------------------------------
 # END Memgraph Single Node v2 Executable
-# ----------------------------------------------------------------------------
-
-# ----------------------------------------------------------------------------
-# Memgraph CSV Import Tool Executable
-# ----------------------------------------------------------------------------
-add_executable(mg_import_csv mg_import_csv.cpp)
-
-# Link mg_import_csv with custom libstdc++
-message(STATUS "Linking mg_import_csv with custom libstdc++")
-target_link_libraries(mg_import_csv mg::storage mg-dbms libstdc++_custom)
-target_link_options(mg_import_csv PRIVATE -nostdlib++)
-
-# Set RPATH for custom libstdc++
-set_target_properties(mg_import_csv PROPERTIES
-    INSTALL_RPATH "\$ORIGIN/../lib/memgraph"
-)
-
-# Strip the executable in release build.
-if(lower_build_type STREQUAL "release")
-        add_custom_command(TARGET mg_import_csv POST_BUILD
-                COMMAND strip -s mg_import_csv
-                COMMENT "Stripping symbols and sections from mg_import_csv")
-endif()
-
-install(TARGETS mg_import_csv RUNTIME DESTINATION bin)
-
-# ----------------------------------------------------------------------------
-# Memgraph CSV Import Tool Executable
 # ----------------------------------------------------------------------------

@@ -22,7 +22,7 @@
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/indices/label_property_index_stats.hpp"
-#include "storage/v2/indices/text_index.hpp"
+#include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
 #include "storage/v2/ttl.hpp"
@@ -56,6 +56,7 @@ struct RecoveredIndicesAndConstraints {
     std::vector<std::pair<EdgeTypeId, PropertyId>> edge_type_property;
     std::vector<PropertyId> edge_property;
     std::vector<TextIndexSpec> text_indices;
+    std::vector<TextEdgeIndexSpec> text_edge_indices;
     std::vector<VectorIndexSpec> vector_indices;
     std::vector<VectorEdgeIndexSpec> vector_edge_indices;
   } indices;
