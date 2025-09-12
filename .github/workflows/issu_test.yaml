@@ -40,6 +40,6 @@ jobs:
     uses: ./.github/workflows/reusable_issu_test.yaml
     with:
       last_image: "3.5.0"
-      next_image: "https://download.memgraph.com/memgraph/v3.5.1/docker/memgraph-3.5.1-docker.tar.gz"
+      next_image: "https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/daily-build/memgraph/20250911/docker/memgraph-3.5.1_pr3227_22290c08c676-docker.tar.gz"
       arch: amd
     secrets: inherit
