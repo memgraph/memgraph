@@ -201,29 +201,14 @@ for i in "${!nodes[@]}"; do
   fi
 done
 
+
 # --- Helm chart prep ---
-HELM_CHARTS_DIR="helm-charts"
-if [ ! -d "$HELM_CHARTS_DIR" ]; then
-  echo -e "${GREEN}Cloning helm-charts repository...${NC}"
-  git clone https://github.com/memgraph/helm-charts.git "$HELM_CHARTS_DIR"
-else
-  echo -e "${GREEN}Updating helm-charts repository...${NC}"
-  (cd "$HELM_CHARTS_DIR" && git pull)
-fi
+helm repo add memgraph https://memgraph.github.io/helm-charts
 
-HELM_CHART_PATH="$HELM_CHARTS_DIR/charts/memgraph-high-availability"
-if [ ! -d "$HELM_CHART_PATH" ]; then
-  echo -e "${RED}Error: Helm chart not found at $HELM_CHART_PATH${NC}"
-  echo "Please check the helm-charts repository structure"
-  exit 1
-fi
 
-# --- Helm install / upgrade ---
-echo -e "${GREEN}Validating Helm chart...${NC}"
-helm lint "$HELM_CHART_PATH" -f old_values.yaml
-
+# --- Helm install ---
 echo -e "${GREEN}Installing Helm chart...${NC}"
-helm install "$RELEASE" "$HELM_CHART_PATH" -f old_values.yaml
+helm install "$RELEASE" memgraph/memgraph-high-availability -f old_values.yaml
 
 # --- Wait & verify resources ---
 echo -e "${GREEN}Waiting for resources to be created...${NC}"
@@ -271,7 +256,7 @@ kubectl exec memgraph-data-0-0 -- bash -c "mgconsole < /var/lib/memgraph/pre_upg
 echo "Run test queries on old version"
 
 # --- Upgrade chart values ---
-helm upgrade "$RELEASE" "$HELM_CHART_PATH" -f new_values.yaml
+helm upgrade "$RELEASE" memgraph/memgraph-high-availability -f new_values.yaml
 echo "Updated versions"
 
 # --- Rolling restarts ---
