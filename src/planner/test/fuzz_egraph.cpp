@@ -11,6 +11,8 @@
 
 #include <cstddef>
 #include <cstdint>
+#include <cstdlib>
+#include <cstring>
 #include <fstream>
 #include <iostream>
 #include <unordered_map>
@@ -20,6 +22,13 @@
 #include "planner/core/processing_context.hpp"
 
 namespace memgraph::planner::core {
+
+// Global flag for verbose output
+static bool g_verbose = false;
+
+// Macro for conditional verbose output
+#define VERBOSE_OUT \
+  if (g_verbose) std::cerr
 
 // Simple test symbols for fuzzing
 enum class FuzzSymbol : uint32_t {
@@ -155,11 +164,11 @@ class FuzzerState {
  public:
   bool execute_operation(uint8_t op, const uint8_t *data, size_t &pos, size_t size) {
     operation_count++;
-    std::cerr << "\n--- Operation #" << operation_count << " ---\n";
+    VERBOSE_OUT << "\n--- Operation #" << operation_count << " ---\n";
 
     int operation_type = op % 5;
     const char *op_names[] = {"CREATE_LEAF", "CREATE_COMPOUND", "MERGE_CLASSES", "REBUILD", "CREATE_CONGRUENT"};
-    std::cerr << "Op: " << op_names[operation_type] << " (raw: " << (int)op << ")\n";
+    VERBOSE_OUT << "Op: " << op_names[operation_type] << " (raw: " << (int)op << ")\n";
 
     switch (operation_type) {
       case 0:
@@ -187,8 +196,8 @@ class FuzzerState {
     auto id = egraph.emplace(sym, disambiguator);
     created_ids.push_back(id);
 
-    std::cerr << "Created leaf: " << (char)('A' + symbol) << "(D" << disambiguator << ") -> " << id << "\n";
-    std::cerr << "Total classes: " << egraph.num_classes() << ", Total nodes: " << egraph.num_nodes() << "\n";
+    VERBOSE_OUT << "Created leaf: " << (char)('A' + symbol) << "(D" << disambiguator << ") -> " << id << "\n";
+    VERBOSE_OUT << "Total classes: " << egraph.num_classes() << ", Total nodes: " << egraph.num_nodes() << "\n";
     return true;
   }
 
@@ -221,10 +230,10 @@ class FuzzerState {
     auto id1 = created_ids[idx1];
     auto id2 = created_ids[idx2];
 
-    std::cerr << "Merging class " << id1 << " with " << id2 << "\n";
+    VERBOSE_OUT << "Merging class " << id1 << " with " << id2 << "\n";
     auto merged_id = egraph.merge(id1, id2);
-    std::cerr << "Merge result: " << merged_id << "\n";
-    std::cerr << "Total classes: " << egraph.num_classes() << ", Worklist size: " << egraph.worklist_size() << "\n";
+    VERBOSE_OUT << "Merge result: " << merged_id << "\n";
+    VERBOSE_OUT << "Total classes: " << egraph.num_classes() << ", Worklist size: " << egraph.worklist_size() << "\n";
     return true;
   }
 
@@ -289,6 +298,14 @@ class FuzzerState {
 
 extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
   if (size < 2) return 0;
+
+  // Initialize verbose flag from environment variable
+  static bool initialized = false;
+  if (!initialized) {
+    const char *verbose_env = std::getenv("FUZZ_VERBOSE");
+    g_verbose = verbose_env != nullptr && (std::strcmp(verbose_env, "1") == 0 || std::strcmp(verbose_env, "true") == 0);
+    initialized = true;
+  }
 
   FuzzerState state;
   size_t pos = 0;
