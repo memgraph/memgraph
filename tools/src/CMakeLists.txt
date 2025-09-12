@@ -12,7 +12,7 @@ add_executable(mg_dump mg_dump/main.cpp)
 
 # Link mg_dump with custom libstdc++
 message(STATUS "Linking mg_dump with custom libstdc++")
-target_link_libraries(mg_dump gflags spdlog fmt::fmt mgclient Threads::Threads libstdc++_custom)
+target_link_libraries(mg_dump gflags spdlog::spdlog fmt::fmt mgclient::mgclient Threads::Threads libstdc++_custom)
 target_link_options(mg_dump PRIVATE -nostdlib++)
 
 # Set RPATH for custom libstdc++

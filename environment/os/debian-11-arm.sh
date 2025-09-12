@@ -32,6 +32,7 @@ TOOLCHAIN_BUILD_DEPS=(
     libtool # for protobuf
     pkg-config # for pulsar
     libsasl2-dev # for librdkafka
+    python3-pip # for conan
 )
 
 TOOLCHAIN_RUN_DEPS=(
@@ -56,7 +57,7 @@ MEMGRAPH_BUILD_DEPS=(
     libssl-dev
     libseccomp-dev
     netcat # tests are using nc to wait for memgraph
-    python3 virtualenv python3-virtualenv python3-pip # for qa, macro_benchmark and stress tests
+    python3 virtualenv python3-virtualenv python3-pip python3-venv # for qa, macro_benchmark and stress tests
     python3-yaml # for the configuration generator
     libcurl4-openssl-dev # mg-requests
     sbcl # for custom Lisp C++ preprocessing
@@ -67,6 +68,8 @@ MEMGRAPH_BUILD_DEPS=(
     libtool  # for protobuf code generation
     libsasl2-dev
     ninja-build
+    # Pulsar dependencies
+    libnghttp2-dev libpsl-dev libkrb5-dev librtmp-dev libldap2-dev libidn2-dev libbrotli-dev libidn2-dev libssh-dev
 )
 
 MEMGRAPH_RUN_DEPS=(
@@ -100,6 +103,12 @@ check() {
                 ;;
         esac
     done
+
+    # check if python3 is installed
+    if ! command -v python3 &>/dev/null; then
+        echo "python3 is not installed"
+        exit 1
+    fi
 
     # Check standard packages with Python script
     if [ ${#standard_packages[@]} -gt 0 ]; then
@@ -143,6 +152,11 @@ EOF
 
     # Update package lists first
     apt update -y
+
+    # check if python3 is installed
+    if ! command -v python3 &>/dev/null; then
+        apt install -y python3
+    fi
 
     # If GitHub Actions runner is installed, append LANG to the environment.
     # Python related tests doesn't work the LANG export.

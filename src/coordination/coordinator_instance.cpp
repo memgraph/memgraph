@@ -43,6 +43,7 @@
 #include "utils/event_counter.hpp"
 #include "utils/exponential_backoff.hpp"
 #include "utils/functional.hpp"
+#include "utils/join_vector.hpp"
 #include "utils/logging.hpp"
 #include "utils/metrics_timer.hpp"
 
@@ -1176,7 +1177,7 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
       spdlog::error("Couldn't find newest instance for db with uuid {}", db_uuid);
     } else {
       spdlog::info("The latest durable timestamp is {} for db with uuid {}. The following instances have it {}",
-                   curr_ldt, db_uuid, fmt::join(newest_db_instances, ", "));
+                   curr_ldt, db_uuid, utils::JoinVector(newest_db_instances, ", "));
       update_instances_counter(newest_db_instances);
     }
   }

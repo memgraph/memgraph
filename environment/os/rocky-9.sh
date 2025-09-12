@@ -30,6 +30,7 @@ TOOLCHAIN_BUILD_DEPS=(
     libtool # for protobuf
     openssl-devel pkgconf-pkg-config # for pulsar
     cyrus-sasl-devel # for librdkafka
+    python3-pip # for conan
 )
 
 TOOLCHAIN_RUN_DEPS=(
@@ -52,7 +53,7 @@ MEMGRAPH_BUILD_DEPS=(
     python3-devel # for query modules
     openssl-devel
     libseccomp-devel
-    python3 python3-pip python3-virtualenv nmap-ncat # for qa, macro_benchmark and stress tests
+    python3 python3-pip python3-virtualenv python3-venv nmap-ncat # for qa, macro_benchmark and stress tests
     #
     # IMPORTANT: python3-yaml does NOT exist on CentOS
     # Install it manually using `pip3 install PyYAML`
@@ -68,6 +69,8 @@ MEMGRAPH_BUILD_DEPS=(
     libtool  # for protobuf code generation
     cyrus-sasl-devel
     ninja-build
+    # Pulsar dependencies
+    libnghttp2-devel libpsl-devel krb5-devel librtmp-devel openldap-devel libbrotli-devel libidn2-devel libssh-devel
 )
 
 MEMGRAPH_TEST_DEPS="${MEMGRAPH_BUILD_DEPS[*]}"
@@ -103,6 +106,12 @@ check() {
                 ;;
         esac
     done
+
+    # check if python3 is installed
+    if ! command -v python3 &>/dev/null; then
+        echo "python3 is not installed"
+        exit 1
+    fi
 
     # Check standard packages with Python script
     if [ ${#standard_packages[@]} -gt 0 ]; then
@@ -175,6 +184,18 @@ install() {
     dnf config-manager --set-enabled crb
     dnf config-manager --set-enabled devel
     sudo dnf install -y epel-release
+
+
+    # Try to install SBCL from standard repositories first
+    # If not available, we'll handle it in the custom package logic
+
+    dnf update -y
+
+    # check if python3 is installed
+    if ! command -v python3 &>/dev/null; then
+        dnf install -y python3
+    fi
+
     dnf install -y wget git python3 python3-pip
 
     # Separate standard and custom packages
