@@ -101,7 +101,7 @@ jobs:
       - name: Run ISSU Test
         run: |
           cd tests/issu
-          ./test_upgrade.sh ${{ env.MEMGRAPH_LAST_TAG }} ${{ env.MEMGRAPH_NEXT_TAG }} --test-routing="${{ inputs.test_routing }} --debug=false"
+          ./test_upgrade.sh ${{ env.MEMGRAPH_LAST_TAG }} ${{ env.MEMGRAPH_NEXT_TAG }} --test-routing="${{ inputs.test_routing }}" --debug=false
 
       - name: Clean up Docker
         run: |
