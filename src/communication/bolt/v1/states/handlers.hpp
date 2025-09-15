@@ -525,7 +525,7 @@ State HandleRoute(TSession &session, const Marker marker) {
   // >= 4.4
   Value extra;
   if (!session.decoder_.ReadValue(&extra, Value::Type::Map)) {
-    spdlog::trace("Couldn't read extras field!");
+    spdlog::trace("Couldn't read 'extra' field!");
     return State::Close;
   }
 
