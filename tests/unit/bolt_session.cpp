@@ -134,7 +134,7 @@ class TestSession final : public Session<TestInputStream, TestOutputStream> {
 
 #ifdef MG_ENTERPRISE
   auto Route(bolt_map_t const & /*routing*/, std::vector<memgraph::communication::bolt::Value> const & /*bookmarks*/,
-             bolt_map_t const & /*extra*/) -> bolt_map_t {
+             std::optional<std::string> const & /*db*/, bolt_map_t const & /*extra*/) -> bolt_map_t {
     return {};
   }
 #endif
