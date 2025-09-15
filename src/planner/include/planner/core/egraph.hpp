@@ -455,28 +455,6 @@ struct EGraph {
   boost::unordered_flat_map<EClassId, std::unique_ptr<EClass<Analysis>>> classes_;
 
   /**
-   * @brief Running count of total e-nodes across all e-classes
-   *
-   * This field maintains an O(1) count of the total number of e-nodes in the e-graph.
-   * It is updated whenever nodes are added or removed from e-classes, eliminating
-   * the need for O(n) iteration through all e-classes in num_nodes().
-   */
-  mutable size_t total_enode_count_ = 0;
-
-  /**
-   * @brief Helper to initialize/validate the node count
-   *
-   * This method computes the node count by iterating through all e-classes.
-   * Used for initialization and debugging/validation purposes only.
-   */
-  void initialize_node_count() const {
-    total_enode_count_ = 0;
-    for (const auto &[id, eclass] : classes_) {
-      total_enode_count_ += eclass->size();
-    }
-  }
-
-  /**
    * @brief Hash consing table for e-node deduplication
    *
    * Ensures that each unique canonical e-node appears only once in the e-graph.
@@ -493,38 +471,6 @@ struct EGraph {
    * all ENode lifetimes, similar to how it controls EClass lifetimes.
    */
   std::deque<std::unique_ptr<ENode<Symbol>>> enode_storage_;
-
-  /**
-   * @brief Incremental tracking system for efficient change detection
-   *
-   * Uses the monotonic nature of e-class IDs to efficiently track what's new
-   * since checkpoints. Much simpler and more efficient than detailed change logging.
-   */
-  //  IncrementalTracker incremental_tracker_;
-
-  /**
-   * @brief Pool of ProcessingContext objects for recursion depth management
-   *
-   * Pre-allocated contexts for different recursion depths to avoid repeated
-   * allocations during deep congruence closure operations. The vector grows
-   * dynamically as needed for deeper recursion.
-   */
-  // mutable std::vector<ProcessingContext<Symbol>> recursion_context_pool_;
-
-  /**
-   * @brief Maximum observed recursion depth for optimization
-   *
-   * Tracks the deepest recursion seen to optimize context pool size.
-   */
-  // mutable size_t max_recursion_depth_ = 0;
-
-  /**
-   * @brief Maximum allowed recursion depth to prevent stack overflow
-   *
-   * Safety limit to prevent infinite recursion or stack exhaustion.
-   * Can be adjusted based on system stack size and expression tree depth.
-   */
-  // static constexpr size_t MAX_RECURSION_DEPTH = 1000;
 
   // ========================================================================
   // Rebuilding Algorithm Infrastructure (egg paper optimization)
@@ -619,9 +565,6 @@ auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, uint64_t disambiguator) ->
   // Create EClass owning the ENode
   classes_.emplace(new_eclass_id, std::make_unique<EClass<Analysis>>(new_enode_id));
 
-  // Increment total node count for O(1) num_nodes() performance
-  ++total_enode_count_;
-
   // No children to update parent lists for (it's a leaf)
   return new_eclass_id;
 }
@@ -656,9 +599,6 @@ auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, utils::small_vector<EClass
   hashcons_[enode_ref] = new_eclass_id;
   // Create EClass owning the ENode
   classes_.emplace(new_eclass_id, std::make_unique<EClass<Analysis>>(new_enode_id));
-
-  // Increment total node count for O(1) num_nodes() performance
-  ++total_enode_count_;
 
   // Update parent lists for children - ESSENTIAL for congruence closure
   for (EClassId child_id : enode_ref.value().children()) {
@@ -743,11 +683,8 @@ auto EGraph<Symbol, Analysis>::num_classes() const -> size_t {
 
 template <typename Symbol, typename Analysis>
 auto EGraph<Symbol, Analysis>::num_nodes() const -> size_t {
-  // TODO: is this needed?
-  if (total_enode_count_ == 0 && !classes_.empty()) {
-    initialize_node_count();
-  }
-  return total_enode_count_;
+  // ENodes are never deleted
+  return union_find_.Size();
 }
 
 template <typename Symbol, typename Analysis>
@@ -756,7 +693,6 @@ void EGraph<Symbol, Analysis>::clear() {
   classes_.clear();
   hashcons_.clear();
   enode_storage_.clear();     // Clear ENode storage
-  total_enode_count_ = 0;     // Reset node count to maintain invariant
   rebuild_worklist_.clear();  // Clear rebuild worklist
 }
 
@@ -874,6 +810,7 @@ void EGraph<Symbol, Analysis>::process_class_parents_for_rebuild(EClass<Analysis
 
 template <typename Symbol, typename Analysis>
 auto EGraph<Symbol, Analysis>::get_enode(ENodeId id) -> ENode<Symbol> & {
+  assert(id < enode_storage_.size());
   return *enode_storage_[id];
 }
 
@@ -885,11 +822,7 @@ auto EGraph<Symbol, Analysis>::intern_enode(ENode<Symbol> enode) -> ENodeRef<Sym
 // EGraph copy constructor and assignment operator implementations
 template <typename Symbol, typename Analysis>
 EGraph<Symbol, Analysis>::EGraph(const EGraph &other)
-    : union_find_(other.union_find_),
-      total_enode_count_(other.total_enode_count_),
-      // recursion_context_pool_(other.recursion_context_pool_),
-      // max_recursion_depth_(other.max_recursion_depth_),
-      rebuild_worklist_(other.rebuild_worklist_) {
+    : union_find_(other.union_find_), rebuild_worklist_(other.rebuild_worklist_) {
   // Copy all e-nodes first
   enode_storage_.reserve(other.enode_storage_.size());
   for (const auto &[id, enode_ptr] : other.enode_storage_) {
@@ -915,9 +848,6 @@ auto EGraph<Symbol, Analysis>::operator=(const EGraph &other) -> EGraph & {
 
   // Copy all fields
   union_find_ = other.union_find_;
-  total_enode_count_ = other.total_enode_count_;
-  // recursion_context_pool_ = other.recursion_context_pool_;
-  // max_recursion_depth_ = other.max_recursion_depth_;
   rebuild_worklist_ = other.rebuild_worklist_;
 
   // Copy all e-nodes first
