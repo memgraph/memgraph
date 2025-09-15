@@ -41,7 +41,7 @@ struct EGraph {
   // TODO: do we need to construct with capacity in production?
   explicit EGraph(size_t capacity) {
     classes_.reserve(capacity);
-    table_.reserve(capacity);
+    hashcons_.reserve(capacity);
   }
   EGraph(const EGraph &other);
   EGraph(EGraph &&) noexcept = default;
@@ -55,7 +55,7 @@ struct EGraph {
    * duplicates. If an equivalent canonical e-node already exists, returns
    * its e-class ID. Otherwise creates a new e-class and updates parent tracking.
    */
-  auto add(const ENode<Symbol> &node) -> EClassId;
+  // auto add(const ENode<Symbol> &node) -> EClassId;
 
   /**
    * @brief Emplace an e-node directly with canonical children
@@ -193,7 +193,7 @@ struct EGraph {
    */
   void reserve(size_t num_classes) {
     classes_.reserve(num_classes);
-    table_.reserve(num_classes);
+    hashcons_.reserve(num_classes);
   }
 
   /**
@@ -471,8 +471,7 @@ struct EGraph {
    * Maps canonical e-nodes to their containing e-class IDs for O(1) lookup
    * during add operations.
    */
-  //  Hashcons<Symbol> hashcons_;
-  boost::unordered_flat_map<ENodeRef<Symbol>, EClassId> table_;
+  boost::unordered_flat_map<ENodeRef<Symbol>, EClassId> hashcons_;
 
   /**
    * @brief Storage for all e-node instances within the e-graph
@@ -564,13 +563,6 @@ struct EGraph {
    */
   void process_parents(EClassId eclass_id, ProcessingContext<Symbol> &ctx);
 
-  /**
-   * @brief Process parent expressions with recursion depth tracking
-   *
-   * Internal version that uses the context pool based on recursion depth.
-   */
-  void process_parents_recursive(EClassId eclass_id, ProcessingContext<Symbol> &ctx, size_t recursion_depth);
-
   // ========================================================================
   // Rebuilding Algorithm Helper Methods
   // ========================================================================
@@ -589,137 +581,43 @@ struct EGraph {
    * Optimized version for rebuild that avoids recursive calls.
    */
   void process_class_parents_for_rebuild(EClass<Analysis> const &eclass, ProcessingContext<Symbol> &ctx);
-
-  /**
-   * @brief Lookup an ENode in the hash consing table
-   */
-  [[nodiscard]] auto hashcons_lookup(const ENode<Symbol> &enode) const -> std::optional<EClassId> {
-    auto it = table_.find(ENodeRef{enode});
-    if (it != table_.end()) {
-      return it->second;
-    }
-    return std::nullopt;
-  }
-
-  /**
-   * @brief Insert an ENode with its associated e-class ID
-   *
-   * Adds a new ENode to the hash consing table, associating it with
-   * the provided e-class ID. The e-node should be canonicalized before
-   * insertion to ensure correct future lookups.
-   *
-   * @param enode The ENode to insert (should be canonicalized)
-   * @param eclass_id The e-class ID to associate with this e-node
-   */
-  void hashcons_insert(const ENode<Symbol> &enode, EClassId eclass_id) {
-    // TODO: document that insert is actually create/update
-    table_[ENodeRef{enode}] = eclass_id;
-  }
-
-  /**
-   * @brief Update an ENode entry (atomic remove and insert)
-   *
-   * Efficiently removes the old ENode and inserts the new ENode
-   * with the same e-class ID.
-   *
-   * @param old_enode The ENode to remove
-   * @param new_enode The canonicalized ENode to insert
-   * @param eclass_id The e-class ID to associate with the new e-node
-   */
-  void hashcons_update(const ENode<Symbol> &old_enode, const ENode<Symbol> &new_enode, EClassId eclass_id) {
-    // TODO: old_enode != new_enode?
-    table_.erase(ENodeRef{old_enode});
-    insert(new_enode, eclass_id);
-  }
-
-  /**
-   * @brief Clear all entries from the hash consing table
-   */
-  void hashcons_clear() { table_.clear(); }
-
-  /**
-   * @brief Get the number of entries in the table
-   */
-  [[nodiscard]] auto hashcons_size() const -> size_t { return table_.size(); }
-
-  /**
-   * @brief Check if the hash consing table is empty
-   */
-  [[nodiscard]] auto hashcons_empty() const -> bool { return table_.empty(); }
-
-  /**
-   * @brief Reserve capacity for n entries
-   *
-   * @param n Expected number of unique e-nodes
-
-   */
-  void hashcons_reserve(size_t n) { table_.reserve(n); }
-
-  /**
-   * @brief Get the current load factor of the hash table
-   *
-   * Load factor = size() / bucket_count()
-   */
-  [[nodiscard]] auto hashcons_load_factor() const -> float { return table_.load_factor(); }
-
-  /**
-   * @brief Get the maximum allowed load factor
-   *
-   * When the load factor exceeds this threshold, the hash table
-   * automatically rehashes to maintain performance.
-   */
-  [[nodiscard]] auto hashcons_max_load_factor() const -> float { return table_.max_load_factor(); }
-
-  /**
-   * @brief Set the maximum allowed load factor
-   *
-   * Controls when the hash table rehashes for performance tuning.
-   * Lower values favor lookup speed, higher values favor memory efficiency.
-   *
-   * @param ml New maximum load factor (typically 0.5 to 1.0)
-   *
-   * @par Performance Tuning:
-   * - Lower values (0.5-0.7): Faster lookups, more memory usage
-   * - Higher values (0.8-1.0): Better memory efficiency, slower lookups
-   */
-  void hashcons_max_load_factor(float ml) { table_.max_load_factor(ml); }
 };
 
-template <typename Symbol, typename Analysis>
-auto EGraph<Symbol, Analysis>::add(const ENode<Symbol> &node) -> EClassId {
-  // Create canonicalized copy preserving the disambiguator
-  auto canonical_node = node.canonicalize(union_find_);
-
-  // Use direct O(1) ENode lookup in hashcons for single-level mapping
-  if (auto eclass_id = table_.lookup(canonical_node)) {
-    EClassId canonical_eclass_id = union_find_.Find(eclass_id.value());
-    return canonical_eclass_id;
-  }
-
-  // No existing equivalent node, create new e-class
-  EClassId new_eclass_id = union_find_.MakeSet();
-
-  // Create new ENodeId for storage and reference
-  auto [enode_ref, canonical_enode_id] = intern_enode(canonical_node);
-  table_.insert(enode_ref, new_eclass_id);
-
-  // Create new e-class with the ENodeId (copy from original emplace)
-  auto eclass = std::make_unique<EClass<Analysis>>(canonical_enode_id);
-  classes_.emplace(new_eclass_id, std::move(eclass));
-
-  // Increment total node count for O(1) num_nodes() performance
-  ++total_node_count_;
-
-  // Update parent lists for children - ESSENTIAL for congruence closure
-  for (EClassId child_id : enode_ref.value().children) {
-    auto child_it = classes_.find(child_id);
-    if (child_it != classes_.end()) {
-      child_it->second->add_parent(canonical_enode_id, new_eclass_id);
-    }
-  }
-
-  return new_eclass_id;
-}
+// template <typename Symbol, typename Analysis>
+// auto EGraph<Symbol, Analysis>::add(const ENode<Symbol> &node) -> EClassId {
+//   // Create canonicalized copy preserving the disambiguator
+//   auto canonical_node = node.canonicalize(union_find_);
+//
+//   // Use direct O(1) ENode lookup in hashcons for single-level mapping
+//   if (auto eclass_id = hashcons_.lookup(canonical_node)) {
+//     EClassId canonical_eclass_id = union_find_.Find(eclass_id.value());
+//     return canonical_eclass_id;
+//   }
+//
+//   // No existing equivalent node, create new e-class
+//   EClassId new_eclass_id = union_find_.MakeSet();
+//
+//   // Create new ENodeId for storage and reference
+//   auto [enode_ref, canonical_enode_id] = intern_enode(canonical_node);
+//   hashcons_.insert(enode_ref, new_eclass_id);
+//
+//   // Create new e-class with the ENodeId (copy from original emplace)
+//   auto eclass = std::make_unique<EClass<Analysis>>(canonical_enode_id);
+//   classes_.emplace(new_eclass_id, std::move(eclass));
+//
+//   // Increment total node count for O(1) num_nodes() performance
+//   ++total_node_count_;
+//
+//   // Update parent lists for children - ESSENTIAL for congruence closure
+//   for (EClassId child_id : enode_ref.value().children) {
+//     auto child_it = classes_.find(child_id);
+//     if (child_it != classes_.end()) {
+//       child_it->second->add_parent(canonical_enode_id, new_eclass_id);
+//     }
+//   }
+//
+//   return new_eclass_id;
+// }
 
 template <typename Symbol, typename Analysis>
 auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, uint64_t disambiguator) -> EClassId {
@@ -727,8 +625,10 @@ auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, uint64_t disambiguator) ->
   auto canonical_node = ENode{std::move(symbol), disambiguator};
 
   // Use direct O(1) ENode lookup in hashcons for single-level mapping
-  if (auto eclass_id = hashcons_lookup(canonical_node)) {
-    return union_find_.Find(eclass_id.value());
+  auto it = hashcons_.find(ENodeRef{canonical_node});
+  if (it != hashcons_.end()) {
+    // TODO: check if we nees to do find here, hashcons_ should be correct? Maybe
+    return union_find_.Find(it->second);
   }
 
   // No existing equivalent node, create new e-class
@@ -736,8 +636,9 @@ auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, uint64_t disambiguator) ->
 
   // Create new e-class with the ENodeId
   // TODO: can intern_enode take new_eclass_id and be responsible for hashcons
-  auto [enode_ref, enode_id] = intern_enode(canonical_node);
-  hashcons_insert(enode_ref.value(), new_eclass_id);
+  auto [enode_ref, enode_id] = intern_enode(std::move(canonical_node));
+  ENode<Symbol> const &enode = enode_ref.value();  // TODO: document that insert is actually create/update
+  hashcons_[ENodeRef{enode}] = new_eclass_id;
 
   classes_.emplace(new_eclass_id, std::make_unique<EClass<Analysis>>(enode_id));
 
@@ -759,9 +660,10 @@ auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, utils::small_vector<EClass
   auto canonical_node = ENode{std::move(symbol), std::move(children)};
 
   // Use direct O(1) ENode lookup in hashcons for single-level mapping
-  if (auto eclass_id = hashcons_lookup(canonical_node)) {
-    EClassId canonical_eclass_id = union_find_.Find(eclass_id.value());
-    return canonical_eclass_id;
+  auto it = hashcons_.find(ENodeRef{canonical_node});
+  if (it != hashcons_.end()) {
+    // TODO: remove union find, it should be correct as is
+    return union_find_.Find(it->second);
   }
 
   // No existing equivalent node, create new e-class
@@ -769,7 +671,8 @@ auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, utils::small_vector<EClass
 
   // Create new ENodeId for storage and reference
   auto [enode_ref, canonical_enode_id] = intern_enode(canonical_node);
-  hashcons_insert(enode_ref.value(), new_class_id);
+  ENode<Symbol> const &enode = enode_ref.value();  // TODO: document that insert is actually create/update
+  hashcons_[ENodeRef{enode}] = new_class_id;
 
   // Create new e-class with the ENodeId
   auto eclass = std::make_unique<EClass<Analysis>>(canonical_enode_id);
@@ -874,7 +777,7 @@ template <typename Symbol, typename Analysis>
 void EGraph<Symbol, Analysis>::clear() {
   union_find_.Clear();
   classes_.clear();
-  hashcons_clear();
+  hashcons_.clear();
   enode_storage_.clear();     // Clear ENode storage
   enode_to_id_.clear();       // Clear ENode deduplication map
   next_enode_id_ = 0;         // Reset ENodeId counter
@@ -888,172 +791,6 @@ template <typename Symbol, typename Analysis>
 void EGraph<Symbol, Analysis>::process_parents(EClassId eclass_id, ProcessingContext<Symbol> &ctx) {
   // Delegate to recursive version starting at depth 0
   process_parents_recursive(eclass_id, ctx, 0);
-}
-
-template <typename Symbol, typename Analysis>
-void EGraph<Symbol, Analysis>::process_parents_recursive(EClassId eclass_id, ProcessingContext<Symbol> &ctx,
-                                                         size_t recursion_depth) {
-  // Check recursion depth limit to prevent stack overflow
-  if (recursion_depth >= MAX_RECURSION_DEPTH) {
-    // For very deep recursion, fall back to deferred processing
-    // This prevents stack overflow while still maintaining correctness
-    return;
-  }
-
-  auto eclass_it = classes_.find(eclass_id);
-  if (eclass_it == classes_.end()) {
-    return;
-  }
-
-  const auto &eclass = *eclass_it->second;  // Dereference the unique_ptr
-
-  // Use local storage instead of context since we need ENodeId keys
-  boost::unordered_flat_map<ENodeId, std::vector<EClassId>> canonical_enode_to_parents;
-
-  // Group parents by their canonical form using ENodeId
-  for (const auto &[parent_enode_id, parent_class_id] : eclass.parents) {
-    const auto &parent_enode = get_enode(parent_enode_id);
-    auto canonical_parent = parent_enode.canonicalize(union_find_);
-    auto [ref, canonical_enode_id] = intern_enode(canonical_parent);
-    EClassId current_parent_id = union_find_.Find(parent_class_id);
-    canonical_enode_to_parents[canonical_enode_id].push_back(current_parent_id);
-  }
-
-  // Get or create context for the next recursion level
-  size_t next_depth = recursion_depth + 1;
-
-  // Ensure context pool has enough contexts
-  if (next_depth >= recursion_context_pool_.size()) {
-    recursion_context_pool_.resize(next_depth + 1);
-    // Pre-allocate capacity for new contexts based on observed patterns
-    size_t capacity = std::max(canonical_enode_to_parents.size() * 2, size_t(32));
-    for (size_t i = max_recursion_depth_; i <= next_depth; ++i) {
-      recursion_context_pool_[i].reserve(capacity);
-    }
-  }
-
-  // Update max depth tracking for optimization
-  if (next_depth > max_recursion_depth_) {
-    max_recursion_depth_ = next_depth;
-  }
-
-  // Get the context for recursive calls at the next depth
-  ProcessingContext<Symbol> &recursive_ctx = recursion_context_pool_[next_depth];
-
-  // Use iterative worklist approach to avoid infinite recursion
-  // Collect all merge operations needed for congruence closure
-  std::vector<std::pair<EClassId, EClassId>> congruence_worklist;
-
-  // Process each group of congruent parents
-  for (const auto &[canonical_enode_id, parent_ids] : canonical_enode_to_parents) {
-    // Get the canonical ENode for lookups
-    const auto &canonical_enode = get_enode(canonical_enode_id);
-
-    // Use direct O(1) lookup in hashcons for single-level mapping
-    if (auto existing_eclass_id = hashcons_lookup(canonical_enode)) {
-      EClassId existing_id = union_find_.Find(existing_eclass_id.value());
-
-      // Schedule merges for all parents with the existing entry
-      for (EClassId parent_id : parent_ids) {
-        if (existing_id != parent_id) {
-          congruence_worklist.emplace_back(parent_id, existing_id);
-        }
-      }
-    } else if (parent_ids.size() > 1) {
-      // Multiple congruent parents - schedule merges to the first one
-      EClassId representative = parent_ids[0];
-      for (size_t i = 1; i < parent_ids.size(); ++i) {
-        congruence_worklist.emplace_back(parent_ids[i], representative);
-      }
-      // Update hashcons with the representative using direct ENode mapping
-      hashcons_insert(canonical_enode, representative);
-    } else {
-      // Single parent - just update hashcons using direct ENode mapping
-      hashcons_insert(canonical_enode, parent_ids[0]);
-    }
-  }
-
-  // Process the worklist iteratively to avoid recursion
-  boost::container::flat_set<std::pair<EClassId, EClassId>> processed_merges;
-
-  while (!congruence_worklist.empty()) {
-    auto [from_id, to_id] = congruence_worklist.back();
-    congruence_worklist.pop_back();
-
-    // Skip if already processed this merge
-    auto merge_pair = std::make_pair(std::min(from_id, to_id), std::max(from_id, to_id));
-    if (processed_merges.contains(merge_pair)) {
-      continue;
-    }
-    processed_merges.insert(merge_pair);
-
-    // Check if already merged
-    EClassId canonical_from = union_find_.Find(from_id);
-    EClassId canonical_to = union_find_.Find(to_id);
-    if (canonical_from == canonical_to) {
-      continue;
-    }
-
-    // Perform the union-find merge
-    EClassId new_merged_id = union_find_.UnionSets(canonical_from, canonical_to);
-    EClassId other_id = (new_merged_id == canonical_from) ? canonical_to : canonical_from;
-
-    merge_eclasses(*classes_[new_merged_id], other_id);
-
-    // Use selective cache invalidation
-
-    // Find new congruences created by this merge and add them to worklist
-    // Check if the merged e-class still exists
-    if (classes_.find(new_merged_id) == classes_.end()) {
-      continue;
-    }
-
-    const auto &merged_eclass = *classes_[new_merged_id];
-
-    // Clear context for reuse (use ENodeId-based approach)
-    recursive_ctx.enode_to_parents.clear();
-
-    // Group parents by their canonical form using efficient ENodeId approach
-    for (const auto &[parent_enode_id, parent_class_id] : merged_eclass.parents) {
-      const auto &parent_enode = get_enode(parent_enode_id);
-      auto canonical_parent = parent_enode.canonicalize(union_find_);
-      auto [ref, canonical_enode_id] = intern_enode(canonical_parent);
-      EClassId current_parent_id = union_find_.Find(parent_class_id);
-      recursive_ctx.enode_to_parents[canonical_enode_id].push_back(current_parent_id);
-    }
-
-    for (const auto &[canonical_enode_id, parent_ids] : recursive_ctx.enode_to_parents) {
-      // Get the canonical ENode for lookups
-      const auto &canonical_enode = get_enode(canonical_enode_id);
-
-      // Use direct O(1) lookup in hashcons for single-level mapping
-      if (auto existing_eclass_id = hashcons_lookup(canonical_enode)) {
-        EClassId existing_id = union_find_.Find(existing_eclass_id.value());
-        for (EClassId parent_id : parent_ids) {
-          if (existing_id != parent_id) {
-            auto new_merge = std::make_pair(std::min(parent_id, existing_id), std::max(parent_id, existing_id));
-            if (!processed_merges.contains(new_merge)) {
-              congruence_worklist.emplace_back(parent_id, existing_id);
-            }
-          }
-        }
-      } else if (parent_ids.size() > 1) {
-        EClassId representative = parent_ids[0];
-        for (size_t i = 1; i < parent_ids.size(); ++i) {
-          auto new_merge =
-              std::make_pair(std::min(parent_ids[i], representative), std::max(parent_ids[i], representative));
-          if (!processed_merges.contains(new_merge)) {
-            congruence_worklist.emplace_back(parent_ids[i], representative);
-          }
-        }
-        // Update hashcons with direct ENode mapping
-        hashcons_insert(canonical_enode, representative);
-      } else if (parent_ids.size() == 1) {
-        // Update hashcons with direct ENode mapping
-        hashcons_insert(canonical_enode, parent_ids[0]);
-      }
-    }
-  }
 }
 
 // ========================================================================
@@ -1098,13 +835,22 @@ void EGraph<Symbol, Analysis>::repair_hashcons(EClass<Analysis> const &eclass, E
     // TODO: investigate, do make make new canonicalize enodes, if already canonical then we waste tempory allocations
     auto &enode = get_enode(enode_id);
     // NOTE: the node maybe non-canonicalize, if so it will not be found
-    auto it = table_.find(ENodeRef{enode});
+    auto it = hashcons_.find(ENodeRef{enode});
+    auto it2 = enode_to_id_.find(ENodeRef{enode});
 
     // Canonicalize the enode in place
-    auto changed = enode.canonicalize_in_place(union_find_);
+    auto const changed = enode.canonicalize_in_place(union_find_);
     if (changed) {
-      if (it != table_.end()) table_.erase(it);
-      hashcons_insert(enode, eclass_id);
+      // Fix hashcons entry
+      if (it != hashcons_.end()) {
+        hashcons_.erase(it);
+      }
+      hashcons_[ENodeRef{enode}] = eclass_id;
+      // Fix enode reverse map entry
+      if (it2 != enode_to_id_.end()) {
+        enode_to_id_.erase(it2);
+      }
+      enode_to_id_.insert(std::make_pair(ENodeRef{enode}, enode_id));
     } else {
       it->second = eclass_id;
     }
@@ -1152,7 +898,7 @@ void EGraph<Symbol, Analysis>::process_class_parents_for_rebuild(EClass<Analysis
       // hashcons update can be defered to the next rebuild iteration because we inserted into the rebuild worklist
     } else if (parent_ids.size() == 1) {
       // Single parent case - update hashcons directly since no merging is needed
-      hashcons_insert(canonical_enode_ref.value(), parent_ids[0]);
+      hashcons_[canonical_enode_ref] = parent_ids[0];
     }
   }
 }
@@ -1214,7 +960,7 @@ EGraph<Symbol, Analysis>::EGraph(const EGraph &other)
   }
 
   // Copy hashcons table
-  table_ = other.table_;
+  hashcons_ = other.hashcons_;
 }
 
 template <typename Symbol, typename Analysis>
@@ -1246,7 +992,7 @@ auto EGraph<Symbol, Analysis>::operator=(const EGraph &other) -> EGraph & {
   }
 
   // Copy hashcons table
-  table_ = other.table_;
+  hashcons_ = other.hashcons_;
 
   return *this;
 }
