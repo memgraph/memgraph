@@ -13,8 +13,7 @@ import time
 import typing
 from functools import partial
 from itertools import chain
-from multiprocessing import Barrier, Lock, Manager, Process
-from threading import Event
+from threading import Barrier, Thread
 
 import mgclient
 import pytest
@@ -25,64 +24,10 @@ def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}
     return cursor.fetchall()
 
 
-def make_connection(**kwargs):
-    connection = mgclient.connect(host="localhost", port=7687, **kwargs)
-    connection.autocommit = False
-    return connection
-
-
-def execute_phase_1(query, args, barrier, shared_state, state_lock, should_abort=False):
-    """Phase 1 transactions execute the query, hit barrier, sleep to ensure Phase 2 hits dependency, then commit"""
-    try:
-        connection = make_connection()
-        cursor = connection.cursor()
-        cursor.execute(query, args)
-        barrier.wait()
-
-        # Half-a-second wait here is to "guarantee" that the phase 2 threads
-        # begin executing before we commit. In the unlikely event that it isn't
-        # enough time, tests will still pass, but we just won't be testing
-        # write/write conflicts this iteration because transaction will be
-        # running on a serial schedule. Think of it as happy flakiness.
-        time.sleep(0.5)
-
-        if should_abort:
-            connection.rollback()
-        else:
-            connection.commit()
-
-        with state_lock:
-            if should_abort:
-                shared_state["fails"] += 1
-            else:
-                shared_state["passes"] += 1
-    except Exception as e:
-        with state_lock:
-            shared_state["fails"] += 1
-
-
-def execute_phase_2(query, args, barrier, shared_state, state_lock):
-    """Phase 2 transactions hit barrier, then execute (will block on dependency)"""
-    try:
-        barrier.wait()
-        connection = make_connection()
-        cursor = connection.cursor()
-        cursor.execute(query, args)
-        connection.commit()
-        with state_lock:
-            shared_state["passes"] += 1
-    except Exception as e:
-        with state_lock:
-            shared_state["fails"] += 1
-
-
 class SerializationFixture:
     def __init__(self):
-        self.manager = Manager()
-        self.shared_state = self.manager.dict()
-        self.shared_state["passes"] = 0
-        self.shared_state["fails"] = 0
-        self.state_lock = Lock()
+        self.passes = 0
+        self.fails = 0
         self.primary_connection = mgclient.connect(host="localhost", port=7687)
         self.primary_connection.autocommit = True
 
@@ -97,31 +42,60 @@ class SerializationFixture:
         self.primary_connection.commit()
 
     def run(self, phase1_txs, phase2_txs):
-        processes = []
-        barrier = Barrier(len(phase1_txs) + len(phase2_txs))
+        threads = []
 
         for tx in phase1_txs:
-            should_abort = tx.get("abort", False)
-            process = Process(
-                target=execute_phase_1,
-                args=(tx["query"], tx.get("args", {}), barrier, self.shared_state, self.state_lock, should_abort),
-            )
-            processes.append(process)
+            thread = Thread(target=partial(self._execute_phase_1, tx["query"], tx.get("args", {}), tx.get("delay")))
+            threads.append(thread)
 
         for tx in phase2_txs:
-            process = Process(
-                target=execute_phase_2,
-                args=(tx["query"], tx.get("args", {}), barrier, self.shared_state, self.state_lock),
-            )
-            processes.append(process)
+            thread = Thread(target=partial(self._execute_phase_2, tx["query"], tx.get("args", {})))
+            threads.append(thread)
 
-        for process in processes:
-            process.start()
+        self.barrier = Barrier(len(threads))
 
-        for process in processes:
-            process.join()
+        for thread in threads:
+            thread.start()
 
-        return (self.shared_state["passes"], self.shared_state["fails"])
+        for thread in threads:
+            thread.join()
+
+        return (self.passes, self.fails)
+
+    def _make_connection(self, **kwargs):
+        connection = mgclient.connect(host="localhost", port=7687, **kwargs)
+        connection.autocommit = False
+        return connection
+
+    def _execute_phase_1(self, query, args, sleep_duration):
+        """Phase 1 transactions execute the query, hit a barrier, and then
+        sleep for `wait` seconds
+        """
+        try:
+            connection = self._make_connection()
+            cursor = connection.cursor()
+            cursor.execute(query, args)
+            self.barrier.wait()
+            if sleep_duration:
+                time.sleep(sleep_duration)
+            connection.commit()
+            self.passes += 1
+        except Exception as e:
+            print(str(e))
+            self.fails += 1
+
+    def _execute_phase_2(self, query, args):
+        """Phase 2 transactions hit the barrier, and the execute the query"""
+        try:
+            self.barrier.wait()
+            connection = self._make_connection()
+            cursor = connection.cursor()
+            cursor.execute(query, args)
+            connection.commit()
+            self.passes += 1
+        except Exception as e:
+            print(str(e))
+            self.fails += 1
 
 
 @pytest.fixture

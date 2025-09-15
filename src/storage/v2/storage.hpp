@@ -30,7 +30,6 @@
 #include "storage/v2/replication/replication_client.hpp"
 #include "storage/v2/replication/replication_storage_state.hpp"
 #include "storage/v2/storage_error.hpp"
-#include "storage/v2/transaction_dependencies.hpp"
 #include "storage/v2/ttl.hpp"
 #include "storage/v2/vertex_accessor.hpp"
 #include "storage/v2/vertices_chunked_iterable.hpp"
@@ -59,26 +58,6 @@ extern const Event ActiveTypeConstraints;
 }  // namespace memgraph::metrics
 
 namespace memgraph::storage {
-
-// RAII wrapper for registering and unregister transactions with the global
-// list.
-class TransactionRegistration {
- public:
-  TransactionRegistration(Storage *storage, uint64_t transaction_id);
-
-  TransactionRegistration(TransactionRegistration &&other) noexcept;
-  TransactionRegistration &operator=(TransactionRegistration &&other) noexcept;
-
-  TransactionRegistration(const TransactionRegistration &) = delete;
-  TransactionRegistration &operator=(const TransactionRegistration &) = delete;
-
-  ~TransactionRegistration();
-
- private:
-  Storage *storage_;
-  uint64_t transaction_id_;
-  bool is_registered_;
-};
 
 class SharedAccessTimeout : public utils::BasicException {
  public:
@@ -218,7 +197,6 @@ class Storage {
   friend class ReplicationServer;
   friend class ReplicationStorageClient;
   friend class VectorIndex;
-  friend class TransactionRegistration;
 
  public:
   Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator,
@@ -703,7 +681,6 @@ class Storage {
     std::unique_lock<utils::ResourceLock> unique_guard_;  // TODO: Split the accessor into Shared/Unique
     /// IMPORTANT: transaction_ has to be constructed after the guards (so that destruction is in correct order)
     Transaction transaction_;
-    TransactionRegistration registration_;
     std::optional<uint64_t> commit_timestamp_;
     bool is_transaction_active_;
     StorageAccessType original_access_type_;
@@ -909,13 +886,6 @@ class Storage {
   auto get_database_protector_factory() const -> std::function<std::unique_ptr<DatabaseProtector>()> {
     return database_protector_factory_;
   }
-
- protected:
-  void RegisterTransaction(uint64_t transaction_id);
-  void UnregisterTransaction(uint64_t transaction_id);
-
- public:
-  TransactionDependencies transaction_dependencies_;
 };
 
 inline std::ostream &operator<<(std::ostream &os, StorageAccessType type) {
