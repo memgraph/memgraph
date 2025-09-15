@@ -310,7 +310,7 @@ struct EGraph {
    * Provides efficient access to stored e-nodes via their ENodeId.
    * Returns a const reference to avoid unnecessary copying.
    */
-  auto get_enode(ENodeId id) const -> const ENode<Symbol> &;
+  auto get_enode(ENodeId id) -> ENode<Symbol> &;
 
   /**
    * @brief Get e-node by ID with const reference access (unsafe version)
@@ -1001,9 +1001,16 @@ void EGraph<Symbol, Analysis>::repair_hashcons(EClass<Analysis> const &eclass, E
   // Update hash consing for all nodes in this e-class
   for (const auto &enode_id : eclass.nodes()) {
     // TODO: investigate, do make make new canonicalize enodes, if already canonical then we waste tempory allocations
-    auto [enode_ref, _] = intern_enode(get_enode(enode_id).canonicalize(union_find_));
-    // Update or insert canonical form
-    hashcons_.insert(enode_ref.value(), eclass_id);  // TODO: Do we remove enode?
+    auto &enode = get_enode(enode_id);
+
+    // Remove the old entry from hashcons
+    hashcons_.remove(enode);
+
+    // Canonicalize the enode in place
+    auto changed = enode.canonicalize_in_place(union_find_);
+
+    // Insert the canonicalized enode back into hashcons
+    hashcons_.insert(enode, eclass_id);
   }
 }
 
@@ -1058,7 +1065,7 @@ void EGraph<Symbol, Analysis>::process_class_parents_for_rebuild(EClass<Analysis
 // ========================================================================================
 
 template <typename Symbol, typename Analysis>
-auto EGraph<Symbol, Analysis>::get_enode(ENodeId id) const -> const ENode<Symbol> & {
+auto EGraph<Symbol, Analysis>::get_enode(ENodeId id) -> ENode<Symbol> & {
   auto it = enode_storage_.find(id);
   if (it == enode_storage_.end()) {
     throw std::runtime_error("ENodeId " + std::to_string(id) + " not found in storage");
