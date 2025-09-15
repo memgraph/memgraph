@@ -179,23 +179,41 @@ fi
 echo -e "${GREEN}Waiting for cluster to be ready...${NC}"
 kubectl wait --for=condition=ready node --all --timeout=300s
 
-# Load Docker images into minikube
-echo -e "${GREEN}Loading Docker images into minikube...${NC}"
 
-# Check if images exist using docker image inspect
-if docker image inspect "memgraph/memgraph:${LAST_TAG}" >/dev/null 2>&1; then
-  echo "Loading memgraph/memgraph:${LAST_TAG} into minikube..."
-  minikube image load "memgraph/memgraph:${LAST_TAG}"
-else
-  echo -e "${YELLOW}Warning: memgraph/memgraph:${LAST_TAG} not found locally, will be pulled during pod creation${NC}"
-fi
+minikube_has_image() {
+  local image="$1"
+  if minikube image ls | grep -q "${image}"; then
+    return 0
+  else
+    return 1
+  fi
+}
 
-if docker image inspect "memgraph/memgraph:${NEXT_TAG}" >/dev/null 2>&1; then
-  echo "Loading memgraph/memgraph:${NEXT_TAG} into minikube..."
-  minikube image load "memgraph/memgraph:${NEXT_TAG}"
-else
-  echo -e "${YELLOW}Warning: memgraph/memgraph:${NEXT_TAG} not found locally, will be pulled during pod creation${NC}"
-fi
+load_into_minikube_if_missing() {
+  local image="$1"
+
+  if minikube_has_image "${image}"; then
+    echo -e "${GREEN}Minikube already has ${image}${NC}"
+    return 0
+  fi
+
+  # Not in Minikube; try to load from local Docker
+  if docker image inspect "${image}" >/dev/null 2>&1; then
+    echo -e "${GREEN}Loading ${image} into Minikube...${NC}"
+    minikube image load "${image}"
+    if minikube_has_image "${image}"; then
+      echo "✅ Loaded ${image} into Minikube."
+    else
+      echo -e "${YELLOW}⚠️  Attempted to load ${image}, but it's not visible in Minikube yet.${NC}"
+    fi
+  else
+    echo -e "${YELLOW}⚠️  ${image} not found locally and not present in Minikube. It will be pulled when a Pod starts (or pre-pull manually).${NC}"
+  fi
+}
+
+echo -e "${GREEN}Ensuring images exist in Minikube...${NC}"
+load_into_minikube_if_missing "memgraph/memgraph:${LAST_TAG}"
+load_into_minikube_if_missing "memgraph/memgraph:${NEXT_TAG}"
 
 kubectl apply -f sc.yaml
 echo "Created $SC_NAME storage class"
