@@ -12,7 +12,10 @@
 #pragma once
 
 #include <unordered_map>
+#include <unordered_set>
 #include <vector>
+
+#include <boost/container/flat_set.hpp>
 
 #include "planner/core/eids.hpp"
 #include "planner/core/enode.hpp"
@@ -44,9 +47,9 @@ struct BaseProcessingContext {
   UnionFindContext union_find_context;
 };
 
-struct Bla {
-  std::vector<EClassId> parent_eclass_ids;
-  std::vector<ENodeId> parent_enode_ids;
+struct ParentCollection {
+  std::vector<EClassId> eclass_ids;
+  std::vector<ENodeId> enode_ids;
 };
 
 /**
@@ -79,7 +82,9 @@ struct ProcessingContext : BaseProcessingContext {
    * Used during rebuilding to group parents by their canonical form,
    * enabling efficient detection of congruent parents that should be merged.
    */
-  std::unordered_map<ENode<Symbol>, Bla> enode_to_parents;
+  std::unordered_map<ENode<Symbol>, ParentCollection> enode_to_parents;
+
+  boost::container::flat_set<EClassId> canonicalized_chunk;
 
   /**
    * @brief Reserve capacity for expected number of unique e-nodes

@@ -8,7 +8,6 @@ target_sources(mg-planner
     FILES
     include/planner/core/eclass.hpp
     include/planner/core/enode.hpp
-    include/planner/core/hashcons.hpp
     include/planner/core/union_find.hpp
     include/planner/core/egraph.hpp
     include/planner/core/fwd.hpp
@@ -18,7 +17,6 @@ target_sources(mg-planner
     src/core/eclass.cpp
     src/core/enode.cpp
     src/core/egraph.cpp
-    src/core/hashcons.cpp
     src/core/union_find.cpp
 )
 
