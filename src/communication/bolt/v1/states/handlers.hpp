@@ -522,17 +522,25 @@ State HandleRoute(TSession &session, const Marker marker) {
     return State::Close;
   }
 
-  // TODO: (andi) Fix Bolt versions
-  Value db;
-  if (!session.decoder_.ReadValue(&db)) {
-    spdlog::trace("Couldn't read db field!");
+  // >= 4.4
+  Value extra;
+  if (!session.decoder_.ReadValue(&extra, Value::Type::Map)) {
+    spdlog::trace("Couldn't read extras field!");
     return State::Close;
   }
 
+  auto const extra_map = extra.ValueMap();
+  auto const db_it = extra_map.find("db");
+
 #ifdef MG_ENTERPRISE
+  auto const db_str = std::invoke([&db_it, &extra_map]() -> std::optional<std::string> {
+    if (db_it == extra_map.end()) return std::nullopt;
+    return db_it->second.ValueString();
+  });
+
   try {
-    auto res = session.Route(routing.ValueMap(), bookmarks.ValueList(), {});
-    if (!session.encoder_.MessageSuccess(std::move(res))) {
+    if (auto res = session.Route(routing.ValueMap(), bookmarks.ValueList(), db_str, {});
+        !session.encoder_.MessageSuccess(std::move(res))) {
       spdlog::trace("Couldn't send result of routing!");
       return State::Close;
     }
