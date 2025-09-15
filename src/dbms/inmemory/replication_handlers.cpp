@@ -106,17 +106,12 @@ void MoveDurabilityFiles(std::vector<storage::durability::SnapshotDurabilityInfo
   RemoveDirIfEmpty(backup_wal_dir);
 }
 
-// Read durability files into optional arguments
-auto ReadDurabilityFiles(
-    std::optional<std::vector<storage::durability::SnapshotDurabilityInfo>> &maybe_old_snapshot_files,
-    std::filesystem::path const &current_snapshot_dir,
-    std::optional<std::vector<storage::durability::WalDurabilityInfo>> &maybe_old_wal_files,
-    std::filesystem::path const &current_wal_dir) -> bool {
-  auto wal_files = storage::durability::GetWalFiles(current_wal_dir);
-  maybe_old_wal_files.emplace(std::move(wal_files));
-  // Read all snapshot files
-  maybe_old_snapshot_files.emplace(storage::durability::GetSnapshotFiles(current_snapshot_dir));
-  return true;
+void ReadDurabilityFiles(std::vector<storage::durability::SnapshotDurabilityInfo> &old_snapshot_files,
+                         std::filesystem::path const &current_snapshot_dir,
+                         std::vector<storage::durability::WalDurabilityInfo> &old_wal_files,
+                         std::filesystem::path const &current_wal_dir) {
+  old_wal_files = storage::durability::GetWalFiles(current_wal_dir);
+  old_snapshot_files = storage::durability::GetSnapshotFiles(current_snapshot_dir);
 }
 
 struct BackupDirectories {
@@ -503,12 +498,11 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
   // Read durability files
   auto const curr_snapshot_files = storage::durability::GetSnapshotFiles(current_snapshot_dir);
   auto const curr_wal_files = storage::durability::GetWalFiles(current_wal_directory);
-  
+
   auto const &active_files = file_replication_handler.GetActiveFileNames();
   MG_ASSERT(active_files.size() == 1, "Received {} snapshot files but expecting only one!", active_files.size());
   auto const src_snapshot_file = active_files[0];
   auto const dst_snapshot_file = current_snapshot_dir / active_files[0].filename();
-
 
   if (!utils::RenamePath(src_snapshot_file, dst_snapshot_file)) {
     spdlog::error("Couldn't copy file from {} to {}", src_snapshot_file, dst_snapshot_file);
@@ -641,8 +635,8 @@ void InMemoryReplicationHandlers::WalFilesHandler(rpc::FileReplicationHandler co
   }
   auto const &[backup_snapshot_dir, backup_wal_dir] = *maybe_backup_dirs;
 
-  std::optional<std::vector<storage::durability::SnapshotDurabilityInfo>> maybe_old_snapshot_files;
-  std::optional<std::vector<storage::durability::WalDurabilityInfo>> maybe_old_wal_files;
+  std::vector<storage::durability::SnapshotDurabilityInfo> old_snapshot_files;
+  std::vector<storage::durability::WalDurabilityInfo> old_wal_files;
 
   if (req.reset_needed) {
     {
@@ -658,12 +652,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(rpc::FileReplicationHandler co
                     storage->name());
       storage->Clear();
     }
-    if (!ReadDurabilityFiles(maybe_old_snapshot_files, current_snapshot_dir, maybe_old_wal_files,
-                             current_wal_directory)) {
-      rpc::SendFinalResponse(storage::replication::WalFilesRes{std::nullopt, 0}, request_version, res_builder,
-                             fmt::format("db: {}", storage->name()));
-      return;
-    }
+    ReadDurabilityFiles(old_snapshot_files, current_snapshot_dir, old_wal_files, current_wal_directory);
   }
 
   const auto wal_file_number = req.file_number;
@@ -693,7 +682,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(rpc::FileReplicationHandler co
   rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
 
   if (req.reset_needed) {
-    MoveDurabilityFiles(*maybe_old_snapshot_files, backup_snapshot_dir, *maybe_old_wal_files, backup_wal_dir,
+    MoveDurabilityFiles(old_snapshot_files, backup_snapshot_dir, old_wal_files, backup_wal_dir,
                         &(storage->file_retainer_));
   }
 }
@@ -744,8 +733,8 @@ void InMemoryReplicationHandlers::CurrentWalHandler(rpc::FileReplicationHandler 
   }
   auto const &[backup_snapshot_dir, backup_wal_dir] = *maybe_backup_dirs;
 
-  std::optional<std::vector<storage::durability::SnapshotDurabilityInfo>> maybe_old_snapshot_files;
-  std::optional<std::vector<storage::durability::WalDurabilityInfo>> maybe_old_wal_files;
+  std::vector<storage::durability::SnapshotDurabilityInfo> old_snapshot_files;
+  std::vector<storage::durability::WalDurabilityInfo> old_wal_files;
 
   if (req.reset_needed) {
     {
@@ -759,12 +748,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(rpc::FileReplicationHandler 
                     storage->name());
       storage->Clear();
     }
-    if (!ReadDurabilityFiles(maybe_old_snapshot_files, current_snapshot_dir, maybe_old_wal_files,
-                             current_wal_directory)) {
-      rpc::SendFinalResponse(storage::replication::CurrentWalRes{}, request_version, res_builder,
-                             fmt::format("db: {}", storage->name()));
-      return;
-    }
+    ReadDurabilityFiles(old_snapshot_files, current_snapshot_dir, old_wal_files, current_wal_directory);
   }
 
   // Even if loading wal file failed, we return last_durable_timestamp to the main because it is not a fatal error
@@ -787,7 +771,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(rpc::FileReplicationHandler 
   rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
 
   if (req.reset_needed) {
-    MoveDurabilityFiles(*maybe_old_snapshot_files, backup_snapshot_dir, *maybe_old_wal_files, backup_wal_dir,
+    MoveDurabilityFiles(old_snapshot_files, backup_snapshot_dir, old_wal_files, backup_wal_dir,
                         &(storage->file_retainer_));
   }
 }
@@ -908,6 +892,8 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
         return storage::StorageAccessType::READ;
       case storage::durability::TransactionAccessType::READ_ONLY:
         return storage::StorageAccessType::READ_ONLY;
+      default:
+        throw std::runtime_error("Unrecognized access type!");
     }
   };
 
