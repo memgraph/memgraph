@@ -44,6 +44,11 @@ struct BaseProcessingContext {
   UnionFindContext union_find_context;
 };
 
+struct Bla {
+  std::vector<EClassId> parent_eclass_ids;
+  std::vector<ENodeId> parent_enode_ids;
+};
+
 /**
  * @brief External context for e-graph operations
  *
@@ -67,14 +72,14 @@ struct BaseProcessingContext {
  * are cleared but capacity is retained, avoiding repeated allocations.
  */
 template <typename Symbol>
-struct ProcessingContext : public BaseProcessingContext {
+struct ProcessingContext : BaseProcessingContext {
   /**
    * @brief Map from canonical e-nodes to their parent e-classes
    *
    * Used during rebuilding to group parents by their canonical form,
    * enabling efficient detection of congruent parents that should be merged.
    */
-  std::unordered_map<ENodeRef<Symbol>, std::vector<EClassId>> enode_to_parents;
+  std::unordered_map<ENode<Symbol>, Bla> enode_to_parents;
 
   /**
    * @brief Reserve capacity for expected number of unique e-nodes

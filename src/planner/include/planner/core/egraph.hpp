@@ -410,6 +410,8 @@ struct EGraph {
    * @complexity O(N log N) for full congruence closure
    */
   void rebuild(ProcessingContext<Symbol> &ctx);
+  // template <class>
+  // void repair_hashcons(EClassId eclass_id, const class &enode_id);
 
  protected:
   // Allow EGraphProxy access to protected members for union-find indirection
@@ -566,6 +568,22 @@ struct EGraph {
    */
   void repair_hashcons(EClass<Analysis> const &eclass, EClassId eclass_id);
 
+  void repair_hashcons(ENode<Symbol> &enode, EClassId eclass_id) {
+    // NOTE: the node maybe non-canonicalize, if so it will not be found
+    auto it = hashcons_.find(ENodeRef{enode});
+
+    // Canonicalize the enode in place
+    auto const changed = enode.canonicalize_in_place(union_find_);
+    if (changed) {
+      if (it != hashcons_.end()) {
+        hashcons_.erase(it);
+      }
+      hashcons_[ENodeRef{enode}] = eclass_id;
+    } else {
+      it->second = eclass_id;
+    }
+  }
+
   /**
    * @brief Process parents of an e-class during rebuilding
    *
@@ -573,42 +591,6 @@ struct EGraph {
    */
   void process_class_parents_for_rebuild(EClass<Analysis> const &eclass, ProcessingContext<Symbol> &ctx);
 };
-
-// template <typename Symbol, typename Analysis>
-// auto EGraph<Symbol, Analysis>::add(const ENode<Symbol> &node) -> EClassId {
-//   // Create canonicalized copy preserving the disambiguator
-//   auto canonical_node = node.canonicalize(union_find_);
-//
-//   // Use direct O(1) ENode lookup in hashcons for single-level mapping
-//   if (auto eclass_id = hashcons_.lookup(canonical_node)) {
-//     EClassId canonical_eclass_id = union_find_.Find(eclass_id.value());
-//     return canonical_eclass_id;
-//   }
-//
-//   // No existing equivalent node, create new e-class
-//   EClassId new_eclass_id = union_find_.MakeSet();
-//
-//   // Create new ENodeId for storage and reference
-//   auto [enode_ref, canonical_enode_id] = intern_enode(canonical_node);
-//   hashcons_.insert(enode_ref, new_eclass_id);
-//
-//   // Create new e-class with the ENodeId (copy from original emplace)
-//   auto eclass = std::make_unique<EClass<Analysis>>(canonical_enode_id);
-//   classes_.emplace(new_eclass_id, std::move(eclass));
-//
-//   // Increment total node count for O(1) num_nodes() performance
-//   ++total_node_count_;
-//
-//   // Update parent lists for children - ESSENTIAL for congruence closure
-//   for (EClassId child_id : enode_ref.value().children) {
-//     auto child_it = classes_.find(child_id);
-//     if (child_it != classes_.end()) {
-//       child_it->second->add_parent(canonical_enode_id, new_eclass_id);
-//     }
-//   }
-//
-//   return new_eclass_id;
-// }
 
 template <typename Symbol, typename Analysis>
 auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, uint64_t disambiguator) -> EClassId {
@@ -824,19 +806,7 @@ void EGraph<Symbol, Analysis>::repair_hashcons(EClass<Analysis> const &eclass, E
   for (const auto &enode_id : eclass.nodes()) {
     // TODO: investigate, do make make new canonicalize enodes, if already canonical then we waste tempory allocations
     auto &enode = get_enode(enode_id);
-    // NOTE: the node maybe non-canonicalize, if so it will not be found
-    auto it = hashcons_.find(ENodeRef{enode});
-
-    // Canonicalize the enode in place
-    auto const changed = enode.canonicalize_in_place(union_find_);
-    if (changed) {
-      if (it != hashcons_.end()) {
-        hashcons_.erase(it);
-      }
-      hashcons_[ENodeRef{enode}] = eclass_id;
-    } else {
-      it->second = eclass_id;
-    }
+    repair_hashcons(enode, eclass_id);
   }
 }
 
@@ -850,20 +820,22 @@ void EGraph<Symbol, Analysis>::process_class_parents_for_rebuild(EClass<Analysis
 
   // Group by canonical child being used by a parent + intern new connonical parent
   for (const auto &[parent_enode_id, parent_class_id] : eclass.parents()) {
-    EClassId canonical_parent = union_find_.Find(parent_class_id);
-    auto [canonical_enode_ref, _] = intern_enode(get_enode(parent_enode_id).canonicalize(union_find_));
-    canonical_to_parents[canonical_enode_ref].push_back(canonical_parent);
+    EClassId canonical_parent_class = union_find_.Find(parent_class_id);
+    auto &canonical_to_parent = canonical_to_parents[get_enode(parent_enode_id).canonicalize(union_find_)];
+    canonical_to_parent.parent_eclass_ids.push_back(canonical_parent_class);
+    canonical_to_parent.parent_enode_ids.push_back(parent_class_id);
   }
 
   // Merge congruent parents using bulk operations for optimal performance
-  for (auto &[canonical_enode_ref, parent_ids] : canonical_to_parents) {
+  for (auto &[canonical_enode, bla] : canonical_to_parents) {
+    auto &[eclass_ids, enode_ids] = bla;
     // deduplicate parent_ids
-    std::sort(parent_ids.begin(), parent_ids.end());
-    parent_ids.erase(std::unique(parent_ids.begin(), parent_ids.end()), parent_ids.end());
-    if (parent_ids.size() > 1) {
+    std::sort(eclass_ids.begin(), eclass_ids.end());
+    eclass_ids.erase(std::unique(eclass_ids.begin(), eclass_ids.end()), eclass_ids.end());
+    if (eclass_ids.size() > 1) {
       // TODO: can we cheaply detect that UnionSet did anything?
       //       if it did nothing we can skip the reset of parent rebuilding
-      EClassId merged_root = union_find_.UnionSets(parent_ids, ctx.union_find_context);
+      EClassId merged_root = union_find_.UnionSets(eclass_ids, ctx.union_find_context);
       rebuild_worklist_.insert(merged_root);
 
       auto merged_it = classes_.find(merged_root);
@@ -873,15 +845,18 @@ void EGraph<Symbol, Analysis>::process_class_parents_for_rebuild(EClass<Analysis
       EClass<Analysis> &merged_eclass = *merged_it->second;
 
       // Merge e-class contents for all merged classes
-      for (EClassId parent_id : parent_ids) {
+      for (EClassId parent_id : eclass_ids) {
         if (parent_id != merged_root) {
           merge_eclasses(merged_eclass, parent_id);
         }
       }
       // hashcons update can be defered to the next rebuild iteration because we inserted into the rebuild worklist
-    } else if (parent_ids.size() == 1) {
-      // Single parent case - update hashcons directly since no merging is needed
-      hashcons_[canonical_enode_ref] = parent_ids[0];
+    } else if (eclass_ids.size() == 1) {
+      // NOTE: we can NOT add to rebuild_worklist_, we must avoid infinate processing bugs (where parent is yourself)
+      for (auto enode_id : enode_ids) {
+        auto &enode = get_enode(enode_id);
+        repair_hashcons(enode, eclass_ids[0]);
+      }
     }
   }
 }
