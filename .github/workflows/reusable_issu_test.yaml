@@ -1,0 +1,103 @@
+name: Reusable ISSU Test 
+
+on:
+  workflow_call:
+    inputs:
+      last_image:
+        description: 'The last/previous Docker image (full repo:tag)'
+        required: true
+        type: string
+      next_image:
+        description: 'The next/new Docker image (full repo:tag)'
+        required: true
+        type: string
+      arch:
+        description: 'Image architecture (amd/arm)'
+        required: false
+        type: string
+        default: 'amd'
+
+env:
+  MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+  MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+
+jobs:
+  test:
+    name: ISSU Test
+    runs-on: ${{ inputs.arch == 'arm' && fromJSON('["self-hosted", "ARM64", "Kubernetes"]') || fromJSON('["self-hosted", "X64", "Kubernetes"]') }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+
+      - name: Log in to Docker Hub
+        uses: ./.github/actions/docker-login
+        with:
+          username: ${{ secrets.DOCKERHUB_USERNAME }}
+          password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+
+      - name: Determine Input Types
+        run: |
+          read next_type next_image < <(python3 tools/issu_image_type.py "${{ inputs.next_image }}")
+          echo "NEXT_IMAGE=${next_image}" >> $GITHUB_ENV
+          echo "NEXT_TYPE=${next_type}" >> $GITHUB_ENV
+          read last_type last_image < <(python3 tools/issu_image_type.py "${{ inputs.last_image }}")
+          echo "LAST_IMAGE=${last_image}" >> $GITHUB_ENV
+          echo "LAST_TYPE=${last_type}" >> $GITHUB_ENV
+
+      - name: Load Next Image (Docker)
+        if: ${{ env.NEXT_TYPE == 'docker' }}
+        run: |
+          docker pull "$NEXT_IMAGE"
+          echo "MEMGRAPH_NEXT_DOCKERHUB_IMAGE=${{ env.NEXT_IMAGE }}" >> $GITHUB_ENV
+  
+      - name: Load Next Image (URL)
+        if: ${{ env.NEXT_TYPE == 'url' }}
+        run: |
+          curl -L ${{ env.NEXT_IMAGE }} > next.tar.gz
+          load_output=$(docker load -i next.tar.gz)
+
+          # grab each repo:tag, drop the ":latest" one, pick the first real tag
+          repo_tag=$(echo "$load_output" \
+            | awk -F': ' '/Loaded image:/ {print $2}' \
+            | grep -v ':latest$' \
+            | head -n1)
+
+          echo "MEMGRAPH_NEXT_DOCKERHUB_IMAGE=${repo_tag}" >> $GITHUB_ENV
+
+      - name: Load Last Image (Docker)
+        if: ${{ env.LAST_TYPE == 'docker' }}
+        run: |
+          docker pull "$LAST_IMAGE"
+          echo "MEMGRAPH_LAST_DOCKERHUB_IMAGE=${{ env.LAST_IMAGE }}" >> $GITHUB_ENV
+
+      - name: Load Last Image (URL)
+        if: ${{ env.LAST_TYPE == 'url' }}
+        run: |
+          curl -L ${{ env.LAST_IMAGE }} > last.tar.gz
+          load_output=$(docker load -i last.tar.gz)
+          
+          # grab each repo:tag, drop the ":latest" one, pick the first real tag
+          repo_tag=$(echo "$load_output" \
+            | awk -F': ' '/Loaded image:/ {print $2}' \
+            | grep -v ':latest$' \
+            | head -n1)
+
+          echo "MEMGRAPH_LAST_DOCKERHUB_IMAGE=${repo_tag}" >> $GITHUB_ENV
+
+      - name: Get Image Tags
+        run: |
+          LAST_TAG=${MEMGRAPH_LAST_DOCKERHUB_IMAGE##*:}
+          echo "MEMGRAPH_LAST_TAG=${LAST_TAG}" >> $GITHUB_ENV
+
+          NEXT_TAG=${MEMGRAPH_NEXT_DOCKERHUB_IMAGE##*:}
+          echo "MEMGRAPH_NEXT_TAG=${NEXT_TAG}" >> $GITHUB_ENV
+
+      - name: Run ISSU Test
+        run: |
+          cd tests/issu
+          ./test_upgrade.sh ${{ env.MEMGRAPH_LAST_TAG }} ${{ env.MEMGRAPH_NEXT_TAG }} --test-routing=false --debug=false
+
+      - name: Clean up Docker
+        run: |
+          ./tools/docker_cleanup.sh
