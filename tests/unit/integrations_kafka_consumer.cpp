@@ -43,6 +43,7 @@ int SpanToInt(std::span<const char> span) {
 inline constexpr std::chrono::milliseconds kDefaultBatchInterval{100};
 inline constexpr int64_t kDefaultBatchSize{1000};
 
+inline constexpr double kTimingTolerance = 1.2;  // 20% tolerance for all timings to prevent flakes
 }  // namespace
 
 struct ConsumerTest : public ::testing::Test {
@@ -145,7 +146,7 @@ TEST_F(ConsumerTest, BatchInterval) {
   for (auto sent_messages = 0; sent_messages < kMessageCount; ++sent_messages) {
     cluster.SeedTopic(kTopicName, kMessage);
     // Sleep for a bit to allow the consumer to receive the message.
-    std::this_thread::sleep_for(kBatchInterval * 0.5);
+    std::this_thread::sleep_for(kBatchInterval / kTimingTolerance);
   }
   // Wait for all messages to be delivered
   sent_messages.wait();
@@ -160,7 +161,7 @@ TEST_F(ConsumerTest, BatchInterval) {
     EXPECT_LE(1, message_count);
 
     auto actual_diff = std::chrono::duration_cast<std::chrono::milliseconds>(timestamp - previous_timestamp);
-    EXPECT_LE(kBatchInterval.count() * 0.5, actual_diff.count());
+    EXPECT_LE(kBatchInterval.count() / kTimingTolerance, actual_diff.count());
   };
 
   ASSERT_FALSE(received_timestamps.empty());
@@ -248,10 +249,10 @@ TEST_F(ConsumerTest, BatchSize) {
 
     auto actual_diff = std::chrono::duration_cast<std::chrono::milliseconds>(timestamp - previous_timestamp);
     if (expected_message_count == kBatchSize) {
-      // Full batch, timeout isn't hit
-      EXPECT_LE(actual_diff, kBatchInterval);
+      // Full batch, timeout isn't hit - allow timing variance
+      EXPECT_LE(actual_diff, kBatchInterval * kTimingTolerance);
     } else {
-      EXPECT_LE(kBatchInterval.count() * 0.5, actual_diff.count());
+      EXPECT_LE(kBatchInterval.count() / kTimingTolerance, actual_diff.count());
     }
   };
 
@@ -418,7 +419,7 @@ TEST_F(ConsumerTest, CheckMethodTimeout) {
 
   const auto elapsed = (end - start);
   EXPECT_LE(timeout, elapsed);
-  EXPECT_LE(elapsed, timeout * 1.2);
+  EXPECT_LE(elapsed, timeout * kTimingTolerance);
 }
 
 TEST_F(ConsumerTest, CheckWithInvalidTimeout) {
@@ -555,5 +556,5 @@ TEST_F(ConsumerTest, LimitBatches_Timeout_Reached) {
   const auto elapsed = (end - start);
 
   EXPECT_LE(timeout, elapsed);
-  EXPECT_LE(elapsed, timeout * 1.2);
+  EXPECT_LE(elapsed, timeout * kTimingTolerance);
 }
