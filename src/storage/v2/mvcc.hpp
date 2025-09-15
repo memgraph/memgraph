@@ -17,7 +17,6 @@
 
 #include "storage/v2/transaction.hpp"
 #include "storage/v2/transaction_constants.hpp"
-#include "storage/v2/transaction_dependencies.hpp"
 #include "storage/v2/view.hpp"
 #include "utils/string.hpp"
 
@@ -109,71 +108,44 @@ inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
     return true;
   }
 
-  // If head delta is interleaved from another transaction, this is a serialization error
-  if (IsOperationInterleaved(*object->delta)) {
-    transaction->has_serialization_error = true;
-    return false;
-  }
-
-  // If head delta is interleaved from another transaction, this is a serialization error
-  if (IsOperationInterleaved(*object->delta)) {
-    transaction->has_serialization_error = true;
-    return false;
-  }
-
   transaction->has_serialization_error = true;
   return false;
 }
 
 enum class WriteResult { SUCCESS, COMMUTATIVE, CONFLICT };
 
-struct WritePreparationResult {
-  WriteResult result;
-  std::optional<uint64_t> wait_for_transaction_id;
-};
-
 template <typename TObj>
-inline WritePreparationResult PrepareForCommutativeWrite(Transaction *transaction, TObj *object, Delta::Action action,
-                                                         TransactionDependencies *transaction_dependencies) {
+inline WriteResult PrepareForCommutativeWrite(Transaction *transaction, TObj *object, Delta::Action action) {
   DMG_ASSERT(IsActionCommutative(action));
 
-  if (object->delta == nullptr) {
-    return {WriteResult::SUCCESS, {}};
-  }
+  if (object->delta == nullptr) return WriteResult::SUCCESS;
 
   auto ts = object->delta->timestamp->load(std::memory_order_acquire);
-  // If the head delta was created by this transaction, we need to check if
-  // it is commutative. If so, the new head must also be flagged as
-  // commutative; otherwise, we can prepend a normal uncommutative delta.
   if (ts == transaction->transaction_id) {
+    // If the head delta belongs to the same transaction and is interleaved,
+    // then only another commutative action delta can be prepended.
     if (IsOperationInterleaved(*object->delta)) {
-      return {WriteResult::COMMUTATIVE, {}};
+      return WriteResult::COMMUTATIVE;
     }
-    return {WriteResult::SUCCESS, {}};
+    // Head delta from same transaction is not interleaved - allow any new delta
+    return WriteResult::SUCCESS;
   }
 
-  // If the head delta was committed before this transaction starts, we can
-  // prepend the delta as normal.
+  // Standard MVCC visibility rules: if the head delta was committed before
+  // this transaction started, any delta action can be prepended.
   if (ts < transaction->start_timestamp) {
-    return {WriteResult::SUCCESS, {}};
+    return WriteResult::SUCCESS;
   }
 
-  // So at this point, we know the head delta is either:
-  // - uncommitted by another (presumably active) transaction
-  // - committed after our transaction started
-
-  // uncommitted by transaction `ts`
-  if (ts >= kTransactionInitialId) {
-    return {WriteResult::CONFLICT, ts};
-  } else {
-    // If the head delta is a committed commutative delta from another
-    // transaction, we can proceed as commutative.
-    if (IsResultOfCommutativeOperation(object->delta->action)) {
-      return {WriteResult::COMMUTATIVE, {}};
-    } else {
-      return {WriteResult::CONFLICT, {}};
-    }
+  // If the head delta resulted from a commutative operation from another
+  // (as yet uncommited) transaction, we can prepend an interleaved delta.
+  if (IsResultOfCommutativeOperation(object->delta->action)) {
+    return WriteResult::COMMUTATIVE;
   }
+
+  // Standard MVCC serialization conflict.
+  transaction->must_abort = true;
+  return WriteResult::CONFLICT;
 }
 
 /// This function creates a `DELETE_OBJECT` delta in the transaction and returns
