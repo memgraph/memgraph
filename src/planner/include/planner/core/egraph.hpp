@@ -48,24 +48,15 @@ template <typename Symbol, typename Analysis>
 struct EGraph {
   EGraph() : EGraph(256 /*an ok default capacity*/) {}
 
-  // TODO: do we need to construct with capacity in production?
   explicit EGraph(size_t capacity) {
     classes_.reserve(capacity);
     hashcons_.reserve(capacity);
   }
+
   EGraph(const EGraph &other);
   EGraph(EGraph &&) noexcept = default;
   auto operator=(const EGraph &other) -> EGraph &;
   auto operator=(EGraph &&) -> EGraph & = default;
-
-  /**
-   * @brief Add an expression to the e-graph
-   *
-   * Adds the given e-node to the e-graph using hash consing to avoid
-   * duplicates. If an equivalent canonical e-node already exists, returns
-   * its e-class ID. Otherwise creates a new e-class and updates parent tracking.
-   */
-  // auto add(const ENode<Symbol> &node) -> EClassId;
 
   /**
    * @brief Emplace an e-node directly with canonical children
@@ -113,13 +104,6 @@ struct EGraph {
    * over memory allocation.
    */
   auto merge(EClassId a, EClassId b) -> EClassId;
-
-  void merge_eclasses(EClass<Analysis> &destination, EClassId other_id) {
-    if (auto parent_it = classes_.find(other_id); parent_it != classes_.end()) {
-      destination.merge_with(std::move(*parent_it->second));
-      classes_.erase(parent_it);
-    }
-  }
 
   /**
    * @brief Get e-class by canonical ID (const access)
@@ -215,101 +199,6 @@ struct EGraph {
   auto union_find() const -> const UnionFind & { return union_find_; }
   auto union_find() -> UnionFind & { return union_find_; }
 
-  // === Incremental Tracking API ===
-
-  /**
-   * @brief Get access to the incremental tracking system
-   *
-   * Provides access to the incremental tracker for checkpoint management
-   * and querying new e-classes since checkpoints.
-   */
-  //  auto incremental_tracker() -> IncrementalTracker & { return incremental_tracker_; }
-
-  /**
-   * @brief Get const access to the incremental tracking system
-   *
-   * Provides read-only access to the incremental tracker for querying
-   * new e-classes without modifying the tracker state.
-   */
-  //  auto incremental_tracker() const -> const IncrementalTracker & { return incremental_tracker_; }
-
-  /**
-   * @brief Enable incremental tracking
-   *
-   * Activates incremental tracking to efficiently track new e-classes
-   * since checkpoints. Much more efficient than detailed change logging.
-   */
-  //  void enable_incremental_tracking() { incremental_tracker().enable(next_class_id()); }
-
-  /**
-   * @brief Disable incremental tracking
-   *
-   * Stops incremental tracking to improve performance when not needed.
-   */
-  //  void disable_incremental_tracking() { incremental_tracker().disable(); }
-
-  /**
-   * @brief Check if incremental tracking is enabled
-   */
-  //  auto is_incremental_tracking_enabled() const -> bool { return incremental_tracker().is_enabled(); }
-
-  /**
-   * @brief Create a checkpoint for incremental tracking
-   *
-   * Creates a checkpoint that can be used to query what e-classes
-   * have been created since this point.
-   */
-  //  auto create_checkpoint() -> size_t { return incremental_tracker().checkpoint(next_class_id()); }
-
-  /**
-   * @brief Check if an e-class is new since a checkpoint
-   */
-  //  auto is_new_since_checkpoint(EClassId id, size_t checkpoint_idx) const -> bool {
-  //    return incremental_tracker().is_new_since_checkpoint(id, checkpoint_idx);
-  //  }
-
-  /**
-   * @brief Clear incremental tracking history
-   *
-   * Removes all checkpoint history to free memory.
-   */
-  //  void clear_incremental_history() { incremental_tracker().clear_history(); }
-
-  /**
-   * @brief Get new e-classes since checkpoint as range pair
-   *
-   * Returns the range of e-class IDs created since a checkpoint.
-   * Used by tests for direct range checking.
-   */
-  //  auto new_since_checkpoint(size_t checkpoint_idx) const -> std::pair<EClassId, EClassId> {
-  //    return incremental_tracker().get_new_since_checkpoint(checkpoint_idx, next_class_id());
-  //  }
-
-  /**
-   * @brief Get incremental tracking statistics
-   */
-  //  auto incremental_stats() const -> std::string { return incremental_tracker().stats(); }
-
-  /**
-   * @brief Get number of checkpoints created
-   */
-  //  auto checkpoint_count() const -> size_t { return incremental_tracker().num_checkpoints(); }
-
-  /**
-   * @brief Get the next e-class ID that will be generated
-   *
-   * Returns the ID that will be assigned to the next e-class created.
-   * This value is monotonic - it never decreases, even after merge
-   * operations reduce the number of distinct e-classes.
-   * For an empty graph, returns 0 (the first ID that will be assigned).
-   */
-  auto next_class_id() const -> EClassId {
-    // Union-find generates IDs sequentially starting from 0
-    // The next ID is simply the total number of IDs created so far
-    // This is monotonic - it never decreases even after merges
-    return union_find_.Size();
-  }
-
   // ========================================================================================
   // ENodeId API - Lightweight ENode Storage and Management
   // ========================================================================================
@@ -323,50 +212,9 @@ struct EGraph {
   auto get_enode(ENodeId id) -> ENode<Symbol> &;
 
   /**
-   * @brief Get e-node by ID with const reference access (unsafe version)
-   *
-   * Legacy method that provides direct access without optional wrapping.
-   * Only use when you're certain the ENodeId is valid.
-   */
-  auto get_enode_unsafe(ENodeId id) const -> const ENode<Symbol> & { return *enode_storage_.find(id)->second; }
-
-  /**
-   * @brief Get e-class by canonical ID (const access, unsafe version)
-   *
-   * Legacy method that provides direct access without optional wrapping.
-   * Only use when you're certain the e-class ID is valid and canonical.
-   */
-  auto eclass_unsafe(EClassId id) const -> const EClass<Analysis> & { return *classes_.find(id)->second; }
-
-  /**
-   * @brief Get e-class by canonical ID (mutable access, unsafe version)
-   *
-   * Legacy method that provides direct access without optional wrapping.
-   * Only use when you're certain the e-class ID is valid and canonical.
-   */
-  auto eclass_unsafe(EClassId id) -> EClass<Analysis> & { return *classes_.find(id)->second; }
-
-  /**
-   * @brief Store a new e-node and return its ENodeId
-   *
-   * Creates a new ENodeId for the given e-node and stores it in the e-graph.
-   * This is the primary method for creating new e-nodes with ENodeId ownership.
-   */
-  auto intern_enode(ENode<Symbol> enode) -> ENodeRef<Symbol>;
-
-  /**
    * @brief Get total number of stored e-nodes
    */
   auto num_enodes() const -> size_t { return enode_storage_.size(); }
-
-  /**
-   * @brief Get the next ENodeId that will be assigned
-   *
-   * Returns the ENodeId that will be assigned to the next e-node created.
-   * This value is monotonic - it never decreases and provides an efficient
-   * checkpoint mechanism for tracking freshness.
-   */
-  auto next_enode_id() const -> ENodeId { return enode_storage_.size(); }
 
   // ========================================================================
   // Rebuilding Algorithm (egg paper optimization)
@@ -420,8 +268,6 @@ struct EGraph {
    * @complexity O(N log N) for full congruence closure
    */
   void rebuild(ProcessingContext<Symbol> &ctx);
-  // template <class>
-  // void repair_hashcons(EClassId eclass_id, const class &enode_id);
 
  protected:
   // Allow EGraphProxy access to protected members for union-find indirection
@@ -470,7 +316,7 @@ struct EGraph {
    * This provides the foundational ownership model where EGraph controls
    * all ENode lifetimes, similar to how it controls EClass lifetimes.
    */
-  std::deque<std::unique_ptr<ENode<Symbol>>> enode_storage_;
+  std::deque<ENode<Symbol>> enode_storage_;
 
   // ========================================================================
   // Rebuilding Algorithm Infrastructure (egg paper optimization)
@@ -537,6 +383,21 @@ struct EGraph {
    * Optimized version for rebuild that avoids recursive calls.
    */
   void process_class_parents_for_rebuild(EClass<Analysis> const &eclass, ProcessingContext<Symbol> &ctx);
+
+  void merge_eclasses(EClass<Analysis> &destination, EClassId other_id) {
+    if (auto it = classes_.find(other_id); it != classes_.end()) {
+      destination.merge_with(std::move(*it->second));
+      classes_.erase(it);
+    }
+  }
+
+  /**
+   * @brief Store a new e-node and return its ENodeId
+   *
+   * Creates a new ENodeId for the given e-node and stores it in the e-graph.
+   * This is the primary method for creating new e-nodes with ENodeId ownership.
+   */
+  auto intern_enode(ENode<Symbol> enode) -> ENodeRef<Symbol>;
 };
 
 template <typename Symbol, typename Analysis>
@@ -646,12 +507,6 @@ template <typename Symbol, typename Analysis>
 auto EGraph<Symbol, Analysis>::eclass(EClassId id) const -> const EClass<Analysis> & {
   // Use ConstAccess proxy for path compression optimization
   EClassId canonical_id = union_find_.Find(id);
-
-  // Ensure invariants are maintained in deferred mode
-  //  if (needs_rebuild()) {
-  //    core::ProcessingContext<Symbol> ctx;
-  //    const_cast<EGraph *>(this)->rebuild(ctx);
-  //  }
 
   auto it = classes_.find(canonical_id);
   if (it == classes_.end()) {
@@ -811,12 +666,12 @@ void EGraph<Symbol, Analysis>::process_class_parents_for_rebuild(EClass<Analysis
 template <typename Symbol, typename Analysis>
 auto EGraph<Symbol, Analysis>::get_enode(ENodeId id) -> ENode<Symbol> & {
   assert(id < enode_storage_.size());
-  return *enode_storage_[id];
+  return enode_storage_[id];
 }
 
 template <typename Symbol, typename Analysis>
 auto EGraph<Symbol, Analysis>::intern_enode(ENode<Symbol> enode) -> ENodeRef<Symbol> {
-  return ENodeRef{*enode_storage_.emplace_back(std::make_unique<ENode<Symbol>>(std::move(enode)))};
+  return ENodeRef{enode_storage_.emplace_back(std::move(enode))};
 }
 
 // EGraph copy constructor and assignment operator implementations
@@ -825,9 +680,7 @@ EGraph<Symbol, Analysis>::EGraph(const EGraph &other)
     : union_find_(other.union_find_), rebuild_worklist_(other.rebuild_worklist_) {
   // Copy all e-nodes first
   enode_storage_.reserve(other.enode_storage_.size());
-  for (const auto &[id, enode_ptr] : other.enode_storage_) {
-    enode_storage_[id] = std::make_unique<ENode<Symbol>>(*enode_ptr);
-  }
+  enode_storage_ = other.enode_storage_;
 
   // Copy all e-classes
   classes_.reserve(other.classes_.size());
@@ -852,9 +705,7 @@ auto EGraph<Symbol, Analysis>::operator=(const EGraph &other) -> EGraph & {
 
   // Copy all e-nodes first
   enode_storage_.reserve(other.enode_storage_.size());
-  for (const auto &[id, enode_ptr] : other.enode_storage_) {
-    enode_storage_[id] = std::make_unique<ENode<Symbol>>(*enode_ptr);
-  }
+  enode_storage_ = other.enode_storage_;
 
   // Copy all e-classes
   classes_.reserve(other.classes_.size());
