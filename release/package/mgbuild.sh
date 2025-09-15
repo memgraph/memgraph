@@ -843,6 +843,10 @@ test_memgraph() {
       docker cp $build_container:$test_output_path $test_output_host_dest
     ;;
     stress-plain)
+      echo "Packages installed in ve3: $(hostname)"
+      echo "-------------------------"
+      docker exec -u mg $build_container bash -c "cd $MGBUILD_ROOT_DIR/tests/stress && source ve3/bin/activate && uv pip list"
+      echo "-------------------------"
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source ve3/bin/activate "'&& ./continuous_integration'
       # TODO: Add when mgconsole is available on CI
       # docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source ve3/bin/activate "'&& ./continuous_integration --config-file=configurations/templates/config_ha.yaml'
