@@ -325,4 +325,38 @@ TEST(EGraphCongruenceClosureBug, MissingHashconsUpdateForSingleParent) {
   EXPECT_EQ(egraph.num_classes(), 2);  // (a≡b), F(a≡b)
 }
 
+TEST(EGraphCongruenceClosureBug, MissingHashconsUpdateForMultipleParents) {
+  /*
+  --- Operation #1 ---
+Op: CREATE_CONGRUENT (raw: 49)
+
+--- Operation #2 ---
+Op: REBUILD (raw: 68)
+
+--- Operation #3 ---
+Op: MERGE_CLASSES (raw: 197)
+Merging class 0 with 2
+*/
+
+  EGraph<TestSymbol, NoAnalysis> egraph;
+  ProcessingContext<TestSymbol> ctx;
+
+  auto a = egraph.emplace(TestSymbol::A);
+  auto b = egraph.emplace(TestSymbol::B);
+
+  auto f_a = egraph.emplace(TestSymbol::F, utils::small_vector<EClassId>{a});
+  auto f_b = egraph.emplace(TestSymbol::F, utils::small_vector<EClassId>{b});
+
+  EXPECT_EQ(egraph.num_classes(), 4);  // a, b, F(a), F(b)
+
+  egraph.merge(a, b);  // Now a≡b
+  egraph.rebuild(ctx);
+  EXPECT_EQ(egraph.num_classes(), 2);  // a≡b, F(a≡b)
+
+  egraph.merge(a, f_a);
+  egraph.rebuild(ctx);
+
+  EXPECT_EQ(egraph.num_classes(), 1);
+  EXPECT_EQ(egraph.find(f_a), egraph.find(a));
+}
 }  // namespace memgraph::planner::core
