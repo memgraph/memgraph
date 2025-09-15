@@ -5,6 +5,37 @@ args: &args
   - "300"
   - "--storage-wal-enabled=True"
 
+snap_args: &snap_args
+  - "--log-level=TRACE"
+  - "--storage-properties-on-edges=True"
+  - "--storage-snapshot-interval-sec=300"
+  - "--storage-snapshot-interval=100"
+  - "--storage-wal-enabled=true"
+
+
+snap_cluster: &snap_cluster
+  cluster:
+    main:
+      args: *snap_args
+      log_file: "configuration-check-e2e.log"
+      setup_queries: []
+      validation_queries: []
+
+
+snap_args_wal_enabled: &snap_args_wal_enabled
+  - "--log-level=TRACE"
+  - "--storage-properties-on-edges=True"
+  - "--storage-wal-enabled=true"
+
+
+snap_cluster_wal_enabled: &snap_cluster_wal_enabled
+  cluster:
+    main:
+      args: *snap_args_wal_enabled
+      log_file: "configuration-check-e2e.log"
+      setup_queries: []
+      validation_queries: []
+
 in_memory_cluster: &in_memory_cluster
   cluster:
     main:
@@ -22,6 +53,16 @@ disk_cluster: &disk_cluster
       validation_queries: []
 
 workloads:
+  - name: "Check WAL enabled"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["configuration/wal_enabled.py"]
+    <<: *snap_cluster_wal_enabled
+
+  - name: "Snapshot args check"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["configuration/snapshot_args.py"]
+    <<: *snap_cluster
+
   - name: "Configuration check"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["configuration/configuration_check.py"]
