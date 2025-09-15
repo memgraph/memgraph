@@ -503,7 +503,34 @@ State HandleGoodbye() {
   throw SessionClosedException("Closing connection.");
 }
 
-template <typename TSession>
+template <typename TSession, int bolt_major, int bolt_minor = 0>
+auto ReadDB(TSession &session) -> std::optional<std::string> {
+  if constexpr (bolt_major == 5) {
+    Value extra;
+    if (!session.decoder_.ReadValue(&extra, Value::Type::Map)) {
+      spdlog::trace("Couldn't read extra field!");
+      return std::nullopt;
+    }
+    auto const extra_map = extra.ValueMap();
+    auto const db_it = extra_map.find("db");
+    if (db_it == extra_map.end()) {
+      spdlog::trace("Couldn't read db field inside extra!");
+      return std::nullopt;
+    }
+    return db_it->second.ValueString();
+  }
+  if constexpr (bolt_major == 4 && bolt_minor == 3) {
+    Value val_db;
+    if (!session.decoder_.ReadValue(&val_db)) {
+      spdlog::trace("Couldn't read db field!");
+      return std::nullopt;
+    }
+    return val_db.ValueString();
+  }
+  return std::nullopt;
+}
+
+template <typename TSession, int bolt_major, int bolt_minor = 0>
 State HandleRoute(TSession &session, const Marker marker) {
   spdlog::trace("Received ROUTE message");
   if (marker != Marker::TinyStruct3) {
@@ -522,24 +549,10 @@ State HandleRoute(TSession &session, const Marker marker) {
     return State::Close;
   }
 
-  // >= 4.4
-  Value extra;
-  if (!session.decoder_.ReadValue(&extra, Value::Type::Map)) {
-    spdlog::trace("Couldn't read 'extra' field!");
-    return State::Close;
-  }
-
-  auto const extra_map = extra.ValueMap();
-  auto const db_it = extra_map.find("db");
-
 #ifdef MG_ENTERPRISE
-  auto const db_str = std::invoke([&db_it, &extra_map]() -> std::optional<std::string> {
-    if (db_it == extra_map.end()) return std::nullopt;
-    return db_it->second.ValueString();
-  });
-
   try {
-    if (auto res = session.Route(routing.ValueMap(), bookmarks.ValueList(), db_str, {});
+    auto const db = ReadDB<TSession, bolt_major, bolt_minor>(session);
+    if (auto res = session.Route(routing.ValueMap(), bookmarks.ValueList(), db, {});
         !session.encoder_.MessageSuccess(std::move(res))) {
       spdlog::trace("Couldn't send result of routing!");
       return State::Close;
