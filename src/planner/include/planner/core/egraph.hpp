@@ -484,15 +484,6 @@ struct EGraph {
   boost::unordered_flat_map<ENodeId, std::unique_ptr<ENode<Symbol>>> enode_storage_;
 
   /**
-   * @brief Reverse lookup from ENode content to ENodeId for deduplication
-   *
-   * This map enables intern_enode to check if an equivalent ENode already exists
-   * before creating a new ENodeId. Essential for preventing duplicate ENodes
-   * during canonicalization and congruence closure operations.
-   */
-  boost::unordered_flat_map<ENodeRef<Symbol>, ENodeId> enode_to_id_;
-
-  /**
    * @brief Generator for unique e-node IDs
    *
    * Ensures each new e-node gets a unique identifier for use in storage
@@ -779,7 +770,6 @@ void EGraph<Symbol, Analysis>::clear() {
   classes_.clear();
   hashcons_.clear();
   enode_storage_.clear();     // Clear ENode storage
-  enode_to_id_.clear();       // Clear ENode deduplication map
   next_enode_id_ = 0;         // Reset ENodeId counter
   total_node_count_ = 0;      // Reset node count to maintain invariant
   rebuild_worklist_.clear();  // Clear rebuild worklist
@@ -836,21 +826,14 @@ void EGraph<Symbol, Analysis>::repair_hashcons(EClass<Analysis> const &eclass, E
     auto &enode = get_enode(enode_id);
     // NOTE: the node maybe non-canonicalize, if so it will not be found
     auto it = hashcons_.find(ENodeRef{enode});
-    auto it2 = enode_to_id_.find(ENodeRef{enode});
 
     // Canonicalize the enode in place
     auto const changed = enode.canonicalize_in_place(union_find_);
     if (changed) {
-      // Fix hashcons entry
       if (it != hashcons_.end()) {
         hashcons_.erase(it);
       }
       hashcons_[ENodeRef{enode}] = eclass_id;
-      // Fix enode reverse map entry
-      if (it2 != enode_to_id_.end()) {
-        enode_to_id_.erase(it2);
-      }
-      enode_to_id_.insert(std::make_pair(ENodeRef{enode}, enode_id));
     } else {
       it->second = eclass_id;
     }
@@ -918,21 +901,12 @@ auto EGraph<Symbol, Analysis>::get_enode(ENodeId id) -> ENode<Symbol> & {
 
 template <typename Symbol, typename Analysis>
 auto EGraph<Symbol, Analysis>::intern_enode(ENode<Symbol> enode) -> std::pair<ENodeRef<Symbol>, ENodeId> {
-  // Check if this ENode content already exists using our hash/equality functions
-  auto it = enode_to_id_.find(ENodeRef{enode});
-  if (it != enode_to_id_.end()) {
-    return {it->first, it->second};  // Return existing ENodeId, temp_storage will be destroyed
-  }
-
   // Create new ENodeId and store the ENode
   ENodeId new_id = next_enode_id_++;
 
   // Move our temporary storage into the permanent storage
   enode_storage_[new_id] = std::make_unique<ENode<Symbol>>(std::move(enode));
   const ENode<Symbol> *enode_ptr = enode_storage_[new_id].get();
-
-  // Store the pointer in deduplication map
-  enode_to_id_[ENodeRef{*enode_ptr}] = new_id;
 
   return {ENodeRef{*enode_ptr}, new_id};
 }
@@ -950,7 +924,6 @@ EGraph<Symbol, Analysis>::EGraph(const EGraph &other)
   enode_storage_.reserve(other.enode_storage_.size());
   for (const auto &[id, enode_ptr] : other.enode_storage_) {
     enode_storage_[id] = std::make_unique<ENode<Symbol>>(*enode_ptr);
-    enode_to_id_[ENodeRef{*enode_storage_[id]}] = id;
   }
 
   // Copy all e-classes
@@ -982,7 +955,6 @@ auto EGraph<Symbol, Analysis>::operator=(const EGraph &other) -> EGraph & {
   enode_storage_.reserve(other.enode_storage_.size());
   for (const auto &[id, enode_ptr] : other.enode_storage_) {
     enode_storage_[id] = std::make_unique<ENode<Symbol>>(*enode_ptr);
-    enode_to_id_[ENodeRef{*enode_storage_[id]}] = id;
   }
 
   // Copy all e-classes
