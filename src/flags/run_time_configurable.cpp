@@ -378,9 +378,10 @@ void Initialize() {
   register_flag(kQueryLogDirectoryGFlagsKey, kQueryLogDirectorySettingKey, kRestore);
 
   /*
-   * Register periodic snapshot setting
+   * Register periodic snapshot setting. In the case both flags are defined, --storage-snapshot-interval flag will be
+   * used. Ideally, we rely on just a single flag but --storage-snapshot-interval-sec is for community,
+   * --storage-snapshot-interval for enterprise.
    */
-
   if (FLAGS_storage_snapshot_interval_sec != 0) {
     if (FLAGS_storage_snapshot_interval.empty()) {
       FLAGS_storage_snapshot_interval = std::to_string(FLAGS_storage_snapshot_interval_sec);

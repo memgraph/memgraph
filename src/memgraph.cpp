@@ -507,7 +507,8 @@ int main(int argc, char **argv) {
       db_config.salient.storage_mode == IN_MEMORY_TRANSACTIONAL) {
     MG_ASSERT(db_config.durability.snapshot_wal_mode == PERIODIC_SNAPSHOT_WITH_WAL,
               "When running Memgraph in high availability mode, a data instance must be started with flag "
-              "--storage-wal-enabled=true");
+              "--storage-wal-enabled=true. One of the flags used for setting up snapshots "
+              "--storage-snapshot-interval-sec or --storage-snapshot-interval also needs to be set.");
   }
 
 #endif
