@@ -17,11 +17,11 @@
 #include "planner/core/processing_context.hpp"
 #include "planner/core/union_find.hpp"
 
-#include <boost/container/flat_set.hpp>
 #include <boost/unordered/unordered_flat_map.hpp>
 
 #include <range/v3/all.hpp>
 
+// When fuzzing we always want assert regardless of Debug vs Release
 #ifdef ASSERT_FUZZ
 
 #undef assert
@@ -34,11 +34,6 @@
 #endif
 
 namespace memgraph::planner::core {
-
-// Forward declaration for friend access
-template <typename Symbol, typename Analysis>
-class EGraphProxy;
-
 /**
  * @brief e-graph with defered invariant maintenance
  *
@@ -54,27 +49,16 @@ struct EGraph {
     hashcons_.reserve(capacity);
   }
 
-  EGraph(const EGraph &other);
   EGraph(EGraph &&) noexcept = default;
-  auto operator=(const EGraph &other) -> EGraph &;
   auto operator=(EGraph &&) -> EGraph & = default;
 
   /**
    * @brief Emplace an e-node directly with canonical children
-   *
-   * More efficient alternative to add() that constructs the e-node in-place
-   * with pre-canonicalized children, avoiding the need for canonicalize_inplace.
-   * This is the preferred method for constructing new expressions.
    */
   auto emplace(Symbol symbol, utils::small_vector<EClassId> children) -> EClassId;
 
   /**
-   * @brief Convenience overload for leaf nodes with optional disambiguator
-   *
-   * Creates a leaf node with a disambiguator to distinguish between different
-   * instances of the same symbol (e.g., different variables named "x").
-   * Example: egraph.emplace(Symbol::Var) for variable with default ID 0
-   * Example: egraph.emplace(Symbol::Var, 42) for variable with ID 42
+   * @brief Emplace leaf nodes with optional disambiguator
    */
   auto emplace(Symbol symbol, uint64_t disambiguator = 0) -> EClassId;
 
@@ -91,34 +75,22 @@ struct EGraph {
   /**
    * @brief Find canonical representative of an e-class
    *
-   * Returns the canonical e-class ID for the given ID, following union-find
-   * path compression for optimal performance. This is the core lookup operation
-   * used throughout e-graph algorithms.
+   * Returns the canonical e-class ID for the given ID.
    */
   auto find(EClassId id) const -> EClassId;
 
   /**
-   * @brief Merge two e-classes with external context
-   *
-   * Version of merge() that uses external ProcessingContext for temporary storage.
-   * This eliminates the need for mutable object pools and gives users control
-   * over memory allocation.
+   * @brief Merge two e-classes
    */
   auto merge(EClassId a, EClassId b) -> EClassId;
 
   /**
    * @brief Get e-class by canonical ID (const access)
-   *
-   * Returns a const reference to the e-class with the given canonical ID.
-   * The ID should be canonical (from find()) for correct results.
    */
   auto eclass(EClassId id) const -> const EClass<Analysis> &;
 
   /**
    * @brief Get e-class by canonical ID (mutable access)
-   *
-   * Returns a mutable reference to the e-class with the given canonical ID.
-   * Use for modifications like adding nodes or updating analysis data.
    */
   auto eclass(EClassId id) -> EClass<Analysis> & { return *classes_.find(id)->second; }
 
@@ -200,10 +172,6 @@ struct EGraph {
   auto union_find() const -> const UnionFind & { return union_find_; }
   auto union_find() -> UnionFind & { return union_find_; }
 
-  // ========================================================================================
-  // ENodeId API - Lightweight ENode Storage and Management
-  // ========================================================================================
-
   /**
    * @brief Get e-node by ID with const reference access
    *
@@ -216,10 +184,6 @@ struct EGraph {
    * @brief Get total number of stored e-nodes
    */
   auto num_enodes() const -> size_t { return enode_storage_.size(); }
-
-  // ========================================================================
-  // Rebuilding Algorithm (egg paper optimization)
-  // ========================================================================
 
   /**
    * @brief Check if rebuilding is needed
@@ -234,132 +198,15 @@ struct EGraph {
    * Returns the size of the rebuild worklist, indicating how much deferred
    * work is pending. Useful for performance analysis and debugging.
    *
-   * @return Number of e-classes in the rebuild worklist
-   *
-   * @par Performance Insight:
-   * Larger worklist sizes indicate more batched work, which generally
-   * leads to better amortized performance during rebuilding.
-   *
-   * @complexity O(1)
-   * @threadsafety Thread-safe for reads
    */
   [[nodiscard]] auto worklist_size() const -> size_t { return rebuild_worklist_.size(); }
 
   /**
    * @brief Restore all e-graph invariants using rebuilding algorithm
-   *
-   * Processes the worklist of e-classes that need congruence checking
-   * in O(N log N) time. This is the core innovation from the egg paper.
-   *
-   * @par Algorithm:
-   * 1. Make a batch copy of the worklist
-   * 2. Process the batch in chunks using ranges (chunk size: REBUILD_BATCH_SIZE)
-   * 3. For each chunk:
-   *    - Deduplicate by canonicalizing e-class IDs
-   *    - Repair hash consing for each e-class
-   *    - Check for and merge congruent parents
-   * 4. Repeat until fixpoint
-   *
-   * @par Chunked Batching Optimization:
-   * The chunked batching strategy processes items in configurable groups,
-   * providing better memory locality and allowing for more efficient deduplication.
-   * Each chunk is deduplicated independently, reducing memory pressure and
-   * improving cache performance during processing.
-   *
-   * @complexity O(N log N) for full congruence closure
    */
   void rebuild(ProcessingContext<Symbol> &ctx);
 
  protected:
-  // Allow EGraphProxy access to protected members for union-find indirection
-  template <typename S, typename A>
-  friend class EGraphProxy;
-
-  /**
-   * @brief Union-find structure for managing e-class equivalences
-   *
-   * Core data structure that tracks which e-classes have been merged together.
-   * Provides the canonical ID lookup that forms the foundation of all e-graph
-   * operations requiring equivalence class normalization.
-   *
-   * @par Performance:
-   * Uses path compression and union-by-rank for optimal amortized performance.
-   * Critical for scaling to large e-graphs with many equivalence relationships.
-   */
-  mutable UnionFind union_find_;
-
-  /**
-   * @brief Storage for all e-class objects
-   *
-   * Maps canonical e-class IDs to their corresponding e-class objects.
-   * Uses boost::unordered_flat_map for cache-friendly iteration and lookup performance.
-   * E-classes are stored via unique_ptr to enable polymorphism and stable addresses.
-   *
-   * @par Memory Management:
-   * unique_ptr provides automatic cleanup and enables safe e-class references
-   * that remain valid across hash map reallocations.
-   */
-  boost::unordered_flat_map<EClassId, std::unique_ptr<EClass<Analysis>>> classes_;
-
-  /**
-   * @brief Hash consing table for e-node deduplication
-   *
-   * Ensures that each unique canonical e-node appears only once in the e-graph.
-   * Maps canonical e-nodes to their containing e-class IDs for O(1) lookup
-   * during add operations.
-   */
-  boost::unordered_flat_map<ENodeRef<Symbol>, EClassId> hashcons_;
-
-  /**
-   * @brief Storage for all e-node instances within the e-graph
-   *
-   * Central storage that owns all ENode instances, indexed by ENodeId.
-   * This provides the foundational ownership model where EGraph controls
-   * all ENode lifetimes, similar to how it controls EClass lifetimes.
-   */
-  std::deque<ENode<Symbol>> enode_storage_;
-
-  // ========================================================================
-  // Rebuilding Algorithm Infrastructure (egg paper optimization)
-  // ========================================================================
-
-  /**
-   * @brief Worklist of e-classes needing congruence processing
-   *
-   * Used by the rebuilding algorithm to track which e-classes need their
-   * parents processed for congruences after merge operations.
-   */
-  mutable boost::unordered_flat_set<EClassId> rebuild_worklist_;
-
-  /**
-   * @brief Batch size for memory-efficient rebuilding
-   */
-  static constexpr size_t REBUILD_BATCH_SIZE = 100;
-
-  /**
-   * @brief Interval for memory pressure checks during rebuilding
-   */
-  static constexpr size_t MEMORY_CHECK_INTERVAL = 50;
-
-  /**
-   * @brief Process parent expressions for congruence checking
-   *
-   * Examines all parent expressions of the given e-class to find newly
-   * congruent expressions. to enable optimized batch processing
-   * in derived classes.
-   */
-  void process_parents(EClassId eclass_id, ProcessingContext<Symbol> &ctx);
-
-  // ========================================================================
-  // Rebuilding Algorithm Helper Methods
-  // ========================================================================
-
-  /**
-   * @brief Repair hash consing for an e-class during rebuilding
-   *
-   * Updates hash consing entries to use canonical representatives
-   * after merges have occurred.
-   */
   void repair_hashcons_eclass(EClass<Analysis> const &eclass, EClassId eclass_id);
 
   void repair_hashcons_enode(ENode<Symbol> &enode, EClassId eclass_id) {
@@ -378,12 +225,7 @@ struct EGraph {
     }
   }
 
-  /**
-   * @brief Process parents of an e-class during rebuilding
-   *
-   * Optimized version for rebuild that avoids recursive calls.
-   */
-  void process_class_parents_for_rebuild(EClass<Analysis> const &eclass, ProcessingContext<Symbol> &ctx);
+  void process_parents(EClass<Analysis> const &eclass, ProcessingContext<Symbol> &ctx);
 
   void merge_eclasses(EClass<Analysis> &destination, EClassId other_id) {
     auto it = classes_.find(other_id);
@@ -392,13 +234,15 @@ struct EGraph {
     classes_.erase(it);
   }
 
-  /**
-   * @brief Store a new e-node and return its ENodeId
-   *
-   * Creates a new ENodeId for the given e-node and stores it in the e-graph.
-   * This is the primary method for creating new e-nodes with ENodeId ownership.
-   */
   auto intern_enode(ENode<Symbol> enode) -> ENodeRef<Symbol>;
+
+  static constexpr size_t REBUILD_BATCH_SIZE = 100;
+
+  mutable UnionFind union_find_;
+  boost::unordered_flat_map<EClassId, std::unique_ptr<EClass<Analysis>>> classes_;
+  boost::unordered_flat_map<ENodeRef<Symbol>, EClassId> hashcons_;
+  std::deque<ENode<Symbol>> enode_storage_;
+  mutable boost::unordered_flat_set<EClassId> rebuild_worklist_;
 };
 
 template <typename Symbol, typename Analysis>
@@ -409,7 +253,7 @@ auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, uint64_t disambiguator) ->
   // Use direct O(1) ENode lookup in hashcons for single-level mapping
   auto it = hashcons_.find(ENodeRef{canonical_node});
   if (it != hashcons_.end()) {
-    // TODO: check if we nees to do find here, hashcons_ should be correct? Maybe
+    // TODO: check if we nees to do find here
     return union_find_.Find(it->second);
   }
 
@@ -445,6 +289,7 @@ auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, utils::small_vector<EClass
   auto it = hashcons_.find(ENodeRef{canonical_node});
   if (it != hashcons_.end()) {
     // We may have merges
+    // TODO: check if we nees to do find here
     return union_find_.Find(it->second);
   }
 
@@ -490,11 +335,8 @@ auto EGraph<Symbol, Analysis>::merge(EClassId a, EClassId b) -> EClassId {
 
   merge_eclasses(*classes_[merged_id], other_id);
 
-  // Handle congruence processing based on mode
-  // Deferred mode: add both classes to worklist for later batch processing
-  // This is crucial - we need to process parents of both classes
+  // Defer hashcons and congruence processing
   rebuild_worklist_.insert(merged_id);
-  // Still need to update hashcons for correctness
 
   return merged_id;
 }
@@ -506,9 +348,7 @@ auto EGraph<Symbol, Analysis>::find(EClassId id) const -> EClassId {
 
 template <typename Symbol, typename Analysis>
 auto EGraph<Symbol, Analysis>::eclass(EClassId id) const -> const EClass<Analysis> & {
-  // Use ConstAccess proxy for path compression optimization
   EClassId canonical_id = union_find_.Find(id);
-
   auto it = classes_.find(canonical_id);
   if (it == classes_.end()) {
     throw std::out_of_range("E-class not found: " + std::to_string(canonical_id));
@@ -523,13 +363,8 @@ auto EGraph<Symbol, Analysis>::has_class(EClassId id) const -> bool {
     return false;
   }
 
-  try {
-    // Use ConstAccess proxy for path compression optimization
-    EClassId canonical_id = union_find_.Find(id);
-    return classes_.find(canonical_id) != classes_.end();
-  } catch (const std::out_of_range &) {
-    return false;
-  }
+  EClassId canonical_id = union_find_.Find(id);
+  return classes_.find(canonical_id) != classes_.end();
 }
 
 template <typename Symbol, typename Analysis>
@@ -553,12 +388,6 @@ void EGraph<Symbol, Analysis>::clear() {
 }
 
 // New context-aware method implementations
-
-template <typename Symbol, typename Analysis>
-void EGraph<Symbol, Analysis>::process_parents(EClassId eclass_id, ProcessingContext<Symbol> &ctx) {
-  // Delegate to recursive version starting at depth 0
-  process_parents_recursive(eclass_id, ctx, 0);
-}
 
 // ========================================================================
 // Rebuilding Algorithm Implementation
@@ -594,7 +423,7 @@ void EGraph<Symbol, Analysis>::rebuild(ProcessingContext<Symbol> &ctx) {
         }
         const auto &eclass = *it->second;
         repair_hashcons_eclass(eclass, eclass_id);
-        process_class_parents_for_rebuild(eclass, ctx);
+        process_parents(eclass, ctx);
       }
     }
   }
@@ -609,8 +438,7 @@ void EGraph<Symbol, Analysis>::repair_hashcons_eclass(EClass<Analysis> const &ec
 }
 
 template <typename Symbol, typename Analysis>
-void EGraph<Symbol, Analysis>::process_class_parents_for_rebuild(EClass<Analysis> const &eclass,
-                                                                 ProcessingContext<Symbol> &ctx) {
+void EGraph<Symbol, Analysis>::process_parents(EClass<Analysis> const &eclass, ProcessingContext<Symbol> &ctx) {
   // OPTIMIZATION: Reuse ProcessingContext map instead of creating new one
   // TODO: what if the vector was a set?
   auto &canonical_to_parents = ctx.enode_to_parents;
@@ -688,51 +516,6 @@ auto EGraph<Symbol, Analysis>::get_enode(ENodeId id) -> ENode<Symbol> & {
 template <typename Symbol, typename Analysis>
 auto EGraph<Symbol, Analysis>::intern_enode(ENode<Symbol> enode) -> ENodeRef<Symbol> {
   return ENodeRef{enode_storage_.emplace_back(std::move(enode))};
-}
-
-// EGraph copy constructor and assignment operator implementations
-template <typename Symbol, typename Analysis>
-EGraph<Symbol, Analysis>::EGraph(const EGraph &other)
-    : union_find_(other.union_find_), rebuild_worklist_(other.rebuild_worklist_) {
-  // Copy all e-nodes first
-  enode_storage_.reserve(other.enode_storage_.size());
-  enode_storage_ = other.enode_storage_;
-
-  // Copy all e-classes
-  classes_.reserve(other.classes_.size());
-  for (const auto &[id, eclass_ptr] : other.classes_) {
-    classes_[id] = std::make_unique<EClass<Analysis>>(*eclass_ptr);
-  }
-
-  // Copy hashcons table
-  hashcons_ = other.hashcons_;
-}
-
-template <typename Symbol, typename Analysis>
-auto EGraph<Symbol, Analysis>::operator=(const EGraph &other) -> EGraph & {
-  if (this == &other) return *this;
-
-  // Clear current state
-  clear();
-
-  // Copy all fields
-  union_find_ = other.union_find_;
-  rebuild_worklist_ = other.rebuild_worklist_;
-
-  // Copy all e-nodes first
-  enode_storage_.reserve(other.enode_storage_.size());
-  enode_storage_ = other.enode_storage_;
-
-  // Copy all e-classes
-  classes_.reserve(other.classes_.size());
-  for (const auto &[id, eclass_ptr] : other.classes_) {
-    classes_[id] = std::make_unique<EClass<Analysis>>(*eclass_ptr);
-  }
-
-  // Copy hashcons table
-  hashcons_ = other.hashcons_;
-
-  return *this;
 }
 
 }  // namespace memgraph::planner::core
