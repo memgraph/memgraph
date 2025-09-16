@@ -299,8 +299,7 @@ struct EGraph {
    * unique_ptr provides automatic cleanup and enables safe e-class references
    * that remain valid across hash map reallocations.
    */
-  // boost::unordered_flat_map<EClassId, std::unique_ptr<EClass<Analysis>>> classes_;
-  std::unordered_map<EClassId, std::unique_ptr<EClass<Analysis>>> classes_;
+  boost::unordered_flat_map<EClassId, std::unique_ptr<EClass<Analysis>>> classes_;
 
   /**
    * @brief Hash consing table for e-node deduplication
