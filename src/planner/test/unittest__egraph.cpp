@@ -383,4 +383,21 @@ TEST(EGraphCongruenceClosureBug, ComplexFuzzSequenceInvariantViolation) {
     EXPECT_EQ(egraph.find(id), id) << "Non-canonical class ID " << id << " found in canonical_class_ids()";
   }
 }
+
+TEST(EGraphCongruenceClosureBug, InfinateSelfReference) {
+  EGraph<TestSymbol, NoAnalysis> egraph;
+  ProcessingContext<TestSymbol> ctx;
+
+  auto zero_1 = egraph.emplace(TestSymbol::A, 0);  // First zero
+  auto zero_2 = egraph.emplace(TestSymbol::A, 1);  // Second zero
+  auto add = egraph.emplace(TestSymbol::F, {zero_1, zero_2});
+  egraph.merge(zero_1, add);  // infinate self reference
+  egraph.rebuild(ctx);        // ensure graph is correct
+  EXPECT_EQ(egraph.num_classes(), 2);
+
+  egraph.merge(zero_1, zero_2);  // actually only one zero now
+  egraph.rebuild(ctx);           // ensure graph is correct
+  EXPECT_EQ(egraph.num_classes(), 1);
+}
+
 }  // namespace memgraph::planner::core
