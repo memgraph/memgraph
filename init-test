@@ -11,6 +11,7 @@ export UV_LINK_MODE=copy
 
 pip install uv
 export PATH="$HOME/.local/bin:$PATH"
+uv cache clean || true
 
 function setup_virtualenv () {
     pushd $1 > /dev/null
