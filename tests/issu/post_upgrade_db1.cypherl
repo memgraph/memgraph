@@ -1,0 +1,3 @@
+USE DATABASE db1;
+MATCH (n) RETURN n;
+CREATE ();
