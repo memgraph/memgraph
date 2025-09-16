@@ -387,10 +387,10 @@ struct EGraph {
   void process_class_parents_for_rebuild(EClass<Analysis> const &eclass, ProcessingContext<Symbol> &ctx);
 
   void merge_eclasses(EClass<Analysis> &destination, EClassId other_id) {
-    if (auto it = classes_.find(other_id); it != classes_.end()) {
-      destination.merge_with(std::move(*it->second));
-      classes_.erase(it);
-    }
+    auto it = classes_.find(other_id);
+    assert(it != classes_.end());
+    destination.merge_with(std::move(*it->second));
+    classes_.erase(it);
   }
 
   /**
@@ -468,7 +468,7 @@ auto EGraph<Symbol, Analysis>::emplace(Symbol symbol, utils::small_vector<EClass
     assert(union_find_.Find(child_id) == child_id);
     auto child_it = classes_.find(child_id);
     assert(child_it != classes_.end());
-    child_it->second->add_parent(new_enode_id, new_eclass_id);
+    child_it->second->add_parent(new_enode_id);
   }
 
   return new_eclass_id;
@@ -616,27 +616,42 @@ void EGraph<Symbol, Analysis>::process_class_parents_for_rebuild(EClass<Analysis
   // TODO: what if the vector was a set?
   auto &canonical_to_parents = ctx.enode_to_parents;
   canonical_to_parents.clear();
+  auto &canonical_eclass_ids = ctx.canonical_eclass_ids;
 
   // Group by canonical child being used by a parent + intern new connonical parent
-  for (const auto &[parent_enode_id, parent_class_id] : eclass.parents()) {
-    // parent_class_id is never updated, hence could be stale, use union find to get correct class
-    EClassId canonical_parent_class = union_find_.Find(parent_class_id);
+  for (const auto &parent_enode_id : eclass.parents()) {
     // Group by canonical enode
-    auto &canonical_to_parent = canonical_to_parents[get_enode(parent_enode_id).canonicalize(union_find_)];
-    canonical_to_parent.eclass_ids.push_back(canonical_parent_class);
-    canonical_to_parent.enode_ids.push_back(parent_class_id);
+    canonical_to_parents[get_enode(parent_enode_id).canonicalize(union_find_)].push_back(parent_enode_id);
   }
 
   // Merge congruent parents using bulk operations for optimal performance
-  for (auto &[canonical_enode, parents_collection] : canonical_to_parents) {
-    auto &[eclass_ids, enode_ids] = parents_collection;
-    // deduplicate eclass_ids
-    std::sort(eclass_ids.begin(), eclass_ids.end());
-    eclass_ids.erase(std::unique(eclass_ids.begin(), eclass_ids.end()), eclass_ids.end());
-    if (eclass_ids.size() > 1) {
+  for (auto &[canonical_enode, enode_ids] : canonical_to_parents) {
+#ifdef ASSERT_FUZZ
+    // deduplicate enode_ids and check deduplicate is not needed
+    auto pre_dep = enode_ids.size();
+    std::sort(enode_ids.begin(), enode_ids.end());
+    enode_ids.erase(std::unique(enode_ids.begin(), enode_ids.end()), enode_ids.end());
+    assert(pre_dep == enode_ids.size());
+#endif
+
+    // It is possible that in previous grouping congruence was applied and merges an eclass we are dealing with
+    // Need to re-canonicalize
+    // parent_class_id is never updated, hence could be stale, use union find to get correct class
+    canonical_eclass_ids.clear();
+    canonical_eclass_ids.reserve(enode_ids.size());
+
+    for (auto enode_id : enode_ids) {
+      canonical_eclass_ids.push_back(union_find_.Find(enode_id));
+    }
+
+    // deduplicate canonical_eclass_ids
+    std::sort(canonical_eclass_ids.begin(), canonical_eclass_ids.end());
+    canonical_eclass_ids.erase(std::unique(canonical_eclass_ids.begin(), canonical_eclass_ids.end()),
+                               canonical_eclass_ids.end());
+    if (canonical_eclass_ids.size() > 1) {
       // TODO: can we cheaply detect that UnionSet did anything?
       //       if it did nothing we can skip the reset of parent rebuilding
-      EClassId merged_root = union_find_.UnionSets(eclass_ids, ctx.union_find_context);
+      EClassId merged_root = union_find_.UnionSets(canonical_eclass_ids, ctx.union_find_context);
       rebuild_worklist_.insert(merged_root);
 
       auto merged_it = classes_.find(merged_root);
@@ -646,16 +661,16 @@ void EGraph<Symbol, Analysis>::process_class_parents_for_rebuild(EClass<Analysis
       EClass<Analysis> &merged_eclass = *merged_it->second;
 
       // Merge e-class contents for all merged classes
-      for (EClassId parent_id : eclass_ids) {
+      for (EClassId parent_id : canonical_eclass_ids) {
         if (parent_id != merged_root) {
           merge_eclasses(merged_eclass, parent_id);
         }
       }
       // hashcons update can be defered to the next rebuild iteration because we inserted into the rebuild worklist
-    } else if (eclass_ids.size() == 1) {
+    } else if (canonical_eclass_ids.size() == 1) {
       // NOTE: we can NOT add to rebuild_worklist_, we must avoid infinate processing bugs (where parent is yourself)
       for (auto enode_id : enode_ids) {
-        repair_hashcons_enode(get_enode(enode_id), eclass_ids[0]);
+        repair_hashcons_enode(get_enode(enode_id), canonical_eclass_ids[0]);
       }
     }
   }

@@ -47,11 +47,6 @@ struct BaseProcessingContext {
   UnionFindContext union_find_context;
 };
 
-struct ParentCollection {
-  std::vector<EClassId> eclass_ids;
-  std::vector<ENodeId> enode_ids;
-};
-
 /**
  * @brief External context for e-graph operations
  *
@@ -82,7 +77,8 @@ struct ProcessingContext : BaseProcessingContext {
    * Used during rebuilding to group parents by their canonical form,
    * enabling efficient detection of congruent parents that should be merged.
    */
-  std::unordered_map<ENode<Symbol>, ParentCollection> enode_to_parents;
+  std::unordered_map<ENode<Symbol>, std::vector<ENodeId>> enode_to_parents;
+  std::vector<EClassId> canonical_eclass_ids;
 
   boost::container::flat_set<EClassId> canonicalized_chunk;
 

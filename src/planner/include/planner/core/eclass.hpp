@@ -33,7 +33,7 @@ struct EClassBase {
    * Records that the given parent ENodeId (in the specified parent e-class)
    * has this e-class as one of its children.
    */
-  void add_parent(ENodeId parent_enode_id, EClassId parent_class_id);
+  void add_parent(ENodeId parent_enode_id);
 
   /**
    * @brief Get the number of e-nodes in this class
@@ -45,8 +45,10 @@ struct EClassBase {
    */
   [[nodiscard]] auto representative_id() const -> ENodeId;
 
-  auto nodes() const -> boost::unordered_flat_set<ENodeId> const & { return nodes_; }
-  auto parents() const -> std::vector<std::pair<ENodeId, EClassId>> const & { return parents_; }
+  auto nodes() const -> boost::unordered_flat_set<ENodeId> const & {
+    return nodes_;
+  }  // TODO: does this need to be a set? do we use O(1) contains/lookup?
+  auto parents() const -> boost::unordered_flat_set<ENodeId> const & { return parents_; }
 
   auto merge_with(EClassBase &other) {
     // Simple optimization: swap if other is significantly larger
@@ -56,18 +58,12 @@ struct EClassBase {
     }
 
     nodes_.insert(other.nodes_.begin(), other.nodes_.end());
-    parents_.insert(parents_.end(), other.parents_.begin(), other.parents_.end());
+    parents_.insert(other.parents_.begin(), other.parents_.end());
   }
 
  private:
   boost::unordered_flat_set<ENodeId> nodes_;
-  /**
-   * @brief Parent references for congruence closure
-   *
-   * Maintains a list of "parent" e-node IDs that have this e-class as a child.
-   * Each entry is a pair of (parent_enode_id, parent_class_id)
-   */
-  std::vector<std::pair<ENodeId, EClassId>> parents_;  // TODO: is the right way to track parents
+  boost::unordered_flat_set<EClassId> parents_;
 };
 }  // namespace detail
 

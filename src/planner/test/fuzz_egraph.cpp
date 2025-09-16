@@ -117,18 +117,17 @@ bool ValidateParentChildRelationships(EGraph<Symbol, Analysis> &egraph) {
 
   // Now validate: each parent reference should match actual children
   for (auto const &[class_id, eclass] : egraph.canonical_classes()) {
-    for (auto [parent_enode_id, parent_class_id] : eclass.parents()) {
-      auto canonical_parent = egraph.find(parent_class_id);
+    for (auto enode_id : eclass.parents()) {
+      auto canonical_parent = egraph.find(enode_id);
 
       if (!egraph.has_class(canonical_parent)) {
-        std::cerr << "Parent class ID " << parent_class_id << " canonicalizes to non-existent class "
-                  << canonical_parent << "\n";
+        std::cerr << "Parent class ID " << enode_id << " canonicalizes to non-existent class " << canonical_parent
+                  << "\n";
         return false;
       }
 
       // Check if this parent node actually references this child class
-      if (auto it = node_to_children.find(parent_enode_id);
-          it != node_to_children.end() && !it->second.contains(class_id)) {
+      if (auto it = node_to_children.find(enode_id); it != node_to_children.end() && !it->second.contains(class_id)) {
         std::cerr << "Parent e-node doesn't reference child e-class " << class_id << "\n";
         return false;
       }
