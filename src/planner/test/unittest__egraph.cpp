@@ -326,18 +326,6 @@ TEST(EGraphCongruenceClosureBug, MissingHashconsUpdateForSingleParent) {
 }
 
 TEST(EGraphCongruenceClosureBug, MissingHashconsUpdateForMultipleParents) {
-  /*
-  --- Operation #1 ---
-Op: CREATE_CONGRUENT (raw: 49)
-
---- Operation #2 ---
-Op: REBUILD (raw: 68)
-
---- Operation #3 ---
-Op: MERGE_CLASSES (raw: 197)
-Merging class 0 with 2
-*/
-
   EGraph<TestSymbol, NoAnalysis> egraph;
   ProcessingContext<TestSymbol> ctx;
 
@@ -358,5 +346,177 @@ Merging class 0 with 2
 
   EXPECT_EQ(egraph.num_classes(), 1);
   EXPECT_EQ(egraph.find(f_a), egraph.find(a));
+}
+
+TEST(EGraphCongruenceClosureBug, ComplexFuzzSequenceInvariantViolation) {
+  /*
+  This test reproduces a specific fuzz sequence that causes an invariant violation:
+  "Non-canonical class ID 9 in canonical_class_ids()"
+
+  The sequence involves multiple CREATE_CONGRUENT, MERGE_CLASSES, CREATE_LEAF, and REBUILD operations
+  that eventually lead to a state where canonical_class_ids() contains non-canonical IDs.
+  */
+
+  EGraph<TestSymbol, NoAnalysis> egraph;
+  ProcessingContext<TestSymbol> ctx;
+  std::vector<EClassId> created_ids;
+
+  // Operation #1: CREATE_CONGRUENT (raw: 49)
+  // Creates two distinct leaf nodes and compound nodes, then merges the leaves
+  auto leaf_a1 = egraph.emplace(TestSymbol::A, 0);  // A(D0)
+  auto leaf_b1 = egraph.emplace(TestSymbol::B, 1);  // B(D1)
+  created_ids.push_back(leaf_a1);
+  created_ids.push_back(leaf_b1);
+
+  auto f_a1 = egraph.emplace(TestSymbol::F, utils::small_vector<EClassId>{leaf_a1});
+  auto f_b1 = egraph.emplace(TestSymbol::F, utils::small_vector<EClassId>{leaf_b1});
+  created_ids.push_back(f_a1);
+  created_ids.push_back(f_b1);
+
+  egraph.merge(leaf_a1, leaf_b1);  // This should make f_a1 and f_b1 congruent after rebuild
+
+  // Operation #2: MERGE_CLASSES (raw: 112) - Merging class 2 with 1
+  // Merge f_a1 (class 2) with leaf_b1 (class 1)
+  egraph.merge(f_a1, leaf_b1);
+
+  // Operation #3: CREATE_CONGRUENT (raw: 119)
+  auto leaf_c1 = egraph.emplace(TestSymbol::C, 2);  // C(D2)
+  auto leaf_d1 = egraph.emplace(TestSymbol::D, 3);  // D(D3)
+  created_ids.push_back(leaf_c1);
+  created_ids.push_back(leaf_d1);
+
+  auto test_c1 = egraph.emplace(TestSymbol::Test, utils::small_vector<EClassId>{leaf_c1});
+  auto test_d1 = egraph.emplace(TestSymbol::Test, utils::small_vector<EClassId>{leaf_d1});
+  created_ids.push_back(test_c1);
+  created_ids.push_back(test_d1);
+
+  egraph.merge(leaf_c1, leaf_d1);
+
+  // Operation #4: CREATE_CONGRUENT (raw: 39)
+  auto leaf_x1 = egraph.emplace(TestSymbol::X, 4);  // X(D4)
+  auto leaf_a2 = egraph.emplace(TestSymbol::A, 5);  // A(D5)
+  created_ids.push_back(leaf_x1);
+  created_ids.push_back(leaf_a2);
+
+  auto node_x1 = egraph.emplace(TestSymbol::Node, utils::small_vector<EClassId>{leaf_x1});
+  auto node_a2 = egraph.emplace(TestSymbol::Node, utils::small_vector<EClassId>{leaf_a2});
+  created_ids.push_back(node_x1);
+  created_ids.push_back(node_a2);
+
+  egraph.merge(leaf_x1, leaf_a2);
+
+  // Operation #5: CREATE_CONGRUENT (raw: 4)
+  auto leaf_b2 = egraph.emplace(TestSymbol::B, 6);  // B(D6)
+  auto leaf_c2 = egraph.emplace(TestSymbol::C, 7);  // C(D7)
+  created_ids.push_back(leaf_b2);
+  created_ids.push_back(leaf_c2);
+
+  auto plus_b2 = egraph.emplace(TestSymbol::Plus, utils::small_vector<EClassId>{leaf_b2});
+  auto plus_c2 = egraph.emplace(TestSymbol::Plus, utils::small_vector<EClassId>{leaf_c2});
+  created_ids.push_back(plus_b2);
+  created_ids.push_back(plus_c2);
+
+  egraph.merge(leaf_b2, leaf_c2);
+
+  // Operation #6: CREATE_CONGRUENT (raw: 39)
+  auto leaf_d2 = egraph.emplace(TestSymbol::D, 8);  // D(D8)
+  auto leaf_y2 = egraph.emplace(TestSymbol::Y, 9);  // Y(D9)
+  created_ids.push_back(leaf_d2);
+  created_ids.push_back(leaf_y2);
+
+  auto mul_d2 = egraph.emplace(TestSymbol::Mul, utils::small_vector<EClassId>{leaf_d2});
+  auto mul_y2 = egraph.emplace(TestSymbol::Mul, utils::small_vector<EClassId>{leaf_y2});
+  created_ids.push_back(mul_d2);
+  created_ids.push_back(mul_y2);
+
+  egraph.merge(leaf_d2, leaf_y2);
+
+  // Operation #7: MERGE_CLASSES (raw: 12) - Merging class 12 with 12
+  // This is a self-merge, should be a no-op
+  if (created_ids.size() > 12) {
+    egraph.merge(created_ids[12], created_ids[12]);
+  }
+
+  // Operation #8: MERGE_CLASSES (raw: 12) - Merging class 2 with 12
+  if (created_ids.size() > 12) {
+    egraph.merge(created_ids[2], created_ids[12]);
+  }
+
+  // Operation #9: MERGE_CLASSES (raw: 17) - Merging class 3 with 18
+  if (created_ids.size() > 18) {
+    egraph.merge(created_ids[3], created_ids[18]);
+  }
+
+  // Operation #10: CREATE_LEAF (raw: 235)
+  auto leaf_a3 = egraph.emplace(TestSymbol::A, 235);  // A(D235)
+  created_ids.push_back(leaf_a3);
+
+  // Operation #11: MERGE_CLASSES (raw: 137) - Merging class 10 with 5
+  if (created_ids.size() > 10) {
+    egraph.merge(created_ids[10], created_ids[5]);
+  }
+
+  // Operation #12: MERGE_CLASSES (raw: 17) - Merging class 13 with 12
+  if (created_ids.size() > 13) {
+    egraph.merge(created_ids[13], created_ids[12]);
+  }
+
+  // Operation #13: MERGE_CLASSES (raw: 52) - Merging class 12 with 5
+  if (created_ids.size() > 12) {
+    egraph.merge(created_ids[12], created_ids[5]);
+  }
+
+  // Operation #14: MERGE_CLASSES (raw: 57) - Merging class 8 with 19
+  if (created_ids.size() > 19) {
+    egraph.merge(created_ids[8], created_ids[19]);
+  }
+
+  // Operation #15: CREATE_CONGRUENT (raw: 24)
+  auto leaf_f1 = egraph.emplace(TestSymbol::F, 10);         // F(D10)
+  auto leaf_node0 = egraph.emplace(TestSymbol::Node0, 11);  // Node0(D11)
+  created_ids.push_back(leaf_f1);
+  created_ids.push_back(leaf_node0);
+
+  auto a_f1 = egraph.emplace(TestSymbol::A, utils::small_vector<EClassId>{leaf_f1});
+  auto a_node0 = egraph.emplace(TestSymbol::A, utils::small_vector<EClassId>{leaf_node0});
+  created_ids.push_back(a_f1);
+  created_ids.push_back(a_node0);
+
+  egraph.merge(leaf_f1, leaf_node0);
+
+  // Operation #16: CREATE_COMPOUND (raw: 1)
+  if (created_ids.size() >= 2) {
+    auto compound = egraph.emplace(TestSymbol::B, utils::small_vector<EClassId>{created_ids[0], created_ids[1]});
+    created_ids.push_back(compound);
+  }
+
+  // Operation #17: MERGE_CLASSES (raw: 42) - Merging class 12 with 17
+  if (created_ids.size() > 17) {
+    egraph.merge(created_ids[12], created_ids[17]);
+  }
+
+  // Operation #18: REBUILD (raw: 3) - This should trigger the invariant violation
+  // The issue is that after all these operations, canonical_class_ids() contains
+  // non-canonical class IDs, which violates the invariant.
+
+  // Before rebuild, let's check the current state
+  size_t classes_before = egraph.num_classes();
+  size_t nodes_before = egraph.num_nodes();
+
+  // This rebuild should detect the invariant violation
+  egraph.rebuild(ctx);
+
+  // After rebuild, verify the invariants are satisfied
+  size_t classes_after = egraph.num_classes();
+  size_t nodes_after = egraph.num_nodes();
+
+  // The rebuild should have cleaned up the state
+  EXPECT_LE(classes_after, classes_before);  // Classes should not increase after rebuild
+  EXPECT_EQ(nodes_after, nodes_before);      // Nodes should remain the same
+
+  // Verify that all canonical class IDs are actually canonical
+  for (auto id : egraph.canonical_class_ids()) {
+    EXPECT_EQ(egraph.find(id), id) << "Non-canonical class ID " << id << " found in canonical_class_ids()";
+  }
 }
 }  // namespace memgraph::planner::core
