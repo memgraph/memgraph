@@ -49,7 +49,8 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          run --no-conan-cache
+          --no-conan-cache \
+          run
 
       - name: Build release binary
         run: |
@@ -58,7 +59,8 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --build-type $BUILD_TYPE \
-          build-memgraph --no-conan-cache
+          --no-conan-cache \
+          build-memgraph
 
       - name: Copy memgraph binary
         run: |
@@ -127,7 +129,8 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          stop --remove --no-conan-cache
+          --no-conan-cache \
+          stop --remove
 
       - name: Clean up Docker
         if: always()
