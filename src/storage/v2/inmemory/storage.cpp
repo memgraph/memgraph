@@ -1133,6 +1133,9 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
 
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
+  transaction_.EnsureCommitTimestampExists();
+  transaction_.commit_timestamp->store(kAbortedTransactionId, std::memory_order_release);
+
   // if we have no deltas then no need to do any undo work during Abort
   // note: this check also saves on unnecessary contention on `engine_lock_`
   if (!transaction_.deltas.empty()) {
@@ -2338,6 +2341,10 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
           while (current_delta != nullptr && !visited.count(current_delta)) {
             visited.insert(current_delta);
             auto ts = current_delta->timestamp->load();
+            if (ts == kAbortedTransactionId) {
+              current_delta = current_delta->next.load();
+              continue;
+            }
             if (ts >= kTransactionInitialId && !commit_log_->IsFinished(ts)) {
               spdlog::trace("Waiting for transaction {} (IsFinished={})", ts, commit_log_->IsFinished(ts));
               all_contributors_committed = false;

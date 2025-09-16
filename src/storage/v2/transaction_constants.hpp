@@ -17,5 +17,6 @@ namespace memgraph::storage {
 
 const uint64_t kTimestampInitialId = 0;
 const uint64_t kTransactionInitialId = 1ULL << 63U;
+const uint64_t kAbortedTransactionId = UINT64_MAX;
 
 }  // namespace memgraph::storage
