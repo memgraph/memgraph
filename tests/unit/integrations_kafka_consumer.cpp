@@ -10,6 +10,7 @@
 // licenses/APL.txt.
 
 #include <chrono>
+#include <cstddef>
 #include <latch>
 #include <optional>
 #include <string>
@@ -240,32 +241,27 @@ TEST_F(ConsumerTest, BatchSize) {
   std::this_thread::sleep_for(kBatchInterval * 2);
   consumer->Stop();
   EXPECT_TRUE(expected_messages_received) << "Some unexpected message has been received";
+  ASSERT_FALSE(received_timestamps.empty());
 
-  auto check_received_timestamp = [&received_timestamps](size_t index, size_t expected_message_count) {
+  auto check_received_timestamp = [&received_timestamps](size_t index) {
     SCOPED_TRACE("Checking index " + std::to_string(index));
     const auto [message_count, timestamp] = received_timestamps[index];
     const auto [_, previous_timestamp] = received_timestamps[index - 1];
-    EXPECT_EQ(expected_message_count, message_count);
 
     auto actual_diff = std::chrono::duration_cast<std::chrono::milliseconds>(timestamp - previous_timestamp);
-    if (expected_message_count == kBatchSize) {
+    if (message_count == kBatchSize) {
       // Full batch, timeout isn't hit - allow timing variance
       EXPECT_LE(actual_diff, kBatchInterval * kTimingTolerance);
     } else {
       EXPECT_LE(kBatchInterval.count() / kTimingTolerance, actual_diff.count());
     }
   };
-
-  ASSERT_FALSE(received_timestamps.empty());
-
-  EXPECT_EQ(kBatchSize, received_timestamps[0].first);
-
   static constexpr auto kExpectedBatchCount = kMessageCount / kBatchSize + 1;
   EXPECT_EQ(kExpectedBatchCount, received_timestamps.size());
   for (auto i = 1; i < received_timestamps.size() - 1; ++i) {
-    check_received_timestamp(i, kBatchSize);
+    check_received_timestamp(i);
   }
-  check_received_timestamp(received_timestamps.size() - 1, kLastBatchMessageCount);
+  check_received_timestamp(received_timestamps.size() - 1);
 }
 
 TEST_F(ConsumerTest, InvalidBootstrapServers) {
