@@ -11,7 +11,6 @@ export UV_LINK_MODE=copy
 
 pip install uv
 export PATH="$HOME/.local/bin:$PATH"
-uv cache clean || true
 
 function setup_virtualenv () {
     pushd $1 > /dev/null
@@ -59,6 +58,14 @@ while(($#)); do
 done
 
 DISTRO=$(operating_system)
+
+# Handle cache cleaning based on CI environment
+if [[ "$ci" == "true" ]]; then
+    # In CI, remove all files from .cache/uv since it's bind-mounted
+    if [ -d "$HOME/.cache/uv" ]; then
+        rm -rf "$HOME/.cache/uv"/*
+    fi
+fi
 
 # Fix for centos 7 during release
 if [[ "$ci" == "false" ]]; then
