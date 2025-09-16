@@ -1288,7 +1288,9 @@ if [[ "$DISTRO" =~ ^(rocky-|centos-|fedora-) ]]; then
         make install_sw
         popd
     fi
+fi
 
+if [[ "$DISTRO" =~ ^(rocky-|centos-|fedora-|debian-) ]]; then
     CURL_TAG="curl-8_15_0"
     log_tool_name "curl $CURL_TAG"
     if [ ! -f $PREFIX/lib/libcurl.a ]; then
@@ -1298,11 +1300,16 @@ if [[ "$DISTRO" =~ ^(rocky-|centos-|fedora-) ]]; then
         git clone https://github.com/curl/curl.git curl
         pushd curl
         git checkout $CURL_TAG
-        autoreconf -fi
-        ./configure --prefix=$PREFIX --with-ssl --disable-shared --without-libpsl
+        cmake -B build -DCURL_ENABLE_SSL=ON \
+            -DCURL_USE_LIBSSH2=OFF \
+            -DCURL_USE_LIBPSL=OFF \
+            -DBUILD_SHARED_LIBS=OFF \
+            -DBUILD_STATIC_LIBS=ON \
+            $COMMON_CMAKE_FLAGS
+        pushd build
         make -j$CPUS
         make install
-        popd
+        popd && popd
     fi
 fi
 
