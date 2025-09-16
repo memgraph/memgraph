@@ -379,29 +379,11 @@ TEST(EGraphCongruenceClosureBug, ComplexFuzzSequenceInvariantViolation) {
   // Merge f_a1 (class 2) with leaf_b1 (class 1)
   egraph.merge(f_a1, leaf_b1);
 
-  // Operation #3: CREATE_CONGRUENT (raw: 119)
-  auto leaf_c1 = egraph.emplace(TestSymbol::C, 2);  // C(D2)
-  auto leaf_d1 = egraph.emplace(TestSymbol::D, 3);  // D(D3)
-  created_ids.push_back(leaf_c1);
-  created_ids.push_back(leaf_d1);
-
-  auto test_c1 = egraph.emplace(TestSymbol::Test, utils::small_vector<EClassId>{leaf_c1});
-  auto test_d1 = egraph.emplace(TestSymbol::Test, utils::small_vector<EClassId>{leaf_d1});
-  created_ids.push_back(test_c1);
-  created_ids.push_back(test_d1);
-
-  egraph.merge(leaf_c1, leaf_d1);
-
   // Operation #4: CREATE_CONGRUENT (raw: 39)
   auto leaf_x1 = egraph.emplace(TestSymbol::X, 4);  // X(D4)
   auto leaf_a2 = egraph.emplace(TestSymbol::A, 5);  // A(D5)
   created_ids.push_back(leaf_x1);
   created_ids.push_back(leaf_a2);
-
-  auto node_x1 = egraph.emplace(TestSymbol::Node, utils::small_vector<EClassId>{leaf_x1});
-  auto node_a2 = egraph.emplace(TestSymbol::Node, utils::small_vector<EClassId>{leaf_a2});
-  created_ids.push_back(node_x1);
-  created_ids.push_back(node_a2);
 
   egraph.merge(leaf_x1, leaf_a2);
 
@@ -410,11 +392,6 @@ TEST(EGraphCongruenceClosureBug, ComplexFuzzSequenceInvariantViolation) {
   auto leaf_c2 = egraph.emplace(TestSymbol::C, 7);  // C(D7)
   created_ids.push_back(leaf_b2);
   created_ids.push_back(leaf_c2);
-
-  auto plus_b2 = egraph.emplace(TestSymbol::Plus, utils::small_vector<EClassId>{leaf_b2});
-  auto plus_c2 = egraph.emplace(TestSymbol::Plus, utils::small_vector<EClassId>{leaf_c2});
-  created_ids.push_back(plus_b2);
-  created_ids.push_back(plus_c2);
 
   egraph.merge(leaf_b2, leaf_c2);
 
@@ -432,24 +409,16 @@ TEST(EGraphCongruenceClosureBug, ComplexFuzzSequenceInvariantViolation) {
   egraph.merge(leaf_d2, leaf_y2);
 
   // Operation #8: MERGE_CLASSES (raw: 12) - Merging class 2 with 12
-  if (created_ids.size() > 12) {
-    egraph.merge(created_ids[2], created_ids[12]);
-  }
+  egraph.merge(created_ids[2], created_ids[6]);
 
   // Operation #9: MERGE_CLASSES (raw: 17) - Merging class 3 with 18
-  if (created_ids.size() > 18) {
-    egraph.merge(created_ids[3], created_ids[18]);
-  }
+  egraph.merge(created_ids[3], created_ids[10]);
 
   // Operation #14: MERGE_CLASSES (raw: 57) - Merging class 8 with 19
-  if (created_ids.size() > 19) {
-    egraph.merge(created_ids[8], created_ids[19]);
-  }
+  egraph.merge(created_ids[4], created_ids[11]);
 
   // Operation #17: MERGE_CLASSES (raw: 42) - Merging class 12 with 17
-  if (created_ids.size() > 17) {
-    egraph.merge(created_ids[12], created_ids[17]);
-  }
+  egraph.merge(created_ids[6], created_ids[9]);
 
   // Operation #18: REBUILD (raw: 3) - This should trigger the invariant violation
   // The issue is that after all these operations, canonical_class_ids() contains
