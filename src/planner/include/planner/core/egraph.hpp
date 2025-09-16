@@ -12,6 +12,7 @@
 #pragma once
 
 #include "planner/core/eclass.hpp"
+#include "planner/core/eids.hpp"
 #include "planner/core/enode.hpp"
 #include "planner/core/processing_context.hpp"
 #include "planner/core/union_find.hpp"
@@ -298,7 +299,8 @@ struct EGraph {
    * unique_ptr provides automatic cleanup and enables safe e-class references
    * that remain valid across hash map reallocations.
    */
-  boost::unordered_flat_map<EClassId, std::unique_ptr<EClass<Analysis>>> classes_;
+  // boost::unordered_flat_map<EClassId, std::unique_ptr<EClass<Analysis>>> classes_;
+  std::unordered_map<EClassId, std::unique_ptr<EClass<Analysis>>> classes_;
 
   /**
    * @brief Hash consing table for e-node deduplication
