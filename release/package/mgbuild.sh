@@ -137,7 +137,7 @@ print_help () {
   echo -e "  --build-logs                  Copy build logs from mgbuild container to host"
   echo -e "  --dest-dir string             Specify a custom path for destination directory on host"
   echo -e "  --package                     Copy memgraph package from mgbuild container to host"
-  echo -e "  --use-make-install            Use 'make install' with DESTDIR instead of copying individual files"
+  echo -e "  --use-make-install            Use 'ninja install' with DESTDIR instead of copying individual files"
 
   echo -e "\npackage-docker options:"
   echo -e "  --dest-dir string             Specify a custom path for destination directory on host. Provide relative path inside memgraph directory."
@@ -863,7 +863,7 @@ copy_memgraph() {
       ;;
       --use-make-install)
         if [[ "$artifact" != "binary" ]]; then
-          echo -e "Error: Only the --binary artifact can be installed using make install"
+          echo -e "Error: Only the --binary artifact can be installed using ninja install"
           exit 1
         fi
         use_make_install=true
@@ -893,8 +893,8 @@ copy_memgraph() {
     local staging_dir="/tmp/memgraph-staging"
     docker exec -u mg "$build_container" bash -c "mkdir -p $staging_dir"
 
-    echo "Installing Memgraph using make install with DESTDIR=$staging_dir..."
-    docker exec -u mg "$build_container" bash -c "cd $MGBUILD_BUILD_DIR && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && DESTDIR=$staging_dir make install"
+    echo "Installing Memgraph using ninja install with DESTDIR=$staging_dir..."
+    docker exec -u mg "$build_container" bash -c "cd $MGBUILD_BUILD_DIR && $ACTIVATE_TOOLCHAIN && $ACTIVATE_CARGO && DESTDIR=$staging_dir ninja install"
 
     # Copy the staged installation from container to host
     echo "Copying installed files from staging directory to $host_dir..."
