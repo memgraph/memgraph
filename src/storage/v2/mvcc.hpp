@@ -55,6 +55,12 @@ inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delt
     //
     // For READ UNCOMMITTED -> we accept any change. (already handled above)
     auto ts = delta->timestamp->load(std::memory_order_acquire);
+
+    if (ts == kAbortedTransactionId) {
+      delta = delta->next.load(std::memory_order_acquire);
+      continue;
+    }
+
     if ((transaction->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION && ts < transaction->start_timestamp) ||
         (transaction->isolation_level == IsolationLevel::READ_COMMITTED && ts < kTransactionInitialId)) {
       break;
