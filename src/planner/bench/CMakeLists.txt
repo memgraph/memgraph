@@ -4,6 +4,7 @@ add_executable(
 
 target_sources(memgraph__benchmark__new_planner
     PRIVATE
+    bench_main.cpp
     bench_union_find.cpp
     bench_egraph_rebuild.cpp
 )
