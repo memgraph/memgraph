@@ -9,212 +9,261 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 #include <benchmark/benchmark.h>
+#include <random>
 #include <vector>
 #include "planner/core/egraph.hpp"
 #include "planner/core/processing_context.hpp"
 
 using namespace memgraph::planner::core;
 
-enum class BenchSymbol : uint32_t {
-  A = 0,
-  B = 1,
-  C = 2,
-  D = 3,
-  E = 4,
-  F = 10,
-  G = 11,
-  H = 12,
-  Plus = 13,
-  Mul = 14,
-};
+enum class TestSymbol : uint32_t { A, B, C, D, X, Y, Plus, Mul, Sub, Div, F, F2, G, H, Var, Const, Node0 = 1000 };
 
-struct BenchAnalysis {};
+struct NoAnalysis {};
 
-static void BM_EGraphRebuild_SmallGraph(benchmark::State &state) {
+using TestEGraph = EGraph<TestSymbol, NoAnalysis>;
+using TestContext = ProcessingContext<TestSymbol>;
+
+// Benchmark leaf node creation (expected to be cheap)
+static void BM_CreateLeafNodes(benchmark::State &state) {
+  TestEGraph egraph;
+  TestContext ctx;
+
   for (auto _ : state) {
-    EGraph<BenchSymbol, BenchAnalysis> egraph;
-    ProcessingContext<BenchSymbol> ctx;
-    std::vector<EClassId> created_ids;
+    egraph.clear();
 
-    // Create leaf nodes
+    // Create many leaf nodes with different disambiguators
+    for (int i = 0; i < state.range(0); ++i) {
+      benchmark::DoNotOptimize(egraph.emplace(TestSymbol::Var, i));
+    }
+  }
+
+  state.SetItemsProcessed(state.iterations() * state.range(0));
+}
+BENCHMARK(BM_CreateLeafNodes)->Range(100, 10000)->Unit(benchmark::kMicrosecond);
+
+// Benchmark composite node creation (expected to be cheap)
+static void BM_CreateCompositeNodes(benchmark::State &state) {
+  TestEGraph egraph;
+  TestContext ctx;
+
+  for (auto _ : state) {
+    egraph.clear();
+
+    // Create some leaf nodes first
+    std::vector<EClassId> leaves;
     for (int i = 0; i < 10; ++i) {
-      auto sym = static_cast<BenchSymbol>(i % 5);
-      auto id = egraph.emplace(sym, i);
-      created_ids.push_back(id);
+      leaves.push_back(egraph.emplace(TestSymbol::Var, i));
     }
 
-    // Create compound nodes
-    for (int i = 0; i < 5; ++i) {
-      auto sym = static_cast<BenchSymbol>(10 + (i % 5));
-      std::vector<EClassId> children = {created_ids[i % created_ids.size()], created_ids[(i + 1) % created_ids.size()]};
-      auto id = egraph.emplace(sym, memgraph::utils::small_vector<EClassId>(children.begin(), children.end()));
-      created_ids.push_back(id);
+    // Create composite nodes using the leaves
+    for (int i = 0; i < state.range(0); ++i) {
+      auto left = leaves[i % leaves.size()];
+      auto right = leaves[(i + 1) % leaves.size()];
+      benchmark::DoNotOptimize(egraph.emplace(TestSymbol::Plus, {left, right}));
     }
-
-    // Perform merges
-    for (int i = 0; i < 10; ++i) {
-      auto id1 = created_ids[i % created_ids.size()];
-      auto id2 = created_ids[(i + 3) % created_ids.size()];
-      egraph.merge(id1, id2);
-    }
-
-    // Benchmark the rebuild operation
-    egraph.rebuild(ctx);
-    benchmark::ClobberMemory();
   }
+
+  state.SetItemsProcessed(state.iterations() * state.range(0));
 }
+BENCHMARK(BM_CreateCompositeNodes)->Range(100, 10000)->Unit(benchmark::kMicrosecond);
 
-static void BM_EGraphRebuild_MediumGraph(benchmark::State &state) {
-  for (auto _ : state) {
-    EGraph<BenchSymbol, BenchAnalysis> egraph;
-    ProcessingContext<BenchSymbol> ctx;
-    std::vector<EClassId> created_ids;
-
-    // Create more leaf nodes
-    for (int i = 0; i < 50; ++i) {
-      auto sym = static_cast<BenchSymbol>(i % 5);
-      auto id = egraph.emplace(sym, i);
-      created_ids.push_back(id);
-    }
-
-    // Create compound nodes with varying children
-    for (int i = 0; i < 25; ++i) {
-      auto sym = static_cast<BenchSymbol>(10 + (i % 5));
-      std::vector<EClassId> children;
-      int num_children = 2 + (i % 2);
-      for (int j = 0; j < num_children; ++j) {
-        children.push_back(created_ids[(i + j) % created_ids.size()]);
-      }
-      auto id = egraph.emplace(sym, memgraph::utils::small_vector<EClassId>(children.begin(), children.end()));
-      created_ids.push_back(id);
-    }
-
-    // Perform more merges to create complex patterns
-    for (int i = 0; i < 50; ++i) {
-      auto id1 = created_ids[i % created_ids.size()];
-      auto id2 = created_ids[(i + 7) % created_ids.size()];
-      egraph.merge(id1, id2);
-    }
-
-    // Benchmark the rebuild operation
-    egraph.rebuild(ctx);
-    benchmark::ClobberMemory();
-  }
-}
-
-static void BM_EGraphRebuild_LargeGraph(benchmark::State &state) {
-  for (auto _ : state) {
-    EGraph<BenchSymbol, BenchAnalysis> egraph;
-    ProcessingContext<BenchSymbol> ctx;
-    std::vector<EClassId> created_ids;
-
-    // Create many leaf nodes
-    for (int i = 0; i < 100; ++i) {
-      auto sym = static_cast<BenchSymbol>(i % 5);
-      auto id = egraph.emplace(sym, i);
-      created_ids.push_back(id);
-    }
-
-    // Create compound nodes
-    for (int i = 0; i < 50; ++i) {
-      auto sym = static_cast<BenchSymbol>(10 + (i % 5));
-      std::vector<EClassId> children;
-      int num_children = 2 + (i % 3);
-      for (int j = 0; j < num_children; ++j) {
-        children.push_back(created_ids[(i + j * 7) % created_ids.size()]);
-      }
-      auto id = egraph.emplace(sym, memgraph::utils::small_vector<EClassId>(children.begin(), children.end()));
-      created_ids.push_back(id);
-    }
-
-    // Perform many merges - this is likely where the performance issue manifests
-    for (int i = 0; i < 100; ++i) {
-      auto id1 = created_ids[i % created_ids.size()];
-      auto id2 = created_ids[(i + 13) % created_ids.size()];
-      egraph.merge(id1, id2);
-    }
-
-    // Benchmark the rebuild operation - this calls repair_hashcons -> canonicalize
-    egraph.rebuild(ctx);
-    benchmark::ClobberMemory();
-  }
-}
-
-// Benchmark just the merge operations without rebuild
-static void BM_EGraphMerge_Only(benchmark::State &state) {
-  EGraph<BenchSymbol, BenchAnalysis> egraph;
-  ProcessingContext<BenchSymbol> ctx;
-  std::vector<EClassId> created_ids;
-
-  // Pre-populate with nodes
-  for (int i = 0; i < 100; ++i) {
-    auto sym = static_cast<BenchSymbol>(i % 5);
-    auto id = egraph.emplace(sym, i);
-    created_ids.push_back(id);
-  }
-
-  for (int i = 0; i < 50; ++i) {
-    auto sym = static_cast<BenchSymbol>(10 + (i % 5));
-    std::vector<EClassId> children = {created_ids[i % created_ids.size()], created_ids[(i + 1) % created_ids.size()]};
-    auto id = egraph.emplace(sym, memgraph::utils::small_vector<EClassId>(children.begin(), children.end()));
-    created_ids.push_back(id);
-  }
+// Benchmark merging operations (expected to be cheap)
+static void BM_MergeOperations(benchmark::State &state) {
+  TestEGraph egraph;
+  TestContext ctx;
 
   for (auto _ : state) {
-    // Reset egraph state for consistent benchmarking
-    state.PauseTiming();
-    EGraph<BenchSymbol, BenchAnalysis> fresh_egraph = egraph;
+    egraph.clear();
+
+    // Create pairs of equivalent expressions to merge
+    std::vector<std::pair<EClassId, EClassId>> merge_pairs;
+    for (int i = 0; i < state.range(0); ++i) {
+      auto a = egraph.emplace(TestSymbol::Var, i);
+      auto b = egraph.emplace(TestSymbol::Var, i + 1000);  // Different but will be merged
+      merge_pairs.emplace_back(a, b);
+    }
+
     state.ResumeTiming();
 
-    // Benchmark just the merge operations
-    for (int i = 0; i < 50; ++i) {
-      auto id1 = created_ids[i % created_ids.size()];
-      auto id2 = created_ids[(i + 7) % created_ids.size()];
-      benchmark::DoNotOptimize(fresh_egraph.merge(id1, id2));
+    // Perform merges
+    for (const auto &[a, b] : merge_pairs) {
+      benchmark::DoNotOptimize(egraph.merge(a, b));
     }
+
+    state.PauseTiming();
   }
+
+  state.SetItemsProcessed(state.iterations() * state.range(0));
 }
+BENCHMARK(BM_MergeOperations)->Range(100, 5000)->Unit(benchmark::kMicrosecond);
 
-// Test idempotent rebuild performance
-static void BM_EGraphRebuild_Idempotent(benchmark::State &state) {
-  // Setup a complex egraph once
-  EGraph<BenchSymbol, BenchAnalysis> egraph;
-  ProcessingContext<BenchSymbol> ctx;
-  std::vector<EClassId> created_ids;
+// Benchmark rebuild without congruence (baseline)
+static void BM_RebuildNoCongruence(benchmark::State &state) {
+  TestEGraph egraph;
+  TestContext ctx;
 
-  for (int i = 0; i < 50; ++i) {
-    auto sym = static_cast<BenchSymbol>(i % 5);
-    auto id = egraph.emplace(sym, i);
-    created_ids.push_back(id);
-  }
-
-  for (int i = 0; i < 25; ++i) {
-    auto sym = static_cast<BenchSymbol>(10 + (i % 5));
-    std::vector<EClassId> children = {created_ids[i % created_ids.size()], created_ids[(i + 1) % created_ids.size()]};
-    auto id = egraph.emplace(sym, memgraph::utils::small_vector<EClassId>(children.begin(), children.end()));
-    created_ids.push_back(id);
-  }
-
-  for (int i = 0; i < 30; ++i) {
-    auto id1 = created_ids[i % created_ids.size()];
-    auto id2 = created_ids[(i + 5) % created_ids.size()];
-    egraph.merge(id1, id2);
-  }
-
-  // Do initial rebuild
-  egraph.rebuild(ctx);
-
-  // Benchmark subsequent rebuilds (should be fast if idempotent)
   for (auto _ : state) {
-    egraph.rebuild(ctx);
-    benchmark::ClobberMemory();
-  }
-}
+    egraph.clear();
 
-BENCHMARK(BM_EGraphRebuild_SmallGraph);
-BENCHMARK(BM_EGraphRebuild_MediumGraph);
-BENCHMARK(BM_EGraphRebuild_LargeGraph);
-BENCHMARK(BM_EGraphMerge_Only);
-BENCHMARK(BM_EGraphRebuild_Idempotent);
+    // Create nodes and perform merges to populate worklist
+    std::vector<EClassId> nodes;
+    for (int i = 0; i < state.range(0); ++i) {
+      nodes.push_back(egraph.emplace(TestSymbol::Var, i));
+    }
+
+    // Merge some nodes to create worklist entries
+    for (int i = 0; i < state.range(0) / 2; ++i) {
+      egraph.merge(nodes[i], nodes[i + state.range(0) / 2]);
+    }
+
+    state.ResumeTiming();
+
+    // Rebuild to process worklist
+    egraph.rebuild(ctx);
+
+    state.PauseTiming();
+  }
+
+  state.SetItemsProcessed(state.iterations() * state.range(0));
+}
+BENCHMARK(BM_RebuildNoCongruence)->Range(100, 2000)->Unit(benchmark::kMicrosecond);
+
+// Benchmark rebuild with congruence updates
+static void BM_RebuildWithCongruence(benchmark::State &state) {
+  TestEGraph egraph;
+  TestContext ctx;
+
+  for (auto _ : state) {
+    egraph.clear();
+
+    // Create a structure that will have congruences after merging
+    std::vector<EClassId> vars;
+    std::vector<EClassId> exprs;
+
+    // Create variables
+    for (int i = 0; i < state.range(0); ++i) {
+      vars.push_back(egraph.emplace(TestSymbol::Var, i));
+    }
+
+    // Create expressions that will become congruent
+    for (int i = 0; i < state.range(0) / 2; ++i) {
+      auto expr1 = egraph.emplace(TestSymbol::Plus, {vars[i], vars[i + 1]});
+      auto expr2 = egraph.emplace(TestSymbol::Plus, {vars[i + state.range(0) / 2], vars[i + 1 + state.range(0) / 2]});
+      exprs.push_back(expr1);
+      exprs.push_back(expr2);
+    }
+
+    // Merge variables to create congruences
+    for (int i = 0; i < state.range(0) / 2; ++i) {
+      egraph.merge(vars[i], vars[i + state.range(0) / 2]);
+      egraph.merge(vars[i + 1], vars[i + 1 + state.range(0) / 2]);
+    }
+
+    state.ResumeTiming();
+
+    // Rebuild to detect and process congruences
+    egraph.rebuild(ctx);
+
+    state.PauseTiming();
+  }
+
+  state.SetItemsProcessed(state.iterations() * state.range(0));
+}
+BENCHMARK(BM_RebuildWithCongruence)->Range(50, 1000)->Unit(benchmark::kMicrosecond);
+
+// Benchmark complex congruence scenario
+static void BM_CongruenceHeavyWorkload(benchmark::State &state) {
+  TestEGraph egraph;
+  TestContext ctx;
+
+  for (auto _ : state) {
+    egraph.clear();
+
+    // Create a deep expression tree that will have many congruences
+    std::vector<EClassId> level0;
+
+    // Level 0: variables
+    for (int i = 0; i < state.range(0); ++i) {
+      level0.push_back(egraph.emplace(TestSymbol::Var, i));
+    }
+
+    // Level 1: pairs
+    std::vector<EClassId> level1;
+    for (int i = 0; i < state.range(0) / 2; ++i) {
+      level1.push_back(egraph.emplace(TestSymbol::Plus, {level0[i * 2], level0[i * 2 + 1]}));
+    }
+
+    // Level 2: pairs of pairs
+    std::vector<EClassId> level2;
+    for (int i = 0; i < state.range(0) / 4; ++i) {
+      level2.push_back(egraph.emplace(TestSymbol::Mul, {level1[i * 2], level1[i * 2 + 1]}));
+    }
+
+    // Create duplicate structure
+    std::vector<EClassId> dup_level0;
+    for (int i = 0; i < state.range(0); ++i) {
+      dup_level0.push_back(egraph.emplace(TestSymbol::Var, i + 10000));
+    }
+
+    std::vector<EClassId> dup_level1;
+    for (int i = 0; i < state.range(0) / 2; ++i) {
+      dup_level1.push_back(egraph.emplace(TestSymbol::Plus, {dup_level0[i * 2], dup_level0[i * 2 + 1]}));
+    }
+
+    std::vector<EClassId> dup_level2;
+    for (int i = 0; i < state.range(0) / 4; ++i) {
+      dup_level2.push_back(egraph.emplace(TestSymbol::Mul, {dup_level1[i * 2], dup_level1[i * 2 + 1]}));
+    }
+
+    // Merge corresponding variables to trigger cascading congruences
+    for (int i = 0; i < state.range(0); ++i) {
+      egraph.merge(level0[i], dup_level0[i]);
+    }
+
+    state.ResumeTiming();
+
+    // This should trigger many congruence updates
+    egraph.rebuild(ctx);
+
+    state.PauseTiming();
+  }
+
+  state.SetItemsProcessed(state.iterations() * state.range(0));
+}
+BENCHMARK(BM_CongruenceHeavyWorkload)->Range(16, 256)->Unit(benchmark::kMicrosecond);
+
+// Memory pressure benchmark
+static void BM_MemoryPressure(benchmark::State &state) {
+  for (auto _ : state) {
+    TestEGraph egraph;
+    TestContext ctx;
+
+    // Create large e-graph
+    std::vector<EClassId> nodes;
+    for (int i = 0; i < state.range(0); ++i) {
+      if (i < 1000) {
+        nodes.push_back(egraph.emplace(TestSymbol::Var, i));
+      } else {
+        auto left = nodes[(i - 1000) % (i - 1000 + 1)];
+        auto right = nodes[(i - 999) % (i - 999 + 1)];
+        nodes.push_back(egraph.emplace(TestSymbol::Plus, {left, right}));
+      }
+    }
+
+    // Perform many merges
+    for (int i = 0; i < state.range(0) / 10; ++i) {
+      egraph.merge(nodes[i * 10], nodes[i * 10 + 5]);
+    }
+
+    benchmark::DoNotOptimize(egraph.rebuild(ctx));
+
+    // Force memory measurement
+    benchmark::DoNotOptimize(egraph.num_nodes());
+    benchmark::DoNotOptimize(egraph.num_classes());
+  }
+
+  state.SetItemsProcessed(state.iterations() * state.range(0));
+}
+BENCHMARK(BM_MemoryPressure)->Range(1000, 20000)->Unit(benchmark::kMillisecond);
 
 BENCHMARK_MAIN();
