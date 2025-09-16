@@ -549,9 +549,10 @@ State HandleRoute(TSession &session, const Marker marker) {
     return State::Close;
   }
 
+  auto const db = ReadDB<TSession, bolt_major, bolt_minor>(session);
+
 #ifdef MG_ENTERPRISE
   try {
-    auto const db = ReadDB<TSession, bolt_major, bolt_minor>(session);
     if (auto res = session.Route(routing.ValueMap(), bookmarks.ValueList(), db, {});
         !session.encoder_.MessageSuccess(std::move(res))) {
       spdlog::trace("Couldn't send result of routing!");
