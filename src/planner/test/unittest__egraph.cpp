@@ -29,6 +29,7 @@ enum class TestSymbol : uint32_t {
   Plus,
   Mul,
   F,
+  F2,
   Test,
   Node,
   // For numbered nodes
@@ -204,7 +205,7 @@ TEST(EGraphRebuildHashconsConsistency, SingleParentHashconsCheck) {
   // This tests the corner case in process_class_parents_for_rebuild
   // where parent_ids.size() == 1
   auto a = egraph.emplace(TestSymbol::A);
-  auto fa = egraph.emplace(TestSymbol::F, {a});  // f(a) - single parent of a
+  egraph.emplace(TestSymbol::F, {a});  // f(a) - single parent of a
 
   // Create another independent e-class
   auto b = egraph.emplace(TestSymbol::B);
@@ -258,11 +259,11 @@ TEST(EGraphRebuildHashconsConsistency, DeepRebuildSingleParentChain) {
   // Create a chain: a -> f(a) -> g(f(a)) where each has single parent
   auto a = egraph.emplace(TestSymbol::A);
   auto fa = egraph.emplace(TestSymbol::F, {a});
-  auto gfa = egraph.emplace(TestSymbol::Plus, {fa});  // Using Plus as second function
+  egraph.emplace(TestSymbol::Plus, {fa});  // Using Plus as second function
 
   // Create another chain: b -> h(b)
   auto b = egraph.emplace(TestSymbol::B);
-  auto hb = egraph.emplace(TestSymbol::Mul, {b});  // Using Mul as third function
+  egraph.emplace(TestSymbol::Mul, {b});  // Using Mul as third function
 
   EXPECT_EQ(egraph.num_classes(), 5);
 
@@ -301,7 +302,7 @@ TEST(EGraphCongruenceClosureBug, MissingHashconsUpdateForSingleParent) {
   // We need a case where after deduplication, a canonical e-node has exactly ONE parent
 
   auto a = egraph.emplace(TestSymbol::A);
-  auto f_a = egraph.emplace(TestSymbol::F, utils::small_vector<EClassId>{a});
+  auto f_a = egraph.emplace(TestSymbol::F, {a});
 
   EXPECT_EQ(egraph.num_classes(), 2);  // a, F(a)
 
@@ -315,7 +316,7 @@ TEST(EGraphCongruenceClosureBug, MissingHashconsUpdateForSingleParent) {
   egraph.rebuild(ctx);
 
   // Now create a new F node with the merged class - should be found via hashcons
-  auto f_merged = egraph.emplace(TestSymbol::F, utils::small_vector<EClassId>{egraph.find(a)});
+  auto f_merged = egraph.emplace(TestSymbol::F, {egraph.find(a)});
 
   // This should return the same class as f_a because F(canonical_ab) should be in hashcons
   EXPECT_EQ(egraph.find(f_a), f_merged)
@@ -332,8 +333,8 @@ TEST(EGraphCongruenceClosureBug, MissingHashconsUpdateForMultipleParents) {
   auto a = egraph.emplace(TestSymbol::A);
   auto b = egraph.emplace(TestSymbol::B);
 
-  auto f_a = egraph.emplace(TestSymbol::F, utils::small_vector<EClassId>{a});
-  auto f_b = egraph.emplace(TestSymbol::F, utils::small_vector<EClassId>{b});
+  auto f_a = egraph.emplace(TestSymbol::F, {a});
+  egraph.emplace(TestSymbol::F, {b});
 
   EXPECT_EQ(egraph.num_classes(), 4);  // a, b, F(a), F(b)
 
@@ -349,97 +350,35 @@ TEST(EGraphCongruenceClosureBug, MissingHashconsUpdateForMultipleParents) {
 }
 
 TEST(EGraphCongruenceClosureBug, ComplexFuzzSequenceInvariantViolation) {
-  /*
-  This test reproduces a specific fuzz sequence that causes an invariant violation:
-  "Non-canonical class ID 9 in canonical_class_ids()"
-
-  The sequence involves multiple CREATE_CONGRUENT, MERGE_CLASSES, CREATE_LEAF, and REBUILD operations
-  that eventually lead to a state where canonical_class_ids() contains non-canonical IDs.
-  */
-
+  // This case came for a fuzz test and found a complex example where cogruence was broken
+  // Fix has been applied but this test remains to ensure we do not redo the bug
   EGraph<TestSymbol, NoAnalysis> egraph;
   ProcessingContext<TestSymbol> ctx;
-  std::vector<EClassId> created_ids;
 
-  // Operation #1: CREATE_CONGRUENT (raw: 49)
-  // Creates two distinct leaf nodes and compound nodes, then merges the leaves
-  auto leaf_a1 = egraph.emplace(TestSymbol::A, 0);  // A(D0)
-  auto leaf_b1 = egraph.emplace(TestSymbol::B, 1);  // B(D1)
-  created_ids.push_back(leaf_a1);
-  created_ids.push_back(leaf_b1);
+  auto leaf_0 = egraph.emplace(TestSymbol::A, 0);
+  auto leaf_1 = egraph.emplace(TestSymbol::A, 1);
+  auto f_leaf_0 = egraph.emplace(TestSymbol::F, {leaf_0});
+  auto f_leaf_1 = egraph.emplace(TestSymbol::F, {leaf_1});
+  auto leaf_2 = egraph.emplace(TestSymbol::A, 2);
+  auto leaf_3 = egraph.emplace(TestSymbol::A, 3);
+  auto leaf_4 = egraph.emplace(TestSymbol::A, 4);
+  auto leaf_5 = egraph.emplace(TestSymbol::A, 5);
+  auto leaf_6 = egraph.emplace(TestSymbol::A, 6);
+  auto f2_leaf_5 = egraph.emplace(TestSymbol::F2, {leaf_5});
+  auto f2_leaf_6 = egraph.emplace(TestSymbol::F2, {leaf_6});
 
-  auto f_a1 = egraph.emplace(TestSymbol::F, utils::small_vector<EClassId>{leaf_a1});
-  auto f_b1 = egraph.emplace(TestSymbol::F, utils::small_vector<EClassId>{leaf_b1});
-  created_ids.push_back(f_a1);
-  created_ids.push_back(f_b1);
+  egraph.merge(leaf_0, leaf_1);
+  egraph.merge(f_leaf_0, leaf_1);
+  egraph.merge(leaf_2, leaf_3);
+  egraph.merge(leaf_5, leaf_6);
+  egraph.merge(f_leaf_0, leaf_4);
+  egraph.merge(f_leaf_1, f2_leaf_5);
+  egraph.merge(leaf_2, f2_leaf_6);
+  egraph.merge(leaf_4, leaf_6);
 
-  egraph.merge(leaf_a1, leaf_b1);  // This should make f_a1 and f_b1 congruent after rebuild
-
-  // Operation #2: MERGE_CLASSES (raw: 112) - Merging class 2 with 1
-  // Merge f_a1 (class 2) with leaf_b1 (class 1)
-  egraph.merge(f_a1, leaf_b1);
-
-  // Operation #4: CREATE_CONGRUENT (raw: 39)
-  auto leaf_x1 = egraph.emplace(TestSymbol::X, 4);  // X(D4)
-  auto leaf_a2 = egraph.emplace(TestSymbol::A, 5);  // A(D5)
-  created_ids.push_back(leaf_x1);
-  created_ids.push_back(leaf_a2);
-
-  egraph.merge(leaf_x1, leaf_a2);
-
-  // Operation #5: CREATE_CONGRUENT (raw: 4)
-  auto leaf_b2 = egraph.emplace(TestSymbol::B, 6);  // B(D6)
-  auto leaf_c2 = egraph.emplace(TestSymbol::C, 7);  // C(D7)
-  created_ids.push_back(leaf_b2);
-  created_ids.push_back(leaf_c2);
-
-  egraph.merge(leaf_b2, leaf_c2);
-
-  // Operation #6: CREATE_CONGRUENT (raw: 39)
-  auto leaf_d2 = egraph.emplace(TestSymbol::D, 8);  // D(D8)
-  auto leaf_y2 = egraph.emplace(TestSymbol::Y, 9);  // Y(D9)
-  created_ids.push_back(leaf_d2);
-  created_ids.push_back(leaf_y2);
-
-  auto mul_d2 = egraph.emplace(TestSymbol::Mul, utils::small_vector<EClassId>{leaf_d2});
-  auto mul_y2 = egraph.emplace(TestSymbol::Mul, utils::small_vector<EClassId>{leaf_y2});
-  created_ids.push_back(mul_d2);
-  created_ids.push_back(mul_y2);
-
-  egraph.merge(leaf_d2, leaf_y2);
-
-  // Operation #8: MERGE_CLASSES (raw: 12) - Merging class 2 with 12
-  egraph.merge(created_ids[2], created_ids[6]);
-
-  // Operation #9: MERGE_CLASSES (raw: 17) - Merging class 3 with 18
-  egraph.merge(created_ids[3], created_ids[10]);
-
-  // Operation #14: MERGE_CLASSES (raw: 57) - Merging class 8 with 19
-  egraph.merge(created_ids[4], created_ids[11]);
-
-  // Operation #17: MERGE_CLASSES (raw: 42) - Merging class 12 with 17
-  egraph.merge(created_ids[6], created_ids[9]);
-
-  // Operation #18: REBUILD (raw: 3) - This should trigger the invariant violation
-  // The issue is that after all these operations, canonical_class_ids() contains
-  // non-canonical class IDs, which violates the invariant.
-
-  // Before rebuild, let's check the current state
-  size_t classes_before = egraph.num_classes();
-  size_t nodes_before = egraph.num_nodes();
-
-  // This rebuild should detect the invariant violation
   egraph.rebuild(ctx);
 
-  // After rebuild, verify the invariants are satisfied
-  size_t classes_after = egraph.num_classes();
-  size_t nodes_after = egraph.num_nodes();
-
-  // The rebuild should have cleaned up the state
-  EXPECT_LE(classes_after, classes_before);  // Classes should not increase after rebuild
-  EXPECT_EQ(nodes_after, nodes_before);      // Nodes should remain the same
-
-  // Verify that all canonical class IDs are actually canonical
+  EXPECT_EQ(egraph.num_classes(), 1);
   for (auto id : egraph.canonical_class_ids()) {
     EXPECT_EQ(egraph.find(id), id) << "Non-canonical class ID " << id << " found in canonical_class_ids()";
   }
