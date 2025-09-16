@@ -431,12 +431,6 @@ TEST(EGraphCongruenceClosureBug, ComplexFuzzSequenceInvariantViolation) {
 
   egraph.merge(leaf_d2, leaf_y2);
 
-  // Operation #7: MERGE_CLASSES (raw: 12) - Merging class 12 with 12
-  // This is a self-merge, should be a no-op
-  if (created_ids.size() > 12) {
-    egraph.merge(created_ids[12], created_ids[12]);
-  }
-
   // Operation #8: MERGE_CLASSES (raw: 12) - Merging class 2 with 12
   if (created_ids.size() > 12) {
     egraph.merge(created_ids[2], created_ids[12]);
@@ -447,47 +441,9 @@ TEST(EGraphCongruenceClosureBug, ComplexFuzzSequenceInvariantViolation) {
     egraph.merge(created_ids[3], created_ids[18]);
   }
 
-  // Operation #10: CREATE_LEAF (raw: 235)
-  auto leaf_a3 = egraph.emplace(TestSymbol::A, 235);  // A(D235)
-  created_ids.push_back(leaf_a3);
-
-  // Operation #11: MERGE_CLASSES (raw: 137) - Merging class 10 with 5
-  if (created_ids.size() > 10) {
-    egraph.merge(created_ids[10], created_ids[5]);
-  }
-
-  // Operation #12: MERGE_CLASSES (raw: 17) - Merging class 13 with 12
-  if (created_ids.size() > 13) {
-    egraph.merge(created_ids[13], created_ids[12]);
-  }
-
-  // Operation #13: MERGE_CLASSES (raw: 52) - Merging class 12 with 5
-  if (created_ids.size() > 12) {
-    egraph.merge(created_ids[12], created_ids[5]);
-  }
-
   // Operation #14: MERGE_CLASSES (raw: 57) - Merging class 8 with 19
   if (created_ids.size() > 19) {
     egraph.merge(created_ids[8], created_ids[19]);
-  }
-
-  // Operation #15: CREATE_CONGRUENT (raw: 24)
-  auto leaf_f1 = egraph.emplace(TestSymbol::F, 10);         // F(D10)
-  auto leaf_node0 = egraph.emplace(TestSymbol::Node0, 11);  // Node0(D11)
-  created_ids.push_back(leaf_f1);
-  created_ids.push_back(leaf_node0);
-
-  auto a_f1 = egraph.emplace(TestSymbol::A, utils::small_vector<EClassId>{leaf_f1});
-  auto a_node0 = egraph.emplace(TestSymbol::A, utils::small_vector<EClassId>{leaf_node0});
-  created_ids.push_back(a_f1);
-  created_ids.push_back(a_node0);
-
-  egraph.merge(leaf_f1, leaf_node0);
-
-  // Operation #16: CREATE_COMPOUND (raw: 1)
-  if (created_ids.size() >= 2) {
-    auto compound = egraph.emplace(TestSymbol::B, utils::small_vector<EClassId>{created_ids[0], created_ids[1]});
-    created_ids.push_back(compound);
   }
 
   // Operation #17: MERGE_CLASSES (raw: 42) - Merging class 12 with 17
