@@ -313,13 +313,6 @@ TEST(StorageV2Gc, InterleavedDeltasWithAbortedContributorsAreGarbagedCollected) 
     storage->FreeMemory(std::move(main_guard), false);
   }
 
-  ASSERT_EQ(3, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
-
-  {
-    auto main_guard = std::unique_lock{storage->main_lock_};
-    storage->FreeMemory(std::move(main_guard), false);
-  }
-
   EXPECT_EQ(0, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
 }
 
