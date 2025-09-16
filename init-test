@@ -6,6 +6,9 @@ source "$DIR/environment/util.sh"
 # this should fix --break-system-packages not being available in older distros
 export PIP_BREAK_SYSTEM_PACKAGES=1
 
+# this should stop flakiness due to linking with packages of the wrong version
+export UV_LINK_MODE=copy
+
 pip install uv
 export PATH="$HOME/.local/bin:$PATH"
 
