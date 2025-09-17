@@ -147,7 +147,7 @@ TEST_F(ConsumerTest, BatchInterval) {
   for (auto sent_messages = 0; sent_messages < kMessageCount; ++sent_messages) {
     cluster.SeedTopic(kTopicName, kMessage);
     // Sleep for a bit to allow the consumer to receive the message.
-    std::this_thread::sleep_for(kBatchInterval / kTimingTolerance);
+    std::this_thread::sleep_for(kBatchInterval);
   }
   // Wait for all messages to be delivered
   sent_messages.wait();
@@ -162,14 +162,15 @@ TEST_F(ConsumerTest, BatchInterval) {
     EXPECT_LE(1, message_count);
 
     auto actual_diff = std::chrono::duration_cast<std::chrono::milliseconds>(timestamp - previous_timestamp);
-    EXPECT_LE(kBatchInterval.count() / kTimingTolerance, actual_diff.count());
+    // Since the default batch size is large, we expect that the batch interval is always hit.
+    EXPECT_LE(kBatchInterval / kTimingTolerance, actual_diff);
   };
 
   ASSERT_FALSE(received_timestamps.empty());
   // Check that not all messages are received in one batch
   EXPECT_LE(2, received_timestamps.size());
 
-  int msgsCnt = received_timestamps[0].first;
+  auto msgsCnt = received_timestamps[0].first;
   for (auto i = 1; i < received_timestamps.size(); ++i) {
     msgsCnt += received_timestamps[i].first;
     check_received_timestamp(i);
@@ -243,25 +244,21 @@ TEST_F(ConsumerTest, BatchSize) {
   EXPECT_TRUE(expected_messages_received) << "Some unexpected message has been received";
   ASSERT_FALSE(received_timestamps.empty());
 
-  auto check_received_timestamp = [&received_timestamps](size_t index) {
+  auto check_received_timestamp = [&received_timestamps](auto index) {
     SCOPED_TRACE("Checking index " + std::to_string(index));
     const auto [message_count, timestamp] = received_timestamps[index];
     const auto [_, previous_timestamp] = received_timestamps[index - 1];
 
     auto actual_diff = std::chrono::duration_cast<std::chrono::milliseconds>(timestamp - previous_timestamp);
-    if (message_count == kBatchSize) {
-      // Full batch, timeout isn't hit - allow timing variance
-      EXPECT_LE(actual_diff, kBatchInterval * kTimingTolerance);
-    } else {
-      EXPECT_LE(kBatchInterval.count() / kTimingTolerance, actual_diff.count());
-    }
+    // Each batch has to be processed in at most kBatchInterval * kTimingTolerance
+    // because either the batch size is hit or the timeout is hit.
+    EXPECT_LE(actual_diff, kBatchInterval * kTimingTolerance);
   };
   static constexpr auto kExpectedBatchCount = kMessageCount / kBatchSize + 1;
   EXPECT_EQ(kExpectedBatchCount, received_timestamps.size());
-  for (auto i = 1; i < received_timestamps.size() - 1; ++i) {
+  for (auto i = 1; i < received_timestamps.size(); ++i) {
     check_received_timestamp(i);
   }
-  check_received_timestamp(received_timestamps.size() - 1);
 }
 
 TEST_F(ConsumerTest, InvalidBootstrapServers) {
