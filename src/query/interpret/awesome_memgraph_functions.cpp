@@ -1770,7 +1770,7 @@ TypedValue GetHopsCounter(const TypedValue * /*args*/, int64_t /*nargs*/, const 
   return TypedValue(ctx.hops_counter, ctx.memory);
 }
 
-auto const builtin_functions = absl::flat_hash_map<std::string, func_impl>{
+auto const builtin_functions = std::map<std::string, func_impl>{
     // Predicate functions
     {"ISEMPTY", IsEmpty},
 
