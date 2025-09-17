@@ -552,6 +552,7 @@ build_memgraph () {
 
 init_tests() {
   echo "Initializing tests..."
+  docker exec -u root "$build_container" bash -c "apt update && apt install -y python3-venv"
   docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && ./init-test --ci"
   echo "...Done"
 }
