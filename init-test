@@ -22,9 +22,12 @@ function setup_virtualenv () {
     fi
 
     # create new virtualenv using uv
-    uv venv ve3 || exit 1
+    #uv venv ve3 || exit 1
+    #source ve3/bin/activate
+    #uv pip install -r requirements.txt || exit 1
+    python3 -m venv ve3
     source ve3/bin/activate
-    uv pip install -r requirements.txt || exit 1
+    pip install -r requirements.txt
     deactivate
 
     popd > /dev/null
