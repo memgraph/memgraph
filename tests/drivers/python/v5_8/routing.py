@@ -6,8 +6,9 @@ class Neo4jService:
         self.driver = GraphDatabase.driver(uri, auth=(user, password))
 
         with self.driver.session() as session:
-            session.run("CREATE DATABASE db1")
-            session.run("CREATE DATABASE db2")
+            session.run("MATCH (n) DETACH DELETE n").consume()
+            session.run("CREATE DATABASE db1").consume()
+            session.run("CREATE DATABASE db2").consume()
 
     def close(self):
         self.driver.close()
