@@ -43,7 +43,7 @@ int SpanToInt(std::span<const char> span) {
 inline constexpr std::chrono::milliseconds kDefaultBatchInterval{100};
 inline constexpr int64_t kDefaultBatchSize{1000};
 
-inline constexpr double kTimingTolerance = 1.2;  // 20% tolerance for all timings to prevent flakes
+inline constexpr double kTimingTolerance = 1.2;  // tolerance for all timings to prevent flakes
 }  // namespace
 
 struct ConsumerTest : public ::testing::Test {
