@@ -412,7 +412,6 @@ endif()
 
 
 option(TEST_COVERAGE "Generate coverage reports from running memgraph" OFF)
-option(TOOLS "Build tools binaries" ON)
 option(QUERY_MODULES "Build query modules containing custom procedures" ON)
 option(ASAN "Build with Address Sanitizer. To get a reasonable performance option should be used only in Release or RelWithDebInfo build " OFF)
 option(TSAN "Build with Thread Sanitizer. To get a reasonable performance option should be used only in Release or RelWithDebInfo build " OFF)
@@ -530,10 +529,6 @@ add_subdirectory(release)
 if (MG_ENABLE_TESTING)
   enable_testing()
   add_subdirectory(tests)
-endif()
-
-if(TOOLS)
-  add_subdirectory(tools)
 endif()
 
 if(QUERY_MODULES)
