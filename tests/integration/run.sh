@@ -16,7 +16,7 @@ test_one() {
     ./prepare.sh
   fi
   if [ -x runner.py ]; then
-    $DIR/../ve3/bin/python3 runner.py
+    $DIR/../ve3/bin/python3 -u runner.py
   elif [ -x runner.sh ]; then
     ./runner.sh
   fi
