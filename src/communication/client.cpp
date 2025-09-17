@@ -102,7 +102,7 @@ bool Client::Read(size_t len, bool exactly_len, const std::optional<int> timeout
   size_t received = 0;
   buffer_.write_end()->Resize(buffer_.read_end()->size() + len);
   do {
-    auto buff = buffer_.write_end()->Allocate();
+    auto buff = buffer_.write_end()->GetBuffer();
     if (ssl_) {
       // We clear errors here to prevent errors piling up in the internal
       // OpenSSL error queue. To see when could that be an issue read this:

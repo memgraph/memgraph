@@ -16,6 +16,7 @@
 #include <utility>
 #include "flags/run_time_configurable.hpp"
 #include "storage/v2/commit_log.hpp"
+#include "storage/v2/edge_ref.hpp"
 #include "storage/v2/indices/label_index_stats.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/label_index.hpp"
@@ -46,6 +47,8 @@ struct ReplicationHandler;
 }  // namespace memgraph::replication
 
 namespace memgraph::storage {
+
+using EdgeInfo = std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>;
 
 struct IndexPerformanceTracker {
   void update(Delta::Action action) {
@@ -183,6 +186,8 @@ class InMemoryStorage final : public Storage {
 
     std::optional<EdgeAccessor> FindEdge(Gid gid, View view) override;
 
+    std::optional<EdgeAccessor> FindEdge(Gid edge_gid, Gid from_vertex_gid, View view) override;
+
     EdgesIterable Edges(EdgeTypeId edge_type, View view) override;
 
     EdgesIterable Edges(EdgeTypeId edge_type, PropertyId property, View view) override;
@@ -286,6 +291,10 @@ class InMemoryStorage final : public Storage {
       return storage_->indices_.text_index_.ApproximateVerticesTextCount(index_name);
     }
 
+    std::optional<uint64_t> ApproximateEdgesTextCount(std::string_view index_name) const override {
+      return storage_->indices_.text_edge_index_.ApproximateEdgesTextCount(index_name);
+    }
+
     std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId &label) const override {
       return static_cast<InMemoryLabelIndex *>(storage_->indices_.label_index_.get())->GetIndexStats(label);
     }
@@ -348,6 +357,10 @@ class InMemoryStorage final : public Storage {
     IndicesInfo ListAllIndices() const override;
 
     ConstraintsInfo ListAllConstraints() const override;
+
+    void DropAllIndexes() override;
+
+    void DropAllConstraints() override;
 
     // Represents the 1st phase of 2PC protocol.
     // If there is only a single MG instance, this method serves as commit method. The method itself calls
@@ -527,8 +540,8 @@ class InMemoryStorage final : public Storage {
     /// View is not needed because a new rtree gets created for each transaction and it is always
     /// using the latest version
     auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
-                       PropertyValue const &bottom_left, PropertyValue const &top_right,
-                       WithinBBoxCondition condition) -> PointIterable override;
+                       PropertyValue const &bottom_left, PropertyValue const &top_right, WithinBBoxCondition condition)
+        -> PointIterable override;
 
     std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearchOnNodes(
         const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) override;
@@ -717,7 +730,11 @@ class InMemoryStorage final : public Storage {
 
   void UpdateEdgesMetadataOnModification(Edge *edge, Vertex *from_vertex);
 
-  std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>> FindEdge(Gid gid);
+  EdgeInfo FindEdge(Gid gid);
+
+  EdgeInfo FindEdge(Gid edge_gid, Gid from_vertex_gid);
+
+  EdgeInfo FindEdgeFromMetadata(Gid gid, const Edge *edge_ptr);
 
   void Clear();
 

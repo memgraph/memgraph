@@ -11,22 +11,25 @@
 
 #pragma once
 
+#include <mgcxx_text_search.hpp>
 #include <span>
 #include <string_view>
 #include <vector>
 
-#include "absl/container/flat_hash_map.h"
 #include "absl/container/flat_hash_set.h"
+#include "mg_procedure.h"
 #include "nlohmann/json_fwd.hpp"
 #include "storage/v2/id_types.hpp"
+#include "storage/v2/property_store.hpp"
 #include "storage/v2/property_value.hpp"
-#include "text_search.hpp"
 
 namespace memgraph::storage {
 
 class NameIdMapper;
 struct Vertex;
+struct Edge;
 struct TextIndexData;
+struct TextEdgeIndexData;
 
 inline constexpr std::string_view kTextIndicesDirectory = "text_indices";
 inline constexpr bool kDoSkipCommit = true;
@@ -35,14 +38,6 @@ inline constexpr bool kDoSkipCommit = true;
 inline constexpr std::string_view kBooleanAnd = "AND";
 inline constexpr std::string_view kBooleanOr = "OR";
 inline constexpr std::string_view kBooleanNot = "NOT";
-
-struct TextIndexSpec {
-  bool operator==(const TextIndexSpec &other) const = default;
-
-  std::string index_name_;
-  LabelId label_;
-  std::vector<PropertyId> properties_;
-};
 
 // Convert text to lowercase while preserving boolean operators
 std::string ToLowerCasePreservingBooleanOperators(std::string_view input);
@@ -56,27 +51,63 @@ nlohmann::json SerializeProperties(const std::map<PropertyId, PropertyValue> &pr
 // Convert properties to string representation
 std::string StringifyProperties(const std::map<PropertyId, PropertyValue> &properties);
 
-// Search functions for the text index
-mgcxx::text_search::SearchOutput SearchGivenProperties(const std::string &search_query,
-                                                       mgcxx::text_search::Context &context);
-
-mgcxx::text_search::SearchOutput RegexSearch(const std::string &search_query, mgcxx::text_search::Context &context);
-
-mgcxx::text_search::SearchOutput SearchAllProperties(const std::string &search_query,
-                                                     mgcxx::text_search::Context &context);
+// Extract properties from the property store and return them as a map
+std::map<PropertyId, PropertyValue> ExtractProperties(const PropertyStore &property_store,
+                                                      std::span<PropertyId const> properties);
 
 // Text index change tracking
 enum class TextIndexOp { ADD, UPDATE, REMOVE };
+struct TextIndexSpec {
+  bool operator==(const TextIndexSpec &other) const = default;
+
+  std::string index_name;
+  LabelId label;
+  std::vector<PropertyId> properties;
+};
+
+struct TextEdgeIndexSpec {
+  bool operator==(const TextEdgeIndexSpec &other) const = default;
+
+  std::string index_name;
+  EdgeTypeId edge_type;
+  std::vector<PropertyId> properties;
+};
 
 struct TextIndexPending {
-  absl::flat_hash_set<Vertex const *> to_add_;
-  absl::flat_hash_set<Vertex const *> to_remove_;
+  absl::flat_hash_set<const Vertex *> to_add;
+  absl::flat_hash_set<const Vertex *> to_remove;
+};
+struct EdgeWithVertices {
+  const Edge *edge;
+  const Vertex *from_vertex;
+  const Vertex *to_vertex;
+
+  EdgeWithVertices(const Edge *e, const Vertex *from, const Vertex *to) : edge(e), from_vertex(from), to_vertex(to) {}
+
+  friend bool operator==(const EdgeWithVertices &a, const EdgeWithVertices &b) { return a.edge == b.edge; }
+
+  template <typename H>
+  friend H AbslHashValue(H h, const EdgeWithVertices &edge_with_vertices) {
+    return H::combine(std::move(h), edge_with_vertices.edge);
+  }
+};
+struct TextEdgeIndexPending {
+  absl::flat_hash_set<EdgeWithVertices> to_add;
+  absl::flat_hash_set<const Edge *> to_remove;
 };
 
 // Text index change collector for transaction-level batching
 using TextIndexChangeCollector = absl::flat_hash_map<TextIndexData *, TextIndexPending>;
+using TextEdgeIndexChangeCollector = absl::flat_hash_map<TextEdgeIndexData *, TextEdgeIndexPending>;
 
-void TrackTextIndexChange(TextIndexChangeCollector &collector, std::span<TextIndexData *> indices, Vertex *vertex,
+void TrackTextIndexChange(TextIndexChangeCollector &collector, std::span<TextIndexData *> indices, const Vertex *vertex,
                           TextIndexOp op);
+void TrackTextEdgeIndexChange(TextEdgeIndexChangeCollector &collector, std::span<TextEdgeIndexData *> indices,
+                              const Edge *edge, const Vertex *from_vertex, const Vertex *to_vertex, TextIndexOp op);
+
+// Text search utility functions
+mgcxx::text_search::SearchOutput PerformTextSearch(mgcxx::text_search::Context &context,
+                                                   const std::string &search_query, text_search_mode search_mode,
+                                                   std::size_t limit);
 
 }  // namespace memgraph::storage

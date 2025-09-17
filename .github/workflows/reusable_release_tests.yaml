@@ -119,6 +119,8 @@ jobs:
           stop --remove
 
       - name: Clean up Docker
+        if: always()
+        continue-on-error: true
         run: |
           ./tools/docker_cleanup.sh
 
@@ -208,6 +210,8 @@ jobs:
           stop --remove
 
       - name: Clean up Docker
+        if: always()
+        continue-on-error: true
         run: |
           ./tools/docker_cleanup.sh
 
@@ -318,6 +322,8 @@ jobs:
           stop --remove
 
       - name: Clean up Docker
+        if: always()
+        continue-on-error: true
         run: |
           ./tools/docker_cleanup.sh
 
@@ -389,6 +395,8 @@ jobs:
           stop --remove
 
       - name: Clean up Docker
+        if: always()
+        continue-on-error: true
         run: |
           ./tools/docker_cleanup.sh
 
@@ -492,6 +500,8 @@ jobs:
           stop --remove
 
       - name: Clean up Docker
+        if: always()
+        continue-on-error: true
         run: |
           ./tools/docker_cleanup.sh
 
@@ -600,6 +610,8 @@ jobs:
           stop --remove
 
       - name: Clean up Docker
+        if: always()
+        continue-on-error: true
         run: |
           ./tools/docker_cleanup.sh
 
@@ -688,6 +700,8 @@ jobs:
           stop --remove
 
       - name: Clean up Docker
+        if: always()
+        continue-on-error: true
         run: |
           ./tools/docker_cleanup.sh
 
@@ -775,6 +789,8 @@ jobs:
           stop --remove
 
       - name: Clean up Docker
+        if: always()
+        continue-on-error: true
         run: |
           ./tools/docker_cleanup.sh
 
@@ -873,6 +889,8 @@ jobs:
           stop --remove
 
       - name: Clean up Docker
+        if: always()
+        continue-on-error: true
         run: |
           ./tools/docker_cleanup.sh
 
@@ -990,6 +1008,8 @@ jobs:
           stop --remove
 
       - name: Clean up Docker
+        if: always()
+        continue-on-error: true
         run: |
           ./tools/docker_cleanup.sh
 
@@ -1058,6 +1078,8 @@ jobs:
           stop --remove
 
       - name: Clean up Docker
+        if: always()
+        continue-on-error: true
         run: |
           ./tools/docker_cleanup.sh
 
@@ -1126,6 +1148,8 @@ jobs:
           stop --remove
 
       - name: Clean up Docker
+        if: always()
+        continue-on-error: true
         run: |
           ./tools/docker_cleanup.sh
 

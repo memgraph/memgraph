@@ -262,6 +262,13 @@ struct WalTextIndexDrop {
   std::string index_name;
   std::optional<std::string> label;  //!< Optional label, only used for versions < kTextIndexWithProperties
 };
+struct WalTextEdgeIndexCreate {
+  friend bool operator==(const WalTextEdgeIndexCreate &, const WalTextEdgeIndexCreate &) = default;
+  using ctr_types = std::tuple<std::string, std::string, std::vector<std::string>>;
+  std::string index_name;
+  std::string edge_type;
+  std::vector<std::string> properties;  //!< Properties to index, if empty all properties are indexed
+};
 struct WalEnumCreate {
   friend bool operator==(const WalEnumCreate &, const WalEnumCreate &) = default;
   using ctr_types = std::tuple<std::string, std::vector<std::string>>;
@@ -345,8 +352,8 @@ struct WalDeltaData {
                WalPointIndexDrop, WalExistenceConstraintCreate, WalExistenceConstraintDrop,
                WalLabelPropertyIndexStatsSet, WalEdgeTypePropertyIndexCreate, WalEdgeTypePropertyIndexDrop,
                WalUniqueConstraintCreate, WalUniqueConstraintDrop, WalTypeConstraintCreate, WalTypeConstraintDrop,
-               WalTextIndexCreate, WalTextIndexDrop, WalEnumCreate, WalEnumAlterAdd, WalEnumAlterUpdate,
-               WalVectorIndexCreate, WalVectorIndexDrop, WalVectorEdgeIndexCreate, WalTtlOperation>
+               WalTextIndexCreate, WalTextIndexDrop, WalTextEdgeIndexCreate, WalEnumCreate, WalEnumAlterAdd,
+               WalEnumAlterUpdate, WalVectorIndexCreate, WalVectorIndexDrop, WalVectorEdgeIndexCreate, WalTtlOperation>
       data_ = WalTransactionEnd{};
 };
 
@@ -386,6 +393,7 @@ constexpr bool IsWalDeltaDataImplicitTransactionEndVersion15(const WalDeltaData 
                         [](WalEdgePropertyIndexDrop const &) { return true; },
                         [](WalTextIndexCreate const &) { return true; },
                         [](WalTextIndexDrop const &) { return true; },
+                        [](WalTextEdgeIndexCreate const &) { return true; },
                         [](WalExistenceConstraintCreate const &) { return true; },
                         [](WalExistenceConstraintDrop const &) { return true; },
                         [](WalUniqueConstraintCreate const &) { return true; },
@@ -450,8 +458,7 @@ uint64_t EncodeTransactionStart(Encoder<utils::OutputFile> *encoder, uint64_t ti
 
 /// Function use to encode the transaction start
 /// Used for replication
-void EncodeTransactionStart(BaseEncoder *encoder, uint64_t timestamp, bool commit,
-                            StorageAccessType access_type);
+void EncodeTransactionStart(BaseEncoder *encoder, uint64_t timestamp, bool commit, StorageAccessType access_type);
 
 /// Function used to encode the transaction end.
 void EncodeTransactionEnd(BaseEncoder *encoder, uint64_t timestamp);
@@ -476,7 +483,9 @@ void EncodeLabelProperty(BaseEncoder &encoder, NameIdMapper &name_id_mapper, Lab
 void EncodeLabelPropertyStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label,
                               std::span<PropertyPath const> properties, LabelPropertyIndexStats const &stats);
 void EncodeLabelStats(BaseEncoder &encoder, NameIdMapper &name_id_mapper, LabelId label, LabelIndexStats stats);
-void EncodeTextIndex(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const TextIndexSpec &text_index_info);
+void EncodeTextIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const TextIndexSpec &text_index_info);
+void EncodeTextEdgeIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper,
+                             const TextEdgeIndexSpec &text_edge_index_info);
 void EncodeVectorIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const VectorIndexSpec &spec);
 void EncodeVectorEdgeIndexSpec(BaseEncoder &encoder, NameIdMapper &name_id_mapper, const VectorEdgeIndexSpec &spec);
 void EncodeIndexName(BaseEncoder &encoder, std::string_view index_name);

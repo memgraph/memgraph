@@ -72,12 +72,19 @@ bool DeleteFile(const std::filesystem::path &file) noexcept {
 
 bool CopyFile(const std::filesystem::path &src, const std::filesystem::path &dst) noexcept {
   std::error_code error_code;  // For exception suppression.
-  return std::filesystem::copy_file(src, dst, error_code);
+  auto const res = std::filesystem::copy_file(src, dst, error_code);
+  if (!res) {
+    spdlog::error("Error code message: {}", error_code.message());
+  }
+  return res;
 }
 
 bool RenamePath(const std::filesystem::path &src, const std::filesystem::path &dst) {
   std::error_code error_code;  // For exception suppression.
   std::filesystem::rename(src, dst, error_code);
+  if (error_code) {
+    spdlog::error("Error code message: {}", error_code.message());
+  }
   return !error_code;
 }
 
@@ -341,7 +348,7 @@ void OutputFile::Open(const std::filesystem::path &path, Mode mode) {
     }
   }
 
-  MG_ASSERT(fd_ != -1, "While trying to open {} for writing an error occured: {} ({})", path_, strerror(errno), errno);
+  MG_ASSERT(fd_ != -1, "While trying to open {} for writing an error occurred: {} ({})", path_, strerror(errno), errno);
 }
 
 bool OutputFile::IsOpen() const { return fd_ != -1; }

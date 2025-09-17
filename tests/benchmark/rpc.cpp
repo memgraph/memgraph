@@ -17,6 +17,7 @@
 
 #include "rpc/client.hpp"
 #include "rpc/client_pool.hpp"
+#include "rpc/file_replication_handler.hpp"
 #include "rpc/messages.hpp"
 #include "rpc/server.hpp"
 #include "slk/serialization.hpp"
@@ -107,7 +108,8 @@ int main(int argc, char **argv) {
     server.emplace(memgraph::io::network::Endpoint(FLAGS_server_address, FLAGS_server_port), &server_context.value(),
                    kThreadsNum);
 
-    server->Register<Echo>([](uint64_t const request_version, const auto &req_reader, auto *res_builder) {
+    server->Register<Echo>([](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+                              uint64_t const request_version, const auto &req_reader, auto *res_builder) {
       EchoMessage res;
       Load(&res, req_reader);
       memgraph::rpc::SendFinalResponse(res, request_version, res_builder);

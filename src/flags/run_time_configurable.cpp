@@ -88,7 +88,7 @@ DEFINE_string(storage_snapshot_interval, "",
               "Define periodic snapshot schedule via cron format or as a period in seconds.");
 
 // NOLINTNEXTLINE(cppcoreguidelines-avoid-non-const-global-variables)
-DEFINE_VALIDATED_uint64(storage_snapshot_interval_sec, 0,
+DEFINE_VALIDATED_uint64(storage_snapshot_interval_sec, 300,
                         "Storage snapshot creation interval (in seconds). Set "
                         "to 0 to disable periodic snapshot creation.",
                         FLAG_IN_RANGE(0, 7LU * 24 * 3600));
@@ -378,18 +378,20 @@ void Initialize() {
   register_flag(kQueryLogDirectoryGFlagsKey, kQueryLogDirectorySettingKey, kRestore);
 
   /*
-   * Register periodic snapshot setting
+   * Register periodic snapshot setting. In the case both flags are defined, --storage-snapshot-interval flag will be
+   * used. Ideally, we rely on just a single flag but --storage-snapshot-interval-sec is for community,
+   * --storage-snapshot-interval for enterprise.
    */
-  // Periodic snapshot setup is exclusive between interval_sec and config
-  if (FLAGS_storage_snapshot_interval_sec != 0) {    // Not default
-    if (!FLAGS_storage_snapshot_interval.empty()) {  // Not default
-      LOG_FATAL(
-          "Periodic snapshot schedule define via both --storage-snapshot-interval-sec and "
-          "--storage-snapshot-interval. Please use a single flag to define the schedule!");
+  if (FLAGS_storage_snapshot_interval_sec != 0) {
+    if (FLAGS_storage_snapshot_interval.empty()) {
+      FLAGS_storage_snapshot_interval = std::to_string(FLAGS_storage_snapshot_interval_sec);
+    } else {
+      spdlog::warn(
+          "Periodic snapshot schedule defined via both --storage-snapshot-interval-sec and "
+          "--storage-snapshot-interval. Memgraph will use the configuration flag from --storage-snapshot-interval!");
     }
-    // Update the combined flag to reflect the interval defined via FLAGS_storage_snapshot_interval_sec
-    FLAGS_storage_snapshot_interval = std::to_string(FLAGS_storage_snapshot_interval_sec);
   }
+
   // FATAL validation at startup; can't be part of the flag defintion, since we need to check for license
   ValidPeriodicSnapshot<true>(FLAGS_storage_snapshot_interval);
   register_flag(

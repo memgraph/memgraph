@@ -53,8 +53,12 @@ else
   OS_SCRIPT=$DIR/environment/os/$DISTRO.sh
 fi
 echo "ALL BUILD PACKAGES: $($OS_SCRIPT list MEMGRAPH_BUILD_DEPS)"
-$OS_SCRIPT check MEMGRAPH_BUILD_DEPS
-echo "All packages are in-place..."
+if [[ "$check_system_packages" == "true" ]]; then
+  $OS_SCRIPT check MEMGRAPH_BUILD_DEPS
+  echo "All packages are in-place..."
+else
+  echo "Skipping package check as requested..."
+fi
 
 # create a default build directory
 mkdir -p ./build
