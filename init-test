@@ -78,10 +78,7 @@ if [[ "$ci" == "false" ]]; then
 fi
 
 if [[ "$prep_testing" == "true" ]]; then
-  setup_virtualenv tests/gql_behave
-  setup_virtualenv tests/stress
-  setup_virtualenv tests/integration/ldap
-  setup_virtualenv tests/query_modules
+  setup_virtualenv tests
   cd tests
   ./setup.sh
   cd ..
