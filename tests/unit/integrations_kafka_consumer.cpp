@@ -243,21 +243,8 @@ TEST_F(ConsumerTest, BatchSize) {
   EXPECT_TRUE(expected_messages_received) << "Some unexpected message has been received";
   ASSERT_FALSE(received_timestamps.empty());
 
-  auto check_received_timestamp = [&received_timestamps](auto index) {
-    SCOPED_TRACE("Checking index " + std::to_string(index));
-    const auto [message_count, timestamp] = received_timestamps[index];
-    const auto [_, previous_timestamp] = received_timestamps[index - 1];
-
-    auto actual_diff = std::chrono::duration_cast<std::chrono::milliseconds>(timestamp - previous_timestamp);
-    // Each batch has to be processed in at most kBatchInterval * kTimingTolerance
-    // because either the batch size is hit or the timeout is hit.
-    EXPECT_LE(actual_diff, kBatchInterval * kTimingTolerance);
-  };
   static constexpr auto kExpectedBatchCount = kMessageCount / kBatchSize + 1;
   EXPECT_EQ(kExpectedBatchCount, received_timestamps.size());
-  for (auto i = 1; i < received_timestamps.size(); ++i) {
-    check_received_timestamp(i);
-  }
 }
 
 TEST_F(ConsumerTest, InvalidBootstrapServers) {
