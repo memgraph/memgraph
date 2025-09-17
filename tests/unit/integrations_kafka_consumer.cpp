@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #include <chrono>
-#include <cstddef>
 #include <latch>
 #include <optional>
 #include <string>
