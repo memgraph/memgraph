@@ -1,0 +1,19 @@
+query: >
+  MATCH path=(sw:SWRelease{uid: 'Release_1.0'})<-[:PACKAGED|HAS_PARENT*]-(c:Component)
+  WITH collect(path) AS paths
+  CALL convert_c.to_tree(paths, false, {}) YIELD value
+  RETURN
+    value.name AS root_name,
+    value._type AS root_type,
+    size(value.PACKAGED) AS packaged_count,
+    value.PACKAGED[0].name AS component_name,
+    size(value.PACKAGED[0].HAS_PARENT) AS child_count,
+    [child IN value.PACKAGED[0].HAS_PARENT | child.name] AS child_names
+
+output:
+  - root_name: MyRelease
+    root_type: SWRelease
+    packaged_count: 1
+    component_name: ComponentA
+    child_count: 2
+    child_names: ["SubComponent1", "SubComponent2"]
