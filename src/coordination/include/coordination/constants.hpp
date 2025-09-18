@@ -54,6 +54,7 @@ const std::string kLogEntryValTypeKey = "val_type";
 // routing policies
 constexpr auto kEnabledReadsOnMain = "enabled_reads_on_main"sv;
 constexpr auto kSyncFailoverOnly = "sync_failover_only"sv;
+constexpr auto kMaxFailoverLagOnReplica = "max_failover_replica_lag"sv;
 
 // cluster state
 constexpr int MAX_SNAPSHOTS = 3;

@@ -97,12 +97,26 @@ void ShowInstancesRes::Load(ShowInstancesRes *self, memgraph::slk::Reader *reade
   memgraph::slk::Load(self, reader);
 }
 
-// StateCheck
+// StateCheckReq
+void StateCheckReqV1::Save(const StateCheckReqV1 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void StateCheckReqV1::Load(StateCheckReqV1 *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
+
 void StateCheckReq::Save(const StateCheckReq &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
 }
 
 void StateCheckReq::Load(StateCheckReq *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
+
+// StateCheckRes
+
+void StateCheckResV1::Save(const StateCheckResV1 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void StateCheckResV1::Load(StateCheckResV1 *self, memgraph::slk::Reader *reader) { memgraph::slk::Load(self, reader); }
 
 void StateCheckRes::Save(const StateCheckRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self, builder);
@@ -129,12 +143,28 @@ void ReplicationLagRes::Load(ReplicationLagRes *self, memgraph::slk::Reader *rea
 
 // GetDatabaseHistoriesRpc
 
+void GetDatabaseHistoriesReqV1::Save(const GetDatabaseHistoriesReqV1 & /*self*/, memgraph::slk::Builder * /*builder*/) {
+  /* nothing to serialize */
+}
+
+void GetDatabaseHistoriesReqV1::Load(GetDatabaseHistoriesReqV1 * /*self*/, memgraph::slk::Reader * /*reader*/) {
+  /* nothing to serialize */
+}
+
 void GetDatabaseHistoriesReq::Save(const GetDatabaseHistoriesReq & /*self*/, memgraph::slk::Builder * /*builder*/) {
   /* nothing to serialize */
 }
 
 void GetDatabaseHistoriesReq::Load(GetDatabaseHistoriesReq * /*self*/, memgraph::slk::Reader * /*reader*/) {
   /* nothing to serialize */
+}
+
+void GetDatabaseHistoriesResV1::Save(const GetDatabaseHistoriesResV1 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self, builder);
+}
+
+void GetDatabaseHistoriesResV1::Load(GetDatabaseHistoriesResV1 *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(self, reader);
 }
 
 void GetDatabaseHistoriesRes::Save(const GetDatabaseHistoriesRes &self, memgraph::slk::Builder *builder) {
@@ -231,6 +261,14 @@ void Load(memgraph::coordination::EnableWritingOnMainRes *self, memgraph::slk::R
 
 // GetDatabaseHistoriesRpc
 
+void Save(const memgraph::coordination::GetDatabaseHistoriesResV1 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.instance_info, builder);
+}
+
+void Load(memgraph::coordination::GetDatabaseHistoriesResV1 *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->instance_info, reader);
+}
+
 void Save(const memgraph::coordination::GetDatabaseHistoriesRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.instance_info, builder);
 }
@@ -274,12 +312,27 @@ void Load(memgraph::coordination::ShowInstancesRes *self, memgraph::slk::Reader 
   memgraph::slk::Load(&self->instances_status_, reader);
 }
 
+// StateCheckReq
+void Save(const memgraph::coordination::StateCheckReqV1 &self, memgraph::slk::Builder *builder) { /*empty*/
+}
+
+void Load(memgraph::coordination::StateCheckReqV1 *self, memgraph::slk::Reader *reader) { /*empty*/
+}
+
 void Save(const memgraph::coordination::StateCheckReq &self, memgraph::slk::Builder *builder) { /*empty*/
 }
 
 void Load(memgraph::coordination::StateCheckReq *self, memgraph::slk::Reader *reader) { /*empty*/
 }
 
+// StateCheckRes
+void Save(const memgraph::coordination::StateCheckResV1 &self, memgraph::slk::Builder *builder) {
+  memgraph::slk::Save(self.state, builder);
+}
+
+void Load(memgraph::coordination::StateCheckResV1 *self, memgraph::slk::Reader *reader) {
+  memgraph::slk::Load(&self->state, reader);
+}
 void Save(const memgraph::coordination::StateCheckRes &self, memgraph::slk::Builder *builder) {
   memgraph::slk::Save(self.state, builder);
 }

@@ -109,7 +109,16 @@ void DataInstanceManagementServerHandlers::StateCheckHandler(const replication::
     return locked_repl_state->IsMainWriteable();
   });
 
-  coordination::StateCheckRes const rpc_res{is_replica, uuid, writing_enabled};
+  std::optional<replication::ReplicationHandler::MainResT> main_num_txns;
+  std::optional<replication::ReplicationHandler::ReplicasResT> replicas_num_txns;
+
+  if (!is_replica) {
+    auto [main_res, replicas_res] = replication_handler.GetNumCommittedTxns();
+    main_num_txns.emplace(std::move(main_res));
+    replicas_num_txns.emplace(std::move(replicas_res));
+  }
+
+  coordination::StateCheckRes const rpc_res{is_replica, uuid, writing_enabled, main_num_txns, replicas_num_txns};
   rpc::SendFinalResponse(rpc_res, request_version, res_builder,
                          fmt::format("is_replica = {}, uuid = {}, writing_enabled = {}", is_replica,
                                      uuid.has_value() ? std::string{*uuid} : "", writing_enabled));
@@ -118,8 +127,15 @@ void DataInstanceManagementServerHandlers::StateCheckHandler(const replication::
 void DataInstanceManagementServerHandlers::GetDatabaseHistoriesHandler(
     replication::ReplicationHandler const &replication_handler, uint64_t const request_version,
     slk::Reader * /*req_reader*/, slk::Builder *res_builder) {
-  coordination::GetDatabaseHistoriesRes const rpc_res{replication_handler.GetDatabasesHistories()};
-  rpc::SendFinalResponse(rpc_res, request_version, res_builder);
+  // We cannot perform response downgrade because versions are divergent, i.e. we cannot construct ldt by knowing
+  // num_committed_txn
+  auto const rpc_res_var{replication_handler.GetDatabasesHistories(request_version)};
+  if (request_version == coordination::GetDatabaseHistoriesReqV1::kVersion) {
+    rpc::SendFinalResponse(std::get<coordination::GetDatabaseHistoriesResV1>(rpc_res_var), request_version,
+                           res_builder);
+  } else {
+    rpc::SendFinalResponse(std::get<coordination::GetDatabaseHistoriesRes>(rpc_res_var), request_version, res_builder);
+  }
 }
 
 void DataInstanceManagementServerHandlers::GetReplicationLagHandler(

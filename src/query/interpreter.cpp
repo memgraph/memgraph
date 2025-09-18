@@ -603,6 +603,9 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case coordination::SetCoordinatorSettingStatus::UNKNOWN_SETTING: {
         throw QueryRuntimeException("Setting {} doesn't exist on coordinators.", setting_name);
       }
+      case coordination::SetCoordinatorSettingStatus::INVALID_ARGUMENT: {
+        throw QueryRuntimeException("Invalid argument detected while trying to update setting {}", setting_name);
+      }
     }
   }
 
@@ -7051,8 +7054,8 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
     could_commit_ = true;
     accessor_type_ = cypher_access_type();
   }
-  void Visit(ProfileQuery & /*unused*/) override { accessor_type_ = cypher_access_type(); }
-  void Visit(TriggerQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::WRITE; }
+  void Visit(ProfileQuery &) override { accessor_type_ = cypher_access_type(); }
+  void Visit(TriggerQuery &) override { accessor_type_ = storage::StorageAccessType::WRITE; }
 
   // Complex access logic
   void Visit(IndexQuery &index_query) override {
