@@ -467,25 +467,29 @@ int main(int argc, char **argv) {
       .stream_transaction_conflict_retries = FLAGS_stream_transaction_conflict_retries,
       .stream_transaction_retry_interval = std::chrono::milliseconds(FLAGS_stream_transaction_retry_interval)};
 
-  auto auth_glue = [&coordination_setup](memgraph::auth::SynchedAuth *auth,
-                                         std::unique_ptr<memgraph::query::AuthQueryHandler> &ah,
-                                         std::unique_ptr<memgraph::query::AuthChecker> &ac) {
-    // Glue high level auth implementations to the query side
-    ah = std::make_unique<memgraph::glue::AuthQueryHandler>(auth);
-    ac = std::make_unique<memgraph::glue::AuthChecker>(auth);
-    // Handle users passed via arguments
-    auto *maybe_username = std::getenv(kMgUser);
-    auto *maybe_password = std::getenv(kMgPassword);
-    auto *maybe_pass_file = std::getenv(kMgPassfile);
-    if (maybe_username && maybe_password && !coordination_setup.IsCoordinator()) {
-      ah->CreateUser(maybe_username, maybe_password, nullptr);
-    } else if (maybe_pass_file) {
-      const auto [username, password] = LoadUsernameAndPassword(maybe_pass_file);
-      if (!username.empty() && !password.empty()) {
-        ah->CreateUser(username, password, nullptr);
-      }
-    }
-  };
+#ifdef MG_ENTERPRISE
+  auto auth_glue = [&coordination_setup]
+#else
+  auto auth_glue = []
+#endif
+      (memgraph::auth::SynchedAuth *auth, std::unique_ptr<memgraph::query::AuthQueryHandler> &ah,
+       std::unique_ptr<memgraph::query::AuthChecker> &ac) {
+        // Glue high level auth implementations to the query side
+        ah = std::make_unique<memgraph::glue::AuthQueryHandler>(auth);
+        ac = std::make_unique<memgraph::glue::AuthChecker>(auth);
+        // Handle users passed via arguments
+        auto *maybe_username = std::getenv(kMgUser);
+        auto *maybe_password = std::getenv(kMgPassword);
+        auto *maybe_pass_file = std::getenv(kMgPassfile);
+        if (maybe_username && maybe_password && !coordination_setup.IsCoordinator()) {
+          ah->CreateUser(maybe_username, maybe_password, nullptr);
+        } else if (maybe_pass_file) {
+          const auto [username, password] = LoadUsernameAndPassword(maybe_pass_file);
+          if (!username.empty() && !password.empty()) {
+            ah->CreateUser(username, password, nullptr);
+          }
+        }
+      };
 
   memgraph::auth::Auth::Config const auth_config{FLAGS_auth_user_or_role_name_regex, FLAGS_auth_password_strength_regex,
                                                  FLAGS_auth_password_permit_null};
