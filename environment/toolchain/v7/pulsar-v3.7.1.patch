@@ -84,16 +84,17 @@ index fc099df..b95ba7e 100644
 
  #define PULSAR_PUBLIC
 diff --git a/lib/CMakeLists.txt b/lib/CMakeLists.txt
-index 21b308c..6f8b6ec 100644
+index 21b308c..0ea9495 100644
 --- a/lib/CMakeLists.txt
 +++ b/lib/CMakeLists.txt
-@@ -155,10 +155,19 @@ if (LINK_STATIC AND BUILD_STATIC_LIB)
+@@ -155,13 +155,32 @@ if (LINK_STATIC AND BUILD_STATIC_LIB)
          set_property(TARGET pulsarStaticWithDeps PROPERTY VERSION ${LIBRARY_VERSION})
          install(TARGETS pulsarStaticWithDeps DESTINATION lib)
      else()
 -        # Build a list of the requird .a libs (except ssl) to merge
 +        # Build a list of the required .a libs (except ssl and problematic deps) to merge
          SET(STATIC_LIBS "")
++        message(STATUS "COMMON_LIBS: ${COMMON_LIBS}")
          foreach (LIB IN LISTS COMMON_LIBS)
 -            if (${LIB} MATCHES ".+\\.a$")
 +            # Only include .a files and exclude problematic dependencies that require system packages
@@ -107,8 +108,20 @@ index 21b308c..6f8b6ec 100644
 +                NOT ${LIB} MATCHES ".*idn2.*" AND
 +                NOT ${LIB} MATCHES ".*ssh.*")
                  set(STATIC_LIBS "${STATIC_LIBS} ${LIB}")
++                message(STATUS "Including library: ${LIB}")
++            else()
++                message(STATUS "Excluding library: ${LIB}")
              endif()
          endforeach()
++
++        # Note: We intentionally exclude the static curl library to avoid problematic transitive dependencies
++        # The application (e.g., Memgraph) should link to curl dynamically instead
++        message(STATUS "Excluding static curl library to avoid transitive dependencies (nghttp2, psl, brotli, ssh, ldap, etc.)")
++
++        message(STATUS "STATIC_LIBS: ${STATIC_LIBS}")
+
+         set(PULSAR_WITH_DEPS ${CMAKE_BINARY_DIR}/lib/libpulsarwithdeps.a)
+         add_custom_target(pulsarStaticWithDeps
 diff --git a/lib/LogUtils.h b/lib/LogUtils.h
 index 3df1a7a..4ad1f07 100644
 --- a/lib/LogUtils.h
