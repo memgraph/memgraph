@@ -13,7 +13,7 @@ import time
 import typing
 from functools import partial
 from itertools import chain
-from threading import Barrier, Thread
+from multiprocessing import Barrier, Process, Value
 
 import mgclient
 import pytest
@@ -26,8 +26,8 @@ def execute_and_fetch_all(cursor: mgclient.Cursor, query: str, params: dict = {}
 
 class SerializationFixture:
     def __init__(self):
-        self.passes = 0
-        self.fails = 0
+        self.passes = Value("i", 0)
+        self.fails = Value("i", 0)
         self.primary_connection = mgclient.connect(host="localhost", port=7687)
         self.primary_connection.autocommit = True
 
@@ -42,32 +42,33 @@ class SerializationFixture:
         self.primary_connection.commit()
 
     def run(self, phase1_txs, phase2_txs):
-        threads = []
+        processes = []
+        barrier = Barrier(len(phase1_txs) + len(phase2_txs))
 
         for tx in phase1_txs:
-            thread = Thread(target=partial(self._execute_phase_1, tx["query"], tx.get("args", {}), tx.get("delay")))
-            threads.append(thread)
+            process = Process(
+                target=self._execute_phase_1, args=(tx["query"], tx.get("args", {}), tx.get("delay"), barrier)
+            )
+            processes.append(process)
 
         for tx in phase2_txs:
-            thread = Thread(target=partial(self._execute_phase_2, tx["query"], tx.get("args", {})))
-            threads.append(thread)
+            process = Process(target=self._execute_phase_2, args=(tx["query"], tx.get("args", {}), barrier))
+            processes.append(process)
 
-        self.barrier = Barrier(len(threads))
+        for process in processes:
+            process.start()
 
-        for thread in threads:
-            thread.start()
+        for process in processes:
+            process.join()
 
-        for thread in threads:
-            thread.join()
-
-        return (self.passes, self.fails)
+        return (self.passes.value, self.fails.value)
 
     def _make_connection(self, **kwargs):
         connection = mgclient.connect(host="localhost", port=7687, **kwargs)
         connection.autocommit = False
         return connection
 
-    def _execute_phase_1(self, query, args, sleep_duration):
+    def _execute_phase_1(self, query, args, sleep_duration, barrier):
         """Phase 1 transactions execute the query, hit a barrier, and then
         sleep for `wait` seconds
         """
@@ -75,27 +76,31 @@ class SerializationFixture:
             connection = self._make_connection()
             cursor = connection.cursor()
             cursor.execute(query, args)
-            self.barrier.wait()
+            barrier.wait()
             if sleep_duration:
                 time.sleep(sleep_duration)
             connection.commit()
-            self.passes += 1
+            with self.passes.get_lock():
+                self.passes.value += 1
         except Exception as e:
             print(str(e))
-            self.fails += 1
+            with self.fails.get_lock():
+                self.fails.value += 1
 
-    def _execute_phase_2(self, query, args):
+    def _execute_phase_2(self, query, args, barrier):
         """Phase 2 transactions hit the barrier, and the execute the query"""
         try:
-            self.barrier.wait()
+            barrier.wait()
             connection = self._make_connection()
             cursor = connection.cursor()
             cursor.execute(query, args)
             connection.commit()
-            self.passes += 1
+            with self.passes.get_lock():
+                self.passes.value += 1
         except Exception as e:
             print(str(e))
-            self.fails += 1
+            with self.fails.get_lock():
+                self.fails.value += 1
 
 
 @pytest.fixture
