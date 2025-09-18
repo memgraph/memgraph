@@ -442,19 +442,11 @@ auto SessionHL::Route(bolt_map_t const &routing, std::vector<bolt_value_t> const
                                [](auto const &pair) { return std::pair(pair.first, pair.second.ValueString()); }) |
       ranges::to<std::map<std::string, std::string>>();
 
-  auto const db_str = std::invoke([this, &db]() -> std::string {
-    if (db.has_value()) return *db;
-    spdlog::trace("Using default db");
-    if (interpreter_.user_or_role_) {
-      // If auth exception is thrown, that's fine
-      return interpreter_.user_or_role_->GetDefaultDB();
-    }
-    return std::string{dbms::kDefaultDB};
-  });
+  if (db.has_value()) {
+    spdlog::trace("Handling routing request for the database: {}", *db);
+  }
 
-  spdlog::trace("Handling routing request for the database: {}", db_str);
-
-  auto routing_table_res = interpreter_.Route(routing_map, db_str);
+  auto routing_table_res = interpreter_.Route(routing_map);
 
   auto create_server = [](auto const &server_info) -> bolt_value_t {
     auto const &[addresses, role] = server_info;
@@ -469,7 +461,12 @@ auto SessionHL::Route(bolt_map_t const &routing, std::vector<bolt_value_t> const
 
   bolt_map_t communication_res;
   communication_res["ttl"] = bolt_value_t{routing_table_res.ttl};
-  communication_res["db"] = bolt_value_t{db_str};
+  // Needed for routing from coordinators to data instances
+  if (db.has_value()) {
+    communication_res["db"] = bolt_value_t{*db};
+  } else {
+    communication_res["db"] = bolt_value_t{};
+  }
 
   auto servers =
       ranges::views::transform(routing_table_res.servers, create_server) | ranges::to<std::vector<bolt_value_t>>();
