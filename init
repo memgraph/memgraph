@@ -58,6 +58,14 @@ if [[ "$check_system_packages" == "true" ]]; then
   echo "All packages are in-place..."
 fi
 
+echo "ALL BUILD PACKAGES: $($OS_SCRIPT list MEMGRAPH_BUILD_DEPS)"
+if [[ "$check_system_packages" == "true" ]]; then
+  $OS_SCRIPT check MEMGRAPH_BUILD_DEPS
+  echo "All packages are in-place..."
+else
+  echo "Skipping package check as requested..."
+fi
+
 # create a default build directory
 mkdir -p ./build
 

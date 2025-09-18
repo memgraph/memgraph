@@ -55,7 +55,9 @@ void Encoder::WriteExternalPropertyValue(const ExternalPropertyValue &value) {
   slk::Save(value, builder_);
 }
 
-void Encoder::WriteBuffer(const uint8_t *buffer, const size_t buffer_size) { builder_->Save(buffer, buffer_size); }
+void Encoder::WriteFileBuffer(const uint8_t *buffer, const size_t buffer_size) {
+  builder_->SaveFileBuffer(buffer, buffer_size);
+}
 
 void Encoder::WriteFileData(utils::InputFile *file) {
   auto file_size = file->GetSize();
@@ -63,12 +65,13 @@ void Encoder::WriteFileData(utils::InputFile *file) {
   while (file_size > 0) {
     const auto chunk_size = std::min(file_size, utils::kFileBufferSize);
     file->Read(buffer, chunk_size);
-    WriteBuffer(buffer, chunk_size);
+    WriteFileBuffer(buffer, chunk_size);
     file_size -= chunk_size;
   }
 }
 
 bool Encoder::WriteFile(const std::filesystem::path &path) {
+  builder_->PrepareForFileSending();
   utils::InputFile file;
   if (!file.Open(path)) {
     spdlog::error("Failed to open file {}.", path);
@@ -116,6 +119,7 @@ std::optional<double> Decoder::ReadDouble() {
 
 std::optional<std::string> Decoder::ReadString() {
   if (const auto marker = ReadMarker(); !marker || marker != durability::Marker::TYPE_STRING) return std::nullopt;
+
   std::string value;
   slk::Load(&value, reader_);
   return std::move(value);
@@ -164,28 +168,4 @@ bool Decoder::SkipExternalPropertyValue() {
   return true;
 }
 
-std::optional<std::filesystem::path> Decoder::ReadFile(const std::filesystem::path &directory,
-                                                       const std::string &suffix) {
-  MG_ASSERT(std::filesystem::exists(directory) && std::filesystem::is_directory(directory),
-            "Sent path for streamed files should be a valid directory!");
-  utils::OutputFile file;
-  const auto maybe_filename = ReadString();
-  MG_ASSERT(maybe_filename, "Filename missing for the file");
-  const auto filename = *maybe_filename + suffix;
-  auto path = directory / filename;
-
-  file.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING);
-  std::optional<size_t> maybe_file_size = ReadUint();
-  MG_ASSERT(maybe_file_size, "File size missing");
-  auto file_size = *maybe_file_size;
-  uint8_t buffer[utils::kFileBufferSize];
-  while (file_size > 0) {
-    const auto chunk_size = std::min(file_size, utils::kFileBufferSize);
-    reader_->Load(buffer, chunk_size);
-    file.Write(buffer, chunk_size);
-    file_size -= chunk_size;
-  }
-  file.Close();
-  return std::move(path);
-}
 }  // namespace memgraph::storage::replication

@@ -506,6 +506,7 @@ enum mgp_error mgp_list_at(struct mgp_list *list, size_t index, struct mgp_value
 /// You need to free the created instance with mgp_map_destroy.
 /// mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE is returned if unable to allocate a mgp_map.
 enum mgp_error mgp_map_make_empty(struct mgp_memory *memory, struct mgp_map **result);
+enum mgp_error mgp_unordered_map_make_empty(struct mgp_memory *memory, struct mgp_map **result);
 
 enum mgp_error mgp_map_copy(struct mgp_map *map, struct mgp_memory *memory, struct mgp_map **result);
 
@@ -956,7 +957,7 @@ MGP_ENUM_CLASS text_search_mode{
 /// Return mgp_error::MGP_ERROR_UNABLE_TO_ALLOCATE if there’s an allocation error while constructing the results map.
 /// Return mgp_error::MGP_ERROR_KEY_ALREADY_EXISTS if the same key is being created in the results map more than once.
 enum mgp_error mgp_graph_search_text_index(struct mgp_graph *graph, const char *index_name, const char *search_query,
-                                           enum text_search_mode search_mode, struct mgp_memory *memory,
+                                           enum text_search_mode search_mode, size_t limit, struct mgp_memory *memory,
                                            struct mgp_map **result);
 
 /// Aggregate over the results of a search over the named text index. The result is a map with the "aggregation_results"
@@ -968,6 +969,14 @@ enum mgp_error mgp_graph_search_text_index(struct mgp_graph *graph, const char *
 enum mgp_error mgp_graph_aggregate_over_text_index(struct mgp_graph *graph, const char *index_name,
                                                    const char *search_query, const char *aggregation_query,
                                                    struct mgp_memory *memory, struct mgp_map **result);
+
+enum mgp_error mgp_graph_aggregate_over_text_edge_index(struct mgp_graph *graph, const char *index_name,
+                                                        const char *search_query, const char *aggregation_query,
+                                                        struct mgp_memory *memory, struct mgp_map **result);
+
+enum mgp_error mgp_graph_search_text_edge_index(struct mgp_graph *graph, const char *index_name,
+                                                const char *search_query, enum text_search_mode search_mode,
+                                                size_t limit, struct mgp_memory *memory, struct mgp_map **result);
 
 enum mgp_error mgp_graph_search_vector_index(struct mgp_graph *graph, const char *index_name, struct mgp_list *query,
                                              int result_size, struct mgp_memory *memory, struct mgp_map **result);

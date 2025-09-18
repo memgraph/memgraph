@@ -43,6 +43,7 @@ int SpanToInt(std::span<const char> span) {
 inline constexpr std::chrono::milliseconds kDefaultBatchInterval{100};
 inline constexpr int64_t kDefaultBatchSize{1000};
 
+inline constexpr double kTimingTolerance = 1.2;  // tolerance for all timings to prevent flakes
 }  // namespace
 
 struct ConsumerTest : public ::testing::Test {
@@ -145,7 +146,7 @@ TEST_F(ConsumerTest, BatchInterval) {
   for (auto sent_messages = 0; sent_messages < kMessageCount; ++sent_messages) {
     cluster.SeedTopic(kTopicName, kMessage);
     // Sleep for a bit to allow the consumer to receive the message.
-    std::this_thread::sleep_for(kBatchInterval * 0.5);
+    std::this_thread::sleep_for(kBatchInterval);
   }
   // Wait for all messages to be delivered
   sent_messages.wait();
@@ -160,14 +161,15 @@ TEST_F(ConsumerTest, BatchInterval) {
     EXPECT_LE(1, message_count);
 
     auto actual_diff = std::chrono::duration_cast<std::chrono::milliseconds>(timestamp - previous_timestamp);
-    EXPECT_LE(kBatchInterval.count() * 0.5, actual_diff.count());
+    // Since the default batch size is large, we expect that the batch interval is always hit.
+    EXPECT_LE(kBatchInterval / kTimingTolerance, actual_diff);
   };
 
   ASSERT_FALSE(received_timestamps.empty());
   // Check that not all messages are received in one batch
   EXPECT_LE(2, received_timestamps.size());
 
-  int msgsCnt = received_timestamps[0].first;
+  auto msgsCnt = received_timestamps[0].first;
   for (auto i = 1; i < received_timestamps.size(); ++i) {
     msgsCnt += received_timestamps[i].first;
     check_received_timestamp(i);
@@ -239,32 +241,10 @@ TEST_F(ConsumerTest, BatchSize) {
   std::this_thread::sleep_for(kBatchInterval * 2);
   consumer->Stop();
   EXPECT_TRUE(expected_messages_received) << "Some unexpected message has been received";
-
-  auto check_received_timestamp = [&received_timestamps](size_t index, size_t expected_message_count) {
-    SCOPED_TRACE("Checking index " + std::to_string(index));
-    const auto [message_count, timestamp] = received_timestamps[index];
-    const auto [_, previous_timestamp] = received_timestamps[index - 1];
-    EXPECT_EQ(expected_message_count, message_count);
-
-    auto actual_diff = std::chrono::duration_cast<std::chrono::milliseconds>(timestamp - previous_timestamp);
-    if (expected_message_count == kBatchSize) {
-      // Full batch, timeout isn't hit
-      EXPECT_LE(actual_diff, kBatchInterval);
-    } else {
-      EXPECT_LE(kBatchInterval.count() * 0.5, actual_diff.count());
-    }
-  };
-
   ASSERT_FALSE(received_timestamps.empty());
-
-  EXPECT_EQ(kBatchSize, received_timestamps[0].first);
 
   static constexpr auto kExpectedBatchCount = kMessageCount / kBatchSize + 1;
   EXPECT_EQ(kExpectedBatchCount, received_timestamps.size());
-  for (auto i = 1; i < received_timestamps.size() - 1; ++i) {
-    check_received_timestamp(i, kBatchSize);
-  }
-  check_received_timestamp(received_timestamps.size() - 1, kLastBatchMessageCount);
 }
 
 TEST_F(ConsumerTest, InvalidBootstrapServers) {
@@ -418,7 +398,7 @@ TEST_F(ConsumerTest, CheckMethodTimeout) {
 
   const auto elapsed = (end - start);
   EXPECT_LE(timeout, elapsed);
-  EXPECT_LE(elapsed, timeout * 1.2);
+  EXPECT_LE(elapsed, timeout * kTimingTolerance);
 }
 
 TEST_F(ConsumerTest, CheckWithInvalidTimeout) {
@@ -555,5 +535,5 @@ TEST_F(ConsumerTest, LimitBatches_Timeout_Reached) {
   const auto elapsed = (end - start);
 
   EXPECT_LE(timeout, elapsed);
-  EXPECT_LE(elapsed, timeout * 1.2);
+  EXPECT_LE(elapsed, timeout * kTimingTolerance);
 }

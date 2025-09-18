@@ -17,6 +17,7 @@ import socket
 import subprocess
 import sys
 import time
+from datetime import datetime
 from typing import List, Optional
 
 import mgclient
@@ -229,6 +230,7 @@ class MemgraphInstanceRunner:
         if not self.is_running():
             return
 
+        signal_time = datetime.now()
         self.proc_mg.terminate()
 
         for _ in range(150):
@@ -236,7 +238,9 @@ class MemgraphInstanceRunner:
                 break
             time.sleep(0.1)
 
-        assert self.is_running() is False, f"Stopped instance at {self.host}:{self.bolt_port} still running."
+        assert (
+            self.is_running() is False
+        ), f"Stopped instance at {self.host}:{self.bolt_port} still running. Signal sent at: {signal_time}. Now is: {datetime.now()}"
 
         if not keep_directories:
             self.safe_delete_data_directory()

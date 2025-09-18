@@ -18,6 +18,10 @@
 #include "license/license.hpp"
 #include "rpc/utils.hpp"  // Needs to be included last so that SLK definitions are seen
 
+namespace memgraph::rpc {
+class FileReplicationHandler;
+}  // namespace memgraph::rpc
+
 namespace memgraph::auth {
 
 void LogWrongMain(const std::optional<utils::UUID> &current_main_uuid, const utils::UUID &main_req_id,
@@ -218,11 +222,15 @@ void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAc
               auth::SynchedAuth &auth) {
   // NOTE: Register even without license as the user could add a license at run-time
   data.server->rpc_server_.Register<replication::UpdateAuthDataRpc>(
-      [&data, system_state_access, &auth](uint64_t const request_version, auto *req_reader, auto *res_builder) mutable {
+      [&data, system_state_access, &auth](
+          std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version, auto *req_reader, auto *res_builder) mutable {
         UpdateAuthDataHandler(system_state_access, data.uuid_, auth, request_version, req_reader, res_builder);
       });
   data.server->rpc_server_.Register<replication::DropAuthDataRpc>(
-      [&data, system_state_access, &auth](uint64_t const request_version, auto *req_reader, auto *res_builder) mutable {
+      [&data, system_state_access, &auth](
+          std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version, auto *req_reader, auto *res_builder) mutable {
         DropAuthDataHandler(system_state_access, data.uuid_, auth, request_version, req_reader, res_builder);
       });
 }

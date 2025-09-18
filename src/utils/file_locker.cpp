@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -41,11 +41,11 @@ void FileRetainer::DeleteFile(const std::filesystem::path &path) {
 
 void FileRetainer::RenameFile(const std::filesystem::path &orig, const std::filesystem::path &dest) {
   if (!std::filesystem::exists(orig)) {
-    spdlog::info("Origin file {} doesn't exist.", orig);
+    spdlog::error("Origin file {} doesn't exist.", orig);
     return;
   }
   if (std::filesystem::exists(dest)) {
-    spdlog::info("Destination file {} exist.", dest);
+    spdlog::error("Destination file {} exist.", dest);
     return;
   }
 

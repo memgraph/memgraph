@@ -305,19 +305,26 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
 
   // Text idx
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    spdlog::info("Recreating {} text indices from metadata.", indices_metadata.text_indices.size());
-    auto &mem_text_index = indices->text_index_;
-    for (const auto &text_index_info : indices_metadata.text_indices) {
-      try {
-        // TODO: parallel execution
-        mem_text_index.RecoverIndex(text_index_info, snapshot_info);
-      } catch (...) {
-        throw RecoveryFailure("The text index must be created here!");
+    auto recover_text_indices = [&](auto &text_index, const auto &index_metadata, std::string_view index_type,
+                                    std::string_view plural_type, auto id_extractor) {
+      spdlog::info("Recreating {} {} from metadata.", index_metadata.size(), plural_type);
+      for (const auto &index_info : index_metadata) {
+        try {
+          // TODO: parallel execution
+          text_index.RecoverIndex(index_info, snapshot_info);
+        } catch (...) {
+          throw RecoveryFailure(fmt::format("The {} must be created here!", index_type).c_str());
+        }
+        spdlog::info("{} {} on :{} is recreated from metadata", index_type, index_info.index_name,
+                     name_id_mapper->IdToName(id_extractor(index_info).AsUint()));
       }
-      spdlog::info("Text index {} on :{} is recreated from metadata", text_index_info.index_name_,
-                   name_id_mapper->IdToName(text_index_info.label_.AsUint()));
-    }
-    spdlog::info("Text indices are recreated.");
+      spdlog::info("{} are recreated.", plural_type);
+    };
+
+    recover_text_indices(indices->text_index_, indices_metadata.text_indices, "Text index", "Text indices",
+                         [](const auto &info) { return info.label; });
+    recover_text_indices(indices->text_edge_index_, indices_metadata.text_edge_indices, "Text edge index",
+                         "Text edge indices", [](const auto &info) { return info.edge_type; });
   }
 
   // Point idx

@@ -143,6 +143,12 @@ jobs:
           --arch $ARCH \
           stop --remove
 
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/docker_cleanup.sh
+
   integration:
     if: ${{ inputs.run_integration == 'true' }}
     name: "Integration test"
@@ -203,3 +209,9 @@ jobs:
           --os $OS \
           --arch $ARCH \
           stop --remove
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/docker_cleanup.sh

@@ -4762,16 +4762,14 @@ inline List ListAllLabelPropertyIndices(mgp_graph *memgraph_graph) {
   return List(label_property_indices, StealType{});
 }
 
-namespace {
-constexpr std::string_view kErrorMsgKey = "error_msg";
-constexpr std::string_view kSearchResultsKey = "search_results";
-constexpr std::string_view kAggregationResultsKey = "aggregation_results";
-}  // namespace
+inline constexpr std::string_view kErrorMsgKey = "error_msg";
+inline constexpr std::string_view kSearchResultsKey = "search_results";
+inline constexpr std::string_view kAggregationResultsKey = "aggregation_results";
 
 inline List SearchTextIndex(mgp_graph *memgraph_graph, std::string_view index_name, std::string_view search_query,
-                            text_search_mode search_mode) {
+                            text_search_mode search_mode, std::size_t limit) {
   auto results_or_error = Map(mgp::MemHandlerCallback(graph_search_text_index, memgraph_graph, index_name.data(),
-                                                      search_query.data(), search_mode),
+                                                      search_query.data(), search_mode, limit),
                               StealType{});
   if (results_or_error.KeyExists(kErrorMsgKey)) {
     if (!results_or_error.At(kErrorMsgKey).IsString()) {
@@ -4781,7 +4779,30 @@ inline List SearchTextIndex(mgp_graph *memgraph_graph, std::string_view index_na
   }
 
   if (!results_or_error.KeyExists(kSearchResultsKey)) {
-    return List();  // No results found, return empty list.
+    throw TextSearchException{"Error in text search results processing occurred."};
+  }
+
+  if (!results_or_error.At(kSearchResultsKey).IsList()) {
+    throw TextSearchException{"Text index search results have wrong type!"};
+  }
+
+  return results_or_error.At(kSearchResultsKey).ValueList();
+}
+
+inline List SearchTextEdgeIndex(mgp_graph *memgraph_graph, std::string_view index_name, std::string_view search_query,
+                                text_search_mode search_mode, std::size_t limit) {
+  auto results_or_error = Map(mgp::MemHandlerCallback(graph_search_text_edge_index, memgraph_graph, index_name.data(),
+                                                      search_query.data(), search_mode, limit),
+                              StealType{});
+  if (results_or_error.KeyExists(kErrorMsgKey)) {
+    if (!results_or_error.At(kErrorMsgKey).IsString()) {
+      throw TextSearchException{"The error message is not a string!"};
+    }
+    throw TextSearchException(results_or_error.At(kErrorMsgKey).ValueString().data());
+  }
+
+  if (!results_or_error.KeyExists(kSearchResultsKey)) {
+    throw TextSearchException{"Error in text search results processing occurred."};
   }
 
   if (!results_or_error.At(kSearchResultsKey).IsList()) {
@@ -4813,6 +4834,29 @@ inline std::string AggregateOverTextIndex(mgp_graph *memgraph_graph, std::string
   }
 
   // results_or_error is temporary -> need to copy
+  return std::string(results_or_error.At(kAggregationResultsKey).ValueString());
+}
+
+inline std::string AggregateOverTextEdgeIndex(mgp_graph *memgraph_graph, std::string_view index_name,
+                                              std::string_view search_query, std::string_view aggregation_query) {
+  auto results_or_error = Map(mgp::MemHandlerCallback(graph_aggregate_over_text_edge_index, memgraph_graph,
+                                                      index_name.data(), search_query.data(), aggregation_query.data()),
+                              StealType{});
+
+  if (results_or_error.KeyExists(kErrorMsgKey)) {
+    if (!results_or_error.At(kErrorMsgKey).IsString()) {
+      throw TextSearchException{"The error message is not a string!"};
+    }
+    throw TextSearchException(results_or_error.At(kErrorMsgKey).ValueString().data());
+  }
+
+  if (!results_or_error.KeyExists(kAggregationResultsKey)) {
+    throw TextSearchException{"Incomplete text edge index aggregation results!"};
+  }
+
+  if (!results_or_error.At(kAggregationResultsKey).IsString()) {
+    throw TextSearchException{"Text edge index aggregation results have wrong type!"};
+  }
   return std::string(results_or_error.At(kAggregationResultsKey).ValueString());
 }
 

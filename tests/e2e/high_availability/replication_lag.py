@@ -196,7 +196,7 @@ def test_replication_lag_strict_sync(test_name):
     inner_instances_description = setup_cluster(test_name, get_strict_sync_cluster())
     instance3_cursor = connect(host="localhost", port=7689).cursor()
     coord3_cursor = connect(host="localhost", port=7692).cursor()
-    # 1. Commit a txn on main and assert that num_committed_txns is incremented. This will trigger sending PrepareCommit
+    # Commit a txn on main and assert that num_committed_txns is incremented. This will trigger sending PrepareCommit
     # and CurrentWalRpc from main to replica
     execute_and_fetch_all(instance3_cursor, "CREATE ()")
     execute_and_fetch_all(instance3_cursor, "CREATE ()")
@@ -218,7 +218,7 @@ def test_replication_lag_strict_sync(test_name):
     ]
     mg_sleep_and_assert_collection(expected_data, partial(retrieve_lag, coord3_cursor))
 
-    # 2. ASYNC replica goes down, check that it is behind MAIN. WalFilesRpc should be sent
+    # 2ASYNC replica goes down, check that it is behind MAIN. WalFilesRpc should be sent
     interactive_mg_runner.kill(inner_instances_description, "instance_2")
     execute_and_fetch_all(instance3_cursor, "CREATE (:MyNode {embedding: [x IN range(1, 1024) | x]});")
     execute_and_fetch_all(instance3_cursor, "CREATE (:MyNode {embedding: [x IN range(1, 1024) | x]});")
@@ -240,7 +240,7 @@ def test_replication_lag_strict_sync(test_name):
     ]
     mg_sleep_and_assert_collection(expected_data, partial(retrieve_lag, coord3_cursor))
 
-    # 3. Check that main correctly incremented after sending WalFilesRpc to the recovering replica
+    # Check that main correctly incremented after sending WalFilesRpc to the recovering replica
     interactive_mg_runner.start(inner_instances_description, "instance_2")
     expected_data = [
         (
@@ -258,7 +258,7 @@ def test_replication_lag_strict_sync(test_name):
     ]
     mg_sleep_and_assert_collection(expected_data, partial(retrieve_lag, coord3_cursor))
 
-    # 4. ASYNC replica goes down, test main's counting capabilities when replica is recovered using SNAPSHOT
+    # ASYNC replica goes down, test main's counting capabilities when replica is recovered using SNAPSHOT
     interactive_mg_runner.kill(inner_instances_description, "instance_2")
     execute_and_fetch_all(instance3_cursor, "CREATE ()")
     execute_and_fetch_all(instance3_cursor, "CREATE ()")
@@ -282,10 +282,14 @@ def test_replication_lag_strict_sync(test_name):
     ]
     mg_sleep_and_assert_collection(expected_data, partial(retrieve_lag, coord3_cursor))
 
-    # 5. Restart MAIN instance without triggering a failover and check that it sees the same output as before
+    # Restart MAIN instance without triggering a failover and check that it sees the same output as before
     # Force a recovery from snapshot to test that part
+    interactive_mg_runner.kill(inner_instances_description, "instance_1")
+    interactive_mg_runner.kill(inner_instances_description, "instance_2")
     interactive_mg_runner.kill(inner_instances_description, "instance_3")
     interactive_mg_runner.start(inner_instances_description, "instance_3")
+    interactive_mg_runner.start(inner_instances_description, "instance_1")
+    interactive_mg_runner.start(inner_instances_description, "instance_2")
     leader_data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),
@@ -297,14 +301,18 @@ def test_replication_lag_strict_sync(test_name):
     mg_sleep_and_assert(leader_data, partial(show_instances, coord3_cursor))
     mg_sleep_and_assert_collection(expected_data, partial(retrieve_lag, coord3_cursor))
 
-    # 5. Restart MAIN instance without triggering a failover and check that it sees the same output as before
+    # Restart MAIN instance without triggering a failover and check that it sees the same output as before
     # Force a recovery from snapshot+wals to test that part
     instance3_cursor = connect(host="localhost", port=7689).cursor()
     wait_until_main_writeable(instance3_cursor, "CREATE (:MyNode {embedding: [x IN range(1, 1024) | x]});")
     execute_and_fetch_all(instance3_cursor, "CREATE (:MyNode {embedding: [x IN range(1, 1024) | x]});")
     execute_and_fetch_all(instance3_cursor, "CREATE (:MyNode {embedding: [x IN range(1, 1024) | x]});")
+    interactive_mg_runner.kill(inner_instances_description, "instance_1")
+    interactive_mg_runner.kill(inner_instances_description, "instance_2")
     interactive_mg_runner.kill(inner_instances_description, "instance_3")
     interactive_mg_runner.start(inner_instances_description, "instance_3")
+    interactive_mg_runner.start(inner_instances_description, "instance_1")
+    interactive_mg_runner.start(inner_instances_description, "instance_2")
     leader_data = [
         ("coordinator_1", "localhost:7690", "localhost:10111", "localhost:10121", "up", "follower"),
         ("coordinator_2", "localhost:7691", "localhost:10112", "localhost:10122", "up", "follower"),

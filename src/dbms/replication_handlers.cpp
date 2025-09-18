@@ -18,6 +18,10 @@
 
 #include "rpc/utils.hpp"
 
+namespace memgraph::rpc {
+class FileReplicationHandler;
+}  // namespace memgraph::rpc
+
 namespace memgraph::dbms {
 
 #ifdef MG_ENTERPRISE
@@ -195,13 +199,15 @@ void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAc
               dbms::DbmsHandler &dbms_handler) {
   // NOTE: Register even without license as the user could add a license at run-time
   data.server->rpc_server_.Register<storage::replication::CreateDatabaseRpc>(
-      [&data, system_state_access, &dbms_handler](uint64_t const request_version, auto *req_reader,
-                                                  auto *res_builder) mutable {
+      [&data, system_state_access, &dbms_handler](
+          std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version, auto *req_reader, auto *res_builder) mutable {
         CreateDatabaseHandler(system_state_access, data.uuid_, dbms_handler, request_version, req_reader, res_builder);
       });
   data.server->rpc_server_.Register<storage::replication::DropDatabaseRpc>(
-      [&data, system_state_access, &dbms_handler](uint64_t const request_version, auto *req_reader,
-                                                  auto *res_builder) mutable {
+      [&data, system_state_access, &dbms_handler](
+          std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version, auto *req_reader, auto *res_builder) mutable {
         DropDatabaseHandler(system_state_access, data.uuid_, dbms_handler, request_version, req_reader, res_builder);
       });
 }

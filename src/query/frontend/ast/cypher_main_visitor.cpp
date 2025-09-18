@@ -41,7 +41,6 @@
 namespace memgraph::query::frontend {
 
 namespace r = ranges;
-namespace rv = r::views;
 // Need to use std::ranges::views transform because rv::transform does not
 // support rvalues as viewable ranges on the lhs of a pipe.
 namespace srv = std::ranges::views;
@@ -535,6 +534,17 @@ antlrcpp::Any CypherMainVisitor::visitDropTextIndex(MemgraphCypher::DropTextInde
   return index_query;
 }
 
+antlrcpp::Any CypherMainVisitor::visitCreateTextEdgeIndex(MemgraphCypher::CreateTextEdgeIndexContext *ctx) {
+  auto *index_query = storage_->Create<CreateTextEdgeIndexQuery>();
+  index_query->index_name_ = std::any_cast<std::string>(ctx->indexName()->accept(this));
+  index_query->edge_type_ = AddEdgeType(std::any_cast<std::string>(ctx->labelName()->accept(this)));
+  for (auto *property_key_name_ctx : ctx->propertyKeyName()) {
+    index_query->properties_.emplace_back(std::any_cast<PropertyIx>(property_key_name_ctx->accept(this)));
+  }
+  query_ = index_query;
+  return index_query;
+}
+
 antlrcpp::Any CypherMainVisitor::visitCreateVectorIndex(MemgraphCypher::CreateVectorIndexContext *ctx) {
   auto *index_query = storage_->Create<VectorIndexQuery>();
   index_query->action_ = VectorIndexQuery::Action::CREATE;
@@ -622,6 +632,19 @@ antlrcpp::Any CypherMainVisitor::visitEdgeImportModeQuery(MemgraphCypher::EdgeIm
   }
   query_ = edge_import_mode_query;
   return edge_import_mode_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitDropAllIndexesQuery(MemgraphCypher::DropAllIndexesQueryContext * /*ctx*/) {
+  auto *drop_all_indexes_query = storage_->Create<DropAllIndexesQuery>();
+  query_ = drop_all_indexes_query;
+  return drop_all_indexes_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitDropAllConstraintsQuery(
+    MemgraphCypher::DropAllConstraintsQueryContext * /*ctx*/) {
+  auto *drop_all_constraints_query = storage_->Create<DropAllConstraintsQuery>();
+  query_ = drop_all_constraints_query;
+  return drop_all_constraints_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitDropGraphQuery(MemgraphCypher::DropGraphQueryContext * /*ctx*/) {

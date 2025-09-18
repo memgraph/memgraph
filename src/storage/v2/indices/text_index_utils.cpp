@@ -13,6 +13,7 @@
 
 #include <nlohmann/json.hpp>
 #include "query/exceptions.hpp"
+#include "storage/v2/indices/property_path.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/name_id_mapper.hpp"
 #include "storage/v2/property_value.hpp"
@@ -20,7 +21,7 @@
 #include "utils/string.hpp"
 
 namespace r = ranges;
-
+namespace rv = r::views;
 namespace memgraph::storage {
 
 std::string ToLowerCasePreservingBooleanOperators(std::string_view input) {
@@ -119,53 +120,86 @@ std::string StringifyProperties(const std::map<PropertyId, PropertyValue> &prope
   return utils::Join(indexable_properties_as_string, " ");
 }
 
-void TrackTextIndexChange(TextIndexChangeCollector &collector, std::span<TextIndexData *> indices, Vertex *vertex,
+std::map<PropertyId, PropertyValue> ExtractProperties(const PropertyStore &property_store,
+                                                      std::span<PropertyId const> properties) {
+  if (properties.empty()) {
+    return property_store.Properties();
+  }
+
+  auto property_paths = properties | rv::transform([](PropertyId property) { return PropertyPath{property}; }) |
+                        r::to<std::vector<PropertyPath>>();
+  auto property_values = property_store.ExtractPropertyValuesMissingAsNull(property_paths);
+
+  return rv::zip(properties, property_values) | rv::transform([](const auto &property_id_value_pair) {
+           return std::make_pair(property_id_value_pair.first, property_id_value_pair.second);
+         }) |
+         r::to<std::map<PropertyId, PropertyValue>>();
+}
+
+void TrackTextIndexChange(TextIndexChangeCollector &collector, std::span<TextIndexData *> indices, const Vertex *vertex,
                           TextIndexOp op) {
   if (!vertex) return;
   for (auto *idx : indices) {
     auto &entry = collector[idx];
     if (op == TextIndexOp::ADD) {
-      entry.to_remove_.erase(vertex);
-      entry.to_add_.insert(vertex);
+      entry.to_remove.erase(vertex);
+      entry.to_add.insert(vertex);
     } else if (op == TextIndexOp::UPDATE) {
       // On update we have to firstly remove the vertex from index and then add it back
-      entry.to_remove_.insert(vertex);
-      entry.to_add_.insert(vertex);
+      entry.to_remove.insert(vertex);
+      entry.to_add.insert(vertex);
     } else {  // REMOVE
-      entry.to_add_.erase(vertex);
-      entry.to_remove_.insert(vertex);
+      entry.to_add.erase(vertex);
+      entry.to_remove.insert(vertex);
     }
   }
 }
 
-mgcxx::text_search::SearchOutput SearchGivenProperties(const std::string &search_query,
-                                                       mgcxx::text_search::Context &context) {
-  try {
-    return mgcxx::text_search::search(
-        context, mgcxx::text_search::SearchInput{.search_query = search_query, .return_fields = {"metadata"}});
-  } catch (const std::exception &e) {
-    throw query::TextSearchException("Tantivy error: {}", e.what());
+void TrackTextEdgeIndexChange(TextEdgeIndexChangeCollector &collector, std::span<TextEdgeIndexData *> indices,
+                              const Edge *edge, const Vertex *from_vertex, const Vertex *to_vertex, TextIndexOp op) {
+  if (!edge || !from_vertex || !to_vertex) return;
+  const EdgeWithVertices edge_with_vertices(edge, from_vertex, to_vertex);
+  for (auto *idx : indices) {
+    auto &entry = collector[idx];
+    if (op == TextIndexOp::ADD) {
+      entry.to_remove.erase(edge);
+      entry.to_add.insert(edge_with_vertices);
+    } else if (op == TextIndexOp::UPDATE) {
+      // On update we have to firstly remove the edge from index and then add it back
+      entry.to_remove.insert(edge);
+      entry.to_add.insert(edge_with_vertices);
+    } else {  // REMOVE
+      entry.to_add.erase(edge_with_vertices);
+      entry.to_remove.insert(edge);
+    }
   }
 }
 
-mgcxx::text_search::SearchOutput RegexSearch(const std::string &search_query, mgcxx::text_search::Context &context) {
-  try {
-    return mgcxx::text_search::regex_search(
-        context, mgcxx::text_search::SearchInput{
-                     .search_fields = {"all"}, .search_query = search_query, .return_fields = {"metadata"}});
-  } catch (const std::exception &e) {
-    throw query::TextSearchException("Tantivy error: {}", e.what());
-  }
-}
-
-mgcxx::text_search::SearchOutput SearchAllProperties(const std::string &search_query,
-                                                     mgcxx::text_search::Context &context) {
-  try {
-    return mgcxx::text_search::search(
-        context, mgcxx::text_search::SearchInput{
-                     .search_fields = {"all"}, .search_query = search_query, .return_fields = {"metadata"}});
-  } catch (const std::exception &e) {
-    throw query::TextSearchException("Tantivy error: {}", e.what());
+mgcxx::text_search::SearchOutput PerformTextSearch(mgcxx::text_search::Context &context,
+                                                   const std::string &search_query, text_search_mode search_mode,
+                                                   std::size_t limit) {
+  switch (search_mode) {
+    case text_search_mode::SPECIFIED_PROPERTIES:
+      return mgcxx::text_search::search(
+          context, mgcxx::text_search::SearchInput{.search_query = ToLowerCasePreservingBooleanOperators(search_query),
+                                                   .return_fields = {"metadata"},
+                                                   .limit = limit});
+    case text_search_mode::REGEX:
+      return mgcxx::text_search::regex_search(
+          context, mgcxx::text_search::SearchInput{.search_fields = {"all"},
+                                                   .search_query = ToLowerCasePreservingBooleanOperators(search_query),
+                                                   .return_fields = {"metadata"},
+                                                   .limit = limit});
+    case text_search_mode::ALL_PROPERTIES:
+      return mgcxx::text_search::search(
+          context, mgcxx::text_search::SearchInput{.search_fields = {"all"},
+                                                   .search_query = ToLowerCasePreservingBooleanOperators(search_query),
+                                                   .return_fields = {"metadata"},
+                                                   .limit = limit});
+    default:
+      throw query::TextSearchException(
+          "Unsupported search mode: please use one of text_search.search, text_search.search_all, or "
+          "text_search.regex_search.");
   }
 }
 

@@ -55,10 +55,11 @@ void Indices::DropGraphClearIndices() {
   vector_edge_index_.Clear();
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
     text_index_.Clear();
+    text_edge_index_.Clear();
   }
 }
 
-void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx) const {
+void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx) {
   tx.active_indices_.label_->UpdateOnAddLabel(label, vertex, tx);
   tx.active_indices_.label_properties_->UpdateOnAddLabel(label, vertex, tx);
   vector_index_.UpdateOnAddLabel(label, vertex);
@@ -67,7 +68,7 @@ void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx) c
   }
 }
 
-void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx) const {
+void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx) {
   tx.active_indices_.label_->UpdateOnRemoveLabel(label, vertex, tx);
   tx.active_indices_.label_properties_->UpdateOnRemoveLabel(label, vertex, tx);
   vector_index_.UpdateOnRemoveLabel(label, vertex);
@@ -76,8 +77,7 @@ void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx
   }
 }
 
-void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex,
-                                  Transaction &tx) const {
+void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, Transaction &tx) {
   tx.active_indices_.label_properties_->UpdateOnSetProperty(property, value, vertex, tx);
   vector_index_.UpdateOnSetProperty(property, value, vertex);
   if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
@@ -86,20 +86,22 @@ void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &valu
 }
 
 void Indices::UpdateOnSetProperty(EdgeTypeId edge_type, PropertyId property, const PropertyValue &value,
-                                  Vertex *from_vertex, Vertex *to_vertex, Edge *edge, const Transaction &tx) const {
+                                  Vertex *from_vertex, Vertex *to_vertex, Edge *edge, Transaction &tx) {
   tx.active_indices_.edge_type_properties_->UpdateOnSetProperty(from_vertex, to_vertex, edge, edge_type, property,
                                                                 value, tx.start_timestamp);
   tx.active_indices_.edge_property_->UpdateOnSetProperty(from_vertex, to_vertex, edge, edge_type, property, value,
                                                          tx.start_timestamp);
   vector_edge_index_.UpdateOnSetProperty(from_vertex, to_vertex, edge, edge_type, property, value);
+  text_edge_index_.UpdateOnSetProperty(edge, from_vertex, to_vertex, edge_type, tx);
 }
 
 void Indices::UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,
-                                   const Transaction &tx) const {
+                                   const Transaction &tx) {
   tx.active_indices_.edge_type_->UpdateOnEdgeCreation(from, to, edge_ref, edge_type, tx);
 }
 
-Indices::Indices(const Config &config, StorageMode storage_mode) : text_index_(config.durability.storage_directory) {
+Indices::Indices(const Config &config, StorageMode storage_mode)
+    : text_index_(config.durability.storage_directory), text_edge_index_(config.durability.storage_directory) {
   std::invoke([this, config, storage_mode]() {
     if (storage_mode == StorageMode::IN_MEMORY_TRANSACTIONAL || storage_mode == StorageMode::IN_MEMORY_ANALYTICAL) {
       label_index_ = std::make_unique<InMemoryLabelIndex>();

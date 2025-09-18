@@ -89,6 +89,7 @@
   M(ActiveEdgePropertyIndices, Index, "Number of active edge property indices in the system.")                         \
   M(ActivePointIndices, Index, "Number of active point indices in the system.")                                        \
   M(ActiveTextIndices, Index, "Number of active text indices in the system.")                                          \
+  M(ActiveTextEdgeIndices, Index, "Number of active text edge indices in the system.")                                 \
   M(ActiveVectorIndices, Index, "Number of active vector indices in the system.")                                      \
   M(ActiveVectorEdgeIndices, Index, "Number of active vector edge indices in the system.")                             \
                                                                                                                        \
@@ -112,6 +113,8 @@
   M(FailedPrepare, Transaction, "Number of times preparing a query failed.")                                           \
   M(FailedPull, Transaction, "Number of times executing a prepared query failed.")                                     \
   M(SuccessfulQuery, Transaction, "Number of successful queries.")                                                     \
+  M(WriteWriteConflicts, Transaction, "Number of times a write-write conflict happened.")                              \
+  M(TransientErrors, Transaction, "Number of times a transient error happened.")                                        \
   M(UnreleasedDeltaObjects, Memory, "Total number of unreleased delta objects in memory.")                             \
                                                                                                                        \
   M(DeletedNodes, TTL, "Number of nodes deleted via TTL")                                                              \

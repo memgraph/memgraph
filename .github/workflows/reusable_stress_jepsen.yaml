@@ -34,7 +34,7 @@ env:
 jobs:
   ha-test:
     name: "Run Jepsen HA Tests"
-    runs-on: [self-hosted, Linux, X64, DockerMgBuild, JepsenControl]
+    runs-on: [self-hosted, Linux, X64, DockerMgBuild]
     timeout-minutes: 720
     steps:
       - name: Set up repository
@@ -140,3 +140,9 @@ jobs:
         if: always()
         run: |
           ./release/package/mgbuild.sh --toolchain $TOOLCHAIN --os $OS --arch $ARCH stop --remove
+
+      - name: Clean up Docker
+        if: always()
+        continue-on-error: true
+        run: |
+          ./tools/docker_cleanup.sh

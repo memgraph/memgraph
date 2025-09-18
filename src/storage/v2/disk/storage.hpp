@@ -80,6 +80,8 @@ class DiskStorage final : public Storage {
 
     std::optional<EdgeAccessor> FindEdge(Gid gid, View view) override;
 
+    std::optional<EdgeAccessor> FindEdge(Gid edge_gid, Gid from_vertex_gid, View view) override;
+
     EdgesIterable Edges(EdgeTypeId edge_type, View view) override;
 
     EdgesIterable Edges(EdgeTypeId edge_type, PropertyId property, View view) override;
@@ -165,6 +167,10 @@ class DiskStorage final : public Storage {
       return std::nullopt;
     }
 
+    std::optional<uint64_t> ApproximateEdgesTextCount(std::string_view index_name) const override {
+      return std::nullopt;
+    }
+
     std::optional<storage::LabelIndexStats> GetIndexStats(const storage::LabelId & /*label*/) const override {
       return {};
     }
@@ -223,6 +229,10 @@ class DiskStorage final : public Storage {
     IndicesInfo ListAllIndices() const override;
 
     ConstraintsInfo ListAllConstraints() const override;
+
+    void DropAllIndexes() override;
+
+    void DropAllConstraints() override;
 
     // NOLINTNEXTLINE(google-default-arguments)
     utils::BasicResult<StorageManipulationError, void> PrepareForCommitPhase(CommitArgs commit_args) override;
@@ -301,8 +311,8 @@ class DiskStorage final : public Storage {
                        PointDistanceCondition condition) -> PointIterable override;
 
     auto PointVertices(LabelId label, PropertyId property, CoordinateReferenceSystem crs,
-                       PropertyValue const &bottom_left, PropertyValue const &top_right,
-                       WithinBBoxCondition condition) -> PointIterable override;
+                       PropertyValue const &bottom_left, PropertyValue const &top_right, WithinBBoxCondition condition)
+        -> PointIterable override;
 
     std::vector<std::tuple<VertexAccessor, double, double>> VectorIndexSearchOnNodes(
         const std::string &index_name, uint64_t number_of_results, const std::vector<float> &vector) override;
