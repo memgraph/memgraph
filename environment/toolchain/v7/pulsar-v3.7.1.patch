@@ -1,0 +1,123 @@
+diff --git a/LegacyFindPackages.cmake b/LegacyFindPackages.cmake
+index 5004545..5d9acfe 100644
+--- a/LegacyFindPackages.cmake
++++ b/LegacyFindPackages.cmake
+@@ -94,17 +94,22 @@ message("Protobuf_INCLUDE_DIRS: " ${Protobuf_INCLUDE_DIRS})
+ message("Protobuf_LIBRARIES: " ${Protobuf_LIBRARIES})
+
+ # NOTE: CMake might not find curl and zlib on some platforms like Ubuntu, in this case, find them manually
+-set(CURL_NO_CURL_CMAKE ON)
+-find_package(curl QUIET)
+-if (NOT CURL_FOUND)
+-    find_path(CURL_INCLUDE_DIRS NAMES curl/curl.h)
+-    find_library(CURL_LIBRARIES NAMES curl curllib libcurl_imp curllib_static libcurl)
+-endif ()
+-message("CURL_INCLUDE_DIRS: " ${CURL_INCLUDE_DIRS})
+-message("CURL_LIBRARIES: " ${CURL_LIBRARIES})
+-if (NOT CURL_INCLUDE_DIRS OR NOT CURL_LIBRARIES)
+-    message(FATAL_ERROR "Could not find libcurl")
+-endif ()
++if (LINK_STATIC)
++    find_package(CURL REQUIRED)
++    set(COMMON_LIBS ${COMMON_LIBS} CURL::libcurl)
++else()
++    set(CURL_NO_CURL_CMAKE ON)
++    find_package(curl QUIET)
++    if (NOT CURL_FOUND)
++        find_path(CURL_INCLUDE_DIRS NAMES curl/curl.h)
++        find_library(CURL_LIBRARIES NAMES curl curllib libcurl_imp curllib_static libcurl)
++    endif ()
++    message("CURL_INCLUDE_DIRS: " ${CURL_INCLUDE_DIRS})
++    message("CURL_LIBRARIES: " ${CURL_LIBRARIES})
++    if (NOT CURL_INCLUDE_DIRS OR NOT CURL_LIBRARIES)
++        message(FATAL_ERROR "Could not find libcurl")
++    endif ()
++endif()
+
+ find_package(zlib QUIET)
+ if (NOT ZLIB_FOUND)
+@@ -231,25 +236,31 @@ include_directories(
+   ${Boost_INCLUDE_DIRS}
+   ${OPENSSL_INCLUDE_DIR}
+   ${ZLIB_INCLUDE_DIRS}
+-  ${CURL_INCLUDE_DIRS}
+   ${Protobuf_INCLUDE_DIRS}
+   ${GTEST_INCLUDE_PATH}
+   ${GMOCK_INCLUDE_PATH}
+ )
+
++if (NOT LINK_STATIC)
++    include_directories(${CURL_INCLUDE_DIRS})
++endif()
++
+ set(COMMON_LIBS
+   ${COMMON_LIBS}
+   ${CMAKE_THREAD_LIBS_INIT}
+   ${Boost_REGEX_LIBRARY}
+   ${Boost_SYSTEM_LIBRARY}
+   ${Boost_DATE_TIME_LIBRARY}
+-  ${CURL_LIBRARIES}
+   ${OPENSSL_LIBRARIES}
+   ${ZLIB_LIBRARIES}
+   ${ADDITIONAL_LIBRARIES}
+   ${CMAKE_DL_LIBS}
+ )
+
++if (NOT LINK_STATIC)
++    set(COMMON_LIBS ${COMMON_LIBS} ${CURL_LIBRARIES})
++endif()
++
+ if (LATEST_PROTOBUF)
+     # Protobuf_LIBRARIES is empty when finding Protobuf in Config mode
+     set(COMMON_LIBS ${COMMON_LIBS} protobuf::libprotobuf)
+diff --git a/include/pulsar/defines.h b/include/pulsar/defines.h
+index fc099df..b95ba7e 100644
+--- a/include/pulsar/defines.h
++++ b/include/pulsar/defines.h
+@@ -19,6 +19,8 @@
+ #ifndef PULSAR_DEFINES_H_
+ #define PULSAR_DEFINES_H_
+
++#include <cstdint>
++
+ #ifdef PULSAR_STATIC
+
+ #define PULSAR_PUBLIC
+diff --git a/lib/CMakeLists.txt b/lib/CMakeLists.txt
+index 21b308c..6f8b6ec 100644
+--- a/lib/CMakeLists.txt
++++ b/lib/CMakeLists.txt
+@@ -155,10 +155,19 @@ if (LINK_STATIC AND BUILD_STATIC_LIB)
+         set_property(TARGET pulsarStaticWithDeps PROPERTY VERSION ${LIBRARY_VERSION})
+         install(TARGETS pulsarStaticWithDeps DESTINATION lib)
+     else()
+-        # Build a list of the requird .a libs (except ssl) to merge
++        # Build a list of the required .a libs (except ssl and problematic deps) to merge
+         SET(STATIC_LIBS "")
+         foreach (LIB IN LISTS COMMON_LIBS)
+-            if (${LIB} MATCHES ".+\\.a$")
++            # Only include .a files and exclude problematic dependencies that require system packages
++            if (${LIB} MATCHES ".+\\.a$" AND
++                NOT ${LIB} MATCHES ".*nghttp2.*" AND
++                NOT ${LIB} MATCHES ".*psl.*" AND
++                NOT ${LIB} MATCHES ".*krb5.*" AND
++                NOT ${LIB} MATCHES ".*rtmp.*" AND
++                NOT ${LIB} MATCHES ".*ldap.*" AND
++                NOT ${LIB} MATCHES ".*brotli.*" AND
++                NOT ${LIB} MATCHES ".*idn2.*" AND
++                NOT ${LIB} MATCHES ".*ssh.*")
+                 set(STATIC_LIBS "${STATIC_LIBS} ${LIB}")
+             endif()
+         endforeach()
+diff --git a/lib/LogUtils.h b/lib/LogUtils.h
+index 3df1a7a..4ad1f07 100644
+--- a/lib/LogUtils.h
++++ b/lib/LogUtils.h
+@@ -22,6 +22,7 @@
+ #include <pulsar/Logger.h>
+ #include <pulsar/defines.h>
+
++#include <cstdint>
+ #include <memory>
+ #include <sstream>
+ #include <string>

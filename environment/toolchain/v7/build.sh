@@ -1322,8 +1322,9 @@ if [ ! -f $PREFIX/lib/libpulsarwithdeps.a ]; then
     git clone https://github.com/apache/pulsar-client-cpp.git pulsar
     pushd pulsar
     git checkout $PULSAR_TAG
-
-    cmake -B . $COMMON_CMAKE_FLAGS \
+    git apply $DIR/pulsar-v3.7.1.patch
+    mkdir -p build
+    cmake -B build $COMMON_CMAKE_FLAGS \
       -DBUILD_DYNAMIC_LIB=OFF \
       -DBUILD_STATIC_LIB=ON \
       -DBUILD_TESTS=OFF \
@@ -1332,11 +1333,12 @@ if [ ! -f $PREFIX/lib/libpulsarwithdeps.a ]; then
       -DBUILD_PYTHON_WRAPPER=OFF \
       -DBUILD_PERF_TOOLS=OFF \
       -DUSE_LOG4CXX=OFF
+    pushd build
     cmake --build . -j$CPUS --target pulsarStaticWithDeps
     # NOTE: For some reason the withdeps is not make installed...
     cp lib/libpulsarwithdeps.a $PREFIX/lib/
     cmake --build . -j$CPUS --target install
-    popd
+    popd && popd
 fi
 
 KAFKA_TAG="v2.6.1"
