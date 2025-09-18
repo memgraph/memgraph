@@ -98,6 +98,16 @@ TypedValue::TypedValue(const storage::PropertyValue &value, storage::NameIdMappe
       }
       return;
     }
+    case storage::PropertyValue::Type::DoubleList: {
+      type_ = Type::List;
+      const auto &vec = value.ValueDoubleList();
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        auto temp_value = TypedValue(v, alloc_);
+        list_v.emplace_back(temp_value);
+      }
+      return;
+    }
     case storage::PropertyValue::Type::Map: {
       if (!name_id_mapper) {
         throw std::runtime_error("NameIdMapper is required for TypedValue::Map");
@@ -205,6 +215,16 @@ TypedValue::TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *na
       }
       break;
     }
+    case storage::PropertyValue::Type::DoubleList: {
+      type_ = Type::List;
+      auto &vec = other.ValueDoubleList();
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        auto temp_value = TypedValue(v, alloc_);
+        list_v.emplace_back(temp_value);
+      }
+      break;
+    }
     case storage::PropertyValue::Type::Map: {
       if (!name_id_mapper) {
         throw TypedValueException("NameIdMapper is required for TypedValue::Map");
@@ -308,6 +328,16 @@ TypedValue::TypedValue(const storage::ExternalPropertyValue &value, allocator_ty
       alloc_trait::construct(alloc_, &list_v, vec.cbegin(), vec.cend());
       return;
     }
+    case storage::PropertyValue::Type::DoubleList: {
+      type_ = Type::List;
+      const auto &vec = value.ValueDoubleList();
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        auto temp_value = TypedValue(v, alloc_);
+        list_v.emplace_back(temp_value);
+      }
+      return;
+    }
     case storage::PropertyValue::Type::Map: {
       type_ = Type::Map;
       const auto &map = value.ValueMap();
@@ -402,6 +432,16 @@ TypedValue::TypedValue(storage::ExternalPropertyValue &&other, allocator_type al
       auto &vec = other.ValueList();
       // PropertyValue uses std::allocator, hence copy here
       alloc_trait::construct(alloc_, &list_v, vec.cbegin(), vec.cend());
+      break;
+    }
+    case storage::PropertyValue::Type::DoubleList: {
+      type_ = Type::List;
+      auto &vec = other.ValueDoubleList();
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        auto temp_value = TypedValue(v, alloc_);
+        list_v.emplace_back(temp_value);
+      }
       break;
     }
     case storage::PropertyValue::Type::Map: {

@@ -52,6 +52,14 @@ nlohmann::json SerializeExternalPropertyValue(const storage::ExternalPropertyVal
       return property_value.ValueString();
     case Type::List:
       return SerializeExternalPropertyValueVector(property_value.ValueList(), storage_acc);
+    case Type::DoubleList: {
+      nlohmann::json ret = nlohmann::json::array();
+      const auto &list = property_value.ValueDoubleList();
+      for (const auto &item : list) {
+        ret.push_back(item);
+      }
+      return ret;
+    }
     case Type::Map:
       return SerializeExternalPropertyValueMap(property_value.ValueMap(), storage_acc);
     case Type::TemporalData: {

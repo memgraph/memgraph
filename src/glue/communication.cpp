@@ -385,6 +385,15 @@ Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &s
       }
       return Value(std::move(vec));
     }
+    case storage::PropertyValue::Type::DoubleList: {
+      const auto &values = value.ValueDoubleList();
+      std::vector<Value> vec;
+      vec.reserve(values.size());
+      for (const auto &v : values) {
+        vec.emplace_back(v);
+      }
+      return Value(std::move(vec));
+    }
     case storage::PropertyValue::Type::Map: {
       const auto &map = value.ValueMap();
       bolt_map_t dv_map;

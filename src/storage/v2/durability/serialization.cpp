@@ -162,6 +162,15 @@ void Encoder<FileType>::WriteExternalPropertyValue(const ExternalPropertyValue &
       }
       break;
     }
+    case ExternalPropertyValue::Type::DoubleList: {
+      const auto &list = value.ValueDoubleList();
+      WriteMarker(Marker::TYPE_LIST);
+      WriteSize(this, list.size());
+      for (const auto &item : list) {
+        WriteDouble(item);
+      }
+      break;
+    }
     case ExternalPropertyValue::Type::Map: {
       const auto &map = value.ValueMap();
       WriteMarker(Marker::TYPE_MAP);

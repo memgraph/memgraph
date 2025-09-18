@@ -588,6 +588,19 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
       }
       return {{Type::LIST, *size}};
     }
+    case PropertyValue::Type::DoubleList: {
+      const auto &list = value.ValueDoubleList();
+      auto size = writer->WriteUint(list.size());
+      if (!size) return std::nullopt;
+      for (const auto &item : list) {
+        auto metadata = writer->WriteMetadata();
+        if (!metadata) return std::nullopt;
+        auto ret = writer->WriteDouble(item);
+        if (!ret) return std::nullopt;
+        metadata->Set({Type::DOUBLE, Size::INT8, *ret});
+      }
+      return {{Type::LIST, *size}};
+    }
     case PropertyValue::Type::Map: {
       const auto &map = value.ValueMap();
       auto size = writer->WriteUint(map.size());

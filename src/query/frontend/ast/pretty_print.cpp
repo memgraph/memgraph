@@ -217,6 +217,10 @@ void PrintObject(std::ostream *out, const DbAccessor *dba, const storage::Proper
       PrintObject(out, dba, value.ValueList());
       break;
 
+    case storage::PropertyValue::Type::DoubleList:
+      PrintObject(out, dba, value.ValueDoubleList());
+      break;
+
     case storage::PropertyValue::Type::Map:
       PrintObject(out, dba, value.ValueMap());
       break;
@@ -263,6 +267,10 @@ void PrintObject(std::ostream *out, const DbAccessor *dba, const storage::Extern
 
     case storage::ExternalPropertyValue::Type::List:
       PrintObject(out, dba, value.ValueList());
+      break;
+
+    case storage::ExternalPropertyValue::Type::DoubleList:
+      PrintObject(out, dba, value.ValueDoubleList());
       break;
 
     case storage::ExternalPropertyValue::Type::Map:
