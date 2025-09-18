@@ -397,7 +397,7 @@ jobs:
   stress:
     if: ${{ inputs.run_stress == 'true' }}
     name: "Stress tests"
-    runs-on: [self-hosted, Linux, X64, DockerMgBuild, gamora]
+    runs-on: [self-hosted, Linux, X64, DockerMgBuild, colossus]
     timeout-minutes: 60
     steps:
       - name: Set up repository
