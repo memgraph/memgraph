@@ -82,6 +82,7 @@ fi
 
 if [[ "$prep_testing" == "true" ]]; then
   setup_virtualenv tests
+  setup_virtualenv tests/stress
   cd tests
   ./setup.sh
   cd ..
