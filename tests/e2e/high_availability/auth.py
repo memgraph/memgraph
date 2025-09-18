@@ -31,9 +31,6 @@ def test_name(request):
     return request.node.name
 
 
-# Test that SHOW USERS cannot be run on coordinators
-# Test that you cannot request routing table from coordinators since the user will exist on data instances but not on coordinators
-# Test that you can create user using bolt+routing
 # Connect HA, MT and AUTH by giving users access only to a specific database
 
 
@@ -119,6 +116,7 @@ def cleanup_after_test():
     interactive_mg_runner.kill_all(keep_directories=False)
 
 
+# @pytest.mark.skip(reason="works")
 def test_coords_env(test_name):
     # Env variable is used for all instances
     os.environ["MEMGRAPH_USER"] = "user1"
@@ -135,17 +133,77 @@ def test_coords_env(test_name):
     leader_cursor = connect(host="localhost", port=7692).cursor()
     try:
         execute_and_fetch_all(leader_cursor, "show users")
+        assert False
     except Exception as e:
         print(f"Error: {str(e)}")
 
     # Test that you cannot connect with auth on coordinators
     try:
         connect(host="localhost", port=7692, username="user1", password="pass1").cursor()
+        assert False
     except Exception as e:
         print(f"Error: {str(e)}")
 
     del os.environ["MEMGRAPH_USER"]
     del os.environ["MEMGRAPH_PASSWORD"]
+
+
+def test_routing_connection(test_name):
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    # Test that without any user, routing works normally
+    driver = GraphDatabase.driver("neo4j://localhost:7692")
+
+    def create_vertex(tx):
+        tx.run("create (n:Greeting {id: 1})")
+
+    def get_all_vertices(tx):
+        return tx.run("match (n) return count(n) as c").single()["c"]
+
+    with driver.session() as session:
+        session.execute_write(create_vertex)
+        assert session.execute_read(get_all_vertices) == 1
+
+    # Test that the user can be created with bolt+routing
+    with driver.session() as session:
+        session.run("create user user1 identified by '123'")
+
+    # Test the user was successfully created
+    main_cursor = connect(host="localhost", port=7687, username="user1", password="123").cursor()
+    assert len(execute_and_fetch_all(main_cursor, "show users")) == 1
+
+    # You can send request normally with the old driver
+    with driver.session() as session:
+        session.run("show users")
+
+    driver.close()
+
+    # Create a new driver and check that you cannot send a routing request anymore
+    driver = GraphDatabase.driver("neo4j://localhost:7692")
+    with driver.session() as session:
+        try:
+            session.run("show users")
+            assert False
+        except Exception as e:
+            print(f"Error: {str(e)}")
+    driver.close()
+
+    # Coordinators don't care about authentication details you specified
+    driver = GraphDatabase.driver("neo4j://localhost:7692", auth=("user1", "123"))
+    with driver.session() as session:
+        session.run("show users")
+    driver.close()
+
+    # Coordinators don't care about authentication details you specified but data instances do
+    driver = GraphDatabase.driver("neo4j://localhost:7692", auth=("not_exists", "123"))
+    with driver.session() as session:
+        try:
+            session.run("show users")
+            assert False
+        except Exception as e:
+            print(f"Error: {str(e)}")
+    driver.close()
 
 
 if __name__ == "__main__":
