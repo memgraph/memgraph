@@ -116,7 +116,6 @@ def cleanup_after_test():
     interactive_mg_runner.kill_all(keep_directories=False)
 
 
-# @pytest.mark.skip(reason="works")
 def test_coords_env(test_name):
     # Env variable is used for all instances
     os.environ["MEMGRAPH_USER"] = "user1"
@@ -204,6 +203,190 @@ def test_routing_connection(test_name):
         except Exception as e:
             print(f"Error: {str(e)}")
     driver.close()
+
+
+def test_ha_mt_auth_scenario(test_name):
+    """Test multi-database setup with different user access levels"""
+    inner_instances_description = get_instances_description_no_setup(test_name=test_name)
+    interactive_mg_runner.start_all(inner_instances_description, keep_directories=False)
+
+    # Connect to coordinator without auth
+    driver = GraphDatabase.driver("neo4j://localhost:7692")
+
+    # Create databases
+    with driver.session() as session:
+        session.run("CREATE DATABASE sales")
+        session.run("CREATE DATABASE analytics")
+        session.run("CREATE DATABASE reports")
+
+    # Create users with different access levels
+    with driver.session() as session:
+        # Create admin user with access to all databases
+        session.run("CREATE USER admin IDENTIFIED BY 'admin123'")
+        session.run("GRANT ALL PRIVILEGES TO admin")
+        session.run("GRANT DATABASE * TO admin")
+        session.run("GRANT MULTI_DATABASE_USE TO admin")
+
+        # Create user for sales database
+        session.run("CREATE USER sales_user IDENTIFIED BY 'sales123'")
+        session.run("GRANT CREATE, MATCH, SET, DELETE TO sales_user")
+        session.run("GRANT DATABASE sales TO sales_user")
+        session.run("REVOKE DATABASE memgraph FROM sales_user")
+        session.run("SET MAIN DATABASE sales FOR sales_user")
+        session.run("GRANT MULTI_DATABASE_USE TO sales_user")
+
+        # Create user for analytics database
+        session.run("CREATE USER analytics_user IDENTIFIED BY 'analytics123'")
+        session.run("GRANT CREATE, MATCH, SET, DELETE TO analytics_user")
+        session.run("GRANT DATABASE analytics TO analytics_user")
+        session.run("REVOKE DATABASE memgraph FROM analytics_user")
+        session.run("SET MAIN DATABASE analytics FOR analytics_user")
+        session.run("GRANT MULTI_DATABASE_USE TO analytics_user")
+
+        # Create user for reports database (read-only)
+        session.run("CREATE USER reports_user IDENTIFIED BY 'reports123'")
+        session.run("GRANT MATCH TO reports_user")
+        session.run("GRANT DATABASE reports TO reports_user")
+        session.run("REVOKE DATABASE memgraph FROM reports_user")
+        session.run("SET MAIN DATABASE reports FOR reports_user")
+        session.run("GRANT MULTI_DATABASE_USE TO reports_user")
+
+    driver.close()
+
+    admin_driver = GraphDatabase.driver("bolt://localhost:7687", auth=("admin", "admin123"))
+    with admin_driver.session() as session:
+        # Should be able to use all databases2
+        session.run("USE DATABASE memgraph")
+    admin_driver.close()
+
+    # Test admin user can access all databases
+    admin_driver = GraphDatabase.driver("neo4j://localhost:7692", auth=("admin", "admin123"))
+    with admin_driver.session() as session:
+        # Should be able to use all databases2
+        session.run("USE DATABASE memgraph")
+        session.run("CREATE (n:AdminNode {name: 'admin_memgraph'})")
+
+        session.run("USE DATABASE sales")
+        session.run("CREATE (n:AdminNode {name: 'admin_sales'})")
+
+        session.run("USE DATABASE analytics")
+        session.run("CREATE (n:AdminNode {name: 'admin_analytics'})")
+
+        session.run("USE DATABASE reports")
+        session.run("CREATE (n:AdminNode {name: 'admin_reports'})")
+
+        # Verify admin can read from all databases
+        session.run("USE DATABASE memgraph")
+        result = session.run("MATCH (n:AdminNode) RETURN n.name as name").single()
+        assert result["name"] == "admin_memgraph"
+
+        session.run("USE DATABASE sales")
+        result = session.run("MATCH (n:AdminNode) RETURN n.name as name").single()
+        assert result["name"] == "admin_sales"
+    admin_driver.close()
+
+    # Test sales_user can only access sales database
+    sales_driver = GraphDatabase.driver("neo4j://localhost:7692", auth=("sales_user", "sales123"))
+    with sales_driver.session() as session:
+        # Should start on sales database (main database)
+        result = session.run("SHOW DATABASE").single()
+        assert result["database"] == "sales"
+
+        # Can create and modify data in sales
+        session.run("CREATE (n:SalesData {amount: 1000})")
+        session.run("MATCH (n:SalesData) SET n.processed = true")
+
+        # Cannot access memgraph database
+        try:
+            session.run("USE DATABASE memgraph")
+            assert False, "sales_user should not access memgraph database"
+        except Exception:
+            pass
+
+        # Cannot access analytics database
+        try:
+            session.run("USE DATABASE analytics")
+            assert False, "sales_user should not access analytics database"
+        except Exception:
+            pass
+    sales_driver.close()
+
+    # Test analytics_user can only access analytics database
+    analytics_driver = GraphDatabase.driver("neo4j://localhost:7692", auth=("analytics_user", "analytics123"))
+    with analytics_driver.session() as session:
+        # Should start on analytics database (main database)
+        result = session.run("SHOW DATABASE").single()
+        assert result["database"] == "analytics"
+
+        # Can create and modify data in analytics
+        session.run("CREATE (n:Metrics {value: 42})")
+        session.run("MATCH (n:Metrics) SET n.calculated = true")
+
+        # Cannot access sales database
+        try:
+            session.run("USE DATABASE sales")
+            assert False, "analytics_user should not access sales database"
+        except Exception:
+            pass
+
+        # Cannot access reports database
+        try:
+            session.run("USE DATABASE reports")
+            assert False, "analytics_user should not access reports database"
+        except Exception:
+            pass
+    analytics_driver.close()
+
+    # Test reports_user has read-only access to reports database
+    reports_driver = GraphDatabase.driver("neo4j://localhost:7692", auth=("reports_user", "reports123"))
+    with reports_driver.session() as session:
+        # Should start on reports database (main database)
+        result = session.run("SHOW DATABASE").single()
+        assert result["database"] == "reports"
+
+        # Can read data (once admin creates some)
+        session.run("MATCH (n) RETURN n")
+
+        # Cannot create data (read-only)
+        try:
+            session.run("CREATE (n:Report {name: 'test'})")
+            assert False, "reports_user should not be able to create data"
+        except Exception:
+            pass
+
+        # Cannot modify data (read-only)
+        try:
+            session.run("MATCH (n) SET n.updated = true")
+            assert False, "reports_user should not be able to modify data"
+        except Exception:
+            pass
+
+        # Cannot access other databases
+        try:
+            session.run("USE DATABASE memgraph")
+            assert False, "reports_user should not access memgraph database"
+        except Exception:
+            pass
+    reports_driver.close()
+
+    # Test cross-database data isolation
+    admin_driver = GraphDatabase.driver("neo4j://localhost:7692", auth=("admin", "admin123"))
+    with admin_driver.session() as session:
+        # Check sales database has only sales data
+        session.run("USE DATABASE sales")
+        result = session.run("MATCH (n) RETURN count(n) as cnt").single()
+        assert result["cnt"] == 2  # AdminNode + SalesData
+
+        # Check analytics database has only analytics data
+        session.run("USE DATABASE analytics")
+        result = session.run("MATCH (n) RETURN count(n) as cnt").single()
+        assert result["cnt"] == 2  # AdminNode + Metrics
+
+        # Check reports database has only admin data
+        session.run("USE DATABASE reports")
+        result = session.run("MATCH (n) RETURN count(n) as cnt").single()
+        assert result["cnt"] == 1  # Only AdminNode
+    admin_driver.close()
 
 
 if __name__ == "__main__":
