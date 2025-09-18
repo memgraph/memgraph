@@ -785,7 +785,7 @@ void User::AddMultiTenantRole(Role role, const std::string &db_name) {
                              [&role](const auto &in) { return role.rolename() == in.rolename(); });
       it != roles().end()) {
     // Role is already present (the original role has access to the database)
-    // Add access if the user's role does't already have access to the database
+    // Add access if the user's role doesn't already have access to the database
     if (!it->HasAccess(db_name)) {
       role = *it;
       role.db_access().Grant(db_name);
@@ -897,6 +897,44 @@ FineGrainedAccessPermissions User::GetRoleFineGrainedAccessLabelPermissions(
 #endif
 
 const std::string &User::username() const { return username_; }
+
+#ifdef MG_ENTERPRISE
+const std::string &User::GetMain() const {
+  // First check if user has their own main database set
+  static std::string default_db{dbms::kDefaultDB};
+
+  try {
+    const std::string &user_main = database_access_.GetMain();
+    // If user has explicitly set a main database that's not the default, use it
+    if (!user_main.empty() && database_access_.Contains(user_main)) {
+      // Check if this is truly the user's own setting or just the default
+      // by checking if it differs from the default database
+      if (user_main != default_db || roles_.empty()) {
+        return user_main;
+      }
+    }
+  } catch (const AuthException &) {
+    // User doesn't have access to their set main database
+    // Fall through to check role's database
+  }
+
+  // If user has roles, try to get the main database from the first role
+  if (!roles_.empty()) {
+    try {
+      const std::string &role_main = roles_.GetMain();
+      if (!role_main.empty() && HasAccess(role_main)) {
+        return role_main;
+      }
+    } catch (const AuthException &) {
+      // Role doesn't have access to its main database
+      // Fall through to return user's database
+    }
+  }
+
+  // Return user's main database (might be default)
+  return database_access_.GetMain();
+}
+#endif
 
 const Permissions &User::permissions() const { return permissions_; }
 Permissions &User::permissions() { return permissions_; }
