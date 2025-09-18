@@ -122,28 +122,37 @@ def get_output(*cmd, multiple=False):
     return ret.stdout.decode("utf-8").strip()
 
 
+def request_repo_tags(token=None):
+    api_url = "https://api.github.com/repos/memgraph/memgraph/tags"
+    req = urllib.request.Request(api_url)
+    req.add_header("User-Agent", "Memgraph-Version-Script/1.0")
+    if token:
+        req.add_header("Authorization", f"token {token}")
+    try:
+        with urllib.request.urlopen(req) as response:
+            return json.loads(response.read().decode())
+    except Exception as e:
+        print(f"Warning: Could not fetch tags from original repository: {e}", file=sys.stderr)
+        return None
+
+
 def fetch_memgraph_repo_version():
     """Fetch version information from the original Memgraph repository via GitHub API."""
     try:
-        # GitHub API endpoint for the original Memgraph repository tags
-        api_url = "https://api.github.com/repos/memgraph/memgraph/tags"
-
         # Check for GitHub token in environment variables
         github_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GITHUB_API_TOKEN")
 
-        # Make request to GitHub API
-        req = urllib.request.Request(api_url)
-        req.add_header("User-Agent", "Memgraph-Version-Script/1.0")
-
-        # Add authorization header if token is available
+        # try authenticated request first, to avoid rate limiting
+        tags_data = None
         if github_token:
-            req.add_header("Authorization", f"token {github_token}")
-            print("Using GitHub API token for authenticated request", file=sys.stderr)
-        else:
-            print("No GitHub token found, using unauthenticated request (may be rate limited)", file=sys.stderr)
+            tags_data = request_repo_tags(github_token)
 
-        with urllib.request.urlopen(req) as response:
-            tags_data = json.loads(response.read().decode())
+        # if authenticated request fails, try unauthenticated request
+        if tags_data is None:
+            tags_data = request_repo_tags()
+
+        if tags_data is None:
+            return None, None
 
         # Look for version tags in format vx.y.z, excluding rc tags
         version_tags = []
