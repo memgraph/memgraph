@@ -1134,7 +1134,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   transaction_.EnsureCommitTimestampExists();
-  transaction_.commit_timestamp->store(kAbortedTransactionId, std::memory_order_release);
 
   // if we have no deltas then no need to do any undo work during Abort
   // note: this check also saves on unnecessary contention on `engine_lock_`
@@ -1180,78 +1179,98 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
           auto *edge = prev.edge;
           auto guard = std::lock_guard{edge->lock};
           Delta *current = edge->delta;
-          while (current != nullptr &&
-                 current->timestamp->load(std::memory_order_acquire) == transaction_.transaction_id) {
-            switch (current->action) {
-              case Delta::Action::SET_PROPERTY: {
-                DMG_ASSERT(mem_storage->config_.salient.items.properties_on_edges, "Invalid database state!");
+          Delta *prev_delta = nullptr;
+
+          while (current != nullptr) {
+            auto ts = current->timestamp->load(std::memory_order_acquire);
+
+            if (ts == transaction_.transaction_id) {
+              switch (current->action) {
+                case Delta::Action::SET_PROPERTY: {
+                  DMG_ASSERT(mem_storage->config_.salient.items.properties_on_edges, "Invalid database state!");
 
                 auto prop_id = current->property.key;
                 auto *from_vertex = current->property.out_vertex;
 
-                const auto &vector_indexed_edge_types = index_abort_processor.vector_edge_.p2et.find(prop_id);
-                auto vec_prop_is_interesting =
-                    vector_indexed_edge_types != index_abort_processor.vector_edge_.p2et.end();
+                  const auto &vector_indexed_edge_types = index_abort_processor.vector_edge_.p2et.find(prop_id);
+                  auto vec_prop_is_interesting =
+                      vector_indexed_edge_types != index_abort_processor.vector_edge_.p2et.end();
 
-                auto processor_prop_is_interesting = index_abort_processor.IsInterestingEdgeProperty(prop_id);
-                if (processor_prop_is_interesting || vec_prop_is_interesting) {
-                  // TODO: MVCC collect out_edges (including ones deleted this txn)
-                  //       from_vertex->out_edges would be missing any edge that was deleted during this transaction
-                  //       ATM we don't handle that corner case. Setting a property on an edge that would then be
-                  //       removed
+                  auto processor_prop_is_interesting = index_abort_processor.IsInterestingEdgeProperty(prop_id);
+                  if (processor_prop_is_interesting || vec_prop_is_interesting) {
+                    // TODO: MVCC collect out_edges (including ones deleted this txn)
+                    //       from_vertex->out_edges would be missing any edge that was deleted during this transaction
+                    //       ATM we don't handle that corner case. Setting a property on an edge that would then be
+                    //       removed
 
-                  if (processor_prop_is_interesting) {
-                    for (auto const &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
-                      if (edge_ref.ptr != edge) continue;
-                      index_abort_processor.CollectOnPropertyChange(edge_type, prop_id, from_vertex, to_vertex, edge);
+                    if (processor_prop_is_interesting) {
+                      for (auto const &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
+                        if (edge_ref.ptr != edge) continue;
+                        index_abort_processor.CollectOnPropertyChange(edge_type, prop_id, from_vertex, to_vertex, edge);
+                      }
                     }
-                  }
 
-                  // Collect edge vector
-                  if (vec_prop_is_interesting) {
-                    // TODO: Fix out_edges will be missing the edge if it was deleted during this transaction
-                    for (auto const &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
-                      if (edge_ref.ptr != edge) continue;
-                      // handle vector index -> we need to check if the edge type is indexed in the vector index
-                      if (r::find(vector_indexed_edge_types->second, edge_type) !=
-                          vector_indexed_edge_types->second.end()) {
-                        // this edge type is indexed in the vector index
-                        vector_edge_type_property_restore[EdgeTypePropKey{edge_type, prop_id}].emplace_back(
-                            *current->property.value, std::make_tuple(from_vertex, to_vertex, edge));
+                    // Collect edge vector
+                    if (vec_prop_is_interesting) {
+                      // TODO: Fix out_edges will be missing the edge if it was deleted during this transaction
+                      for (auto const &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
+                        if (edge_ref.ptr != edge) continue;
+                        // handle vector index -> we need to check if the edge type is indexed in the vector index
+                        if (r::find(vector_indexed_edge_types->second, edge_type) !=
+                            vector_indexed_edge_types->second.end()) {
+                          // this edge type is indexed in the vector index
+                          vector_edge_type_property_restore[EdgeTypePropKey{edge_type, prop_id}].emplace_back(
+                              *current->property.value, std::make_tuple(from_vertex, to_vertex, edge));
+                        }
                       }
                     }
                   }
+
+                  edge->properties.SetProperty(prop_id, *current->property.value);
+
+                  break;
                 }
+                case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+                case Delta::Action::DELETE_OBJECT: {
+                  edge->deleted = true;
+                  my_deleted_edges.push_back(edge->gid);
+                  break;
+                }
+                case Delta::Action::RECREATE_OBJECT: {
+                  edge->deleted = false;
+                  break;
+                }
+                case Delta::Action::REMOVE_LABEL:
+                case Delta::Action::ADD_LABEL:
+                case Delta::Action::ADD_IN_EDGE:
+                case Delta::Action::ADD_OUT_EDGE:
+                case Delta::Action::REMOVE_IN_EDGE:
+                case Delta::Action::REMOVE_OUT_EDGE: {
+                  LOG_FATAL("Invalid database state!");
+                  break;
+                }
+              }
 
-                edge->properties.SetProperty(prop_id, *current->property.value);
-
+              auto next_delta = current->next.load(std::memory_order_acquire);
+              if (prev_delta != nullptr) {
+                prev_delta->next.store(next_delta, std::memory_order_release);
+                if (next_delta != nullptr) {
+                  next_delta->prev.Set(prev_delta);
+                }
+              } else {
+                edge->delta = next_delta;
+                if (next_delta != nullptr) {
+                  next_delta->prev.Set(edge);
+                }
+              }
+              current = next_delta;
+            } else {
+              if (!IsOperationInterleaved(*current)) {
                 break;
               }
-              case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-              case Delta::Action::DELETE_OBJECT: {
-                edge->deleted = true;
-                my_deleted_edges.push_back(edge->gid);
-                break;
-              }
-              case Delta::Action::RECREATE_OBJECT: {
-                edge->deleted = false;
-                break;
-              }
-              case Delta::Action::REMOVE_LABEL:
-              case Delta::Action::ADD_LABEL:
-              case Delta::Action::ADD_IN_EDGE:
-              case Delta::Action::ADD_OUT_EDGE:
-              case Delta::Action::REMOVE_IN_EDGE:
-              case Delta::Action::REMOVE_OUT_EDGE: {
-                LOG_FATAL("Invalid database state!");
-                break;
-              }
+              prev_delta = current;
+              current = current->next.load(std::memory_order_acquire);
             }
-            current = current->next.load(std::memory_order_acquire);
-          }
-          edge->delta = current;
-          if (current != nullptr) {
-            current->prev.Set(edge);
           }
 
           break;
@@ -1276,25 +1295,30 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
           auto remove_in_edges = absl::flat_hash_set<EdgeRef>{};
           auto remove_out_edges = absl::flat_hash_set<EdgeRef>{};
 
-          while (current != nullptr &&
-                 current->timestamp->load(std::memory_order_acquire) == transaction_.transaction_id) {
-            switch (current->action) {
-              case Delta::Action::REMOVE_LABEL: {
-                auto it = std::find(vertex->labels.begin(), vertex->labels.end(), current->label.value);
-                MG_ASSERT(it != vertex->labels.end(), "Invalid database state!");
-                std::swap(*it, *vertex->labels.rbegin());
-                vertex->labels.pop_back();
+          Delta *prev_delta = nullptr;
+          
+          while (current != nullptr) {
+            auto ts = current->timestamp->load(std::memory_order_acquire);
 
-                storage_->UpdateLabelCount(current->label.value, -1);
-                index_abort_processor.CollectOnLabelRemoval(current->label.value, vertex);
-                break;
-              }
-              case Delta::Action::ADD_LABEL: {
-                auto it = std::find(vertex->labels.begin(), vertex->labels.end(), current->label.value);
-                MG_ASSERT(it == vertex->labels.end(), "Invalid database state!");
-                vertex->labels.push_back(current->label.value);
+            if (ts == transaction_.transaction_id) {
+              switch (current->action) {
+                case Delta::Action::REMOVE_LABEL: {
+                  auto it = std::find(vertex->labels.begin(), vertex->labels.end(), current->label.value);
+                  MG_ASSERT(it != vertex->labels.end(), "Invalid database state!");
+                  std::swap(*it, *vertex->labels.rbegin());
+                  vertex->labels.pop_back();
+                  storage_->UpdateLabelCount(current->label.value, -1);
+                  index_abort_processor.CollectOnLabelRemoval(current->label.value, vertex);
 
-                storage_->UpdateLabelCount(current->label.value, 1);
+                  index_abort_processor.CollectOnLabelRemoval(current->label.value, vertex);
+                  break;
+                }
+                case Delta::Action::ADD_LABEL: {
+                  auto it = std::find(vertex->labels.begin(), vertex->labels.end(), current->label.value);
+                  MG_ASSERT(it == vertex->labels.end(), "Invalid database state!");
+                  vertex->labels.push_back(current->label.value);
+
+                  storage_->UpdateLabelCount(current->label.value, 1);
 
                 index_abort_processor.CollectOnLabelAddition(current->label.value, vertex);
                 break;
@@ -1304,7 +1328,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 // For property label index
                 //  check if we care about the property, this will return all the labels and then get current property
                 //  value
-                index_abort_processor.CollectOnPropertyChange(current->property.key, *current->property.value, vertex);
+                index_abort_processor.CollectOnPropertyChange(current->property.key, vertex);
                 // Setting the correct value
                 vertex->properties.SetProperty(current->property.key, *current->property.value);
                 break;
@@ -1340,39 +1364,59 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 // EdgeRef is unique
                 remove_out_edges.insert(current->vertex_edge.edge);
 
-                // Decrement edge count. We only decrement the count here because
-                // the information in `REMOVE_IN_EDGE` and `Edge/DELETE_OBJECT` is
-                // redundant. Also, `Edge/DELETE_OBJECT` isn't available when edge
-                // properties are disabled.
-                storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
+                  // Decrement edge count. We only decrement the count here because
+                  // the information in `REMOVE_IN_EDGE` and `Edge/DELETE_OBJECT` is
+                  // redundant. Also, `Edge/DELETE_OBJECT` isn't available when edge
+                  // properties are disabled.
+                  storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
 
-                // TODO: Change edge type index to work with EdgeRef rather than Edge *
-                if (!mem_storage->config_.salient.items.properties_on_edges) break;
+                  // TODO: Change edge type index to work with EdgeRef rather than Edge *
+                  if (!mem_storage->config_.salient.items.properties_on_edges) break;
 
-                auto const &[_, edge_type, to_vertex, edge] = current->vertex_edge;
-                index_abort_processor.CollectOnEdgeRemoval(edge_type, vertex, to_vertex.Get(), edge.ptr);
-                // TODO: ensure collector also processeses for edge_type+property index
+                  auto const &[_, edge_type, to_vertex, edge] = current->vertex_edge;
+                  index_abort_processor.CollectOnEdgeRemoval(edge_type, vertex, to_vertex.Get(), edge.ptr);
+                  // TODO: ensure collector also processeses for edge_type+property index
 
-                break;
-              }
-              case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-              case Delta::Action::DELETE_OBJECT: {
-                vertex->deleted = true;
-                my_deleted_vertices.push_back(vertex->gid);
-                for (auto const label : vertex->labels) {
-                  storage_->UpdateLabelCount(label, -1);
+                  break;
                 }
-                break;
-              }
-              case Delta::Action::RECREATE_OBJECT: {
-                vertex->deleted = false;
-                for (auto const label : vertex->labels) {
-                  storage_->UpdateLabelCount(label, 1);
+                case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+                case Delta::Action::DELETE_OBJECT: {
+                  vertex->deleted = true;
+                  my_deleted_vertices.push_back(vertex->gid);
+                  for (auto const label : vertex->labels) {
+                    storage_->UpdateLabelCount(label, -1);
+                  }
+                  break;
                 }
+                case Delta::Action::RECREATE_OBJECT: {
+                  vertex->deleted = false;
+                  for (auto const label : vertex->labels) {
+                    storage_->UpdateLabelCount(label, 1);
+                  }
+                  break;
+                }
+              }
+
+              auto next_delta = current->next.load(std::memory_order_acquire);
+              if (prev_delta != nullptr) {
+                prev_delta->next.store(next_delta, std::memory_order_release);
+                if (next_delta != nullptr) {
+                  next_delta->prev.Set(prev_delta);
+                }
+              } else {
+                vertex->delta = next_delta;
+                if (next_delta != nullptr) {
+                  next_delta->prev.Set(vertex);
+                }
+              }
+              current = next_delta;
+            } else {
+              if (!IsOperationInterleaved(*current)) {
                 break;
               }
+              prev_delta = current;
+              current = current->next.load(std::memory_order_acquire);
             }
-            current = current->next.load(std::memory_order_acquire);
           }
 
           // bulk remove in_edges
@@ -1391,11 +1435,6 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
             });
             vertex->out_edges.erase(mid, vertex->out_edges.end());
             vertex->out_edges.shrink_to_fit();
-          }
-
-          vertex->delta = current;
-          if (current != nullptr) {
-            current->prev.Set(vertex);
           }
 
           break;
@@ -1419,8 +1458,9 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
         // emplace back could take a long time.
         engine_guard.unlock();
 
-        garbage_undo_buffers.emplace_back(
-            mark_timestamp, std::move(transaction_.deltas), std::move(transaction_.commit_timestamp));
+        transaction_.commit_timestamp->store(kAbortedTransactionId, std::memory_order_release);
+        garbage_undo_buffers.emplace_back(mark_timestamp, std::move(transaction_.deltas),
+                                          std::move(transaction_.commit_timestamp));
       });
     }
 

@@ -56,11 +56,6 @@ inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delt
     // For READ UNCOMMITTED -> we accept any change. (already handled above)
     auto ts = delta->timestamp->load(std::memory_order_acquire);
 
-    if (ts == kAbortedTransactionId) {
-      delta = delta->next.load(std::memory_order_acquire);
-      continue;
-    }
-
     if ((transaction->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION && ts < transaction->start_timestamp) ||
         (transaction->isolation_level == IsolationLevel::READ_COMMITTED && ts < kTransactionInitialId)) {
       break;
@@ -101,6 +96,7 @@ template <typename TObj>
 inline bool PrepareForWrite(Transaction *transaction, TObj *object) {
   if (object->delta == nullptr) return true;
   auto ts = object->delta->timestamp->load(std::memory_order_acquire);
+
   if (ts == transaction->transaction_id) {
     // If head delta from same transaction is interleaved, cannot add non-commutative operation
     if (IsOperationInterleaved(*object->delta)) {
@@ -127,6 +123,7 @@ inline WriteResult PrepareForCommutativeWrite(Transaction *transaction, TObj *ob
   if (object->delta == nullptr) return WriteResult::SUCCESS;
 
   auto ts = object->delta->timestamp->load(std::memory_order_acquire);
+
   if (ts == transaction->transaction_id) {
     // If the head delta belongs to the same transaction and is interleaved,
     // then only another commutative action delta can be prepended.
