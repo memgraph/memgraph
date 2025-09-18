@@ -86,6 +86,7 @@ TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue &proper
 
 [[nodiscard]] std::optional<ConstraintViolation> TypeConstraints::Validate(const Vertex &vertex, PropertyId property_id,
                                                                            const PropertyValue &property_value) const {
+  if (property_value.type() == PropertyValueType::Null) return std::nullopt;
   for (auto const label : vertex.labels) {
     auto constraint_type_it = constraints_.find({label, property_id});
     if (constraint_type_it == constraints_.end()) continue;
