@@ -66,8 +66,6 @@ MEMGRAPH_BUILD_DEPS=(
     libtool  # for protobuf code generation
     libsasl2-dev
     ninja-build
-    # Pulsar dependencies
-    libnghttp2-dev libpsl-dev libkrb5-dev librtmp-dev libldap2-dev libidn2-dev libbrotli-dev libidn2-dev
 )
 
 MEMGRAPH_RUN_DEPS=(
