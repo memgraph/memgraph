@@ -1,0 +1,22 @@
+query: >
+  MATCH path = (company:Company)<-[:WORKS_FOR]-(person:Person)
+  WITH collect(path) AS paths
+  CALL convert_c.to_tree(paths, true, {nodes: {Person:['name'], Employee:['start_date']}}) YIELD value
+  RETURN value;
+
+output:
+  - value:
+      _id: 9
+      _type: "Company"
+      name: "Acme Corp"
+      works_for:
+        - _id: 10
+          _type: ["Person", "Employee"]
+          name: "Alice"
+          start_date: '2020-01-15'
+          works_for._id: 7
+        - _id: 11
+          _type: ["Person", "Employee"]
+          name: "Bob"
+          start_date: '2018-05-20'
+          works_for._id: 8

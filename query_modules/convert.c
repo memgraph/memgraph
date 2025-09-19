@@ -305,9 +305,8 @@ static const property_filter_t *get_node_property_filter(const node_property_fil
     }
   }
 
-  // Return default wildcard filter if not found
-  static property_filter_t default_wildcard = {FILTER_MODE_WILDCARD, {{0}}, 0};
-  return &default_wildcard;
+  // Return NULL if no filter found for this label
+  return NULL;
 }
 
 // Check if node property should be included
@@ -535,9 +534,8 @@ static const property_filter_t *get_rel_property_filter(const rel_property_filte
     }
   }
 
-  // Return default wildcard filter if not found
-  static property_filter_t default_wildcard = {FILTER_MODE_WILDCARD, {{0}}, 0};
-  return &default_wildcard;
+  // Return NULL if no filter found for this relationship type
+  return NULL;
 }
 
 // Check if relationship property should be included
