@@ -598,11 +598,13 @@ static inline merge_identity_t extract_identity(struct mgp_map *map) {
 
   enum mgp_value_type t_id = MGP_VALUE_TYPE_NULL, t_type = MGP_VALUE_TYPE_NULL;
   if (mgp_value_get_type(id_v, &t_id) != MGP_ERROR_NO_ERROR || t_id != MGP_VALUE_TYPE_INT) return out;
-  if (mgp_value_get_type(type_v, &t_type) != MGP_ERROR_NO_ERROR || t_type != MGP_VALUE_TYPE_STRING) return out;
+  if (mgp_value_get_type(type_v, &t_type) != MGP_ERROR_NO_ERROR) return out;
 
   int64_t id;
   const char *type_s = NULL;
   if (mgp_value_get_int(id_v, &id) != MGP_ERROR_NO_ERROR) return out;
+
+  if (t_type != MGP_VALUE_TYPE_STRING) return out;
   if (mgp_value_get_string(type_v, &type_s) != MGP_ERROR_NO_ERROR || !type_s) return out;
 
   out.id = id;
@@ -854,7 +856,6 @@ static struct mgp_map *create_complete_node_map(struct mgp_vertex *node, const f
     mgp_properties_iterator_destroy(iter);
   }
 
-  // Add node labels as _type
   size_t label_count = 0;
   if (mgp_vertex_labels_count(node, &label_count) == MGP_ERROR_NO_ERROR && label_count > 0) {
     if (label_count == 1) {
@@ -867,20 +868,39 @@ static struct mgp_map *create_complete_node_map(struct mgp_vertex *node, const f
         }
       }
     } else {
-      // Multiple labels - create a list
-      struct mgp_list *label_list = NULL;
-      if (mgp_list_make_empty(label_count, memory, &label_list) == MGP_ERROR_NO_ERROR && label_list != NULL) {
+      // Multiple labels: concatenate individual labels into a `:`
+      // separated string
+      size_t total_length = 0;
+      const char *label_names[label_count];
+
+      for (size_t i = 0; i < label_count; i++) {
+        struct mgp_label label = {.name = NULL};
+        if (mgp_vertex_label_at(node, i, &label) == MGP_ERROR_NO_ERROR && label.name) {
+          label_names[i] = label.name;
+          total_length += strlen(label.name);
+          if (i < label_count - 1) total_length++;
+        } else {
+          label_names[i] = NULL;
+        }
+      }
+
+      void *ptr = NULL;
+      size_t alloc_size = total_length + 1;
+      alloc_size = (alloc_size + 63) & ~63ULL;
+      if (mgp_alloc(memory, alloc_size, &ptr) == MGP_ERROR_NO_ERROR && ptr != NULL) {
+        char *type_str = (char *)ptr;
+        type_str[0] = '\0';
         for (size_t i = 0; i < label_count; i++) {
-          struct mgp_label label = {.name = NULL};
-          if (mgp_vertex_label_at(node, i, &label) == MGP_ERROR_NO_ERROR && label.name) {
-            struct mgp_value *label_value = NULL;
-            if (mgp_value_make_string(label.name, memory, &label_value) == MGP_ERROR_NO_ERROR && label_value != NULL) {
-              mgp_list_append_move(label_list, label_value);
+          if (label_names[i] != NULL) {
+            if (strlen(type_str) > 0) {
+              strcat(type_str, ":");
             }
+            strcat(type_str, label_names[i]);
           }
         }
+
         struct mgp_value *type_value = NULL;
-        if (mgp_value_make_list(label_list, &type_value) == MGP_ERROR_NO_ERROR && type_value != NULL) {
+        if (mgp_value_make_string(type_str, memory, &type_value) == MGP_ERROR_NO_ERROR && type_value != NULL) {
           mgp_map_insert_move(node_map, "_type", type_value);
         }
       }
