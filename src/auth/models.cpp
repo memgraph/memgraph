@@ -913,6 +913,7 @@ const std::string &User::GetMain() const {
         return user_main;
       }
     }
+    // NOLINTNEXTLINE
   } catch (const AuthException &) {
     // User doesn't have access to their set main database
     // Fall through to check role's database
@@ -925,6 +926,7 @@ const std::string &User::GetMain() const {
       if (!role_main.empty() && HasAccess(role_main)) {
         return role_main;
       }
+      // NOLINTNEXTLINE
     } catch (const AuthException &) {
       // Role doesn't have access to its main database
       // Fall through to return user's database
