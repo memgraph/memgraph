@@ -50,6 +50,34 @@ on:
         description: "Target dir path in chosen S3 bucket, don't end the path with '/'. For bucket 'deps.memgraph.io' use format 'memgraph/vX.Y.Z'."
         default: ''
 
+  workflow_call:
+    inputs:
+      build_type:
+        type: string
+        description: "Memgraph Build type."
+        default: 'Release'
+      os:
+        type: string
+        description: "Target OS for which memgraph will be packaged. Select 'all' if you want to package for every listed OS."
+        default: 'ubuntu-24.04'
+      toolchain:
+        type: string
+        description: "Toolchain version with which memgraph will be packaged."
+        default: 'v6'
+      push_to_s3:
+        type: boolean
+        description: "Push final packages to an S3 bucket?"
+        default: false
+      s3_dest_dir:
+        type: string
+        description: "Target dir path in chosen S3 bucket, don't end the path with '/'. For bucket 'deps.memgraph.io' use format 'memgraph/vX.Y.Z'."
+        default: ''
+      ref:
+        type: string
+        description: "Branch or commit ref to run the workflow on"
+        required: false
+        default: ''
+        
 jobs:
   PackageSetup:
     runs-on: ubuntu-latest
@@ -79,6 +107,7 @@ jobs:
       - name: Set up repository
         uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
       - name: Dump GitHub context
         run: echo "$GH_CONTEXT" >> "$GH_CONTEXT_FILE_NAME"
@@ -100,6 +129,7 @@ jobs:
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
+      ref: ${{ inputs.ref || github.ref }}
     secrets: inherit
 
   CentOS10:
@@ -116,6 +146,7 @@ jobs:
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
+      ref: ${{ inputs.ref || github.ref }}
     secrets: inherit
 
   Debian11:
@@ -132,6 +163,7 @@ jobs:
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
+      ref: ${{ inputs.ref || github.ref }}
     secrets: inherit
 
   Debian11-arm:
@@ -148,6 +180,7 @@ jobs:
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
+      ref: ${{ inputs.ref || github.ref }}
     secrets: inherit
 
   Debian12:
@@ -164,6 +197,7 @@ jobs:
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
+      ref: ${{ inputs.ref || github.ref }}
     secrets: inherit
 
   Debian12-arm:
@@ -180,6 +214,7 @@ jobs:
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
+      ref: ${{ inputs.ref || github.ref }}
     secrets: inherit
 
   Docker-v6:
@@ -197,6 +232,7 @@ jobs:
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
+      ref: ${{ inputs.ref || github.ref }}
     secrets: inherit
 
   Docker-v6-arm:
@@ -214,6 +250,7 @@ jobs:
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
+      ref: ${{ inputs.ref || github.ref }}
     secrets: inherit
 
   Fedora41:
@@ -230,6 +267,7 @@ jobs:
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
+      ref: ${{ inputs.ref || github.ref }}
     secrets: inherit
 
   RockyLinux9_3:
@@ -246,6 +284,7 @@ jobs:
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
+      ref: ${{ inputs.ref || github.ref }}
     secrets: inherit
 
   Ubuntu22_04:
@@ -262,6 +301,7 @@ jobs:
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
+      ref: ${{ inputs.ref || github.ref }}
     secrets: inherit
 
   Ubuntu24_04:
@@ -278,6 +318,7 @@ jobs:
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
+      ref: ${{ inputs.ref || github.ref }}
     secrets: inherit
 
   Ubuntu24_04-arm:
@@ -294,6 +335,7 @@ jobs:
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
+      ref: ${{ inputs.ref || github.ref }}
     secrets: inherit
 
   Ubuntu24_04-malloc:
@@ -311,4 +353,5 @@ jobs:
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
+      ref: ${{ inputs.ref || github.ref }}
     secrets: inherit
