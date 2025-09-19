@@ -1,19 +1,20 @@
 query: >
-  MATCH path=(sw:SWRelease{uid: 'Release_1.0'})<-[:PACKAGED|HAS_PARENT*]-(c:Component)
-  WITH collect(path) AS paths
-  CALL convert_c.to_tree(paths, false, {}) YIELD value
-  RETURN
-    value.name AS root_name,
-    value._type AS root_type,
-    size(value.PACKAGED) AS packaged_count,
-    value.PACKAGED[0].name AS component_name,
-    size(value.PACKAGED[0].HAS_PARENT) AS child_count,
-    [child IN value.PACKAGED[0].HAS_PARENT | child.name] AS child_names
+  MATCH p = (company:Company)<-[:WORKS_FOR]-(person:Person)
+  WITH collect(p) AS paths
+  CALL convert_c.to_tree(paths, true, {}) YIELD value
+  RETURN value.name AS company_name,
+         value._type AS company_type,
+         value.industry AS industry,
+         size(value.works_for) AS employee_count,
+         [emp IN value.works_for | emp.name] AS employee_names,
+         [emp IN value.works_for | emp._type] AS employee_types,
+         [emp IN value.works_for | emp.age] AS employee_ages
 
 output:
-  - root_name: MyRelease
-    root_type: SWRelease
-    packaged_count: 1
-    component_name: ComponentA
-    child_count: 2
-    child_names: ["SubComponent1", "SubComponent2"]
+  - company_name: "TechCorp"
+    company_type: ["Company", "Organization"]
+    industry: "Technology"
+    employee_count: 2
+    employee_names: ["Alice", "Bob"]
+    employee_types: [["Person", "Employee"], ["Person", "Employee"]]
+    employee_ages: [30, 25]

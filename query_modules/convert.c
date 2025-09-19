@@ -174,38 +174,29 @@ static char *concatenate_strings(const char *str1, const char *str2, struct mgp_
 
 typedef struct {
   int64_t id;
-  const char *type;
-  struct mgp_map *map; /* value map in the list */
+  uint64_t type_hash;
+  struct mgp_map *map;
   bool used;
 } bucket_t;
 
 // Optimized hash function - combines type and id more efficiently
-static inline uint64_t optimized_hash(const char *type, int64_t id) {
-  if (!type) return (uint64_t)id;
-
-  // Use a faster hash combination
-  uint64_t h = 1469598103934665603ULL;
-  for (const char *p = type; *p; ++p) {
-    h ^= (uint8_t)*p;
-    h *= 1099511628211ULL;
-  }
-  // Mix in the id
+static inline uint64_t optimized_hash(uint64_t type_hash, int64_t id) {
+  uint64_t h = type_hash;
   h ^= (uint64_t)id;
   h *= 1099511628211ULL;
   return h;
 }
 
 // Optimized probe function with better collision handling
-static inline ssize_t optimized_probe(bucket_t *tbl, size_t cap, int64_t id, const char *type, uint64_t h) {
+static inline ssize_t optimized_probe(bucket_t *tbl, size_t cap, int64_t id, uint64_t type_hash, uint64_t h) {
   size_t mask = cap - 1;
   size_t pos = (size_t)h & mask;
   size_t step = 1;
 
   // Use quadratic probing for better distribution
   while (true) {
-    if (!tbl[pos].used) return (ssize_t)pos;                    // empty slot
-    if (tbl[pos].id == id && strcmp(tbl[pos].type, type) == 0)  // match
-      return (ssize_t)pos;
+    if (!tbl[pos].used) return (ssize_t)pos;  // empty slot
+    if (tbl[pos].id == id && tbl[pos].type_hash == type_hash) return (ssize_t)pos;
 
     // Quadratic probing: pos = (pos + step) & mask
     pos = (pos + step) & mask;
@@ -581,15 +572,15 @@ static void merge_list_into_list_hashed(struct mgp_list *existing_list, struct m
 static void merge_trees(struct mgp_map *target, struct mgp_map *source, struct mgp_memory *memory);
 
 typedef struct {
-  int64_t id;       /* required */
-  const char *type; /* required */
+  int64_t id;
+  uint64_t type_hash;
   bool valid;
 } merge_identity_t;
 
 /* Extracts (_id:int, _type:string) from a node/edge map item.
    Returns .valid=false if anything is missing or types mismatch. */
 static inline merge_identity_t extract_identity(struct mgp_map *map) {
-  merge_identity_t out = {.id = 0, .type = NULL, .valid = false};
+  merge_identity_t out = {.id = 0, .type_hash = 0, .valid = false};
   if (!map) return out;
 
   struct mgp_value *id_v = NULL, *type_v = NULL;
@@ -601,14 +592,45 @@ static inline merge_identity_t extract_identity(struct mgp_map *map) {
   if (mgp_value_get_type(type_v, &t_type) != MGP_ERROR_NO_ERROR) return out;
 
   int64_t id;
-  const char *type_s = NULL;
+  uint64_t type_hash = 0;
   if (mgp_value_get_int(id_v, &id) != MGP_ERROR_NO_ERROR) return out;
 
-  if (t_type != MGP_VALUE_TYPE_STRING) return out;
-  if (mgp_value_get_string(type_v, &type_s) != MGP_ERROR_NO_ERROR || !type_s) return out;
+  if (t_type == MGP_VALUE_TYPE_STRING) {
+    const char *type_s = NULL;
+    if (mgp_value_get_string(type_v, &type_s) != MGP_ERROR_NO_ERROR || !type_s) return out;
+    type_hash = 14695981039346656037ULL;
+    for (const char *p = type_s; *p; p++) {
+      type_hash ^= (unsigned char)*p;
+      type_hash *= 1099511628211ULL;
+    }
+  } else if (t_type == MGP_VALUE_TYPE_LIST) {
+    struct mgp_list *type_list = NULL;
+    if (mgp_value_get_list(type_v, &type_list) != MGP_ERROR_NO_ERROR || !type_list) return out;
+    size_t list_size = 0;
+    if (mgp_list_size(type_list, &list_size) != MGP_ERROR_NO_ERROR || list_size == 0) return out;
+
+    type_hash = 14695981039346656037ULL;
+    for (size_t i = 0; i < list_size; i++) {
+      struct mgp_value *label_val = NULL;
+      if (mgp_list_at(type_list, i, &label_val) != MGP_ERROR_NO_ERROR || !label_val) return out;
+      const char *label_str = NULL;
+      if (mgp_value_get_string(label_val, &label_str) != MGP_ERROR_NO_ERROR || !label_str) return out;
+
+      for (const char *p = label_str; *p; p++) {
+        type_hash ^= (unsigned char)*p;
+        type_hash *= 1099511628211ULL;
+      }
+      if (i < list_size - 1) {
+        type_hash ^= ':';
+        type_hash *= 1099511628211ULL;
+      }
+    }
+  } else {
+    return out;
+  }
 
   out.id = id;
-  out.type = type_s;
+  out.type_hash = type_hash;
   out.valid = true;
   return out;
 }
@@ -629,14 +651,14 @@ static bool index_existing_children(struct mgp_list *existing_list, bucket_t *tb
     if (!id.valid) continue;
 
     /* Use optimized hash function */
-    uint64_t h = optimized_hash(id.type, id.id);
+    uint64_t h = optimized_hash(id.type_hash, id.id);
 
-    ssize_t pos = optimized_probe(tbl, cap, id.id, id.type, h);
+    ssize_t pos = optimized_probe(tbl, cap, id.id, id.type_hash, h);
     if (pos < 0) return false;
     if (!tbl[pos].used) {
       tbl[pos].used = true;
       tbl[pos].id = id.id;
-      tbl[pos].type = id.type;
+      tbl[pos].type_hash = id.type_hash;
       tbl[pos].map = m;
     }
     /* if it already existed, we ignore duplicates in existing_list */
@@ -682,8 +704,8 @@ static void merge_list_into_list_small(struct mgp_list *existing_list, struct mg
         continue;
       }
 
-      uint64_t h = optimized_hash(nid.type, nid.id);
-      ssize_t pos = optimized_probe(small_table, SMALL_MERGE_THRESHOLD, nid.id, nid.type, h);
+      uint64_t h = optimized_hash(nid.type_hash, nid.id);
+      ssize_t pos = optimized_probe(small_table, SMALL_MERGE_THRESHOLD, nid.id, nid.type_hash, h);
 
       if (pos >= 0 && small_table[pos].used) {
         /* Merge into existing */
@@ -694,7 +716,7 @@ static void merge_list_into_list_small(struct mgp_list *existing_list, struct mg
         if (pos >= 0) {
           small_table[pos].used = true;
           small_table[pos].id = nid.id;
-          small_table[pos].type = nid.type;
+          small_table[pos].type_hash = nid.type_hash;
           small_table[pos].map = new_map;
         }
       }
@@ -761,8 +783,8 @@ static void merge_list_into_list_hashed(struct mgp_list *existing_list, struct m
         continue;
       }
 
-      uint64_t h = optimized_hash(nid.type, nid.id);
-      ssize_t pos = optimized_probe(tbl, cap, nid.id, nid.type, h);
+      uint64_t h = optimized_hash(nid.type_hash, nid.id);
+      ssize_t pos = optimized_probe(tbl, cap, nid.id, nid.type_hash, h);
 
       if (pos >= 0 && tbl[pos].used) {
         /* Merge into existing */
@@ -774,7 +796,7 @@ static void merge_list_into_list_hashed(struct mgp_list *existing_list, struct m
         if (pos >= 0) {
           tbl[pos].used = true;
           tbl[pos].id = nid.id;
-          tbl[pos].type = nid.type;
+          tbl[pos].type_hash = nid.type_hash;
           tbl[pos].map = new_map;
         }
       }
@@ -868,39 +890,20 @@ static struct mgp_map *create_complete_node_map(struct mgp_vertex *node, const f
         }
       }
     } else {
-      // Multiple labels: concatenate individual labels into a `:`
-      // separated string
-      size_t total_length = 0;
-      const char *label_names[label_count];
-
-      for (size_t i = 0; i < label_count; i++) {
-        struct mgp_label label = {.name = NULL};
-        if (mgp_vertex_label_at(node, i, &label) == MGP_ERROR_NO_ERROR && label.name) {
-          label_names[i] = label.name;
-          total_length += strlen(label.name);
-          if (i < label_count - 1) total_length++;
-        } else {
-          label_names[i] = NULL;
-        }
-      }
-
-      void *ptr = NULL;
-      size_t alloc_size = total_length + 1;
-      alloc_size = (alloc_size + 63) & ~63ULL;
-      if (mgp_alloc(memory, alloc_size, &ptr) == MGP_ERROR_NO_ERROR && ptr != NULL) {
-        char *type_str = (char *)ptr;
-        type_str[0] = '\0';
+      // Multiple labels - create a list
+      struct mgp_list *label_list = NULL;
+      if (mgp_list_make_empty(label_count, memory, &label_list) == MGP_ERROR_NO_ERROR && label_list != NULL) {
         for (size_t i = 0; i < label_count; i++) {
-          if (label_names[i] != NULL) {
-            if (strlen(type_str) > 0) {
-              strcat(type_str, ":");
+          struct mgp_label label = {.name = NULL};
+          if (mgp_vertex_label_at(node, i, &label) == MGP_ERROR_NO_ERROR && label.name) {
+            struct mgp_value *label_value = NULL;
+            if (mgp_value_make_string(label.name, memory, &label_value) == MGP_ERROR_NO_ERROR && label_value != NULL) {
+              mgp_list_append_move(label_list, label_value);
             }
-            strcat(type_str, label_names[i]);
           }
         }
-
         struct mgp_value *type_value = NULL;
-        if (mgp_value_make_string(type_str, memory, &type_value) == MGP_ERROR_NO_ERROR && type_value != NULL) {
+        if (mgp_value_make_list(label_list, &type_value) == MGP_ERROR_NO_ERROR && type_value != NULL) {
           mgp_map_insert_move(node_map, "_type", type_value);
         }
       }
