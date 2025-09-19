@@ -142,7 +142,7 @@ class PropertyValueImpl {
   explicit PropertyValueImpl(list_t const &value) : alloc_{value.get_allocator()} {
     if (IsAllDoublesOrInts(value)) {
       type_ = Type::DoubleList;
-      double_list_v.val_ = double_list_t{alloc_};
+      alloc_trait::construct(alloc_, &double_list_v.val_);
       double_list_v.val_.reserve(value.size());
       for (const auto &elem : value) {
         if (elem.IsDouble()) {
@@ -159,7 +159,7 @@ class PropertyValueImpl {
   explicit PropertyValueImpl(list_t &&value) : alloc_{value.get_allocator()} {
     if (IsAllDoublesOrInts(value)) {
       type_ = Type::DoubleList;
-      double_list_v.val_ = double_list_t{alloc_};
+      alloc_trait::construct(alloc_, &double_list_v.val_);
       double_list_v.val_.reserve(value.size());
       for (const auto &elem : value) {
         if (elem.IsDouble()) {
@@ -176,7 +176,7 @@ class PropertyValueImpl {
   explicit PropertyValueImpl(list_t const &value, allocator_type const &alloc) : alloc_{alloc} {
     if (IsAllDoublesOrInts(value)) {
       type_ = Type::DoubleList;
-      double_list_v.val_ = double_list_t{alloc};
+      alloc_trait::construct(alloc_, &double_list_v.val_);
       double_list_v.val_.reserve(value.size());
       for (const auto &elem : value) {
         if (elem.IsDouble()) {
@@ -193,7 +193,7 @@ class PropertyValueImpl {
   explicit PropertyValueImpl(list_t &&value, allocator_type const &alloc) : alloc_{alloc} {
     if (IsAllDoublesOrInts(value)) {
       type_ = Type::DoubleList;
-      double_list_v.val_ = double_list_t{alloc};
+      alloc_trait::construct(alloc_, &double_list_v.val_);
       double_list_v.val_.reserve(value.size());
       for (const auto &elem : value) {
         if (elem.IsDouble()) {
