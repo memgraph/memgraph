@@ -38,3 +38,7 @@ workloads:
   - name: "HA TTL"
     binary: "tests/e2e/pytest_runner.sh"
     args: ["high_availability/ttl.py"]
+
+  - name: "HA auth"
+    binary: "tests/e2e/pytest_runner.sh"
+    args: ["high_availability/auth.py"]

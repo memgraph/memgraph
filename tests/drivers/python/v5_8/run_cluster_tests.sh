@@ -21,5 +21,4 @@ fi
 source ve3/bin/activate
 
 # execute test
-python3 write_routing.py || exit 1
-python3 read_routing.py || exit 1
+python3 routing.py || exit 1
