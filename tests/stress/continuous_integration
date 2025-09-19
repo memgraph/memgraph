@@ -92,7 +92,7 @@ def parse_arguments() -> Args:
     """Parse command-line arguments."""
     parser = argparse.ArgumentParser(description="Run stress tests on Memgraph.")
     parser.add_argument("--config-file", default=os.path.join(SCRIPT_DIR, "configurations/templates/config_small.yaml"))
-    parser.add_argument("--python", default=os.path.join(SCRIPT_DIR, "ve3", "bin", "python3"), type=str)
+    parser.add_argument("--python", default=os.path.join(BASE_DIR, "tests","ve3", "bin", "python3"), type=str)
     return parser.parse_args()
 
 

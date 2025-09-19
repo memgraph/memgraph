@@ -80,7 +80,7 @@ class Memgraph:
         self._auth_module = os.path.join(self._storage_directory.name, "ldap.py")
         self._auth_config = os.path.join(self._storage_directory.name, "ldap.yaml")
         script_file = os.path.join(PROJECT_DIR, "src", "auth", "reference_modules", "ldap.py")
-        virtualenv_bin = os.path.join(SCRIPT_DIR, "ve3", "bin", "python3")
+        virtualenv_bin = os.path.join(PROJECT_DIR, "tests", "ve3", "bin", "python3")
         with open(script_file) as fin:
             data = fin.read()
             data = data.replace("/usr/bin/python3", virtualenv_bin)
