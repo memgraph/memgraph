@@ -481,7 +481,11 @@ int main(int argc, char **argv) {
         auto *maybe_username = std::getenv(kMgUser);
         auto *maybe_password = std::getenv(kMgPassword);
         auto *maybe_pass_file = std::getenv(kMgPassfile);
+#ifdef MG_ENTERPRISE
         if (maybe_username && maybe_password && !coordination_setup.IsCoordinator()) {
+#else
+        if (maybe_username && maybe_password) {
+#endif
           ah->CreateUser(maybe_username, maybe_password, nullptr);
         } else if (maybe_pass_file) {
           const auto [username, password] = LoadUsernameAndPassword(maybe_pass_file);
