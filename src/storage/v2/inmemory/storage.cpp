@@ -3342,6 +3342,8 @@ ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {
 void InMemoryStorage::InMemoryAccessor::DropAllIndexes() {
   auto indices_info = ListAllIndices();
 
+  static_cast<InMemoryStorage *>(storage_)->async_indexer_.Clear();
+
   for (const auto &label_id : indices_info.label) {
     [[maybe_unused]] auto maybe_error = DropIndex(label_id);
   }
