@@ -70,6 +70,7 @@ def test_create_on_create(ba_commit, multi_db):
 
     NUM_OF_RETRIES = 3
     SLEEP_TIME = 0.1
+    created_edges = []
     while len(created_edges) == 0 and NUM_OF_RETRIES > 0:
         created_edges = execute_and_fetch_all(cursor, "MATCH (n:CreatedEdge) RETURN n")
         time.sleep(SLEEP_TIME)
