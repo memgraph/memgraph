@@ -4,8 +4,6 @@ concurrency:
   cancel-in-progress: true
 
 on:
-  merge_group:
-  pull_request:
   workflow_dispatch:
     inputs:
       pr_number:
@@ -39,64 +37,25 @@ on:
         default: true
 
 jobs:
-    CreateStagingBranch:
-      runs-on: ubuntu-latest
-      steps:
-        - name: Checkout repository
-          uses: actions/checkout@v4
-          with:
-            fetch-depth: 0
+  CallCreateStagingBranch:
+    uses: ./.github/workflows/create_staging_branch.yaml
+    with:
+      pr_number: ${{ github.event.inputs.pr_number }}
+      base_master: ${{ github.event.inputs.base_master }}
+    secrets: inherit
 
-        - name: Get new branch name
-          id: get_branch_name
-          run: |
-            # Run the script and read the output into variables
-            read pr_number branch_name commit_sha staging_branch short_sha <<< "$(./tools/external/get_pr_info.sh "${{ github.event.inputs.pr_number }}" "${{ github.token }}" "${{ github.repository }}")"
-            
-            # Set GitHub output variables
-            echo "pr_number=$pr_number" >> $GITHUB_OUTPUT
-            echo "branch_name=$branch_name" >> $GITHUB_OUTPUT
-            echo "commit_sha=$commit_sha" >> $GITHUB_OUTPUT
-            echo "staging_branch=$staging_branch" >> $GITHUB_OUTPUT
-            echo "short_sha=$short_sha" >> $GITHUB_OUTPUT
-
-            # Print variables to logs
-            echo "pr_number=$pr_number"
-            echo "branch_name=$branch_name"
-            echo "commit_sha=$commit_sha"
-            echo "staging_branch=$staging_branch"
-            echo "short_sha=$short_sha"
-
-        - name: Create staging branch
-          run: |
-            git config user.name "GitHub Actions"
-            git config user.email "github-actions@github.com"
-            
-            ./tools/external/create_staging_branch.sh \
-              "${{ github.event.inputs.base_master }}" \
-              "${{ steps.get_branch_name.outputs.branch_name }}" \
-              "${{ steps.get_branch_name.outputs.commit_sha }}" \
-              "${{ steps.get_branch_name.outputs.staging_branch }}" \
-            
-            echo "Created staging branch: ${{ steps.get_branch_name.outputs.staging_branch }}"
-            echo "Based on PR: #${{ github.event.inputs.pr_number }}"
-            echo "Feature branch: ${{ steps.get_branch_name.outputs.branch_name }}"
-            echo "Commit SHA: ${{ steps.get_branch_name.outputs.commit_sha }}"
-            echo "Base master: ${{ github.event.inputs.base_master }}"
-
-    TriggerDiffWorkflow:
-      needs: CreateStagingBranch
-      uses: ./.github/workflows/diff.yml
-      with:
-        pr_number: ${{ github.event.inputs.pr_number }}
-        base_master: ${{ github.event.inputs.base_master }}
-        community_core: ${{ github.event.inputs.community_core }}
-        coverage: ${{ github.event.inputs.coverage }}
-        debug_core: ${{ github.event.inputs.debug_core }}
-        debug_integration: ${{ github.event.inputs.debug_integration }}
-        jepsen_core: ${{ github.event.inputs.jepsen_core }}
-        release: ${{ github.event.inputs.release }}
-        malloc_build: ${{ github.event.inputs.malloc_build }}
-        ref: ${{ needs.CreateStagingBranch.outputs.staging_branch }}
-      secrets: inherit
-        
+  TriggerDiffWorkflow:
+    needs: CallCreateStagingBranch
+    uses: ./.github/workflows/diff.yml
+    with:
+      pr_number: ${{ github.event.inputs.pr_number }}
+      base_master: ${{ github.event.inputs.base_master }}
+      community_core: ${{ github.event.inputs.community_core }}
+      coverage: ${{ github.event.inputs.coverage }}
+      debug_core: ${{ github.event.inputs.debug_core }}
+      debug_integration: ${{ github.event.inputs.debug_integration }}
+      jepsen_core: ${{ github.event.inputs.jepsen_core }}
+      release: ${{ github.event.inputs.release }}
+      malloc_build: ${{ github.event.inputs.malloc_build }}
+      ref: ${{ needs.CallCreateStagingBranch.outputs.staging_branch }}
+    secrets: inherit
