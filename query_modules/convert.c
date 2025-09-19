@@ -620,6 +620,9 @@ static inline merge_identity_t extract_identity(struct mgp_map *map) {
         type_hash ^= (unsigned char)*p;
         type_hash *= 1099511628211ULL;
       }
+
+      // Concatenate strings using `:` as a delimiter, as we know that can't
+      // appear in the labels.
       if (i < list_size - 1) {
         type_hash ^= ':';
         type_hash *= 1099511628211ULL;
