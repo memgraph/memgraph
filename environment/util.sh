@@ -22,7 +22,7 @@ function operating_system() {
                 echo "ubuntu-24.04"
                 ;;
             # Direct mappings
-            debian-11|debian-12|centos-9|centos-10|fedora-41|fedora-42)
+            debian-11|debian-12|debian-13|centos-9|centos-10|fedora-41|fedora-42)
                 echo "$detected_os"
                 ;;
             # Rocky Linux mappings
