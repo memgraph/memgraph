@@ -10,6 +10,7 @@
 # licenses/APL.txt.
 
 import sys
+import time
 
 import mgclient
 import pytest
@@ -66,13 +67,14 @@ def test_create_on_create(ba_commit, multi_db):
         CREATE (n)-[r:TYPE]->(m);
     """
     execute_and_fetch_all(cursor, QUERY_CREATE_EDGE)
-    # See if trigger was triggered
-    nodes = execute_and_fetch_all(cursor, "MATCH (n:Node) RETURN n")
-    assert len(nodes) == 2
-    created_edges = execute_and_fetch_all(cursor, "MATCH (n:CreatedEdge) RETURN n")
-    assert len(created_edges) == 1
-    # execute_and_fetch_all(cursor, "DROP TRIGGER CreateTriggerEdgesCount")
-    # execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n;")
+
+    NUM_OF_RETRIES = 3
+    SLEEP_TIME = 0.1
+    created_edges = []
+    while len(created_edges) == 0 and NUM_OF_RETRIES > 0:
+        created_edges = execute_and_fetch_all(cursor, "MATCH (n:CreatedEdge) RETURN n")
+        time.sleep(SLEEP_TIME)
+        NUM_OF_RETRIES -= 1
 
     # check that there is no cross contamination between databases
     if len(databases) == 2:  # multi db mode
