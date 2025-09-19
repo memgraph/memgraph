@@ -65,7 +65,7 @@ void AsyncIndexer::Start(std::stop_token stop_token, Storage *storage) {
   index_creator_thread_ = std::jthread{[this, stop_token, storage](std::stop_token thread_stop_token) mutable {
     // the lock must be taken first because on destruction
     // local objects get destroyed in reverse order of declaration
-    // so when we release the mutex (and other thread takes it) the thread needs to be finished
+    // and we must do notify_all before releasing the lock
     // hence making releasing the lock the last thing we do
     std::unique_lock<std::mutex> lock(mutex_);
     auto on_exit = utils::OnScopeExit{[this] {
