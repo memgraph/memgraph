@@ -483,7 +483,7 @@ jobs:
           --toolchain $TOOLCHAIN \
           --os $OS \
           --arch $ARCH \
-          copy --logs-dir $MGBUILD_ROOT_DIR/tests/stress --dest-dir build/stress/logs
+          copy --logs-dir /home/mg/memgraph/tests/stress --dest-dir build/stress/logs
 
       - name: Save stress and durability test logs
         continue-on-error: true
