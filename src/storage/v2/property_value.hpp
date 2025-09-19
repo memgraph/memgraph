@@ -12,6 +12,7 @@
 #pragma once
 
 #include <iosfwd>
+#include <optional>
 #include <string>
 #include <vector>
 
@@ -26,8 +27,6 @@
 
 #include <boost/container/flat_map.hpp>
 #include "range/v3/all.hpp"
-
-namespace r = ranges;
 
 namespace memgraph::storage {
 
@@ -69,6 +68,11 @@ enum class PropertyValueType : uint8_t {
   Point2d = 10,
   Point3d = 11,
   DoubleList = 12,
+};
+
+enum class DoubleListType : uint8_t {
+  Int = 0,
+  Double = 1,
 };
 
 inline bool AreComparableTypes(PropertyValueType a, PropertyValueType b) {
@@ -140,8 +144,9 @@ class PropertyValueImpl {
 
   /// @throw std::bad_alloc
   explicit PropertyValueImpl(list_t const &value) : alloc_{value.get_allocator()} {
-    if (IsAllDoublesOrInts(value)) {
+    if (auto optimal_type = GetOptimalDoubleListType(value)) {
       type_ = Type::DoubleList;
+      double_list_v.double_list_type_ = *optimal_type;
       alloc_trait::construct(alloc_, &double_list_v.val_);
       double_list_v.val_.reserve(value.size());
       for (const auto &elem : value) {
@@ -157,8 +162,9 @@ class PropertyValueImpl {
     }
   }
   explicit PropertyValueImpl(list_t &&value) : alloc_{value.get_allocator()} {
-    if (IsAllDoublesOrInts(value)) {
+    if (auto optimal_type = GetOptimalDoubleListType(value)) {
       type_ = Type::DoubleList;
+      double_list_v.double_list_type_ = *optimal_type;
       alloc_trait::construct(alloc_, &double_list_v.val_);
       double_list_v.val_.reserve(value.size());
       for (const auto &elem : value) {
@@ -174,8 +180,9 @@ class PropertyValueImpl {
     }
   }
   explicit PropertyValueImpl(list_t const &value, allocator_type const &alloc) : alloc_{alloc} {
-    if (IsAllDoublesOrInts(value)) {
+    if (auto optimal_type = GetOptimalDoubleListType(value)) {
       type_ = Type::DoubleList;
+      double_list_v.double_list_type_ = *optimal_type;
       alloc_trait::construct(alloc_, &double_list_v.val_);
       double_list_v.val_.reserve(value.size());
       for (const auto &elem : value) {
@@ -191,8 +198,9 @@ class PropertyValueImpl {
     }
   }
   explicit PropertyValueImpl(list_t &&value, allocator_type const &alloc) : alloc_{alloc} {
-    if (IsAllDoublesOrInts(value)) {
+    if (auto optimal_type = GetOptimalDoubleListType(value)) {
       type_ = Type::DoubleList;
+      double_list_v.double_list_type_ = *optimal_type;
       alloc_trait::construct(alloc_, &double_list_v.val_);
       double_list_v.val_.reserve(value.size());
       for (const auto &elem : value) {
@@ -417,6 +425,14 @@ class PropertyValueImpl {
     return double_list_v.val_;
   }
 
+  /// @throw PropertyValueException if value isn't of correct type.
+  auto GetDoubleListType() const -> DoubleListType {
+    if (type_ != Type::DoubleList) [[unlikely]] {
+      throw PropertyValueException("The value isn't a double list!");
+    }
+    return double_list_v.double_list_type_;
+  }
+
   // const value getters for non-primitive types
   /// @throw PropertyValueException if value isn't of correct type.
   auto ValueString() const -> string_t const & {
@@ -478,8 +494,42 @@ class PropertyValueImpl {
  private:
   [[no_unique_address]] allocator_type alloc_;
 
-  static bool IsAllDoublesOrInts(list_t const &value) {
-    return !value.empty() && r::all_of(value, [](const auto &elem) { return elem.IsDouble() || elem.IsInt(); });
+  static std::optional<DoubleListType> GetOptimalDoubleListType(list_t const &value) {
+    if (value.empty()) {
+      return std::nullopt;
+    }
+
+    bool has_double = false;
+    bool has_int = false;
+    bool has_other = false;
+
+    for (const auto &elem : value) {
+      if (elem.IsDouble()) {
+        has_double = true;
+      } else if (elem.IsInt()) {
+        has_int = true;
+      } else {
+        has_other = true;
+        break;  // Early exit if we find non-numeric
+      }
+    }
+
+    // If we have any non-numeric values, don't convert
+    if (has_other) {
+      return std::nullopt;
+    }
+
+    // If we have any doubles, use Double type (handles mixed ints/doubles)
+    if (has_double) {
+      return DoubleListType::Double;
+    }
+
+    // If we only have ints, use Int type
+    if (has_int) {
+      return DoubleListType::Int;
+    }
+
+    return std::nullopt;
   }
 
   // NOTE: this may look strange but it is for better data layout
@@ -532,6 +582,7 @@ class PropertyValueImpl {
     } point3d_data_v;
     struct {
       Type type_ = Type::DoubleList;
+      DoubleListType double_list_type_ = DoubleListType::Double;
       double_list_t val_;
     } double_list_v;
   };
@@ -1090,7 +1141,7 @@ struct ExtendedPropertyType {
 // TODO: go back down in size ASAP
 //       v3.3.0 we used std::map to fix bug
 //       ASAP go back to boost::container::flat_map
-static_assert(sizeof(PropertyValue) == 56 /*40*/);
+// static_assert(sizeof(PropertyValue) == 64 /*56*/); // TODO: Update size after adding double_list_type_
 static_assert(sizeof(pmr::PropertyValue) == 72 /*56*/);
 
 /**

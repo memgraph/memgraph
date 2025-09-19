@@ -554,9 +554,8 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
     case PropertyValue::Type::Bool: {
       if (value.ValueBool()) {
         return {{Type::BOOL, Size::INT64}};
-      } else {
-        return {{Type::BOOL, Size::INT8}};
       }
+      return {{Type::BOOL, Size::INT8}};
     }
     case PropertyValue::Type::Int: {
       auto size = writer->WriteInt(value.ValueInt());
@@ -590,14 +589,21 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
     }
     case PropertyValue::Type::DoubleList: {
       const auto &list = value.ValueDoubleList();
+      const auto double_list_type = value.GetDoubleListType();
       auto size = writer->WriteUint(list.size());
       if (!size) return std::nullopt;
       for (const auto &item : list) {
         auto metadata = writer->WriteMetadata();
         if (!metadata) return std::nullopt;
-        auto ret = writer->WriteDouble(item);
-        if (!ret) return std::nullopt;
-        metadata->Set({Type::DOUBLE, Size::INT8, *ret});
+        if (double_list_type == DoubleListType::Int) {
+          auto ret = writer->WriteInt(static_cast<int64_t>(item));
+          if (!ret) return std::nullopt;
+          metadata->Set({Type::INT, Size::INT8, *ret});
+        } else {
+          auto ret = writer->WriteDouble(item);
+          if (!ret) return std::nullopt;
+          metadata->Set({Type::DOUBLE, Size::INT8, *ret});
+        }
       }
       return {{Type::LIST, *size}};
     }
