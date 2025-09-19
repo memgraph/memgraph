@@ -1,10 +1,12 @@
 #!/usr/bin/env python3
 import argparse
+import json
 import os
 import re
 import subprocess
 import sys
 import time
+import urllib.request
 from functools import wraps
 
 # This script is used to determine the current version of Memgraph. The script
@@ -118,6 +120,60 @@ def get_output(*cmd, multiple=False):
     if multiple:
         return list(map(lambda x: x.strip(), ret.stdout.decode("utf-8").strip().split("\n")))
     return ret.stdout.decode("utf-8").strip()
+
+
+def request_repo_tags(token=None):
+    api_url = "https://api.github.com/repos/memgraph/memgraph/tags"
+    req = urllib.request.Request(api_url)
+    req.add_header("User-Agent", "Memgraph-Version-Script/1.0")
+    if token:
+        req.add_header("Authorization", f"token {token}")
+    try:
+        with urllib.request.urlopen(req) as response:
+            return json.loads(response.read().decode())
+    except Exception as e:
+        print(f"Warning: Could not fetch tags from original repository: {e}", file=sys.stderr)
+        return None
+
+
+def fetch_memgraph_repo_version():
+    """Fetch version information from the original Memgraph repository via GitHub API."""
+    try:
+        # Check for GitHub token in environment variables
+        github_token = os.environ.get("GITHUB_TOKEN") or os.environ.get("GITHUB_API_TOKEN")
+
+        # try authenticated request first, to avoid rate limiting
+        tags_data = None
+        if github_token:
+            tags_data = request_repo_tags(github_token)
+
+        # if authenticated request fails, try unauthenticated request
+        if tags_data is None:
+            tags_data = request_repo_tags()
+
+        if tags_data is None:
+            return None, None
+
+        # Look for version tags in format vx.y.z, excluding rc tags
+        version_tags = []
+        for tag in tags_data:
+            tag_name = tag["name"]
+            # Match vx.y.z format but exclude rc tags
+            if re.match(r"^v[0-9]+\.[0-9]+\.[0-9]+$", tag_name) and "rc" not in tag_name:
+                version = tuple(map(int, tag_name[1:].split(".")))  # Remove 'v' prefix
+                version_tags.append((version, tag_name))
+
+        if version_tags:
+            # Sort by version and get the latest
+            version_tags.sort(reverse=True)
+            latest_version, latest_tag = version_tags[0]
+            return latest_version, latest_tag
+
+        return None, None
+
+    except Exception as e:
+        print(f"Warning: Could not fetch version from original repository: {e}", file=sys.stderr)
+        return None, None
 
 
 def format_version(variant, version, offering, distance=None, shorthash=None, suffix=None):
@@ -260,7 +316,43 @@ for version in versions:
 
 # Determine current version.
 if current_version is None:
-    raise Exception("You are attempting to determine the version for a very " "old version of Memgraph!")
+    # Fallback: try to get version information from the original Memgraph repository
+    print("No local release branches found. Fetching version from original repository...", file=sys.stderr)
+
+    original_version, original_branch = fetch_memgraph_repo_version()
+
+    if original_version is not None:
+        # Use the version from the original repository
+        version_str = ".".join(map(str, original_version)) + ".0"
+
+        # Calculate distance from master branch as a development version
+        try:
+            distance = int(get_output("git", "rev-list", "--count", "--first-parent", "origin/master.." + current_hash))
+        except:
+            distance = 0
+
+        if distance == 0:
+            print(format_version(args.variant, version_str, offering, suffix=args.suffix), end="")
+        else:
+            print(
+                format_version(
+                    args.variant,
+                    version_str,
+                    offering,
+                    distance=distance,
+                    shorthash=current_hash_short,
+                    suffix=args.suffix,
+                ),
+                end="",
+            )
+        sys.exit(0)
+    else:
+        # If API fallback also fails, provide a helpful error message
+        raise Exception(
+            "Unable to determine version. No local release branches found and could not fetch from original repository. "
+            "This repository may need to be updated or may not be a standard Memgraph repository."
+        )
+
 version, branch, master_branch_merge = current_version
 distance = int(get_output("git", "rev-list", "--count", "--first-parent", master_branch_merge + ".." + current_hash))
 version_str = ".".join(map(str, version)) + ".0"
