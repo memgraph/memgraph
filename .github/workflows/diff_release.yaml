@@ -476,6 +476,23 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph durability-large
 
+      - name: Copy stress and durability test logs
+        if: always()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          copy --logs-dir $MGBUILD_ROOT_DIR/tests/stress --dest-dir build/stress/logs
+
+      - name: Save stress and durability test logs
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: "Stress and Durability Test Logs-${{ inputs.run_id }}"
+          path: build/stress/logs
+
       - name: Stop mgbuild container
         if: always()
         run: |
