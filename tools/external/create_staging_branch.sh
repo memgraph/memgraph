@@ -20,26 +20,40 @@ STAGING_BRANCH="$4"
 echo "Fetching feature branch: $BRANCH_NAME"
 git fetch origin "$BRANCH_NAME"
 
-if [ "$BASE_MASTER" = "true" ]; then
-    echo "Creating staging branch from master and merging feature branch..."
+# Check if staging branch already exists
+if git show-ref --verify --quiet refs/heads/"$STAGING_BRANCH" || git show-ref --verify --quiet refs/remotes/origin/"$STAGING_BRANCH"; then
+    echo "WARNING: Staging branch '$STAGING_BRANCH' already exists. Using existing branch."
     
-    # Create staging branch from base reference
-    git checkout master
-    git pull origin master
-    git checkout -b "$STAGING_BRANCH"
+    # Checkout the existing staging branch
+    if git show-ref --verify --quiet refs/heads/"$STAGING_BRANCH"; then
+        git checkout "$STAGING_BRANCH"
+    else
+        git checkout -b "$STAGING_BRANCH" origin/"$STAGING_BRANCH"
+    fi
     
-    # Merge the feature branch into staging
-    git merge "$COMMIT_SHA" --no-edit
-    
-    echo "Created staging branch from master and merged feature branch"
+    echo "Using existing staging branch: $STAGING_BRANCH"
 else
-    echo "Creating direct copy of feature branch..."
-    
-    # Create staging branch as direct copy of feature branch
-    git checkout "$COMMIT_SHA"
-    git checkout -b "$STAGING_BRANCH"
-    
-    echo "Created direct copy of feature branch"
+    if [ "$BASE_MASTER" = "true" ]; then
+        echo "Creating staging branch from master and merging feature branch..."
+        
+        # Create staging branch from base reference
+        git checkout master
+        git pull origin master
+        git checkout -b "$STAGING_BRANCH"
+        
+        # Merge the feature branch into staging
+        git merge "$COMMIT_SHA" --no-edit
+        
+        echo "Created staging branch from master and merged feature branch"
+    else
+        echo "Creating direct copy of feature branch..."
+        
+        # Create staging branch as direct copy of feature branch
+        git checkout "$COMMIT_SHA"
+        git checkout -b "$STAGING_BRANCH"
+        
+        echo "Created direct copy of feature branch"
+    fi
 fi
 
 # Push the staging branch
