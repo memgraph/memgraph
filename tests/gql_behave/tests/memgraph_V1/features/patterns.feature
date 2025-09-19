@@ -331,6 +331,10 @@ Feature: Patterns
 
     Scenario: Pattern expression with only node returns error
         Given an empty graph
+        And having executed:
+            """
+            CREATE (n)
+            """
         When executing query:
             """
             MATCH (n)
@@ -339,8 +343,12 @@ Feature: Patterns
             """
         Then an error should be raised
 
-    Scenario: Pattern expression with only node returns error
+    Scenario: Pattern expression negation with only node returns error
         Given an empty graph
+        And having executed:
+            """
+            CREATE (n)
+            """
         When executing query:
             """
             MATCH (n)
