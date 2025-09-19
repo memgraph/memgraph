@@ -174,38 +174,29 @@ static char *concatenate_strings(const char *str1, const char *str2, struct mgp_
 
 typedef struct {
   int64_t id;
-  const char *type;
-  struct mgp_map *map; /* value map in the list */
+  uint64_t type_hash;
+  struct mgp_map *map;
   bool used;
 } bucket_t;
 
 // Optimized hash function - combines type and id more efficiently
-static inline uint64_t optimized_hash(const char *type, int64_t id) {
-  if (!type) return (uint64_t)id;
-
-  // Use a faster hash combination
-  uint64_t h = 1469598103934665603ULL;
-  for (const char *p = type; *p; ++p) {
-    h ^= (uint8_t)*p;
-    h *= 1099511628211ULL;
-  }
-  // Mix in the id
+static inline uint64_t optimized_hash(uint64_t type_hash, int64_t id) {
+  uint64_t h = type_hash;
   h ^= (uint64_t)id;
   h *= 1099511628211ULL;
   return h;
 }
 
 // Optimized probe function with better collision handling
-static inline ssize_t optimized_probe(bucket_t *tbl, size_t cap, int64_t id, const char *type, uint64_t h) {
+static inline ssize_t optimized_probe(bucket_t *tbl, size_t cap, int64_t id, uint64_t type_hash, uint64_t h) {
   size_t mask = cap - 1;
   size_t pos = (size_t)h & mask;
   size_t step = 1;
 
   // Use quadratic probing for better distribution
   while (true) {
-    if (!tbl[pos].used) return (ssize_t)pos;                    // empty slot
-    if (tbl[pos].id == id && strcmp(tbl[pos].type, type) == 0)  // match
-      return (ssize_t)pos;
+    if (!tbl[pos].used) return (ssize_t)pos;  // empty slot
+    if (tbl[pos].id == id && tbl[pos].type_hash == type_hash) return (ssize_t)pos;
 
     // Quadratic probing: pos = (pos + step) & mask
     pos = (pos + step) & mask;
@@ -314,9 +305,8 @@ static const property_filter_t *get_node_property_filter(const node_property_fil
     }
   }
 
-  // Return default wildcard filter if not found
-  static property_filter_t default_wildcard = {FILTER_MODE_WILDCARD, {{0}}, 0};
-  return &default_wildcard;
+  // Return NULL if no filter found for this label
+  return NULL;
 }
 
 // Check if node property should be included
@@ -544,9 +534,8 @@ static const property_filter_t *get_rel_property_filter(const rel_property_filte
     }
   }
 
-  // Return default wildcard filter if not found
-  static property_filter_t default_wildcard = {FILTER_MODE_WILDCARD, {{0}}, 0};
-  return &default_wildcard;
+  // Return NULL if no filter found for this relationship type
+  return NULL;
 }
 
 // Check if relationship property should be included
@@ -581,15 +570,15 @@ static void merge_list_into_list_hashed(struct mgp_list *existing_list, struct m
 static void merge_trees(struct mgp_map *target, struct mgp_map *source, struct mgp_memory *memory);
 
 typedef struct {
-  int64_t id;       /* required */
-  const char *type; /* required */
+  int64_t id;
+  uint64_t type_hash;
   bool valid;
 } merge_identity_t;
 
 /* Extracts (_id:int, _type:string) from a node/edge map item.
    Returns .valid=false if anything is missing or types mismatch. */
 static inline merge_identity_t extract_identity(struct mgp_map *map) {
-  merge_identity_t out = {.id = 0, .type = NULL, .valid = false};
+  merge_identity_t out = {.id = 0, .type_hash = 0, .valid = false};
   if (!map) return out;
 
   struct mgp_value *id_v = NULL, *type_v = NULL;
@@ -598,15 +587,51 @@ static inline merge_identity_t extract_identity(struct mgp_map *map) {
 
   enum mgp_value_type t_id = MGP_VALUE_TYPE_NULL, t_type = MGP_VALUE_TYPE_NULL;
   if (mgp_value_get_type(id_v, &t_id) != MGP_ERROR_NO_ERROR || t_id != MGP_VALUE_TYPE_INT) return out;
-  if (mgp_value_get_type(type_v, &t_type) != MGP_ERROR_NO_ERROR || t_type != MGP_VALUE_TYPE_STRING) return out;
+  if (mgp_value_get_type(type_v, &t_type) != MGP_ERROR_NO_ERROR) return out;
 
   int64_t id;
-  const char *type_s = NULL;
+  uint64_t type_hash = 0;
   if (mgp_value_get_int(id_v, &id) != MGP_ERROR_NO_ERROR) return out;
-  if (mgp_value_get_string(type_v, &type_s) != MGP_ERROR_NO_ERROR || !type_s) return out;
+
+  if (t_type == MGP_VALUE_TYPE_STRING) {
+    const char *type_s = NULL;
+    if (mgp_value_get_string(type_v, &type_s) != MGP_ERROR_NO_ERROR || !type_s) return out;
+    type_hash = 14695981039346656037ULL;
+    for (const char *p = type_s; *p; p++) {
+      type_hash ^= (unsigned char)*p;
+      type_hash *= 1099511628211ULL;
+    }
+  } else if (t_type == MGP_VALUE_TYPE_LIST) {
+    struct mgp_list *type_list = NULL;
+    if (mgp_value_get_list(type_v, &type_list) != MGP_ERROR_NO_ERROR || !type_list) return out;
+    size_t list_size = 0;
+    if (mgp_list_size(type_list, &list_size) != MGP_ERROR_NO_ERROR || list_size == 0) return out;
+
+    type_hash = 14695981039346656037ULL;
+    for (size_t i = 0; i < list_size; i++) {
+      struct mgp_value *label_val = NULL;
+      if (mgp_list_at(type_list, i, &label_val) != MGP_ERROR_NO_ERROR || !label_val) return out;
+      const char *label_str = NULL;
+      if (mgp_value_get_string(label_val, &label_str) != MGP_ERROR_NO_ERROR || !label_str) return out;
+
+      for (const char *p = label_str; *p; p++) {
+        type_hash ^= (unsigned char)*p;
+        type_hash *= 1099511628211ULL;
+      }
+
+      // Concatenate strings using `:` as a delimiter, as we know that can't
+      // appear in the labels.
+      if (i < list_size - 1) {
+        type_hash ^= ':';
+        type_hash *= 1099511628211ULL;
+      }
+    }
+  } else {
+    return out;
+  }
 
   out.id = id;
-  out.type = type_s;
+  out.type_hash = type_hash;
   out.valid = true;
   return out;
 }
@@ -627,14 +652,14 @@ static bool index_existing_children(struct mgp_list *existing_list, bucket_t *tb
     if (!id.valid) continue;
 
     /* Use optimized hash function */
-    uint64_t h = optimized_hash(id.type, id.id);
+    uint64_t h = optimized_hash(id.type_hash, id.id);
 
-    ssize_t pos = optimized_probe(tbl, cap, id.id, id.type, h);
+    ssize_t pos = optimized_probe(tbl, cap, id.id, id.type_hash, h);
     if (pos < 0) return false;
     if (!tbl[pos].used) {
       tbl[pos].used = true;
       tbl[pos].id = id.id;
-      tbl[pos].type = id.type;
+      tbl[pos].type_hash = id.type_hash;
       tbl[pos].map = m;
     }
     /* if it already existed, we ignore duplicates in existing_list */
@@ -680,8 +705,8 @@ static void merge_list_into_list_small(struct mgp_list *existing_list, struct mg
         continue;
       }
 
-      uint64_t h = optimized_hash(nid.type, nid.id);
-      ssize_t pos = optimized_probe(small_table, SMALL_MERGE_THRESHOLD, nid.id, nid.type, h);
+      uint64_t h = optimized_hash(nid.type_hash, nid.id);
+      ssize_t pos = optimized_probe(small_table, SMALL_MERGE_THRESHOLD, nid.id, nid.type_hash, h);
 
       if (pos >= 0 && small_table[pos].used) {
         /* Merge into existing */
@@ -692,7 +717,7 @@ static void merge_list_into_list_small(struct mgp_list *existing_list, struct mg
         if (pos >= 0) {
           small_table[pos].used = true;
           small_table[pos].id = nid.id;
-          small_table[pos].type = nid.type;
+          small_table[pos].type_hash = nid.type_hash;
           small_table[pos].map = new_map;
         }
       }
@@ -759,8 +784,8 @@ static void merge_list_into_list_hashed(struct mgp_list *existing_list, struct m
         continue;
       }
 
-      uint64_t h = optimized_hash(nid.type, nid.id);
-      ssize_t pos = optimized_probe(tbl, cap, nid.id, nid.type, h);
+      uint64_t h = optimized_hash(nid.type_hash, nid.id);
+      ssize_t pos = optimized_probe(tbl, cap, nid.id, nid.type_hash, h);
 
       if (pos >= 0 && tbl[pos].used) {
         /* Merge into existing */
@@ -772,7 +797,7 @@ static void merge_list_into_list_hashed(struct mgp_list *existing_list, struct m
         if (pos >= 0) {
           tbl[pos].used = true;
           tbl[pos].id = nid.id;
-          tbl[pos].type = nid.type;
+          tbl[pos].type_hash = nid.type_hash;
           tbl[pos].map = new_map;
         }
       }
@@ -854,7 +879,6 @@ static struct mgp_map *create_complete_node_map(struct mgp_vertex *node, const f
     mgp_properties_iterator_destroy(iter);
   }
 
-  // Add node labels as _type
   size_t label_count = 0;
   if (mgp_vertex_labels_count(node, &label_count) == MGP_ERROR_NO_ERROR && label_count > 0) {
     if (label_count == 1) {
