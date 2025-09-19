@@ -35,12 +35,6 @@ on:
           - ubuntu-22.04
           - ubuntu-24.04
           - ubuntu-24.04-arm
-      toolchain:
-        type: choice
-        description: "Toolchain version with which memgraph will be packaged."
-        default: 'v6'
-        options:
-          - v6
       push_to_s3:
         type: boolean
         description: "Push final packages to an S3 bucket?"
@@ -92,7 +86,6 @@ jobs:
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "centos-9"
-      toolchain: ${{ needs.PackageSetup.outputs.workflow_input_toolchain }}
       arch: "amd"
       build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
@@ -108,7 +101,6 @@ jobs:
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "centos-10"
-      toolchain: ${{ needs.PackageSetup.outputs.workflow_input_toolchain }}
       arch: "amd"
       build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
@@ -124,7 +116,6 @@ jobs:
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "debian-11"
-      toolchain: ${{ needs.PackageSetup.outputs.workflow_input_toolchain }}
       arch: "amd"
       build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
@@ -140,7 +131,6 @@ jobs:
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "debian-11"
-      toolchain: ${{ needs.PackageSetup.outputs.workflow_input_toolchain }}
       arch: "arm"
       build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
@@ -156,7 +146,6 @@ jobs:
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "debian-12"
-      toolchain: ${{ needs.PackageSetup.outputs.workflow_input_toolchain }}
       arch: "amd"
       build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
@@ -172,7 +161,6 @@ jobs:
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "debian-12"
-      toolchain: ${{ needs.PackageSetup.outputs.workflow_input_toolchain }}
       arch: "arm"
       build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
@@ -188,7 +176,6 @@ jobs:
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "ubuntu-24.04"
-      toolchain: ${{ needs.PackageSetup.outputs.workflow_input_toolchain }}
       arch: "amd"
       build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
       additional_build_args: "--for-docker"
@@ -205,7 +192,6 @@ jobs:
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "ubuntu-24.04"
-      toolchain: ${{ needs.PackageSetup.outputs.workflow_input_toolchain }}
       arch: "arm"
       build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
       additional_build_args: "--for-docker"
@@ -222,7 +208,6 @@ jobs:
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "fedora-41"
-      toolchain: ${{ needs.PackageSetup.outputs.workflow_input_toolchain }}
       arch: "amd"
       build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
@@ -238,7 +223,6 @@ jobs:
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "rocky-9.3"
-      toolchain: ${{ needs.PackageSetup.outputs.workflow_input_toolchain }}
       arch: "amd"
       build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
@@ -254,7 +238,6 @@ jobs:
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "ubuntu-22.04"
-      toolchain: ${{ needs.PackageSetup.outputs.workflow_input_toolchain }}
       arch: "amd"
       build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
@@ -270,7 +253,6 @@ jobs:
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "ubuntu-24.04"
-      toolchain: ${{ needs.PackageSetup.outputs.workflow_input_toolchain }}
       arch: "amd"
       build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
@@ -286,7 +268,6 @@ jobs:
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "ubuntu-24.04"
-      toolchain: ${{ needs.PackageSetup.outputs.workflow_input_toolchain }}
       arch: "arm"
       build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
@@ -302,7 +283,6 @@ jobs:
     uses: ./.github/workflows/reusable_package.yaml
     with:
       os: "ubuntu-24.04"
-      toolchain: ${{ needs.PackageSetup.outputs.workflow_input_toolchain }}
       arch: "amd"
       build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
       additional_build_args: "--disable-jemalloc"

@@ -7,12 +7,12 @@ check_operating_system "fedora-41"
 check_architecture "x86_64"
 
 TOOLCHAIN_BUILD_DEPS=(
-    coreutils-common gcc gcc-c++ make # generic build tools
+    coreutils-common gcc gcc-c++ make binutils-gold # generic build tools
     wget2-wget # used for archive download
     gnupg2 # used for archive signature verification
     tar gzip bzip2 xz unzip # used for archive unpacking
     # NOTE: https://discussion.fedoraproject.org/t/f40-change-proposal-transitioning-to-zlib-ng-as-a-compatible-replacement-for-zlib-system-wide/95807
-    zlib-ng-compat-devel # zlib library used for all builds
+    zlib-ng-compat-devel zlib-ng-compat-static # zlib library used for all builds
     expat-devel xz-devel python3-devel texinfo libbabeltrace-devel # for gdb
     curl libcurl-devel # for cmake
     readline-devel # for cmake and llvm
@@ -31,6 +31,7 @@ TOOLCHAIN_BUILD_DEPS=(
     libtool # for protobuf
     pkgconf-pkg-config # for pulsar
     cyrus-sasl-devel # for librdkafka
+    python3-pip # for conan
 )
 
 TOOLCHAIN_RUN_DEPS=(
@@ -106,6 +107,12 @@ check() {
         esac
     done
 
+    # check if python3 is installed
+    if ! command -v python3 &>/dev/null; then
+        echo "python3 is not installed"
+        exit 1
+    fi
+
     # Check standard packages with Python script
     if [ ${#standard_packages[@]} -gt 0 ]; then
         missing=$(python3 "$DIR/check-packages.py" "check" "fedora-41" "${standard_packages[@]}")
@@ -149,6 +156,17 @@ install() {
         echo "LANG=en_US.utf8" >> /home/gh/actions-runner/.env
     else
         echo "NOTE: export LANG=en_US.utf8"
+    fi
+
+    # enable rpm fusion
+    dnf install -y https://mirrors.rpmfusion.org/free/fedora/rpmfusion-free-release-41.noarch.rpm
+
+    # Update package lists first
+    dnf update -y
+
+    # check if python3 is installed
+    if ! command -v python3 &>/dev/null; then
+        dnf install -y python3
     fi
 
     # Separate standard and custom packages

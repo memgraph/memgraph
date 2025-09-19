@@ -28,24 +28,43 @@ else ()
   message(STATUS "CCache: Not used")
 endif(CCACHE_FOUND AND USE_CCACHE)
 
-# choose a compiler
-# NOTE: must be choosen before use of project() or enable_language()
-find_program(CLANG_FOUND clang)
-find_program(CLANGXX_FOUND clang++)
-if (CLANG_FOUND AND CLANGXX_FOUND)
-  set(CMAKE_C_COMPILER ${CLANG_FOUND})
-  set(CMAKE_CXX_COMPILER ${CLANGXX_FOUND})
-else()
-  message(FATAL_ERROR "Couldn't find clang and/or clang++!")
-endif()
 
 # -----------------------------------------------------------------------------
+
+# Capture MG_TOOLCHAIN_ROOT from environment variable if not already set
+if (NOT MG_TOOLCHAIN_ROOT)
+    if (DEFINED ENV{MG_TOOLCHAIN_ROOT})
+        set(MG_TOOLCHAIN_ROOT $ENV{MG_TOOLCHAIN_ROOT})
+    endif()
+endif()
+
+if (NOT MG_TOOLCHAIN_ROOT)
+    # This is used to so that 3rd party libs can find the
+    # correct libraries from our toolchain
+    message(FATAL "Need toolchain")
+endif ()
+
+message(STATUS "MG_TOOLCHAIN_ROOT = ${MG_TOOLCHAIN_ROOT}")
+
+# Add toolchain to CMAKE_PREFIX_PATH so that find_package can locate libraries
+list(APPEND CMAKE_PREFIX_PATH "${MG_TOOLCHAIN_ROOT}")
+
+# Manually configure gflags if find_package fails
+if(NOT TARGET gflags)
+  add_library(gflags STATIC IMPORTED)
+  set_target_properties(gflags PROPERTIES
+    IMPORTED_LOCATION "${MG_TOOLCHAIN_ROOT}/lib/libgflags.a"
+    INTERFACE_INCLUDE_DIRECTORIES "${MG_TOOLCHAIN_ROOT}/include"
+    INTERFACE_COMPILE_DEFINITIONS "GFLAGS_IS_A_DLL=0"
+  )
+endif()
 
 project(memgraph LANGUAGES C CXX)
 
 # this reduces issues in build folders from inside containers
 # which are different locations than the host
 set(CMAKE_BUILD_RPATH_USE_ORIGIN ON)
+set(CMAKE_BUILD_RPATH "${MG_TOOLCHAIN_ROOT}/lib64")
 
 # Install licenses.
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/licenses/
@@ -216,8 +235,67 @@ set_property(GLOBAL PROPERTY MG_CUSTOM_LIBSTDCXX_PATH "${CUSTOM_LIBSTDCXX}")
 # setup CMake module path, defines path for include() and find_package()
 # https://cmake.org/cmake/help/latest/variable/CMAKE_MODULE_PATH.html
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+
+# Add conan generators to module path to ensure conan packages are found first
+list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_BINARY_DIR}/generators")
+
 # custom function definitions
 include(functions)
+
+# Load conan dependencies in the correct order using explicit find_package calls
+# Load dependencies that don't depend on others first
+find_package(benchmark)
+find_package(GTest)
+find_package(spdlog)
+find_package(fmt)
+find_package(strong_type)
+find_package(Boost)
+find_package(BZip2)
+find_package(antlr4-runtime)
+find_package(antlr4)
+find_package(cppitertools)
+find_package(ctre)
+find_package(absl)
+find_package(croncpp)
+find_package(range-v3)
+find_package(asio)
+find_package(ZLIB)
+
+# Load OpenSSL before mgclient since mgclient depends on it
+# TODO(matt): OpenSSL requires manual include due to conan CMakeDeps generator issue
+# The standard find_package(OpenSSL) approach fails to create the openssl::openssl target
+# This appears to be a bug in conan's handling of OpenSSL specifically
+include(${CMAKE_CURRENT_BINARY_DIR}/generators/FindOpenSSL.cmake)
+
+# Now load mgclient which depends on OpenSSL
+find_package(mgclient)
+
+# This appears to be a hack
+# Add fmt include directory globally from conan configuration
+# Handle different build types and architectures
+set(fmt_data_file_found FALSE)
+foreach(build_type release debug relwithdebinfo)
+    foreach(arch x86_64 arm64)
+        set(data_file "${CMAKE_CURRENT_BINARY_DIR}/generators/fmt-${build_type}-${arch}-data.cmake")
+        if(EXISTS "${data_file}")
+            include("${data_file}")
+            string(TOUPPER ${build_type} BUILD_TYPE_UPPER)
+            if(DEFINED fmt_INCLUDE_DIRS_${BUILD_TYPE_UPPER})
+                include_directories("${fmt_INCLUDE_DIRS_${BUILD_TYPE_UPPER}}")
+                message(STATUS "Added fmt include directory: ${fmt_INCLUDE_DIRS_${BUILD_TYPE_UPPER}}")
+                set(fmt_data_file_found TRUE)
+                break()
+            endif()
+        endif()
+    endforeach()
+    if(fmt_data_file_found)
+        break()
+    endif()
+endforeach()
+
+if(NOT fmt_data_file_found)
+    message(WARNING "Could not find fmt include directory from conan configuration")
+endif()
 # -----------------------------------------------------------------------------
 
 # We want out of source builds, so that cmake generated files don't get mixed
@@ -262,17 +340,14 @@ set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
 
 # Use lld linker to speedup build and use less memory.
 add_link_options(-fuse-ld=lld)
-if (DEFINED ENV{LD_LIBRARY_PATH})
-    string(REPLACE ":" " " LD_LIBS $ENV{LD_LIBRARY_PATH})
-    separate_arguments(LD_LIBS)
-    link_directories(${LD_LIBS})
-endif ()
 add_link_options(LINKER:--build-id)
+link_directories("${MG_TOOLCHAIN_ROOT}/lib")
+link_directories("${MG_TOOLCHAIN_ROOT}/lib64")
 
 # After linker is set, check we can use link-time optimization
 cmake_policy(SET CMP0138 NEW)
-include(CheckIPOSupported)
-check_ipo_supported() # fatal error if IPO is not supported
+# include(CheckIPOSupported)
+# check_ipo_supported() # fatal error if IPO is not supported
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_Release TRUE)
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo TRUE)
 
@@ -337,7 +412,6 @@ endif()
 
 
 option(TEST_COVERAGE "Generate coverage reports from running memgraph" OFF)
-option(TOOLS "Build tools binaries" ON)
 option(QUERY_MODULES "Build query modules containing custom procedures" ON)
 option(ASAN "Build with Address Sanitizer. To get a reasonable performance option should be used only in Release or RelWithDebInfo build " OFF)
 option(TSAN "Build with Thread Sanitizer. To get a reasonable performance option should be used only in Release or RelWithDebInfo build " OFF)
@@ -422,7 +496,7 @@ if (UBSAN)
   # Compile with UBSAN but disable vptr check. This is disabled because it
   # requires linking with clang++ to make sure C++ specific parts of the
   # runtime library and c++ standard libraries are present.
-  add_compile_options(-fsanitize=undefined -fno-omit-frame-pointer -fno-sanitize=vptr)
+  add_compile_options(-fsanitize=undefined -fno-omit-frame-pointer -fno-sanitize=vptr -fsanitize-ignorelist=${CMAKE_SOURCE_DIR}/tools/ubsan.ignore)
   add_link_options(-fsanitize=undefined -fno-sanitize=vptr)
   # Run program with environment variable UBSAN_OPTIONS=print_stacktrace=1.
   # Make sure llvm-symbolizer binary is in path.
@@ -457,18 +531,14 @@ if (MG_ENABLE_TESTING)
   add_subdirectory(tests)
 endif()
 
-if(TOOLS)
-  add_subdirectory(tools)
-endif()
-
 if(QUERY_MODULES)
   add_subdirectory(query_modules)
 endif()
 
 # All targets which generate code, useful as a single target to build for clang-tidy analysis to work
 # NOTE: It's big because https://stackoverflow.com/questions/74870212/how-to-add-dependencies-to-a-custom-target-after-the-fact
-if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
-  if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
+if(DEFINED MG_TOOLCHAIN_VERSION)
+  if(${MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
     # NOTE: The rest of the generated code should already under toolchain.
     add_custom_target(generated_code DEPENDS
         generate_opencypher_parser
@@ -479,7 +549,6 @@ if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
         generate_opencypher_parser
         mgcxx-proj
         librdkafka-proj
-        antlr4-proj
         librdtsc-proj
         pulsar-proj
     )
@@ -489,14 +558,13 @@ else()
       generate_opencypher_parser
       mgcxx-proj
       librdkafka-proj
-      antlr4-proj
       librdtsc-proj
       pulsar-proj
   )
 endif()
 
-if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
-  if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
+if(DEFINED MG_TOOLCHAIN_VERSION)
+  if(${MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
     install(FILES ${MG_TOOLCHAIN_ROOT}/bin/mgconsole
       PERMISSIONS OWNER_EXECUTE OWNER_READ OWNER_WRITE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
       TYPE BIN)
@@ -509,4 +577,25 @@ else()
   install(FILES ${CMAKE_BINARY_DIR}/bin/mgconsole
     PERMISSIONS OWNER_EXECUTE OWNER_READ OWNER_WRITE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
     TYPE BIN)
+endif()
+
+# Manually configure gflags to override the broken toolchain configuration
+# This must be done after all find_package calls have been processed
+if(TARGET gflags)
+  # Update the existing gflags target with correct paths
+  set_target_properties(gflags PROPERTIES
+    IMPORTED_LOCATION "${MG_TOOLCHAIN_ROOT}/lib/libgflags.a"
+    INTERFACE_INCLUDE_DIRECTORIES "${MG_TOOLCHAIN_ROOT}/include"
+    INTERFACE_COMPILE_DEFINITIONS "GFLAGS_IS_A_DLL=0"
+  )
+  message(STATUS "Updated gflags target with correct paths: ${MG_TOOLCHAIN_ROOT}")
+else()
+  # Create the gflags target if it doesn't exist
+  add_library(gflags STATIC IMPORTED)
+  set_target_properties(gflags PROPERTIES
+    IMPORTED_LOCATION "${MG_TOOLCHAIN_ROOT}/lib/libgflags.a"
+    INTERFACE_INCLUDE_DIRECTORIES "${MG_TOOLCHAIN_ROOT}/include"
+    INTERFACE_COMPILE_DEFINITIONS "GFLAGS_IS_A_DLL=0"
+  )
+  message(STATUS "Created gflags target with correct paths: ${MG_TOOLCHAIN_ROOT}")
 endif()
