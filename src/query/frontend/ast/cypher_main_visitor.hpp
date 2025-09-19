@@ -1054,6 +1054,12 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitPatternComprehension(MemgraphCypher::PatternComprehensionContext *ctx) override;
 
   /**
+   * @return Exists* (Expression)
+   * PatternExpression behaves the same way as ExistsExpression
+   */
+  antlrcpp::Any visitPatternExpression(MemgraphCypher::PatternExpressionContext *ctx) override;
+
+  /**
    * @return Expression*
    */
   antlrcpp::Any visitParenthesizedExpression(MemgraphCypher::ParenthesizedExpressionContext *ctx) override;
