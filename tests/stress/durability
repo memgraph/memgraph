@@ -55,6 +55,7 @@ cmd = [
     "--storage-wal-enabled=true",
     "--query-execution-timeout-sec=600",
     "--bolt-server-name-for-init=Neo4j/v5.11.0 compatible graph database server - Memgraph",
+    "--log-level=TRACE",
 ]
 if not args.verbose:
     cmd += ["--log-level", "WARNING"]
