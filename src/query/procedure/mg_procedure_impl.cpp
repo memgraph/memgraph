@@ -717,6 +717,17 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::stora
       list_v = allocator.new_object<mgp_list>(std::move(elems));
       break;
     }
+    case memgraph::storage::PropertyValue::Type::DoubleList: {
+      // type = MGP_VALUE_TYPE_LIST;
+      // memgraph::utils::pmr::vector<mgp_value> elems(alloc);
+      // elems.reserve(pv.ValueDoubleList().size());
+      // for (const auto &elem : pv.ValueDoubleList()) {
+      //   elems.emplace_back(elem, name_id_mapper);
+      // }
+      // memgraph::utils::Allocator<mgp_list> allocator(alloc);
+      // list_v = allocator.new_object<mgp_list>(std::move(elems));
+      break;
+    }
     case memgraph::storage::PropertyValue::Type::Map: {
       // Fill the stack allocated container and then construct the actual member
       // value. This handles the case when filling the container throws

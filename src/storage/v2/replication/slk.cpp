@@ -148,6 +148,16 @@ void Save(const storage::ExternalPropertyValue &value, slk::Builder *builder) {
       }
       return;
     }
+    case storage::ExternalPropertyValue::Type::DoubleList: {
+      slk::Save(storage::ExternalPropertyValue::Type::DoubleList, builder);
+      const auto &values = value.ValueDoubleList();
+      size_t size = values.size();
+      slk::Save(size, builder);
+      for (const auto &v : values) {
+        slk::Save(v, builder);
+      }
+      return;
+    }
     case storage::ExternalPropertyValue::Type::Map: {
       slk::Save(storage::ExternalPropertyValue::Type::Map, builder);
       const auto &map = value.ValueMap();
@@ -236,6 +246,18 @@ void Load(storage::ExternalPropertyValue *value, slk::Reader *reader) {
         slk::Load(&list[i], reader);
       }
       *value = storage::ExternalPropertyValue(std::move(list));
+      return;
+    }
+    case storage::ExternalPropertyValue::Type::DoubleList: {
+      size_t size;
+      slk::Load(&size, reader);
+      std::vector<double> list(size);
+      for (size_t i = 0; i < size; ++i) {
+        double v;
+        slk::Load(&v, reader);
+        list[i] = v;
+      }
+      *value = storage::ExternalPropertyValue(storage::ExternalPropertyValue::double_list_t(std::move(list)));
       return;
     }
     case storage::ExternalPropertyValue::Type::Map: {

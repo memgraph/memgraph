@@ -35,6 +35,7 @@ TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue &proper
     case PropertyValueType::Double:
       return TypeConstraintKind::FLOAT;
     case PropertyValueType::List:
+    case PropertyValueType::DoubleList:
       return TypeConstraintKind::LIST;
     case PropertyValueType::Map:
       return TypeConstraintKind::MAP;

@@ -27,6 +27,7 @@ auto UpperBoundForType(PropertyValueType type) -> std::optional<utils::Bound<Pro
     case PropertyValue::Type::String:
       return utils::MakeBoundExclusive(kSmallestList);
     case PropertyValue::Type::List:
+    case PropertyValue::Type::DoubleList:
       return utils::MakeBoundExclusive(kSmallestMap);
     case PropertyValue::Type::Map:
       return utils::MakeBoundExclusive(kSmallestTemporalData);
@@ -58,6 +59,7 @@ auto LowerBoundForType(PropertyValueType type) -> std::optional<utils::Bound<Pro
     case PropertyValue::Type::String:
       return utils::MakeBoundInclusive(kSmallestString);
     case PropertyValue::Type::List:
+    case PropertyValue::Type::DoubleList:
       return utils::MakeBoundInclusive(kSmallestList);
     case PropertyValue::Type::Map:
       return utils::MakeBoundInclusive(kSmallestMap);

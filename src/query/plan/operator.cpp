@@ -1154,6 +1154,7 @@ std::optional<utils::Bound<storage::PropertyValue>> TryConvertToBound(std::optio
     switch (property_value.type()) {
       case storage::PropertyValue::Type::Bool:
       case storage::PropertyValue::Type::List:
+      case storage::PropertyValue::Type::DoubleList:
       case storage::PropertyValue::Type::Map:
       case storage::PropertyValue::Type::Enum:
       case storage::PropertyValueType::Point2d:
