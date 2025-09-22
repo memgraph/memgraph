@@ -690,8 +690,8 @@ int main(int argc, char **argv) {
     spdlog::warn(
         memgraph::utils::MessageWithLink("Using non-secure Bolt connection (without SSL).", "https://memgr.ph/ssl"));
   }
-  auto server_endpoint = memgraph::communication::v2::ServerEndpoint{
-      boost::asio::ip::address::from_string(FLAGS_bolt_address), static_cast<uint16_t>(extracted_bolt_port)};
+  auto server_endpoint = memgraph::communication::v2::ServerEndpoint{boost::asio::ip::make_address(FLAGS_bolt_address),
+                                                                     static_cast<uint16_t>(extracted_bolt_port)};
 #ifdef MG_ENTERPRISE
   memgraph::glue::Context session_context{server_endpoint, &interpreter_context_, auth_.get(), &audit_log,
                                           worker_pool_ ? &*worker_pool_ : nullptr};
