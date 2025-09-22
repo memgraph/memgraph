@@ -485,6 +485,13 @@ jobs:
           --arch $ARCH \
           copy --logs-dir /home/mg/memgraph/tests/stress --dest-dir build/stress/logs
 
+          # Also copy durability test logs from build directory
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          copy --logs-dir /home/mg/memgraph/build --dest-dir build/stress/logs
+
       - name: Save stress and durability test logs
         continue-on-error: true
         uses: actions/upload-artifact@v4
