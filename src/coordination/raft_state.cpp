@@ -23,6 +23,7 @@
 #include "coordination/coordinator_exceptions.hpp"
 #include "coordination/logger_wrapper.hpp"
 #include "coordination/raft_state.hpp"
+#include "coordination/utils.hpp"
 #include "utils/counter.hpp"
 #include "utils/file.hpp"
 #include "utils/logging.hpp"
@@ -419,7 +420,7 @@ auto RaftState::TryGetCurrentMainName() const -> std::optional<std::string> {
   return state_machine_->TryGetCurrentMainName();
 }
 
-auto RaftState::GetRoutingTable(std::string const &db_name,
+auto RaftState::GetRoutingTable(std::string_view const db_name,
                                 std::map<std::string, std::map<std::string, int64_t>> const &replicas_lag) const
     -> RoutingTable {
   auto const is_instance_main = [&](auto const &instance) { return IsCurrentMain(instance.config.instance_name); };

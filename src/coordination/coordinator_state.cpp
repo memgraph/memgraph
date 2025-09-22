@@ -165,7 +165,7 @@ auto CoordinatorState::ShowReplicationLag() const -> std::map<std::string, std::
   return std::get<CoordinatorInstance>(data_).ShowReplicationLag();
 }
 
-auto CoordinatorState::GetRoutingTable(std::string const &db_name) const -> RoutingTable {
+auto CoordinatorState::GetRoutingTable(std::string_view db_name) const -> RoutingTable {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot get routing table since variant holds wrong alternative");
   return std::get<CoordinatorInstance>(data_).GetRoutingTable(db_name);

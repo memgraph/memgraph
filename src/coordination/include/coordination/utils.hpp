@@ -17,6 +17,13 @@
 #include "kvstore/kvstore.hpp"
 #include "utils/logging.hpp"
 
+#include <functional>
+#include <map>
+#include <string>
+#include <string_view>
+#include <vector>
+
+#include <spdlog/spdlog.h>
 #include <range/v3/range/conversion.hpp>
 #include <range/v3/view/filter.hpp>
 #include <range/v3/view/transform.hpp>
@@ -32,8 +39,8 @@ using RoutingTable = std::vector<std::pair<std::vector<std::string>, std::string
 auto CreateRoutingTable(std::vector<DataInstanceContext> const &raft_log_data_instances,
                         std::vector<CoordinatorInstanceContext> const &coord_servers, auto const &is_instance_main_func,
                         bool const enabled_reads_on_main, uint64_t const max_replica_read_lag,
-                        std::string const &db_name,
-                        std::map<std::string, std::map<std::string, int64_t>> const &replicas_lag) {
+                        std::string_view const db_name,
+                        std::map<std::string, std::map<std::string, int64_t>> const &replicas_lag) -> RoutingTable {
   auto res = RoutingTable{};
 
   auto const repl_instance_to_bolt = [](auto const &instance) {
@@ -49,14 +56,15 @@ auto CreateRoutingTable(std::vector<DataInstanceContext> const &raft_log_data_in
     spdlog::trace("  {}", writer);
   }
 
-  auto const lag_filter = [&max_replica_read_lag, &replicas_lag, &db_name](auto const &instance) {
+  auto const lag_filter = [&max_replica_read_lag, &replicas_lag,
+                           str_db_name = std::string{db_name}](auto const &instance) {
     auto const replica_it = replicas_lag.find(instance.config.instance_name);
     // We don't want to forbid routing to the replica if don't have any information cached
     if (replica_it == replicas_lag.end()) {
       return true;
     }
 
-    auto const db_it = replica_it->second.find(db_name);
+    auto const db_it = replica_it->second.find(str_db_name);
     // We don't want to forbid routing to the replica if don't have any information cached
     if (db_it == replica_it->second.end()) {
       return true;

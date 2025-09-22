@@ -70,7 +70,7 @@ class CoordinatorState {
   // NOTE: The client code must check that the server exists before calling this method.
   auto GetDataInstanceManagementServer() const -> DataInstanceManagementServer &;
 
-  auto GetRoutingTable(std::string const &db_name) const -> RoutingTable;
+  auto GetRoutingTable(std::string_view db_name) const -> RoutingTable;
 
   [[nodiscard]] auto IsCoordinator() const -> bool;
   [[nodiscard]] auto IsDataInstance() const -> bool;

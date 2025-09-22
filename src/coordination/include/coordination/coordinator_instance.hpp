@@ -98,9 +98,9 @@ class CoordinatorInstance {
   auto SetCoordinatorSetting(std::string_view setting_name, std::string_view setting_value) const
       -> SetCoordinatorSettingStatus;
 
-  auto GetRoutingTable(std::string const &db_name) const -> RoutingTable;
-  auto GetRoutingTableAsLeader(std::string const &db_name) const -> RoutingTable;
-  auto GetRoutingTableAsFollower(auto const leader_id, std::string const &db_name) const -> RoutingTable;
+  auto GetRoutingTable(std::string_view db_name) const -> RoutingTable;
+  auto GetRoutingTableAsLeader(std::string_view db_name) const -> RoutingTable;
+  auto GetRoutingTableAsFollower(auto leader_id, std::string_view db_name) const -> RoutingTable;
 
   auto GetInstanceForFailover() const -> std::optional<std::string>;
 

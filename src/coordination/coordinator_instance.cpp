@@ -1219,7 +1219,7 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
   return std::nullopt;
 }
 
-auto CoordinatorInstance::GetRoutingTable(std::string const &db_name) const -> RoutingTable {
+auto CoordinatorInstance::GetRoutingTable(std::string_view const db_name) const -> RoutingTable {
   auto const leader_id = raft_state_->GetLeaderId();
 
   if (auto const my_id = raft_state_->GetMyCoordinatorId(); my_id == leader_id) {
@@ -1228,10 +1228,10 @@ auto CoordinatorInstance::GetRoutingTable(std::string const &db_name) const -> R
   return GetRoutingTableAsFollower(leader_id, db_name);
 }
 
-auto CoordinatorInstance::GetRoutingTableAsLeader(std::string const &db_name) const -> RoutingTable {
+auto CoordinatorInstance::GetRoutingTableAsLeader(std::string_view const db_name) const -> RoutingTable {
   return raft_state_->GetRoutingTable(db_name, replicas_num_txns_cache_);
 }
-auto CoordinatorInstance::GetRoutingTableAsFollower(auto const leader_id, std::string const &db_name) const
+auto CoordinatorInstance::GetRoutingTableAsFollower(auto const leader_id, std::string_view const db_name) const
     -> RoutingTable {
   CoordinatorInstanceConnector *leader{nullptr};
   {

@@ -6888,7 +6888,8 @@ void Interpreter::RollbackTransaction() {
 }
 
 #ifdef MG_ENTERPRISE
-auto Interpreter::Route(std::map<std::string, std::string> const &routing, std::string const &db) -> RouteResult {
+auto Interpreter::Route(std::map<std::string, std::string> const &routing, std::optional<std::string> const &db)
+    -> RouteResult {
   if (!interpreter_context_->coordinator_state_) {
     throw QueryException("You cannot fetch routing table from an instance which is not part of a cluster.");
   }
@@ -6908,7 +6909,8 @@ auto Interpreter::Route(std::map<std::string, std::string> const &routing, std::
     return result;
   }
 
-  return RouteResult{.servers = interpreter_context_->coordinator_state_->get().GetRoutingTable(db)};
+  auto const db_name = db.has_value() ? *db : dbms::kDefaultDB;
+  return RouteResult{.servers = interpreter_context_->coordinator_state_->get().GetRoutingTable(db_name)};
 }
 #endif
 
