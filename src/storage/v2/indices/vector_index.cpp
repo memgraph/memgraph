@@ -36,7 +36,10 @@ namespace memgraph::storage {
 
 // unum::usearch::index_dense_gt is the index type used for vector indices. It is thread-safe and supports concurrent
 // operations.
-using mg_vector_index_t = unum::usearch::index_dense_gt<Vertex *, unum::usearch::uint40_t>;
+using mg_vector_index_t =
+    unum::usearch::index_dense_gt<Vertex *,
+                                  unum::usearch::uint40_t>;  // TODO(DavIvek): consider making this const Vertex*
+using synchronized_mg_vector_index_t = utils::Synchronized<mg_vector_index_t, std::shared_mutex>;
 
 // NOLINTNEXTLINE(bugprone-exception-escape)
 struct IndexItem {
@@ -44,7 +47,7 @@ struct IndexItem {
   // locking because resizing the index requires exclusive access. For all other operations, we can use shared lock even
   // though we are modifying index. In the case of removing or adding elements to the index we will use
   // MutableSharedLock to acquire an shared lock.
-  std::shared_ptr<utils::Synchronized<mg_vector_index_t, std::shared_mutex>> mg_index;
+  std::shared_ptr<synchronized_mg_vector_index_t> mg_index;
   VectorIndexSpec spec;
 };
 
@@ -55,7 +58,7 @@ struct IndexItem {
 struct VectorIndex::Impl {
   /// The `index_` member is a map that associates a `LabelPropKey` (a combination of label and property)
   /// with the pair of a IndexItem.
-  std::map<LabelPropKey, IndexItem> index_;
+  absl::flat_hash_map<LabelPropKey, IndexItem> index_;
 
   /// The `index_name_to_label_prop_` is a map that maps an index name (as a string) to the corresponding
   /// `LabelPropKey`. This allows the system to quickly resolve an index name to the spec
@@ -214,6 +217,19 @@ void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &
   }
 }
 
+PropertyValue VectorIndex::GetProperty(Vertex *vertex, PropertyId property) const {
+  // first check if property_id + any of labels is in the index
+  auto has_property = [&](const auto &label_prop) { return label_prop.property() == property; };
+  auto has_label = [&](const auto &label_prop) { return utils::Contains(vertex->labels, label_prop.label()); };
+  auto view = pimpl->index_ | rv::keys | rv::filter(has_property) | rv::filter(has_label);
+  if (view.empty()) {
+    return {};
+  }
+  const auto &label_prop = *view.begin();
+  auto &[mg_index, _] = pimpl->index_.at(label_prop);
+  return GetVectorAsPropertyValue(mg_index, vertex);
+}
+
 std::vector<VectorIndexInfo> VectorIndex::ListVectorIndicesInfo() const {
   std::vector<VectorIndexInfo> result;
   result.reserve(pimpl->index_.size());
@@ -324,5 +340,7 @@ VectorIndex::IndexStats VectorIndex::Analysis() const {
 bool VectorIndex::IndexExists(std::string_view index_name) const {
   return pimpl->index_name_to_label_prop_.contains(index_name);
 }
+
+bool VectorIndex::Empty() const { return pimpl->index_.empty(); }
 
 }  // namespace memgraph::storage

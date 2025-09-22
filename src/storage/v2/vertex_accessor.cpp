@@ -570,18 +570,32 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
 Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view) const {
   bool exists = true;
   bool deleted = false;
+  bool is_in_vector_index = false;
   PropertyValue value;
   Delta *delta = nullptr;
+
   {
     auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
-    value = vertex_->properties.GetProperty(property);
     delta = vertex_->delta;
+
+    // Try to get property from vector index first
+    if (!storage_->indices_.vector_index_.Empty()) {
+      value = storage_->indices_.vector_index_.GetProperty(vertex_, property);
+      if (!value.IsNull()) {
+        is_in_vector_index = true;
+      }
+    }
+    // Fall back to regular vertex properties if not found in vector index
+    if (!is_in_vector_index) {
+      value = vertex_->properties.GetProperty(property);
+    }
   }
 
   // Checking cache has a cost, only do it if we have any deltas
   // if we have no deltas then what we already have from the vertex is correct.
-  if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
+  // Vector index works in read uncommitted mode so we don't need to check for it
+  if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED && !is_in_vector_index) {
     // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
     // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
     auto const useCache = transaction_->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;

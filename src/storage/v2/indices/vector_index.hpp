@@ -111,6 +111,12 @@ class VectorIndex {
   /// @param vertex The vertex on which the property was modified.
   void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex);
 
+  /// @brief Retrieves the vector of a vertex as a PropertyValue.
+  /// @param vertex The vertex to retrieve the vector from.
+  /// @param property The property of the vertex.
+  /// @return The vector of the vertex as a PropertyValue.
+  PropertyValue GetProperty(Vertex *vertex, PropertyId property) const;
+
   /// @brief Lists the info of all existing indexes.
   /// @return A vector of VectorIndexInfo objects representing the indexes.
   std::vector<VectorIndexInfo> ListVectorIndicesInfo() const;
@@ -156,6 +162,10 @@ class VectorIndex {
   /// @param index_name The name of the index to check.
   /// @return true if the index exists, false otherwise.
   bool IndexExists(std::string_view index_name) const;
+
+  /// @brief Checks if the index is empty.
+  /// @return true if the index is empty, false otherwise.
+  bool Empty() const;
 
  private:
   /// @brief Adds a vertex to an existing index.

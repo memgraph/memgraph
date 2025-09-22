@@ -45,6 +45,7 @@ target_sources(mg-storage-v2
         indices/text_index_utils.cpp
         indices/text_index.cpp
         indices/text_edge_index.cpp
+        indices/vector_index_utils.cpp
         indices/vector_edge_index.cpp
         indices/vector_index.cpp
         inmemory/edge_property_index.cpp
