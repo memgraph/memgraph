@@ -41,13 +41,6 @@ wait_for_server 7687
 code_test=0
 for i in *; do
     if [ ! -d $i ]; then continue; fi
-    
-    # Skip Node.js driver tests in CI
-    if [ "$i" = "node" ] || [ "$i" = "javascript" ]; then
-        echo "Skipping Node.js driver tests in CI"
-        continue
-    fi
-    
     pushd $i
     echo "Running: $i"
     # run all versions
