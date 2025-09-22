@@ -61,10 +61,9 @@ DISTRO=$(operating_system)
 
 # Handle cache cleaning based on CI environment
 if [[ "$ci" == "true" ]]; then
-    # In CI, remove all files from .cache/uv since it's bind-mounted
-    if [ -d "$HOME/.cache/uv" ]; then
-        rm -rf "$HOME/.cache/uv"/*
-    fi
+    # this is a bit of a hack in order to use the cache cleaner because it will
+    # try to delete the cache directory which is bind-mounted from the host
+    export UV_CACHE_DIR="$HOME/.cache/uv/cache"
 fi
 
 # Fix for centos 7 during release

@@ -1261,6 +1261,13 @@ case $command in
         esac
       done
 
+      # Clean up uv cache to avoid issues in subsequent builds
+      docker exec -u root $build_container bash -c "
+        export UV_CACHE_DIR=/home/mg/.cache/uv/cache && \
+        export PATH=/home/mg/.local/bin:$PATH && \
+        uv cache prune --ci
+      "
+
       # Create cache override files (same logic as run command)
       compose_files=$(setup_cache_override)
 
