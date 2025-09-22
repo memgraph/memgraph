@@ -32,7 +32,6 @@ import secrets
 import sys
 import termios
 import time
-import tty
 from argparse import ArgumentParser
 from inspect import signature
 
