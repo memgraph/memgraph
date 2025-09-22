@@ -98,28 +98,30 @@ TEST(RpcVersioning, GetDBHistories) {
     rpc_server.AwaitShutdown();
   }};
 
-  rpc_server.Register<memgraph::coordination::GetDatabaseHistoriesRpc>([](uint64_t const request_version,
-                                                                          auto * /*req_reader*/, auto *res_builder) {
-    // The request is empty hence I don't need to call LoadWithUpgrade
+  rpc_server.Register<memgraph::coordination::GetDatabaseHistoriesRpc>(
+      [](std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+         uint64_t const request_version, auto * /*req_reader*/, auto *res_builder) {
+        // The request is empty hence I don't need to call LoadWithUpgrade
 
-    if (request_version == memgraph::coordination::GetDatabaseHistoriesReqV1::kVersion) {
-      memgraph::coordination::GetDatabaseHistoriesResV1 res;
-      res.instance_info.last_committed_system_timestamp = 81;
-      res.instance_info.dbs_info = std::vector{
-          memgraph::replication_coordination_glue::InstanceDBInfoV1{.db_uuid = "123", .latest_durable_timestamp = 4},
-          memgraph::replication_coordination_glue::InstanceDBInfoV1{.db_uuid = "1234", .latest_durable_timestamp = 13}};
+        if (request_version == memgraph::coordination::GetDatabaseHistoriesReqV1::kVersion) {
+          memgraph::coordination::GetDatabaseHistoriesResV1 res;
+          res.instance_info.last_committed_system_timestamp = 81;
+          res.instance_info.dbs_info = std::vector{memgraph::replication_coordination_glue::InstanceDBInfoV1{
+                                                       .db_uuid = "123", .latest_durable_timestamp = 4},
+                                                   memgraph::replication_coordination_glue::InstanceDBInfoV1{
+                                                       .db_uuid = "1234", .latest_durable_timestamp = 13}};
 
-      memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
-    } else {
-      memgraph::coordination::GetDatabaseHistoriesRes res;
-      res.instance_info.last_committed_system_timestamp = 81;
-      res.instance_info.dbs_info = std::vector{
-          memgraph::replication_coordination_glue::InstanceDBInfo{.db_uuid = "123", .num_committed_txns = 2},
-          memgraph::replication_coordination_glue::InstanceDBInfo{.db_uuid = "1234", .num_committed_txns = 22}};
+          memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+        } else {
+          memgraph::coordination::GetDatabaseHistoriesRes res;
+          res.instance_info.last_committed_system_timestamp = 81;
+          res.instance_info.dbs_info = std::vector{
+              memgraph::replication_coordination_glue::InstanceDBInfo{.db_uuid = "123", .num_committed_txns = 2},
+              memgraph::replication_coordination_glue::InstanceDBInfo{.db_uuid = "1234", .num_committed_txns = 22}};
 
-      memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
-    }
-  });
+          memgraph::rpc::SendFinalResponse(res, request_version, res_builder);
+        }
+      });
 
   ASSERT_TRUE(rpc_server.Start());
   std::this_thread::sleep_for(100ms);
@@ -176,7 +178,9 @@ TEST(RpcVersioning, StateCheckRpc) {
   };
 
   rpc_server.Register<memgraph::coordination::StateCheckRpc>(
-      [&main_num_txns, &replicas_num_txns](uint64_t const request_version, auto * /*req_reader*/, auto *res_builder) {
+      [&main_num_txns, &replicas_num_txns](
+          std::optional<memgraph::rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version, auto * /*req_reader*/, auto *res_builder) {
         memgraph::coordination::InstanceState const instance_state{.is_replica = false,
                                                                    .uuid = memgraph::utils::UUID{},
                                                                    .is_writing_enabled = true,

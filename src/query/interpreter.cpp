@@ -7054,8 +7054,8 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
     could_commit_ = true;
     accessor_type_ = cypher_access_type();
   }
-  void Visit(ProfileQuery &) override { accessor_type_ = cypher_access_type(); }
-  void Visit(TriggerQuery &) override { accessor_type_ = storage::StorageAccessType::WRITE; }
+  void Visit(ProfileQuery & /*unused*/) override { accessor_type_ = cypher_access_type(); }
+  void Visit(TriggerQuery & /*unused*/) override { accessor_type_ = storage::StorageAccessType::WRITE; }
 
   // Complex access logic
   void Visit(IndexQuery &index_query) override {
