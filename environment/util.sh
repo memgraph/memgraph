@@ -254,3 +254,29 @@ function parse_operating_system() {
     echo "OS: $OS"
     echo "VER: $VER"
 }
+
+# Function to parse --skip-check flag from command line arguments
+# Usage: parse_skip_check_flag
+# Sets SKIP_CHECK variable and removes --skip-check from $@
+function parse_skip_check_flag() {
+    SKIP_CHECK=false
+    local args=()
+
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --skip-check)
+                SKIP_CHECK=true
+                shift
+                ;;
+            *)
+                args+=("$1")
+                shift
+                ;;
+        esac
+    done
+
+    # Set the arguments back to $@ for the rest of the script
+    set -- "${args[@]}"
+
+    echo "$SKIP_CHECK"
+}

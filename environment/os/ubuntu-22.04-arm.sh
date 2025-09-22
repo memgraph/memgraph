@@ -5,8 +5,16 @@ source "$DIR/../util.sh"
 
 # IMPORTANT: Deprecated since memgraph v3.0.0.
 
-check_operating_system "ubuntu-22.04"
-check_architecture "arm64" "aarch64"
+# Parse command line arguments for --skip-check flag
+SKIP_CHECK=$(parse_skip_check_flag "$@")
+
+# Only run checks if --skip-check flag is not provided
+if [[ "$SKIP_CHECK" == false ]]; then
+    check_operating_system "ubuntu-22.04"
+    check_architecture "arm64" "aarch64"
+else
+    echo "Skipping checks for ubuntu-22.04-arm"
+fi
 
 TOOLCHAIN_BUILD_DEPS=(
     coreutils gcc g++ build-essential make # generic build tools
