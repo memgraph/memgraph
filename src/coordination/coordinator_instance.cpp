@@ -954,35 +954,19 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
     return SetCoordinatorSettingStatus::UNKNOWN_SETTING;
   }
 
-  auto const maybe_val_with_type =
-      std::invoke([setting_name, setting_value]() -> std::optional<std::variant<bool, uint64_t>> {
-        if (setting_name == kMaxFailoverLagOnReplica) {
-          try {
-            return std::stoul(setting_value.data());
-          } catch (std::exception const &e) {
-            spdlog::error("Error occurred while trying to update max_lag_on_replica coordinator setting {}", e.what());
-            return std::nullopt;
-          }
-        }
-        // else: kEnabledReadsOnMain, kSyncFailoverOnly
-        return utils::ToLowerCase(setting_value) == "true"sv;
-      });
-
-  if (!maybe_val_with_type.has_value()) {
+  CoordinatorClusterStateDelta delta_state;
+  try {
+    if (setting_name == kMaxFailoverLagOnReplica) {
+      delta_state.max_failover_replica_lag_ == utils::ParseStringToUint64(setting_value);
+    } else if (setting_name == kEnabledReadsOnMain) {
+      delta_state.enabled_reads_on_main_ = utils::ToLowerCase(setting_value) == "true"sv;
+    } else if (setting_name == kSyncFailoverOnly) {
+      delta_state.sync_failover_only_ = utils::ToLowerCase(setting_value) == "true"sv;
+    }
+  } catch (std::exception const &e) {
+    spdlog::error("Error occurred while trying to update {} to {}. Error: {}}", setting_name, setting_value, e.what());
     return SetCoordinatorSettingStatus::INVALID_ARGUMENT;
   }
-
-  auto const delta_state = std::invoke([setting_name, val_with_type = *maybe_val_with_type]() {
-    CoordinatorClusterStateDelta ret_delta_state;
-    if (setting_name == kEnabledReadsOnMain) {
-      ret_delta_state.enabled_reads_on_main_ = std::get<bool>(val_with_type);
-    } else if (setting_name == kSyncFailoverOnly) {
-      ret_delta_state.sync_failover_only_ = std::get<bool>(val_with_type);
-    } else {
-      ret_delta_state.max_failover_replica_lag_ = std::get<uint64_t>(val_with_type);
-    }
-    return ret_delta_state;
-  });
 
   if (!raft_state_->AppendClusterUpdate(delta_state)) {
     spdlog::error("Aborting the update of coordinator setting {}. Writing to Raft failed.", setting_name);
@@ -1293,7 +1277,8 @@ auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::s
 
         if (main_db_info->second > num_committed_txns && main_db_info->second - num_committed_txns > max_allowed_lag) {
           spdlog::info(
-              "Instance {} won't be used in a failover because it's much behind the current main. Main has committed "
+              "Instance {} won't be used in a failover because it's too much behind the current main. Main has "
+              "committed "
               "{} txns, while instance {} has committed {} txns for the database {}",
               instance_name, main_db_info->second, instance_name, num_committed_txns, main_db_info->first);
           replica_behind = true;
