@@ -603,6 +603,9 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case coordination::SetCoordinatorSettingStatus::UNKNOWN_SETTING: {
         throw QueryRuntimeException("Setting {} doesn't exist on coordinators.", setting_name);
       }
+      case coordination::SetCoordinatorSettingStatus::INVALID_ARGUMENT: {
+        throw QueryRuntimeException("Invalid argument detected while trying to update setting {}", setting_name);
+      }
     }
   }
 
