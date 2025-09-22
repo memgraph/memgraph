@@ -957,14 +957,14 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
   CoordinatorClusterStateDelta delta_state;
   try {
     if (setting_name == kMaxFailoverLagOnReplica) {
-      delta_state.max_failover_replica_lag_ == utils::ParseStringToUint64(setting_value);
+      delta_state.max_failover_replica_lag_ = utils::ParseStringToUint64(setting_value);
     } else if (setting_name == kEnabledReadsOnMain) {
       delta_state.enabled_reads_on_main_ = utils::ToLowerCase(setting_value) == "true"sv;
     } else if (setting_name == kSyncFailoverOnly) {
       delta_state.sync_failover_only_ = utils::ToLowerCase(setting_value) == "true"sv;
     }
   } catch (std::exception const &e) {
-    spdlog::error("Error occurred while trying to update {} to {}. Error: {}}", setting_name, setting_value, e.what());
+    spdlog::error("Error occurred while trying to update {} to {}. Error: {}", setting_name, setting_value, e.what());
     return SetCoordinatorSettingStatus::INVALID_ARGUMENT;
   }
 
