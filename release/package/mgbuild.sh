@@ -357,7 +357,7 @@ setup_host_cache_permissions() {
   # Set up Python cache permissions if enabled
   if [[ "$python_cache_enabled" == "true" ]]; then
     echo "Setting up host Python cache directory permissions..."
-    mkdir -p "$HOME/ci_cache/uv"
+    mkdir -p "$HOME/ci_cache/uv/cache"
     mkdir -p "$HOME/ci_cache/pip"
 
     # Set open permissions on the CI cache directories to allow cross-container access
