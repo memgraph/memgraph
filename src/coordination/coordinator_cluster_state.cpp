@@ -21,25 +21,28 @@ namespace memgraph::coordination {
 
 CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState const &other) {
   auto lock = std::lock_guard{other.app_lock_};
-
+  // NOLINTBEGIN
   data_instances_ = other.data_instances_;
   coordinator_instances_ = other.coordinator_instances_;
   current_main_uuid_ = other.current_main_uuid_;
   enabled_reads_on_main_ = other.enabled_reads_on_main_;
   sync_failover_only_ = other.sync_failover_only_;
+  max_failover_replica_lag_ = other.max_failover_replica_lag_;
+  // NOLINTEND
 }
 
 CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterState const &other) {
   if (this == &other) {
     return *this;
   }
-  std::scoped_lock lock{app_lock_, other.app_lock_};
+  std::scoped_lock const lock{app_lock_, other.app_lock_};
 
   data_instances_ = other.data_instances_;
   coordinator_instances_ = other.coordinator_instances_;
   current_main_uuid_ = other.current_main_uuid_;
   enabled_reads_on_main_ = other.enabled_reads_on_main_;
   sync_failover_only_ = other.sync_failover_only_;
+  max_failover_replica_lag_ = other.max_failover_replica_lag_;
   return *this;
 }
 
@@ -48,7 +51,8 @@ CoordinatorClusterState::CoordinatorClusterState(CoordinatorClusterState &&other
       coordinator_instances_{std::move(other.coordinator_instances_)},
       current_main_uuid_{other.current_main_uuid_},
       enabled_reads_on_main_{other.enabled_reads_on_main_},
-      sync_failover_only_{other.sync_failover_only_} {}
+      sync_failover_only_{other.sync_failover_only_},
+      max_failover_replica_lag_(other.max_failover_replica_lag_) {}
 
 CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterState &&other) noexcept {
   if (this == &other) {
@@ -62,6 +66,7 @@ CoordinatorClusterState &CoordinatorClusterState::operator=(CoordinatorClusterSt
   current_main_uuid_ = other.current_main_uuid_;
   enabled_reads_on_main_ = other.enabled_reads_on_main_;
   sync_failover_only_ = other.sync_failover_only_;
+  max_failover_replica_lag_ = other.max_failover_replica_lag_;
   return *this;
 }
 
@@ -105,6 +110,10 @@ auto CoordinatorClusterState::DoAction(CoordinatorClusterStateDelta delta_state)
   }
   if (delta_state.sync_failover_only_.has_value()) {
     sync_failover_only_ = *delta_state.sync_failover_only_;
+  }
+
+  if (delta_state.max_failover_replica_lag_.has_value()) {
+    max_failover_replica_lag_ = *delta_state.max_failover_replica_lag_;
   }
 }
 
@@ -161,6 +170,11 @@ auto CoordinatorClusterState::GetSyncFailoverOnly() const -> bool {
   return sync_failover_only_;
 }
 
+auto CoordinatorClusterState::GetMaxFailoverReplicaLag() const -> uint64_t {
+  auto lock = std::shared_lock{app_lock_};
+  return max_failover_replica_lag_;
+}
+
 void CoordinatorClusterState::SetCoordinatorInstances(std::vector<CoordinatorInstanceContext> coordinator_instances) {
   auto lock = std::lock_guard{app_lock_};
   coordinator_instances_ = std::move(coordinator_instances);
@@ -186,20 +200,27 @@ void CoordinatorClusterState::SetSyncFailoverOnly(bool const sync_failover_only)
   sync_failover_only_ = sync_failover_only;
 }
 
+void CoordinatorClusterState::SetMaxFailoverLagOnReplica(uint64_t const max_failover_replica_lag) {
+  auto lock = std::lock_guard{app_lock_};
+  max_failover_replica_lag_ = max_failover_replica_lag;
+}
+
 void to_json(nlohmann::json &j, CoordinatorClusterState const &state) {
   j = nlohmann::json{{kDataInstances.data(), state.GetDataInstancesContext()},
                      {kMainUUID.data(), state.GetCurrentMainUUID()},
                      {kCoordinatorInstances.data(), state.GetCoordinatorInstancesContext()},
                      {kEnabledReadsOnMain.data(), state.GetEnabledReadsOnMain()},
-                     {kSyncFailoverOnly.data(), state.GetSyncFailoverOnly()}};
+                     {kSyncFailoverOnly.data(), state.GetSyncFailoverOnly()},
+                     // Added in 3.6.0 version
+                     {kMaxFailoverLagOnReplica.data(), state.GetMaxFailoverReplicaLag()}};
 }
 
 void from_json(nlohmann::json const &j, CoordinatorClusterState &instance_state) {
-  // <= 3.2.1 && >= 3.4
+  // <= memgraph/memgraph:3.2.1 && >  = memgraph/memgraph:3.4
   if (j.contains(kDataInstances.data())) {
     instance_state.SetDataInstances(j.at(kDataInstances.data()).get<std::vector<DataInstanceContext>>());
   } else {
-    // 3.3
+    // memgraph/memgraph:3.3
     instance_state.SetDataInstances(j.at(kClusterState.data()).get<std::vector<DataInstanceContext>>());
   }
 
@@ -212,6 +233,11 @@ void from_json(nlohmann::json const &j, CoordinatorClusterState &instance_state)
 
   bool const sync_failover_only = j.value(kSyncFailoverOnly.data(), true);
   instance_state.SetSyncFailoverOnly(sync_failover_only);
+
+  // Max lag on replica is supported from the version 3.6.0 above
+  uint64_t const max_failover_replica_lag =
+      j.value(kMaxFailoverLagOnReplica.data(), std::numeric_limits<uint64_t>::max());
+  instance_state.SetMaxFailoverLagOnReplica(max_failover_replica_lag);
 }
 
 }  // namespace memgraph::coordination
