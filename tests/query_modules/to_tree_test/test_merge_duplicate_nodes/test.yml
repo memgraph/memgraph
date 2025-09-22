@@ -1,0 +1,20 @@
+query: >
+  MATCH p = (company:Company)<-[:WORKS_FOR]-(person:Person)
+  WITH collect(p) AS paths
+  CALL convert_c.to_tree(paths, true, {}) YIELD value
+  RETURN value.name AS company_name,
+         value._type AS company_type,
+         value.industry AS industry,
+         size(value.works_for) AS employee_count,
+         [emp IN value.works_for | emp.name] AS employee_names,
+         [emp IN value.works_for | emp._type] AS employee_types,
+         [emp IN value.works_for | emp.age] AS employee_ages
+
+output:
+  - company_name: "TechCorp"
+    company_type: ["Company", "Organization"]
+    industry: "Technology"
+    employee_count: 2
+    employee_names: ["Alice", "Bob"]
+    employee_types: [["Person", "Employee"], ["Person", "Employee"]]
+    employee_ages: [30, 25]
