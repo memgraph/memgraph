@@ -85,11 +85,12 @@ NEW_DEPS=(
 )
 
 list() {
-    echo "$1"
+    local -n packages="$1"
+    printf '%s\n' "${packages[@]}"
 }
 
 check() {
-    local -n packages=$1
+    local -n packages="$1"
     local missing=""
     local missing_custom=""
 
@@ -207,5 +208,4 @@ install() {
     fi
 }
 
-deps=$2"[*]"
-"$1" "${!deps}"
+"$1" "$2"

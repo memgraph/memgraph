@@ -275,8 +275,5 @@ function parse_skip_check_flag() {
         esac
     done
 
-    # Set the arguments back to $@ for the rest of the script
-    set -- "${args[@]}"
-
     echo "$SKIP_CHECK"
 }
