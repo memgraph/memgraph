@@ -139,8 +139,8 @@ perform_cleanup() {
     # Stop and remove containers (except those using mgdeps-cache images)
     print_status "Processing containers (preserving mgdeps-cache containers)..."
     
-    # Get all containers (including stopped ones) using mgdeps-cache images
-    local mgdeps_containers=$(docker ps -a --format "{{.ID}}" --filter "ancestor=mgdeps-cache:4.1" 2>/dev/null || true)
+    # Get all containers (including stopped ones) with mgdeps-cache in the name
+    local mgdeps_containers=$(docker ps -a --format "{{.ID}}" --filter "name=mgdeps-cache" 2>/dev/null || true)
     
     # Process all containers
     local all_containers=$(docker ps -aq 2>/dev/null || true)
