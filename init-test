@@ -6,6 +6,9 @@ source "$DIR/environment/util.sh"
 # this should fix --break-system-packages not being available in older distros
 export PIP_BREAK_SYSTEM_PACKAGES=1
 
+# this should stop flakiness due to linking with packages of the wrong version
+export UV_LINK_MODE=copy
+
 pip install uv
 export PATH="$HOME/.local/bin:$PATH"
 
@@ -56,6 +59,13 @@ done
 
 DISTRO=$(operating_system)
 
+# Handle cache cleaning based on CI environment
+if [[ "$ci" == "true" ]]; then
+    # this is a bit of a hack in order to use the cache cleaner because it will
+    # try to delete the cache directory which is bind-mounted from the host
+    export UV_CACHE_DIR="$HOME/.cache/uv/cache"
+fi
+
 # Fix for centos 7 during release
 if [[ "$ci" == "false" ]]; then
   if [ "${DISTRO}" = "debian-11" ]; then
@@ -67,10 +77,7 @@ if [[ "$ci" == "false" ]]; then
 fi
 
 if [[ "$prep_testing" == "true" ]]; then
-  setup_virtualenv tests/gql_behave
-  setup_virtualenv tests/stress
-  setup_virtualenv tests/integration/ldap
-  setup_virtualenv tests/query_modules
+  setup_virtualenv tests
   cd tests
   ./setup.sh
   cd ..
