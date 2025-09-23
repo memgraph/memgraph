@@ -311,7 +311,7 @@ EOF
           echo "      - ~/.cache/ccache:/home/mg/.cache/ccache" >> cache-override.yml
         fi
         if [[ "$conan_cache_enabled" == "true" ]]; then
-          echo "      - ~/.conan2:/home/mg/.conan2" >> cache-override.yml
+          echo "      - $conan_cache_dir:/home/mg/.conan2" >> cache-override.yml
         fi
       done
     else
@@ -322,7 +322,7 @@ EOF
         echo "      - ~/.cache/ccache:/home/mg/.cache/ccache" >> cache-override.yml
       fi
       if [[ "$conan_cache_enabled" == "true" ]]; then
-        echo "      - ~/.conan2:/home/mg/.conan2" >> cache-override.yml
+        echo "      - $conan_cache_dir:/home/mg/.conan2" >> cache-override.yml
       fi
     fi
     compose_files="$compose_files -f cache-override.yml"
@@ -393,11 +393,11 @@ setup_host_cache_permissions() {
 
   if [[ "$conan_cache_enabled" == "true" ]]; then
     echo "Setting up host conan cache directory permissions..."
-    mkdir -p ~/.conan2
+    mkdir -p $conan_cache_dir
 
     # Set open permissions on the conan cache directory to allow cross-container access
     # Suppress both errors and warnings about operations not permitted
-    chmod -R a+rwX ~/.conan2 2>/dev/null || true
+    chmod -R a+rwX $conan_cache_dir 2>/dev/null || true
 
     echo "Host conan cache directory permissions set to a+rwX (open access)"
   fi
@@ -1121,6 +1121,7 @@ conan_cache_enabled=$DEFAULT_CONAN_CACHE_ENABLED
 python_cache_enabled=$DEFAULT_PYTHON_CACHE_ENABLED
 command=""
 build_container=""
+conan_cache_dir="$HOME/.conan2-${os}-${arch}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --arch)
@@ -1182,6 +1183,10 @@ while [[ $# -gt 0 ]]; do
     --no-conan-cache)
         conan_cache_enabled="false"
         shift 1
+    ;;
+    --conan-cache-dir)
+      conan_cache_dir=$2
+      shift 2
     ;;
     *)
       if [[ "$1" =~ ^--.* ]]; then
