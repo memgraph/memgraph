@@ -719,7 +719,7 @@ class User final {
   Databases &db_access() { return database_access_; }
   const Databases &db_access() const { return database_access_; }
 
-  const std::string &GetMain() const { return database_access_.GetMain(); }
+  const std::string &GetMain() const;  // Implementation in models.cpp
 
   bool DeniesDB(std::string_view db_name) const { return database_access_.Denies(db_name) || roles_.DeniesDB(db_name); }
   bool GrantsDB(std::string_view db_name) const { return database_access_.Grants(db_name) || roles_.GrantsDB(db_name); }
