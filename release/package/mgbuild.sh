@@ -794,34 +794,11 @@ copy_memgraph() {
   if [[ "$artifact" == "logs" ]]; then
     local temp_log_dir="/tmp/mg_logs_$$"
     docker exec -u mg "$build_container" bash -c "mkdir -p $temp_log_dir"
-
-    # Debug: List all files in the source directory
-    echo -e "=== Debug: Listing all files in $container_artifact_path ==="
-    docker exec -u mg "$build_container" bash -c "find $container_artifact_path -type f | head -20"
-
-    # Debug: List only .log files
-    echo -e "=== Debug: Listing .log files in $container_artifact_path ==="
-    docker exec -u mg "$build_container" bash -c "find $container_artifact_path -name '*.log' -exec ls -la {} \;"
-
-    # Debug: Count .log files
-    echo -e "=== Debug: Counting .log files ==="
-    local log_count=$(docker exec -u mg "$build_container" bash -c "find $container_artifact_path -name '*.log' | wc -l")
-    echo -e "Found $log_count .log files"
-
     # Find and copy all .log files to the temporary directory and copy to host
-    docker exec -u mg "$build_container" bash -c "find $container_artifact_path -name '*.log' -exec cp {} $temp_log_dir/ \;"
-
-    # Debug: List files in temp directory before copying to host
-    echo -e "=== Debug: Files in temp directory before copying to host ==="
-    docker exec -u mg "$build_container" bash -c "ls -la $temp_log_dir/"
-
+    # Exclude log files that start with "0" (internal database logs like replication and streams)
+    docker exec -u mg "$build_container" bash -c "find $container_artifact_path -name '*.log' ! -name '0*' -exec cp {} $temp_log_dir/ \;"
     docker cp "$build_container:$temp_log_dir/." "$host_dir/"
     docker exec -u mg "$build_container" bash -c "rm -rf $temp_log_dir"
-
-    # Debug: List files copied to host
-    echo -e "=== Debug: Files copied to host directory $host_dir ==="
-    ls -la "$host_dir/" || echo "Host directory $host_dir does not exist or is empty"
-
     echo -e "Log files copied to $host_dir!"
   elif [[ "$artifact" == "package" ]]; then
     docker cp $build_container:$container_artifact_path $host_artifact_path
