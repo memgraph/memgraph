@@ -98,7 +98,9 @@ class CoordinatorInstance {
   auto SetCoordinatorSetting(std::string_view setting_name, std::string_view setting_value) const
       -> SetCoordinatorSettingStatus;
 
-  auto GetRoutingTable() const -> RoutingTable;
+  auto GetRoutingTable(std::string_view db_name) const -> RoutingTable;
+  auto GetRoutingTableAsLeader(std::string_view db_name) const -> RoutingTable;
+  auto GetRoutingTableAsFollower(auto leader_id, std::string_view db_name) const -> RoutingTable;
 
   auto GetInstanceForFailover() const -> std::optional<std::string>;
 
@@ -150,7 +152,7 @@ class CoordinatorInstance {
   std::map<std::string, std::map<std::string, int64_t>> replicas_num_txns_cache_;
 
   // Raft updates leadership before callback is executed. IsLeader() can return true, but
-  // leader callback or reconcile cluster state haven't yet be executed. This flag tracks if coordinator is set up to
+  // leader callback or reconcile cluster state haven't yet been executed. This flag tracks if coordinator is set up to
   // accept queries.
   std::atomic<CoordinatorStatus> status{CoordinatorStatus::FOLLOWER};
   std::atomic<bool> is_shutting_down_{false};

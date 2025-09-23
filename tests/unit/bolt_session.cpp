@@ -1095,7 +1095,6 @@ EXPECT_EQ(session.state_, State::Close);
   ExecuteHandshake(input_stream, session, output, v4_3::handshake_req, v4_3::handshake_resp);
   ExecuteInit(input_stream, session, output, true);
   ASSERT_NO_THROW(ExecuteCommand(input_stream, session, v4_3::route, sizeof(v4_3::route)));
-
   EXPECT_EQ(session.state_, State::Idle);
   CheckSuccessMessage(output);
 }

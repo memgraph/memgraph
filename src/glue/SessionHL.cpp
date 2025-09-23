@@ -446,7 +446,7 @@ auto SessionHL::Route(bolt_map_t const &routing, std::vector<bolt_value_t> const
     spdlog::trace("Handling routing request for the database: {}", *db);
   }
 
-  auto routing_table_res = interpreter_.Route(routing_map);
+  auto routing_table_res = interpreter_.Route(routing_map, db);
 
   auto create_server = [](auto const &server_info) -> bolt_value_t {
     auto const &[addresses, role] = server_info;

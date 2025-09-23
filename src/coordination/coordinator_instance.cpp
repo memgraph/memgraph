@@ -948,9 +948,9 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const
 auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_name,
                                                 std::string_view const setting_value) const
     -> SetCoordinatorSettingStatus {
-  constexpr std::array settings{kEnabledReadsOnMain, kSyncFailoverOnly, kMaxFailoverLagOnReplica};
-
-  if (std::ranges::find(settings, setting_name) == settings.end()) {
+  if (constexpr std::array settings{kEnabledReadsOnMain, kSyncFailoverOnly, kMaxFailoverLagOnReplica,
+                                    kMaxReplicaReadLag};
+      std::ranges::find(settings, setting_name) == settings.end()) {
     return SetCoordinatorSettingStatus::UNKNOWN_SETTING;
   }
 
@@ -962,6 +962,8 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
       delta_state.enabled_reads_on_main_ = utils::ToLowerCase(setting_value) == "true"sv;
     } else if (setting_name == kSyncFailoverOnly) {
       delta_state.sync_failover_only_ = utils::ToLowerCase(setting_value) == "true"sv;
+    } else if (setting_name == kMaxReplicaReadLag) {
+      delta_state.max_replica_read_lag_ = utils::ParseStringToUint64(setting_value);
     }
   } catch (std::exception const &e) {
     spdlog::error("Error occurred while trying to update {} to {}. Error: {}", setting_name, setting_value, e.what());
@@ -1217,7 +1219,46 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
   return std::nullopt;
 }
 
-auto CoordinatorInstance::GetRoutingTable() const -> RoutingTable { return raft_state_->GetRoutingTable(); }
+auto CoordinatorInstance::GetRoutingTable(std::string_view const db_name) const -> RoutingTable {
+  auto const leader_id = raft_state_->GetLeaderId();
+
+  if (auto const my_id = raft_state_->GetMyCoordinatorId(); my_id == leader_id) {
+    return GetRoutingTableAsLeader(db_name);
+  }
+  return GetRoutingTableAsFollower(leader_id, db_name);
+}
+
+auto CoordinatorInstance::GetRoutingTableAsLeader(std::string_view const db_name) const -> RoutingTable {
+  return raft_state_->GetRoutingTable(db_name, replicas_num_txns_cache_);
+}
+auto CoordinatorInstance::GetRoutingTableAsFollower(auto const leader_id, std::string_view const db_name) const
+    -> RoutingTable {
+  CoordinatorInstanceConnector *leader{nullptr};
+  {
+    auto connectors = coordinator_connectors_.Lock();
+
+    auto connector = std::ranges::find_if(
+        *connectors, [&leader_id](auto const &local_connector) { return local_connector.first == leader_id; });
+    if (connector != connectors->end()) {
+      leader = &connector->second;
+    }
+  }
+
+  if (leader == nullptr) {
+    spdlog::trace(
+        "Connection to leader was not found when routing table was requested. Returning empty routing table.");
+    return RoutingTable{};
+  }
+
+  auto maybe_res = leader->SendGetRoutingTable(db_name);
+
+  if (!maybe_res.has_value()) {
+    spdlog::trace("Couldn't get routing table from leader {}. Returning empty routing table.", leader_id);
+    return RoutingTable{};
+  }
+
+  return std::move(maybe_res.value());
+}
 
 auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::string> {
   utils::MetricsTimer const timer{metrics::GetHistories_us};
@@ -1307,7 +1348,8 @@ auto CoordinatorInstance::ShowCoordinatorSettings() const -> std::vector<std::pa
   std::vector<std::pair<std::string, std::string>> settings{
       std::pair{std::string(kEnabledReadsOnMain), raft_state_->GetEnabledReadsOnMain() ? "true" : "false"},
       std::pair{std::string(kSyncFailoverOnly), raft_state_->GetSyncFailoverOnly() ? "true" : "false"},
-      std::pair{std::string(kMaxFailoverLagOnReplica), std::to_string(raft_state_->GetMaxFailoverReplicaLag())}};
+      std::pair{std::string(kMaxFailoverLagOnReplica), std::to_string(raft_state_->GetMaxFailoverReplicaLag())},
+      std::pair{std::string{kMaxReplicaReadLag}, std::to_string(raft_state_->GetMaxReplicaReadLag())}};
   return settings;
 }
 
