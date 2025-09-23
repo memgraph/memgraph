@@ -162,6 +162,7 @@ struct Delta {
     DELETE_OBJECT,
     RECREATE_OBJECT,
     SET_PROPERTY,
+    SET_VECTOR_PROPERTY,
 
     // Used only for Vertex
     ADD_LABEL,
@@ -177,6 +178,7 @@ struct Delta {
   struct DeleteObjectTag {};
   struct RecreateObjectTag {};
   struct SetPropertyTag {};
+  struct SetVectorPropertyTag {};
 
   // Used only for Vertex
   struct AddLabelTag {};
@@ -214,6 +216,14 @@ struct Delta {
         property{.action = Action::SET_PROPERTY,
                  .key = key,
                  .value = std::pmr::polymorphic_allocator<Delta>{res}.new_object<pmr::PropertyValue>(value)} {}
+
+  Delta(SetVectorPropertyTag /*tag*/, PropertyId key, PropertyValue const &new_value, std::atomic<uint64_t> *timestamp,
+        uint64_t command_id, utils::PageSlabMemoryResource *res)
+      : timestamp(timestamp),
+        command_id(command_id),
+        property{.action = Action::SET_VECTOR_PROPERTY,
+                 .key = key,
+                 .value = std::pmr::polymorphic_allocator<Delta>{res}.new_object<pmr::PropertyValue>(new_value)} {}
 
   Delta(SetPropertyTag /*tag*/, Vertex *out_vertex, PropertyId key, PropertyValue value,
         std::atomic<uint64_t> *timestamp, uint64_t command_id, utils::PageSlabMemoryResource *res)

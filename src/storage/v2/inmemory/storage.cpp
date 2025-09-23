@@ -1172,6 +1172,10 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 LOG_FATAL("Invalid database state!");
                 break;
               }
+              case Delta::Action::SET_VECTOR_PROPERTY: {
+                // Do nothing, vector index doesn't have transactional guarantees
+                break;
+              }
             }
             current = current->next.load(std::memory_order_acquire);
           }
@@ -1327,6 +1331,10 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
               }
               case Delta::Action::RECREATE_OBJECT: {
                 vertex->deleted = false;
+                break;
+              }
+              case Delta::Action::SET_VECTOR_PROPERTY: {
+                // Do nothing, vector index doesn't have transactional guarantees
                 break;
               }
             }

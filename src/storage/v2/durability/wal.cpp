@@ -185,6 +185,7 @@ constexpr bool IsMarkerImplicitTransactionEndVersion15(Marker marker) {
     case DELTA_VERTEX_SET_PROPERTY:
     case DELTA_EDGE_SET_PROPERTY:
     case DELTA_TRANSACTION_START:
+    case DELTA_VERTEX_SET_VECTOR_PROPERTY:
       return false;
 
     // This delta explicitly indicates that a transaction is done.
@@ -653,6 +654,7 @@ auto ReadSkipWalDeltaData(BaseDecoder *decoder, const uint64_t version)
     read_skip(VECTOR_INDEX_CREATE, WalVectorIndexCreate);
     read_skip(VECTOR_EDGE_INDEX_CREATE, WalVectorEdgeIndexCreate);
     read_skip(VECTOR_INDEX_DROP, WalVectorIndexDrop);
+    read_skip(VERTEX_SET_VECTOR_PROPERTY, WalVertexSetProperty);
     read_skip(TTL_OPERATION, WalTtlOperation);
 
     // Other markers are not actions
@@ -833,6 +835,13 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, SalientConf
           ToExternalPropertyValue(vertex.properties.GetProperty(delta.property.key), name_id_mapper));
       break;
     }
+    case Delta::Action::SET_VECTOR_PROPERTY: {
+      encoder->WriteMarker(Marker::DELTA_VERTEX_SET_VECTOR_PROPERTY);
+      encoder->WriteUint(vertex.gid.AsUint());
+      encoder->WriteString(name_id_mapper->IdToName(delta.property.key.AsUint()));
+      encoder->WriteExternalPropertyValue(ToExternalPropertyValue(*delta.property.value, name_id_mapper));
+      break;
+    }
     case Delta::Action::ADD_LABEL:
     case Delta::Action::REMOVE_LABEL: {
       encoder->WriteMarker(DeltaActionToMarker(delta.action));
@@ -883,6 +892,13 @@ void EncodeDelta(BaseEncoder *encoder, NameIdMapper *name_id_mapper, const Delta
           ToExternalPropertyValue(edge.properties.GetProperty(delta.property.key), name_id_mapper));
       DMG_ASSERT(delta.property.out_vertex, "Out vertex undefined!");
       encoder->WriteUint(delta.property.out_vertex->gid.AsUint());
+      break;
+    }
+    case Delta::Action::SET_VECTOR_PROPERTY: {
+      encoder->WriteMarker(Marker::DELTA_VERTEX_SET_VECTOR_PROPERTY);
+      encoder->WriteUint(edge.gid.AsUint());
+      encoder->WriteString(name_id_mapper->IdToName(delta.property.key.AsUint()));
+      encoder->WriteExternalPropertyValue(ToExternalPropertyValue(*delta.property.value, name_id_mapper));
       break;
     }
     case Delta::Action::DELETE_DESERIALIZED_OBJECT:

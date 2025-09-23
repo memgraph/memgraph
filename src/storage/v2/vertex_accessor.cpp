@@ -362,6 +362,15 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
   auto const set_property_impl = [this, transaction = transaction_, vertex = vertex_, &new_value, &property, &old_value,
                                   skip_duplicate_write, &schema_acc]() {
+    // Firstly check if the property is a vector property
+    if (storage_->indices_.vector_index_.IsPropertyInVectorIndex(vertex, property)) {
+      // Vector index doesn't have transactional guarantees, so we don't need to retrieve the old value, we just need
+      // delta for durability
+      // TODO(@DavIvek): Type constraints and schema info?
+      CreateAndLinkDelta(transaction, vertex, Delta::SetVectorPropertyTag(), property, new_value);
+      return true;
+    }
+
     old_value = vertex->properties.GetProperty(property);
     // We could skip setting the value if the previous one is the same to the new
     // one. This would save some memory as a delta would not be created as well as
@@ -433,7 +442,13 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
       return;
     }
     for (const auto &[property, new_value] : properties) {
-      CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
+      if (storage->indices_.vector_index_.IsPropertyInVectorIndex(vertex, property)) {
+        // Vector index doesn't have transactional guarantees, so we don't need to retrieve the old value, we just need
+        // delta for durability
+        CreateAndLinkDelta(transaction, vertex, Delta::SetVectorPropertyTag(), property, new_value);
+      } else {
+        CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
+      }
       // TODO: defer until once all properties have been set, to make fewer entries ?
       storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction);
       transaction->UpdateOnSetProperty(property, PropertyValue{}, new_value, vertex);
@@ -496,7 +511,14 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
     for (auto &[id, old_value, new_value] : *id_old_new_change) {
       storage->indices_.UpdateOnSetProperty(id, new_value, vertex, *transaction);
       if (skip_duplicate_update && old_value == new_value) continue;
-      CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), id, old_value);
+      if (storage->indices_.vector_index_.IsPropertyInVectorIndex(vertex, id)) {
+        // Vector index doesn't have transactional guarantees, so we don't need to retrieve the old value, we just need
+        // delta for durability
+        // TODO(@DavIvek): Type constraints and schema info?
+        CreateAndLinkDelta(transaction, vertex, Delta::SetVectorPropertyTag(), id, new_value);
+      } else {
+        CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), id, old_value);
+      }
       transaction->UpdateOnSetProperty(id, old_value, new_value, vertex);
       if (transaction->constraint_verification_info) {
         if (!new_value.IsNull()) {
@@ -546,7 +568,14 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
         }
         auto new_value = PropertyValue();
         for (const auto &[property, old_value] : *properties) {
-          CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
+          if (storage->indices_.vector_index_.IsPropertyInVectorIndex(vertex, property)) {
+            // Vector index doesn't have transactional guarantees, so we don't need to retrieve the old value, we just
+            // need delta for durability
+            // TODO(@DavIvek): Type constraints and schema info?
+            CreateAndLinkDelta(transaction, vertex, Delta::SetVectorPropertyTag(), property, new_value);
+          } else {
+            CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
+          }
           storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction);
           transaction->UpdateOnSetProperty(property, old_value, new_value, vertex);
           if (schema_acc) {
@@ -580,14 +609,12 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
     delta = vertex_->delta;
 
     // Try to get property from vector index first
-    if (!storage_->indices_.vector_index_.Empty()) {
+    if (storage_->indices_.vector_index_.IsPropertyInVectorIndex(vertex_, property)) {
       value = storage_->indices_.vector_index_.GetProperty(vertex_, property);
-      if (!value.IsNull()) {
-        is_in_vector_index = true;
-      }
+      is_in_vector_index = true;
     }
     // Fall back to regular vertex properties if not found in vector index
-    if (!is_in_vector_index) {
+    else {
       value = vertex_->properties.GetProperty(property);
     }
   }

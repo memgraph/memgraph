@@ -163,9 +163,11 @@ class VectorIndex {
   /// @return true if the index exists, false otherwise.
   bool IndexExists(std::string_view index_name) const;
 
-  /// @brief Checks if the index is empty.
-  /// @return true if the index is empty, false otherwise.
-  bool Empty() const;
+  /// @brief Checks if the property is in the vector index.
+  /// @param vertex The vertex to check.
+  /// @param property The property to check.
+  /// @return true if the property is in the vector index, false otherwise.
+  bool IsPropertyInVectorIndex(Vertex *vertex, PropertyId property) const;
 
  private:
   /// @brief Adds a vertex to an existing index.
@@ -174,6 +176,16 @@ class VectorIndex {
   /// @param value The value of the property.
   /// @throw query::VectorSearchException
   bool UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_prop, const PropertyValue *value = nullptr);
+
+  /// @brief Gets all label-property combinations that match the given vertex and property.
+  /// @param vertex The vertex to check labels against.
+  /// @param property The property to match.
+  /// @return A range of matching LabelPropKey objects.
+  auto GetMatchingLabelProps(Vertex *vertex, PropertyId property) const;
+
+  /// @brief Checks if the index is empty.
+  /// @return true if the index is empty, false otherwise.
+  bool Empty() const;
 
   struct Impl;
   std::unique_ptr<Impl> pimpl;

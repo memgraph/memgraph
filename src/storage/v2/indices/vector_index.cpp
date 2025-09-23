@@ -207,25 +207,24 @@ void VectorIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_befo
   });
 }
 
-void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex) {
+auto VectorIndex::GetMatchingLabelProps(Vertex *vertex, PropertyId property) const {
   auto has_property = [&](const auto &label_prop) { return label_prop.property() == property; };
   auto has_label = [&](const auto &label_prop) { return utils::Contains(vertex->labels, label_prop.label()); };
+  return pimpl->index_ | rv::keys | rv::filter(has_property) | rv::filter(has_label);
+}
 
-  auto view = pimpl->index_ | rv::keys | rv::filter(has_property) | rv::filter(has_label);
-  for (const auto &label_prop : view) {
+void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex) {
+  for (const auto &label_prop : GetMatchingLabelProps(vertex, property)) {
     UpdateVectorIndex(vertex, label_prop, &value);
   }
 }
 
 PropertyValue VectorIndex::GetProperty(Vertex *vertex, PropertyId property) const {
-  // first check if property_id + any of labels is in the index
-  auto has_property = [&](const auto &label_prop) { return label_prop.property() == property; };
-  auto has_label = [&](const auto &label_prop) { return utils::Contains(vertex->labels, label_prop.label()); };
-  auto view = pimpl->index_ | rv::keys | rv::filter(has_property) | rv::filter(has_label);
-  if (view.empty()) {
+  auto matching_label_props = GetMatchingLabelProps(vertex, property);
+  if (matching_label_props.empty()) {
     return {};
   }
-  const auto &label_prop = *view.begin();
+  const auto &label_prop = *matching_label_props.begin();
   auto &[mg_index, _] = pimpl->index_.at(label_prop);
   return GetVectorAsPropertyValue(mg_index, vertex);
 }
@@ -339,6 +338,10 @@ VectorIndex::IndexStats VectorIndex::Analysis() const {
 
 bool VectorIndex::IndexExists(std::string_view index_name) const {
   return pimpl->index_name_to_label_prop_.contains(index_name);
+}
+
+bool VectorIndex::IsPropertyInVectorIndex(Vertex *vertex, PropertyId property) const {
+  return !GetMatchingLabelProps(vertex, property).empty();
 }
 
 bool VectorIndex::Empty() const { return pimpl->index_.empty(); }
