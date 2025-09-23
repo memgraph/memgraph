@@ -477,7 +477,7 @@ jobs:
           test-memgraph durability-large
 
       - name: Copy stress and durability test logs
-        if: always()
+        if: failure()
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -495,7 +495,7 @@ jobs:
       - name: Save stress and durability test logs
         continue-on-error: true
         uses: actions/upload-artifact@v4
-        if: always()
+        if: failure()
         with:
           name: "Stress and Durability Test Logs-${{ inputs.run_id }}"
           path: build/stress/logs
