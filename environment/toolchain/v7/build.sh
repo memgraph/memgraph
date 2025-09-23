@@ -1338,9 +1338,12 @@ if [ ! -f $PREFIX/lib/libpulsarwithdeps.a ]; then
     # Add ZLIB-specific flags for RPM distributions to avoid system ZLIB conflicts
     if [[ "$DISTRO" =~ ^(rocky-|centos-|fedora-) ]]; then
         PULSAR_CMAKE_FLAGS="$PULSAR_CMAKE_FLAGS \
+          -DCMAKE_POLICY_DEFAULT_CMP0144=NEW \
+          -DCMAKE_POLICY_DEFAULT_CMP0167=NEW \
           -DZLIB_ROOT=$PREFIX \
           -DZLIB_INCLUDE_DIR=$PREFIX/include \
-          -DZLIB_LIBRARY=$PREFIX/lib/libz.a"
+          -DZLIB_LIBRARY=$PREFIX/lib/libz.a \
+          -DCMAKE_PREFIX_PATH=$PREFIX"
     fi
 
     cmake -B build $PULSAR_CMAKE_FLAGS
