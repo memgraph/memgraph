@@ -88,7 +88,8 @@ class RaftState {
 
   auto GetLeaderCoordinatorData() const -> std::optional<LeaderCoordinatorData>;
   auto YieldLeadership() const -> void;
-  auto GetRoutingTable() const -> RoutingTable;
+  auto GetRoutingTable(std::string_view db_name,
+                       std::map<std::string, std::map<std::string, int64_t>> const &replicas_lag) const -> RoutingTable;
 
   // Returns elapsed time in ms since last successful response from the coordinator with id srv_id
   auto CoordLastSuccRespMs(int32_t srv_id) const -> std::chrono::milliseconds;
@@ -99,6 +100,7 @@ class RaftState {
   auto GetEnabledReadsOnMain() const -> bool;
   auto GetSyncFailoverOnly() const -> bool;
   auto GetMaxFailoverReplicaLag() const -> uint64_t;
+  auto GetMaxReplicaReadLag() const -> uint64_t;
 
  private:
   uint16_t coordinator_port_;

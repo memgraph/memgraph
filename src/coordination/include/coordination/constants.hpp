@@ -51,10 +51,11 @@ const std::string kLogEntryDataKey = "data";
 const std::string kLogEntryTermKey = "term";
 const std::string kLogEntryValTypeKey = "val_type";
 
-// routing policies
+// Coordinator settings
 constexpr auto kEnabledReadsOnMain = "enabled_reads_on_main"sv;
 constexpr auto kSyncFailoverOnly = "sync_failover_only"sv;
 constexpr auto kMaxFailoverLagOnReplica = "max_failover_replica_lag"sv;
+constexpr auto kMaxReplicaReadLag = "max_replica_read_lag"sv;
 
 // cluster state
 constexpr int MAX_SNAPSHOTS = 3;

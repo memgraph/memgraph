@@ -29,8 +29,10 @@
 namespace memgraph::coordination {
 
 using nuraft::buffer;
+// NOLINTNEXTLINE
 using nuraft::buffer_serializer;
 using nuraft::ptr;
+// NOLINTNEXTLINE
 using replication_coordination_glue::ReplicationRole;
 
 struct CoordinatorClusterStateDelta {
@@ -40,6 +42,7 @@ struct CoordinatorClusterStateDelta {
   std::optional<bool> enabled_reads_on_main_;
   std::optional<bool> sync_failover_only_;
   std::optional<uint64_t> max_failover_replica_lag_;
+  std::optional<uint64_t> max_replica_read_lag_;
 
   bool operator==(const CoordinatorClusterStateDelta &other) const = default;
 };
@@ -83,6 +86,8 @@ class CoordinatorClusterState {
 
   auto GetMaxFailoverReplicaLag() const -> uint64_t;
 
+  auto GetMaxReplicaReadLag() const -> uint64_t;
+
   auto TryGetCurrentMainName() const -> std::optional<std::string>;
 
   // Setter function used on parsing data from json
@@ -101,6 +106,8 @@ class CoordinatorClusterState {
 
   void SetMaxFailoverLagOnReplica(uint64_t max_failover_replica_lag);
 
+  void SetMaxReplicaReadLag(uint64_t max_replica_read_lag);
+
   friend bool operator==(const CoordinatorClusterState &lhs, const CoordinatorClusterState &rhs) {
     if (&lhs == &rhs) {
       return true;
@@ -108,9 +115,9 @@ class CoordinatorClusterState {
     std::scoped_lock const lock(lhs.app_lock_, rhs.app_lock_);
 
     return std::tie(lhs.data_instances_, lhs.coordinator_instances_, lhs.current_main_uuid_, lhs.enabled_reads_on_main_,
-                    lhs.sync_failover_only_, lhs.max_failover_replica_lag_) ==
+                    lhs.sync_failover_only_, lhs.max_failover_replica_lag_, lhs.max_replica_read_lag_) ==
            std::tie(rhs.data_instances_, rhs.coordinator_instances_, rhs.current_main_uuid_, rhs.enabled_reads_on_main_,
-                    rhs.sync_failover_only_, rhs.max_failover_replica_lag_);
+                    rhs.sync_failover_only_, rhs.max_failover_replica_lag_, rhs.max_replica_read_lag_);
   }
 
  private:
@@ -126,6 +133,9 @@ class CoordinatorClusterState {
   // The option controls what is the maximum lag allowed on any replica's database so it could be considered a valid
   // failover candidate
   uint64_t max_failover_replica_lag_{std::numeric_limits<uint64_t>::max()};
+  // The option controls what is the maximum lag allowed on the replica for the specific database when the routing
+  // table is requested.
+  uint64_t max_replica_read_lag_{std::numeric_limits<uint64_t>::max()};
   mutable utils::ResourceLock app_lock_;
 };
 
