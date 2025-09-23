@@ -651,14 +651,8 @@ build_memgraph () {
     echo "Adding additional CMake options: $additional_options"
   fi
 
-  # Configure CMake with additional options if any are specified
-  if [[ -n "$additional_options" ]]; then
-    echo "Running CMake configure with additional options: $additional_options"
-    docker exec -u mg "$build_container" bash -c "$CMD_START && cmake -S . -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=build/generators/conan_toolchain.cmake -DCMAKE_BUILD_TYPE=$build_type $additional_options"
-  else
-    echo "Running CMake with preset: $PRESET"
-    docker exec -u mg "$build_container" bash -c "$CMD_START && cmake --preset $PRESET"
-  fi
+  echo "Running CMake with preset: $PRESET $additional_options"
+  docker exec -u mg "$build_container" bash -c "$CMD_START && cmake --preset $PRESET $additional_options"
 
   if [[ "$cmake_only" == "true" ]]; then
     build_target(){
