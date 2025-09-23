@@ -725,6 +725,7 @@ copy_memgraph() {
       ;;
       --logs-dir)
         container_artifact_path=$2
+        artifact="logs"
         shift 2
       ;;
       --dest-dir)
@@ -790,7 +791,17 @@ copy_memgraph() {
   echo "Container artifact path: '$container_artifact_path'"
   echo -e "Copying memgraph $artifact from $build_container to host ..."
   mkdir -p "$host_dir"
-  if [[ "$artifact" == "package" ]]; then
+
+  if [[ "$artifact" == "logs" ]]; then
+    local temp_log_dir="/tmp/mg_logs_$$"
+    docker exec -u mg "$build_container" bash -c "mkdir -p $temp_log_dir"
+    # Find and copy all .log files to the temporary directory and copy to host
+    # Exclude log files that start with "0" (internal database logs like replication and streams)
+    docker exec -u mg "$build_container" bash -c "find $container_artifact_path -name '*.log' ! -name '0*' -exec cp {} $temp_log_dir/ \;"
+    docker cp "$build_container:$temp_log_dir/." "$host_dir/"
+    docker exec -u mg "$build_container" bash -c "rm -rf $temp_log_dir"
+    echo -e "Log files copied to $host_dir!"
+  elif [[ "$artifact" == "package" ]]; then
     docker cp $build_container:$container_artifact_path $host_artifact_path
   else
     docker cp -L $build_container:$container_artifact_path $host_artifact_path
@@ -855,10 +866,10 @@ test_memgraph() {
       docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --config-file=configurations/templates/config_large.yaml"
     ;;
     durability)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && python3 durability --num-steps 5"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && python3 durability --num-steps 5 --log-file=durability_test.log --verbose"
     ;;
     durability-large)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && python3 durability --num-steps 5"
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && python3 durability --num-steps 5 --log-file=durability_test_large.log --verbose"
     ;;
     gql-behave)
       local test_output_dir="$MGBUILD_ROOT_DIR/tests/gql_behave"

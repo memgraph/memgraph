@@ -1,0 +1,12 @@
+CREATE ENUM Status VALUES {`ACTIVE`, `DISABLED`};
+CREATE CONSTRAINT ON (u:`label`) ASSERT EXISTS (u.`ext`);
+CREATE CONSTRAINT ON (u:`label2`) ASSERT u.`prop2`, u.`prop` IS UNIQUE;
+CREATE CONSTRAINT ON (n:label) ASSERT n.is_string IS TYPED STRING;
+CREATE CONSTRAINT ON (n:label) ASSERT n.is_int IS TYPED INTEGER;
+CREATE CONSTRAINT ON (n:label) ASSERT n.is_list IS TYPED LIST;
+CREATE CONSTRAINT ON (n:label) ASSERT n.is_enum IS TYPED ENUM;
+CREATE CONSTRAINT ON (n:label) ASSERT n.is_point IS TYPED POINT;
+CREATE VECTOR INDEX vector_index_name ON :Label(embedding) WITH CONFIG {"dimension": 3, "capacity": 1000};
+CREATE VECTOR INDEX vector_index_name_1 ON :Label1(embedding1) WITH CONFIG {"dimension": 3, "capacity": 1000, "scalar_kind": "f16"};
+CREATE VECTOR EDGE INDEX vector_edge_index_name ON :REL(embedding) WITH CONFIG {"dimension": 3, "capacity": 1000, "scalar_kind": "f16"};
+ENABLE TTL EVERY "1000s" AT "12:00:00";

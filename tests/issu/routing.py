@@ -18,19 +18,17 @@ class Neo4jService:
         tx.run("MATCH (n:Greeting) RETURN n.message AS message")
 
 
-def read_greetings_from_uri(uri):
+def greetings_from_uri(uri):
     service = Neo4jService(uri)
     service.read_greeting()
     service.close()
 
 
 def main():
-    print("Started reading route")
-    uris = ["neo4j://localhost:7690", "neo4j://localhost:7691", "neo4j://localhost:7692"]
+    uri = "neo4j://localhost:7687"
 
     try:
-        for uri in uris:
-            read_greetings_from_uri(uri)
+        greetings_from_uri(uri)
     except Exception as error:
         print(f"An error occurred: {error}")
         exit(-1)

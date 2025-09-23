@@ -1,0 +1,6 @@
+ADD COORDINATOR 1 WITH CONFIG {"bolt_server": "memgraph-coordinator-1.default.svc.cluster.local:7687", "management_server":  "memgraph-coordinator-1.default.svc.cluster.local:10000", "coordinator_server":  "memgraph-coordinator-1.default.svc.cluster.local:12000"};
+ADD COORDINATOR 2 WITH CONFIG {"bolt_server": "memgraph-coordinator-2.default.svc.cluster.local:7687", "management_server":  "memgraph-coordinator-2.default.svc.cluster.local:10000", "coordinator_server":  "memgraph-coordinator-2.default.svc.cluster.local:12000"};
+ADD COORDINATOR 3 WITH CONFIG {"bolt_server": "memgraph-coordinator-3.default.svc.cluster.local:7687", "management_server":  "memgraph-coordinator-3.default.svc.cluster.local:10000", "coordinator_server":  "memgraph-coordinator-3.default.svc.cluster.local:12000"};
+REGISTER INSTANCE instance_0 WITH CONFIG {"bolt_server": "memgraph-data-0.default.svc.cluster.local:7687", "management_server": "memgraph-data-0.default.svc.cluster.local:10000", "replication_server": "memgraph-data-0.default.svc.cluster.local:20000"};
+REGISTER INSTANCE instance_1 WITH CONFIG {"bolt_server": "memgraph-data-1.default.svc.cluster.local:7687", "management_server": "memgraph-data-1.default.svc.cluster.local:10000", "replication_server": "memgraph-data-1.default.svc.cluster.local:20000"};
+SET INSTANCE instance_0 TO MAIN;
