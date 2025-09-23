@@ -61,9 +61,33 @@ if [ "$skip_init" = false ]; then
     ./init
 fi
 
+# Determine profile template based on sanitizer flags
+PROFILE_TEMPLATE="./memgraph_template_profile"
+DASAN_ENABLED=false
+DUBSAN_ENABLED=false
+
+# Check if DASAN=ON is in CMAKE_ARGS
+if [[ "$CMAKE_ARGS" == *"DASAN=ON"* ]]; then
+    DASAN_ENABLED=true
+fi
+
+# Check if DUBSAN=ON is in CMAKE_ARGS
+if [[ "$CMAKE_ARGS" == *"DUBSAN=ON"* ]]; then
+    DUBSAN_ENABLED=true
+fi
+
+# Select appropriate profile template
+if [[ "$DASAN_ENABLED" == true && "$DUBSAN_ENABLED" == true ]]; then
+    PROFILE_TEMPLATE="./memgraph_template_profile_asan_ubsan"
+elif [[ "$DASAN_ENABLED" == true ]]; then
+    PROFILE_TEMPLATE="./memgraph_template_profile_asan"
+elif [[ "$DUBSAN_ENABLED" == true ]]; then
+    PROFILE_TEMPLATE="./memgraph_template_profile_ubsan"
+fi
+
 # install conan dependencies
 export MG_TOOLCHAIN_ROOT=/opt/toolchain-v7/
-conan install . --build=missing -pr ./memgraph_template_profile -s build_type=$BUILD_TYPE
+conan install . --build=missing -pr $PROFILE_TEMPLATE -s build_type=$BUILD_TYPE
 source build/generators/conanbuild.sh
 
 # Determine preset name based on build type (Conan generates this automatically)

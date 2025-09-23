@@ -1,0 +1,9 @@
+include(memgraph_template_profile)
+
+{% set current_dir = os.getcwd() %}
+
+[conf]
+tools.build:cflags+=["-fsanitize=undefined", "-fno-omit-frame-pointer", "-fno-sanitize=vptr", "-fsanitize-ignorelist={{ os.path.join(current_dir, 'tools', 'ubsan.ignore') }}"]
+tools.build:cxxflags+=["-fsanitize=undefined", "-fno-omit-frame-pointer", "-fno-sanitize=vptr", "-fsanitize-ignorelist={{ os.path.join(current_dir, 'tools', 'ubsan.ignore') }}"]
+tools.build:exelinkflags+=["-fsanitize=undefined", "-fno-sanitize=vptr"]
+tools.build:sharedlinkflags+=["-fsanitize=undefined", "-fno-sanitize=vptr"]

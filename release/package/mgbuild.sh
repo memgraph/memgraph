@@ -579,8 +579,32 @@ build_memgraph () {
   local EXPORT_MG_TOOLCHAIN="export MG_TOOLCHAIN_ROOT=/opt/toolchain-${toolchain_version}"
   local EXPORT_BUILD_TYPE="export BUILD_TYPE=$build_type"
 
+  # Determine profile template based on sanitizer flags
+  local PROFILE_TEMPLATE="./memgraph_template_profile"
+  local DASAN_ENABLED=false
+  local DUBSAN_ENABLED=false
+
+  # Check if ASAN or UBSAN flags are set
+  if [[ "$asan_flag" == "-DASAN=ON" ]]; then
+    DASAN_ENABLED=true
+  fi
+  if [[ "$ubsan_flag" == "-DUBSAN=ON" ]]; then
+    DUBSAN_ENABLED=true
+  fi
+
+  # Select appropriate profile template
+  if [[ "$DASAN_ENABLED" == true && "$DUBSAN_ENABLED" == true ]]; then
+    PROFILE_TEMPLATE="./memgraph_template_profile_asan_ubsan"
+  elif [[ "$DASAN_ENABLED" == true ]]; then
+    PROFILE_TEMPLATE="./memgraph_template_profile_asan"
+  elif [[ "$DUBSAN_ENABLED" == true ]]; then
+    PROFILE_TEMPLATE="./memgraph_template_profile_ubsan"
+  fi
+
+  echo "Using profile template: $PROFILE_TEMPLATE"
+
   CMD_START="$CMD_START && $EXPORT_MG_TOOLCHAIN && $EXPORT_BUILD_TYPE"
-  docker exec -u mg "$build_container" bash -c "$CMD_START && conan install . --build=missing -pr ./memgraph_template_profile -s build_type=$build_type"
+  docker exec -u mg "$build_container" bash -c "$CMD_START && conan install . --build=missing -pr $PROFILE_TEMPLATE -s build_type=$build_type"
   CMD_START="$CMD_START && source build/generators/conanbuild.sh && $ACTIVATE_CARGO"
 
   # Determine preset name based on build type (Conan generates this automatically)
