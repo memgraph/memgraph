@@ -375,12 +375,9 @@ TEST(StorageV2Gc, InterleavedDeltasWithTwoContributorsAreGarbagedCollected) {
 }
 
 TEST(StorageV2Gc, InterleavedDeltasWithUncommittedContributorsAreGarbagedCollected) {
-  // Need a periodic garbage collector so that certain fast path optimisations
-  // aren't taken when cleaning deltas, but with an inter-collection pause large
-  // enough that we can step through when debugging, etc, without anything being
-  // unexpectedly reclaimed from underneath us.
+  // Use periodic GC with short interval to automatically test intermediate states
   auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
-      .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
+      .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(100)}});
 
   memgraph::storage::Gid v1_gid, v2_gid;
   {
@@ -418,30 +415,29 @@ TEST(StorageV2Gc, InterleavedDeltasWithUncommittedContributorsAreGarbagedCollect
 
     // When acc2 commits, its transaction has interleaved deltas which are
     // uncommitted, meaning these deltas must sit in the waiting list until
-    // all contributors have committed. @TODO clarify comment.
+    // all contributors have committed.
     ASSERT_FALSE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     acc2.reset();
+
+    // wait for GC to clean up
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    // At this point acc2 committed but acc1 hasn't - deltas should stay in waiting list
+    // Wait for GC to run but deltas should remain due to uncommitted acc1
+    ASSERT_EQ(12, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+
     ASSERT_FALSE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     acc1.reset();
-
-    ASSERT_EQ(12, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
   }
 
-  {
-    auto main_guard = std::unique_lock{storage->main_lock_};
-    storage->FreeMemory(std::move(main_guard), false);
-  }
+  std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
   ASSERT_EQ(0, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
 }
 
 TEST(StorageV2Gc, InterleavedDeltasWithUncommittedContributorsAreGarbagedCollected_SwapCommitOrder) {
-  // Need a periodic garbage collector so that certain fast path optimisations
-  // aren't taken when cleaning deltas, but with an inter-collection pause large
-  // enough that we can step through when debugging, etc, without anything being
-  // unexpectedly reclaimed from underneath us.
   auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
-      .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
+      .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(100)}});
 
   memgraph::storage::Gid v1_gid, v2_gid;
   {
@@ -471,27 +467,30 @@ TEST(StorageV2Gc, InterleavedDeltasWithUncommittedContributorsAreGarbagedCollect
     ASSERT_TRUE(acc1->CreateEdge(&*v1_t1, &*v2_t1, acc1->NameToEdgeType("Edge3")).HasValue());
     ASSERT_TRUE(acc2->CreateEdge(&*v1_t2, &*v2_t2, acc1->NameToEdgeType("Edge4")).HasValue());
 
-    // The 6 unreleased deltas are: @TODO 12 now!
-    // - 2 x CREATE_OBJECT, to create the edges
-    // - 2 x ADD_IN_EDGE
-    // - 2 x ADD_OUT_EDGE
+    // The 12 unreleased deltas are:
+    // - 4 x CREATE_OBJECT, to create the edges
+    // - 4 x ADD_IN_EDGE
+    // - 4 x ADD_OUT_EDGE
     ASSERT_EQ(12, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
 
-    // When acc1 commits, its transaction has interleaved deltas which are
+    // When acc1 commits first, its transaction has interleaved deltas which are
     // uncommitted, meaning these deltas must sit in the waiting list until
-    // all contributors have committed. @TODO clarify comment.
+    // all contributors have committed.
     ASSERT_FALSE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     acc1.reset();
+
+    // wait for GC to clean up
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    // At this point acc1 committed but acc2 hasn't - deltas should stay in waiting list
+    // Wait for GC to run but deltas should remain due to uncommitted acc2
+    ASSERT_EQ(12, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+
     ASSERT_FALSE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     acc2.reset();
-
-    ASSERT_EQ(12, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
   }
 
-  {
-    auto main_guard = std::unique_lock{storage->main_lock_};
-    storage->FreeMemory(std::move(main_guard), false);
-  }
+  std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
   ASSERT_EQ(0, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
 }
