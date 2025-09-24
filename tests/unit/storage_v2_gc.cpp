@@ -400,30 +400,92 @@ TEST(StorageV2Gc, InterleavedDeltasWithUncommittedContributorsAreGarbagedCollect
     auto v1_t1 = acc1->FindVertex(v1_gid, memgraph::storage::View::OLD);
     auto v2_t1 = acc1->FindVertex(v2_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
-    auto edge1_result = acc1->CreateEdge(&*v1_t1, &*v2_t1, acc1->NameToEdgeType("Edge1"));
-    ASSERT_TRUE(edge1_result.HasValue());
+    ASSERT_TRUE(acc1->CreateEdge(&*v1_t1, &*v2_t1, acc1->NameToEdgeType("Edge1")).HasValue());
 
     auto v1_t2 = acc2->FindVertex(v1_gid, memgraph::storage::View::OLD);
     auto v2_t2 = acc2->FindVertex(v2_gid, memgraph::storage::View::OLD);
     ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
-    auto edge2_result = acc2->CreateEdge(&*v1_t2, &*v2_t2, acc2->NameToEdgeType("Edge2"));
-    ASSERT_TRUE(edge2_result.HasValue());
+    ASSERT_TRUE(acc2->CreateEdge(&*v1_t2, &*v2_t2, acc2->NameToEdgeType("Edge2")).HasValue());
 
-    // The 6 unreleased deltas are:
+    ASSERT_TRUE(acc1->CreateEdge(&*v1_t1, &*v2_t1, acc1->NameToEdgeType("Edge3")).HasValue());
+    ASSERT_TRUE(acc2->CreateEdge(&*v1_t2, &*v2_t2, acc1->NameToEdgeType("Edge4")).HasValue());
+
+    // The 6 unreleased deltas are: @TODO 12 now!
     // - 2 x CREATE_OBJECT, to create the edges
     // - 2 x ADD_IN_EDGE
     // - 2 x ADD_OUT_EDGE
-    ASSERT_EQ(6, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+    ASSERT_EQ(12, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
 
     // When acc2 commits, its transaction has interleaved deltas which are
     // uncommitted, meaning these deltas must sit in the waiting list until
-    // all contributors have committed.
+    // all contributors have committed. @TODO clarify comment.
     ASSERT_FALSE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     acc2.reset();
     ASSERT_FALSE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
     acc1.reset();
 
-    ASSERT_EQ(6, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+    ASSERT_EQ(12, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+  }
+
+  {
+    auto main_guard = std::unique_lock{storage->main_lock_};
+    storage->FreeMemory(std::move(main_guard), false);
+  }
+
+  ASSERT_EQ(0, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+}
+
+TEST(StorageV2Gc, InterleavedDeltasWithUncommittedContributorsAreGarbagedCollected_SwapCommitOrder) {
+  // Need a periodic garbage collector so that certain fast path optimisations
+  // aren't taken when cleaning deltas, but with an inter-collection pause large
+  // enough that we can step through when debugging, etc, without anything being
+  // unexpectedly reclaimed from underneath us.
+  auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
+      .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
+
+  memgraph::storage::Gid v1_gid, v2_gid;
+  {
+    auto acc = storage->Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  {
+    auto acc0 = storage->Access();  // older accessor is just used to stop GC.
+    auto acc1 = storage->Access();
+    auto acc2 = storage->Access();
+
+    auto v1_t1 = acc1->FindVertex(v1_gid, memgraph::storage::View::OLD);
+    auto v2_t1 = acc1->FindVertex(v2_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
+    ASSERT_TRUE(acc1->CreateEdge(&*v1_t1, &*v2_t1, acc1->NameToEdgeType("Edge1")).HasValue());
+
+    auto v1_t2 = acc2->FindVertex(v1_gid, memgraph::storage::View::OLD);
+    auto v2_t2 = acc2->FindVertex(v2_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
+    ASSERT_TRUE(acc2->CreateEdge(&*v1_t2, &*v2_t2, acc2->NameToEdgeType("Edge2")).HasValue());
+
+    ASSERT_TRUE(acc1->CreateEdge(&*v1_t1, &*v2_t1, acc1->NameToEdgeType("Edge3")).HasValue());
+    ASSERT_TRUE(acc2->CreateEdge(&*v1_t2, &*v2_t2, acc1->NameToEdgeType("Edge4")).HasValue());
+
+    // The 6 unreleased deltas are: @TODO 12 now!
+    // - 2 x CREATE_OBJECT, to create the edges
+    // - 2 x ADD_IN_EDGE
+    // - 2 x ADD_OUT_EDGE
+    ASSERT_EQ(12, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+
+    // When acc1 commits, its transaction has interleaved deltas which are
+    // uncommitted, meaning these deltas must sit in the waiting list until
+    // all contributors have committed. @TODO clarify comment.
+    ASSERT_FALSE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    acc1.reset();
+    ASSERT_FALSE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    acc2.reset();
+
+    ASSERT_EQ(12, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
   }
 
   {
