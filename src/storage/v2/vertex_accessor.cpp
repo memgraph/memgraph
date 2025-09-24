@@ -159,6 +159,17 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
     vertex->labels.push_back(label);
   });
 
+  if (!storage_->indices_.vector_index_.Empty()) {
+    const auto all_prop_ids = vertex_->properties.ExtractPropertyIds();
+    auto prop_ids = all_prop_ids | rv::filter([&](auto prop_id) {
+                      return storage_->indices_.vector_index_.IsLabelPropInVectoIndex(label, prop_id);
+                    });
+    for (auto prop_id : prop_ids) {
+      const auto prop_value = storage_->indices_.vector_index_.GetProperty(vertex_, prop_id);
+      CreateAndLinkDelta(transaction_, vertex_, Delta::SetVectorPropertyTag(), prop_id, prop_value);
+    }
+  }
+
   if (storage_->constraints_.HasTypeConstraints()) {
     if (auto maybe_violation = storage_->constraints_.type_constraints_->Validate(*vertex_, label)) {
       HandleTypeConstraintViolation(storage_, *maybe_violation);
@@ -231,6 +242,16 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
     *it = vertex->labels.back();
     vertex->labels.pop_back();
   });
+
+  if (!storage_->indices_.vector_index_.Empty()) {
+    const auto all_prop_ids = vertex_->properties.ExtractPropertyIds();
+    auto prop_ids = all_prop_ids | rv::filter([&](auto prop_id) {
+                      return storage_->indices_.vector_index_.IsLabelPropInVectoIndex(label, prop_id);
+                    });
+    for (const auto &prop_id : prop_ids) {
+      CreateAndLinkDelta(transaction_, vertex_, Delta::SetVectorPropertyTag(), prop_id, PropertyValue());
+    }
+  }
 
   /// TODO: some by pointers, some by reference => not good, make it better
   storage_->constraints_.unique_constraints_->UpdateOnRemoveLabel(label, *vertex_, transaction_->start_timestamp);
@@ -368,7 +389,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
       // delta for durability
       // TODO(@DavIvek): Type constraints and schema info?
       CreateAndLinkDelta(transaction, vertex, Delta::SetVectorPropertyTag(), property, new_value);
-      return true;
+      return false;
     }
 
     old_value = vertex->properties.GetProperty(property);
@@ -430,13 +451,14 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
   // This has to be called before any object gets locked
   auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
   auto guard = std::unique_lock{vertex_->lock};
+  std::vector<PropertyId> vector_prop_ids;  // property ids which are saved inside vector index
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
 
   if (vertex_->deleted) return Error::DELETED_OBJECT;
   bool result{false};
   utils::AtomicMemoryBlock([&result, &properties, storage = storage_, transaction = transaction_, vertex = vertex_,
-                            &schema_acc]() {
+                            &schema_acc, &vector_prop_ids]() {
     if (!vertex->properties.InitProperties(properties)) {
       result = false;
       return;
@@ -446,6 +468,7 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
         // Vector index doesn't have transactional guarantees, so we don't need to retrieve the old value, we just need
         // delta for durability
         CreateAndLinkDelta(transaction, vertex, Delta::SetVectorPropertyTag(), property, new_value);
+        vector_prop_ids.push_back(property);
       } else {
         CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
       }

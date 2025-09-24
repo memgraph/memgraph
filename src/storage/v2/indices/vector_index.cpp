@@ -207,20 +207,20 @@ void VectorIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_befo
   });
 }
 
-auto VectorIndex::GetMatchingLabelProps(Vertex *vertex, PropertyId property) const {
-  auto has_property = [&](const auto &label_prop) { return label_prop.property() == property; };
-  auto has_label = [&](const auto &label_prop) { return utils::Contains(vertex->labels, label_prop.label()); };
+auto VectorIndex::GetMatchingLabelProps(std::span<LabelId const> labels, std::span<PropertyId const> properties) const {
+  auto has_property = [&](const auto &label_prop) { return utils::Contains(properties, label_prop.property()); };
+  auto has_label = [&](const auto &label_prop) { return utils::Contains(labels, label_prop.label()); };
   return pimpl->index_ | rv::keys | rv::filter(has_property) | rv::filter(has_label);
 }
 
 void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex) {
-  for (const auto &label_prop : GetMatchingLabelProps(vertex, property)) {
+  for (const auto &label_prop : GetMatchingLabelProps(vertex->labels, std::array{property})) {
     UpdateVectorIndex(vertex, label_prop, &value);
   }
 }
 
 PropertyValue VectorIndex::GetProperty(Vertex *vertex, PropertyId property) const {
-  auto matching_label_props = GetMatchingLabelProps(vertex, property);
+  auto matching_label_props = GetMatchingLabelProps(vertex->labels, std::array{property});
   if (matching_label_props.empty()) {
     return {};
   }
@@ -341,7 +341,11 @@ bool VectorIndex::IndexExists(std::string_view index_name) const {
 }
 
 bool VectorIndex::IsPropertyInVectorIndex(Vertex *vertex, PropertyId property) const {
-  return !GetMatchingLabelProps(vertex, property).empty();
+  return !GetMatchingLabelProps(vertex->labels, std::array{property}).empty();
+}
+
+bool VectorIndex::IsLabelPropInVectoIndex(LabelId label, PropertyId property) const {
+  return !GetMatchingLabelProps(std::array{label}, std::array{property}).empty();
 }
 
 bool VectorIndex::Empty() const { return pimpl->index_.empty(); }
