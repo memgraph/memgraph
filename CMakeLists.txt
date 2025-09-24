@@ -496,8 +496,9 @@ if (UBSAN)
   # Compile with UBSAN but disable vptr check. This is disabled because it
   # requires linking with clang++ to make sure C++ specific parts of the
   # runtime library and c++ standard libraries are present.
-  add_compile_options(-fsanitize=undefined -fno-omit-frame-pointer -fno-sanitize=vptr -fsanitize-ignorelist=${CMAKE_SOURCE_DIR}/tools/ubsan.ignore)
-  add_link_options(-fsanitize=undefined -fno-sanitize=vptr)
+  # -fno-sanitize=function is needed because of https://github.com/openssl/openssl/issues/26210
+  add_compile_options(-fsanitize=undefined -fno-omit-frame-pointer -fno-sanitize=vptr,function -fsanitize-ignorelist=${CMAKE_SOURCE_DIR}/tools/ubsan.ignore)
+  add_link_options(-fsanitize=undefined -fno-sanitize=vptr,function)
   # Run program with environment variable UBSAN_OPTIONS=print_stacktrace=1.
   # Make sure llvm-symbolizer binary is in path.
   # To make the program abort on undefined behavior, use UBSAN_OPTIONS=halt_on_error=1.

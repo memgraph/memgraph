@@ -1,0 +1,9 @@
+include(memgraph_template_profile)
+
+{% set current_dir = os.getcwd() %}
+
+[conf]
+tools.build:cflags+=["-fsanitize=address", "-fno-omit-frame-pointer"]
+tools.build:cxxflags+=["-fsanitize=address", "-fno-omit-frame-pointer"]
+tools.build:exelinkflags+=["-fsanitize=address"]
+tools.build:sharedlinkflags+=["-fsanitize=address"]
