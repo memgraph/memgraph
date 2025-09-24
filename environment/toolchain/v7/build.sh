@@ -1042,7 +1042,8 @@ if [ ! -d $PREFIX/include/boost ]; then
     if [ "$TOOLCHAIN_STDCXX" = "libstdc++" ]; then
         # For ARM64, don't use toolchain GCC headers to avoid missing bits/c++config.h issues
         # This matches the v6 approach which worked correctly
-        if [[ "$for_arm" = true ]]; then
+        # But exclude Debian ARM as it needs the cxxflags for C++ standard library headers
+        if [[ "$for_arm" = true && ! "$DISTRO" =~ ^debian- ]]; then
             ./b2 toolset=clang -j$CPUS install variant=release link=static cxxstd=20 --disable-icu \
                 -sZLIB_SOURCE="$PREFIX" -sZLIB_INCLUDE="$PREFIX/include" -sZLIB_LIBPATH="$PREFIX/lib" \
                 -sBZIP2_SOURCE="$PREFIX" -sBZIP2_INCLUDE="$PREFIX/include" -sBZIP2_LIBPATH="$PREFIX/lib" \
