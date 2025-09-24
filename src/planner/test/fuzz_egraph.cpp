@@ -19,6 +19,8 @@
 #include <unordered_set>
 #include <vector>
 
+#include <fmt/format.h>
+
 #include "planner/core/egraph.hpp"
 #include "planner/core/processing_context.hpp"
 
@@ -53,18 +55,16 @@ struct FuzzAnalysis {};
 
 template <typename Symbol, typename Analysis>
 std::string CreateCanonicalSignature(const ENode<Symbol> &enode, EGraph<Symbol, Analysis> &egraph) {
-  std::string sig = std::to_string(static_cast<uint32_t>(enode.symbol()));
+  if (enode.is_leaf()) {
+    return fmt::format("{}_D{}", static_cast<uint32_t>(enode.symbol()), enode.disambiguator());
+  }
 
+  std::string children_str;
   for (auto child_id : enode.children()) {
     auto canonical_child = egraph.find(child_id);
-    sig += "_" + std::to_string(canonical_child);
+    children_str += fmt::format("_{}", canonical_child);
   }
-
-  if (enode.is_leaf()) {
-    sig += "_D" + std::to_string(enode.disambiguator());
-  }
-
-  return sig;
+  return fmt::format("{}{}", static_cast<uint32_t>(enode.symbol()), children_str);
 }
 
 template <typename Symbol, typename Analysis>
@@ -139,14 +139,14 @@ bool ValidateParentChildRelationships(EGraph<Symbol, Analysis> &egraph) {
 template <typename Symbol, typename Analysis>
 bool ValidateRebuildComplete(EGraph<Symbol, Analysis> &egraph) {
   if (egraph.needs_rebuild()) {
-    std::cerr << "Worklist not empty after rebuild (size: " << egraph.worklist_size() << ")\n";
+    std::cerr << "Worklist not empty after rebuild\n";
     return false;
   }
   return true;
 }
 
 template <typename Symbol, typename Analysis>
-bool ValidateEGraphInvariants(EGraph<Symbol, Analysis> &egraph, ProcessingContext<Symbol> &ctx) {
+bool ValidateEGraphInvariants(EGraph<Symbol, Analysis> &egraph) {
   try {
     return ValidateCanonicalClasses(egraph) && ValidateCongruenceClosure(egraph) &&
            ValidateParentChildRelationships(egraph) && ValidateRebuildComplete(egraph);
@@ -241,7 +241,7 @@ class FuzzerState {
     egraph.rebuild(ctx);
 
     // Validate invariants after rebuild
-    if (!ValidateEGraphInvariants(egraph, ctx)) {
+    if (!ValidateEGraphInvariants(egraph)) {
       std::cerr << "\n!!! INVARIANT VIOLATION DETECTED !!!\n";
       std::cerr << "After operation #" << operation_count << " (REBUILD)\n";
       std::cerr << "Num classes: " << egraph.num_classes() << "\n";
@@ -321,7 +321,7 @@ extern "C" int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
   // Final rebuild and validation
   state.egraph.rebuild(state.ctx);
 
-  if (!ValidateEGraphInvariants(state.egraph, state.ctx)) {
+  if (!ValidateEGraphInvariants(state.egraph)) {
     std::cerr << "\n!!! FINAL INVARIANT VIOLATION !!!\n";
     abort();
   }

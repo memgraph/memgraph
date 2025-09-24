@@ -20,46 +20,25 @@ namespace memgraph::planner::core {
 
 namespace detail {
 struct EClassBase {
-  explicit EClassBase(ENodeId initial_enode_id) {
-    nodes_.reserve(8);
-    parents_.reserve(16);
-
-    nodes_.emplace(initial_enode_id);
-  }
+  explicit EClassBase(ENodeId initial_enode_id);
 
   /**
-   * @brief Add a parent reference for congruence tracking
-   *
-   * Records that the given parent ENodeId (in the specified parent e-class)
-   * has this e-class as one of its children.
+   * @brief Add a parent reference (needed for congruence maintenance)
    */
-  void add_parent(ENodeId parent_enode_id);
+  void add_parent(ENodeId parent_enode_id) { parents_.insert(parent_enode_id); }
 
   /**
    * @brief Get the number of e-nodes in this class
    */
   [[nodiscard]] auto size() const -> size_t { return nodes_.size(); }
 
-  /**
-   * @brief Get a representative ENodeId from this class
-   */
-  [[nodiscard]] auto representative_id() const -> ENodeId;
+  auto nodes() const -> boost::unordered_flat_set<ENodeId> const & { return nodes_; }
 
-  auto nodes() const -> boost::unordered_flat_set<ENodeId> const & {
-    return nodes_;
-  }  // TODO: does this need to be a set? do we use O(1) contains/lookup?
+  // TODO: does this need to be a set? do we use O(1) contains/lookup?
+  //       maybe needed for ematching later, leave for now
   auto parents() const -> boost::unordered_flat_set<ENodeId> const & { return parents_; }
 
-  auto merge_with(EClassBase &other) {
-    // Simple optimization: swap if other is significantly larger
-    if (other.nodes_.size() > nodes_.size()) {
-      nodes_.swap(other.nodes_);
-      parents_.swap(other.parents_);
-    }
-
-    nodes_.insert(other.nodes_.begin(), other.nodes_.end());
-    parents_.insert(other.parents_.begin(), other.parents_.end());
-  }
+  void merge_with(EClassBase &other);
 
  private:
   boost::unordered_flat_set<ENodeId> nodes_;
@@ -73,11 +52,6 @@ struct EClassBase {
  * @details
  * An E-class represents a set of e-nodes that are known to be semantically
  * equivalent.
- *
- * @tparam Analysis Optional analysis type for attaching domain-specific data
- *
- * @par Thread Safety:
- * Not thread-safe.
  */
 template <typename Analysis>
 struct EClass : private detail::EClassBase {
@@ -86,13 +60,10 @@ struct EClass : private detail::EClassBase {
   using EClassBase::add_parent;
   using EClassBase::nodes;
   using EClassBase::parents;
-  using EClassBase::representative_id;
   using EClassBase::size;
 
   /**
    * @brief Merge of another e-class into this one
-   *
-   * @param other The e-class to merge into this one (may be modified)
    */
   void merge_with(EClass &&other) {
     EClassBase::merge_with(other);
@@ -105,16 +76,6 @@ struct EClass : private detail::EClassBase {
   }
 
  private:
-  /**
-   * @brief Domain-specific analysis data
-   *
-   * Stores analysis-specific information attached to this e-class.
-   * Only present when Analysis template parameter is not void.
-
-   * @par Analysis Framework:
-   * The analysis data is automatically maintained by the e-graph
-   * using the Analysis template parameter's merge and modify methods.
-   */
   Analysis analysis_data;
 };
 

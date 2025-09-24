@@ -11,10 +11,7 @@
 
 #pragma once
 
-#include <concepts>
-#include <cstdint>
 #include <functional>
-#include <type_traits>
 
 #include <boost/functional/hash.hpp>
 
@@ -103,10 +100,10 @@ struct ENode : private detail::ENodeBase {
 
   friend auto operator==(ENode const &lhs, ENode const &rhs) -> bool = default;
 
-  using detail::ENodeBase::arity;
-  using detail::ENodeBase::children;
-  using detail::ENodeBase::disambiguator;
-  using detail::ENodeBase::is_leaf;
+  using ENodeBase::arity;
+  using ENodeBase::children;
+  using ENodeBase::disambiguator;
+  using ENodeBase::is_leaf;
 
   /// Returns copy with canonical child e-class IDs (modifies uf for path compression)
   auto canonicalize(UnionFind &uf) const -> ENode { return ENode{symbol_, ENodeBase::canonicalize(uf)}; }
@@ -133,7 +130,7 @@ struct ENode : private detail::ENodeBase {
 
   /// Computes hash using boost::hash_combine (called once during construction)
   [[nodiscard]] auto compute_hash() const -> std::size_t {
-    std::size_t seed = detail::ENodeBase::compute_hash();
+    std::size_t seed = ENodeBase::compute_hash();
     boost::hash_combine(seed, std::hash<Symbol>{}(symbol_));
     return seed;
   }
@@ -168,7 +165,7 @@ struct ENodeRef {
 // Boost hash support via ADL (Argument Dependent Lookup)
 // Boost expects a free function named hash_value in the same namespace
 template <typename Symbol>
-inline std::size_t hash_value(const ENodeRef<Symbol> &node_ref) {
+std::size_t hash_value(const ENodeRef<Symbol> &node_ref) {
   return node_ref.hash();
 }
 

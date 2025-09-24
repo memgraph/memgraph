@@ -6,12 +6,15 @@ target_sources(mg-planner
     FILE_SET HEADERS
     BASE_DIRS include
     FILES
+    include/planner/core/concepts.hpp
+    include/planner/core/constants.hpp
     include/planner/core/eclass.hpp
-    include/planner/core/enode.hpp
-    include/planner/core/union_find.hpp
     include/planner/core/egraph.hpp
+    include/planner/core/eids.hpp
+    include/planner/core/enode.hpp
     include/planner/core/fwd.hpp
     include/planner/core/processing_context.hpp
+    include/planner/core/union_find.hpp
 
     PRIVATE
     src/core/eclass.cpp

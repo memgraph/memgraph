@@ -79,7 +79,6 @@ TEST(EGraphBasicOperations, AddNodesWithChildren) {
 
   auto const &eclass = egraph.eclass(plus);
   EXPECT_EQ(eclass.size(), 1);
-  EXPECT_EQ(eclass.representative_id(), plus);
 }
 
 TEST(EGraphBasicOperations, DuplicateNodesReturnSameEClass) {
@@ -177,7 +176,7 @@ TEST(EGraphEClassAccess, GetEClassByID) {
   const auto &eclass = egraph.eclass(id);
   EXPECT_EQ(eclass.size(), 1);
 
-  auto repr_id = eclass.representative_id();
+  auto repr_id = *eclass.nodes().begin();
   const auto &repr = egraph.get_enode(repr_id);
   EXPECT_EQ(repr.symbol(), TestSymbol::Test);
 }
@@ -278,21 +277,21 @@ TEST(EGraphRebuildHashconsConsistency, DeepRebuildSingleParentChain) {
   EXPECT_EQ(egraph.num_classes(), 4);
 }
 
-// Helper function to validate congruence closure using canonical ENode objects
-bool ValidateCongruenceClosure(EGraph<TestSymbol, NoAnalysis> &egraph) {
-  std::unordered_map<ENode<TestSymbol>, EClassId> canonical_forms;
-
-  for (auto const &[class_id, eclass] : egraph.canonical_classes()) {
-    for (auto enode_id : eclass.nodes()) {
-      auto canonical_enode = egraph.get_enode(enode_id).canonicalize(egraph.union_find());
-      auto [it, inserted] = canonical_forms.try_emplace(canonical_enode, class_id);
-      if (!inserted && it->second != class_id) {
-        return false;  // Same canonical form in different e-classes
-      }
-    }
-  }
-  return true;
-}
+// // Helper function to validate congruence closure using canonical ENode objects
+// bool ValidateCongruenceClosure(EGraph<TestSymbol, NoAnalysis> &egraph) {
+//   std::unordered_map<ENode<TestSymbol>, EClassId> canonical_forms;
+//
+//   for (auto const &[class_id, eclass] : egraph.canonical_classes()) {
+//     for (auto enode_id : eclass.nodes()) {
+//       auto canonical_enode = egraph.get_enode(enode_id).canonicalize(egraph.union_find());
+//       auto [it, inserted] = canonical_forms.try_emplace(canonical_enode, class_id);
+//       if (!inserted && it->second != class_id) {
+//         return false;  // Same canonical form in different e-classes
+//       }
+//     }
+//   }
+//   return true;
+// }
 
 TEST(EGraphCongruenceClosureBug, MissingHashconsUpdateForSingleParent) {
   EGraph<TestSymbol, NoAnalysis> egraph;
@@ -322,7 +321,7 @@ TEST(EGraphCongruenceClosureBug, MissingHashconsUpdateForSingleParent) {
   EXPECT_EQ(egraph.find(f_a), f_merged)
       << "F(a) should be found via hashcons lookup, but single parent hashcons update may be missing";
 
-  EXPECT_TRUE(ValidateCongruenceClosure(egraph));
+  EXPECT_TRUE(egraph.ValidateCongruenceClosure());
   EXPECT_EQ(egraph.num_classes(), 2);  // (a≡b), F(a≡b)
 }
 

@@ -10,13 +10,21 @@
 // licenses/APL.txt.
 #include "planner/core/eclass.hpp"
 
-namespace memgraph::planner::core::detail {
+memgraph::planner::core::detail::EClassBase::EClassBase(ENodeId initial_enode_id) {
+  nodes_.reserve(8);
+  parents_.reserve(16);
 
-void EClassBase::add_parent(ENodeId parent_enode_id) { parents_.insert(parent_enode_id); }
-
-auto EClassBase::representative_id() const -> ENodeId {
-  // Every e-class has at least one e-node
-  return *nodes_.begin();
+  nodes_.emplace(initial_enode_id);
 }
 
-}  // namespace memgraph::planner::core::detail
+void memgraph::planner::core::detail::EClassBase::merge_with(EClassBase &other) {
+  // Simple optimization: swap if other is significantly larger
+  if (other.nodes_.size() > nodes_.size()) {
+    nodes_.swap(other.nodes_);
+    parents_.swap(other.parents_);
+  }
+
+  nodes_.insert(other.nodes_.begin(), other.nodes_.end());
+  // TODO: should parents ever be made canonical to reduce the set of equivilant parents
+  parents_.insert(other.parents_.begin(), other.parents_.end());
+}

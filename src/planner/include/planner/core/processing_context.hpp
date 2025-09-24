@@ -17,6 +17,7 @@
 
 #include <boost/container/flat_set.hpp>
 
+#include "planner/core/constants.hpp"
 #include "planner/core/eids.hpp"
 #include "planner/core/enode.hpp"
 #include "planner/core/union_find.hpp"
@@ -25,8 +26,6 @@
 namespace memgraph::planner::core {
 
 /**
- * @brief Base context with non-templated shared components
- *
  * Contains reusable buffers and state that don't depend on Symbol type.
  */
 struct BaseProcessingContext {
@@ -36,7 +35,7 @@ struct BaseProcessingContext {
    * Temporary storage for canonical children during e-node canonicalization.
    * Reusing this buffer eliminates repeated allocations in hot paths.
    */
-  mutable utils::small_vector<EClassId> canonical_children_buffer;
+  utils::small_vector<EClassId> canonical_children_buffer;
 
   /**
    * @brief Context for bulk union-find operations
@@ -45,6 +44,9 @@ struct BaseProcessingContext {
    * during congruence closure.
    */
   UnionFindContext union_find_context;
+
+  std::vector<EClassId> canonical_eclass_ids;
+  boost::container::flat_set<EClassId> canonicalized_chunk;
 };
 
 /**
@@ -54,54 +56,23 @@ struct BaseProcessingContext {
  * particularly during rebuilding and congruence closure operations.
  * By passing this context externally, we avoid mutable state in the e-graph
  * and give users control over memory allocation.
- *
- * @tparam Symbol The symbol type used in e-nodes (must satisfy ENodeSymbol concept)
- *
- * @par Usage:
- * Create a ProcessingContext and pass it to operations like merge() and rebuild():
- * @code
- * ProcessingContext<MySymbol> ctx;
- * egraph.merge(id1, id2, ctx);
- * egraph.rebuild(ctx);
- * @endcode
- *
- * @par Performance:
- * The context can be reused across multiple operations. Internal data structures
- * are cleared but capacity is retained, avoiding repeated allocations.
  */
 template <typename Symbol>
 struct ProcessingContext : BaseProcessingContext {
-  /**
-   * @brief Map from canonical e-nodes to their parent e-classes
-   *
-   * Used during rebuilding to group parents by their canonical form,
-   * enabling efficient detection of congruent parents that should be merged.
-   */
-  std::unordered_map<ENode<Symbol>, std::vector<ENodeId>> enode_to_parents;
-  std::vector<EClassId> canonical_eclass_ids;
+  ProcessingContext() { canonicalized_chunk.reserve(REBUILD_BATCH_SIZE); }
 
-  boost::container::flat_set<EClassId> canonicalized_chunk;
-
-  /**
-   * @brief Reserve capacity for expected number of unique e-nodes
-   *
-   * Pre-allocates space in the enode_to_parents map to avoid rehashing
-   * during rebuild operations.
-   *
-   * @param capacity Expected number of unique canonical e-nodes
-   */
-  void reserve(size_t capacity) { enode_to_parents.reserve(capacity); }
-
-  /**
-   * @brief Clear all temporary data
-   *
-   * Clears the contents while preserving allocated capacity for reuse.
-   * Called automatically at the start of rebuild operations.
-   */
-  void clear() {
-    enode_to_parents.clear();
-    // union_find_context is cleared internally when used
+  auto rebuild_canonicalized_chunk_container() -> boost::container::flat_set<EClassId> & {
+    canonicalized_chunk.clear();
+    return canonicalized_chunk;
   }
+
+  auto rebuild_enode_to_parents_container() -> std::unordered_map<ENode<Symbol>, std::vector<ENodeId>> & {
+    enode_to_parents.clear();
+    return enode_to_parents;
+  }
+
+ private:
+  std::unordered_map<ENode<Symbol>, std::vector<ENodeId>> enode_to_parents;
 };
 
 }  // namespace memgraph::planner::core

@@ -9,8 +9,9 @@ add_unit_test(planner
 
 # Fuzzer for e-graph operations
 if(CMAKE_CXX_COMPILER_ID STREQUAL "Clang")
+    find_package(fmt REQUIRED)
     add_executable(fuzz_egraph fuzz_egraph.cpp)
-    target_link_libraries(fuzz_egraph PRIVATE mg::planner)
+    target_link_libraries(fuzz_egraph PRIVATE mg::planner fmt::fmt)
     target_compile_options(fuzz_egraph PRIVATE -fsanitize=fuzzer,address -fno-omit-frame-pointer)
     target_link_options(fuzz_egraph PRIVATE -fsanitize=fuzzer,address)
     target_compile_definitions(fuzz_egraph PUBLIC ASSERT_FUZZ)
