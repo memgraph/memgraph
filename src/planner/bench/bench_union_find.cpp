@@ -142,5 +142,3 @@ BENCHMARK(BM_UnionFind_Find)->Range(kRangeLow, kRangeHigh)->Complexity();
 BENCHMARK(BM_UnionFind_Find_OnAChain)->Range(kRangeLow, kRangeHigh)->Complexity();
 BENCHMARK(BM_UnionFind_Union)->Range(kRangeLow, kRangeHigh)->Complexity();
 BENCHMARK(BM_UnionFind_BulkUnion)->Range(kRangeLow, kRangeHigh)->Complexity();
-
-BENCHMARK_MAIN();
