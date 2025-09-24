@@ -199,8 +199,20 @@ void Telemetry::AddExceptionCollector() {
 
 void Telemetry::AddReplicationCollector(
     utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> const &repl_state) {
+  // Optional because only main returns telemetry json data, replica returns empty o
   AddCollector("replication",
                [&repl_state]() -> std::optional<nlohmann::json> { return repl_state.ReadLock()->GetTelemetryJson(); });
 }
+
+#ifdef MG_ENTERPRISE
+void Telemetry::AddCoordinatorCollector(std::optional<coordination::CoordinatorState> const &coordinator_state) {
+  // Both leader and followers return the data
+  AddCollector("coordination", [&coordinator_state]() -> std::optional<nlohmann::json> {
+    if (coordinator_state.has_value() && coordinator_state->IsCoordinator())
+      return coordinator_state->GetTelemetryJson();
+    return std::nullopt;
+  });
+}
+#endif
 
 }  // namespace memgraph::telemetry

@@ -1382,5 +1382,13 @@ auto CoordinatorInstance::ShowReplicationLag() const -> std::map<std::string, st
   return {};
 }
 
+auto CoordinatorInstance::GetTelemetryJson() const -> nlohmann::json {
+  return nlohmann::json({{"cluster_size", raft_state_->GetCoordinatorInstancesContext().size()},
+                         {"enabled_reads_on_main", raft_state_->GetEnabledReadsOnMain()},
+                         {"sync_failover_only", raft_state_->GetSyncFailoverOnly()},
+                         {"instance_down_timeout_sec", instance_down_timeout_sec_.count()},
+                         {"instance_health_check_frequency_sec", instance_health_check_frequency_sec_.count()}});
+}
+
 }  // namespace memgraph::coordination
 #endif

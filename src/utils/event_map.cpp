@@ -73,6 +73,7 @@ nlohmann::json EventMap::ToJson() const {
 bool IncrementCounter(const std::string_view event, Count const amount) {
   return global_counters_map.Increment(event, amount);
 }
+
 bool DecrementCounter(const std::string_view event, Count const amount) {
   return global_counters_map.Decrement(event, amount);
 }
