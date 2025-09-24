@@ -1040,12 +1040,22 @@ if [ ! -d $PREFIX/include/boost ]; then
     # TODO(gitbuda): Figure out why --with-libraries=python doesn't work for protobuf
     ./bootstrap.sh --prefix=$PREFIX --with-toolset=clang --with-python=python3 --without-icu
     if [ "$TOOLCHAIN_STDCXX" = "libstdc++" ]; then
-        ./b2 toolset=clang -j$CPUS install variant=release link=static cxxstd=20 --disable-icu \
-            -sZLIB_SOURCE="$PREFIX" -sZLIB_INCLUDE="$PREFIX/include" -sZLIB_LIBPATH="$PREFIX/lib" \
-            -sBZIP2_SOURCE="$PREFIX" -sBZIP2_INCLUDE="$PREFIX/include" -sBZIP2_LIBPATH="$PREFIX/lib" \
-            -sLZMA_SOURCE="$PREFIX" -sLZMA_INCLUDE="$PREFIX/include" -sLZMA_LIBPATH="$PREFIX/lib" \
-            -sZSTD_SOURCE="$PREFIX" -sZSTD_INCLUDE="$PREFIX/include" -sZSTD_LIBPATH="$PREFIX/lib" \
-            cxxflags="-stdlib=libstdc++ -I$PREFIX/include/c++/$GCC_VERSION -L$PREFIX/lib64"
+        # For ARM64, don't use toolchain GCC headers to avoid missing bits/c++config.h issues
+        # This matches the v6 approach which worked correctly
+        if [[ "$for_arm" = true ]]; then
+            ./b2 toolset=clang -j$CPUS install variant=release link=static cxxstd=20 --disable-icu \
+                -sZLIB_SOURCE="$PREFIX" -sZLIB_INCLUDE="$PREFIX/include" -sZLIB_LIBPATH="$PREFIX/lib" \
+                -sBZIP2_SOURCE="$PREFIX" -sBZIP2_INCLUDE="$PREFIX/include" -sBZIP2_LIBPATH="$PREFIX/lib" \
+                -sLZMA_SOURCE="$PREFIX" -sLZMA_INCLUDE="$PREFIX/include" -sLZMA_LIBPATH="$PREFIX/lib" \
+                -sZSTD_SOURCE="$PREFIX" -sZSTD_INCLUDE="$PREFIX/include" -sZSTD_LIBPATH="$PREFIX/lib"
+        else
+            ./b2 toolset=clang -j$CPUS install variant=release link=static cxxstd=20 --disable-icu \
+                -sZLIB_SOURCE="$PREFIX" -sZLIB_INCLUDE="$PREFIX/include" -sZLIB_LIBPATH="$PREFIX/lib" \
+                -sBZIP2_SOURCE="$PREFIX" -sBZIP2_INCLUDE="$PREFIX/include" -sBZIP2_LIBPATH="$PREFIX/lib" \
+                -sLZMA_SOURCE="$PREFIX" -sLZMA_INCLUDE="$PREFIX/include" -sLZMA_LIBPATH="$PREFIX/lib" \
+                -sZSTD_SOURCE="$PREFIX" -sZSTD_INCLUDE="$PREFIX/include" -sZSTD_LIBPATH="$PREFIX/lib" \
+                cxxflags="-stdlib=libstdc++ -I$PREFIX/include/c++/$GCC_VERSION -L$PREFIX/lib64"
+        fi
     else
         ./b2 toolset=clang -j$CPUS install variant=release link=static cxxstd=20 --disable-icu \
             cxxflags="-stdlib=libc++" linkflags="-stdlib=libc++" \
