@@ -13,3 +13,7 @@ os = {{ {"Darwin": "Macos"}.get(platform.system(), platform.system()) }}
 tools.cmake.cmaketoolchain:generator=Ninja
 tools.cmake.cmaketoolchain:user_toolchain=["{{ os.path.join(toolchain_path, "toolchain.cmake") }}"]
 tools.build:compiler_executables={"c": "{{ os.path.join(toolchain_path, "bin/clang") }}", "cpp" : "{{ os.path.join(toolchain_path, "bin/clang++") }}"}
+
+[options]
+boost/*:without_stacktrace=True
+boost/*:without_locale=True
