@@ -394,7 +394,7 @@ setup_host_cache_permissions() {
 
   if [[ "$conan_cache_enabled" == "true" ]]; then
     echo "Setting up host conan cache directory permissions..."
-    mkdir -p $conan_cache_dir
+    mkdir -pv $conan_cache_dir
 
     # Set open permissions on the conan cache directory to allow cross-container access
     # Suppress both errors and warnings about operations not permitted
@@ -1122,7 +1122,6 @@ conan_cache_enabled=$DEFAULT_CONAN_CACHE_ENABLED
 python_cache_enabled=$DEFAULT_PYTHON_CACHE_ENABLED
 command=""
 build_container=""
-conan_cache_dir="$HOME/.conan2-${os}-${arch}"
 while [[ $# -gt 0 ]]; do
   case "$1" in
     --arch)
@@ -1202,6 +1201,7 @@ while [[ $# -gt 0 ]]; do
     ;;
   esac
 done
+conan_cache_dir="$HOME/.conan2-${os}-${arch}"
 if [[ "$os" != "all" ]]; then
   if [[ "$arch" == 'arm' ]] && [[ "$os" != *"-arm" ]]; then
     os="${os}-arm"
