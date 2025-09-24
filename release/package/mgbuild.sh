@@ -66,7 +66,7 @@ DEFAULT_BENCH_GRAPH_PORT="9001"
 DEFAULT_MGDEPS_CACHE_HOST="mgdeps-cache"
 DEFAULT_MGDEPS_CACHE_PORT="8000"
 DEFAULT_CCACHE_ENABLED="true"
-DEFAULT_PYTHON_CACHE_ENABLED="true"
+DEFAULT_PYTHON_CACHE_ENABLED="false"
 
 print_help () {
   echo -e "\nUsage:  $SCRIPT_NAME [GLOBAL OPTIONS] COMMAND [COMMAND OPTIONS]"
@@ -101,7 +101,7 @@ print_help () {
   echo -e "  --threads int                 Specify the number of threads a command will use (default \"\$(nproc)\" for container)"
   echo -e "  --toolchain string            Specify toolchain version (\"${SUPPORTED_TOOLCHAINS[*]}\") (default \"$DEFAULT_TOOLCHAIN\")"
   echo -e "  --no-ccache                   Disable ccache volume mounting (default \"$DEFAULT_CCACHE_ENABLED\") -> this is required for run, stop and build-memgraph commands on the coverage build"
-  echo -e "  --no-python-cache             Disable Python package cache volume mounting (default \"$DEFAULT_PYTHON_CACHE_ENABLED\")"
+  echo -e "  --use-python-cache             Enable Python package cache volume mounting (default \"$DEFAULT_PYTHON_CACHE_ENABLED\")"
 
   echo -e "\nbuild options:"
   echo -e "  --git-ref string              Specify git ref from which the environment deps will be installed (default \"master\")"
@@ -1041,8 +1041,8 @@ while [[ $# -gt 0 ]]; do
       ccache_enabled="false"
       shift 1
     ;;
-    --no-python-cache)
-      python_cache_enabled="false"
+    --use-python-cache)
+      python_cache_enabled="true"
       shift 1
     ;;
     *)
