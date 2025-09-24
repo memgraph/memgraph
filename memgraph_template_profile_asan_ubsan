@@ -7,3 +7,7 @@ tools.build:cflags+=["-fsanitize=address,undefined", "-fno-omit-frame-pointer", 
 tools.build:cxxflags+=["-fsanitize=address,undefined", "-fno-omit-frame-pointer", "-fno-sanitize=vptr", "-fsanitize-ignorelist={{ os.path.join(current_dir, 'tools', 'ubsan.ignore') }}"]
 tools.build:exelinkflags+=["-fsanitize=address,undefined", "-fno-sanitize=vptr"]
 tools.build:sharedlinkflags+=["-fsanitize=address,undefined", "-fno-sanitize=vptr"]
+
+[options]
+boost/*:without_stacktrace=True
+boost/*:without_locale=True
