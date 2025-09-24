@@ -47,7 +47,7 @@ TOOLCHAIN_RUN_DEPS=(
 MEMGRAPH_BUILD_DEPS=(
     git # source code control
     make cmake pkgconf-pkg-config # build system
-    wget # for downloading libs
+    wget2-wget # for downloading libs
     libuuid-devel java-25-openjdk java-25-openjdk-devel # required by antlr
     readline-devel # for memgraph console
     python3-devel # for query modules
