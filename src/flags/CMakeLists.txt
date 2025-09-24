@@ -40,5 +40,5 @@ target_sources(mg-flags
 )
 target_include_directories(mg-flags PUBLIC include)
 target_link_libraries(mg-flags
-        PUBLIC spdlog::spdlog mg-settings mg-utils mg-license
+        PUBLIC spdlog::spdlog mg-settings mg-utils mg-license gflags
         PRIVATE lib::rangev3 croncpp::croncpp)
