@@ -61,6 +61,10 @@ Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory, s
          metrics::global_one_shot_events[metrics::OneShotEvents::kFirstSuccessfulQueryTs].load()},
         {"first_failed_query", metrics::global_one_shot_events[metrics::OneShotEvents::kFirstFailedQueryTs].load()}};
   });
+  AddCollector("environment", []() -> nlohmann::json {
+    return utils::DetectRuntimeEnv() == utils::RuntimeEnv::KUBERNETES ? "kubernetes" : "else";
+  });
+
   scheduler_.Pause();  // Don't run until all collects have been added
   scheduler_.SetInterval(
       std::min(kFirstShotAfter, refresh_interval));  // use user-defined interval if shorter than first shot
@@ -130,11 +134,10 @@ void Telemetry::CollectData(const std::string &event) {
   nlohmann::json data = nlohmann::json::object();
   {
     auto guard = std::lock_guard{lock_};
-    for (auto &collector : collectors_) {
+    for (auto &[name, func] : collectors_) {
       try {
-        auto res = collector.second();
-        if (res.has_value()) {
-          data[collector.first] = std::move(*res);
+        if (auto res = func(); res.has_value()) {
+          data[name] = std::move(*res);
         }
       } catch (std::exception &e) {
         spdlog::warn(fmt::format(
