@@ -29,33 +29,14 @@ namespace memgraph::planner::core {
  * Contains reusable buffers and state that don't depend on Symbol type.
  */
 struct BaseProcessingContext {
-  /**
-   * @brief Reusable buffer for canonicalization operations
-   *
-   * Temporary storage for canonical children during e-node canonicalization.
-   * Reusing this buffer eliminates repeated allocations in hot paths.
-   */
   utils::small_vector<EClassId> canonical_children_buffer;
-
-  /**
-   * @brief Context for bulk union-find operations
-   *
-   * Provides temporary storage for efficient bulk merging of e-classes
-   * during congruence closure.
-   */
   UnionFindContext union_find_context;
-
   std::vector<EClassId> canonical_eclass_ids;
   boost::container::flat_set<EClassId> canonicalized_chunk;
 };
 
 /**
- * @brief External context for e-graph operations
- *
- * ProcessingContext provides temporary storage for e-graph algorithms,
- * particularly during rebuilding and congruence closure operations.
- * By passing this context externally, we avoid mutable state in the e-graph
- * and give users control over memory allocation.
+ * Contains reusable buffers and state
  */
 template <typename Symbol>
 struct ProcessingContext : BaseProcessingContext {

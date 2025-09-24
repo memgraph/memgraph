@@ -75,12 +75,6 @@ struct ENodeBase {
  * Example: "f(g(x), y)" = ENode{symbol: "f", children: [id_of_g_x, id_of_y]}
  *
  * @tparam Symbol Must satisfy ENodeSymbol concept (hashable, trivially copyable, ==)
- *
- * Key features:
- * - Leaf nodes: Use disambiguator field for unique constants/variables
- * - Non-leaf: Store child e-class IDs (SmallVector optimized for ≤2 children)
- * - Pre-computed hash for O(1) hash table operations
- * - Canonicalize() builds new ENode with updated child IDs after e-class merging
  */
 template <typename Symbol>
 requires ENodeSymbol<Symbol>
