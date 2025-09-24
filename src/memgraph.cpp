@@ -719,7 +719,7 @@ int main(int argc, char **argv) {
     telemetry->AddEventsCollector();
     telemetry->AddQueryModuleCollector();
     telemetry->AddExceptionCollector();
-    telemetry->AddReplicationCollector();
+    telemetry->AddReplicationCollector(repl_state);
     telemetry->Start();
   }
   memgraph::license::LicenseInfoSender license_info_sender(telemetry_server, memgraph::glue::run_id_, machine_id,

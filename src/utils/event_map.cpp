@@ -27,7 +27,7 @@ int NameToId(T &names, const K &name, uint64_t &free) {
   if (id != -1) return id;
   // Add new name
   if (free < 1) return -1;  // No more space
-  int idx = names.size() - free;
+  int const idx = names.size() - free;
   names[idx] = name;
   --free;
   return idx;
@@ -60,7 +60,7 @@ bool EventMap::Decrement(const std::string_view event, Count const amount) {
   return false;
 }
 
-nlohmann::json EventMap::ToJson() {
+nlohmann::json EventMap::ToJson() const {
   auto res = nlohmann::json::array();
   auto const num_counters = kMaxCounters - num_free_counters_;
   for (size_t i = 0; i < num_counters; ++i) {

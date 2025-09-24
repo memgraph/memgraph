@@ -22,15 +22,17 @@
 
 namespace memgraph::telemetry {
 
+using FuncSig = const std::function<std::optional<nlohmann::json>()>;
+
 /**
- * This class implements the telemetry collector service. It periodically scapes
+ * This class implements the telemetry collector service. It periodically scrapes
  * all registered collectors and stores their data. With periodically scraping
  * the collectors the service collects machine information in the constructor
  * and stores it. Also, it calls all collectors once more in the destructor so
  * that final stats can be collected. All data is stored persistently. If there
  * is no internet connection the data will be sent when the internet connection
  * is reestablished. If there is an issue with the internet connection that
- * won't effect normal operation of the service (it won't crash).
+ * won't affect normal operation of the service (it won't crash).
  */
 class Telemetry final {
  public:
@@ -39,7 +41,7 @@ class Telemetry final {
             std::chrono::duration<int64_t> refresh_interval = std::chrono::minutes(10), uint64_t send_every_n = 10);
 
   // Generic/user-defined collector
-  void AddCollector(const std::string &name, const std::function<const nlohmann::json(void)> &func);
+  void AddCollector(const std::string &name, FuncSig &func);
 
   // Specialized collectors
   void AddStorageCollector(dbms::DbmsHandler &dbms_handler, memgraph::auth::SynchedAuth &auth);
@@ -55,7 +57,7 @@ class Telemetry final {
   void AddEventsCollector();
   void AddQueryModuleCollector();
   void AddExceptionCollector();
-  void AddReplicationCollector();
+  void AddReplicationCollector(utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> const &repl_state);
 
   ~Telemetry();
 
@@ -72,7 +74,7 @@ class Telemetry final {
   /// Iterates over all collectors and calls associated functions synchronously.
   void CollectData(const std::string &event = "");
 
-  const nlohmann::json GetUptime();
+  nlohmann::json GetUptime() const;
 
   const std::string url_;
   const std::string uuid_;
@@ -85,7 +87,7 @@ class Telemetry final {
   const uint64_t send_every_n_;
 
   std::mutex lock_;
-  std::vector<std::pair<std::string, std::function<const nlohmann::json(void)>>> collectors_;
+  std::vector<std::pair<std::string, FuncSig>> collectors_;
 
   kvstore::KVStore storage_;
 };

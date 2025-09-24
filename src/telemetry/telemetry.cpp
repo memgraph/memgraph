@@ -42,8 +42,8 @@ namespace memgraph::telemetry {
 constexpr auto kMaxBatchSize{100};
 
 Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory, std::string uuid, std::string machine_id,
-                     bool ssl, std::filesystem::path root_directory, std::chrono::duration<int64_t> refresh_interval,
-                     const uint64_t send_every_n)
+                     bool const ssl, std::filesystem::path root_directory,
+                     std::chrono::duration<int64_t> refresh_interval, const uint64_t send_every_n)
     : url_(std::move(url)),
       uuid_(std::move(uuid)),
       machine_id_(std::move(machine_id)),
@@ -77,7 +77,7 @@ Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory, s
 
 void Telemetry::Start() { scheduler_.Resume(); }
 
-void Telemetry::AddCollector(const std::string &name, const std::function<const nlohmann::json(void)> &func) {
+void Telemetry::AddCollector(const std::string &name, FuncSig &func) {
   auto guard = std::lock_guard{lock_};
   collectors_.emplace_back(name, func);
 }
@@ -132,10 +132,13 @@ void Telemetry::CollectData(const std::string &event) {
     auto guard = std::lock_guard{lock_};
     for (auto &collector : collectors_) {
       try {
-        data[collector.first] = collector.second();
+        auto res = collector.second();
+        if (res.has_value()) {
+          data[collector.first] = std::move(*res);
+        }
       } catch (std::exception &e) {
         spdlog::warn(fmt::format(
-            "Unknwon exception occured on in telemetry server {}, please contact support on https://memgr.ph/unknown ",
+            "Unknown exception occurred on in telemetry server {}, please contact support on https://memgr.ph/unknown ",
             e.what()));
       }
     }
@@ -149,8 +152,7 @@ void Telemetry::CollectData(const std::string &event) {
     SendData();
   }
 }
-
-const nlohmann::json Telemetry::GetUptime() { return timer_.Elapsed().count(); }
+nlohmann::json Telemetry::GetUptime() const { return timer_.Elapsed().count(); }
 
 void Telemetry::AddQueryModuleCollector() {
   AddCollector("query_module_counters",
@@ -195,9 +197,10 @@ void Telemetry::AddExceptionCollector() {
   AddCollector("exception", []() -> nlohmann::json { return memgraph::metrics::global_counters_map.ToJson(); });
 }
 
-void Telemetry::AddReplicationCollector() {
-  // TODO Waiting for the replication refactor to be done before implementing the telemetry
-  AddCollector("replication", []() -> nlohmann::json { return {{"async", -1}, {"sync", -1}}; });
+void Telemetry::AddReplicationCollector(
+    utils::Synchronized<replication::ReplicationState, utils::RWSpinLock> const &repl_state) {
+  AddCollector("replication",
+               [&repl_state]() -> std::optional<nlohmann::json> { return repl_state.ReadLock()->GetTelemetryJson(); });
 }
 
 }  // namespace memgraph::telemetry
