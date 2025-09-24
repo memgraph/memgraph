@@ -27,8 +27,10 @@ DEFINE_int64(duration, 10, "Duration of the test in seconds.");
 DEFINE_string(storage_directory, "", "Path to the storage directory where to save telemetry data.");
 DEFINE_string(root_directory, "", "Path to the database durability root dir.");
 
+#ifdef MG_ENTERPRISE
 using memgraph::coordination::CoordinatorInstanceInitConfig;
 using memgraph::coordination::CoordinatorState;
+#endif
 
 int main(int argc, char **argv) {
   gflags::SetVersionString("telemetry");
