@@ -19,7 +19,7 @@ namespace memgraph::planner::core {
 // Simple test symbol type using enum to be trivially copyable
 // TODO: both unittest__enode and this unittest__egraph use TestSymbols, we should unify into a common test helper
 // header
-enum class TestSymbol : uint32_t {
+enum class TestSymbol : uint8_t {
   A,
   B,
   C,
@@ -31,16 +31,12 @@ enum class TestSymbol : uint32_t {
   F,
   F2,
   Test,
-  Node,
-  // For numbered nodes
-  Node0 = 1000,
-  // We can generate more by adding to Node0
 };
 
 struct NoAnalysis {};
 
 TEST(EGraphBasicOperations, EmptyEGraph) {
-  EGraph<TestSymbol, NoAnalysis> egraph;
+  auto const egraph = EGraph<TestSymbol, NoAnalysis>{};
 
   EXPECT_TRUE(egraph.empty());
   EXPECT_EQ(egraph.num_classes(), 0);
@@ -69,7 +65,7 @@ TEST(EGraphBasicOperations, AddNodesWithChildren) {
   auto b = egraph.emplace(TestSymbol::B);
 
   // Add node with children
-  EClassId plus = egraph.emplace(TestSymbol::Plus, {a, b});
+  EClassId const plus = egraph.emplace(TestSymbol::Plus, {a, b});
 
   EXPECT_EQ(egraph.num_classes(), 3);
   EXPECT_EQ(egraph.num_nodes(), 3);
@@ -95,7 +91,6 @@ TEST(EGraphBasicOperations, DuplicateNodesReturnSameEClass) {
 
 TEST(EGraphMergingOperations, MergeTwoDifferentEClasses) {
   EGraph<TestSymbol, NoAnalysis> egraph;
-  ProcessingContext<TestSymbol> ctx;
 
   auto id1 = egraph.emplace(TestSymbol::A);
   auto id2 = egraph.emplace(TestSymbol::B);
@@ -111,7 +106,6 @@ TEST(EGraphMergingOperations, MergeTwoDifferentEClasses) {
 
 TEST(EGraphMergingOperations, MergeSameEClassIsNoOp) {
   EGraph<TestSymbol, NoAnalysis> egraph;
-  ProcessingContext<TestSymbol> ctx;
 
   auto id1 = egraph.emplace(TestSymbol::A);
   auto merged = egraph.merge(id1, id1);

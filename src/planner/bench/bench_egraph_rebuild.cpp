@@ -19,7 +19,7 @@
 
 using namespace memgraph::planner::core;
 
-enum class TestSymbol : uint32_t { A, F };
+enum class TestSymbol : uint8_t { A, F };
 
 struct NoAnalysis {};
 

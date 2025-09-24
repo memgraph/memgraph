@@ -102,8 +102,8 @@ auto ENodeBase::compute_hash() const -> std::size_t {
     boost::hash_combine(seed, disambiguator_);
   } else {
     // non-leaf
-    for (size_t i = 0; i < children_.size(); ++i) {
-      boost::hash_combine(seed, children_[i]);
+    for (auto const &child : children_) {
+      boost::hash_combine(seed, child);
     }
   }
   return seed;
