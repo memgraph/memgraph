@@ -1324,7 +1324,8 @@ if [ ! -f $PREFIX/lib/libpulsarwithdeps.a ]; then
     git checkout $PULSAR_TAG
     git apply $DIR/pulsar-v3.7.1.patch
     mkdir -p build
-    cmake -B build $COMMON_CMAKE_FLAGS \
+    # Build Pulsar with ZLIB flags only for RPM distributions to avoid system ZLIB conflicts
+    PULSAR_CMAKE_FLAGS="$COMMON_CMAKE_FLAGS \
       -DBUILD_DYNAMIC_LIB=OFF \
       -DBUILD_STATIC_LIB=ON \
       -DBUILD_TESTS=OFF \
@@ -1332,7 +1333,24 @@ if [ ! -f $PREFIX/lib/libpulsarwithdeps.a ]; then
       -DPROTOC_PATH=$PREFIX/bin/protoc \
       -DBUILD_PYTHON_WRAPPER=OFF \
       -DBUILD_PERF_TOOLS=OFF \
-      -DUSE_LOG4CXX=OFF
+      -DUSE_LOG4CXX=OFF"
+
+    # Add ZLIB-specific flags for RPM distributions to avoid system ZLIB conflicts
+    if [[ "$DISTRO" =~ ^(rocky-|centos-|fedora-) ]]; then
+        PULSAR_CMAKE_FLAGS="$PULSAR_CMAKE_FLAGS \
+          -DCMAKE_POLICY_DEFAULT_CMP0144=NEW \
+          -DCMAKE_POLICY_DEFAULT_CMP0167=NEW \
+          -DCMAKE_FIND_ROOT_PATH=$PREFIX \
+          -DCMAKE_FIND_ROOT_PATH_MODE_LIBRARY=ONLY \
+          -DCMAKE_FIND_ROOT_PATH_MODE_INCLUDE=ONLY \
+          -DCMAKE_FIND_ROOT_PATH_MODE_PACKAGE=ONLY \
+          -DZLIB_ROOT=$PREFIX \
+          -DZLIB_INCLUDE_DIR=$PREFIX/include \
+          -DZLIB_LIBRARY=$PREFIX/lib/libz.a \
+          -DCMAKE_PREFIX_PATH=$PREFIX"
+    fi
+
+    cmake -B build $PULSAR_CMAKE_FLAGS
     pushd build
     cmake --build . -j$CPUS --target pulsarStaticWithDeps
     # NOTE: For some reason the withdeps is not make installed...

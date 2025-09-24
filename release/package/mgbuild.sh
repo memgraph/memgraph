@@ -43,8 +43,9 @@ SUPPORTED_OS_V6=(
 
 SUPPORTED_OS_V7=(
     centos-9 centos-10
-    debian-11 debian-11-arm debian-12 debian-12-arm
-    fedora-41
+    debian-11 debian-11-arm debian-12 debian-12-arm debian-13 debian-13-arm
+    fedora-41 fedora-42 fedora-42-arm
+    rocky-9 rocky-10
     ubuntu-22.04 ubuntu-24.04 ubuntu-24.04-arm
 )
 
