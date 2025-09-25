@@ -1,7 +1,7 @@
 {% set toolchain_path = os.getenv("MG_TOOLCHAIN_ROOT") %}
 
 [settings]
-arch = {{ {"arm64": "armv8"}.get(platform.machine(), platform.machine()) }}
+arch = {{ {"aarch64": "armv8"}.get(platform.machine(), platform.machine()) }}
 build_type = {{ os.getenv("BUILD_TYPE") }}
 compiler=clang
 compiler.cppstd=gnu20
