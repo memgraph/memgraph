@@ -22,7 +22,7 @@
 
 namespace memgraph::telemetry {
 
-using FuncSig = const std::function<std::optional<nlohmann::json>()>;
+using FuncSig = std::function<std::optional<nlohmann::json>()>;
 
 /**
  * This class implements the telemetry collector service. It periodically scrapes
@@ -41,7 +41,7 @@ class Telemetry final {
             std::chrono::duration<int64_t> refresh_interval = std::chrono::minutes(10), uint64_t send_every_n = 10);
 
   // Generic/user-defined collector
-  void AddCollector(const std::string &name, FuncSig &func);
+  void AddCollector(std::string name, FuncSig func);
 
   // Specialized collectors
   void AddStorageCollector(dbms::DbmsHandler &dbms_handler, memgraph::auth::SynchedAuth &auth);

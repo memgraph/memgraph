@@ -24,7 +24,6 @@
 #include "utils/event_counter.hpp"
 #include "utils/event_map.hpp"
 #include "utils/event_trigger.hpp"
-#include "utils/file.hpp"
 #include "utils/logging.hpp"
 #include "utils/system_info.hpp"
 #include "utils/timestamp.hpp"
@@ -81,9 +80,9 @@ Telemetry::Telemetry(std::string url, std::filesystem::path storage_directory, s
 
 void Telemetry::Start() { scheduler_.Resume(); }
 
-void Telemetry::AddCollector(const std::string &name, FuncSig &func) {
+void Telemetry::AddCollector(std::string name, FuncSig func) {
   auto guard = std::lock_guard{lock_};
-  collectors_.emplace_back(name, func);
+  collectors_.emplace_back(std::move(name), std::move(func));
 }
 
 Telemetry::~Telemetry() {
@@ -113,7 +112,7 @@ void Telemetry::SendData() {
     try {
       payload.push_back(nlohmann::json::parse(it->second));
     } catch (const nlohmann::json::parse_error &e) {
-      SPDLOG_WARN("Couldn't convert {} to json", it->second);
+      SPDLOG_WARN("Couldn't convert {} to json. Error: {}", it->second, e.what());
     }
   }
 

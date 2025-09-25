@@ -133,6 +133,7 @@ void DataInstanceManagementServerHandlers::GetDatabaseHistoriesHandler(
   if (request_version == coordination::GetDatabaseHistoriesReqV1::kVersion) {
     rpc::SendFinalResponse(std::get<coordination::GetDatabaseHistoriesResV1>(rpc_res_var), request_version,
                            res_builder);
+    `
   } else {
     rpc::SendFinalResponse(std::get<coordination::GetDatabaseHistoriesRes>(rpc_res_var), request_version, res_builder);
   }
