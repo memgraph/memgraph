@@ -29,6 +29,7 @@ USER mg
 # Install rust
 ARG RUST_VERSION
 RUN curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y \
+    && . "$HOME/.cargo/env" \
     && rustup default ${RUST_VERSION}
 
 # Fix node
