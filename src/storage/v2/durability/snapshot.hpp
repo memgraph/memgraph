@@ -83,6 +83,19 @@ RecoveredSnapshot LoadSnapshot(std::filesystem::path const &path, utils::SkipLis
                                memgraph::storage::SharedSchemaTracking *schema_info, memgraph::storage::ttl::TTL *ttl,
                                std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
+using OldSnapshotFiles = std::vector<std::pair<uint64_t, std::filesystem::path>>;
+
+auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_directory, const std::string &path,
+                                        const std::string &uuid, utils::FileRetainer *file_retainer, Storage *storage)
+    -> OldSnapshotFiles;
+
+void DeleteOldSnapshotFiles(OldSnapshotFiles &old_snapshot_files, uint64_t snapshot_retention_count,
+                            utils::FileRetainer *file_retainer);
+
+void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, const std::string &uuid,
+                                  OldSnapshotFiles const &old_snapshot_files, Transaction *transaction,
+                                  utils::FileRetainer *file_retainer);
+
 std::optional<std::filesystem::path> CreateSnapshot(
     Storage *storage, Transaction *transaction, const std::filesystem::path &snapshot_directory,
     const std::filesystem::path &wal_directory, utils::SkipList<Vertex> *vertices, utils::SkipList<Edge> *edges,

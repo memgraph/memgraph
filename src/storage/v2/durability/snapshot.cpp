@@ -8562,7 +8562,7 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
 
 using OldSnapshotFiles = std::vector<std::pair<uint64_t, std::filesystem::path>>;
 void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, const std::string &uuid,
-                                  OldSnapshotFiles old_snapshot_files, Transaction *transaction,
+                                  OldSnapshotFiles const &old_snapshot_files, Transaction *transaction,
                                   utils::FileRetainer *file_retainer) {
   std::vector<std::tuple<uint64_t, uint64_t, uint64_t, std::filesystem::path>> wal_files;
   std::error_code error_code;
@@ -8603,12 +8603,12 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
       break;
     }
   }
+
   if (pos && *pos > 0) {
     // We need to leave at least one WAL file that contains deltas that were
     // created before the oldest snapshot. Because we always leave at least
     // one WAL file that contains deltas before the snapshot, this correctly
     // handles the edge case when that one file is the current WAL file that
-    // is being appended to.
     for (uint64_t i = 0; i < *pos; ++i) {
       const auto &[seq_num, from_timestamp, to_timestamp, wal_path] = wal_files[i];
       file_retainer->DeleteFile(wal_path);
@@ -8629,7 +8629,7 @@ auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_di
       if (info.uuid != uuid) continue;
       old_snapshot_files.emplace_back(info.durable_timestamp, item.path());
     } catch (const RecoveryFailure &e) {
-      spdlog::warn("Found a corrupt snapshot file {} becuase of: {}. Corrupted snapshot file will be deleted.",
+      spdlog::warn("Found a corrupt snapshot file {} because of: {}. Corrupted snapshot file will be deleted.",
                    item.path(), e.what());
       file_retainer->DeleteFile(item.path());
     }
@@ -8641,16 +8641,23 @@ auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_di
         storage->config_.durability.snapshot_retention_count, error_code.message(), "https://memgr.ph/snapshots"));
   }
 
-  std::sort(old_snapshot_files.begin(), old_snapshot_files.end());
-  if (old_snapshot_files.size() <= storage->config_.durability.snapshot_retention_count - 1) return old_snapshot_files;
+  DeleteOldSnapshotFiles(old_snapshot_files, storage->config_.durability.snapshot_retention_count, file_retainer);
+  return old_snapshot_files;
+}
 
-  const uint32_t num_to_erase = old_snapshot_files.size() - (storage->config_.durability.snapshot_retention_count - 1);
+void DeleteOldSnapshotFiles(OldSnapshotFiles &old_snapshot_files, uint64_t const snapshot_retention_count,
+                            utils::FileRetainer *file_retainer) {
+  std::ranges::sort(old_snapshot_files);
+
+  if (old_snapshot_files.size() < snapshot_retention_count) return;
+
+  const uint32_t num_to_erase = old_snapshot_files.size() - (snapshot_retention_count - 1);
   for (size_t i = 0; i < num_to_erase; ++i) {
     const auto &[_, snapshot_path] = old_snapshot_files[i];
     file_retainer->DeleteFile(snapshot_path);
   }
+
   old_snapshot_files.erase(old_snapshot_files.begin(), old_snapshot_files.begin() + num_to_erase);
-  return old_snapshot_files;
 }
 
 std::optional<std::filesystem::path> CreateSnapshot(
