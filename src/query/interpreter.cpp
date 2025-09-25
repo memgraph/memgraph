@@ -882,7 +882,11 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
 
         // If the license is not valid we create users with admin access
         if (!valid_enterprise_license) {
-          spdlog::warn("Granting all the privileges to {}.", username);
+          spdlog::warn(
+              "Granting all the privileges to {}. You're currently using Memgraph Community License and all the users "
+              "will have full privileges to access Memgraph database. If you want to ensure privileges are applied, "
+              "please add Memgraph Enterprise License and restart Memgraph for the configuration to apply.",
+              username);
           auth->GrantPrivilege(
               username, kPrivilegesAll
 #ifdef MG_ENTERPRISE
