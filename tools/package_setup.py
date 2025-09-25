@@ -49,6 +49,8 @@ class PackageSetup:
             "debian-12-arm": value,
             "debian-13": value,
             "debian-13-arm": value,
+            "docker": value,
+            "docker-arm": value,
             "fedora-42": value,
             "fedora-42-arm": value,
             "rocky-10": value,

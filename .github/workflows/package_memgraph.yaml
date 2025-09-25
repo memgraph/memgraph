@@ -220,6 +220,21 @@ jobs:
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
     secrets: inherit
 
+  Fedora42-arm:
+    needs: PackageSetup
+    if: ${{ needs.PackageSetup.outputs.run_package_fedora_42_arm == 'true' }}
+    uses: ./.github/workflows/reusable_package.yaml
+    with:
+      os: "fedora-42"
+      arch: "arm"
+      build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
+      push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
+      push_to_github: false
+      s3_bucket: deps.memgraph.io
+      s3_region: eu-west-1
+      s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
+    secrets: inherit
+
   RockyLinux10:
     needs: PackageSetup
     if: ${{ needs.PackageSetup.outputs.run_package_rocky_10 == 'true' }}
