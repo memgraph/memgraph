@@ -22,6 +22,8 @@
 #include "utils/uuid.hpp"
 #include "utils/variant_helpers.hpp"
 
+#include "nlohmann/json.hpp"
+
 constexpr auto kReplicationDirectory = std::string_view{"replication"};
 
 namespace memgraph::replication {
@@ -347,6 +349,40 @@ utils::BasicResult<RegisterReplicaStatus, ReplicationClient *> ReplicationState:
     return client;
   }
   return res;
+}
+
+std::optional<nlohmann::json> ReplicationState::GetTelemetryJson() const {
+  auto const replica_handler = [](RoleReplicaData const & /*replica*/) -> std::optional<nlohmann::json> {
+    return std::nullopt;
+  };
+
+  auto const main_handler = [](RoleMainData const &main) -> std::optional<nlohmann::json> {
+    struct ReplicasTypeCounter {
+      uint32_t num_async_{0};
+      uint32_t num_sync_{0};
+      uint32_t num_strict_sync_{0};
+    };
+
+    ReplicasTypeCounter replicas_type_counter;
+
+    for (auto const &repl_client : main.registered_replicas_) {
+      if (repl_client.mode_ == replication_coordination_glue::ReplicationMode::ASYNC) {
+        replicas_type_counter.num_async_++;
+      } else if (repl_client.mode_ == replication_coordination_glue::ReplicationMode::SYNC) {
+        replicas_type_counter.num_sync_++;
+      } else if (repl_client.mode_ == replication_coordination_glue::ReplicationMode::STRICT_SYNC) {
+        replicas_type_counter.num_strict_sync_++;
+      } else {
+        LOG_FATAL("Please handle new replication type in the telemetry code");
+      }
+    }
+
+    return nlohmann::json({{"async", replicas_type_counter.num_async_},
+                           {"sync", replicas_type_counter.num_sync_},
+                           {"strict_sync", replicas_type_counter.num_strict_sync_}});
+  };
+
+  return std::visit(utils::Overloaded{main_handler, replica_handler}, replication_data_);
 }
 
 }  // namespace memgraph::replication

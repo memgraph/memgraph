@@ -183,6 +183,12 @@ auto CoordinatorState::YieldLeadership() const -> YieldLeadershipStatus {
   return std::get<CoordinatorInstance>(data_).YieldLeadership();
 }
 
+auto CoordinatorState::GetTelemetryJson() const -> nlohmann::json {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator cannot return telemetry json data since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).GetTelemetryJson();
+}
+
 auto CoordinatorState::IsCoordinator() const -> bool { return std::holds_alternative<CoordinatorInstance>(data_); }
 
 auto CoordinatorState::IsDataInstance() const -> bool {
