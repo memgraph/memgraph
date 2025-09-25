@@ -68,6 +68,7 @@ MEMGRAPH_BUILD_DEPS=(
     libtool  # for protobuf code generation
     cyrus-sasl-devel
     ninja-build
+    perl
 )
 
 MEMGRAPH_TEST_DEPS="${MEMGRAPH_BUILD_DEPS[*]}"
