@@ -211,4 +211,12 @@ nlohmann::json GetSystemInfo() {
           {"microarch_level", cpu_info.microarch_level}};
 }
 
+RuntimeEnv DetectRuntimeEnv() {
+  // These are always added when the app is run in K8s
+  if (std::getenv("KUBERNETES_SERVICE_HOST") || std::getenv("KUBERNETES_PORT")) {
+    return RuntimeEnv::KUBERNETES;
+  }
+  return RuntimeEnv::NO_KUBERNETES;
+}
+
 }  // namespace memgraph::utils
