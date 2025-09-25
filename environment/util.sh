@@ -2,8 +2,15 @@
 
 function operating_system() {
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        grep -E '^(VERSION_)?ID=' /etc/os-release | \
-        sort | cut -d '=' -f 2- | sed 's/"//g' | paste -s -d '-'
+        os_info=$(grep -E '^(VERSION_)?ID=' /etc/os-release | \
+        sort | cut -d '=' -f 2- | sed 's/"//g' | paste -s -d '-')
+        
+        # Handle Rocky distributions to only take major version
+        if [[ "$os_info" == rocky-* ]]; then
+            echo "$os_info" | sed 's/\(rocky-[0-9]*\)\..*/\1/'
+        else
+            echo "$os_info"
+        fi
     elif [[ "$OSTYPE" == "darwin"* ]]; then
         echo "$(sw_vers -productName)-$(sw_vers -productVersion | cut -d '.' -f 1)"
     else
