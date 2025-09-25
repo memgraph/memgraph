@@ -45,7 +45,7 @@ TOOLCHAIN_RUN_DEPS=(
 
 MEMGRAPH_BUILD_DEPS=(
     git # source code control
-    gcc-c++ libstdc++-devel libstdc++-static libgcc-static
+    gcc-c++ libstdc++-devel libstdc++-static
     make cmake pkgconf-pkg-config # build system
     wget2-wget # for downloading libs
     libuuid-devel java-25-openjdk java-25-openjdk-devel # required by antlr
