@@ -27,6 +27,11 @@ on:
         type: string
         description: "The ID of the run that triggered this workflow."
         default: '0'
+      ref:
+        description: 'Branch or commit ref to run the workflow on'
+        required: false
+        default: ''
+        type: string
 
 env:
   ARCH: ${{ inputs.arch }}
@@ -46,6 +51,7 @@ jobs:
       - name: Set up repository
         uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
 
       - name: Log in to Docker Hub
@@ -167,6 +173,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
@@ -237,6 +244,7 @@ jobs:
         uses: actions/checkout@v4
         with:
           fetch-depth: 0
+          ref: ${{ inputs.ref || github.ref }}
 
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login

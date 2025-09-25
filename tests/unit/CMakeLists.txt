@@ -732,7 +732,7 @@ add_unit_test(snapshot_rpc_progress
 
 add_unit_test(rpc_versioning
     SOURCES rpc_versioning.cpp
-    LINK_TARGETS mg-rpc rpc_messages
+    LINK_TARGETS mg-coordination mg-repl_coord_glue mg-rpc rpc_messages
 )
 
 # Test websocket

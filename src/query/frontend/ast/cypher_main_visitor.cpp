@@ -3238,6 +3238,8 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
                      ? std::any_cast<Expression *>(ctx->listComprehension()->expression()->accept(this))
                      : nullptr;
     return static_cast<Expression *>(storage_->Create<ListComprehension>(ident, list, where, expr));
+  } else if (ctx->patternExpression()) {
+    return std::any_cast<Expression *>(ctx->patternExpression()->accept(this));
   }
 
   // NOTE: Memgraph does NOT support patterns under filtering.
@@ -3376,6 +3378,16 @@ antlrcpp::Any CypherMainVisitor::visitPatternComprehension(MemgraphCypher::Patte
   }
   comprehension->resultExpr_ = std::any_cast<Expression *>(ctx->expression()->accept(this));
   return static_cast<Expression *>(comprehension);
+}
+
+antlrcpp::Any CypherMainVisitor::visitPatternExpression(MemgraphCypher::PatternExpressionContext *ctx) {
+  auto *exists = storage_->Create<Exists>();
+  exists->content_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
+  if (exists->GetPattern()->identifier_) {
+    throw SyntaxException("Identifiers are not supported in pattern expressions.");
+  }
+
+  return static_cast<Expression *>(exists);
 }
 
 antlrcpp::Any CypherMainVisitor::visitParenthesizedExpression(MemgraphCypher::ParenthesizedExpressionContext *ctx) {

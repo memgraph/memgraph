@@ -603,6 +603,9 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case coordination::SetCoordinatorSettingStatus::UNKNOWN_SETTING: {
         throw QueryRuntimeException("Setting {} doesn't exist on coordinators.", setting_name);
       }
+      case coordination::SetCoordinatorSettingStatus::INVALID_ARGUMENT: {
+        throw QueryRuntimeException("Invalid argument detected while trying to update setting {}", setting_name);
+      }
     }
   }
 
@@ -6885,7 +6888,8 @@ void Interpreter::RollbackTransaction() {
 }
 
 #ifdef MG_ENTERPRISE
-auto Interpreter::Route(std::map<std::string, std::string> const &routing) -> RouteResult {
+auto Interpreter::Route(std::map<std::string, std::string> const &routing, std::optional<std::string> const &db)
+    -> RouteResult {
   if (!interpreter_context_->coordinator_state_) {
     throw QueryException("You cannot fetch routing table from an instance which is not part of a cluster.");
   }
@@ -6905,7 +6909,8 @@ auto Interpreter::Route(std::map<std::string, std::string> const &routing) -> Ro
     return result;
   }
 
-  return RouteResult{.servers = interpreter_context_->coordinator_state_->get().GetRoutingTable()};
+  auto const db_name = db.has_value() ? *db : dbms::kDefaultDB;
+  return RouteResult{.servers = interpreter_context_->coordinator_state_->get().GetRoutingTable(db_name)};
 }
 #endif
 

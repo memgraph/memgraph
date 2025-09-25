@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -19,10 +19,24 @@
 
 namespace memgraph::coordination {
 
-struct InstanceState {
+struct InstanceStateV1 {
   bool is_replica;                  // MAIN or REPLICA
   std::optional<utils::UUID> uuid;  // MAIN's UUID or the UUID which REPLICA listens
   bool is_writing_enabled;          // on replica it's never enabled. On main depends.
+};
+
+struct InstanceState {
+  bool is_replica;                                               // MAIN or REPLICA
+  std::optional<utils::UUID> uuid;                               // MAIN's UUID or the UUID which REPLICA listens
+  bool is_writing_enabled;                                       // on replica it's never enabled. On main depends.
+  std::optional<std::map<std::string, uint64_t>> main_num_txns;  // if main, returns db->num_committed_txns
+  std::optional<std::map<std::string, std::map<std::string, int64_t>>>
+      replicas_num_txns;  // if main, return num of committed txns for each instance
+
+  // Follows the logic of other RPC versioning code. For responses, we downgrade newer version to the older version
+  InstanceStateV1 Downgrade() const {
+    return {.is_replica = is_replica, .uuid = uuid, .is_writing_enabled = is_writing_enabled};
+  }
 };
 
 }  // namespace memgraph::coordination

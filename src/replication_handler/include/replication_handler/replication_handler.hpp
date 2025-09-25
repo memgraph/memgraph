@@ -159,8 +159,15 @@ struct ReplicationHandler : public query::ReplicationQueryHandler {
   auto GetReplState() { return repl_state_.Lock(); }
 
 #ifdef MG_ENTERPRISE
-  auto GetDatabasesHistories() const -> replication_coordination_glue::InstanceInfo;
+  std::variant<coordination::GetDatabaseHistoriesResV1, coordination::GetDatabaseHistoriesRes> GetDatabasesHistories(
+      uint64_t request_version) const;
+
   auto GetReplicationLag() const -> coordination::ReplicationLagInfo;
+
+  using ReplicasResT = std::map<std::string, std::map<std::string, int64_t>>;
+  using MainResT = std::map<std::string, uint64_t>;
+  std::pair<MainResT, ReplicasResT> GetNumCommittedTxns() const;
+
 #endif
 
  private:
