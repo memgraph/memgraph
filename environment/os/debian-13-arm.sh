@@ -47,6 +47,7 @@ TOOLCHAIN_RUN_DEPS=(
 
 MEMGRAPH_BUILD_DEPS=(
     git # source code control
+    g++ libstdc++-dev
     make cmake pkg-config # build system
     curl wget # for downloading libs
     uuid-dev default-jre-headless # required by antlr
