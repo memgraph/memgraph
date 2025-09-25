@@ -143,10 +143,8 @@ bool Scheduler::IsRunning() {
 }
 
 void Scheduler::SpinOnce() {
-  {
-    auto lk = std::unique_lock{mutex_};
-    spin_once_ = true;
-  }
+  auto lk = std::unique_lock{mutex_};
+  spin_once_ = true;
   condition_variable_.notify_one();
 }
 
