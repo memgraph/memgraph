@@ -6430,7 +6430,9 @@ PreparedQuery PrepareSessionTraceQuery(ParsedQuery parsed_query, CurrentDB &curr
                        RWType::NONE};
 }
 
-PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, CurrentDB &current_db) {
+PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, CurrentDB &current_db,
+                                         InterpreterContext *interpreter_context,
+                                         std::shared_ptr<QueryUserOrRole> user_or_role) {
   if (current_db.db_acc_->get()->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
     throw ShowSchemaInfoOnDiskException();
   }
@@ -6438,8 +6440,8 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
   Callback callback;
   callback.header = {"schema"};
   callback.fn = [db = *current_db.db_acc_, db_acc = current_db.execution_db_accessor_,
-                 storage_acc =
-                     current_db.db_transactional_accessor_.get()]() mutable -> std::vector<std::vector<TypedValue>> {
+                 storage_acc = current_db.db_transactional_accessor_.get(), interpreter_context,
+                 user_or_role]() mutable -> std::vector<std::vector<TypedValue>> {
     memgraph::metrics::IncrementCounter(memgraph::metrics::ShowSchema);
 
     std::vector<std::vector<TypedValue>> schema;
@@ -6583,6 +6585,163 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
                                     {"data_type", TypeConstraintKindToString(constraint_kind)}}));
       }
       json.emplace("node_constraints", std::move(node_constraints));
+
+#ifdef MG_ENTERPRISE
+      // Apply fine-grained access control filtering if auth_checker is available
+      std::unique_ptr<FineGrainedAuthChecker> auth_checker = nullptr;
+      if (interpreter_context && interpreter_context->auth_checker && user_or_role && *user_or_role && db_acc) {
+        auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(user_or_role, &*db_acc);
+      }
+      if (auth_checker) {
+        // Filter schema info nodes based on label access permissions
+        if (json.contains("nodes") && json["nodes"].is_array()) {
+          auto filtered_nodes = nlohmann::json::array();
+          for (const auto &node : json["nodes"]) {
+            if (node.contains("labels") && node["labels"].is_array()) {
+              bool has_access = true;
+              for (const auto &label_name : node["labels"]) {
+                if (label_name.is_string()) {
+                  auto label_id = storage->NameToLabel(label_name.get<std::string>());
+                  if (!auth_checker->Has(std::vector<storage::LabelId>{label_id},
+                                         AuthQuery::FineGrainedPrivilege::READ)) {
+                    has_access = false;
+                    break;
+                  }
+                }
+              }
+              if (has_access) {
+                filtered_nodes.push_back(node);
+              }
+            }
+          }
+          json["nodes"] = std::move(filtered_nodes);
+        }
+
+        // Filter schema info edges based on edge type and label access permissions
+        if (json.contains("edges") && json["edges"].is_array()) {
+          auto filtered_edges = nlohmann::json::array();
+          for (const auto &edge : json["edges"]) {
+            bool has_access = true;
+
+            // Check edge type access
+            if (edge.contains("type") && edge["type"].is_string()) {
+              auto edge_type_id = storage->NameToEdgeType(edge["type"].get<std::string>());
+              if (!auth_checker->Has(edge_type_id, AuthQuery::FineGrainedPrivilege::READ)) {
+                has_access = false;
+              }
+            }
+
+            // Check start node labels access
+            if (has_access && edge.contains("start_node_labels") && edge["start_node_labels"].is_array()) {
+              for (const auto &label_name : edge["start_node_labels"]) {
+                if (label_name.is_string()) {
+                  auto label_id = storage->NameToLabel(label_name.get<std::string>());
+                  if (!auth_checker->Has(std::vector<storage::LabelId>{label_id},
+                                         AuthQuery::FineGrainedPrivilege::READ)) {
+                    has_access = false;
+                    break;
+                  }
+                }
+              }
+            }
+
+            // Check end node labels access
+            if (has_access && edge.contains("end_node_labels") && edge["end_node_labels"].is_array()) {
+              for (const auto &label_name : edge["end_node_labels"]) {
+                if (label_name.is_string()) {
+                  auto label_id = storage->NameToLabel(label_name.get<std::string>());
+                  if (!auth_checker->Has(std::vector<storage::LabelId>{label_id},
+                                         AuthQuery::FineGrainedPrivilege::READ)) {
+                    has_access = false;
+                    break;
+                  }
+                }
+              }
+            }
+
+            if (has_access) {
+              filtered_edges.push_back(edge);
+            }
+          }
+          json["edges"] = std::move(filtered_edges);
+        }
+        // Filter node indexes based on label access permissions
+        if (json.contains("node_indexes") && json["node_indexes"].is_array()) {
+          auto filtered_node_indexes = nlohmann::json::array();
+          for (const auto &index : json["node_indexes"]) {
+            if (index.contains("labels") && index["labels"].is_array()) {
+              bool has_access = true;
+              for (const auto &label_name : index["labels"]) {
+                if (label_name.is_string()) {
+                  auto label_id = storage->NameToLabel(label_name.get<std::string>());
+                  if (!auth_checker->Has(std::vector<storage::LabelId>{label_id},
+                                         AuthQuery::FineGrainedPrivilege::READ)) {
+                    has_access = false;
+                    break;
+                  }
+                }
+              }
+              if (has_access) {
+                filtered_node_indexes.push_back(index);
+              }
+            }
+          }
+          json["node_indexes"] = std::move(filtered_node_indexes);
+        }
+
+        // Filter edge indexes based on edge type access permissions
+        if (json.contains("edge_indexes") && json["edge_indexes"].is_array()) {
+          auto filtered_edge_indexes = nlohmann::json::array();
+          for (const auto &index : json["edge_indexes"]) {
+            if (index.contains("edge_type") && index["edge_type"].is_array()) {
+              bool has_access = true;
+              for (const auto &edge_type_name : index["edge_type"]) {
+                if (edge_type_name.is_string()) {
+                  auto edge_type_id = storage->NameToEdgeType(edge_type_name.get<std::string>());
+                  if (!auth_checker->Has(edge_type_id, AuthQuery::FineGrainedPrivilege::READ)) {
+                    has_access = false;
+                    break;
+                  }
+                }
+              }
+              if (has_access) {
+                filtered_edge_indexes.push_back(index);
+              }
+            } else if (index.contains("properties") && index["properties"].is_array()) {
+              // For edge property indices without specific edge types, check if user has global edge access
+              if (auth_checker->HasGlobalPrivilegeOnEdges(AuthQuery::FineGrainedPrivilege::READ)) {
+                filtered_edge_indexes.push_back(index);
+              }
+            }
+          }
+          json["edge_indexes"] = std::move(filtered_edge_indexes);
+        }
+
+        // Filter node constraints based on label access permissions
+        if (json.contains("node_constraints") && json["node_constraints"].is_array()) {
+          auto filtered_node_constraints = nlohmann::json::array();
+          for (const auto &constraint : json["node_constraints"]) {
+            if (constraint.contains("labels") && constraint["labels"].is_array()) {
+              bool has_access = true;
+              for (const auto &label_name : constraint["labels"]) {
+                if (label_name.is_string()) {
+                  auto label_id = storage->NameToLabel(label_name.get<std::string>());
+                  if (!auth_checker->Has(std::vector<storage::LabelId>{label_id},
+                                         AuthQuery::FineGrainedPrivilege::READ)) {
+                    has_access = false;
+                    break;
+                  }
+                }
+              }
+              if (has_access) {
+                filtered_node_constraints.push_back(constraint);
+              }
+            }
+          }
+          json["node_constraints"] = std::move(filtered_node_constraints);
+        }
+      }
+#endif
 
       // ENUMS
       auto enums = nlohmann::json::array();
@@ -7428,7 +7587,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       if (in_explicit_transaction_) {
         throw ShowSchemaInfoInMulticommandTxException();
       }
-      prepared_query = PrepareShowSchemaInfoQuery(parsed_query, current_db_);
+      prepared_query = PrepareShowSchemaInfoQuery(parsed_query, current_db_, interpreter_context_, user_or_role_);
     } else if (utils::Downcast<SessionTraceQuery>(parsed_query.query)) {
       prepared_query = PrepareSessionTraceQuery(std::move(parsed_query), current_db_, this);
     } else if (utils::Downcast<UserProfileQuery>(parsed_query.query)) {
