@@ -6589,7 +6589,8 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
 #ifdef MG_ENTERPRISE
       // Apply fine-grained access control filtering if auth_checker is available
       std::unique_ptr<FineGrainedAuthChecker> auth_checker = nullptr;
-      if (interpreter_context && interpreter_context->auth_checker && user_or_role && *user_or_role && db_acc) {
+      if (license::global_license_checker.IsEnterpriseValidFast() && interpreter_context &&
+          interpreter_context->auth_checker && user_or_role && *user_or_role && db_acc) {
         auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(user_or_role, &*db_acc);
       }
       if (auth_checker) {
