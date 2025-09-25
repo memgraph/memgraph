@@ -107,10 +107,7 @@ class DurabilityTest : public ::testing::TestWithParam<bool> {
         extended_edge_gids_(kNumExtendedEdges, memgraph::storage::Gid::FromUint(std::numeric_limits<uint64_t>::max())) {
   }
 
-  void SetUp() override {
-    Clear();
-    memgraph::flags::SetExperimental(memgraph::flags::Experiments::TEXT_SEARCH);
-  }
+  void SetUp() override { Clear(); }
 
   void TearDown() override { Clear(); }
 
