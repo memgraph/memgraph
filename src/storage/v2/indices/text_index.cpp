@@ -13,6 +13,7 @@
 
 #include "flags/experimental.hpp"
 #include "mgcxx_text_search.hpp"
+#include "query/exceptions.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
 #include "storage/v2/transaction.hpp"

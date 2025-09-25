@@ -14,6 +14,7 @@
 #include <tuple>
 
 #include "flags/general.hpp"
+#include "query/exceptions.hpp"
 #include "spdlog/spdlog.h"
 
 #include "flags/experimental.hpp"
