@@ -7,9 +7,16 @@ DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
 # IMPORTANT: Deprecated since memgraph v2.12.0.
+# Parse command line arguments for --skip-check flag
+SKIP_CHECK=$(parse_skip_check_flag "$@")
 
-check_operating_system "debian-11"
-check_architecture "arm64" "aarch64"
+# Only run checks if --skip-check flag is not provided
+if [[ "$SKIP_CHECK" == false ]]; then
+    check_operating_system "debian-11"
+    check_architecture "arm64" "aarch64"
+else
+    echo "Skipping checks for debian-11-arm"
+fi
 
 TOOLCHAIN_BUILD_DEPS=(
     coreutils gcc g++ build-essential make # generic build tools
@@ -78,7 +85,8 @@ NEW_DEPS=(
 )
 
 list() {
-    echo "$1"
+    local -n packages="$1"
+    printf '%s\n' "${packages[@]}"
 }
 
 check() {
@@ -186,5 +194,4 @@ EOF
     fi
 }
 
-deps=$2"[*]"
 "$1" "$2"
