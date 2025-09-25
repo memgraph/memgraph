@@ -531,6 +531,11 @@ add_unit_test(storage_v2_create_snapshot
     LINK_TARGETS mg::storage mg-dbms
 )
 
+add_unit_test(storage_v2_retention.
+        SOURCES storage_v2_retention.cpp
+        LINK_TARGETS mg::storage
+)
+
 add_unit_test(storage_rocks
     SOURCES storage_rocks.cpp
     LINK_TARGETS mg::storage
