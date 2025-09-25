@@ -47,7 +47,7 @@ TOOLCHAIN_RUN_DEPS=(
 
 MEMGRAPH_BUILD_DEPS=(
     git # source code control
-    make pkg-config # build system
+    cmake make pkg-config # build system
     curl wget # for downloading libs
     uuid-dev default-jre-headless # required by antlr
     libreadline-dev # for memgraph console
