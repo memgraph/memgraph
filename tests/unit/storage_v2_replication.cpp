@@ -122,7 +122,7 @@ class ReplicationTest : public ::testing::Test {
 };
 
 struct MinMemgraph {
-  MinMemgraph(const memgraph::storage::Config &conf)
+  explicit MinMemgraph(const memgraph::storage::Config &conf)
       : auth{conf.durability.storage_directory / "auth", memgraph::auth::Auth::Config{/* default */}},
         repl_state{ReplicationStateRootPath(conf)},
         dbms{conf, repl_state
@@ -1636,4 +1636,41 @@ TEST_F(ReplicationTest, SchemaReplication) {
   main.emplace(conf);  // Important to have a snapshot to recover from
   start_replica();
   EXPECT_TRUE(ConfrontJSON(get_schema(*main), get_schema(*replica)));
+}
+
+TEST_F(ReplicationTest, GetTelemetryJson) {
+  MinMemgraph main(main_conf);
+  MinMemgraph replica1(repl_conf);
+  MinMemgraph replica2(repl2_conf);
+
+  replica1.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
+      .repl_server = Endpoint(local_host, ports[0]),
+  });
+  replica2.repl_handler.TrySetReplicationRoleReplica(ReplicationServerConfig{
+      .repl_server = Endpoint(local_host, ports[1]),
+  });
+
+  ASSERT_FALSE(main.repl_handler
+                   .TryRegisterReplica(ReplicationClientConfig{
+                       .name = replicas[0],
+                       .mode = ReplicationMode::ASYNC,
+                       .repl_server_endpoint = Endpoint(local_host, ports[0]),
+                   })
+                   .HasError());
+  ASSERT_FALSE(main.repl_handler
+                   .TryRegisterReplica(ReplicationClientConfig{
+                       .name = replicas[1],
+                       .mode = ReplicationMode::SYNC,
+                       .repl_server_endpoint = Endpoint(local_host, ports[1]),
+                   })
+                   .HasError());
+
+  ASSERT_FALSE(replica1.repl_state.ReadLock()->GetTelemetryJson().has_value());
+  ASSERT_FALSE(replica2.repl_state.ReadLock()->GetTelemetryJson().has_value());
+
+  auto const main_json = main.repl_state.ReadLock()->GetTelemetryJson();
+  ASSERT_TRUE(main_json.has_value());
+
+  auto const expected_json = nlohmann::json({{"async", 1}, {"sync", 1}, {"strict_sync", 0}});
+  ASSERT_EQ(main_json.value(), expected_json);
 }
