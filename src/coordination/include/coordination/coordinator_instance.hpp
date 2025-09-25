@@ -124,6 +124,8 @@ class CoordinatorInstance {
   auto ShowCoordinatorSettings() const -> std::vector<std::pair<std::string, std::string>>;
   auto ShowReplicationLag() const -> std::map<std::string, std::map<std::string, ReplicaDBLagData>>;
 
+  auto GetTelemetryJson() const -> nlohmann::json;
+
  private:
   auto FindReplicationInstance(std::string_view replication_instance_name)
       -> std::optional<std::reference_wrapper<ReplicationInstanceConnector>>;

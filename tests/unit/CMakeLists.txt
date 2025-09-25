@@ -59,6 +59,12 @@ add_unit_test(cypher_main_visitor
     LINK_TARGETS mg-query
 )
 
+add_unit_test(event_map
+        SOURCES event_map.cpp
+        LINK_TARGETS mg-events mg-utils
+)
+
+
 add_unit_test(interpreter
     SOURCES interpreter.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp
     LINK_TARGETS mg-communication mg-query mg-glue

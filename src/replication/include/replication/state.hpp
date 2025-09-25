@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include "flags/coordination.hpp"
 #include "kvstore/kvstore.hpp"
 #include "replication/config.hpp"
 #include "replication/replication_client.hpp"
@@ -26,6 +25,8 @@
 #include <list>
 #include <optional>
 #include <variant>
+
+#include "nlohmann/json_fwd.hpp"
 
 namespace memgraph::replication {
 
@@ -133,6 +134,8 @@ struct ReplicationState {
   bool SetReplicationRoleMain(const utils::UUID &main_uuid);
   bool SetReplicationRoleReplica(const ReplicationServerConfig &config,
                                  std::optional<utils::UUID> const &maybe_main_uuid);
+
+  std::optional<nlohmann::json> GetTelemetryJson() const;
 
  private:
   bool HandleVersionMigration(durability::ReplicationRoleEntry &data) const;
