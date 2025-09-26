@@ -837,6 +837,7 @@ class InMemoryStorage final : public Storage {
   };
 
   // Ownership of linked deltas is transferred to committed_transactions_ once transaction is commited
+  // @TODO what is the point of having such a thin wrapper class?
   struct WaitingGCDeltas {
     explicit WaitingGCDeltas(GCDeltas deltas) : deltas_{std::move(deltas)} {}
 

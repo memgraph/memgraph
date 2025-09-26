@@ -1041,10 +1041,20 @@ std::expected<void, StorageManipulationError> InMemoryStorage::InMemoryAccessor:
 void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &current_deleted_edges,
                                                             std::list<Gid> &current_deleted_vertices,
                                                             IndexPerformanceTracker &impact_tracker) {
+  DMG_ASSERT(!transaction_.has_interleaved_deltas, "interleaved deltas are not candidates for rapid delta cleanup");
+
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   auto const unlink_remove_clear = [&](delta_container &deltas) {
     for (auto &delta : deltas) {
+      DMG_ASSERT(!IsOperationInterleaved(delta), "interleaved deltas are not candidates for rapid delta cleanup");
+      auto next = delta.next.load();
+      if (next != nullptr) {
+        auto next_ts = next->timestamp->load();
+        if (next_ts >= kTransactionInitialId && IsOperationInterleaved(*next)) {
+          DMG_ASSERT(false, "downstream active interleaved delta found during rapid cleanup");
+        }
+      }
       impact_tracker.update(delta.action);
       auto prev = delta.prev.Get();
       switch (prev.type) {
@@ -1052,22 +1062,28 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
         case PreviousPtr::Type::DELTA:
           break;
         case PreviousPtr::Type::VERTEX: {
-          // safe because no other txn can be reading this while we have engine lock
+          // Only unlink if this delta is still the head of the chain
+          // Another transaction may have added deltas on top (interleaved)
           auto &vertex = *prev.vertex;
-          vertex.delta = nullptr;
-          if (vertex.deleted) {
-            DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
-            current_deleted_vertices.push_back(vertex.gid);
+          if (vertex.delta == &delta) {
+            vertex.delta = nullptr;
+            if (vertex.deleted) {
+              DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
+              current_deleted_vertices.push_back(vertex.gid);
+            }
           }
           break;
         }
         case PreviousPtr::Type::EDGE: {
-          // safe because no other txn can be reading this while we have engine lock
+          // Only unlink if this delta is still the head of the chain
+          // Another transaction may have added deltas on top (interleaved)
           auto &edge = *prev.edge;
-          edge.delta = nullptr;
-          if (edge.deleted) {
-            DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
-            current_deleted_edges.push_back(edge.gid);
+          if (edge.delta == &delta) {
+            edge.delta = nullptr;
+            if (edge.deleted) {
+              DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
+              current_deleted_edges.push_back(edge.gid);
+            }
           }
           break;
         }
@@ -1104,11 +1120,26 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
 void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(std::unique_lock<std::mutex> /*gc_guard*/) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
-  // STEP 1 + STEP 2 - delta cleanup
+  // STEP 1 + STEP 2 - delta cleanup (must hold waiting room lock to prevent races)
   std::list<Gid> current_deleted_vertices;
   std::list<Gid> current_deleted_edges;
   auto impact_tracker = IndexPerformanceTracker{};
-  GCRapidDeltaCleanup(current_deleted_edges, current_deleted_vertices, impact_tracker);
+
+  bool cleanup_performed = mem_storage->waiting_gc_deltas_.WithLock([&](const auto &waiting_list) -> bool {
+    if (!waiting_list.empty()) {
+      // There are interleaved transactions in the waiting room that might reference
+      // the same objects we're about to clean up. Skip rapid cleanup to be safe.
+      return false;
+    }
+
+    // Safe to proceed - no waiting transactions can be added while we hold this lock
+    GCRapidDeltaCleanup(current_deleted_vertices, current_deleted_edges, impact_tracker);
+    return true;
+  });
+
+  if (!cleanup_performed) {
+    return;
+  }
 
   // STEP 3) hand over the deleted vertices and edges to the GC
   if (!current_deleted_vertices.empty()) {
@@ -2387,7 +2418,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
               continue;
             }
             if (ts >= kTransactionInitialId && !commit_log_->IsFinished(ts)) {
-              spdlog::trace("Waiting for transaction {} (IsFinished={})", ts, commit_log_->IsFinished(ts));
+              ;
               all_contributors_committed = false;
               break;
             }
@@ -2411,6 +2442,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     auto guard = std::unique_lock{engine_lock_};
     uint64_t mark_timestamp = timestamp_;  // a timestamp no active transaction can currently have
 
+    // @TODO check all these assumptions in the case of interleaved deltas.
     // Deltas from previous GC runs or from aborts can be cleaned up here
     garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
       guard.unlock();
