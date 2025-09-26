@@ -31,10 +31,9 @@ TEST(RetentionTest, DeleteOldSnapshotFilesTest) {
   }
 
   DeleteOldSnapshotFiles(old_snapshot_files, 3, &file_retainer);
-  ASSERT_EQ(old_snapshot_files.size(), 3);
-  ASSERT_EQ(old_snapshot_files[0].first, 6);
+  ASSERT_EQ(old_snapshot_files.size(), 2);
   ASSERT_EQ(old_snapshot_files[0].first, 7);
-  ASSERT_EQ(old_snapshot_files[0].first, 10);
+  ASSERT_EQ(old_snapshot_files[1].first, 10);
 
   for (auto const &path : std::views::values(old_snapshot_files)) {
     if (std::filesystem::exists(path)) {
