@@ -98,6 +98,31 @@ TypedValue::TypedValue(const storage::PropertyValue &value, storage::NameIdMappe
       }
       return;
     }
+    case storage::PropertyValue::Type::NumericList: {
+      type_ = Type::List;
+      const auto &vec = value.ValueNumericList();
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        auto temp_value = std::invoke([&]() {
+          if (std::holds_alternative<int>(v)) {
+            return TypedValue(std::get<int>(v), alloc_);
+          }
+          return TypedValue(std::get<double>(v), alloc_);
+        });
+        list_v.emplace_back(temp_value);
+      }
+      return;
+    }
+    case storage::PropertyValue::Type::IntList: {
+      type_ = Type::List;
+      const auto &vec = value.ValueIntList();
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {  // TODO: improve this
+        auto temp_value = TypedValue(v, alloc_);
+        list_v.emplace_back(temp_value);
+      }
+      return;
+    }
     case storage::PropertyValue::Type::DoubleList: {
       type_ = Type::List;
       const auto &vec = value.ValueDoubleList();
@@ -215,6 +240,31 @@ TypedValue::TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *na
       }
       break;
     }
+    case storage::PropertyValue::Type::NumericList: {
+      type_ = Type::List;
+      auto &vec = other.ValueNumericList();
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        auto temp_value = std::invoke([&]() {
+          if (std::holds_alternative<int>(v)) {
+            return TypedValue(std::get<int>(v), alloc_);
+          }
+          return TypedValue(std::get<double>(v), alloc_);
+        });
+        list_v.emplace_back(temp_value);
+      }
+      break;
+    }
+    case storage::PropertyValue::Type::IntList: {
+      type_ = Type::List;
+      auto &vec = other.ValueIntList();
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        auto temp_value = TypedValue(v, alloc_);
+        list_v.emplace_back(temp_value);
+      }
+      break;
+    }
     case storage::PropertyValue::Type::DoubleList: {
       type_ = Type::List;
       auto &vec = other.ValueDoubleList();
@@ -328,6 +378,31 @@ TypedValue::TypedValue(const storage::ExternalPropertyValue &value, allocator_ty
       alloc_trait::construct(alloc_, &list_v, vec.cbegin(), vec.cend());
       return;
     }
+    case storage::PropertyValue::Type::NumericList: {
+      type_ = Type::List;
+      const auto &vec = value.ValueNumericList();
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        auto temp_value = std::invoke([&]() {
+          if (std::holds_alternative<int>(v)) {
+            return TypedValue(std::get<int>(v), alloc_);
+          }
+          return TypedValue(std::get<double>(v), alloc_);
+        });
+        list_v.emplace_back(temp_value);
+      }
+      return;
+    }
+    case storage::PropertyValue::Type::IntList: {
+      type_ = Type::List;
+      const auto &vec = value.ValueIntList();
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        auto temp_value = TypedValue(v, alloc_);
+        list_v.emplace_back(temp_value);
+      }
+      return;
+    }
     case storage::PropertyValue::Type::DoubleList: {
       type_ = Type::List;
       const auto &vec = value.ValueDoubleList();
@@ -432,6 +507,31 @@ TypedValue::TypedValue(storage::ExternalPropertyValue &&other, allocator_type al
       auto &vec = other.ValueList();
       // PropertyValue uses std::allocator, hence copy here
       alloc_trait::construct(alloc_, &list_v, vec.cbegin(), vec.cend());
+      break;
+    }
+    case storage::PropertyValue::Type::NumericList: {
+      type_ = Type::List;
+      auto &vec = other.ValueNumericList();
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        auto temp_value = std::invoke([&]() {
+          if (std::holds_alternative<int>(v)) {
+            return TypedValue(std::get<int>(v), alloc_);
+          }
+          return TypedValue(std::get<double>(v), alloc_);
+        });
+        list_v.emplace_back(temp_value);
+      }
+      break;
+    }
+    case storage::PropertyValue::Type::IntList: {
+      type_ = Type::List;
+      auto &vec = other.ValueIntList();
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        auto temp_value = TypedValue(v, alloc_);
+        list_v.emplace_back(temp_value);
+      }
       break;
     }
     case storage::PropertyValue::Type::DoubleList: {

@@ -717,6 +717,32 @@ mgp_value::mgp_value(const memgraph::storage::PropertyValue &pv, memgraph::stora
       list_v = allocator.new_object<mgp_list>(std::move(elems));
       break;
     }
+    case memgraph::storage::PropertyValue::Type::NumericList: {
+      type = MGP_VALUE_TYPE_LIST;
+      memgraph::utils::pmr::vector<mgp_value> elems(alloc);
+      elems.reserve(pv.ValueNumericList().size());
+      for (const auto &elem : pv.ValueNumericList()) {
+        if (std::holds_alternative<int>(elem)) {
+          elems.emplace_back(static_cast<int64_t>(std::get<int>(elem)));
+        } else {
+          elems.emplace_back(std::get<double>(elem));
+        }
+      }
+      memgraph::utils::Allocator<mgp_list> allocator(alloc);
+      list_v = allocator.new_object<mgp_list>(std::move(elems));
+      break;
+    }
+    case memgraph::storage::PropertyValue::Type::IntList: {
+      type = MGP_VALUE_TYPE_LIST;
+      memgraph::utils::pmr::vector<mgp_value> elems(alloc);
+      elems.reserve(pv.ValueIntList().size());
+      for (const auto &elem : pv.ValueIntList()) {
+        elems.emplace_back(static_cast<int64_t>(elem));
+      }
+      memgraph::utils::Allocator<mgp_list> allocator(alloc);
+      list_v = allocator.new_object<mgp_list>(std::move(elems));
+      break;
+    }
     case memgraph::storage::PropertyValue::Type::DoubleList: {
       type = MGP_VALUE_TYPE_LIST;
       memgraph::utils::pmr::vector<mgp_value> elems(alloc);

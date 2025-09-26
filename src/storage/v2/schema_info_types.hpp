@@ -132,7 +132,9 @@ struct PropertyInfo {
             ss << "String";
             break;
           case PropertyValueType::List:
+          case PropertyValueType::IntList:
           case PropertyValueType::DoubleList:
+          case PropertyValueType::NumericList:
             ss << "List";
             break;
           case PropertyValueType::Map:

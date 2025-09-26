@@ -148,6 +148,16 @@ void Save(const storage::ExternalPropertyValue &value, slk::Builder *builder) {
       }
       return;
     }
+    case storage::ExternalPropertyValue::Type::IntList: {
+      slk::Save(storage::ExternalPropertyValue::Type::IntList, builder);
+      const auto &values = value.ValueIntList();
+      size_t size = values.size();
+      slk::Save(size, builder);
+      for (const auto &v : values) {
+        slk::Save(v, builder);
+      }
+      return;
+    }
     case storage::ExternalPropertyValue::Type::DoubleList: {
       slk::Save(storage::ExternalPropertyValue::Type::DoubleList, builder);
       const auto &values = value.ValueDoubleList();
@@ -155,6 +165,20 @@ void Save(const storage::ExternalPropertyValue &value, slk::Builder *builder) {
       slk::Save(size, builder);
       for (const auto &v : values) {
         slk::Save(v, builder);
+      }
+      return;
+    }
+    case storage::ExternalPropertyValue::Type::NumericList: {
+      slk::Save(storage::ExternalPropertyValue::Type::NumericList, builder);
+      const auto &values = value.ValueNumericList();
+      size_t size = values.size();
+      slk::Save(size, builder);
+      for (const auto &v : values) {
+        if (std::holds_alternative<int>(v)) {
+          slk::Save(std::get<int>(v), builder);
+        } else {
+          slk::Save(std::get<double>(v), builder);
+        }
       }
       return;
     }
@@ -248,16 +272,39 @@ void Load(storage::ExternalPropertyValue *value, slk::Reader *reader) {
       *value = storage::ExternalPropertyValue(std::move(list));
       return;
     }
+    case storage::ExternalPropertyValue::Type::IntList: {
+      size_t size;
+      slk::Load(&size, reader);
+      std::vector<storage::ExternalPropertyValue> list(size);
+      for (size_t i = 0; i < size; ++i) {
+        slk::Load(&list[i], reader);
+      }
+      *value = storage::ExternalPropertyValue(std::move(list));
+      return;
+    }
     case storage::ExternalPropertyValue::Type::DoubleList: {
       size_t size;
       slk::Load(&size, reader);
-      std::vector<double> list(size);
+      std::vector<storage::ExternalPropertyValue> list(size);
       for (size_t i = 0; i < size; ++i) {
+        slk::Load(&list[i], reader);
+      }
+      *value = storage::ExternalPropertyValue(std::move(list));
+      return;
+    }
+    case storage::ExternalPropertyValue::Type::NumericList: {
+      size_t size;
+      slk::Load(&size, reader);
+      storage::ExternalPropertyValue::numeric_list_t list;
+      list.reserve(size);
+      for (size_t i = 0; i < size; ++i) {
+        // We need to determine the type from the serialized data
+        // For now, we'll assume it's a double for backward compatibility
         double v;
         slk::Load(&v, reader);
-        list[i] = v;
+        list.emplace_back(v);
       }
-      *value = storage::ExternalPropertyValue(storage::ExternalPropertyValue::double_list_t(std::move(list)));
+      *value = storage::ExternalPropertyValue(std::move(list));
       return;
     }
     case storage::ExternalPropertyValue::Type::Map: {
