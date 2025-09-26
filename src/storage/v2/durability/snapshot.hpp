@@ -85,9 +85,9 @@ RecoveredSnapshot LoadSnapshot(std::filesystem::path const &path, utils::SkipLis
 
 using OldSnapshotFiles = std::vector<std::pair<uint64_t, std::filesystem::path>>;
 
-auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_directory, const std::string &path,
-                                        const std::string &uuid, utils::FileRetainer *file_retainer, Storage *storage)
-    -> OldSnapshotFiles;
+auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_directory,
+                                        const std::string &current_snapshot_path, const std::string &uuid,
+                                        utils::FileRetainer *file_retainer, Storage *storage) -> OldSnapshotFiles;
 
 void DeleteOldSnapshotFiles(OldSnapshotFiles &old_snapshot_files, uint64_t snapshot_retention_count,
                             utils::FileRetainer *file_retainer);
