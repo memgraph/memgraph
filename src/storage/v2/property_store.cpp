@@ -991,17 +991,27 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       std::vector<PropertyValue> list;
       list.reserve(*size);
       bool all_numeric = true;
+      bool all_int = true;
+      bool all_double = true;
 
       for (uint32_t i = 0; i < *size; ++i) {
         auto metadata = reader->ReadMetadata();
         if (!metadata) return std::nullopt;
         auto item = DecodePropertyValue(reader, metadata->type, metadata->payload_size);
         if (!item) return std::nullopt;
-        if (all_numeric && !item->IsInt() && !item->IsDouble()) {
-          all_numeric = false;
-        }
-
+        all_int = all_int && item->IsInt();
+        all_double = all_double && item->IsDouble();
+        all_numeric = all_int || all_double;
         list.emplace_back(*std::move(item));
+      }
+      if (all_int) {
+        return std::optional<PropertyValue>{std::in_place, PropertyValue(IntListTag{}, std::move(list))};
+      }
+      if (all_double) {
+        return std::optional<PropertyValue>{std::in_place, PropertyValue(DoubleListTag{}, std::move(list))};
+      }
+      if (all_numeric) {
+        return std::optional<PropertyValue>{std::in_place, PropertyValue(NumericListTag{}, std::move(list))};
       }
       return std::optional<PropertyValue>{std::in_place, std::move(list)};
     }
