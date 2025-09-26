@@ -46,8 +46,20 @@ endif ()
 
 message(STATUS "MG_TOOLCHAIN_ROOT = ${MG_TOOLCHAIN_ROOT}")
 
+# Add conan generators to CMAKE_PREFIX_PATH first so they take precedence
+list(PREPEND CMAKE_PREFIX_PATH "${CMAKE_CURRENT_BINARY_DIR}/generators")
+
 # Add toolchain to CMAKE_PREFIX_PATH so that find_package can locate libraries
 list(APPEND CMAKE_PREFIX_PATH "${MG_TOOLCHAIN_ROOT}")
+
+# print search paths
+message(STATUS "CMAKE_PREFIX_PATH = ${CMAKE_PREFIX_PATH}")
+
+# Override CMAKE_FIND_ROOT_PATH to prioritize conan generators
+# The toolchain sets CMAKE_FIND_ROOT_PATH which takes precedence over CMAKE_PREFIX_PATH
+# We need to prepend our generators directory to ensure conan packages are found first
+list(PREPEND CMAKE_FIND_ROOT_PATH "${CMAKE_CURRENT_BINARY_DIR}/generators")
+message(STATUS "CMAKE_FIND_ROOT_PATH = ${CMAKE_FIND_ROOT_PATH}")
 
 # Manually configure gflags if find_package fails
 if(NOT TARGET gflags)
@@ -249,6 +261,8 @@ find_package(GTest)
 find_package(spdlog)
 find_package(fmt)
 find_package(strong_type)
+# Explicitly set Boost_DIR to use conan's boost configuration
+set(Boost_DIR "${CMAKE_CURRENT_BINARY_DIR}/generators" CACHE PATH "Boost config directory" FORCE)
 find_package(Boost)
 find_package(BZip2)
 find_package(antlr4-runtime)
