@@ -43,7 +43,6 @@ def test_durability_with_text_index(connection):
     MEMGRAPH_INSTANCE_DESCRIPTION_MANUAL = {
         "main": {
             "args": [
-                "--experimental-enabled=text-search",
                 "--log-level=TRACE",
                 "--data-recovery-on-startup=true",
                 "--query-modules-directory",
@@ -216,7 +215,6 @@ def test_durability_with_text_index_recovery_disabled(connection):
     MEMGRAPH_INSTANCE_DESCRIPTION_WITHOUT_RECOVERY = {
         "main": {
             "args": [
-                "--experimental-enabled=text-search",
                 "--log-level=TRACE",
                 "--data-recovery-on-startup=false",
                 "--query-modules-directory",
