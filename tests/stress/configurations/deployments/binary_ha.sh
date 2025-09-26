@@ -1,7 +1,7 @@
 #!/bin/bash
 
 MEMGRAPH_BINARY="../../build/memgraph"
-MGCONSOLE_BINARY="../../build/mgconsole"
+MGCONSOLE_BINARY="mgconsole"
 DATA_DIR_PREFIX="mg_data"
 COORD_DIR_PREFIX="mg_coord"
 
