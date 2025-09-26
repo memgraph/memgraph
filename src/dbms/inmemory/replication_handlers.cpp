@@ -502,10 +502,9 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
   auto const &active_files = file_replication_handler.GetActiveFileNames();
   MG_ASSERT(active_files.size() == 1, "Received {} snapshot files but expecting only one!", active_files.size());
   auto const &src_snapshot_file = active_files[0];
-  auto const dst_snapshot_file =
-      current_snapshot_dir / active_files[0].filename()
+  auto const dst_snapshot_file = current_snapshot_dir / active_files[0].filename();
 
-                                 if (!utils::RenamePath(src_snapshot_file, dst_snapshot_file)) {
+  if (!utils::RenamePath(src_snapshot_file, dst_snapshot_file)) {
     spdlog::error("Couldn't copy file from {} to {}", src_snapshot_file, dst_snapshot_file);
     rpc::SendFinalResponse(storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder,
                            fmt::format("db: {}", storage->name()));
