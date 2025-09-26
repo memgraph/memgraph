@@ -63,7 +63,6 @@ def test_text_index_replication(connection, test_name):
     MEMGRAPH_INSTANCES_DESCRIPTION_MANUAL = {
         "replica_1": {
             "args": [
-                "--experimental-enabled=text-search",
                 "--bolt-port",
                 f"{BOLT_PORTS['replica_1']}",
                 "--log-level=TRACE",
@@ -77,7 +76,6 @@ def test_text_index_replication(connection, test_name):
         },
         "replica_2": {
             "args": [
-                "--experimental-enabled=text-search",
                 "--bolt-port",
                 f"{BOLT_PORTS['replica_2']}",
                 "--log-level=TRACE",
@@ -91,7 +89,6 @@ def test_text_index_replication(connection, test_name):
         },
         "main": {
             "args": [
-                "--experimental-enabled=text-search",
                 "--bolt-port",
                 f"{BOLT_PORTS['main']}",
                 "--log-level=TRACE",

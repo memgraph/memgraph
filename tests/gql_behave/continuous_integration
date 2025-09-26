@@ -116,7 +116,6 @@ class MemgraphRunner:
             LOG_LEVEL,
             "--query-modules-directory",
             str(os.path.join(BUILD_DIR, "query_modules")),
-            "--experimental-enabled=text-search",
         ]
         self.proc_mg = subprocess.Popen(args_mg + self.args)
         wait_for_server(7687, 1)
