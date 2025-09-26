@@ -879,10 +879,10 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
         if (!metadata) return false;
         PropertyValue item;
         if (!DecodePropertyValue(reader, metadata->type, metadata->payload_size, item)) return false;
-        list.emplace_back(std::move(item));
         all_int = all_int && item.IsInt();
         all_double = all_double && item.IsDouble();
         all_numeric = all_int || all_double;
+        list.emplace_back(std::move(item));
       }
       value = std::invoke([&]() {
         if (all_numeric) {
@@ -1307,7 +1307,7 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
         for (uint32_t i = 0; i < *size; ++i) {
           auto metadata = reader->ReadMetadata();
           if (!metadata) return false;
-          PropertyValue reconstructed_item(static_cast<int64_t>(int_list[i]));
+          const PropertyValue reconstructed_item(static_cast<int64_t>(int_list[i]));
           if (!ComparePropertyValue(reader, metadata->type, metadata->payload_size, reconstructed_item)) return false;
         }
       } else if (value.IsDoubleList()) {
@@ -1315,7 +1315,7 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
         for (uint32_t i = 0; i < *size; ++i) {
           auto metadata = reader->ReadMetadata();
           if (!metadata) return false;
-          PropertyValue reconstructed_item(double_list[i]);
+          const PropertyValue reconstructed_item(double_list[i]);
           if (!ComparePropertyValue(reader, metadata->type, metadata->payload_size, reconstructed_item)) return false;
         }
       } else if (value.IsNumericList()) {
