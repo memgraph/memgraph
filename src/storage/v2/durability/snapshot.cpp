@@ -8621,14 +8621,14 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
   }
 }
 
-auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_directory, const std::string &path,
-                                        const std::string &uuid, utils::FileRetainer *file_retainer, Storage *storage)
-    -> OldSnapshotFiles {
+auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_directory,
+                                        const std::string &current_snapshot_path, const std::string &uuid,
+                                        utils::FileRetainer *file_retainer, Storage *storage) -> OldSnapshotFiles {
   OldSnapshotFiles old_snapshot_files;
   std::error_code error_code;
   for (const auto &item : std::filesystem::directory_iterator(snapshot_directory, error_code)) {
     if (!item.is_regular_file()) continue;
-    if (item.path() == path) continue;
+    if (item.path() == current_snapshot_path) continue;
     try {
       auto info = ReadSnapshotInfo(item.path());
       if (info.uuid != uuid) continue;
@@ -8656,6 +8656,7 @@ void DeleteOldSnapshotFiles(OldSnapshotFiles &old_snapshot_files, uint64_t const
 
   if (old_snapshot_files.size() < snapshot_retention_count) return;
 
+  // -1 because the current snapshot path has been skipped
   const uint32_t num_to_erase = old_snapshot_files.size() - (snapshot_retention_count - 1);
   for (size_t i = 0; i < num_to_erase; ++i) {
     const auto &[_, snapshot_path] = old_snapshot_files[i];
@@ -9428,12 +9429,13 @@ std::optional<std::filesystem::path> CreateSnapshot(
   snapshot.Finalize();
   spdlog::info("Snapshot creation successful!");
 
-  OldSnapshotFiles old_snapshot_files =
+  auto const old_snapshot_files =
       EnsureRetentionCountSnapshotsExist(snapshot_directory, path, uuid_str, file_retainer, storage);
 
+  // -1 needed because we skip the current snapshot
   if (old_snapshot_files.size() == storage->config_.durability.snapshot_retention_count - 1 &&
       utils::DirExists(wal_directory)) {
-    EnsureNecessaryWalFilesExist(wal_directory, uuid_str, std::move(old_snapshot_files), transaction, file_retainer);
+    EnsureNecessaryWalFilesExist(wal_directory, uuid_str, old_snapshot_files, transaction, file_retainer);
   }
 
   // We are not updating ldt here; we are only updating it when recovering from snapshot (because there is no other

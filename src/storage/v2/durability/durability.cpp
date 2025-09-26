@@ -110,7 +110,7 @@ void VerifyStorageDirectoryOwnerAndProcessUserOrDie(const std::filesystem::path 
 }
 
 bool ValidateDurabilityFile(std::filesystem::directory_entry const &dir_entry) {
-  auto const path = dir_entry.path();
+  auto const &path = dir_entry.path();
   if (!dir_entry.is_regular_file()) {
     spdlog::error("{} is not a regular file", path);
     return false;

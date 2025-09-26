@@ -501,7 +501,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
 
   auto const &active_files = file_replication_handler.GetActiveFileNames();
   MG_ASSERT(active_files.size() == 1, "Received {} snapshot files but expecting only one!", active_files.size());
-  auto const src_snapshot_file = active_files[0];
+  auto const &src_snapshot_file = active_files[0];
   auto const dst_snapshot_file = current_snapshot_dir / active_files[0].filename();
 
   if (!utils::RenamePath(src_snapshot_file, dst_snapshot_file)) {
@@ -664,6 +664,10 @@ void InMemoryReplicationHandlers::WalFilesHandler(rpc::FileReplicationHandler co
   uint64_t num_committed_txns{0};
   for (auto i = 0; i < wal_file_number; ++i) {
     auto const load_wal_res = LoadWal(active_files[i], storage, res_builder, local_batch_counter);
+    // Failure to delete the received WAL file isn't fatal since it is saved in the tmp directory so it will eventually
+    // get deleted
+    utils::DeleteFile(active_files[i]);
+
     if (!load_wal_res.success) {
       spdlog::debug("Replication recovery from WAL files failed while loading one of WAL files for db {}.",
                     storage->name());
@@ -774,6 +778,10 @@ void InMemoryReplicationHandlers::CurrentWalHandler(rpc::FileReplicationHandler 
     MoveDurabilityFiles(old_snapshot_files, backup_snapshot_dir, old_wal_files, backup_wal_dir,
                         &(storage->file_retainer_));
   }
+
+  // Failure to delete the received WAL file isn't fatal since it is saved in the tmp directory so it will eventually
+  // get deleted
+  utils::DeleteFile(active_files[0]);
 }
 
 // The method will return false and hence signal the failure of completely loading the WAL file if:

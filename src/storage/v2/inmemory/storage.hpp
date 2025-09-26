@@ -99,7 +99,6 @@ class InMemoryStorage final : public Storage {
   friend class memgraph::dbms::InMemoryReplicationHandlers;
   friend class ReplicationStorageClient;
 
-  // TODO: (andi) Try to remove
   friend std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commit,
                                                                    utils::FileRetainer::FileLocker *file_locker,
                                                                    const InMemoryStorage *main_storage);

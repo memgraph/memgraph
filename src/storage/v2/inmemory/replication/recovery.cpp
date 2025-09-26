@@ -106,7 +106,6 @@ std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commi
       return false;
     }
     recovery_steps.emplace_back(std::in_place_type_t<RecoverySnapshot>{}, std::move(latest_snapshot->path));
-    // TODO: (andi) We shouldn't rely on start_timestamp
     last_durable_timestamp = std::max(last_durable_timestamp, latest_snapshot->start_timestamp);
     return true;
   };
@@ -129,7 +128,6 @@ std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commi
 
         auto const snap_start_ts = latest_snapshot->start_timestamp;
 
-        // TODO: (andi) Maybe for this it makes sense to use start_timestamp?
         if (snap_start_ts <= wal.from_timestamp && wal.seq_num != 0) {
           spdlog::error("Replication steps incomplete; broken data chain.");
           return std::nullopt;
@@ -229,7 +227,7 @@ auto GetRecoveryWalFiles(utils::FileRetainer::FileLockerAccessor *locker_acc,
       spdlog::error("Tried to lock a nonexistent WAL path.");
       return std::nullopt;
     }
-    rw.emplace_back(std::move(wal.path));
+    rw.emplace_back(wal.path);
   }
   return rw;
 }
