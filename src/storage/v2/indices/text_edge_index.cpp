@@ -157,9 +157,6 @@ bool TextEdgeIndex::IndexExists(const std::string &index_name) const { return in
 
 std::vector<TextEdgeSearchResult> TextEdgeIndex::Search(const std::string &index_name, const std::string &search_query,
                                                         text_search_mode search_mode, std::size_t limit) {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    throw query::TextSearchDisabledException();
-  }
   auto &context = std::invoke([&]() -> mgcxx::text_search::Context & {
     if (const auto it = index_.find(index_name); it != index_.end()) {
       return it->second.context;
