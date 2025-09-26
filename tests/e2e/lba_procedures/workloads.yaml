@@ -1,7 +1,7 @@
 args: &args
-  - "--bolt-port"
-  - "7687"
+  - "--bolt-port=7687"
   - "--log-level=TRACE"
+  - "--schema-info-enabled=true"
 
 query_modules_setup_queries: &query_modules_setup_queries
   - "CREATE USER admin IDENTIFIED BY 'test';"
@@ -38,6 +38,27 @@ show_privileges_setup_queries: &show_privileges_setup_queries
   - "Create User Bruno;"
   - "Grant Auth to Bruno;"
   - "Grant Update On Labels * to Bruno;"
+
+schema_info_setup_queries: &schema_info_setup_queries
+  - "CREATE USER admin;"
+  - "GRANT ALL PRIVILEGES TO admin;"
+  - "GRANT CREATE_DELETE ON LABELS * TO admin;"
+  - "GRANT CREATE_DELETE ON EDGE_TYPES * TO admin;"
+  - "CREATE USER josip;"
+  - "GRANT STATS TO josip;"
+  - "GRANT READ ON LABELS * TO josip"
+  - "GRANT READ ON EDGE_TYPES * TO josip"
+  - "CREATE USER toni;"
+  - "GRANT STATS TO toni;"
+  - "GRANT READ ON LABELS * TO Toni"
+  - "CREATE USER buda;"
+  - "GRANT STATS TO buda;"
+  - "CREATE USER kate"
+  - "GRANT READ ON LABELS :Public to kate"
+  - "GRANT STATS TO kate;"
+  - "CREATE USER matea"
+  - "GRANT READ ON EDGE_TYPES :TYPE to matea"
+  - "GRANT STATS TO matea;"
 
 
 read_query_modules_in_memory_cluster: &read_query_modules_in_memory_cluster
@@ -88,6 +109,14 @@ update_permission_queries_in_memory_cluster: &update_permission_queries_in_memor
       setup_queries: *query_modules_setup_queries
       validation_queries: []
 
+schema_info_in_memory_queries: &schema_info_in_memory_queries
+  cluster:
+    main:
+      args: *args
+      log_file: "lba-e2e.log"
+      setup_queries: *schema_info_setup_queries
+      validation_queries: []
+
 workloads:
   - name: "read-query-modules"
     binary: "tests/e2e/pytest_runner.sh"
@@ -124,3 +153,9 @@ workloads:
     proc: "tests/e2e/lba_procedures/procedures/"
     args: ["lba_procedures/update_permission_queries.py"]
     <<: *update_permission_queries_in_memory_cluster
+
+  - name: "schema-info-queries-permission"
+    binary: "tests/e2e/pytest_runner.sh"
+    proc: "tests/e2e/lba_procedures/procedures/"
+    args: ["lba_procedures/schema_info_queries_permission.py"]
+    <<: *schema_info_in_memory_queries
