@@ -229,7 +229,7 @@ auto GetRecoveryWalFiles(utils::FileRetainer::FileLockerAccessor *locker_acc,
       spdlog::error("Tried to lock a nonexistent WAL path.");
       return std::nullopt;
     }
-    rw.emplace_back(std::move(wal.path));
+    rw.emplace_back(wal.path);
   }
   return rw;
 }

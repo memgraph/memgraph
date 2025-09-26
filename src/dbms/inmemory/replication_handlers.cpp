@@ -501,17 +501,9 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
 
   auto const &active_files = file_replication_handler.GetActiveFileNames();
   MG_ASSERT(active_files.size() == 1, "Received {} snapshot files but expecting only one!", active_files.size());
-  auto const src_snapshot_file = active_files[0];
-  auto const dst_snapshot_file = current_snapshot_dir / active_files[0].filename();
+  auto const &snapshot_file = active_files[0];
 
-  if (!utils::RenamePath(src_snapshot_file, dst_snapshot_file)) {
-    spdlog::error("Couldn't copy file from {} to {}", src_snapshot_file, dst_snapshot_file);
-    rpc::SendFinalResponse(storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder,
-                           fmt::format("db: {}", storage->name()));
-    return;
-  }
-
-  spdlog::info("Received snapshot saved to {}", dst_snapshot_file);
+  spdlog::info("Received snapshot saved to {}", snapshot_file);
   {
     auto storage_guard = std::unique_lock{storage->main_lock_, std::defer_lock};
     if (!storage_guard.try_lock_for(kWaitForMainLockTimeout)) {
@@ -533,7 +525,7 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
     try {
       spdlog::debug("Loading snapshot for db {}.", storage->name());
       auto [snapshot_info, recovery_info, indices_constraints] = storage::durability::LoadSnapshot(
-          dst_snapshot_file, &storage->vertices_, &storage->edges_, &storage->edges_metadata_,
+          snapshot_file, &storage->vertices_, &storage->edges_, &storage->edges_metadata_,
           &storage->repl_storage_state_.history, storage->name_id_mapper_.get(), &storage->edge_count_,
           storage->config_, &storage->enum_store_,
           storage->config_.salient.items.enable_schema_info ? &storage->schema_info_.Get() : nullptr, &storage->ttl_,
@@ -560,25 +552,25 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
       spdlog::error(
           "Couldn't load the snapshot from {} because of: {}. Storage will be cleared. Snapshot and WAL files are "
           "preserved so you can restore your data by restarting instance.",
-          dst_snapshot_file, e.what());
+          snapshot_file, e.what());
       storage->Clear();
       const storage::replication::SnapshotRes res{std::nullopt, 0};
       rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
       return;
     }
   }
-  spdlog::debug("Snapshot from {} loaded successfully.", dst_snapshot_file);
+  spdlog::debug("Snapshot from {} loaded successfully.", snapshot_file);
+
+  // Failure to delete the snapshot file isn't fatal since it is saved in the tmp directory so it will eventually get
+  // deleted
+  utils::DeleteFile(snapshot_file);
 
   auto const [ldt, num_committed_txns] = storage->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire);
 
   const storage::replication::SnapshotRes res{ldt, num_committed_txns};
   rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
 
-  auto const not_recovery_snapshot = [&dst_snapshot_file](auto const &snapshot_info) {
-    return snapshot_info.path != dst_snapshot_file;
-  };
-
-  auto snapshots_to_move = curr_snapshot_files | rv::filter(not_recovery_snapshot) | r::to_vector;
+  auto snapshots_to_move = curr_snapshot_files | r::to_vector;
 
   MoveDurabilityFiles(snapshots_to_move, backup_snapshot_dir, curr_wal_files, backup_wal_dir,
                       &(storage->file_retainer_));
@@ -664,6 +656,10 @@ void InMemoryReplicationHandlers::WalFilesHandler(rpc::FileReplicationHandler co
   uint64_t num_committed_txns{0};
   for (auto i = 0; i < wal_file_number; ++i) {
     auto const load_wal_res = LoadWal(active_files[i], storage, res_builder, local_batch_counter);
+    // Failure to delete the received WAL file isn't fatal since it is saved in the tmp directory so it will eventually
+    // get deleted
+    utils::DeleteFile(active_files[i]);
+
     if (!load_wal_res.success) {
       spdlog::debug("Replication recovery from WAL files failed while loading one of WAL files for db {}.",
                     storage->name());
@@ -774,6 +770,10 @@ void InMemoryReplicationHandlers::CurrentWalHandler(rpc::FileReplicationHandler 
     MoveDurabilityFiles(old_snapshot_files, backup_snapshot_dir, old_wal_files, backup_wal_dir,
                         &(storage->file_retainer_));
   }
+
+  // Failure to delete the received WAL file isn't fatal since it is saved in the tmp directory so it will eventually
+  // get deleted
+  utils::DeleteFile(active_files[0]);
 }
 
 // The method will return false and hence signal the failure of completely loading the WAL file if:
