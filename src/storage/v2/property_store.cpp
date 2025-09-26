@@ -885,14 +885,14 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
         list.emplace_back(std::move(item));
       }
       value = std::invoke([&]() {
-        if (all_numeric) {
-          return PropertyValue(NumericListTag{}, std::move(list));
-        }
         if (all_int) {
           return PropertyValue(IntListTag{}, std::move(list));
         }
         if (all_double) {
           return PropertyValue(DoubleListTag{}, std::move(list));
+        }
+        if (all_numeric) {
+          return PropertyValue(NumericListTag{}, std::move(list));
         }
         return PropertyValue(std::move(list));
       });

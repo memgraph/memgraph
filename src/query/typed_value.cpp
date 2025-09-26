@@ -103,13 +103,11 @@ TypedValue::TypedValue(const storage::PropertyValue &value, storage::NameIdMappe
       const auto &vec = value.ValueNumericList();
       alloc_trait::construct(alloc_, &list_v);
       for (const auto &v : vec) {
-        auto temp_value = std::invoke([&]() {
-          if (std::holds_alternative<int>(v)) {
-            return TypedValue(std::get<int>(v), alloc_);
-          }
-          return TypedValue(std::get<double>(v), alloc_);
-        });
-        list_v.emplace_back(temp_value);
+        if (std::holds_alternative<int>(v)) {
+          list_v.emplace_back(std::get<int>(v));
+        } else {
+          list_v.emplace_back(std::get<double>(v));
+        }
       }
       return;
     }
@@ -118,8 +116,7 @@ TypedValue::TypedValue(const storage::PropertyValue &value, storage::NameIdMappe
       const auto &vec = value.ValueIntList();
       alloc_trait::construct(alloc_, &list_v);
       for (const auto &v : vec) {  // TODO: improve this
-        auto temp_value = TypedValue(v, alloc_);
-        list_v.emplace_back(temp_value);
+        list_v.emplace_back(v);
       }
       return;
     }
@@ -128,8 +125,7 @@ TypedValue::TypedValue(const storage::PropertyValue &value, storage::NameIdMappe
       const auto &vec = value.ValueDoubleList();
       alloc_trait::construct(alloc_, &list_v);
       for (const auto &v : vec) {
-        auto temp_value = TypedValue(v, alloc_);
-        list_v.emplace_back(temp_value);
+        list_v.emplace_back(v);
       }
       return;
     }
@@ -245,13 +241,11 @@ TypedValue::TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *na
       auto &vec = other.ValueNumericList();
       alloc_trait::construct(alloc_, &list_v);
       for (const auto &v : vec) {
-        auto temp_value = std::invoke([&]() {
-          if (std::holds_alternative<int>(v)) {
-            return TypedValue(std::get<int>(v), alloc_);
-          }
-          return TypedValue(std::get<double>(v), alloc_);
-        });
-        list_v.emplace_back(temp_value);
+        if (std::holds_alternative<int>(v)) {
+          list_v.emplace_back(std::get<int>(v));
+        } else {
+          list_v.emplace_back(std::get<double>(v));
+        }
       }
       break;
     }
@@ -260,8 +254,7 @@ TypedValue::TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *na
       auto &vec = other.ValueIntList();
       alloc_trait::construct(alloc_, &list_v);
       for (const auto &v : vec) {
-        auto temp_value = TypedValue(v, alloc_);
-        list_v.emplace_back(temp_value);
+        list_v.emplace_back(v);
       }
       break;
     }
@@ -270,8 +263,7 @@ TypedValue::TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *na
       auto &vec = other.ValueDoubleList();
       alloc_trait::construct(alloc_, &list_v);
       for (const auto &v : vec) {
-        auto temp_value = TypedValue(v, alloc_);
-        list_v.emplace_back(temp_value);
+        list_v.emplace_back(v);
       }
       break;
     }
@@ -383,13 +375,11 @@ TypedValue::TypedValue(const storage::ExternalPropertyValue &value, allocator_ty
       const auto &vec = value.ValueNumericList();
       alloc_trait::construct(alloc_, &list_v);
       for (const auto &v : vec) {
-        auto temp_value = std::invoke([&]() {
-          if (std::holds_alternative<int>(v)) {
-            return TypedValue(std::get<int>(v), alloc_);
-          }
-          return TypedValue(std::get<double>(v), alloc_);
-        });
-        list_v.emplace_back(temp_value);
+        if (std::holds_alternative<int>(v)) {
+          list_v.emplace_back(std::get<int>(v));
+        } else {
+          list_v.emplace_back(std::get<double>(v));
+        }
       }
       return;
     }
@@ -398,8 +388,7 @@ TypedValue::TypedValue(const storage::ExternalPropertyValue &value, allocator_ty
       const auto &vec = value.ValueIntList();
       alloc_trait::construct(alloc_, &list_v);
       for (const auto &v : vec) {
-        auto temp_value = TypedValue(v, alloc_);
-        list_v.emplace_back(temp_value);
+        list_v.emplace_back(v);
       }
       return;
     }
@@ -408,8 +397,7 @@ TypedValue::TypedValue(const storage::ExternalPropertyValue &value, allocator_ty
       const auto &vec = value.ValueDoubleList();
       alloc_trait::construct(alloc_, &list_v);
       for (const auto &v : vec) {
-        auto temp_value = TypedValue(v, alloc_);
-        list_v.emplace_back(temp_value);
+        list_v.emplace_back(v);
       }
       return;
     }
@@ -514,13 +502,11 @@ TypedValue::TypedValue(storage::ExternalPropertyValue &&other, allocator_type al
       auto &vec = other.ValueNumericList();
       alloc_trait::construct(alloc_, &list_v);
       for (const auto &v : vec) {
-        auto temp_value = std::invoke([&]() {
-          if (std::holds_alternative<int>(v)) {
-            return TypedValue(std::get<int>(v), alloc_);
-          }
-          return TypedValue(std::get<double>(v), alloc_);
-        });
-        list_v.emplace_back(temp_value);
+        if (std::holds_alternative<int>(v)) {
+          list_v.emplace_back(std::get<int>(v));
+        } else {
+          list_v.emplace_back(std::get<double>(v));
+        }
       }
       break;
     }
@@ -529,8 +515,7 @@ TypedValue::TypedValue(storage::ExternalPropertyValue &&other, allocator_type al
       auto &vec = other.ValueIntList();
       alloc_trait::construct(alloc_, &list_v);
       for (const auto &v : vec) {
-        auto temp_value = TypedValue(v, alloc_);
-        list_v.emplace_back(temp_value);
+        list_v.emplace_back(v);
       }
       break;
     }
@@ -539,8 +524,7 @@ TypedValue::TypedValue(storage::ExternalPropertyValue &&other, allocator_type al
       auto &vec = other.ValueDoubleList();
       alloc_trait::construct(alloc_, &list_v);
       for (const auto &v : vec) {
-        auto temp_value = TypedValue(v, alloc_);
-        list_v.emplace_back(temp_value);
+        list_v.emplace_back(v);
       }
       break;
     }
