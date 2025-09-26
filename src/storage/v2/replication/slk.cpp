@@ -141,7 +141,7 @@ void Save(const storage::ExternalPropertyValue &value, slk::Builder *builder) {
     case storage::ExternalPropertyValue::Type::List: {
       slk::Save(storage::ExternalPropertyValue::Type::List, builder);
       const auto &values = value.ValueList();
-      size_t size = values.size();
+      const auto size = values.size();
       slk::Save(size, builder);
       for (const auto &v : values) {
         slk::Save(v, builder);
@@ -151,7 +151,7 @@ void Save(const storage::ExternalPropertyValue &value, slk::Builder *builder) {
     case storage::ExternalPropertyValue::Type::IntList: {
       slk::Save(storage::ExternalPropertyValue::Type::IntList, builder);
       const auto &values = value.ValueIntList();
-      size_t size = values.size();
+      const auto size = values.size();
       slk::Save(size, builder);
       for (const auto &v : values) {
         slk::Save(v, builder);
@@ -161,7 +161,7 @@ void Save(const storage::ExternalPropertyValue &value, slk::Builder *builder) {
     case storage::ExternalPropertyValue::Type::DoubleList: {
       slk::Save(storage::ExternalPropertyValue::Type::DoubleList, builder);
       const auto &values = value.ValueDoubleList();
-      size_t size = values.size();
+      const auto size = values.size();
       slk::Save(size, builder);
       for (const auto &v : values) {
         slk::Save(v, builder);
@@ -171,7 +171,7 @@ void Save(const storage::ExternalPropertyValue &value, slk::Builder *builder) {
     case storage::ExternalPropertyValue::Type::NumericList: {
       slk::Save(storage::ExternalPropertyValue::Type::NumericList, builder);
       const auto &values = value.ValueNumericList();
-      size_t size = values.size();
+      const auto size = values.size();
       slk::Save(size, builder);
       for (const auto &v : values) {
         if (std::holds_alternative<int>(v)) {
@@ -185,7 +185,7 @@ void Save(const storage::ExternalPropertyValue &value, slk::Builder *builder) {
     case storage::ExternalPropertyValue::Type::Map: {
       slk::Save(storage::ExternalPropertyValue::Type::Map, builder);
       const auto &map = value.ValueMap();
-      size_t size = map.size();
+      const auto size = map.size();
       slk::Save(size, builder);
       for (const auto &kv : map) {
         slk::Save(kv, builder);
@@ -263,7 +263,7 @@ void Load(storage::ExternalPropertyValue *value, slk::Reader *reader) {
       return;
     }
     case storage::ExternalPropertyValue::Type::List: {
-      size_t size;
+      std::size_t size = 0;
       slk::Load(&size, reader);
       std::vector<storage::ExternalPropertyValue> list(size);
       for (size_t i = 0; i < size; ++i) {
@@ -273,7 +273,7 @@ void Load(storage::ExternalPropertyValue *value, slk::Reader *reader) {
       return;
     }
     case storage::ExternalPropertyValue::Type::IntList: {
-      size_t size;
+      std::size_t size = 0;
       slk::Load(&size, reader);
       std::vector<storage::ExternalPropertyValue> list(size);
       for (size_t i = 0; i < size; ++i) {
@@ -283,7 +283,7 @@ void Load(storage::ExternalPropertyValue *value, slk::Reader *reader) {
       return;
     }
     case storage::ExternalPropertyValue::Type::DoubleList: {
-      size_t size;
+      std::size_t size = 0;
       slk::Load(&size, reader);
       std::vector<storage::ExternalPropertyValue> list(size);
       for (size_t i = 0; i < size; ++i) {
@@ -293,7 +293,7 @@ void Load(storage::ExternalPropertyValue *value, slk::Reader *reader) {
       return;
     }
     case storage::ExternalPropertyValue::Type::NumericList: {
-      size_t size;
+      std::size_t size = 0;
       slk::Load(&size, reader);
       storage::ExternalPropertyValue::numeric_list_t list;
       list.reserve(size);
@@ -308,7 +308,7 @@ void Load(storage::ExternalPropertyValue *value, slk::Reader *reader) {
       return;
     }
     case storage::ExternalPropertyValue::Type::Map: {
-      size_t size;
+      std::size_t size = 0;
       slk::Load(&size, reader);
       auto map = storage::ExternalPropertyValue::map_t{};
       do_reserve(map, size);
