@@ -554,9 +554,8 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
     case PropertyValue::Type::Bool: {
       if (value.ValueBool()) {
         return {{Type::BOOL, Size::INT64}};
-      } else {
-        return {{Type::BOOL, Size::INT8}};
       }
+      return {{Type::BOOL, Size::INT8}};
     }
     case PropertyValue::Type::Int: {
       auto size = writer->WriteInt(value.ValueInt());
@@ -585,6 +584,51 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
         auto ret = EncodePropertyValue(writer, item);
         if (!ret) return std::nullopt;
         metadata->Set({ret->first, Size::INT8, ret->second});
+      }
+      return {{Type::LIST, *size}};
+    }
+    case PropertyValue::Type::NumericList: {
+      const auto &list = value.ValueNumericList();
+      auto size = writer->WriteUint(list.size());
+      if (!size) return std::nullopt;
+      for (const auto &item : list) {
+        auto metadata = writer->WriteMetadata();
+        if (!metadata) return std::nullopt;
+        if (std::holds_alternative<int>(item)) {
+          auto ret = writer->WriteInt(static_cast<int64_t>(std::get<int>(item)));
+          if (!ret) return std::nullopt;
+          metadata->Set({Type::INT, Size::INT8, *ret});
+        } else {
+          auto ret = writer->WriteDouble(std::get<double>(item));
+          if (!ret) return std::nullopt;
+          metadata->Set({Type::DOUBLE, Size::INT8, *ret});
+        }
+      }
+      return {{Type::LIST, *size}};
+    }
+    case PropertyValue::Type::IntList: {
+      const auto &list = value.ValueIntList();
+      auto size = writer->WriteUint(list.size());
+      if (!size) return std::nullopt;
+      for (const auto &item : list) {
+        auto metadata = writer->WriteMetadata();
+        if (!metadata) return std::nullopt;
+        auto ret = writer->WriteInt(static_cast<int64_t>(item));
+        if (!ret) return std::nullopt;
+        metadata->Set({Type::INT, Size::INT8, *ret});
+      }
+      return {{Type::LIST, *size}};
+    }
+    case PropertyValue::Type::DoubleList: {
+      const auto &list = value.ValueDoubleList();
+      auto size = writer->WriteUint(list.size());
+      if (!size) return std::nullopt;
+      for (const auto &item : list) {
+        auto metadata = writer->WriteMetadata();
+        if (!metadata) return std::nullopt;
+        auto ret = writer->WriteDouble(item);
+        if (!ret) return std::nullopt;
+        metadata->Set({Type::DOUBLE, Size::INT8, *ret});
       }
       return {{Type::LIST, *size}};
     }
@@ -827,14 +871,31 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       if (!size) return false;
       std::vector<PropertyValue> list;
       list.reserve(*size);
+      bool all_numeric = true;
+      bool all_int = true;
+      bool all_double = true;
       for (uint32_t i = 0; i < *size; ++i) {
         auto metadata = reader->ReadMetadata();
         if (!metadata) return false;
         PropertyValue item;
         if (!DecodePropertyValue(reader, metadata->type, metadata->payload_size, item)) return false;
+        all_int = all_int && item.IsInt();
+        all_double = all_double && item.IsDouble();
+        all_numeric = all_int || all_double;
         list.emplace_back(std::move(item));
       }
-      value = PropertyValue(std::move(list));
+      value = std::invoke([&]() {
+        if (all_int) {
+          return PropertyValue(IntListTag{}, std::move(list));
+        }
+        if (all_double) {
+          return PropertyValue(DoubleListTag{}, std::move(list));
+        }
+        if (all_numeric) {
+          return PropertyValue(NumericListTag{}, std::move(list));
+        }
+        return PropertyValue(std::move(list));
+      });
       return true;
     }
     case Type::MAP: {
@@ -929,12 +990,28 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       if (!size) return std::nullopt;
       std::vector<PropertyValue> list;
       list.reserve(*size);
+      bool all_numeric = true;
+      bool all_int = true;
+      bool all_double = true;
+
       for (uint32_t i = 0; i < *size; ++i) {
         auto metadata = reader->ReadMetadata();
         if (!metadata) return std::nullopt;
         auto item = DecodePropertyValue(reader, metadata->type, metadata->payload_size);
         if (!item) return std::nullopt;
+        all_int = all_int && item->IsInt();
+        all_double = all_double && item->IsDouble();
+        all_numeric = all_int || all_double;
         list.emplace_back(*std::move(item));
+      }
+      if (all_int) {
+        return std::optional<PropertyValue>{std::in_place, PropertyValue(IntListTag{}, std::move(list))};
+      }
+      if (all_double) {
+        return std::optional<PropertyValue>{std::in_place, PropertyValue(DoubleListTag{}, std::move(list))};
+      }
+      if (all_numeric) {
+        return std::optional<PropertyValue>{std::in_place, PropertyValue(NumericListTag{}, std::move(list))};
       }
       return std::optional<PropertyValue>{std::in_place, std::move(list)};
     }
@@ -1211,15 +1288,67 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       return reader->VerifyBytes(str.data(), *size);
     }
     case Type::LIST: {
-      if (!value.IsList()) return false;
-      const auto &list = value.ValueList();
+      // Handle all list types: regular List, IntList, DoubleList, NumericList
+      if (!value.IsList() && !value.IsIntList() && !value.IsDoubleList() && !value.IsNumericList()) {
+        return false;
+      }
+
       auto size = reader->ReadUint(payload_size);
       if (!size) return false;
-      if (*size != list.size()) return false;
-      for (uint32_t i = 0; i < *size; ++i) {
-        auto metadata = reader->ReadMetadata();
-        if (!metadata) return false;
-        if (!ComparePropertyValue(reader, metadata->type, metadata->payload_size, list[i])) return false;
+
+      // Get the appropriate list size based on the actual type
+      size_t list_size = 0;
+      if (value.IsList()) {
+        list_size = value.ValueList().size();
+      } else if (value.IsIntList()) {
+        list_size = value.ValueIntList().size();
+      } else if (value.IsDoubleList()) {
+        list_size = value.ValueDoubleList().size();
+      } else if (value.IsNumericList()) {
+        list_size = value.ValueNumericList().size();
+      }
+
+      if (*size != list_size) return false;
+
+      // For optimized numeric lists, we need to reconstruct the original PropertyValue list
+      // to compare with the stored format
+      if (value.IsIntList()) {
+        const auto &int_list = value.ValueIntList();
+        for (uint32_t i = 0; i < *size; ++i) {
+          auto metadata = reader->ReadMetadata();
+          if (!metadata) return false;
+          const PropertyValue reconstructed_item(static_cast<int64_t>(int_list[i]));
+          if (!ComparePropertyValue(reader, metadata->type, metadata->payload_size, reconstructed_item)) return false;
+        }
+      } else if (value.IsDoubleList()) {
+        const auto &double_list = value.ValueDoubleList();
+        for (uint32_t i = 0; i < *size; ++i) {
+          auto metadata = reader->ReadMetadata();
+          if (!metadata) return false;
+          const PropertyValue reconstructed_item(double_list[i]);
+          if (!ComparePropertyValue(reader, metadata->type, metadata->payload_size, reconstructed_item)) return false;
+        }
+      } else if (value.IsNumericList()) {
+        const auto &numeric_list = value.ValueNumericList();
+        for (uint32_t i = 0; i < *size; ++i) {
+          auto metadata = reader->ReadMetadata();
+          if (!metadata) return false;
+          PropertyValue reconstructed_item;
+          if (std::holds_alternative<int>(numeric_list[i])) {
+            reconstructed_item = PropertyValue(static_cast<int64_t>(std::get<int>(numeric_list[i])));
+          } else {
+            reconstructed_item = PropertyValue(std::get<double>(numeric_list[i]));
+          }
+          if (!ComparePropertyValue(reader, metadata->type, metadata->payload_size, reconstructed_item)) return false;
+        }
+      } else {
+        // Regular list
+        const auto &list = value.ValueList();
+        for (uint32_t i = 0; i < *size; ++i) {
+          auto metadata = reader->ReadMetadata();
+          if (!metadata) return false;
+          if (!ComparePropertyValue(reader, metadata->type, metadata->payload_size, list[i])) return false;
+        }
       }
       return true;
     }

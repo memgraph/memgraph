@@ -141,17 +141,51 @@ void Save(const storage::ExternalPropertyValue &value, slk::Builder *builder) {
     case storage::ExternalPropertyValue::Type::List: {
       slk::Save(storage::ExternalPropertyValue::Type::List, builder);
       const auto &values = value.ValueList();
-      size_t size = values.size();
+      const auto size = values.size();
       slk::Save(size, builder);
       for (const auto &v : values) {
         slk::Save(v, builder);
       }
       return;
     }
+    case storage::ExternalPropertyValue::Type::IntList: {
+      slk::Save(storage::ExternalPropertyValue::Type::IntList, builder);
+      const auto &values = value.ValueIntList();
+      const auto size = values.size();
+      slk::Save(size, builder);
+      for (const auto &v : values) {
+        slk::Save(v, builder);
+      }
+      return;
+    }
+    case storage::ExternalPropertyValue::Type::DoubleList: {
+      slk::Save(storage::ExternalPropertyValue::Type::DoubleList, builder);
+      const auto &values = value.ValueDoubleList();
+      const auto size = values.size();
+      slk::Save(size, builder);
+      for (const auto &v : values) {
+        slk::Save(v, builder);
+      }
+      return;
+    }
+    case storage::ExternalPropertyValue::Type::NumericList: {
+      slk::Save(storage::ExternalPropertyValue::Type::NumericList, builder);
+      const auto &values = value.ValueNumericList();
+      const auto size = values.size();
+      slk::Save(size, builder);
+      for (const auto &v : values) {
+        if (std::holds_alternative<int>(v)) {
+          slk::Save(std::get<int>(v), builder);
+        } else {
+          slk::Save(std::get<double>(v), builder);
+        }
+      }
+      return;
+    }
     case storage::ExternalPropertyValue::Type::Map: {
       slk::Save(storage::ExternalPropertyValue::Type::Map, builder);
       const auto &map = value.ValueMap();
-      size_t size = map.size();
+      const auto size = map.size();
       slk::Save(size, builder);
       for (const auto &kv : map) {
         slk::Save(kv, builder);
@@ -229,7 +263,7 @@ void Load(storage::ExternalPropertyValue *value, slk::Reader *reader) {
       return;
     }
     case storage::ExternalPropertyValue::Type::List: {
-      size_t size;
+      std::size_t size = 0;
       slk::Load(&size, reader);
       std::vector<storage::ExternalPropertyValue> list(size);
       for (size_t i = 0; i < size; ++i) {
@@ -238,8 +272,43 @@ void Load(storage::ExternalPropertyValue *value, slk::Reader *reader) {
       *value = storage::ExternalPropertyValue(std::move(list));
       return;
     }
+    case storage::ExternalPropertyValue::Type::IntList: {
+      std::size_t size = 0;
+      slk::Load(&size, reader);
+      std::vector<storage::ExternalPropertyValue> list(size);
+      for (size_t i = 0; i < size; ++i) {
+        slk::Load(&list[i], reader);
+      }
+      *value = storage::ExternalPropertyValue(std::move(list));
+      return;
+    }
+    case storage::ExternalPropertyValue::Type::DoubleList: {
+      std::size_t size = 0;
+      slk::Load(&size, reader);
+      std::vector<storage::ExternalPropertyValue> list(size);
+      for (size_t i = 0; i < size; ++i) {
+        slk::Load(&list[i], reader);
+      }
+      *value = storage::ExternalPropertyValue(std::move(list));
+      return;
+    }
+    case storage::ExternalPropertyValue::Type::NumericList: {
+      std::size_t size = 0;
+      slk::Load(&size, reader);
+      storage::ExternalPropertyValue::numeric_list_t list;
+      list.reserve(size);
+      for (size_t i = 0; i < size; ++i) {
+        // We need to determine the type from the serialized data
+        // For now, we'll assume it's a double for backward compatibility
+        double v;
+        slk::Load(&v, reader);
+        list.emplace_back(v);
+      }
+      *value = storage::ExternalPropertyValue(std::move(list));
+      return;
+    }
     case storage::ExternalPropertyValue::Type::Map: {
-      size_t size;
+      std::size_t size = 0;
       slk::Load(&size, reader);
       auto map = storage::ExternalPropertyValue::map_t{};
       do_reserve(map, size);

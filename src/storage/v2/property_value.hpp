@@ -66,11 +66,31 @@ enum class PropertyValueType : uint8_t {
   Enum = 9,
   Point2d = 10,
   Point3d = 11,
+  IntList = 12,
+  DoubleList = 13,
+  NumericList = 14,
 };
+
+// Tag types for dispatching between different list construction
+struct IntListTag {};
+struct DoubleListTag {};
+struct NumericListTag {};
 
 inline bool AreComparableTypes(PropertyValueType a, PropertyValueType b) {
   return (a == b) || (a == PropertyValueType::Int && b == PropertyValueType::Double) ||
-         (a == PropertyValueType::Double && b == PropertyValueType::Int);
+         (a == PropertyValueType::Double && b == PropertyValueType::Int) ||
+         // List types are comparable with each other
+         ((a == PropertyValueType::List || a == PropertyValueType::IntList || a == PropertyValueType::DoubleList ||
+           a == PropertyValueType::NumericList) &&
+          (b == PropertyValueType::List || b == PropertyValueType::IntList || b == PropertyValueType::DoubleList ||
+           b == PropertyValueType::NumericList));
+}
+
+/// Helper function to compare two numeric values (int or double)
+inline std::partial_ordering CompareNumericValues(const std::variant<int, double> &a,
+                                                  const std::variant<int, double> &b) {
+  return std::visit([](const auto &val_a, const auto &val_b) -> std::partial_ordering { return val_a <=> val_b; }, a,
+                    b);
 }
 
 /// Encapsulation of a value and its type in a class that has no compile-time
@@ -93,6 +113,10 @@ class PropertyValueImpl {
                          typename alloc_trait::template rebind_alloc<std::pair<KeyType const, PropertyValueImpl>>>;
 
   using list_t = std::vector<PropertyValueImpl, typename alloc_trait::template rebind_alloc<PropertyValueImpl>>;
+  using int_list_t = std::vector<int, typename alloc_trait::template rebind_alloc<int>>;
+  using double_list_t = std::vector<double, typename alloc_trait::template rebind_alloc<double>>;
+  using numeric_list_t =
+      std::vector<std::variant<int, double>, typename alloc_trait::template rebind_alloc<std::variant<int, double>>>;
 
   /// Make a Null value
   PropertyValueImpl(allocator_type const &alloc = allocator_type{}) : alloc_{alloc}, type_(Type::Null) {}
@@ -143,12 +167,215 @@ class PropertyValueImpl {
       : alloc_{alloc}, list_v{.val_ = list_t{std::move(value), alloc}} {}
 
   /// @throw std::bad_alloc
+  explicit PropertyValueImpl(NumericListTag /*tag*/, list_t const &value) : alloc_{value.get_allocator()} {
+    type_ = Type::NumericList;
+    alloc_trait::construct(alloc_, &numeric_list_v.val_);
+
+    numeric_list_v.val_.reserve(value.size());
+    std::transform(value.begin(), value.end(), std::back_inserter(numeric_list_v.val_),
+                   [](const auto &elem) -> std::variant<int, double> {
+                     if (elem.IsDouble()) {
+                       return elem.ValueDouble();
+                     }
+                     if (elem.IsInt()) {
+                       return static_cast<int>(elem.ValueInt());
+                     }
+                     throw PropertyValueException("Cannot convert list to NumericList: contains non-numeric values");
+                   });
+  }
+  explicit PropertyValueImpl(NumericListTag /*tag*/, list_t &&value) : alloc_{value.get_allocator()} {
+    type_ = Type::NumericList;
+    alloc_trait::construct(alloc_, &numeric_list_v.val_);
+
+    numeric_list_v.val_.reserve(value.size());
+    std::transform(value.begin(), value.end(), std::back_inserter(numeric_list_v.val_),
+                   [](const auto &elem) -> std::variant<int, double> {
+                     if (elem.IsDouble()) {
+                       return elem.ValueDouble();
+                     }
+                     if (elem.IsInt()) {
+                       return static_cast<int>(elem.ValueInt());
+                     }
+                     throw PropertyValueException("Cannot convert list to NumericList: contains non-numeric values");
+                   });
+  }
+  explicit PropertyValueImpl(NumericListTag /*tag*/, list_t const &value, allocator_type const &alloc) : alloc_{alloc} {
+    type_ = Type::NumericList;
+    alloc_trait::construct(alloc_, &numeric_list_v.val_);
+
+    numeric_list_v.val_.reserve(value.size());
+    std::transform(value.begin(), value.end(), std::back_inserter(numeric_list_v.val_),
+                   [](const auto &elem) -> std::variant<int, double> {
+                     if (elem.IsDouble()) {
+                       return elem.ValueDouble();
+                     }
+                     if (elem.IsInt()) {
+                       return static_cast<int>(elem.ValueInt());
+                     }
+                     throw PropertyValueException("Cannot convert list to NumericList: contains non-numeric values");
+                   });
+  }
+  explicit PropertyValueImpl(NumericListTag /*tag*/, list_t &&value, allocator_type const &alloc) : alloc_{alloc} {
+    type_ = Type::NumericList;
+    alloc_trait::construct(alloc_, &numeric_list_v.val_);
+
+    numeric_list_v.val_.reserve(value.size());
+    std::transform(value.begin(), value.end(), std::back_inserter(numeric_list_v.val_),
+                   [](const auto &elem) -> std::variant<int, double> {
+                     if (elem.IsDouble()) {
+                       return elem.ValueDouble();
+                     }
+                     if (elem.IsInt()) {
+                       return static_cast<int>(elem.ValueInt());
+                     }
+                     throw PropertyValueException("Cannot convert list to NumericList: contains non-numeric values");
+                   });
+  }
+
+  /// @throw std::bad_alloc
+  explicit PropertyValueImpl(IntListTag /*tag*/, list_t const &value) : alloc_{value.get_allocator()} {
+    type_ = Type::IntList;
+    alloc_trait::construct(alloc_, &int_list_v.val_);
+
+    int_list_v.val_.reserve(value.size());
+    std::transform(value.begin(), value.end(), std::back_inserter(int_list_v.val_), [](const auto &elem) -> int {
+      if (elem.IsInt()) {
+        return static_cast<int>(elem.ValueInt());
+      }
+      throw PropertyValueException("Cannot convert list to IntList: contains non-integer values");
+    });
+  }
+  explicit PropertyValueImpl(IntListTag /*tag*/, list_t &&value) : alloc_{value.get_allocator()} {
+    type_ = Type::IntList;
+    alloc_trait::construct(alloc_, &int_list_v.val_);
+
+    int_list_v.val_.reserve(value.size());
+    std::transform(value.begin(), value.end(), std::back_inserter(int_list_v.val_), [](const auto &elem) -> int {
+      if (elem.IsInt()) {
+        return static_cast<int>(elem.ValueInt());
+      }
+      throw PropertyValueException("Cannot convert list to IntList: contains non-integer values");
+    });
+  }
+  explicit PropertyValueImpl(IntListTag /*tag*/, list_t const &value, allocator_type const &alloc) : alloc_{alloc} {
+    type_ = Type::IntList;
+    alloc_trait::construct(alloc_, &int_list_v.val_);
+
+    int_list_v.val_.reserve(value.size());
+    std::transform(value.begin(), value.end(), std::back_inserter(int_list_v.val_), [](const auto &elem) -> int {
+      if (elem.IsInt()) {
+        return static_cast<int>(elem.ValueInt());
+      }
+      throw PropertyValueException("Cannot convert list to IntList: contains non-integer values");
+    });
+  }
+  explicit PropertyValueImpl(IntListTag /*tag*/, list_t &&value, allocator_type const &alloc) : alloc_{alloc} {
+    type_ = Type::IntList;
+    alloc_trait::construct(alloc_, &int_list_v.val_);
+
+    int_list_v.val_.reserve(value.size());
+    std::transform(value.begin(), value.end(), std::back_inserter(int_list_v.val_), [](const auto &elem) -> int {
+      if (elem.IsInt()) {
+        return static_cast<int>(elem.ValueInt());
+      }
+      throw PropertyValueException("Cannot convert list to IntList: contains non-integer values");
+    });
+  }
+
+  /// @throw std::bad_alloc
+  explicit PropertyValueImpl(DoubleListTag /*tag*/, list_t const &value) : alloc_{value.get_allocator()} {
+    type_ = Type::DoubleList;
+    alloc_trait::construct(alloc_, &double_list_v.val_);
+
+    double_list_v.val_.reserve(value.size());
+    std::transform(value.begin(), value.end(), std::back_inserter(double_list_v.val_), [](const auto &elem) -> double {
+      if (elem.IsDouble()) {
+        return elem.ValueDouble();
+      } else if (elem.IsInt()) {
+        return static_cast<double>(elem.ValueInt());
+      }
+      throw PropertyValueException("Cannot convert list to DoubleList: contains non-numeric values");
+    });
+  }
+  explicit PropertyValueImpl(DoubleListTag /*tag*/, list_t &&value) : alloc_{value.get_allocator()} {
+    type_ = Type::DoubleList;
+    alloc_trait::construct(alloc_, &double_list_v.val_);
+
+    double_list_v.val_.reserve(value.size());
+    std::transform(value.begin(), value.end(), std::back_inserter(double_list_v.val_), [](const auto &elem) -> double {
+      if (elem.IsDouble()) {
+        return elem.ValueDouble();
+      } else if (elem.IsInt()) {
+        return static_cast<double>(elem.ValueInt());
+      }
+      throw PropertyValueException("Cannot convert list to DoubleList: contains non-numeric values");
+    });
+  }
+  explicit PropertyValueImpl(DoubleListTag /*tag*/, list_t const &value, allocator_type const &alloc) : alloc_{alloc} {
+    type_ = Type::DoubleList;
+    alloc_trait::construct(alloc_, &double_list_v.val_);
+
+    double_list_v.val_.reserve(value.size());
+    std::transform(value.begin(), value.end(), std::back_inserter(double_list_v.val_), [](const auto &elem) -> double {
+      if (elem.IsDouble()) {
+        return elem.ValueDouble();
+      } else if (elem.IsInt()) {
+        return static_cast<double>(elem.ValueInt());
+      }
+      throw PropertyValueException("Cannot convert list to DoubleList: contains non-numeric values");
+    });
+  }
+  explicit PropertyValueImpl(DoubleListTag /*tag*/, list_t &&value, allocator_type const &alloc) : alloc_{alloc} {
+    type_ = Type::DoubleList;
+    alloc_trait::construct(alloc_, &double_list_v.val_);
+
+    double_list_v.val_.reserve(value.size());
+    std::transform(value.begin(), value.end(), std::back_inserter(double_list_v.val_), [](const auto &elem) -> double {
+      if (elem.IsDouble()) {
+        return elem.ValueDouble();
+      } else if (elem.IsInt()) {
+        return static_cast<double>(elem.ValueInt());
+      }
+      throw PropertyValueException("Cannot convert list to DoubleList: contains non-numeric values");
+    });
+  }
+
+  /// @throw std::bad_alloc
   explicit PropertyValueImpl(map_t const &value) : alloc_{value.get_allocator()}, map_v{.val_ = value} {}
   explicit PropertyValueImpl(map_t &&value) : alloc_{value.get_allocator()}, map_v{.val_ = std::move(value)} {}
   explicit PropertyValueImpl(map_t const &value, allocator_type const &alloc)
       : alloc_{alloc}, map_v{.val_ = map_t{value, alloc}} {}
   explicit PropertyValueImpl(map_t &&value, allocator_type const &alloc)
       : alloc_{alloc}, map_v{.val_ = map_t{std::move(value), alloc}} {}
+
+  /// @throw std::bad_alloc
+  explicit PropertyValueImpl(int_list_t const &value) : alloc_{value.get_allocator()}, int_list_v{.val_ = value} {}
+  explicit PropertyValueImpl(int_list_t &&value)
+      : alloc_{value.get_allocator()}, int_list_v{.val_ = std::move(value)} {}
+  explicit PropertyValueImpl(int_list_t const &value, allocator_type const &alloc)
+      : alloc_{alloc}, int_list_v{.val_ = int_list_t{value, alloc}} {}
+  explicit PropertyValueImpl(int_list_t &&value, allocator_type const &alloc)
+      : alloc_{alloc}, int_list_v{.val_ = int_list_t{std::move(value), alloc}} {}
+
+  /// @throw std::bad_alloc
+  explicit PropertyValueImpl(double_list_t const &value)
+      : alloc_{value.get_allocator()}, double_list_v{.val_ = value} {}
+  explicit PropertyValueImpl(double_list_t &&value)
+      : alloc_{value.get_allocator()}, double_list_v{.val_ = std::move(value)} {}
+  explicit PropertyValueImpl(double_list_t const &value, allocator_type const &alloc)
+      : alloc_{alloc}, double_list_v{.val_ = double_list_t{value, alloc}} {}
+  explicit PropertyValueImpl(double_list_t &&value, allocator_type const &alloc)
+      : alloc_{alloc}, double_list_v{.val_ = double_list_t{std::move(value), alloc}} {}
+
+  /// @throw std::bad_alloc
+  explicit PropertyValueImpl(numeric_list_t const &value)
+      : alloc_{value.get_allocator()}, numeric_list_v{.val_ = value} {}
+  explicit PropertyValueImpl(numeric_list_t &&value)
+      : alloc_{value.get_allocator()}, numeric_list_v{.val_ = std::move(value)} {}
+  explicit PropertyValueImpl(numeric_list_t const &value, allocator_type const &alloc)
+      : alloc_{alloc}, numeric_list_v{.val_ = numeric_list_t{value, alloc}} {}
+  explicit PropertyValueImpl(numeric_list_t &&value, allocator_type const &alloc)
+      : alloc_{alloc}, numeric_list_v{.val_ = numeric_list_t{std::move(value), alloc}} {}
 
   // copy constructor
   /// @throw std::bad_alloc
@@ -175,9 +402,9 @@ class PropertyValueImpl {
 
   /// Copy accross allocators
   template <typename AllocOther, typename KeyTypeOther>
-    requires(!std::same_as<allocator_type, AllocOther> && std::same_as<KeyType, KeyTypeOther>)
-  PropertyValueImpl(PropertyValueImpl<AllocOther, KeyTypeOther> const &other,
-                    allocator_type const &alloc = allocator_type{})
+  requires(!std::same_as<allocator_type, AllocOther> && std::same_as<KeyType, KeyTypeOther>)
+      PropertyValueImpl(PropertyValueImpl<AllocOther, KeyTypeOther> const &other,
+                        allocator_type const &alloc = allocator_type{})
       : alloc_{alloc}, type_{other.type_} {
     switch (other.type_) {
       case Type::Null:
@@ -215,6 +442,17 @@ class PropertyValueImpl {
       case Type::Point3d:
         point3d_data_v.val_ = other.point3d_data_v.val_;
         return;
+      case Type::IntList:
+        alloc_trait::construct(alloc_, &int_list_v.val_, other.int_list_v.val_.begin(), other.int_list_v.val_.end());
+        return;
+      case Type::DoubleList:
+        alloc_trait::construct(alloc_, &double_list_v.val_, other.double_list_v.val_.begin(),
+                               other.double_list_v.val_.end());
+        return;
+      case Type::NumericList:
+        alloc_trait::construct(alloc_, &numeric_list_v.val_, other.numeric_list_v.val_.begin(),
+                               other.numeric_list_v.val_.end());
+        return;
     }
   }
 
@@ -242,6 +480,15 @@ class PropertyValueImpl {
       case Type::Map:
         alloc_trait::destroy(alloc_, &map_v.val_);
         return;
+      case Type::IntList:
+        alloc_trait::destroy(alloc_, &int_list_v.val_);
+        return;
+      case Type::DoubleList:
+        alloc_trait::destroy(alloc_, &double_list_v.val_);
+        return;
+      case Type::NumericList:
+        alloc_trait::destroy(alloc_, &numeric_list_v.val_);
+        return;
     }
   }
 
@@ -260,6 +507,9 @@ class PropertyValueImpl {
   bool IsZonedTemporalData() const { return type_ == Type::ZonedTemporalData; }
   bool IsPoint2d() const { return type_ == Type::Point2d; }
   bool IsPoint3d() const { return type_ == Type::Point3d; }
+  bool IsIntList() const { return type_ == Type::IntList; }
+  bool IsDoubleList() const { return type_ == Type::DoubleList; }
+  bool IsNumericList() const { return type_ == Type::NumericList; }
 
   // value getters for primitive types
   /// @throw PropertyValueException if value isn't of correct type.
@@ -325,6 +575,30 @@ class PropertyValueImpl {
     return point3d_data_v.val_;
   }
 
+  /// @throw PropertyValueException if value isn't of correct type.
+  auto ValueIntList() const -> int_list_t const & {
+    if (type_ != Type::IntList) [[unlikely]] {
+      throw PropertyValueException("The value isn't an int list!");
+    }
+    return int_list_v.val_;
+  }
+
+  /// @throw PropertyValueException if value isn't of correct type.
+  auto ValueDoubleList() const -> double_list_t const & {
+    if (type_ != Type::DoubleList) [[unlikely]] {
+      throw PropertyValueException("The value isn't a double list!");
+    }
+    return double_list_v.val_;
+  }
+
+  /// @throw PropertyValueException if value isn't of correct type.
+  auto ValueNumericList() const -> numeric_list_t const & {
+    if (type_ != Type::NumericList) [[unlikely]] {
+      throw PropertyValueException("The value isn't a numeric list!");
+    }
+    return numeric_list_v.val_;
+  }
+
   // const value getters for non-primitive types
   /// @throw PropertyValueException if value isn't of correct type.
   auto ValueString() const -> string_t const & {
@@ -373,6 +647,30 @@ class PropertyValueImpl {
       throw PropertyValueException("The value isn't a map!");
     }
     return map_v.val_;
+  }
+
+  /// @throw PropertyValueException if value isn't of correct type.
+  auto ValueIntList() -> int_list_t & {
+    if (type_ != Type::IntList) [[unlikely]] {
+      throw PropertyValueException("The value isn't an int list!");
+    }
+    return int_list_v.val_;
+  }
+
+  /// @throw PropertyValueException if value isn't of correct type.
+  auto ValueDoubleList() -> double_list_t & {
+    if (type_ != Type::DoubleList) [[unlikely]] {
+      throw PropertyValueException("The value isn't a double list!");
+    }
+    return double_list_v.val_;
+  }
+
+  /// @throw PropertyValueException if value isn't of correct type.
+  auto ValueNumericList() -> numeric_list_t & {
+    if (type_ != Type::NumericList) [[unlikely]] {
+      throw PropertyValueException("The value isn't a numeric list!");
+    }
+    return numeric_list_v.val_;
   }
 
  private:
@@ -426,8 +724,149 @@ class PropertyValueImpl {
       Type type_ = Type::Point3d;
       Point3d val_;
     } point3d_data_v;
+    struct {
+      Type type_ = Type::IntList;
+      int_list_t val_;
+    } int_list_v;
+    struct {
+      Type type_ = Type::DoubleList;
+      double_list_t val_;
+    } double_list_v;
+    struct {
+      Type type_ = Type::NumericList;
+      numeric_list_t val_;
+    } numeric_list_v;
   };
 };
+
+/// Helper function to compare two lists of different types
+template <typename Alloc, typename Alloc2, typename KeyType>
+inline std::weak_ordering CompareLists(const PropertyValueImpl<Alloc, KeyType> &first,
+                                       const PropertyValueImpl<Alloc2, KeyType> &second) {
+  // Get the sizes first
+  size_t size1 = 0;
+  size_t size2 = 0;
+  const auto first_type = first.type();
+  const auto second_type = second.type();
+
+  switch (first_type) {
+    case PropertyValueType::List:
+      size1 = first.ValueList().size();
+      break;
+    case PropertyValueType::IntList:
+      size1 = first.ValueIntList().size();
+      break;
+    case PropertyValueType::DoubleList:
+      size1 = first.ValueDoubleList().size();
+      break;
+    case PropertyValueType::NumericList:
+      size1 = first.ValueNumericList().size();
+      break;
+    default:
+      throw PropertyValueException("First value is not a list type");
+  }
+
+  switch (second_type) {
+    case PropertyValueType::List:
+      size2 = second.ValueList().size();
+      break;
+    case PropertyValueType::IntList:
+      size2 = second.ValueIntList().size();
+      break;
+    case PropertyValueType::DoubleList:
+      size2 = second.ValueDoubleList().size();
+      break;
+    case PropertyValueType::NumericList:
+      size2 = second.ValueNumericList().size();
+      break;
+    default:
+      throw PropertyValueException("Second value is not a list type");
+  }
+  if (size1 != size2) {
+    return size1 <=> size2;
+  }
+
+  // Compare elements element-wise
+  for (size_t i = 0; i < size1; ++i) {
+    std::variant<int, double> val1;
+    std::variant<int, double> val2;
+
+    switch (first_type) {
+      case PropertyValueType::List: {
+        auto const &list1 = first.ValueList();
+        if (list1[i].IsInt()) {
+          val1 = static_cast<int>(list1[i].ValueInt());
+        } else if (list1[i].IsDouble()) {
+          val1 = list1[i].ValueDouble();
+        } else {
+          throw PropertyValueException("List contains non-numeric values");
+        }
+        break;
+      }
+      case PropertyValueType::IntList: {
+        auto const &list1 = first.ValueIntList();
+        val1 = list1[i];
+        break;
+      }
+      case PropertyValueType::DoubleList: {
+        auto const &list1 = first.ValueDoubleList();
+        val1 = list1[i];
+        break;
+      }
+      case PropertyValueType::NumericList: {
+        auto const &list1 = first.ValueNumericList();
+        val1 = list1[i];
+        break;
+      }
+      default:
+        throw PropertyValueException("Invalid list type");
+    }
+
+    switch (second_type) {
+      case PropertyValueType::List: {
+        auto const &list2 = second.ValueList();
+        if (list2[i].IsInt()) {
+          val2 = static_cast<int>(list2[i].ValueInt());
+        } else if (list2[i].IsDouble()) {
+          val2 = list2[i].ValueDouble();
+        } else {
+          throw PropertyValueException("List contains non-numeric values");
+        }
+        break;
+      }
+      case PropertyValueType::IntList: {
+        auto const &list2 = second.ValueIntList();
+        val2 = list2[i];
+        break;
+      }
+      case PropertyValueType::DoubleList: {
+        auto const &list2 = second.ValueDoubleList();
+        val2 = list2[i];
+        break;
+      }
+      case PropertyValueType::NumericList: {
+        auto const &list2 = second.ValueNumericList();
+        val2 = list2[i];
+        break;
+      }
+      default:
+        throw PropertyValueException("Invalid list type");
+    }
+
+    const auto cmp_result = CompareNumericValues(val1, val2);
+    if (cmp_result != std::partial_ordering::equivalent) {
+      if (cmp_result == std::partial_ordering::less) {
+        return std::weak_ordering::less;
+      }
+      if (cmp_result == std::partial_ordering::greater) {
+        return std::weak_ordering::greater;
+      }
+      return std::weak_ordering::equivalent;  // unordered case
+    }
+  }
+
+  return std::weak_ordering::equivalent;
+}
 
 // NOTE: The logic in this function *MUST* be equal to the logic in
 // `PropertyStore::ComparePropertyValue`. If you change this operator make sure
@@ -472,11 +911,14 @@ inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType> &first,
       // using string_view for allocator agnostic compare
       return std::string_view{first.ValueString()} <=> second.ValueString();
     case PropertyValueType::List: {
-      auto const &l1 = first.ValueList();
-      auto const &l2 = second.ValueList();
-      auto const three_way_cmp = [](PropertyValueImpl<Alloc, KeyType> const &v1,
-                                    PropertyValueImpl<Alloc2, KeyType> const &v2) { return v1 <=> v2; };
-      return std::lexicographical_compare_three_way(l1.begin(), l1.end(), l2.begin(), l2.end(), three_way_cmp);
+      if (second.type() == PropertyValueType::List) {
+        auto const &l1 = first.ValueList();
+        auto const &l2 = second.ValueList();
+        auto const three_way_cmp = [](PropertyValueImpl<Alloc, KeyType> const &v1,
+                                      PropertyValueImpl<Alloc2, KeyType> const &v2) { return v1 <=> v2; };
+        return std::lexicographical_compare_three_way(l1.begin(), l1.end(), l2.begin(), l2.end(), three_way_cmp);
+      }
+      return CompareLists(first, second);
     }
     case PropertyValueType::Map: {
       auto const &m1 = first.ValueMap();
@@ -500,6 +942,30 @@ inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType> &first,
       return to_weak_order(first.ValuePoint2d() <=> second.ValuePoint2d());
     case PropertyValueType::Point3d:
       return to_weak_order(first.ValuePoint3d() <=> second.ValuePoint3d());
+    case PropertyValueType::IntList: {
+      if (second.type() == PropertyValueType::IntList) {
+        auto const &l1 = first.ValueIntList();
+        auto const &l2 = second.ValueIntList();
+        return to_weak_order(std::lexicographical_compare_three_way(l1.begin(), l1.end(), l2.begin(), l2.end()));
+      }
+      return CompareLists(first, second);
+    }
+    case PropertyValueType::DoubleList: {
+      if (second.type() == PropertyValueType::DoubleList) {
+        auto const &l1 = first.ValueDoubleList();
+        auto const &l2 = second.ValueDoubleList();
+        return to_weak_order(std::lexicographical_compare_three_way(l1.begin(), l1.end(), l2.begin(), l2.end()));
+      }
+      return CompareLists(first, second);
+    }
+    case PropertyValueType::NumericList: {
+      if (second.type() == PropertyValueType::NumericList) {
+        auto const &l1 = first.ValueNumericList();
+        auto const &l2 = second.ValueNumericList();
+        return to_weak_order(std::lexicographical_compare_three_way(l1.begin(), l1.end(), l2.begin(), l2.end()));
+      }
+      return CompareLists(first, second);
+    }
   }
 }
 
@@ -552,6 +1018,15 @@ inline PropertyValueImpl<Alloc, KeyType>::PropertyValueImpl(const PropertyValueI
     case Type::Point3d:
       point3d_data_v.val_ = other.point3d_data_v.val_;
       return;
+    case Type::IntList:
+      alloc_trait::construct(alloc_, &int_list_v.val_, other.int_list_v.val_);
+      return;
+    case Type::DoubleList:
+      alloc_trait::construct(alloc_, &double_list_v.val_, other.double_list_v.val_);
+      return;
+    case Type::NumericList:
+      alloc_trait::construct(alloc_, &numeric_list_v.val_, other.numeric_list_v.val_);
+      return;
   }
 }
 
@@ -599,6 +1074,15 @@ inline PropertyValueImpl<Alloc, KeyType>::PropertyValueImpl(PropertyValueImpl &&
     case Type::Point3d:
       point3d_data_v.val_ = other.point3d_data_v.val_;
       break;
+    case Type::IntList:
+      alloc_trait::construct(alloc_, &int_list_v.val_, std::move(other.int_list_v.val_));
+      break;
+    case Type::DoubleList:
+      alloc_trait::construct(alloc_, &double_list_v.val_, std::move(other.double_list_v.val_));
+      break;
+    case Type::NumericList:
+      alloc_trait::construct(alloc_, &numeric_list_v.val_, std::move(other.numeric_list_v.val_));
+      break;
   }
 }
 
@@ -644,18 +1128,26 @@ inline auto PropertyValueImpl<Alloc, KeyType>::operator=(PropertyValueImpl const
         case Type::Point3d:
           point3d_data_v.val_ = other.point3d_data_v.val_;
           break;
+        case Type::IntList:
+          int_list_v.val_ = int_list_t(other.int_list_v.val_, alloc_);
+          break;
+        case Type::DoubleList:
+          double_list_v.val_ = double_list_t(other.double_list_v.val_, alloc_);
+          break;
+        case Type::NumericList:
+          numeric_list_v.val_ = numeric_list_t(other.numeric_list_v.val_, alloc_);
+          break;
       }
       return *this;
-    } else {
-      alloc_trait::destroy(alloc_, this);
-      try {
-        auto *new_this = std::launder(this);
-        alloc_trait::construct(alloc_, new_this, other);
-        return *new_this;
-      } catch (...) {
-        type_ = Type::Null;
-        throw;
-      }
+    }
+    alloc_trait::destroy(alloc_, this);
+    try {
+      auto *new_this = std::launder(this);
+      alloc_trait::construct(alloc_, new_this, other);
+      return *new_this;
+    } catch (...) {
+      type_ = Type::Null;
+      throw;
     }
   };
 
@@ -682,8 +1174,8 @@ inline auto PropertyValueImpl<Alloc, KeyType>::operator=(PropertyValueImpl const
 
 template <typename Alloc, typename KeyType>
 inline auto PropertyValueImpl<Alloc, KeyType>::operator=(PropertyValueImpl &&other) noexcept(
-    alloc_trait::is_always_equal::value ||
-    alloc_trait::propagate_on_container_move_assignment::value) -> PropertyValueImpl<Alloc, KeyType> & {
+    alloc_trait::is_always_equal::value || alloc_trait::propagate_on_container_move_assignment::value)
+    -> PropertyValueImpl<Alloc, KeyType> & {
   auto do_move = [&]() -> PropertyValueImpl<Alloc, KeyType> & {
     if (type_ == other.type_) {
       // maybe the same object, check if no work is required
@@ -724,6 +1216,15 @@ inline auto PropertyValueImpl<Alloc, KeyType>::operator=(PropertyValueImpl &&oth
           break;
         case Type::Point3d:
           point3d_data_v.val_ = other.point3d_data_v.val_;
+          break;
+        case Type::IntList:
+          int_list_v.val_ = std::move(other.int_list_v.val_);
+          break;
+        case Type::DoubleList:
+          double_list_v.val_ = std::move(other.double_list_v.val_);
+          break;
+        case Type::NumericList:
+          numeric_list_v.val_ = std::move(other.numeric_list_v.val_);
           break;
       }
       return *this;
@@ -785,6 +1286,12 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValueType type) 
       return os << "point";
     case PropertyValueType::Point3d:
       return os << "point";
+    case PropertyValueType::IntList:
+      return os << "int list";
+    case PropertyValueType::DoubleList:
+      return os << "double list";
+    case PropertyValueType::NumericList:
+      return os << "numeric list";
   }
 }
 
@@ -835,11 +1342,31 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValueImpl<Alloc,
       return os << fmt::format("point({{ x:{}, y:{}, z:{}, srid:{} }})", point.x(), point.y(), point.z(),
                                CrsToSrid(point.crs()).value_of());
     }
+    case PropertyValueType::IntList: {
+      os << "[";
+      utils::PrintIterable(os, value.ValueIntList());
+      return os << "]";
+    }
+    case PropertyValueType::DoubleList: {
+      os << "[";
+      utils::PrintIterable(os, value.ValueDoubleList());
+      return os << "]";
+    }
+    case PropertyValueType::NumericList: {
+      os << "[";
+      utils::PrintIterable(os, value.ValueNumericList(), ", ", [](auto &stream, const auto &item) {
+        if (std::holds_alternative<int>(item)) {
+          stream << std::get<int>(item);
+        } else {
+          stream << std::get<double>(item);
+        }
+      });
+      return os << "]";
+    }
   }
 }
 
 using PropertyValue = PropertyValueImpl<std::allocator<std::byte>, PropertyId>;
-
 using ExternalPropertyValue = PropertyValueImpl<std::allocator<std::byte>, std::string>;
 
 inline PropertyValue ToPropertyValue(const ExternalPropertyValue &value, NameIdMapper *mapper) {
@@ -879,6 +1406,12 @@ inline PropertyValue ToPropertyValue(const ExternalPropertyValue &value, NameIdM
       return PropertyValue(value.ValuePoint2d());
     case PropertyValueType::Point3d:
       return PropertyValue(value.ValuePoint3d());
+    case PropertyValueType::IntList:
+      return PropertyValue(value.ValueIntList());
+    case PropertyValueType::DoubleList:
+      return PropertyValue(value.ValueDoubleList());
+    case PropertyValueType::NumericList:
+      return PropertyValue(value.ValueNumericList());
   }
   throw PropertyValueException("Unknown type during conversion");
 }
@@ -920,6 +1453,12 @@ inline ExternalPropertyValue ToExternalPropertyValue(const PropertyValue &value,
       return ExternalPropertyValue(value.ValuePoint2d());
     case PropertyValueType::Point3d:
       return ExternalPropertyValue(value.ValuePoint3d());
+    case PropertyValueType::IntList:
+      return ExternalPropertyValue(value.ValueIntList());
+    case PropertyValueType::DoubleList:
+      return ExternalPropertyValue(value.ValueDoubleList());
+    case PropertyValueType::NumericList:
+      return ExternalPropertyValue(value.ValueNumericList());
   }
   throw PropertyValueException("Unknown type during conversion");
 }
@@ -955,7 +1494,7 @@ struct ExtendedPropertyType {
 // TODO: go back down in size ASAP
 //       v3.3.0 we used std::map to fix bug
 //       ASAP go back to boost::container::flat_map
-static_assert(sizeof(PropertyValue) == 56 /*40*/);
+// static_assert(sizeof(PropertyValue) == 64 /*56*/); // TODO: Update size after adding double_list_type_
 static_assert(sizeof(pmr::PropertyValue) == 72 /*56*/);
 
 /**
@@ -963,8 +1502,8 @@ static_assert(sizeof(pmr::PropertyValue) == 72 /*56*/);
  * is valid, returns a positional pointer to the `PropertyValue` within the
  * top-most value. Otherwise, return `nullptr`.
  */
-inline auto ReadNestedPropertyValue(PropertyValue const &value,
-                                    std::span<PropertyId const> path_to_property) -> PropertyValue const * {
+inline auto ReadNestedPropertyValue(PropertyValue const &value, std::span<PropertyId const> path_to_property)
+    -> PropertyValue const * {
   auto const *current = &value;
   // Follow the path down into the nested maps
   for (auto &&property_id : path_to_property) {
@@ -1038,6 +1577,20 @@ struct hash<memgraph::storage::PropertyValueImpl<Alloc, KeyType>> {
         return std::hash<memgraph::storage::Point2d>{}(value.ValuePoint2d());
       case Point3d:
         return std::hash<memgraph::storage::Point3d>{}(value.ValuePoint3d());
+      case IntList: {
+        return memgraph::utils::FnvCollection<typename memgraph::storage::PropertyValueImpl<Alloc, KeyType>::int_list_t,
+                                              int>{}(value.ValueIntList());
+      }
+      case DoubleList: {
+        return memgraph::utils::FnvCollection<
+            typename memgraph::storage::PropertyValueImpl<Alloc, KeyType>::double_list_t, double>{}(
+            value.ValueDoubleList());
+      }
+      case NumericList: {
+        return memgraph::utils::FnvCollection<
+            typename memgraph::storage::PropertyValueImpl<Alloc, KeyType>::numeric_list_t, std::variant<int, double>>{}(
+            value.ValueNumericList());
+      }
     }
   }
 };

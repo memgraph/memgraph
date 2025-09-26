@@ -98,6 +98,37 @@ TypedValue::TypedValue(const storage::PropertyValue &value, storage::NameIdMappe
       }
       return;
     }
+    case storage::PropertyValue::Type::NumericList: {
+      type_ = Type::List;
+      const auto &vec = value.ValueNumericList();
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        if (std::holds_alternative<int>(v)) {
+          list_v.emplace_back(std::get<int>(v));
+        } else {
+          list_v.emplace_back(std::get<double>(v));
+        }
+      }
+      return;
+    }
+    case storage::PropertyValue::Type::IntList: {
+      type_ = Type::List;
+      const auto &vec = value.ValueIntList();
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {  // TODO: improve this
+        list_v.emplace_back(v);
+      }
+      return;
+    }
+    case storage::PropertyValue::Type::DoubleList: {
+      type_ = Type::List;
+      const auto &vec = value.ValueDoubleList();
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        list_v.emplace_back(v);
+      }
+      return;
+    }
     case storage::PropertyValue::Type::Map: {
       if (!name_id_mapper) {
         throw std::runtime_error("NameIdMapper is required for TypedValue::Map");
@@ -205,6 +236,37 @@ TypedValue::TypedValue(storage::PropertyValue &&other, storage::NameIdMapper *na
       }
       break;
     }
+    case storage::PropertyValue::Type::NumericList: {
+      type_ = Type::List;
+      auto &vec = other.ValueNumericList();
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        if (std::holds_alternative<int>(v)) {
+          list_v.emplace_back(std::get<int>(v));
+        } else {
+          list_v.emplace_back(std::get<double>(v));
+        }
+      }
+      break;
+    }
+    case storage::PropertyValue::Type::IntList: {
+      type_ = Type::List;
+      auto &vec = other.ValueIntList();
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        list_v.emplace_back(v);
+      }
+      break;
+    }
+    case storage::PropertyValue::Type::DoubleList: {
+      type_ = Type::List;
+      auto &vec = other.ValueDoubleList();
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        list_v.emplace_back(v);
+      }
+      break;
+    }
     case storage::PropertyValue::Type::Map: {
       if (!name_id_mapper) {
         throw TypedValueException("NameIdMapper is required for TypedValue::Map");
@@ -308,6 +370,37 @@ TypedValue::TypedValue(const storage::ExternalPropertyValue &value, allocator_ty
       alloc_trait::construct(alloc_, &list_v, vec.cbegin(), vec.cend());
       return;
     }
+    case storage::PropertyValue::Type::NumericList: {
+      type_ = Type::List;
+      const auto &vec = value.ValueNumericList();
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        if (std::holds_alternative<int>(v)) {
+          list_v.emplace_back(std::get<int>(v));
+        } else {
+          list_v.emplace_back(std::get<double>(v));
+        }
+      }
+      return;
+    }
+    case storage::PropertyValue::Type::IntList: {
+      type_ = Type::List;
+      const auto &vec = value.ValueIntList();
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        list_v.emplace_back(v);
+      }
+      return;
+    }
+    case storage::PropertyValue::Type::DoubleList: {
+      type_ = Type::List;
+      const auto &vec = value.ValueDoubleList();
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        list_v.emplace_back(v);
+      }
+      return;
+    }
     case storage::PropertyValue::Type::Map: {
       type_ = Type::Map;
       const auto &map = value.ValueMap();
@@ -402,6 +495,37 @@ TypedValue::TypedValue(storage::ExternalPropertyValue &&other, allocator_type al
       auto &vec = other.ValueList();
       // PropertyValue uses std::allocator, hence copy here
       alloc_trait::construct(alloc_, &list_v, vec.cbegin(), vec.cend());
+      break;
+    }
+    case storage::PropertyValue::Type::NumericList: {
+      type_ = Type::List;
+      auto &vec = other.ValueNumericList();
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        if (std::holds_alternative<int>(v)) {
+          list_v.emplace_back(std::get<int>(v));
+        } else {
+          list_v.emplace_back(std::get<double>(v));
+        }
+      }
+      break;
+    }
+    case storage::PropertyValue::Type::IntList: {
+      type_ = Type::List;
+      auto &vec = other.ValueIntList();
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        list_v.emplace_back(v);
+      }
+      break;
+    }
+    case storage::PropertyValue::Type::DoubleList: {
+      type_ = Type::List;
+      auto &vec = other.ValueDoubleList();
+      alloc_trait::construct(alloc_, &list_v);
+      for (const auto &v : vec) {
+        list_v.emplace_back(v);
+      }
       break;
     }
     case storage::PropertyValue::Type::Map: {
