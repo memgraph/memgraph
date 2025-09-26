@@ -67,7 +67,11 @@ bool DeleteDir(const std::filesystem::path &dir) noexcept {
 
 bool DeleteFile(const std::filesystem::path &file) noexcept {
   std::error_code error_code;  // For exception suppression.
-  return std::filesystem::remove(file, error_code);
+  auto const res = std::filesystem::remove(file, error_code);
+  if (!res) {
+    spdlog::error("Couldn't delete file {}. Error code message: {}", file.string(), error_code.message());
+  }
+  return res;
 }
 
 bool CopyFile(const std::filesystem::path &src, const std::filesystem::path &dst) noexcept {
