@@ -8562,10 +8562,23 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
 
 using OldSnapshotFiles = std::vector<std::pair<uint64_t, std::filesystem::path>>;
 void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, const std::string &uuid,
-                                  OldSnapshotFiles const &old_snapshot_files, Transaction *transaction,
+                                  OldSnapshotFiles const &old_snapshot_files, const Transaction *const transaction,
                                   utils::FileRetainer *file_retainer) {
-  std::vector<std::tuple<uint64_t, uint64_t, uint64_t, std::filesystem::path>> wal_files;
+  struct LoadWalInfo {
+    uint64_t seq_num;
+    uint64_t from_timestamp;
+    uint64_t to_timestamp;
+    std::filesystem::path path;
+
+    bool operator<(LoadWalInfo const &other) const {
+      return std::tie(seq_num, from_timestamp, to_timestamp, path) <
+             std::tie(other.seq_num, other.from_timestamp, other.to_timestamp, other.path);
+    }
+  };
+
+  std::vector<LoadWalInfo> wal_files;
   std::error_code error_code;
+
   for (const auto &item : std::filesystem::directory_iterator(wal_directory, error_code)) {
     if (!item.is_regular_file()) continue;
     try {
@@ -8573,12 +8586,8 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
       if (info.uuid != uuid) continue;
       wal_files.emplace_back(info.seq_num, info.from_timestamp, info.to_timestamp, item.path());
     } catch (const RecoveryFailure &e) {
+      // We want to find out what happened with the corrupted snapshot file, not delete it
       spdlog::warn("Found a corrupt WAL file {} because of: {}. WAL file will NOT be deleted.", item.path(), e.what());
-      // TODO If we want to do this we need a way to protect current wal file
-      // We can't get the engine lock here
-      // Maybe the file locker can help us. Careful, in any case we don't really want to delete it by accident.
-      // spdlog::warn("Found a corrupt WAL file {} because of: {}. WAL file will be deleted.", item.path(), e.what());
-      // file_retainer->DeleteFile(item.path());
     }
   }
 
@@ -8588,31 +8597,27 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
                                "because an error occurred: {}.",
                                error_code.message(), "https://memgr.ph/snapshots"));
   }
-  std::sort(wal_files.begin(), wal_files.end());
-  MG_ASSERT(transaction->last_durable_ts_.has_value(), "Txn doesn't have ldt");
-  uint64_t snapshot_durable_timestamp = *transaction->last_durable_ts_;
-  if (!old_snapshot_files.empty()) {
-    snapshot_durable_timestamp = old_snapshot_files.front().first;
-  }
-  std::optional<uint64_t> pos = 0;
-  for (uint64_t i = 0; i < wal_files.size(); ++i) {
-    const auto &[seq_num, from_timestamp, to_timestamp, wal_path] = wal_files[i];
-    if (from_timestamp <= snapshot_durable_timestamp) {
-      pos = i;
-    } else {
-      break;
-    }
-  }
 
-  if (pos && *pos > 0) {
-    // We need to leave at least one WAL file that contains deltas that were
-    // created before the oldest snapshot. Because we always leave at least
-    // one WAL file that contains deltas before the snapshot, this correctly
-    // handles the edge case when that one file is the current WAL file that
-    for (uint64_t i = 0; i < *pos; ++i) {
-      const auto &[seq_num, from_timestamp, to_timestamp, wal_path] = wal_files[i];
-      file_retainer->DeleteFile(wal_path);
+  std::sort(wal_files.begin(), wal_files.end());
+
+  auto const old_durable_ts = std::invoke([transaction, &old_snapshot_files]() -> uint64_t {
+    if (!old_snapshot_files.empty()) {
+      return old_snapshot_files.front().first;  // the oldest because snapshot files are sorted
     }
+    MG_ASSERT(transaction->last_durable_ts_.has_value(), "Txn doesn't have ldt");
+    return *transaction->last_durable_ts_;
+  });
+
+  auto const it = std::ranges::find_if(
+      wal_files, [old_durable_ts](auto const &wal_info) { return wal_info.from_timestamp > old_durable_ts; });
+
+  // We need to leave at least one WAL file that contains deltas that were
+  // created before the oldest snapshot. Because we always leave at least
+  // one WAL file that contains deltas before the snapshot, this correctly
+  // handles the edge case when that one file is the current WAL file that
+  if (it != wal_files.begin()) {
+    std::for_each(wal_files.begin(), std::prev(it),
+                  [file_retainer](auto const &wal_info) { file_retainer->DeleteFile(wal_info.path); });
   }
 }
 
@@ -8629,9 +8634,9 @@ auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_di
       if (info.uuid != uuid) continue;
       old_snapshot_files.emplace_back(info.durable_timestamp, item.path());
     } catch (const RecoveryFailure &e) {
-      spdlog::warn("Found a corrupt snapshot file {} because of: {}. Corrupted snapshot file will be deleted.",
+      // We want to find out what happened with the corrupted snapshot file, not delete it
+      spdlog::warn("Found a corrupt snapshot file {} because of: {}. Corrupted snapshot file will not be deleted.",
                    item.path(), e.what());
-      file_retainer->DeleteFile(item.path());
     }
   }
 

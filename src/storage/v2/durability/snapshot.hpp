@@ -93,7 +93,7 @@ void DeleteOldSnapshotFiles(OldSnapshotFiles &old_snapshot_files, uint64_t snaps
                             utils::FileRetainer *file_retainer);
 
 void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, const std::string &uuid,
-                                  OldSnapshotFiles const &old_snapshot_files, Transaction *transaction,
+                                  OldSnapshotFiles const &old_snapshot_files, const Transaction *const transaction,
                                   utils::FileRetainer *file_retainer);
 
 std::optional<std::filesystem::path> CreateSnapshot(
