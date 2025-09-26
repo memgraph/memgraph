@@ -885,7 +885,11 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
 
         // If the license is not valid we create users with admin access
         if (!valid_enterprise_license) {
-          spdlog::warn("Granting all the privileges to {}.", username);
+          spdlog::warn(
+              "Granting all the privileges to {}. You're currently using Memgraph Community License and all the users "
+              "will have full privileges to access Memgraph database. If you want to ensure privileges are applied, "
+              "please add Memgraph Enterprise License and restart Memgraph for the configuration to apply.",
+              username);
           auth->GrantPrivilege(
               username, kPrivilegesAll
 #ifdef MG_ENTERPRISE
@@ -1682,8 +1686,6 @@ auto ParseConfigMap(std::unordered_map<Expression *, Expression *> const &config
 Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Parameters &parameters,
                                 coordination::CoordinatorState *coordinator_state,
                                 const query::InterpreterConfig &config, std::vector<Notification> *notifications) {
-  using enum flags::Experiments;
-
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
     throw QueryRuntimeException(
         license::LicenseCheckErrorToString(license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "high availability"));
@@ -3964,11 +3966,6 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
   if (in_explicit_transaction) {
     throw IndexInMulticommandTxException();
   }
-
-  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    throw TextSearchDisabledException();
-  }
-
   auto *text_index_query = utils::Downcast<TextIndexQuery>(parsed_query.query);
   std::function<void(Notification &)> handler;
 

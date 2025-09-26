@@ -162,9 +162,6 @@ bool TextIndex::IndexExists(const std::string &index_name) const { return index_
 
 std::vector<TextSearchResult> TextIndex::Search(const std::string &index_name, const std::string &search_query,
                                                 text_search_mode search_mode, std::size_t limit) {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    throw query::TextSearchDisabledException();
-  }
   auto &context = std::invoke([&]() -> mgcxx::text_search::Context & {
     if (const auto it = index_.find(index_name); it != index_.end()) {
       return it->second.context;
@@ -187,10 +184,6 @@ std::vector<TextSearchResult> TextIndex::Search(const std::string &index_name, c
 
 std::string TextIndex::Aggregate(const std::string &index_name, const std::string &search_query,
                                  const std::string &aggregation_query) {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    throw query::TextSearchDisabledException();
-  }
-
   auto &context = std::invoke([&]() -> mgcxx::text_search::Context & {
     if (const auto it = index_.find(index_name); it != index_.end()) {
       return it->second.context;
