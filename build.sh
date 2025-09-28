@@ -5,6 +5,7 @@ BUILD_TYPE="Release"
 TARGET=""
 CMAKE_ARGS=""
 skip_init=false
+config_only=false
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -19,6 +20,10 @@ while [[ $# -gt 0 ]]; do
             ;;
         --skip-init)
             skip_init=true
+            shift
+            ;;
+        --config-only)
+            config_only=true
             shift
             ;;
         *)
@@ -86,7 +91,7 @@ elif [[ "$DUBSAN_ENABLED" == true ]]; then
 fi
 
 # install conan dependencies
-export MG_TOOLCHAIN_ROOT=/opt/toolchain-v7/
+export MG_TOOLCHAIN_ROOT=/opt/toolchain-v7
 conan install . --build=missing -pr $PROFILE_TEMPLATE -s build_type=$BUILD_TYPE
 source build/generators/conanbuild.sh
 
@@ -109,6 +114,10 @@ if [[ -n "$CMAKE_ARGS" ]]; then
 else
     # Use preset if no additional arguments
     cmake --preset $PRESET
+fi
+
+if [[ "$config_only" = true ]]; then
+    exit 0
 fi
 
 # Build command with optional target
