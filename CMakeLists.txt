@@ -1,5 +1,6 @@
 # MemGraph CMake configuration
 
+
 cmake_minimum_required(VERSION 3.23)
 cmake_policy(SET CMP0076 NEW)
 cmake_policy(SET CMP0135 NEW)
@@ -44,22 +45,9 @@ if (NOT MG_TOOLCHAIN_ROOT)
     message(FATAL "Need toolchain")
 endif ()
 
-message(STATUS "MG_TOOLCHAIN_ROOT = ${MG_TOOLCHAIN_ROOT}")
-
-# Add conan generators to CMAKE_PREFIX_PATH first so they take precedence
-list(PREPEND CMAKE_PREFIX_PATH "${CMAKE_CURRENT_BINARY_DIR}/generators")
-
 # Add toolchain to CMAKE_PREFIX_PATH so that find_package can locate libraries
 list(APPEND CMAKE_PREFIX_PATH "${MG_TOOLCHAIN_ROOT}")
 
-# print search paths
-message(STATUS "CMAKE_PREFIX_PATH = ${CMAKE_PREFIX_PATH}")
-
-# Override CMAKE_FIND_ROOT_PATH to prioritize conan generators
-# The toolchain sets CMAKE_FIND_ROOT_PATH which takes precedence over CMAKE_PREFIX_PATH
-# We need to prepend our generators directory to ensure conan packages are found first
-list(PREPEND CMAKE_FIND_ROOT_PATH "${CMAKE_CURRENT_BINARY_DIR}/generators")
-message(STATUS "CMAKE_FIND_ROOT_PATH = ${CMAKE_FIND_ROOT_PATH}")
 
 # Manually configure gflags if find_package fails
 if(NOT TARGET gflags)
@@ -241,15 +229,11 @@ set_target_properties(libstdc++_custom PROPERTIES
 # Set global property to use custom libstdc++
 set_property(GLOBAL PROPERTY MG_USE_CUSTOM_LIBSTDCXX TRUE)
 set_property(GLOBAL PROPERTY MG_CUSTOM_LIBSTDCXX_PATH "${CUSTOM_LIBSTDCXX}")
-
 # -----------------------------------------------------------------------------
 
 # setup CMake module path, defines path for include() and find_package()
 # https://cmake.org/cmake/help/latest/variable/CMAKE_MODULE_PATH.html
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
-
-# Add conan generators to module path to ensure conan packages are found first
-list(PREPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_BINARY_DIR}/generators")
 
 # custom function definitions
 include(functions)
@@ -259,10 +243,8 @@ include(functions)
 find_package(benchmark)
 find_package(GTest)
 find_package(spdlog)
-find_package(fmt)
+find_package(fmt REQUIRED)
 find_package(strong_type)
-# Explicitly set Boost_DIR to use conan's boost configuration
-set(Boost_DIR "${CMAKE_CURRENT_BINARY_DIR}/generators" CACHE PATH "Boost config directory" FORCE)
 find_package(Boost)
 find_package(BZip2)
 find_package(antlr4-runtime)
@@ -275,41 +257,10 @@ find_package(range-v3)
 find_package(asio)
 find_package(ZLIB)
 
-# Load OpenSSL before mgclient since mgclient depends on it
-# TODO(matt): OpenSSL requires manual include due to conan CMakeDeps generator issue
-# The standard find_package(OpenSSL) approach fails to create the openssl::openssl target
-# This appears to be a bug in conan's handling of OpenSSL specifically
-include(${CMAKE_CURRENT_BINARY_DIR}/generators/FindOpenSSL.cmake)
-
 # Now load mgclient which depends on OpenSSL
+find_package(OpenSSL REQUIRED)
 find_package(mgclient)
 
-# This appears to be a hack
-# Add fmt include directory globally from conan configuration
-# Handle different build types and architectures
-set(fmt_data_file_found FALSE)
-foreach(build_type release debug relwithdebinfo)
-    foreach(arch x86_64 arm64)
-        set(data_file "${CMAKE_CURRENT_BINARY_DIR}/generators/fmt-${build_type}-${arch}-data.cmake")
-        if(EXISTS "${data_file}")
-            include("${data_file}")
-            string(TOUPPER ${build_type} BUILD_TYPE_UPPER)
-            if(DEFINED fmt_INCLUDE_DIRS_${BUILD_TYPE_UPPER})
-                include_directories("${fmt_INCLUDE_DIRS_${BUILD_TYPE_UPPER}}")
-                message(STATUS "Added fmt include directory: ${fmt_INCLUDE_DIRS_${BUILD_TYPE_UPPER}}")
-                set(fmt_data_file_found TRUE)
-                break()
-            endif()
-        endif()
-    endforeach()
-    if(fmt_data_file_found)
-        break()
-    endif()
-endforeach()
-
-if(NOT fmt_data_file_found)
-    message(WARNING "Could not find fmt include directory from conan configuration")
-endif()
 # -----------------------------------------------------------------------------
 
 # We want out of source builds, so that cmake generated files don't get mixed
