@@ -12,7 +12,7 @@ set(CMAKE_CXX_STANDARD_REQUIRED ON)
 set(tools "/opt/toolchain-v7")
 
 # Optional: paths for find_package(), find_library(), etc.
-set(CMAKE_FIND_ROOT_PATH "${tools}")
+set(CMAKE_FIND_ROOT_PATH "${CMAKE_FIND_ROOT_PATH};${tools}")
 # Configure how the find_* commands search
 set(CMAKE_FIND_ROOT_PATH_MODE_PROGRAM BOTH)
 set(CMAKE_FIND_ROOT_PATH_MODE_LIBRARY BOTH)
