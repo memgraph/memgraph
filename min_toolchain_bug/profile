@@ -1,0 +1,13 @@
+
+[settings]
+arch=armv8
+build_type=Release
+compiler=clang
+compiler.cppstd=gnu20
+compiler.libcxx=libstdc++11
+compiler.version=20
+os=Linux
+
+[conf]
+tools.build:compiler_executables={"c": "/usr/bin/clang-20", "cpp" : "/usr/bin/clang++-20"}
+ 
