@@ -55,17 +55,31 @@ inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delt
     //
     // For READ UNCOMMITTED -> we accept any change. (already handled above)
     auto ts = delta->timestamp->load(std::memory_order_acquire);
+    bool const is_delta_interleaved =
+        IsOperationInterleaved(*delta);  // @TODO IsOperationInterleaved: don't like that name
 
     if ((transaction->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION && ts < transaction->start_timestamp) ||
         (transaction->isolation_level == IsolationLevel::READ_COMMITTED && ts < kTransactionInitialId)) {
-      break;
+      if (is_delta_interleaved) {
+        // Move to the next delta.
+        delta = delta->next.load(std::memory_order_acquire);
+        continue;
+      } else {
+        break;
+      }
     }
 
     // We shouldn't undo our newest changes because the user requested a NEW
     // view of the database.
     auto cid = delta->command_id;
     if (view == View::NEW && ts == commit_timestamp && cid <= transaction->command_id) {
-      break;
+      if (is_delta_interleaved) {
+        // Move to the next delta.
+        delta = delta->next.load(std::memory_order_acquire);
+        continue;
+      } else {
+        break;
+      }
     }
 
     // We shouldn't undo our older changes because the user requested a OLD view
@@ -74,7 +88,13 @@ inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delt
         (cid < transaction->command_id ||
          // This check is used for on-disk storage. The vertex is valid only if it was deserialized in this transaction.
          (cid == transaction->command_id && delta->action == Delta::Action::DELETE_DESERIALIZED_OBJECT))) {
-      break;
+      if (is_delta_interleaved) {
+        // Move to the next delta.
+        delta = delta->next.load(std::memory_order_acquire);
+        continue;
+      } else {
+        break;
+      }
     }
 
     // This delta must be applied, call the callback.
