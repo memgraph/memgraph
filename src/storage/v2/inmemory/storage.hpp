@@ -826,7 +826,10 @@ class InMemoryStorage final : public Storage {
 
   struct GCDeltas {
     GCDeltas(uint64_t mark_timestamp, delta_container deltas, std::unique_ptr<std::atomic<uint64_t>> commit_timestamp)
-        : mark_timestamp_{mark_timestamp}, deltas_{std::move(deltas)}, commit_timestamp_{std::move(commit_timestamp)} {}
+        : mark_timestamp_{mark_timestamp},
+          deltas_{std::move(deltas)},
+          commit_timestamp_{std::move(commit_timestamp)},
+          unlinkable_timestamp_{commit_timestamp_ ? commit_timestamp_->load() : 0} {}
 
     GCDeltas(GCDeltas &&) = default;
     GCDeltas &operator=(GCDeltas &&) = default;
@@ -834,6 +837,7 @@ class InMemoryStorage final : public Storage {
     uint64_t mark_timestamp_{};                                  //!< a timestamp no active transaction currently has
     delta_container deltas_;                                     //!< the deltas that need cleaning
     std::unique_ptr<std::atomic<uint64_t>> commit_timestamp_{};  //!< the timestamp the deltas are pointing at
+    uint64_t unlinkable_timestamp_{};  //!< earliest timestamp when these deltas can be safely unlinked
   };
 
   // Ownership of linked deltas is transferred to committed_transactions_ once transaction is commited

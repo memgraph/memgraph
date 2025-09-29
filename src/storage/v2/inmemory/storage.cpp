@@ -2432,7 +2432,11 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       }
 
       if (all_contributors_committed) {
+        // Calculate the highest commit timestamp in the entire chain for safe unlinking
+        uint64_t highest_commit_ts = it->deltas_.commit_timestamp_->load();
+
         // Debug: Verify ALL downstream deltas are committed/aborted before eviction
+        // AND find the highest commit timestamp
 #ifndef NDEBUG
         for (const auto &delta : it->deltas_.deltas_) {
           auto *current = &delta;
@@ -2442,11 +2446,29 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
               // Active transaction ID - must be finished
               DMG_ASSERT(commit_log_->IsFinished(ts),
                          "Evicting from waiting room but found active transaction in delta chain");
+            } else if (ts > highest_commit_ts) {
+              highest_commit_ts = ts;
+            }
+            current = current->next.load();
+          }
+        }
+#else
+        // In release mode, still need to find highest commit timestamp
+        for (const auto &delta : it->deltas_.deltas_) {
+          auto *current = &delta;
+          while (current != nullptr) {
+            auto ts = current->timestamp->load();
+            if (ts < kTransactionInitialId && ts > highest_commit_ts) {
+              highest_commit_ts = ts;
             }
             current = current->next.load();
           }
         }
 #endif
+
+        // Set the unlinkable timestamp to the highest commit timestamp found
+        it->deltas_.unlinkable_timestamp_ = highest_commit_ts;
+
         committed_transactions_.WithLock(
             [&](auto &committed_transactions) { committed_transactions.emplace_back(std::move(it->deltas_)); });
         it = waiting_list.erase(it);
@@ -2509,8 +2531,11 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
     auto const *const commit_timestamp_ptr = linked_entry->commit_timestamp_.get();
     auto const commit_timestamp = commit_timestamp_ptr->load(std::memory_order_acquire);
 
+    // Use unlinkable_timestamp to determine if safe to unlink (accounts for waiting room delay)
+    auto const unlinkable_timestamp = linked_entry->unlinkable_timestamp_;
+
     // only process those that are no longer active
-    if (commit_timestamp >= oldest_active_start_timestamp) {
+    if (unlinkable_timestamp >= oldest_active_start_timestamp) {
       ++linked_entry;  // can not process, skip
       continue;        // must continue to next transaction, because committed_transactions_ was not ordered
     }
@@ -2715,7 +2740,9 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
         guard.unlock();
         // correct the markers, and defer until next GC run
         for (auto &unlinked_undo_buffer : unlinked_undo_buffers) {
-          unlinked_undo_buffer.mark_timestamp_ = mark_timestamp;
+          // Use unlinkable_timestamp as mark_timestamp for interleaved deltas
+          // This ensures they aren't freed until all transactions that could see them are done
+          unlinked_undo_buffer.mark_timestamp_ = unlinked_undo_buffer.unlinkable_timestamp_;
         }
         // ensure insert at end to preserve the order
         garbage_undo_buffers.splice(garbage_undo_buffers.end(), std::move(unlinked_undo_buffers));
