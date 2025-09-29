@@ -792,6 +792,9 @@ std::expected<void, ConstraintViolation> InMemoryStorage::InMemoryAccessor::Uniq
 }
 
 void InMemoryStorage::InMemoryAccessor::CheckForFastDiscardOfDeltas() {
+  return;  // @TODO let's get things working without fast discards, and the
+           // handle these optimisations later...
+
   // while still holding engine lock and after durability + replication,
   // check if we can fast discard deltas (i.e. do not hand over to GC)
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
@@ -2429,6 +2432,21 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       }
 
       if (all_contributors_committed) {
+        // Debug: Verify ALL downstream deltas are committed/aborted before eviction
+#ifndef NDEBUG
+        for (const auto &delta : it->deltas_.deltas_) {
+          auto *current = &delta;
+          while (current != nullptr) {
+            auto ts = current->timestamp->load();
+            if (ts >= kTransactionInitialId) {
+              // Active transaction ID - must be finished
+              DMG_ASSERT(commit_log_->IsFinished(ts),
+                         "Evicting from waiting room but found active transaction in delta chain");
+            }
+            current = current->next.load();
+          }
+        }
+#endif
         committed_transactions_.WithLock(
             [&](auto &committed_transactions) { committed_transactions.emplace_back(std::move(it->deltas_)); });
         it = waiting_list.erase(it);
