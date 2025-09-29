@@ -1046,10 +1046,10 @@ def test_multitenancy_replication_drop_replica(connection, replica_name, test_na
     )
 
     cursor_replica = connection(BOLT_PORTS[replica_name], "replica").cursor()
-    mg_sleep_and_assert(7, partial(get_number_of_nodes_func, cursor_replica, "A"))
-    mg_sleep_and_assert(3, partial(get_number_of_edges_func, cursor_replica, "A"))
-    mg_sleep_and_assert(2, partial(get_number_of_nodes_func, cursor_replica, "B"))
-    mg_sleep_and_assert(0, partial(get_number_of_edges_func, cursor_replica, "B"))
+    mg_sleep_and_assert(7, get_number_of_nodes_func(cursor_replica, "A"))
+    mg_sleep_and_assert(3, get_number_of_edges_func(cursor_replica, "A"))
+    mg_sleep_and_assert(2, get_number_of_nodes_func(cursor_replica, "B"))
+    mg_sleep_and_assert(0, get_number_of_edges_func(cursor_replica, "B"))
 
 
 def test_multitenancy_replication_restart_main(connection, test_name):
