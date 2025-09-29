@@ -1,6 +1,6 @@
 
 [settings]
-arch=armv8
+arch={{ {"aarch64": "armv8"}.get(platform.machine(), platform.machine()) }}
 build_type=Release
 compiler=clang
 compiler.cppstd=gnu20
