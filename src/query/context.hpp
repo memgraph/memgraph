@@ -23,6 +23,7 @@
 #include "storage/v2/commit_args.hpp"
 #include "utils/async_timer.hpp"
 #include "utils/counter.hpp"
+#include "utils/priority_thread_pool.hpp"
 
 #include "query/frame_change.hpp"
 #include "query/hops_limit.hpp"
@@ -114,6 +115,7 @@ struct ExecutionContext {
   std::unique_ptr<FineGrainedAuthChecker> auth_checker{nullptr};
 #endif
   std::shared_ptr<storage::DatabaseProtector> protector;
+  utils::PriorityThreadPool *worker_pool{nullptr};
   bool is_main{true};
   auto commit_args() -> storage::CommitArgs;
 };

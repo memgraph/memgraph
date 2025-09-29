@@ -30,7 +30,8 @@ InterpreterContext::InterpreterContext(
     std::optional<std::reference_wrapper<memgraph::coordination::CoordinatorState>> const &coordinator_state,
     utils::ResourceMonitoring *resource_monitoring,
 #endif
-    AuthQueryHandler *ah, AuthChecker *ac, ReplicationQueryHandler *replication_handler)
+    AuthQueryHandler *ah, AuthChecker *ac, ReplicationQueryHandler *replication_handler,
+    utils::PriorityThreadPool *worker_pool)
     : dbms_handler(dbms_handler),
       config(std::move(interpreter_config)),
       repl_state(rs),
@@ -41,7 +42,8 @@ InterpreterContext::InterpreterContext(
       auth(ah),
       auth_checker(ac),
       replication_handler_{replication_handler},
-      system_{&system} {
+      system_{&system},
+      worker_pool(worker_pool) {
 }
 
 std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(

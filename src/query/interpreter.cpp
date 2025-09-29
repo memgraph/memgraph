@@ -2452,7 +2452,8 @@ struct PullPlan {
                     storage::DatabaseProtectorPtr protector, std::optional<QueryLogger> &query_logger,
                     TriggerContextCollector *trigger_context_collector = nullptr,
                     std::optional<size_t> memory_limit = {}, FrameChangeCollector *frame_change_collector_ = nullptr,
-                    std::optional<int64_t> hops_limit = {}, bool parallel_execution = false
+                    std::optional<int64_t> hops_limit = {}, bool parallel_execution = false,
+                    utils::PriorityThreadPool *worker_pool = nullptr
 #ifdef MG_ENTERPRISE
                     ,
                     std::shared_ptr<utils::UserResources> user_resource = {}
@@ -2494,7 +2495,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
                    storage::DatabaseProtectorPtr protector, std::optional<QueryLogger> &query_logger,
                    TriggerContextCollector *trigger_context_collector, const std::optional<size_t> memory_limit,
                    FrameChangeCollector *frame_change_collector, const std::optional<int64_t> hops_limit,
-                   bool parallel_execution
+                   bool parallel_execution, utils::PriorityThreadPool *worker_pool
 #ifdef MG_ENTERPRISE
                    ,
                    std::shared_ptr<utils::UserResources> user_resource
@@ -2539,6 +2540,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
   ctx_.evaluation_context.memory = execution_memory;
   ctx_.protector = std::move(protector);
   ctx_.is_main = interpreter_context->repl_state.ReadLock()->IsMain();
+  ctx_.worker_pool = worker_pool;
 }
 
 std::optional<plan::ProfilingStatsWithTotalTime> PullPlan::Pull(AnyStream *stream, std::optional<int> n,
@@ -2886,7 +2888,7 @@ PreparedQuery PrepareCypherQuery(ParsedQuery parsed_query, std::map<std::string,
       std::move(user_or_role), std::move(stopping_context), dbms::DatabaseProtector{*current_db.db_acc_}.clone(),
       interpreter.query_logger_, trigger_context_collector, memory_limit,
       frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit,
-      cypher_query->pre_query_directives_.parallel_execution_
+      cypher_query->pre_query_directives_.parallel_execution_, interpreter_context->worker_pool
 #ifdef MG_ENTERPRISE
       ,
       user_resource
@@ -3060,7 +3062,7 @@ PreparedQuery PrepareProfileQuery(ParsedQuery parsed_query, bool in_explicit_tra
               PullPlan(plan, parameters, true, dba, interpreter_context, execution_memory, std::move(user_or_role),
                        std::move(stopping_context), dbms::DatabaseProtector{db_acc}.clone(), query_logger, nullptr,
                        memory_limit, frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr,
-                       hops_limit, /* parallel_execution */ false
+                       hops_limit, /* parallel_execution */ false, /* worker_pool */ nullptr
 #ifdef MG_ENTERPRISE
                        ,
                        user_resource

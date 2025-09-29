@@ -26,6 +26,7 @@
 
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
+#include "flags/bolt.hpp"
 #include "memory/query_memory_control.hpp"
 #include "plan/preprocess.hpp"
 #include "query/common.hpp"
@@ -68,6 +69,7 @@
 #include "utils/pmr/unordered_map.hpp"
 #include "utils/pmr/unordered_set.hpp"
 #include "utils/pmr/vector.hpp"
+#include "utils/priority_thread_pool.hpp"
 #include "utils/query_memory_tracker.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/tag.hpp"
@@ -1007,7 +1009,7 @@ UniqueCursorPtr ScanAll::MakeCursor(utils::MemoryResource *mem) const {
         [this](Frame &, ExecutionContext &context) mutable {
           auto *db = context.db_accessor;
           // std::cout << "Creating chunks" << std::endl;
-          return db->VerticesChunks(view_, 4);
+          return db->VerticesChunks(view_, FLAGS_bolt_num_workers);
         }};
     return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
                                                                   view_, std::move(vertices), "ScanAll");
@@ -1053,7 +1055,7 @@ UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem) const {
         [this](Frame &, ExecutionContext &context) mutable {
           auto *db = context.db_accessor;
           // std::cout << "Creating chunks" << std::endl;
-          return db->VerticesChunks(view_, 4);
+          return db->VerticesChunks(view_, FLAGS_bolt_num_workers);
         }};
     return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
                                                                   view_, std::move(vertices), "ScanAllByLabel");
@@ -5735,8 +5737,8 @@ class AggregateCursor : public Cursor {
           create_parallel_plan = true;  // Hack to create a parallel plan
           std::vector<UniqueCursorPtr> cursors;
           // Hardcode for now
-          cursors.reserve(4);
-          for (int i = 0; i < 4; i++) {
+          cursors.reserve(FLAGS_bolt_num_workers);
+          for (int i = 0; i < FLAGS_bolt_num_workers; i++) {
             // Make 4 parallel cursors (Pull will then section off the work)
             cursors.emplace_back(self.input_->MakeCursor(mem));
           }
@@ -5870,12 +5872,13 @@ class AggregateCursor : public Cursor {
       if (!pulled) return false;
     } else {
       // Parallel execution
-      std::vector<std::jthread> threads;
-      threads.reserve(3);
+      const auto num_workers = FLAGS_bolt_num_workers;
+      utils::TaskCollection tasks(num_workers);
+
       std::atomic<int> pulled = 0;
 
-      std::vector<decltype(aggregation_)> aggregation_threads(4);
-      std::vector<decltype(reused_group_by_)> reused_group_by_threads(4);
+      std::vector<decltype(aggregation_)> aggregation_threads(num_workers);
+      std::vector<decltype(reused_group_by_)> reused_group_by_threads(num_workers);
 
       auto process_chunk = [this, context, &pulled, &aggregation_threads, &reused_group_by_threads](
                                int id, Frame &frame) mutable {
@@ -5898,8 +5901,8 @@ class AggregateCursor : public Cursor {
         throw QueryRuntimeException("Thread local memory resource is not a thread local memory resource");
       }
       const auto frame_size = frame->elems().size();
-      for (int i = 1; i < 4; i++) {
-        threads.emplace_back([&, i, thread_local_memory, frame_size]() {
+      for (int i = 1; i < num_workers; i++) {
+        tasks.AddTask([&, i, thread_local_memory, frame_size](utils::Priority /* unused */) {
           // Initialize thread local memory resource
           thread_local_memory->Initialize(i);
           auto cleanup = utils::OnScopeExit([]() { utils::ThreadLocalMemoryResource::ResetThread(); });
@@ -5908,18 +5911,18 @@ class AggregateCursor : public Cursor {
         });
       }
 
+      if (context->worker_pool) context->worker_pool->ScheduledCollection(tasks);
+
       // Process 0th chunk in main thread
       process_chunk(0, *frame);  // TODO reuse aggregation threads and reused group by threads
 
-      for (auto &thread : threads) {
-        thread.join();
-      }
+      tasks.WaitOrSteal();
 
-      if (pulled != 4) return false;
+      if (pulled != num_workers) return false;
 
       // Combine the results from the threads
       aggregation_ = std::move(aggregation_threads[0]);
-      for (int i = 1; i < 4; i++) {
+      for (int i = 1; i < num_workers; i++) {
         auto &other_aggregation = aggregation_threads[i];
         for (const auto &[other_key, other_value] : other_aggregation) {
           auto it = aggregation_.find(other_key);
