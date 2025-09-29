@@ -1,0 +1,1237 @@
+[+] Building 304.8s (13/13) FINISHED                                                                                                                                                                                           docker:default
+ => [internal] load build definition from Dockerfile                                                                                                                                                                                     0.0s
+ => => transferring dockerfile: 1.34kB                                                                                                                                                                                                   0.0s
+ => [internal] load metadata for docker.io/library/ubuntu:24.04                                                                                                                                                                          0.9s
+ => [auth] library/ubuntu:pull token for registry-1.docker.io                                                                                                                                                                            0.0s
+ => [internal] load .dockerignore                                                                                                                                                                                                        0.0s
+ => => transferring context: 2B                                                                                                                                                                                                          0.0s
+ => CACHED [1/8] FROM docker.io/library/ubuntu:24.04@sha256:353675e2a41babd526e2b837d7ec780c2a05bca0164f7ea5dbbd433d21d166fc                                                                                                             0.0s
+ => [internal] load build context                                                                                                                                                                                                        0.0s
+ => => transferring context: 337B                                                                                                                                                                                                        0.0s
+ => [2/8] RUN set -eux;     apt-get update;     apt-get install -y --no-install-recommends       ca-certificates curl gnupg       software-properties-common wget       build-essential cmake pkg-config     ;     wget https://apt.ll  76.5s
+ => [3/8] RUN set -eux;     clang-21 --version;     clang++-21 --version                                                                                                                                                                 0.3s 
+ => [4/8] RUN apt update && apt install -y python3 python3-pip python3-venv && rm -rf /var/lib/apt/lists/*                                                                                                                              12.9s 
+ => [5/8] WORKDIR /work                                                                                                                                                                                                                  0.0s 
+ => [6/8] RUN python3 -m venv env &&     . env/bin/activate &&     pip install conan                                                                                                                                                    13.7s 
+ => [7/8] COPY profile .                                                                                                                                                                                                                 0.0s 
+ => ERROR [8/8] RUN /bin/bash -c "source env/bin/activate && conan profile detect && conan install --requires boost/1.86.0 --build=missing -pr ./profile"                                                                              200.3s 
+------                                                                                                                                                                                                                                        
+ > [8/8] RUN /bin/bash -c "source env/bin/activate && conan profile detect && conan install --requires boost/1.86.0 --build=missing -pr ./profile":                                                                                           
+0.460 detect_api: CC and CXX: clang-21, clang++-21                                                                                                                                                                                            
+0.484 detect_api: Found clang 21.1                                                                                                                                                                                                            
+0.484 detect_api: clang>=8, using the major as version                                                                                                                                                                                        
+0.788 detect_api: gcc C++ standard library: libstdc++11                                                                                                                                                                                       
+0.788 
+0.788 Detected profile:
+0.789 WARN: This profile is a guess of your environment, please check it.
+0.789 WARN: The output of this command is not guaranteed to be stable and can change in future Conan versions.
+0.789 WARN: Use your own profile files for stability.
+0.789 Saving detected profile to /root/.conan2/profiles/default
+0.789 [settings]
+0.789 arch=armv8
+0.789 build_type=Release
+0.789 compiler=clang
+0.789 compiler.cppstd=gnu17
+0.789 compiler.libcxx=libstdc++11
+0.789 compiler.version=21
+0.789 os=Linux
+0.789 
+1.182 
+1.182 ======== Input profiles ========
+1.182 Profile host:
+1.182 [settings]
+1.182 arch=armv8
+1.182 build_type=Release
+1.182 compiler=clang
+1.182 compiler.cppstd=gnu20
+1.182 compiler.libcxx=libstdc++11
+1.182 compiler.version=21
+1.182 os=Linux
+1.182 [conf]
+1.182 tools.build:compiler_executables={'c': '/usr/bin/clang-21', 'cpp': '/usr/bin/clang++-21'}
+1.182 
+1.182 Profile build:
+1.182 [settings]
+1.182 arch=armv8
+1.182 build_type=Release
+1.182 compiler=clang
+1.182 compiler.cppstd=gnu17
+1.182 compiler.libcxx=libstdc++11
+1.182 compiler.version=21
+1.182 os=Linux
+1.182 
+1.199 
+1.199 ======== Computing dependency graph ========
+1.200 boost/1.86.0: Not found in local cache, looking in remotes...
+1.200 boost/1.86.0: Checking remote: conancenter
+1.200 Connecting to remote 'conancenter' anonymously
+2.334 boost/1.86.0: Downloaded recipe revision 63942126193a0af9afd57adf459eaa5f
+2.497 zlib/1.3.1: Not found in local cache, looking in remotes...
+2.497 zlib/1.3.1: Checking remote: conancenter
+2.537 zlib/1.3.1: Downloaded recipe revision b8bc2603263cf7eccbd6e17e66b0ed76
+2.542 bzip2/1.0.8: Not found in local cache, looking in remotes...
+2.542 bzip2/1.0.8: Checking remote: conancenter
+2.584 bzip2/1.0.8: Downloaded recipe revision 00b4a4658791c1f06914e087f0e792f5
+2.592 libbacktrace/cci.20210118: Not found in local cache, looking in remotes...
+2.592 libbacktrace/cci.20210118: Checking remote: conancenter
+2.632 libbacktrace/cci.20210118: Downloaded recipe revision a7691bfccd8caaf66309df196790a5a1
+2.761 b2/5.3.3: Not found in local cache, looking in remotes...
+2.761 b2/5.3.3: Checking remote: conancenter
+2.799 b2/5.3.3: Downloaded recipe revision 107c15377719889654eb9a162a673975
+2.804 Graph root
+2.804     cli
+2.804 Requirements
+2.804     boost/1.86.0#63942126193a0af9afd57adf459eaa5f - Downloaded (conancenter)
+2.804     bzip2/1.0.8#00b4a4658791c1f06914e087f0e792f5 - Downloaded (conancenter)
+2.804     libbacktrace/cci.20210118#a7691bfccd8caaf66309df196790a5a1 - Downloaded (conancenter)
+2.804     zlib/1.3.1#b8bc2603263cf7eccbd6e17e66b0ed76 - Downloaded (conancenter)
+2.804 Build requirements
+2.804     b2/5.3.3#107c15377719889654eb9a162a673975 - Downloaded (conancenter)
+2.804 Resolved version ranges
+2.804     b2/[>=5.2 <6]: b2/5.3.3
+2.804     zlib/[>=1.2.11 <2]: zlib/1.3.1
+2.804 
+2.804 ======== Computing necessary packages ========
+3.307 boost/1.86.0: Main binary package 'f1b2c8491f0b042108a374b7234784f5e003e323' missing
+3.307 boost/1.86.0: Checking 5 compatible configurations
+3.309 boost/1.86.0: Compatible configurations not found in cache, checking servers
+3.309 boost/1.86.0: '2ab6b71a3f9ed32c694668b9a8ff26e6fc8b41ee': compiler.cppstd=20
+3.427 boost/1.86.0: 'ca53f2358296d78d69907c1bebf131fdf32a190b': compiler.cppstd=23
+3.544 boost/1.86.0: 'f6da67c4e42eac23c3098b7001aa439e910f8465': compiler.cppstd=gnu23
+3.660 boost/1.86.0: 'dc4ec4e51d470c07a32a0d14af1494788269ad5b': compiler.cppstd=26
+3.775 boost/1.86.0: '22b4333962c81dc067b7a6ac65d3f558fafde542': compiler.cppstd=gnu26
+3.892 Requirements
+3.892     boost/1.86.0#63942126193a0af9afd57adf459eaa5f:f1b2c8491f0b042108a374b7234784f5e003e323 - Build
+3.892     bzip2/1.0.8#00b4a4658791c1f06914e087f0e792f5:2950ed9ec19d5f3eafdd1fc996bf5f4c414aa824 - Build
+3.892     libbacktrace/cci.20210118#a7691bfccd8caaf66309df196790a5a1:41b337f323682b1c7c11232419ea3db992514873 - Build
+3.892     zlib/1.3.1#b8bc2603263cf7eccbd6e17e66b0ed76:41b337f323682b1c7c11232419ea3db992514873 - Build
+3.892 Build requirements
+3.892     b2/5.3.3#107c15377719889654eb9a162a673975:c93719558cf197f1df5a7f1d071093e26f0e44a0 - Build
+3.894 
+3.894 ======== Installing packages ========
+3.895 b2/5.3.3: Calling source() in /root/.conan2/p/b2f33b3ec4bdb65/s/src
+4.320 b2/5.3.3: Uncompressing b2-5.3.3.tar.bz2 to .
+5.105 
+5.105 -------- Installing package b2/5.3.3 (1 of 5) --------
+5.105 b2/5.3.3: Building from source
+5.105 b2/5.3.3: Package b2/5.3.3:c93719558cf197f1df5a7f1d071093e26f0e44a0
+5.105 b2/5.3.3: settings: os=Linux arch=armv8
+5.106 b2/5.3.3: Copying sources to build folder
+5.235 b2/5.3.3: Building your package in /root/.conan2/p/b/b2e5f659947ab10/b
+5.236 b2/5.3.3: Generating aggregated env files
+5.236 b2/5.3.3: Generated aggregated env files: ['conanbuild.sh', 'conanrun.sh']
+5.236 b2/5.3.3: Calling build()
+5.236 b2/5.3.3: Build engine..
+5.236 b2/5.3.3: RUN: ./build.sh
+5.631 
+5.631 ###
+5.631 ###
+5.631 ### Using 'gcc' toolset.
+5.631 ###
+5.631 ###
+5.631 
+5.633 g++ (Ubuntu 13.3.0-6ubuntu2~24.04) 13.3.0
+5.633 Copyright (C) 2023 Free Software Foundation, Inc.
+5.633 This is free software; see the source for copying conditions.  There is NO
+5.633 warranty; not even for MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.
+5.633 
+5.634 
+5.634 ###
+5.634 ###
+5.634 
+5.637 > g++ -x c++ -std=c++11 -pthread -O2 -s -DNDEBUG bindjam.cpp builtins.cpp class.cpp command.cpp compile.cpp constants.cpp cwd.cpp debug.cpp debugger.cpp events.cpp execcmd.cpp execnt.cpp execunix.cpp filent.cpp filesys.cpp fileunix.cpp frames.cpp function.cpp glob.cpp hash.cpp hcache.cpp hdrmacro.cpp headers.cpp jam_strings.cpp jam.cpp jamgram.cpp lists.cpp make.cpp make1.cpp md5.cpp mem.cpp modules.cpp native.cpp output.cpp parse.cpp pathnt.cpp pathsys.cpp pathunix.cpp regexp.cpp rules.cpp scan.cpp search.cpp startup.cpp tasks.cpp timestamp.cpp value.cpp variable.cpp w32_getreg.cpp mod_args.cpp mod_command_db.cpp mod_db.cpp mod_jam_builtin.cpp mod_jam_class.cpp mod_jam_errors.cpp mod_jam_modules.cpp mod_order.cpp mod_path.cpp mod_property_set.cpp mod_regex.cpp mod_sequence.cpp mod_set.cpp mod_string.cpp mod_summary.cpp mod_sysinfo.cpp mod_version.cpp -o b2
+64.62 
+64.62 b2/5.3.3: Install..
+64.63 b2/5.3.3: RUN: /root/.conan2/p/b/b2e5f659947ab10/b/src/src/engine/b2 --ignore-site-config --prefix=/root/.conan2/p/b/b2e5f659947ab10/b/build/output --abbreviate-paths install b2-install-layout=portable
+64.76 Jamroot.jam:118: in modules.load from module Jamfile</root/.conan2/p/b/b2e5f659947ab10/b/src>
+64.76 warning: Bison generator program 'bison' not found. Skipping grammar build.
+64.76 /root/.conan2/p/b/b2e5f659947ab10/b/src/src/build/project.jam:562: in load-jamfile from module project
+64.76 /root/.conan2/p/b/b2e5f659947ab10/b/src/src/build/project.jam:84: in load from module project
+64.76 /root/.conan2/p/b/b2e5f659947ab10/b/src/src/build/project.jam:217: in project.find from module project
+64.76 /root/.conan2/p/b/b2e5f659947ab10/b/src/src/build-system.jam:639: in module scope from module build-system
+64.76 warning: No toolsets are configured.
+64.76 warning: Configuring default toolset "gcc".
+64.76 warning: If the default is wrong, your build may not work correctly.
+64.76 warning: Use the "toolset=xxxxx" option to override our guess.
+64.76 warning: For more configuration options, please consult
+64.76 warning: https://www.bfgroup.xyz/b2/manual/release/index.html#b2.overview.configuration
+64.91 ...found 465 targets...
+64.91 ...updating 234 targets...
+64.92 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/b2
+64.92 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/build-system.jam
+64.92 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/contrib/wxFormBuilder.jam
+64.92 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/options/help.jam
+64.92 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/contrib/tntnet.jam
+64.92 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/build/version.jam
+64.92 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/contrib/modular.jam
+64.92 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/contrib/boost.jam
+64.92 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/build/virtual-target.jam
+64.92 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/build/type.jam
+64.92 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/build/toolset.jam
+64.92 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/build/targets.jam
+64.92 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/build/scanner.jam
+64.92 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/build/property.jam
+64.92 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/build/property-set.jam
+64.92 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/zstd.jam
+64.92 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/zlib.jam
+64.92 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/xsltproc.jam
+64.92 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/xsltproc-config.jam
+64.92 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/xlf.jam
+64.92 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/build/project.jam
+64.93 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/testing.jam
+64.93 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/whale.jam
+64.93 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/vmsdecc.jam
+64.93 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/unix.jam
+64.93 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/testing-aux.jam
+64.93 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/sun.jam
+64.93 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/sass.jam
+64.93 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/symlink.jam
+64.93 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/stlport.jam
+64.93 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/stage.jam
+64.93 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/rc.jam
+64.93 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/quickbook.jam
+64.93 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/quickbook-config.jam
+64.93 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/saxonhe.jam
+64.93 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/qt4.jam
+64.93 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/qt3.jam
+64.93 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/qt5.jam
+64.93 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/qt.jam
+64.93 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/qcc.jam
+64.93 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/python.jam
+64.93 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/python-config.jam
+64.93 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/pgi.jam
+64.93 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/openssl.jam
+64.93 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/pch.jam
+64.93 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/pkg-config.jam
+64.93 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/pathscale.jam
+64.93 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/package.jam
+64.93 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/midl.jam
+64.93 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/notfile.jam
+64.93 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/msvc.jam
+64.93 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/message.jam
+64.93 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/mc.jam
+64.93 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/lzma.jam
+64.93 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/mpi.jam
+64.93 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/mipspro.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/libtiff.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/libpng.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/make.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/link.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/lex.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/intel.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/intel-linux.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/intel-darwin.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/ifort.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/libjpeg.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/intel-win.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/gettext.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/intel-vxworks.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/ibmcxx.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/hpfortran.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/hp_cxx.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/gfortran.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/generate.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/emscripten.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/embarcadero.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/gcc.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/fortran.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/fop.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/flags.jam
+64.94 ...on 100th target...
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/dmc.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/diab.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/doxygen.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/darwin.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/doxproc.py
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/docutils.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/cray.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/convert.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/como.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/como-win.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/cygwin.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/como-linux.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/cw.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/cw-config.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/clang-win.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/clang-vxworks.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/clang-linux.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/clang-darwin.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/common.jam
+64.94 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/clang.jam
+64.95 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/bzip2.jam
+64.95 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/builtin.jam
+64.95 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/borland.jam
+64.95 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/bison.jam
+64.95 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/cc.jam
+64.95 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/cast.jam
+64.95 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/boostbook.jam
+64.95 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/auto-index.jam
+64.95 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/asciidoctor.jam
+64.95 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/acc.jam
+64.95 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/util/sequence.jam
+64.95 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/util/print.jam
+64.95 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/util/path.jam
+64.95 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/util/param.jam
+64.95 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/util/os.jam
+64.95 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/util/utility.jam
+64.95 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/util/order.jam
+64.95 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/generators/searched-lib-generator.jam
+64.95 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/generators/prebuilt-lib-generator.jam
+64.95 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/generators/linking-generator.jam
+64.95 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/generators/lib-generator.jam
+64.95 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/generators/dummy-generator.jam
+64.95 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/generators/c-compiling-generator.jam
+64.95 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/doxygen/windows-paths-check.hpp
+64.95 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/doxygen/windows-paths-check.doxyfile
+64.95 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/warnings-feature.jam
+64.95 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/visibility-feature.jam
+64.95 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/version-feature.jam
+64.95 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/generators/c-preprocessing-generator.jam
+64.95 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/threading-feature.jam
+64.95 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/variant-feature.jam
+64.95 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/user-interface-feature.jam
+64.95 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/translate-path-feature.jam
+64.95 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/toolset-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/search-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/threadapi-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/tag-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/strip-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/stdlib-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/source-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/os-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/sanitizers-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/runtime-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/rtti-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/response-file-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/relevant-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/location-prefix-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/location-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/optimization-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/objcflags-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/name-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/lto-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/library-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/internal-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/instruction-set-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/local-visibility-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/linkflags-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/link-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/linemarkers-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/find-lib-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/include-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/force-include-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/fflags-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/exception-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/flags-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/define-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/file-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/debug-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/cxxstd-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/cxxflags-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/cxxabi-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/cxx-template-depth-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/dll-feature.jam
+64.96 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/dependency-feature.jam
+64.97 ...on 200th target...
+64.97 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/conditional-feature.jam
+64.97 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/compileflags-feature.jam
+64.97 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/cflags-feature.jam
+64.97 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/build-feature.jam
+64.97 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/asmflags-feature.jam
+64.97 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/archiveflags-feature.jam
+64.97 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/coverage-feature.jam
+64.97 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/architecture-feature.jam
+64.97 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/allow-feature.jam
+64.97 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/address-model-feature.jam
+64.97 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/features/__init_features__.jam
+64.97 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/generators/archive-generator.jam
+64.97 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/generators/__init_generators__.jam
+64.97 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/types/xml.jam
+64.97 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/types/register.jam
+64.97 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/types/qt.jam
+64.97 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/types/preprocessed.jam
+64.97 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/types/pdf.jam
+64.97 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/types/objc.jam
+64.97 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/types/sass-type.jam
+64.97 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/types/rsp.jam
+64.97 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/types/obj.jam
+64.97 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/types/markdown.jam
+64.97 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/types/man.jam
+64.97 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/types/lib.jam
+64.97 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/types/html.jam
+64.97 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/types/exe.jam
+64.97 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/types/css.jam
+64.97 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/types/cpp.jam
+64.97 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/types/asm.jam
+64.97 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/types/docbook.jam
+64.97 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/types/adoc.jam
+64.97 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/xsltproc/test.xsl
+64.97 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/xsltproc/test.xml
+64.97 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/tools/xsltproc/included.xsl
+64.98 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/util/container.jam
+64.98 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/util/assert.jam
+64.98 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/util/option.jam
+64.98 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/util/numbers.jam
+64.98 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/util/indirect.jam
+64.98 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/util/doc.jam
+64.98 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/build/generators.jam
+64.98 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/build/feature.jam
+64.98 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/build/configure.jam
+64.98 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/build/config-cache.jam
+64.98 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/build/build-request.jam
+64.98 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/build/alias.jam
+64.98 common.copy /root/.conan2/p/b/b2e5f659947ab10/b/build/output/.b2/build/ac.jam
+64.99 
+64.99 ...updated 234 targets...
+65.00 
+65.00 b2/5.3.3: Package 'c93719558cf197f1df5a7f1d071093e26f0e44a0' built
+65.00 b2/5.3.3: Build folder /root/.conan2/p/b/b2e5f659947ab10/b/build
+65.00 b2/5.3.3: Generating the package
+65.00 b2/5.3.3: Packaging in folder /root/.conan2/p/b/b2e5f659947ab10/p
+65.00 b2/5.3.3: Calling package()
+65.07 b2/5.3.3: package(): Packaged 1 '.LICENSE' file: ext_nlohmann_json.hpp.LICENSE
+65.07 b2/5.3.3: package(): Packaged 1 '.txt' file: LICENSE.txt
+65.07 b2/5.3.3: package(): Packaged 1 file: b2
+65.07 b2/5.3.3: package(): Packaged 215 '.jam' files
+65.07 b2/5.3.3: Created package revision f0ee4da42368aa5965b68f632ec47f12
+65.07 b2/5.3.3: Package 'c93719558cf197f1df5a7f1d071093e26f0e44a0' created
+65.07 b2/5.3.3: Full package reference: b2/5.3.3#107c15377719889654eb9a162a673975:c93719558cf197f1df5a7f1d071093e26f0e44a0#f0ee4da42368aa5965b68f632ec47f12
+65.07 b2/5.3.3: Package folder /root/.conan2/p/b/b2e5f659947ab10/p
+65.10 bzip2/1.0.8: Sources downloaded from 'conancenter'
+65.10 bzip2/1.0.8: Calling source() in /root/.conan2/p/bzip28d32b93e26a49/s/src
+66.07 bzip2/1.0.8: Uncompressing bzip2-1.0.8.tar.gz to .
+66.10 
+66.10 -------- Installing package bzip2/1.0.8 (2 of 5) --------
+66.10 bzip2/1.0.8: Building from source
+66.10 bzip2/1.0.8: Package bzip2/1.0.8:2950ed9ec19d5f3eafdd1fc996bf5f4c414aa824
+66.10 bzip2/1.0.8: settings: os=Linux arch=armv8 compiler=clang compiler.version=21 build_type=Release
+66.10 bzip2/1.0.8: options: build_executable=True fPIC=True shared=False
+66.10 bzip2/1.0.8: Copying sources to build folder
+66.11 bzip2/1.0.8: Building your package in /root/.conan2/p/b/bzip2832299cda427e/b
+66.11 bzip2/1.0.8: Calling generate()
+66.11 bzip2/1.0.8: Generators folder: /root/.conan2/p/b/bzip2832299cda427e/b/build/Release/generators
+66.15 bzip2/1.0.8: CMakeToolchain generated: conan_toolchain.cmake
+66.15 bzip2/1.0.8: CMakeToolchain generated: /root/.conan2/p/b/bzip2832299cda427e/b/build/Release/generators/CMakePresets.json
+66.15 bzip2/1.0.8: Generating aggregated env files
+66.15 bzip2/1.0.8: Generated aggregated env files: ['conanbuild.sh', 'conanrun.sh']
+66.15 bzip2/1.0.8: Calling build()
+66.15 bzip2/1.0.8: apply_conandata_patches(): No patches defined in conandata
+66.15 bzip2/1.0.8: Running CMake.configure()
+66.15 bzip2/1.0.8: RUN: cmake -G "Unix Makefiles" -DCMAKE_TOOLCHAIN_FILE="generators/conan_toolchain.cmake" -DCMAKE_INSTALL_PREFIX="/root/.conan2/p/b/bzip2832299cda427e/p" -DCMAKE_POLICY_DEFAULT_CMP0091="NEW" -DCMAKE_BUILD_TYPE="Release" "/root/.conan2/p/b/bzip2832299cda427e/b/src/.."
+66.17 -- Using Conan toolchain: /root/.conan2/p/b/bzip2832299cda427e/b/build/Release/generators/conan_toolchain.cmake
+66.17 -- Conan toolchain: Setting CMAKE_POSITION_INDEPENDENT_CODE=ON (options.fPIC)
+66.17 -- Conan toolchain: Setting BUILD_SHARED_LIBS = OFF
+66.29 -- The C compiler identification is Clang 21.1.3
+66.35 -- Detecting C compiler ABI info
+66.55 -- Detecting C compiler ABI info - done
+66.56 -- Check for working C compiler: /usr/bin/clang-21 - skipped
+66.56 -- Detecting C compile features
+66.56 -- Detecting C compile features - done
+66.57 -- Configuring done (0.4s)
+66.57 -- Generating done (0.0s)
+66.58 -- Build files have been written to: /root/.conan2/p/b/bzip2832299cda427e/b/build/Release
+66.58 
+66.58 bzip2/1.0.8: Running CMake.build()
+66.58 bzip2/1.0.8: RUN: cmake --build "/root/.conan2/p/b/bzip2832299cda427e/b/build/Release" -- -j16
+66.66 [ 10%] Building C object CMakeFiles/bz2.dir/src/randtable.c.o
+66.66 [ 30%] Building C object CMakeFiles/bz2.dir/src/compress.c.o
+66.66 [ 30%] Building C object CMakeFiles/bz2.dir/src/blocksort.c.o
+66.66 [ 40%] Building C object CMakeFiles/bz2.dir/src/huffman.c.o
+66.66 [ 50%] Building C object CMakeFiles/bz2.dir/src/crctable.c.o
+66.66 [ 60%] Building C object CMakeFiles/bz2.dir/src/decompress.c.o
+66.66 [ 70%] Building C object CMakeFiles/bz2.dir/src/bzlib.c.o
+67.49 [ 80%] Linking C static library libbz2.a
+67.57 [ 80%] Built target bz2
+67.60 [ 90%] Building C object CMakeFiles/bzip2.dir/src/bzip2.c.o
+68.04 [100%] Linking C executable bzip2
+68.11 [100%] Built target bzip2
+68.13 
+68.13 bzip2/1.0.8: Package '2950ed9ec19d5f3eafdd1fc996bf5f4c414aa824' built
+68.13 bzip2/1.0.8: Build folder /root/.conan2/p/b/bzip2832299cda427e/b/build/Release
+68.13 bzip2/1.0.8: Generating the package
+68.13 bzip2/1.0.8: Packaging in folder /root/.conan2/p/b/bzip2832299cda427e/p
+68.13 bzip2/1.0.8: Calling package()
+68.14 bzip2/1.0.8: Running CMake.install()
+68.14 bzip2/1.0.8: RUN: cmake --install "/root/.conan2/p/b/bzip2832299cda427e/b/build/Release" --prefix "/root/.conan2/p/b/bzip2832299cda427e/p"
+68.15 -- Install configuration: "Release"
+68.15 -- Installing: /root/.conan2/p/b/bzip2832299cda427e/p/lib/libbz2.a
+68.15 -- Installing: /root/.conan2/p/b/bzip2832299cda427e/p/include/bzlib.h
+68.15 -- Installing: /root/.conan2/p/b/bzip2832299cda427e/p/bin/bzip2
+68.15 
+68.16 bzip2/1.0.8: package(): Packaged 2 files: LICENSE, bzip2
+68.16 bzip2/1.0.8: package(): Packaged 1 '.a' file: libbz2.a
+68.16 bzip2/1.0.8: package(): Packaged 1 '.cmake' file: conan-official-bzip2-variables.cmake
+68.16 bzip2/1.0.8: package(): Packaged 1 '.h' file: bzlib.h
+68.16 bzip2/1.0.8: Created package revision ce16c7a2319b202f46ede083ade248bb
+68.16 bzip2/1.0.8: Package '2950ed9ec19d5f3eafdd1fc996bf5f4c414aa824' created
+68.16 bzip2/1.0.8: Full package reference: bzip2/1.0.8#00b4a4658791c1f06914e087f0e792f5:2950ed9ec19d5f3eafdd1fc996bf5f4c414aa824#ce16c7a2319b202f46ede083ade248bb
+68.16 bzip2/1.0.8: Package folder /root/.conan2/p/b/bzip2832299cda427e/p
+68.18 libbacktrace/cci.20210118: Sources downloaded from 'conancenter'
+68.18 libbacktrace/cci.20210118: Calling source() in /root/.conan2/p/libba03b69ae15f314/s/src
+68.60 libbacktrace/cci.20210118: Uncompressing dedbe13fda00253fe5d4f2fb812c909729ed5937.tar.gz to .
+68.64 
+68.64 -------- Installing package libbacktrace/cci.20210118 (3 of 5) --------
+68.64 libbacktrace/cci.20210118: Building from source
+68.64 libbacktrace/cci.20210118: Package libbacktrace/cci.20210118:41b337f323682b1c7c11232419ea3db992514873
+68.64 libbacktrace/cci.20210118: settings: os=Linux arch=armv8 compiler=clang compiler.version=21 build_type=Release
+68.64 libbacktrace/cci.20210118: options: fPIC=True shared=False
+68.64 libbacktrace/cci.20210118: Copying sources to build folder
+68.65 libbacktrace/cci.20210118: Building your package in /root/.conan2/p/b/libbae30fad7107a16/b
+68.65 libbacktrace/cci.20210118: Calling generate()
+68.65 libbacktrace/cci.20210118: Generators folder: /root/.conan2/p/b/libbae30fad7107a16/b/build-release/conan
+68.65 libbacktrace/cci.20210118: Generating aggregated env files
+68.65 libbacktrace/cci.20210118: Generated aggregated env files: ['conanbuild.sh', 'conanrun.sh']
+68.65 libbacktrace/cci.20210118: Calling build()
+68.65 libbacktrace/cci.20210118: Apply patch (portability): casting pointer types for pointer arithmetics
+68.65 libbacktrace/cci.20210118: Apply patch (portability): support msvc for codes using unistd.h
+68.66 libbacktrace/cci.20210118: RUN: "/root/.conan2/p/b/libbae30fad7107a16/b/src/configure" --disable-shared --enable-static --prefix=/ '--bindir=${prefix}/bin' '--sbindir=${prefix}/bin' '--libdir=${prefix}/lib' '--includedir=${prefix}/include' '--oldincludedir=${prefix}/include' 
+68.89 checking build system type... aarch64-unknown-linux-gnu
+68.97 checking host system type... aarch64-unknown-linux-gnu
+68.98 checking target system type... aarch64-unknown-linux-gnu
+68.98 checking for gcc... /usr/bin/clang-21
+69.11 checking whether the C compiler works... yes
+69.19 checking for C compiler default output file name... a.out
+69.19 checking for suffix of executables... 
+69.28 checking whether we are cross compiling... no
+69.38 checking for suffix of object files... o
+69.43 checking whether we are using the GNU C compiler... yes
+69.47 checking whether /usr/bin/clang-21 accepts -g... yes
+69.51 checking for /usr/bin/clang-21 option to accept ISO C89... none needed
+69.58 checking whether /usr/bin/clang-21 understands -c and -o together... yes
+69.65 checking how to run the C preprocessor... /usr/bin/clang-21 -E
+69.81 checking for grep that handles long lines and -e... /usr/bin/grep
+69.81 checking for egrep... /usr/bin/grep -E
+69.81 checking for ANSI C header files... yes
+70.06 checking for sys/types.h... yes
+70.13 checking for sys/stat.h... yes
+70.20 checking for stdlib.h... yes
+70.27 checking for string.h... yes
+70.34 checking for memory.h... yes
+70.42 checking for strings.h... yes
+70.49 checking for inttypes.h... yes
+70.57 checking for stdint.h... yes
+70.64 checking for unistd.h... yes
+70.71 checking minix/config.h usability... no
+70.78 checking minix/config.h presence... no
+70.82 checking for minix/config.h... no
+70.82 checking whether it is safe to define __EXTENSIONS__... yes
+70.89 checking for a BSD-compatible install... /usr/bin/install -c
+70.91 checking whether build environment is sane... yes
+70.93 /root/.conan2/p/b/libbae30fad7107a16/b/src/missing: Unknown `--is-lightweight' option
+70.93 Try `/root/.conan2/p/b/libbae30fad7107a16/b/src/missing --help' for more information
+70.93 configure: WARNING: 'missing' script is too old or missing
+70.93 checking for a thread-safe mkdir -p... /usr/bin/mkdir -p
+70.93 checking for gawk... no
+70.93 checking for mawk... mawk
+70.93 checking whether make sets $(MAKE)... yes
+70.95 checking whether make supports nested variables... yes
+70.96 checking whether to enable maintainer-specific portions of Makefiles... no
+70.96 checking for gcc... (cached) /usr/bin/clang-21
+71.09 checking whether we are using the GNU C compiler... (cached) yes
+71.09 checking whether /usr/bin/clang-21 accepts -g... (cached) yes
+71.09 checking for /usr/bin/clang-21 option to accept ISO C89... (cached) none needed
+71.09 checking whether /usr/bin/clang-21 understands -c and -o together... (cached) yes
+71.09 checking for ranlib... ranlib
+71.09 checking for gawk... (cached) mawk
+71.09 checking for dwz... no
+71.09 checking how to print strings... printf
+71.09 checking for a sed that does not truncate output... /usr/bin/sed
+71.10 checking for fgrep... /usr/bin/grep -F
+71.10 checking for ld used by /usr/bin/clang-21... /usr/bin/ld
+71.14 checking if the linker (/usr/bin/ld) is GNU ld... yes
+71.14 checking for BSD- or MS-compatible name lister (nm)... /usr/bin/nm -B
+71.15 checking the name lister (/usr/bin/nm -B) interface... BSD nm
+71.22 checking whether ln -s works... yes
+71.22 checking the maximum length of command line arguments... 1572864
+71.22 checking whether the shell understands some XSI constructs... yes
+71.23 checking whether the shell understands "+="... yes
+71.23 checking for /usr/bin/ld option to reload object files... -r
+71.23 checking for objdump... objdump
+71.23 checking how to recognize dependent libraries... pass_all
+71.24 checking for ar... ar
+71.24 checking for strip... strip
+71.24 checking for ranlib... (cached) ranlib
+71.24 checking command to parse /usr/bin/nm -B output from /usr/bin/clang-21 object... ok
+71.41 checking for dlfcn.h... yes
+71.48 checking for objdir... .libs
+71.63 checking if /usr/bin/clang-21 supports -fno-rtti -fno-exceptions... yes
+71.68 checking for /usr/bin/clang-21 option to produce PIC... -fPIC -DPIC
+71.68 checking if /usr/bin/clang-21 PIC flag -fPIC -DPIC works... yes
+71.72 checking if /usr/bin/clang-21 static flag -static works... yes
+71.84 checking if /usr/bin/clang-21 supports -c -o file.o... yes
+71.90 checking if /usr/bin/clang-21 supports -c -o file.o... (cached) yes
+71.90 checking whether the /usr/bin/clang-21 linker (/usr/bin/ld) supports shared libraries... yes
+71.94 checking dynamic linker characteristics... GNU/Linux ld.so
+72.11 checking how to hardcode library paths into programs... immediate
+72.11 checking whether stripping libraries is possible... yes
+72.12 checking if libtool supports shared libraries... yes
+72.12 checking whether to build shared libraries... no
+72.12 checking whether to build static libraries... yes
+72.12 checking for special C compiler options needed for large files... no
+72.12 checking for _FILE_OFFSET_BITS value needed for large files... no
+72.17 checking unwind.h usability... yes
+72.25 checking unwind.h presence... yes
+72.29 checking for unwind.h... yes
+72.29 checking for _Unwind_Backtrace... yes
+72.39 checking for -funwind-tables option... yes
+72.43 checking for -frandom-seed=string option... yes
+72.48 checking whether /usr/bin/clang-21 supports -W... yes
+72.52 checking whether /usr/bin/clang-21 supports -Wall... yes
+72.57 checking whether /usr/bin/clang-21 supports -Wwrite-strings... yes
+72.62 checking whether /usr/bin/clang-21 supports -Wstrict-prototypes... yes
+72.67 checking whether /usr/bin/clang-21 supports -Wmissing-prototypes... yes
+72.72 checking whether /usr/bin/clang-21 supports -Wold-style-definition... yes
+72.77 checking whether /usr/bin/clang-21 supports -Wmissing-format-attribute... yes
+72.83 checking whether /usr/bin/clang-21 supports -Wcast-qual... yes
+72.87 checking for _Unwind_GetIPInfo... yes
+72.97 checking __sync extensions... yes
+73.06 checking __atomic extensions... yes
+73.15 checking output filetype... elf64
+73.21 checking sys/mman.h usability... yes
+73.28 checking sys/mman.h presence... yes
+73.32 checking for sys/mman.h... yes
+73.32 checking for mmap... yes
+73.45 checking link.h usability... yes
+73.52 checking link.h presence... yes
+73.56 checking for link.h... yes
+73.56 checking for dl_iterate_phdr... yes
+73.67 checking mach-o/dyld.h usability... no
+73.74 checking mach-o/dyld.h presence... no
+73.78 checking for mach-o/dyld.h... no
+73.78 checking sys/ldr.h usability... no
+73.86 checking sys/ldr.h presence... no
+73.90 checking for sys/ldr.h... no
+73.90 checking for fcntl... yes
+74.00 checking whether strnlen is declared... yes
+74.08 checking whether getpagesize is declared... yes
+74.16 checking for lstat... yes
+74.27 checking for readlink... yes
+74.37 checking for getexecname... no
+74.47 checking for KERN_PROC... no
+74.52 checking for KERN_PROG_ARGS... no
+74.58 checking for clock_gettime... yes
+74.67 checking whether -pthread is supported... yes
+74.72 checking whether -gdwarf-5 is supported... yes
+74.81 checking for compress in -lz... yes
+74.90 checking whether --compress-debug-sections is supported... yes
+75.00 checking for objcopy... objcopy
+75.00 checking for readelf... readelf
+75.00 checking whether objcopy supports debuglink... objcopy: /bin/ls: debuglink section already exists
+75.00 yes
+75.00 checking for dsymutil... no
+75.00 checking for nm... /usr/bin/nm -B
+75.00 checking for xz... xz
+75.01 checking for comm... comm
+75.01 checking for lzma_auto_decoder in -llzma... no
+75.10 checking whether tests can run... yes
+75.22 checking that generated files are newer than configure... done
+75.22 configure: creating ./config.status
+76.06 config.status: creating Makefile
+76.08 config.status: creating backtrace-supported.h
+76.11 config.status: creating install-debuginfo-for-buildid.sh
+76.13 config.status: creating config.h
+76.14 config.status: executing libtool commands
+76.17 config.status: executing default commands
+76.22 
+76.22 libbacktrace/cci.20210118: RUN: make -j16
+76.24 make  all-am
+76.25 make[1]: Entering directory '/root/.conan2/p/b/libbae30fad7107a16/b/build-release'
+76.25 /bin/bash ./libtool  --tag=CC   --mode=compile /usr/bin/clang-21 -DHAVE_CONFIG_H -I. -I/root/.conan2/p/b/libbae30fad7107a16/b/src   -DNDEBUG -funwind-tables -frandom-seed=atomic.lo -W -Wall -Wwrite-strings -Wstrict-prototypes -Wmissing-prototypes -Wold-style-definition -Wmissing-format-attribute -Wcast-qual  -fPIC -O3 -c -o atomic.lo /root/.conan2/p/b/libbae30fad7107a16/b/src/atomic.c
+76.25 /bin/bash ./libtool  --tag=CC   --mode=compile /usr/bin/clang-21 -DHAVE_CONFIG_H -I. -I/root/.conan2/p/b/libbae30fad7107a16/b/src   -DNDEBUG -funwind-tables -frandom-seed=dwarf.lo -W -Wall -Wwrite-strings -Wstrict-prototypes -Wmissing-prototypes -Wold-style-definition -Wmissing-format-attribute -Wcast-qual  -fPIC -O3 -c -o dwarf.lo /root/.conan2/p/b/libbae30fad7107a16/b/src/dwarf.c
+76.25 /bin/bash ./libtool  --tag=CC   --mode=compile /usr/bin/clang-21 -DHAVE_CONFIG_H -I. -I/root/.conan2/p/b/libbae30fad7107a16/b/src   -DNDEBUG -funwind-tables -frandom-seed=fileline.lo -W -Wall -Wwrite-strings -Wstrict-prototypes -Wmissing-prototypes -Wold-style-definition -Wmissing-format-attribute -Wcast-qual  -fPIC -O3 -c -o fileline.lo /root/.conan2/p/b/libbae30fad7107a16/b/src/fileline.c
+76.26 /bin/bash ./libtool  --tag=CC   --mode=compile /usr/bin/clang-21 -DHAVE_CONFIG_H -I. -I/root/.conan2/p/b/libbae30fad7107a16/b/src   -DNDEBUG -funwind-tables -frandom-seed=posix.lo -W -Wall -Wwrite-strings -Wstrict-prototypes -Wmissing-prototypes -Wold-style-definition -Wmissing-format-attribute -Wcast-qual  -fPIC -O3 -c -o posix.lo /root/.conan2/p/b/libbae30fad7107a16/b/src/posix.c
+76.26 /bin/bash ./libtool  --tag=CC   --mode=compile /usr/bin/clang-21 -DHAVE_CONFIG_H -I. -I/root/.conan2/p/b/libbae30fad7107a16/b/src   -DNDEBUG -funwind-tables -frandom-seed=print.lo -W -Wall -Wwrite-strings -Wstrict-prototypes -Wmissing-prototypes -Wold-style-definition -Wmissing-format-attribute -Wcast-qual  -fPIC -O3 -c -o print.lo /root/.conan2/p/b/libbae30fad7107a16/b/src/print.c
+76.26 /bin/bash ./libtool  --tag=CC   --mode=compile /usr/bin/clang-21 -DHAVE_CONFIG_H -I. -I/root/.conan2/p/b/libbae30fad7107a16/b/src   -DNDEBUG -funwind-tables -frandom-seed=sort.lo -W -Wall -Wwrite-strings -Wstrict-prototypes -Wmissing-prototypes -Wold-style-definition -Wmissing-format-attribute -Wcast-qual  -fPIC -O3 -c -o sort.lo /root/.conan2/p/b/libbae30fad7107a16/b/src/sort.c
+76.26 /bin/bash ./libtool  --tag=CC   --mode=compile /usr/bin/clang-21 -DHAVE_CONFIG_H -I. -I/root/.conan2/p/b/libbae30fad7107a16/b/src   -DNDEBUG -funwind-tables -frandom-seed=state.lo -W -Wall -Wwrite-strings -Wstrict-prototypes -Wmissing-prototypes -Wold-style-definition -Wmissing-format-attribute -Wcast-qual  -fPIC -O3 -c -o state.lo /root/.conan2/p/b/libbae30fad7107a16/b/src/state.c
+76.26 /bin/bash ./libtool  --tag=CC   --mode=compile /usr/bin/clang-21 -DHAVE_CONFIG_H -I. -I/root/.conan2/p/b/libbae30fad7107a16/b/src   -DNDEBUG -funwind-tables -frandom-seed=backtrace.lo -W -Wall -Wwrite-strings -Wstrict-prototypes -Wmissing-prototypes -Wold-style-definition -Wmissing-format-attribute -Wcast-qual  -fPIC -O3 -c -o backtrace.lo /root/.conan2/p/b/libbae30fad7107a16/b/src/backtrace.c
+76.26 /bin/bash ./libtool  --tag=CC   --mode=compile /usr/bin/clang-21 -DHAVE_CONFIG_H -I. -I/root/.conan2/p/b/libbae30fad7107a16/b/src   -DNDEBUG -funwind-tables -frandom-seed=simple.lo -W -Wall -Wwrite-strings -Wstrict-prototypes -Wmissing-prototypes -Wold-style-definition -Wmissing-format-attribute -Wcast-qual  -fPIC -O3 -c -o simple.lo /root/.conan2/p/b/libbae30fad7107a16/b/src/simple.c
+76.26 /bin/bash ./libtool  --tag=CC   --mode=compile /usr/bin/clang-21 -DHAVE_CONFIG_H -I. -I/root/.conan2/p/b/libbae30fad7107a16/b/src   -DNDEBUG -funwind-tables -frandom-seed=elf.lo -W -Wall -Wwrite-strings -Wstrict-prototypes -Wmissing-prototypes -Wold-style-definition -Wmissing-format-attribute -Wcast-qual  -fPIC -O3 -c -o elf.lo /root/.conan2/p/b/libbae30fad7107a16/b/src/elf.c
+76.26 /bin/bash ./libtool  --tag=CC   --mode=compile /usr/bin/clang-21 -DHAVE_CONFIG_H -I. -I/root/.conan2/p/b/libbae30fad7107a16/b/src   -DNDEBUG -funwind-tables -frandom-seed=mmapio.lo -W -Wall -Wwrite-strings -Wstrict-prototypes -Wmissing-prototypes -Wold-style-definition -Wmissing-format-attribute -Wcast-qual  -fPIC -O3 -c -o mmapio.lo /root/.conan2/p/b/libbae30fad7107a16/b/src/mmapio.c
+76.26 /bin/bash ./libtool  --tag=CC   --mode=compile /usr/bin/clang-21 -DHAVE_CONFIG_H -I. -I/root/.conan2/p/b/libbae30fad7107a16/b/src   -DNDEBUG -funwind-tables -frandom-seed=mmap.lo -W -Wall -Wwrite-strings -Wstrict-prototypes -Wmissing-prototypes -Wold-style-definition -Wmissing-format-attribute -Wcast-qual  -fPIC -O3 -c -o mmap.lo /root/.conan2/p/b/libbae30fad7107a16/b/src/mmap.c
+76.28 libtool: compile:  /usr/bin/clang-21 -DHAVE_CONFIG_H -I. -I/root/.conan2/p/b/libbae30fad7107a16/b/src -DNDEBUG -funwind-tables -frandom-seed=dwarf.lo -W -Wall -Wwrite-strings -Wstrict-prototypes -Wmissing-prototypes -Wold-style-definition -Wmissing-format-attribute -Wcast-qual -fPIC -O3 -c /root/.conan2/p/b/libbae30fad7107a16/b/src/dwarf.c -o dwarf.o
+76.28 libtool: compile:  /usr/bin/clang-21 -DHAVE_CONFIG_H -I. -I/root/.conan2/p/b/libbae30fad7107a16/b/src -DNDEBUG -funwind-tables -frandom-seed=atomic.lo -W -Wall -Wwrite-strings -Wstrict-prototypes -Wmissing-prototypes -Wold-style-definition -Wmissing-format-attribute -Wcast-qual -fPIC -O3 -c /root/.conan2/p/b/libbae30fad7107a16/b/src/atomic.c -o atomic.o
+76.29 libtool: compile:  /usr/bin/clang-21 -DHAVE_CONFIG_H -I. -I/root/.conan2/p/b/libbae30fad7107a16/b/src -DNDEBUG -funwind-tables -frandom-seed=print.lo -W -Wall -Wwrite-strings -Wstrict-prototypes -Wmissing-prototypes -Wold-style-definition -Wmissing-format-attribute -Wcast-qual -fPIC -O3 -c /root/.conan2/p/b/libbae30fad7107a16/b/src/print.c -o print.o
+76.29 libtool: compile:  /usr/bin/clang-21 -DHAVE_CONFIG_H -I. -I/root/.conan2/p/b/libbae30fad7107a16/b/src -DNDEBUG -funwind-tables -frandom-seed=posix.lo -W -Wall -Wwrite-strings -Wstrict-prototypes -Wmissing-prototypes -Wold-style-definition -Wmissing-format-attribute -Wcast-qual -fPIC -O3 -c /root/.conan2/p/b/libbae30fad7107a16/b/src/posix.c -o posix.o
+76.29 libtool: compile:  /usr/bin/clang-21 -DHAVE_CONFIG_H -I. -I/root/.conan2/p/b/libbae30fad7107a16/b/src -DNDEBUG -funwind-tables -frandom-seed=fileline.lo -W -Wall -Wwrite-strings -Wstrict-prototypes -Wmissing-prototypes -Wold-style-definition -Wmissing-format-attribute -Wcast-qual -fPIC -O3 -c /root/.conan2/p/b/libbae30fad7107a16/b/src/fileline.c -o fileline.o
+76.29 libtool: compile:  /usr/bin/clang-21 -DHAVE_CONFIG_H -I. -I/root/.conan2/p/b/libbae30fad7107a16/b/src -DNDEBUG -funwind-tables -frandom-seed=backtrace.lo -W -Wall -Wwrite-strings -Wstrict-prototypes -Wmissing-prototypes -Wold-style-definition -Wmissing-format-attribute -Wcast-qual -fPIC -O3 -c /root/.conan2/p/b/libbae30fad7107a16/b/src/backtrace.c -o backtrace.o
+76.29 libtool: compile:  /usr/bin/clang-21 -DHAVE_CONFIG_H -I. -I/root/.conan2/p/b/libbae30fad7107a16/b/src -DNDEBUG -funwind-tables -frandom-seed=elf.lo -W -Wall -Wwrite-strings -Wstrict-prototypes -Wmissing-prototypes -Wold-style-definition -Wmissing-format-attribute -Wcast-qual -fPIC -O3 -c /root/.conan2/p/b/libbae30fad7107a16/b/src/elf.c -o elf.o
+76.29 libtool: compile:  /usr/bin/clang-21 -DHAVE_CONFIG_H -I. -I/root/.conan2/p/b/libbae30fad7107a16/b/src -DNDEBUG -funwind-tables -frandom-seed=sort.lo -W -Wall -Wwrite-strings -Wstrict-prototypes -Wmissing-prototypes -Wold-style-definition -Wmissing-format-attribute -Wcast-qual -fPIC -O3 -c /root/.conan2/p/b/libbae30fad7107a16/b/src/sort.c -o sort.o
+76.30 libtool: compile:  /usr/bin/clang-21 -DHAVE_CONFIG_H -I. -I/root/.conan2/p/b/libbae30fad7107a16/b/src -DNDEBUG -funwind-tables -frandom-seed=simple.lo -W -Wall -Wwrite-strings -Wstrict-prototypes -Wmissing-prototypes -Wold-style-definition -Wmissing-format-attribute -Wcast-qual -fPIC -O3 -c /root/.conan2/p/b/libbae30fad7107a16/b/src/simple.c -o simple.o
+76.30 libtool: compile:  /usr/bin/clang-21 -DHAVE_CONFIG_H -I. -I/root/.conan2/p/b/libbae30fad7107a16/b/src -DNDEBUG -funwind-tables -frandom-seed=state.lo -W -Wall -Wwrite-strings -Wstrict-prototypes -Wmissing-prototypes -Wold-style-definition -Wmissing-format-attribute -Wcast-qual -fPIC -O3 -c /root/.conan2/p/b/libbae30fad7107a16/b/src/state.c -o state.o
+76.30 libtool: compile:  /usr/bin/clang-21 -DHAVE_CONFIG_H -I. -I/root/.conan2/p/b/libbae30fad7107a16/b/src -DNDEBUG -funwind-tables -frandom-seed=mmap.lo -W -Wall -Wwrite-strings -Wstrict-prototypes -Wmissing-prototypes -Wold-style-definition -Wmissing-format-attribute -Wcast-qual -fPIC -O3 -c /root/.conan2/p/b/libbae30fad7107a16/b/src/mmap.c -o mmap.o
+76.30 libtool: compile:  /usr/bin/clang-21 -DHAVE_CONFIG_H -I. -I/root/.conan2/p/b/libbae30fad7107a16/b/src -DNDEBUG -funwind-tables -frandom-seed=mmapio.lo -W -Wall -Wwrite-strings -Wstrict-prototypes -Wmissing-prototypes -Wold-style-definition -Wmissing-format-attribute -Wcast-qual -fPIC -O3 -c /root/.conan2/p/b/libbae30fad7107a16/b/src/mmapio.c -o mmapio.o
+77.47 /bin/bash ./libtool  --tag=CC   --mode=link /usr/bin/clang-21 -funwind-tables -frandom-seed=libbacktrace.la -W -Wall -Wwrite-strings -Wstrict-prototypes -Wmissing-prototypes -Wold-style-definition -Wmissing-format-attribute -Wcast-qual  -fPIC -O3   -o libbacktrace.la -rpath //lib atomic.lo dwarf.lo fileline.lo posix.lo print.lo sort.lo state.lo backtrace.lo simple.lo elf.lo mmapio.lo mmap.lo 
+77.55 libtool: link: ar cru .libs/libbacktrace.a  atomic.o dwarf.o fileline.o posix.o print.o sort.o state.o backtrace.o simple.o elf.o mmapio.o mmap.o
+77.55 ar: `u' modifier ignored since `D' is the default (see `U')
+77.58 libtool: link: ranlib .libs/libbacktrace.a
+77.61 libtool: link: ( cd ".libs" && rm -f "libbacktrace.la" && ln -s "../libbacktrace.la" "libbacktrace.la" )
+77.62 make[1]: Leaving directory '/root/.conan2/p/b/libbae30fad7107a16/b/build-release'
+77.62 
+77.62 libbacktrace/cci.20210118: Package '41b337f323682b1c7c11232419ea3db992514873' built
+77.62 libbacktrace/cci.20210118: Build folder /root/.conan2/p/b/libbae30fad7107a16/b/build-release
+77.62 libbacktrace/cci.20210118: Generating the package
+77.62 libbacktrace/cci.20210118: Packaging in folder /root/.conan2/p/b/libbae30fad7107a16/p
+77.62 libbacktrace/cci.20210118: Calling package()
+77.62 libbacktrace/cci.20210118: RUN: make install DESTDIR=/root/.conan2/p/b/libbae30fad7107a16/p -j16
+77.65 make[1]: Entering directory '/root/.conan2/p/b/libbae30fad7107a16/b/build-release'
+77.65  /usr/bin/mkdir -p '/root/.conan2/p/b/libbae30fad7107a16/p//include'
+77.65  /usr/bin/mkdir -p '/root/.conan2/p/b/libbae30fad7107a16/p//lib'
+77.66  /usr/bin/install -c -m 644 /root/.conan2/p/b/libbae30fad7107a16/b/src/backtrace.h backtrace-supported.h '/root/.conan2/p/b/libbae30fad7107a16/p//include'
+77.66  /bin/bash ./libtool   --mode=install /usr/bin/install -c   libbacktrace.la '/root/.conan2/p/b/libbae30fad7107a16/p//lib'
+77.67 libtool: install: /usr/bin/install -c .libs/libbacktrace.lai /root/.conan2/p/b/libbae30fad7107a16/p//lib/libbacktrace.la
+77.67 libtool: install: /usr/bin/install -c .libs/libbacktrace.a /root/.conan2/p/b/libbae30fad7107a16/p//lib/libbacktrace.a
+77.67 libtool: install: chmod 644 /root/.conan2/p/b/libbae30fad7107a16/p//lib/libbacktrace.a
+77.68 libtool: install: ranlib /root/.conan2/p/b/libbae30fad7107a16/p//lib/libbacktrace.a
+77.70 libtool: install: warning: remember to run `libtool --finish //lib'
+77.70 make[1]: Leaving directory '/root/.conan2/p/b/libbae30fad7107a16/b/build-release'
+77.70 
+77.70 libbacktrace/cci.20210118: package(): Packaged 1 file: LICENSE
+77.70 libbacktrace/cci.20210118: package(): Packaged 1 '.a' file: libbacktrace.a
+77.70 libbacktrace/cci.20210118: package(): Packaged 2 '.h' files: backtrace-supported.h, backtrace.h
+77.70 libbacktrace/cci.20210118: Created package revision 953313b318482649c1dc4342607d3b0d
+77.70 libbacktrace/cci.20210118: Package '41b337f323682b1c7c11232419ea3db992514873' created
+77.70 libbacktrace/cci.20210118: Full package reference: libbacktrace/cci.20210118#a7691bfccd8caaf66309df196790a5a1:41b337f323682b1c7c11232419ea3db992514873#953313b318482649c1dc4342607d3b0d
+77.71 libbacktrace/cci.20210118: Package folder /root/.conan2/p/b/libbae30fad7107a16/p
+77.73 zlib/1.3.1: Sources downloaded from 'conancenter'
+77.73 zlib/1.3.1: Calling source() in /root/.conan2/p/zlib204752602052d/s/src
+79.25 zlib/1.3.1: Uncompressing zlib-1.3.1.tar.gz to /root/.conan2/p/zlib204752602052d/s/src
+79.34 
+79.34 -------- Installing package zlib/1.3.1 (4 of 5) --------
+79.34 zlib/1.3.1: Building from source
+79.34 zlib/1.3.1: Package zlib/1.3.1:41b337f323682b1c7c11232419ea3db992514873
+79.34 zlib/1.3.1: settings: os=Linux arch=armv8 compiler=clang compiler.version=21 build_type=Release
+79.34 zlib/1.3.1: options: fPIC=True shared=False
+79.34 zlib/1.3.1: Copying sources to build folder
+79.38 zlib/1.3.1: Building your package in /root/.conan2/p/b/zlibe3df9866a42b2/b
+79.38 zlib/1.3.1: Calling generate()
+79.38 zlib/1.3.1: Generators folder: /root/.conan2/p/b/zlibe3df9866a42b2/b/build/Release/generators
+79.41 zlib/1.3.1: CMakeToolchain generated: conan_toolchain.cmake
+79.41 zlib/1.3.1: CMakeToolchain generated: /root/.conan2/p/b/zlibe3df9866a42b2/b/build/Release/generators/CMakePresets.json
+79.41 zlib/1.3.1: CMakeToolchain generated: /root/.conan2/p/b/zlibe3df9866a42b2/b/src/CMakeUserPresets.json
+79.41 zlib/1.3.1: Generating aggregated env files
+79.41 zlib/1.3.1: Generated aggregated env files: ['conanbuild.sh', 'conanrun.sh']
+79.41 zlib/1.3.1: Calling build()
+79.41 zlib/1.3.1: Apply patch (conan): separate static/shared builds, disable debug suffix
+79.42 zlib/1.3.1: Running CMake.configure()
+79.42 zlib/1.3.1: RUN: cmake -G "Unix Makefiles" -DCMAKE_TOOLCHAIN_FILE="generators/conan_toolchain.cmake" -DCMAKE_INSTALL_PREFIX="/root/.conan2/p/b/zlibe3df9866a42b2/p" -DCMAKE_POLICY_DEFAULT_CMP0091="NEW" -DCMAKE_BUILD_TYPE="Release" "/root/.conan2/p/b/zlibe3df9866a42b2/b/src"
+79.44 -- Using Conan toolchain: /root/.conan2/p/b/zlibe3df9866a42b2/b/build/Release/generators/conan_toolchain.cmake
+79.44 -- Conan toolchain: Setting CMAKE_POSITION_INDEPENDENT_CODE=ON (options.fPIC)
+79.44 -- Conan toolchain: Setting BUILD_SHARED_LIBS = OFF
+79.53 -- The C compiler identification is Clang 21.1.3
+79.59 -- Detecting C compiler ABI info
+79.81 -- Detecting C compiler ABI info - done
+79.82 -- Check for working C compiler: /usr/bin/clang-21 - skipped
+79.82 -- Detecting C compile features
+79.82 -- Detecting C compile features - done
+79.82 -- Looking for sys/types.h
+80.00 -- Looking for sys/types.h - found
+80.00 -- Looking for stdint.h
+80.19 -- Looking for stdint.h - found
+80.19 -- Looking for stddef.h
+80.37 -- Looking for stddef.h - found
+80.37 -- Check size of off64_t
+80.57 -- Check size of off64_t - done
+80.57 -- Looking for fseeko
+80.74 -- Looking for fseeko - found
+80.74 -- Looking for unistd.h
+80.91 -- Looking for unistd.h - found
+80.91 -- Renaming
+80.91 --     /root/.conan2/p/b/zlibe3df9866a42b2/b/src/zconf.h
+80.91 -- to 'zconf.h.included' because this file is included with zlib
+80.91 -- but CMake generates it automatically in the build directory.
+80.92 -- Configuring done (1.5s)
+80.92 -- Generating done (0.0s)
+80.92 -- Build files have been written to: /root/.conan2/p/b/zlibe3df9866a42b2/b/build/Release
+80.93 
+80.93 zlib/1.3.1: Running CMake.build()
+80.93 zlib/1.3.1: RUN: cmake --build "/root/.conan2/p/b/zlibe3df9866a42b2/b/build/Release" -- -j16
+81.00 [  6%] Building C object CMakeFiles/zlib.dir/compress.c.o
+81.00 [ 12%] Building C object CMakeFiles/zlib.dir/adler32.c.o
+81.01 [ 18%] Building C object CMakeFiles/zlib.dir/crc32.c.o
+81.01 [ 25%] Building C object CMakeFiles/zlib.dir/deflate.c.o
+81.01 [ 31%] Building C object CMakeFiles/zlib.dir/gzlib.c.o
+81.01 [ 37%] Building C object CMakeFiles/zlib.dir/inflate.c.o
+81.01 [ 43%] Building C object CMakeFiles/zlib.dir/gzread.c.o
+81.01 [ 56%] Building C object CMakeFiles/zlib.dir/inffast.c.o
+81.01 [ 56%] Building C object CMakeFiles/zlib.dir/inftrees.c.o
+81.02 [ 68%] Building C object CMakeFiles/zlib.dir/infback.c.o
+81.02 [ 68%] Building C object CMakeFiles/zlib.dir/trees.c.o
+81.02 [ 75%] Building C object CMakeFiles/zlib.dir/gzclose.c.o
+81.02 [ 81%] Building C object CMakeFiles/zlib.dir/zutil.c.o
+81.02 [ 93%] Building C object CMakeFiles/zlib.dir/uncompr.c.o
+81.02 [ 93%] Building C object CMakeFiles/zlib.dir/gzwrite.c.o
+81.61 [100%] Linking C static library libz.a
+81.68 [100%] Built target zlib
+81.70 
+81.70 zlib/1.3.1: Package '41b337f323682b1c7c11232419ea3db992514873' built
+81.70 zlib/1.3.1: Build folder /root/.conan2/p/b/zlibe3df9866a42b2/b/build/Release
+81.70 zlib/1.3.1: Generating the package
+81.70 zlib/1.3.1: Packaging in folder /root/.conan2/p/b/zlibe3df9866a42b2/p
+81.70 zlib/1.3.1: Calling package()
+81.70 zlib/1.3.1: Running CMake.install()
+81.70 zlib/1.3.1: RUN: cmake --install "/root/.conan2/p/b/zlibe3df9866a42b2/b/build/Release" --prefix "/root/.conan2/p/b/zlibe3df9866a42b2/p"
+81.72 -- Install configuration: "Release"
+81.72 -- Installing: /root/.conan2/p/b/zlibe3df9866a42b2/p/lib/libz.a
+81.72 -- Installing: /root/.conan2/p/b/zlibe3df9866a42b2/p/include/zconf.h
+81.72 -- Installing: /root/.conan2/p/b/zlibe3df9866a42b2/p/include/zlib.h
+81.72 
+81.72 zlib/1.3.1: package(): Packaged 1 file: LICENSE
+81.72 zlib/1.3.1: package(): Packaged 1 '.a' file: libz.a
+81.72 zlib/1.3.1: package(): Packaged 2 '.h' files: zlib.h, zconf.h
+81.72 zlib/1.3.1: Created package revision 35c945c207feaa77e3f971b7964e8b26
+81.72 zlib/1.3.1: Package '41b337f323682b1c7c11232419ea3db992514873' created
+81.72 zlib/1.3.1: Full package reference: zlib/1.3.1#b8bc2603263cf7eccbd6e17e66b0ed76:41b337f323682b1c7c11232419ea3db992514873#35c945c207feaa77e3f971b7964e8b26
+81.73 zlib/1.3.1: Package folder /root/.conan2/p/b/zlibe3df9866a42b2/p
+81.76 boost/1.86.0: Sources downloaded from 'conancenter'
+81.76 boost/1.86.0: Calling source() in /root/.conan2/p/boostf7045b3be9d36/s/src
+81.86 boost/1.86.0: Downloading 126.2MB boost_1_86_0.tar.bz2
+83.86 boost/1.86.0: Uncompressing boost_1_86_0.tar.bz2 to /root/.conan2/p/boostf7045b3be9d36/s/src
+179.9 boost/1.86.0: Apply patch (conan): Optional flag to specify iconv from either libc of libiconv
+179.9 
+179.9 -------- Installing package boost/1.86.0 (5 of 5) --------
+179.9 boost/1.86.0: Building from source
+179.9 boost/1.86.0: Package boost/1.86.0:f1b2c8491f0b042108a374b7234784f5e003e323
+179.9 boost/1.86.0: settings: os=Linux arch=armv8 compiler=clang compiler.cppstd=gnu20 compiler.libcxx=libstdc++11 compiler.version=21 build_type=Release
+179.9 boost/1.86.0: options: addr2line_location=/usr/bin/addr2line asio_no_deprecated=False buildid=None bzip2=True diagnostic_definitions=False error_code_header_only=False extra_b2_flags=None fPIC=True filesystem_no_deprecated=False filesystem_use_std_fs=False header_only=False i18n_backend_iconv=libc i18n_backend_icu=False layout=system lzma=False magic_autolink=False multithreading=True namespace=boost namespace_alias=False numa=True segmented_stacks=False shared=False system_no_deprecated=False system_use_utf8=False visibility=hidden with_stacktrace_backtrace=True without_atomic=False without_charconv=False without_chrono=False without_cobalt=False without_container=False without_context=False without_contract=False without_coroutine=False without_date_time=False without_exception=False without_fiber=False without_filesystem=False without_graph=False without_graph_parallel=True without_iostreams=False without_json=False without_locale=False without_log=False without_math=False without_mpi=True without_nowide=False without_process=False without_program_options=False without_python=True without_random=False without_regex=False without_serialization=False without_stacktrace=False without_system=False without_test=False without_thread=False without_timer=False without_type_erasure=False without_url=False without_wave=False zlib=True zstd=False
+179.9 boost/1.86.0: requires: zlib/1.3.Z bzip2/1.0.Z libbacktrace/cci
+179.9 boost/1.86.0: Building your package in /root/.conan2/p/b/boostd47285717bf8d/b
+179.9 boost/1.86.0: Calling generate()
+179.9 boost/1.86.0: Generators folder: /root/.conan2/p/b/boostd47285717bf8d/b/build-release/conan
+179.9 boost/1.86.0: Generating aggregated env files
+179.9 boost/1.86.0: Generated aggregated env files: ['conanbuild.sh', 'conanrun.sh']
+179.9 boost/1.86.0: Calling build()
+179.9 boost/1.86.0: WARN: replace_in_file didn't find pattern '/* thread_local */' in '/root/.conan2/p/boostf7045b3be9d36/s/src/boost/stacktrace/detail/libbacktrace_impls.hpp' file.
+179.9 boost/1.86.0: WARN: replace_in_file didn't find pattern '/* static __thread */' in '/root/.conan2/p/boostf7045b3be9d36/s/src/boost/stacktrace/detail/libbacktrace_impls.hpp' file.
+179.9 boost/1.86.0: WARN: replace_in_file didn't find pattern 'local generic-os = [ set.difference $(all-os) : aix darwin vxworks solaris osf hpux ] ;' in '/root/.conan2/p/boostf7045b3be9d36/s/src/tools/build/src/tools/gcc.jam' file.
+179.9 boost/1.86.0: WARN: replace_in_file didn't find pattern 'local no-threading = android beos haiku sgi darwin vxworks ;' in '/root/.conan2/p/boostf7045b3be9d36/s/src/tools/build/src/tools/gcc.jam' file.
+179.9 boost/1.86.0: WARN: Patching user-config.jam
+179.9 boost/1.86.0: WARN: 
+179.9 using zlib : 1.3.1 : <include>"/root/.conan2/p/b/zlibe3df9866a42b2/p/include" <search>"/root/.conan2/p/b/zlibe3df9866a42b2/p/lib" <name>z ;
+179.9 using bzip2 : 1.0.8 : <include>"/root/.conan2/p/b/bzip2832299cda427e/p/include" <search>"/root/.conan2/p/b/bzip2832299cda427e/p/lib" <name>bz2 ;
+179.9 using "clang" :  :  "/usr/bin/clang++-21" : 
+179.9 <compileflags>"-I/root/.conan2/p/b/libbae30fad7107a16/p/include " <linkflags>"-L/root/.conan2/p/b/libbae30fad7107a16/p/lib"  ;
+179.9 boost/1.86.0: WARN: b2 -q numa=on target-os=linux architecture=arm address-model=64 binary-format=elf abi=aapcs --layout=system --user-config=/root/.conan2/p/boostf7045b3be9d36/s/src/tools/build/user-config.jam -sNO_ZLIB=0 -sNO_BZIP2=0 -sNO_LZMA=1 -sNO_ZSTD=1 boost.locale.icu=off --disable-icu boost.locale.iconv=on boost.locale.iconv.lib=libc threading=multi visibility=hidden link=static variant=release --with-atomic --with-charconv --with-chrono --with-cobalt --with-container --with-context --with-contract --with-coroutine --with-date_time --with-exception --with-fiber --with-filesystem --with-graph --with-iostreams --with-json --with-locale --with-log --with-math --with-nowide --with-process --with-program_options --with-random --with-regex --with-serialization --with-stacktrace --with-system --with-test --with-thread --with-timer --with-type_erasure --with-url --with-wave toolset=clang cxxstd=2a cxxstd-dialect=gnu define=_GLIBCXX_USE_CXX11_ABI=1 pch=on -sLIBBACKTRACE_PATH=/root/.conan2/p/b/libbae30fad7107a16/p linkflags="-stdlib=libstdc++" cxxflags="-fPIC -stdlib=libstdc++ -DBOOST_STACKTRACE_ADDR2LINE_LOCATION=/usr/bin/addr2line" install --prefix=/root/.conan2/p/b/boostd47285717bf8d/p -j16 --abbreviate-paths -d0 --debug-configuration --build-dir="/root/.conan2/p/b/boostd47285717bf8d/b/build-release"
+179.9 boost/1.86.0: RUN: b2 -q numa=on target-os=linux architecture=arm address-model=64 binary-format=elf abi=aapcs --layout=system --user-config=/root/.conan2/p/boostf7045b3be9d36/s/src/tools/build/user-config.jam -sNO_ZLIB=0 -sNO_BZIP2=0 -sNO_LZMA=1 -sNO_ZSTD=1 boost.locale.icu=off --disable-icu boost.locale.iconv=on boost.locale.iconv.lib=libc threading=multi visibility=hidden link=static variant=release --with-atomic --with-charconv --with-chrono --with-cobalt --with-container --with-context --with-contract --with-coroutine --with-date_time --with-exception --with-fiber --with-filesystem --with-graph --with-iostreams --with-json --with-locale --with-log --with-math --with-nowide --with-process --with-program_options --with-random --with-regex --with-serialization --with-stacktrace --with-system --with-test --with-thread --with-timer --with-type_erasure --with-url --with-wave toolset=clang cxxstd=2a cxxstd-dialect=gnu define=_GLIBCXX_USE_CXX11_ABI=1 pch=on -sLIBBACKTRACE_PATH=/root/.conan2/p/b/libbae30fad7107a16/p linkflags="-stdlib=libstdc++" cxxflags="-fPIC -stdlib=libstdc++ -DBOOST_STACKTRACE_ADDR2LINE_LOCATION=/usr/bin/addr2line" install --prefix=/root/.conan2/p/b/boostd47285717bf8d/p -j16 --abbreviate-paths -d0 --debug-configuration --build-dir="/root/.conan2/p/b/boostd47285717bf8d/b/build-release"
+180.0 notice: found boost-build.jam at /root/.conan2/p/boostf7045b3be9d36/s/src/boost-build.jam
+180.0 notice: loading B2 from /root/.conan2/p/b/b2e5f659947ab10/p/bin/.b2/build-system.jam
+180.0 notice: Searching '/etc' '/root' '/root/.conan2/p/b/b2e5f659947ab10/p/bin/.b2/util' '/root/.conan2/p/b/b2e5f659947ab10/p/bin/.b2/tools' '/root/.conan2/p/b/b2e5f659947ab10/p/bin/.b2/options' '/root/.conan2/p/b/b2e5f659947ab10/p/bin/.b2/contrib' '/root/.conan2/p/b/b2e5f659947ab10/p/bin/.b2/build' '/root/.conan2/p/b/b2e5f659947ab10/p/bin/.b2' for site-config configuration file 'site-config.jam'.
+180.0 notice: Configuration file 'site-config.jam' not found in '/etc' '/root' '/root/.conan2/p/b/b2e5f659947ab10/p/bin/.b2/util' '/root/.conan2/p/b/b2e5f659947ab10/p/bin/.b2/tools' '/root/.conan2/p/b/b2e5f659947ab10/p/bin/.b2/options' '/root/.conan2/p/b/b2e5f659947ab10/p/bin/.b2/contrib' '/root/.conan2/p/b/b2e5f659947ab10/p/bin/.b2/build' '/root/.conan2/p/b/b2e5f659947ab10/p/bin/.b2'.
+180.0 notice: Loading explicitly specified user configuration file:
+180.0     /root/.conan2/p/boostf7045b3be9d36/s/src/tools/build/user-config.jam
+180.0 notice: Searching '/root/.conan2/p/boostf7045b3be9d36/s/src/tools/build' for user-config configuration file 'user-config.jam'.
+180.0 notice: Loading user-config configuration file 'user-config.jam' from '/root/.conan2/p/boostf7045b3be9d36/s/src/tools/build'.
+180.0 notice: [zlib] Using pre-installed library
+180.0 notice: [zlib] Condition
+180.0 notice: [bzip2] Using pre-installed library
+180.0 notice: [bzip2] Condition
+180.3 notice: will use '/usr/bin/clang++-21' for clang-linux, condition <toolset>clang-linux-21
+180.3 warning: toolset clang-linux initialization: can not find tool windres
+180.3 warning: initialized from /root/.conan2/p/boostf7045b3be9d36/s/src/tools/build/user-config.jam:5
+180.3 notice: using rc compiler :: <toolset>clang-linux-21 :: as
+180.4 notice: [openssl] Using pre-installed library
+180.4 notice: [openssl] Condition
+180.4 notice: using boost library auto_config <layout>system
+181.2 notice: [zlib] zlib is already configured
+181.2 notice: [bzip2] bzip is already configured
+181.2 notice: iostreams: not using lzma compression 
+181.2 notice: iostreams: not using zstd compression 
+181.4 notice: [python-cfg] Configuring python...
+181.4 notice: [python-cfg] Checking interpreter command "python"...
+181.4 notice: [python-cfg] running command 'python -c "from sys import *; print('version=%d.%d\nplatform=%s\nprefix=%s\nexec_prefix=%s\nexecutable=%s' % (version_info[0],version_info[1],platform,prefix,exec_prefix,executable))" 2>&1'
+181.4 notice: [python-cfg] ...requested configuration matched!
+181.4 notice: [python-cfg] Details of this Python configuration:
+181.4 notice: [python-cfg]   interpreter command: "python"
+181.4 notice: [python-cfg]   include path: "/work/env/include/python3.12"
+181.4 notice: [python-cfg]   library path: "/work/env/lib/python3.12/config" "/work/env/lib"
+181.4 notice: [python-cfg] Checking for NumPy...
+181.4 notice: [python-cfg] running command 'python -c "import sys; sys.stderr = sys.stdout; import numpy; print(numpy.get_include())"'
+181.4 notice: [python-cfg] NumPy disabled. Reason:
+181.4 notice: [python-cfg]   python -c "import sys; sys.stderr = sys.stdout; import numpy; print(numpy.get_include())" aborted with 
+181.4 notice: [python-cfg]   Traceback (most recent call last):
+181.4   File "<string>", line 1, in <module>
+181.4 ModuleNotFoundError: No module named 'numpy'
+181.8 Performing configuration checks
+181.8 
+181.8     - default address-model    : 64-bit [1]
+181.9     - default architecture     : arm [1]
+182.0     - cxx11_static_assert      : no [2]
+182.0     - cxx11_static_assert      : no [3]
+182.2     - cxx11_variadic_templates : no [2]
+182.2     - cxx11_variadic_templates : no [3]
+182.3     - cxx11_hdr_ratio          : no [2]
+182.3     - cxx11_hdr_ratio          : no [3]
+182.4     - cxx20_hdr_concepts       : no [2]
+182.4     - cxx20_hdr_concepts       : no [3]
+186.4     - has std::atomic_ref      : no [2]
+186.5     - has statx                : no [2]
+186.5     - has statx syscall        : no [2]
+186.6     - cxx11_rvalue_references  : no [2]
+186.6     - has std::atomic_ref      : no [3]
+186.6     - has statx                : no [3]
+186.6     - has statx syscall        : no [3]
+186.6     - cxx11_rvalue_references  : no [3]
+186.7     - cxx11_auto_declarations  : no [2]
+186.7     - cxx11_auto_declarations  : no [3]
+186.9     - has init_priority attribute : yes [2]
+187.0     - has stat::st_blksize     : no [2]
+187.0     - has stat::st_mtim        : no [2]
+187.0     - has stat::st_mtimensec   : no [2]
+187.1     - has stat::st_mtimespec   : no [2]
+187.1     - has stat::st_birthtim    : no [2]
+187.2     - has stat::st_birthtimensec : no [2]
+187.3     - has stat::st_birthtimespec : no [2]
+187.3     - has fdopendir(O_NOFOLLOW) : no [2]
+187.4     - has dirent::d_type       : no [2]
+187.5     - has POSIX *at APIs       : no [2]
+187.5     - has fallocate            : no [2]
+188.7     - zlib                     : no [2]
+188.9     - bzip2                    : no [2]
+189.1     - cxx11_constexpr          : no [2]
+189.1     - cxx11_constexpr          : no [3]
+189.2     - iconv (libc)             : no [2]
+189.3     - iconv (separate)         : no [2]
+189.3 - Boost.Locale needs either iconv or ICU library to be built.
+189.4     - iconv (libc)             : no [3]
+189.4     - iconv (separate)         : no [3]
+189.4 - Boost.Locale needs either iconv or ICU library to be built.
+189.6     - native atomic int32 supported : no [2]
+189.7     - native syslog supported  : yes [2]
+189.8     - pthread supports robust mutexes : yes [2]
+189.9     - Boost.Regex is header-only : no [2]
+190.3     - has_icu builds           : no [2]
+190.5     - lockfree boost::atomic_flag : no [2]
+190.6     - native atomic int32 supported : no [3]
+190.6     - native syslog supported  : yes [3]
+190.6     - pthread supports robust mutexes : yes [3]
+190.6     - cxx11_lambdas            : no [2]
+190.7     - cxx11_lambdas            : no [3]
+191.0     - gcc visibility           : yes [2]
+191.1     - cxx11_noexcept           : no [2]
+191.1     - gcc visibility           : yes [3]
+191.1     - cxx11_noexcept           : no [3]
+193.7     - std_wstreambuf builds    : no [2]
+193.7     - std_wstreambuf           : no [2]
+193.7     - std_wstreambuf           : no [3]
+194.1     - BOOST_COMP_GNUC >= 4.3.0 : no [2]
+195.8 
+195.8 [1] clng-21
+195.8 [2] clng-lnx-21/rls/arm_6/bst.l-lbc/bst.l-on/bst.l-off/cxstd-2a-gnu/lnk-sttc/nm-on/pythn-3.12/thrd-mlt/vsblt-hdn
+195.8 [3] clng-lnx-21/rls/arm_6/bst.l-lbc/bst.l-on/bst.l-off/bld-no/cxstd-2a-gnu/lnk-sttc/nm-on/pythn-3.12/thrd-mlt/vsblt-hdn
+195.8 
+195.8 Component configuration:
+195.8 
+195.8     - atomic                   : building
+195.8     - charconv                 : building
+195.8     - chrono                   : building
+195.8     - cobalt                   : building
+195.8     - container                : building
+195.8     - context                  : building
+195.8     - contract                 : building
+195.8     - coroutine                : building
+195.8     - date_time                : building
+195.8     - exception                : building
+195.8     - fiber                    : building
+195.8     - filesystem               : building
+195.8     - graph                    : building
+195.8     - graph_parallel           : not building
+195.8     - headers                  : not building
+195.8     - iostreams                : building
+195.8     - json                     : building
+195.8     - locale                   : building
+195.8     - log                      : building
+195.8     - math                     : building
+195.8     - mpi                      : not building
+195.8     - nowide                   : building
+195.8     - process                  : building
+195.8     - program_options          : building
+195.8     - python                   : not building
+195.8     - random                   : building
+195.8     - regex                    : building
+195.8     - serialization            : building
+195.8     - stacktrace               : building
+195.8     - system                   : building
+195.8     - test                     : building
+195.8     - thread                   : building
+195.8     - timer                    : building
+195.8     - type_erasure             : building
+195.8     - url                      : building
+195.8     - wave                     : building
+195.8     - predef                   : not building
+195.8 
+196.4 In file included from libs/regex/build/../src/regex.cpp:22:
+196.4 In file included from ./boost/regex/config.hpp:76:
+196.4 In file included from ./boost/config.hpp:44:
+196.4 ./boost/config/detail/select_stdlib_config.hpp:26:14: fatal error: 'cstddef' file not found
+196.4    26 | #    include <cstddef>
+196.4       |              ^~~~~~~~~
+196.4 1 error generated.
+196.5 In file included from libs/timer/build/../src/auto_timers_construction.cpp:25:
+196.5 In file included from ./boost/timer/timer.hpp:11:
+196.5 In file included from ./boost/timer/config.hpp:13:
+196.5 In file included from ./boost/config.hpp:44:
+196.5 ./boost/config/detail/select_stdlib_config.hpp:26:14: fatal error: 'cstddef' file not found
+196.5    26 | #    include <cstddef>
+196.5       |              ^~~~~~~~~
+196.5 1 error generated.
+196.5 In file included from libs/coroutine/src/detail/coroutine_context.cpp:7:
+196.5 ./boost/coroutine/detail/coroutine_context.hpp:10:10: fatal error: 'cstddef' file not found
+196.5    10 | #include <cstddef>
+196.5       |          ^~~~~~~~~
+196.5 1 error generated.
+196.5 In file included from libs/system/src/error_code.cpp:17:
+196.5 In file included from ./boost/system/config.hpp:13:
+196.5 In file included from ./boost/config.hpp:44:
+196.5 ./boost/config/detail/select_stdlib_config.hpp:26:14: fatal error: 'cstddef' file not found
+196.5    26 | #    include <cstddef>
+196.5       |              ^~~~~~~~~
+196.5 1 error generated.
+196.5 In file included from libs/coroutine/src/exceptions.cpp:7:
+196.5 ./boost/coroutine/exceptions.hpp:10:10: fatal error: 'stdexcept' file not found
+196.5    10 | #include <stdexcept>
+196.5       |          ^~~~~~~~~~~
+196.5 1 error generated.
+196.5 In file included from libs/coroutine/src/posix/stack_traits.cpp:7:
+196.5 ./boost/coroutine/stack_traits.hpp:10:10: fatal error: 'cstddef' file not found
+196.5    10 | #include <cstddef>
+196.5       |          ^~~~~~~~~
+196.5 1 error generated.
+196.5 In file included from libs/timer/build/../src/cpu_timer.cpp:18:
+196.5 In file included from ./boost/timer/timer.hpp:11:
+196.5 In file included from ./boost/timer/config.hpp:13:
+196.5 In file included from ./boost/config.hpp:44:
+196.5 ./boost/config/detail/select_stdlib_config.hpp:26:14: fatal error: 'cstddef' file not found
+196.5    26 | #    include <cstddef>
+196.5       |              ^~~~~~~~~
+196.5 1 error generated.
+196.6 In file included from libs/test/src/cpp_main.cpp:16:
+196.6 In file included from ./boost/test/impl/cpp_main.ipp:20:
+196.6 In file included from ./boost/test/execution_monitor.hpp:17:
+196.6 In file included from ./boost/test/detail/global_typedef.hpp:15:
+196.6 In file included from ./boost/test/utils/basic_cstring/basic_cstring.hpp:20:
+196.6 In file included from ./boost/test/utils/basic_cstring/basic_cstring_fwd.hpp:19:
+196.6 In file included from ./boost/test/detail/config.hpp:16:
+196.6 In file included from ./boost/config.hpp:44:
+196.6 ./boost/config/detail/select_stdlib_config.hpp:26:14: fatal error: 'cstddef' file not found
+196.6    26 | #    include <cstddef>
+196.6       |              ^~~~~~~~~
+196.6 1 error generated.
+196.6 In file included from libs/test/src/debug.cpp:16:
+196.6 In file included from ./boost/test/impl/debug.ipp:19:
+196.6 In file included from ./boost/test/detail/config.hpp:16:
+196.6 In file included from ./boost/config.hpp:44:
+196.6 ./boost/config/detail/select_stdlib_config.hpp:26:14: fatal error: 'cstddef' file not found
+196.6    26 | #    include <cstddef>
+196.6       |              ^~~~~~~~~
+196.6 1 error generated.
+196.6 In file included from libs/serialization/src/basic_archive.cpp:35:
+196.6 In file included from ./boost/serialization/config.hpp:18:
+196.6 In file included from ./boost/config.hpp:44:
+196.6 ./boost/config/detail/select_stdlib_config.hpp:26:14: fatal error: 'cstddef' file not found
+196.6    26 | #    include <cstddef>
+196.6       |              ^~~~~~~~~
+196.6 1 error generated.
+196.6 In file included from libs/test/src/execution_monitor.cpp:16:
+196.6 In file included from ./boost/test/impl/execution_monitor.ipp:25:
+196.6 In file included from ./boost/test/detail/config.hpp:16:
+196.6 In file included from ./boost/config.hpp:44:
+196.6 ./boost/config/detail/select_stdlib_config.hpp:26:14: fatal error: 'cstddef' file not found
+196.6    26 | #    include <cstddef>
+196.6       |              ^~~~~~~~~
+196.6 1 error generated.
+196.6 In file included from libs/serialization/src/basic_pointer_oserializer.cpp:12:
+196.6 In file included from ./boost/serialization/config.hpp:18:
+196.6 In file included from ./boost/config.hpp:44:
+196.6 ./boost/config/detail/select_stdlib_config.hpp:26:14: fatal error: 'cstddef' file not found
+196.6    26 | #    include <cstddef>
+196.6       |              ^~~~~~~~~
+196.6 1 error generated.
+196.7 In file included from libs/regex/build/../src/posix_api.cpp:21:
+196.7 In file included from ./boost/regex.hpp:28:
+196.7 In file included from ./boost/regex/config.hpp:76:
+196.7 In file included from ./boost/config.hpp:44:
+196.7 ./boost/config/detail/select_stdlib_config.hpp:26:14: fatal error: 'cstddef' file not found
+196.7    26 | #    include <cstddef>
+196.7       |              ^~~~~~~~~
+196.7 1 error generated.
+196.7 In file included from libs/test/src/xml_log_formatter.cpp:16:
+196.7 In file included from ./boost/test/impl/xml_log_formatter.ipp:19:
+196.7 In file included from ./boost/test/output/xml_log_formatter.hpp:19:
+196.7 In file included from ./boost/test/detail/global_typedef.hpp:15:
+196.7 In file included from ./boost/test/utils/basic_cstring/basic_cstring.hpp:20:
+196.7 In file included from ./boost/test/utils/basic_cstring/basic_cstring_fwd.hpp:19:
+196.7 In file included from ./boost/test/detail/config.hpp:16:
+196.7 In file included from ./boost/config.hpp:44:
+196.7 ./boost/config/detail/select_stdlib_config.hpp:26:14: fatal error: 'cstddef' file not found
+196.7    26 | #    include <cstddef>
+196.7       |              ^~~~~~~~~
+196.7 1 error generated.
+196.7 In file included from libs/serialization/src/stl_port.cpp:18:
+196.7 In file included from ./boost/config.hpp:44:
+196.7 ./boost/config/detail/select_stdlib_config.hpp:26:14: fatal error: 'cstddef' file not found
+196.7    26 | #    include <cstddef>
+196.7       |              ^~~~~~~~~
+196.7 1 error generated.
+196.7 In file included from libs/test/src/compiler_log_formatter.cpp:16:
+196.7 In file included from ./boost/test/impl/compiler_log_formatter.ipp:19:
+196.7 In file included from ./boost/test/output/compiler_log_formatter.hpp:16:
+196.7 In file included from ./boost/test/detail/global_typedef.hpp:15:
+196.7 In file included from ./boost/test/utils/basic_cstring/basic_cstring.hpp:20:
+196.7 In file included from ./boost/test/utils/basic_cstring/basic_cstring_fwd.hpp:19:
+196.7 In file included from ./boost/test/detail/config.hpp:16:
+196.7 In file included from ./boost/config.hpp:44:
+196.7 ./boost/config/detail/select_stdlib_config.hpp:26:14: fatal error: 'cstddef' file not found
+196.7    26 | #    include <cstddef>
+196.7       |              ^~~~~~~~~
+196.7 1 error generated.
+196.7 In file included from libs/test/src/results_collector.cpp:16:
+196.7 In file included from ./boost/test/impl/results_collector.ipp:17:
+196.7 In file included from ./boost/test/unit_test_log.hpp:18:
+196.7 In file included from ./boost/test/tree/observer.hpp:17:
+196.7 In file included from ./boost/test/detail/global_typedef.hpp:15:
+196.7 In file included from ./boost/test/utils/basic_cstring/basic_cstring.hpp:20:
+196.7 In file included from ./boost/test/utils/basic_cstring/basic_cstring_fwd.hpp:19:
+196.7 In file included from ./boost/test/detail/config.hpp:16:
+196.7 In file included from ./boost/config.hpp:44:
+196.7 ./boost/config/detail/select_stdlib_config.hpp:26:14: fatal error: 'cstddef' file not found
+196.7    26 | #    include <cstddef>
+196.7       |              ^~~~~~~~~
+196.7 1 error generated.
+196.7 libs/serialization/src/extended_type_info_no_rtti.cpp:12:10: fatal error: 'cstring' file not found
+196.7    12 | #include <cstring>
+196.7       |          ^~~~~~~~~
+196.7 1 error generated.
+196.8 In file included from libs/serialization/src/codecvt_null.cpp:11:
+196.8 In file included from ./boost/serialization/config.hpp:18:
+196.8 In file included from ./boost/config.hpp:44:
+196.8 ./boost/config/detail/select_stdlib_config.hpp:26:14: fatal error: 'cstddef' file not found
+196.8    26 | #    include <cstddef>
+196.8       |              ^~~~~~~~~
+196.8 1 error generated.
+196.8 In file included from libs/test/src/unit_test_log.cpp:16:
+196.8 In file included from ./boost/test/impl/unit_test_log.ipp:19:
+196.8 In file included from ./boost/test/unit_test_log.hpp:18:
+196.8 In file included from ./boost/test/tree/observer.hpp:17:
+196.8 In file included from ./boost/test/detail/global_typedef.hpp:15:
+196.8 In file included from ./boost/test/utils/basic_cstring/basic_cstring.hpp:20:
+196.8 In file included from ./boost/test/utils/basic_cstring/basic_cstring_fwd.hpp:19:
+196.8 In file included from ./boost/test/detail/config.hpp:16:
+196.8 In file included from ./boost/config.hpp:44:
+196.8 ./boost/config/detail/select_stdlib_config.hpp:26:14: fatal error: 'cstddef' file not found
+196.8    26 | #    include <cstddef>
+196.8       |              ^~~~~~~~~
+196.8 1 error generated.
+196.8 In file included from libs/serialization/src/basic_oarchive.cpp:11:
+196.8 In file included from ./boost/config.hpp:44:
+196.8 ./boost/config/detail/select_stdlib_config.hpp:26:14: fatal error: 'cstddef' file not found
+196.8    26 | #    include <cstddef>
+196.8       |              ^~~~~~~~~
+196.8 1 error generated.
+196.8 libs/serialization/src/basic_text_oprimitive.cpp:15:10: fatal error: 'ostream' file not found
+196.8    15 | #include <ostream>
+196.8       |          ^~~~~~~~~
+196.8 1 error generated.
+196.9 In file included from libs/test/src/test_main.cpp:13:
+196.9 In file included from ./boost/test/impl/test_main.ipp:17:
+196.9 In file included from ./boost/test/framework.hpp:17:
+196.9 In file included from ./boost/test/detail/global_typedef.hpp:15:
+196.9 In file included from ./boost/test/utils/basic_cstring/basic_cstring.hpp:20:
+196.9 In file included from ./boost/test/utils/basic_cstring/basic_cstring_fwd.hpp:19:
+196.9 In file included from ./boost/test/detail/config.hpp:16:
+196.9 In file included from ./boost/config.hpp:44:
+196.9 ./boost/config/detail/select_stdlib_config.hpp:26:14: fatal error: 'cstddef' file not found
+196.9    26 | #    include <cstddef>
+196.9       |              ^~~~~~~~~
+196.9 1 error generated.
+196.9 In file included from libs/test/src/unit_test_parameters.cpp:16:
+196.9 In file included from ./boost/test/impl/unit_test_parameters.ipp:22:
+196.9 In file included from ./boost/test/unit_test_parameters.hpp:18:
+196.9 In file included from ./boost/test/detail/global_typedef.hpp:15:
+196.9 In file included from ./boost/test/utils/basic_cstring/basic_cstring.hpp:20:
+196.9 In file included from ./boost/test/utils/basic_cstring/basic_cstring_fwd.hpp:19:
+196.9 In file included from ./boost/test/detail/config.hpp:16:
+196.9 In file included from ./boost/config.hpp:44:
+196.9 ./boost/config/detail/select_stdlib_config.hpp:26:14: fatal error: 'cstddef' file not found
+196.9    26 | #    include <cstddef>
+196.9       |              ^~~~~~~~~
+196.9 1 error generated.
+196.9 In file included from libs/test/src/framework.cpp:16:
+196.9 In file included from ./boost/test/impl/framework.ipp:19:
+196.9 In file included from ./boost/test/framework.hpp:17:
+196.9 In file included from ./boost/test/detail/global_typedef.hpp:15:
+196.9 In file included from ./boost/test/utils/basic_cstring/basic_cstring.hpp:20:
+196.9 In file included from ./boost/test/utils/basic_cstring/basic_cstring_fwd.hpp:19:
+196.9 In file included from ./boost/test/detail/config.hpp:16:
+196.9 In file included from ./boost/config.hpp:44:
+196.9 ./boost/config/detail/select_stdlib_config.hpp:26:14: fatal error: 'cstddef' file not found
+196.9    26 | #    include <cstddef>
+196.9       |              ^~~~~~~~~
+196.9 1 error generated.
+196.9 In file included from libs/contract/src/contract.cpp:11:
+196.9 In file included from ./boost/contract/detail/inlined.hpp:10:
+196.9 In file included from ./boost/contract/detail/inlined/old.hpp:13:
+196.9 In file included from ./boost/contract/old.hpp:15:
+196.9 In file included from ./boost/contract/core/virtual.hpp:17:
+196.9 In file included from ./boost/contract/detail/decl.hpp:11:
+196.9 In file included from ./boost/contract/detail/tvariadic.hpp:10:
+196.9 In file included from ./boost/config.hpp:44:
+196.9 ./boost/config/detail/select_stdlib_config.hpp:26:14: fatal error: 'cstddef' file not found
+196.9    26 | #    include <cstddef>
+196.9       |              ^~~~~~~~~
+196.9 1 error generated.
+197.0 libs/serialization/src/binary_oarchive.cpp:11:10: fatal error: 'ostream' file not found
+197.0    11 | #include <ostream>
+197.0       |          ^~~~~~~~~
+197.0 1 error generated.
+197.0 In file included from libs/serialization/src/polymorphic_text_oarchive.cpp:16:
+197.0 In file included from ./boost/serialization/config.hpp:18:
+197.0 In file included from ./boost/config.hpp:44:
+197.0 ./boost/config/detail/select_stdlib_config.hpp:26:14: fatal error: 'cstddef' file not found
+197.0    26 | #    include <cstddef>
+197.0       |              ^~~~~~~~~
+197.0 1 error generated.
+197.1 In file included from libs/serialization/src/polymorphic_xml_iarchive.cpp:16:
+197.1 In file included from ./boost/serialization/config.hpp:18:
+197.1 In file included from ./boost/config.hpp:44:
+197.1 ./boost/config/detail/select_stdlib_config.hpp:26:14: fatal error: 'cstddef' file not found
+197.1    26 | #    include <cstddef>
+197.1       |              ^~~~~~~~~
+197.1 1 error generated.
+197.2 In file included from libs/serialization/src/xml_grammar.cpp:15:
+197.2 In file included from ./boost/config.hpp:44:
+197.2 ./boost/config/detail/select_stdlib_config.hpp:26:14: fatal error: 'cstddef' file not found
+197.2    26 | #    include <cstddef>
+197.2       |              ^~~~~~~~~
+197.2 1 error generated.
+198.1 In file included from libs/graph/src/graphml.cpp:14:
+198.1 ./boost/foreach.hpp:27:10: fatal error: 'cstddef' file not found
+198.1    27 | #include <cstddef>
+198.1       |          ^~~~~~~~~
+198.1 1 error generated.
+199.1 In file included from libs/graph/src/read_graphviz_new.cpp:30:
+199.1 In file included from ./boost/ref.hpp:15:
+199.1 In file included from ./boost/core/ref.hpp:4:
+199.1 In file included from ./boost/config.hpp:44:
+199.1 ./boost/config/detail/select_stdlib_config.hpp:26:14: fatal error: 'cstddef' file not found
+199.1    26 | #    include <cstddef>
+199.1       |              ^~~~~~~~~
+199.1 1 error generated.
+199.7 
+199.7 ...failed updating 0 target...
+199.7 
+199.7 boost/1.86.0: ERROR: 
+199.7 Package 'f1b2c8491f0b042108a374b7234784f5e003e323' build failed
+199.7 boost/1.86.0: WARN: Build folder /root/.conan2/p/b/boostd47285717bf8d/b/build-release
+199.7 ERROR: boost/1.86.0: Error in build() method, line 1155
+199.7 	self.run(full_command)
+199.7 	ConanException: Error 1 while executing
+------
+Dockerfile:44
+--------------------
+  42 |     
+  43 |     COPY profile .
+  44 | >>> RUN /bin/bash -c "source env/bin/activate && conan profile detect && conan install --requires boost/1.86.0 --build=missing -pr ./profile"
+  45 |     
+  46 |     # Default command (interactive shell)
+--------------------
+ERROR: failed to solve: process "/bin/sh -c /bin/bash -c \"source env/bin/activate && conan profile detect && conan install --requires boost/1.86.0 --build=missing -pr ./profile\"" did not complete successfully: exit code: 1
+
