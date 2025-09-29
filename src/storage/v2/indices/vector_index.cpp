@@ -148,17 +148,16 @@ bool VectorIndex::UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_pr
     // if property is null, that means that the vertex should not be in the index and we shouldn't do any other updates
     return false;
   }
-  if (!property.IsList()) {
+  if (!property.IsAnyList()) {
     throw query::VectorSearchException("Vector index property must be a list.");
   }
-  const auto &vector_property = property.ValueList();
-  if (spec.dimension != vector_property.size()) {
+  const auto vector_size = GetListSize(property);
+  if (spec.dimension != vector_size) {
     throw query::VectorSearchException("Vector index property must have the same number of dimensions as the index.");
   }
 
   if (is_index_full) {
     spdlog::warn("Vector index is full, resizing...");
-
     // we need unique lock when we are resizing the index
     auto exclusively_locked_index = mg_index->Lock();
     const auto new_size = spec.resize_coefficient * exclusively_locked_index->capacity();
@@ -169,16 +168,13 @@ bool VectorIndex::UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_pr
   }
 
   std::vector<float> vector;
-  vector.reserve(vector_property.size());
-  std::transform(vector_property.begin(), vector_property.end(), std::back_inserter(vector), [](const auto &value) {
-    if (value.IsDouble()) {
-      return static_cast<float>(value.ValueDouble());
-    }
-    if (value.IsInt()) {
-      return static_cast<float>(value.ValueInt());
-    }
-    throw query::VectorSearchException("Vector index property must be a list of floats or integers.");
-  });
+  vector.reserve(vector_size);
+  for (size_t i = 0; i < vector_size; ++i) {
+    const auto numeric_value = GetNumericValueAt(property, i);
+    const auto float_value =
+        std::visit([](const auto &val) -> float { return static_cast<float>(val); }, numeric_value);
+    vector.push_back(float_value);
+  }
   {
     auto locked_index = mg_index->MutableSharedLock();
     locked_index->add(vertex, vector.data());

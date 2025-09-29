@@ -11,6 +11,8 @@
 
 #include "storage/v2/replication/slk.hpp"
 
+#include <math.h>
+
 #include <chrono>
 #include <cstdint>
 #include <string>
@@ -300,7 +302,7 @@ void Load(storage::ExternalPropertyValue *value, slk::Reader *reader) {
       for (size_t i = 0; i < size; ++i) {
         // We need to determine the type from the serialized data
         // For now, we'll assume it's a double for backward compatibility
-        double v;
+        double v = NAN;
         slk::Load(&v, reader);
         list.emplace_back(v);
       }

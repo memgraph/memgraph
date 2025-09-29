@@ -76,14 +76,15 @@ struct IntListTag {};
 struct DoubleListTag {};
 struct NumericListTag {};
 
+/// Helper function to check if a type is any kind of list
+inline bool IsListType(PropertyValueType type) {
+  return type == PropertyValueType::List || type == PropertyValueType::IntList ||
+         type == PropertyValueType::DoubleList || type == PropertyValueType::NumericList;
+}
+
 inline bool AreComparableTypes(PropertyValueType a, PropertyValueType b) {
   return (a == b) || (a == PropertyValueType::Int && b == PropertyValueType::Double) ||
-         (a == PropertyValueType::Double && b == PropertyValueType::Int) ||
-         // List types are comparable with each other
-         ((a == PropertyValueType::List || a == PropertyValueType::IntList || a == PropertyValueType::DoubleList ||
-           a == PropertyValueType::NumericList) &&
-          (b == PropertyValueType::List || b == PropertyValueType::IntList || b == PropertyValueType::DoubleList ||
-           b == PropertyValueType::NumericList));
+         (a == PropertyValueType::Double && b == PropertyValueType::Int);
 }
 
 /// Helper function to compare two numeric values (int or double)
@@ -501,6 +502,7 @@ class PropertyValueImpl {
   bool IsDouble() const { return type_ == Type::Double; }
   bool IsString() const { return type_ == Type::String; }
   bool IsList() const { return type_ == Type::List; }
+  bool IsAnyList() const { return IsListType(type_); }
   bool IsMap() const { return type_ == Type::Map; }
   bool IsEnum() const { return type_ == Type::Enum; }
   bool IsTemporalData() const { return type_ == Type::TemporalData; }
@@ -739,119 +741,69 @@ class PropertyValueImpl {
   };
 };
 
+/// Helper function to extract numeric value from any list type at given index
+template <typename Alloc, typename KeyType>
+inline std::variant<int, double> GetNumericValueAt(const PropertyValueImpl<Alloc, KeyType> &list, size_t index) {
+  switch (list.type()) {
+    case PropertyValueType::List: {
+      auto const &list_val = list.ValueList();
+      if (list_val[index].IsInt()) {
+        return static_cast<int>(list_val[index].ValueInt());
+      }
+      if (list_val[index].IsDouble()) {
+        return list_val[index].ValueDouble();
+      }
+      throw PropertyValueException("List contains non-numeric values");
+    }
+    case PropertyValueType::IntList: {
+      auto const &list_val = list.ValueIntList();
+      return list_val[index];
+    }
+    case PropertyValueType::DoubleList: {
+      auto const &list_val = list.ValueDoubleList();
+      return list_val[index];
+    }
+    case PropertyValueType::NumericList: {
+      auto const &list_val = list.ValueNumericList();
+      return list_val[index];
+    }
+    default:
+      throw PropertyValueException("Invalid list type");
+  }
+}
+
+/// Helper function to get size of any list type
+template <typename Alloc, typename KeyType>
+inline size_t GetListSize(const PropertyValueImpl<Alloc, KeyType> &list) {
+  switch (list.type()) {
+    case PropertyValueType::List:
+      return list.ValueList().size();
+    case PropertyValueType::IntList:
+      return list.ValueIntList().size();
+    case PropertyValueType::DoubleList:
+      return list.ValueDoubleList().size();
+    case PropertyValueType::NumericList:
+      return list.ValueNumericList().size();
+    default:
+      throw PropertyValueException("Invalid list type");
+  }
+}
+
 /// Helper function to compare two lists of different types
 template <typename Alloc, typename Alloc2, typename KeyType>
 inline std::weak_ordering CompareLists(const PropertyValueImpl<Alloc, KeyType> &first,
                                        const PropertyValueImpl<Alloc2, KeyType> &second) {
-  // Get the sizes first
-  size_t size1 = 0;
-  size_t size2 = 0;
-  const auto first_type = first.type();
-  const auto second_type = second.type();
+  const size_t size1 = GetListSize(first);
+  const size_t size2 = GetListSize(second);
 
-  switch (first_type) {
-    case PropertyValueType::List:
-      size1 = first.ValueList().size();
-      break;
-    case PropertyValueType::IntList:
-      size1 = first.ValueIntList().size();
-      break;
-    case PropertyValueType::DoubleList:
-      size1 = first.ValueDoubleList().size();
-      break;
-    case PropertyValueType::NumericList:
-      size1 = first.ValueNumericList().size();
-      break;
-    default:
-      throw PropertyValueException("First value is not a list type");
-  }
-
-  switch (second_type) {
-    case PropertyValueType::List:
-      size2 = second.ValueList().size();
-      break;
-    case PropertyValueType::IntList:
-      size2 = second.ValueIntList().size();
-      break;
-    case PropertyValueType::DoubleList:
-      size2 = second.ValueDoubleList().size();
-      break;
-    case PropertyValueType::NumericList:
-      size2 = second.ValueNumericList().size();
-      break;
-    default:
-      throw PropertyValueException("Second value is not a list type");
-  }
   if (size1 != size2) {
     return size1 <=> size2;
   }
 
   // Compare elements element-wise
   for (size_t i = 0; i < size1; ++i) {
-    std::variant<int, double> val1;
-    std::variant<int, double> val2;
-
-    switch (first_type) {
-      case PropertyValueType::List: {
-        auto const &list1 = first.ValueList();
-        if (list1[i].IsInt()) {
-          val1 = static_cast<int>(list1[i].ValueInt());
-        } else if (list1[i].IsDouble()) {
-          val1 = list1[i].ValueDouble();
-        } else {
-          throw PropertyValueException("List contains non-numeric values");
-        }
-        break;
-      }
-      case PropertyValueType::IntList: {
-        auto const &list1 = first.ValueIntList();
-        val1 = list1[i];
-        break;
-      }
-      case PropertyValueType::DoubleList: {
-        auto const &list1 = first.ValueDoubleList();
-        val1 = list1[i];
-        break;
-      }
-      case PropertyValueType::NumericList: {
-        auto const &list1 = first.ValueNumericList();
-        val1 = list1[i];
-        break;
-      }
-      default:
-        throw PropertyValueException("Invalid list type");
-    }
-
-    switch (second_type) {
-      case PropertyValueType::List: {
-        auto const &list2 = second.ValueList();
-        if (list2[i].IsInt()) {
-          val2 = static_cast<int>(list2[i].ValueInt());
-        } else if (list2[i].IsDouble()) {
-          val2 = list2[i].ValueDouble();
-        } else {
-          throw PropertyValueException("List contains non-numeric values");
-        }
-        break;
-      }
-      case PropertyValueType::IntList: {
-        auto const &list2 = second.ValueIntList();
-        val2 = list2[i];
-        break;
-      }
-      case PropertyValueType::DoubleList: {
-        auto const &list2 = second.ValueDoubleList();
-        val2 = list2[i];
-        break;
-      }
-      case PropertyValueType::NumericList: {
-        auto const &list2 = second.ValueNumericList();
-        val2 = list2[i];
-        break;
-      }
-      default:
-        throw PropertyValueException("Invalid list type");
-    }
+    const auto val1 = GetNumericValueAt(first, i);
+    const auto val2 = GetNumericValueAt(second, i);
 
     const auto cmp_result = CompareNumericValues(val1, val2);
     if (cmp_result != std::partial_ordering::equivalent) {
@@ -874,7 +826,9 @@ inline std::weak_ordering CompareLists(const PropertyValueImpl<Alloc, KeyType> &
 template <typename Alloc, typename Alloc2, typename KeyType>
 inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType> &first,
                         const PropertyValueImpl<Alloc2, KeyType> &second) noexcept -> std::weak_ordering {
-  if (!AreComparableTypes(first.type(), second.type())) return first.type() <=> second.type();
+  auto are_comparable = AreComparableTypes(first.type(), second.type());
+  auto are_lists = IsListType(first.type()) && IsListType(second.type());
+  if (!are_comparable && !are_lists) return first.type() <=> second.type();
 
   auto to_weak_order = [](std::partial_ordering o) {
     if (o == std::partial_ordering::equivalent) {
@@ -920,28 +874,6 @@ inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType> &first,
       }
       return CompareLists(first, second);
     }
-    case PropertyValueType::Map: {
-      auto const &m1 = first.ValueMap();
-      auto const &m2 = second.ValueMap();
-      if (m1.size() != m2.size()) return m1.size() <=> m2.size();
-      for (auto &&[v1, v2] : ranges::views::zip(m1, m2)) {
-        auto key_cmp_res = v1.first <=> v2.first;
-        if (key_cmp_res != std::weak_ordering::equivalent) return key_cmp_res;
-        auto val_cmp_res = v1.second <=> v2.second;
-        if (val_cmp_res != std::weak_ordering::equivalent) return val_cmp_res;
-      }
-      return std::weak_ordering::equivalent;
-    }
-    case PropertyValueType::TemporalData:
-      return first.ValueTemporalData() <=> second.ValueTemporalData();
-    case PropertyValueType::ZonedTemporalData:
-      return first.ValueZonedTemporalData() <=> second.ValueZonedTemporalData();
-    case PropertyValueType::Enum:
-      return first.ValueEnum() <=> second.ValueEnum();
-    case PropertyValueType::Point2d:
-      return to_weak_order(first.ValuePoint2d() <=> second.ValuePoint2d());
-    case PropertyValueType::Point3d:
-      return to_weak_order(first.ValuePoint3d() <=> second.ValuePoint3d());
     case PropertyValueType::IntList: {
       if (second.type() == PropertyValueType::IntList) {
         auto const &l1 = first.ValueIntList();
@@ -966,6 +898,28 @@ inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType> &first,
       }
       return CompareLists(first, second);
     }
+    case PropertyValueType::Map: {
+      auto const &m1 = first.ValueMap();
+      auto const &m2 = second.ValueMap();
+      if (m1.size() != m2.size()) return m1.size() <=> m2.size();
+      for (auto &&[v1, v2] : ranges::views::zip(m1, m2)) {
+        auto key_cmp_res = v1.first <=> v2.first;
+        if (key_cmp_res != std::weak_ordering::equivalent) return key_cmp_res;
+        auto val_cmp_res = v1.second <=> v2.second;
+        if (val_cmp_res != std::weak_ordering::equivalent) return val_cmp_res;
+      }
+      return std::weak_ordering::equivalent;
+    }
+    case PropertyValueType::TemporalData:
+      return first.ValueTemporalData() <=> second.ValueTemporalData();
+    case PropertyValueType::ZonedTemporalData:
+      return first.ValueZonedTemporalData() <=> second.ValueZonedTemporalData();
+    case PropertyValueType::Enum:
+      return first.ValueEnum() <=> second.ValueEnum();
+    case PropertyValueType::Point2d:
+      return to_weak_order(first.ValuePoint2d() <=> second.ValuePoint2d());
+    case PropertyValueType::Point3d:
+      return to_weak_order(first.ValuePoint3d() <=> second.ValuePoint3d());
   }
 }
 
@@ -1494,7 +1448,7 @@ struct ExtendedPropertyType {
 // TODO: go back down in size ASAP
 //       v3.3.0 we used std::map to fix bug
 //       ASAP go back to boost::container::flat_map
-// static_assert(sizeof(PropertyValue) == 64 /*56*/); // TODO: Update size after adding double_list_type_
+static_assert(sizeof(PropertyValue) == 56 /*40*/);
 static_assert(sizeof(pmr::PropertyValue) == 72 /*56*/);
 
 /**
