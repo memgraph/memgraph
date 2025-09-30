@@ -90,8 +90,8 @@ std::vector<TPropertyValue> MakeTestPropertyValues(MapKey map_key) {
   const auto zdt_dur = memgraph::utils::AsSysTime(23);
   Enum enum_val{EnumTypeId{2}, EnumValueId{42}};
   std::vector<TPropertyValue> int_list{TPropertyValue(1), TPropertyValue(2), TPropertyValue(3)};
-  std::vector<TPropertyValue> double_list{TPropertyValue(1.0), TPropertyValue(2.0), TPropertyValue(3.0)};
-  std::vector<TPropertyValue> numeric_list{TPropertyValue(1), TPropertyValue(2.0), TPropertyValue(3.0)};
+  std::vector<TPropertyValue> double_list{TPropertyValue(1.5), TPropertyValue(2.5), TPropertyValue(3.5)};
+  std::vector<TPropertyValue> numeric_list{TPropertyValue(1), TPropertyValue(2.5), TPropertyValue(3.5)};
 
   return {
       TPropertyValue(),
