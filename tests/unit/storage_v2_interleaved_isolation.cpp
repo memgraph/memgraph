@@ -65,7 +65,7 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithSingleEdgeEdgeWriteConflic
   ASSERT_TRUE(tx2->CreateEdge(&*v1_2, &*v2_2, tx2->NameToEdgeType("Edge2")).HasValue());
 
   {
-    // Uncommited tx2 can see the Edge2 it just created
+    // Uncommited tx2 can see the Edge2 it created
     auto edges = v1_2->OutEdges(ms::View::NEW);
     ASSERT_TRUE(edges.HasValue());
     CompareEdges(edges.GetValue(), std::array{tx2->NameToEdgeType("Edge2")});
@@ -78,8 +78,8 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithSingleEdgeEdgeWriteConflic
   ASSERT_TRUE(tx3->CreateEdge(&*v1_3, &*v2_3, tx3->NameToEdgeType("Edge3")).HasValue());
 
   {
-    // Uncommited tx3 can see the Edge3 it just created, but not the
-    // uncommited Edge2 created by tx2
+    // Uncommited tx3 can see the Edge3 it created, but not the uncommited Edge2
+    // created by tx2
     auto edges = v1_3->OutEdges(ms::View::NEW);
     ASSERT_TRUE(edges.HasValue());
     CompareEdges(edges.GetValue(), std::array{tx3->NameToEdgeType("Edge3")});
@@ -180,8 +180,34 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithMultipleEdgeEdgeWriteConfl
     auto v2 = acc->CreateVertex();
     v1_gid = v1.Gid();
     v2_gid = v2.Gid();
-    ASSERT_TRUE(acc->CreateEdge(&v1, &v2, acc->NameToEdgeType("Edge1")).HasValue());
     ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  auto tx0 = storage->Access();
+  auto v1_0 = tx0->FindVertex(v1_gid, ms::View::OLD);
+  ASSERT_TRUE(v1_0.has_value());
+
+  {
+    // tx0 sees no edges
+    auto edges = v1_0->OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.HasValue());
+    EXPECT_EQ(edges->edges.size(), 0);
+  }
+
+  {
+    auto acc = storage->Access();
+    auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
+    auto v2 = acc->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1.has_value() && v2.has_value());
+    ASSERT_TRUE(acc->CreateEdge(&*v1, &*v2, acc->NameToEdgeType("Edge1")).HasValue());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  {
+    // tx0 sees no edges
+    auto edges = v1_0->OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.HasValue());
+    EXPECT_EQ(edges->edges.size(), 0);
   }
 
   auto tx1 = storage->Access();
@@ -201,7 +227,21 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithMultipleEdgeEdgeWriteConfl
   ASSERT_TRUE(tx2->CreateEdge(&*v1_2, &*v2_2, tx2->NameToEdgeType("Edge2a")).HasValue());
 
   {
-    // Uncommited tx2 can see the committed Edge1 and Edge2a it just created
+    // tx0 sees no edges
+    auto edges = v1_0->OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.HasValue());
+    EXPECT_EQ(edges->edges.size(), 0);
+  }
+
+  {
+    // tx1 finds committed Edge1
+    auto edges = v1_1->OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.HasValue());
+    CompareEdges(edges.GetValue(), std::array{tx1->NameToEdgeType("Edge1")});
+  }
+
+  {
+    // Uncommited tx2 can see the committed Edge1 and Edge2a it created
     auto edges = v1_2->OutEdges(ms::View::NEW);
     ASSERT_TRUE(edges.HasValue());
     CompareEdges(edges.GetValue(), std::array{tx2->NameToEdgeType("Edge1"), tx2->NameToEdgeType("Edge2a")});
@@ -214,7 +254,28 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithMultipleEdgeEdgeWriteConfl
   ASSERT_TRUE(tx3->CreateEdge(&*v1_3, &*v2_3, tx3->NameToEdgeType("Edge3a")).HasValue());
 
   {
-    // Uncommited tx3 can see the committed Edge1, and Edge3a it just created,
+    // tx0 sees no edges
+    auto edges = v1_0->OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.HasValue());
+    EXPECT_EQ(edges->edges.size(), 0);
+  }
+
+  {
+    // tx1 finds committed Edge1
+    auto edges = v1_1->OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.HasValue());
+    CompareEdges(edges.GetValue(), std::array{tx1->NameToEdgeType("Edge1")});
+  }
+
+  {
+    // Uncommited tx2 can see the committed Edge1 and Edge2a it created
+    auto edges = v1_2->OutEdges(ms::View::NEW);
+    ASSERT_TRUE(edges.HasValue());
+    CompareEdges(edges.GetValue(), std::array{tx2->NameToEdgeType("Edge1"), tx2->NameToEdgeType("Edge2a")});
+  }
+
+  {
+    // Uncommited tx3 can see the committed Edge1, and Edge3a it created,
     // but not the uncommited Edge2a created by tx2
     auto edges = v1_3->OutEdges(ms::View::NEW);
     ASSERT_TRUE(edges.HasValue());
@@ -226,6 +287,20 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithMultipleEdgeEdgeWriteConfl
   // where * indicates an uncommited delta.
   ASSERT_TRUE(tx2->CreateEdge(&*v1_2, &*v2_2, tx2->NameToEdgeType("Edge2b")).HasValue());
   ASSERT_TRUE(tx3->CreateEdge(&*v1_3, &*v2_3, tx3->NameToEdgeType("Edge3b")).HasValue());
+
+  {
+    // tx0 sees no edges
+    auto edges = v1_0->OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.HasValue());
+    EXPECT_EQ(edges->edges.size(), 0);
+  }
+
+  {
+    // tx1 finds committed Edge1
+    auto edges = v1_1->OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.HasValue());
+    CompareEdges(edges.GetValue(), std::array{tx1->NameToEdgeType("Edge1")});
+  }
 
   {
     // Uncommited tx2 can see Edge1, it's own Edge2a and Edge2b, but not the
@@ -261,7 +336,14 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithMultipleEdgeEdgeWriteConfl
   tx2.reset();
 
   {
-    // tx1 still sees no just Edge1
+    // tx0 sees no edges
+    auto edges = v1_0->OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.HasValue());
+    EXPECT_EQ(edges->edges.size(), 0);
+  }
+
+  {
+    // tx1 still sees no Edge1
     auto edges = v1_1->OutEdges(ms::View::OLD);
     ASSERT_TRUE(edges.HasValue());
     CompareEdges(edges.GetValue(), std::array{tx1->NameToEdgeType("Edge1")});
@@ -278,7 +360,7 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithMultipleEdgeEdgeWriteConfl
   }
 
   {
-    // tx4 still sees just Edge1
+    // tx4 still sees Edge1
     auto edges = v1_4->OutEdges(ms::View::OLD);
     ASSERT_TRUE(edges.HasValue());
     CompareEdges(edges.GetValue(), std::array{tx4->NameToEdgeType("Edge1")});
@@ -296,19 +378,26 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithMultipleEdgeEdgeWriteConfl
                                               tx5->NameToEdgeType("Edge2b")});
   }
 
-  // // tx3 now commits
+  // tx3 now commits
   ASSERT_FALSE(tx3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   tx3.reset();
 
   {
-    // tx1 still sees just Edge1
+    // tx0 sees no edges
+    auto edges = v1_0->OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.HasValue());
+    EXPECT_EQ(edges->edges.size(), 0);
+  }
+
+  {
+    // tx1 still sees Edge1
     auto edges = v1_1->OutEdges(ms::View::OLD);
     ASSERT_TRUE(edges.HasValue());
     CompareEdges(edges.GetValue(), std::array{tx1->NameToEdgeType("Edge1")});
   }
 
   {
-    // tx4 still sees just Edge1
+    // tx4 still sees Edge1
     auto edges = v1_4->OutEdges(ms::View::OLD);
     ASSERT_TRUE(edges.HasValue());
     CompareEdges(edges.GetValue(), std::array{tx4->NameToEdgeType("Edge1")});
@@ -334,5 +423,149 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithMultipleEdgeEdgeWriteConfl
     CompareEdges(edges.GetValue(),
                  std::array{tx6->NameToEdgeType("Edge1"), tx6->NameToEdgeType("Edge2a"), tx6->NameToEdgeType("Edge2b"),
                             tx6->NameToEdgeType("Edge3a"), tx6->NameToEdgeType("Edge3b")});
+  }
+}
+
+TEST(StorageV2InterleavedIsolation, IsolationWorksWithAbortedInterleavedTransactions) {
+  std::unique_ptr<ms::Storage> storage(std::make_unique<ms::InMemoryStorage>(ms::Config{}));
+
+  ms::Gid v1_gid, v2_gid;
+
+  {
+    auto acc = storage->Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  auto tx0 = storage->Access();
+  auto v1_0 = tx0->FindVertex(v1_gid, ms::View::OLD);
+  ASSERT_TRUE(v1_0.has_value());
+
+  {
+    // tx0 sees no edges
+    auto edges = v1_0->OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.HasValue());
+    EXPECT_EQ(edges->edges.size(), 0);
+  }
+
+  {
+    auto acc = storage->Access();
+    auto v1 = acc->FindVertex(v1_gid, ms::View::OLD);
+    auto v2 = acc->FindVertex(v2_gid, ms::View::OLD);
+    ASSERT_TRUE(v1.has_value() && v2.has_value());
+    ASSERT_TRUE(acc->CreateEdge(&*v1, &*v2, acc->NameToEdgeType("Edge1")).HasValue());
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  {
+    // tx0 sees no edges
+    auto edges = v1_0->OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.HasValue());
+    EXPECT_EQ(edges->edges.size(), 0);
+  }
+
+  auto tx1 = storage->Access();
+  auto v1_1 = tx1->FindVertex(v1_gid, ms::View::OLD);
+  ASSERT_TRUE(v1_1.has_value());
+  {
+    // tx1 finds committed Edge1
+    auto edges = v1_1->OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.HasValue());
+    CompareEdges(edges.GetValue(), std::array{tx1->NameToEdgeType("Edge1")});
+  }
+
+  auto tx2 = storage->Access();
+  auto v1_2 = tx2->FindVertex(v1_gid, ms::View::OLD);
+  auto v2_2 = tx2->FindVertex(v2_gid, ms::View::OLD);
+  ASSERT_TRUE(v1_2.has_value() && v2_2.has_value());
+
+  auto tx3 = storage->Access();
+  auto v1_3 = tx3->FindVertex(v1_gid, ms::View::OLD);
+  auto v2_3 = tx3->FindVertex(v2_gid, ms::View::OLD);
+  ASSERT_TRUE(v1_3.has_value() && v2_3.has_value());
+
+  ASSERT_TRUE(tx2->CreateEdge(&*v1_2, &*v2_2, tx2->NameToEdgeType("Edge2a")).HasValue());
+  ASSERT_TRUE(tx3->CreateEdge(&*v1_3, &*v2_3, tx3->NameToEdgeType("Edge3a")).HasValue());
+  ASSERT_TRUE(tx2->CreateEdge(&*v1_2, &*v2_2, tx2->NameToEdgeType("Edge2b")).HasValue());
+  ASSERT_TRUE(tx3->CreateEdge(&*v1_3, &*v2_3, tx3->NameToEdgeType("Edge3b")).HasValue());
+
+  auto tx4 = storage->Access();
+  auto v1_4 = tx4->FindVertex(v1_gid, ms::View::OLD);
+  ASSERT_TRUE(v1_4.has_value());
+  {
+    // tx4 can only see Edge1, the only edge committed before it started
+    auto edges = v1_4->OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.HasValue());
+    CompareEdges(edges.GetValue(), std::array{tx4->NameToEdgeType("Edge1")});
+  }
+
+  tx3->Abort();
+  tx3.reset();
+
+  {
+    // tx0 sees no edges
+    auto edges = v1_0->OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.HasValue());
+    EXPECT_EQ(edges->edges.size(), 0);
+  }
+
+  {
+    // tx1 finds committed Edge1
+    auto edges = v1_1->OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.HasValue());
+    CompareEdges(edges.GetValue(), std::array{tx1->NameToEdgeType("Edge1")});
+  }
+
+  {
+    // tx2 can see the committed Edge1 and Edge2a and Edge2b it created
+    auto edges = v1_2->OutEdges(ms::View::NEW);
+    ASSERT_TRUE(edges.HasValue());
+    CompareEdges(edges.GetValue(), std::array{tx2->NameToEdgeType("Edge1"), tx2->NameToEdgeType("Edge2a"),
+                                              tx2->NameToEdgeType("Edge2b")});
+  }
+
+  {
+    // tx4 should still only see Edge1
+    auto edges = v1_4->OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.HasValue());
+    CompareEdges(edges.GetValue(), std::array{tx4->NameToEdgeType("Edge1")});
+  }
+
+  tx2->Abort();
+  tx2.reset();
+
+  {
+    // tx0 sees no edges
+    auto edges = v1_0->OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.HasValue());
+    EXPECT_EQ(edges->edges.size(), 0);
+  }
+
+  {
+    // tx1 finds committed Edge1
+    auto edges = v1_1->OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.HasValue());
+    CompareEdges(edges.GetValue(), std::array{tx1->NameToEdgeType("Edge1")});
+  }
+
+  {
+    // tx4 should still only see Edge1
+    auto edges = v1_4->OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.HasValue());
+    CompareEdges(edges.GetValue(), std::array{tx4->NameToEdgeType("Edge1")});
+  }
+
+  {
+    // New transaction only sees Edge1, as every other edge creation was
+    // aborted
+    auto tx6 = storage->Access();
+    auto v1_6 = tx6->FindVertex(v1_gid, ms::View::OLD);
+    ASSERT_TRUE(v1_6.has_value());
+    auto edges = v1_6->OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.HasValue());
+    CompareEdges(edges.GetValue(), std::array{tx6->NameToEdgeType("Edge1")});
   }
 }
