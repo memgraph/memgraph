@@ -59,6 +59,12 @@ add_unit_test(cypher_main_visitor
     LINK_TARGETS mg-query
 )
 
+add_unit_test(event_map
+        SOURCES event_map.cpp
+        LINK_TARGETS mg-events mg-utils
+)
+
+
 add_unit_test(interpreter
     SOURCES interpreter.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp
     LINK_TARGETS mg-communication mg-query mg-glue
@@ -732,7 +738,7 @@ add_unit_test(snapshot_rpc_progress
 
 add_unit_test(rpc_versioning
     SOURCES rpc_versioning.cpp
-    LINK_TARGETS mg-rpc rpc_messages
+    LINK_TARGETS mg-coordination mg-repl_coord_glue mg-rpc rpc_messages
 )
 
 # Test websocket

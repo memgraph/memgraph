@@ -1904,9 +1904,8 @@ utils::BasicResult<StorageManipulationError, void> DiskStorage::DiskAccessor::Pr
   transaction_.disk_transaction_ = nullptr;
 
   spdlog::trace("rocksdb: Commit successful");
-  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    memgraph::storage::TextIndex::ApplyTrackedChanges(transaction_, disk_storage->name_id_mapper_.get());
-  }
+
+  memgraph::storage::TextIndex::ApplyTrackedChanges(transaction_, disk_storage->name_id_mapper_.get());
   disk_storage->durable_metadata_.UpdateMetaData(disk_storage->timestamp_, disk_storage->vertex_count_,
                                                  disk_storage->edge_count_);
   is_transaction_active_ = false;

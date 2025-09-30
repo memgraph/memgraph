@@ -1208,7 +1208,6 @@ TYPED_TEST(DumpTest, CheckStateVertexWithMultipleProperties) {
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(DumpTest, CheckStateSimpleGraph) {
-  memgraph::flags::SetExperimental(memgraph::flags::Experiments::TEXT_SEARCH);
   {
     auto dba = this->db->Access();
     auto name_id = dba->NameToProperty("name");

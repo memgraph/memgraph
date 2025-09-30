@@ -18,7 +18,7 @@ RUN if [ -n "$CUSTOM_MIRROR" ]; then \
 RUN apt-get update && apt-get install -y \
   openssl libcurl4 libssl3 libseccomp2 python3 libpython3.12 python3-pip python3.12-venv libatomic1 adduser \
   --no-install-recommends && \
-  apt install -y libxmlsec1-dev xmlsec1 && \
+  apt install -y libxmlsec1 && \
   rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 
 # NOTE: The following are required to run built-in Python modules. For the full

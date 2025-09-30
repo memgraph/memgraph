@@ -396,20 +396,17 @@ Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector
     return maybe_deleted_vertices.GetError();
   }
 
-  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    // TODO (@DavIvek): Consider cleaning up text index in the background thread
-    for (auto *node : nodes_to_delete) {
-      storage_->indices_.text_index_.RemoveNode(node, transaction_);
-    }
-    if (FLAGS_storage_properties_on_edges) {
-      for (auto *edge : edges) {
-        storage_->indices_.text_edge_index_.RemoveEdge(edge->edge_.ptr, edge->edge_type_, transaction_);
-      }
+  // Cleanup text indices
+  for (auto *node : nodes_to_delete) {
+    storage_->indices_.text_index_.RemoveNode(node, transaction_);
+  }
+  if (FLAGS_storage_properties_on_edges) {
+    for (auto *edge : edges) {
+      storage_->indices_.text_edge_index_.RemoveEdge(edge->edge_.ptr, edge->edge_type_, transaction_);
     }
   }
 
   auto deleted_vertices = maybe_deleted_vertices.GetValue();
-
   return std::make_optional<ReturnType>(std::move(deleted_vertices), std::move(deleted_edges));
 }
 

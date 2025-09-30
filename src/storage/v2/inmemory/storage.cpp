@@ -925,11 +925,8 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   // TODO: can and should this be moved earlier?
   mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   CheckForFastDiscardOfDeltas();
-
-  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    memgraph::storage::TextIndex::ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
-    memgraph::storage::TextEdgeIndex::ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
-  }
+  memgraph::storage::TextIndex::ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
+  memgraph::storage::TextEdgeIndex::ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
   is_transaction_active_ = false;
 }
 

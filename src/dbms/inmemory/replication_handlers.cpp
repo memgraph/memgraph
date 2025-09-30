@@ -1044,7 +1044,6 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           if (!vertex) {
             throw utils::BasicException("Failed to find vertex {} when setting property.", gid);
           }
-          // NOTE: Phase 1 of the text search feature doesn't have replication in scope
           auto value = ToPropertyValue(data.value, mapper);
           auto ret = vertex->SetProperty(transaction->NameToProperty(data.property), value);
           if (ret.HasError()) {
@@ -1341,9 +1340,6 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           }
         },
         [&](WalTextIndexCreate const &data) {
-          if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-            throw query::TextSearchDisabledException();
-          }
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto label_id = storage->NameToLabel(data.label);
           const auto properties_str = std::invoke([&]() -> std::string {
@@ -1368,9 +1364,6 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           }
         },
         [&](WalTextEdgeIndexCreate const &data) {
-          if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-            throw query::TextSearchDisabledException();
-          }
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           const auto edge_type = storage->NameToEdgeType(data.edge_type);
           const auto properties_str = std::invoke([&]() -> std::string {
@@ -1392,9 +1385,6 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           }
         },
         [&](WalTextIndexDrop const &data) {
-          if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-            throw query::TextSearchDisabledException();
-          }
           spdlog::trace("   Delta {}. Drop text search index {}.", current_delta_idx, data.index_name);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           if (transaction->DropTextIndex(data.index_name).HasError()) {

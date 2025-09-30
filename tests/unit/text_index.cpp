@@ -36,10 +36,7 @@ class TextIndexTest : public testing::Test {
   static constexpr std::string_view testSuite = "text_search";
   std::unique_ptr<Storage> storage;
 
-  void SetUp() override {
-    memgraph::flags::SetExperimental(memgraph::flags::Experiments::TEXT_SEARCH);
-    storage = std::make_unique<InMemoryStorage>();
-  }
+  void SetUp() override { storage = std::make_unique<InMemoryStorage>(); }
 
   void TearDown() override {
     CleanupTextIndices();
