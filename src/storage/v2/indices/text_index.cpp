@@ -42,24 +42,34 @@ void TextIndex::CreateTantivyIndex(const std::string &index_path, const TextInde
   }
 }
 
-std::vector<TextIndexData *> TextIndex::GetApplicableTextIndices(std::span<storage::LabelId const> labels,
-                                                                 std::span<PropertyId const> properties) {
+std::vector<TextIndexData *> TextIndex::LabelApplicableTextIndices(std::span<storage::LabelId const> labels) {
   std::vector<TextIndexData *> applicable_text_indices;
-  auto matches_label = [&](const auto &text_index_data) {
-    return r::any_of(labels, [&](auto labelid) { return labelid == text_index_data.scope; });
-  };
+  for (auto &[_, index_data] : index_) {
+    if (r::any_of(labels, [&](auto label) { return label == index_data.scope; })) {
+      applicable_text_indices.push_back(&index_data);
+    }
+  }
+  return applicable_text_indices;
+}
 
-  auto matches_property = [&](const auto &text_index_data) {
+std::vector<TextIndexData *> TextIndex::GetApplicableTextIndices(const Vertex *vertex,
+                                                                 std::span<storage::LabelId const> labels,
+                                                                 std::span<PropertyId const> properties) {
+  auto matches_property = [&](const auto &text_index_data, const auto &properties_to_check) {
     if (text_index_data.properties.empty()) {  // If no properties are specified, all properties match
       return true;
     }
-    return r::any_of(properties,
+    return r::any_of(properties_to_check,
                      [&](auto property_id) { return r::contains(text_index_data.properties, property_id); });
   };
+  const auto applicable_text_indices_for_label = LabelApplicableTextIndices(labels);
+  if (applicable_text_indices_for_label.empty()) return {};
 
-  for (auto &[index_name, text_index_data] : index_) {
-    if (matches_label(text_index_data) && matches_property(text_index_data)) {
-      applicable_text_indices.push_back(&text_index_data);
+  const auto vertex_properties = !properties.empty() ? properties : vertex->properties.ExtractPropertyIds();
+  std::vector<TextIndexData *> applicable_text_indices;
+  for (const auto &text_index_data : applicable_text_indices_for_label) {
+    if (matches_property(*text_index_data, vertex_properties)) {
+      applicable_text_indices.push_back(text_index_data);
     }
   }
   return applicable_text_indices;
@@ -86,25 +96,25 @@ void TextIndex::AddNodeToTextIndex(std::int64_t gid, const nlohmann::json &prope
 }
 
 void TextIndex::UpdateOnAddLabel(LabelId label, const Vertex *vertex, Transaction &tx) {
-  auto applicable_text_indices = GetApplicableTextIndices(std::array{label}, vertex->properties.ExtractPropertyIds());
+  auto applicable_text_indices = GetApplicableTextIndices(vertex, std::array{label});
   if (applicable_text_indices.empty()) return;
   TrackTextIndexChange(tx.text_index_change_collector_, applicable_text_indices, vertex, TextIndexOp::ADD);
 }
 
 void TextIndex::UpdateOnRemoveLabel(LabelId label, const Vertex *vertex, Transaction &tx) {
-  auto applicable_text_indices = GetApplicableTextIndices(std::array{label}, vertex->properties.ExtractPropertyIds());
+  auto applicable_text_indices = GetApplicableTextIndices(vertex, std::array{label});
   if (applicable_text_indices.empty()) return;
   TrackTextIndexChange(tx.text_index_change_collector_, applicable_text_indices, vertex, TextIndexOp::REMOVE);
 }
 
-void TextIndex::UpdateOnSetProperty(const Vertex *vertex, Transaction &tx) {
-  auto applicable_text_indices = GetApplicableTextIndices(vertex->labels, vertex->properties.ExtractPropertyIds());
+void TextIndex::UpdateOnSetProperty(const Vertex *vertex, Transaction &tx, PropertyId property) {
+  auto applicable_text_indices = GetApplicableTextIndices(vertex, vertex->labels, std::array{property});
   if (applicable_text_indices.empty()) return;
   TrackTextIndexChange(tx.text_index_change_collector_, applicable_text_indices, vertex, TextIndexOp::UPDATE);
 }
 
 void TextIndex::RemoveNode(const Vertex *vertex, Transaction &tx) {
-  auto applicable_text_indices = GetApplicableTextIndices(vertex->labels, vertex->properties.ExtractPropertyIds());
+  auto applicable_text_indices = GetApplicableTextIndices(vertex, vertex->labels);
   if (applicable_text_indices.empty()) return;
   TrackTextIndexChange(tx.text_index_change_collector_, applicable_text_indices, vertex, TextIndexOp::REMOVE);
 }
