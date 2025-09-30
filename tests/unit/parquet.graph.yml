@@ -1,0 +1,6 @@
+name: parquet_graph
+vertices:
+  - person.vertex.yml
+edges:
+  - friends.edge,yml
+version: gar/v1
