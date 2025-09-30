@@ -167,6 +167,7 @@ void Encoder<FileType>::WriteExternalPropertyValue(const ExternalPropertyValue &
       WriteMarker(Marker::TYPE_LIST);
       WriteSize(this, list.size());
       for (const auto &item : list) {
+        WriteMarker(Marker::TYPE_PROPERTY_VALUE);
         if (std::holds_alternative<int>(item)) {
           WriteUint(static_cast<uint64_t>(std::get<int>(item)));
         } else {
@@ -180,6 +181,7 @@ void Encoder<FileType>::WriteExternalPropertyValue(const ExternalPropertyValue &
       WriteMarker(Marker::TYPE_LIST);
       WriteSize(this, list.size());
       for (const auto &item : list) {
+        WriteMarker(Marker::TYPE_PROPERTY_VALUE);
         WriteUint(static_cast<uint64_t>(item));
       }
       break;
@@ -189,6 +191,7 @@ void Encoder<FileType>::WriteExternalPropertyValue(const ExternalPropertyValue &
       WriteMarker(Marker::TYPE_LIST);
       WriteSize(this, list.size());
       for (const auto &item : list) {
+        WriteMarker(Marker::TYPE_PROPERTY_VALUE);
         WriteDouble(item);
       }
       break;
