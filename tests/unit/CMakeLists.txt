@@ -644,6 +644,11 @@ add_unit_test(storage_v2_gc
     LINK_TARGETS mg::storage
 )
 
+add_unit_test(storage_v2_interleaved_isolation
+    SOURCES storage_v2_interleaved_isolation.cpp
+    LINK_TARGETS mg::storage
+)
+
 add_unit_test(storage_v2_indices
     SOURCES storage_v2_indices.cpp
     LINK_TARGETS mg::storage mg-utils
