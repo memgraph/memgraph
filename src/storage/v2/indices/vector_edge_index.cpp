@@ -177,6 +177,9 @@ bool VectorEdgeIndex::UpdateVectorIndex(EdgeIndexEntry entry, const EdgeTypeProp
   vector.reserve(vector_size);
   for (size_t i = 0; i < vector_size; ++i) {
     const auto numeric_value = GetNumericValueAt(property, i);
+    if (!numeric_value) {
+      throw query::VectorSearchException("Vector index property must be a list of numeric values.");
+    }
     const auto float_value =
         std::visit([](const auto &val) -> float { return static_cast<float>(val); }, *numeric_value);
     vector.push_back(float_value);

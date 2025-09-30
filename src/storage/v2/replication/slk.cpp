@@ -267,7 +267,7 @@ void Load(storage::ExternalPropertyValue *value, slk::Reader *reader) {
       return;
     }
     case storage::ExternalPropertyValue::Type::List: {
-      std::size_t size = 0;
+      size_t size = 0;
       slk::Load(&size, reader);
       std::vector<storage::ExternalPropertyValue> list(size);
       for (size_t i = 0; i < size; ++i) {
@@ -277,7 +277,7 @@ void Load(storage::ExternalPropertyValue *value, slk::Reader *reader) {
       return;
     }
     case storage::ExternalPropertyValue::Type::IntList: {
-      std::size_t size = 0;
+      size_t size = 0;
       slk::Load(&size, reader);
       storage::ExternalPropertyValue::int_list_t list(size);
       for (size_t i = 0; i < size; ++i) {
@@ -287,7 +287,7 @@ void Load(storage::ExternalPropertyValue *value, slk::Reader *reader) {
       return;
     }
     case storage::ExternalPropertyValue::Type::DoubleList: {
-      std::size_t size = 0;
+      size_t size = 0;
       slk::Load(&size, reader);
       storage::ExternalPropertyValue::double_list_t list(size);
       for (size_t i = 0; i < size; ++i) {
@@ -297,7 +297,7 @@ void Load(storage::ExternalPropertyValue *value, slk::Reader *reader) {
       return;
     }
     case storage::ExternalPropertyValue::Type::NumericList: {
-      std::size_t size = 0;
+      size_t size = 0;
       slk::Load(&size, reader);
       storage::ExternalPropertyValue::numeric_list_t list;
       list.reserve(size);
@@ -312,7 +312,7 @@ void Load(storage::ExternalPropertyValue *value, slk::Reader *reader) {
       return;
     }
     case storage::ExternalPropertyValue::Type::Map: {
-      std::size_t size = 0;
+      size_t size = 0;
       slk::Load(&size, reader);
       auto map = storage::ExternalPropertyValue::map_t{};
       do_reserve(map, size);

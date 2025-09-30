@@ -1261,9 +1261,8 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       if (!int_v) return false;
       if (value.IsInt()) {
         return value.ValueInt() == int_v;
-      } else {
-        return value.ValueDouble() == int_v;
       }
+      return value.ValueDouble() == int_v;
     }
     case Type::DOUBLE: {
       // Integer and double values are treated as the same in
@@ -1275,9 +1274,8 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       if (!double_v) return false;
       if (value.IsDouble()) {
         return value.ValueDouble() == double_v;
-      } else {
-        return value.ValueInt() == double_v;
       }
+      return value.ValueInt() == double_v;
     }
     case Type::STRING: {
       if (!value.IsString()) return false;
@@ -1289,35 +1287,19 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
     }
     case Type::LIST: {
       // Handle all list types: regular List, IntList, DoubleList, NumericList
-      if (!value.IsList() && !value.IsIntList() && !value.IsDoubleList() && !value.IsNumericList()) {
+      if (!value.IsAnyList()) {
         return false;
       }
-
-      auto size = reader->ReadUint(payload_size);
+      const auto size = reader->ReadUint(payload_size);
       if (!size) return false;
-
-      // Get the appropriate list size based on the actual type
-      size_t list_size = 0;
-      if (value.IsList()) {
-        list_size = value.ValueList().size();
-      } else if (value.IsIntList()) {
-        list_size = value.ValueIntList().size();
-      } else if (value.IsDoubleList()) {
-        list_size = value.ValueDoubleList().size();
-      } else if (value.IsNumericList()) {
-        list_size = value.ValueNumericList().size();
-      }
-
+      const auto list_size = GetListSize(value);
       if (*size != list_size) return false;
-
-      // For optimized numeric lists, we need to reconstruct the original PropertyValue list
-      // to compare with the stored format
       if (value.IsIntList()) {
         const auto &int_list = value.ValueIntList();
         for (uint32_t i = 0; i < *size; ++i) {
           auto metadata = reader->ReadMetadata();
           if (!metadata) return false;
-          const PropertyValue reconstructed_item(static_cast<int64_t>(int_list[i]));
+          const PropertyValue reconstructed_item(int_list[i]);
           if (!ComparePropertyValue(reader, metadata->type, metadata->payload_size, reconstructed_item)) return false;
         }
       } else if (value.IsDoubleList()) {
@@ -1335,7 +1317,7 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
           if (!metadata) return false;
           PropertyValue reconstructed_item;
           if (std::holds_alternative<int>(numeric_list[i])) {
-            reconstructed_item = PropertyValue(static_cast<int64_t>(std::get<int>(numeric_list[i])));
+            reconstructed_item = PropertyValue(std::get<int>(numeric_list[i]));
           } else {
             reconstructed_item = PropertyValue(std::get<double>(numeric_list[i]));
           }

@@ -115,7 +115,7 @@ TypedValue::TypedValue(const storage::PropertyValue &value, storage::NameIdMappe
       type_ = Type::List;
       const auto &vec = value.ValueIntList();
       alloc_trait::construct(alloc_, &list_v);
-      for (const auto &v : vec) {  // TODO: improve this
+      for (const auto &v : vec) {
         list_v.emplace_back(v);
       }
       return;

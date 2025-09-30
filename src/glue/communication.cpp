@@ -391,7 +391,7 @@ Value ToBoltValue(const storage::PropertyValue &value, const storage::Storage &s
       vec.reserve(values.size());
       for (const auto &v : values) {
         if (std::holds_alternative<int>(v)) {
-          vec.emplace_back(static_cast<int64_t>(std::get<int>(v)));
+          vec.emplace_back(std::get<int>(v));
         } else {
           vec.emplace_back(std::get<double>(v));
         }
