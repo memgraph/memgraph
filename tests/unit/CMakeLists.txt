@@ -2,9 +2,10 @@ find_package(fmt REQUIRED)
 find_package(gflags REQUIRED)
 find_package(Threads REQUIRED)
 find_package(Boost REQUIRED CONFIG COMPONENTS headers filesystem)
+find_package(GraphAr REQUIRED CONFIG)
 
 add_library(memgraph_unit_main OBJECT main.cpp)
-target_link_libraries(memgraph_unit_main mg-memory mg-utils gtest gmock Threads::Threads dl atomic)
+target_link_libraries(memgraph_unit_main mg-memory mg-utils gtest gmock Threads::Threads dl atomic graphar)
 target_precompile_headers(memgraph_unit_main PRIVATE
     <gtest/gtest.h>
 )
@@ -772,6 +773,11 @@ else ()
         CUSTOM_MAIN
     )
 endif ()
+
+# Test distributed
+add_unit_test(graphar
+        SOURCES graphar.cpp
+)
 
 # Test distributed
 add_unit_test(distributed_lamport_clock
