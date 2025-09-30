@@ -102,6 +102,9 @@ void Load(storage::ExternalPropertyValue::Type *type, slk::Reader *reader) {
     case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::Double):
     case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::String):
     case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::List):
+    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::IntList):
+    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::DoubleList):
+    case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::NumericList):
     case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::Map):
     case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::TemporalData):
     case utils::UnderlyingCast(storage::ExternalPropertyValue::Type::ZonedTemporalData):
@@ -276,7 +279,7 @@ void Load(storage::ExternalPropertyValue *value, slk::Reader *reader) {
     case storage::ExternalPropertyValue::Type::IntList: {
       std::size_t size = 0;
       slk::Load(&size, reader);
-      std::vector<storage::ExternalPropertyValue> list(size);
+      storage::ExternalPropertyValue::int_list_t list(size);
       for (size_t i = 0; i < size; ++i) {
         slk::Load(&list[i], reader);
       }
@@ -286,7 +289,7 @@ void Load(storage::ExternalPropertyValue *value, slk::Reader *reader) {
     case storage::ExternalPropertyValue::Type::DoubleList: {
       std::size_t size = 0;
       slk::Load(&size, reader);
-      std::vector<storage::ExternalPropertyValue> list(size);
+      storage::ExternalPropertyValue::double_list_t list(size);
       for (size_t i = 0; i < size; ++i) {
         slk::Load(&list[i], reader);
       }
