@@ -178,7 +178,7 @@ bool VectorEdgeIndex::UpdateVectorIndex(EdgeIndexEntry entry, const EdgeTypeProp
   for (size_t i = 0; i < vector_size; ++i) {
     const auto numeric_value = GetNumericValueAt(property, i);
     const auto float_value =
-        std::visit([](const auto &val) -> float { return static_cast<float>(val); }, numeric_value);
+        std::visit([](const auto &val) -> float { return static_cast<float>(val); }, *numeric_value);
     vector.push_back(float_value);
   }
   {

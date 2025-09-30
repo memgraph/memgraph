@@ -172,7 +172,7 @@ bool VectorIndex::UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_pr
   for (size_t i = 0; i < vector_size; ++i) {
     const auto numeric_value = GetNumericValueAt(property, i);
     const auto float_value =
-        std::visit([](const auto &val) -> float { return static_cast<float>(val); }, numeric_value);
+        std::visit([](const auto &val) -> float { return static_cast<float>(val); }, *numeric_value);
     vector.push_back(float_value);
   }
   {

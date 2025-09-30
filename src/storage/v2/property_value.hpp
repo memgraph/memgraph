@@ -743,7 +743,8 @@ class PropertyValueImpl {
 
 /// Helper function to extract numeric value from any list type at given index
 template <typename Alloc, typename KeyType>
-inline std::variant<int, double> GetNumericValueAt(const PropertyValueImpl<Alloc, KeyType> &list, size_t index) {
+inline std::optional<std::variant<int, double>> GetNumericValueAt(const PropertyValueImpl<Alloc, KeyType> &list,
+                                                                  size_t index) {
   switch (list.type()) {
     case PropertyValueType::List: {
       auto const &list_val = list.ValueList();
@@ -753,7 +754,7 @@ inline std::variant<int, double> GetNumericValueAt(const PropertyValueImpl<Alloc
       if (list_val[index].IsDouble()) {
         return list_val[index].ValueDouble();
       }
-      throw PropertyValueException("List contains non-numeric values");
+      return std::nullopt;
     }
     case PropertyValueType::IntList: {
       auto const &list_val = list.ValueIntList();
@@ -800,12 +801,29 @@ inline std::weak_ordering CompareLists(const PropertyValueImpl<Alloc, KeyType> &
     return size1 <=> size2;
   }
 
+  auto extract_type = [](const std::optional<std::variant<int, double>> &val,
+                         const PropertyValueImpl<Alloc, KeyType> &list, auto index) {
+    if (val) {
+      if (std::holds_alternative<int>(*val)) {
+        return PropertyValueType::Int;
+      }
+      return PropertyValueType::Double;
+    }
+    return list.ValueList().at(index).type();
+  };
+
   // Compare elements element-wise
   for (size_t i = 0; i < size1; ++i) {
     const auto val1 = GetNumericValueAt(first, i);
     const auto val2 = GetNumericValueAt(second, i);
 
-    const auto cmp_result = CompareNumericValues(val1, val2);
+    if (!val1 || !val2) {
+      const auto val1_type = extract_type(val1, first, i);
+      const auto val2_type = extract_type(val2, second, i);
+      return val1_type <=> val2_type;
+    }
+
+    const auto cmp_result = CompareNumericValues(*val1, *val2);
     if (cmp_result != std::partial_ordering::equivalent) {
       if (cmp_result == std::partial_ordering::less) {
         return std::weak_ordering::less;
@@ -820,6 +838,23 @@ inline std::weak_ordering CompareLists(const PropertyValueImpl<Alloc, KeyType> &
   return std::weak_ordering::equivalent;
 }
 
+// Note: this function is only used for backwards compatibility with the old list types
+// It is not used for new list types
+template <typename Alloc, typename Alloc2, typename KeyType>
+inline std::weak_ordering CompareIncompatibleTypes(const PropertyValueImpl<Alloc, KeyType> &first,
+                                                   const PropertyValueImpl<Alloc2, KeyType> &second) {
+  auto first_is_list = IsListType(first.type());
+  auto second_is_list = IsListType(second.type());
+  if (first_is_list || second_is_list) {
+    // One is a list, one is not - use the original type comparison logic
+    // but normalize list types to the original List type for comparison
+    auto first_type_for_comparison = first_is_list ? PropertyValueType::List : first.type();
+    auto second_type_for_comparison = second_is_list ? PropertyValueType::List : second.type();
+    return first_type_for_comparison <=> second_type_for_comparison;
+  }
+  return first.type() <=> second.type();
+}
+
 // NOTE: The logic in this function *MUST* be equal to the logic in
 // `PropertyStore::ComparePropertyValue`. If you change this operator make sure
 // to change the function so that they have identical functionality.
@@ -828,7 +863,7 @@ inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType> &first,
                         const PropertyValueImpl<Alloc2, KeyType> &second) noexcept -> std::weak_ordering {
   auto are_comparable = AreComparableTypes(first.type(), second.type());
   auto are_lists = IsListType(first.type()) && IsListType(second.type());
-  if (!are_comparable && !are_lists) return first.type() <=> second.type();
+  if (!are_comparable && !are_lists) return CompareIncompatibleTypes(first, second);
 
   auto to_weak_order = [](std::partial_ordering o) {
     if (o == std::partial_ordering::equivalent) {
