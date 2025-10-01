@@ -66,7 +66,12 @@ std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commi
 
   std::unique_lock transaction_guard(
       main_storage->engine_lock_);  // Hold the main_storage lock so the current wal file cannot be changed
+
   (void)locker_acc.AddPath(main_storage->recovery_.wal_directory_);  // Protect all WALs from being deleted
+  // Read in finalized WAL files (excluding the current/active WAL)
+  utils::OnScopeExit const
+      release_wal_dir(  // Each individually used file will be locked, so at the end, the dir can be released
+          [&locker_acc, &wal_dir = main_storage->recovery_.wal_directory_]() { (void)locker_acc.RemovePath(wal_dir); });
 
   if (main_storage->wal_file_) {
     current_wal_timestamp.emplace(main_storage->wal_file_->ToTimestamp());
@@ -75,19 +80,9 @@ std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commi
     transaction_guard.unlock();
   }
 
-  // Read in finalized WAL files (excluding the current/active WAL)
-  utils::OnScopeExit
-      release_wal_dir(  // Each individually used file will be locked, so at the end, the dir can be released
-          [&locker_acc, &wal_dir = main_storage->recovery_.wal_directory_]() { (void)locker_acc.RemovePath(wal_dir); });
   // Get WAL files, ordered by timestamp, from oldest to newest
-  auto const maybe_wal_files = durability::GetWalFiles(main_storage->recovery_.wal_directory_,
-                                                       std::string{main_storage->uuid()}, current_wal_seq_num);
-
-  if (!maybe_wal_files) {
-    spdlog::error("WAL files couldn't be loaded while trying to find recovery steps.");
-    return std::nullopt;
-  }
-  auto const &wal_files = *maybe_wal_files;
+  auto const wal_files = durability::GetWalFiles(main_storage->recovery_.wal_directory_,
+                                                 std::string{main_storage->uuid()}, current_wal_seq_num);
 
   if (transaction_guard.owns_lock()) {
     transaction_guard.unlock();  // In case we didn't have a current wal file, we can unlock only now since there is no
@@ -96,20 +91,13 @@ std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commi
 
   // Read in snapshot files
   (void)locker_acc.AddPath(main_storage->recovery_.snapshot_directory_);  // Protect all snapshots from being deleted
-  utils::OnScopeExit
+  utils::OnScopeExit const
       release_snapshot_dir(  // Each individually used file will be locked, so at the end, the dir can be released
           [&locker_acc, &snapshot_dir = main_storage->recovery_.snapshot_directory_]() {
             (void)locker_acc.RemovePath(snapshot_dir);
           });
 
-  std::optional<durability::SnapshotDurabilityInfo> latest_snapshot{};
-  {
-    auto snapshot_files =
-        durability::GetSnapshotFiles(main_storage->recovery_.snapshot_directory_, std::string{main_storage->uuid()});
-    if (!snapshot_files.empty()) {
-      latest_snapshot.emplace(std::move(snapshot_files.back()));
-    }
-  }
+  auto const latest_snapshot = GetLatestSnapshot(main_storage);
 
   auto const add_snapshot = [&]() -> bool {
     // Handle snapshot step
@@ -124,81 +112,48 @@ std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commi
 
   // There is a WAL chain and the data is newer than what the replica has
   if (!wal_files.empty() && wal_files.back().to_timestamp > replica_commit) {
-    // Check what part of the WAL chain is needed
-    bool covered_by_wals = false;
-    auto prev_seq{wal_files.back().seq_num};
-    int64_t first_useful_wal = static_cast<int64_t>(wal_files.size()) - 1;
-    // Going from newest to oldest
-    for (; first_useful_wal >= 0; --first_useful_wal) {
-      const auto &wal = wal_files[first_useful_wal];
-      if (prev_seq - wal.seq_num > 1) {
-        // Broken chain, must have a snapshot that covers the missing commits
-        // Useful chain start from the previous (newer) wal file
-        ++first_useful_wal;
-        break;
-      }
-      prev_seq = wal.seq_num;
-      // Got to the oldest necessary WAL file
-      if (wal.from_timestamp <= replica_commit + 1) {
-        covered_by_wals = true;
-        break;
-      }
-    }
-    first_useful_wal = std::max<int64_t>(first_useful_wal, 0);  // -1 means the first useful one is at position 0
+    auto wal_chain_info = GetWalChainInfo(wal_files, replica_commit);
+
     // Finished the WAL chain, but still missing some data
-    if (!covered_by_wals) {
-      const auto &wal = wal_files[first_useful_wal];
-      // We might not need the snapshot if there is no additional information contained in it
-      if (latest_snapshot) {
-        if (latest_snapshot->start_timestamp <= wal.from_timestamp && wal.seq_num != 0) {
+    if (!wal_chain_info.covered_by_wals) {
+      const auto &wal = wal_files[wal_chain_info.first_useful_wal];
+
+      if (!latest_snapshot) {
+        if (wal.seq_num != 0) {
+          spdlog::error("Replication steps incomplete; missing data. Wal seq num is: {}", wal.seq_num);
+          return std::nullopt;
+        }
+      } else {
+        // We might not need the snapshot if there is no additional information contained in it
+
+        auto const snap_start_ts = latest_snapshot->start_timestamp;
+
+        if (snap_start_ts <= wal.from_timestamp && wal.seq_num != 0) {
           spdlog::error("Replication steps incomplete; broken data chain.");
           return std::nullopt;
         }
-        if (latest_snapshot->start_timestamp > replica_commit) {
+
+        if (snap_start_ts > replica_commit) {
           // There is some data we need in the snapshot
-          if (!add_snapshot()) {
-            // If we failed to add snapshot, recovery cannot be done successfully
-            return std::nullopt;
-          }
-          // Go along the WAL chain and remove necessary parts (going from oldest to newest WAL)
-          for (; first_useful_wal < wal_files.size(); ++first_useful_wal) {
-            if (const auto &local_wal = wal_files[first_useful_wal];
-                local_wal.to_timestamp > latest_snapshot->start_timestamp) {
-              // Got to the first WAL file with data not contained in the snapshot
-              break;
-            }
-          }
-        }
-      } else {
-        if (wal.seq_num != 0) {
-          spdlog::error("Replication steps incomplete; missing data.");
-          return std::nullopt;
+          // If we failed to add snapshot, recovery cannot be done successfully
+          if (!add_snapshot()) return std::nullopt;
+
+          wal_chain_info.first_useful_wal =
+              FirstWalAfterSnapshot(wal_files, snap_start_ts, wal_chain_info.first_useful_wal);
         }
       }
-    }
-    // Copy and lock the chain part we need, from oldest to newest
-    if (first_useful_wal < wal_files.size()) {
-      RecoveryWals rw{};
-      rw.reserve(wal_files.size() - first_useful_wal);
-      for (; first_useful_wal < wal_files.size(); ++first_useful_wal) {
-        auto const &wal = wal_files[first_useful_wal];
-        if (const auto lock_success = locker_acc.AddPath(wal.path); lock_success.HasError()) {
-          spdlog::error("Tried to lock a nonexistent WAL path.");
-          return std::nullopt;
-        }
-        rw.emplace_back(std::move(wal.path));
-      }
-      recovery_steps.emplace_back(std::in_place_type_t<RecoveryWals>{}, std::move(rw));
     }
 
-  } else {
-    if (latest_snapshot && latest_snapshot->start_timestamp > replica_commit) {
-      // There is some data we need in the snapshot
-      if (!add_snapshot()) {
-        // If we failed to add snapshot, recovery cannot be done successfully
-        return std::nullopt;
-      }
+    if (wal_chain_info.first_useful_wal < wal_files.size()) {
+      auto rw = GetRecoveryWalFiles(&locker_acc, wal_files, wal_chain_info.first_useful_wal);
+      if (!rw.has_value()) return std::nullopt;
+      recovery_steps.emplace_back(std::in_place_type_t<RecoveryWals>{}, std::move(*rw));
     }
+
+  } else if (latest_snapshot && latest_snapshot->start_timestamp > replica_commit) {
+    // There is some data we need in the snapshot
+    // If we failed to add snapshot, recovery cannot be done successfully
+    if (!add_snapshot()) return std::nullopt;
   }
 
   // If we have a current wal file we need to use it
@@ -208,6 +163,73 @@ std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commi
   }
 
   return recovery_steps;
+}
+
+std::optional<durability::SnapshotDurabilityInfo> GetLatestSnapshot(const InMemoryStorage *main_storage) {
+  auto snapshot_files =
+      durability::GetSnapshotFiles(main_storage->recovery_.snapshot_directory_, std::string{main_storage->uuid()});
+  if (snapshot_files.empty()) {
+    return std::nullopt;
+  }
+  return snapshot_files.back();
+}
+
+auto GetWalChainInfo(std::vector<durability::WalDurabilityInfo> const &wal_files, uint64_t const replica_commit)
+    -> WalChainInfo {
+  // Precondition
+  MG_ASSERT(!wal_files.empty(), "Wal files must not be empty when invoking GetWalChainInfo");
+
+  WalChainInfo chain_info{.covered_by_wals = false,
+                          .prev_seq_num = wal_files.back().seq_num,
+                          .first_useful_wal = static_cast<int64_t>(wal_files.size() - 1L)};
+  // Going from newest to oldest
+  while (chain_info.first_useful_wal >= 0) {
+    const auto &wal = wal_files[chain_info.first_useful_wal];
+    if (chain_info.prev_seq_num > wal.seq_num && chain_info.prev_seq_num - wal.seq_num > 1) {
+      // Broken chain, must have a snapshot that covers the missing commits
+      // Useful chain start from the previous (newer) wal file
+      ++chain_info.first_useful_wal;
+      break;
+    }
+
+    chain_info.prev_seq_num = wal.seq_num;
+
+    // Got to the oldest necessary WAL file
+    if (wal.from_timestamp <= replica_commit + 1) {
+      chain_info.covered_by_wals = true;
+      break;
+    }
+
+    chain_info.first_useful_wal--;
+  }
+
+  // If first useful is -1, that means the first useful WAL is at position 0
+  if (chain_info.first_useful_wal == -1) chain_info.first_useful_wal = 0;
+
+  return chain_info;
+}
+
+auto FirstWalAfterSnapshot(std::vector<durability::WalDurabilityInfo> const &wal_files, uint64_t const snap_start_ts,
+                           int64_t first_useful_wal) -> int64_t {
+  while (first_useful_wal < wal_files.size() && wal_files[first_useful_wal].to_timestamp <= snap_start_ts)
+    ++first_useful_wal;
+  return first_useful_wal;
+}
+
+auto GetRecoveryWalFiles(utils::FileRetainer::FileLockerAccessor *locker_acc,
+                         std::vector<durability::WalDurabilityInfo> const &wal_files, int64_t first_useful_wal)
+    -> std::optional<RecoveryWals> {
+  RecoveryWals rw;
+  rw.reserve(wal_files.size() - first_useful_wal);
+  for (; first_useful_wal < wal_files.size(); ++first_useful_wal) {
+    auto const &wal = wal_files[first_useful_wal];
+    if (const auto lock_success = locker_acc->AddPath(wal.path); lock_success.HasError()) {
+      spdlog::error("Tried to lock a nonexistent WAL path.");
+      return std::nullopt;
+    }
+    rw.emplace_back(wal.path);
+  }
+  return rw;
 }
 
 }  // namespace memgraph::storage
