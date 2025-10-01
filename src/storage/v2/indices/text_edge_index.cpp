@@ -52,27 +52,15 @@ std::vector<TextEdgeIndexData *> TextEdgeIndex::EdgeTypeApplicableTextIndices(Ed
   return applicable_text_indices;
 }
 
-std::vector<TextEdgeIndexData *> TextEdgeIndex::GetApplicableTextIndices(const Edge *edge, EdgeTypeId edge_type,
-                                                                         std::span<PropertyId const> properties) {
-  auto matches_property = [&](const auto &text_edge_index_data, const auto &properties_to_check) {
-    if (text_edge_index_data.properties.empty()) {  // If no properties are specified, all properties match
-      return true;
-    }
-    return r::any_of(properties_to_check,
-                     [&](auto property_id) { return r::contains(text_edge_index_data.properties, property_id); });
-  };
-
-  const auto applicable_text_indices_for_edge_type = EdgeTypeApplicableTextIndices(edge_type);
-  if (applicable_text_indices_for_edge_type.empty()) return {};
-
-  const auto edge_properties = !properties.empty() ? properties : edge->properties.ExtractPropertyIds();
-  std::vector<TextEdgeIndexData *> applicable_text_indices;
-  for (const auto &text_edge_index_data : applicable_text_indices_for_edge_type) {
-    if (matches_property(*text_edge_index_data, edge_properties)) {
-      applicable_text_indices.push_back(text_edge_index_data);
+std::vector<TextEdgeIndexData *> TextEdgeIndex::GetIndicesMatchingProperties(
+    std::span<TextEdgeIndexData *const> edge_type_indices, std::span<const PropertyId> properties) {
+  std::vector<TextEdgeIndexData *> result;
+  for (const auto &text_edge_index_data : edge_type_indices) {
+    if (IndexPropertiesMatch(text_edge_index_data->properties, properties)) {
+      result.push_back(text_edge_index_data);
     }
   }
-  return applicable_text_indices;
+  return result;
 }
 
 void TextEdgeIndex::AddEdgeToTextIndex(std::int64_t edge_gid, std::int64_t from_vertex_gid, std::int64_t to_vertex_gid,
@@ -99,16 +87,23 @@ void TextEdgeIndex::AddEdgeToTextIndex(std::int64_t edge_gid, std::int64_t from_
 }
 
 void TextEdgeIndex::RemoveEdge(const Edge *edge, EdgeTypeId edge_type, Transaction &tx) {
-  auto applicable_text_indices = GetApplicableTextIndices(edge, edge_type);
-  if (applicable_text_indices.empty()) return;
+  auto edge_type_applicable_text_indices = EdgeTypeApplicableTextIndices(edge_type);
+  if (edge_type_applicable_text_indices.empty()) return;
+  const auto edge_properties = edge->properties.ExtractPropertyIds();
+  auto applicable_text_indices = GetIndicesMatchingProperties(edge_type_applicable_text_indices, edge_properties);
   TrackTextEdgeIndexChange(tx.text_edge_index_change_collector_, applicable_text_indices, edge, nullptr, nullptr,
                            TextIndexOp::REMOVE);
 }
 
 void TextEdgeIndex::UpdateOnSetProperty(const Edge *edge, const Vertex *from_vertex, const Vertex *to_vertex,
                                         EdgeTypeId edge_type, Transaction &tx, PropertyId property) {
-  auto applicable_text_indices = GetApplicableTextIndices(edge, edge_type, std::array{property});
-  if (applicable_text_indices.empty()) return;
+  auto has_edge_type = [&](const auto &text_edge_index_data) { return edge_type == text_edge_index_data.scope; };
+  std::vector<TextEdgeIndexData *> applicable_text_indices;
+  for (auto &[_, index_data] : index_) {
+    if (IndexPropertiesMatch(index_data.properties, std::array{property}) && has_edge_type(index_data)) {
+      applicable_text_indices.push_back(&index_data);
+    }
+  }
   TrackTextEdgeIndexChange(tx.text_edge_index_change_collector_, applicable_text_indices, edge, from_vertex, to_vertex,
                            TextIndexOp::UPDATE);
 }

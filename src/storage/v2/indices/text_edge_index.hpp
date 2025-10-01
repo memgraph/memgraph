@@ -51,8 +51,8 @@ class TextEdgeIndex {
 
   std::vector<TextEdgeIndexData *> EdgeTypeApplicableTextIndices(EdgeTypeId edge_type);
 
-  std::vector<TextEdgeIndexData *> GetApplicableTextIndices(const Edge *edge, EdgeTypeId edge_type,
-                                                            std::span<PropertyId const> properties = {});
+  static std::vector<TextEdgeIndexData *> GetIndicesMatchingProperties(
+      std::span<TextEdgeIndexData *const> edge_type_indices, std::span<const PropertyId> properties);
 
   static void AddEdgeToTextIndex(std::int64_t edge_gid, std::int64_t from_vertex_gid, std::int64_t to_vertex_gid,
                                  nlohmann::json properties, std::string property_values_as_str,

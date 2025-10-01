@@ -49,8 +49,8 @@ class TextIndex {
 
   std::vector<TextIndexData *> LabelApplicableTextIndices(std::span<storage::LabelId const> labels);
 
-  std::vector<TextIndexData *> GetApplicableTextIndices(const Vertex *vertex, std::span<storage::LabelId const> labels,
-                                                        std::span<PropertyId const> properties = {});
+  static std::vector<TextIndexData *> GetIndicesMatchingProperties(std::span<TextIndexData *const> label_indices,
+                                                                   std::span<const PropertyId> properties);
 
   static void AddNodeToTextIndex(std::int64_t gid, const nlohmann::json &properties,
                                  const std::string &property_values_as_str, mgcxx::text_search::Context &context);
