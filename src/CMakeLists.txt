@@ -1,6 +1,7 @@
 # CMake configuration for the main memgraph library and executable
 
 # add memgraph sub libraries, ordered by dependency
+add_subdirectory(arrow_parquet)
 add_subdirectory(csv)
 add_subdirectory(utils)
 add_subdirectory(requests)
