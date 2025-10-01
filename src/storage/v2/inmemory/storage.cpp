@@ -2432,36 +2432,18 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
         // Calculate the highest commit timestamp in the entire chain for safe unlinking
         uint64_t highest_commit_ts = it->deltas_.commit_timestamp_->load();
 
-        // Debug: Verify ALL downstream deltas are committed/aborted before eviction
-        // AND find the highest commit timestamp
-#ifndef NDEBUG
         for (const auto &delta : it->deltas_.deltas_) {
           auto *current = &delta;
           while (current != nullptr) {
             auto ts = current->timestamp->load();
-            if (ts >= kTransactionInitialId) {
-              // Active transaction ID - must be finished
-              DMG_ASSERT(commit_log_->IsFinished(ts),
-                         "Evicting from waiting room but found active transaction in delta chain");
-            } else if (ts > highest_commit_ts) {
-              highest_commit_ts = ts;
+            DMG_ASSERT(ts < kTransactionInitialId || ts == kAbortedTransactionId,
+                       "found uncommitted/unaborted delta in settled delta chain");
+            if (ts < kTransactionInitialId) {
+              highest_commit_ts = std::max(highest_commit_ts, ts);
             }
             current = current->next.load();
           }
         }
-#else
-        // In release mode, still need to find highest commit timestamp
-        for (const auto &delta : it->deltas_.deltas_) {
-          auto *current = &delta;
-          while (current != nullptr) {
-            auto ts = current->timestamp->load();
-            if (ts < kTransactionInitialId && ts > highest_commit_ts) {
-              highest_commit_ts = ts;
-            }
-            current = current->next.load();
-          }
-        }
-#endif
 
         // Set the unlinkable timestamp to the highest commit timestamp found
         it->deltas_.unlinkable_timestamp_ = highest_commit_ts;
