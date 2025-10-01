@@ -1,21 +1,23 @@
 {% set toolchain_path = os.getenv("MG_TOOLCHAIN_ROOT") %}
+{% set target_arch = {"aarch64": "armv8"}.get(platform.machine(), platform.machine()) %}
 
 [settings]
-arch = {{ {"aarch64": "armv8"}.get(platform.machine(), platform.machine()) }}
+arch = {{ target_arch }}
 build_type = {{ os.getenv("BUILD_TYPE") }}
 compiler=clang
 compiler.cppstd=gnu20
 compiler.libcxx=libstdc++11
 compiler.version=20
-os = {{ {"Darwin": "Macos"}.get(platform.system(), platform.system()) }}
+os=Linux
 
 [conf]
 tools.cmake.cmaketoolchain:generator=Ninja
 tools.cmake.cmaketoolchain:user_toolchain=["{{ os.path.join(toolchain_path, "toolchain.cmake") }}"]
 tools.build:compiler_executables={"c": "{{ os.path.join(toolchain_path, "bin/clang") }}", "cpp" : "{{ os.path.join(toolchain_path, "bin/clang++") }}"}
-tools.build:cxxflags+={% if platform.machine() == "aarch64" %}["-stdlib=libstdc++", "-isystem", "/opt/toolchain-v7/include/c++/15.1.0", "-isystem", "/opt/toolchain-v7/include/c++/15.1.0/aarch64-linux-gnu"]{% else %}[]{% endif %}
-
 
 [options]
 boost/*:without_stacktrace=True
 boost/*:without_locale=True
+{% if target_arch == "armv8" %}
+boost/*:extra_b2_flags=cxxflags=--target=aarch64-unknown-linux-gnu cflags=--target=aarch64-unknown-linux-gnu linkflags=--target=aarch64-unknown-linux-gnu
+{% endif %}
