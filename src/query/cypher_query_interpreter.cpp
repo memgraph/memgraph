@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #include "query/cypher_query_interpreter.hpp"
+
+#include "flags/experimental.hpp"
 #include "frontend/ast/ast.hpp"
 #include "frontend/semantic/required_privileges.hpp"
 #include "frontend/semantic/rw_checker.hpp"
@@ -32,8 +34,8 @@ DEFINE_VALIDATED_int32(query_plan_cache_max_size, 1000, "Maximum number of query
 namespace memgraph::query {
 PlanWrapper::PlanWrapper(std::unique_ptr<LogicalPlan> plan) : plan_(std::move(plan)) {}
 
-auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query,
-                            UserParameters const &user_parameters) -> Parameters {
+auto PrepareQueryParameters(frontend::StrippedQuery const &stripped_query, UserParameters const &user_parameters)
+    -> Parameters {
   // Copy over the parameters that were introduced during stripping.
   Parameters parameters{stripped_query.literals()};
   // Check that all user-specified parameters are provided.
@@ -149,10 +151,26 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
 std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery *query, const Parameters &parameters,
                                              DbAccessor *db_accessor,
                                              const std::vector<Identifier *> &predefined_identifiers) {
-  auto vertex_counts = plan::VertexCountCache(db_accessor);
+  // TODO: we need to make sure we decouple symbol position from frame position
+  //       symbols are needed for debugging (a semantic name)
+  //       during evaluation frame slots are dumping ground for temporary evaluation results
+  //       planner may remove need for all symbols (hence we shouldn't waste frame slots that are unused)
   auto symbol_table = MakeSymbolTable(query, predefined_identifiers);
-  auto planning_context = plan::MakePlanningContext(&ast_storage, &symbol_table, query, &vertex_counts);
-  auto [root, cost] = plan::MakeLogicalPlan(&planning_context, parameters, FLAGS_query_cost_planner);
+
+  auto [root, cost] = std::invoke([&] {
+    if (flags::AreExperimentsEnabled(flags::Experiments::PLANNER_V2)) {
+      // TODO: make egraph
+      //       do rewrite passes
+      //       extract LogicalOperator + cost estimate
+      //       NOTE: add to `ast_storage` for new expressions
+      //             add to `symbol_table` for new symbols
+      return std::make_pair<std::unique_ptr<plan::LogicalOperator>, double>(nullptr, 0.0);
+    }
+    auto vertex_counts = plan::VertexCountCache(db_accessor);
+    auto planning_context = plan::MakePlanningContext(&ast_storage, &symbol_table, query, &vertex_counts);
+    return plan::MakeLogicalPlan(&planning_context, parameters, FLAGS_query_cost_planner);
+  });
+
   auto rw_type_checker = plan::ReadWriteTypeChecker();
   rw_type_checker.InferRWType(*root);
   return std::make_unique<SingleNodeLogicalPlan>(std::move(root), cost, std::move(ast_storage), std::move(symbol_table),
