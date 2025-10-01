@@ -11,11 +11,15 @@
 
 #pragma once
 
-#include <cstdint>
+#include "frontend/ast/ast_storage.hpp"
+#include "query/plan_v2/egraph.hpp"
 
-namespace memgraph::planner::core {
+namespace memgraph::query::plan {
+class LogicalOperator;
+}
 
-using EClassId = uint32_t;
-using ENodeId = uint32_t;
+namespace memgraph::query::plan::v2 {
 
-}  // namespace memgraph::planner::core
+auto ConvertToLogicalOperator(egraph const &e, eclass root)
+    -> std::tuple<std::unique_ptr<LogicalOperator>, double, AstStorage>;
+}  // namespace memgraph::query::plan::v2

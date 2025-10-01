@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -40,10 +40,10 @@ static void BM_EGraph_CongruenceChain(benchmark::State &state) {
 
     std::vector<EClassId> chain_head;
     for (auto chain_num = 0; chain_num != 5; ++chain_num) {
-      auto previous = egraph.emplace(TestSymbol::A, chain_num);
-      chain_head.emplace_back(previous);
+      auto previous = egraph.emplace(TestSymbol::A, static_cast<uint64_t>(chain_num));
+      chain_head.emplace_back(previous.current_eclassid);
       for (auto i = 0; i != chain_length; ++i) {
-        previous = egraph.emplace(TestSymbol::F, {previous});
+        previous = egraph.emplace(TestSymbol::F, {previous.current_eclassid});
       }
     }
     // merge the chains
@@ -57,4 +57,5 @@ static void BM_EGraph_CongruenceChain(benchmark::State &state) {
 
   state.SetItemsProcessed(state.iterations() * state.range(0));
 }
-BENCHMARK(BM_EGraph_CongruenceChain)->Range(100, 10000)->Unit(benchmark::kMicrosecond);
+
+BENCHMARK(BM_EGraph_CongruenceChain)->Range(100, 10'000)->Unit(benchmark::kMicrosecond);

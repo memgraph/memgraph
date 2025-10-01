@@ -11,16 +11,17 @@
 
 #pragma once
 
-#include <unordered_map>
-#include <unordered_set>
-#include <vector>
+#include <strong_type/strong_type.hpp>
+
+import memgraph.planner.core.constants;
+import memgraph.planner.core.eids;
+import memgraph.planner.core.union_find;
+
+#include "planner/core/enode.hpp"
 
 #include <boost/container/flat_set.hpp>
-
-#include "planner/core/constants.hpp"
-#include "planner/core/eids.hpp"
-#include "planner/core/enode.hpp"
-#include "planner/core/union_find.hpp"
+#include <unordered_map>
+#include <vector>
 #include "utils/small_vector.hpp"
 
 namespace memgraph::planner::core {
@@ -29,9 +30,9 @@ namespace memgraph::planner::core {
  * Contains reusable buffers and state that don't depend on Symbol type.
  */
 struct BaseProcessingContext {
-  utils::small_vector<EClassId> canonical_children_buffer;
+  ENodeContext enode_context;
   UnionFindContext union_find_context;
-  std::vector<EClassId> canonical_eclass_ids;
+  std::vector<strong::underlying_type_t<EClassId>> canonical_eclass_ids;
   boost::container::flat_set<EClassId> canonicalized_chunk;
 };
 

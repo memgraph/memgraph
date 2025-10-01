@@ -1,4 +1,4 @@
-// Copyright 2025 Memgraph Ltd.
+// Copyright 2026 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -193,10 +193,11 @@ class FuzzerState {
     uint64_t disambiguator = pos < size ? data[pos++] : 0;
 
     auto sym = static_cast<FuzzSymbol>(symbol);
-    auto id = egraph.emplace(sym, disambiguator);
-    created_ids.push_back(id);
+    auto info = egraph.emplace(sym, disambiguator);
+    created_ids.push_back(info.current_eclassid);
 
-    VERBOSE_OUT << "Created leaf: " << (char)('A' + symbol) << "(D" << disambiguator << ") -> " << id << "\n";
+    VERBOSE_OUT << "Created leaf: " << (char)('A' + symbol) << "(D" << disambiguator << ") -> " << info.current_eclassid
+                << "\n";
     VERBOSE_OUT << "Total classes: " << egraph.num_classes() << ", Total nodes: " << egraph.num_nodes() << "\n";
     return true;
   }
@@ -216,8 +217,8 @@ class FuzzerState {
     }
 
     auto sym = static_cast<FuzzSymbol>(symbol);
-    auto id = egraph.emplace(sym, utils::small_vector<EClassId>(children.begin(), children.end()));
-    created_ids.push_back(id);
+    auto info = egraph.emplace(sym, utils::small_vector<EClassId>(children.begin(), children.end()));
+    created_ids.push_back(info.current_eclassid);
     return true;
   }
 
@@ -261,18 +262,20 @@ class FuzzerState {
     uint8_t symbol_a = data[pos++] % 5;                         // A-E
     uint8_t symbol_b = (symbol_a + 1 + (data[pos++] % 4)) % 5;  // Different from symbol_a
 
-    auto leaf_a = egraph.emplace(static_cast<FuzzSymbol>(symbol_a), pos);
-    auto leaf_b = egraph.emplace(static_cast<FuzzSymbol>(symbol_b), pos + 1);
+    auto leaf_a_info = egraph.emplace(static_cast<FuzzSymbol>(symbol_a), pos);
+    auto leaf_b_info = egraph.emplace(static_cast<FuzzSymbol>(symbol_b), pos + 1);
+    auto leaf_a = leaf_a_info.current_eclassid;
+    auto leaf_b = leaf_b_info.current_eclassid;
     created_ids.push_back(leaf_a);
     created_ids.push_back(leaf_b);
 
     // Create compound nodes with same symbol but different children: f(a), f(b)
     if (pos < size) {
       uint8_t compound_symbol = 10 + (data[pos++] % 5);  // F-Mul
-      auto fa = egraph.emplace(static_cast<FuzzSymbol>(compound_symbol), utils::small_vector<EClassId>{leaf_a});
-      auto fb = egraph.emplace(static_cast<FuzzSymbol>(compound_symbol), utils::small_vector<EClassId>{leaf_b});
-      created_ids.push_back(fa);
-      created_ids.push_back(fb);
+      auto fa_info = egraph.emplace(static_cast<FuzzSymbol>(compound_symbol), utils::small_vector<EClassId>{leaf_a});
+      auto fb_info = egraph.emplace(static_cast<FuzzSymbol>(compound_symbol), utils::small_vector<EClassId>{leaf_b});
+      created_ids.push_back(fa_info.current_eclassid);
+      created_ids.push_back(fb_info.current_eclassid);
 
       // Now merge the leaves - this should make f(a) and f(b) congruent after rebuild
       egraph.merge(leaf_a, leaf_b);

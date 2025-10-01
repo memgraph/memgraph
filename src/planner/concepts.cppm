@@ -9,25 +9,20 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#pragma once
+module;
 
-#include <cstdint>
-import memgraph.planner.core.concepts;
-import memgraph.planner.core.eids;
+#include <concepts>
+#include <functional>
 
-namespace memgraph::planner::core {
+export module memgraph.planner.core.concepts;
 
-template <typename Symbol>
-requires ENodeSymbol<Symbol>
-struct ENode;
-
-template <typename Analysis>
-struct EClass;
-
-template <typename Symbol, typename Analysis>
-struct EGraph;
-
-template <typename Symbol>
-struct ProcessingContext;
+export namespace memgraph::planner::core {
+/// Concept: Symbol must be hashable, trivially copyable, and equality comparable
+template <typename T>
+concept ENodeSymbol = requires(T a, T b) {
+  { std::hash<T>{}(a) } -> std::convertible_to<std::size_t>;
+  { a == b } -> std::convertible_to<bool>;
+}
+&&std::is_trivially_copyable_v<T>;
 
 }  // namespace memgraph::planner::core

@@ -10,24 +10,6 @@
 // licenses/APL.txt.
 
 #pragma once
-
-#include <cstdint>
-import memgraph.planner.core.concepts;
-import memgraph.planner.core.eids;
-
-namespace memgraph::planner::core {
-
-template <typename Symbol>
-requires ENodeSymbol<Symbol>
-struct ENode;
-
-template <typename Analysis>
-struct EClass;
-
-template <typename Symbol, typename Analysis>
-struct EGraph;
-
-template <typename Symbol>
-struct ProcessingContext;
-
-}  // namespace memgraph::planner::core
+namespace memgraph::query::plan::v2 {
+struct analysis {};
+}  // namespace memgraph::query::plan::v2

@@ -11,16 +11,17 @@
 
 #pragma once
 
-#include <concepts>
-#include <functional>
+#include <tuple>
 
-namespace memgraph::planner::core {
-/// Concept: Symbol must be hashable, trivially copyable, and equality comparable
-template <typename T>
-concept ENodeSymbol = requires(T a, T b) {
-  { std::hash<T>{}(a) } -> std::convertible_to<std::size_t>;
-  { a == b } -> std::convertible_to<bool>;
-}
-&&std::is_trivially_copyable_v<T>;
+#include "query/plan_v2/egraph.hpp"
 
-}  // namespace memgraph::planner::core
+namespace memgraph::query {
+class CypherQuery;
+class SymbolTable;
+}  // namespace memgraph::query
+
+namespace memgraph::query::plan::v2 {
+
+auto ConvertToEgraph(CypherQuery const &query, SymbolTable const &symbol_table) -> std::tuple<egraph, eclass>;
+
+}  // namespace memgraph::query::plan::v2

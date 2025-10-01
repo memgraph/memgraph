@@ -19,7 +19,7 @@ repos:
         name: isort (python)
         args: ["--profile", "black"]
   - repo: https://github.com/pre-commit/mirrors-clang-format
-    rev: v13.0.0
+    rev: v20.1.7
     hooks:
       - id: clang-format
         exclude: ^mage/cpp/community_detection_module/grappolo/

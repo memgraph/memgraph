@@ -2959,6 +2959,7 @@ PreparedQuery PrepareCypherQuery(
     // When the symbol is aliased or expanded from '*' (inside RETURN or
     // WITH), then there is no token position, so use symbol name.
     // Otherwise, find the name from stripped query.
+    // TODO: Think on this (the only use of token_position)
     header.push_back(
         utils::FindOr(parsed_query.stripped_query.named_expressions(), symbol.token_position(), symbol.name()).first);
   }

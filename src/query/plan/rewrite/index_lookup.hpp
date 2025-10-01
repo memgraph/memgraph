@@ -1384,7 +1384,7 @@ class IndexLookupRewriter final : public HierarchicalLogicalOperatorVisitor {
     auto make_unwinds = [&](FilterInfo const &filter_info) -> FilterInfo {
       if (filter_info.property_filter->type_ == PropertyFilter::Type::IN) {
         auto const &symbol = symbol_table_->CreateAnonymousSymbol();
-        auto *expression = ast_storage_->Create<Identifier>(symbol.name_);
+        auto *expression = ast_storage_->Create<Identifier>(symbol.name());
         expression->MapTo(symbol);
         input = std::make_unique<Unwind>(input, filter_info.property_filter->value_, symbol);
         FilterInfo cpy = filter_info;
