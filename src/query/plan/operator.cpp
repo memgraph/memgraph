@@ -7702,14 +7702,14 @@ std::string LoadCsv::ToString() const { return fmt::format("LoadCsv {{{}}}", row
 
 LoadParquet::LoadParquet(std::shared_ptr<LogicalOperator> input, Expression *file, Symbol row_var)
     : input_(input ? input : (std::make_shared<Once>())), file_(file), row_var_(std::move(row_var)) {
-  MG_ASSERT(file_, "Something went wrong - '{}' member file_ shouldn't be a nullptr", __func__);
+  MG_ASSERT(file_, "Something went wrong - LoadParquet's member file_ shouldn't be a nullptr");
 }
 
 ACCEPT_WITH_INPUT(LoadParquet);
 
 class LoadParquetCursor;
 
-std::vector<Symbol> LoadParquet::OutputSymbols(const SymbolTable &sym_table) const { return {row_var_}; };
+std::vector<Symbol> LoadParquet::OutputSymbols(const SymbolTable & /*sym_table*/) const { return {row_var_}; };
 
 std::vector<Symbol> LoadParquet::ModifiedSymbols(const SymbolTable &sym_table) const {
   auto symbols = input_->ModifiedSymbols(sym_table);
@@ -7720,14 +7720,14 @@ std::vector<Symbol> LoadParquet::ModifiedSymbols(const SymbolTable &sym_table) c
 class LoadParquetCursor : public Cursor {
   const LoadParquet *self_;
   const UniqueCursorPtr input_cursor_;
-    bool did_pull_;
+  bool did_pull_{false};
 
 public:
-  LoadParquetCursor(const LoadParquet *self, utils::MemoryResource *mem)
-      : self_(self), input_cursor_(self_->input_->MakeCursor(mem)), did_pull_{false} {}
+ LoadParquetCursor(const LoadParquet *self, utils::MemoryResource *mem)
+      : self_(self), input_cursor_(self_->input_->MakeCursor(mem)) {}
 
-  bool Pull(Frame &frame, ExecutionContext &context) override {
-    OOMExceptionEnabler oom_exception;
+  bool Pull(Frame & /*frame*/, ExecutionContext &context) override {
+    OOMExceptionEnabler const oom_exception;
     SCOPED_PROFILE_OP_BY_REF(*self_);
     AbortCheck(context);
 
