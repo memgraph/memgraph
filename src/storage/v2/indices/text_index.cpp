@@ -82,6 +82,7 @@ void TextIndex::AddNodeToTextIndex(std::int64_t gid, const nlohmann::json &prope
 }
 
 void TextIndex::UpdateOnAddLabel(LabelId label, const Vertex *vertex, Transaction &tx) {
+  if (index_.empty()) return;
   auto label_applicable_text_indices = LabelApplicableTextIndices(std::array{label});
   if (label_applicable_text_indices.empty()) return;
   const auto vertex_properties = vertex->properties.ExtractPropertyIds();
@@ -90,6 +91,7 @@ void TextIndex::UpdateOnAddLabel(LabelId label, const Vertex *vertex, Transactio
 }
 
 void TextIndex::UpdateOnRemoveLabel(LabelId label, const Vertex *vertex, Transaction &tx) {
+  if (index_.empty()) return;
   auto label_applicable_text_indices = LabelApplicableTextIndices(std::array{label});
   if (label_applicable_text_indices.empty()) return;
   const auto vertex_properties = vertex->properties.ExtractPropertyIds();
@@ -98,7 +100,7 @@ void TextIndex::UpdateOnRemoveLabel(LabelId label, const Vertex *vertex, Transac
 }
 
 void TextIndex::UpdateOnSetProperty(const Vertex *vertex, Transaction &tx, PropertyId property) {
-  if (vertex->labels.empty()) return;
+  if (index_.empty() || vertex->labels.empty()) return;
   auto has_label = [&](const auto &text_index_data) {
     return r::any_of(vertex->labels, [&](auto label) { return label == text_index_data.scope; });
   };
@@ -112,6 +114,7 @@ void TextIndex::UpdateOnSetProperty(const Vertex *vertex, Transaction &tx, Prope
 }
 
 void TextIndex::RemoveNode(const Vertex *vertex, Transaction &tx) {
+  if (index_.empty()) return;
   auto label_applicable_text_indices = LabelApplicableTextIndices(vertex->labels);
   if (label_applicable_text_indices.empty()) return;
   const auto vertex_properties = vertex->properties.ExtractPropertyIds();
