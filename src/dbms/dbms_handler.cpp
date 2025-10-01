@@ -412,7 +412,6 @@ void DbmsHandler::UpdateDurability(const storage::Config &config, std::optional<
 #endif
 
 void DbmsHandler::RecoverStorageReplication(DatabaseAccess db_acc, replication::RoleMainData &role_main_data) {
-  using enum memgraph::flags::Experiments;
   auto const is_enterprise = license::global_license_checker.IsEnterpriseValidFast();
   if (is_enterprise || db_acc->name() == dbms::kDefaultDB) {
     // Handle global replication state

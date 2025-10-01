@@ -949,19 +949,26 @@ auto CoordinatorInstance::AddCoordinatorInstance(CoordinatorInstanceConfig const
 auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_name,
                                                 std::string_view const setting_value) const
     -> SetCoordinatorSettingStatus {
-  constexpr std::array settings{kEnabledReadsOnMain, kSyncFailoverOnly};
-
-  if (std::ranges::find(settings, setting_name) == settings.end()) {
+  if (constexpr std::array settings{kEnabledReadsOnMain, kSyncFailoverOnly, kMaxFailoverLagOnReplica,
+                                    kMaxReplicaReadLag};
+      std::ranges::find(settings, setting_name) == settings.end()) {
     return SetCoordinatorSettingStatus::UNKNOWN_SETTING;
   }
 
-  bool const value = utils::ToLowerCase(setting_value) == "true"sv;
   CoordinatorClusterStateDelta delta_state;
-
-  if (setting_name == kEnabledReadsOnMain) {
-    delta_state.enabled_reads_on_main_ = value;
-  } else {
-    delta_state.sync_failover_only_ = value;
+  try {
+    if (setting_name == kMaxFailoverLagOnReplica) {
+      delta_state.max_failover_replica_lag_ = utils::ParseStringToUint64(setting_value);
+    } else if (setting_name == kEnabledReadsOnMain) {
+      delta_state.enabled_reads_on_main_ = utils::ToLowerCase(setting_value) == "true"sv;
+    } else if (setting_name == kSyncFailoverOnly) {
+      delta_state.sync_failover_only_ = utils::ToLowerCase(setting_value) == "true"sv;
+    } else if (setting_name == kMaxReplicaReadLag) {
+      delta_state.max_replica_read_lag_ = utils::ParseStringToUint64(setting_value);
+    }
+  } catch (std::exception const &e) {
+    spdlog::error("Error occurred while trying to update {} to {}. Error: {}", setting_name, setting_value, e.what());
+    return SetCoordinatorSettingStatus::INVALID_ARGUMENT;
   }
 
   if (!raft_state_->AppendClusterUpdate(delta_state)) {
@@ -971,8 +978,7 @@ auto CoordinatorInstance::SetCoordinatorSetting(std::string_view const setting_n
   return SetCoordinatorSettingStatus::SUCCESS;
 }
 
-void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name,
-                                                  const std::optional<InstanceState> &instance_state) {
+void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name, InstanceState const &instance_state) {
   utils::MetricsTimer const timer{metrics::InstanceSuccCallback_us};
 
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
@@ -996,12 +1002,21 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
   auto const curr_main_uuid = raft_state_->GetCurrentMainUUID();
 
   if (raft_state_->IsCurrentMain(instance_name)) {
+    // Update cache if there is a value received
+    if (instance_state.main_num_txns.has_value()) {
+      main_num_txns_cache_ = *instance_state.main_num_txns;
+    }
+
+    if (instance_state.replicas_num_txns.has_value()) {
+      replicas_num_txns_cache_ = *instance_state.replicas_num_txns;
+    }
+
     // According to raft, this is the current MAIN
     // Check if a promotion is needed:
     //  - instance is actually a replica
     //  - instance is main, but has stale state (missed a failover)
-    if (!instance_state->is_replica && instance_state->is_writing_enabled && instance_state->uuid &&
-        *instance_state->uuid == curr_main_uuid) {
+    if (!instance_state.is_replica && instance_state.is_writing_enabled && instance_state.uuid &&
+        *instance_state.uuid == curr_main_uuid) {
       // Promotion not needed
       return;
     }
@@ -1031,7 +1046,7 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
     }
   } else {
     // According to raft, the instance should be replica
-    if (!instance_state->is_replica) {
+    if (!instance_state.is_replica) {
       // If instance is not replica, demote it to become replica. If request for demotion failed, return,
       // and you will simply retry on the next ping.
       if (!instance.SendRpc<DemoteMainToReplicaRpc>(curr_main_uuid)) {
@@ -1040,7 +1055,7 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
       }
     }
 
-    if (!instance_state->uuid || *instance_state->uuid != curr_main_uuid) {
+    if (!instance_state.uuid || *instance_state.uuid != curr_main_uuid) {
       if (!instance.SendSwapAndUpdateUUID(curr_main_uuid)) {
         spdlog::error("Failed to set new uuid for replica instance {} to {}.", instance_name,
                       std::string{curr_main_uuid});
@@ -1051,8 +1066,7 @@ void CoordinatorInstance::InstanceSuccessCallback(std::string_view instance_name
   }
 }
 
-void CoordinatorInstance::InstanceFailCallback(std::string_view instance_name,
-                                               const std::optional<InstanceState> & /*instance_state*/) {
+void CoordinatorInstance::InstanceFailCallback(std::string_view instance_name) {
   utils::MetricsTimer const timer{metrics::InstanceFailCallback_us};
 
   if (status.load(std::memory_order_acquire) != CoordinatorStatus::LEADER_READY) {
@@ -1110,7 +1124,7 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
 
   spdlog::trace("The instance with the newest system committed timestamp is {}", largest_sys_ts_instance->first);
 
-  // db_uuid -> vector<std::pair<instance_name, latest_durable_timestamp>>
+  // db_uuid -> vector<std::pair<instance_name, num_committed_txn>>
   std::map<std::string, std::vector<std::pair<std::string, uint64_t>>> dbs_info;
 
   // Use only DBs from the instance with the largest committed system timestamps
@@ -1121,16 +1135,16 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
 
   // Pre-process received failover data
   for (auto const &[instance_name, instance_info] : instances_info) {
-    for (auto const &[db_uuid, ldt] : instance_info.dbs_info) {
+    for (auto const &[db_uuid, num_committed_txns] : instance_info.dbs_info) {
       if (auto db_it = dbs_info.find(db_uuid); db_it != dbs_info.end()) {
-        db_it->second.emplace_back(instance_name, ldt);
+        db_it->second.emplace_back(instance_name, num_committed_txns);
       }
     }
   }
 
   // Instance name -> cnt on how many DBs is instance the newest
   std::map<std::string, uint64_t> total_instances_counter;
-  // Instance name -> sum of timestamps on all DBs
+  // Instance name -> sum of num_committed_txns on all DBs
   std::map<std::string, uint64_t> total_instances_sum;
 
   auto const find_newest_instances_for_db =
@@ -1138,26 +1152,26 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
       -> std::pair<std::vector<std::string>, uint64_t> {
     // There could be multiple instances with the same timestamp, that's why we are returning vector
     std::vector<std::string> newest_db_instances;
-    uint64_t curr_ldt{0};
+    uint64_t curr_num_committed_txns{0};
     // Loop through instances
-    for (auto const &[instance_name, latest_durable_timestamp] : db_info) {
+    for (auto const &[instance_name, num_committed_txns] : db_info) {
       // Sum timestamps for each instance
-      if (auto [instance_it, inserted] = total_instances_sum.try_emplace(instance_name, latest_durable_timestamp);
+      if (auto [instance_it, inserted] = total_instances_sum.try_emplace(instance_name, num_committed_txns);
           !inserted) {
-        instance_it->second += latest_durable_timestamp;
+        instance_it->second += num_committed_txns;
       }
 
-      // If no new instance exists, or instance has newer timestamp -> do the update
-      if (newest_db_instances.empty() || curr_ldt < latest_durable_timestamp) {
+      // If no new instance exists, or instance has larger num_committed_txns -> do the update
+      if (newest_db_instances.empty() || curr_num_committed_txns < num_committed_txns) {
         newest_db_instances.clear();
         newest_db_instances.emplace_back(instance_name);
-        curr_ldt = latest_durable_timestamp;
-      } else if (curr_ldt == latest_durable_timestamp) {
+        curr_num_committed_txns = num_committed_txns;
+      } else if (curr_num_committed_txns == num_committed_txns) {
         // Otherwise, we have more instances with the max timestamp, add it to the vector
         newest_db_instances.emplace_back(instance_name);
       }
     }
-    return {newest_db_instances, curr_ldt};
+    return {newest_db_instances, curr_num_committed_txns};
   };
 
   auto const update_instances_counter = [&total_instances_counter](
@@ -1172,12 +1186,12 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
   // Process each DB
   for (auto const &[db_uuid, db_info] : dbs_info) {
     spdlog::trace("Trying to find newest instance for db with uuid {}", db_uuid);
-    if (auto const [newest_db_instances, curr_ldt] = find_newest_instances_for_db(db_info);
+    if (auto const [newest_db_instances, curr_num_committed_txns] = find_newest_instances_for_db(db_info);
         newest_db_instances.empty()) {
       spdlog::error("Couldn't find newest instance for db with uuid {}", db_uuid);
     } else {
       spdlog::info("The latest durable timestamp is {} for db with uuid {}. The following instances have it {}",
-                   curr_ldt, db_uuid, utils::JoinVector(newest_db_instances, ", "));
+        curr_num_committed_txns, db_uuid, utils::JoinVector(newest_db_instances, ", "));
       update_instances_counter(newest_db_instances);
     }
   }
@@ -1192,7 +1206,7 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
       spdlog::info("Instances {} and {} are most up to date on the same number of instances.", instance_name,
                    newest_instance->first);
       if (total_instances_sum[instance_name] > total_instances_sum[newest_instance->first]) {
-        spdlog::info("Instance {} has the total sum of timestamps larger than {}. It will be considered newer.",
+        spdlog::info("Instance {} has the total sum of num_committed_txns larger than {}. It will be considered newer.",
                      instance_name, newest_instance->first);
         newest_instance.emplace(instance_name, cnt_newest_dbs);
       }
@@ -1206,7 +1220,46 @@ auto CoordinatorInstance::ChooseMostUpToDateInstance(
   return std::nullopt;
 }
 
-auto CoordinatorInstance::GetRoutingTable() const -> RoutingTable { return raft_state_->GetRoutingTable(); }
+auto CoordinatorInstance::GetRoutingTable(std::string_view const db_name) const -> RoutingTable {
+  auto const leader_id = raft_state_->GetLeaderId();
+
+  if (auto const my_id = raft_state_->GetMyCoordinatorId(); my_id == leader_id) {
+    return GetRoutingTableAsLeader(db_name);
+  }
+  return GetRoutingTableAsFollower(leader_id, db_name);
+}
+
+auto CoordinatorInstance::GetRoutingTableAsLeader(std::string_view const db_name) const -> RoutingTable {
+  return raft_state_->GetRoutingTable(db_name, replicas_num_txns_cache_);
+}
+auto CoordinatorInstance::GetRoutingTableAsFollower(auto const leader_id, std::string_view const db_name) const
+    -> RoutingTable {
+  CoordinatorInstanceConnector *leader{nullptr};
+  {
+    auto connectors = coordinator_connectors_.Lock();
+
+    auto connector = std::ranges::find_if(
+        *connectors, [&leader_id](auto const &local_connector) { return local_connector.first == leader_id; });
+    if (connector != connectors->end()) {
+      leader = &connector->second;
+    }
+  }
+
+  if (leader == nullptr) {
+    spdlog::trace(
+        "Connection to leader was not found when routing table was requested. Returning empty routing table.");
+    return RoutingTable{};
+  }
+
+  auto maybe_res = leader->SendGetRoutingTable(db_name);
+
+  if (!maybe_res.has_value()) {
+    spdlog::trace("Couldn't get routing table from leader {}. Returning empty routing table.", leader_id);
+    return RoutingTable{};
+  }
+
+  return std::move(maybe_res.value());
+}
 
 auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::string> {
   utils::MetricsTimer const timer{metrics::GetHistories_us};
@@ -1225,8 +1278,12 @@ auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::s
   auto const sync_failover_only = raft_state_->GetSyncFailoverOnly();
   auto const data_instances = raft_state_->GetDataInstancesContext();
 
+  auto const max_allowed_lag = raft_state_->GetMaxFailoverReplicaLag();
+
   for (auto const &instance : repl_instances_) {
-    bool const skip_instance = [instance_name = instance.InstanceName(), sync_failover_only, &data_instances]() {
+    auto const instance_name = instance.InstanceName();
+
+    bool const skip_instance = [&instance_name, sync_failover_only, &data_instances]() {
       // if sync failover is false then ASYNC instances can also be used for failover
       if (!sync_failover_only) {
         return false;
@@ -1248,9 +1305,40 @@ auto CoordinatorInstance::GetInstanceForFailover() const -> std::optional<std::s
     }
 
     if (auto maybe_instance_info = get_instance_info(instance); maybe_instance_info.has_value()) {
-      instances_info.emplace(instance.InstanceName(), std::move(*maybe_instance_info));
+      auto instance_info = *maybe_instance_info;
+
+      bool replica_behind{false};
+      for (const auto &[db_uuid, num_committed_txns] : instance_info.dbs_info) {
+        auto const main_db_info = main_num_txns_cache_.find(db_uuid);
+        // If database got deleted on main but that change still isn't replicated, we cannot conclude that replica is
+        // too far behind using such a condition
+        if (main_db_info == main_num_txns_cache_.end()) {
+          spdlog::trace("No entry for db: {}", db_uuid);
+          continue;
+        }
+
+        if (main_db_info->second > num_committed_txns && main_db_info->second - num_committed_txns > max_allowed_lag) {
+          spdlog::info(
+              "Instance {} won't be used in a failover because it's too much behind the current main. Main has "
+              "committed "
+              "{} txns, while instance {} has committed {} txns for the database {}",
+              instance_name, main_db_info->second, instance_name, num_committed_txns, main_db_info->first);
+          replica_behind = true;
+          break;
+        }
+      }
+
+      if (replica_behind) {
+        spdlog::info(
+            "Skipping instance {} for a failover because one of its databases is too much behind the main's database. "
+            "The current max replica lag is set to {}",
+            instance_name, max_allowed_lag);
+        continue;
+      }
+
+      instances_info.emplace(instance_name, std::move(instance_info));
     } else {
-      spdlog::error("Couldn't retrieve failover info for instance {}", instance.InstanceName());
+      spdlog::error("Couldn't retrieve failover info for the instance {}", instance_name);
     }
   }
 
@@ -1261,7 +1349,8 @@ auto CoordinatorInstance::ShowCoordinatorSettings() const -> std::vector<std::pa
   std::vector<std::pair<std::string, std::string>> settings{
       std::pair{std::string(kEnabledReadsOnMain), raft_state_->GetEnabledReadsOnMain() ? "true" : "false"},
       std::pair{std::string(kSyncFailoverOnly), raft_state_->GetSyncFailoverOnly() ? "true" : "false"},
-  };
+      std::pair{std::string(kMaxFailoverLagOnReplica), std::to_string(raft_state_->GetMaxFailoverReplicaLag())},
+      std::pair{std::string{kMaxReplicaReadLag}, std::to_string(raft_state_->GetMaxReplicaReadLag())}};
   return settings;
 }
 
@@ -1292,6 +1381,14 @@ auto CoordinatorInstance::ShowReplicationLag() const -> std::map<std::string, st
   }
   spdlog::error("No instance is annotated as main in Raft logs");
   return {};
+}
+
+auto CoordinatorInstance::GetTelemetryJson() const -> nlohmann::json {
+  return nlohmann::json({{"cluster_size", raft_state_->GetCoordinatorInstancesContext().size()},
+                         {"enabled_reads_on_main", raft_state_->GetEnabledReadsOnMain()},
+                         {"sync_failover_only", raft_state_->GetSyncFailoverOnly()},
+                         {"instance_down_timeout_sec", instance_down_timeout_sec_.count()},
+                         {"instance_health_check_frequency_sec", instance_health_check_frequency_sec_.count()}});
 }
 
 }  // namespace memgraph::coordination

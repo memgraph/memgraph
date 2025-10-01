@@ -106,22 +106,12 @@ void MoveDurabilityFiles(std::vector<storage::durability::SnapshotDurabilityInfo
   RemoveDirIfEmpty(backup_wal_dir);
 }
 
-// Read durability files into optional arguments
-auto ReadDurabilityFiles(
-    std::optional<std::vector<storage::durability::SnapshotDurabilityInfo>> &maybe_old_snapshot_files,
-    std::filesystem::path const &current_snapshot_dir,
-    std::optional<std::vector<storage::durability::WalDurabilityInfo>> &maybe_old_wal_files,
-    std::filesystem::path const &current_wal_dir) -> bool {
-  auto maybe_wal_files = storage::durability::GetWalFiles(current_wal_dir);
-  // If there are 0 WAL files, replica will be recovered.
-  if (!maybe_wal_files.has_value()) {
-    spdlog::warn("Failed to read current WAL files. Replica won't be recovered.");
-    return false;
-  }
-  maybe_old_wal_files.emplace(std::move(*maybe_wal_files));
-  // Read all snapshot files
-  maybe_old_snapshot_files.emplace(storage::durability::GetSnapshotFiles(current_snapshot_dir));
-  return true;
+void ReadDurabilityFiles(std::vector<storage::durability::SnapshotDurabilityInfo> &old_snapshot_files,
+                         std::filesystem::path const &current_snapshot_dir,
+                         std::vector<storage::durability::WalDurabilityInfo> &old_wal_files,
+                         std::filesystem::path const &current_wal_dir) {
+  old_wal_files = storage::durability::GetWalFiles(current_wal_dir);
+  old_snapshot_files = storage::durability::GetSnapshotFiles(current_snapshot_dir);
 }
 
 struct BackupDirectories {
@@ -349,20 +339,16 @@ void InMemoryReplicationHandlers::PrepareCommitHandler(dbms::DbmsHandler *dbms_h
 
   auto *storage = static_cast<storage::InMemoryStorage *>(db_acc->get()->storage());
   auto &repl_storage_state = storage->repl_storage_state_;
-  if (*maybe_epoch_id != repl_storage_state.epoch_.id()) {
-    repl_storage_state.SaveLatestHistory();
-    repl_storage_state.epoch_.SetEpoch(*maybe_epoch_id);
-  }
 
-  // We do not care about incoming sequence numbers, after a snapshot recovery, the sequence number is 0
-  // This is because the snapshots completely wipes the storage and durability
-  // It is also the first recovery step, so the WAL chain needs to restart from 0, otherwise the instance won't be
-  // able to recover from durable data
-  if (storage->wal_file_) {
-    if (*maybe_epoch_id != repl_storage_state.epoch_.id()) {
+  if (*maybe_epoch_id != repl_storage_state.epoch_.id()) {
+    // We should first finalize WAL file and then update the epoch
+    if (storage->wal_file_) {
       storage->wal_file_->FinalizeWal();
       storage->wal_file_.reset();
     }
+
+    repl_storage_state.SaveLatestHistory();
+    repl_storage_state.epoch_.SetEpoch(*maybe_epoch_id);
   }
 
   // last_durable_timestamp could be set by snapshot; so we cannot guarantee exactly what's the previous timestamp
@@ -511,19 +497,11 @@ void InMemoryReplicationHandlers::SnapshotHandler(rpc::FileReplicationHandler co
 
   // Read durability files
   auto const curr_snapshot_files = storage::durability::GetSnapshotFiles(current_snapshot_dir);
-  auto const maybe_curr_wal_files = storage::durability::GetWalFiles(current_wal_directory);
-  // If there are 0 WAL files, replica will be recovered.
-  if (!maybe_curr_wal_files.has_value()) {
-    spdlog::error("Cannot read current WAL files. Replica won't be recovered.");
-    rpc::SendFinalResponse(storage::replication::SnapshotRes{std::nullopt, 0}, request_version, res_builder,
-                           fmt::format("db: {}", storage->name()));
-    return;
-  }
+  auto const curr_wal_files = storage::durability::GetWalFiles(current_wal_directory);
 
-  auto const &curr_wal_files = *maybe_curr_wal_files;
   auto const &active_files = file_replication_handler.GetActiveFileNames();
   MG_ASSERT(active_files.size() == 1, "Received {} snapshot files but expecting only one!", active_files.size());
-  auto const src_snapshot_file = active_files[0];
+  auto const &src_snapshot_file = active_files[0];
   auto const dst_snapshot_file = current_snapshot_dir / active_files[0].filename();
 
   if (!utils::RenamePath(src_snapshot_file, dst_snapshot_file)) {
@@ -657,8 +635,8 @@ void InMemoryReplicationHandlers::WalFilesHandler(rpc::FileReplicationHandler co
   }
   auto const &[backup_snapshot_dir, backup_wal_dir] = *maybe_backup_dirs;
 
-  std::optional<std::vector<storage::durability::SnapshotDurabilityInfo>> maybe_old_snapshot_files;
-  std::optional<std::vector<storage::durability::WalDurabilityInfo>> maybe_old_wal_files;
+  std::vector<storage::durability::SnapshotDurabilityInfo> old_snapshot_files;
+  std::vector<storage::durability::WalDurabilityInfo> old_wal_files;
 
   if (req.reset_needed) {
     {
@@ -674,12 +652,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(rpc::FileReplicationHandler co
                     storage->name());
       storage->Clear();
     }
-    if (!ReadDurabilityFiles(maybe_old_snapshot_files, current_snapshot_dir, maybe_old_wal_files,
-                             current_wal_directory)) {
-      rpc::SendFinalResponse(storage::replication::WalFilesRes{std::nullopt, 0}, request_version, res_builder,
-                             fmt::format("db: {}", storage->name()));
-      return;
-    }
+    ReadDurabilityFiles(old_snapshot_files, current_snapshot_dir, old_wal_files, current_wal_directory);
   }
 
   const auto wal_file_number = req.file_number;
@@ -691,6 +664,10 @@ void InMemoryReplicationHandlers::WalFilesHandler(rpc::FileReplicationHandler co
   uint64_t num_committed_txns{0};
   for (auto i = 0; i < wal_file_number; ++i) {
     auto const load_wal_res = LoadWal(active_files[i], storage, res_builder, local_batch_counter);
+    // Failure to delete the received WAL file isn't fatal since it is saved in the tmp directory so it will eventually
+    // get deleted
+    utils::DeleteFile(active_files[i]);
+
     if (!load_wal_res.success) {
       spdlog::debug("Replication recovery from WAL files failed while loading one of WAL files for db {}.",
                     storage->name());
@@ -709,7 +686,7 @@ void InMemoryReplicationHandlers::WalFilesHandler(rpc::FileReplicationHandler co
   rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
 
   if (req.reset_needed) {
-    MoveDurabilityFiles(*maybe_old_snapshot_files, backup_snapshot_dir, *maybe_old_wal_files, backup_wal_dir,
+    MoveDurabilityFiles(old_snapshot_files, backup_snapshot_dir, old_wal_files, backup_wal_dir,
                         &(storage->file_retainer_));
   }
 }
@@ -760,8 +737,8 @@ void InMemoryReplicationHandlers::CurrentWalHandler(rpc::FileReplicationHandler 
   }
   auto const &[backup_snapshot_dir, backup_wal_dir] = *maybe_backup_dirs;
 
-  std::optional<std::vector<storage::durability::SnapshotDurabilityInfo>> maybe_old_snapshot_files;
-  std::optional<std::vector<storage::durability::WalDurabilityInfo>> maybe_old_wal_files;
+  std::vector<storage::durability::SnapshotDurabilityInfo> old_snapshot_files;
+  std::vector<storage::durability::WalDurabilityInfo> old_wal_files;
 
   if (req.reset_needed) {
     {
@@ -775,12 +752,7 @@ void InMemoryReplicationHandlers::CurrentWalHandler(rpc::FileReplicationHandler 
                     storage->name());
       storage->Clear();
     }
-    if (!ReadDurabilityFiles(maybe_old_snapshot_files, current_snapshot_dir, maybe_old_wal_files,
-                             current_wal_directory)) {
-      rpc::SendFinalResponse(storage::replication::CurrentWalRes{}, request_version, res_builder,
-                             fmt::format("db: {}", storage->name()));
-      return;
-    }
+    ReadDurabilityFiles(old_snapshot_files, current_snapshot_dir, old_wal_files, current_wal_directory);
   }
 
   // Even if loading wal file failed, we return last_durable_timestamp to the main because it is not a fatal error
@@ -803,9 +775,13 @@ void InMemoryReplicationHandlers::CurrentWalHandler(rpc::FileReplicationHandler 
   rpc::SendFinalResponse(res, request_version, res_builder, fmt::format("db: {}", storage->name()));
 
   if (req.reset_needed) {
-    MoveDurabilityFiles(*maybe_old_snapshot_files, backup_snapshot_dir, *maybe_old_wal_files, backup_wal_dir,
+    MoveDurabilityFiles(old_snapshot_files, backup_snapshot_dir, old_wal_files, backup_wal_dir,
                         &(storage->file_retainer_));
   }
+
+  // Failure to delete the received WAL file isn't fatal since it is saved in the tmp directory so it will eventually
+  // get deleted
+  utils::DeleteFile(active_files[0]);
 }
 
 // The method will return false and hence signal the failure of completely loading the WAL file if:
@@ -924,6 +900,8 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
         return storage::StorageAccessType::READ;
       case storage::durability::TransactionAccessType::READ_ONLY:
         return storage::StorageAccessType::READ_ONLY;
+      default:
+        throw std::runtime_error("Unrecognized access type!");
     }
   };
 
@@ -1050,7 +1028,6 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           if (!vertex) {
             throw utils::BasicException("Failed to find vertex {} when setting property.", gid);
           }
-          // NOTE: Phase 1 of the text search feature doesn't have replication in scope
           auto ret =
               vertex->SetProperty(transaction->NameToProperty(data.property), ToPropertyValue(data.value, mapper));
           if (ret.HasError()) {
@@ -1346,9 +1323,6 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           }
         },
         [&](WalTextIndexCreate const &data) {
-          if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-            throw query::TextSearchDisabledException();
-          }
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           auto label_id = storage->NameToLabel(data.label);
           const auto properties_str = std::invoke([&]() -> std::string {
@@ -1373,9 +1347,6 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           }
         },
         [&](WalTextEdgeIndexCreate const &data) {
-          if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-            throw query::TextSearchDisabledException();
-          }
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           const auto edge_type = storage->NameToEdgeType(data.edge_type);
           const auto properties_str = std::invoke([&]() -> std::string {
@@ -1397,9 +1368,6 @@ std::optional<storage::SingleTxnDeltasProcessingResult> InMemoryReplicationHandl
           }
         },
         [&](WalTextIndexDrop const &data) {
-          if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-            throw query::TextSearchDisabledException();
-          }
           spdlog::trace("   Delta {}. Drop text search index {}.", current_delta_idx, data.index_name);
           auto *transaction = get_replication_accessor(delta_timestamp, kUniqueAccess);
           if (transaction->DropTextIndex(data.index_name).HasError()) {

@@ -875,6 +875,23 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph durability-large
 
+      - name: Copy stress and durability test logs
+        if: failure()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          copy --logs-dir /home/mg/memgraph/tests/stress --dest-dir build/stress/logs
+
+      - name: Save stress and durability test logs
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: "Stress and Durability Test Logs-${{ env.OS }}"
+          path: build/stress/logs
+
       - name: Stop mgbuild container
         if: always()
         run: |
@@ -1063,6 +1080,23 @@ jobs:
           --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph stress-large
+
+      - name: Copy stress test logs
+        if: failure()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          copy --logs-dir /home/mg/memgraph/tests/stress --dest-dir build/stress/logs
+
+      - name: Save stress test logs
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: "Stress Test Large Logs-${{ env.OS }}"
+          path: build/stress/logs
 
       - name: Stop mgbuild container
         if: always()

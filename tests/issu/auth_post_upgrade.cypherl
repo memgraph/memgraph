@@ -1,0 +1,3 @@
+DROP USER tenant1_admin_user;
+DROP USER tenant1_regular_user;
+DROP USER system_admin_user;

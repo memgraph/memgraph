@@ -47,6 +47,17 @@ inline void Load(ReplicationClientInfo *obj, Reader *reader) {
   Load(&obj->replication_server, reader);
 }
 
+// InstanceInfo
+inline void Save(const replication_coordination_glue::InstanceInfoV1 &obj, Builder *builder) {
+  Save(obj.last_committed_system_timestamp, builder);
+  Save(obj.dbs_info, builder);
+}
+
+inline void Load(replication_coordination_glue::InstanceInfoV1 *obj, Reader *reader) {
+  Load(&obj->last_committed_system_timestamp, reader);
+  Load(&obj->dbs_info, reader);
+}
+
 inline void Save(const replication_coordination_glue::InstanceInfo &obj, Builder *builder) {
   Save(obj.last_committed_system_timestamp, builder);
   Save(obj.dbs_info, builder);
@@ -57,14 +68,25 @@ inline void Load(replication_coordination_glue::InstanceInfo *obj, Reader *reade
   Load(&obj->dbs_info, reader);
 }
 
-inline void Save(const replication_coordination_glue::InstanceDBInfo &obj, Builder *builder) {
+// InstanceDBInfo
+inline void Save(const replication_coordination_glue::InstanceDBInfoV1 &obj, Builder *builder) {
   Save(obj.db_uuid, builder);
   Save(obj.latest_durable_timestamp, builder);
 }
 
-inline void Load(replication_coordination_glue::InstanceDBInfo *obj, Reader *reader) {
+inline void Load(replication_coordination_glue::InstanceDBInfoV1 *obj, Reader *reader) {
   Load(&obj->db_uuid, reader);
   Load(&obj->latest_durable_timestamp, reader);
+}
+
+inline void Save(const replication_coordination_glue::InstanceDBInfo &obj, Builder *builder) {
+  Save(obj.db_uuid, builder);
+  Save(obj.num_committed_txns, builder);
+}
+
+inline void Load(replication_coordination_glue::InstanceDBInfo *obj, Reader *reader) {
+  Load(&obj->db_uuid, reader);
+  Load(&obj->num_committed_txns, reader);
 }
 
 inline void Save(const InstanceStatus &obj, Builder *builder) {
@@ -87,16 +109,32 @@ inline void Load(InstanceStatus *obj, Reader *reader) {
   Load(&obj->cluster_role, reader);
 }
 
+inline void Save(const coordination::InstanceStateV1 &obj, Builder *builder) {
+  Save(obj.is_replica, builder);
+  Save(obj.uuid, builder);
+  Save(obj.is_writing_enabled, builder);
+}
+
+inline void Load(coordination::InstanceStateV1 *obj, Reader *reader) {
+  Load(&obj->is_replica, reader);
+  Load(&obj->uuid, reader);
+  Load(&obj->is_writing_enabled, reader);
+}
+
 inline void Save(const coordination::InstanceState &obj, Builder *builder) {
   Save(obj.is_replica, builder);
   Save(obj.uuid, builder);
   Save(obj.is_writing_enabled, builder);
+  Save(obj.main_num_txns, builder);
+  Save(obj.replicas_num_txns, builder);
 }
 
 inline void Load(coordination::InstanceState *obj, Reader *reader) {
   Load(&obj->is_replica, reader);
   Load(&obj->uuid, reader);
   Load(&obj->is_writing_enabled, reader);
+  Load(&obj->main_num_txns, reader);
+  Load(&obj->replicas_num_txns, reader);
 }
 
 inline void Save(const coordination::ReplicaDBLagData &obj, Builder *builder) {

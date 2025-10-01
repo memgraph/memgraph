@@ -34,6 +34,12 @@ on:
       run_id:
         type: string
         description: "The ID of the run that triggered this workflow."
+        default: '0'
+      ref:
+        description: 'Branch or commit ref to run the workflow on'
+        required: false
+        default: ''
+        type: string
 
 env:
   ARCH: ${{ inputs.arch }}
@@ -54,6 +60,7 @@ jobs:
       - name: Set up repository
         uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
 
       - name: Log in to Docker Hub
@@ -180,6 +187,7 @@ jobs:
       - name: Set up repository
         uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
 
       - name: Log in to Docker Hub
@@ -296,6 +304,7 @@ jobs:
       - name: Set up repository
         uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
 
       - name: Log in to Docker Hub
@@ -359,7 +368,7 @@ jobs:
           docker-compose down
 
       - name: Copy build logs
-        if: always()
+        if: failure()
         run: |
           ./release/package/mgbuild.sh \
           --toolchain $TOOLCHAIN \
@@ -370,7 +379,7 @@ jobs:
       - name: Save test data
         continue-on-error: true
         uses: actions/upload-artifact@v4
-        if: always()
+        if: failure()
         with:
           name: "Test data(Release build)-${{ inputs.run_id }}"
           path: build/e2e/logs
@@ -399,6 +408,7 @@ jobs:
       - name: Set up repository
         uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
 
       - name: Log in to Docker Hub
@@ -472,6 +482,30 @@ jobs:
           --organization-name $MEMGRAPH_ORGANIZATION_NAME \
           test-memgraph durability-large
 
+      - name: Copy stress and durability test logs
+        if: failure()
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          copy --logs-dir /home/mg/memgraph/tests/stress --dest-dir build/stress/logs
+
+          # Also copy durability test logs from build directory
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          copy --logs-dir /home/mg/memgraph/build --dest-dir build/stress/logs
+
+      - name: Save stress and durability test logs
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        if: failure()
+        with:
+          name: "Stress and Durability Test Logs-${{ inputs.run_id }}"
+          path: build/stress/logs
+
       - name: Stop mgbuild container
         if: always()
         run: |
@@ -496,6 +530,7 @@ jobs:
       - name: Set up repository
         uses: actions/checkout@v4
         with:
+          ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
 
       - name: Log in to Docker Hub

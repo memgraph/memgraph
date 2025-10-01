@@ -76,7 +76,6 @@ DEFAULT_MGDEPS_CACHE_HOST="mgdeps-cache"
 DEFAULT_MGDEPS_CACHE_PORT="8000"
 DEFAULT_CCACHE_ENABLED="true"
 DEFAULT_CONAN_CACHE_ENABLED="true"
-DEFAULT_PYTHON_CACHE_ENABLED="true"
 
 print_help () {
   echo -e "\nUsage:  $SCRIPT_NAME [GLOBAL OPTIONS] COMMAND [COMMAND OPTIONS]"
@@ -112,7 +111,6 @@ print_help () {
   echo -e "  --toolchain string            Specify toolchain version (\"${SUPPORTED_TOOLCHAINS[*]}\") (default \"$DEFAULT_TOOLCHAIN\")"
   echo -e "  --no-ccache                   Disable ccache volume mounting (default \"$DEFAULT_CCACHE_ENABLED\") -> this is required for run, stop and build-memgraph commands on the coverage build"
   echo -e "  --no-conan-cache              Disable conan cache volume mounting (default \"$DEFAULT_CONAN_CACHE_ENABLED\") -> this allows sharing conan cache between containers"
-  echo -e "  --no-python-cache             Disable Python package cache volume mounting (default \"$DEFAULT_PYTHON_CACHE_ENABLED\")"
 
   echo -e "\nbuild options:"
   echo -e "  --git-ref string              Specify git ref from which the environment deps will be installed (default \"master\")"
@@ -329,40 +327,12 @@ EOF
     compose_files="$compose_files -f cache-override.yml"
   fi
 
-  # Create Python cache override if enabled
-  if [[ "$python_cache_enabled" == "true" ]]; then
-    cat > python-cache-override.yml << EOF
-services:
-EOF
-    # Add Python cache volumes for all services in the compose file
-    if [[ "$os" == "all" ]]; then
-      # For all OS, we need to add volumes to all services
-      grep "^  mgbuild_" ${arch}-builders-${toolchain_version}.yml | while read -r line; do
-        service_name=$(echo "$line" | sed 's/://')
-        echo "  $service_name:" >> python-cache-override.yml
-        echo "    volumes:" >> python-cache-override.yml
-        echo "      - $HOME/ci_cache/uv:/home/mg/.cache/uv" >> python-cache-override.yml
-        echo "      - $HOME/ci_cache/pip:/home/mg/.cache/pip" >> python-cache-override.yml
-      done
-    else
-      # For specific OS, only add volume to the target service
-      echo "  $build_container:" >> python-cache-override.yml
-      echo "    volumes:" >> python-cache-override.yml
-      echo "      - $HOME/ci_cache/uv:/home/mg/.cache/uv" >> python-cache-override.yml
-      echo "      - $HOME/ci_cache/pip:/home/mg/.cache/pip" >> python-cache-override.yml
-    fi
-    compose_files="$compose_files -f python-cache-override.yml"
-  fi
-
   echo "$compose_files"
 }
 
 cleanup_cache_override() {
   if [[ "$ccache_enabled" == "true" ]] || [[ "$conan_cache_enabled" == "true" ]]; then
     rm -f cache-override.yml
-  fi
-  if [[ "$python_cache_enabled" == "true" ]]; then
-    rm -f python-cache-override.yml
   fi
 }
 
@@ -377,19 +347,6 @@ setup_host_cache_permissions() {
     chmod -R a+rwX ~/.cache 2>/dev/null || true
 
     echo "Host ccache directory permissions set to a+rwX (open access)"
-  fi
-
-  # Set up Python cache permissions if enabled
-  if [[ "$python_cache_enabled" == "true" ]]; then
-    echo "Setting up host Python cache directory permissions..."
-    mkdir -p "$HOME/ci_cache/uv"
-    mkdir -p "$HOME/ci_cache/pip"
-
-    # Set open permissions on the CI cache directories to allow cross-container access
-    # Suppress both errors and warnings about operations not permitted
-    chmod -R a+rwX "$HOME/ci_cache" 2>/dev/null || true
-
-    echo "Host Python cache directory permissions set to a+rwX (open access)"
   fi
 
   if [[ "$conan_cache_enabled" == "true" ]]; then
@@ -698,6 +655,7 @@ init_tests() {
 
 init_tests() {
   echo "Initializing tests..."
+  docker exec -u root "$build_container" bash -c "apt update && apt install -y python3-venv"
   docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && ./init-test --ci"
   echo "...Done"
 }
@@ -873,6 +831,7 @@ copy_memgraph() {
       ;;
       --logs-dir)
         container_artifact_path=$2
+        artifact="logs"
         shift 2
       ;;
       --dest-dir)
@@ -938,7 +897,17 @@ copy_memgraph() {
   echo "Container artifact path: '$container_artifact_path'"
   echo -e "Copying memgraph $artifact from $build_container to host ..."
   mkdir -p "$host_dir"
-  if [[ "$artifact" == "package" ]]; then
+
+  if [[ "$artifact" == "logs" ]]; then
+    local temp_log_dir="/tmp/mg_logs_$$"
+    docker exec -u mg "$build_container" bash -c "mkdir -p $temp_log_dir"
+    # Find and copy all .log files to the temporary directory and copy to host
+    # Exclude log files that start with "0" (internal database logs like replication and streams)
+    docker exec -u mg "$build_container" bash -c "find $container_artifact_path -name '*.log' ! -name '0*' -exec cp {} $temp_log_dir/ \;"
+    docker cp "$build_container:$temp_log_dir/." "$host_dir/"
+    docker exec -u mg "$build_container" bash -c "rm -rf $temp_log_dir"
+    echo -e "Log files copied to $host_dir!"
+  elif [[ "$artifact" == "package" ]]; then
     docker cp $build_container:$container_artifact_path $host_artifact_path
   else
     docker cp -L $build_container:$container_artifact_path $host_artifact_path
@@ -992,26 +961,26 @@ test_memgraph() {
       docker cp $build_container:$test_output_path $test_output_host_dest
     ;;
     stress-plain)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source ve3/bin/activate "'&& ./continuous_integration'
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate "'&& ./continuous_integration'
       # TODO: Add when mgconsole is available on CI
       # docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source ve3/bin/activate "'&& ./continuous_integration --config-file=configurations/templates/config_ha.yaml'
     ;;
     stress-ssl)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source ve3/bin/activate "'&& ./continuous_integration --config-file=configurations/templates/config_ssl.yaml'
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --config-file=configurations/templates/config_ssl.yaml"
     ;;
     stress-large)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source ve3/bin/activate "'&& ./continuous_integration --config-file=configurations/templates/config_large.yaml'
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration --config-file=configurations/templates/config_large.yaml"
     ;;
     durability)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source ve3/bin/activate "'&& python3 durability --num-steps 5'
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && python3 durability --num-steps 5 --log-file=durability_test.log --verbose"
     ;;
     durability-large)
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source ve3/bin/activate "'&& python3 durability --num-steps 5'
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/stress && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && python3 durability --num-steps 5 --log-file=durability_test_large.log --verbose"
     ;;
     gql-behave)
       local test_output_dir="$MGBUILD_ROOT_DIR/tests/gql_behave"
       local test_output_host_dest="$PROJECT_ROOT/tests/gql_behave"
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/gql_behave && $ACTIVATE_VENV"'&& ./continuous_integration'
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && cd $MGBUILD_ROOT_DIR/tests/gql_behave && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && ./continuous_integration"
       docker cp $build_container:$test_output_dir/gql_behave_status.csv $test_output_host_dest/gql_behave_status.csv
       docker cp $build_container:$test_output_dir/gql_behave_status.html $test_output_host_dest/gql_behave_status.html
     ;;
@@ -1085,13 +1054,13 @@ test_memgraph() {
       docker exec -u root $build_container bash -c "apt-get update && apt-get install -y lsof" # TODO(matt): install within mgbuild container
       docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --upgrade pip"
       docker exec -u mg $build_container bash -c "pip install --break-system-packages --user networkx==2.5.1"
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests && $ACTIVATE_VENV && cd $MGBUILD_ROOT_DIR/tests/e2e "'&& ./run.sh'
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && $ACTIVATE_TOOLCHAIN && cd $MGBUILD_ROOT_DIR/tests && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && cd $MGBUILD_ROOT_DIR/tests/e2e && ./run.sh"
     ;;
     query_modules_e2e)
       # NOTE: Python query modules deps have to be installed globally because memgraph expects them to be.
       docker exec -u mg $build_container bash -c "PIP_BREAK_SYSTEM_PACKAGES=1 python3 -m pip install --upgrade pip"
       docker exec -u mg $build_container bash -c "pip install --break-system-packages --user -r $MGBUILD_ROOT_DIR/tests/query_modules/requirements.txt"
-      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/tests/query_modules && $ACTIVATE_VENV"'&& python3 -m pytest .'
+      docker exec -u mg $build_container bash -c "$EXPORT_LICENSE && $EXPORT_ORG_NAME && $ACTIVATE_CARGO && cd $MGBUILD_ROOT_DIR/tests/query_modules && source $MGBUILD_ROOT_DIR/tests/ve3/bin/activate && python3 -m pytest ."
     ;;
     *)
       echo "Error: Unknown test '$1'"
@@ -1122,7 +1091,6 @@ mgdeps_cache_host=$DEFAULT_MGDEPS_CACHE_HOST
 mgdeps_cache_port=$DEFAULT_MGDEPS_CACHE_PORT
 ccache_enabled=$DEFAULT_CCACHE_ENABLED
 conan_cache_enabled=$DEFAULT_CONAN_CACHE_ENABLED
-python_cache_enabled=$DEFAULT_PYTHON_CACHE_ENABLED
 command=""
 build_container=""
 while [[ $# -gt 0 ]]; do
@@ -1177,10 +1145,6 @@ while [[ $# -gt 0 ]]; do
     ;;
     --no-ccache)
       ccache_enabled="false"
-      shift 1
-    ;;
-    --no-python-cache)
-      python_cache_enabled="false"
       shift 1
     ;;
     --no-conan-cache)
@@ -1393,20 +1357,6 @@ case $command in
           chown -R mg:mg /home/mg/.conan2
           chmod -R a+rwX /home/mg/.conan2
           echo 'Conan cache directory permissions set for cross-container access'
-        "
-      fi
-
-      # Set up Python cache directories and permissions for cross-container access if enabled
-      if [[ "$python_cache_enabled" == "true" ]]; then
-        echo "Setting up Python cache directories for cross-container access..."
-        docker exec -u root $build_container bash -c "
-          mkdir -p /home/mg/.cache/uv
-          mkdir -p /home/mg/.cache/pip
-          chown -R mg:mg /home/mg/.cache/uv
-          chown -R mg:mg /home/mg/.cache/pip
-          chmod -R a+rwX /home/mg/.cache/uv
-          chmod -R a+rwX /home/mg/.cache/pip
-          echo 'Python cache directories set up for cross-container access'
         "
       fi
 

@@ -165,40 +165,10 @@ def assert_multiple_edges_with_labels(cursor, label_from, label_to, edge_counts_
 
 def cleanup_indexes_and_data(cursor):
     """Clean up all indexes and data from the database."""
-    try:
-        # Get all current indexes
-        index_stats = get_index_stats(cursor)
 
-        # Drop all label and edge indexes
-        for index_info in index_stats:
-            index_type = index_info[0]
-            index_name = index_info[1]
-
-            try:
-                if index_type == "label":
-                    execute_and_fetch_all(cursor, f"DROP INDEX ON :{index_name}")
-                elif index_type == "edge-type":
-                    execute_and_fetch_all(cursor, f"DROP EDGE INDEX ON :{index_name}")
-            except Exception:
-                pass  # Index might already be dropped
-
-        # Delete all data
-        execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
-
-        # Free memory
-        execute_and_fetch_all(cursor, "FREE MEMORY")
-    except Exception:
-        # If something goes wrong, still try to delete all data
-        try:
-            execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
-            execute_and_fetch_all(cursor, "FREE MEMORY")
-        except Exception:
-            pass
-
-
-def ensure_clean_state(cursor):
-    """Ensure database is in a clean state before test."""
-    cleanup_indexes_and_data(cursor)
+    execute_and_fetch_all(cursor, "MATCH (n) DETACH DELETE n")
+    execute_and_fetch_all(cursor, "DROP ALL INDEXES")
+    execute_and_fetch_all(cursor, "FREE MEMORY")
 
 
 #####################
@@ -207,7 +177,7 @@ def ensure_clean_state(cursor):
 
 
 def test_auto_create_single_label_index(cursor):
-    ensure_clean_state(cursor)
+    cleanup_indexes_and_data(cursor)
     label = "SOMELABEL"
 
     try:
@@ -222,7 +192,7 @@ def test_auto_create_single_label_index(cursor):
 
 
 def test_auto_create_several_different_label_index(cursor):
-    ensure_clean_state(cursor)
+    cleanup_indexes_and_data(cursor)
     label1 = "SOMELABEL1"
     label2 = "SOMELABEL2"
     label3 = "SOMELABEL3"
@@ -242,7 +212,7 @@ def test_auto_create_several_different_label_index(cursor):
 
 
 def test_auto_create_multiple_label_index(cursor):
-    ensure_clean_state(cursor)
+    cleanup_indexes_and_data(cursor)
     label1 = "SOMELABEL1"
     label2 = "SOMELABEL2"
     label3 = "SOMELABEL3"
@@ -267,7 +237,7 @@ def test_auto_create_multiple_label_index(cursor):
 
 
 def test_auto_create_single_label_index_with_multiple_entries(cursor):
-    ensure_clean_state(cursor)
+    cleanup_indexes_and_data(cursor)
     label = "SOMELABEL"
 
     try:
@@ -283,7 +253,7 @@ def test_auto_create_single_label_index_with_multiple_entries(cursor):
 
 
 def test_auto_create_multiple_label_index_with_multiple_entries(cursor):
-    ensure_clean_state(cursor)
+    cleanup_indexes_and_data(cursor)
     label1 = "SOMELABEL1"
     label2 = "SOMELABEL2"
     label3 = "SOMELABEL3"
@@ -313,7 +283,7 @@ def test_auto_create_multiple_label_index_with_multiple_entries(cursor):
 
 
 def test_auto_create_label_index_plan_invalidation(cursor):
-    ensure_clean_state(cursor)
+    cleanup_indexes_and_data(cursor)
     label = "Label"
 
     try:
@@ -322,7 +292,6 @@ def test_auto_create_label_index_plan_invalidation(cursor):
 
         execute_and_fetch_all(cursor, f"CREATE (n:{label})")
 
-        # Wait for index to be created
         assert_single_label_index(cursor, label)
 
         results = execute_and_fetch_all(cursor, f"EXPLAIN MATCH (n:{label}) RETURN n")
@@ -337,7 +306,7 @@ def test_auto_create_label_index_plan_invalidation(cursor):
 
 
 def test_auto_create_single_edge_type_index(cursor):
-    ensure_clean_state(cursor)
+    cleanup_indexes_and_data(cursor)
     label_from = "LABEL_FROM"
     label_to = "LABEL_TO"
     edge_type = "SOMEEDGETYPE"
@@ -357,7 +326,7 @@ def test_auto_create_single_edge_type_index(cursor):
 
 
 def test_auto_create_multiple_edge_type_index(cursor):
-    ensure_clean_state(cursor)
+    cleanup_indexes_and_data(cursor)
     label_from = "LABEL_FROM"
     label_to = "LABEL_TO"
     edge_type1 = "SOMEEDGETYPE1"
@@ -394,7 +363,7 @@ def test_auto_create_multiple_edge_type_index(cursor):
 
 
 def test_auto_create_single_edge_type_index_with_multiple_entries(cursor):
-    ensure_clean_state(cursor)
+    cleanup_indexes_and_data(cursor)
     label_from = "LABEL_FROM"
     label_to = "LABEL_TO"
     edge_type = "SOMEEDGETYPE"
@@ -417,7 +386,7 @@ def test_auto_create_single_edge_type_index_with_multiple_entries(cursor):
 
 
 def test_auto_create_multiple_edge_type_index_with_multiple_entries(cursor):
-    ensure_clean_state(cursor)
+    cleanup_indexes_and_data(cursor)
     label_from = "LABEL_FROM"
     label_to = "LABEL_TO"
     edge_type1 = "SOMEEDGETYPE1"
@@ -457,7 +426,7 @@ def test_auto_create_multiple_edge_type_index_with_multiple_entries(cursor):
 
 
 def test_auto_create_edge_type_index_plan_invalidation(cursor):
-    ensure_clean_state(cursor)
+    cleanup_indexes_and_data(cursor)
     edge_type = "Label"
 
     try:

@@ -165,10 +165,10 @@ auto CoordinatorState::ShowReplicationLag() const -> std::map<std::string, std::
   return std::get<CoordinatorInstance>(data_).ShowReplicationLag();
 }
 
-auto CoordinatorState::GetRoutingTable() const -> RoutingTable {
+auto CoordinatorState::GetRoutingTable(std::string_view db_name) const -> RoutingTable {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot get routing table since variant holds wrong alternative");
-  return std::get<CoordinatorInstance>(data_).GetRoutingTable();
+  return std::get<CoordinatorInstance>(data_).GetRoutingTable(db_name);
 }
 
 auto CoordinatorState::GetLeaderCoordinatorData() const -> std::optional<coordination::LeaderCoordinatorData> {
@@ -181,6 +181,12 @@ auto CoordinatorState::YieldLeadership() const -> YieldLeadershipStatus {
   MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
             "Coordinator cannot yield leadership since variant holds wrong alternative");
   return std::get<CoordinatorInstance>(data_).YieldLeadership();
+}
+
+auto CoordinatorState::GetTelemetryJson() const -> nlohmann::json {
+  MG_ASSERT(std::holds_alternative<CoordinatorInstance>(data_),
+            "Coordinator cannot return telemetry json data since variant holds wrong alternative");
+  return std::get<CoordinatorInstance>(data_).GetTelemetryJson();
 }
 
 auto CoordinatorState::IsCoordinator() const -> bool { return std::holds_alternative<CoordinatorInstance>(data_); }

@@ -15,6 +15,7 @@
 
 #include <optional>
 #include <string_view>
+#include <variant>
 
 #include "coordination/coordinator_communication_config.hpp"
 #include "coordination/coordinator_instance.hpp"
@@ -22,7 +23,7 @@
 #include "coordination/data_instance_management_server.hpp"
 #include "coordination/instance_status.hpp"
 
-#include <variant>
+#include "nlohmann/json_fwd.hpp"
 
 namespace memgraph::coordination {
 
@@ -70,7 +71,9 @@ class CoordinatorState {
   // NOTE: The client code must check that the server exists before calling this method.
   auto GetDataInstanceManagementServer() const -> DataInstanceManagementServer &;
 
-  auto GetRoutingTable() const -> RoutingTable;
+  auto GetRoutingTable(std::string_view db_name) const -> RoutingTable;
+
+  auto GetTelemetryJson() const -> nlohmann::json;
 
   [[nodiscard]] auto IsCoordinator() const -> bool;
   [[nodiscard]] auto IsDataInstance() const -> bool;

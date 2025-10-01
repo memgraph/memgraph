@@ -341,7 +341,7 @@ class Interpreter final {
   void CheckAuthorized(std::vector<AuthQuery::Privilege> const &privileges, std::optional<std::string> db = {});
 
 #ifdef MG_ENTERPRISE
-  auto Route(std::map<std::string, std::string> const &routing) -> RouteResult;
+  auto Route(std::map<std::string, std::string> const &routing, std::optional<std::string> const &db) -> RouteResult;
 #endif
 
   /**

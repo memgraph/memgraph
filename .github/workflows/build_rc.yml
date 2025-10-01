@@ -233,3 +233,53 @@ jobs:
             --rc_number "${{ inputs.rc_number }}" \
             --branch_name "${{ needs.PrepareReleaseBranch.outputs.branch_name }}" \
             --tag_name "${{ needs.PrepareReleaseBranch.outputs.tag_name }}"
+
+  SetupISSUTestInputs:
+    name: Setup ISSU Test Inputs
+    needs: [PrepareReleaseBranch, PackageArtifact]
+    runs-on: ubuntu-24.04
+    outputs:
+      amd_image_url: ${{ steps.set_image_urls.outputs.amd_image_url }}
+      arm_image_url: ${{ steps.set_image_urls.outputs.arm_image_url }}
+      last_image_version: ${{ steps.set_last_image_version.outputs.last_image_version }}
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+          ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
+
+      - name: Set Image URLs
+        id: set_image_urls 
+        run: |
+          echo "Setting next image URLs"
+          amd_image_url="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph/${{ needs.PrepareReleaseBranch.outputs.tag_name }}/docker/memgraph-${{ inputs.version }}-docker.tar.gz"
+          arm_image_url="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph/${{ needs.PrepareReleaseBranch.outputs.tag_name }}/docker-aarch64/memgraph-${{ inputs.version }}-docker.tar.gz"
+          echo "amd_image_url=$amd_image_url" >> $GITHUB_OUTPUT
+          echo "arm_image_url=$arm_image_url" >> $GITHUB_OUTPUT
+          echo "AMD Image URL: $amd_image_url"
+          echo "ARM Image URL: $arm_image_url"
+
+      - name: Set last image version
+        id: set_last_image_version
+        run: |
+          echo "Setting last image version"
+          last_image_version=$(./tools/get_latest_tag.sh)
+          echo "last_image_version=$last_image_version" >> $GITHUB_OUTPUT
+
+  RunISSUTest:
+    name: Run ISSU Tests
+    needs: [SetupISSUTestInputs]
+    uses: ./.github/workflows/reusable_issu_test.yaml
+    strategy:
+      matrix:
+        include:
+          - arch: amd
+            next_image: ${{ needs.SetupISSUTestInputs.outputs.amd_image_url }}
+          - arch: arm
+            next_image: ${{ needs.SetupISSUTestInputs.outputs.arm_image_url }}
+    with:
+      last_image: ${{ needs.SetupISSUTestInputs.outputs.last_image_version }}
+      next_image: ${{ matrix.next_image }}
+      arch: ${{ matrix.arch }}
+    secrets: inherit

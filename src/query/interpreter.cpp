@@ -603,6 +603,9 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
       case coordination::SetCoordinatorSettingStatus::UNKNOWN_SETTING: {
         throw QueryRuntimeException("Setting {} doesn't exist on coordinators.", setting_name);
       }
+      case coordination::SetCoordinatorSettingStatus::INVALID_ARGUMENT: {
+        throw QueryRuntimeException("Invalid argument detected while trying to update setting {}", setting_name);
+      }
     }
   }
 
@@ -882,7 +885,11 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
 
         // If the license is not valid we create users with admin access
         if (!valid_enterprise_license) {
-          spdlog::warn("Granting all the privileges to {}.", username);
+          spdlog::warn(
+              "Granting all the privileges to {}. You're currently using Memgraph Community License and all the users "
+              "will have full privileges to access Memgraph database. If you want to ensure privileges are applied, "
+              "please add Memgraph Enterprise License and restart Memgraph for the configuration to apply.",
+              username);
           auth->GrantPrivilege(
               username, kPrivilegesAll
 #ifdef MG_ENTERPRISE
@@ -1679,8 +1686,6 @@ auto ParseConfigMap(std::unordered_map<Expression *, Expression *> const &config
 Callback HandleCoordinatorQuery(CoordinatorQuery *coordinator_query, const Parameters &parameters,
                                 coordination::CoordinatorState *coordinator_state,
                                 const query::InterpreterConfig &config, std::vector<Notification> *notifications) {
-  using enum flags::Experiments;
-
   if (!license::global_license_checker.IsEnterpriseValidFast()) {
     throw QueryRuntimeException(
         license::LicenseCheckErrorToString(license::LicenseCheckError::NOT_ENTERPRISE_LICENSE, "high availability"));
@@ -3961,11 +3966,6 @@ PreparedQuery PrepareTextIndexQuery(ParsedQuery parsed_query, bool in_explicit_t
   if (in_explicit_transaction) {
     throw IndexInMulticommandTxException();
   }
-
-  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    throw TextSearchDisabledException();
-  }
-
   auto *text_index_query = utils::Downcast<TextIndexQuery>(parsed_query.query);
   std::function<void(Notification &)> handler;
 
@@ -6885,7 +6885,8 @@ void Interpreter::RollbackTransaction() {
 }
 
 #ifdef MG_ENTERPRISE
-auto Interpreter::Route(std::map<std::string, std::string> const &routing) -> RouteResult {
+auto Interpreter::Route(std::map<std::string, std::string> const &routing, std::optional<std::string> const &db)
+    -> RouteResult {
   if (!interpreter_context_->coordinator_state_) {
     throw QueryException("You cannot fetch routing table from an instance which is not part of a cluster.");
   }
@@ -6905,7 +6906,8 @@ auto Interpreter::Route(std::map<std::string, std::string> const &routing) -> Ro
     return result;
   }
 
-  return RouteResult{.servers = interpreter_context_->coordinator_state_->get().GetRoutingTable()};
+  auto const db_name = db.has_value() ? *db : dbms::kDefaultDB;
+  return RouteResult{.servers = interpreter_context_->coordinator_state_->get().GetRoutingTable(db_name)};
 }
 #endif
 
@@ -6925,7 +6927,13 @@ void Interpreter::SetCurrentDB() { current_db_.SetCurrentDB(interpreter_context_
 Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserParameters_fn params_getter,
                                          QueryExtras const &extras) {
   LogQueryMessage(fmt::format("Accepted query: {}", query_string));
+#ifdef MG_ENTERPRISE
+  if (!flags::CoordinationSetupInstance().IsCoordinator()) {
+    MG_ASSERT(user_or_role_, "Trying to prepare a query without a query user.");
+  }
+#else
   MG_ASSERT(user_or_role_, "Trying to prepare a query without a query user.");
+#endif
   // Handle transaction control queries.
   const auto upper_case_query = utils::ToUpperCase(query_string);
   const auto trimmed_query = utils::Trim(upper_case_query);

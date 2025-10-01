@@ -15,7 +15,9 @@ class Neo4jService:
 
     @staticmethod
     def _create_and_return_greeting(tx):
-        tx.run("CREATE (n:Greeting {message: 'Hello from Python'}) RETURN n.message AS message")
+        tx.run(
+            "CREATE (n:Greeting {message: 'Hello from Python'}) RETURN n.message AS message"
+        )
 
 
 def create_greetings_from_uri(uri):
@@ -26,7 +28,11 @@ def create_greetings_from_uri(uri):
 
 def main():
     print("Started writing route")
-    uris = ["neo4j://localhost:7690", "neo4j://localhost:7691", "neo4j://localhost:7692"]
+    uris = [
+        "neo4j://localhost:7690",
+        "neo4j://localhost:7691",
+        "neo4j://localhost:7692",
+    ]
 
     try:
         for uri in uris:

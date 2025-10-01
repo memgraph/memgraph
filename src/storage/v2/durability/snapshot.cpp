@@ -2470,9 +2470,7 @@ RecoveredSnapshot LoadSnapshotVersion17(Decoder &snapshot, const std::filesystem
     }
 
     // Recover text indices.
-    // NOTE: while this is experimental and hence optional
-    //       it must be last in the SECTION_INDICES
-    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    {
       auto size_opt = snapshot.ReadUint();
       const auto size = size_opt.value_or(0);
       spdlog::info("Recovering metadata of {} text indices.", size);
@@ -2917,9 +2915,7 @@ RecoveredSnapshot LoadSnapshotVersion18or19(Decoder &snapshot, const std::filesy
     }
 
     // Recover text indices.
-    // NOTE: while this is experimental and hence optional
-    //       it must be last in the SECTION_INDICES
-    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    {
       auto size_opt = snapshot.ReadUint();
       const auto size = size_opt.value_or(0);
       spdlog::info("Recovering metadata of {} text indices.", size);
@@ -3382,9 +3378,7 @@ RecoveredSnapshot LoadSnapshotVersion20or21(Decoder &snapshot, const std::filesy
     }
 
     // Recover text indices.
-    // NOTE: while this is experimental and hence optional
-    //       it must be last in the SECTION_INDICES
-    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    {
       auto size_opt = snapshot.ReadUint();
       const auto size = size_opt.value_or(0);
       spdlog::info("Recovering metadata of {} text indices.", size);
@@ -3919,9 +3913,7 @@ RecoveredSnapshot LoadSnapshotVersion22or23(Decoder &snapshot, const std::filesy
     }
 
     // Recover text indices.
-    // NOTE: while this is experimental and hence optional
-    //       it must be last in the SECTION_INDICES
-    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    {
       auto size_opt = snapshot.ReadUint();
       const auto size = size_opt.value_or(0);
       spdlog::info("Recovering metadata of {} text indices.", size);
@@ -4505,9 +4497,7 @@ RecoveredSnapshot LoadSnapshotVersion24(Decoder &snapshot, std::filesystem::path
     }
 
     // Recover text indices.
-    // NOTE: while this is experimental and hence optional
-    //       it must be last in the SECTION_INDICES
-    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    {
       auto size_opt = snapshot.ReadUint();
       const auto size = size_opt.value_or(0);
       spdlog::info("Recovering metadata of {} text indices.", size);
@@ -5083,9 +5073,7 @@ RecoveredSnapshot LoadSnapshotVersion25(Decoder &snapshot, std::filesystem::path
     }
 
     // Recover text indices.
-    // NOTE: while this is experimental and hence optional
-    //       it must be last in the SECTION_INDICES
-    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    {
       auto size_opt = snapshot.ReadUint();
       const auto size = size_opt.value_or(0);
       spdlog::info("Recovering metadata of {} text indices.", size);
@@ -5663,9 +5651,7 @@ RecoveredSnapshot LoadSnapshotVersion26(Decoder &snapshot, std::filesystem::path
     }
 
     // Recover text indices.
-    // NOTE: while this is experimental and hence optional
-    //       it must be last in the SECTION_INDICES
-    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    {
       auto size_opt = snapshot.ReadUint();
       const auto size = size_opt.value_or(0);
       spdlog::info("Recovering metadata of {} text indices.", size);
@@ -6290,9 +6276,7 @@ RecoveredSnapshot LoadSnapshotVersion27or28(Decoder &snapshot, std::filesystem::
     }
 
     // Recover text indices.
-    // NOTE: while this is experimental and hence optional
-    //       it must be last in the SECTION_INDICES
-    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    {
       auto size_opt = snapshot.ReadUint();
       const auto size = size_opt.value_or(0);
       spdlog::info("Recovering metadata of {} text indices.", size);
@@ -6917,9 +6901,7 @@ RecoveredSnapshot LoadSnapshotVersion29(Decoder &snapshot, std::filesystem::path
     }
 
     // Recover text indices.
-    // NOTE: while this is experimental and hence optional
-    //       it must be last in the SECTION_INDICES
-    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    {
       auto size_opt = snapshot.ReadUint();
       const auto size = size_opt.value_or(0);
       spdlog::info("Recovering metadata of {} text indices.", size);
@@ -7554,9 +7536,7 @@ RecoveredSnapshot LoadSnapshotVersion30(Decoder &snapshot, std::filesystem::path
     }
 
     // Recover text indices.
-    // NOTE: while this is experimental and hence optional
-    //       it must be last in the SECTION_INDICES
-    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    {
       auto size_opt = snapshot.ReadUint();
       const auto size = size_opt.value_or(0);
       spdlog::info("Recovering metadata of {} text indices.", size);
@@ -8255,9 +8235,7 @@ RecoveredSnapshot LoadCurrentVersionSnapshot(Decoder &snapshot, std::filesystem:
     }
 
     // Recover text indices.
-    // NOTE: while this is experimental and hence optional
-    //       it must be last in the SECTION_INDICES
-    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    {
       // Recover text indices on nodes
       {
         auto size_opt = snapshot.ReadUint();
@@ -8592,10 +8570,23 @@ RecoveredSnapshot LoadSnapshot(const std::filesystem::path &path, utils::SkipLis
 
 using OldSnapshotFiles = std::vector<std::pair<uint64_t, std::filesystem::path>>;
 void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, const std::string &uuid,
-                                  OldSnapshotFiles old_snapshot_files, Transaction *transaction,
+                                  OldSnapshotFiles const &old_snapshot_files, const Transaction *const transaction,
                                   utils::FileRetainer *file_retainer) {
-  std::vector<std::tuple<uint64_t, uint64_t, uint64_t, std::filesystem::path>> wal_files;
+  struct LoadWalInfo {
+    uint64_t seq_num;
+    uint64_t from_timestamp;
+    uint64_t to_timestamp;
+    std::filesystem::path path;
+
+    bool operator<(LoadWalInfo const &other) const {
+      return std::tie(seq_num, from_timestamp, to_timestamp, path) <
+             std::tie(other.seq_num, other.from_timestamp, other.to_timestamp, other.path);
+    }
+  };
+
+  std::vector<LoadWalInfo> wal_files;
   std::error_code error_code;
+
   for (const auto &item : std::filesystem::directory_iterator(wal_directory, error_code)) {
     if (!item.is_regular_file()) continue;
     try {
@@ -8603,12 +8594,8 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
       if (info.uuid != uuid) continue;
       wal_files.emplace_back(info.seq_num, info.from_timestamp, info.to_timestamp, item.path());
     } catch (const RecoveryFailure &e) {
+      // We want to find out what happened with the corrupted snapshot file, not delete it
       spdlog::warn("Found a corrupt WAL file {} because of: {}. WAL file will NOT be deleted.", item.path(), e.what());
-      // TODO If we want to do this we need a way to protect current wal file
-      // We can't get the engine lock here
-      // Maybe the file locker can help us. Careful, in any case we don't really want to delete it by accident.
-      // spdlog::warn("Found a corrupt WAL file {} because of: {}. WAL file will be deleted.", item.path(), e.what());
-      // file_retainer->DeleteFile(item.path());
     }
   }
 
@@ -8618,50 +8605,46 @@ void EnsureNecessaryWalFilesExist(const std::filesystem::path &wal_directory, co
                                "because an error occurred: {}.",
                                error_code.message(), "https://memgr.ph/snapshots"));
   }
+
   std::sort(wal_files.begin(), wal_files.end());
-  MG_ASSERT(transaction->last_durable_ts_.has_value(), "Txn doesn't have ldt");
-  uint64_t snapshot_durable_timestamp = *transaction->last_durable_ts_;
-  if (!old_snapshot_files.empty()) {
-    snapshot_durable_timestamp = old_snapshot_files.front().first;
-  }
-  std::optional<uint64_t> pos = 0;
-  for (uint64_t i = 0; i < wal_files.size(); ++i) {
-    const auto &[seq_num, from_timestamp, to_timestamp, wal_path] = wal_files[i];
-    if (from_timestamp <= snapshot_durable_timestamp) {
-      pos = i;
-    } else {
-      break;
+
+  auto const old_durable_ts = std::invoke([transaction, &old_snapshot_files]() -> uint64_t {
+    if (!old_snapshot_files.empty()) {
+      return old_snapshot_files.front().first;  // the oldest because snapshot files are sorted
     }
-  }
-  if (pos && *pos > 0) {
-    // We need to leave at least one WAL file that contains deltas that were
-    // created before the oldest snapshot. Because we always leave at least
-    // one WAL file that contains deltas before the snapshot, this correctly
-    // handles the edge case when that one file is the current WAL file that
-    // is being appended to.
-    for (uint64_t i = 0; i < *pos; ++i) {
-      const auto &[seq_num, from_timestamp, to_timestamp, wal_path] = wal_files[i];
-      file_retainer->DeleteFile(wal_path);
-    }
+    MG_ASSERT(transaction->last_durable_ts_.has_value(), "Txn doesn't have ldt");
+    return *transaction->last_durable_ts_;
+  });
+
+  auto const it = std::ranges::find_if(
+      wal_files, [old_durable_ts](auto const &wal_info) { return wal_info.from_timestamp > old_durable_ts; });
+
+  // We need to leave at least one WAL file that contains deltas that were
+  // created before the oldest snapshot. Because we always leave at least
+  // one WAL file that contains deltas before the snapshot, this correctly
+  // handles the edge case when that one file is the current WAL file that
+  if (it != wal_files.begin()) {
+    std::for_each(wal_files.begin(), std::prev(it),
+                  [file_retainer](auto const &wal_info) { file_retainer->DeleteFile(wal_info.path); });
   }
 }
 
-auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_directory, const std::string &path,
-                                        const std::string &uuid, utils::FileRetainer *file_retainer, Storage *storage)
-    -> OldSnapshotFiles {
+auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_directory,
+                                        const std::string &current_snapshot_path, const std::string &uuid,
+                                        utils::FileRetainer *file_retainer, Storage *storage) -> OldSnapshotFiles {
   OldSnapshotFiles old_snapshot_files;
   std::error_code error_code;
   for (const auto &item : std::filesystem::directory_iterator(snapshot_directory, error_code)) {
     if (!item.is_regular_file()) continue;
-    if (item.path() == path) continue;
+    if (item.path() == current_snapshot_path) continue;
     try {
       auto info = ReadSnapshotInfo(item.path());
       if (info.uuid != uuid) continue;
       old_snapshot_files.emplace_back(info.durable_timestamp, item.path());
     } catch (const RecoveryFailure &e) {
-      spdlog::warn("Found a corrupt snapshot file {} becuase of: {}. Corrupted snapshot file will be deleted.",
+      // We want to find out what happened with the corrupted snapshot file, not delete it
+      spdlog::warn("Found a corrupt snapshot file {} because of: {}. Corrupted snapshot file will not be deleted.",
                    item.path(), e.what());
-      file_retainer->DeleteFile(item.path());
     }
   }
 
@@ -8671,16 +8654,24 @@ auto EnsureRetentionCountSnapshotsExist(const std::filesystem::path &snapshot_di
         storage->config_.durability.snapshot_retention_count, error_code.message(), "https://memgr.ph/snapshots"));
   }
 
-  std::sort(old_snapshot_files.begin(), old_snapshot_files.end());
-  if (old_snapshot_files.size() <= storage->config_.durability.snapshot_retention_count - 1) return old_snapshot_files;
+  DeleteOldSnapshotFiles(old_snapshot_files, storage->config_.durability.snapshot_retention_count, file_retainer);
+  return old_snapshot_files;
+}
 
-  const uint32_t num_to_erase = old_snapshot_files.size() - (storage->config_.durability.snapshot_retention_count - 1);
+void DeleteOldSnapshotFiles(OldSnapshotFiles &old_snapshot_files, uint64_t const snapshot_retention_count,
+                            utils::FileRetainer *file_retainer) {
+  std::ranges::sort(old_snapshot_files);
+
+  if (old_snapshot_files.size() < snapshot_retention_count) return;
+
+  // -1 because the current snapshot path has been skipped
+  const uint32_t num_to_erase = old_snapshot_files.size() - (snapshot_retention_count - 1);
   for (size_t i = 0; i < num_to_erase; ++i) {
     const auto &[_, snapshot_path] = old_snapshot_files[i];
     file_retainer->DeleteFile(snapshot_path);
   }
+
   old_snapshot_files.erase(old_snapshot_files.begin(), old_snapshot_files.begin() + num_to_erase);
-  return old_snapshot_files;
 }
 
 std::optional<std::filesystem::path> CreateSnapshot(
@@ -9209,7 +9200,7 @@ std::optional<std::filesystem::path> CreateSnapshot(
     }
 
     // Write text indices.
-    if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
+    {
       // Text indices on nodes
       {
         const auto text_indices = storage->indices_.text_index_.ListIndices();
@@ -9446,12 +9437,13 @@ std::optional<std::filesystem::path> CreateSnapshot(
   snapshot.Finalize();
   spdlog::info("Snapshot creation successful!");
 
-  OldSnapshotFiles old_snapshot_files =
+  auto const old_snapshot_files =
       EnsureRetentionCountSnapshotsExist(snapshot_directory, path, uuid_str, file_retainer, storage);
 
+  // -1 needed because we skip the current snapshot
   if (old_snapshot_files.size() == storage->config_.durability.snapshot_retention_count - 1 &&
       utils::DirExists(wal_directory)) {
-    EnsureNecessaryWalFilesExist(wal_directory, uuid_str, std::move(old_snapshot_files), transaction, file_retainer);
+    EnsureNecessaryWalFilesExist(wal_directory, uuid_str, old_snapshot_files, transaction, file_retainer);
   }
 
   // We are not updating ldt here; we are only updating it when recovering from snapshot (because there is no other

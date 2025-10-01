@@ -29,7 +29,6 @@
 #include "storage/v2/durability/metadata.hpp"
 #include "storage/v2/durability/snapshot.hpp"
 #include "storage/v2/durability/wal.hpp"
-#include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/inmemory/edge_property_index.hpp"
 #include "storage/v2/inmemory/edge_type_index.hpp"
 #include "storage/v2/inmemory/edge_type_property_index.hpp"
@@ -110,55 +109,70 @@ void VerifyStorageDirectoryOwnerAndProcessUserOrDie(const std::filesystem::path 
             user_process, user_directory, user_directory);
 }
 
-std::vector<SnapshotDurabilityInfo> GetSnapshotFiles(const std::filesystem::path &snapshot_directory,
-                                                     const std::string_view uuid) {
-  std::vector<SnapshotDurabilityInfo> snapshot_files;
-  std::error_code error_code;
-  if (utils::DirExists(snapshot_directory)) {
-    for (const auto &item : std::filesystem::directory_iterator(snapshot_directory, error_code)) {
-      if (!item.is_regular_file()) continue;
-      if (!utils::HasReadAccess(item.path())) {
-        spdlog::warn(
-            "Skipping snapshot file '{}' because it is not readable, check file ownership and read permissions!",
-            item.path());
-        continue;
-      }
-      try {
-        auto info = ReadSnapshotInfo(item.path());
-        if (uuid.empty() || info.uuid == uuid) {
-          snapshot_files.emplace_back(item.path(), std::move(info.uuid), info.start_timestamp);
-        } else {
-          spdlog::warn("Skipping snapshot file '{}' because UUID does not match!", item.path());
-        }
-      } catch (const RecoveryFailure &) {
-        continue;
-      }
-    }
-    MG_ASSERT(!error_code, "Couldn't recover data because an error occurred: {}!", error_code.message());
+bool ValidateDurabilityFile(std::filesystem::directory_entry const &dir_entry) {
+  auto const &path = dir_entry.path();
+  if (!dir_entry.is_regular_file()) {
+    spdlog::error("{} is not a regular file", path);
+    return false;
   }
 
-  std::sort(snapshot_files.begin(), snapshot_files.end());
+  if (!utils::HasReadAccess(path)) {
+    spdlog::warn("Skipping durability file '{}' because it is not readable, check file ownership and read permissions!",
+                 path);
+    return false;
+  }
+
+  return true;
+}
+
+std::vector<SnapshotDurabilityInfo> GetSnapshotFiles(const std::filesystem::path &snapshot_directory,
+                                                     const std::string_view uuid) {
+  if (!utils::DirExists(snapshot_directory)) {
+    spdlog::error("Snapshot directory {} doesn't exist", snapshot_directory);
+    return {};
+  }
+
+  std::vector<SnapshotDurabilityInfo> snapshot_files;
+
+  std::error_code error_code;
+  for (const auto &item : std::filesystem::directory_iterator(snapshot_directory, error_code)) {
+    if (!ValidateDurabilityFile(item)) continue;
+
+    try {
+      auto info = ReadSnapshotInfo(item.path());
+      if (uuid.empty() || info.uuid == uuid) {
+        snapshot_files.emplace_back(item.path(), std::move(info.uuid), info.start_timestamp);
+      } else {
+        spdlog::warn("Skipping snapshot file '{}' because UUIDs does not match!", item.path());
+      }
+    } catch (const RecoveryFailure &e) {
+      spdlog::error("Couldn't read snapshot info in GetSnapshotFiles: {}", e.what());
+    }
+  }
+  MG_ASSERT(!error_code, "Couldn't recover data because an error occurred: {}!", error_code.message());
+
+  std::ranges::sort(snapshot_files);
   return snapshot_files;
 }
 
-std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem::path &wal_directory,
-                                                          const std::string_view uuid,
-                                                          const std::optional<size_t> current_seq_num) {
-  if (!utils::DirExists(wal_directory)) return std::nullopt;
-
-  std::vector<WalDurabilityInfo> wal_files;
-  std::error_code error_code;
+std::vector<WalDurabilityInfo> GetWalFiles(const std::filesystem::path &wal_directory, const std::string_view uuid,
+                                           const std::optional<size_t> current_seq_num) {
+  if (!utils::DirExists(wal_directory)) {
+    spdlog::error("WAL directory {} doesn't exist", wal_directory);
+    return {};
+  }
 
   // There could be multiple "current" WAL files, the "_current" tag just means that the previous session didn't
   // finalize. We cannot skip based on name, will be able to skip based on invalid data or sequence number, so the
   // actual current wal will be skipped
 
+  std::vector<WalDurabilityInfo> wal_files;
+  std::error_code error_code;
+
   // TODO: (andi) Inefficient to use I/O again, you already read infos.
   for (const auto &item : std::filesystem::directory_iterator(wal_directory, error_code)) {
-    if (!item.is_regular_file()) {
-      spdlog::trace("Non-regular file {} found in the wal directory. Skipping it.", item.path());
-      continue;
-    }
+    if (!ValidateDurabilityFile(item)) continue;
+
     try {
       auto info = ReadWalInfo(item.path());
       spdlog::trace(
@@ -179,11 +193,10 @@ std::optional<std::vector<WalDurabilityInfo>> GetWalFiles(const std::filesystem:
       spdlog::warn("Failed to read WAL file {}. Error: {}", item.path(), e.what());
     }
   }
-  MG_ASSERT(!error_code, "Couldn't recover data because an error occurred: {}!", error_code.message());
 
-  // Sort based on the sequence number, not the file name.
-  std::sort(wal_files.begin(), wal_files.end());
-  return std::move(wal_files);
+  MG_ASSERT(!error_code, "Couldn't recover data because an error occurred: {}!", error_code.message());
+  std::ranges::sort(wal_files);
+  return wal_files;
 }
 
 // Function used to recover all discovered indices and constraints. The
@@ -304,28 +317,25 @@ void RecoverIndicesAndStats(const RecoveredIndicesAndConstraints::IndicesMetadat
   spdlog::info("Global edge property indices are recreated.");
 
   // Text idx
-  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    auto recover_text_indices = [&](auto &text_index, const auto &index_metadata, std::string_view index_type,
-                                    std::string_view plural_type, auto id_extractor) {
-      spdlog::info("Recreating {} {} from metadata.", index_metadata.size(), plural_type);
-      for (const auto &index_info : index_metadata) {
-        try {
-          // TODO: parallel execution
-          text_index.RecoverIndex(index_info, snapshot_info);
-        } catch (...) {
-          throw RecoveryFailure(fmt::format("The {} must be created here!", index_type).c_str());
-        }
-        spdlog::info("{} {} on :{} is recreated from metadata", index_type, index_info.index_name,
-                     name_id_mapper->IdToName(id_extractor(index_info).AsUint()));
+  auto recover_text_indices = [&](auto &text_index, const auto &index_metadata, std::string_view index_type,
+                                  std::string_view plural_type, auto id_extractor) {
+    spdlog::info("Recreating {} {} from metadata.", index_metadata.size(), plural_type);
+    for (const auto &index_info : index_metadata) {
+      try {
+        // TODO: parallel execution
+        text_index.RecoverIndex(index_info, snapshot_info);
+      } catch (...) {
+        throw RecoveryFailure(fmt::format("The {} must be created here!", index_type).c_str());
       }
-      spdlog::info("{} are recreated.", plural_type);
-    };
-
-    recover_text_indices(indices->text_index_, indices_metadata.text_indices, "Text index", "Text indices",
-                         [](const auto &info) { return info.label; });
-    recover_text_indices(indices->text_edge_index_, indices_metadata.text_edge_indices, "Text edge index",
-                         "Text edge indices", [](const auto &info) { return info.edge_type; });
-  }
+      spdlog::info("{} {} on :{} is recreated from metadata", index_type, index_info.index_name,
+                   name_id_mapper->IdToName(id_extractor(index_info).AsUint()));
+    }
+    spdlog::info("{} are recreated.", plural_type);
+  };
+  recover_text_indices(indices->text_index_, indices_metadata.text_indices, "Text index", "Text indices",
+                       [](const auto &info) { return info.label; });
+  recover_text_indices(indices->text_edge_index_, indices_metadata.text_edge_indices, "Text edge index",
+                       "Text edge indices", [](const auto &info) { return info.edge_type; });
 
   // Point idx
   {
@@ -573,11 +583,7 @@ std::optional<RecoveryInfo> Recovery::RecoverData(
                   repl_storage_state.epoch_.id());
   }
 
-  if (const auto maybe_wal_files = GetWalFiles(wal_directory_, std::string{uuid});
-      maybe_wal_files && !maybe_wal_files->empty()) {
-    // Array of all discovered WAL files, ordered by sequence number.
-    const auto &wal_files = *maybe_wal_files;
-
+  if (auto const wal_files = GetWalFiles(wal_directory_, std::string{uuid}); !wal_files.empty()) {
     spdlog::info("Checking WAL files.");
     r::for_each(wal_files,
                 [](auto &&wal_file) { spdlog::trace("Wal file: {}. Seq num: {}.", wal_file.path, wal_file.seq_num); });

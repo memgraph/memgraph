@@ -16,12 +16,7 @@ test_one() {
     ./prepare.sh
   fi
   if [ -x runner.py ]; then
-    if [ "$integration_test_folder_name" == "durability" ]; then
-      echo $(pwd)
-      $DIR/../ve3/bin/python -u runner.py
-    else
-      ./runner.py
-    fi
+    $DIR/../ve3/bin/python3 -u runner.py
   elif [ -x runner.sh ]; then
     ./runner.sh
   fi

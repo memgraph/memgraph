@@ -12,6 +12,7 @@
 import os
 import sys
 import time
+from functools import partial
 from pathlib import Path
 from typing import Any, Dict
 
@@ -1044,35 +1045,11 @@ def test_multitenancy_replication_drop_replica(connection, replica_name, test_na
         f"REGISTER REPLICA  {replica_name} {sync[replica_name]} TO '127.0.0.1:{REPLICATION_PORTS[replica_name]}';",
     )
 
-    # 4/
-    _ = [
-        (
-            "replica_1",
-            f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
-            "sync",
-            {
-                "A": {"ts": 7, "behind": 0, "status": "ready"},
-                "B": {"ts": 3, "behind": 0, "status": "ready"},
-                "memgraph": {"ts": 0, "behind": 0, "status": "ready"},
-            },
-        ),
-        (
-            "replica_2",
-            f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
-            "async",
-            {
-                "A": {"ts": 7, "behind": 0, "status": "ready"},
-                "B": {"ts": 3, "behind": 0, "status": "ready"},
-                "memgraph": {"ts": 0, "behind": 0, "status": "ready"},
-            },
-        ),
-    ]
-
     cursor_replica = connection(BOLT_PORTS[replica_name], "replica").cursor()
-    assert get_number_of_nodes_func(cursor_replica, "A")() == 7
-    assert get_number_of_edges_func(cursor_replica, "A")() == 3
-    assert get_number_of_nodes_func(cursor_replica, "B")() == 2
-    assert get_number_of_edges_func(cursor_replica, "B")() == 0
+    mg_sleep_and_assert(7, get_number_of_nodes_func(cursor_replica, "A"))
+    mg_sleep_and_assert(3, get_number_of_edges_func(cursor_replica, "A"))
+    mg_sleep_and_assert(2, get_number_of_nodes_func(cursor_replica, "B"))
+    mg_sleep_and_assert(0, get_number_of_edges_func(cursor_replica, "B"))
 
 
 def test_multitenancy_replication_restart_main(connection, test_name):

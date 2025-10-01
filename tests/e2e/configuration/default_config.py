@@ -196,7 +196,7 @@ startup_config_dict = {
     "storage_snapshot_thread_count": ("12", "12", "The number of threads used to create snapshots."),
     "storage_recovery_thread_count": ("12", "12", "The number of threads used to recover persisted data from disk."),
     "storage_snapshot_interval_sec": (
-        "0",
+        "300",
         "300",
         "Storage snapshot creation interval (in seconds). Set to 0 to disable periodic snapshot creation.",
     ),
@@ -281,7 +281,7 @@ startup_config_dict = {
     "experimental_enabled": (
         "",
         "",
-        "Experimental features to be used, comma-separated. Options [text-search]",
+        "Experimental features to be used, comma-separated. Options []",
     ),
     "experimental_config": (
         "",
