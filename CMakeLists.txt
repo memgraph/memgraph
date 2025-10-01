@@ -65,8 +65,8 @@ project(memgraph LANGUAGES C CXX)
 # which are different locations than the host
 set(CMAKE_BUILD_RPATH_USE_ORIGIN ON)
 set(CMAKE_BUILD_RPATH "${MG_TOOLCHAIN_ROOT}/lib64")
-set(CMAKE_FIND_ROOT_PATH "${CMAKE_CURRENT_BINARY_DIR}")
-
+set(CMAKE_FIND_ROOT_PATH "${CMAKE_CURRENT_BINARY_DIR}/generators")
+message(STATUS "CMAKE_FIND_ROOT_PATH: ${CMAKE_FIND_ROOT_PATH}")
 # Install licenses.
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/licenses/
         DESTINATION share/doc/memgraph)
