@@ -18,7 +18,6 @@
 namespace ms = memgraph::storage;
 namespace r = ranges;
 namespace rv = ranges::views;
-using ::testing::Contains;
 
 namespace {
 

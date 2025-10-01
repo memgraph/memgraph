@@ -792,9 +792,6 @@ std::expected<void, ConstraintViolation> InMemoryStorage::InMemoryAccessor::Uniq
 }
 
 void InMemoryStorage::InMemoryAccessor::CheckForFastDiscardOfDeltas() {
-  return;  // @TODO let's get things working without fast discards, and the
-           // handle these optimisations later...
-
   // while still holding engine lock and after durability + replication,
   // check if we can fast discard deltas (i.e. do not hand over to GC)
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
@@ -1136,7 +1133,7 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(std::unique_lock<std
     }
 
     // Safe to proceed - no waiting transactions can be added while we hold this lock
-    GCRapidDeltaCleanup(current_deleted_vertices, current_deleted_edges, impact_tracker);
+    GCRapidDeltaCleanup(current_deleted_edges, current_deleted_vertices, impact_tracker);
     return true;
   });
 
@@ -2529,7 +2526,6 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   auto const end_linked_undo_buffers = linked_undo_buffers.end();
   for (auto linked_entry = linked_undo_buffers.begin(); linked_entry != end_linked_undo_buffers;) {
     auto const *const commit_timestamp_ptr = linked_entry->commit_timestamp_.get();
-    auto const commit_timestamp = commit_timestamp_ptr->load(std::memory_order_acquire);
 
     // Use unlinkable_timestamp to determine if safe to unlink (accounts for waiting room delay)
     auto const unlinkable_timestamp = linked_entry->unlinkable_timestamp_;
