@@ -13,7 +13,6 @@
 #include "rpc/messages.hpp"
 #include "storage/v2/durability/durability.hpp"
 #include "storage/v2/replication/recovery.hpp"
-#include "storage/v2/replication/replication_client.hpp"
 #include "utils/event_histogram.hpp"
 #include "utils/metrics_timer.hpp"
 
@@ -34,9 +33,14 @@ constexpr auto kRecoveryRpcTimeout = std::chrono::milliseconds(5000);
 
 class InMemoryStorage;
 
+struct WalChainInfo {
+  bool covered_by_wals;
+  uint64_t prev_seq_num;
+  int64_t first_useful_wal;
+};
+
 template <typename T>
-std::enable_if_t<std::is_same_v<T, std::filesystem::path>, bool> WriteFiles(const T &path,
-                                                                            replication::Encoder &encoder) {
+requires(std::is_same_v<T, std::filesystem::path>) bool WriteFiles(const T &path, replication::Encoder &encoder) {
   if (!encoder.WriteFile(path)) {
     spdlog::error("File {} couldn't be loaded so it won't be transferred to the replica.", path);
     return false;
@@ -45,8 +49,8 @@ std::enable_if_t<std::is_same_v<T, std::filesystem::path>, bool> WriteFiles(cons
 }
 
 template <typename T>
-std::enable_if_t<std::is_same_v<T, std::vector<std::filesystem::path>>, bool> WriteFiles(
-    const T &paths, replication::Encoder &encoder) {
+requires(std::is_same_v<T, std::vector<std::filesystem::path>>) bool WriteFiles(const T &paths,
+                                                                                replication::Encoder &encoder) {
   for (const auto &path : paths) {
     // Flush the segment so the file data could start at the beginning of the next segment
     if (!encoder.WriteFile(path)) {
@@ -93,5 +97,19 @@ std::optional<typename T::Response> TransferDurabilityFiles(const R &files, rpc:
 
 auto GetRecoverySteps(uint64_t replica_commit, utils::FileRetainer::FileLocker *file_locker,
                       const InMemoryStorage *main_storage) -> std::optional<std::vector<RecoveryStep>>;
+
+auto GetLatestSnapshot(const InMemoryStorage *main_storage) -> std::optional<durability::SnapshotDurabilityInfo>;
+
+// Checks what part of the WAL chain is needed
+auto GetWalChainInfo(std::vector<durability::WalDurabilityInfo> const &wal_files, uint64_t replica_commit)
+    -> WalChainInfo;
+
+auto FirstWalAfterSnapshot(std::vector<durability::WalDurabilityInfo> const &wal_files, uint64_t snap_start_ts,
+                           int64_t first_useful_wal) -> int64_t;
+
+// Copy and lock the chain part we need, from oldest to newest
+auto GetRecoveryWalFiles(utils::FileRetainer::FileLockerAccessor *locker_acc,
+                         std::vector<durability::WalDurabilityInfo> const &wal_files, int64_t first_useful_wal)
+    -> std::optional<RecoveryWals>;
 
 }  // namespace memgraph::storage

@@ -98,9 +98,13 @@ class InMemoryStorage final : public Storage {
   friend struct memgraph::replication::ReplicationHandler;
   friend class memgraph::dbms::InMemoryReplicationHandlers;
   friend class ReplicationStorageClient;
+
   friend std::optional<std::vector<RecoveryStep>> GetRecoverySteps(uint64_t replica_commit,
                                                                    utils::FileRetainer::FileLocker *file_locker,
                                                                    const InMemoryStorage *main_storage);
+
+  friend std::optional<durability::SnapshotDurabilityInfo> GetLatestSnapshot(const InMemoryStorage *main_storage);
+
   friend class InMemoryLabelIndex;
   friend class InMemoryLabelPropertyIndex;
   friend class InMemoryEdgeTypeIndex;
