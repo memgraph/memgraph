@@ -60,7 +60,7 @@ std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
       continue;
     }
     bool killed = false;
-    utils::OnScopeExit clean_status([interpreter, &killed]() {
+    const utils::OnScopeExit clean_status([interpreter, &killed]() {
       if (killed) {
         interpreter->transaction_status_.store(TransactionStatus::TERMINATED, std::memory_order_release);
       } else {
@@ -78,7 +78,7 @@ std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
       --not_found_midpoint;
       std::iter_swap(it, not_found_midpoint);
       auto get_interpreter_db_name = [&]() -> std::string const & {
-        static std::string all;
+        const static std::string all;
         return interpreter->current_db_.db_acc_ ? interpreter->current_db_.db_acc_->get()->name() : all;
       };
 
@@ -121,7 +121,7 @@ std::vector<uint64_t> InterpreterContext::ShowTransactionsUsingDBName(
     if (!interpreter->transaction_status_.compare_exchange_strong(alive_status, TransactionStatus::VERIFYING)) {
       continue;
     }
-    utils::OnScopeExit clean_status([interpreter]() {
+    const utils::OnScopeExit clean_status([interpreter]() {
       interpreter->transaction_status_.store(TransactionStatus::ACTIVE, std::memory_order_release);
     });
     // Transaction is running, so cannot change the underlying db

@@ -96,8 +96,8 @@ struct InterpreterContext {
       const std::unordered_set<Interpreter *> &interpreters, std::vector<uint64_t> maybe_kill_transaction_ids,
       QueryUserOrRole *user_or_role, std::function<bool(QueryUserOrRole *, std::string const &)> privilege_checker);
 
-  std::vector<uint64_t> ShowTransactionsUsingDBName(const std::unordered_set<Interpreter *> &interpreters,
-                                                    std::string_view db_name);
+  static std::vector<uint64_t> ShowTransactionsUsingDBName(const std::unordered_set<Interpreter *> &interpreters,
+                                                           std::string_view db_name);
 
   // TODO: Make this constructor private
   InterpreterContext(InterpreterConfig interpreter_config, dbms::DbmsHandler *dbms_handler,
