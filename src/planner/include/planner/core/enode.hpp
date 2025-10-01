@@ -15,19 +15,30 @@
 
 #include <boost/functional/hash.hpp>
 
-#include "planner/core/fwd.hpp"
 #include "utils/small_vector.hpp"
+
+import memgraph.planner.core.union_find;
+import memgraph.planner.core.eids;
+import memgraph.planner.core.concepts;
 
 namespace memgraph::planner::core {
 
-struct UnionFind;
-struct BaseProcessingContext;
+/**
+ * @brief Processing context for ENode operations
+ *
+ * @details
+ * Provides reusable temporary storage specifically for ENode operations,
+ * eliminating allocation overhead in hot paths.
+ */
+struct ENodeContext {
+  utils::small_vector<EClassId> canonical_children_buffer;
+};
 
 namespace detail {
 
 struct ENodeBase {
-  explicit ENodeBase(utils::small_vector<EClassId> children) : children_(std::move(children)) {}
-  explicit ENodeBase(uint64_t disambiguator) : disambiguator_(disambiguator) {}
+  explicit ENodeBase(uint64_t disambiguator, utils::small_vector<EClassId> children = {})
+      : disambiguator_(disambiguator), children_(std::move(children)) {}
 
   friend bool operator==(ENodeBase const &lhs, ENodeBase const &rhs) = default;
 
@@ -43,8 +54,8 @@ struct ENodeBase {
 
   /// Returns copy with children updated to canonical e-class IDs via union-find using context buffer
   /// @param uf Union-find structure (will be modified for path compression)
-  /// @param ctx Base processing context containing reusable buffer for canonical children
-  auto canonicalize(UnionFind &uf, BaseProcessingContext &ctx) const -> ENodeBase;
+  /// @param ctx ENode context containing reusable buffer for canonical children
+  auto canonicalize(UnionFind &uf, ENodeContext &ctx) const -> ENodeBase;
 
   /// In-place canonicalization that modifies this node's children
   /// @param uf Union-find structure (will be modified for path compression)
@@ -79,13 +90,12 @@ struct ENodeBase {
 template <typename Symbol>
 requires ENodeSymbol<Symbol>
 struct ENode : private detail::ENodeBase {
-  ENode(Symbol sym, uint64_t disambig) : ENodeBase{disambig}, symbol_(std::move(sym)) {}
-
-  ENode(Symbol sym, utils::small_vector<EClassId> kids) : ENodeBase(std::move(kids)), symbol_(std::move(sym)) {}
+  ENode(Symbol sym, utils::small_vector<EClassId> kids, uint64_t const disambig = 0)
+      : ENodeBase{disambig, std::move(kids)}, symbol_(std::move(sym)) {}
 
   // Convenience constructor with initializer_list for easier construction
-  ENode(Symbol sym, std::initializer_list<EClassId> kids)
-      : ENodeBase(utils::small_vector<EClassId>(kids)), symbol_(std::move(sym)) {}
+  ENode(Symbol sym, std::initializer_list<EClassId> const kids, uint64_t const disambig = 0)
+      : ENodeBase(disambig, utils::small_vector(kids)), symbol_(std::move(sym)) {}
 
   ENode(ENode const &other) = default;
   ENode(ENode &&other) noexcept = default;

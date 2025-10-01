@@ -17,7 +17,6 @@
 #include <variant>
 
 #include "flags/run_time_configurable.hpp"
-#include "query/frontend/ast/ast_visitor.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/plan/rewrite/general.hpp"
@@ -545,7 +544,8 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
   }
 
   std::unique_ptr<LogicalOperator> HandleMatching(std::unique_ptr<LogicalOperator> last_op,
-                                                  const SingleQueryPart &single_query_part, SymbolTable &symbol_table,
+                                                  const SingleQueryPart &single_query_part,
+                                                  const SymbolTable &symbol_table,
                                                   std::unordered_set<Symbol> &bound_symbols) {
     MatchContext match_ctx{single_query_part.matching, symbol_table, bound_symbols};
     last_op = PlanMatching(match_ctx, std::move(last_op));
@@ -556,13 +556,13 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
       // From existing nodes, or by filtering based on the existing nodes
       std::unordered_set<Symbol> bound_symbols_from_original_match;
       for (const auto &symbol : matching.expansion_symbols) {
-        if (bound_symbols.count(symbol)) {
+        if (bound_symbols.contains(symbol)) {
           bound_symbols_from_original_match.insert(symbol);
         }
       }
       for (const auto &filter : matching.filters) {
         for (const auto &symbol : filter.used_symbols) {
-          if (bound_symbols.count(symbol)) {
+          if (bound_symbols.contains(symbol)) {
             bound_symbols_from_original_match.insert(symbol);
           }
         }
@@ -571,8 +571,7 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
       MatchContext opt_ctx{matching, symbol_table, bound_symbols};
       auto once_with_symbols = std::make_unique<Once>(
           std::vector<Symbol>(bound_symbols_from_original_match.begin(), bound_symbols_from_original_match.end()));
-      auto match_op = PlanMatching(opt_ctx, std::move(once_with_symbols));
-      if (match_op) {
+      if (auto match_op = PlanMatching(opt_ctx, std::move(once_with_symbols))) {
         last_op = std::make_unique<Optional>(std::move(last_op), std::move(match_op), opt_ctx.new_symbols);
       }
     }
@@ -887,7 +886,7 @@ class RuleBasedPlanner : public PatternComprehensionPlanner {
 
       // additionally, check for Cyphermorphism of the previous branch with new bound symbols
       for (const auto &new_symbol : cross_branch_new_symbols) {
-        if (new_symbol.type_ == Symbol::Type::EDGE) {
+        if (new_symbol.type() == Symbol::Type::EDGE) {
           last_op = EnsureCyphermorphism(std::move(last_op), new_symbol, matching, new_bound_symbols);
         }
       }

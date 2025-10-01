@@ -12,6 +12,7 @@
 #pragma once
 
 #include <array>
+#include <cstdint>
 #include <string>
 #include <string_view>
 #include <utility>
@@ -26,15 +27,15 @@ class Symbol {
   static const utils::TypeInfo kType;
   static const utils::TypeInfo &GetTypeInfo() { return kType; }
 
-  enum class Type { ANY, VERTEX, EDGE, PATH, NUMBER, EDGE_LIST };
+  enum class Type : uint8_t { ANY, VERTEX, EDGE, PATH, NUMBER, EDGE_LIST };
 
   // TODO: Generate enum to string conversion from LCP. Note, that this is
   // displayed to the end user, so we may want to have a pretty name of each
   // value.
-  static std::string TypeToString(Type type) {
-    static constexpr std::array<std::string_view, 6> enum_string = {"Any",  "Vertex", "Edge",
-                                                                    "Path", "Number", "EdgeList"};
-    return std::string{enum_string[static_cast<int>(type)]};
+  static std::string_view TypeToString(Type type) {
+    using namespace std::string_view_literals;
+    static constexpr auto enum_string = std::array{"Any"sv, "Vertex"sv, "Edge"sv, "Path"sv, "Number"sv, "EdgeList"sv};
+    return enum_string[static_cast<int>(type)];
   }
 
   Symbol() = default;
@@ -46,9 +47,8 @@ class Symbol {
         token_position_(token_position) {}
 
   bool operator==(const Symbol &other) const {
-    return position_ == other.position_ && name_ == other.name_ && type_ == other.type_;
+    return position_ == other.position_ && type_ == other.type_ && name_ == other.name_;
   }
-  bool operator!=(const Symbol &other) const { return !operator==(other); }
 
   // TODO: Remove these since members are public
   auto name() const -> std::string const & { return name_; }
@@ -57,13 +57,11 @@ class Symbol {
   bool user_declared() const { return user_declared_; }
   int64_t token_position() const { return token_position_; }
 
-  bool IsSymbolAnonym() const { return name_.substr(0U, 4U) == "anon"; }
-
   std::string name_;
   Position_t position_;
-  bool user_declared_{true};
-  memgraph::query::Symbol::Type type_{Type::ANY};
-  int64_t token_position_{-1};
+  bool user_declared_{true};    /*NOT USED IN PLANNER V2*/
+  Type type_{Type::ANY};        /*NOT USED IN PLANNER V2*/
+  int64_t token_position_{-1};  // from ANTLR token stream /*NOT USED IN PLANNER V2*/
 };
 
 }  // namespace memgraph::query

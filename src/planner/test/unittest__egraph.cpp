@@ -47,8 +47,8 @@ TEST(EGraphBasicOperations, AddSimpleENodes) {
   EGraph<TestSymbol, NoAnalysis> egraph;
 
   // Add leaf nodes
-  auto id1 = egraph.emplace(TestSymbol::A);
-  auto id2 = egraph.emplace(TestSymbol::B);
+  auto [id1, id1_enodeid] = egraph.emplace(TestSymbol::A);
+  auto [id2, id2_enodeid] = egraph.emplace(TestSymbol::B);
 
   EXPECT_EQ(egraph.num_classes(), 2);
   EXPECT_EQ(egraph.num_nodes(), 2);
@@ -61,16 +61,16 @@ TEST(EGraphBasicOperations, AddNodesWithChildren) {
   EGraph<TestSymbol, NoAnalysis> egraph;
 
   // Add leaf nodes first
-  auto a = egraph.emplace(TestSymbol::A);
-  auto b = egraph.emplace(TestSymbol::B);
+  auto [a, a_enodeid] = egraph.emplace(TestSymbol::A);
+  auto [b, b_enodeid] = egraph.emplace(TestSymbol::B);
 
   // Add node with children
-  EClassId const plus = egraph.emplace(TestSymbol::Plus, {a, b});
+  auto const [plus, plus_enodeid] = egraph.emplace(TestSymbol::Plus, {a, b});
 
   EXPECT_EQ(egraph.num_classes(), 3);
   EXPECT_EQ(egraph.num_nodes(), 3);
   EXPECT_TRUE(egraph.has_class(plus));
-  auto const &enode = egraph.get_enode(plus);
+  auto const &enode = egraph.get_enode(plus_enodeid);
   EXPECT_EQ(enode.arity(), 2);
 
   auto const &eclass = egraph.eclass(plus);
@@ -81,8 +81,8 @@ TEST(EGraphBasicOperations, DuplicateNodesReturnSameEClass) {
   EGraph<TestSymbol, NoAnalysis> egraph;
 
   // Add same node twice
-  auto id1 = egraph.emplace(TestSymbol::A, 0);
-  auto id2 = egraph.emplace(TestSymbol::A, 0);
+  auto [id1, id1_enodeid] = egraph.emplace(TestSymbol::A, 0);
+  auto [id2, id2_enodeid] = egraph.emplace(TestSymbol::A, 0);
 
   EXPECT_EQ(id1, id2);
   EXPECT_EQ(egraph.num_classes(), 1);
@@ -92,8 +92,8 @@ TEST(EGraphBasicOperations, DuplicateNodesReturnSameEClass) {
 TEST(EGraphMergingOperations, MergeTwoDifferentEClasses) {
   EGraph<TestSymbol, NoAnalysis> egraph;
 
-  auto id1 = egraph.emplace(TestSymbol::A);
-  auto id2 = egraph.emplace(TestSymbol::B);
+  auto [id1, id1_enodeid] = egraph.emplace(TestSymbol::A);
+  auto [id2, id2_enodeid] = egraph.emplace(TestSymbol::B);
 
   EXPECT_EQ(egraph.num_classes(), 2);
 
@@ -107,7 +107,7 @@ TEST(EGraphMergingOperations, MergeTwoDifferentEClasses) {
 TEST(EGraphMergingOperations, MergeSameEClassIsNoOp) {
   EGraph<TestSymbol, NoAnalysis> egraph;
 
-  auto id1 = egraph.emplace(TestSymbol::A);
+  auto [id1, id1_enodeid] = egraph.emplace(TestSymbol::A);
   auto merged = egraph.merge(id1, id1);
 
   EXPECT_EQ(merged, id1);
@@ -119,10 +119,10 @@ TEST(EGraphMergingOperations, CongruenceAfterMergeAndRebuild) {
   ProcessingContext<TestSymbol> ctx;
 
   // Create: f(a), f(b), merge a and b
-  auto a = egraph.emplace(TestSymbol::A);
-  auto b = egraph.emplace(TestSymbol::B);
-  auto fa = egraph.emplace(TestSymbol::F, {a});
-  auto fb = egraph.emplace(TestSymbol::F, {b});
+  auto [a, a_enodeid] = egraph.emplace(TestSymbol::A);
+  auto [b, b_enodeid] = egraph.emplace(TestSymbol::B);
+  auto [fa, fa_enodeid] = egraph.emplace(TestSymbol::F, {a});
+  auto [fb, fb_enodeid] = egraph.emplace(TestSymbol::F, {b});
 
   EXPECT_EQ(egraph.num_classes(), 4);
   EXPECT_NE(egraph.find(fa), egraph.find(fb));
@@ -149,9 +149,9 @@ TEST(EGraphMergingOperations, CongruenceAfterMergeAndRebuildSelfReference) {
   EGraph<TestSymbol, NoAnalysis> egraph;
   ProcessingContext<TestSymbol> ctx;
 
-  auto a = egraph.emplace(TestSymbol::A);
-  auto b = egraph.emplace(TestSymbol::B);
-  auto fab = egraph.emplace(TestSymbol::F, {a, b});
+  auto [a, a_enodeid] = egraph.emplace(TestSymbol::A);
+  auto [b, b_enodeid] = egraph.emplace(TestSymbol::B);
+  auto [fab, fab_enodeid] = egraph.emplace(TestSymbol::F, {a, b});
 
   EXPECT_EQ(egraph.num_classes(), 3);
 
@@ -165,7 +165,7 @@ TEST(EGraphMergingOperations, CongruenceAfterMergeAndRebuildSelfReference) {
 TEST(EGraphEClassAccess, GetEClassByID) {
   EGraph<TestSymbol, NoAnalysis> egraph;
 
-  auto id = egraph.emplace(TestSymbol::Test);
+  auto [id, id_enodeid] = egraph.emplace(TestSymbol::Test);
 
   const auto &eclass = egraph.eclass(id);
   EXPECT_EQ(eclass.size(), 1);
@@ -197,11 +197,11 @@ TEST(EGraphRebuildHashconsConsistency, SingleParentHashconsCheck) {
   // Create a scenario where an e-class has a single parent
   // This tests the corner case in process_class_parents_for_rebuild
   // where parent_ids.size() == 1
-  auto a = egraph.emplace(TestSymbol::A);
+  auto [a, a_enodeid] = egraph.emplace(TestSymbol::A);
   egraph.emplace(TestSymbol::F, {a});  // f(a) - single parent of a
 
   // Create another independent e-class
-  auto b = egraph.emplace(TestSymbol::B);
+  auto [b, b_enodeid] = egraph.emplace(TestSymbol::B);
 
   EXPECT_EQ(egraph.num_classes(), 3);
 
@@ -223,13 +223,13 @@ TEST(EGraphRebuildHashconsConsistency, MultipleParentsAfterMerge) {
   ProcessingContext<TestSymbol> ctx;
 
   // Create scenario with multiple parents that become congruent after merge
-  auto a = egraph.emplace(TestSymbol::A);
-  auto b = egraph.emplace(TestSymbol::B);
-  auto c = egraph.emplace(TestSymbol::C);
+  auto [a, a_enodeid] = egraph.emplace(TestSymbol::A);
+  auto [b, b_enodeid] = egraph.emplace(TestSymbol::B);
+  auto [c, c_enodeid] = egraph.emplace(TestSymbol::C);
 
   // Create f(a, b) and f(c, b) - these will become congruent when a=c
-  auto fab = egraph.emplace(TestSymbol::F, {a, b});
-  auto fcb = egraph.emplace(TestSymbol::F, {c, b});
+  auto [fab, fab_enodeid] = egraph.emplace(TestSymbol::F, {a, b});
+  auto [fcb, fcb_enodeid] = egraph.emplace(TestSymbol::F, {c, b});
 
   EXPECT_EQ(egraph.num_classes(), 5);
   EXPECT_NE(egraph.find(fab), egraph.find(fcb));
@@ -250,12 +250,12 @@ TEST(EGraphRebuildHashconsConsistency, DeepRebuildSingleParentChain) {
   ProcessingContext<TestSymbol> ctx;
 
   // Create a chain: a -> f(a) -> g(f(a)) where each has single parent
-  auto a = egraph.emplace(TestSymbol::A);
-  auto fa = egraph.emplace(TestSymbol::F, {a});
+  auto [a, a_enodeid] = egraph.emplace(TestSymbol::A);
+  auto [fa, fa_enodeid] = egraph.emplace(TestSymbol::F, {a});
   egraph.emplace(TestSymbol::Plus, {fa});  // Using Plus as second function
 
   // Create another chain: b -> h(b)
-  auto b = egraph.emplace(TestSymbol::B);
+  auto [b, b_enodeid] = egraph.emplace(TestSymbol::B);
   egraph.emplace(TestSymbol::Mul, {b});  // Using Mul as third function
 
   EXPECT_EQ(egraph.num_classes(), 5);
@@ -294,14 +294,14 @@ TEST(EGraphCongruenceClosureBug, MissingHashconsUpdateForSingleParent) {
   // Create scenario to trigger single parent hashcons bug:
   // We need a case where after deduplication, a canonical e-node has exactly ONE parent
 
-  auto a = egraph.emplace(TestSymbol::A);
-  auto f_a = egraph.emplace(TestSymbol::F, {a});
+  auto [a, a_enodeid] = egraph.emplace(TestSymbol::A);
+  auto [f_a, f_a_enodeid] = egraph.emplace(TestSymbol::F, {a});
 
   EXPECT_EQ(egraph.num_classes(), 2);  // a, F(a)
 
   // Trigger a rebuild cycle where F(a) needs its hashcons updated
   // Create another leaf that will merge with 'a'
-  auto b = egraph.emplace(TestSymbol::B);
+  auto [b, b_enodeid] = egraph.emplace(TestSymbol::B);
   egraph.merge(a, b);  // Now a≡b
 
   // During rebuild, F(a) canonicalizes to F(canonical_ab)
@@ -309,7 +309,7 @@ TEST(EGraphCongruenceClosureBug, MissingHashconsUpdateForSingleParent) {
   egraph.rebuild(ctx);
 
   // Now create a new F node with the merged class - should be found via hashcons
-  auto f_merged = egraph.emplace(TestSymbol::F, {egraph.find(a)});
+  auto [f_merged, f_merged_enodeid] = egraph.emplace(TestSymbol::F, {egraph.find(a)});
 
   // This should return the same class as f_a because F(canonical_ab) should be in hashcons
   EXPECT_EQ(egraph.find(f_a), f_merged)
@@ -323,10 +323,10 @@ TEST(EGraphCongruenceClosureBug, MissingHashconsUpdateForMultipleParents) {
   EGraph<TestSymbol, NoAnalysis> egraph;
   ProcessingContext<TestSymbol> ctx;
 
-  auto a = egraph.emplace(TestSymbol::A);
-  auto b = egraph.emplace(TestSymbol::B);
+  auto [a, a_enodeid] = egraph.emplace(TestSymbol::A);
+  auto [b, b_enodeid] = egraph.emplace(TestSymbol::B);
 
-  auto f_a = egraph.emplace(TestSymbol::F, {a});
+  auto [f_a, f_a_enodeid] = egraph.emplace(TestSymbol::F, {a});
   egraph.emplace(TestSymbol::F, {b});
 
   EXPECT_EQ(egraph.num_classes(), 4);  // a, b, F(a), F(b)
@@ -348,17 +348,17 @@ TEST(EGraphCongruenceClosureBug, ComplexFuzzSequenceInvariantViolation) {
   EGraph<TestSymbol, NoAnalysis> egraph;
   ProcessingContext<TestSymbol> ctx;
 
-  auto leaf_0 = egraph.emplace(TestSymbol::A, 0);
-  auto leaf_1 = egraph.emplace(TestSymbol::A, 1);
-  auto f_leaf_0 = egraph.emplace(TestSymbol::F, {leaf_0});
-  auto f_leaf_1 = egraph.emplace(TestSymbol::F, {leaf_1});
-  auto leaf_2 = egraph.emplace(TestSymbol::A, 2);
-  auto leaf_3 = egraph.emplace(TestSymbol::A, 3);
-  auto leaf_4 = egraph.emplace(TestSymbol::A, 4);
-  auto leaf_5 = egraph.emplace(TestSymbol::A, 5);
-  auto leaf_6 = egraph.emplace(TestSymbol::A, 6);
-  auto f2_leaf_5 = egraph.emplace(TestSymbol::F2, {leaf_5});
-  auto f2_leaf_6 = egraph.emplace(TestSymbol::F2, {leaf_6});
+  auto [leaf_0, leaf_0_enodeid] = egraph.emplace(TestSymbol::A, 0);
+  auto [leaf_1, leaf_1_enodeid] = egraph.emplace(TestSymbol::A, 1);
+  auto [f_leaf_0, f_leaf_0_enodeid] = egraph.emplace(TestSymbol::F, {leaf_0});
+  auto [f_leaf_1, f_leaf_1_enodeid] = egraph.emplace(TestSymbol::F, {leaf_1});
+  auto [leaf_2, leaf_2_enodeid] = egraph.emplace(TestSymbol::A, 2);
+  auto [leaf_3, leaf_3_enodeid] = egraph.emplace(TestSymbol::A, 3);
+  auto [leaf_4, leaf_4_enodeid] = egraph.emplace(TestSymbol::A, 4);
+  auto [leaf_5, leaf_5_enodeid] = egraph.emplace(TestSymbol::A, 5);
+  auto [leaf_6, leaf_6_enodeid] = egraph.emplace(TestSymbol::A, 6);
+  auto [f2_leaf_5, f2_leaf_5_enodeid] = egraph.emplace(TestSymbol::F2, {leaf_5});
+  auto [f2_leaf_6, f2_leaf_6_enodeid] = egraph.emplace(TestSymbol::F2, {leaf_6});
 
   egraph.merge(leaf_0, leaf_1);
   egraph.merge(f_leaf_0, leaf_1);
@@ -381,9 +381,9 @@ TEST(EGraphCongruenceClosureBug, InfinateSelfReference) {
   EGraph<TestSymbol, NoAnalysis> egraph;
   ProcessingContext<TestSymbol> ctx;
 
-  auto zero_1 = egraph.emplace(TestSymbol::A, 0);  // First zero
-  auto zero_2 = egraph.emplace(TestSymbol::A, 1);  // Second zero
-  auto add = egraph.emplace(TestSymbol::F, {zero_1, zero_2});
+  auto [zero_1, zero_1_enodeid] = egraph.emplace(TestSymbol::A, 0);  // First zero
+  auto [zero_2, zero_2_enodeid] = egraph.emplace(TestSymbol::A, 1);  // Second zero
+  auto [add, add_enodeid] = egraph.emplace(TestSymbol::F, {zero_1, zero_2});
   egraph.merge(zero_1, add);  // infinate self reference
   egraph.rebuild(ctx);        // ensure graph is correct
   EXPECT_EQ(egraph.num_classes(), 2);
