@@ -94,7 +94,7 @@ class RedeclareVariableError : public SemanticException {
 
 class TypeMismatchError : public SemanticException {
  public:
-  TypeMismatchError(const std::string &name, const std::string &datum, const std::string &expected)
+  TypeMismatchError(const std::string &name, std::string_view datum, std::string_view expected)
       : SemanticException(fmt::format("Type mismatch: {} already defined as {}, expected {}.", name, datum, expected)) {
   }
   SPECIALIZE_GET_EXCEPTION_NAME(TypeMismatchError)
