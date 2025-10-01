@@ -6086,7 +6086,7 @@ PreparedQuery PrepareMultiDatabaseQuery(ParsedQuery parsed_query, InterpreterCon
                                                             db_name, &query::up_to_date_policy);
                         };
                         interpreter_context->TerminateTransactions(
-                            interpreters, interpreter_context->ShowTransactionsUsingDBName(interpreters, db_name),
+                            interpreters, InterpreterContext::ShowTransactionsUsingDBName(interpreters, db_name),
                             interpreter->user_or_role_.get(), privilege_checker);
                       });
                 }
