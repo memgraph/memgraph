@@ -121,6 +121,7 @@ target_link_libraries(mg-query
     mg-utils
     mg-kvstore
     mg-memory-utils
+    mg::arrow
     mg::csv
     mg::system
     mg-flags

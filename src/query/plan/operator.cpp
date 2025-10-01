@@ -30,8 +30,8 @@
 #include "query/common.hpp"
 #include "spdlog/spdlog.h"
 
+#include "arrow_parquet/reader.hpp"
 #include "csv/parsing.hpp"
-#include "flags/experimental.hpp"
 #include "license/license.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
@@ -68,7 +68,6 @@
 #include "utils/pmr/unordered_set.hpp"
 #include "utils/pmr/vector.hpp"
 #include "utils/query_memory_tracker.hpp"
-#include "utils/readable_size.hpp"
 #include "utils/tag.hpp"
 #include "utils/temporal.hpp"
 #include "vertex_accessor.hpp"
@@ -7618,17 +7617,40 @@ class LoadParquetCursor : public Cursor {
   const LoadParquet *self_;
   const UniqueCursorPtr input_cursor_;
   bool did_pull_{false};
-  // Parquet reader ...
+  std::optional<arrow::ParquetReader> reader_{};
+
  public:
   LoadParquetCursor(const LoadParquet *self, utils::MemoryResource *mem)
       : self_(self), input_cursor_(self_->input_->MakeCursor(mem)) {}
 
-  bool Pull(Frame & /*frame*/, ExecutionContext &context) override {
+  bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler const oom_exception;
     SCOPED_PROFILE_OP_BY_REF(*self_);
     AbortCheck(context);
 
-    spdlog::trace("Pulling from parquet file");
+    // TODO: (andi) Refactor into the method
+    if (UNLIKELY(!reader_)) {
+      Frame frame(0);
+      SymbolTable symbol_table;
+      DbAccessor *dba = nullptr;
+      auto evaluator = ExpressionEvaluator(&frame, symbol_table, context.evaluation_context, dba, storage::View::OLD);
+      auto maybe_file = ToOptionalString(&evaluator, self_->file_);
+      if (maybe_file.has_value()) {
+        spdlog::trace("Evaluated file string: {}", *maybe_file);
+      }
+    }
+
+    // The code definitely works up to this point
+
+    if (input_cursor_->Pull(frame, context)) {
+      if (did_pull_) {
+        throw QueryRuntimeException(
+            "LOAD PARQUET can be executed only once, please check if the cardinality of the operator before LOAD CSV "
+            "is 1");
+      }
+      did_pull_ = true;
+      reader_.reset();
+    }
 
     return true;
   }
