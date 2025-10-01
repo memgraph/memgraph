@@ -6927,7 +6927,13 @@ void Interpreter::SetCurrentDB() { current_db_.SetCurrentDB(interpreter_context_
 Interpreter::ParseRes Interpreter::Parse(const std::string &query_string, UserParameters_fn params_getter,
                                          QueryExtras const &extras) {
   LogQueryMessage(fmt::format("Accepted query: {}", query_string));
+#ifdef MG_ENTERPRISE
+  if (!flags::CoordinationSetupInstance().IsCoordinator()) {
+    MG_ASSERT(user_or_role_, "Trying to prepare a query without a query user.");
+  }
+#else
   MG_ASSERT(user_or_role_, "Trying to prepare a query without a query user.");
+#endif
   // Handle transaction control queries.
   const auto upper_case_query = utils::ToUpperCase(query_string);
   const auto trimmed_query = utils::Trim(upper_case_query);
