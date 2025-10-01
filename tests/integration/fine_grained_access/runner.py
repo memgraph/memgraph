@@ -23,7 +23,7 @@ from typing import List
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
 PROJECT_DIR = os.path.normpath(os.path.join(SCRIPT_DIR, "..", "..", ".."))
 
-UNAUTHORIZED_ERROR = r"^You are not authorized to execute this query.*?Please contact your database administrator\."
+UNAUTHORIZED_ERROR = r"^You are not authorized to execute this query.*?Please contact your database administrator\. This issue comes from the user having not enough role-based access privileges to execute this query\. If you want this issue to be resolved\, ask your database administrator to grant you a specific privilege for query execution\."
 SIGNAL_SIGTERM = 15
 
 

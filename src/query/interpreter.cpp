@@ -7492,11 +7492,16 @@ void Interpreter::CheckAuthorized(std::vector<AuthQuery::Privilege> const &privi
   if (user_or_role_ && !user_or_role_->IsAuthorized(privileges, db, &query::session_long_policy)) {
     Abort();
     if (!db) {
-      throw QueryException("You are not authorized to execute this query! Please contact your database administrator.");
+      throw QueryException(
+          "You are not authorized to execute this query! Please contact your database administrator. This issue comes "
+          "from the user having not enough role-based access privileges to execute this query. If you want this issue "
+          "to be resolved, ask your database administrator to grant you a specific privilege for query execution.");
     }
     throw QueryException(
         "You are not authorized to execute this query on database \"{}\"! Please contact your database "
-        "administrator.",
+        "administrator. This issue comes from the user having not enough role-based access privileges to execute this "
+        "query. If you want this issue to be resolved, ask your database administrator to grant you a specific "
+        "privilege for query execution.",
         db.value());
   }
 }
