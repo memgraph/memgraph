@@ -285,8 +285,9 @@ class PropertyLookupEvaluationModeVisitor : public ExpressionVisitor<void> {
 
   void Visit(PropertyLookup & /*property_lookup*/) override;
 
-  bool gather_property_lookup_counts{false};
-  bool assign_property_lookup_evaluations{false};
+  enum struct Phase : uint8_t { GATHER, ASSIGN };
+
+  Phase phase_{Phase::GATHER};
 
  private:
   std::unordered_map<std::string, uint64_t> property_lookup_counts_by_symbol{};
@@ -382,33 +383,27 @@ inline SymbolTable MakeSymbolTable(CypherQuery *query, const std::vector<Identif
 inline void SetEvaluationModeOnPropertyLookups(ReturnBody &body) {
   PropertyLookupEvaluationModeVisitor visitor;
 
-  visitor.gather_property_lookup_counts = true;
+  visitor.phase_ = PropertyLookupEvaluationModeVisitor::Phase::GATHER;
   for (auto *expr : body.named_expressions) {
     expr->Accept(visitor);
   }
-  visitor.gather_property_lookup_counts = false;
-
-  visitor.assign_property_lookup_evaluations = true;
+  visitor.phase_ = PropertyLookupEvaluationModeVisitor::Phase::ASSIGN;
   for (auto *expr : body.named_expressions) {
     expr->Accept(visitor);
   }
-  visitor.assign_property_lookup_evaluations = false;
 }
 
 inline void SetEvaluationModeOnPropertyLookups(MapLiteral &map_literal) {
   PropertyLookupEvaluationModeVisitor visitor;
 
-  visitor.gather_property_lookup_counts = true;
-  for (auto &pair : map_literal.elements_) {
-    pair.second->Accept(visitor);
+  visitor.phase_ = PropertyLookupEvaluationModeVisitor::Phase::GATHER;
+  for (auto &[_, expr] : map_literal.elements_) {
+    expr->Accept(visitor);
   }
-  visitor.gather_property_lookup_counts = false;
-
-  visitor.assign_property_lookup_evaluations = true;
-  for (auto &pair : map_literal.elements_) {
-    pair.second->Accept(visitor);
+  visitor.phase_ = PropertyLookupEvaluationModeVisitor::Phase::ASSIGN;
+  for (auto &[_, expr] : map_literal.elements_) {
+    expr->Accept(visitor);
   }
-  visitor.assign_property_lookup_evaluations = false;
 }
 
 }  // namespace memgraph::query

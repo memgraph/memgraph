@@ -697,7 +697,7 @@ class RuleBasedPlanner {
 
       // additionally, check for Cyphermorphism of the previous branch with new bound symbols
       for (const auto &new_symbol : cross_branch_new_symbols) {
-        if (new_symbol.type_ == Symbol::Type::EDGE) {
+        if (new_symbol.type() == Symbol::Type::EDGE) {
           last_op = EnsureCyphermorphism(std::move(last_op), new_symbol, matching, new_bound_symbols);
         }
       }
