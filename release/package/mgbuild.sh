@@ -1075,7 +1075,6 @@ mgdeps_cache_host=$DEFAULT_MGDEPS_CACHE_HOST
 mgdeps_cache_port=$DEFAULT_MGDEPS_CACHE_PORT
 ccache_enabled=$DEFAULT_CCACHE_ENABLED
 conan_cache_enabled=$DEFAULT_CONAN_CACHE_ENABLED
-conan_cache_dir="$HOME/.conan2-${os}-${arch}"
 command=""
 build_container=""
 while [[ $# -gt 0 ]]; do
@@ -1153,7 +1152,7 @@ while [[ $# -gt 0 ]]; do
     ;;
   esac
 done
-
+conan_cache_dir="$HOME/.conan2-${os}-${arch}"
 if [[ "$os" != "all" ]]; then
   if [[ "$arch" == 'arm' ]] && [[ "$os" != *"-arm" ]]; then
     os="${os}-arm"
