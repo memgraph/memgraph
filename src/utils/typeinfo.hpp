@@ -82,6 +82,7 @@ enum class TypeId : uint64_t {
   PERIODIC_SUBQUERY,
   SET_NESTED_PROPERTY,
   REMOVE_NESTED_PROPERTY,
+  LOAD_PARQUET,
 
   // Replication
   // NOTE: these NEED to be stable in the 2000+ range (see rpc version)
@@ -288,6 +289,7 @@ enum class TypeId : uint64_t {
   AST_SHOW_SNAPSHOTS_QUERY,
   AST_SHOW_NEXT_SNAPSHOT_QUERY,
   AST_USER_PROFILE_QUERY,
+  AST_LOAD_PARQUET,
 
   // Symbol
   SYMBOL = 4000,

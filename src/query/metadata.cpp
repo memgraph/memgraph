@@ -54,8 +54,8 @@ constexpr std::string_view GetCodeString(const NotificationCode code) {
       return "ConstraintAlreadyExists"sv;
     case NotificationCode::EXISTENT_INDEX:
       return "IndexAlreadyExists"sv;
-    case NotificationCode::LOAD_CSV_TIP:
-      return "LoadCSVTip"sv;
+    case NotificationCode::LOAD_CSV_PARQUET_TIP:
+      return "LoadCsvParquetTip"sv;
     case NotificationCode::NONEXISTENT_INDEX:
       return "IndexDoesNotExist"sv;
     case NotificationCode::NONEXISTENT_CONSTRAINT:

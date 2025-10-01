@@ -241,6 +241,11 @@ class PrivilegeExtractor : public QueryVisitor<void>, public HierarchicalTreeVis
     return false;
   }
 
+  bool PreVisit(LoadParquet & /*unused*/) override {
+    AddPrivilege(AuthQuery::Privilege::READ_FILE);
+    return false;
+  }
+
   bool Visit(Identifier & /*unused*/) override { return true; }
   bool Visit(PrimitiveLiteral & /*unused*/) override { return true; }
   bool Visit(ParameterLookup & /*unused*/) override { return true; }
