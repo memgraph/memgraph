@@ -92,7 +92,7 @@ QUERIES = [
     ("SHOW USERS FOR test_role", ("AUTH",)),
 ]
 
-UNAUTHORIZED_ERROR = r"^You are not authorized to execute this query.*?Please contact your database administrator\."
+UNAUTHORIZED_ERROR = r"^You are not authorized to execute this query.*?Please contact your database administrator\. This issue comes from the user having not enough role-based access privileges to execute this query\. If you want this issue to be resolved\, ask your database administrator to grant you a specific privilege for query execution\."
 
 
 def wait_for_server(port, delay=0.1):
