@@ -1600,24 +1600,24 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
       if (has_update || has_return) {
         throw SemanticException("UNWIND can't be put after RETURN clause or after an update.");
       }
-    } else if (utils::IsSubtype(clause_type, LoadCsv::kType)) {
-      if (has_load_csv || has_load_csv) {
+    } else if (utils::IsSubtype(clause_type, LoadCsv::kType) || utils::IsSubtype(clause_type, LoadParquet::kType)) {
+      bool const is_load_csv = utils::IsSubtype(clause_type, LoadCsv::kType);
+
+      if (has_load_csv || has_load_parquet) {
         throw SemanticException("Can't have multiple LOAD CSV/LOAD PARQUET clauses in a single query.");
       }
-      check_write_procedure("LOAD CSV");
+
+      check_write_procedure(is_load_csv ? "LOAD CSV" : "LOAD PARQUET");
+
       if (has_return) {
-        throw SemanticException("LOAD CSV can't be put after RETURN clause.");
+        throw SemanticException("LOAD CSV/LOAD PARQUET can't be put after RETURN clause.");
       }
-      has_load_csv = true;
-    } else if (utils::IsSubtype(clause_type, plan::LoadParquet::kType)) {
-      if (has_load_parquet || has_load_csv) {
-        throw SemanticException("Can't have multiple LOAD CSV/LOAD_PARQUET clauses in a single query.");
+
+      if (is_load_csv) {
+        has_load_csv = true;
+      } else {
+        has_load_parquet = true;
       }
-      check_write_procedure("LOAD PARQUET");
-      if (has_return) {
-        throw SemanticException("LOAD PARQUET can't be put after RETURN clause.");
-      }
-      has_load_parquet = true;
     } else if (auto *match = utils::Downcast<Match>(clause)) {
       if (has_update || has_return) {
         throw SemanticException("MATCH can't be put after RETURN clause or after an update.");
