@@ -7716,7 +7716,7 @@ std::vector<Symbol> LoadParquet::ModifiedSymbols(const SymbolTable &sym_table) c
   return symbols;
 };
 
-class LoadParquetCursor : public Cursor {
+lass LoadParquetCursor : public Cursor {
   const LoadParquet *self_;
   const UniqueCursorPtr input_cursor_;
   bool did_pull_{false};
@@ -7733,27 +7733,49 @@ class LoadParquetCursor : public Cursor {
     AbortCheck(context);
 
     // TODO: (andi) Refactor into the method
-    if (UNLIKELY(!reader_)) {
-      Frame frame(0);
+    if (UNLIKELY(!reader_.has_value())) {
+      Frame local_frame(0);
       SymbolTable symbol_table;
       DbAccessor *dba = nullptr;
-      auto evaluator = ExpressionEvaluator(&frame, symbol_table, context.evaluation_context, dba, storage::View::OLD);
+      auto evaluator =
+          ExpressionEvaluator(&local_frame, symbol_table, context.evaluation_context, dba, storage::View::OLD);
       auto maybe_file = ToOptionalString(&evaluator, self_->file_);
-      if (maybe_file.has_value()) {
-        spdlog::trace("Evaluated file string: {}", *maybe_file);
-      }
+      // No need to check if maybe_file is std::nullopt, as the parser makes sure
+      // we can't get a nullptr for the 'file_' member in the LoadParquet clause
+      // TODO: (andi) Conversion needed because of pmr allocator
+      reader_.emplace(std::string{*maybe_file});
+      header_cache_ = reader_->GetHeader();
+      spdlog::trace("Cached {} column headers", header_cache_.size());
     }
-
-    // The code definitely works up to this point
 
     if (input_cursor_->Pull(frame, context)) {
       if (did_pull_) {
         throw QueryRuntimeException(
-            "LOAD PARQUET can be executed only once, please check if the cardinality of the operator before LOAD CSV "
+            "LOAD PARQUET can be executed only once, please check if the cardinality of the operator before LOAD "
+            "PARQUET "
             "is 1");
       }
       did_pull_ = true;
-      reader_.reset();
+    }
+
+    // Get the next row from the parquet file
+    auto row = reader_->GetNextRow();
+    if (!row) {
+      return false;
+    }
+
+    // Convert row to TypedValue map similar to CSV with headers
+    auto *mem = context.evaluation_context.memory;
+    auto typed_map = utils::pmr::map<utils::pmr::string, TypedValue>(mem);
+
+    for (size_t i = 0; i < header_cache_.size() && i < row->size(); ++i) {
+      typed_map.emplace(utils::pmr::string(header_cache_[i], mem), TypedValue(utils::pmr::string((*row)[i], mem)));
+    }
+
+    frame[self_->row_var_] = TypedValue(std::move(typed_map));
+
+    if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(self_->row_var_.name())) {
+      context.frame_change_collector->ResetTrackingValue(self_->row_var_.name());
     }
 
     return true;
