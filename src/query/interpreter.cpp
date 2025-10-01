@@ -6448,6 +6448,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
           interpreter_context->auth_checker && has_user_or_role && db_acc) {
         auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(user_or_role, &*db_acc);
       }
+
       const auto node_predicate = [&auth_checker](auto label_id) {
         return auth_checker &&
                auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ);
@@ -6455,8 +6456,11 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       const auto edge_predicate = [&auth_checker](auto edge_type_id) {
         return auth_checker && auth_checker->Has(edge_type_id, AuthQuery::FineGrainedPrivilege::READ);
       };
-      auto json =
-          storage->schema_info_.ToJson(*storage->name_id_mapper_, storage->enum_store_, node_predicate, edge_predicate);
+
+      auto json = auth_checker != nullptr
+                      ? storage->schema_info_.ToJson(*storage->name_id_mapper_, storage->enum_store_, node_predicate,
+                                                     edge_predicate)
+                      : storage->schema_info_.ToJson(*storage->name_id_mapper_, storage->enum_store_);
 #else
       auto json = storage->schema_info_.ToJson(*storage->name_id_mapper_, storage->enum_store_);
 #endif

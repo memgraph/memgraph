@@ -48,8 +48,8 @@ struct SchemaTrackingInterface {
   virtual void Clear() = 0;
   virtual nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store) const = 0;
   virtual nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store,
-                                const std::function<bool(LabelId)> node_predicate,
-                                const std::function<bool(EdgeTypeId)> edge_predicate) const = 0;
+                                const std::function<bool(LabelId)> &node_predicate,
+                                const std::function<bool(EdgeTypeId)> &edge_predicate) const = 0;
   virtual void RecoverVertex(Vertex *vertex) = 0;
   virtual void RecoverEdge(EdgeTypeId edge_type, EdgeRef edge, Vertex *from, Vertex *to, bool prop_on_edges) = 0;
   virtual void AddVertex(Vertex *vertex) = 0;
@@ -90,8 +90,8 @@ struct SchemaTracking final : public SchemaTrackingInterface {
   nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store) const override;
 
   nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store,
-                        const std::function<bool(LabelId)> node_predicate,
-                        const std::function<bool(EdgeTypeId)> edge_predicate) const override;
+                        const std::function<bool(LabelId)> &node_predicate,
+                        const std::function<bool(EdgeTypeId)> &edge_predicate) const override;
 
   void RecoverVertex(Vertex *vertex) override;
 
@@ -158,8 +158,8 @@ struct SchemaInfo {
   }
 
   nlohmann::json ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store,
-                        std::function<bool(LabelId)> node_predicate,
-                        std::function<bool(EdgeTypeId)> edge_predicate) const {
+                        const std::function<bool(LabelId)> &node_predicate,
+                        const std::function<bool(EdgeTypeId)> &edge_predicate) const {
     auto lock = std::unique_lock{operation_ordering_mutex_};  // No snapshot guarantees for ANALYTICAL
     return tracking_.ToJson(name_id_mapper, enum_store, node_predicate, edge_predicate);
   }

@@ -349,8 +349,8 @@ nlohmann::json SchemaTracking<TContainer>::ToJson(NameIdMapper &name_id_mapper, 
 
 template <template <class...> class TContainer>
 nlohmann::json SchemaTracking<TContainer>::ToJson(NameIdMapper &name_id_mapper, const EnumStore &enum_store,
-                                                  const std::function<bool(LabelId)> node_predicate,
-                                                  const std::function<bool(EdgeTypeId)> edge_predicate) const {
+                                                  const std::function<bool(LabelId)> &node_predicate,
+                                                  const std::function<bool(EdgeTypeId)> &edge_predicate) const {
   auto json = nlohmann::json::object();
 
   // Handle NODES
