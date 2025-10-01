@@ -273,8 +273,9 @@ void Register(replication::RoleReplicaData const &data, system::ReplicaHandlerAc
         DropDatabaseHandler(system_state_access, data.uuid_, dbms_handler, request_version, req_reader, res_builder);
       });
   data.server->rpc_server_.Register<storage::replication::RenameDatabaseRpc>(
-      [&data, system_state_access, &dbms_handler](uint64_t const request_version, auto *req_reader,
-                                                  auto *res_builder) mutable {
+      [&data, system_state_access, &dbms_handler](
+          std::optional<rpc::FileReplicationHandler> const & /*file_replication_handler*/,
+          uint64_t const request_version, auto *req_reader, auto *res_builder) mutable {
         RenameDatabaseHandler(system_state_access, data.uuid_, dbms_handler, request_version, req_reader, res_builder);
       });
 }
