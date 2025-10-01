@@ -7700,6 +7700,60 @@ std::unique_ptr<LogicalOperator> LoadCsv::Clone(AstStorage *storage) const {
 
 std::string LoadCsv::ToString() const { return fmt::format("LoadCsv {{{}}}", row_var_.name()); };
 
+LoadParquet::LoadParquet(std::shared_ptr<LogicalOperator> input, Expression *file, Symbol row_var)
+    : input_(input ? input : (std::make_shared<Once>())), file_(file), row_var_(std::move(row_var)) {
+  MG_ASSERT(file_, "Something went wrong - '{}' member file_ shouldn't be a nullptr", __func__);
+}
+
+ACCEPT_WITH_INPUT(LoadParquet);
+
+class LoadParquetCursor;
+
+std::vector<Symbol> LoadParquet::OutputSymbols(const SymbolTable &sym_table) const { return {row_var_}; };
+
+std::vector<Symbol> LoadParquet::ModifiedSymbols(const SymbolTable &sym_table) const {
+  auto symbols = input_->ModifiedSymbols(sym_table);
+  symbols.push_back(row_var_);
+  return symbols;
+};
+
+class LoadParquetCursor : public Cursor {
+  const LoadParquet *self_;
+  const UniqueCursorPtr input_cursor_;
+    bool did_pull_;
+
+public:
+  LoadParquetCursor(const LoadParquet *self, utils::MemoryResource *mem)
+      : self_(self), input_cursor_(self_->input_->MakeCursor(mem)), did_pull_{false} {}
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
+    SCOPED_PROFILE_OP_BY_REF(*self_);
+    AbortCheck(context);
+
+    spdlog::trace("Pulling from parquet file");
+
+    return true;
+  }
+
+  void Reset() override { input_cursor_->Reset(); }
+  void Shutdown() override { input_cursor_->Shutdown(); }
+};
+
+UniqueCursorPtr LoadParquet::MakeCursor(utils::MemoryResource *mem) const {
+  return MakeUniqueCursorPtr<LoadParquetCursor>(mem, this, mem);
+}
+
+std::unique_ptr<LogicalOperator> LoadParquet::Clone(AstStorage *storage) const {
+  auto object = std::make_unique<LoadParquet>();
+  object->input_ = input_ ? input_->Clone(storage) : nullptr;
+  object->file_ = file_ ? file_->Clone(storage) : nullptr;
+  object->row_var_ = row_var_;
+  return object;
+}
+
+std::string LoadParquet::ToString() const { return fmt::format("LoadParquet {{{}}}", row_var_.name()); }
+
 class ForeachCursor : public Cursor {
  public:
   explicit ForeachCursor(const Foreach &foreach, utils::MemoryResource *mem)
