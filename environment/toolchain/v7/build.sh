@@ -56,7 +56,7 @@ SWIG_VERSION=4.3.0 # used only for LLVM compilation
 
 # define the name used to make the toolchain archive
 DISTRO_FULL_NAME=${DISTRO}
-if [[ "${DISTRO}" == centos* ]]; then
+if [[ "${DISTRO}" == centos* || "${DISTRO}" == rocky* || "${DISTRO}" == fedora* ]]; then
     if [[ "$for_arm" = "true" ]]; then
         DISTRO_FULL_NAME="$DISTRO_FULL_NAME-aarch64"
     else
