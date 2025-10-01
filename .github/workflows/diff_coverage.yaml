@@ -63,7 +63,7 @@ jobs:
           --os $OS \
           --arch $ARCH \
           --no-ccache \
-          --conan-cache-dir $HOME/.conan2-${OS}-coverage \
+          --no-conan-cache \
           run
 
       # This is also needed if we want do to comparison against other branches
