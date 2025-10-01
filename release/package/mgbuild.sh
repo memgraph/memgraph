@@ -583,29 +583,15 @@ build_memgraph () {
 
   # Add additional CMake options if any are specified
   local additional_options=""
-  if [[ -n "$arm_flag" || -n "$community_flag" || -n "$telemetry_id_override_flag" || -n "$coverage_flag" || -n "$asan_flag" || -n "$ubsan_flag" || -n "$disable_jemalloc_flag" ]]; then
-
-    if [[ -n "$arm_flag" ]]; then
-      additional_options="$additional_options $arm_flag"
+  local flags=("$arm_flag" "$community_flag" "$telemetry_id_override_flag" "$coverage_flag" "$asan_flag" "$ubsan_flag" "$disable_jemalloc_flag" "$disable_testing_flag")
+  
+  for flag in "${flags[@]}"; do
+    if [[ -n "$flag" ]]; then
+      additional_options="$additional_options $flag"
     fi
-    if [[ -n "$community_flag" ]]; then
-      additional_options="$additional_options $community_flag"
-    fi
-    if [[ -n "$telemetry_id_override_flag" ]]; then
-      additional_options="$additional_options $telemetry_id_override_flag"
-    fi
-    if [[ -n "$coverage_flag" ]]; then
-      additional_options="$additional_options $coverage_flag"
-    fi
-    if [[ -n "$asan_flag" ]]; then
-      additional_options="$additional_options $asan_flag"
-    fi
-    if [[ -n "$ubsan_flag" ]]; then
-      additional_options="$additional_options $ubsan_flag"
-    fi
-    if [[ -n "$disable_jemalloc_flag" ]]; then
-      additional_options="$additional_options $disable_jemalloc_flag"
-    fi
+  done
+  
+  if [[ -n "$additional_options" ]]; then
     echo "Adding additional CMake options: $additional_options"
   fi
 
@@ -639,8 +625,6 @@ build_memgraph () {
     echo "========================="
     echo ""
   fi
-
-
 
   # Clean up virtual environment
   docker exec -u mg "$build_container" bash -c "cd $MGBUILD_ROOT_DIR && source ./env/bin/activate && deactivate"
