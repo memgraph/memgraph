@@ -14,14 +14,17 @@
 #include <chrono>
 #include <optional>
 
-#include <arrow/acero/exec_plan.h>
-#include <arrow/dataset/dataset.h>
-#include <arrow/dataset/file_parquet.h>
-#include <arrow/filesystem/api.h>
+#include "arrow/acero/exec_plan.h"
+#include "arrow/compute/api.h"
+#include "arrow/dataset/dataset.h"
+#include "arrow/filesystem/api.h"
+#include "arrow/io/api.h"
+#include "arrow/io/file.h"
+#include "parquet/properties.h"
 
 #include "spdlog/spdlog.h"
 
-constexpr int64_t batch_rows = 1U << 18U;
+constexpr int64_t batch_rows = 1U << 16U;
 
 namespace memgraph::arrow {
 
@@ -45,7 +48,7 @@ class RowIterator {
   RowIterator() = default;
   explicit RowIterator(std::unique_ptr<::arrow::RecordBatchReader> rbr, int const num_columns)
       : num_columns_(num_columns), rbr_(std::move(rbr)) {
-    cols_.reserve(num_columns_);
+    cols_.resize(num_columns_);
   }
 
   RowIterator(const RowIterator &) = delete;
@@ -58,19 +61,13 @@ class RowIterator {
     // Need to load another batch
     if (!batch_ || row_in_batch_ >= batch_->num_rows()) {
       auto const res = rbr_->Next();
-      if (!res.ok()) {
+      if (!res.ok() || !(*res)) {
         return std::nullopt;
       }
       batch_ = *res;
-      // Check if we actually got a batch (end of data)
-      if (!batch_) {
-        return std::nullopt;
-      }
 
-      // Cache
-      cols_.clear();
       for (int c = 0; c < num_columns_; ++c) {
-        cols_.push_back(batch_->column(c));
+        cols_[c] = batch_->column(c);
       }
       row_in_batch_ = 0;
     }
@@ -89,7 +86,7 @@ class RowIterator {
 
 struct ParquetReader::impl {
   explicit impl(std::unique_ptr<parquet::arrow::FileReader> file_reader,
-                std::unique_ptr<::arrow::RecordBatchReader> rbr);
+                std::unique_ptr<::arrow::RecordBatchReader> rbr, utils::MemoryResource *resource);
 
   auto GetNextRow() -> std::optional<Row>;
 
@@ -100,14 +97,18 @@ struct ParquetReader::impl {
   std::shared_ptr<::arrow::Schema> schema_;
   int num_columns_;
   RowIterator row_it_;
+  Row row_;
 };
 
 ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reader,
-                          std::unique_ptr<::arrow::RecordBatchReader> rbr)
+                          std::unique_ptr<::arrow::RecordBatchReader> rbr, utils::MemoryResource *resource)
     : file_reader_(std::move(file_reader)),
       schema_(rbr->schema()),
       num_columns_(schema_->num_fields()),
-      row_it_(RowIterator(std::move(rbr), num_columns_)) {}
+      row_it_(RowIterator(std::move(rbr), num_columns_)),
+      row_(resource) {
+  row_.resize(num_columns_);
+}
 
 // TODO: (andi)
 // Next steps are optimizing this or trying Scanner
@@ -119,21 +120,17 @@ auto ParquetReader::impl::GetNextRow() -> std::optional<Row> {
   if (!maybe_arrow_row.has_value()) return std::nullopt;
   auto const &arrow_row = *maybe_arrow_row;
 
-  Row row;
-  row.reserve(num_columns_);
-
   for (int i = 0; i < num_columns_; i++) {
     // TODO: (andi) Not sure if this is good ValueOrDie
-    auto cell = arrow_row[i].ToScalar().ValueOrDie()->ToString();
-    row.push_back(std::move(cell));
+    row_[i] = arrow_row[i].ToScalar().ValueOrDie()->ToString();
   }
 
-  return row;
+  return row_;
 }
 
 auto ParquetReader::impl::GetSchema() -> std::shared_ptr<::arrow::Schema> { return schema_; }
 
-ParquetReader::ParquetReader(std::string const &file) {
+ParquetReader::ParquetReader(std::string const &file, utils::MemoryResource *resource) {
   auto const start = std::chrono::high_resolution_clock::now();
   ::arrow::MemoryPool *pool = ::arrow::default_memory_pool();
 
@@ -144,7 +141,6 @@ ParquetReader::ParquetReader(std::string const &file) {
 
     // Configure general Parquet reader settings
     auto reader_properties = parquet::ReaderProperties(pool);
-    reader_properties.set_buffer_size(4096 * 4);
     reader_properties.enable_buffered_stream();
 
     // Configure Arrow-specific Parquet reader settings
@@ -167,7 +163,7 @@ ParquetReader::ParquetReader(std::string const &file) {
       throw std::runtime_error(res.status().message());
     }
 
-    pimpl_ = std::make_unique<impl>(std::move(arrow_reader), std::move(*res));
+    pimpl_ = std::make_unique<impl>(std::move(arrow_reader), std::move(*res), resource);
   } catch (const std::exception &e) {
     spdlog::error("Failed to open parquet file '{}': {}", file, e.what());
     throw;
@@ -183,13 +179,13 @@ ParquetReader::~ParquetReader() = default;
 
 auto ParquetReader::GetNextRow() const -> std::optional<Row> { return pimpl_->GetNextRow(); }
 
-auto ParquetReader::GetHeader() const -> Row {
+auto ParquetReader::GetHeader(utils::MemoryResource *resource) const -> Row {
   auto const schema = pimpl_->GetSchema();
-  Row header;
+  Row header(resource);
   auto const header_size = schema->num_fields();
   header.reserve(header_size);
   for (auto const &field : schema->fields()) {
-    header.push_back(field->name());
+    header.emplace_back(field->name());
   }
   return header;
 }
