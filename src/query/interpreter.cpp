@@ -6503,7 +6503,13 @@ PreparedQuery PrepareSessionTraceQuery(ParsedQuery parsed_query, CurrentDB &curr
                        RWType::NONE};
 }
 
-PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, CurrentDB &current_db) {
+PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, CurrentDB &current_db
+#ifdef MG_ENTERPRISE
+                                         ,
+                                         InterpreterContext *interpreter_context,
+                                         std::shared_ptr<QueryUserOrRole> user_or_role
+#endif
+) {
   if (current_db.db_acc_->get()->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
     throw ShowSchemaInfoOnDiskException();
   }
@@ -6511,15 +6517,41 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
   Callback callback;
   callback.header = {"schema"};
   callback.fn = [db = *current_db.db_acc_, db_acc = current_db.execution_db_accessor_,
-                 storage_acc =
-                     current_db.db_transactional_accessor_.get()]() mutable -> std::vector<std::vector<TypedValue>> {
+                 storage_acc = current_db.db_transactional_accessor_.get()
+#ifdef MG_ENTERPRISE
+                     ,
+                 interpreter_context, user_or_role
+#endif
+  ]() mutable -> std::vector<std::vector<TypedValue>> {
     memgraph::metrics::IncrementCounter(memgraph::metrics::ShowSchema);
 
     std::vector<std::vector<TypedValue>> schema;
     auto *storage = db->storage();
     if (storage->config_.salient.items.enable_schema_info) {
-      // SCHEMA INFO
+#if MG_ENTERPRISE
+      // Apply fine-grained access control filtering if auth_checker is available
+      std::unique_ptr<FineGrainedAuthChecker> auth_checker = nullptr;
+      const bool has_user_or_role = user_or_role != nullptr && *user_or_role;
+      if (license::global_license_checker.IsEnterpriseValidFast() && interpreter_context &&
+          interpreter_context->auth_checker && has_user_or_role && db_acc) {
+        auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(user_or_role, &*db_acc);
+      }
+
+      const auto node_predicate = [&auth_checker](auto label_id) {
+        return auth_checker &&
+               auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ);
+      };
+      const auto edge_predicate = [&auth_checker](auto edge_type_id) {
+        return auth_checker && auth_checker->Has(edge_type_id, AuthQuery::FineGrainedPrivilege::READ);
+      };
+
+      auto json = auth_checker != nullptr
+                      ? storage->schema_info_.ToJson(*storage->name_id_mapper_, storage->enum_store_, node_predicate,
+                                                     edge_predicate)
+                      : storage->schema_info_.ToJson(*storage->name_id_mapper_, storage->enum_store_);
+#else
       auto json = storage->schema_info_.ToJson(*storage->name_id_mapper_, storage->enum_store_);
+#endif
 
       // INDICES
       auto node_indexes = nlohmann::json::array();
@@ -6527,15 +6559,28 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       auto index_info = db_acc->ListAllIndices();
       // Vertex label indices
       for (const auto label_id : index_info.label) {
+#ifdef MG_ENTERPRISE
+        if (auth_checker &&
+            !auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
+          continue;
+        }
+#endif
         node_indexes.push_back(nlohmann::json::object({
             {"labels", {storage->LabelToName(label_id)}},
             {"properties", nlohmann::json::array()},
             {"count", storage_acc->ApproximateVertexCount(label_id)},
             {"type", "label"},
+
         }));
       }
       // Vertex label property indices
       for (const auto &[label_id, property_paths] : index_info.label_properties) {
+#ifdef MG_ENTERPRISE
+        if (auth_checker &&
+            !auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
+          continue;
+        }
+#endif
         auto const path_to_name = [&](const storage::PropertyPath &property_path) {
           return PropertyPathToName(storage, property_path);
         };
@@ -6550,6 +6595,12 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       }
       // Vertex label text
       for (const auto &[index_name, label_id, properties] : index_info.text_indices) {
+#ifdef MG_ENTERPRISE
+        if (auth_checker &&
+            !auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
+          continue;
+        }
+#endif
         auto prop_names = properties | rv::transform([storage](const storage::PropertyId &property) {
                             return storage->PropertyToName(property);
                           }) |
@@ -6563,6 +6614,12 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       }
       // Vertex label property_point
       for (const auto &[label_id, property] : index_info.point_label_property) {
+#ifdef MG_ENTERPRISE
+        if (auth_checker &&
+            !auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
+          continue;
+        }
+#endif
         node_indexes.push_back(nlohmann::json::object(
             {{"labels", {storage->LabelToName(label_id)}},
              {"properties", {storage->PropertyToName(property)}},
@@ -6572,6 +6629,12 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
 
       // Vertex label property_vector
       for (const auto &spec : index_info.vector_indices_spec) {
+#ifdef MG_ENTERPRISE
+        if (auth_checker &&
+            !auth_checker->Has(std::vector<storage::LabelId>{spec.label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
+          continue;
+        }
+#endif
         node_indexes.push_back(nlohmann::json::object(
             {{"labels", {storage->LabelToName(spec.label_id)}},
              {"properties", {storage->PropertyToName(spec.property)}},
@@ -6581,6 +6644,11 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
 
       // Edge type indices
       for (const auto type : index_info.edge_type) {
+#ifdef MG_ENTERPRISE
+        if (auth_checker && !auth_checker->Has(type, AuthQuery::FineGrainedPrivilege::READ)) {
+          continue;
+        }
+#endif
         edge_indexes.push_back(nlohmann::json::object({
             {"edge_type", {storage->EdgeTypeToName(type)}},
             {"properties", nlohmann::json::array()},
@@ -6590,6 +6658,11 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       }
       // Edge type property indices
       for (const auto &[type, property] : index_info.edge_type_property) {
+#ifdef MG_ENTERPRISE
+        if (auth_checker && !auth_checker->Has(type, AuthQuery::FineGrainedPrivilege::READ)) {
+          continue;
+        }
+#endif
         edge_indexes.push_back(nlohmann::json::object({
             {"edge_type", {storage->EdgeTypeToName(type)}},
             {"properties", {storage->PropertyToName(property)}},
@@ -6607,6 +6680,11 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       }
       // Edge type property_vector
       for (const auto &spec : index_info.vector_edge_indices_spec) {
+#ifdef MG_ENTERPRISE
+        if (auth_checker && !auth_checker->Has(spec.edge_type_id, AuthQuery::FineGrainedPrivilege::READ)) {
+          continue;
+        }
+#endif
         node_indexes.push_back(nlohmann::json::object(
             {{"edge_type", {storage->EdgeTypeToName(spec.edge_type_id)}},
              {"properties", {storage->PropertyToName(spec.property)}},
@@ -6615,6 +6693,11 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       }
       // Edge type text
       for (const auto &[index_name, edge_type, properties] : index_info.text_edge_indices) {
+#ifdef MG_ENTERPRISE
+        if (auth_checker && !auth_checker->Has(edge_type, AuthQuery::FineGrainedPrivilege::READ)) {
+          continue;
+        }
+#endif
         auto prop_names =
             properties |
             rv::transform([storage](storage::PropertyId property_id) { return storage->PropertyToName(property_id); }) |
@@ -6633,12 +6716,24 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       auto constraint_info = db_acc->ListAllConstraints();
       // Existence
       for (const auto &[label_id, property] : constraint_info.existence) {
+#ifdef MG_ENTERPRISE
+        if (auth_checker &&
+            !auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
+          continue;
+        }
+#endif
         node_constraints.push_back(nlohmann::json::object({{"type", "existence"},
                                                            {"labels", {storage->LabelToName(label_id)}},
                                                            {"properties", {storage->PropertyToName(property)}}}));
       }
       // Unique
       for (const auto &[label_id, properties] : constraint_info.unique) {
+#ifdef MG_ENTERPRISE
+        if (auth_checker &&
+            !auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
+          continue;
+        }
+#endif
         auto json_properties = nlohmann::json::array();
         for (const auto property : properties) {
           json_properties.emplace_back(storage->PropertyToName(property));
@@ -6649,6 +6744,12 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
       }
       // Type
       for (const auto &[label_id, property, constraint_kind] : constraint_info.type) {
+#ifdef MG_ENTERPRISE
+        if (auth_checker &&
+            !auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
+          continue;
+        }
+#endif
         node_constraints.push_back(
             nlohmann::json::object({{"type", "data_type"},
                                     {"labels", {storage->LabelToName(label_id)}},
@@ -6689,7 +6790,7 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
                          return std::nullopt;
                        },
                        RWType::R};
-}
+}  // namespace memgraph::query
 
 PreparedQuery PrepareUserProfileQuery(ParsedQuery parsed_query, InterpreterContext *interpreter_context,
                                       Interpreter *interpreter) {
@@ -7507,7 +7608,12 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       if (in_explicit_transaction_) {
         throw ShowSchemaInfoInMulticommandTxException();
       }
-      prepared_query = PrepareShowSchemaInfoQuery(parsed_query, current_db_);
+      prepared_query = PrepareShowSchemaInfoQuery(parsed_query, current_db_
+#ifdef MG_ENTERPRISE
+                                                  ,
+                                                  interpreter_context_, user_or_role_
+#endif
+      );
     } else if (utils::Downcast<SessionTraceQuery>(parsed_query.query)) {
       prepared_query = PrepareSessionTraceQuery(std::move(parsed_query), current_db_, this);
     } else if (utils::Downcast<UserProfileQuery>(parsed_query.query)) {
