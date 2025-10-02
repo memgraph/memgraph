@@ -1302,6 +1302,121 @@ def test_multitenancy_drop_while_replica_using(connection, test_name):
     assert failed
 
 
+def test_multitenancy_force_drop_while_replica_using(connection, test_name):
+    # Goal: show that force drop database works correctly in replication when replica is using the database
+    # 0/ Setup replication
+    # 1/ MAIN CREATE DATABASE A
+    # 2/ Write to MAIN A
+    # 3/ Validate replication of changes to A have arrived at REPLICA
+    # 4/ Start A transaction on replica 1, Use A on replica2
+    # 5/ Force drop database A on main while replica is using it
+    # 6/ Check that the force drop replicated and terminated transactions
+    # 7/ Validate that the replica can no longer access the database
+
+    # 0/
+    MEMGRAPH_INSTANCES_DESCRIPTION = create_memgraph_instances_with_role_recovery(test_name)
+    interactive_mg_runner.start_all(MEMGRAPH_INSTANCES_DESCRIPTION, keep_directories=False)
+
+    do_manual_setting_up(connection)
+
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+
+    # 1/
+    execute_and_fetch_all(main_cursor, "CREATE DATABASE A;")
+
+    # 2/
+    execute_and_fetch_all(main_cursor, "USE DATABASE A;")
+    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'A'});")
+    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'A'});")
+    execute_and_fetch_all(main_cursor, "CREATE (:Node{on:'A'});")
+
+    # 3/
+    expected_data = [
+        (
+            "replica_1",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
+            "sync",
+            {"ts": 3, "behind": None, "status": "ready"},
+            {"A": {"ts": 5, "behind": 0, "status": "ready"}, "memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
+            "async",
+            {"ts": 3, "behind": None, "status": "ready"},
+            {"A": {"ts": 5, "behind": 0, "status": "ready"}, "memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+    ]
+    mg_sleep_and_assert_collection(expected_data, show_replicas_func(main_cursor))
+
+    # 4/
+    replica1_cursor = connection(BOLT_PORTS["replica_1"], "replica").cursor()
+    replica2_cursor = connection(BOLT_PORTS["replica_2"], "replica").cursor()
+
+    execute_and_fetch_all(replica1_cursor, "USE DATABASE A;")
+    execute_and_fetch_all(replica1_cursor, "BEGIN")
+    execute_and_fetch_all(replica2_cursor, "USE DATABASE A;")
+
+    # Verify data exists on replicas
+    assert execute_and_fetch_all(replica1_cursor, "MATCH(n) RETURN count(*);")[0][0] == 3
+    assert execute_and_fetch_all(replica2_cursor, "MATCH(n) RETURN count(*);")[0][0] == 3
+
+    # 5/ Force drop database A on main while replica is using it
+    execute_and_fetch_all(main_cursor, "USE DATABASE memgraph;")
+    execute_and_fetch_all(main_cursor, "DROP DATABASE A FORCE;")
+
+    # 6/ Check that the force drop replicated and terminated transactions
+    # Wait for replication to complete
+    expected_data = [
+        (
+            "replica_1",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_1']}",
+            "sync",
+            {"ts": 4, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+        (
+            "replica_2",
+            f"127.0.0.1:{REPLICATION_PORTS['replica_2']}",
+            "async",
+            {"ts": 4, "behind": None, "status": "ready"},
+            {"memgraph": {"ts": 0, "behind": 0, "status": "ready"}},
+        ),
+    ]
+    mg_sleep_and_assert_collection(expected_data, show_replicas_func(main_cursor))
+
+    assert execute_and_fetch_all(replica1_cursor, "MATCH(n) RETURN count(*);")[0][0] == 3
+    execute_and_fetch_all(replica1_cursor, "COMMIT")
+    try:
+        assert execute_and_fetch_all(replica1_cursor, "MATCH(n) RETURN count(*);")[0][0] == 3
+        assert False, "Replica1 should not be able to access dropped database"
+    except mgclient.DatabaseError:
+        pass
+    try:
+        assert execute_and_fetch_all(replica2_cursor, "MATCH(n) RETURN count(*);")[0][0] == 3
+        assert False, "Replica2 should not be able to access dropped database"
+    except mgclient.DatabaseError:
+        pass
+
+    # Verify replicas can still work with default database
+    execute_and_fetch_all(replica1_cursor, "USE DATABASE memgraph;")
+    execute_and_fetch_all(replica2_cursor, "USE DATABASE memgraph;")
+
+    # 7/ Validate that the replica can no longer access the database
+    # Try to use the dropped database
+    try:
+        execute_and_fetch_all(replica1_cursor, "USE DATABASE A;")
+        assert False, "Replica1 should not be able to use dropped database"
+    except mgclient.DatabaseError:
+        pass
+
+    try:
+        execute_and_fetch_all(replica2_cursor, "USE DATABASE A;")
+        assert False, "Replica2 should not be able to use dropped database"
+    except mgclient.DatabaseError:
+        pass
+
+
 def test_multitenancy_drop_and_recreate_while_replica_using(connection, test_name):
     # Goal: show that the replica can handle a transaction on a database being dropped and the same name reused
     # Original storage should persist in a nameless state until tx is over

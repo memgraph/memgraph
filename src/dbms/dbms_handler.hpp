@@ -244,6 +244,7 @@ class DbmsHandler {
    * @brief Attempt to delete database.
    *
    * @param db_name database name
+   * @param transaction system transaction
    * @return DeleteResult error on failure
    */
   DeleteResult TryDelete(std::string_view db_name, system::Transaction *transaction = nullptr);
@@ -263,6 +264,15 @@ class DbmsHandler {
    * @return DeleteResult error on failure
    */
   DeleteResult Delete(utils::UUID uuid);
+
+  /**
+   * @brief Delete or defer deletion of database with a transactional scope.
+   *
+   * @param db_name database name
+   * @param transaction system transaction
+   * @return DeleteResult error on failure
+   */
+  DeleteResult Delete(std::string_view db_name, system::Transaction *transaction);
 
   /**
    * @brief Rename a database.
