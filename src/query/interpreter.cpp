@@ -6425,11 +6425,13 @@ PreparedQuery PrepareSessionTraceQuery(ParsedQuery parsed_query, CurrentDB &curr
 
 PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, CurrentDB &current_db
 #ifdef MG_ENTERPRISE
-                                         ,InterpreterContext *interpreter_context,
+                                         ,
+                                         InterpreterContext *interpreter_context,
                                          std::shared_ptr<QueryUserOrRole> user_or_role
-#endif) {
+#endif
+) {
   if (current_db.db_acc_->get()->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
-  throw ShowSchemaInfoOnDiskException();
+    throw ShowSchemaInfoOnDiskException();
   }
 
   Callback callback;
@@ -6441,269 +6443,271 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
                  interpreter_context, user_or_role
 #endif
   ]() mutable -> std::vector<std::vector<TypedValue>> {
-  memgraph::metrics::IncrementCounter(memgraph::metrics::ShowSchema);
+    memgraph::metrics::IncrementCounter(memgraph::metrics::ShowSchema);
 
-  std::vector<std::vector<TypedValue>> schema;
-  auto *storage = db->storage();
-  if (storage->config_.salient.items.enable_schema_info) {
+    std::vector<std::vector<TypedValue>> schema;
+    auto *storage = db->storage();
+    if (storage->config_.salient.items.enable_schema_info) {
 #if MG_ENTERPRISE
-    // Apply fine-grained access control filtering if auth_checker is available
-    std::unique_ptr<FineGrainedAuthChecker> auth_checker = nullptr;
-    const bool has_user_or_role = user_or_role != nullptr && *user_or_role;
-    if (license::global_license_checker.IsEnterpriseValidFast() && interpreter_context &&
-        interpreter_context->auth_checker && has_user_or_role && db_acc) {
-      auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(user_or_role, &*db_acc);
-    }
-
-    const auto node_predicate = [&auth_checker](auto label_id) {
-      return auth_checker &&
-             auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ);
-    };
-    const auto edge_predicate = [&auth_checker](auto edge_type_id) {
-      return auth_checker && auth_checker->Has(edge_type_id, AuthQuery::FineGrainedPrivilege::READ);
-    };
-
-    auto json = auth_checker != nullptr ? storage->schema_info_.ToJson(*storage->name_id_mapper_, storage->enum_store_,
-                                                                       node_predicate, edge_predicate)
-                                        : storage->schema_info_.ToJson(*storage->name_id_mapper_, storage->enum_store_);
-#else
-    auto json = storage->schema_info_.ToJson(*storage->name_id_mapper_, storage->enum_store_);
-#endif
-
-    // INDICES
-    auto node_indexes = nlohmann::json::array();
-    auto edge_indexes = nlohmann::json::array();
-    auto index_info = db_acc->ListAllIndices();
-    // Vertex label indices
-    for (const auto label_id : index_info.label) {
-#ifdef MG_ENTERPRISE
-      if (auth_checker &&
-          !auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
-        continue;
+      // Apply fine-grained access control filtering if auth_checker is available
+      std::unique_ptr<FineGrainedAuthChecker> auth_checker = nullptr;
+      const bool has_user_or_role = user_or_role != nullptr && *user_or_role;
+      if (license::global_license_checker.IsEnterpriseValidFast() && interpreter_context &&
+          interpreter_context->auth_checker && has_user_or_role && db_acc) {
+        auth_checker = interpreter_context->auth_checker->GetFineGrainedAuthChecker(user_or_role, &*db_acc);
       }
-#endif
-      node_indexes.push_back(nlohmann::json::object({
-          {"labels", {storage->LabelToName(label_id)}},
-          {"properties", nlohmann::json::array()},
-          {"count", storage_acc->ApproximateVertexCount(label_id)},
-          {"type", "label"},
 
-      }));
-    }
-    // Vertex label property indices
-    for (const auto &[label_id, property_paths] : index_info.label_properties) {
-#ifdef MG_ENTERPRISE
-      if (auth_checker &&
-          !auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
-        continue;
-      }
-#endif
-      auto const path_to_name = [&](const storage::PropertyPath &property_path) {
-        return PropertyPathToName(storage, property_path);
+      const auto node_predicate = [&auth_checker](auto label_id) {
+        return auth_checker &&
+               auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ);
+      };
+      const auto edge_predicate = [&auth_checker](auto edge_type_id) {
+        return auth_checker && auth_checker->Has(edge_type_id, AuthQuery::FineGrainedPrivilege::READ);
       };
 
-      auto props = property_paths | rv::transform(path_to_name) | r::to_vector;
-      node_indexes.push_back(nlohmann::json::object({
-          {"labels", {storage->LabelToName(label_id)}},
-          {"properties", props},
-          {"count", storage_acc->ApproximateVertexCount(label_id, property_paths)},
-          {"type", "label+properties"},
-      }));
-    }
-    // Vertex label text
-    for (const auto &[index_name, label_id, properties] : index_info.text_indices) {
-#ifdef MG_ENTERPRISE
-      if (auth_checker &&
-          !auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
-        continue;
-      }
+      auto json = auth_checker != nullptr
+                      ? storage->schema_info_.ToJson(*storage->name_id_mapper_, storage->enum_store_, node_predicate,
+                                                     edge_predicate)
+                      : storage->schema_info_.ToJson(*storage->name_id_mapper_, storage->enum_store_);
+#else
+      auto json = storage->schema_info_.ToJson(*storage->name_id_mapper_, storage->enum_store_);
 #endif
-      auto prop_names =
-          properties |
-          rv::transform([storage](const storage::PropertyId &property) { return storage->PropertyToName(property); }) |
-          r::to_vector;
-      node_indexes.push_back(
-          nlohmann::json::object({{"labels", {storage->LabelToName(label_id)}},
-                                  {"properties", prop_names},
-                                  {"count", storage_acc->ApproximateVerticesTextCount(index_name).value_or(0)},
-                                  {"text", index_name},
-                                  {"type", "label_text"}}));
-    }
-    // Vertex label property_point
-    for (const auto &[label_id, property] : index_info.point_label_property) {
-#ifdef MG_ENTERPRISE
-      if (auth_checker &&
-          !auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
-        continue;
-      }
-#endif
-      node_indexes.push_back(
-          nlohmann::json::object({{"labels", {storage->LabelToName(label_id)}},
-                                  {"properties", {storage->PropertyToName(property)}},
-                                  {"count", storage_acc->ApproximateVerticesPointCount(label_id, property).value_or(0)},
-                                  {"type", "label+property_point"}}));
-    }
 
-    // Vertex label property_vector
-    for (const auto &spec : index_info.vector_indices_spec) {
+      // INDICES
+      auto node_indexes = nlohmann::json::array();
+      auto edge_indexes = nlohmann::json::array();
+      auto index_info = db_acc->ListAllIndices();
+      // Vertex label indices
+      for (const auto label_id : index_info.label) {
 #ifdef MG_ENTERPRISE
-      if (auth_checker &&
-          !auth_checker->Has(std::vector<storage::LabelId>{spec.label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
-        continue;
-      }
+        if (auth_checker &&
+            !auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
+          continue;
+        }
 #endif
-      node_indexes.push_back(nlohmann::json::object(
-          {{"labels", {storage->LabelToName(spec.label_id)}},
-           {"properties", {storage->PropertyToName(spec.property)}},
-           {"count", storage_acc->ApproximateVerticesVectorCount(spec.label_id, spec.property).value_or(0)},
-           {"type", "label+property_vector"}}));
-    }
+        node_indexes.push_back(nlohmann::json::object({
+            {"labels", {storage->LabelToName(label_id)}},
+            {"properties", nlohmann::json::array()},
+            {"count", storage_acc->ApproximateVertexCount(label_id)},
+            {"type", "label"},
 
-    // Edge type indices
-    for (const auto type : index_info.edge_type) {
-#ifdef MG_ENTERPRISE
-      if (auth_checker && !auth_checker->Has(type, AuthQuery::FineGrainedPrivilege::READ)) {
-        continue;
+        }));
       }
-#endif
-      edge_indexes.push_back(nlohmann::json::object({
-          {"edge_type", {storage->EdgeTypeToName(type)}},
-          {"properties", nlohmann::json::array()},
-          {"count", storage_acc->ApproximateEdgeCount(type)},
-          {"type", "edge_type"},
-      }));
-    }
-    // Edge type property indices
-    for (const auto &[type, property] : index_info.edge_type_property) {
+      // Vertex label property indices
+      for (const auto &[label_id, property_paths] : index_info.label_properties) {
 #ifdef MG_ENTERPRISE
-      if (auth_checker && !auth_checker->Has(type, AuthQuery::FineGrainedPrivilege::READ)) {
-        continue;
-      }
+        if (auth_checker &&
+            !auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
+          continue;
+        }
 #endif
-      edge_indexes.push_back(nlohmann::json::object({
-          {"edge_type", {storage->EdgeTypeToName(type)}},
-          {"properties", {storage->PropertyToName(property)}},
-          {"count", storage_acc->ApproximateEdgeCount(type, property)},
-          {"type", "edge_type+property"},
-      }));
-    }
-    // Edge property indices
-    for (const auto &property : index_info.edge_property) {
-      edge_indexes.push_back(nlohmann::json::object({
-          {"properties", {storage->PropertyToName(property)}},
-          {"count", storage_acc->ApproximateEdgeCount(property)},
-          {"type", "edge_property"},
-      }));
-    }
-    // Edge type property_vector
-    for (const auto &spec : index_info.vector_edge_indices_spec) {
-#ifdef MG_ENTERPRISE
-      if (auth_checker && !auth_checker->Has(spec.edge_type_id, AuthQuery::FineGrainedPrivilege::READ)) {
-        continue;
-      }
-#endif
-      node_indexes.push_back(nlohmann::json::object(
-          {{"edge_type", {storage->EdgeTypeToName(spec.edge_type_id)}},
-           {"properties", {storage->PropertyToName(spec.property)}},
-           {"count", storage_acc->ApproximateEdgesVectorCount(spec.edge_type_id, spec.property).value_or(0)},
-           {"type", "edge_type+property_vector"}}));
-    }
-    // Edge type text
-    for (const auto &[index_name, edge_type, properties] : index_info.text_edge_indices) {
-#ifdef MG_ENTERPRISE
-      if (auth_checker && !auth_checker->Has(edge_type, AuthQuery::FineGrainedPrivilege::READ)) {
-        continue;
-      }
-#endif
-      auto prop_names =
-          properties |
-          rv::transform([storage](storage::PropertyId property_id) { return storage->PropertyToName(property_id); }) |
-          r::to_vector;
-      node_indexes.push_back(
-          nlohmann::json::object({{"edge_type", {storage->EdgeTypeToName(edge_type)}},
-                                  {"properties", std::move(prop_names)},
-                                  {"count", storage_acc->ApproximateEdgesTextCount(index_name).value_or(0)},
-                                  {"type", "edge_type_text"}}));
-    }
-    json.emplace("node_indexes", std::move(node_indexes));
-    json.emplace("edge_indexes", std::move(edge_indexes));
+        auto const path_to_name = [&](const storage::PropertyPath &property_path) {
+          return PropertyPathToName(storage, property_path);
+        };
 
-    // CONSTRAINTS
-    auto node_constraints = nlohmann::json::array();
-    auto constraint_info = db_acc->ListAllConstraints();
-    // Existence
-    for (const auto &[label_id, property] : constraint_info.existence) {
+        auto props = property_paths | rv::transform(path_to_name) | r::to_vector;
+        node_indexes.push_back(nlohmann::json::object({
+            {"labels", {storage->LabelToName(label_id)}},
+            {"properties", props},
+            {"count", storage_acc->ApproximateVertexCount(label_id, property_paths)},
+            {"type", "label+properties"},
+        }));
+      }
+      // Vertex label text
+      for (const auto &[index_name, label_id, properties] : index_info.text_indices) {
 #ifdef MG_ENTERPRISE
-      if (auth_checker &&
-          !auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
-        continue;
-      }
+        if (auth_checker &&
+            !auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
+          continue;
+        }
 #endif
-      node_constraints.push_back(nlohmann::json::object({{"type", "existence"},
-                                                         {"labels", {storage->LabelToName(label_id)}},
-                                                         {"properties", {storage->PropertyToName(property)}}}));
-    }
-    // Unique
-    for (const auto &[label_id, properties] : constraint_info.unique) {
+        auto prop_names = properties | rv::transform([storage](const storage::PropertyId &property) {
+                            return storage->PropertyToName(property);
+                          }) |
+                          r::to_vector;
+        node_indexes.push_back(
+            nlohmann::json::object({{"labels", {storage->LabelToName(label_id)}},
+                                    {"properties", prop_names},
+                                    {"count", storage_acc->ApproximateVerticesTextCount(index_name).value_or(0)},
+                                    {"text", index_name},
+                                    {"type", "label_text"}}));
+      }
+      // Vertex label property_point
+      for (const auto &[label_id, property] : index_info.point_label_property) {
 #ifdef MG_ENTERPRISE
-      if (auth_checker &&
-          !auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
-        continue;
-      }
+        if (auth_checker &&
+            !auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
+          continue;
+        }
 #endif
-      auto json_properties = nlohmann::json::array();
-      for (const auto property : properties) {
-        json_properties.emplace_back(storage->PropertyToName(property));
+        node_indexes.push_back(nlohmann::json::object(
+            {{"labels", {storage->LabelToName(label_id)}},
+             {"properties", {storage->PropertyToName(property)}},
+             {"count", storage_acc->ApproximateVerticesPointCount(label_id, property).value_or(0)},
+             {"type", "label+property_point"}}));
       }
-      node_constraints.push_back(nlohmann::json::object({{"type", "unique"},
-                                                         {"labels", {storage->LabelToName(label_id)}},
-                                                         {"properties", std::move(json_properties)}}));
-    }
-    // Type
-    for (const auto &[label_id, property, constraint_kind] : constraint_info.type) {
-#ifdef MG_ENTERPRISE
-      if (auth_checker &&
-          !auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
-        continue;
-      }
-#endif
-      node_constraints.push_back(nlohmann::json::object({{"type", "data_type"},
-                                                         {"labels", {storage->LabelToName(label_id)}},
-                                                         {"properties", {storage->PropertyToName(property)}},
-                                                         {"data_type", TypeConstraintKindToString(constraint_kind)}}));
-    }
-    json.emplace("node_constraints", std::move(node_constraints));
 
-    // ENUMS
-    auto enums = nlohmann::json::array();
-    for (auto [type, values] : storage->enum_store_.AllRegistered()) {
-      auto json_values = nlohmann::json::array();
-      for (const auto &val : values) json_values.push_back(val);
-      enums.push_back(nlohmann::json::object({{"name", type}, {"values", std::move(json_values)}}));
-    }
-    json.emplace("enums", std::move(enums));
+      // Vertex label property_vector
+      for (const auto &spec : index_info.vector_indices_spec) {
+#ifdef MG_ENTERPRISE
+        if (auth_checker &&
+            !auth_checker->Has(std::vector<storage::LabelId>{spec.label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
+          continue;
+        }
+#endif
+        node_indexes.push_back(nlohmann::json::object(
+            {{"labels", {storage->LabelToName(spec.label_id)}},
+             {"properties", {storage->PropertyToName(spec.property)}},
+             {"count", storage_acc->ApproximateVerticesVectorCount(spec.label_id, spec.property).value_or(0)},
+             {"type", "label+property_vector"}}));
+      }
 
-    // Pack json into query result
-    schema.push_back(std::vector<TypedValue>{TypedValue(json.dump())});
-  } else {
-    throw QueryException(
-        "SchemaInfo query is disabled. To enable it, start Memgraph with the --schema-info-enabled flag.");
-  }
-  return schema;
+      // Edge type indices
+      for (const auto type : index_info.edge_type) {
+#ifdef MG_ENTERPRISE
+        if (auth_checker && !auth_checker->Has(type, AuthQuery::FineGrainedPrivilege::READ)) {
+          continue;
+        }
+#endif
+        edge_indexes.push_back(nlohmann::json::object({
+            {"edge_type", {storage->EdgeTypeToName(type)}},
+            {"properties", nlohmann::json::array()},
+            {"count", storage_acc->ApproximateEdgeCount(type)},
+            {"type", "edge_type"},
+        }));
+      }
+      // Edge type property indices
+      for (const auto &[type, property] : index_info.edge_type_property) {
+#ifdef MG_ENTERPRISE
+        if (auth_checker && !auth_checker->Has(type, AuthQuery::FineGrainedPrivilege::READ)) {
+          continue;
+        }
+#endif
+        edge_indexes.push_back(nlohmann::json::object({
+            {"edge_type", {storage->EdgeTypeToName(type)}},
+            {"properties", {storage->PropertyToName(property)}},
+            {"count", storage_acc->ApproximateEdgeCount(type, property)},
+            {"type", "edge_type+property"},
+        }));
+      }
+      // Edge property indices
+      for (const auto &property : index_info.edge_property) {
+        edge_indexes.push_back(nlohmann::json::object({
+            {"properties", {storage->PropertyToName(property)}},
+            {"count", storage_acc->ApproximateEdgeCount(property)},
+            {"type", "edge_property"},
+        }));
+      }
+      // Edge type property_vector
+      for (const auto &spec : index_info.vector_edge_indices_spec) {
+#ifdef MG_ENTERPRISE
+        if (auth_checker && !auth_checker->Has(spec.edge_type_id, AuthQuery::FineGrainedPrivilege::READ)) {
+          continue;
+        }
+#endif
+        node_indexes.push_back(nlohmann::json::object(
+            {{"edge_type", {storage->EdgeTypeToName(spec.edge_type_id)}},
+             {"properties", {storage->PropertyToName(spec.property)}},
+             {"count", storage_acc->ApproximateEdgesVectorCount(spec.edge_type_id, spec.property).value_or(0)},
+             {"type", "edge_type+property_vector"}}));
+      }
+      // Edge type text
+      for (const auto &[index_name, edge_type, properties] : index_info.text_edge_indices) {
+#ifdef MG_ENTERPRISE
+        if (auth_checker && !auth_checker->Has(edge_type, AuthQuery::FineGrainedPrivilege::READ)) {
+          continue;
+        }
+#endif
+        auto prop_names =
+            properties |
+            rv::transform([storage](storage::PropertyId property_id) { return storage->PropertyToName(property_id); }) |
+            r::to_vector;
+        node_indexes.push_back(
+            nlohmann::json::object({{"edge_type", {storage->EdgeTypeToName(edge_type)}},
+                                    {"properties", std::move(prop_names)},
+                                    {"count", storage_acc->ApproximateEdgesTextCount(index_name).value_or(0)},
+                                    {"type", "edge_type_text"}}));
+      }
+      json.emplace("node_indexes", std::move(node_indexes));
+      json.emplace("edge_indexes", std::move(edge_indexes));
+
+      // CONSTRAINTS
+      auto node_constraints = nlohmann::json::array();
+      auto constraint_info = db_acc->ListAllConstraints();
+      // Existence
+      for (const auto &[label_id, property] : constraint_info.existence) {
+#ifdef MG_ENTERPRISE
+        if (auth_checker &&
+            !auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
+          continue;
+        }
+#endif
+        node_constraints.push_back(nlohmann::json::object({{"type", "existence"},
+                                                           {"labels", {storage->LabelToName(label_id)}},
+                                                           {"properties", {storage->PropertyToName(property)}}}));
+      }
+      // Unique
+      for (const auto &[label_id, properties] : constraint_info.unique) {
+#ifdef MG_ENTERPRISE
+        if (auth_checker &&
+            !auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
+          continue;
+        }
+#endif
+        auto json_properties = nlohmann::json::array();
+        for (const auto property : properties) {
+          json_properties.emplace_back(storage->PropertyToName(property));
+        }
+        node_constraints.push_back(nlohmann::json::object({{"type", "unique"},
+                                                           {"labels", {storage->LabelToName(label_id)}},
+                                                           {"properties", std::move(json_properties)}}));
+      }
+      // Type
+      for (const auto &[label_id, property, constraint_kind] : constraint_info.type) {
+#ifdef MG_ENTERPRISE
+        if (auth_checker &&
+            !auth_checker->Has(std::vector<storage::LabelId>{label_id}, AuthQuery::FineGrainedPrivilege::READ)) {
+          continue;
+        }
+#endif
+        node_constraints.push_back(
+            nlohmann::json::object({{"type", "data_type"},
+                                    {"labels", {storage->LabelToName(label_id)}},
+                                    {"properties", {storage->PropertyToName(property)}},
+                                    {"data_type", TypeConstraintKindToString(constraint_kind)}}));
+      }
+      json.emplace("node_constraints", std::move(node_constraints));
+
+      // ENUMS
+      auto enums = nlohmann::json::array();
+      for (auto [type, values] : storage->enum_store_.AllRegistered()) {
+        auto json_values = nlohmann::json::array();
+        for (const auto &val : values) json_values.push_back(val);
+        enums.push_back(nlohmann::json::object({{"name", type}, {"values", std::move(json_values)}}));
+      }
+      json.emplace("enums", std::move(enums));
+
+      // Pack json into query result
+      schema.push_back(std::vector<TypedValue>{TypedValue(json.dump())});
+    } else {
+      throw QueryException(
+          "SchemaInfo query is disabled. To enable it, start Memgraph with the --schema-info-enabled flag.");
+    }
+    return schema;
   };
 
   return PreparedQuery{std::move(callback.header), parsed_query.required_privileges,
                        [handler = std::move(callback.fn), pull_plan = std::shared_ptr<PullPlanVector>(nullptr)](
                            AnyStream *stream, std::optional<int> n) mutable -> std::optional<QueryHandlerResult> {
-  if (!pull_plan) {
-    auto results = handler();
-    pull_plan = std::make_shared<PullPlanVector>(std::move(results));
-  }
+                         if (!pull_plan) {
+                           auto results = handler();
+                           pull_plan = std::make_shared<PullPlanVector>(std::move(results));
+                         }
 
-  if (pull_plan->Pull(stream, n)) {
-    return QueryHandlerResult::COMMIT;
-  }
-  return std::nullopt;
+                         if (pull_plan->Pull(stream, n)) {
+                           return QueryHandlerResult::COMMIT;
+                         }
+                         return std::nullopt;
                        },
                        RWType::R};
 }  // namespace memgraph::query
