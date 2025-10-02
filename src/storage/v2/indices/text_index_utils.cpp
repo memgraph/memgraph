@@ -203,4 +203,12 @@ mgcxx::text_search::SearchOutput PerformTextSearch(mgcxx::text_search::Context &
   }
 }
 
+bool IndexPropertiesMatch(std::span<const PropertyId> index_properties,
+                          std::span<const PropertyId> properties_to_check) {
+  if (index_properties.empty()) {
+    return true;
+  }
+  return r::any_of(properties_to_check, [&](auto property_id) { return r::contains(index_properties, property_id); });
+}
+
 }  // namespace memgraph::storage
