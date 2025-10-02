@@ -1,4 +1,4 @@
-{% set toolchain_path = os.getenv("MG_TOOLCHAIN_ROOT") %}
+{% set toolchain_path = os.getenv("MG_TOOLCHAIN_ROOT", "/ERROR_MG_TOOLCHAIN_ROOT_NOT_SET") %}
 {% set target_arch = {"aarch64": "armv8"}.get(platform.machine(), platform.machine()) %}
 
 [settings]

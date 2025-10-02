@@ -1,4 +1,7 @@
+import os
+
 from conan import ConanFile
+from conan.errors import ConanException
 from conan.tools.cmake import CMake, CMakeDeps, CMakeToolchain, cmake_layout
 
 
@@ -21,6 +24,19 @@ class Memgraph(ConanFile):
         self.folders.package = "build/package"
 
     def generate(self):
+        # Validate that the user toolchain file exists
+        user_toolchain = self.conf.get("tools.cmake.cmaketoolchain:user_toolchain")
+        if user_toolchain:
+            # user_toolchain can be a list or a single path
+            toolchains = user_toolchain if isinstance(user_toolchain, list) else [user_toolchain]
+            for toolchain_path in toolchains:
+                if not os.path.exists(toolchain_path):
+                    raise ConanException(
+                        f"CMake user toolchain file does not exist: {toolchain_path}\n"
+                        f"This is typically configured via the profile. "
+                        f"Make sure MG_TOOLCHAIN_ROOT environment variable is set correctly."
+                    )
+
         deps = CMakeDeps(self)
         deps.generate()
         tc = CMakeToolchain(self)
