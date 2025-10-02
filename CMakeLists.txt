@@ -188,12 +188,10 @@ endif()
 
 # This is used to so that 3rd party libs can find the
 # correct libraries from our toolchain
-# Set MG_TOOLCHAIN_ROOT early so it's available for custom libstdc++ configuration
-set(MG_TOOLCHAIN_ROOT "$ENV{MG_TOOLCHAIN_ROOT}")
-
+# Check MG_TOOLCHAIN_ROOT so it's available for custom libstdc++ configuration
 # Custom libstdc++ configuration - REQUIRED
-if(NOT DEFINED ENV{MG_TOOLCHAIN_ROOT} OR "$ENV{MG_TOOLCHAIN_ROOT}" STREQUAL "")
-    message(FATAL_ERROR "MG_TOOLCHAIN_ROOT environment variable is required but not set. Please set it to the toolchain directory.")
+if(NOT DEFINED MG_TOOLCHAIN_ROOT OR "${MG_TOOLCHAIN_ROOT}" STREQUAL "" OR NOT EXISTS "${MG_TOOLCHAIN_ROOT}" OR NOT IS_DIRECTORY "${MG_TOOLCHAIN_ROOT}")
+    message(FATAL_ERROR "MG_TOOLCHAIN_ROOT must be set to a valid toolchain directory. Current value: '${MG_TOOLCHAIN_ROOT}'")
 endif()
 
 message(STATUS "MG_TOOLCHAIN_ROOT: ${MG_TOOLCHAIN_ROOT}")
