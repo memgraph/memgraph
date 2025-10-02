@@ -804,9 +804,24 @@ storage::PropertyValue TypedValue::ToPropertyValue(storage::NameIdMapper *name_i
       return storage::PropertyValue(std::string(string_v));
     case TypedValue::Type::List: {
       storage::PropertyValue::list_t list;
+      bool all_ints = true;
+      bool all_doubles = true;
+      bool all_numeric = true;
       list.reserve(list_v.size());
       for (const auto &v : list_v) {
+        all_ints &= v.IsInt();
+        all_doubles &= v.IsDouble();
+        all_numeric &= all_ints || all_doubles;
         list.emplace_back(v.ToPropertyValue(name_id_mapper));
+      }
+      if (all_ints) {
+        return storage::PropertyValue(storage::IntListTag{}, std::move(list));
+      }
+      if (all_doubles) {
+        return storage::PropertyValue(storage::DoubleListTag{}, std::move(list));
+      }
+      if (all_numeric) {
+        return storage::PropertyValue(storage::NumericListTag{}, std::move(list));
       }
       return storage::PropertyValue(std::move(list));
     }

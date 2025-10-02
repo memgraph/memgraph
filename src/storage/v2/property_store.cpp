@@ -879,9 +879,9 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
         if (!metadata) return false;
         PropertyValue item;
         if (!DecodePropertyValue(reader, metadata->type, metadata->payload_size, item)) return false;
-        all_int = all_int && item.IsInt();
-        all_double = all_double && item.IsDouble();
-        all_numeric = all_int || all_double;
+        all_int &= item.IsInt();
+        all_double &= item.IsDouble();
+        all_numeric &= all_int || all_double;
         list.emplace_back(std::move(item));
       }
       value = std::invoke([&]() {
