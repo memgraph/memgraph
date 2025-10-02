@@ -79,7 +79,7 @@ std::vector<std::vector<TypedValue>> InterpreterContext::TerminateTransactions(
         // update the maybe_kill_transaction_ids (partitioning not found + killed)
         --not_found_midpoint;
         std::iter_swap(it, not_found_midpoint);
-        auto get_interpreter_db_name = [&]() -> std::string const & {
+        auto get_interpreter_db_name = [&]() -> std::string {
           static std::string all;
           return interpreter->current_db_.db_acc_ ? interpreter->current_db_.db_acc_->get()->name() : all;
         };

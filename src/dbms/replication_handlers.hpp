@@ -32,6 +32,9 @@ void CreateDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system
 void DropDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
                          const std::optional<utils::UUID> &current_main_uuid, DbmsHandler &dbms_handler,
                          uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
+void RenameDatabaseHandler(memgraph::system::ReplicaHandlerAccessToState &system_state_access,
+                           const std::optional<utils::UUID> &current_main_uuid, DbmsHandler &dbms_handler,
+                           uint64_t request_version, slk::Reader *req_reader, slk::Builder *res_builder);
 bool SystemRecoveryHandler(DbmsHandler &dbms_handler, const std::vector<storage::SalientConfig> &database_configs);
 
 // RPC registration

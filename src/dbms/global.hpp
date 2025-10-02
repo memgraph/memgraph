@@ -1,4 +1,4 @@
-// Copyright 2023 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -35,6 +35,13 @@ enum class NewError : uint8_t {
   GENERIC,
 };
 
+enum class RenameError : uint8_t {
+  DEFAULT_DB,
+  NON_EXISTENT,
+  ALREADY_EXISTS,
+  USING,
+  FAIL,
+};
 #endif
 
 /**

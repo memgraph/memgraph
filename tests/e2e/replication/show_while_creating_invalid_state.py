@@ -940,7 +940,8 @@ def test_basic_recovery(recover_data_on_startup, connection, test_name):
             {"memgraph": {"ts": 12, "behind": 0, "status": "ready"}},
         ),
     ]
-    actual_data = execute_and_fetch_all(cursor, "SHOW REPLICAS;")
+    actual_data = mg_sleep_and_assert_collection(expected_data, retrieve_data)
+    print("actual=", actual_data)
     assert all([x in actual_data for x in expected_data])
 
     res_from_main = execute_and_fetch_all(cursor, QUERY_TO_CHECK)

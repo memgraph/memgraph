@@ -678,11 +678,14 @@ transactionId : literal ;
 
 multiDatabaseQuery : createDatabase
                    | dropDatabase
+                   | renameDatabase
                    ;
 
 createDatabase : CREATE DATABASE databaseName ;
 
 dropDatabase : DROP DATABASE databaseName ;
+
+renameDatabase : RENAME DATABASE databaseName TO databaseName ;
 
 useDatabase : USE DATABASE databaseName ;
 
