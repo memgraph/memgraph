@@ -21,22 +21,24 @@
 #include "parquet/file_reader.h"
 #include "parquet/properties.h"
 
+#include "utils/pmr/string.hpp"
+#include "utils/pmr/vector.hpp"
+
 // TODO (andi) Implement this for local and url files
 namespace memgraph::arrow {
 
-// TODO: (andi) Do we need to use here pmr for efficient memory allocation
-using Row = std::vector<std::string>;
+// Use PMR for efficient memory allocation
+using Row = utils::pmr::vector<utils::pmr::string>;
 
 class ParquetReader {
  public:
-  explicit ParquetReader(std::string const &file);
+  explicit ParquetReader(std::string const &file, utils::MemoryResource *resource);
 
   // Destructor must be defined in .cpp file for pimpl idiom with unique_ptr
   ~ParquetReader();
 
-  // TODO: (andi) CSV version of it receives utils::MemoryResource
-  auto GetNextRow() const -> std::optional<Row>;
-  auto GetHeader() const -> Row;
+  auto GetNextRow(utils::MemoryResource *resource) const -> std::optional<Row>;
+  auto GetHeader(utils::MemoryResource *resource) const -> Row;
 
  private:
   std::shared_ptr<::arrow::Table> table_;

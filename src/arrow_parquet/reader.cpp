@@ -16,32 +16,23 @@
 #include <sstream>
 
 #include "spdlog/spdlog.h"
+#include "utils/memory.hpp"
+#include "utils/pmr/string.hpp"
+#include "utils/pmr/vector.hpp"
 
 namespace memgraph::arrow {
-
-struct CellRef {
-  // Sequence of values with some data type
-  std::shared_ptr<::arrow::Array> arr_;
-  int64_t row_{0};
-  // A single value
-  ::arrow::Result<std::shared_ptr<::arrow::Scalar>> ToScalar() const { return arr_->GetScalar(row_); }
-};
-
-struct RowRef {
-  std::vector<std::shared_ptr<::arrow::Array>> *cols_;
-  int64_t row_{0};
-  size_t size() const { return cols_->size(); }
-  CellRef operator[](size_t const c) const { return {.arr_ = (*cols_)[c], .row_ = row_}; }
-};
 
 class RowIterator {
  public:
   RowIterator() = default;
-  explicit RowIterator(std::shared_ptr<::arrow::Table> table, int num_columns, int64_t const batch_rows = 1UL << 16U)
-      : num_columns_(num_columns) {
-    cols_.reserve(table->num_columns());
+  explicit RowIterator(std::shared_ptr<::arrow::Table> table, int num_columns, utils::MemoryResource *resource,
+                       int64_t const batch_rows = 1UL << 18U)  // Increase batch size to 256K
+      : num_columns_(num_columns), resource_(resource), row_buffer_(resource) {
+    cols_.resize(num_columns);  // Pre-allocate columns vector
     tbr_.emplace(std::move(table));
     tbr_->set_chunksize(batch_rows);
+    // Pre-allocate row buffer to avoid repeated allocations
+    row_buffer_.resize(num_columns_);
   }
 
   // Delete copy operations since TableBatchReader can't be copied
@@ -51,7 +42,7 @@ class RowIterator {
   RowIterator &operator=(RowIterator &&) = delete;
   ~RowIterator() = default;
 
-  std::optional<RowRef> Next() {
+  std::optional<Row> Next() {
     // Need to load another batch
     if (!batch_ || row_in_batch_ >= batch_->num_rows()) {
       if (const auto status = tbr_->ReadNext(&batch_); !status.ok()) {
@@ -62,62 +53,54 @@ class RowIterator {
         return std::nullopt;
       }
 
-      // Cache
-      cols_.clear();
+      // Cache columns using indexed assignment (no clear/push_back)
       for (int c = 0; c < num_columns_; ++c) {
-        cols_.push_back(batch_->column(c));
+        cols_[c] = batch_->column(c);
       }
       row_in_batch_ = 0;
     }
-    return RowRef(&cols_, row_in_batch_++);
+    // Reuse pre-allocated row buffer
+    for (int i = 0; i < num_columns_; ++i) {
+      auto scalar = cols_[i]->GetScalar(row_in_batch_).ValueOrDie();
+      row_buffer_[i] = utils::pmr::string(scalar->ToString(), resource_);
+    }
+    row_in_batch_++;
+    return row_buffer_;
   }
 
  private:
   int num_columns_;
+  utils::MemoryResource *resource_;
   std::optional<::arrow::TableBatchReader> tbr_;
   // A record batch is table-like data structure that is semantically a sequence of fields, each a contiguous Arrow
   // array
   std::shared_ptr<::arrow::RecordBatch> batch_;
   std::vector<std::shared_ptr<::arrow::Array>> cols_;
   int64_t row_in_batch_{0};
+  Row row_buffer_;  // Pre-allocated buffer to avoid repeated allocations
 };
 
 struct ParquetReader::impl {
-  explicit impl(std::shared_ptr<::arrow::Table> table);
+  explicit impl(std::shared_ptr<::arrow::Table> table, utils::MemoryResource *resource);
 
-  auto GetNextRow() -> std::optional<Row>;
+  auto GetNextRow(utils::MemoryResource *resource) -> std::optional<Row>;
 
  private:
   int num_columns_;
-  std::string file_;
-  RowIterator row_it_;
+  std::shared_ptr<::arrow::Table> table_;
+  RowIterator row_it_;  // Lazy initialization with memory resource
 };
 
-ParquetReader::impl::impl(std::shared_ptr<::arrow::Table> table)
-    : num_columns_(table->num_columns()), row_it_(RowIterator(std::move(table), num_columns_)) {}
+ParquetReader::impl::impl(std::shared_ptr<::arrow::Table> table, utils::MemoryResource *resource)
+    : num_columns_(table->num_columns()), table_(std::move(table)), row_it_(table_, num_columns_, resource) {}
 
 // TODO: (andi)
 // Next steps are optimizing this or trying Scanner
 // Try to improve it by using Scanner -> it should be faster when the data is on disk, and ours it is
 
-auto ParquetReader::impl::GetNextRow() -> std::optional<Row> {
-  auto const maybe_arrow_row = row_it_.Next();
-  if (!maybe_arrow_row.has_value()) return std::nullopt;
-  auto const &arrow_row = *maybe_arrow_row;
+auto ParquetReader::impl::GetNextRow(utils::MemoryResource *resource) -> std::optional<Row> { return row_it_.Next(); }
 
-  Row row;
-  row.reserve(num_columns_);
-
-  for (size_t i = 0; i < num_columns_; i++) {
-    // TODO: (andi) Not sure if this is good ValueOrDie
-    auto cell = arrow_row[i].ToScalar().ValueOrDie()->ToString();
-    row.push_back(std::move(cell));
-  }
-
-  return row;
-}
-
-ParquetReader::ParquetReader(std::string const &file) {
+ParquetReader::ParquetReader(std::string const &file, utils::MemoryResource *resource) {
   auto const start = std::chrono::high_resolution_clock::now();
   std::shared_ptr<::arrow::io::ReadableFile> infile;
   std::unique_ptr<parquet::arrow::FileReader> reader;
@@ -127,21 +110,23 @@ ParquetReader::ParquetReader(std::string const &file) {
   auto const duration =
       std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start);
   spdlog::trace("Time spent on reading table: {}ms", duration.count());
-  pimpl_ = std::make_unique<impl>(table_);
+  pimpl_ = std::make_unique<impl>(table_, resource);
 }
 
 // Destructor must be defined here where impl is complete
 ParquetReader::~ParquetReader() = default;
 
-auto ParquetReader::GetNextRow() const -> std::optional<Row> { return pimpl_->GetNextRow(); }
+auto ParquetReader::GetNextRow(utils::MemoryResource *resource) const -> std::optional<Row> {
+  return pimpl_->GetNextRow(resource);
+}
 
-auto ParquetReader::GetHeader() const -> Row {
+auto ParquetReader::GetHeader(utils::MemoryResource *resource) const -> Row {
   auto const schema = table_->schema();
-  Row header;
+  Row header(resource);
   auto const header_size = schema->num_fields();
-  header.reserve(header_size);
-  for (auto const &field : schema->fields()) {
-    header.push_back(field->name());
+  header.resize(header_size);
+  for (int i = 0; i < header_size; ++i) {
+    header[i] = utils::pmr::string(schema->field(i)->name(), resource);
   }
   return header;
 }
