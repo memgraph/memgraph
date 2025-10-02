@@ -39,7 +39,6 @@ class ParquetReader {
   auto GetHeader() const -> Row;
 
  private:
-  std::shared_ptr<::arrow::Table> table_;
   // Faster compilation with mg-query is the reason
   struct impl;
   std::unique_ptr<impl> pimpl_;
