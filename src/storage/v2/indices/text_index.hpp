@@ -47,8 +47,10 @@ class TextIndex {
 
   void CreateTantivyIndex(const std::string &index_path, const TextIndexSpec &index_info);
 
-  std::vector<TextIndexData *> GetApplicableTextIndices(std::span<storage::LabelId const> labels,
-                                                        std::span<PropertyId const> properties);
+  std::vector<TextIndexData *> LabelApplicableTextIndices(std::span<storage::LabelId const> labels);
+
+  static std::vector<TextIndexData *> GetIndicesMatchingProperties(std::span<TextIndexData *const> label_indices,
+                                                                   std::span<const PropertyId> properties);
 
   static void AddNodeToTextIndex(std::int64_t gid, const nlohmann::json &properties,
                                  const std::string &property_values_as_str, mgcxx::text_search::Context &context);
@@ -71,7 +73,7 @@ class TextIndex {
 
   void UpdateOnRemoveLabel(LabelId label, const Vertex *vertex, Transaction &tx);
 
-  void UpdateOnSetProperty(const Vertex *vertex, Transaction &tx);
+  void UpdateOnSetProperty(const Vertex *vertex, Transaction &tx, PropertyId property);
 
   void RemoveNode(const Vertex *vertex_after_update, Transaction &tx);
 

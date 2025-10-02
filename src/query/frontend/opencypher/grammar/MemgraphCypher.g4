@@ -143,6 +143,7 @@ memgraphCypherKeyword : cypherKeyword
                       | READ_FILE
                       | RECOVER
                       | REGISTER
+                      | RENAME
                       | REPLACE
                       | REPLICA
                       | REPLICAS
@@ -678,11 +679,14 @@ transactionId : literal ;
 
 multiDatabaseQuery : createDatabase
                    | dropDatabase
+                   | renameDatabase
                    ;
 
 createDatabase : CREATE DATABASE databaseName ;
 
 dropDatabase: DROP DATABASE databaseName ( FORCE)?;
+
+renameDatabase : RENAME DATABASE databaseName TO databaseName ;
 
 useDatabase : USE DATABASE databaseName ;
 

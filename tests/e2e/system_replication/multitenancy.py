@@ -1635,5 +1635,265 @@ def test_multitenancy_snapshot_recovery(connection, test_name):
     interactive_mg_runner.stop_all(keep_directories=False)
 
 
+def test_rename_database_basic(connection, test_name):
+    """Test basic database rename functionality."""
+    # Goal: Test basic database rename operations
+    # 0/ Setup
+    # 1/ Create database and add data
+    # 2/ Rename database
+    # 3/ Verify data is preserved and accessible with new name
+    # 4/ Verify old name no longer exists
+
+    # 0/
+    instances = create_memgraph_instances_with_role_recovery(test_name)
+    interactive_mg_runner.start_all(instances)
+    setup_replication(connection)
+
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+
+    # 1/
+    execute_and_fetch_all(main_cursor, "CREATE DATABASE test_db")
+    execute_and_fetch_all(main_cursor, "USE DATABASE test_db")
+    execute_and_fetch_all(main_cursor, "CREATE (:Node{name:'test_node', value:42})")
+    execute_and_fetch_all(main_cursor, "CREATE (:Node{name:'test_node2', value:84})")
+
+    # 2/
+    execute_and_fetch_all(main_cursor, "RENAME DATABASE test_db TO renamed_test_db")
+
+    # 3/
+    execute_and_fetch_all(main_cursor, "USE DATABASE renamed_test_db")
+    results = execute_and_fetch_all(main_cursor, "MATCH (n:Node) RETURN n.name, n.value ORDER BY n.value")
+    assert len(results) == 2
+    assert results[0] == ("test_node", 42)
+    assert results[1] == ("test_node2", 84)
+
+    # 4/
+    try:
+        execute_and_fetch_all(main_cursor, "USE DATABASE test_db")
+        assert False, "Should not be able to use old database name"
+    except mgclient.DatabaseError:
+        pass  # Expected
+
+
+def test_rename_database_errors(connection, test_name):
+    """Test database rename error conditions."""
+    # Goal: Test various error conditions for database rename
+    # 0/ Setup
+    # 1/ Test renaming default database (should fail)
+    # 2/ Test renaming non-existent database (should fail)
+    # 3/ Test renaming to existing database name (should fail)
+    # 4/ Test renaming database in use (should fail)
+
+    # 0/
+    instances = create_memgraph_instances_with_role_recovery(test_name)
+    interactive_mg_runner.start_all(instances)
+    setup_replication(connection)
+
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+
+    # Create test databases
+    execute_and_fetch_all(main_cursor, "CREATE DATABASE db1")
+    execute_and_fetch_all(main_cursor, "CREATE DATABASE db2")
+
+    # 1/ Test renaming default database
+    try:
+        execute_and_fetch_all(main_cursor, "RENAME DATABASE memgraph TO new_name")
+        assert False, "Should not be able to rename default database"
+    except mgclient.DatabaseError:
+        pass  # Expected
+
+    # 2/ Test renaming non-existent database
+    try:
+        execute_and_fetch_all(main_cursor, "RENAME DATABASE non_existent TO new_name")
+        assert False, "Should not be able to rename non-existent database"
+    except mgclient.DatabaseError:
+        pass  # Expected
+
+    # 3/ Test renaming to existing database name
+    try:
+        execute_and_fetch_all(main_cursor, "RENAME DATABASE db1 TO db2")
+        assert False, "Should not be able to rename to existing database name"
+    except mgclient.DatabaseError:
+        pass  # Expected
+
+    # 4/ Test renaming database in use
+    execute_and_fetch_all(main_cursor, "USE DATABASE db1")
+    execute_and_fetch_all(main_cursor, "RENAME DATABASE db1 TO new_name")
+
+
+def test_rename_database_replication(connection, test_name):
+    """Test database rename with replication."""
+    # Goal: Test that database rename operations are properly replicated
+    # 0/ Setup replication
+    # 1/ Create database and add data on main
+    # 2/ Verify data is replicated to replica
+    # 3/ Rename database on main
+    # 4/ Verify rename is replicated to replica
+    # 5/ Verify data is preserved on replica with new name
+
+    # 0/
+    instances = create_memgraph_instances_with_role_recovery(test_name)
+    interactive_mg_runner.start_all(instances)
+    setup_replication(connection)
+
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+    replica_cursor = connection(BOLT_PORTS["replica_1"], "replica_1").cursor()
+
+    # 1/
+    execute_and_fetch_all(main_cursor, "CREATE DATABASE test_db")
+    execute_and_fetch_all(main_cursor, "USE DATABASE test_db")
+    execute_and_fetch_all(main_cursor, "CREATE (:Node{name:'replicated_node', value:123})")
+
+    # 2/
+    execute_and_fetch_all(replica_cursor, "USE DATABASE test_db")
+    results = execute_and_fetch_all(replica_cursor, "MATCH (n:Node) RETURN n.name, n.value")
+    assert len(results) == 1
+    assert results[0] == ("replicated_node", 123)
+
+    # 3/
+    execute_and_fetch_all(main_cursor, "RENAME DATABASE test_db TO renamed_test_db")
+
+    # 4/ Wait for replication and verify rename is replicated
+    execute_and_fetch_all(replica_cursor, "USE DATABASE renamed_test_db")
+
+    # 5/ Verify data is preserved on replica with new name
+    results = execute_and_fetch_all(replica_cursor, "MATCH (n:Node) RETURN n.name, n.value")
+    assert len(results) == 1
+    assert results[0] == ("replicated_node", 123)
+
+    # Verify old name no longer exists on replica
+    try:
+        execute_and_fetch_all(replica_cursor, "USE DATABASE test_db")
+        assert False, "Should not be able to use old database name on replica"
+    except mgclient.DatabaseError:
+        pass  # Expected
+
+    # Restart cluster and verify data is preserved
+    interactive_mg_runner.stop_all(keep_directories=True)
+    interactive_mg_runner.start_all(instances, keep_directories=True)
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+    replica_cursor = connection(BOLT_PORTS["replica_1"], "replica_1").cursor()
+    results = execute_and_fetch_all(main_cursor, "SHOW DATABASES")
+    assert results == [("memgraph",), ("renamed_test_db",)]
+    results = execute_and_fetch_all(replica_cursor, "SHOW DATABASES")
+    assert results == [("memgraph",), ("renamed_test_db",)]
+
+
+def test_rename_database_concurrent_access(connection, test_name):
+    """Test database rename with concurrent access patterns."""
+    # Goal: Test database rename behavior with multiple concurrent sessions
+    # 0/ Setup
+    # 1/ Create database and add data
+    # 2/ Start multiple sessions using the database
+    # 3/ Try to rename while database is in use (should fail)
+    # 4/ Stop using database and rename (should succeed)
+    # 5/ Verify data is preserved with new name
+
+    # 0/
+    instances = create_memgraph_instances_with_role_recovery(test_name)
+    interactive_mg_runner.start_all(instances)
+    setup_replication(connection)
+
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+
+    # 1/
+    execute_and_fetch_all(main_cursor, "CREATE DATABASE test_db")
+    execute_and_fetch_all(main_cursor, "USE DATABASE test_db")
+    execute_and_fetch_all(main_cursor, "CREATE (:Node{name:'concurrent_node', value:999})")
+
+    # 2/ Start multiple sessions using the database
+    session1_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+    session2_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+
+    execute_and_fetch_all(session1_cursor, "USE DATABASE test_db")
+    execute_and_fetch_all(session2_cursor, "USE DATABASE test_db")
+
+    # 3/ Try to rename while database is in use
+    execute_and_fetch_all(main_cursor, "RENAME DATABASE test_db TO renamed_test_db")
+
+    # 4/ Stop using database and rename
+    execute_and_fetch_all(session1_cursor, "USE DATABASE memgraph")
+    execute_and_fetch_all(session2_cursor, "USE DATABASE memgraph")
+
+    execute_and_fetch_all(main_cursor, "RENAME DATABASE renamed_test_db TO renamed_again_test_db")
+
+    # 5/ Verify data is preserved with new name
+    execute_and_fetch_all(main_cursor, "USE DATABASE renamed_again_test_db")
+    results = execute_and_fetch_all(main_cursor, "MATCH (n:Node) RETURN n.name, n.value")
+    assert len(results) == 1
+    assert results[0] == ("concurrent_node", 999)
+
+
+def test_rename_database_multiple_operations(connection, test_name):
+    """Test multiple database rename operations."""
+    # Goal: Test multiple rename operations and verify consistency
+    # 0/ Setup
+    # 1/ Create multiple databases with data
+    # 2/ Perform multiple renames
+    # 3/ Verify all data is preserved
+    # 4/ Verify old names no longer exist
+
+    # 0/
+    instances = create_memgraph_instances_with_role_recovery(test_name)
+    interactive_mg_runner.start_all(instances)
+    setup_replication(connection)
+
+    main_cursor = connection(BOLT_PORTS["main"], "main").cursor()
+
+    # 1/
+    execute_and_fetch_all(main_cursor, "CREATE DATABASE db1")
+    execute_and_fetch_all(main_cursor, "CREATE DATABASE db2")
+    execute_and_fetch_all(main_cursor, "CREATE DATABASE db3")
+
+    execute_and_fetch_all(main_cursor, "USE DATABASE db1")
+    execute_and_fetch_all(main_cursor, "CREATE (:Node{db:'db1', value:1})")
+
+    execute_and_fetch_all(main_cursor, "USE DATABASE db2")
+    execute_and_fetch_all(main_cursor, "CREATE (:Node{db:'db2', value:2})")
+
+    execute_and_fetch_all(main_cursor, "USE DATABASE db3")
+    execute_and_fetch_all(main_cursor, "CREATE (:Node{db:'db3', value:3})")
+
+    # 2/ Perform multiple renames
+    execute_and_fetch_all(main_cursor, "RENAME DATABASE db1 TO renamed_db1")
+    execute_and_fetch_all(main_cursor, "RENAME DATABASE db2 TO renamed_db2")
+    execute_and_fetch_all(main_cursor, "RENAME DATABASE db3 TO renamed_db3")
+
+    # 3/ Verify all data is preserved
+    execute_and_fetch_all(main_cursor, "USE DATABASE renamed_db1")
+    results = execute_and_fetch_all(main_cursor, "MATCH (n:Node) RETURN n.db, n.value")
+    assert len(results) == 1
+    assert results[0] == ("db1", 1)
+
+    execute_and_fetch_all(main_cursor, "USE DATABASE renamed_db2")
+    results = execute_and_fetch_all(main_cursor, "MATCH (n:Node) RETURN n.db, n.value")
+    assert len(results) == 1
+    assert results[0] == ("db2", 2)
+
+    execute_and_fetch_all(main_cursor, "USE DATABASE renamed_db3")
+    results = execute_and_fetch_all(main_cursor, "MATCH (n:Node) RETURN n.db, n.value")
+    assert len(results) == 1
+    assert results[0] == ("db3", 3)
+
+    # 4/ Verify old names no longer exist
+    try:
+        execute_and_fetch_all(main_cursor, "USE DATABASE db1")
+        assert False, "Should not be able to use old database name db1"
+    except mgclient.DatabaseError:
+        pass  # Expected
+
+    try:
+        execute_and_fetch_all(main_cursor, "USE DATABASE db2")
+        assert False, "Should not be able to use old database name db2"
+    except mgclient.DatabaseError:
+        pass  # Expected
+
+    try:
+        execute_and_fetch_all(main_cursor, "USE DATABASE db3")
+        assert False, "Should not be able to use old database name db3"
+    except mgclient.DatabaseError:
+        pass  # Expected
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

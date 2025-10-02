@@ -49,8 +49,10 @@ class TextEdgeIndex {
 
   void CreateTantivyIndex(const std::string &index_path, const TextEdgeIndexSpec &index_info);
 
-  std::vector<TextEdgeIndexData *> GetApplicableTextIndices(EdgeTypeId edge_type,
-                                                            std::span<PropertyId const> properties);
+  std::vector<TextEdgeIndexData *> EdgeTypeApplicableTextIndices(EdgeTypeId edge_type);
+
+  static std::vector<TextEdgeIndexData *> GetIndicesMatchingProperties(
+      std::span<TextEdgeIndexData *const> edge_type_indices, std::span<const PropertyId> properties);
 
   static void AddEdgeToTextIndex(std::int64_t edge_gid, std::int64_t from_vertex_gid, std::int64_t to_vertex_gid,
                                  nlohmann::json properties, std::string property_values_as_str,
@@ -72,7 +74,7 @@ class TextEdgeIndex {
   void RemoveEdge(const Edge *edge, EdgeTypeId edge_type, Transaction &tx);
 
   void UpdateOnSetProperty(const Edge *edge, const Vertex *from_vertex, const Vertex *to_vertex, EdgeTypeId edge_type,
-                           Transaction &tx);
+                           Transaction &tx, PropertyId property);
 
   void CreateIndex(const TextEdgeIndexSpec &index_info, VerticesIterable vertices, NameIdMapper *name_id_mapper);
 

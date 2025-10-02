@@ -102,6 +102,7 @@ class DbmsHandler {
 
   using NewResultT = utils::BasicResult<NewError, DatabaseAccess>;
   using DeleteResult = utils::BasicResult<DeleteError>;
+  using RenameResult = utils::BasicResult<RenameError>;
 
   /**
    * @brief Initialize the handler.
@@ -162,10 +163,11 @@ class DbmsHandler {
       return new_db;
     }
 
-    spdlog::debug("Trying to create db '{}' on replica which already exists.", config.name);
+    const auto name_view = config.name.str_view();
+    spdlog::debug("Trying to create db '{}' on replica which already exists.", *name_view);
 
-    auto db = Get_(config.name);
-    spdlog::debug("Aligning database with name {} which has UUID {}, where config UUID is {}", config.name,
+    auto db = Get_(*name_view);
+    spdlog::debug("Aligning database with name {} which has UUID {}, where config UUID is {}", *name_view,
                   std::string(db->uuid()), std::string(config.uuid));
     if (db->uuid() == config.uuid) {  // Same db
       return db;
@@ -174,7 +176,7 @@ class DbmsHandler {
     spdlog::debug("Different UUIDs");
 
     // TODO: Fix this hack
-    if (config.name == kDefaultDB) {
+    if (*name_view == kDefaultDB) {
       spdlog::debug("Last commit timestamp for DB {} is {}", kDefaultDB,
                     db->storage()->repl_storage_state_.commit_ts_info_.load(std::memory_order_acquire).ldt_);
       // This seems correct, if database made progress
@@ -190,7 +192,7 @@ class DbmsHandler {
       return db;
     }
 
-    spdlog::debug("Dropping database {} with UUID: {} and recreating with the correct UUID: {}", config.name,
+    spdlog::debug("Dropping database {} with UUID: {} and recreating with the correct UUID: {}", *name_view,
                   std::string(db->uuid()), std::string(config.uuid));
     // Defer drop
     (void)Delete_(db->name());
@@ -271,6 +273,16 @@ class DbmsHandler {
    * @return DeleteResult error on failure
    */
   DeleteResult Delete(std::string_view db_name, system::Transaction *transaction);
+
+  /**
+   * @brief Rename a database.
+   *
+   * @param old_name current database name
+   * @param new_name new database name
+   * @param txn system transaction for replication
+   * @return RenameResult error on failure
+   */
+  RenameResult Rename(std::string_view old_name, std::string_view new_name, system::Transaction *txn = nullptr);
 #endif
 
   /**
