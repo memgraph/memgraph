@@ -7716,7 +7716,7 @@ std::vector<Symbol> LoadParquet::ModifiedSymbols(const SymbolTable &sym_table) c
   return symbols;
 };
 
-lass LoadParquetCursor : public Cursor {
+class LoadParquetCursor : public Cursor {
   const LoadParquet *self_;
   const UniqueCursorPtr input_cursor_;
   bool did_pull_{false};
@@ -7732,6 +7732,7 @@ lass LoadParquetCursor : public Cursor {
     SCOPED_PROFILE_OP_BY_REF(*self_);
     AbortCheck(context);
 
+    auto *mem = context.evaluation_context.memory;
     // TODO: (andi) Refactor into the method
     if (UNLIKELY(!reader_.has_value())) {
       Frame local_frame(0);
@@ -7743,8 +7744,8 @@ lass LoadParquetCursor : public Cursor {
       // No need to check if maybe_file is std::nullopt, as the parser makes sure
       // we can't get a nullptr for the 'file_' member in the LoadParquet clause
       // TODO: (andi) Conversion needed because of pmr allocator
-      reader_.emplace(std::string{*maybe_file});
-      header_cache_ = reader_->GetHeader();
+      reader_.emplace(std::string{*maybe_file}, mem);
+      header_cache_ = reader_->GetHeader(mem);
       spdlog::trace("Cached {} column headers", header_cache_.size());
     }
 
@@ -7758,14 +7759,12 @@ lass LoadParquetCursor : public Cursor {
       did_pull_ = true;
     }
 
-    // Get the next row from the parquet file
     auto row = reader_->GetNextRow();
     if (!row) {
       return false;
     }
 
     // Convert row to TypedValue map similar to CSV with headers
-    auto *mem = context.evaluation_context.memory;
     auto typed_map = utils::pmr::map<utils::pmr::string, TypedValue>(mem);
 
     for (size_t i = 0; i < header_cache_.size() && i < row->size(); ++i) {
