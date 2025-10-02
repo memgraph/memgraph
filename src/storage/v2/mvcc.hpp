@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -35,7 +35,9 @@ inline std::size_t ApplyDeltasForRead(Transaction const *transaction, const Delt
                                       const TCallback &callback) {
   // Avoid work if no deltas or
   // IsolationLevel::READ_UNCOMMITTED, where deltas are never applied
-  if (!delta || transaction->isolation_level == IsolationLevel::READ_UNCOMMITTED) return 0;
+  if (!delta || transaction->isolation_level == IsolationLevel::READ_UNCOMMITTED ||
+      delta->action == Delta::Action::SET_VECTOR_PROPERTY)
+    return 0;
 
   // if the transaction is not committed, then its deltas have transaction_id for the timestamp, otherwise they have
   // its commit timestamp set.

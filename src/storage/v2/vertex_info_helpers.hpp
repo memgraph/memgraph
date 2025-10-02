@@ -49,6 +49,7 @@ inline void DeltaDispatch(Delta const &delta, Func &&func) {
     dispatch(DELETE_OBJECT);
     dispatch(RECREATE_OBJECT);
     dispatch(SET_PROPERTY);
+    dispatch(SET_VECTOR_PROPERTY);
     dispatch(ADD_LABEL);
     dispatch(REMOVE_LABEL);
     dispatch(ADD_IN_EDGE);

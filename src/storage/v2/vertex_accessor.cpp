@@ -159,6 +159,17 @@ Result<bool> VertexAccessor::AddLabel(LabelId label) {
     vertex->labels.push_back(label);
   });
 
+  if (!storage_->indices_.vector_index_.Empty()) {
+    const auto all_prop_ids = vertex_->properties.ExtractPropertyIds();
+    auto prop_ids = all_prop_ids | rv::filter([&](auto prop_id) {
+                      return storage_->indices_.vector_index_.IsLabelPropInVectoIndex(label, prop_id);
+                    });
+    for (auto prop_id : prop_ids) {
+      const auto prop_value = storage_->indices_.vector_index_.GetProperty(vertex_, prop_id);
+      CreateAndLinkDelta(transaction_, vertex_, Delta::SetVectorPropertyTag(), prop_id, prop_value);
+    }
+  }
+
   if (storage_->constraints_.HasTypeConstraints()) {
     if (auto maybe_violation = storage_->constraints_.type_constraints_->Validate(*vertex_, label)) {
       HandleTypeConstraintViolation(storage_, *maybe_violation);
@@ -231,6 +242,16 @@ Result<bool> VertexAccessor::RemoveLabel(LabelId label) {
     *it = vertex->labels.back();
     vertex->labels.pop_back();
   });
+
+  if (!storage_->indices_.vector_index_.Empty()) {
+    const auto all_prop_ids = vertex_->properties.ExtractPropertyIds();
+    auto prop_ids = all_prop_ids | rv::filter([&](auto prop_id) {
+                      return storage_->indices_.vector_index_.IsLabelPropInVectoIndex(label, prop_id);
+                    });
+    for (const auto &prop_id : prop_ids) {
+      CreateAndLinkDelta(transaction_, vertex_, Delta::SetVectorPropertyTag(), prop_id, PropertyValue());
+    }
+  }
 
   /// TODO: some by pointers, some by reference => not good, make it better
   storage_->constraints_.unique_constraints_->UpdateOnRemoveLabel(label, *vertex_, transaction_->start_timestamp);
@@ -362,6 +383,15 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   const bool skip_duplicate_write = !storage_->config_.salient.items.delta_on_identical_property_update;
   auto const set_property_impl = [this, transaction = transaction_, vertex = vertex_, &new_value, &property, &old_value,
                                   skip_duplicate_write, &schema_acc]() {
+    // Firstly check if the property is a vector property
+    if (storage_->indices_.vector_index_.IsPropertyInVectorIndex(vertex, property)) {
+      // Vector index doesn't have transactional guarantees, so we don't need to retrieve the old value, we just need
+      // delta for durability
+      // TODO(@DavIvek): Type constraints and schema info?
+      CreateAndLinkDelta(transaction, vertex, Delta::SetVectorPropertyTag(), property, new_value);
+      return false;
+    }
+
     old_value = vertex->properties.GetProperty(property);
     // We could skip setting the value if the previous one is the same to the new
     // one. This would save some memory as a delta would not be created as well as
@@ -421,19 +451,27 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
   // This has to be called before any object gets locked
   auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
   auto guard = std::unique_lock{vertex_->lock};
+  std::vector<PropertyId> vector_prop_ids;  // property ids which are saved inside vector index
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
 
   if (vertex_->deleted) return Error::DELETED_OBJECT;
   bool result{false};
   utils::AtomicMemoryBlock([&result, &properties, storage = storage_, transaction = transaction_, vertex = vertex_,
-                            &schema_acc]() {
+                            &schema_acc, &vector_prop_ids]() {
     if (!vertex->properties.InitProperties(properties)) {
       result = false;
       return;
     }
     for (const auto &[property, new_value] : properties) {
-      CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
+      if (storage->indices_.vector_index_.IsPropertyInVectorIndex(vertex, property)) {
+        // Vector index doesn't have transactional guarantees, so we don't need to retrieve the old value, we just need
+        // delta for durability
+        CreateAndLinkDelta(transaction, vertex, Delta::SetVectorPropertyTag(), property, new_value);
+        vector_prop_ids.push_back(property);
+      } else {
+        CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
+      }
       // TODO: defer until once all properties have been set, to make fewer entries ?
       storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction);
       transaction->UpdateOnSetProperty(property, PropertyValue{}, new_value, vertex);
@@ -496,7 +534,14 @@ Result<std::vector<std::tuple<PropertyId, PropertyValue, PropertyValue>>> Vertex
     for (auto &[id, old_value, new_value] : *id_old_new_change) {
       storage->indices_.UpdateOnSetProperty(id, new_value, vertex, *transaction);
       if (skip_duplicate_update && old_value == new_value) continue;
-      CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), id, old_value);
+      if (storage->indices_.vector_index_.IsPropertyInVectorIndex(vertex, id)) {
+        // Vector index doesn't have transactional guarantees, so we don't need to retrieve the old value, we just need
+        // delta for durability
+        // TODO(@DavIvek): Type constraints and schema info?
+        CreateAndLinkDelta(transaction, vertex, Delta::SetVectorPropertyTag(), id, new_value);
+      } else {
+        CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), id, old_value);
+      }
       transaction->UpdateOnSetProperty(id, old_value, new_value, vertex);
       if (transaction->constraint_verification_info) {
         if (!new_value.IsNull()) {
@@ -546,7 +591,14 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
         }
         auto new_value = PropertyValue();
         for (const auto &[property, old_value] : *properties) {
-          CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
+          if (storage->indices_.vector_index_.IsPropertyInVectorIndex(vertex, property)) {
+            // Vector index doesn't have transactional guarantees, so we don't need to retrieve the old value, we just
+            // need delta for durability
+            // TODO(@DavIvek): Type constraints and schema info?
+            CreateAndLinkDelta(transaction, vertex, Delta::SetVectorPropertyTag(), property, new_value);
+          } else {
+            CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
+          }
           storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction);
           transaction->UpdateOnSetProperty(property, old_value, new_value, vertex);
           if (schema_acc) {
@@ -570,18 +622,30 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
 Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view) const {
   bool exists = true;
   bool deleted = false;
+  bool is_in_vector_index = false;
   PropertyValue value;
   Delta *delta = nullptr;
+
   {
     auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
-    value = vertex_->properties.GetProperty(property);
     delta = vertex_->delta;
+
+    // Try to get property from vector index first
+    if (storage_->indices_.vector_index_.IsPropertyInVectorIndex(vertex_, property)) {
+      value = storage_->indices_.vector_index_.GetProperty(vertex_, property);
+      is_in_vector_index = true;
+    }
+    // Fall back to regular vertex properties if not found in vector index
+    else {
+      value = vertex_->properties.GetProperty(property);
+    }
   }
 
   // Checking cache has a cost, only do it if we have any deltas
   // if we have no deltas then what we already have from the vertex is correct.
-  if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
+  // Vector index works in read uncommitted mode so we don't need to check for it
+  if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED && !is_in_vector_index) {
     // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
     // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
     auto const useCache = transaction_->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;

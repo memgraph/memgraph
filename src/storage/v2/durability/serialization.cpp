@@ -561,6 +561,7 @@ std::optional<ExternalPropertyValue> Decoder::ReadExternalPropertyValue() {
     case Marker::DELTA_VERTEX_ADD_LABEL:
     case Marker::DELTA_VERTEX_REMOVE_LABEL:
     case Marker::DELTA_VERTEX_SET_PROPERTY:
+    case Marker::DELTA_VERTEX_SET_VECTOR_PROPERTY:
     case Marker::DELTA_EDGE_CREATE:
     case Marker::DELTA_EDGE_DELETE:
     case Marker::DELTA_EDGE_SET_PROPERTY:
@@ -700,6 +701,7 @@ bool Decoder::SkipExternalPropertyValue() {
     case Marker::DELTA_VERTEX_ADD_LABEL:
     case Marker::DELTA_VERTEX_REMOVE_LABEL:
     case Marker::DELTA_VERTEX_SET_PROPERTY:
+    case Marker::DELTA_VERTEX_SET_VECTOR_PROPERTY:
     case Marker::DELTA_EDGE_CREATE:
     case Marker::DELTA_EDGE_DELETE:
     case Marker::DELTA_EDGE_SET_PROPERTY:

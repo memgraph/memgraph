@@ -66,6 +66,7 @@ enum class PropertyValueType : uint8_t {
   Enum = 9,
   Point2d = 10,
   Point3d = 11,
+  VectorIndexId = 12,
 };
 
 inline bool AreComparableTypes(PropertyValueType a, PropertyValueType b) {
@@ -116,6 +117,8 @@ class PropertyValueImpl {
       : alloc_{alloc}, point2d_data_v{.val_ = value} {}
   explicit PropertyValueImpl(const Point3d value, allocator_type const &alloc = allocator_type{})
       : alloc_{alloc}, point3d_data_v{.val_ = value} {}
+  explicit PropertyValueImpl(const int8_t value, allocator_type const &alloc = allocator_type{})
+      : alloc_{alloc}, vector_index_id_v{.val_ = value} {}
 
   // copy constructors for non-primitive types
   /// @throw std::bad_alloc
@@ -175,9 +178,9 @@ class PropertyValueImpl {
 
   /// Copy accross allocators
   template <typename AllocOther, typename KeyTypeOther>
-    requires(!std::same_as<allocator_type, AllocOther> && std::same_as<KeyType, KeyTypeOther>)
-  PropertyValueImpl(PropertyValueImpl<AllocOther, KeyTypeOther> const &other,
-                    allocator_type const &alloc = allocator_type{})
+  requires(!std::same_as<allocator_type, AllocOther> && std::same_as<KeyType, KeyTypeOther>)
+      PropertyValueImpl(PropertyValueImpl<AllocOther, KeyTypeOther> const &other,
+                        allocator_type const &alloc = allocator_type{})
       : alloc_{alloc}, type_{other.type_} {
     switch (other.type_) {
       case Type::Null:
@@ -215,6 +218,9 @@ class PropertyValueImpl {
       case Type::Point3d:
         point3d_data_v.val_ = other.point3d_data_v.val_;
         return;
+      case Type::VectorIndexId:
+        vector_index_id_v.val_ = other.vector_index_id_v.val_;
+        return;
     }
   }
 
@@ -231,6 +237,7 @@ class PropertyValueImpl {
       case Type::Enum:
       case Type::Point2d:
       case Type::Point3d:
+      case Type::VectorIndexId:
         return;
       // destructor for non primitive types since we used placement new
       case Type::String:
@@ -260,6 +267,7 @@ class PropertyValueImpl {
   bool IsZonedTemporalData() const { return type_ == Type::ZonedTemporalData; }
   bool IsPoint2d() const { return type_ == Type::Point2d; }
   bool IsPoint3d() const { return type_ == Type::Point3d; }
+  bool IsVectorIndexId() const { return type_ == Type::VectorIndexId; }
 
   // value getters for primitive types
   /// @throw PropertyValueException if value isn't of correct type.
@@ -323,6 +331,14 @@ class PropertyValueImpl {
     }
 
     return point3d_data_v.val_;
+  }
+
+  auto ValueVectorIndexId() const -> int8_t {
+    if (type_ != Type::VectorIndexId) [[unlikely]] {
+      throw PropertyValueException("The value isn't a vector index ID!");
+    }
+
+    return vector_index_id_v.val_;
   }
 
   // const value getters for non-primitive types
@@ -426,6 +442,10 @@ class PropertyValueImpl {
       Type type_ = Type::Point3d;
       Point3d val_;
     } point3d_data_v;
+    struct {
+      Type type_ = Type::VectorIndexId;
+      int8_t val_;
+    } vector_index_id_v;
   };
 };
 
@@ -500,6 +520,8 @@ inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType> &first,
       return to_weak_order(first.ValuePoint2d() <=> second.ValuePoint2d());
     case PropertyValueType::Point3d:
       return to_weak_order(first.ValuePoint3d() <=> second.ValuePoint3d());
+    case PropertyValueType::VectorIndexId:
+      return first.ValueVectorIndexId() <=> second.ValueVectorIndexId();
   }
 }
 
@@ -552,6 +574,9 @@ inline PropertyValueImpl<Alloc, KeyType>::PropertyValueImpl(const PropertyValueI
     case Type::Point3d:
       point3d_data_v.val_ = other.point3d_data_v.val_;
       return;
+    case Type::VectorIndexId:
+      vector_index_id_v.val_ = other.vector_index_id_v.val_;
+      return;
   }
 }
 
@@ -599,6 +624,9 @@ inline PropertyValueImpl<Alloc, KeyType>::PropertyValueImpl(PropertyValueImpl &&
     case Type::Point3d:
       point3d_data_v.val_ = other.point3d_data_v.val_;
       break;
+    case Type::VectorIndexId:
+      vector_index_id_v.val_ = other.vector_index_id_v.val_;
+      break;
   }
 }
 
@@ -644,6 +672,9 @@ inline auto PropertyValueImpl<Alloc, KeyType>::operator=(PropertyValueImpl const
         case Type::Point3d:
           point3d_data_v.val_ = other.point3d_data_v.val_;
           break;
+        case Type::VectorIndexId:
+          vector_index_id_v.val_ = other.vector_index_id_v.val_;
+          break;
       }
       return *this;
     } else {
@@ -682,8 +713,8 @@ inline auto PropertyValueImpl<Alloc, KeyType>::operator=(PropertyValueImpl const
 
 template <typename Alloc, typename KeyType>
 inline auto PropertyValueImpl<Alloc, KeyType>::operator=(PropertyValueImpl &&other) noexcept(
-    alloc_trait::is_always_equal::value ||
-    alloc_trait::propagate_on_container_move_assignment::value) -> PropertyValueImpl<Alloc, KeyType> & {
+    alloc_trait::is_always_equal::value || alloc_trait::propagate_on_container_move_assignment::value)
+    -> PropertyValueImpl<Alloc, KeyType> & {
   auto do_move = [&]() -> PropertyValueImpl<Alloc, KeyType> & {
     if (type_ == other.type_) {
       // maybe the same object, check if no work is required
@@ -724,6 +755,9 @@ inline auto PropertyValueImpl<Alloc, KeyType>::operator=(PropertyValueImpl &&oth
           break;
         case Type::Point3d:
           point3d_data_v.val_ = other.point3d_data_v.val_;
+          break;
+        case Type::VectorIndexId:
+          vector_index_id_v.val_ = other.vector_index_id_v.val_;
           break;
       }
       return *this;
@@ -785,6 +819,8 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValueType type) 
       return os << "point";
     case PropertyValueType::Point3d:
       return os << "point";
+    case PropertyValueType::VectorIndexId:
+      return os << "vector index id";
   }
 }
 
@@ -835,6 +871,10 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValueImpl<Alloc,
       return os << fmt::format("point({{ x:{}, y:{}, z:{}, srid:{} }})", point.x(), point.y(), point.z(),
                                CrsToSrid(point.crs()).value_of());
     }
+    case PropertyValueType::VectorIndexId: {
+      const auto vector_index_id = value.ValueVectorIndexId();
+      return os << fmt::format("vector_index_id({})", vector_index_id);
+    }
   }
 }
 
@@ -879,6 +919,8 @@ inline PropertyValue ToPropertyValue(const ExternalPropertyValue &value, NameIdM
       return PropertyValue(value.ValuePoint2d());
     case PropertyValueType::Point3d:
       return PropertyValue(value.ValuePoint3d());
+    case PropertyValueType::VectorIndexId:
+      return PropertyValue(value.ValueVectorIndexId());
   }
   throw PropertyValueException("Unknown type during conversion");
 }
@@ -920,6 +962,8 @@ inline ExternalPropertyValue ToExternalPropertyValue(const PropertyValue &value,
       return ExternalPropertyValue(value.ValuePoint2d());
     case PropertyValueType::Point3d:
       return ExternalPropertyValue(value.ValuePoint3d());
+    case PropertyValueType::VectorIndexId:
+      return ExternalPropertyValue(value.ValueVectorIndexId());
   }
   throw PropertyValueException("Unknown type during conversion");
 }
@@ -963,8 +1007,8 @@ static_assert(sizeof(pmr::PropertyValue) == 72 /*56*/);
  * is valid, returns a positional pointer to the `PropertyValue` within the
  * top-most value. Otherwise, return `nullptr`.
  */
-inline auto ReadNestedPropertyValue(PropertyValue const &value,
-                                    std::span<PropertyId const> path_to_property) -> PropertyValue const * {
+inline auto ReadNestedPropertyValue(PropertyValue const &value, std::span<PropertyId const> path_to_property)
+    -> PropertyValue const * {
   auto const *current = &value;
   // Follow the path down into the nested maps
   for (auto &&property_id : path_to_property) {
@@ -1038,6 +1082,8 @@ struct hash<memgraph::storage::PropertyValueImpl<Alloc, KeyType>> {
         return std::hash<memgraph::storage::Point2d>{}(value.ValuePoint2d());
       case Point3d:
         return std::hash<memgraph::storage::Point3d>{}(value.ValuePoint3d());
+      case VectorIndexId:
+        return std::hash<int8_t>{}(value.ValueVectorIndexId());
     }
   }
 };

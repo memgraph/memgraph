@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -34,6 +34,7 @@ inline bool IsEdgeVisible(Edge *edge, const Transaction *transaction, View view)
       case Delta::Action::ADD_LABEL:
       case Delta::Action::REMOVE_LABEL:
       case Delta::Action::SET_PROPERTY:
+      case Delta::Action::SET_VECTOR_PROPERTY:
       case Delta::Action::ADD_IN_EDGE:
       case Delta::Action::ADD_OUT_EDGE:
       case Delta::Action::REMOVE_IN_EDGE:
