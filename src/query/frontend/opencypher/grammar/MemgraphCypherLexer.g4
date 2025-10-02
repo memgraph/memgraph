@@ -141,6 +141,7 @@ READ_FILE               : R E A D UNDERSCORE F I L E ;
 RECOVER                 : R E C O V E R ;
 REGISTER                : R E G I S T E R ;
 REPLACE                 : R E P L A C E ;
+RENAME                  : R E N A M E ;
 REPLICA                 : R E P L I C A ;
 REPLICAS                : R E P L I C A S ;
 REPLICATION             : R E P L I C A T I O N ;

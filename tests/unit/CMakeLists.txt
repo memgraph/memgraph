@@ -375,6 +375,11 @@ add_unit_test(utils_signals
     LINK_TARGETS mg-utils
 )
 
+add_unit_test(utils_safe_string
+    SOURCES utils_safe_string.cpp
+    LINK_TARGETS mg-utils
+)
+
 add_unit_test(utils_string
     SOURCES utils_string.cpp
     LINK_TARGETS mg-utils
