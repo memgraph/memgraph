@@ -14,29 +14,26 @@
 #include <filesystem>
 
 #include "arrow/api.h"
-#include "arrow/compute/api.h"
-#include "arrow/io/api.h"
-#include "arrow/io/file.h"
 #include "parquet/arrow/reader.h"
-#include "parquet/file_reader.h"
-#include "parquet/properties.h"
+
+#include "utils/memory.hpp"
+#include "utils/pmr/string.hpp"
+#include "utils/pmr/vector.hpp"
 
 // TODO (andi) Implement this for local and url files
 namespace memgraph::arrow {
 
-// TODO: (andi) Do we need to use here pmr for efficient memory allocation
-using Row = std::vector<std::string>;
+using Row = utils::pmr::vector<utils::pmr::string>;
 
 class ParquetReader {
  public:
-  explicit ParquetReader(std::string const &file);
+  explicit ParquetReader(std::string const &file, utils::MemoryResource *resource);
 
   // Destructor must be defined in .cpp file for pimpl idiom with unique_ptr
   ~ParquetReader();
 
-  // TODO: (andi) CSV version of it receives utils::MemoryResource
   auto GetNextRow() const -> std::optional<Row>;
-  auto GetHeader() const -> Row;
+  auto GetHeader(utils::MemoryResource *resource) const -> Row;
 
  private:
   // Faster compilation with mg-query is the reason
