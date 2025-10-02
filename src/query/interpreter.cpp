@@ -6433,8 +6433,12 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
   Callback callback;
   callback.header = {"schema"};
   callback.fn = [db = *current_db.db_acc_, db_acc = current_db.execution_db_accessor_,
-                 storage_acc = current_db.db_transactional_accessor_.get(), interpreter_context,
-                 user_or_role]() mutable -> std::vector<std::vector<TypedValue>> {
+                 storage_acc = current_db.db_transactional_accessor_.get()
+#ifdef MG_ENTERPRISE
+                     ,
+                 interpreter_context, user_or_role
+#endif
+  ]() mutable -> std::vector<std::vector<TypedValue>> {
     memgraph::metrics::IncrementCounter(memgraph::metrics::ShowSchema);
 
     std::vector<std::vector<TypedValue>> schema;
