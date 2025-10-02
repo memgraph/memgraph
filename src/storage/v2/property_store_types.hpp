@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -31,5 +31,6 @@ enum class PropertyStoreType : uint8_t {
   OFFSET_ZONED_TEMPORAL_DATA = 0xA0,
   ENUM = 0xB0,
   POINT = 0xC0,
+  VECTOR = 0xD0,  // Indicates that list is stored in the vector index
 };
 }  // namespace memgraph::storage

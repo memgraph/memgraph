@@ -202,6 +202,10 @@ const uint8_t kShiftIdSize = 2;
 //     - type; payload size is used to encode the crs type (this only works becuase there are 4 sizes + 4 crs types)
 //     - encoded property ID
 //     - encoded value as 2 (for 2D) or 3 (for 3D) doubles forced to be encoded as int64
+//   * VECTOR
+//     - type; payload size isn't used
+//     - encoded property ID
+//     - encoded vector index id -> this id is used to get the name of the vector index
 
 const auto TZ_NAME_LENGTH_SIZE = Size::INT8;
 // As the underlying type for zoned temporal data is std::chrono::zoned_time, valid timezone names are limited
