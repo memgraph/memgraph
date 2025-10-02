@@ -1211,98 +1211,78 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
           auto *edge = prev.edge;
           auto guard = std::lock_guard{edge->lock};
           Delta *current = edge->delta;
-          Delta *prev_delta = nullptr;
-
-          while (current != nullptr) {
-            auto ts = current->timestamp->load(std::memory_order_acquire);
-
-            if (ts == transaction_.transaction_id) {
-              switch (current->action) {
-                case Delta::Action::SET_PROPERTY: {
-                  DMG_ASSERT(mem_storage->config_.salient.items.properties_on_edges, "Invalid database state!");
+          while (current != nullptr &&
+                 current->timestamp->load(std::memory_order_acquire) == transaction_.transaction_id) {
+            switch (current->action) {
+              case Delta::Action::SET_PROPERTY: {
+                DMG_ASSERT(mem_storage->config_.salient.items.properties_on_edges, "Invalid database state!");
 
                 auto prop_id = current->property.key;
                 auto *from_vertex = current->property.out_vertex;
 
-                  const auto &vector_indexed_edge_types = index_abort_processor.vector_edge_.p2et.find(prop_id);
-                  auto vec_prop_is_interesting =
-                      vector_indexed_edge_types != index_abort_processor.vector_edge_.p2et.end();
+                const auto &vector_indexed_edge_types = index_abort_processor.vector_edge_.p2et.find(prop_id);
+                auto vec_prop_is_interesting =
+                    vector_indexed_edge_types != index_abort_processor.vector_edge_.p2et.end();
 
-                  auto processor_prop_is_interesting = index_abort_processor.IsInterestingEdgeProperty(prop_id);
-                  if (processor_prop_is_interesting || vec_prop_is_interesting) {
-                    // TODO: MVCC collect out_edges (including ones deleted this txn)
-                    //       from_vertex->out_edges would be missing any edge that was deleted during this transaction
-                    //       ATM we don't handle that corner case. Setting a property on an edge that would then be
-                    //       removed
+                auto processor_prop_is_interesting = index_abort_processor.IsInterestingEdgeProperty(prop_id);
+                if (processor_prop_is_interesting || vec_prop_is_interesting) {
+                  // TODO: MVCC collect out_edges (including ones deleted this txn)
+                  //       from_vertex->out_edges would be missing any edge that was deleted during this transaction
+                  //       ATM we don't handle that corner case. Setting a property on an edge that would then be
+                  //       removed
 
-                    if (processor_prop_is_interesting) {
-                      for (auto const &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
-                        if (edge_ref.ptr != edge) continue;
-                        index_abort_processor.CollectOnPropertyChange(edge_type, prop_id, from_vertex, to_vertex, edge);
-                      }
-                    }
-
-                    // Collect edge vector
-                    if (vec_prop_is_interesting) {
-                      // TODO: Fix out_edges will be missing the edge if it was deleted during this transaction
-                      for (auto const &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
-                        if (edge_ref.ptr != edge) continue;
-                        // handle vector index -> we need to check if the edge type is indexed in the vector index
-                        if (r::find(vector_indexed_edge_types->second, edge_type) !=
-                            vector_indexed_edge_types->second.end()) {
-                          // this edge type is indexed in the vector index
-                          vector_edge_type_property_restore[EdgeTypePropKey{edge_type, prop_id}].emplace_back(
-                              *current->property.value, std::make_tuple(from_vertex, to_vertex, edge));
-                        }
-                      }
+                  if (processor_prop_is_interesting) {
+                    for (auto const &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
+                      if (edge_ref.ptr != edge) continue;
+                      index_abort_processor.CollectOnPropertyChange(edge_type, prop_id, from_vertex, to_vertex, edge);
                     }
                   }
 
-                  edge->properties.SetProperty(prop_id, *current->property.value);
+                  // Collect edge vector
+                  if (vec_prop_is_interesting) {
+                    // TODO: Fix out_edges will be missing the edge if it was deleted during this transaction
+                    for (auto const &[edge_type, to_vertex, edge_ref] : from_vertex->out_edges) {
+                      if (edge_ref.ptr != edge) continue;
+                      // handle vector index -> we need to check if the edge type is indexed in the vector index
+                      if (r::find(vector_indexed_edge_types->second, edge_type) !=
+                          vector_indexed_edge_types->second.end()) {
+                        // this edge type is indexed in the vector index
+                        vector_edge_type_property_restore[EdgeTypePropKey{edge_type, prop_id}].emplace_back(
+                            *current->property.value, std::make_tuple(from_vertex, to_vertex, edge));
+                      }
+                    }
+                  }
+                }
 
-                  break;
-                }
-                case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-                case Delta::Action::DELETE_OBJECT: {
-                  edge->deleted = true;
-                  my_deleted_edges.push_back(edge->gid);
-                  break;
-                }
-                case Delta::Action::RECREATE_OBJECT: {
-                  edge->deleted = false;
-                  break;
-                }
-                case Delta::Action::REMOVE_LABEL:
-                case Delta::Action::ADD_LABEL:
-                case Delta::Action::ADD_IN_EDGE:
-                case Delta::Action::ADD_OUT_EDGE:
-                case Delta::Action::REMOVE_IN_EDGE:
-                case Delta::Action::REMOVE_OUT_EDGE: {
-                  LOG_FATAL("Invalid database state!");
-                  break;
-                }
-              }
+                edge->properties.SetProperty(prop_id, *current->property.value);
 
-              auto next_delta = current->next.load(std::memory_order_acquire);
-              if (prev_delta != nullptr) {
-                prev_delta->next.store(next_delta, std::memory_order_release);
-                if (next_delta != nullptr) {
-                  next_delta->prev.Set(prev_delta);
-                }
-              } else {
-                edge->delta = next_delta;
-                if (next_delta != nullptr) {
-                  next_delta->prev.Set(edge);
-                }
-              }
-              current = next_delta;
-            } else {
-              if (!IsOperationInterleaved(*current)) {
                 break;
               }
-              prev_delta = current;
-              current = current->next.load(std::memory_order_acquire);
+              case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+              case Delta::Action::DELETE_OBJECT: {
+                edge->deleted = true;
+                my_deleted_edges.push_back(edge->gid);
+                break;
+              }
+              case Delta::Action::RECREATE_OBJECT: {
+                edge->deleted = false;
+                break;
+              }
+              case Delta::Action::REMOVE_LABEL:
+              case Delta::Action::ADD_LABEL:
+              case Delta::Action::ADD_IN_EDGE:
+              case Delta::Action::ADD_OUT_EDGE:
+              case Delta::Action::REMOVE_IN_EDGE:
+              case Delta::Action::REMOVE_OUT_EDGE: {
+                LOG_FATAL("Invalid database state!");
+                break;
+              }
             }
+            current = current->next.load(std::memory_order_acquire);
+          }
+          edge->delta = current;
+          if (current != nullptr) {
+            current->prev.Set(edge);
           }
 
           break;
@@ -2438,7 +2418,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
             auto ts = current->timestamp->load();
             DMG_ASSERT(ts < kTransactionInitialId || ts == kAbortedTransactionId,
                        "found uncommitted/unaborted delta in settled delta chain");
-            if (ts < kTransactionInitialId) {
+            if (ts < kTransactionInitialId && ts > highest_commit_ts) {
               highest_commit_ts = std::max(highest_commit_ts, ts);
             }
             current = current->next.load();
