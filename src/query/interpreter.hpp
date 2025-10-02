@@ -429,7 +429,7 @@ class Interpreter final {
     query_executions_.clear();
     system_transaction_.reset();
     transaction_queries_->clear();
-    if (current_db_.db_acc_ && current_db_.db_acc_->is_deleting()) {
+    if (current_db_.db_acc_ && current_db_.db_acc_->is_marked_for_deletion()) {
       current_db_.db_acc_.reset();
     }
   }

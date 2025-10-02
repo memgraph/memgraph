@@ -82,6 +82,10 @@ void DropDatabase(auto &interpreter, const std::string &name, std::optional<std:
   RunMtQuery(interpreter, "DROP DATABASE " + name, res);
 }
 
+void ForceDropDatabase(auto &interpreter, const std::string &name, std::string_view res) {
+  RunMtQuery(interpreter, "DROP DATABASE " + name + " FORCE", res);
+}
+
 void RenameDatabase(auto &interpreter, const std::string &old_name, const std::string &new_name,
                     std::optional<std::string_view> res = std::nullopt) {
   RunMtQuery(interpreter, "RENAME DATABASE " + old_name + " TO " + new_name, res);
@@ -424,6 +428,129 @@ TEST_F(MultiTenantTest, DbmsNewDeleteWTx) {
   // 6
   UseDatabase(interpreter2, memgraph::dbms::kDefaultDB.data(), "Using memgraph");
   UseDatabase(interpreter1, memgraph::dbms::kDefaultDB.data(), "Using memgraph");
+}
+
+TEST_F(MultiTenantTest, ForceDropDatabase) {
+  // 1) Create multiple interpreters with the default db
+  // 2) Create multiple databases using both
+  // 3) Test force drop database while databases are in use
+  // 4) Verify that force drop bypasses normal usage checks
+  // 5) Check that active transactions are properly handled
+
+  // 1
+  auto interpreter1 = this->NewInterpreter();
+  auto interpreter2 = this->NewInterpreter();
+
+  // 2
+  auto create = [&](auto &interpreter, const std::string &name, bool success) {
+    RunMtQuery(interpreter, "CREATE DATABASE " + name,
+               success ? ("Successfully created database " + name) : (name + " already exists."));
+  };
+
+  create(interpreter1, "db1", true);
+  create(interpreter2, "db2", true);
+
+  // 3 - Use databases and create data
+  UseDatabase(interpreter1, "db1", "Using db1");
+  UseDatabase(interpreter2, "db1", "Using db1");
+
+  // Create some data in the databases
+  RunQuery(interpreter1, "CREATE (:Node{on:\"db1\"})");
+  RunQuery(interpreter1, "CREATE (:Node{on:\"db1\"})");
+  RunQuery(interpreter2, "CREATE (:Node{on:\"db1\"})");
+  RunQuery(interpreter2, "CREATE (:Node{on:\"db1\"})");
+  RunQuery(interpreter2, "CREATE (:Node{on:\"db1\"})");
+
+  // 4 - Test force drop while databases are in use
+  // Normal drop should fail when database is in use
+  ASSERT_THROW(DropDatabase(interpreter1, "db1", ""), memgraph::query::QueryRuntimeException);
+  ASSERT_THROW(DropDatabase(interpreter2, "db1", ""), memgraph::query::QueryRuntimeException);
+
+  // Force drop should succeed even when database is in use
+  ForceDropDatabase(interpreter1, "db1", "Successfully deleted db1");
+  ForceDropDatabase(interpreter2, "db2", "Successfully deleted db2");
+
+  // Verify databases are marked for deletion
+  ASSERT_EQ(DBMS().All().size(), 1) << "Expected memgraph only; Got: " << memgraph::utils::Join(DBMS().All(), ", ");
+  ASSERT_EQ(DBMS().All()[0], memgraph::dbms::kDefaultDB.data());
+
+  // 5 - Check that active transactions are properly handled
+  // Force drop should have terminated the transactions, so new queries should fail
+  ASSERT_THROW(RunQuery(interpreter1, "CREATE (:Node{on:\"db1\"})"), memgraph::query::DatabaseContextRequiredException);
+  ASSERT_THROW(RunQuery(interpreter2, "CREATE (:Node{on:\"db1\"})"), memgraph::query::DatabaseContextRequiredException);
+
+  // Verify that the databases are no longer accessible
+  ASSERT_THROW(UseDatabase(interpreter1, "db1", ""), memgraph::query::QueryRuntimeException);
+  ASSERT_THROW(UseDatabase(interpreter2, "db2", ""), memgraph::query::QueryRuntimeException);
+
+  // But switching to default database should still work
+  UseDatabase(interpreter1, memgraph::dbms::kDefaultDB.data(), "Using memgraph");
+  UseDatabase(interpreter2, memgraph::dbms::kDefaultDB.data(), "Using memgraph");
+
+  // Verify we can still create databases and use them
+  create(interpreter1, "newdb", true);
+  UseDatabase(interpreter1, "newdb", "Using newdb");
+  RunQuery(interpreter1, "CREATE (:Node{on:\"newdb\"})");
+  ASSERT_EQ(RunQuery(interpreter1, "MATCH(:Node{on:\"newdb\"}) RETURN count(*)")[0][0].ValueInt(), 1);
+}
+
+TEST_F(MultiTenantTest, ForceDropDatabaseWithActiveTransactions) {
+  // 1) Create multiple interpreters with the default db
+  // 2) Create databases and start transactions
+  // 3) Test force drop while transactions are active
+  // 4) Verify transaction termination behavior
+  // 5) Check cleanup and recovery
+
+  // 1
+  auto interpreter1 = this->NewInterpreter();
+  auto interpreter2 = this->NewInterpreter();
+
+  // 2
+  auto &dbms = DBMS();
+  ASSERT_FALSE(dbms.New("db1").HasError());
+  ASSERT_FALSE(dbms.New("db2").HasError());
+
+  UseDatabase(interpreter1, "db1", "Using db1");
+  UseDatabase(interpreter2, "db2", "Using db2");
+
+  // Create data and start transactions
+  RunQuery(interpreter1, "CREATE (:Node{on:\"db1\"})");
+  RunQuery(interpreter1, "CREATE (:Node{on:\"db1\"})");
+  RunQuery(interpreter2, "CREATE (:Node{on:\"db2\"})");
+  RunQuery(interpreter2, "CREATE (:Node{on:\"db2\"})");
+
+  // Start transactions
+  RunQuery(interpreter1, "BEGIN");
+
+  // Verify transactions are active
+  ASSERT_EQ(RunQuery(interpreter1, "MATCH(:Node{on:\"db1\"}) RETURN count(*)")[0][0].ValueInt(), 2);
+
+  // 3 - Force drop while transactions are active
+  ForceDropDatabase(interpreter2, "db1", "Successfully deleted db1");
+
+  // 4 - Verify transaction termination behavior
+  // Active transactions should abort as soon as possible
+  try {
+    RunQuery(interpreter1, "MATCH(:Node{on:\"db1\"}) RETURN count(*)");
+  } catch (const memgraph::utils::BasicException &e) {
+    ASSERT_TRUE(std::string_view(e.what()).starts_with("Transaction was asked to abort by another user."));
+    interpreter1.Abort();  // Client will do this automatically
+  }
+
+  // 5 - Check cleanup and recovery
+  // Verify databases are no longer accessible
+  ASSERT_THROW(UseDatabase(interpreter1, "db1", ""), memgraph::query::QueryRuntimeException);
+
+  // Switch back to default database
+  UseDatabase(interpreter1, memgraph::dbms::kDefaultDB.data(), "Using memgraph");
+  UseDatabase(interpreter2, memgraph::dbms::kDefaultDB.data(), "Using memgraph");
+
+  // Verify we can still work with the default database
+  RunQuery(interpreter1, "CREATE (:Node{on:\"default\"})");
+  ASSERT_EQ(RunQuery(interpreter1, "MATCH(:Node{on:\"default\"}) RETURN count(*)")[0][0].ValueInt(), 1);
+
+  // Verify database count is correct
+  ASSERT_EQ(dbms.All().size(), 2);
 }
 
 TEST_F(MultiTenantTest, SimpleRenameDatabase) {

@@ -322,6 +322,26 @@ DbmsHandler::DeleteResult DbmsHandler::TryDelete(std::string_view db_name, syste
   return {};
 }
 
+DbmsHandler::DeleteResult DbmsHandler::Delete(std::string_view db_name, system::Transaction *transaction) {
+  auto wr = std::lock_guard(lock_);
+
+  // Get DB config for the UUID and disk clean up
+  const auto conf = db_handler_.GetConfig(db_name);
+  if (!conf) {
+    return DeleteError::NON_EXISTENT;
+  }
+
+  // Force delete
+  const auto res = Delete_(db_name);
+  if (!res.HasError()) {
+    // Success; save delta
+    if (transaction) {
+      transaction->AddAction<DropDatabase>(conf->salient.uuid);
+    }
+  }
+  return res;
+}
+
 DbmsHandler::DeleteResult DbmsHandler::Delete(std::string_view db_name) {
   auto wr = std::lock_guard(lock_);
   return Delete_(db_name);
