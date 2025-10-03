@@ -1308,7 +1308,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
           auto remove_out_edges = absl::flat_hash_set<EdgeRef>{};
 
           Delta *prev_delta = nullptr;
-          
+
           while (current != nullptr) {
             auto ts = current->timestamp->load(std::memory_order_acquire);
 
@@ -1376,18 +1376,18 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 // EdgeRef is unique
                 remove_out_edges.insert(current->vertex_edge.edge);
 
-                  // Decrement edge count. We only decrement the count here because
-                  // the information in `REMOVE_IN_EDGE` and `Edge/DELETE_OBJECT` is
-                  // redundant. Also, `Edge/DELETE_OBJECT` isn't available when edge
-                  // properties are disabled.
-                  storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
+                // Decrement edge count. We only decrement the count here because
+                // the information in `REMOVE_IN_EDGE` and `Edge/DELETE_OBJECT` is
+                // redundant. Also, `Edge/DELETE_OBJECT` isn't available when edge
+                // properties are disabled.
+                storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
 
-                  // TODO: Change edge type index to work with EdgeRef rather than Edge *
-                  if (!mem_storage->config_.salient.items.properties_on_edges) break;
+                // TODO: Change edge type index to work with EdgeRef rather than Edge *
+                if (!mem_storage->config_.salient.items.properties_on_edges) break;
 
-                  auto const &[_, edge_type, to_vertex, edge] = current->vertex_edge;
-                  index_abort_processor.CollectOnEdgeRemoval(edge_type, vertex, to_vertex.Get(), edge.ptr);
-                  // TODO: ensure collector also processeses for edge_type+property index
+                auto const &[_, edge_type, to_vertex, edge] = current->vertex_edge;
+                index_abort_processor.CollectOnEdgeRemoval(edge_type, vertex, to_vertex.Get(), edge.ptr);
+                // TODO: ensure collector also processeses for edge_type+property index
 
                   break;
                 }
@@ -1395,16 +1395,10 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 case Delta::Action::DELETE_OBJECT: {
                   vertex->deleted = true;
                   my_deleted_vertices.push_back(vertex->gid);
-                  for (auto const label : vertex->labels) {
-                    storage_->UpdateLabelCount(label, -1);
-                  }
                   break;
                 }
                 case Delta::Action::RECREATE_OBJECT: {
                   vertex->deleted = false;
-                  for (auto const label : vertex->labels) {
-                    storage_->UpdateLabelCount(label, 1);
-                  }
                   break;
                 }
               }
@@ -1447,6 +1441,11 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
             });
             vertex->out_edges.erase(mid, vertex->out_edges.end());
             vertex->out_edges.shrink_to_fit();
+          }
+
+          vertex->delta = current;
+          if (current != nullptr) {
+            current->prev.Set(vertex);
           }
 
           break;
