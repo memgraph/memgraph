@@ -25,7 +25,7 @@
 namespace memgraph::query {
 class TypedValue;
 
-using Row = utils::pmr::vector<TypedValue>;
+using Row = std::vector<TypedValue>;
 using Header = utils::pmr::vector<utils::pmr::string>;
 
 class ParquetReader {
