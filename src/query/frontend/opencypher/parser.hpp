@@ -13,7 +13,7 @@
 
 #include <cstdio>          // Ensure EOF macro is defined
 #pragma push_macro("EOF")  // hide EOF for antlr headers
-#include "antlr4-runtime.h"
+#include "antlr4-runtime/antlr4-runtime.h"
 #include "query/exceptions.hpp"
 #include "query/frontend/opencypher/generated/MemgraphCypher.h"
 #include "query/frontend/opencypher/generated/MemgraphCypherLexer.h"

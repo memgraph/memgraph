@@ -22,6 +22,7 @@ import tempfile
 import time
 from pathlib import Path
 
+import mgclient
 from memgraph_server_context import memgraph_server
 
 SCRIPT_DIR = os.path.dirname(os.path.realpath(__file__))
@@ -53,7 +54,19 @@ def list_to_string(data):
     return ret
 
 
-def execute_test(memgraph_binary: Path, dump_binary, test_directory, test_type, write_expected):
+def dump_database(output_file):
+    connection = mgclient.connect(host="localhost", port=7687, sslmode=mgclient.MG_SSLMODE_DISABLE)
+    cursor = connection.cursor()
+    cursor.execute("DUMP DATABASE")
+    rows = cursor.fetchall()
+    cursor.close()
+    connection.close()
+
+    with open(output_file, "w") as f:
+        f.write("\n".join(row[0] for row in rows) + "\n")
+
+
+def execute_test(memgraph_binary: Path, test_directory, test_type, write_expected):
     assert test_type in ["SNAPSHOT", "WAL"], "Test type should be either 'SNAPSHOT' or 'WAL'."
     print("\033[1;36m~~ Executing test {} ({}) ~~\033[0m".format(os.path.relpath(test_directory, TESTS_DIR), test_type))
 
@@ -71,8 +84,7 @@ def execute_test(memgraph_binary: Path, dump_binary, test_directory, test_type, 
     with memgraph_server(memgraph_binary, Path(working_data_directory.name), 7687, logger, extra_args):
         # Execute `database dump`
         dump_output_file = tempfile.NamedTemporaryFile()
-        dump_args = [dump_binary, "--use-ssl=false"]
-        subprocess.run(dump_args, stdout=dump_output_file, check=True)
+        dump_database(dump_output_file.name)
 
     dump_file_name = DUMP_SNAPSHOT_FILE_NAME if test_type == "SNAPSHOT" else DUMP_WAL_FILE_NAME
 
@@ -127,11 +139,9 @@ def find_test_directories(directory, write_expected):
 
 if __name__ == "__main__":
     memgraph_binary = os.path.join(PROJECT_DIR, "build", "memgraph")
-    dump_binary = os.path.join(PROJECT_DIR, "build", "tools", "src", "mg_dump")
 
     parser = argparse.ArgumentParser()
     parser.add_argument("--memgraph", default=memgraph_binary)
-    parser.add_argument("--dump", default=dump_binary)
     parser.add_argument(
         "--write-expected", action="store_true", help="Overwrite the expected cypher with results from current run"
     )
@@ -144,7 +154,7 @@ if __name__ == "__main__":
     test_directories.sort()
 
     for test_directory in test_directories:
-        execute_test(Path(args.memgraph), args.dump, test_directory, "SNAPSHOT", args.write_expected)
-        execute_test(Path(args.memgraph), args.dump, test_directory, "WAL", args.write_expected)
+        execute_test(Path(args.memgraph), test_directory, "SNAPSHOT", args.write_expected)
+        execute_test(Path(args.memgraph), test_directory, "WAL", args.write_expected)
 
     sys.exit(0)

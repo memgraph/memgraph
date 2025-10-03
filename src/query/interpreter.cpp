@@ -686,7 +686,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
   }
 
   void RemoveCoordinatorInstance(int32_t coordinator_id) override {
-    switch (auto const status = coordinator_handler_.RemoveCoordinatorInstance(coordinator_id)) {
+    switch (coordinator_handler_.RemoveCoordinatorInstance(coordinator_id)) {
       using enum memgraph::coordination::RemoveCoordinatorInstanceStatus;  // NOLINT
       case NO_SUCH_ID:
         throw QueryRuntimeException(
@@ -722,7 +722,7 @@ class CoordQueryHandler final : public query::CoordinatorQueryHandler {
 
         };
 
-    switch (auto const status = coordinator_handler_.AddCoordinatorInstance(coord_coord_config)) {
+    switch (coordinator_handler_.AddCoordinatorInstance(coord_coord_config)) {
       using enum memgraph::coordination::AddCoordinatorInstanceStatus;  // NOLINT
       case ID_ALREADY_EXISTS:
         throw QueryRuntimeException("Couldn't add coordinator since instance with such id already exists!");
