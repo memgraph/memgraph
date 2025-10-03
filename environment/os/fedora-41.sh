@@ -3,8 +3,16 @@ set -Eeuo pipefail
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
-check_operating_system "fedora-41"
-check_architecture "x86_64"
+# Parse command line arguments for --skip-check flag
+SKIP_CHECK=$(parse_skip_check_flag "$@")
+
+# Only run checks if --skip-check flag is not provided
+if [[ "$SKIP_CHECK" == false ]]; then
+    check_operating_system "fedora-41"
+    check_architecture "x86_64"
+else
+    echo "Skipping checks for fedora-41"
+fi
 
 TOOLCHAIN_BUILD_DEPS=(
     coreutils-common gcc gcc-c++ make # generic build tools
@@ -76,7 +84,8 @@ NEW_DEPS=(
 )
 
 list() {
-    echo "$1"
+    local -n packages="$1"
+    printf '%s\n' "${packages[@]}"
 }
 
 check() {
@@ -178,5 +187,4 @@ install() {
     install_custom_packages "${custom_packages[@]}"
 }
 
-deps=$2"[*]"
 "$1" "$2"

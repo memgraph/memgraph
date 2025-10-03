@@ -3,8 +3,16 @@ set -Eeuo pipefail
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
-check_operating_system "centos-10"
-check_architecture "x86_64"
+# Parse command line arguments for --skip-check flag
+SKIP_CHECK=$(parse_skip_check_flag "$@")
+
+# Only run checks if --skip-check flag is not provided
+if [[ "$SKIP_CHECK" == false ]]; then
+    check_operating_system "centos-10"
+    check_architecture "x86_64"
+else
+    echo "Skipping checks for centos-10"
+fi
 
 TOOLCHAIN_BUILD_DEPS=(
     wget # used for archive download
@@ -42,7 +50,7 @@ MEMGRAPH_BUILD_DEPS=(
     git # source code control
     make cmake pkgconf-pkg-config # build system
     wget # for downloading libs
-    libuuid-devel java-11-openjdk-headless java-11-openjdk java-11-openjdk-devel # required by antlr
+    libuuid-devel # required by antlr
     readline-devel # for memgraph console
     python3-devel # for query modules
     openssl-devel
@@ -57,7 +65,7 @@ MEMGRAPH_BUILD_DEPS=(
     rpm-build rpmlint # for RPM package building
     doxygen graphviz # source documentation generators
     which nodejs golang custom-golang # for driver tests
-    zip unzip java-17-openjdk-headless java-17-openjdk java-17-openjdk-devel custom-maven # for driver tests
+    zip unzip java-21-openjdk-headless java-21-openjdk java-21-openjdk-devel custom-maven # for driver tests
     sbcl # for custom Lisp C++ preprocessing
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
@@ -76,7 +84,8 @@ NEW_DEPS=(
 )
 
 list() {
-    echo "$1"
+    local -n packages="$1"
+    printf '%s\n' "${packages[@]}"
 }
 
 check() {
@@ -166,7 +175,7 @@ install() {
 
     for pkg in "${packages[@]}"; do
         case "$pkg" in
-            custom-*|PyYAML|python3-virtualenv|libipt|libipt-devel|java-11-openjdk-headless|java-11-openjdk|java-11-openjdk-devel|java-17-openjdk-headless|java-17-openjdk|java-17-openjdk-devel)
+            custom-*|PyYAML|python3-virtualenv|libipt|libipt-devel|java-11-openjdk-headless|java-11-openjdk|java-11-openjdk-devel|java-17-openjdk-headless|java-17-openjdk|java-17-openjdk-devel|sbcl)
                 custom_packages+=("$pkg")
                 ;;
             *)
@@ -245,6 +254,17 @@ install() {
                     sudo -H -u "$SUDO_USER" bash -c "pip3 install virtualenvwrapper"
                 fi
                 ;;
+            sbcl)
+                if ! dnf list installed cl-asdf >/dev/null 2>/dev/null; then
+                    dnf install -y http://www.nosuchhost.net/~cheese/fedora/packages/epel-9/x86_64/cl-asdf-20101028-27.el9.noarch.rpm
+                fi
+                if ! dnf list installed common-lisp-controller >/dev/null 2>/dev/null; then
+                    dnf install -y http://www.nosuchhost.net/~cheese/fedora/packages/epel-9/x86_64/common-lisp-controller-7.4-29.el9.noarch.rpm
+                fi
+                if ! dnf list installed sbcl >/dev/null 2>/dev/null; then
+                    dnf install -y http://www.nosuchhost.net/~cheese/fedora/packages/epel-9/x86_64/sbcl-2.3.11-3.el9~bootstrap.x86_64.rpm
+                fi
+                ;;
             *)
                 # Skip packages that don't need special handling
                 ;;
@@ -252,5 +272,4 @@ install() {
     done
 }
 
-deps=$2"[*]"
 "$1" "$2"

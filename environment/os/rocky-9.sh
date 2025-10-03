@@ -3,9 +3,17 @@ set -Eeuo pipefail
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" >/dev/null 2>&1 && pwd )"
 source "$DIR/../util.sh"
 
+# Parse command line arguments for --skip-check flag
+SKIP_CHECK=$(parse_skip_check_flag "$@")
+
 # TODO(gitbuda): Rocky gets automatically updates -> figure out how to handle it.
-check_operating_system "rocky-9"
-check_architecture "x86_64"
+# Only run checks if --skip-check flag is not provided
+if [[ "$SKIP_CHECK" == false ]]; then
+    check_operating_system "rocky-9"
+    check_architecture "x86_64"
+else
+    echo "Skipping checks for rocky-9"
+fi
 
 TOOLCHAIN_BUILD_DEPS=(
     wget # used for archive download
@@ -81,7 +89,8 @@ NEW_DEPS=(
 )
 
 list() {
-    echo "$1"
+    local -n packages="$1"
+    printf '%s\n' "${packages[@]}"
 }
 
 check() {
@@ -244,5 +253,4 @@ install() {
     done
 }
 
-deps=$2"[*]"
 "$1" "$2"
