@@ -513,6 +513,21 @@ class PropertyValueImpl {
   bool IsDoubleList() const { return type_ == Type::DoubleList; }
   bool IsNumericList() const { return type_ == Type::NumericList; }
 
+  size_t ListSize() const {
+    switch (type_) {
+      case Type::List:
+        return list_v.val_.size();
+      case Type::IntList:
+        return int_list_v.val_.size();
+      case Type::DoubleList:
+        return double_list_v.val_.size();
+      case Type::NumericList:
+        return numeric_list_v.val_.size();
+      default:
+        throw PropertyValueException("The value isn't a list!");
+    }
+  }
+
   // value getters for primitive types
   /// @throw PropertyValueException if value isn't of correct type.
   bool ValueBool() const {
