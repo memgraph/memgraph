@@ -2,6 +2,8 @@ find_package(fmt REQUIRED)
 find_package(gflags REQUIRED)
 find_package(Threads REQUIRED)
 find_package(Boost REQUIRED CONFIG COMPONENTS headers filesystem)
+find_package(Arrow REQUIRED)
+find_package(Parquet REQUIRED)
 
 add_library(memgraph_unit_main OBJECT main.cpp)
 target_link_libraries(memgraph_unit_main mg-memory mg-utils gtest gmock Threads::Threads dl atomic)
@@ -16,6 +18,11 @@ target_link_libraries(storage_test_utils mg::storage)
 # Test integrations-kafka
 add_library(kafka-mock STATIC kafka_mock.cpp)
 target_link_libraries(kafka-mock mg-utils librdkafka++ librdkafka Threads::Threads gtest)
+
+add_unit_test(arrow
+        SOURCES arrow.cpp
+        LINK_TARGETS Arrow::arrow_shared Parquet::parquet_shared
+)
 
 # Include directories are intentionally not set, because kafka-mock isn't meant to be used apart from unit tests
 add_unit_test(integrations_kafka_consumer
