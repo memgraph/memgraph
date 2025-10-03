@@ -2833,11 +2833,10 @@ PreparedQuery PrepareCypherQuery(
   }
 
   auto clauses = cypher_query->single_query_->clauses_;
-  if (std::any_of(clauses.begin(), clauses.end(), [](const auto *clause) {
-        return clause->GetTypeInfo() == LoadCsv::kType || clause->GetTypeInfo() == LoadParquet::kType;
-      })) {
+  if (std::any_of(clauses.begin(), clauses.end(),
+                  [](const auto *clause) { return clause->GetTypeInfo() == LoadCsv::kType; })) {
     notifications->emplace_back(
-        SeverityLevel::INFO, NotificationCode::LOAD_CSV_PARQUET_TIP,
+        SeverityLevel::INFO, NotificationCode::LOAD_CSV_TIP,
         "It's important to note that the parser parses the values as strings. It's up to the user to "
         "convert the parsed row values to the appropriate type. This can be done using the built-in "
         "conversion functions such as ToInteger, ToFloat, ToBoolean etc.");
