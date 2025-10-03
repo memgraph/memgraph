@@ -7,7 +7,14 @@ local_cache_host=${MGDEPS_CACHE_HOST_PORT:-mgdeps-cache:8000}
 working_dir="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
 cd "${working_dir}"
 WGET_OR_CLONE_TIMEOUT=60
-source /opt/toolchain-v7/activate
+
+#  if the toolchain hasn't been activated, activate it
+deactivate_toolchain=false
+if [ -z "$MG_TOOLCHAIN_VERSION" ]; then
+  echo "Activating toolchain"
+  source /opt/toolchain-v7/activate
+  deactivate_toolchain=true
+fi
 
 function print_help () {
     echo "Usage: $0 [OPTION]"
@@ -261,6 +268,7 @@ repo_clone_try_double "${primary_urls[jemalloc]}" "${secondary_urls[jemalloc]}" 
 # this is hack for cmake in libs to set path, and for FindJemalloc to use Jemalloc_INCLUDE_DIR
 pushd jemalloc
 ./autogen.sh
+export CC=clang
 ./configure \
   --disable-cxx \
   --with-lg-page=12 \
@@ -281,3 +289,9 @@ repo_clone_try_double "${primary_urls[usearch]}" "${secondary_urls[usearch]}" "u
 pushd usearch
 git submodule update --init --recursive
 popd
+
+
+if [[ "$deactivate_toolchain" == "true" ]]; then
+  echo "Deactivating toolchain"
+  deactivate
+fi
