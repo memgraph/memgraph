@@ -1296,6 +1296,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     }
 
     // Vertices pass
+    bool any_delta_has_upstream_interleaved_delta{false};
     for (const auto &delta : transaction_.deltas) {
       auto prev = delta.prev.Get();
       switch (prev.type) {
@@ -1450,11 +1451,60 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
 
           break;
         }
-        case PreviousPtr::Type::EDGE:
         case PreviousPtr::Type::DELTA:
+          if (!any_delta_has_upstream_interleaved_delta) {
+            any_delta_has_upstream_interleaved_delta |= IsOperationInterleaved(*prev.delta);
+          }
+          break;
+        case PreviousPtr::Type::EDGE:
         // pointer probably couldn't be set because allocation failed
         case PreviousPtr::Type::NULL_PTR:
           break;
+      }
+    }
+
+    // Interleaved vertices delta pass. Because interleaved deltas
+    // mean that the `prev` pointer from an aborted delta is not necessarily
+    // a vertex or a delta from this transaction, we need a surgical pass
+    // to check all aborted deltas have been cleanly cut out of the delta chain.
+    // @TODO this is a very slow implementation just to prove that this fixes
+    // the issue. Rewrite it!
+    if (any_delta_has_upstream_interleaved_delta) {
+      for (const auto &delta : transaction_.deltas) {
+        auto current_prev = delta.prev.Get();
+        while (current_prev.type == PreviousPtr::Type::DELTA) {
+          auto *prev_delta = current_prev.delta;
+          if (prev_delta == nullptr) break;
+          current_prev = prev_delta->prev.Get();
+        }
+
+        if (current_prev.type == PreviousPtr::Type::VERTEX) {
+          auto *vertex = current_prev.vertex;
+          auto guard = std::unique_lock{vertex->lock};
+
+          Delta *current = vertex->delta;
+          Delta *prev_delta = nullptr;
+
+          while (current != nullptr) {
+            if (current == &delta) {
+              auto next_delta = current->next.load(std::memory_order_acquire);
+              if (prev_delta != nullptr) {
+                prev_delta->next.store(next_delta, std::memory_order_release);
+                if (next_delta != nullptr) {
+                  next_delta->prev.Set(prev_delta);
+                }
+              } else {
+                vertex->delta = next_delta;
+                if (next_delta != nullptr) {
+                  next_delta->prev.Set(vertex);
+                }
+              }
+              break;
+            }
+            prev_delta = current;
+            current = current->next.load(std::memory_order_acquire);
+          }
+        }
       }
     }
 
