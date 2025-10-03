@@ -15,14 +15,22 @@
 #include <chrono>
 #include <optional>
 
+#include <arrow/dataset/dataset.h>
+#include <arrow/dataset/discovery.h>
+#include <arrow/dataset/file_base.h>
+#include <arrow/dataset/scanner.h>
+#include <arrow/filesystem/filesystem.h>
+#include <arrow/filesystem/path_util.h>
 #include "arrow/acero/exec_plan.h"
 #include "arrow/compute/api.h"
-#include "arrow/dataset/dataset.h"
-#include "arrow/io/api.h"
-#include "arrow/io/file.h"
-#include "parquet/properties.h"
+#include "arrow/dataset/api.h"
+#include "arrow/dataset/file_parquet.h"
+#include "arrow/filesystem/api.h"
 
 #include "spdlog/spdlog.h"
+
+// TODO: (andi) See if dataset can be somehow used better. One option is that you read files in parallel
+// Parallelizing batches and processing + profile
 
 constexpr int64_t batch_rows = 1U << 16U;
 
@@ -31,7 +39,7 @@ namespace memgraph::query {
 class BatchIterator {
  public:
   BatchIterator() = default;
-  explicit BatchIterator(std::unique_ptr<arrow::RecordBatchReader> rbr, int const num_columns)
+  explicit BatchIterator(std::shared_ptr<arrow::RecordBatchReader> rbr, int const num_columns)
       : num_columns_(num_columns), rbr_(std::move(rbr)) {}
 
   BatchIterator(const BatchIterator &) = delete;
@@ -59,11 +67,11 @@ class BatchIterator {
 
  private:
   int num_columns_;
-  std::unique_ptr<arrow::RecordBatchReader> rbr_;
+  std::shared_ptr<arrow::RecordBatchReader> rbr_;
 };
 
 struct ParquetReader::impl {
-  explicit impl(std::unique_ptr<parquet::arrow::FileReader> file_reader, std::unique_ptr<arrow::RecordBatchReader> rbr,
+  explicit impl(std::shared_ptr<arrow::RecordBatchReader> rbr, std::shared_ptr<arrow::Schema> schema,
                 utils::MemoryResource *resource);
 
   auto GetNextRow() -> std::optional<Row>;
@@ -71,8 +79,6 @@ struct ParquetReader::impl {
   auto GetSchema() -> std::shared_ptr<arrow::Schema>;
 
  private:
-  // Needs to stay alive because of batch reader
-  std::unique_ptr<parquet::arrow::FileReader> file_reader_;
   std::shared_ptr<arrow::Schema> schema_;
   int num_columns_;
   BatchIterator row_it_;
@@ -82,10 +88,9 @@ struct ParquetReader::impl {
   utils::MemoryResource *memory_resource_;  // For TypedValue allocations
 };
 
-ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reader,
-                          std::unique_ptr<arrow::RecordBatchReader> rbr, utils::MemoryResource *resource)
-    : file_reader_(std::move(file_reader)),
-      schema_(rbr->schema()),
+ParquetReader::impl::impl(std::shared_ptr<arrow::RecordBatchReader> rbr, std::shared_ptr<arrow::Schema> schema,
+                          utils::MemoryResource *resource)
+    : schema_(std::move(schema)),
       num_columns_(schema_->num_fields()),
       row_it_(BatchIterator(std::move(rbr), num_columns_)),
       rows_(resource),
@@ -141,38 +146,63 @@ auto ParquetReader::impl::GetSchema() -> std::shared_ptr<arrow::Schema> { return
 
 ParquetReader::ParquetReader(std::string const &file, utils::MemoryResource *resource) {
   auto const start = std::chrono::high_resolution_clock::now();
-  arrow::MemoryPool *pool = arrow::default_memory_pool();
 
   try {
-    // Open the file
-    std::shared_ptr<arrow::io::ReadableFile> infile;
-    PARQUET_ASSIGN_OR_THROW(infile, arrow::io::ReadableFile::Open(file, pool));
-
-    // Configure general Parquet reader settings
-    auto reader_properties = parquet::ReaderProperties(pool);
-    reader_properties.enable_buffered_stream();
-
-    // Configure Arrow-specific Parquet reader settings
-    auto arrow_reader_props = parquet::ArrowReaderProperties();
-    arrow_reader_props.set_batch_size(batch_rows);
-    arrow_reader_props.set_use_threads(true);
-
-    // Build the reader
-    parquet::arrow::FileReaderBuilder reader_builder;
-    PARQUET_THROW_NOT_OK(reader_builder.Open(infile, reader_properties));
-    reader_builder.memory_pool(pool);
-    reader_builder.properties(arrow_reader_props);
-
-    std::unique_ptr<parquet::arrow::FileReader> arrow_reader;
-    PARQUET_THROW_NOT_OK(reader_builder.Build(&arrow_reader));
-
-    // Get the RecordBatchReader
-    auto res = arrow_reader->GetRecordBatchReader();
-    if (!res.ok()) {
-      throw std::runtime_error(res.status().message());
+    if (auto const status = arrow::compute::Initialize(); !status.ok()) {
+      throw std::runtime_error(status.message());
     }
 
-    pimpl_ = std::make_unique<impl>(std::move(arrow_reader), std::move(*res), resource);
+    // Use Dataset API for better performance
+    auto fs = std::make_shared<arrow::fs::LocalFileSystem>();
+
+    // Create ParquetFileFormat with optimized settings
+    auto format = std::make_shared<arrow::dataset::ParquetFileFormat>();
+
+    // Configure for better performance
+    auto *parquet_fragment_options = format->default_fragment_scan_options.get();
+    if (parquet_fragment_options) {
+    }
+
+    // Create FileSource
+    auto source = arrow::dataset::FileSource(file, fs);
+
+    // Create Fragment
+    auto fragment_result = format->MakeFragment(source);
+    if (!fragment_result.ok()) {
+      throw std::runtime_error("Failed to create fragment: " + fragment_result.status().ToString());
+    }
+    auto const fragment = fragment_result.ValueOrDie();
+
+    // Read schema
+    auto schema_result = fragment->ReadPhysicalSchema();
+    if (!schema_result.ok()) {
+      throw std::runtime_error("Failed to read schema: " + schema_result.status().ToString());
+    }
+    auto schema = schema_result.ValueOrDie();
+
+    // Create scan options - keep it simple to avoid compute function issues
+    auto scan_options = std::make_shared<arrow::dataset::ScanOptions>();
+    scan_options->dataset_schema = schema;
+    scan_options->batch_size = batch_rows;
+    scan_options->use_threads = true;
+
+    // Create scanner builder
+    arrow::dataset::ScannerBuilder scanner_builder(schema, fragment, scan_options);
+
+    auto scanner_result = scanner_builder.Finish();
+    if (!scanner_result.ok()) {
+      throw std::runtime_error("Failed to create scanner: " + scanner_result.status().ToString());
+    }
+    auto scanner = scanner_result.ValueOrDie();
+
+    // Get RecordBatchReader
+    auto reader_result = scanner->ToRecordBatchReader();
+    if (!reader_result.ok()) {
+      throw std::runtime_error("Failed to create reader: " + reader_result.status().ToString());
+    }
+    auto reader = reader_result.ValueOrDie();
+
+    pimpl_ = std::make_unique<impl>(std::move(reader), std::move(schema), resource);
   } catch (const std::exception &e) {
     spdlog::error("Failed to open parquet file '{}': {}", file, e.what());
     throw;
@@ -180,7 +210,7 @@ ParquetReader::ParquetReader(std::string const &file, utils::MemoryResource *res
 
   auto const duration =
       std::chrono::duration_cast<std::chrono::milliseconds>(std::chrono::high_resolution_clock::now() - start);
-  spdlog::trace("Time spent on initializing parquet reader: {}ms", duration.count());
+  spdlog::trace("Dataset scanner initialized in {}ms", duration.count());
 }
 
 // Destructor must be defined here where impl is complete

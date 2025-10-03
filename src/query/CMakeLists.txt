@@ -104,8 +104,9 @@ target_sources(mg-query
     plan/read_write_type_checker.hpp
 )
 
-find_package(Arrow)
-find_package(Parquet)
+find_package(Arrow REQUIRED)
+find_package(ArrowDataset REQUIRED)
+find_package(Parquet REQUIRED)
 
 target_link_libraries(mg-query
     PUBLIC
@@ -114,6 +115,7 @@ target_link_libraries(mg-query
     rangev3
     Python3::Python
     Arrow::arrow_shared
+    ArrowDataset::arrow_dataset_shared
     Parquet::parquet_shared
     mg-integrations-pulsar
     mg-integrations-kafka
