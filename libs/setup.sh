@@ -189,8 +189,6 @@ skip_if_under_toolchain () {
   fi
 }
 
-# TODO (matt): parallelize this
-
 # rapidcheck
 rapidcheck_tag="ff6af6fc683159deb51c543b065eba14dfcf329b" # (2023-12-14)
 repo_clone_try_double "${primary_urls[rapidcheck]}" "${secondary_urls[rapidcheck]}" "rapidcheck" "$rapidcheck_tag"
@@ -203,26 +201,6 @@ file_get_try_double "${primary_urls[neo4j]}" "${secondary_urls[neo4j]}"
 tar -xzf neo4j-community-5.6.0-unix.tar.gz
 mv neo4j-community-5.6.0 neo4j
 rm neo4j-community-5.6.0-unix.tar.gz
-
-# rocksdb_tag="v9.10.0" # (2023-04-21)
-# repo_clone_try_double "${primary_urls[rocksdb]}" "${secondary_urls[rocksdb]}" "rocksdb" "$rocksdb_tag" true
-# pushd rocksdb
-# git apply ../rocksdb9.10.0.patch
-# popd
-
-# nlohmann json
-# We wget header instead of cloning repo since repo is huge (lots of test data).
-# We use head on Sep 1, 2017 instead of last release since it was long time ago.
-# mkdir -p json
-# cd json
-# file_get_try_double "${primary_urls[nlohmann]}" "${secondary_urls[nlohmann]}"
-# cd ..
-
-# rocksdb_tag="v8.1.1" # (2023-04-21)
-# repo_clone_try_double "${primary_urls[rocksdb]}" "${secondary_urls[rocksdb]}" "rocksdb" "$rocksdb_tag" true
-# pushd rocksdb
-# git apply ../rocksdb8.1.1.patch
-# popd
 
 # mgconsole
 mgconsole_tag="v1.4.0" # (2023-05-21)
