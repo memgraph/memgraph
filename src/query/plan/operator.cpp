@@ -30,7 +30,7 @@
 #include "query/common.hpp"
 #include "spdlog/spdlog.h"
 
-#include "arrow_parquet/reader.hpp"
+#include "../arrow_parquet/reader.hpp"
 #include "csv/parsing.hpp"
 #include "license/license.hpp"
 #include "query/context.hpp"
@@ -7617,8 +7617,8 @@ class LoadParquetCursor : public Cursor {
   const LoadParquet *self_;
   const UniqueCursorPtr input_cursor_;
   bool did_pull_{false};
-  std::optional<arrow::ParquetReader> reader_;
-  arrow::Row header_cache_;
+  std::optional<ParquetReader> reader_;
+  Header header_cache_;
   size_t num_columns_;
 
  public:
@@ -7666,8 +7666,8 @@ class LoadParquetCursor : public Cursor {
     // Convert row to TypedValue map similar to CSV with headers
     auto typed_map = utils::pmr::map<utils::pmr::string, TypedValue>(mem);
 
-    for (int i = 0; i < num_columns_; ++i) {
-      typed_map.emplace(header_cache_[i], TypedValue(std::move(row[i])));
+    for (size_t i = 0; i < num_columns_; ++i) {
+      typed_map.emplace(header_cache_[i], std::move(row[i]));
     }
 
     frame[self_->row_var_] = TypedValue(std::move(typed_map));
