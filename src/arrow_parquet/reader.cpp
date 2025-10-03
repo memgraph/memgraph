@@ -28,50 +28,35 @@ constexpr int64_t batch_rows = 1U << 16U;
 
 namespace memgraph::arrow {
 
-struct CellRef {
-  // Sequence of values with some data type
-  std::shared_ptr<::arrow::Array> arr_;
-  int64_t row_{0};
-  // A single value
-  ::arrow::Result<std::shared_ptr<::arrow::Scalar>> ToScalar() const { return arr_->GetScalar(row_); }
-};
-
-struct RowRef {
-  std::vector<std::shared_ptr<::arrow::Array>> *cols_;
-  int64_t row_{0};
-  size_t size() const { return cols_->size(); }
-  CellRef operator[](size_t const c) const { return {.arr_ = (*cols_)[c], .row_ = row_}; }
-};
-
-class RowIterator {
+class BatchIterator {
  public:
-  RowIterator() = default;
-  explicit RowIterator(std::unique_ptr<::arrow::RecordBatchReader> rbr, int const num_columns)
+  BatchIterator() = default;
+  explicit BatchIterator(std::unique_ptr<::arrow::RecordBatchReader> rbr, int const num_columns)
       : num_columns_(num_columns), rbr_(std::move(rbr)) {
     cols_.resize(num_columns_);
   }
 
-  RowIterator(const RowIterator &) = delete;
-  RowIterator &operator=(const RowIterator &) = delete;
-  RowIterator(RowIterator &&) = delete;
-  RowIterator &operator=(RowIterator &&) = delete;
-  ~RowIterator() = default;
+  BatchIterator(const BatchIterator &) = delete;
+  BatchIterator &operator=(const BatchIterator &) = delete;
+  BatchIterator(BatchIterator &&) = delete;
+  BatchIterator &operator=(BatchIterator &&) = delete;
+  ~BatchIterator() = default;
 
-  std::optional<RowRef> Next() {
+  // The user knows when to request the next batch
+  // Return cached values for now to avoid constant creation and reallocation
+  std::vector<std::shared_ptr<::arrow::Array>> *Next() {
     // Need to load another batch
-    if (!batch_ || row_in_batch_ >= batch_->num_rows()) {
-      auto const res = rbr_->Next();
-      if (!res.ok() || !(*res)) {
-        return std::nullopt;
-      }
-      batch_ = *res;
-
-      for (int c = 0; c < num_columns_; ++c) {
-        cols_[c] = batch_->column(c);
-      }
-      row_in_batch_ = 0;
+    auto const res = rbr_->Next();
+    if (!res.ok() || !(*res)) {
+      return nullptr;
     }
-    return RowRef(&cols_, row_in_batch_++);
+    batch_ = *res;
+
+    for (int c = 0; c < num_columns_; ++c) {
+      cols_[c] = batch_->column(c);
+    }
+
+    return &cols_;
   }
 
  private:
@@ -81,7 +66,6 @@ class RowIterator {
   // array
   std::shared_ptr<::arrow::RecordBatch> batch_;
   std::vector<std::shared_ptr<::arrow::Array>> cols_;
-  int64_t row_in_batch_{0};
 };
 
 struct ParquetReader::impl {
@@ -96,8 +80,12 @@ struct ParquetReader::impl {
   std::unique_ptr<parquet::arrow::FileReader> file_reader_;  // Keep FileReader alive
   std::shared_ptr<::arrow::Schema> schema_;
   int num_columns_;
-  RowIterator row_it_;
-  Row row_;
+  BatchIterator row_it_;
+  // Cached rows
+  utils::pmr::vector<Row> rows_;
+  uint64_t row_in_batch_{0};
+  std::vector<std::shared_ptr<::arrow::Array>> *batch_ref_{nullptr};
+  uint64_t current_batch_size_{0};
 };
 
 ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reader,
@@ -105,9 +93,13 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
     : file_reader_(std::move(file_reader)),
       schema_(rbr->schema()),
       num_columns_(schema_->num_fields()),
-      row_it_(RowIterator(std::move(rbr), num_columns_)),
-      row_(resource) {
-  row_.resize(num_columns_);
+      row_it_(BatchIterator(std::move(rbr), num_columns_)),
+      rows_(resource) {
+  // Preallocate
+  rows_.resize(batch_rows);
+  for (int i = 0; i < batch_rows; ++i) {
+    rows_[i].resize(num_columns_);
+  }
 }
 
 // TODO: (andi)
@@ -116,16 +108,27 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
 // ParquetFileReader?
 
 auto ParquetReader::impl::GetNextRow() -> std::optional<Row> {
-  auto const maybe_arrow_row = row_it_.Next();
-  if (!maybe_arrow_row.has_value()) return std::nullopt;
-  auto const &arrow_row = *maybe_arrow_row;
+  // No batch loaded or full batch was consumed
+  if (row_in_batch_ >= current_batch_size_) {
+    batch_ref_ = row_it_.Next();
+    // No more data
+    if (!batch_ref_) {
+      return std::nullopt;
+    }
 
-  for (int i = 0; i < num_columns_; i++) {
-    // TODO: (andi) Not sure if this is good ValueOrDie
-    row_[i] = arrow_row[i].ToScalar().ValueOrDie()->ToString();
+    auto const num_rows = (*batch_ref_)[0]->length();
+
+    // Iterate over columns to be cache friendly
+    for (int j = 0U; j < num_columns_; j++) {
+      for (int64_t i = 0U; i < num_rows; i++) {
+        rows_[i][j] = (*batch_ref_)[j]->GetScalar(i).ValueOrDie()->ToString();
+      }
+    }
+    row_in_batch_ = 0;
+    current_batch_size_ = num_rows;
   }
 
-  return row_;
+  return rows_[row_in_batch_++];
 }
 
 auto ParquetReader::impl::GetSchema() -> std::shared_ptr<::arrow::Schema> { return schema_; }

@@ -7617,8 +7617,9 @@ class LoadParquetCursor : public Cursor {
   const LoadParquet *self_;
   const UniqueCursorPtr input_cursor_;
   bool did_pull_{false};
-  std::optional<arrow::ParquetReader> reader_{};
-  arrow::Row header_cache_{};
+  std::optional<arrow::ParquetReader> reader_;
+  arrow::Row header_cache_;
+  int64_t num_columns_;
 
  public:
   LoadParquetCursor(const LoadParquet *self, utils::MemoryResource *mem)
@@ -7643,6 +7644,7 @@ class LoadParquetCursor : public Cursor {
       // TODO: (andi) Conversion needed because of pmr allocator
       reader_.emplace(std::string{*maybe_file}, mem);
       header_cache_ = reader_->GetHeader(mem);
+      num_columns_ = header_cache_.size();
       spdlog::trace("Cached {} column headers", header_cache_.size());
     }
 
@@ -7656,16 +7658,17 @@ class LoadParquetCursor : public Cursor {
       did_pull_ = true;
     }
 
-    auto row = reader_->GetNextRow();
-    if (!row) {
+    auto maybe_row = reader_->GetNextRow();
+    if (!maybe_row) {
       return false;
     }
+    auto &row = *maybe_row;
 
     // Convert row to TypedValue map similar to CSV with headers
     auto typed_map = utils::pmr::map<utils::pmr::string, TypedValue>(mem);
 
-    for (size_t i = 0; i < header_cache_.size() && i < row->size(); ++i) {
-      typed_map.emplace(utils::pmr::string(header_cache_[i], mem), TypedValue(utils::pmr::string((*row)[i], mem)));
+    for (int i = 0; i < num_columns_; ++i) {
+      typed_map.emplace(header_cache_[i], TypedValue(std::move(row[i])));
     }
 
     frame[self_->row_var_] = TypedValue(std::move(typed_map));
