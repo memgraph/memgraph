@@ -171,17 +171,17 @@ print_help () {
   echo -e "  \"${SUPPORTED_OS_V7[*]}\""
 
   echo -e "\nExample usage:"
-  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v6 --arch amd build --git-ref my-special-branch"
-  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v6 --arch amd run"
-  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v6 --arch amd --build-type RelWithDebInfo build-memgraph --community"
-  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v6 --arch amd --build-type RelWithDebInfo build-memgraph --disable-testing"
-  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v6 --arch amd --build-type RelWithDebInfo test-memgraph unit"
-  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v6 --arch amd test-memgraph mgbench --dataset pokec --size large"
-  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v6 --arch amd test-memgraph mgbench --dataset ldbc_bi --size medium --export-results-file my_results.json"
-  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v6 --arch amd package"
-  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v6 --arch amd copy --package"
-  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v6 --arch amd copy --use-make-install --dest-dir build/install"
-  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v6 --arch amd stop --remove"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd build --git-ref my-special-branch"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd run"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd --build-type RelWithDebInfo build-memgraph --community"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd --build-type RelWithDebInfo build-memgraph --disable-testing"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd --build-type RelWithDebInfo test-memgraph unit"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd test-memgraph mgbench --dataset pokec --size large"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd test-memgraph mgbench --dataset ldbc_bi --size medium --export-results-file my_results.json"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd package"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd copy --package"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd copy --use-make-install --dest-dir build/install"
+  echo -e "  $SCRIPT_NAME --os debian-12 --toolchain v7 --arch amd stop --remove"
 }
 
 check_support() {
