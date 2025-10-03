@@ -278,6 +278,16 @@ bool SymbolGenerator::PostVisit(LoadCsv &load_csv) {
   return true;
 }
 
+bool SymbolGenerator::PreVisit(LoadParquet & /*load_parquet*/) { return false; }
+
+bool SymbolGenerator::PostVisit(LoadParquet &load_parquet) {
+  if (HasSymbol(load_parquet.row_var_->name_)) {
+    throw RedeclareVariableError(load_parquet.row_var_->name_);
+  }
+  load_parquet.row_var_->MapTo(CreateSymbol(load_parquet.row_var_->name_, true));
+  return true;
+}
+
 bool SymbolGenerator::PreVisit(Return &ret) {
   auto &scope = scopes_.back();
   scope.in_return = true;

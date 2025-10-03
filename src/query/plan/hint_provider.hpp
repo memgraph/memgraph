@@ -218,6 +218,9 @@ class PlanHintsProvider final : public HierarchicalLogicalOperatorVisitor {
   bool PreVisit(LoadCsv & /*unused*/) override { return true; }
   bool PostVisit(LoadCsv & /*unused*/) override { return true; }
 
+  bool PreVisit(LoadParquet & /*unused*/) override { return true; }
+  bool PostVisit(LoadParquet & /*unused*/) override { return true; }
+
   bool PreVisit(HashJoin &op) override {
     op.left_op_->Accept(*this);
     op.right_op_->Accept(*this);
