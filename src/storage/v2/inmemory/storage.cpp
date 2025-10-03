@@ -1255,161 +1255,135 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
           auto remove_in_edges = absl::flat_hash_set<EdgeRef>{};
           auto remove_out_edges = absl::flat_hash_set<EdgeRef>{};
 
-          Delta *prev_delta = nullptr;
+          while (current != nullptr &&
+                 current->timestamp->load(std::memory_order_acquire) == transaction_.transaction_id) {
+            switch (current->action) {
+              case Delta::Action::REMOVE_LABEL: {
+                auto it = std::find(vertex->labels.begin(), vertex->labels.end(), current->label.value);
+                MG_ASSERT(it != vertex->labels.end(), "Invalid database state!");
+                std::swap(*it, *vertex->labels.rbegin());
+                vertex->labels.pop_back();
 
-          while (current != nullptr) {
-            auto ts = current->timestamp->load(std::memory_order_acquire);
+                index_abort_processor.CollectOnLabelRemoval(current->label.value, vertex);
 
-            if (ts == transaction_.transaction_id) {
-              switch (current->action) {
-                case Delta::Action::REMOVE_LABEL: {
-                  auto it = std::find(vertex->labels.begin(), vertex->labels.end(), current->label.value);
-                  MG_ASSERT(it != vertex->labels.end(), "Invalid database state!");
-                  std::swap(*it, *vertex->labels.rbegin());
-                  vertex->labels.pop_back();
-
-                  index_abort_processor.CollectOnLabelRemoval(current->label.value, vertex);
-
-                  // we have to remove the vertex from the vector index if this label is indexed and vertex has
-                  // needed property
-                  const auto &vector_properties = index_abort_processor.vector_.l2p.find(current->label.value);
-                  if (vector_properties != index_abort_processor.vector_.l2p.end()) {
-                    // label is in the vector index
-                    for (const auto &property : vector_properties->second) {
-                      if (vertex->properties.HasProperty(property)) {
-                        // it has to be removed from the index
-                        vector_label_property_cleanup[LabelPropKey{current->label.value, property}].emplace_back(
-                            vertex);
-                      }
+                // we have to remove the vertex from the vector index if this label is indexed and vertex has
+                // needed property
+                const auto &vector_properties = index_abort_processor.vector_.l2p.find(current->label.value);
+                if (vector_properties != index_abort_processor.vector_.l2p.end()) {
+                  // label is in the vector index
+                  for (const auto &property : vector_properties->second) {
+                    if (vertex->properties.HasProperty(property)) {
+                      // it has to be removed from the index
+                      vector_label_property_cleanup[LabelPropKey{current->label.value, property}].emplace_back(vertex);
                     }
                   }
-                  break;
                 }
-                case Delta::Action::ADD_LABEL: {
-                  auto it = std::find(vertex->labels.begin(), vertex->labels.end(), current->label.value);
-                  MG_ASSERT(it == vertex->labels.end(), "Invalid database state!");
-                  vertex->labels.push_back(current->label.value);
-                  // we have to add the vertex to the vector index if this label is indexed and vertex has needed
-                  // property
-                  const auto &vector_properties = index_abort_processor.vector_.l2p.find(current->label.value);
-                  if (vector_properties != index_abort_processor.vector_.l2p.end()) {
-                    // label is in the vector index
-                    for (const auto &property : vector_properties->second) {
-                      auto current_value = vertex->properties.GetProperty(property);
-                      if (!current_value.IsNull()) {
-                        // it has to be added to the index
-                        vector_label_property_restore[LabelPropKey{current->label.value, property}].emplace_back(
-                            std::move(current_value), vertex);
-                      }
-                    }
-                  }
-                  break;
-                }
-                case Delta::Action::SET_PROPERTY: {
-                  // For label index nothing
-                  // For property label index
-                  //  check if we care about the property, this will return all the labels and then get current property
-                  //  value
-                  index_abort_processor.CollectOnPropertyChange(current->property.key, vertex);
-
-                  const auto &vector_index_labels = index_abort_processor.vector_.p2l.find(current->property.key);
-                  const auto has_vector_index = vector_index_labels != index_abort_processor.vector_.p2l.end();
-                  if (has_vector_index) {
-                    auto has_indexed_label = [&vector_index_labels](auto label) {
-                      return std::binary_search(vector_index_labels->second.begin(), vector_index_labels->second.end(),
-                                                label);
-                    };
-                    auto indexed_labels_on_vertex =
-                        vertex->labels | rv::filter(has_indexed_label) | r::to<std::vector<LabelId>>();
-
-                    for (const auto &label : indexed_labels_on_vertex) {
-                      vector_label_property_restore[LabelPropKey{label, current->property.key}].emplace_back(
-                          *current->property.value, vertex);
-                    }
-                  }
-                  // Setting the correct value
-                  vertex->properties.SetProperty(current->property.key, *current->property.value);
-                  break;
-                }
-                case Delta::Action::ADD_IN_EDGE: {
-                  auto link = std::tuple{current->vertex_edge.edge_type, current->vertex_edge.vertex.Get(),
-                                         current->vertex_edge.edge};
-                  DMG_ASSERT(
-                      std::find(vertex->in_edges.begin(), vertex->in_edges.end(), link) == vertex->in_edges.end(),
-                      "Invalid database state!");
-                  vertex->in_edges.push_back(link);
-                  break;
-                }
-                case Delta::Action::ADD_OUT_EDGE: {
-                  auto link = std::tuple{current->vertex_edge.edge_type, current->vertex_edge.vertex.Get(),
-                                         current->vertex_edge.edge};
-                  DMG_ASSERT(
-                      std::find(vertex->out_edges.begin(), vertex->out_edges.end(), link) == vertex->out_edges.end(),
-                      "Invalid database state!");
-                  vertex->out_edges.push_back(link);
-                  // Increment edge count. We only increment the count here because
-                  // the information in `ADD_IN_EDGE` and `Edge/RECREATE_OBJECT` is
-                  // redundant. Also, `Edge/RECREATE_OBJECT` isn't available when
-                  // edge properties are disabled.
-                  storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
-                  break;
-                }
-                case Delta::Action::REMOVE_IN_EDGE: {
-                  // EdgeRef is unique
-                  remove_in_edges.insert(current->vertex_edge.edge);
-                  break;
-                }
-                case Delta::Action::REMOVE_OUT_EDGE: {
-                  // EdgeRef is unique
-                  remove_out_edges.insert(current->vertex_edge.edge);
-
-                  // Decrement edge count. We only decrement the count here because
-                  // the information in `REMOVE_IN_EDGE` and `Edge/DELETE_OBJECT` is
-                  // redundant. Also, `Edge/DELETE_OBJECT` isn't available when edge
-                  // properties are disabled.
-                  storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
-
-                  // TODO: Change edge type index to work with EdgeRef rather than Edge *
-                  if (!mem_storage->config_.salient.items.properties_on_edges) break;
-
-                  auto const &[_, edge_type, to_vertex, edge] = current->vertex_edge;
-                  index_abort_processor.CollectOnEdgeRemoval(edge_type, vertex, to_vertex.Get(), edge.ptr);
-                  // TODO: ensure collector also processeses for edge_type+property index
-
-                  break;
-                }
-                case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-                case Delta::Action::DELETE_OBJECT: {
-                  vertex->deleted = true;
-                  my_deleted_vertices.push_back(vertex->gid);
-                  break;
-                }
-                case Delta::Action::RECREATE_OBJECT: {
-                  vertex->deleted = false;
-                  break;
-                }
-              }
-
-              auto next_delta = current->next.load(std::memory_order_acquire);
-              if (prev_delta != nullptr) {
-                prev_delta->next.store(next_delta, std::memory_order_release);
-                if (next_delta != nullptr) {
-                  next_delta->prev.Set(prev_delta);
-                }
-              } else {
-                vertex->delta = next_delta;
-                if (next_delta != nullptr) {
-                  next_delta->prev.Set(vertex);
-                }
-              }
-              current = next_delta;
-            } else {
-              if (!IsOperationInterleaved(*current)) {
                 break;
               }
-              prev_delta = current;
-              current = current->next.load(std::memory_order_acquire);
+              case Delta::Action::ADD_LABEL: {
+                auto it = std::find(vertex->labels.begin(), vertex->labels.end(), current->label.value);
+                MG_ASSERT(it == vertex->labels.end(), "Invalid database state!");
+                vertex->labels.push_back(current->label.value);
+                // we have to add the vertex to the vector index if this label is indexed and vertex has needed
+                // property
+                const auto &vector_properties = index_abort_processor.vector_.l2p.find(current->label.value);
+                if (vector_properties != index_abort_processor.vector_.l2p.end()) {
+                  // label is in the vector index
+                  for (const auto &property : vector_properties->second) {
+                    auto current_value = vertex->properties.GetProperty(property);
+                    if (!current_value.IsNull()) {
+                      // it has to be added to the index
+                      vector_label_property_restore[LabelPropKey{current->label.value, property}].emplace_back(
+                          std::move(current_value), vertex);
+                    }
+                  }
+                }
+                break;
+              }
+              case Delta::Action::SET_PROPERTY: {
+                // For label index nothing
+                // For property label index
+                //  check if we care about the property, this will return all the labels and then get current property
+                //  value
+                index_abort_processor.CollectOnPropertyChange(current->property.key, vertex);
+
+                const auto &vector_index_labels = index_abort_processor.vector_.p2l.find(current->property.key);
+                const auto has_vector_index = vector_index_labels != index_abort_processor.vector_.p2l.end();
+                if (has_vector_index) {
+                  auto has_indexed_label = [&vector_index_labels](auto label) {
+                    return std::binary_search(vector_index_labels->second.begin(), vector_index_labels->second.end(),
+                                              label);
+                  };
+                  auto indexed_labels_on_vertex =
+                      vertex->labels | rv::filter(has_indexed_label) | r::to<std::vector<LabelId>>();
+
+                  for (const auto &label : indexed_labels_on_vertex) {
+                    vector_label_property_restore[LabelPropKey{label, current->property.key}].emplace_back(
+                        *current->property.value, vertex);
+                  }
+                }
+                // Setting the correct value
+                vertex->properties.SetProperty(current->property.key, *current->property.value);
+                break;
+              }
+              case Delta::Action::ADD_IN_EDGE: {
+                auto link = std::tuple{current->vertex_edge.edge_type, current->vertex_edge.vertex.Get(),
+                                       current->vertex_edge.edge};
+                DMG_ASSERT(std::find(vertex->in_edges.begin(), vertex->in_edges.end(), link) == vertex->in_edges.end(),
+                           "Invalid database state!");
+                vertex->in_edges.push_back(link);
+                break;
+              }
+              case Delta::Action::ADD_OUT_EDGE: {
+                auto link = std::tuple{current->vertex_edge.edge_type, current->vertex_edge.vertex.Get(),
+                                       current->vertex_edge.edge};
+                DMG_ASSERT(
+                    std::find(vertex->out_edges.begin(), vertex->out_edges.end(), link) == vertex->out_edges.end(),
+                    "Invalid database state!");
+                vertex->out_edges.push_back(link);
+                // Increment edge count. We only increment the count here because
+                // the information in `ADD_IN_EDGE` and `Edge/RECREATE_OBJECT` is
+                // redundant. Also, `Edge/RECREATE_OBJECT` isn't available when
+                // edge properties are disabled.
+                storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
+                break;
+              }
+              case Delta::Action::REMOVE_IN_EDGE: {
+                // EdgeRef is unique
+                remove_in_edges.insert(current->vertex_edge.edge);
+                break;
+              }
+              case Delta::Action::REMOVE_OUT_EDGE: {
+                // EdgeRef is unique
+                remove_out_edges.insert(current->vertex_edge.edge);
+
+                // Decrement edge count. We only decrement the count here because
+                // the information in `REMOVE_IN_EDGE` and `Edge/DELETE_OBJECT` is
+                // redundant. Also, `Edge/DELETE_OBJECT` isn't available when edge
+                // properties are disabled.
+                storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
+
+                // TODO: Change edge type index to work with EdgeRef rather than Edge *
+                if (!mem_storage->config_.salient.items.properties_on_edges) break;
+
+                auto const &[_, edge_type, to_vertex, edge] = current->vertex_edge;
+                index_abort_processor.CollectOnEdgeRemoval(edge_type, vertex, to_vertex.Get(), edge.ptr);
+                // TODO: ensure collector also processeses for edge_type+property index
+
+                break;
+              }
+              case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+              case Delta::Action::DELETE_OBJECT: {
+                vertex->deleted = true;
+                my_deleted_vertices.push_back(vertex->gid);
+                break;
+              }
+              case Delta::Action::RECREATE_OBJECT: {
+                vertex->deleted = false;
+                break;
+              }
             }
+            current = current->next.load(std::memory_order_acquire);
           }
 
           // bulk remove in_edges
@@ -1428,6 +1402,11 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
             });
             vertex->out_edges.erase(mid, vertex->out_edges.end());
             vertex->out_edges.shrink_to_fit();
+          }
+
+          vertex->delta = current;
+          if (current != nullptr) {
+            current->prev.Set(vertex);
           }
 
           break;
