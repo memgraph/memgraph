@@ -225,16 +225,6 @@ FetchContent_Declare(
 FetchContent_MakeAvailable(nlohmann_json)
 
 mg_create_linkable_if_no_cmake(rocksdb STATIC "${MG_TOOLCHAIN_ROOT}/lib/librocksdb.a" "${MG_TOOLCHAIN_ROOT}/include")
-# import_external_library(rocksdb STATIC
-#   ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/lib/librocksdb.a
-#   ${CMAKE_CURRENT_SOURCE_DIR}/rocksdb/include
-#   CMAKE_ARGS -DUSE_RTTI=ON
-#     -DWITH_TESTS=OFF
-#     -DGFLAGS_NOTHREADS=OFF
-#     -DCMAKE_INSTALL_LIBDIR=lib
-#     -DCMAKE_SKIP_INSTALL_ALL_DEPENDENCY=true
-#     -DPORTABLE=ON
-#   BUILD_COMMAND $(MAKE) rocksdb)
 
 macro(build_bcrypt)
   import_external_library(libbcrypt STATIC
@@ -325,33 +315,6 @@ macro(build_pulsar)
 endmacro()
 mg_build_if_needed(build_pulsar "pulsar")
 mg_create_linkable_if_no_cmake(pulsar STATIC "${MG_TOOLCHAIN_ROOT}/lib/libpulsarwithdeps.a" "${MG_TOOLCHAIN_ROOT}/include")
-
-# Link pulsar's transitive dependencies separately
-# if(TARGET pulsar)
-#   find_library(NGHTTP2_LIB nghttp2 REQUIRED)
-#   find_library(PSL_LIB psl REQUIRED)
-#   find_library(GSSAPI_LIB gssapi_krb5 REQUIRED)
-#   find_library(RTMP_LIB rtmp REQUIRED)
-#   find_library(LDAP_LIB ldap REQUIRED)
-#   find_library(LBER_LIB lber REQUIRED)
-#   find_library(BROTLI_LIB brotlidec REQUIRED)
-#   find_library(IDN2_LIB idn2 REQUIRED)
-#   find_library(SSH_LIB ssh REQUIRED)
-
-#   target_link_libraries(
-#     pulsar
-#     INTERFACE
-#     ${NGHTTP2_LIB}
-#     ${PSL_LIB}
-#     ${GSSAPI_LIB}
-#     ${RTMP_LIB}
-#     ${LDAP_LIB}
-#     ${LBER_LIB}
-#     ${BROTLI_LIB}
-#     ${IDN2_LIB}
-#     ${SSH_LIB}
-#   )
-# endif()
 
 macro(build_librdtsc)
   if(${MG_ARCH} STREQUAL "ARM64")
