@@ -1,0 +1,17 @@
+type: person
+chunk_size: 10
+prefix: vertex/person/
+property_groups:
+  - properties:
+    - name: id
+      data_type: int64
+      is_primary: true
+    - name: name
+      data_type: string
+      is_primary: false
+    - name: age
+      data_type: int64
+      is_primary: false
+    - name: city
+      data_type: string
+      is_primary: false
