@@ -7619,7 +7619,7 @@ class LoadParquetCursor : public Cursor {
   bool did_pull_{false};
   std::optional<arrow::ParquetReader> reader_;
   arrow::Row header_cache_;
-  int64_t num_columns_;
+  size_t num_columns_;
 
  public:
   LoadParquetCursor(const LoadParquet *self, utils::MemoryResource *mem)
@@ -7645,7 +7645,6 @@ class LoadParquetCursor : public Cursor {
       reader_.emplace(std::string{*maybe_file}, mem);
       header_cache_ = reader_->GetHeader(mem);
       num_columns_ = header_cache_.size();
-      spdlog::trace("Cached {} column headers", header_cache_.size());
     }
 
     if (input_cursor_->Pull(frame, context)) {
