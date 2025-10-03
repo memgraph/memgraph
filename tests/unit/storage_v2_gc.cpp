@@ -15,8 +15,9 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
 
-using memgraph::replication_coordination_glue::ReplicationRole;
 using testing::UnorderedElementsAre;
+
+namespace ms = memgraph::storage;
 
 // TODO: The point of these is not to test GC fully, these are just simple
 // sanity checks. These will be superseded by a more sophisticated stress test
@@ -203,5 +204,345 @@ TEST(StorageV2Gc, Indices) {
       gids.insert(vertex.Gid());
     }
     EXPECT_EQ(gids.size(), 1000);
+  }
+}
+
+TEST(StorageV2Gc, InterleavedDeltasWithCommittedContributorsAreGarbagedCollected) {
+  // Need a periodic garbage collector so that certain fast path optimisations
+  // aren't taken when cleaning deltas, but with an inter-collection pause large
+  // enough that we can step through when debugging, etc, without anything being
+  // unexpectedly reclaimed from underneath us.
+  auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
+      .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
+
+  memgraph::storage::Gid v1_gid, v2_gid;
+  {
+    auto acc = storage->Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  {
+    auto acc0 = storage->Access();  // older accessor is just used to stop GC.
+    auto acc1 = storage->Access();
+    auto acc2 = storage->Access();
+
+    auto v1_t1 = acc1->FindVertex(v1_gid, memgraph::storage::View::OLD);
+    auto v2_t1 = acc1->FindVertex(v2_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
+    auto edge1_result = acc1->CreateEdge(&*v1_t1, &*v2_t1, acc1->NameToEdgeType("Edge1"));
+    ASSERT_TRUE(edge1_result.HasValue());
+
+    auto v1_t2 = acc2->FindVertex(v1_gid, memgraph::storage::View::OLD);
+    auto v2_t2 = acc2->FindVertex(v2_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
+    auto edge2_result = acc2->CreateEdge(&*v1_t2, &*v2_t2, acc2->NameToEdgeType("Edge2"));
+    ASSERT_TRUE(edge2_result.HasValue());
+
+    // The 6 unreleased deltas are:
+    // - 2 x CREATE_OBJECT, to create the edges
+    // - 2 x ADD_IN_EDGE
+    // - 2 x ADD_OUT_EDGE
+    ASSERT_EQ(6, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+
+    // Commit in order `acc1` and `acc2`. This means that even though `acc2` does
+    // have interleaved deltas, everything downstream from them is committed
+    // and so garbage collection can skip the waiting list.
+    ASSERT_FALSE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    acc1.reset();
+    ASSERT_FALSE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    acc2.reset();
+
+    ASSERT_EQ(6, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+  }
+
+  {
+    auto main_guard = std::unique_lock{storage->main_lock_};
+    storage->FreeMemory(std::move(main_guard), false);
+  }
+
+  EXPECT_EQ(0, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+}
+
+TEST(StorageV2Gc, InterleavedDeltasWithAbortedContributorsAreGarbagedCollected) {
+  auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
+      .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
+
+  memgraph::storage::Gid v1_gid, v2_gid;
+  {
+    auto acc = storage->Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  {
+    auto acc0 = storage->Access();
+    auto acc1 = storage->Access();
+    auto acc2 = storage->Access();
+
+    auto v1_t1 = acc1->FindVertex(v1_gid, memgraph::storage::View::OLD);
+    auto v2_t1 = acc1->FindVertex(v2_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
+    auto edge1_result = acc1->CreateEdge(&*v1_t1, &*v2_t1, acc1->NameToEdgeType("Edge1"));
+    ASSERT_TRUE(edge1_result.HasValue());
+
+    auto v1_t2 = acc2->FindVertex(v1_gid, memgraph::storage::View::OLD);
+    auto v2_t2 = acc2->FindVertex(v2_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
+    auto edge2_result = acc2->CreateEdge(&*v1_t2, &*v2_t2, acc2->NameToEdgeType("Edge2"));
+    ASSERT_TRUE(edge2_result.HasValue());
+
+    ASSERT_EQ(6, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+
+    ASSERT_FALSE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    acc2.reset();
+    acc1->Abort();
+    acc1.reset();
+
+    ASSERT_EQ(6, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+  }
+
+  {
+    auto main_guard = std::unique_lock{storage->main_lock_};
+    storage->FreeMemory(std::move(main_guard), false);
+  }
+
+  EXPECT_EQ(0, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+}
+
+TEST(StorageV2Gc, InterleavedDeltasWithTwoContributorsAreGarbagedCollected) {
+  auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
+      .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}});
+
+  memgraph::storage::Gid v1_gid, v2_gid;
+  {
+    auto acc = storage->Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  {
+    auto acc0 = storage->Access();
+    auto acc1 = storage->Access();
+    auto acc2 = storage->Access();
+    auto acc3 = storage->Access();
+
+    auto v1_t1 = acc1->FindVertex(v1_gid, memgraph::storage::View::OLD);
+    auto v2_t1 = acc1->FindVertex(v2_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
+    auto edge1_result = acc1->CreateEdge(&*v1_t1, &*v2_t1, acc1->NameToEdgeType("Edge1"));
+    ASSERT_TRUE(edge1_result.HasValue());
+
+    auto v1_t2 = acc2->FindVertex(v1_gid, memgraph::storage::View::OLD);
+    auto v2_t2 = acc2->FindVertex(v2_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
+    auto edge2_result = acc2->CreateEdge(&*v1_t2, &*v2_t2, acc2->NameToEdgeType("Edge2"));
+    ASSERT_TRUE(edge2_result.HasValue());
+
+    auto v1_t3 = acc3->FindVertex(v1_gid, memgraph::storage::View::OLD);
+    auto v2_t3 = acc3->FindVertex(v2_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v1_t3.has_value() && v2_t3.has_value());
+    auto edge3_result = acc3->CreateEdge(&*v1_t3, &*v2_t3, acc3->NameToEdgeType("Edge3"));
+    ASSERT_TRUE(edge3_result.HasValue());
+
+    ASSERT_EQ(9, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+
+    ASSERT_FALSE(acc3->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    acc3.reset();
+    ASSERT_FALSE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    acc1.reset();
+    ASSERT_FALSE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    acc2.reset();
+
+    ASSERT_EQ(9, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+  }
+
+  {
+    auto main_guard = std::unique_lock{storage->main_lock_};
+    storage->FreeMemory(std::move(main_guard), false);
+  }
+
+  EXPECT_EQ(0, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+}
+
+TEST(StorageV2Gc, InterleavedDeltasWithUncommittedContributorsAreGarbagedCollected) {
+  // Use periodic GC with short interval to automatically test intermediate states
+  auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
+      .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(100)}});
+
+  memgraph::storage::Gid v1_gid, v2_gid;
+  {
+    auto acc = storage->Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  {
+    auto acc0 = storage->Access();  // older accessor is just used to stop GC.
+    auto acc1 = storage->Access();
+    auto acc2 = storage->Access();
+
+    auto v1_t1 = acc1->FindVertex(v1_gid, memgraph::storage::View::OLD);
+    auto v2_t1 = acc1->FindVertex(v2_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
+    ASSERT_TRUE(acc1->CreateEdge(&*v1_t1, &*v2_t1, acc1->NameToEdgeType("Edge1")).HasValue());
+
+    auto v1_t2 = acc2->FindVertex(v1_gid, memgraph::storage::View::OLD);
+    auto v2_t2 = acc2->FindVertex(v2_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
+    ASSERT_TRUE(acc2->CreateEdge(&*v1_t2, &*v2_t2, acc2->NameToEdgeType("Edge2")).HasValue());
+
+    ASSERT_TRUE(acc1->CreateEdge(&*v1_t1, &*v2_t1, acc1->NameToEdgeType("Edge3")).HasValue());
+    ASSERT_TRUE(acc2->CreateEdge(&*v1_t2, &*v2_t2, acc1->NameToEdgeType("Edge4")).HasValue());
+
+    // The 6 unreleased deltas are: @TODO 12 now!
+    // - 2 x CREATE_OBJECT, to create the edges
+    // - 2 x ADD_IN_EDGE
+    // - 2 x ADD_OUT_EDGE
+    ASSERT_EQ(12, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+
+    // When acc2 commits, its transaction has interleaved deltas which are
+    // uncommitted, meaning these deltas must sit in the waiting list until
+    // all contributors have committed.
+    ASSERT_FALSE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    acc2.reset();
+
+    // wait for GC to clean up
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    // At this point acc2 committed but acc1 hasn't - deltas should stay in waiting list
+    // Wait for GC to run but deltas should remain due to uncommitted acc1
+    ASSERT_EQ(12, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+
+    ASSERT_FALSE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    acc1.reset();
+  }
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+  ASSERT_EQ(0, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+}
+
+TEST(StorageV2Gc, InterleavedDeltasWithUncommittedContributorsAreGarbagedCollected_SwapCommitOrder) {
+  auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
+      .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(100)}});
+
+  memgraph::storage::Gid v1_gid, v2_gid;
+  {
+    auto acc = storage->Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  {
+    auto acc0 = storage->Access();  // older accessor is just used to stop GC.
+    auto acc1 = storage->Access();
+    auto acc2 = storage->Access();
+
+    auto v1_t1 = acc1->FindVertex(v1_gid, memgraph::storage::View::OLD);
+    auto v2_t1 = acc1->FindVertex(v2_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v1_t1.has_value() && v2_t1.has_value());
+    ASSERT_TRUE(acc1->CreateEdge(&*v1_t1, &*v2_t1, acc1->NameToEdgeType("Edge1")).HasValue());
+
+    auto v1_t2 = acc2->FindVertex(v1_gid, memgraph::storage::View::OLD);
+    auto v2_t2 = acc2->FindVertex(v2_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v1_t2.has_value() && v2_t2.has_value());
+    ASSERT_TRUE(acc2->CreateEdge(&*v1_t2, &*v2_t2, acc2->NameToEdgeType("Edge2")).HasValue());
+
+    ASSERT_TRUE(acc1->CreateEdge(&*v1_t1, &*v2_t1, acc1->NameToEdgeType("Edge3")).HasValue());
+    ASSERT_TRUE(acc2->CreateEdge(&*v1_t2, &*v2_t2, acc1->NameToEdgeType("Edge4")).HasValue());
+
+    // The 12 unreleased deltas are:
+    // - 4 x CREATE_OBJECT, to create the edges
+    // - 4 x ADD_IN_EDGE
+    // - 4 x ADD_OUT_EDGE
+    ASSERT_EQ(12, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+
+    // When acc1 commits first, its transaction has interleaved deltas which are
+    // uncommitted, meaning these deltas must sit in the waiting list until
+    // all contributors have committed.
+    ASSERT_FALSE(acc1->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    acc1.reset();
+
+    // wait for GC to clean up
+    std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+    // At this point acc1 committed but acc2 hasn't - deltas should stay in waiting list
+    // Wait for GC to run but deltas should remain due to uncommitted acc2
+    ASSERT_EQ(12, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+
+    ASSERT_FALSE(acc2->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+    acc2.reset();
+  }
+
+  std::this_thread::sleep_for(std::chrono::milliseconds(500));
+
+  ASSERT_EQ(0, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+}
+
+TEST(StorageV2Gc, ConcurrentEdgeOperationsAbortDeleteRepeat) {
+  auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
+      .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(100)}});
+
+  memgraph::storage::Gid v1_gid, v2_gid;
+
+  {
+    auto acc = storage->Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  auto tx1 = storage->Access();
+  auto tx2 = storage->Access();
+
+  {
+    auto v1 = tx1->FindVertex(v1_gid, memgraph::storage::View::OLD).value();
+    auto v2 = tx1->FindVertex(v2_gid, memgraph::storage::View::OLD).value();
+    ASSERT_TRUE(tx1->CreateEdge(&v1, &v2, tx1->NameToEdgeType("Edge1")).HasValue());
+  }
+
+  {
+    auto v1 = tx2->FindVertex(v1_gid, memgraph::storage::View::OLD).value();
+    auto v2 = tx2->FindVertex(v2_gid, memgraph::storage::View::OLD).value();
+    ASSERT_TRUE(tx2->CreateEdge(&v1, &v2, tx2->NameToEdgeType("Edge2")).HasValue());
+  }
+
+  tx1->Abort();
+  tx2->Abort();
+
+  // Wait for GC to clean up
+  std::this_thread::sleep_for(std::chrono::milliseconds(400));
+
+  {
+    auto reader = storage->Access();
+    auto v1 = reader->FindVertex(v1_gid, memgraph::storage::View::OLD);
+    auto v2 = reader->FindVertex(v2_gid, memgraph::storage::View::OLD);
+
+    if (v1.has_value()) {
+      auto edges = v1->OutEdges(memgraph::storage::View::OLD);
+      ASSERT_TRUE(edges.HasValue());
+    }
+    if (v2.has_value()) {
+      auto edges = v2->OutEdges(memgraph::storage::View::OLD);
+      ASSERT_TRUE(edges.HasValue());
+    }
   }
 }

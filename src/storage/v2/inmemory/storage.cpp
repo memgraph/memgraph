@@ -480,11 +480,16 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
 
   transaction_.async_index_helper_.Track(edge_type);
 
-  if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
+  auto from_result = PrepareForCommutativeWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE);
+  if (from_result == WriteResult::CONFLICT) return Error::SERIALIZATION_ERROR;
+  if (from_result == WriteResult::COMMUTATIVE) transaction_.has_interleaved_deltas = true;
   if (from_vertex->deleted) return Error::DELETED_OBJECT;
 
+  WriteResult to_result = WriteResult::SUCCESS;
   if (to_vertex != from_vertex) {
-    if (!PrepareForWrite(&transaction_, to_vertex)) return Error::SERIALIZATION_ERROR;
+    to_result = PrepareForCommutativeWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE);
+    if (to_result == WriteResult::CONFLICT) return Error::SERIALIZATION_ERROR;
+    if (to_result == WriteResult::COMMUTATIVE) transaction_.has_interleaved_deltas = true;
     if (to_vertex->deleted) return Error::DELETED_OBJECT;
   }
 
@@ -511,31 +516,37 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
       MG_ASSERT(inserted, "The edge must be inserted here!");
     }
   }
-  utils::AtomicMemoryBlock(
-      [this, edge, from_vertex = from_vertex, edge_type = edge_type, to_vertex = to_vertex, &schema_acc]() {
-        CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
-        from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
 
-        CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge);
-        to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
+  bool const from_interleaved = (from_result == WriteResult::COMMUTATIVE);
+  bool const to_interleaved = (to_result == WriteResult::COMMUTATIVE);
 
-        transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
-        transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
+  utils::AtomicMemoryBlock([this, edge, from_vertex = from_vertex, edge_type = edge_type, to_vertex = to_vertex,
+                            &schema_acc, from_interleaved, to_interleaved]() {
+    CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge,
+                       from_interleaved ? DeltaInterleaving::INTERLEAVED : DeltaInterleaving::NON_INTERLEAVED);
+    from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
 
-        // Update indices if they exist.
-        storage_->indices_.UpdateOnEdgeCreation(from_vertex, to_vertex, edge, edge_type, transaction_);
+    CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge,
+                       to_interleaved ? DeltaInterleaving::INTERLEAVED : DeltaInterleaving::NON_INTERLEAVED);
+    to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
-        // Increment edge count.
-        storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
+    transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
+    transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
 
-        if (schema_acc) {
-          std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
-                                         acc.CreateEdge(from_vertex, to_vertex, edge_type);
-                                       },
-                                       [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
-                     *schema_acc);
-        }
-      });
+    // Update indices if they exist.
+    storage_->indices_.UpdateOnEdgeCreation(from_vertex, to_vertex, edge, edge_type, transaction_);
+
+    // Increment edge count.
+    storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
+
+    if (schema_acc) {
+      std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
+                                     acc.CreateEdge(from_vertex, to_vertex, edge_type);
+                                   },
+                                   [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                 *schema_acc);
+    }
+  });
 
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, storage_, &transaction_);
 }
@@ -586,11 +597,16 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
     guard_from.lock();
   }
 
-  if (!PrepareForWrite(&transaction_, from_vertex)) return Error::SERIALIZATION_ERROR;
+  auto from_result = PrepareForCommutativeWrite(&transaction_, from_vertex, Delta::Action::ADD_OUT_EDGE);
+  if (from_result == WriteResult::CONFLICT) return Error::SERIALIZATION_ERROR;
+  if (from_result == WriteResult::COMMUTATIVE) transaction_.has_interleaved_deltas = true;
   if (from_vertex->deleted) return Error::DELETED_OBJECT;
 
+  WriteResult to_result = WriteResult::SUCCESS;
   if (to_vertex != from_vertex) {
-    if (!PrepareForWrite(&transaction_, to_vertex)) return Error::SERIALIZATION_ERROR;
+    to_result = PrepareForCommutativeWrite(&transaction_, to_vertex, Delta::Action::ADD_IN_EDGE);
+    if (to_result == WriteResult::CONFLICT) return Error::SERIALIZATION_ERROR;
+    if (to_result == WriteResult::COMMUTATIVE) transaction_.has_interleaved_deltas = true;
     if (to_vertex->deleted) return Error::DELETED_OBJECT;
   }
 
@@ -627,31 +643,37 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
       MG_ASSERT(inserted, "The edge must be inserted here!");
     }
   }
-  utils::AtomicMemoryBlock(
-      [this, edge, from_vertex = from_vertex, edge_type = edge_type, to_vertex = to_vertex, &schema_acc]() {
-        CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge);
-        from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
 
-        CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge);
-        to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
+  bool const from_interleaved = (from_result == WriteResult::COMMUTATIVE);
+  bool const to_interleaved = (to_result == WriteResult::COMMUTATIVE);
 
-        transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
-        transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
+  utils::AtomicMemoryBlock([this, edge, from_vertex = from_vertex, edge_type = edge_type, to_vertex = to_vertex,
+                            &schema_acc, from_interleaved, to_interleaved]() {
+    CreateAndLinkDelta(&transaction_, from_vertex, Delta::RemoveOutEdgeTag(), edge_type, to_vertex, edge,
+                       from_interleaved ? DeltaInterleaving::INTERLEAVED : DeltaInterleaving::NON_INTERLEAVED);
+    from_vertex->out_edges.emplace_back(edge_type, to_vertex, edge);
 
-        // Update indices if they exist.
-        storage_->indices_.UpdateOnEdgeCreation(from_vertex, to_vertex, edge, edge_type, transaction_);
+    CreateAndLinkDelta(&transaction_, to_vertex, Delta::RemoveInEdgeTag(), edge_type, from_vertex, edge,
+                       to_interleaved ? DeltaInterleaving::INTERLEAVED : DeltaInterleaving::NON_INTERLEAVED);
+    to_vertex->in_edges.emplace_back(edge_type, from_vertex, edge);
 
-        // Increment edge count.
-        storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
+    transaction_.manyDeltasCache.Invalidate(from_vertex, edge_type, EdgeDirection::OUT);
+    transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
 
-        if (schema_acc) {
-          std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
-                                         acc.CreateEdge(from_vertex, to_vertex, edge_type);
-                                       },
-                                       [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
-                     *schema_acc);
-        }
-      });
+    // Update indices if they exist.
+    storage_->indices_.UpdateOnEdgeCreation(from_vertex, to_vertex, edge, edge_type, transaction_);
+
+    // Increment edge count.
+    storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
+
+    if (schema_acc) {
+      std::visit(utils::Overloaded{[&](SchemaInfo::VertexModifyingAccessor &acc) {
+                                     acc.CreateEdge(from_vertex, to_vertex, edge_type);
+                                   },
+                                   [](auto & /* unused */) { DMG_ASSERT(false, "Using the wrong accessor"); }},
+                 *schema_acc);
+    }
+  });
 
   return EdgeAccessor(edge, edge_type, from_vertex, to_vertex, storage_, &transaction_);
 }
@@ -725,7 +747,8 @@ void InMemoryStorage::InMemoryAccessor::CheckForFastDiscardOfDeltas() {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
   bool const no_older_transactions = mem_storage->commit_log_->OldestActive() == *commit_timestamp_;
   bool const no_newer_transactions = mem_storage->transaction_id_ == transaction_.transaction_id + 1;
-  if (no_older_transactions && no_newer_transactions) [[unlikely]] {
+  bool const no_interleaved_deltas = !transaction_.has_interleaved_deltas;
+  if (no_older_transactions && no_newer_transactions && no_interleaved_deltas) [[unlikely]] {
     // STEP 0) Can only do fast discard if GC is not running
     //         We can't unlink our transactions deltas until all the older deltas in GC have been unlinked
     //         must do a try here, to avoid deadlock between transactions `engine_lock_` and the GC `gc_lock_`
@@ -968,10 +991,20 @@ utils::BasicResult<StorageManipulationError, void> InMemoryStorage::InMemoryAcce
 void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &current_deleted_edges,
                                                             std::list<Gid> &current_deleted_vertices,
                                                             IndexPerformanceTracker &impact_tracker) {
+  DMG_ASSERT(!transaction_.has_interleaved_deltas, "interleaved deltas are not candidates for rapid delta cleanup");
+
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
   auto const unlink_remove_clear = [&](delta_container &deltas) {
     for (auto &delta : deltas) {
+      DMG_ASSERT(!IsOperationInterleaved(delta), "interleaved deltas are not candidates for rapid delta cleanup");
+      auto next = delta.next.load();
+      if (next != nullptr) {
+        auto next_ts = next->timestamp->load();
+        if (next_ts >= kTransactionInitialId && IsOperationInterleaved(*next)) {
+          DMG_ASSERT(false, "downstream active interleaved delta found during rapid cleanup");
+        }
+      }
       impact_tracker.update(delta.action);
       auto prev = delta.prev.Get();
       switch (prev.type) {
@@ -979,22 +1012,28 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
         case PreviousPtr::Type::DELTA:
           break;
         case PreviousPtr::Type::VERTEX: {
-          // safe because no other txn can be reading this while we have engine lock
+          // Only unlink if this delta is still the head of the chain
+          // Another transaction may have added deltas on top (interleaved)
           auto &vertex = *prev.vertex;
-          vertex.delta = nullptr;
-          if (vertex.deleted) {
-            DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
-            current_deleted_vertices.push_back(vertex.gid);
+          if (vertex.delta == &delta) {
+            vertex.delta = nullptr;
+            if (vertex.deleted) {
+              DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
+              current_deleted_vertices.push_back(vertex.gid);
+            }
           }
           break;
         }
         case PreviousPtr::Type::EDGE: {
-          // safe because no other txn can be reading this while we have engine lock
+          // Only unlink if this delta is still the head of the chain
+          // Another transaction may have added deltas on top (interleaved)
           auto &edge = *prev.edge;
-          edge.delta = nullptr;
-          if (edge.deleted) {
-            DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
-            current_deleted_edges.push_back(edge.gid);
+          if (edge.delta == &delta) {
+            edge.delta = nullptr;
+            if (edge.deleted) {
+              DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
+              current_deleted_edges.push_back(edge.gid);
+            }
           }
           break;
         }
@@ -1031,11 +1070,26 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
 void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(std::unique_lock<std::mutex> /*gc_guard*/) {
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
-  // STEP 1 + STEP 2 - delta cleanup
+  // STEP 1 + STEP 2 - delta cleanup (must hold waiting room lock to prevent races)
   std::list<Gid> current_deleted_vertices;
   std::list<Gid> current_deleted_edges;
   auto impact_tracker = IndexPerformanceTracker{};
-  GCRapidDeltaCleanup(current_deleted_edges, current_deleted_vertices, impact_tracker);
+
+  bool cleanup_performed = mem_storage->waiting_gc_deltas_.WithLock([&](const auto &waiting_list) -> bool {
+    if (!waiting_list.empty()) {
+      // There are interleaved transactions in the waiting room that might reference
+      // the same objects we're about to clean up. Skip rapid cleanup to be safe.
+      return false;
+    }
+
+    // Safe to proceed - no waiting transactions can be added while we hold this lock
+    GCRapidDeltaCleanup(current_deleted_edges, current_deleted_vertices, impact_tracker);
+    return true;
+  });
+
+  if (!cleanup_performed) {
+    return;
+  }
 
   // STEP 3) hand over the deleted vertices and edges to the GC
   if (!current_deleted_vertices.empty()) {
@@ -1060,6 +1114,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
   MG_ASSERT(is_transaction_active_, "The transaction is already terminated!");
 
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
+
+  transaction_.EnsureCommitTimestampExists();
 
   // if we have no deltas then no need to do any undo work during Abort
   // note: this check also saves on unnecessary contention on `engine_lock_`
@@ -1089,13 +1145,18 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
         vector_edge_type_property_restore;  // No need to cleanup, because edge type can't be removed and when null
                                             // property is set, it's like removing the property from the index
 
-    // TWO passes needed here
+    // TWO passes needed here @TODO three now
     // Abort will modify objects to restore state to how they were before this txn
     // The passes will find the head delta for each object and process the whole object,
     // To track which edge type indexes need cleaning up, we need the edge type which is held in vertices in/out edges
     // Hence need to first once to modify edges, so it can read vectices information intact.
 
-    // Edges pass
+    // Edges pass. Because edges cannot have interleaved deltas, we needn't
+    // concern ourselves with them here. We guarantee that any of our deltas
+    // with an edge as the upstream object are a monolithic block of deltas
+    // belonging to this transaction, and that these terminate in either a
+    // nullptr or another monolithic block belonging to a committed by
+    // uncollected transaction.
     for (const auto &delta : transaction_.deltas) {
       auto prev = delta.prev.Get();
       switch (prev.type) {
@@ -1188,6 +1249,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     }
 
     // Vertices pass
+    bool any_delta_has_upstream_interleaved_delta{false};
     for (const auto &delta : transaction_.deltas) {
       auto prev = delta.prev.Get();
       switch (prev.type) {
@@ -1271,16 +1333,16 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 break;
               }
               case Delta::Action::ADD_IN_EDGE: {
-                auto link =
-                    std::tuple{current->vertex_edge.edge_type, current->vertex_edge.vertex, current->vertex_edge.edge};
+                auto link = std::tuple{current->vertex_edge.edge_type, current->vertex_edge.vertex.Get(),
+                                       current->vertex_edge.edge};
                 DMG_ASSERT(std::find(vertex->in_edges.begin(), vertex->in_edges.end(), link) == vertex->in_edges.end(),
                            "Invalid database state!");
                 vertex->in_edges.push_back(link);
                 break;
               }
               case Delta::Action::ADD_OUT_EDGE: {
-                auto link =
-                    std::tuple{current->vertex_edge.edge_type, current->vertex_edge.vertex, current->vertex_edge.edge};
+                auto link = std::tuple{current->vertex_edge.edge_type, current->vertex_edge.vertex.Get(),
+                                       current->vertex_edge.edge};
                 DMG_ASSERT(
                     std::find(vertex->out_edges.begin(), vertex->out_edges.end(), link) == vertex->out_edges.end(),
                     "Invalid database state!");
@@ -1311,7 +1373,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 if (!mem_storage->config_.salient.items.properties_on_edges) break;
 
                 auto const &[_, edge_type, to_vertex, edge] = current->vertex_edge;
-                index_abort_processor.CollectOnEdgeRemoval(edge_type, vertex, to_vertex, edge.ptr);
+                index_abort_processor.CollectOnEdgeRemoval(edge_type, vertex, to_vertex.Get(), edge.ptr);
                 // TODO: ensure collector also processeses for edge_type+property index
 
                 break;
@@ -1348,18 +1410,73 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
             vertex->out_edges.shrink_to_fit();
           }
 
-          vertex->delta = current;
+          vertex->delta = current;  // @TODO here is we effectively "unlink"
           if (current != nullptr) {
             current->prev.Set(vertex);
           }
 
+          // @TODO double check all cases where I am setting the `prev`
+          // pointer: I believe we need `prev` to remain in place so that
+          // we can always follow the chain to the upstream object, regardless
+          // of how the chain is otherwise cut for visibility during abort
+          // or commit.
+
           break;
         }
-        case PreviousPtr::Type::EDGE:
         case PreviousPtr::Type::DELTA:
+          if (!any_delta_has_upstream_interleaved_delta) {
+            any_delta_has_upstream_interleaved_delta |= IsOperationInterleaved(*prev.delta);
+          }
+          break;
+        case PreviousPtr::Type::EDGE:
         // pointer probably couldn't be set because allocation failed
         case PreviousPtr::Type::NULLPTR:
           break;
+      }
+    }
+
+    // Interleaved vertices delta pass. Because interleaved deltas
+    // mean that the `prev` pointer from an aborted delta is not necessarily
+    // a vertex or a delta from this transaction, we need a surgical pass
+    // to check all aborted deltas have been cleanly cut out of the delta chain.
+    // @TODO this is a very slow implementation just to prove that this fixes
+    // the issue. Rewrite it!
+    if (any_delta_has_upstream_interleaved_delta) {
+      for (const auto &delta : transaction_.deltas) {
+        auto current_prev = delta.prev.Get();
+        while (current_prev.type == PreviousPtr::Type::DELTA) {
+          auto *prev_delta = current_prev.delta;
+          if (prev_delta == nullptr) break;
+          current_prev = prev_delta->prev.Get();
+        }
+
+        if (current_prev.type == PreviousPtr::Type::VERTEX) {
+          auto *vertex = current_prev.vertex;
+          auto guard = std::unique_lock{vertex->lock};
+
+          Delta *current = vertex->delta;
+          Delta *prev_delta = nullptr;
+
+          while (current != nullptr) {
+            if (current == &delta) {
+              auto next_delta = current->next.load(std::memory_order_acquire);
+              if (prev_delta != nullptr) {
+                prev_delta->next.store(next_delta, std::memory_order_release);
+                if (next_delta != nullptr) {
+                  next_delta->prev.Set(prev_delta);
+                }
+              } else {
+                vertex->delta = next_delta;
+                if (next_delta != nullptr) {
+                  next_delta->prev.Set(vertex);
+                }
+              }
+              break;
+            }
+            prev_delta = current;
+            current = current->next.load(std::memory_order_acquire);
+          }
+        }
       }
     }
 
@@ -1374,6 +1491,10 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
         // emplace back could take a long time.
         engine_guard.unlock();
 
+        // @TODO is `mark_timestamp` correct here, in the precence of
+        // interleaved deltas?
+
+        transaction_.commit_timestamp->store(kAbortedTransactionId, std::memory_order_release);
         garbage_undo_buffers.emplace_back(mark_timestamp, std::move(transaction_.deltas),
                                           std::move(transaction_.commit_timestamp));
       });
@@ -1431,12 +1552,17 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
     mem_storage->commit_log_->MarkFinished(*commit_timestamp_);
 
     if (!transaction_.deltas.empty()) {
-      // Only hand over delta to be GC'ed if there was any deltas
-      mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) {
-        // using mark of 0 as GC will assign a mark_timestamp after unlinking
-        committed_transactions.emplace_back(0, std::move(transaction_.deltas),
-                                            std::move(transaction_.commit_timestamp));
-      });
+      if (transaction_.has_interleaved_deltas) {
+        mem_storage->waiting_gc_deltas_.WithLock([&](auto &waiting_list) {
+          waiting_list.emplace_back(
+              InMemoryStorage::GCDeltas(0, std::move(transaction_.deltas), std::move(transaction_.commit_timestamp)));
+        });
+      } else {
+        mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) {
+          committed_transactions.emplace_back(0, std::move(transaction_.deltas),
+                                              std::move(transaction_.commit_timestamp));
+        });
+      }
     }
     commit_timestamp_.reset();
   }
@@ -2066,10 +2192,73 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
 
   uint64_t oldest_active_start_timestamp = commit_log_->OldestActive();
 
+  // Process waiting list for interleaved delta chains ready to move to GC
+  waiting_gc_deltas_.WithLock([&](auto &waiting_list) {
+    auto it = waiting_list.begin();
+    while (it != waiting_list.end()) {
+      // @TODO(colinbarry): can we improve this? Have to traverse delta
+      // chains is not a quick operation. Basically, we know upfront upon which
+      // transactions the waiting list is waiting: we need some quick method
+      // or saying: "are all these transactions finished"?
+      // Check if all downstream deltas are now committed by re-traversing chains
+      bool all_contributors_committed = true;
+      std::unordered_set<const Delta *> visited;
+
+      for (const auto &delta : it->deltas_.deltas_) {
+        if (IsOperationInterleaved(delta) && !visited.count(&delta)) {
+          auto *current_delta = &delta;
+          while (current_delta != nullptr && !visited.count(current_delta)) {
+            visited.insert(current_delta);
+            auto ts = current_delta->timestamp->load();
+            if (ts == kAbortedTransactionId) {
+              current_delta = current_delta->next.load();
+              continue;
+            }
+            if (ts >= kTransactionInitialId && !commit_log_->IsFinished(ts)) {
+              ;
+              all_contributors_committed = false;
+              break;
+            }
+            current_delta = current_delta->next.load();
+          }
+          if (!all_contributors_committed) break;
+        }
+      }
+
+      if (all_contributors_committed) {
+        // Calculate the highest commit timestamp in the entire chain for safe unlinking
+        uint64_t highest_commit_ts = it->deltas_.commit_timestamp_->load();
+
+        for (const auto &delta : it->deltas_.deltas_) {
+          auto *current = &delta;
+          while (current != nullptr) {
+            auto ts = current->timestamp->load();
+            DMG_ASSERT(ts < kTransactionInitialId || ts == kAbortedTransactionId,
+                       "found uncommitted/unaborted delta in settled delta chain");
+            if (ts < kTransactionInitialId && ts > highest_commit_ts) {
+              highest_commit_ts = std::max(highest_commit_ts, ts);
+            }
+            current = current->next.load();
+          }
+        }
+
+        // Set the unlinkable timestamp to the highest commit timestamp found
+        it->deltas_.unlinkable_timestamp_ = highest_commit_ts;
+
+        committed_transactions_.WithLock(
+            [&](auto &committed_transactions) { committed_transactions.emplace_back(std::move(it->deltas_)); });
+        it = waiting_list.erase(it);
+      } else {
+        ++it;
+      }
+    }
+  });
+
   {
     auto guard = std::unique_lock{engine_lock_};
     uint64_t mark_timestamp = timestamp_;  // a timestamp no active transaction can currently have
 
+    // @TODO check all these assumptions in the case of interleaved deltas.
     // Deltas from previous GC runs or from aborts can be cleaned up here
     garbage_undo_buffers_.WithLock([&](auto &garbage_undo_buffers) {
       guard.unlock();
@@ -2116,10 +2305,12 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
   auto const end_linked_undo_buffers = linked_undo_buffers.end();
   for (auto linked_entry = linked_undo_buffers.begin(); linked_entry != end_linked_undo_buffers;) {
     auto const *const commit_timestamp_ptr = linked_entry->commit_timestamp_.get();
-    auto const commit_timestamp = commit_timestamp_ptr->load(std::memory_order_acquire);
+
+    // Use unlinkable_timestamp to determine if safe to unlink (accounts for waiting room delay)
+    auto const unlinkable_timestamp = linked_entry->unlinkable_timestamp_;
 
     // only process those that are no longer active
-    if (commit_timestamp >= oldest_active_start_timestamp) {
+    if (unlinkable_timestamp >= oldest_active_start_timestamp) {
       ++linked_entry;  // can not process, skip
       continue;        // must continue to next transaction, because committed_transactions_ was not ordered
     }
@@ -2157,6 +2348,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
 
     for (Delta &delta : linked_entry->deltas_) {
       index_impact.update(delta.action);
+
       while (true) {
         auto prev = delta.prev.Get();
         switch (prev.type) {
@@ -2323,7 +2515,9 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
         guard.unlock();
         // correct the markers, and defer until next GC run
         for (auto &unlinked_undo_buffer : unlinked_undo_buffers) {
-          unlinked_undo_buffer.mark_timestamp_ = mark_timestamp;
+          // Use unlinkable_timestamp as mark_timestamp for interleaved deltas
+          // This ensures they aren't freed until all transactions that could see them are done
+          unlinked_undo_buffer.mark_timestamp_ = unlinked_undo_buffer.unlinkable_timestamp_;
         }
         // ensure insert at end to preserve the order
         garbage_undo_buffers.splice(garbage_undo_buffers.end(), std::move(unlinked_undo_buffers));
