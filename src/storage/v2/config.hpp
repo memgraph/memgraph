@@ -16,11 +16,11 @@
 #include <filesystem>
 
 #include "flags/coord_flag_env_handler.hpp"
-#include "flags/replication.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "storage/v2/storage_mode.hpp"
 #include "utils/compressor.hpp"
 #include "utils/exceptions.hpp"
+#include "utils/safe_string.hpp"
 #include "utils/scheduler.hpp"
 #include "utils/uuid.hpp"
 
@@ -33,7 +33,7 @@ class StorageConfigException : public utils::BasicException {
 };
 
 struct SalientConfig {
-  std::string name;
+  utils::SafeString name;
   utils::UUID uuid;
   StorageMode storage_mode{StorageMode::IN_MEMORY_TRANSACTIONAL};
   utils::CompressionLevel property_store_compression_level{utils::CompressionLevel::MID};

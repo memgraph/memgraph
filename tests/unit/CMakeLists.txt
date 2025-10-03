@@ -59,6 +59,12 @@ add_unit_test(cypher_main_visitor
     LINK_TARGETS mg-query
 )
 
+add_unit_test(event_map
+        SOURCES event_map.cpp
+        LINK_TARGETS mg-events mg-utils
+)
+
+
 add_unit_test(interpreter
     SOURCES interpreter.cpp ${CMAKE_SOURCE_DIR}/src/glue/communication.cpp
     LINK_TARGETS mg-communication mg-query mg-glue
@@ -369,6 +375,11 @@ add_unit_test(utils_signals
     LINK_TARGETS mg-utils
 )
 
+add_unit_test(utils_safe_string
+    SOURCES utils_safe_string.cpp
+    LINK_TARGETS mg-utils
+)
+
 add_unit_test(utils_string
     SOURCES utils_string.cpp
     LINK_TARGETS mg-utils
@@ -523,6 +534,11 @@ add_unit_test(storage_v2_durability_inmemory
 add_unit_test(storage_v2_create_snapshot
     SOURCES storage_v2_create_snapshot.cpp
     LINK_TARGETS mg::storage mg-dbms
+)
+
+add_unit_test(storage_v2_retention.
+        SOURCES storage_v2_retention.cpp
+        LINK_TARGETS mg::storage
 )
 
 add_unit_test(storage_rocks
@@ -732,7 +748,7 @@ add_unit_test(snapshot_rpc_progress
 
 add_unit_test(rpc_versioning
     SOURCES rpc_versioning.cpp
-    LINK_TARGETS mg-rpc rpc_messages
+    LINK_TARGETS mg-coordination mg-repl_coord_glue mg-rpc rpc_messages
 )
 
 # Test websocket

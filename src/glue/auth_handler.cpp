@@ -365,7 +365,10 @@ bool AuthQueryHandler::CreateUser(const std::string &username, const std::option
     });
 
     if (first_user) {
-      spdlog::info("{} is the first created user. Granting all privileges.", username);
+      spdlog::info(
+          "{} is the first created user. Granting all privileges. The official advice and intention is to use this "
+          "first user as the superuser with full privileges and capabilities on the Memgraph database.",
+          username);
       GrantPrivilege(
           username, memgraph::query::kPrivilegesAll
 #ifdef MG_ENTERPRISE

@@ -10,8 +10,6 @@
 // licenses/APL.txt.
 
 #include "storage/v2/indices/text_index.hpp"
-
-#include "flags/experimental.hpp"
 #include "mgcxx_text_search.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
@@ -42,27 +40,25 @@ void TextIndex::CreateTantivyIndex(const std::string &index_path, const TextInde
   }
 }
 
-std::vector<TextIndexData *> TextIndex::GetApplicableTextIndices(std::span<storage::LabelId const> labels,
-                                                                 std::span<PropertyId const> properties) {
+std::vector<TextIndexData *> TextIndex::LabelApplicableTextIndices(std::span<storage::LabelId const> labels) {
   std::vector<TextIndexData *> applicable_text_indices;
-  auto matches_label = [&](const auto &text_index_data) {
-    return r::any_of(labels, [&](auto labelid) { return labelid == text_index_data.scope; });
-  };
-
-  auto matches_property = [&](const auto &text_index_data) {
-    if (text_index_data.properties.empty()) {  // If no properties are specified, all properties match
-      return true;
-    }
-    return r::any_of(properties,
-                     [&](auto property_id) { return r::contains(text_index_data.properties, property_id); });
-  };
-
-  for (auto &[index_name, text_index_data] : index_) {
-    if (matches_label(text_index_data) && matches_property(text_index_data)) {
-      applicable_text_indices.push_back(&text_index_data);
+  for (auto &[_, index_data] : index_) {
+    if (r::any_of(labels, [&](auto label) { return label == index_data.scope; })) {
+      applicable_text_indices.push_back(&index_data);
     }
   }
   return applicable_text_indices;
+}
+
+std::vector<TextIndexData *> TextIndex::GetIndicesMatchingProperties(std::span<TextIndexData *const> label_indices,
+                                                                     std::span<const PropertyId> properties) {
+  std::vector<TextIndexData *> result;
+  for (const auto &text_index_data : label_indices) {
+    if (IndexPropertiesMatch(text_index_data->properties, properties)) {
+      result.push_back(text_index_data);
+    }
+  }
+  return result;
 }
 
 void TextIndex::AddNodeToTextIndex(std::int64_t gid, const nlohmann::json &properties,
@@ -86,26 +82,43 @@ void TextIndex::AddNodeToTextIndex(std::int64_t gid, const nlohmann::json &prope
 }
 
 void TextIndex::UpdateOnAddLabel(LabelId label, const Vertex *vertex, Transaction &tx) {
-  auto applicable_text_indices = GetApplicableTextIndices(std::array{label}, vertex->properties.ExtractPropertyIds());
-  if (applicable_text_indices.empty()) return;
+  if (index_.empty()) return;
+  auto label_applicable_text_indices = LabelApplicableTextIndices(std::array{label});
+  if (label_applicable_text_indices.empty()) return;
+  const auto vertex_properties = vertex->properties.ExtractPropertyIds();
+  auto applicable_text_indices = GetIndicesMatchingProperties(label_applicable_text_indices, vertex_properties);
   TrackTextIndexChange(tx.text_index_change_collector_, applicable_text_indices, vertex, TextIndexOp::ADD);
 }
 
 void TextIndex::UpdateOnRemoveLabel(LabelId label, const Vertex *vertex, Transaction &tx) {
-  auto applicable_text_indices = GetApplicableTextIndices(std::array{label}, vertex->properties.ExtractPropertyIds());
-  if (applicable_text_indices.empty()) return;
+  if (index_.empty()) return;
+  auto label_applicable_text_indices = LabelApplicableTextIndices(std::array{label});
+  if (label_applicable_text_indices.empty()) return;
+  const auto vertex_properties = vertex->properties.ExtractPropertyIds();
+  auto applicable_text_indices = GetIndicesMatchingProperties(label_applicable_text_indices, vertex_properties);
   TrackTextIndexChange(tx.text_index_change_collector_, applicable_text_indices, vertex, TextIndexOp::REMOVE);
 }
 
-void TextIndex::UpdateOnSetProperty(const Vertex *vertex, Transaction &tx) {
-  auto applicable_text_indices = GetApplicableTextIndices(vertex->labels, vertex->properties.ExtractPropertyIds());
-  if (applicable_text_indices.empty()) return;
+void TextIndex::UpdateOnSetProperty(const Vertex *vertex, Transaction &tx, PropertyId property) {
+  if (index_.empty() || vertex->labels.empty()) return;
+  auto has_label = [&](const auto &text_index_data) {
+    return r::any_of(vertex->labels, [&](auto label) { return label == text_index_data.scope; });
+  };
+  std::vector<TextIndexData *> applicable_text_indices;
+  for (auto &[_, index_data] : index_) {
+    if (IndexPropertiesMatch(index_data.properties, std::array{property}) && has_label(index_data)) {
+      applicable_text_indices.push_back(&index_data);
+    }
+  };
   TrackTextIndexChange(tx.text_index_change_collector_, applicable_text_indices, vertex, TextIndexOp::UPDATE);
 }
 
 void TextIndex::RemoveNode(const Vertex *vertex, Transaction &tx) {
-  auto applicable_text_indices = GetApplicableTextIndices(vertex->labels, vertex->properties.ExtractPropertyIds());
-  if (applicable_text_indices.empty()) return;
+  if (index_.empty()) return;
+  auto label_applicable_text_indices = LabelApplicableTextIndices(vertex->labels);
+  if (label_applicable_text_indices.empty()) return;
+  const auto vertex_properties = vertex->properties.ExtractPropertyIds();
+  auto applicable_text_indices = GetIndicesMatchingProperties(label_applicable_text_indices, vertex_properties);
   TrackTextIndexChange(tx.text_index_change_collector_, applicable_text_indices, vertex, TextIndexOp::REMOVE);
 }
 
@@ -162,9 +175,6 @@ bool TextIndex::IndexExists(const std::string &index_name) const { return index_
 
 std::vector<TextSearchResult> TextIndex::Search(const std::string &index_name, const std::string &search_query,
                                                 text_search_mode search_mode, std::size_t limit) {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    throw query::TextSearchDisabledException();
-  }
   auto &context = std::invoke([&]() -> mgcxx::text_search::Context & {
     if (const auto it = index_.find(index_name); it != index_.end()) {
       return it->second.context;
@@ -187,10 +197,6 @@ std::vector<TextSearchResult> TextIndex::Search(const std::string &index_name, c
 
 std::string TextIndex::Aggregate(const std::string &index_name, const std::string &search_query,
                                  const std::string &aggregation_query) {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    throw query::TextSearchDisabledException();
-  }
-
   auto &context = std::invoke([&]() -> mgcxx::text_search::Context & {
     if (const auto it = index_.find(index_name); it != index_.end()) {
       return it->second.context;

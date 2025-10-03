@@ -3238,6 +3238,8 @@ antlrcpp::Any CypherMainVisitor::visitAtom(MemgraphCypher::AtomContext *ctx) {
                      ? std::any_cast<Expression *>(ctx->listComprehension()->expression()->accept(this))
                      : nullptr;
     return static_cast<Expression *>(storage_->Create<ListComprehension>(ident, list, where, expr));
+  } else if (ctx->patternExpression()) {
+    return std::any_cast<Expression *>(ctx->patternExpression()->accept(this));
   }
 
   // NOTE: Memgraph does NOT support patterns under filtering.
@@ -3376,6 +3378,16 @@ antlrcpp::Any CypherMainVisitor::visitPatternComprehension(MemgraphCypher::Patte
   }
   comprehension->resultExpr_ = std::any_cast<Expression *>(ctx->expression()->accept(this));
   return static_cast<Expression *>(comprehension);
+}
+
+antlrcpp::Any CypherMainVisitor::visitPatternExpression(MemgraphCypher::PatternExpressionContext *ctx) {
+  auto *exists = storage_->Create<Exists>();
+  exists->content_ = std::any_cast<Pattern *>(ctx->forcePatternPart()->accept(this));
+  if (exists->GetPattern()->identifier_) {
+    throw SyntaxException("Identifiers are not supported in pattern expressions.");
+  }
+
+  return static_cast<Expression *>(exists);
 }
 
 antlrcpp::Any CypherMainVisitor::visitParenthesizedExpression(MemgraphCypher::ParenthesizedExpressionContext *ctx) {
@@ -3726,8 +3738,18 @@ antlrcpp::Any CypherMainVisitor::visitDropDatabase(MemgraphCypher::DropDatabaseC
   auto *mdb_query = storage_->Create<MultiDatabaseQuery>();
   mdb_query->db_name_ = std::any_cast<std::string>(ctx->databaseName()->accept(this));
   mdb_query->action_ = MultiDatabaseQuery::Action::DROP;
+  mdb_query->force_ = ctx->FORCE() != nullptr;
   query_ = mdb_query;
   return mdb_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitRenameDatabase(MemgraphCypher::RenameDatabaseContext *ctx) {
+  auto *rename_query = storage_->Create<MultiDatabaseQuery>();
+  rename_query->db_name_ = std::any_cast<std::string>(ctx->databaseName(0)->accept(this));
+  rename_query->new_db_name_ = std::any_cast<std::string>(ctx->databaseName(1)->accept(this));
+  rename_query->action_ = MultiDatabaseQuery::Action::RENAME;
+  query_ = rename_query;
+  return rename_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitUseDatabase(MemgraphCypher::UseDatabaseContext *ctx) {

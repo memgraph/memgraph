@@ -13,8 +13,7 @@
 
 #include "planner/core/union_find.hpp"
 
-using memgraph::planner::core::UnionFind;
-using memgraph::planner::core::UnionFindContext;
+namespace memgraph::planner::core {
 
 TEST(UnionFind, InitAndMergeSets) {
   UnionFind uf;
@@ -109,3 +108,5 @@ TEST(UnionFind, ClearResetsStructure) {
   EXPECT_EQ(uf.Size(), 0);
   EXPECT_EQ(uf.ComponentCount(), 0);
 }
+
+}  // namespace memgraph::planner::core

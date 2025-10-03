@@ -925,11 +925,8 @@ void InMemoryStorage::InMemoryAccessor::FinalizeCommitPhase(uint64_t const durab
   // TODO: can and should this be moved earlier?
   mem_storage->commit_log_->MarkFinished(transaction_.start_timestamp);
   CheckForFastDiscardOfDeltas();
-
-  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    memgraph::storage::TextIndex::ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
-    memgraph::storage::TextEdgeIndex::ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
-  }
+  memgraph::storage::TextIndex::ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
+  memgraph::storage::TextEdgeIndex::ApplyTrackedChanges(transaction_, mem_storage->name_id_mapper_.get());
   is_transaction_active_ = false;
 }
 
@@ -3041,12 +3038,12 @@ utils::BasicResult<InMemoryStorage::RecoverSnapshotError> InMemoryStorage::Recov
     }
     std::filesystem::remove(recovery_.snapshot_directory_ / old_dir, ec);  // remove dir if empty
     auto wal_files = storage::durability::GetWalFiles(recovery_.wal_directory_);
-    if (wal_files) {
-      for (const auto &wal_file : *wal_files) {
-        spdlog::trace("Moving WAL file {}", wal_file.path);
-        file_retainer_.RenameFile(wal_file.path, recovery_.wal_directory_ / old_dir / wal_file.path.filename());
-      }
+
+    for (const auto &wal_file : wal_files) {
+      spdlog::trace("Moving WAL file {}", wal_file.path);
+      file_retainer_.RenameFile(wal_file.path, recovery_.wal_directory_ / old_dir / wal_file.path.filename());
     }
+
     std::filesystem::remove(recovery_.wal_directory_ / old_dir, ec);  // remove dir if empty
   } catch (const storage::durability::RecoveryFailure &e) {
     handler_error();
@@ -3341,6 +3338,8 @@ ConstraintsInfo InMemoryStorage::InMemoryAccessor::ListAllConstraints() const {
 
 void InMemoryStorage::InMemoryAccessor::DropAllIndexes() {
   auto indices_info = ListAllIndices();
+
+  static_cast<InMemoryStorage *>(storage_)->async_indexer_.Clear();
 
   for (const auto &label_id : indices_info.label) {
     [[maybe_unused]] auto maybe_error = DropIndex(label_id);

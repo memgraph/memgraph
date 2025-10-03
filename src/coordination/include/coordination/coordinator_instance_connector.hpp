@@ -16,8 +16,7 @@
 #include "coordination/coordinator_instance_client.hpp"
 #include "coordination/coordinator_rpc.hpp"
 #include "coordination/instance_status.hpp"
-
-#include <memory>
+#include "coordination/utils.hpp"
 
 namespace memgraph::coordination {
 
@@ -26,6 +25,8 @@ class CoordinatorInstanceConnector {
   explicit CoordinatorInstanceConnector(ManagementServerConfig const &config) : client_{config} {}
 
   auto SendShowInstances() const -> std::optional<std::vector<InstanceStatus>>;
+
+  auto SendGetRoutingTable(std::string_view db_name) const -> std::optional<RoutingTable>;
 
  private:
   mutable CoordinatorInstanceClient client_;

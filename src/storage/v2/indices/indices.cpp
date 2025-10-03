@@ -53,36 +53,28 @@ void Indices::DropGraphClearIndices() {
   point_index_.Clear();
   vector_index_.Clear();
   vector_edge_index_.Clear();
-  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    text_index_.Clear();
-    text_edge_index_.Clear();
-  }
+  text_index_.Clear();
+  text_edge_index_.Clear();
 }
 
 void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx) {
   tx.active_indices_.label_->UpdateOnAddLabel(label, vertex, tx);
   tx.active_indices_.label_properties_->UpdateOnAddLabel(label, vertex, tx);
   vector_index_.UpdateOnAddLabel(label, vertex);
-  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    text_index_.UpdateOnAddLabel(label, vertex, tx);
-  }
+  text_index_.UpdateOnAddLabel(label, vertex, tx);
 }
 
 void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx) {
   tx.active_indices_.label_->UpdateOnRemoveLabel(label, vertex, tx);
   tx.active_indices_.label_properties_->UpdateOnRemoveLabel(label, vertex, tx);
   vector_index_.UpdateOnRemoveLabel(label, vertex);
-  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    text_index_.UpdateOnRemoveLabel(label, vertex, tx);
-  }
+  text_index_.UpdateOnRemoveLabel(label, vertex, tx);
 }
 
 void Indices::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex, Transaction &tx) {
   tx.active_indices_.label_properties_->UpdateOnSetProperty(property, value, vertex, tx);
   vector_index_.UpdateOnSetProperty(property, value, vertex);
-  if (flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    text_index_.UpdateOnSetProperty(vertex, tx);
-  }
+  text_index_.UpdateOnSetProperty(vertex, tx, property);
 }
 
 void Indices::UpdateOnSetProperty(EdgeTypeId edge_type, PropertyId property, const PropertyValue &value,
@@ -92,7 +84,7 @@ void Indices::UpdateOnSetProperty(EdgeTypeId edge_type, PropertyId property, con
   tx.active_indices_.edge_property_->UpdateOnSetProperty(from_vertex, to_vertex, edge, edge_type, property, value,
                                                          tx.start_timestamp);
   vector_edge_index_.UpdateOnSetProperty(from_vertex, to_vertex, edge, edge_type, property, value);
-  text_edge_index_.UpdateOnSetProperty(edge, from_vertex, to_vertex, edge_type, tx);
+  text_edge_index_.UpdateOnSetProperty(edge, from_vertex, to_vertex, edge_type, tx, property);
 }
 
 void Indices::UpdateOnEdgeCreation(Vertex *from, Vertex *to, EdgeRef edge_ref, EdgeTypeId edge_type,

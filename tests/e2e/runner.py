@@ -60,9 +60,6 @@ def load_workloads(root_directory):
         # 8.03.2024. - Skip streams e2e tests
         if str(file).endswith("/streams/workloads.yaml"):
             continue
-        # Skip GraphQL e2e tests in CI
-        if str(file).endswith("/graphql/workloads.yaml"):
-            continue
         with open(file, "r") as f:
             workloads.extend(yaml.load(f, Loader=yaml.FullLoader)["workloads"])
     return workloads

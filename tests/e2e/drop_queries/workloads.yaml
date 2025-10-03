@@ -1,7 +1,7 @@
 drop_queries_cluster: &drop_queries_cluster
   cluster:
     main:
-      args: ["--bolt-port", "7687", "--log-level=TRACE", "--experimental-enabled=text-search"]
+      args: ["--bolt-port", "7687", "--log-level=TRACE"]
       log_file: "drop_queries.log"
       setup_queries: []
       validation_queries: []

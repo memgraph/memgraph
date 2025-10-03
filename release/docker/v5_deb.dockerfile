@@ -6,7 +6,7 @@ ARG EXTENSION
 ARG TARGETARCH
 
 RUN apt-get update && apt-get install -y \
-  openssl libcurl4 libssl3 libseccomp2 python3 libpython3.11 python3-pip libxmlsec1-dev xmlsec1 \
+  openssl libcurl4 libssl3 libseccomp2 python3 libpython3.11 python3-pip libxmlsec1 \
   --no-install-recommends && \
   rm -rf /var/lib/apt/lists/* /tmp/* /var/tmp/*
 

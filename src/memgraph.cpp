@@ -11,7 +11,6 @@
 
 #include <algorithm>
 #include <cstdint>
-#include <cstdlib>
 #include <exception>
 #include <memory>
 #include <optional>
@@ -70,7 +69,6 @@
 #include "utils/sysinfo/memory.hpp"
 #include "utils/system_info.hpp"
 #include "utils/terminate_handler.hpp"
-#include "utils/variant_helpers.hpp"
 #include "version.hpp"
 
 #include <spdlog/spdlog.h>
@@ -447,38 +445,58 @@ int main(int argc, char **argv) {
 
 #endif
 
+#ifdef MG_ENTERPRISE
+  memgraph::flags::SetFinalCoordinationSetup();
+  auto const &coordination_setup = memgraph::flags::CoordinationSetupInstance();
+  if (coordination_setup.IsDataInstanceManagedByCoordinator() &&
+      db_config.salient.storage_mode == IN_MEMORY_TRANSACTIONAL) {
+    MG_ASSERT(db_config.durability.snapshot_wal_mode == PERIODIC_SNAPSHOT_WITH_WAL,
+              "When running Memgraph in high availability mode, a data instance must be started with flag "
+              "--storage-wal-enabled=true. One of the flags used for setting up snapshots "
+              "--storage-snapshot-interval-sec or --storage-snapshot-interval also needs to be set.");
+  }
+
+#endif
+
   // Default interpreter configuration
-  memgraph::query::InterpreterConfig interp_config{
+  memgraph::query::InterpreterConfig const interp_config{
       .query = {.allow_load_csv = FLAGS_allow_load_csv},
       .replication_replica_check_frequency = std::chrono::seconds(FLAGS_replication_replica_check_frequency_sec),
-#ifdef MG_ENTERPRISE
-#endif
       .default_kafka_bootstrap_servers = FLAGS_kafka_bootstrap_servers,
       .default_pulsar_service_url = FLAGS_pulsar_service_url,
       .stream_transaction_conflict_retries = FLAGS_stream_transaction_conflict_retries,
       .stream_transaction_retry_interval = std::chrono::milliseconds(FLAGS_stream_transaction_retry_interval)};
 
-  auto auth_glue = [](memgraph::auth::SynchedAuth *auth, std::unique_ptr<memgraph::query::AuthQueryHandler> &ah,
-                      std::unique_ptr<memgraph::query::AuthChecker> &ac) {
-    // Glue high level auth implementations to the query side
-    ah = std::make_unique<memgraph::glue::AuthQueryHandler>(auth);
-    ac = std::make_unique<memgraph::glue::AuthChecker>(auth);
-    // Handle users passed via arguments
-    auto *maybe_username = std::getenv(kMgUser);
-    auto *maybe_password = std::getenv(kMgPassword);
-    auto *maybe_pass_file = std::getenv(kMgPassfile);
-    if (maybe_username && maybe_password) {
-      ah->CreateUser(maybe_username, maybe_password, nullptr);
-    } else if (maybe_pass_file) {
-      const auto [username, password] = LoadUsernameAndPassword(maybe_pass_file);
-      if (!username.empty() && !password.empty()) {
-        ah->CreateUser(username, password, nullptr);
-      }
-    }
-  };
+#ifdef MG_ENTERPRISE
+  auto auth_glue = [&coordination_setup]
+#else
+  auto auth_glue = []
+#endif
+      (memgraph::auth::SynchedAuth *auth, std::unique_ptr<memgraph::query::AuthQueryHandler> &ah,
+       std::unique_ptr<memgraph::query::AuthChecker> &ac) {
+        // Glue high level auth implementations to the query side
+        ah = std::make_unique<memgraph::glue::AuthQueryHandler>(auth);
+        ac = std::make_unique<memgraph::glue::AuthChecker>(auth);
+        // Handle users passed via arguments
+        auto *maybe_username = std::getenv(kMgUser);
+        auto *maybe_password = std::getenv(kMgPassword);
+        auto *maybe_pass_file = std::getenv(kMgPassfile);
+#ifdef MG_ENTERPRISE
+        if (maybe_username && maybe_password && !coordination_setup.IsCoordinator()) {
+#else
+        if (maybe_username && maybe_password) {
+#endif
+          ah->CreateUser(maybe_username, maybe_password, nullptr);
+        } else if (maybe_pass_file) {
+          const auto [username, password] = LoadUsernameAndPassword(maybe_pass_file);
+          if (!username.empty() && !password.empty()) {
+            ah->CreateUser(username, password, nullptr);
+          }
+        }
+      };
 
-  memgraph::auth::Auth::Config auth_config{FLAGS_auth_user_or_role_name_regex, FLAGS_auth_password_strength_regex,
-                                           FLAGS_auth_password_permit_null};
+  memgraph::auth::Auth::Config const auth_config{FLAGS_auth_user_or_role_name_regex, FLAGS_auth_password_strength_regex,
+                                                 FLAGS_auth_password_permit_null};
 
   std::unique_ptr<memgraph::query::AuthQueryHandler> auth_handler;
   std::unique_ptr<memgraph::query::AuthChecker> auth_checker;
@@ -499,19 +517,6 @@ int main(int argc, char **argv) {
   auth_glue(auth_.get(), auth_handler, auth_checker);
 
   auto system = memgraph::system::System{db_config.durability.storage_directory, FLAGS_data_recovery_on_startup};
-
-#ifdef MG_ENTERPRISE
-  memgraph::flags::SetFinalCoordinationSetup();
-  auto const &coordination_setup = memgraph::flags::CoordinationSetupInstance();
-  if (coordination_setup.IsDataInstanceManagedByCoordinator() &&
-      db_config.salient.storage_mode == IN_MEMORY_TRANSACTIONAL) {
-    MG_ASSERT(db_config.durability.snapshot_wal_mode == PERIODIC_SNAPSHOT_WITH_WAL,
-              "When running Memgraph in high availability mode, a data instance must be started with flag "
-              "--storage-wal-enabled=true. One of the flags used for setting up snapshots "
-              "--storage-snapshot-interval-sec or --storage-snapshot-interval also needs to be set.");
-  }
-
-#endif
 
   int const extracted_bolt_port = [&]() {
     if (auto *maybe_env_bolt_port = std::getenv(kMgBoltPort); maybe_env_bolt_port) {
@@ -707,6 +712,7 @@ int main(int argc, char **argv) {
     telemetry->AddStorageCollector(dbms_handler, *auth_);
 #ifdef MG_ENTERPRISE
     telemetry->AddDatabaseCollector(dbms_handler);
+    telemetry->AddCoordinatorCollector(coordinator_state);
 #else
     telemetry->AddDatabaseCollector();
 #endif
@@ -714,7 +720,7 @@ int main(int argc, char **argv) {
     telemetry->AddEventsCollector();
     telemetry->AddQueryModuleCollector();
     telemetry->AddExceptionCollector();
-    telemetry->AddReplicationCollector();
+    telemetry->AddReplicationCollector(repl_state);
     telemetry->Start();
   }
   memgraph::license::LicenseInfoSender license_info_sender(telemetry_server, memgraph::glue::run_id_, machine_id,

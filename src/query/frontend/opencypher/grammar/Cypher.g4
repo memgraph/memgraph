@@ -267,7 +267,7 @@ atom : listComprehension
      | ( SINGLE '(' filterExpression ')' )
      | ( EXISTS '(' existsExpression ')' )
      | ( EXISTS '{' existsSubquery '}' )
-     | relationshipsPattern
+     | patternExpression
      | parenthesizedExpression
      | functionInvocation
      | variable
@@ -317,6 +317,8 @@ existsSubquery : forcePatternPart
 forcePatternPart : ( variable '=' relationshipsPattern )
                  | relationshipsPattern
                  ;
+
+patternExpression : forcePatternPart ;
 
 idInColl : variable IN expression ;
 

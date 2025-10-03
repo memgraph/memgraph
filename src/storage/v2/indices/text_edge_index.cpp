@@ -10,7 +10,6 @@
 // licenses/APL.txt.
 
 #include "storage/v2/indices/text_edge_index.hpp"
-#include "flags/experimental.hpp"
 #include "mgcxx_text_search.hpp"
 #include "query/exceptions.hpp"
 #include "storage/v2/edge_accessor.hpp"
@@ -43,25 +42,25 @@ void TextEdgeIndex::CreateTantivyIndex(const std::string &index_path, const Text
   }
 }
 
-std::vector<TextEdgeIndexData *> TextEdgeIndex::GetApplicableTextIndices(EdgeTypeId edge_type,
-                                                                         std::span<PropertyId const> properties) {
+std::vector<TextEdgeIndexData *> TextEdgeIndex::EdgeTypeApplicableTextIndices(EdgeTypeId edge_type) {
   std::vector<TextEdgeIndexData *> applicable_text_indices;
-  auto matches_edge_type = [&](const auto &text_edge_index_data) { return edge_type == text_edge_index_data.scope; };
-
-  auto matches_property = [&](const auto &text_edge_index_data) {
-    if (text_edge_index_data.properties.empty()) {  // If no properties are specified, all properties match
-      return true;
-    }
-    return r::any_of(properties,
-                     [&](auto property_id) { return r::contains(text_edge_index_data.properties, property_id); });
-  };
-
-  for (auto &[index_name, text_edge_index_data] : index_) {
-    if (matches_edge_type(text_edge_index_data) && matches_property(text_edge_index_data)) {
-      applicable_text_indices.push_back(&text_edge_index_data);
+  for (auto &[_, index_data] : index_) {
+    if (edge_type == index_data.scope) {
+      applicable_text_indices.push_back(&index_data);
     }
   }
   return applicable_text_indices;
+}
+
+std::vector<TextEdgeIndexData *> TextEdgeIndex::GetIndicesMatchingProperties(
+    std::span<TextEdgeIndexData *const> edge_type_indices, std::span<const PropertyId> properties) {
+  std::vector<TextEdgeIndexData *> result;
+  for (const auto &text_edge_index_data : edge_type_indices) {
+    if (IndexPropertiesMatch(text_edge_index_data->properties, properties)) {
+      result.push_back(text_edge_index_data);
+    }
+  }
+  return result;
 }
 
 void TextEdgeIndex::AddEdgeToTextIndex(std::int64_t edge_gid, std::int64_t from_vertex_gid, std::int64_t to_vertex_gid,
@@ -88,16 +87,25 @@ void TextEdgeIndex::AddEdgeToTextIndex(std::int64_t edge_gid, std::int64_t from_
 }
 
 void TextEdgeIndex::RemoveEdge(const Edge *edge, EdgeTypeId edge_type, Transaction &tx) {
-  auto applicable_text_indices = GetApplicableTextIndices(edge_type, edge->properties.ExtractPropertyIds());
-  if (applicable_text_indices.empty()) return;
+  if (index_.empty()) return;
+  auto edge_type_applicable_text_indices = EdgeTypeApplicableTextIndices(edge_type);
+  if (edge_type_applicable_text_indices.empty()) return;
+  const auto edge_properties = edge->properties.ExtractPropertyIds();
+  auto applicable_text_indices = GetIndicesMatchingProperties(edge_type_applicable_text_indices, edge_properties);
   TrackTextEdgeIndexChange(tx.text_edge_index_change_collector_, applicable_text_indices, edge, nullptr, nullptr,
                            TextIndexOp::REMOVE);
 }
 
 void TextEdgeIndex::UpdateOnSetProperty(const Edge *edge, const Vertex *from_vertex, const Vertex *to_vertex,
-                                        EdgeTypeId edge_type, Transaction &tx) {
-  auto applicable_text_indices = GetApplicableTextIndices(edge_type, edge->properties.ExtractPropertyIds());
-  if (applicable_text_indices.empty()) return;
+                                        EdgeTypeId edge_type, Transaction &tx, PropertyId property) {
+  if (index_.empty()) return;
+  auto has_edge_type = [&](const auto &text_edge_index_data) { return edge_type == text_edge_index_data.scope; };
+  std::vector<TextEdgeIndexData *> applicable_text_indices;
+  for (auto &[_, index_data] : index_) {
+    if (IndexPropertiesMatch(index_data.properties, std::array{property}) && has_edge_type(index_data)) {
+      applicable_text_indices.push_back(&index_data);
+    }
+  }
   TrackTextEdgeIndexChange(tx.text_edge_index_change_collector_, applicable_text_indices, edge, from_vertex, to_vertex,
                            TextIndexOp::UPDATE);
 }
@@ -157,9 +165,6 @@ bool TextEdgeIndex::IndexExists(const std::string &index_name) const { return in
 
 std::vector<TextEdgeSearchResult> TextEdgeIndex::Search(const std::string &index_name, const std::string &search_query,
                                                         text_search_mode search_mode, std::size_t limit) {
-  if (!flags::AreExperimentsEnabled(flags::Experiments::TEXT_SEARCH)) {
-    throw query::TextSearchDisabledException();
-  }
   auto &context = std::invoke([&]() -> mgcxx::text_search::Context & {
     if (const auto it = index_.find(index_name); it != index_.end()) {
       return it->second.context;
