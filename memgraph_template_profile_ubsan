@@ -7,3 +7,10 @@ tools.build:cflags+=["-fsanitize=undefined", "-fno-omit-frame-pointer", "-fno-sa
 tools.build:cxxflags+=["-fsanitize=undefined", "-fno-omit-frame-pointer", "-fno-sanitize=vptr,function", "-fsanitize-ignorelist={{ os.path.join(current_dir, 'tools', 'ubsan.ignore') }}"]
 tools.build:exelinkflags+=["-fsanitize=undefined", "-fno-sanitize=vptr,function"]
 tools.build:sharedlinkflags+=["-fsanitize=undefined", "-fno-sanitize=vptr,function"]
+
+[options]
+{% if target_arch == "armv8" %}
+boost/*:extra_b2_flags=cxxflags=--target=aarch64-unknown-linux-gnu cflags=--target=aarch64-unknown-linux-gnu linkflags=--target=aarch64-unknown-linux-gnu
+{% else %}
+boost/*:extra_b2_flags=cxxflags=--target=x86_64-linux-gnu cflags=--target=x86_64-linux-gnu linkflags=--target=x86_64-linux-gnu
+{% endif %}
