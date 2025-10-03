@@ -16,14 +16,17 @@
 #include "arrow/api.h"
 #include "parquet/arrow/reader.h"
 
+#include "query/typed_value.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/string.hpp"
 #include "utils/pmr/vector.hpp"
 
 // TODO (andi) Implement this for local and url files
-namespace memgraph::arrow {
+namespace memgraph::query {
+class TypedValue;
 
-using Row = utils::pmr::vector<utils::pmr::string>;
+using Row = utils::pmr::vector<TypedValue>;
+using Header = utils::pmr::vector<utils::pmr::string>;
 
 class ParquetReader {
  public:
@@ -33,7 +36,7 @@ class ParquetReader {
   ~ParquetReader();
 
   auto GetNextRow() const -> std::optional<Row>;
-  auto GetHeader(utils::MemoryResource *resource) const -> Row;
+  auto GetHeader(utils::MemoryResource *resource) const -> Header;
 
  private:
   // Faster compilation with mg-query is the reason
@@ -41,4 +44,4 @@ class ParquetReader {
   std::unique_ptr<impl> pimpl_;
 };
 
-}  // namespace memgraph::arrow
+}  // namespace memgraph::query
