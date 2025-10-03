@@ -1683,6 +1683,34 @@ static TypedValue MakeTypedValueList(TArgs &&...args) {
   return TypedValue(std::vector<TypedValue>{TypedValue(args)...});
 }
 
+static void CompareList(const TypedValue &lhs, const TypedValue &rhs) {
+  if (lhs.IsNull() || rhs.IsNull()) {
+    ASSERT_EQ(lhs.IsNull(), rhs.IsNull());
+    return;
+  }
+  ASSERT_TRUE(lhs.IsList());
+  ASSERT_TRUE(rhs.IsList());
+  const auto &list_lhs = lhs.ValueList();
+  const auto &list_rhs = rhs.ValueList();
+  ASSERT_EQ(list_lhs.size(), list_rhs.size());
+  for (size_t i = 0; i < list_lhs.size(); i++) {
+    const auto &l = list_lhs[i];
+    const auto &r = list_rhs[i];
+    ASSERT_EQ(l.type(), r.type());
+    if (l.IsNull()) {
+      ASSERT_EQ(l.IsNull(), r.IsNull());
+    } else if (l.IsBool()) {
+      ASSERT_EQ(l.ValueBool(), r.ValueBool());
+    } else if (l.IsInt()) {
+      ASSERT_EQ(l.ValueInt(), r.ValueInt());
+    } else if (l.IsDouble()) {
+      ASSERT_EQ(l.ValueDouble(), r.ValueDouble());
+    } else {
+      ASSERT_TRUE(false);
+    }
+  }
+}
+
 TYPED_TEST(FunctionTest, EndNode) {
   ASSERT_THROW(this->EvaluateFunction("ENDNODE"), QueryRuntimeException);
   ASSERT_TRUE(this->EvaluateFunction("ENDNODE", TypedValue()).IsNull());
@@ -1894,6 +1922,52 @@ TYPED_TEST(FunctionTest, ToInteger) {
   ASSERT_TRUE(this->EvaluateFunction("TOINTEGER", "\n\t3X ").IsNull());
   ASSERT_EQ(this->EvaluateFunction("TOINTEGER", -3.5).ValueInt(), -3);
   ASSERT_EQ(this->EvaluateFunction("TOINTEGER", 3.5).ValueInt(), 3);
+}
+
+TYPED_TEST(FunctionTest, ToBooleanList) {
+  ASSERT_THROW(this->EvaluateFunction("TOBOOLEANLIST"), QueryRuntimeException);
+  CompareList(this->EvaluateFunction("TOBOOLEANLIST", MakeTypedValueList(TypedValue())),
+              MakeTypedValueList(TypedValue()));
+  CompareList(this->EvaluateFunction("TOBOOLEANLIST", MakeTypedValueList(123)), MakeTypedValueList(true));
+  CompareList(this->EvaluateFunction("TOBOOLEANLIST", MakeTypedValueList(-213)), MakeTypedValueList(true));
+  CompareList(this->EvaluateFunction("TOBOOLEANLIST", MakeTypedValueList(0)), MakeTypedValueList(false));
+  CompareList(this->EvaluateFunction("TOBOOLEANLIST", MakeTypedValueList(" trUE \n\t")), MakeTypedValueList(true));
+  CompareList(this->EvaluateFunction("TOBOOLEANLIST", MakeTypedValueList("\n\tFalsE")), MakeTypedValueList(false));
+  CompareList(this->EvaluateFunction("TOBOOLEANLIST", MakeTypedValueList("\n\tFALSEA ")),
+              MakeTypedValueList(TypedValue()));
+  CompareList(this->EvaluateFunction("TOBOOLEANLIST", MakeTypedValueList(true)), MakeTypedValueList(true));
+  CompareList(this->EvaluateFunction("TOBOOLEANLIST", MakeTypedValueList(false)), MakeTypedValueList(false));
+  CompareList(this->EvaluateFunction("TOBOOLEANLIST", MakeTypedValueList(false, true, false)),
+              MakeTypedValueList(false, true, false));
+}
+
+TYPED_TEST(FunctionTest, ToFloatList) {
+  ASSERT_THROW(this->EvaluateFunction("TOFLOATLIST"), QueryRuntimeException);
+  CompareList(this->EvaluateFunction("TOFLOATLIST", MakeTypedValueList(TypedValue())),
+              MakeTypedValueList(TypedValue()));
+  CompareList(this->EvaluateFunction("TOFLOATLIST", MakeTypedValueList(" -3.5 \n\t")), MakeTypedValueList(-3.5));
+  CompareList(this->EvaluateFunction("TOFLOATLIST", MakeTypedValueList("\n\t0.5e-1")), MakeTypedValueList(0.05));
+  CompareList(this->EvaluateFunction("TOFLOATLIST", MakeTypedValueList("\n\t3.4e-3X ")),
+              MakeTypedValueList(TypedValue()));
+  CompareList(this->EvaluateFunction("TOFLOATLIST", MakeTypedValueList(-3.5)), MakeTypedValueList(-3.5));
+  CompareList(this->EvaluateFunction("TOFLOATLIST", MakeTypedValueList(-3)), MakeTypedValueList(-3.0));
+  CompareList(this->EvaluateFunction("TOFLOATLIST", MakeTypedValueList(-3, 3.5, 5.6)),
+              MakeTypedValueList(-3.0, 3.5, 5.6));
+  ASSERT_THROW(this->EvaluateFunction("TOFLOATLIST", true), QueryRuntimeException);
+}
+
+TYPED_TEST(FunctionTest, ToIntegerList) {
+  ASSERT_THROW(this->EvaluateFunction("TOINTEGERLIST"), QueryRuntimeException);
+  CompareList(this->EvaluateFunction("TOINTEGERLIST", MakeTypedValueList(TypedValue())),
+              MakeTypedValueList(TypedValue()));
+  CompareList(this->EvaluateFunction("TOINTEGERLIST", MakeTypedValueList(false)), MakeTypedValueList(0));
+  CompareList(this->EvaluateFunction("TOINTEGERLIST", MakeTypedValueList(true)), MakeTypedValueList(1));
+  CompareList(this->EvaluateFunction("TOINTEGERLIST", MakeTypedValueList("\n\t3")), MakeTypedValueList(3));
+  CompareList(this->EvaluateFunction("TOINTEGERLIST", MakeTypedValueList(" -3.5 \n\t")), MakeTypedValueList(-3));
+  CompareList(this->EvaluateFunction("TOINTEGERLIST", MakeTypedValueList("\n\t3X ")), MakeTypedValueList(TypedValue()));
+  CompareList(this->EvaluateFunction("TOINTEGERLIST", MakeTypedValueList(-3.5)), MakeTypedValueList(-3));
+  CompareList(this->EvaluateFunction("TOINTEGERLIST", MakeTypedValueList(3.5)), MakeTypedValueList(3));
+  CompareList(this->EvaluateFunction("TOINTEGERLIST", MakeTypedValueList(-3, 3.5, 5.6)), MakeTypedValueList(-3, 3, 5));
 }
 
 TYPED_TEST(FunctionTest, Type) {
