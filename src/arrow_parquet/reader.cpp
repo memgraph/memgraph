@@ -120,8 +120,11 @@ auto ParquetReader::impl::GetNextRow() -> std::optional<Row> {
 
     // Iterate over columns to be cache friendly
     for (int j = 0U; j < num_columns_; j++) {
+      auto cast_result = ::arrow::compute::Cast(*(*batch_ref_)[j], ::arrow::utf8()).ValueOrDie();
+      auto const string_array = std::static_pointer_cast<::arrow::StringArray>(cast_result);
       for (int64_t i = 0U; i < num_rows; i++) {
-        rows_[i][j] = (*batch_ref_)[j]->GetScalar(i).ValueOrDie()->ToString();
+        rows_[i][j] = string_array->GetString(i);
+        // rows_[i][j] = (*batch_ref_)[j]->GetScalar(i).ValueOrDie()->ToString();
       }
     }
     row_in_batch_ = 0;
