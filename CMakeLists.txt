@@ -310,8 +310,8 @@ link_directories("${MG_TOOLCHAIN_ROOT}/lib64")
 
 # After linker is set, check we can use link-time optimization
 cmake_policy(SET CMP0138 NEW)
-# include(CheckIPOSupported)
-# check_ipo_supported() # fatal error if IPO is not supported
+include(CheckIPOSupported)
+check_ipo_supported() # fatal error if IPO is not supported
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_Release TRUE)
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo TRUE)
 
@@ -502,47 +502,15 @@ endif()
 
 # All targets which generate code, useful as a single target to build for clang-tidy analysis to work
 # NOTE: It's big because https://stackoverflow.com/questions/74870212/how-to-add-dependencies-to-a-custom-target-after-the-fact
-if(DEFINED MG_TOOLCHAIN_VERSION)
-  if(${MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
-    # NOTE: The rest of the generated code should already under toolchain.
-    add_custom_target(generated_code DEPENDS
-        generate_opencypher_parser
-        mgcxx-proj
-    )
-  else()
-    add_custom_target(generated_code DEPENDS
-        generate_opencypher_parser
-        mgcxx-proj
-        librdkafka-proj
-        librdtsc-proj
-        pulsar-proj
-    )
-  endif()
-else()
-  add_custom_target(generated_code DEPENDS
-      generate_opencypher_parser
-      mgcxx-proj
-      librdkafka-proj
-      librdtsc-proj
-      pulsar-proj
-  )
-endif()
+# NOTE: The rest of the generated code should already under toolchain.
+add_custom_target(generated_code DEPENDS
+  generate_opencypher_parser
+  mgcxx-proj
+)
 
-if(DEFINED MG_TOOLCHAIN_VERSION)
-  if(${MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
-    install(FILES ${MG_TOOLCHAIN_ROOT}/bin/mgconsole
-      PERMISSIONS OWNER_EXECUTE OWNER_READ OWNER_WRITE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
-      TYPE BIN)
-  else()
-    install(FILES ${CMAKE_BINARY_DIR}/bin/mgconsole
-      PERMISSIONS OWNER_EXECUTE OWNER_READ OWNER_WRITE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
-      TYPE BIN)
-  endif()
-else()
-  install(FILES ${CMAKE_BINARY_DIR}/bin/mgconsole
-    PERMISSIONS OWNER_EXECUTE OWNER_READ OWNER_WRITE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
-    TYPE BIN)
-endif()
+install(FILES ${MG_TOOLCHAIN_ROOT}/bin/mgconsole
+  PERMISSIONS OWNER_EXECUTE OWNER_READ OWNER_WRITE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
+  TYPE BIN)
 
 # Manually configure gflags to override the broken toolchain configuration
 # This must be done after all find_package calls have been processed
