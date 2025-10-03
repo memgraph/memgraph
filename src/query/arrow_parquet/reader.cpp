@@ -66,39 +66,44 @@ struct ParquetReader::impl {
   explicit impl(std::unique_ptr<parquet::arrow::FileReader> file_reader, std::unique_ptr<arrow::RecordBatchReader> rbr,
                 utils::MemoryResource *resource);
 
-  auto GetNextRow() -> std::optional<Row>;
-
-  auto GetSchema() -> std::shared_ptr<arrow::Schema>;
+  auto GetNextRow() -> std::optional<TypedValue>;
 
  private:
   // Needs to stay alive because of batch reader
   std::unique_ptr<parquet::arrow::FileReader> file_reader_;
-  std::shared_ptr<arrow::Schema> schema_;
+  arrow::FieldVector const &fields_;
   int num_columns_;
   BatchIterator row_it_;
   utils::pmr::vector<Row> rows_;  // cached, pre-allocated rows
   uint64_t row_in_batch_{0};
   uint64_t current_batch_size_{0};
   utils::MemoryResource *memory_resource_;  // For TypedValue allocations
+  utils::pmr::vector<utils::pmr::string> column_names_;
 };
 
 ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reader,
                           std::unique_ptr<arrow::RecordBatchReader> rbr, utils::MemoryResource *resource)
     : file_reader_(std::move(file_reader)),
-      schema_(rbr->schema()),
-      num_columns_(schema_->num_fields()),
+      fields_(rbr->schema()->fields()),
+      num_columns_(rbr->schema()->num_fields()),
       row_it_(BatchIterator(std::move(rbr), num_columns_)),
       rows_(resource),
-      memory_resource_(resource) {
+      memory_resource_(resource),
+      column_names_(resource) {
   // Preallocate
   rows_.resize(batch_rows);
+  column_names_.reserve(num_columns_);
   for (int i = 0; i < batch_rows; ++i) {
     rows_[i] = Row(resource);
     rows_[i].resize(num_columns_);
   }
+
+  for (auto const &field : fields_) {
+    column_names_.emplace_back(field->name());
+  }
 }
 
-auto ParquetReader::impl::GetNextRow() -> std::optional<Row> {
+auto ParquetReader::impl::GetNextRow() -> std::optional<TypedValue> {
   // No batch loaded or full batch was consumed
   if (row_in_batch_ >= current_batch_size_) {
     auto const batch_ref = row_it_.Next();
@@ -115,6 +120,7 @@ auto ParquetReader::impl::GetNextRow() -> std::optional<Row> {
 
       if (auto const type_id = column->type_id(); type_id == arrow::Type::INT64) {
         auto const int_array = std::static_pointer_cast<arrow::Int64Array>(column);
+
         for (int64_t i = 0; i < num_rows; i++) {
           rows_[i][j] = TypedValue(int_array->Value(i), memory_resource_);
         }
@@ -134,10 +140,15 @@ auto ParquetReader::impl::GetNextRow() -> std::optional<Row> {
     row_in_batch_ = 0;
     current_batch_size_ = num_rows;
   }
-  return rows_[row_in_batch_++];
-}
 
-auto ParquetReader::impl::GetSchema() -> std::shared_ptr<arrow::Schema> { return schema_; }
+  utils::pmr::map<utils::pmr::string, TypedValue> row(memory_resource_);
+  auto &cached_row = rows_[row_in_batch_++];
+  for (size_t i = 0; i < num_columns_; ++i) {
+    row.emplace(column_names_[i], std::move(cached_row[i]));
+  }
+
+  return TypedValue(std::move(row));
+}
 
 ParquetReader::ParquetReader(std::string const &file, utils::MemoryResource *resource) {
   auto const start = std::chrono::high_resolution_clock::now();
@@ -186,17 +197,6 @@ ParquetReader::ParquetReader(std::string const &file, utils::MemoryResource *res
 // Destructor must be defined here where impl is complete
 ParquetReader::~ParquetReader() = default;
 
-auto ParquetReader::GetNextRow() const -> std::optional<Row> { return pimpl_->GetNextRow(); }
-
-auto ParquetReader::GetHeader(utils::MemoryResource *resource) const -> Header {
-  auto const schema = pimpl_->GetSchema();
-  Header header(resource);
-  auto const header_size = schema->num_fields();
-  header.reserve(header_size);
-  for (auto const &field : schema->fields()) {
-    header.emplace_back(field->name());
-  }
-  return header;
-}
+auto ParquetReader::GetNextRow() const -> std::optional<TypedValue> { return pimpl_->GetNextRow(); }
 
 }  // namespace memgraph::query

@@ -18,6 +18,7 @@
 
 #include "query/typed_value.hpp"
 #include "utils/memory.hpp"
+#include "utils/pmr/map.hpp"
 #include "utils/pmr/string.hpp"
 #include "utils/pmr/vector.hpp"
 
@@ -35,8 +36,7 @@ class ParquetReader {
   // Destructor must be defined in .cpp file for pimpl idiom with unique_ptr
   ~ParquetReader();
 
-  auto GetNextRow() const -> std::optional<Row>;
-  auto GetHeader(utils::MemoryResource *resource) const -> Header;
+  auto GetNextRow() const -> std::optional<TypedValue>;
 
  private:
   // Faster compilation with mg-query is the reason

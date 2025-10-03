@@ -7618,8 +7618,6 @@ class LoadParquetCursor : public Cursor {
   const UniqueCursorPtr input_cursor_;
   bool did_pull_{false};
   std::optional<ParquetReader> reader_;
-  Header header_cache_;
-  size_t num_columns_;
 
  public:
   LoadParquetCursor(const LoadParquet *self, utils::MemoryResource *mem)
@@ -7643,8 +7641,6 @@ class LoadParquetCursor : public Cursor {
       // we can't get a nullptr for the 'file_' member in the LoadParquet clause
       // TODO: (andi) Conversion needed because of pmr allocator
       reader_.emplace(std::string{*maybe_file}, mem);
-      header_cache_ = reader_->GetHeader(mem);
-      num_columns_ = header_cache_.size();
     }
 
     if (input_cursor_->Pull(frame, context)) {
@@ -7661,16 +7657,17 @@ class LoadParquetCursor : public Cursor {
     if (!maybe_row) {
       return false;
     }
-    auto &row = *maybe_row;
+
+    // auto &row = *maybe_row;
 
     // Convert row to TypedValue map similar to CSV with headers
-    auto typed_map = utils::pmr::map<utils::pmr::string, TypedValue>(mem);
+    // auto typed_map = utils::pmr::map<utils::pmr::string, TypedValue>(mem);
 
-    for (size_t i = 0; i < num_columns_; ++i) {
-      typed_map.emplace(header_cache_[i], std::move(row[i]));
-    }
+    // for (size_t i = 0; i < num_columns_; ++i) {
+    // typed_map.emplace(header_cache_[i], std::move(row[i]));
+    // }
 
-    frame[self_->row_var_] = TypedValue(std::move(typed_map));
+    frame[self_->row_var_] = std::move(*maybe_row);
 
     if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(self_->row_var_.name())) {
       context.frame_change_collector->ResetTrackingValue(self_->row_var_.name());
