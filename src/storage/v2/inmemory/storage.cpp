@@ -1310,7 +1310,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
           auto remove_out_edges = absl::flat_hash_set<EdgeRef>{};
 
           Delta *prev_delta = nullptr;
-          
+
           while (current != nullptr) {
             auto ts = current->timestamp->load(std::memory_order_acquire);
 
@@ -1344,8 +1344,8 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                   MG_ASSERT(it == vertex->labels.end(), "Invalid database state!");
                   vertex->labels.push_back(current->label.value);
 
-                  storage_->UpdateLabelCount(current->label.value, 1);
-
+                  storage_->UpdateLabelCount(current->label.value, 1)
+                  
                   // we have to add the vertex to the vector index if this label is indexed and vertex has needed
                   // property
                   const auto &vector_properties = index_abort_processor.vector_.l2p.find(current->label.value);
@@ -1389,59 +1389,58 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                     auto indexed_labels_on_vertex =
                         vertex->labels | rv::filter(has_indexed_label) | r::to<std::vector<LabelId>>();
 
-                    for (const auto &label : indexed_labels_on_vertex) {
-                      vector_label_property_restore[LabelPropKey{label, current->property.key}].emplace_back(
-                          *current->property.value, vertex);
-                    }
+                  for (const auto &label : indexed_labels_on_vertex) {
+                    vector_label_property_restore[LabelPropKey{label, current->property.key}].emplace_back(
+                        *current->property.value, vertex);
                   }
-                  // Setting the correct value
-                  vertex->properties.SetProperty(current->property.key, *current->property.value);
-                  break;
                 }
-                case Delta::Action::ADD_IN_EDGE: {
-                  auto link = std::tuple{current->vertex_edge.edge_type, current->vertex_edge.vertex.Get(),
-                                         current->vertex_edge.edge};
-                  DMG_ASSERT(
-                      std::find(vertex->in_edges.begin(), vertex->in_edges.end(), link) == vertex->in_edges.end(),
-                      "Invalid database state!");
-                  vertex->in_edges.push_back(link);
-                  break;
-                }
-                case Delta::Action::ADD_OUT_EDGE: {
-                  auto link = std::tuple{current->vertex_edge.edge_type, current->vertex_edge.vertex.Get(),
-                                         current->vertex_edge.edge};
-                  DMG_ASSERT(
-                      std::find(vertex->out_edges.begin(), vertex->out_edges.end(), link) == vertex->out_edges.end(),
-                      "Invalid database state!");
-                  vertex->out_edges.push_back(link);
-                  // Increment edge count. We only increment the count here because
-                  // the information in `ADD_IN_EDGE` and `Edge/RECREATE_OBJECT` is
-                  // redundant. Also, `Edge/RECREATE_OBJECT` isn't available when
-                  // edge properties are disabled.
-                  storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
-                  break;
-                }
-                case Delta::Action::REMOVE_IN_EDGE: {
-                  // EdgeRef is unique
-                  remove_in_edges.insert(current->vertex_edge.edge);
-                  break;
-                }
-                case Delta::Action::REMOVE_OUT_EDGE: {
-                  // EdgeRef is unique
-                  remove_out_edges.insert(current->vertex_edge.edge);
+                // Setting the correct value
+                vertex->properties.SetProperty(current->property.key, *current->property.value);
+                break;
+              }
+              case Delta::Action::ADD_IN_EDGE: {
+                auto link = std::tuple{current->vertex_edge.edge_type, current->vertex_edge.vertex.Get(),
+                                       current->vertex_edge.edge};
+                DMG_ASSERT(std::find(vertex->in_edges.begin(), vertex->in_edges.end(), link) == vertex->in_edges.end(),
+                           "Invalid database state!");
+                vertex->in_edges.push_back(link);
+                break;
+              }
+              case Delta::Action::ADD_OUT_EDGE: {
+                auto link = std::tuple{current->vertex_edge.edge_type, current->vertex_edge.vertex.Get(),
+                                       current->vertex_edge.edge};
+                DMG_ASSERT(
+                    std::find(vertex->out_edges.begin(), vertex->out_edges.end(), link) == vertex->out_edges.end(),
+                    "Invalid database state!");
+                vertex->out_edges.push_back(link);
+                // Increment edge count. We only increment the count here because
+                // the information in `ADD_IN_EDGE` and `Edge/RECREATE_OBJECT` is
+                // redundant. Also, `Edge/RECREATE_OBJECT` isn't available when
+                // edge properties are disabled.
+                storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
+                break;
+              }
+              case Delta::Action::REMOVE_IN_EDGE: {
+                // EdgeRef is unique
+                remove_in_edges.insert(current->vertex_edge.edge);
+                break;
+              }
+              case Delta::Action::REMOVE_OUT_EDGE: {
+                // EdgeRef is unique
+                remove_out_edges.insert(current->vertex_edge.edge);
 
-                  // Decrement edge count. We only decrement the count here because
-                  // the information in `REMOVE_IN_EDGE` and `Edge/DELETE_OBJECT` is
-                  // redundant. Also, `Edge/DELETE_OBJECT` isn't available when edge
-                  // properties are disabled.
-                  storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
+                // Decrement edge count. We only decrement the count here because
+                // the information in `REMOVE_IN_EDGE` and `Edge/DELETE_OBJECT` is
+                // redundant. Also, `Edge/DELETE_OBJECT` isn't available when edge
+                // properties are disabled.
+                storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
 
-                  // TODO: Change edge type index to work with EdgeRef rather than Edge *
-                  if (!mem_storage->config_.salient.items.properties_on_edges) break;
+                // TODO: Change edge type index to work with EdgeRef rather than Edge *
+                if (!mem_storage->config_.salient.items.properties_on_edges) break;
 
-                  auto const &[_, edge_type, to_vertex, edge] = current->vertex_edge;
-                  index_abort_processor.CollectOnEdgeRemoval(edge_type, vertex, to_vertex.Get(), edge.ptr);
-                  // TODO: ensure collector also processeses for edge_type+property index
+                auto const &[_, edge_type, to_vertex, edge] = current->vertex_edge;
+                index_abort_processor.CollectOnEdgeRemoval(edge_type, vertex, to_vertex.Get(), edge.ptr);
+                // TODO: ensure collector also processeses for edge_type+property index
 
                   break;
                 }
@@ -1449,16 +1448,10 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
                 case Delta::Action::DELETE_OBJECT: {
                   vertex->deleted = true;
                   my_deleted_vertices.push_back(vertex->gid);
-                  for (auto const label : vertex->labels) {
-                    storage_->UpdateLabelCount(label, -1);
-                  }
                   break;
                 }
                 case Delta::Action::RECREATE_OBJECT: {
                   vertex->deleted = false;
-                  for (auto const label : vertex->labels) {
-                    storage_->UpdateLabelCount(label, 1);
-                  }
                   break;
                 }
               }
@@ -1501,6 +1494,11 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
             });
             vertex->out_edges.erase(mid, vertex->out_edges.end());
             vertex->out_edges.shrink_to_fit();
+          }
+
+          vertex->delta = current;
+          if (current != nullptr) {
+            current->prev.Set(vertex);
           }
 
           break;
