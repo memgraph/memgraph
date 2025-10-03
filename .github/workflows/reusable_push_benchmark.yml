@@ -1,0 +1,212 @@
+name: Run benchmarks on new CI machines
+
+on:
+  workflow_call:
+    inputs:
+      run_id:
+        description: "Run ID"
+        required: true
+        type: number
+
+jobs:
+  benchmark_on_pokec_large:
+    name: "Benchmark ${{ inputs.run_id }}"
+    runs-on: [self-hosted, Linux, X64, DockerMgBuild, x86-64-v3]
+    env:
+      THREADS: 24
+      MEMGRAPH_ENTERPRISE_LICENSE: ${{ secrets.MEMGRAPH_ENTERPRISE_LICENSE }}
+      MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
+      OS: ubuntu-24.04
+      TOOLCHAIN: v6
+      ARCH: amd
+      BUILD_TYPE: Release
+      DEFAULT_MGBENCH_EXPORT_RESULTS_FILE: 'benchmark_result.json'
+      BRANCH_NAME: ${{ github.ref }}
+
+    steps:
+        - name: Set up repository
+          uses: actions/checkout@v4
+          with:
+            # Number of commits to fetch. `0` indicates all history for all
+            # branches and tags. (default: 1)
+            fetch-depth: 0
+
+        - name: Log in to Docker Hub
+          uses: ./.github/actions/docker-login
+          with:
+            username: ${{ secrets.DOCKERHUB_USERNAME }}
+            password: ${{ secrets.DOCKERHUB_TOKEN }}
+
+        - name: Spin up mgbuild container
+          run: |
+            ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            run
+
+        - name: Build binary
+          run: |
+            ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            --build-type $BUILD_TYPE \
+            --threads $THREADS \
+            build-memgraph
+
+        - name: Get branch name (merge)
+          if: github.event_name != 'pull_request'
+          shell: bash
+          run: echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
+
+        - name: Get branch name (pull request)
+          if: github.event_name == 'pull_request'
+          shell: bash
+          run: echo "BRANCH_NAME=$(echo ${GITHUB_HEAD_REF} | tr / -)" >> $GITHUB_ENV
+
+        - name: Run macro benchmarks
+          run: |
+            ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+            --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+            test-memgraph macro-benchmark
+  
+        - name: Upload macro benchmark results
+          run: |
+            ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+            --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+            --bench-graph-host memgraph-builder \
+            test-memgraph upload-to-bench-graph \
+            --benchmark-name "macro_benchmark" \
+            --benchmark-results "../../tests/macro_benchmark/.harness_summary" \
+            --github-run-id ${{ github.run_id }} \
+            --github-run-number ${{ github.run_number }} \
+            --head-branch-name ${{ env.BRANCH_NAME }}
+        
+        - name: Run parallel macro benchmarks
+          run: |
+            ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+            --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+            test-memgraph macro-benchmark-parallel
+
+        - name: Upload parallel macro benchmark results
+          run: |
+            ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+            --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+            --bench-graph-host memgraph-builder \
+            test-memgraph upload-to-bench-graph \
+            --benchmark-name "macro_benchmark_parallel" \
+            --benchmark-results "../../tests/macro_benchmark/.harness_summary" \
+            --github-run-id ${{ github.run_id }} \
+            --github-run-number ${{ github.run_number }} \
+            --head-branch-name ${{ env.BRANCH_NAME }}
+            
+        - name: Run mgbench
+          run: |
+            ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+            --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+            test-memgraph mgbench --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
+  
+        - name: Upload mgbench results
+          run: |
+            ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+            --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+            --bench-graph-host memgraph-builder \
+            test-memgraph upload-to-bench-graph \
+            --benchmark-name "mgbench" \
+            --benchmark-results "../../tests/mgbench/${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}" \
+            --github-run-id "${{ github.run_id }}" \
+            --github-run-number "${{ github.run_number }}" \
+            --head-branch-name "${{ env.BRANCH_NAME }}"
+  
+        - name: Run extended planner improvements mgbench
+          run: |
+            ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+            --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+            test-memgraph mgbench --dataset pokec_planner_optimizations --size medium --export-results-file benchmark_result_extended.json
+  
+        - name: Upload extended planner improvements mgbench results
+          run: |
+            ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+            --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+            --bench-graph-host memgraph-builder \
+            test-memgraph upload-to-bench-graph \
+            --benchmark-name "mgbench" \
+            --benchmark-results "../../tests/mgbench/benchmark_result_extended.json" \
+            --github-run-id "${{ github.run_id }}" \
+            --github-run-number "${{ github.run_number }}" \
+            --head-branch-name "${{ env.BRANCH_NAME }}"
+  
+
+        # - name: Run mgbench
+        #   run: |
+        #     ./release/package/mgbuild.sh \
+        #     --toolchain $TOOLCHAIN \
+        #     --os $OS \
+        #     --arch $ARCH \
+        #     --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+        #     --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+        #     test-memgraph mgbench --dataset pokec --size large
+
+        # - name: Upload mgbench results
+        #   run: |
+        #     ./release/package/mgbuild.sh \
+        #     --toolchain $TOOLCHAIN \
+        #     --os $OS \
+        #     --arch $ARCH \
+        #     --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+        #     --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+        #     test-memgraph upload-to-bench-graph \
+        #     --benchmark-name "mgbench" \
+        #     --benchmark-results "../../tests/mgbench/benchmark_result.json" \
+        #     --github-run-id "${{ github.run_id }}" \
+        #     --github-run-number "${{ github.run_number }}" \
+        #     --head-branch-name "${{ env.BRANCH_NAME }}"
+
+        - name: Stop mgbuild container
+          if: always()
+          run: |
+            ./release/package/mgbuild.sh \
+            --toolchain $TOOLCHAIN \
+            --os $OS \
+            --arch $ARCH \
+            stop --remove
+
+        - name: Clean up Docker
+          if: always()
+          continue-on-error: true
+          run: |
+            ./tools/docker_cleanup.sh
+
