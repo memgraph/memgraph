@@ -14,6 +14,7 @@
 
 #include <chrono>
 #include <optional>
+#include <thread>
 
 #include "arrow/acero/exec_plan.h"
 #include "arrow/compute/api.h"
@@ -21,6 +22,7 @@
 #include "arrow/io/api.h"
 #include "arrow/io/file.h"
 #include "parquet/properties.h"
+#include "rocksdb/util/work_queue.h"
 
 #include "spdlog/spdlog.h"
 
@@ -66,6 +68,8 @@ struct ParquetReader::impl {
   explicit impl(std::unique_ptr<parquet::arrow::FileReader> file_reader, std::unique_ptr<arrow::RecordBatchReader> rbr,
                 utils::MemoryResource *resource);
 
+  ~impl();
+
   auto GetNextRow() -> std::optional<Row>;
 
   auto GetSchema() -> std::shared_ptr<arrow::Schema>;
@@ -76,10 +80,11 @@ struct ParquetReader::impl {
   std::shared_ptr<arrow::Schema> schema_;
   int num_columns_;
   BatchIterator row_it_;
-  utils::pmr::vector<Row> rows_;  // cached, pre-allocated rows
+  std::vector<Row> rows_;  // cached, pre-allocated rows
+  rocksdb::WorkQueue<std::vector<Row>> work_queue_;
+  std::jthread prefetcher_thread_;  // should get destroyed before all other variables that it uses as a reference
   uint64_t row_in_batch_{0};
   uint64_t current_batch_size_{0};
-  utils::MemoryResource *memory_resource_;  // For TypedValue allocations
 };
 
 ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reader,
@@ -88,51 +93,67 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
       schema_(rbr->schema()),
       num_columns_(schema_->num_fields()),
       row_it_(BatchIterator(std::move(rbr), num_columns_)),
-      rows_(resource),
-      memory_resource_(resource) {
+      work_queue_(2),
+      prefetcher_thread_{[this]() {
+        while (true) {
+          auto const batch_ref = row_it_.Next();
+          // No more data
+          if (batch_ref.empty()) {
+            work_queue_.finish();
+            break;
+          }
+
+          auto const num_rows = batch_ref[0]->length();
+          std::vector<Row> queued_batch;
+          queued_batch.resize(num_rows);
+          for (int i = 0; i < num_rows; ++i) {
+            queued_batch[i].resize(num_columns_);
+          }
+
+          // TODO: (andi) Switch for other types that can be passed into TypedValue
+          for (int j = 0U; j < num_columns_; j++) {
+            auto const &column = batch_ref[j];
+
+            if (auto const type_id = column->type_id(); type_id == arrow::Type::INT64) {
+              auto const int_array = std::static_pointer_cast<arrow::Int64Array>(column);
+              for (int64_t i = 0; i < num_rows; i++) {
+                queued_batch[i][j] = TypedValue(int_array->Value(i));
+              }
+            } else if (type_id == arrow::Type::DOUBLE) {
+              auto const double_array = std::static_pointer_cast<arrow::DoubleArray>(column);
+              for (int64_t i = 0; i < num_rows; i++) {
+                queued_batch[i][j] = TypedValue(double_array->Value(i));
+              }
+            } else {
+              auto const string_array = std::static_pointer_cast<arrow::StringArray>(column);
+              for (int64_t i = 0; i < num_rows; i++) {
+                queued_batch[i][j] = TypedValue(string_array->GetString(i));
+              }
+            }
+          }
+          work_queue_.push(std::move(queued_batch));
+        }
+      }}
+
+{
   // Preallocate
   rows_.resize(batch_rows);
   for (int i = 0; i < batch_rows; ++i) {
-    rows_[i] = Row(resource);
     rows_[i].resize(num_columns_);
   }
 }
 
+ParquetReader::impl::~impl() {}
+
 auto ParquetReader::impl::GetNextRow() -> std::optional<Row> {
-  // No batch loaded or full batch was consumed
   if (row_in_batch_ >= current_batch_size_) {
-    auto const batch_ref = row_it_.Next();
-    // No more data
-    if (batch_ref.empty()) {
+    // No more batches to process
+    if (!work_queue_.pop(rows_)) {
       return std::nullopt;
     }
 
-    auto const num_rows = batch_ref[0]->length();
-
-    // TODO: (andi) Switch for other types that can be passed into TypedValue
-    for (int j = 0U; j < num_columns_; j++) {
-      auto const &column = batch_ref[j];
-
-      if (auto const type_id = column->type_id(); type_id == arrow::Type::INT64) {
-        auto const int_array = std::static_pointer_cast<arrow::Int64Array>(column);
-        for (int64_t i = 0; i < num_rows; i++) {
-          rows_[i][j] = TypedValue(int_array->Value(i), memory_resource_);
-        }
-      } else if (type_id == arrow::Type::DOUBLE) {
-        auto const double_array = std::static_pointer_cast<arrow::DoubleArray>(column);
-        for (int64_t i = 0; i < num_rows; i++) {
-          rows_[i][j] = TypedValue(double_array->Value(i), memory_resource_);
-        }
-      } else {
-        auto const string_array = std::static_pointer_cast<arrow::StringArray>(column);
-        for (int64_t i = 0; i < num_rows; i++) {
-          rows_[i][j] = TypedValue(string_array->GetString(i), memory_resource_);
-        }
-      }
-    }
-
     row_in_batch_ = 0;
-    current_batch_size_ = num_rows;
+    current_batch_size_ = rows_.size();
   }
   return rows_[row_in_batch_++];
 }
