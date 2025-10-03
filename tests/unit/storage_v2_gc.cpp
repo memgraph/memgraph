@@ -15,8 +15,9 @@
 #include "storage/v2/inmemory/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
 
-using memgraph::replication_coordination_glue::ReplicationRole;
 using testing::UnorderedElementsAre;
+
+namespace ms = memgraph::storage;
 
 // TODO: The point of these is not to test GC fully, these are just simple
 // sanity checks. These will be superseded by a more sophisticated stress test
@@ -493,4 +494,56 @@ TEST(StorageV2Gc, InterleavedDeltasWithUncommittedContributorsAreGarbagedCollect
   std::this_thread::sleep_for(std::chrono::milliseconds(500));
 
   ASSERT_EQ(0, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
+}
+
+TEST(StorageV2Gc, ConcurrentEdgeOperationsAbortDeleteRepeat) {
+  auto storage = std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
+      .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::milliseconds(100)}});
+
+  memgraph::storage::Gid v1_gid, v2_gid;
+
+  {
+    auto acc = storage->Access();
+    auto v1 = acc->CreateVertex();
+    auto v2 = acc->CreateVertex();
+    v1_gid = v1.Gid();
+    v2_gid = v2.Gid();
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  auto tx1 = storage->Access();
+  auto tx2 = storage->Access();
+
+  {
+    auto v1 = tx1->FindVertex(v1_gid, memgraph::storage::View::OLD).value();
+    auto v2 = tx1->FindVertex(v2_gid, memgraph::storage::View::OLD).value();
+    ASSERT_TRUE(tx1->CreateEdge(&v1, &v2, tx1->NameToEdgeType("Edge1")).HasValue());
+  }
+
+  {
+    auto v1 = tx2->FindVertex(v1_gid, memgraph::storage::View::OLD).value();
+    auto v2 = tx2->FindVertex(v2_gid, memgraph::storage::View::OLD).value();
+    ASSERT_TRUE(tx2->CreateEdge(&v1, &v2, tx2->NameToEdgeType("Edge2")).HasValue());
+  }
+
+  tx1->Abort();
+  tx2->Abort();
+
+  // Wait for GC to clean up
+  std::this_thread::sleep_for(std::chrono::milliseconds(400));
+
+  {
+    auto reader = storage->Access();
+    auto v1 = reader->FindVertex(v1_gid, memgraph::storage::View::OLD);
+    auto v2 = reader->FindVertex(v2_gid, memgraph::storage::View::OLD);
+
+    if (v1.has_value()) {
+      auto edges = v1->OutEdges(memgraph::storage::View::OLD);
+      ASSERT_TRUE(edges.HasValue());
+    }
+    if (v2.has_value()) {
+      auto edges = v2->OutEdges(memgraph::storage::View::OLD);
+      ASSERT_TRUE(edges.HasValue());
+    }
+  }
 }
