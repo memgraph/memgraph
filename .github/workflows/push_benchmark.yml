@@ -1,0 +1,21 @@
+name: "Check Diff for flakiness"
+concurrency:
+  group: ${{ github.head_ref }}-${{ github.sha }}
+  cancel-in-progress: true
+
+on:
+  push
+
+
+jobs:
+  BenchmarkRuns:
+    strategy:
+      fail-fast: false
+      max-parallel: 3
+      matrix:
+        run_no: [0, 1, 2, 3, 4, 5, 6, 7, 8, 9]
+    uses: ./.github/workflows/reusable_push_benchmark.yml
+    with:
+      run_id: "${{ matrix.run_no }}"
+    secrets: inherit
+
