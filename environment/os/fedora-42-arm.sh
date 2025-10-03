@@ -88,7 +88,7 @@ list() {
 }
 
 check() {
-    local -n packages=$1
+    local -n packages="$1"
     local missing=""
     local missing_custom=""
 
@@ -115,7 +115,7 @@ check() {
 
 
     # Check standard packages with Python script
-    if [ ${#standard_packages[@]} -gt 0 ]; then
+    if [ "${#standard_packages[@]}" -gt 0 ]; then
         missing=$(python3 "$DIR/check-packages.py" "check" "fedora-42" "${standard_packages[@]}")
     fi
 
@@ -155,7 +155,7 @@ install() {
         exit 1
     fi
 
-    local -n packages=$1
+    local -n packages="$1"
 
 
     # If GitHub Actions runner is installed, append LANG to the environment.
@@ -188,7 +188,7 @@ install() {
     done
 
     # Install standard packages with Python script
-    if [ ${#standard_packages[@]} -gt 0 ]; then
+    if [ "${#standard_packages[@]}" -gt 0 ]; then
         if ! python3 "$DIR/check-packages.py" "install" "fedora-42" "${standard_packages[@]}"; then
             echo "Failed to install standard packages"
             exit 1
@@ -202,14 +202,14 @@ install() {
     for pkg in "${custom_packages[@]}"; do
         case "$pkg" in
             PyYAML)
-                if [ -z ${SUDO_USER+x} ]; then # Running as root (e.g. Docker).
+                if [ -z "${SUDO_USER+x}" ]; then # Running as root (e.g. Docker).
                     pip3 install --user PyYAML
                 else # Running using sudo.
                     sudo -H -u "$SUDO_USER" bash -c "pip3 install --user PyYAML"
                 fi
                 ;;
             python3-virtualenv)
-                if [ -z ${SUDO_USER+x} ]; then # Running as root (e.g. Docker).
+                if [ -z "${SUDO_USER+x}" ]; then # Running as root (e.g. Docker).
                     pip3 install virtualenv
                     pip3 install virtualenvwrapper
                 else # Running using sudo.
@@ -224,5 +224,5 @@ install() {
     done
 }
 
-deps=$2"[*]"
+deps="${2}[*]"
 "$1" "$2"
