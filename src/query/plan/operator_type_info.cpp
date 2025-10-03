@@ -166,6 +166,9 @@ constexpr utils::TypeInfo query::plan::CallProcedure::kType{utils::TypeId::CALL_
 constexpr utils::TypeInfo query::plan::LoadCsv::kType{utils::TypeId::LOAD_CSV, "LoadCsv",
                                                       &query::plan::LogicalOperator::kType};
 
+constexpr utils::TypeInfo query::plan::LoadParquet::kType{utils::TypeId::LOAD_PARQUET, "LoadParquet",
+                                                          &query::plan::LogicalOperator::kType};
+
 constexpr utils::TypeInfo query::plan::Foreach::kType{utils::TypeId::FOREACH, "Foreach",
                                                       &query::plan::LogicalOperator::kType};
 

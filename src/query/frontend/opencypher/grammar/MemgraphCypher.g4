@@ -128,7 +128,7 @@ memgraphCypherKeyword : cypherKeyword
                       | OFF
                       | ON
                       | ON_DISK_TRANSACTIONAL
-                      | ON_DISK_TRANSACTIONAL
+                      | PARQUET
                       | PASSWORD
                       | PERIODIC
                       | POINT
@@ -335,6 +335,7 @@ clause : cypherMatch
        | loadCsv
        | foreach
        | callSubquery
+       | loadParquet
        ;
 
 updateClause : set
@@ -397,7 +398,11 @@ loadCsv : LOAD CSV FROM csvFile ( WITH | NO ) HEADER
          ( NULLIF nullif ) ?
          AS rowVar ;
 
+loadParquet : LOAD PARQUET FROM parquetFile AS rowVar ;
+
 csvFile : literal | parameter ;
+
+parquetFile : literal | parameter ;
 
 delimiter : literal ;
 

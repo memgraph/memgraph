@@ -127,6 +127,7 @@ NULLIF                  : N U L L I F ;
 OF_TOKEN                : O F ;
 OFF                     : O F F ;
 ON_DISK_TRANSACTIONAL   : O N UNDERSCORE D I S K UNDERSCORE T R A N S A C T I O N A L ;
+PARQUET                 : P A R Q U E T ;
 PASSWORD                : P A S S W O R D ;
 PERIODIC                : P E R I O D I C ;
 POINT                   : P O I N T ;
