@@ -7716,6 +7716,7 @@ std::vector<Symbol> LoadParquet::ModifiedSymbols(const SymbolTable &sym_table) c
   return symbols;
 };
 
+
 class LoadParquetCursor : public Cursor {
   const LoadParquet *self_;
   const UniqueCursorPtr input_cursor_;
@@ -7747,7 +7748,6 @@ public:
       reader_.emplace(std::string{*maybe_file}, mem);
       header_cache_ = reader_->GetHeader(mem);
       num_columns_ = header_cache_.size();
-      spdlog::trace("Cached {} column headers", header_cache_.size());
     }
 
     if (input_cursor_->Pull(frame, context)) {
