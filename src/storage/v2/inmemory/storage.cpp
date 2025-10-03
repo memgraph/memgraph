@@ -1197,13 +1197,18 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
         vector_edge_type_property_restore;  // No need to cleanup, because edge type can't be removed and when null
                                             // property is set, it's like removing the property from the index
 
-    // TWO passes needed here
+    // TWO passes needed here @TODO three now
     // Abort will modify objects to restore state to how they were before this txn
     // The passes will find the head delta for each object and process the whole object,
     // To track which edge type indexes need cleaning up, we need the edge type which is held in vertices in/out edges
     // Hence need to first once to modify edges, so it can read vectices information intact.
 
-    // Edges pass
+    // Edges pass. Because edges cannot have interleaved deltas, we needn't
+    // concern ourselves with them here. We guarantee that any of our deltas
+    // with an edge as the upstream object are a monolithic block of deltas
+    // belonging to this transaction, and that these terminate in either a
+    // nullptr or another monolithic block belonging to a committed by
+    // uncollected transaction.
     for (const auto &delta : transaction_.deltas) {
       auto prev = delta.prev.Get();
       switch (prev.type) {
@@ -1444,10 +1449,16 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
             vertex->out_edges.shrink_to_fit();
           }
 
-          vertex->delta = current;
+          vertex->delta = current;  // @TODO here is we effectively "unlink"
           if (current != nullptr) {
             current->prev.Set(vertex);
           }
+
+          // @TODO double check all cases where I am setting the `prev`
+          // pointer: I believe we need `prev` to remain in place so that
+          // we can always follow the chain to the upstream object, regardless
+          // of how the chain is otherwise cut for visibility during abort
+          // or commit.
 
           break;
         }
@@ -1518,6 +1529,9 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
         // Release engine lock because we don't have to hold it anymore and
         // emplace back could take a long time.
         engine_guard.unlock();
+
+        // @TODO is `mark_timestamp` correct here, in the precence of
+        // interleaved deltas?
 
         transaction_.commit_timestamp->store(kAbortedTransactionId, std::memory_order_release);
         garbage_undo_buffers.emplace_back(mark_timestamp, std::move(transaction_.deltas),
