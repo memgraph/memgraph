@@ -89,6 +89,9 @@ std::vector<TPropertyValue> MakeTestPropertyValues(MapKey map_key) {
   typename TPropertyValue::map_t map{{map_key, TPropertyValue(false)}};
   const auto zdt_dur = memgraph::utils::AsSysTime(23);
   Enum enum_val{EnumTypeId{2}, EnumValueId{42}};
+  std::vector<TPropertyValue> int_list{TPropertyValue(1), TPropertyValue(2), TPropertyValue(3)};
+  std::vector<TPropertyValue> double_list{TPropertyValue(1.5), TPropertyValue(2.5), TPropertyValue(3.5)};
+  std::vector<TPropertyValue> numeric_list{TPropertyValue(1), TPropertyValue(2.5), TPropertyValue(3.5)};
 
   return {
       TPropertyValue(),
@@ -108,6 +111,9 @@ std::vector<TPropertyValue> MakeTestPropertyValues(MapKey map_key) {
       TPropertyValue{Point2d{WGS84_2d, 3.0, 4.0}},
       TPropertyValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}},
       TPropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}},
+      TPropertyValue{IntListTag{}, int_list},
+      TPropertyValue{DoubleListTag{}, double_list},
+      TPropertyValue{NumericListTag{}, numeric_list},
   };
 }
 
@@ -424,6 +430,15 @@ TEST(PropertyValue, CopyConstructor) {
       case PropertyValue::Type::List:
         ASSERT_EQ(pv.ValueList(), item.ValueList());
         break;
+      case PropertyValue::Type::IntList:
+        ASSERT_EQ(pv.ValueIntList(), item.ValueIntList());
+        break;
+      case PropertyValue::Type::DoubleList:
+        ASSERT_EQ(pv.ValueDoubleList(), item.ValueDoubleList());
+        break;
+      case PropertyValue::Type::NumericList:
+        ASSERT_EQ(pv.ValueNumericList(), item.ValueNumericList());
+        break;
       case PropertyValue::Type::Map:
         ASSERT_EQ(pv.ValueMap(), item.ValueMap());
         break;
@@ -473,6 +488,15 @@ TEST(PropertyValue, MoveConstructor) {
         break;
       case PropertyValue::Type::List:
         ASSERT_EQ(pv.ValueList(), copy.ValueList());
+        break;
+      case PropertyValue::Type::IntList:
+        ASSERT_EQ(pv.ValueIntList(), copy.ValueIntList());
+        break;
+      case PropertyValue::Type::DoubleList:
+        ASSERT_EQ(pv.ValueDoubleList(), copy.ValueDoubleList());
+        break;
+      case PropertyValue::Type::NumericList:
+        ASSERT_EQ(pv.ValueNumericList(), copy.ValueNumericList());
         break;
       case PropertyValue::Type::Map:
         ASSERT_EQ(pv.ValueMap(), copy.ValueMap());
@@ -524,6 +548,15 @@ TEST(PropertyValue, CopyAssignment) {
       case PropertyValue::Type::List:
         ASSERT_EQ(pv.ValueList(), item.ValueList());
         break;
+      case PropertyValue::Type::IntList:
+        ASSERT_EQ(pv.ValueIntList(), item.ValueIntList());
+        break;
+      case PropertyValue::Type::DoubleList:
+        ASSERT_EQ(pv.ValueDoubleList(), item.ValueDoubleList());
+        break;
+      case PropertyValue::Type::NumericList:
+        ASSERT_EQ(pv.ValueNumericList(), item.ValueNumericList());
+        break;
       case PropertyValue::Type::Map:
         ASSERT_EQ(pv.ValueMap(), item.ValueMap());
         break;
@@ -574,6 +607,15 @@ TEST(PropertyValue, MoveAssignment) {
         break;
       case PropertyValue::Type::List:
         ASSERT_EQ(pv.ValueList(), copy.ValueList());
+        break;
+      case PropertyValue::Type::IntList:
+        ASSERT_EQ(pv.ValueIntList(), copy.ValueIntList());
+        break;
+      case PropertyValue::Type::DoubleList:
+        ASSERT_EQ(pv.ValueDoubleList(), copy.ValueDoubleList());
+        break;
+      case PropertyValue::Type::NumericList:
+        ASSERT_EQ(pv.ValueNumericList(), copy.ValueNumericList());
         break;
       case PropertyValue::Type::Map:
         ASSERT_EQ(pv.ValueMap(), copy.ValueMap());
@@ -894,6 +936,15 @@ TEST(PropertyValue, PropertyValueToExternalPropertyValue) {
         ASSERT_EQ(pv.ValueList()[0].ValueBool(), true);
         ASSERT_EQ(pv.ValueList()[1].ValueInt(), 123);
         break;
+      case PropertyValue::Type::IntList:
+        ASSERT_EQ(pv.ValueIntList(), val.ValueIntList());
+        break;
+      case PropertyValue::Type::DoubleList:
+        ASSERT_EQ(pv.ValueDoubleList(), val.ValueDoubleList());
+        break;
+      case PropertyValue::Type::NumericList:
+        ASSERT_EQ(pv.ValueNumericList(), val.ValueNumericList());
+        break;
       case PropertyValue::Type::Map:
         ASSERT_EQ(pv.ValueMap().size(), 1);
         ASSERT_EQ(pv.ValueMap().at(property_id).ValueBool(), false);
@@ -945,6 +996,15 @@ TEST(PropertyValue, ExternalPropertyValueToPropertyValue) {
         ASSERT_EQ(pv.ValueList().size(), 2);
         ASSERT_EQ(pv.ValueList()[0].ValueBool(), true);
         ASSERT_EQ(pv.ValueList()[1].ValueInt(), 123);
+        break;
+      case PropertyValue::Type::IntList:
+        ASSERT_EQ(pv.ValueIntList(), val.ValueIntList());
+        break;
+      case PropertyValue::Type::DoubleList:
+        ASSERT_EQ(pv.ValueDoubleList(), val.ValueDoubleList());
+        break;
+      case PropertyValue::Type::NumericList:
+        ASSERT_EQ(pv.ValueNumericList(), val.ValueNumericList());
         break;
       case PropertyValue::Type::Map:
         ASSERT_EQ(pv.ValueMap().size(), 1);

@@ -107,6 +107,13 @@ enum class Size : uint8_t {
   INT64 = 0x03,
 };
 
+enum class ListType : uint8_t {
+  PROPERTY_VALUE = 0x00,
+  INT = 0x01,
+  DOUBLE = 0x02,
+  NUMERIC = 0x03,
+};
+
 constexpr uint32_t SizeToByteSize(Size size) {
   switch (size) {
     case Size::INT8:
@@ -554,9 +561,8 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
     case PropertyValue::Type::Bool: {
       if (value.ValueBool()) {
         return {{Type::BOOL, Size::INT64}};
-      } else {
-        return {{Type::BOOL, Size::INT8}};
       }
+      return {{Type::BOOL, Size::INT8}};
     }
     case PropertyValue::Type::Int: {
       auto size = writer->WriteInt(value.ValueInt());
@@ -576,6 +582,8 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
       return {{Type::STRING, *size}};
     }
     case PropertyValue::Type::List: {
+      auto list_type = writer->WriteUint(static_cast<uint8_t>(ListType::PROPERTY_VALUE));
+      if (!list_type) return std::nullopt;
       const auto &list = value.ValueList();
       auto size = writer->WriteUint(list.size());
       if (!size) return std::nullopt;
@@ -585,6 +593,49 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
         auto ret = EncodePropertyValue(writer, item);
         if (!ret) return std::nullopt;
         metadata->Set({ret->first, Size::INT8, ret->second});
+      }
+      return {{Type::LIST, *size}};
+    }
+    case PropertyValue::Type::NumericList: {
+      auto list_type = writer->WriteUint(static_cast<uint8_t>(ListType::NUMERIC));
+      if (!list_type) return std::nullopt;
+      const auto &list = value.ValueNumericList();
+      auto size = writer->WriteUint(list.size());
+      if (!size) return std::nullopt;
+      for (const auto &item : list) {
+        auto metadata = writer->WriteMetadata();
+        if (!metadata) return std::nullopt;
+        if (std::holds_alternative<int>(item)) {
+          auto ret = writer->WriteInt(std::get<int>(item));
+          if (!ret) return std::nullopt;
+          metadata->Set({Type::INT, Size::INT8, *ret});
+        } else {
+          auto ret = writer->WriteDouble(std::get<double>(item));
+          if (!ret) return std::nullopt;
+          metadata->Set({Type::DOUBLE, Size::INT8, *ret});
+        }
+      }
+      return {{Type::LIST, *size}};
+    }
+    case PropertyValue::Type::IntList: {
+      auto list_type = writer->WriteUint(static_cast<uint8_t>(ListType::INT));
+      if (!list_type) return std::nullopt;
+      const auto &list = value.ValueIntList();
+      auto size = writer->WriteUint(list.size());
+      if (!size) return std::nullopt;
+      for (const auto &item : list) {
+        if (!writer->InternalWriteInt<int32_t>(item)) return std::nullopt;
+      }
+      return {{Type::LIST, *size}};
+    }
+    case PropertyValue::Type::DoubleList: {
+      auto list_type = writer->WriteUint(static_cast<uint8_t>(ListType::DOUBLE));
+      if (!list_type) return std::nullopt;
+      const auto &list = value.ValueDoubleList();
+      auto size = writer->WriteUint(list.size());
+      if (!size) return std::nullopt;
+      for (const auto &item : list) {
+        if (!writer->WriteDoubleForceInt64(item)) return std::nullopt;
       }
       return {{Type::LIST, *size}};
     }
@@ -782,6 +833,181 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
 
 }  // namespace
 
+bool DecodePropertyValue(Reader *reader, Type type, Size payload_size, PropertyValue &value);
+bool SkipPropertyValue(Reader *reader, Type type, Size payload_size);
+bool ComparePropertyValue(Reader *reader, Type type, Size payload_size, const PropertyValue &value);
+
+bool DecodeList(Reader *reader, ListType list_type, uint32_t size, PropertyValue &value) {
+  switch (list_type) {
+    case ListType::PROPERTY_VALUE: {
+      PropertyValue::list_t list;
+      list.reserve(size);
+      for (uint32_t i = 0; i < size; ++i) {
+        auto metadata = reader->ReadMetadata();
+        if (!metadata) return false;
+        PropertyValue item;
+        if (!DecodePropertyValue(reader, metadata->type, metadata->payload_size, item)) return false;
+        list.emplace_back(std::move(item));
+      }
+      value = PropertyValue(std::move(list));
+      return true;
+    }
+    case ListType::INT: {
+      PropertyValue::int_list_t list;
+      list.reserve(size);
+      for (uint32_t i = 0; i < size; ++i) {
+        auto int_v = reader->ReadInt(Size::INT32);
+        if (!int_v) return false;
+        list.emplace_back(*int_v);
+      }
+      value = PropertyValue(std::move(list));
+      return true;
+    }
+    case ListType::DOUBLE: {
+      PropertyValue::double_list_t list;
+      list.reserve(size);
+      for (uint32_t i = 0; i < size; ++i) {
+        auto double_v = reader->ReadDouble(Size::INT64);
+        if (!double_v) return false;
+        list.emplace_back(*double_v);
+      }
+      value = PropertyValue(std::move(list));
+      return true;
+    }
+    case ListType::NUMERIC: {
+      PropertyValue::numeric_list_t list;
+      list.reserve(size);
+      for (uint32_t i = 0; i < size; ++i) {
+        auto metadata = reader->ReadMetadata();
+        if (!metadata) return false;
+        if (metadata->type == Type::INT) {
+          auto int_v = reader->ReadInt(metadata->payload_size);
+          if (!int_v) return false;
+          list.emplace_back(static_cast<int>(*int_v));
+        } else if (metadata->type == Type::DOUBLE) {
+          auto double_v = reader->ReadDouble(metadata->payload_size);
+          if (!double_v) return false;
+          list.emplace_back(*double_v);
+        } else {
+          throw PropertyValueException("Expected INT or DOUBLE while decoding numeric list");
+        }
+      }
+      value = PropertyValue(std::move(list));
+      return true;
+    }
+    default: {
+      throw PropertyValueException("Invalid list type");
+    }
+  }
+}
+
+bool SkipList(Reader *reader, ListType list_type, uint32_t size) {
+  switch (list_type) {
+    case ListType::PROPERTY_VALUE: {
+      for (uint32_t i = 0; i < size; ++i) {
+        auto metadata = reader->ReadMetadata();
+        if (!metadata) return false;
+        if (!SkipPropertyValue(reader, metadata->type, metadata->payload_size)) return false;
+      }
+      return true;
+    }
+    case ListType::INT: {
+      for (uint32_t i = 0; i < size; ++i) {
+        if (!reader->SkipBytes(SizeToByteSize(Size::INT32))) return false;
+      }
+      return true;
+    }
+    case ListType::DOUBLE: {
+      for (uint32_t i = 0; i < size; ++i) {
+        if (!reader->SkipBytes(SizeToByteSize(Size::INT64))) return false;
+      }
+      return true;
+    }
+    case ListType::NUMERIC: {
+      for (uint32_t i = 0; i < size; ++i) {
+        auto metadata = reader->ReadMetadata();
+        if (!metadata) return false;
+        if (!reader->SkipBytes(SizeToByteSize(metadata->payload_size))) return false;
+      }
+      return true;
+    }
+    default: {
+      throw PropertyValueException("Invalid list type");
+    }
+  }
+}
+
+bool CompareListTypes(ListType list_type, PropertyValueType value_type) {
+  switch (list_type) {
+    case ListType::PROPERTY_VALUE:
+      return value_type == PropertyValueType::List;
+    case ListType::INT:
+      return value_type == PropertyValueType::IntList;
+    case ListType::DOUBLE:
+      return value_type == PropertyValueType::DoubleList;
+    case ListType::NUMERIC:
+      return value_type == PropertyValueType::NumericList;
+    default:
+      throw PropertyValueException("Invalid list type");
+  }
+}
+
+bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const PropertyValue &value) {
+  switch (list_type) {
+    case ListType::PROPERTY_VALUE: {
+      const auto &list = value.ValueList();
+      for (uint32_t i = 0; i < size; ++i) {
+        auto metadata = reader->ReadMetadata();
+        if (!metadata) return false;
+        if (!ComparePropertyValue(reader, metadata->type, metadata->payload_size, list[i])) return false;
+      }
+      return true;
+    }
+    case ListType::INT: {
+      const auto &list = value.ValueIntList();
+      for (uint32_t i = 0; i < size; ++i) {
+        auto int_v = reader->ReadInt(Size::INT32);
+        if (!int_v) return false;
+        if (list[i] == *int_v) return true;
+      }
+      return true;
+    }
+    case ListType::DOUBLE: {
+      const auto &list = value.ValueDoubleList();
+      for (uint32_t i = 0; i < size; ++i) {
+        auto double_v = reader->ReadDouble(Size::INT64);
+        if (!double_v) return false;
+        if (list[i] == *double_v) return true;
+      }
+      return true;
+    }
+    case ListType::NUMERIC: {
+      const auto &list = value.ValueNumericList();
+      for (uint32_t i = 0; i < size; ++i) {
+        auto metadata = reader->ReadMetadata();
+        if (!metadata) return false;
+        if (metadata->type == Type::INT) {
+          auto int_v = reader->ReadInt(metadata->payload_size);
+          if (!int_v) return false;
+          auto int_v_value = std::get<int>(list[i]);
+          if (int_v_value == *int_v) return true;
+        } else if (metadata->type == Type::DOUBLE) {
+          auto double_v = reader->ReadDouble(metadata->payload_size);
+          if (!double_v) return false;
+          auto double_v_value = std::get<double>(list[i]);
+          if (double_v_value == *double_v) return true;
+        } else {
+          throw PropertyValueException("Expected INT or DOUBLE while comparing numeric list");
+        }
+      }
+      return true;
+    }
+    default: {
+      throw PropertyValueException("Invalid list type");
+    }
+  }
+}
+
 // Function used to decode a PropertyValue from a byte stream.
 //
 // @sa ComparePropertyValue
@@ -825,16 +1051,9 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
     case Type::LIST: {
       auto size = reader->ReadUint(payload_size);
       if (!size) return false;
-      std::vector<PropertyValue> list;
-      list.reserve(*size);
-      for (uint32_t i = 0; i < *size; ++i) {
-        auto metadata = reader->ReadMetadata();
-        if (!metadata) return false;
-        PropertyValue item;
-        if (!DecodePropertyValue(reader, metadata->type, metadata->payload_size, item)) return false;
-        list.emplace_back(std::move(item));
-      }
-      value = PropertyValue(std::move(list));
+      auto list_type = reader->ReadUint(Size::INT8);
+      if (!list_type) return false;
+      if (!DecodeList(reader, static_cast<ListType>(*list_type), *size, value)) return false;
       return true;
     }
     case Type::MAP: {
@@ -927,16 +1146,11 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
     case Type::LIST: {
       auto size = reader->ReadUint(payload_size);
       if (!size) return std::nullopt;
-      std::vector<PropertyValue> list;
-      list.reserve(*size);
-      for (uint32_t i = 0; i < *size; ++i) {
-        auto metadata = reader->ReadMetadata();
-        if (!metadata) return std::nullopt;
-        auto item = DecodePropertyValue(reader, metadata->type, metadata->payload_size);
-        if (!item) return std::nullopt;
-        list.emplace_back(*std::move(item));
-      }
-      return std::optional<PropertyValue>{std::in_place, std::move(list)};
+      auto list_type = reader->ReadUint(Size::INT8);
+      if (!list_type) return std::nullopt;
+      PropertyValue value;
+      if (!DecodeList(reader, static_cast<ListType>(*list_type), *size, value)) return std::nullopt;
+      return std::optional<PropertyValue>{std::in_place, value};
     }
     case Type::MAP: {
       auto size = reader->ReadUint(payload_size);
@@ -1114,12 +1328,9 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
     case Type::LIST: {
       auto const size = reader->ReadUint(payload_size);
       if (!size) return false;
-      auto size_val = *size;
-      for (uint32_t i = 0; i != size_val; ++i) {
-        auto metadata = reader->ReadMetadata();
-        if (!metadata) return false;
-        if (!SkipPropertyValue(reader, metadata->type, metadata->payload_size)) return false;
-      }
+      auto list_type = reader->ReadUint(Size::INT8);
+      if (!list_type) return false;
+      if (!SkipList(reader, static_cast<ListType>(*list_type), *size)) return false;
       return true;
     }
     case Type::MAP: {
@@ -1184,9 +1395,8 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       if (!int_v) return false;
       if (value.IsInt()) {
         return value.ValueInt() == int_v;
-      } else {
-        return value.ValueDouble() == int_v;
       }
+      return value.ValueDouble() == int_v;
     }
     case Type::DOUBLE: {
       // Integer and double values are treated as the same in
@@ -1198,9 +1408,8 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       if (!double_v) return false;
       if (value.IsDouble()) {
         return value.ValueDouble() == double_v;
-      } else {
-        return value.ValueInt() == double_v;
       }
+      return value.ValueInt() == double_v;
     }
     case Type::STRING: {
       if (!value.IsString()) return false;
@@ -1211,16 +1420,12 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       return reader->VerifyBytes(str.data(), *size);
     }
     case Type::LIST: {
-      if (!value.IsList()) return false;
-      const auto &list = value.ValueList();
-      auto size = reader->ReadUint(payload_size);
-      if (!size) return false;
-      if (*size != list.size()) return false;
-      for (uint32_t i = 0; i < *size; ++i) {
-        auto metadata = reader->ReadMetadata();
-        if (!metadata) return false;
-        if (!ComparePropertyValue(reader, metadata->type, metadata->payload_size, list[i])) return false;
-      }
+      const auto size = reader->ReadUint(payload_size);
+      if (!size || *size != value.ListSize()) return false;
+      const auto list_type = reader->ReadUint(Size::INT8);
+      if (!list_type) return false;
+      if (!CompareListTypes(static_cast<ListType>(*list_type), value.type())) return false;
+      if (!CompareLists(reader, static_cast<ListType>(*list_type), *size, value)) return false;
       return true;
     }
     case Type::MAP: {
@@ -1428,9 +1633,28 @@ enum class ExpectedPropertyStatus {
     case STRING:
       type = ExtendedPropertyType{PropertyValue::Type::String};
       break;
-    case LIST:
-      type = ExtendedPropertyType{PropertyValue::Type::List};
+    case LIST: {
+      auto list_type = reader->ReadUint(Size::INT8);
+      if (!list_type) return ExpectedPropertyStatus::MISSING_DATA;
+      auto list_type_value = static_cast<ListType>(*list_type);
+      switch (list_type_value) {
+        case ListType::PROPERTY_VALUE:
+          type = ExtendedPropertyType{PropertyValue::Type::List};
+          break;
+        case ListType::INT:
+          type = ExtendedPropertyType{PropertyValue::Type::IntList};
+          break;
+        case ListType::DOUBLE:
+          type = ExtendedPropertyType{PropertyValue::Type::DoubleList};
+          break;
+        case ListType::NUMERIC:
+          type = ExtendedPropertyType{PropertyValue::Type::NumericList};
+          break;
+        default:
+          throw PropertyValueException("Invalid list type");
+      }
       break;
+    }
     case MAP:
       type = ExtendedPropertyType{PropertyValue::Type::Map};
       break;
@@ -1578,9 +1802,28 @@ enum class ExpectedPropertyStatus {
     case STRING:
       type = ExtendedPropertyType{PropertyValue::Type::String};
       break;
-    case LIST:
-      type = ExtendedPropertyType{PropertyValue::Type::List};
+    case LIST: {
+      auto list_type = reader->ReadUint(Size::INT8);
+      if (!list_type) return std::nullopt;
+      auto list_type_value = static_cast<ListType>(*list_type);
+      switch (list_type_value) {
+        case ListType::PROPERTY_VALUE:
+          type = ExtendedPropertyType{PropertyValue::Type::List};
+          break;
+        case ListType::INT:
+          type = ExtendedPropertyType{PropertyValue::Type::IntList};
+          break;
+        case ListType::DOUBLE:
+          type = ExtendedPropertyType{PropertyValue::Type::DoubleList};
+          break;
+        case ListType::NUMERIC:
+          type = ExtendedPropertyType{PropertyValue::Type::NumericList};
+          break;
+        default:
+          throw PropertyValueException("Invalid list type");
+      }
       break;
+    }
     case MAP:
       type = ExtendedPropertyType{PropertyValue::Type::Map};
       break;

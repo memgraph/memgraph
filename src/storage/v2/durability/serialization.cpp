@@ -162,6 +162,40 @@ void Encoder<FileType>::WriteExternalPropertyValue(const ExternalPropertyValue &
       }
       break;
     }
+    case ExternalPropertyValue::Type::NumericList: {
+      const auto &list = value.ValueNumericList();
+      WriteMarker(Marker::TYPE_LIST);
+      WriteSize(this, list.size());
+      for (const auto &item : list) {
+        WriteMarker(Marker::TYPE_PROPERTY_VALUE);
+        if (std::holds_alternative<int>(item)) {
+          WriteUint(static_cast<uint64_t>(std::get<int>(item)));
+        } else {
+          WriteDouble(std::get<double>(item));
+        }
+      }
+      break;
+    }
+    case ExternalPropertyValue::Type::IntList: {
+      const auto &list = value.ValueIntList();
+      WriteMarker(Marker::TYPE_LIST);
+      WriteSize(this, list.size());
+      for (const auto &item : list) {
+        WriteMarker(Marker::TYPE_PROPERTY_VALUE);
+        WriteUint(static_cast<uint64_t>(item));
+      }
+      break;
+    }
+    case ExternalPropertyValue::Type::DoubleList: {
+      const auto &list = value.ValueDoubleList();
+      WriteMarker(Marker::TYPE_LIST);
+      WriteSize(this, list.size());
+      for (const auto &item : list) {
+        WriteMarker(Marker::TYPE_PROPERTY_VALUE);
+        WriteDouble(item);
+      }
+      break;
+    }
     case ExternalPropertyValue::Type::Map: {
       const auto &map = value.ValueMap();
       WriteMarker(Marker::TYPE_MAP);
