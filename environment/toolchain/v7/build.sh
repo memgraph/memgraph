@@ -739,9 +739,6 @@ BZIP2_SHA256=ab5a03176ee106d3f0fa90e381da478ddae405918153cca248e682cd0c4a2269
 BZIP2_VERSION=1.0.8
 DOUBLE_CONVERSION_SHA256=fe54901055c71302dcdc5c3ccbe265a6c191978f3761ce1414d0895d6b0ea90e
 DOUBLE_CONVERSION_VERSION=3.3.1
-# NOTE: At some point Folly stopped supporting OpenSSL 1.0 which is critical
-# for CentOS7. If you decide to bump FBLIBS_VERSION drop Folly of stop
-# supporting CentOS7.
 FBLIBS_VERSION=2022.01.31.00
 FIZZ_SHA256=32a60e78d41ea2682ce7e5d741b964f0ea83642656e42d4fea90c0936d6d0c7d
 FOLLY_SHA256=7b8d5dd2eb51757858247af0ad27af2e3e93823f84033a628722b01e06cd68a9
@@ -755,10 +752,6 @@ LIBAIO_VERSION=0.3.112
 LIBEVENT_VERSION=2.1.12-stable
 LIBSODIUM_VERSION=1.0.20
 LIBUNWIND_VERSION=1.8.1
-# SNAPPY_SHA256=75c1fbb3d618dd3a0483bff0e26d0a92b495bbe5059c8b4f1c962b478b6e06e7
-# SNAPPY_VERSION=1.1.9
-# PYTHON_VERSION=3.12.9
-# PYTHON_MD5=ce613c72fa9b32fb4f109762d61b249b
 SNAPPY_SHA256=90f74bc1fbf78a6c56b3c4a082a05103b3a56bb17bca1a27e052ea11723292dc
 SNAPPY_VERSION=1.2.2
 XZ_VERSION=5.6.3 # for LZMA
@@ -802,9 +795,6 @@ fi
 if [ ! -f proxygen-$FBLIBS_VERSION.tar.gz ]; then
     wget https://github.com/facebook/proxygen/releases/download/v$FBLIBS_VERSION/proxygen-v$FBLIBS_VERSION.tar.gz -O proxygen-$FBLIBS_VERSION.tar.gz
 fi
-# if [ ! -f Python-$PYTHON_VERSION.tgz ]; then
-#     wget https://www.python.org/ftp/python/$PYTHON_VERSION/Python-$PYTHON_VERSION.tgz -O Python-$PYTHON_VERSION.tgz
-# fi
 if [ ! -f snappy-$SNAPPY_VERSION.tar.gz ]; then
     wget https://github.com/google/snappy/archive/refs/tags/$SNAPPY_VERSION.tar.gz -O snappy-$SNAPPY_VERSION.tar.gz
 fi
@@ -864,8 +854,6 @@ if false; then
 fi
 # verify proxygen
 echo "$PROXYGEN_SHA256 proxygen-$FBLIBS_VERSION.tar.gz" | sha256sum -c
-# verify python
-# echo "$PYTHON_MD5 Python-$PYTHON_VERSION.tgz" | md5sum -c
 # verify snappy
 echo "$SNAPPY_SHA256  snappy-$SNAPPY_VERSION.tar.gz" | sha256sum -c
 # verify xz
@@ -944,19 +932,6 @@ if [ ! -f $PREFIX/include/bzlib.h ]; then
     popd
 fi
 
-# log_tool_name "python $PYTHON_VERSION"
-# if [ ! -f $PREFIX/include/python${PYTHON_VERSION%.*}/Python.h ]; then
-#     if [ -d python3-$PYTHON_VERSION ]; then
-#         rm -rf Python-$PYTHON_VERSION
-#     fi
-#     tar -xzf ../archives/Python-$PYTHON_VERSION.tgz
-#     pushd Python-$PYTHON_VERSION
-#     ./configure --enable-shared=yes --prefix=$PREFIX --enable-optimizations --with-ensurepip=install --with-virtualenv=yes
-#     make -j$CPUS CFLAGS="$CFLAGS"
-#     make install
-#     popd
-# fi
-
 log_tool_name "xz $XZ_VERSION"
 if [ ! -f $PREFIX/include/lzma.h ]; then
     if [ -d xz-$XZ_VERSION ]; then
@@ -1014,18 +989,6 @@ if [ ! -d $PREFIX/include/jemalloc ]; then
       --with-jemalloc-prefix=je_ \
       --enable-shared=no --prefix=$PREFIX \
       --with-malloc-conf="background_thread:true,retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000"
-    ##### NOTE: Old jmalloc config (toolchain-v5)
-    # ./autogen.sh
-    # MALLOC_CONF="retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000" \
-    # ./configure \
-    #      --disable-cxx \
-    #      $COMMON_CONFIGURE_FLAGS \
-    #      --with-malloc-conf="retain:false,percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000"
-    ##### NOTE: Old jmalloc config (toolchain-v4 and before).
-    # ./autogen.sh --with-malloc-conf="percpu_arena:percpu,oversize_threshold:0,muzzy_decay_ms:5000,dirty_decay_ms:5000"
-    # env \
-    #     EXTRA_FLAGS="-DJEMALLOC_NO_PRIVATE_NAMESPACE -D_GNU_SOURCE -Wno-redundant-decls" \
-    #     ./configure $COMMON_CONFIGURE_FLAGS --disable-cxx
     make -j$CPUS install
     popd
 fi
@@ -1250,29 +1213,6 @@ if [ ! -f $PREFIX/lib/libprotobuf.a ]; then
     make -j$CPUS install
     popd
 fi
-
-# NOTE: Latest pulsar is different -> migrate in a separated PR.
-# PULSAR_TAG="v3.6.0"
-# log_tool_name "pulsar $PULSAR_TAG"
-# if [ ! -f $PREFIX/lib/libpulsarwithdeps.a ]; then
-#     if [ -d pulsar ]; then
-#         rm -rf pulsar
-#     fi
-#     git clone https://github.com/apache/pulsar-client-cpp pulsar
-#     pushd pulsar
-#     git submodule update --init --recursive
-#     git checkout $PULSAR_TAG
-#     cmake -B build $COMMON_CMAKE_FLAGS \
-#       -DBUILD_DYNAMIC_LIB=OFF \
-#       -DBUILD_STATIC_LIB=ON \
-#       -DBUILD_TESTS=OFF \
-#       -DLINK_STATIC=ON \
-#       -DPROTOC_PATH=$PREFIX/bin/protoc \
-#       -DUSE_ASIO=OFF \
-#       -DUSE_LOG4CXX=OFF
-#     cmake --build build -j$CPUS --target install
-#     popd
-# fi
 
 # Build OpenSSL and curl from source for RPM distributions
 if [[ "$DISTRO" =~ ^(rocky-|centos-|fedora-) ]]; then
