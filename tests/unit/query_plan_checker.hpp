@@ -158,6 +158,7 @@ class PlanChecker : public virtual HierarchicalLogicalOperatorVisitor {
 
   PRE_VISIT(PeriodicCommit);
   PRE_VISIT(LoadCsv);
+  PRE_VISIT(LoadParquet);
 
   bool PreVisit(PeriodicSubquery &op) override {
     CheckOp(op);
@@ -215,6 +216,7 @@ using ExpectDistinct = OpChecker<Distinct>;
 using ExpectEvaluatePatternFilter = OpChecker<EvaluatePatternFilter>;
 using ExpectPeriodicCommit = OpChecker<PeriodicCommit>;
 using ExpectLoadCsv = OpChecker<LoadCsv>;
+using ExpectLoadParquet = OpChecker<LoadParquet>;
 using ExpectBasicCallProcedure = OpChecker<CallProcedure>;
 using ExpectSetNestedProperty = OpChecker<SetNestedProperty>;
 using ExpectRemoveNestedProperty = OpChecker<RemoveNestedProperty>;
