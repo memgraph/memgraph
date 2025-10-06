@@ -502,6 +502,13 @@ TEST(StorageV2InterleavedIsolation, IsolationWorksWithAbortedInterleavedTransact
     CompareEdges(edges.GetValue(), std::array{tx4->NameToEdgeType("Edge1")});
   }
 
+  {
+    // tx0 sees no edges
+    auto edges = v1_0->OutEdges(ms::View::OLD);
+    ASSERT_TRUE(edges.HasValue());
+    EXPECT_EQ(edges->edges.size(), 0);
+  }
+
   tx3->Abort();
   tx3.reset();
 
