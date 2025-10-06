@@ -1197,7 +1197,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
         vector_edge_type_property_restore;  // No need to cleanup, because edge type can't be removed and when null
                                             // property is set, it's like removing the property from the index
 
-    // TWO passes needed here @TODO three now
+    // TWO passes needed here
     // Abort will modify objects to restore state to how they were before this txn
     // The passes will find the head delta for each object and process the whole object,
     // To track which edge type indexes need cleaning up, we need the edge type which is held in vertices in/out edges
