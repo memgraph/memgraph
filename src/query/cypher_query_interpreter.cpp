@@ -84,7 +84,7 @@ ParsedQuery ParseQuery(const std::string &query_string, UserParameters const &us
     result.is_cypher_read = cached_query.is_cypher_read;
   };
 
-  if (it == accessor.end()) {
+  if (true) {
     try {
       parser = std::make_unique<frontend::opencypher::Parser>(stripped_query.stripped_query().str());
     } catch (const SyntaxException &e) {
