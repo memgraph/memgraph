@@ -7619,7 +7619,8 @@ class LoadParquetCursor : public Cursor {
   bool did_pull_{false};
   std::optional<ParquetReader> reader_;
   Header header_cache_;
-  size_t num_columns_;
+  size_t num_columns_{0};
+  Row row_;
 
  public:
   LoadParquetCursor(const LoadParquet *self, utils::MemoryResource *mem)
@@ -7645,6 +7646,7 @@ class LoadParquetCursor : public Cursor {
       reader_.emplace(std::string{*maybe_file}, mem);
       header_cache_ = reader_->GetHeader(mem);
       num_columns_ = header_cache_.size();
+      row_.resize(num_columns_);
     }
 
     if (input_cursor_->Pull(frame, context)) {
@@ -7657,17 +7659,14 @@ class LoadParquetCursor : public Cursor {
       did_pull_ = true;
     }
 
-    auto maybe_row = reader_->GetNextRow();
-    if (!maybe_row) {
+    if (!reader_->GetNextRow(row_)) {
       return false;
     }
-    auto &row = *maybe_row;
-
     // Convert row to TypedValue map similar to CSV with headers
     auto typed_map = utils::pmr::map<utils::pmr::string, TypedValue>(mem);
 
     for (size_t i = 0; i < num_columns_; ++i) {
-      typed_map.emplace(header_cache_[i], std::move(row[i]));
+      typed_map.emplace(header_cache_[i], std::move(row_[i]));
     }
 
     frame[self_->row_var_] = TypedValue(std::move(typed_map));

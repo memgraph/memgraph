@@ -35,7 +35,7 @@ class ParquetReader {
   // Destructor must be defined in .cpp file for pimpl idiom with unique_ptr
   ~ParquetReader();
 
-  auto GetNextRow() const -> std::optional<Row>;
+  auto GetNextRow(Row &out) -> bool;
   auto GetHeader(utils::MemoryResource *resource) const -> Header;
 
  private:
