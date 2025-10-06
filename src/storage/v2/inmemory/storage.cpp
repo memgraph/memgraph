@@ -1301,221 +1301,187 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
     }
 
     // Vertices pass
-    bool any_delta_has_upstream_interleaved_delta{false};
-    for (const auto &delta : transaction_.deltas) {
+    for (auto &delta : transaction_.deltas) {
       auto prev = delta.prev.Get();
-      switch (prev.type) {
-        case PreviousPtr::Type::VERTEX: {
-          auto *vertex = prev.vertex;
-          auto guard = std::unique_lock{vertex->lock};
-          Delta *current = vertex->delta;
 
-          auto remove_in_edges = absl::flat_hash_set<EdgeRef>{};
-          auto remove_out_edges = absl::flat_hash_set<EdgeRef>{};
-
-          Delta *prev_delta = nullptr;
-
-          while (current != nullptr) {
-            auto ts = current->timestamp->load(std::memory_order_acquire);
-
-            if (ts == transaction_.transaction_id) {
-              switch (current->action) {
-                case Delta::Action::REMOVE_LABEL: {
-                  auto it = std::find(vertex->labels.begin(), vertex->labels.end(), current->label.value);
-                  MG_ASSERT(it != vertex->labels.end(), "Invalid database state!");
-                  std::swap(*it, *vertex->labels.rbegin());
-                  vertex->labels.pop_back();
-                  storage_->UpdateLabelCount(current->label.value, -1);
-                  index_abort_processor.CollectOnLabelRemoval(current->label.value, vertex);
-
-                  index_abort_processor.CollectOnLabelRemoval(current->label.value, vertex);
-                  break;
-                }
-                case Delta::Action::ADD_LABEL: {
-                  auto it = std::find(vertex->labels.begin(), vertex->labels.end(), current->label.value);
-                  MG_ASSERT(it == vertex->labels.end(), "Invalid database state!");
-                  vertex->labels.push_back(current->label.value);
-
-                  storage_->UpdateLabelCount(current->label.value, 1);
-
-                index_abort_processor.CollectOnLabelAddition(current->label.value, vertex);
-                break;
-              }
-              case Delta::Action::SET_PROPERTY: {
-                // For label index nothing
-                // For property label index
-                //  check if we care about the property, this will return all the labels and then get current property
-                //  value
-                index_abort_processor.CollectOnPropertyChange(current->property.key, vertex);
-                // Setting the correct value
-                vertex->properties.SetProperty(current->property.key, *current->property.value);
-                break;
-              }
-              case Delta::Action::ADD_IN_EDGE: {
-                auto link = std::tuple{current->vertex_edge.edge_type, current->vertex_edge.vertex.Get(),
-                                       current->vertex_edge.edge};
-                DMG_ASSERT(std::find(vertex->in_edges.begin(), vertex->in_edges.end(), link) == vertex->in_edges.end(),
-                           "Invalid database state!");
-                vertex->in_edges.push_back(link);
-                break;
-              }
-              case Delta::Action::ADD_OUT_EDGE: {
-                auto link = std::tuple{current->vertex_edge.edge_type, current->vertex_edge.vertex.Get(),
-                                       current->vertex_edge.edge};
-                DMG_ASSERT(
-                    std::find(vertex->out_edges.begin(), vertex->out_edges.end(), link) == vertex->out_edges.end(),
-                    "Invalid database state!");
-                vertex->out_edges.push_back(link);
-                // Increment edge count. We only increment the count here because
-                // the information in `ADD_IN_EDGE` and `Edge/RECREATE_OBJECT` is
-                // redundant. Also, `Edge/RECREATE_OBJECT` isn't available when
-                // edge properties are disabled.
-                storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
-                break;
-              }
-              case Delta::Action::REMOVE_IN_EDGE: {
-                // EdgeRef is unique
-                remove_in_edges.insert(current->vertex_edge.edge);
-                break;
-              }
-              case Delta::Action::REMOVE_OUT_EDGE: {
-                // EdgeRef is unique
-                remove_out_edges.insert(current->vertex_edge.edge);
-
-                // Decrement edge count. We only decrement the count here because
-                // the information in `REMOVE_IN_EDGE` and `Edge/DELETE_OBJECT` is
-                // redundant. Also, `Edge/DELETE_OBJECT` isn't available when edge
-                // properties are disabled.
-                storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
-
-                // TODO: Change edge type index to work with EdgeRef rather than Edge *
-                if (!mem_storage->config_.salient.items.properties_on_edges) break;
-
-                auto const &[_, edge_type, to_vertex, edge] = current->vertex_edge;
-                index_abort_processor.CollectOnEdgeRemoval(edge_type, vertex, to_vertex.Get(), edge.ptr);
-                // TODO: ensure collector also processeses for edge_type+property index
-
-                  break;
-                }
-                case Delta::Action::DELETE_DESERIALIZED_OBJECT:
-                case Delta::Action::DELETE_OBJECT: {
-                  vertex->deleted = true;
-                  my_deleted_vertices.push_back(vertex->gid);
-                  break;
-                }
-                case Delta::Action::RECREATE_OBJECT: {
-                  vertex->deleted = false;
-                  break;
-                }
-              }
-
-              auto next_delta = current->next.load(std::memory_order_acquire);
-              if (prev_delta != nullptr) {
-                prev_delta->next.store(next_delta, std::memory_order_release);
-                if (next_delta != nullptr) {
-                  next_delta->prev.Set(prev_delta);
-                }
-              } else {
-                vertex->delta = next_delta;
-                if (next_delta != nullptr) {
-                  next_delta->prev.Set(vertex);
-                }
-              }
-              current = next_delta;
+      // Due to interleaved deltas, there may be subchains of deltas owned
+      // by this transaction that do not begin at the vertex.
+      bool const is_unlink_point = std::invoke(
+          [&](auto const &prev) {
+            if (prev.type == PreviousPtr::Type::VERTEX) {
+              return true;
+            } else if (prev.type == PreviousPtr::Type::DELTA) {
+              return prev.delta->timestamp->load(std::memory_order_acquire) == transaction_.transaction_id;
             } else {
-              if (!IsOperationInterleaved(*current)) {
-                break;
-              }
-              prev_delta = current;
-              current = current->next.load(std::memory_order_acquire);
+              return false;
             }
-          }
+          },
+          prev);
 
-          // bulk remove in_edges
-          if (!remove_in_edges.empty()) {
-            auto mid = std::partition(vertex->in_edges.begin(), vertex->in_edges.end(), [&](auto const &edge_tuple) {
-              return !remove_in_edges.contains(std::get<EdgeRef>(edge_tuple));
-            });
-            vertex->in_edges.erase(mid, vertex->in_edges.end());
-            vertex->in_edges.shrink_to_fit();
-          }
-
-          // bulk remove out_edges
-          if (!remove_out_edges.empty()) {
-            auto mid = std::partition(vertex->out_edges.begin(), vertex->out_edges.end(), [&](auto const &edge_tuple) {
-              return !remove_out_edges.contains(std::get<EdgeRef>(edge_tuple));
-            });
-            vertex->out_edges.erase(mid, vertex->out_edges.end());
-            vertex->out_edges.shrink_to_fit();
-          }
-
-          vertex->delta = current;  // @TODO here is we effectively "unlink"
-          if (current != nullptr) {
-            current->prev.Set(vertex);
-          }
-
-          // @TODO double check all cases where I am setting the `prev`
-          // pointer: I believe we need `prev` to remain in place so that
-          // we can always follow the chain to the upstream object, regardless
-          // of how the chain is otherwise cut for visibility during abort
-          // or commit.
-
-          break;
-        }
-        case PreviousPtr::Type::DELTA:
-          if (!any_delta_has_upstream_interleaved_delta) {
-            any_delta_has_upstream_interleaved_delta |= IsOperationInterleaved(*prev.delta);
-          }
-          break;
-        case PreviousPtr::Type::EDGE:
-        // pointer probably couldn't be set because allocation failed
-        case PreviousPtr::Type::NULL_PTR:
-          break;
+      if (!is_unlink_point) {
+        continue;
       }
-    }
 
-    // Interleaved vertices delta pass. Because interleaved deltas
-    // mean that the `prev` pointer from an aborted delta is not necessarily
-    // a vertex or a delta from this transaction, we need a surgical pass
-    // to check all aborted deltas have been cleanly cut out of the delta chain.
-    // @TODO this is a very slow implementation just to prove that this fixes
-    // the issue. Rewrite it!
-    if (any_delta_has_upstream_interleaved_delta) {
-      for (const auto &delta : transaction_.deltas) {
-        auto current_prev = delta.prev.Get();
-        while (current_prev.type == PreviousPtr::Type::DELTA) {
-          auto *prev_delta = current_prev.delta;
-          if (prev_delta == nullptr) break;
-          current_prev = prev_delta->prev.Get();
-        }
-
-        if (current_prev.type == PreviousPtr::Type::VERTEX) {
-          auto *vertex = current_prev.vertex;
-          auto guard = std::unique_lock{vertex->lock};
-
-          Delta *current = vertex->delta;
-          Delta *prev_delta = nullptr;
-
-          while (current != nullptr) {
-            if (current == &delta) {
-              auto next_delta = current->next.load(std::memory_order_acquire);
-              if (prev_delta != nullptr) {
-                prev_delta->next.store(next_delta, std::memory_order_release);
-                if (next_delta != nullptr) {
-                  next_delta->prev.Set(prev_delta);
-                }
-              } else {
-                vertex->delta = next_delta;
-                if (next_delta != nullptr) {
-                  next_delta->prev.Set(vertex);
-                }
-              }
-              break;
+      auto vertex_ptr = std::invoke(
+          [](auto prev) {
+            while (prev.type == PreviousPtr::Type::DELTA) {
+              prev = prev.delta->prev.Get();
             }
-            prev_delta = current;
-            current = current->next.load(std::memory_order_acquire);
+            return prev;
+          },
+          prev);
+
+      if (vertex_ptr.type != PreviousPtr::Type::VERTEX) {
+        // Could be nullptr because allocation failed
+        continue;
+      }
+
+      auto *vertex = vertex_ptr.vertex;
+      auto guard = std::unique_lock{vertex->lock};
+      Delta *current = &delta;
+      auto actual_prev = current->prev.Get();
+
+      // In the time between detecting that we can disconnect the subchain
+      // from here, and actually locking the vertex to make the modification,
+      // the delta chain could have been modified either by another concurrent
+      // transaction with interleaved deltas aborting, or prepending new
+      // interleaved deltas. Doesn't matter, provided we use the actual current
+      // prev value, but with one special case: Due to concurrent aborts, two
+      // disconnected subchains belonging to the same transaction may now be
+      // connected. If so, prev will be a delta with the same transaction id. In
+      // that case, we will let the processing of the delta - which must occur
+      // later as a prepended delta will be later in the `transaction_.deltas_`
+      // list - handle the joined subchains.
+
+      if (actual_prev.type == PreviousPtr::Type::DELTA &&
+          actual_prev.delta->timestamp->load(std::memory_order_acquire) == transaction_.transaction_id) {
+        continue;
+      }
+
+      auto remove_in_edges = absl::flat_hash_set<EdgeRef>{};
+      auto remove_out_edges = absl::flat_hash_set<EdgeRef>{};
+
+      while (current != nullptr && current->timestamp->load(std::memory_order_acquire) == transaction_.transaction_id) {
+        switch (current->action) {
+          case Delta::Action::REMOVE_LABEL: {
+            auto it = std::find(vertex->labels.begin(), vertex->labels.end(), current->label.value);
+            MG_ASSERT(it != vertex->labels.end(), "Invalid database state!");
+            std::swap(*it, *vertex->labels.rbegin());
+            vertex->labels.pop_back();
+
+            index_abort_processor.CollectOnLabelRemoval(current->label.value, vertex);
+            break;
+          }
+          case Delta::Action::ADD_LABEL: {
+            auto it = std::find(vertex->labels.begin(), vertex->labels.end(), current->label.value);
+            MG_ASSERT(it == vertex->labels.end(), "Invalid database state!");
+            vertex->labels.push_back(current->label.value);
+
+            storage_->UpdateLabelCount(current->label.value, 1);
+            index_abort_processor.CollectOnLabelAddition(current->label.value, vertex);
+            break;
+          }
+          case Delta::Action::SET_PROPERTY: {
+            // For label index nothing
+            // For property label index
+            //  check if we care about the property, this will return all the labels and then get current property
+            //  value
+            index_abort_processor.CollectOnPropertyChange(current->property.key, vertex);
+            // Setting the correct value
+            vertex->properties.SetProperty(current->property.key, *current->property.value);
+            break;
+          }
+          case Delta::Action::ADD_IN_EDGE: {
+            auto link = std::tuple{current->vertex_edge.edge_type, current->vertex_edge.vertex.Get(),
+                                    current->vertex_edge.edge};
+            DMG_ASSERT(std::find(vertex->in_edges.begin(), vertex->in_edges.end(), link) == vertex->in_edges.end(),
+                        "Invalid database state!");
+            vertex->in_edges.push_back(link);
+            break;
+          }
+          case Delta::Action::ADD_OUT_EDGE: {
+            auto link = std::tuple{current->vertex_edge.edge_type, current->vertex_edge.vertex.Get(),
+                                    current->vertex_edge.edge};
+            DMG_ASSERT(
+                std::find(vertex->out_edges.begin(), vertex->out_edges.end(), link) == vertex->out_edges.end(),
+                "Invalid database state!");
+            vertex->out_edges.push_back(link);
+            // Increment edge count. We only increment the count here because
+            // the information in `ADD_IN_EDGE` and `Edge/RECREATE_OBJECT` is
+            // redundant. Also, `Edge/RECREATE_OBJECT` isn't available when
+            // edge properties are disabled.
+            storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
+            break;
+          }
+          case Delta::Action::REMOVE_IN_EDGE: {
+            // EdgeRef is unique
+            remove_in_edges.insert(current->vertex_edge.edge);
+            break;
+          }
+          case Delta::Action::REMOVE_OUT_EDGE: {
+            // EdgeRef is unique
+            remove_out_edges.insert(current->vertex_edge.edge);
+
+            // Decrement edge count. We only decrement the count here because
+            // the information in `REMOVE_IN_EDGE` and `Edge/DELETE_OBJECT` is
+            // redundant. Also, `Edge/DELETE_OBJECT` isn't available when edge
+            // properties are disabled.
+            storage_->edge_count_.fetch_add(-1, std::memory_order_acq_rel);
+
+            // TODO: Change edge type index to work with EdgeRef rather than Edge *
+            if (!mem_storage->config_.salient.items.properties_on_edges) break;
+
+            auto const &[_, edge_type, to_vertex, edge] = current->vertex_edge;
+            index_abort_processor.CollectOnEdgeRemoval(edge_type, vertex, to_vertex.Get(), edge.ptr);
+            // TODO: ensure collector also processeses for edge_type+property index
+
+            break;
+          }
+          case Delta::Action::DELETE_DESERIALIZED_OBJECT:
+          case Delta::Action::DELETE_OBJECT: {
+            vertex->deleted = true;
+            my_deleted_vertices.push_back(vertex->gid);
+            break;
+          }
+          case Delta::Action::RECREATE_OBJECT: {
+            vertex->deleted = false;
+            break;
           }
         }
+        current = current->next.load(std::memory_order_acquire);
+      }
+
+      // bulk remove in_edges
+      if (!remove_in_edges.empty()) {
+        auto mid = std::partition(vertex->in_edges.begin(), vertex->in_edges.end(), [&](auto const &edge_tuple) {
+          return !remove_in_edges.contains(std::get<EdgeRef>(edge_tuple));
+        });
+        vertex->in_edges.erase(mid, vertex->in_edges.end());
+        vertex->in_edges.shrink_to_fit();
+      }
+
+      // bulk remove out_edges
+      if (!remove_out_edges.empty()) {
+        auto mid = std::partition(vertex->out_edges.begin(), vertex->out_edges.end(), [&](auto const &edge_tuple) {
+          return !remove_out_edges.contains(std::get<EdgeRef>(edge_tuple));
+        });
+        vertex->out_edges.erase(mid, vertex->out_edges.end());
+        vertex->out_edges.shrink_to_fit();
+      }
+
+      if (actual_prev.type == PreviousPtr::Type::VERTEX) {
+        vertex->delta = current;
+        if (current != nullptr) {
+          current->prev.Set(vertex);
+        }
+      } else if (actual_prev.type == PreviousPtr::Type::DELTA) {
+        // Prev must be a delta
+        actual_prev.delta->next.store(current, std::memory_order_release);
+        if (current != nullptr) {
+          current->prev.Set(actual_prev.delta);
+        }
+      } else {
+        DMG_ASSERT(false, "Unexpected prev type in delta chain");
       }
     }
 
