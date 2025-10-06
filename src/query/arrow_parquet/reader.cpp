@@ -11,6 +11,7 @@
 
 #include "query/arrow_parquet/reader.hpp"
 #include "query/typed_value.hpp"
+#include "utils/data_queue.hpp"
 
 #include <chrono>
 #include <optional>
@@ -22,7 +23,6 @@
 #include "arrow/io/api.h"
 #include "arrow/io/file.h"
 #include "parquet/properties.h"
-#include "rocksdb/util/work_queue.h"
 
 #include "spdlog/spdlog.h"
 
@@ -70,7 +70,7 @@ struct ParquetReader::impl {
 
   ~impl();
 
-  auto GetNextRow() -> std::optional<Row>;
+  auto GetNextRow(Row &out) -> bool;
 
   auto GetSchema() -> std::shared_ptr<arrow::Schema>;
 
@@ -81,7 +81,7 @@ struct ParquetReader::impl {
   int num_columns_;
   BatchIterator row_it_;
   std::vector<Row> rows_;  // cached, pre-allocated rows
-  rocksdb::WorkQueue<std::vector<Row>> work_queue_;
+  utils::DataQueue<std::vector<Row>> work_queue_;
   std::jthread prefetcher_thread_;  // should get destroyed before all other variables that it uses as a reference
   uint64_t row_in_batch_{0};
   uint64_t current_batch_size_{0};
@@ -145,17 +145,18 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
 
 ParquetReader::impl::~impl() {}
 
-auto ParquetReader::impl::GetNextRow() -> std::optional<Row> {
+auto ParquetReader::impl::GetNextRow(Row &out) -> bool {
   if (row_in_batch_ >= current_batch_size_) {
     // No more batches to process
     if (!work_queue_.pop(rows_)) {
-      return std::nullopt;
+      return false;
     }
 
     row_in_batch_ = 0;
     current_batch_size_ = rows_.size();
   }
-  return rows_[row_in_batch_++];
+  out = std::move(rows_[row_in_batch_++]);
+  return true;
 }
 
 auto ParquetReader::impl::GetSchema() -> std::shared_ptr<arrow::Schema> { return schema_; }
@@ -207,7 +208,7 @@ ParquetReader::ParquetReader(std::string const &file, utils::MemoryResource *res
 // Destructor must be defined here where impl is complete
 ParquetReader::~ParquetReader() = default;
 
-auto ParquetReader::GetNextRow() const -> std::optional<Row> { return pimpl_->GetNextRow(); }
+auto ParquetReader::GetNextRow(Row &out) -> bool { return pimpl_->GetNextRow(out); }
 
 auto ParquetReader::GetHeader(utils::MemoryResource *resource) const -> Header {
   auto const schema = pimpl_->GetSchema();

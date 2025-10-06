@@ -36,6 +36,7 @@ target_sources(mg-utils
     FILES
     allocator/page_aligned.hpp
     allocator/page_slab_memory_resource.hpp
+    data_queue.hpp
     exponential_backoff.hpp
     memory_layout.hpp
     small_vector.hpp
