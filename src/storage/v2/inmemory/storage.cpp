@@ -1267,7 +1267,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
             if (prev.type == PreviousPtr::Type::VERTEX) {
               return true;
             } else if (prev.type == PreviousPtr::Type::DELTA) {
-              return prev.delta->timestamp->load(std::memory_order_acquire) == transaction_.transaction_id;
+              return prev.delta->timestamp->load(std::memory_order_acquire) != transaction_.transaction_id;
             } else {
               return false;
             }
