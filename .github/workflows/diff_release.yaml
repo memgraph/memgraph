@@ -81,6 +81,18 @@ jobs:
           --arch $ARCH \
           run
 
+      - name: Test mgdeps cache connection
+        run: |
+          echo "Testing mgdeps cache connection..."
+          docker exec mgbuild_${TOOLCHAIN}_${OS} bash -c "
+            echo 'Testing hostname resolution:'
+            nslookup mgdeps-cache || echo 'nslookup failed, trying ping...'
+            ping -c 1 mgdeps-cache || echo 'ping failed'
+            echo 'Testing HTTP connection to mgdeps-cache:8000:'
+            curl -f http://mgdeps-cache:8000/health || echo 'HTTP connection failed'
+            echo 'mgdeps cache connection test completed'
+          "
+
       - name: Build release binary
         run: |
           ./release/package/mgbuild.sh \
