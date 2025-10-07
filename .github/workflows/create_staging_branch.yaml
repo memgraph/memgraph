@@ -94,6 +94,7 @@ jobs:
 
       - name: Create PR comment
         id: create_pr_comment
+        continue-on-error: true
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
