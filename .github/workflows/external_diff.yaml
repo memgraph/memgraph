@@ -48,8 +48,6 @@ jobs:
     needs: CallCreateStagingBranch
     uses: ./.github/workflows/diff.yaml
     with:
-      pr_number: ${{ inputs.pr_number }}
-      base_master: ${{ inputs.base_master }}
       community_core: ${{ inputs.community_core }}
       coverage: ${{ inputs.coverage }}
       debug_core: ${{ inputs.debug_core }}
