@@ -26,6 +26,7 @@ struct CachedValue {
 
   // Cached value, this can be probably templateized
   CachedType cache_;
+  // TODO: swap with absl::flat_hash_set
 
   explicit CachedValue(allocator_type alloc) : cache_{alloc} {};
   CachedValue(const CachedValue &other, allocator_type alloc) : cache_(other.cache_, alloc) {}
@@ -42,6 +43,8 @@ struct CachedValue {
   CachedValue &operator=(CachedValue &&) = delete;
 
   ~CachedValue() = default;
+
+  void Reset() { cache_.clear(); }
 
   bool CacheValue(const TypedValue &maybe_list) {
     if (!maybe_list.IsList()) {
@@ -61,8 +64,7 @@ struct CachedValue {
 
   // Func to check if cache_ contains value
   bool ContainsValue(const TypedValue &value) const {
-    TypedValue::Hash hash{};
-    const auto key = hash(value);
+    const auto key = TypedValue::Hash{}(value);
     if (cache_.contains(key)) {
       return IsValueInVec(cache_.at(key), value);
     }
@@ -71,7 +73,7 @@ struct CachedValue {
 
  private:
   static bool IsValueInVec(const utils::pmr::vector<TypedValue> &vec_values, const TypedValue &value) {
-    return std::any_of(vec_values.begin(), vec_values.end(), [&value](auto &vec_value) {
+    return std::ranges::any_of(vec_values, [&value](auto &vec_value) {
       const auto is_value_equal = vec_value == value;
       if (is_value_equal.IsNull()) return false;
       return is_value_equal.ValueBool();
@@ -115,26 +117,33 @@ class FrameChangeCollector {
     return it->second;
   }
 
-  bool IsKeyTracked(const std::string &key) const {
-    return tracked_values_.contains(utils::pmr::string(key, utils::NewDeleteResource()));
+  bool IsKeyTracked(std::string_view const key) const { return tracked_values_.contains(key); }
+
+  auto TryGetCachedValue(std::string_view const key) const -> std::optional<std::reference_wrapper<CachedValue const>> {
+    auto const it = tracked_values_.find(key);
+    if (it == tracked_values_.cend()) {
+      return std::nullopt;
+    }
+    // Empty is considered unpopulated
+    if (it->second.cache_.empty()) {
+      return std::nullopt;
+    }
+    return std::optional{std::cref(it->second)};
   }
 
-  bool IsKeyValueCached(const std::string &key) const {
-    return IsKeyTracked(key) && !tracked_values_.at(utils::pmr::string(key, utils::NewDeleteResource())).cache_.empty();
-  }
-
-  bool ResetTrackingValue(const std::string &key) {
-    auto const it = tracked_values_.find(utils::pmr::string(key, utils::NewDeleteResource()));
+  bool ResetTrackingValue(std::string_view const key) {
+    auto const it = tracked_values_.find(key);
     if (it == tracked_values_.cend()) {
       return false;
     }
-    tracked_values_.erase(it);
-    AddTrackingKey(key);
+    it->second.Reset();
     return true;
   }
 
-  CachedValue &GetCachedValue(const std::string &key) {
-    return tracked_values_.at(utils::pmr::string(key, utils::NewDeleteResource()));
+  CachedValue &GetCachedValue(std::string_view const key) {
+    auto it = tracked_values_.find(key);
+    DMG_ASSERT(it != tracked_values_.cend());
+    return it->second;
   }
 
   bool IsTrackingValues() const { return !tracked_values_.empty(); }
@@ -142,10 +151,20 @@ class FrameChangeCollector {
   ~FrameChangeCollector() = default;
 
  private:
+  // Transparent hasher
   struct PmrStringHash {
-    size_t operator()(const utils::pmr::string &key) const { return utils::Fnv(key); }
+    using is_transparent = void;  // enables heterogeneous lookup
+
+    std::size_t operator()(std::string_view const sv) const noexcept { return utils::Fnv(sv); }
   };
 
-  utils::pmr::unordered_map<utils::pmr::string, CachedValue, PmrStringHash> tracked_values_;
+  // Transparent equality comparator
+  struct PmrStringEqual {
+    using is_transparent = void;
+
+    bool operator()(std::string_view const lhs, std::string_view const rhs) const noexcept { return lhs == rhs; }
+  };
+
+  utils::pmr::unordered_map<utils::pmr::string, CachedValue, PmrStringHash, PmrStringEqual> tracked_values_;
 };
 }  // namespace memgraph::query

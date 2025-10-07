@@ -347,33 +347,35 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       return {};
     };
 
-    const auto cached_id = memgraph::utils::GetFrameChangeId(in_list);
-
-    const auto do_cache{frame_change_collector_ != nullptr && cached_id &&
-                        frame_change_collector_->IsKeyTracked(*cached_id)};
-    if (do_cache) {
-      if (!frame_change_collector_->IsKeyValueCached(*cached_id)) {
-        // Check only first time if everything is okay, later when we use
-        // cache there is no need to check again as we did check first time
-        auto list = get_list_literal();
-        auto preoperational_checks = do_list_literal_checks(list);
-        if (preoperational_checks) {
-          return std::move(*preoperational_checks);
+    if (frame_change_collector_) {
+      const auto cached_id = memgraph::utils::GetFrameChangeId(in_list);
+      const auto do_cache{cached_id && frame_change_collector_->IsKeyTracked(*cached_id)};
+      if (do_cache) {
+        auto cached_value_ref = frame_change_collector_->TryGetCachedValue(*cached_id);
+        if (!cached_value_ref) {
+          // Check only first time if everything is okay, later when we use
+          // cache there is no need to check again as we did check first time
+          auto list = get_list_literal();
+          auto preoperational_checks = do_list_literal_checks(list);
+          if (preoperational_checks) {
+            return std::move(*preoperational_checks);
+          }
+          auto &cached_value = frame_change_collector_->GetCachedValue(*cached_id);
+          // Don't move here because we don't want to remove the element from the frame
+          cached_value.CacheValue(list);
+          cached_value_ref = std::cref(cached_value);
         }
-        auto &cached_value = frame_change_collector_->GetCachedValue(*cached_id);
-        // Don't move here because we don't want to remove the element from the frame
-        cached_value.CacheValue(list);
-      }
-      const auto &cached_value = frame_change_collector_->GetCachedValue(*cached_id);
+        const auto &cached_value = cached_value_ref->get();
 
-      if (cached_value.ContainsValue(literal)) {
-        return TypedValue(true, ctx_->memory);
+        if (cached_value.ContainsValue(literal)) {
+          return TypedValue(true, ctx_->memory);
+        }
+        // has null
+        if (cached_value.ContainsValue(TypedValue(ctx_->memory))) {
+          return TypedValue(ctx_->memory);
+        }
+        return TypedValue(false, ctx_->memory);
       }
-      // has null
-      if (cached_value.ContainsValue(TypedValue(ctx_->memory))) {
-        return TypedValue(ctx_->memory);
-      }
-      return TypedValue(false, ctx_->memory);
     }
     // When caching is not an option, we need to evaluate list literal every time
     // and do the checks
