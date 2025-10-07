@@ -82,6 +82,8 @@ jobs:
           echo "Base master: ${{ github.event.inputs.base_master }}"
 
       - name: Create PR comment
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python3 ./tools/external-contributions/pr_comment.py \
             "${{ github.event.inputs.pr_number }}" \
