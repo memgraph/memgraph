@@ -2852,6 +2852,77 @@ TYPED_TEST(TestPlanner, PeriodicCommitCreateQueryNestedWholeQuery) {
   DeleteListContent(&subquery_plan);
 }
 
+TYPED_TEST(TestPlanner, PeriodicCommitLoadParquet) {
+  // Test USING PERIODIC COMMIT 1 LOAD PARQUET FROM "x" AS row CREATE (n) ;
+  FakeDbAccessor dba;
+
+  auto *query = PERIODIC_QUERY(SINGLE_QUERY(LOAD_PARQUET(LITERAL("temp"), "row"), CREATE(PATTERN(NODE("n")))),
+                               COMMIT_FREQUENCY(LITERAL(1)));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  CheckPlan(planner.plan(), symbol_table, ExpectLoadParquet(), ExpectCreateNode(), ExpectPeriodicCommit(),
+            ExpectEmptyResult());
+}
+
+TYPED_TEST(TestPlanner, PeriodicCommitLoadParquetWithCallAtEnd) {
+  // Test USING PERIODIC COMMIT 1 LOAD PARQUET FROM "x" AS row CALL { CREATE (n) };
+  FakeDbAccessor dba;
+
+  auto *query = PERIODIC_QUERY(
+      SINGLE_QUERY(LOAD_PARQUET(LITERAL("temp"), "row"), CALL_SUBQUERY(SINGLE_QUERY(CREATE(PATTERN(NODE("n")))))),
+      COMMIT_FREQUENCY(LITERAL(1)));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> subquery_plan{new ExpectCreateNode(), new ExpectEmptyResult()};
+
+  CheckPlan(planner.plan(), symbol_table, ExpectLoadParquet(), ExpectApply(subquery_plan), ExpectPeriodicCommit(),
+            ExpectEmptyResult());
+
+  DeleteListContent(&subquery_plan);
+}
+
+TYPED_TEST(TestPlanner, PeriodicCommitLoadParquetNested) {
+  // Test LOAD PARQUET FROM "x" AS row CALL { CREATE (n) } IN TRANSACTIONS OF 1 ROWS;
+  FakeDbAccessor dba;
+
+  auto ident_row = IDENT("row");
+  auto *subquery = SINGLE_QUERY(CREATE(PATTERN(NODE("n"))));
+  auto *query = QUERY(SINGLE_QUERY(LOAD_PARQUET(LITERAL("temp"), ident_row),
+                                   CALL_PERIODIC_SUBQUERY(subquery, COMMIT_FREQUENCY(LITERAL(1)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> subquery_plan{new ExpectCreateNode(), new ExpectEmptyResult()};
+
+  CheckPlan(planner.plan(), symbol_table, ExpectLoadParquet(), ExpectPeriodicSubquery(subquery_plan),
+            ExpectAccumulate({symbol_table.at(*ident_row)}), ExpectEmptyResult());
+
+  DeleteListContent(&subquery_plan);
+}
+
+TYPED_TEST(TestPlanner, PeriodicCommitLoadParquetNestedWholeQuery) {
+  // Test CALL { LOAD PARQUET FROM "x" AS row CREATE (n) } IN TRANSACTIONS OF 1 ROWS;
+  FakeDbAccessor dba;
+
+  auto *query = QUERY(SINGLE_QUERY(CALL_PERIODIC_SUBQUERY(
+      SINGLE_QUERY(LOAD_PARQUET(LITERAL("temp"), "row"), CREATE(PATTERN(NODE("n")))), COMMIT_FREQUENCY(LITERAL(1)))));
+
+  auto symbol_table = memgraph::query::MakeSymbolTable(query);
+  auto planner = MakePlanner<TypeParam>(&dba, this->storage, symbol_table, query);
+
+  std::list<BaseOpChecker *> subquery_plan{new ExpectLoadParquet(), new ExpectCreateNode(), new ExpectEmptyResult()};
+
+  CheckPlan(planner.plan(), symbol_table, ExpectPeriodicSubquery(subquery_plan), ExpectAccumulate({}),
+            ExpectEmptyResult());
+
+  DeleteListContent(&subquery_plan);
+}
+
 TYPED_TEST(TestPlanner, PeriodicCommitLoadCsv) {
   // Test USING PERIODIC COMMIT 1 LOAD CSV FROM "x" WITH HEADER AS row CREATE (n);
   FakeDbAccessor dba;
