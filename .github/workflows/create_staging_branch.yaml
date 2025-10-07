@@ -80,3 +80,9 @@ jobs:
           echo "Feature branch: ${{ steps.get_branch_name.outputs.branch_name }}"
           echo "Commit SHA: ${{ steps.get_branch_name.outputs.commit_sha }}"
           echo "Base master: ${{ github.event.inputs.base_master }}"
+
+      - name: Create PR comment
+        run: |
+          python3 ./tools/external-contributions/pr_comment.py \
+            "${{ github.event.inputs.pr_number }}" \
+            "${{ steps.get_branch_name.outputs.staging_branch }}"
