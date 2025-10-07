@@ -84,10 +84,12 @@ jobs:
       - name: Test mgdeps cache connection
         run: |
           echo "Testing mgdeps cache connection..."
+          
+          echo "Installing network tools..."
+          docker exec -u root mgbuild_${TOOLCHAIN}_${OS} bash -c "apt update && apt install -y dnsutils iputils-ping curl"
+          
+          echo "Running connectivity tests..."
           docker exec mgbuild_${TOOLCHAIN}_${OS} bash -c "
-            echo 'Installing network tools...'
-            apt update && apt install -y dnsutils iputils-ping curl
-            
             echo 'Testing hostname resolution:'
             nslookup mgdeps-cache || echo 'nslookup failed, trying ping...'
             ping -c 1 mgdeps-cache || echo 'ping failed'
