@@ -590,7 +590,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdge(VertexAccesso
     transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
 
     // Update indices if they exist.
-    storage_->indices_.UpdateOnEdgeCreation(from_vertex, to_vertex, edge, edge_type, transaction_);
+    Indices::UpdateOnEdgeCreation(from_vertex, to_vertex, edge, edge_type, transaction_);
 
     // Increment edge count.
     storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
@@ -720,7 +720,7 @@ Result<EdgeAccessor> InMemoryStorage::InMemoryAccessor::CreateEdgeEx(VertexAcces
     transaction_.manyDeltasCache.Invalidate(to_vertex, edge_type, EdgeDirection::IN);
 
     // Update indices if they exist.
-    storage_->indices_.UpdateOnEdgeCreation(from_vertex, to_vertex, edge, edge_type, transaction_);
+    Indices::UpdateOnEdgeCreation(from_vertex, to_vertex, edge, edge_type, transaction_);
 
     // Increment edge count.
     storage_->edge_count_.fetch_add(1, std::memory_order_acq_rel);
@@ -1048,7 +1048,7 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
   auto const unlink_remove_clear = [&](delta_container &deltas) {
     for (auto &delta : deltas) {
       DMG_ASSERT(!IsOperationInterleaved(delta), "interleaved deltas are not candidates for rapid delta cleanup");
-      auto next = delta.next.load();
+      Delta *next = delta.next.load();
       if (next != nullptr) {
         auto next_ts = next->timestamp->load();
         if (next_ts >= kTransactionInitialId && IsOperationInterleaved(*next)) {
@@ -1121,7 +1121,7 @@ void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(std::unique_lock<std
   std::list<Gid> current_deleted_edges;
   auto impact_tracker = IndexPerformanceTracker{};
 
-  bool cleanup_performed = mem_storage->waiting_gc_deltas_.WithLock([&](const auto &waiting_list) -> bool {
+  bool const cleanup_performed = mem_storage->waiting_gc_deltas_.WithLock([&](const auto &waiting_list) -> bool {
     if (!waiting_list.empty()) {
       // There are interleaved transactions in the waiting room that might reference
       // the same objects we're about to clean up. Skip rapid cleanup to be safe.
@@ -1306,11 +1306,11 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
           [&](auto const &prev) {
             if (prev.type == PreviousPtr::Type::VERTEX) {
               return true;
-            } else if (prev.type == PreviousPtr::Type::DELTA) {
-              return prev.delta->timestamp->load(std::memory_order_acquire) != transaction_.transaction_id;
-            } else {
-              return false;
             }
+            if (prev.type == PreviousPtr::Type::DELTA) {
+              return prev.delta->timestamp->load(std::memory_order_acquire) != transaction_.transaction_id;
+            }
+            return false;
           },
           prev);
 
@@ -2413,9 +2413,9 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       std::unordered_set<const Delta *> visited;
 
       for (const auto &delta : it->deltas_.deltas_) {
-        if (IsOperationInterleaved(delta) && !visited.count(&delta)) {
+        if (IsOperationInterleaved(delta) && !visited.contains(&delta)) {
           auto *current_delta = &delta;
-          while (current_delta != nullptr && !visited.count(current_delta)) {
+          while (current_delta != nullptr && !visited.contains(current_delta)) {
             visited.insert(current_delta);
             auto ts = current_delta->timestamp->load();
             if (ts == kAbortedTransactionId) {
