@@ -3268,6 +3268,9 @@ class LoadParquet : public Clause {
   explicit LoadParquet(Expression *file, Identifier *row_var) : file_(file), row_var_(row_var) {
     DMG_ASSERT(row_var, "LoadParquet cannot take nullptr for identifier");
   }
+
+ private:
+  friend class AstStorage;
 };
 
 class FreeMemoryQuery : public memgraph::query::Query {
