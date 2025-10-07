@@ -6,7 +6,7 @@ import urllib.parse
 import json
 
 
-def main(pr_number: str, branch_name: str):
+def main(comment_api_url: str, pr_number: str, branch_name: str, success_status: str):
     # --- Environment variables from GitHub Actions ---
     repo = os.environ["GITHUB_REPOSITORY"]
     server_url = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
@@ -18,27 +18,32 @@ def main(pr_number: str, branch_name: str):
     # --- Construct workflow run URL ---
     run_url = f"{server_url}/{repo}/actions/runs/{run_id}"
 
-    # --- Prepare comment body ---
+    # --- Determine emoji based on success status ---
+    if success_status.lower() in ['true', 'success', '1']:
+        status_emoji = "✅"
+        status_text = "completed"
+    else:
+        status_emoji = "❌"
+        status_text = "failed"
+
+    # --- Prepare updated comment body ---
     body = (
         f"Staging branch created: `{branch_name}` :heavy_check_mark:\n\n"
-        f"CI **{workflow_name}** run [here]({run_url}) :hourglass_flowing_sand:"
+        f"CI **{workflow_name}** run [here]({run_url}) {status_emoji}"
     )
 
-    # --- API endpoint for PR comments ---
-    url = f"{api_url}/repos/{repo}/issues/{pr_number}/comments"
-
-    # --- Send the request ---
+    # --- Send the PATCH request to update the comment ---
     data = json.dumps({"body": body}).encode('utf-8')
     
     request = urllib.request.Request(
-        url,
+        comment_api_url,
         data=data,
         headers={
             "Authorization": f"Bearer {token}",
             "Accept": "application/vnd.github+json",
             "Content-Type": "application/json",
         },
-        method="POST"
+        method="PATCH"
     )
     
     try:
@@ -46,23 +51,10 @@ def main(pr_number: str, branch_name: str):
             status_code = response.getcode()
             response_text = response.read().decode('utf-8')
             
-            if status_code == 201:
-                print("✅ Comment posted successfully.")
-                
-                # Parse the response to extract the comment URL
-                try:
-                    response_data = json.loads(response_text)
-                    comment_url = response_data.get('html_url')
-                    if comment_url:
-                        # Set the COMMENT_URL environment variable
-                        os.environ['COMMENT_URL'] = comment_url
-                        print(f"🔗 Comment URL: {comment_url}")
-                    else:
-                        print("⚠️  Warning: Could not extract comment URL from response")
-                except json.JSONDecodeError as e:
-                    print(f"⚠️  Warning: Could not parse response JSON: {e}")
+            if status_code == 200:
+                print(f"✅ Comment updated successfully with {status_text} status.")
             else:
-                print(f"❌ Failed to post comment: {status_code}")
+                print(f"❌ Failed to update comment: {status_code}")
                 print(response_text)
                 sys.exit(1)
     except urllib.error.HTTPError as e:
@@ -75,7 +67,7 @@ def main(pr_number: str, branch_name: str):
 
 
 if __name__ == "__main__":
-    if len(sys.argv) != 3:
-        print("Usage: post_pr_comment.py <pr_number> <branch_name>")
+    if len(sys.argv) != 5:
+        print("Usage: pr_comment_update.py <comment_api_url> <pr_number> <branch_name> <success_status>")
         sys.exit(1)
-    main(sys.argv[1], sys.argv[2])
+    main(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4])

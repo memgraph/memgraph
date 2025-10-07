@@ -27,6 +27,9 @@ on:
       short_sha: 
         description: "Short SHA."
         value: ${{ jobs.CreateStagingBranch.outputs.short_sha }}
+      comment_url: 
+        description: "URL of the created PR comment."
+        value: ${{ jobs.CreateStagingBranch.outputs.comment_url }}
 
 jobs:
   CreateStagingBranch:
@@ -37,6 +40,7 @@ jobs:
       commit_sha: ${{ steps.get_branch_name.outputs.commit_sha }}
       staging_branch: ${{ steps.get_branch_name.outputs.staging_branch }}
       short_sha: ${{ steps.get_branch_name.outputs.short_sha }}
+      comment_url: ${{ steps.create_pr_comment.outputs.comment_url }}
       
     steps:
       - name: Checkout repository
@@ -82,9 +86,18 @@ jobs:
           echo "Base master: ${{ github.event.inputs.base_master }}"
 
       - name: Create PR comment
+        id: create_pr_comment
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
           python3 ./tools/external-contributions/pr_comment.py \
             "${{ github.event.inputs.pr_number }}" \
             "${{ steps.get_branch_name.outputs.staging_branch }}"
+          
+          # Capture the COMMENT_URL environment variable as step output
+          if [ -n "$COMMENT_URL" ]; then
+            echo "comment_url=$COMMENT_URL" >> $GITHUB_OUTPUT
+            echo "Comment URL captured: $COMMENT_URL"
+          else
+            echo "Warning: COMMENT_URL not set"
+          fi

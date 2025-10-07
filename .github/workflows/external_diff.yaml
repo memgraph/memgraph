@@ -57,3 +57,29 @@ jobs:
       malloc_build: ${{ inputs.malloc_build }}
       ref: ${{ needs.CallCreateStagingBranch.outputs.staging_branch }}
     secrets: inherit
+
+  UpdatePRComment:
+    needs: [CallCreateStagingBranch, TriggerDiffWorkflow]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Update PR comment with diff results
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ needs.TriggerDiffWorkflow.result }}" == "success" ]; then
+            status="true"
+            echo "✅ Diff workflow completed successfully"
+          else
+            status="false"
+            echo "❌ Diff workflow failed"
+          fi
+          
+          python3 ./tools/external-contributions/pr_comment_update.py \
+            "${{ needs.CallCreateStagingBranch.outputs.comment_url }}" \
+            "${{ github.event.inputs.pr_number }}" \
+            "${{ needs.CallCreateStagingBranch.outputs.staging_branch }}" \
+            "$status"

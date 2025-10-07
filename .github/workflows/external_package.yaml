@@ -70,3 +70,29 @@ jobs:
       s3_dest_dir: ${{ inputs.s3_dest_dir }}
       ref: ${{ needs.CallCreateStagingBranch.outputs.staging_branch }}
     secrets: inherit
+
+  UpdatePRComment:
+    needs: [CallCreateStagingBranch, TriggerPackageWorkflow]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Update PR comment with package results
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          if [ "${{ needs.TriggerPackageWorkflow.result }}" == "success" ]; then
+            status="true"
+            echo "✅ Package workflow completed successfully"
+          else
+            status="false"
+            echo "❌ Package workflow failed"
+          fi
+          
+          python3 ./tools/external-contributions/pr_comment_update.py \
+            "${{ needs.CallCreateStagingBranch.outputs.comment_url }}" \
+            "${{ github.event.inputs.pr_number }}" \
+            "${{ needs.CallCreateStagingBranch.outputs.staging_branch }}" \
+            "$status"
