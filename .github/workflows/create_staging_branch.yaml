@@ -41,7 +41,8 @@ jobs:
       staging_branch: ${{ steps.get_branch_name.outputs.staging_branch }}
       short_sha: ${{ steps.get_branch_name.outputs.short_sha }}
       comment_id: ${{ steps.create_pr_comment.outputs.comment_id }}
-      
+      repo_url: ${{ steps.get_branch_name.outputs.repo_url }}
+      repo_owner: ${{ steps.get_branch_name.outputs.repo_owner }}
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -52,7 +53,7 @@ jobs:
         id: get_branch_name
         run: |
           # Run the script and read the output into variables
-          read pr_number branch_name commit_sha staging_branch short_sha <<< "$(./tools/external-contributions/get_pr_info.sh "${{ github.event.inputs.pr_number }}" "${{ github.token }}")"
+          read pr_number branch_name commit_sha staging_branch short_sha repo_url repo_owner <<< "$(./tools/external-contributions/get_pr_info.sh "${{ github.event.inputs.pr_number }}" "${{ github.token }}")"
           
           # Set GitHub output variables
           echo "pr_number=$pr_number" >> $GITHUB_OUTPUT
@@ -60,6 +61,8 @@ jobs:
           echo "commit_sha=$commit_sha" >> $GITHUB_OUTPUT
           echo "staging_branch=$staging_branch" >> $GITHUB_OUTPUT
           echo "short_sha=$short_sha" >> $GITHUB_OUTPUT
+          echo "repo_url=$repo_url" >> $GITHUB_OUTPUT
+          echo "repo_owner=$repo_owner" >> $GITHUB_OUTPUT
 
           # Print variables to logs
           echo "pr_number=$pr_number"
@@ -67,6 +70,8 @@ jobs:
           echo "commit_sha=$commit_sha"
           echo "staging_branch=$staging_branch"
           echo "short_sha=$short_sha"
+          echo "repo_url=$repo_url"
+          echo "repo_owner=$repo_owner"
 
       - name: Create staging branch
         run: |
@@ -78,7 +83,9 @@ jobs:
             "${{ steps.get_branch_name.outputs.branch_name }}" \
             "${{ steps.get_branch_name.outputs.commit_sha }}" \
             "${{ steps.get_branch_name.outputs.staging_branch }}" \
-          
+            "${{ steps.get_branch_name.outputs.repo_url }}" \
+            "${{ steps.get_branch_name.outputs.repo_owner }}"
+
           echo "Created staging branch: ${{ steps.get_branch_name.outputs.staging_branch }}"
           echo "Based on PR: #${{ github.event.inputs.pr_number }}"
           echo "Feature branch: ${{ steps.get_branch_name.outputs.branch_name }}"
