@@ -2801,6 +2801,21 @@ inline static void TryCaching(const AstStorage &ast_storage, FrameChangeCollecto
     if (!cached_id || cached_id->empty()) {
       continue;
     }
+    // If the list will already be on the frame, no need to copy it into the cache
+    if (utils::Downcast<Identifier>(in_list_operator->expression2_)) {
+      continue;
+    }
+    // If the list refers to elements that could change within the frame then again we do not want to cache because it
+    // would be difficult to invalidate
+    if (auto *list_literal = utils::Downcast<ListLiteral>(in_list_operator->expression2_)) {
+      // TODO: also need to check recursivly and for functions which we don't know are safe
+      if (std::ranges::any_of(list_literal->elements_, [](Expression *expr) {
+            return utils::Downcast<Identifier>(expr) != nullptr && utils::Downcast<ParameterLookup>(expr) != nullptr;
+          })) {
+        continue;
+      }
+    }
+
     frame_change_collector->AddTrackingKey(*cached_id);
   }
 }

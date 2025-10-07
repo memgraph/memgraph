@@ -475,3 +475,23 @@ Feature: List operators
         Then the result should be, in order:
             | x |
             | 5 |
+
+    Scenario: IN LIST with frame-dependent list elements
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ()-[:ET1]->();
+            CREATE ()-[:ET2]->();
+            """
+        When executing query:
+            """
+            MATCH ()-[e1]->()
+            MATCH ()-[e2]->(), ()-[e3]->()
+            WHERE e2 IN [e1, e3]
+            RETURN type(e1) AS e1_type, type(e2) AS e2_type, type(e3) AS e3_type
+            ORDER BY e1_type, e3_type
+            """
+        Then the result should be, in order:
+            | e1_type | e2_type | e3_type |
+            | 'ET1'   | 'ET1'   | 'ET2'   |
+            | 'ET2'   | 'ET2'   | 'ET1'   |

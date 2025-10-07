@@ -554,7 +554,11 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context)
 #ifdef MG_ENTERPRISE
     if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
         !context.auth_checker->Has(labels, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
-      throw QueryRuntimeException("Vertex not created due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+      throw QueryRuntimeException(
+          "Vertex not created due to not having enough permission! This error means that the fine grained access "
+          "control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON "
+          "CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running "
+          "SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
     }
 #endif
 
@@ -690,7 +694,11 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
     if (context.auth_checker &&
         !(context.auth_checker->Has(edge_type, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
           context.auth_checker->Has(labels, fine_grained_permission))) {
-      throw QueryRuntimeException("Edge not created due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+      throw QueryRuntimeException(
+          "Edge not created due to not having enough permission! This error means that the fine grained access control "
+          "was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to "
+          "check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT "
+          "DATABASE; to verify you are pointing to correct database.");
     }
   }
 #endif
@@ -4298,7 +4306,7 @@ bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::NEW, context.frame_change_collector, &context.number_of_hops);
     for (auto *named_expr : self_.named_expressions_) {
-      if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(named_expr->name_)) {
+      if (context.frame_change_collector) {
         context.frame_change_collector->ResetTrackingValue(named_expr->name_);
       }
       named_expr->Accept(evaluator);
@@ -4387,7 +4395,11 @@ void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &co
         if (vertex_auth_checker(va)) {
           buffer_.nodes.push_back(va);
         } else {
-          throw QueryRuntimeException("Vertex not deleted due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+          throw QueryRuntimeException(
+              "Vertex not deleted due to not having enough permission! This error means that the fine grained access "
+              "control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON "
+              "CURRENT; to check if you have correct privileges to do operations involving labels. If you do try "
+              "running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
         }
         break;
       }
@@ -4396,7 +4408,11 @@ void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &co
         if (edge_auth_checker(ea)) {
           buffer_.edges.push_back(ea);
         } else {
-          throw QueryRuntimeException("Edge not deleted due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+          throw QueryRuntimeException(
+              "Edge not deleted due to not having enough permission! This error means that the fine grained access "
+              "control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON "
+              "CURRENT; to check if you have correct privileges to do operations involving labels. If you do try "
+              "running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
         }
         break;
       }
@@ -4410,7 +4426,11 @@ void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &co
 
         if (edges_res || vertices_res) {
           throw QueryRuntimeException(
-              "Path not deleted due to not having enough permission on all edges and vertices on the path! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+              "Path not deleted due to not having enough permission on all edges and vertices on the path! This error "
+              "means that the fine grained access control was not correctly set up for the user on this label. Use "
+              "SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations "
+              "involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct "
+              "database.");
         }
 #endif
         buffer_.nodes.insert(buffer_.nodes.begin(), path.vertices().begin(), path.vertices().end());
@@ -4539,7 +4559,11 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueVertex(), storage::View::NEW,
                                      memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        throw QueryRuntimeException("Vertex property not set due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException(
+            "Vertex property not set due to not having enough permission! This error means that the fine grained "
+            "access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role "
+            "ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try "
+            "running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
       }
 #endif
       auto old_value = PropsSetChecked(&lhs.ValueVertex(), self_.property_, rhs,
@@ -4558,7 +4582,11 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        throw QueryRuntimeException("Edge property not set due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException(
+            "Edge property not set due to not having enough permission! This error means that the fine grained access "
+            "control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON "
+            "CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running "
+            "SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
       }
 #endif
       auto old_value = PropsSetChecked(&lhs.ValueEdge(), self_.property_, rhs,
@@ -4721,7 +4749,11 @@ bool SetNestedProperty::SetNestedPropertyCursor::Pull(Frame &frame, ExecutionCon
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueVertex(), storage::View::NEW,
                                      memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        throw QueryRuntimeException("Vertex nested property not set due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException(
+            "Vertex nested property not set due to not having enough permission! This error means that the fine "
+            "grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR "
+            "user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If "
+            "you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
       }
 #endif
       set_nested_property(&lhs.ValueVertex());
@@ -4731,7 +4763,11 @@ bool SetNestedProperty::SetNestedPropertyCursor::Pull(Frame &frame, ExecutionCon
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        throw QueryRuntimeException("Edge nested property not set due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException(
+            "Edge nested property not set due to not having enough permission! This error means that the fine grained "
+            "access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role "
+            "ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try "
+            "running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
       }
 #endif
       set_nested_property(&lhs.ValueEdge());
@@ -4938,7 +4974,11 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueVertex(), storage::View::NEW,
                                      memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        throw QueryRuntimeException("Vertex properties not set due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException(
+            "Vertex properties not set due to not having enough permission! This error means that the fine grained "
+            "access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role "
+            "ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try "
+            "running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
       }
 #endif
       SetPropertiesOnRecord(&lhs.ValueVertex(), rhs, self_.op_, &context, cached_name_id_);
@@ -4948,7 +4988,11 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        throw QueryRuntimeException("Edge properties not set due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException(
+            "Edge properties not set due to not having enough permission! This error means that the fine grained "
+            "access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role "
+            "ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try "
+            "running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
       }
 #endif
       SetPropertiesOnRecord(&lhs.ValueEdge(), rhs, self_.op_, &context, cached_name_id_);
@@ -5007,7 +5051,11 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
       !context.auth_checker->Has(labels, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
-    throw QueryRuntimeException("Couldn't set label due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+    throw QueryRuntimeException(
+        "Couldn't set label due to not having enough permission! This error means that the fine grained access control "
+        "was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to "
+        "check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT "
+        "DATABASE; to verify you are pointing to correct database.");
   }
 #endif
 
@@ -5021,7 +5069,11 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
       !context.auth_checker->Has(vertex, storage::View::OLD,
                                  memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-    throw QueryRuntimeException("Couldn't set label due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+    throw QueryRuntimeException(
+        "Couldn't set label due to not having enough permission! This error means that the fine grained access control "
+        "was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to "
+        "check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT "
+        "DATABASE; to verify you are pointing to correct database.");
   }
 #endif
 
@@ -5122,7 +5174,11 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueVertex(), storage::View::NEW,
                                      memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        throw QueryRuntimeException("Vertex property not removed due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException(
+            "Vertex property not removed due to not having enough permission! This error means that the fine grained "
+            "access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role "
+            "ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try "
+            "running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
       }
 #endif
       remove_prop(&lhs.ValueVertex());
@@ -5132,7 +5188,11 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        throw QueryRuntimeException("Edge property not removed due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException(
+            "Edge property not removed due to not having enough permission! This error means that the fine grained "
+            "access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role "
+            "ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try "
+            "running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
       }
 #endif
       remove_prop(&lhs.ValueEdge());
@@ -5240,7 +5300,11 @@ bool RemoveNestedProperty::RemoveNestedPropertyCursor::Pull(Frame &frame, Execut
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueVertex(), storage::View::NEW,
                                      memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        throw QueryRuntimeException("Vertex nested property not removed due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException(
+            "Vertex nested property not removed due to not having enough permission! This error means that the fine "
+            "grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR "
+            "user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If "
+            "you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
       }
 #endif
       remove_nested_property(&lhs.ValueVertex());
@@ -5250,7 +5314,11 @@ bool RemoveNestedProperty::RemoveNestedPropertyCursor::Pull(Frame &frame, Execut
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        throw QueryRuntimeException("Edge nested property not removed due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException(
+            "Edge nested property not removed due to not having enough permission! This error means that the fine "
+            "grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR "
+            "user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If "
+            "you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
       }
 #endif
       remove_nested_property(&lhs.ValueEdge());
@@ -5310,7 +5378,11 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
       !context.auth_checker->Has(labels, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
-    throw QueryRuntimeException("Couldn't remove label due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+    throw QueryRuntimeException(
+        "Couldn't remove label due to not having enough permission! This error means that the fine grained access "
+        "control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; "
+        "to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT "
+        "DATABASE; to verify you are pointing to correct database.");
   }
 #endif
 
@@ -5324,7 +5396,11 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
   if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
       !context.auth_checker->Has(vertex, storage::View::OLD,
                                  memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-    throw QueryRuntimeException("Couldn't remove label due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+    throw QueryRuntimeException(
+        "Couldn't remove label due to not having enough permission! This error means that the fine grained access "
+        "control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; "
+        "to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT "
+        "DATABASE; to verify you are pointing to correct database.");
   }
 #endif
 
@@ -5526,7 +5602,7 @@ class AccumulateCursor : public Cursor {
     if (cache_it_ == cache_.end()) return false;
     auto row_it = (cache_it_++)->begin();
     for (const Symbol &symbol : self_.symbols_) {
-      if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(symbol.name())) {
+      if (context.frame_change_collector) {
         context.frame_change_collector->ResetTrackingValue(symbol.name());
       }
       frame[symbol] = *row_it++;
@@ -5629,7 +5705,7 @@ class AggregateCursor : public Cursor {
         // place default aggregation values on the frame
         for (const auto &elem : self_.aggregations_) {
           frame[elem.output_sym] = DefaultAggregationOpValue(elem, pull_memory);
-          if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(elem.output_sym.name())) {
+          if (context.frame_change_collector) {
             context.frame_change_collector->ResetTrackingValue(elem.output_sym.name());
           }
         }
@@ -5637,7 +5713,7 @@ class AggregateCursor : public Cursor {
         // place null as remember values on the frame
         for (const Symbol &remember_sym : self_.remember_) {
           frame[remember_sym] = TypedValue(pull_memory);
-          if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(remember_sym.name())) {
+          if (context.frame_change_collector) {
             context.frame_change_collector->ResetTrackingValue(remember_sym.name());
           }
         }
@@ -6522,7 +6598,7 @@ class UnwindCursor : public Cursor {
       if (input_value_it_ == input_value_.end()) continue;
 
       frame[self_.output_symbol_] = std::move(*input_value_it_++);
-      if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(self_.output_symbol_.name_)) {
+      if (context.frame_change_collector) {
         context.frame_change_collector->ResetTrackingValue(self_.output_symbol_.name_);
       }
       return true;
@@ -6695,7 +6771,7 @@ bool Union::UnionCursor::Pull(Frame &frame, ExecutionContext &context) {
     // collect values from the left child
     for (const auto &output_symbol : self_.left_symbols_) {
       results[output_symbol.name()] = frame[output_symbol];
-      if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(output_symbol.name())) {
+      if (context.frame_change_collector) {
         context.frame_change_collector->ResetTrackingValue(output_symbol.name());
       }
     }
@@ -6703,7 +6779,7 @@ bool Union::UnionCursor::Pull(Frame &frame, ExecutionContext &context) {
     // collect values from the right child
     for (const auto &output_symbol : self_.right_symbols_) {
       results[output_symbol.name()] = frame[output_symbol];
-      if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(output_symbol.name())) {
+      if (context.frame_change_collector) {
         context.frame_change_collector->ResetTrackingValue(output_symbol.name());
       }
     }
@@ -6714,7 +6790,7 @@ bool Union::UnionCursor::Pull(Frame &frame, ExecutionContext &context) {
   // put collected values on frame under union symbols
   for (const auto &symbol : self_.union_symbols_) {
     frame[symbol] = results[symbol.name()];
-    if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(symbol.name())) {
+    if (context.frame_change_collector) {
       context.frame_change_collector->ResetTrackingValue(symbol.name());
     }
   }
@@ -6785,7 +6861,7 @@ class CartesianCursor : public Cursor {
     auto restore_frame = [&frame, &context](const auto &symbols, const auto &restore_from) {
       for (const auto &symbol : symbols) {
         frame[symbol] = restore_from[symbol.position()];
-        if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(symbol.name())) {
+        if (context.frame_change_collector) {
           context.frame_change_collector->ResetTrackingValue(symbol.name());
         }
       }
@@ -6878,8 +6954,7 @@ class OutputTableCursor : public Cursor {
     if (current_row_ < rows_.size()) {
       for (size_t i = 0; i < self_.output_symbols_.size(); ++i) {
         frame[self_.output_symbols_[i]] = rows_[current_row_][i];
-        if (context.frame_change_collector &&
-            context.frame_change_collector->IsKeyTracked(self_.output_symbols_[i].name())) {
+        if (context.frame_change_collector) {
           context.frame_change_collector->ResetTrackingValue(self_.output_symbols_[i].name());
         }
       }
@@ -6936,8 +7011,7 @@ class OutputTableStreamCursor : public Cursor {
       MG_ASSERT(row->size() == self_->output_symbols_.size(), "Wrong number of columns in row!");
       for (size_t i = 0; i < self_->output_symbols_.size(); ++i) {
         frame[self_->output_symbols_[i]] = row->at(i);
-        if (context.frame_change_collector &&
-            context.frame_change_collector->IsKeyTracked(self_->output_symbols_[i].name())) {
+        if (context.frame_change_collector) {
           context.frame_change_collector->ResetTrackingValue(self_->output_symbols_[i].name());
         }
       }
@@ -7227,8 +7301,7 @@ class CallProcedureCursor : public Cursor {
     auto &values = result_row_it_->values;
     for (int i = 0; i < self_->result_fields_.size(); ++i) {
       frame[self_->result_symbols_[i]] = std::move(values[i]);
-      if (context.frame_change_collector &&
-          context.frame_change_collector->IsKeyTracked(self_->result_symbols_[i].name())) {
+      if (context.frame_change_collector) {
         context.frame_change_collector->ResetTrackingValue(self_->result_symbols_[i].name());
       }
     }
@@ -7464,7 +7537,7 @@ class LoadCsvCursor : public Cursor {
       frame[self_->row_var_] =
           CsvRowToTypedMap(*row, csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory), nullif_);
     }
-    if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(self_->row_var_.name())) {
+    if (context.frame_change_collector) {
       context.frame_change_collector->ResetTrackingValue(self_->row_var_.name());
     }
     return true;
@@ -7810,7 +7883,7 @@ class HashJoinCursor : public Cursor {
     auto restore_frame = [&frame, &context](const auto &symbols, const auto &restore_from) {
       for (const auto &symbol : symbols) {
         frame[symbol] = restore_from[symbol.position()];
-        if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(symbol.name())) {
+        if (context.frame_change_collector) {
           context.frame_change_collector->ResetTrackingValue(symbol.name());
         }
       }
@@ -7970,8 +8043,7 @@ class RollUpApplyCursor : public Cursor {
       }
 
       // Clear frame change collector
-      if (context.frame_change_collector &&
-          context.frame_change_collector->IsKeyTracked(self_.list_collection_symbol_.name())) {
+      if (context.frame_change_collector) {
         context.frame_change_collector->ResetTrackingValue(self_.list_collection_symbol_.name());
       }
 
