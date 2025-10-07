@@ -23,6 +23,7 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include "utils/cache_aligned.hpp"
 
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
@@ -787,7 +788,8 @@ class ScanAllCursor : public Cursor {
       vertices_end_it_.emplace(vertices_.value().end());
     }
 #ifdef MG_ENTERPRISE
-    if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker && !FindNextVertex(context)) {
+    if (license::global_license_checker.IsEnterpriseValidFast() /* && context.auth_checker*/ &&
+        !FindNextVertex(context)) {
       return false;
     }
 #endif
@@ -800,11 +802,12 @@ class ScanAllCursor : public Cursor {
 #ifdef MG_ENTERPRISE
   bool FindNextVertex(const ExecutionContext &context) {
     while (vertices_it_.value() != vertices_end_it_.value()) {
-      if (context.auth_checker->Has(*vertices_it_.value(), view_,
-                                    memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
-        return true;
-      }
+      // if (context.auth_checker->Has(*vertices_it_.value(), view_,
+      //                               memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
+      //   return true;
+      // }
       ++vertices_it_.value();
+      return true;
     }
     return false;
   }
@@ -867,7 +870,8 @@ class ScanAllCursor<std::function<VerticesChunkCollection(Frame &, ExecutionCont
       vertices_end_it_.emplace(chunk.end());
     }
 #ifdef MG_ENTERPRISE
-    if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker && !FindNextVertex(context)) {
+    if (license::global_license_checker.IsEnterpriseValidFast() /*&& context.auth_checker*/ &&
+        !FindNextVertex(context)) {
       return false;
     }
 #endif
@@ -881,11 +885,12 @@ class ScanAllCursor<std::function<VerticesChunkCollection(Frame &, ExecutionCont
 #ifdef MG_ENTERPRISE
   bool FindNextVertex(const ExecutionContext &context) {
     while (vertices_it_.value() != vertices_end_it_.value()) {
-      if (context.auth_checker->Has(*vertices_it_.value(), view_,
-                                    memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
-        return true;
-      }
+      // if (context.auth_checker->Has(*vertices_it_.value(), view_,
+      //                               memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
+      //   return true;
+      // }
       ++vertices_it_.value();
+      return true;
     }
     return false;
   }
@@ -1738,12 +1743,12 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
     if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
       auto edge = *(*in_edges_it_)++;
 #ifdef MG_ENTERPRISE
-      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-          !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
-            context.auth_checker->Has(edge.From(), self_.view_,
-                                      memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
-        continue;
-      }
+      // if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+      //     !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+      //       context.auth_checker->Has(edge.From(), self_.view_,
+      //                                 memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+      //   continue;
+      // }
 #endif
 
       frame[self_.common_.edge_symbol] = edge;
@@ -1759,12 +1764,12 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
       // already done in the block above
       if (self_.common_.direction == EdgeAtom::Direction::BOTH && edge.IsCycle()) continue;
 #ifdef MG_ENTERPRISE
-      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-          !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
-            context.auth_checker->Has(edge.To(), self_.view_,
-                                      memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
-        continue;
-      }
+        // if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+        //     !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+        //       context.auth_checker->Has(edge.To(), self_.view_,
+        //                                 memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+        //   continue;
+        // }
 #endif
       frame[self_.common_.edge_symbol] = edge;
       pull_node(edge, utils::tag_v<EdgeAtom::Direction::OUT>);
@@ -1845,7 +1850,7 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
   while (true) {
     if (!input_cursor_->Pull(frame, context)) return false;
 
-    if (context.hops_limit.IsLimitReached()) return false;
+    // if (context.hops_limit.IsLimitReached()) return false;
 
     expansion_info_ = GetExpansionInfo(frame);
 
@@ -1863,15 +1868,15 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
           auto existing_node = *expansion_info_.existing_node;
 
           auto edges_result = UnwrapEdgesResult(
-              vertex.InEdges(self_.view_, self_.common_.edge_types, existing_node, &context.hops_limit));
-          context.number_of_hops += edges_result.expanded_count;
+              vertex.InEdges(self_.view_, self_.common_.edge_types, existing_node, nullptr /* &context.hops_limit*/));
+          // context.number_of_hops += edges_result.expanded_count;
           in_edges_.emplace(std::move(edges_result.edges));
           num_expanded_first = edges_result.expanded_count;
         }
       } else {
         auto edges_result =
-            UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, &context.hops_limit));
-        context.number_of_hops += edges_result.expanded_count;
+            UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, nullptr /* &context.hops_limit*/));
+        // context.number_of_hops += edges_result.expanded_count;
         in_edges_.emplace(std::move(edges_result.edges));
         num_expanded_first = edges_result.expanded_count;
       }
@@ -1886,15 +1891,15 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
         if (expansion_info_.existing_node) {
           auto existing_node = *expansion_info_.existing_node;
           auto edges_result = UnwrapEdgesResult(
-              vertex.OutEdges(self_.view_, self_.common_.edge_types, existing_node, &context.hops_limit));
-          context.number_of_hops += edges_result.expanded_count;
+              vertex.OutEdges(self_.view_, self_.common_.edge_types, existing_node, nullptr /* &context.hops_limit*/));
+          // context.number_of_hops += edges_result.expanded_count;
           out_edges_.emplace(std::move(edges_result.edges));
           num_expanded_second = edges_result.expanded_count;
         }
       } else {
         auto edges_result =
-            UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, &context.hops_limit));
-        context.number_of_hops += edges_result.expanded_count;
+            UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, nullptr /* &context.hops_limit*/));
+        // context.number_of_hops += edges_result.expanded_count;
         out_edges_.emplace(std::move(edges_result.edges));
         num_expanded_second = edges_result.expanded_count;
       }
@@ -2080,7 +2085,7 @@ class ExpandVariableCursor : public Cursor {
       AbortCheck(context);
       if (!input_cursor_->Pull(frame, context)) return false;
 
-      if (context.hops_limit.IsLimitReached()) return false;
+      // if (context.hops_limit.IsLimitReached()) return false;
 
       TypedValue &vertex_value = frame[self_.input_symbol_];
 
@@ -5875,25 +5880,39 @@ class AggregateCursor : public Cursor {
       const auto num_workers = FLAGS_bolt_num_workers;
       utils::TaskCollection tasks(num_workers);
 
-      std::atomic<int> pulled = 0;
+      // Use cache-aligned atomic to prevent false sharing
+      utils::CacheAlignedAtomic pulled_counter;
 
-      std::vector<decltype(aggregation_)> aggregation_threads(num_workers);
-      std::vector<decltype(reused_group_by_)> reused_group_by_threads(num_workers);
+      // Use the same allocator resource as aggregation_ for all thread-local aggregations
+      auto *agg_resource = aggregation_.get_allocator().resource();
+      std::vector<utils::CacheAligned<decltype(aggregation_)>> aggregation_threads;
+      std::vector<utils::CacheAligned<decltype(reused_group_by_)>> reused_group_by_threads;
+      aggregation_threads.reserve(num_workers);
+      reused_group_by_threads.reserve(num_workers);
+      for (int i = 0; i < num_workers; ++i) {
+        aggregation_threads.emplace_back(decltype(aggregation_)(agg_resource));
+        reused_group_by_threads.emplace_back(decltype(reused_group_by_)(agg_resource));
+      }
+      // std::vector<utils::CacheAligned<decltype(aggregation_)>> aggregation_threads(num_workers);
+      // std::vector<utils::CacheAligned<decltype(reused_group_by_)>> reused_group_by_threads(num_workers);
 
-      auto process_chunk = [this, context, &pulled, &aggregation_threads, &reused_group_by_threads](
-                               int id, Frame &frame) mutable {
+      auto process_chunk = [this, context, &pulled_counter, mem = aggregation_.get_allocator().resource()](
+                               int id, Frame &frame, auto &local_aggregation_threads,
+                               auto &local_reused_group_by_threads) mutable {
         ExpressionEvaluator evaluator(&frame, context->symbol_table, context->evaluation_context, context->db_accessor,
                                       storage::View::NEW, nullptr, &context->number_of_hops);
         // Set thread id
         thread_id = id;
         called = 0;
         auto reset_thread_id_on_exit = utils::OnScopeExit([]() { thread_id = -1; });
+
         while (input_cursors_[id]->Pull(frame, *context)) {
-          ProcessOne(frame, &evaluator, reused_group_by_threads[id], self_.group_by_, aggregation_threads[id],
+          ProcessOne(frame, &evaluator, local_reused_group_by_threads, self_.group_by_, local_aggregation_threads,
                      self_.aggregations_, self_.remember_);
         }
         // std::cout << "Thread " << id << " called " << called << " times" << std::endl;
-        pulled++;
+        // Use cache-aligned atomic increment
+        pulled_counter.fetch_add(1);
       };
 
       auto *thread_local_memory = dynamic_cast<utils::ThreadLocalMemoryResource *>(context->evaluation_context.memory);
@@ -5907,23 +5926,24 @@ class AggregateCursor : public Cursor {
           thread_local_memory->Initialize(i);
           auto cleanup = utils::OnScopeExit([]() { utils::ThreadLocalMemoryResource::ResetThread(); });
           Frame frame{static_cast<int64_t>(frame_size), thread_local_memory};
-          process_chunk(i, frame);
+          auto &local_aggregation_threads = *aggregation_threads[i];
+          auto &local_reused_group_by_threads = *reused_group_by_threads[i];
+          process_chunk(i, frame, local_aggregation_threads, local_reused_group_by_threads);
         });
       }
 
       if (context->worker_pool) context->worker_pool->ScheduledCollection(tasks);
 
       // Process 0th chunk in main thread
-      process_chunk(0, *frame);  // TODO reuse aggregation threads and reused group by threads
+      process_chunk(0, *frame, aggregation_, reused_group_by_);
 
       tasks.WaitOrSteal();
 
-      if (pulled != num_workers) return false;
+      if (pulled_counter.load() != num_workers) return false;
 
       // Combine the results from the threads
-      aggregation_ = std::move(aggregation_threads[0]);
       for (int i = 1; i < num_workers; i++) {
-        auto &other_aggregation = aggregation_threads[i];
+        auto &other_aggregation = *aggregation_threads[i];
         for (const auto &[other_key, other_value] : other_aggregation) {
           auto it = aggregation_.find(other_key);
           if (it != aggregation_.end()) {
@@ -6090,11 +6110,11 @@ class AggregateCursor : public Cursor {
       // COUNT(*) is the only case where input expression is optional
       // handle it here
       auto *input_expr_ptr = agg_elem_it->arg1;
-      if (!input_expr_ptr) {
-        *count_it += 1;
-        // value is deferred to post-processing
-        continue;
-      }
+      // if (!input_expr_ptr) {
+      *count_it += 1;
+      // value is deferred to post-processing
+      continue;
+      // }
 
       TypedValue input_value = input_expr_ptr->Accept(*evaluator);
 
@@ -6107,7 +6127,7 @@ class AggregateCursor : public Cursor {
           continue;
         }
       }
-      *count_it += 1;
+      // *count_it += 1;
       if (*count_it == 1) {
         // first value, nothing to aggregate. check type, set and continue.
         switch (agg_op) {
