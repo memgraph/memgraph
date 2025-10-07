@@ -81,28 +81,6 @@ jobs:
           --arch $ARCH \
           run
 
-      - name: Test mgdeps cache connection
-        run: |
-          echo "Testing mgdeps cache connection..."
-          
-          echo "Installing network tools..."
-          docker exec -u root mgbuild_${TOOLCHAIN}_${OS} bash -c "apt update && apt install -y dnsutils iputils-ping curl"
-          
-          echo "Running connectivity tests..."
-          docker exec mgbuild_${TOOLCHAIN}_${OS} bash -c "
-            echo 'Testing hostname resolution:'
-            nslookup mgdeps-cache || echo 'nslookup failed, trying ping...'
-            ping -c 1 mgdeps-cache || echo 'ping failed'
-            
-            echo 'Testing HTTP connection to mgdeps-cache:8000:'
-            curl -f http://mgdeps-cache:8000/health || echo 'HTTP connection failed (404 is expected if no health endpoint)'
-            
-            echo 'Testing basic connectivity with telnet-style test:'
-            timeout 5 bash -c '</dev/tcp/mgdeps-cache/8000' && echo 'Port 8000 is reachable' || echo 'Port 8000 is not reachable'
-            
-            echo 'mgdeps cache connection test completed'
-          "
-
       - name: Build release binary
         run: |
           ./release/package/mgbuild.sh \
