@@ -54,6 +54,10 @@ jobs:
           ref: ${{ inputs.ref || github.ref }}
           fetch-depth: 0
 
+      - name: Exit failure
+        run: |
+          exit 1
+
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
         with:
@@ -174,6 +178,10 @@ jobs:
         with:
           fetch-depth: 0
           ref: ${{ inputs.ref || github.ref }}
+      
+      - name: Exit failure
+        run: |
+          exit 1
 
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
