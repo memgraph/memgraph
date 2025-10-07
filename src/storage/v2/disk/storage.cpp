@@ -1527,10 +1527,10 @@ std::vector<EdgeAccessor> DiskStorage::OutEdges(const VertexAccessor *src_vertex
   std::vector<EdgeAccessor> result;
   auto out_edges = utils::Split(out_edges_str, ",");
   for (auto const &edge_gid_str : out_edges) {
-    if (hops_limit && hops_limit->IsUsed()) {
-      hops_limit->IncrementHopsCount(1);
-      if (hops_limit->IsLimitReached()) break;
-    }
+    // if (hops_limit && hops_limit->IsUsed()) {
+    //   hops_limit->IncrementHopsCount(1);
+    //   if (hops_limit->IsLimitReached()) break;
+    // }
     std::string edge_val_str;
     auto edge_res = transaction->disk_transaction_->Get(ro, kvstore_->edge_chandle, edge_gid_str, &edge_val_str);
 
@@ -1595,10 +1595,10 @@ std::vector<EdgeAccessor> DiskStorage::InEdges(const VertexAccessor *dst_vertex,
   auto in_edges = utils::Split(in_edges_str, ",");
   std::vector<EdgeAccessor> result;
   for (auto const &edge_gid_str : in_edges) {
-    if (hops_limit && hops_limit->IsUsed()) {
-      hops_limit->IncrementHopsCount(1);
-      if (hops_limit->IsLimitReached()) break;
-    }
+    // if (hops_limit && hops_limit->IsUsed()) {
+    //   hops_limit->IncrementHopsCount(1);
+    //   if (hops_limit->IsLimitReached()) break;
+    // }
     std::string edge_val_str;
     auto edge_res = transaction->disk_transaction_->Get(ro, kvstore_->edge_chandle, edge_gid_str, &edge_val_str);
 
