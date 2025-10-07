@@ -23,7 +23,7 @@ echo "Fetching feature branch: $BRANCH_NAME"
 if [ "$REPO_OWNER" = "memgraph" ]; then
     git fetch origin "$BRANCH_NAME"
 else
-    git fetch "$REPO_URL" "$BRANCH_NAME"
+    git fetch "$REPO_URL" "$BRANCH_NAME:$BRANCH_NAME"
 fi
 
 # Check if staging branch already exists
@@ -52,13 +52,6 @@ else
             git merge "$COMMIT_SHA" --no-edit
         else
             git merge "$REPO_URL" "$COMMIT_SHA" --no-edit
-            
-            # For external PRs, remove workflow files to avoid permission issues
-            echo "Removing workflow files from external PR to avoid permission issues..."
-            git rm -r --cached .github/workflows/ 2>/dev/null || true
-            rm -rf .github/workflows/ 2>/dev/null || true
-            git add -A
-            git commit -m "Remove workflow files from external PR" || true
         fi
         
         echo "Created staging branch from master and merged feature branch"
@@ -68,15 +61,6 @@ else
         # Create staging branch as direct copy of feature branch
         git checkout "$COMMIT_SHA"
         git checkout -b "$STAGING_BRANCH"
-        
-        # For external PRs, remove workflow files to avoid permission issues
-        if [ "$REPO_OWNER" != "memgraph" ]; then
-            echo "Removing workflow files from external PR to avoid permission issues..."
-            git rm -r --cached .github/workflows/ 2>/dev/null || true
-            rm -rf .github/workflows/ 2>/dev/null || true
-            git add -A
-            git commit -m "Remove workflow files from external PR" || true
-        fi
         
         echo "Created direct copy of feature branch"
     fi
