@@ -1595,7 +1595,7 @@ TYPED_TEST(InterpreterTest, LoadCsvClauseNotification) {
 
   auto notification = notifications[0].ValueMap();
   ASSERT_EQ(notification["severity"].ValueString(), "INFO");
-  ASSERT_EQ(notification["code"].ValueString(), "LoadCsvParquetTip");
+  ASSERT_EQ(notification["code"].ValueString(), "LoadCSVTip");
   ASSERT_EQ(notification["title"].ValueString(),
             "It's important to note that the parser parses the values as strings. It's up to the user to "
             "convert the parsed row values to the appropriate type. This can be done using the built-in "

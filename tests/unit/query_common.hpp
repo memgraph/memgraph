@@ -376,8 +376,16 @@ auto GetLoadCSV(AstStorage &storage, Expression *file_name, const std::string &r
 }
 
 auto GetLoadCSV(AstStorage &storage, Expression *file_name, Identifier *row_var) {
-  auto *load_csv = storage.Create<memgraph::query::LoadCsv>(file_name, true, true, nullptr, nullptr, nullptr, row_var);
-  return load_csv;
+  return storage.Create<memgraph::query::LoadCsv>(file_name, true, true, nullptr, nullptr, nullptr, row_var);
+}
+
+auto GetLoadParquet(AstStorage &storage, Expression *file_name, std::string const &row_var) {
+  auto *ident = storage.Create<memgraph::query::Identifier>(row_var);
+  return storage.Create<memgraph::query::LoadParquet>(file_name, ident);
+}
+
+auto GetLoadParquet(AstStorage &storage, Expression *file_name, Identifier *row_var) {
+  return storage.Create<memgraph::query::LoadParquet>(file_name, row_var);
 }
 
 // Helper functions for constructing RETURN and WITH clauses.
@@ -758,5 +766,6 @@ auto GetExistsSubquery(AstStorage &storage, CypherQuery *subquery) {
 #define COMMIT_FREQUENCY(expr) \
   memgraph::query::test_common::CommitFrequency { (expr) }
 #define LOAD_CSV(...) memgraph::query::test_common::GetLoadCSV(this->storage, __VA_ARGS__)
+#define LOAD_PARQUET(...) memgraph::query::test_common::GetLoadParquet(this->storage, __VA_ARGS__)
 #define LIST_COMPREHENSION(variable, list, where, expr) \
   this->storage.template Create<memgraph::query::ListComprehension>(variable, list, where, expr)
