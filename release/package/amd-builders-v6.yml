@@ -9,7 +9,7 @@ services:
       args:
         TOOLCHAIN_VERSION: "v6"
     extra_hosts:
-      - "mgdeps-cache:host.docker.internal"
+      - "mgdeps-cache:host-gateway"
       - "bench-graph-api:100.124.112.121"
     container_name: "mgbuild_v6_centos-9"
 
@@ -20,7 +20,7 @@ services:
       args:
         TOOLCHAIN_VERSION: "v6"
     extra_hosts:
-      - "mgdeps-cache:host.docker.internal"
+      - "mgdeps-cache:host-gateway"
       - "bench-graph-api:100.124.112.121"
     container_name: "mgbuild_v6_centos-10"
 
@@ -31,7 +31,7 @@ services:
       args:
         TOOLCHAIN_VERSION: "v6"
     extra_hosts:
-      - "mgdeps-cache:host.docker.internal"
+      - "mgdeps-cache:host-gateway"
       - "bench-graph-api:100.124.112.121"
     container_name: "mgbuild_v6_debian-11"
 
@@ -42,7 +42,7 @@ services:
       args:
         TOOLCHAIN_VERSION: "v6"
     extra_hosts:
-      - "mgdeps-cache:host.docker.internal"
+      - "mgdeps-cache:host-gateway"
       - "bench-graph-api:100.124.112.121"
     container_name: "mgbuild_v6_debian-12"
 
@@ -53,7 +53,7 @@ services:
       args:
         TOOLCHAIN_VERSION: "v6"
     extra_hosts:
-      - "mgdeps-cache:host.docker.internal"
+      - "mgdeps-cache:host-gateway"
       - "bench-graph-api:100.124.112.121"
     container_name: "mgbuild_v6_fedora-41"
 
@@ -64,7 +64,7 @@ services:
       args:
         TOOLCHAIN_VERSION: "v6"
     extra_hosts:
-      - "mgdeps-cache:host.docker.internal"
+      - "mgdeps-cache:host-gateway"
       - "bench-graph-api:100.124.112.121"
     container_name: "mgbuild_v6_ubuntu-22.04"
 
@@ -75,6 +75,6 @@ services:
       args:
         TOOLCHAIN_VERSION: "v6"
     extra_hosts:
-      - "mgdeps-cache:host.docker.internal"
+      - "mgdeps-cache:host-gateway"
       - "bench-graph-api:100.124.112.121"
     container_name: "mgbuild_v6_ubuntu-24.04"

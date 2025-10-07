@@ -7,7 +7,7 @@ services:
       args:
         TOOLCHAIN_VERSION: "v5"
     extra_hosts:
-      - "mgdeps-cache:host.docker.internal"
+      - "mgdeps-cache:host-gateway"
       - "bench-graph-api:100.124.112.121"
     container_name: "mgbuild_v5_centos-9"
 
@@ -18,7 +18,7 @@ services:
       args:
         TOOLCHAIN_VERSION: "v5"
     extra_hosts:
-      - "mgdeps-cache:host.docker.internal"
+      - "mgdeps-cache:host-gateway"
       - "bench-graph-api:100.124.112.121"
     container_name: "mgbuild_v5_debian-11"
 
@@ -29,7 +29,7 @@ services:
       args:
         TOOLCHAIN_VERSION: "v5"
     extra_hosts:
-      - "mgdeps-cache:host.docker.internal"
+      - "mgdeps-cache:host-gateway"
       - "bench-graph-api:100.124.112.121"
     container_name: "mgbuild_v5_debian-12"
 
@@ -40,7 +40,7 @@ services:
       args:
         TOOLCHAIN_VERSION: "v5"
     extra_hosts:
-      - "mgdeps-cache:host.docker.internal"
+      - "mgdeps-cache:host-gateway"
       - "bench-graph-api:100.124.112.121"
     container_name: "mgbuild_v5_fedora-38"
 
@@ -51,7 +51,7 @@ services:
       args:
         TOOLCHAIN_VERSION: "v5"
     extra_hosts:
-      - "mgdeps-cache:host.docker.internal"
+      - "mgdeps-cache:host-gateway"
       - "bench-graph-api:100.124.112.121"
     container_name: "mgbuild_v5_fedora-39"
 
@@ -62,7 +62,7 @@ services:
       args:
         TOOLCHAIN_VERSION: "v5"
     extra_hosts:
-      - "mgdeps-cache:host.docker.internal"
+      - "mgdeps-cache:host-gateway"
       - "bench-graph-api:100.124.112.121"
     container_name: "mgbuild_v5_rocky-9.3"
 
@@ -73,7 +73,7 @@ services:
       args:
         TOOLCHAIN_VERSION: "v5"
     extra_hosts:
-      - "mgdeps-cache:host.docker.internal"
+      - "mgdeps-cache:host-gateway"
       - "bench-graph-api:100.124.112.121"
     container_name: "mgbuild_v5_ubuntu-20.04"
 
@@ -84,7 +84,7 @@ services:
       args:
         TOOLCHAIN_VERSION: "v5"
     extra_hosts:
-      - "mgdeps-cache:host.docker.internal"
+      - "mgdeps-cache:host-gateway"
       - "bench-graph-api:100.124.112.121"
     container_name: "mgbuild_v5_ubuntu-22.04"
 
@@ -95,6 +95,6 @@ services:
       args:
         TOOLCHAIN_VERSION: "v5"
     extra_hosts:
-      - "mgdeps-cache:host.docker.internal"
+      - "mgdeps-cache:host-gateway"
       - "bench-graph-api:100.124.112.121"
     container_name: "mgbuild_v5_ubuntu-24.04"
