@@ -408,10 +408,10 @@ TEST(StorageV2Gc, InterleavedDeltasWithUncommittedContributorsAreGarbagedCollect
     ASSERT_TRUE(acc1->CreateEdge(&*v1_t1, &*v2_t1, acc1->NameToEdgeType("Edge3")).HasValue());
     ASSERT_TRUE(acc2->CreateEdge(&*v1_t2, &*v2_t2, acc1->NameToEdgeType("Edge4")).HasValue());
 
-    // The 6 unreleased deltas are: @TODO 12 now!
-    // - 2 x CREATE_OBJECT, to create the edges
-    // - 2 x ADD_IN_EDGE
-    // - 2 x ADD_OUT_EDGE
+    // The 12 unreleased deltas are:
+    // - 4 x CREATE_OBJECT, to create the edges
+    // - 4 x ADD_IN_EDGE
+    // - 4 x ADD_OUT_EDGE
     ASSERT_EQ(12, memgraph::metrics::GetCounterValue(memgraph::metrics::UnreleasedDeltaObjects));
 
     // When acc2 commits, its transaction has interleaved deltas which are
