@@ -35,7 +35,7 @@ def main(comment_id: str, pr_number: str, branch_name: str, success_status: str)
     # --- Send the PATCH request to update the comment ---
     data = json.dumps({"body": body}).encode('utf-8')
     
-    comment_api_url = f"{api_url}/repos/{repo}/issues/{pr_number}/comments/{comment_id}"
+    comment_api_url = f"{api_url}/repos/{repo}/issues/comments/{comment_id}"
     request = urllib.request.Request(
         comment_api_url,
         data=data,

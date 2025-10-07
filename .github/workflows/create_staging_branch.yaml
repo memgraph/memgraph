@@ -28,8 +28,8 @@ on:
         description: "Short SHA."
         value: ${{ jobs.CreateStagingBranch.outputs.short_sha }}
       comment_id: 
-        description: "URL of the created PR comment."
-        value: ${{ jobs.CreateStagingBranch.outputs.comment_url }}
+        description: "ID of the created PR comment."
+        value: ${{ jobs.CreateStagingBranch.outputs.comment_id }}
 
 jobs:
   CreateStagingBranch:

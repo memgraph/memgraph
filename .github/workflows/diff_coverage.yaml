@@ -254,6 +254,10 @@ jobs:
           fetch-depth: 0
           ref: ${{ inputs.ref || github.ref }}
 
+      - name: Exit failure
+        run: |
+          exit 1
+
       - name: Log in to Docker Hub
         uses: ./.github/actions/docker-login
         with:
