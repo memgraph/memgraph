@@ -5,7 +5,7 @@
 
 set -e
 
-if [ $# -ne 4 ]; then
+if [ $# -ne 6 ]; then
     echo "Usage: $0 <BASE_MASTER> <BRANCH_NAME> <COMMIT_SHA> <STAGING_BRANCH> <REPO_URL> <REPO_OWNER>"
     echo "Example: $0 true feature-branch abc1234 staging/abc1234"
     exit 1
