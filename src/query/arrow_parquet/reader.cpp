@@ -119,15 +119,25 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
               for (int64_t i = 0; i < num_rows; i++) {
                 queued_batch[i][j] = TypedValue(int_array->Value(i));
               }
+            } else if (type_id == arrow::Type::BOOL) {
+              auto const bool_array = std::static_pointer_cast<arrow::BooleanArray>(column);
+              for (int64_t i = 0; i < num_rows; i++) {
+                queued_batch[i][j] = TypedValue(bool_array->Value(i));
+              }
             } else if (type_id == arrow::Type::DOUBLE) {
               auto const double_array = std::static_pointer_cast<arrow::DoubleArray>(column);
               for (int64_t i = 0; i < num_rows; i++) {
                 queued_batch[i][j] = TypedValue(double_array->Value(i));
               }
-            } else {
+            } else if (type_id == arrow::Type::STRING) {
               auto const string_array = std::static_pointer_cast<arrow::StringArray>(column);
               for (int64_t i = 0; i < num_rows; i++) {
                 queued_batch[i][j] = TypedValue(string_array->GetString(i));
+              }
+            } else {
+              // Convert unsupported types (dates, timestamps, etc.) to string
+              for (int64_t i = 0; i < num_rows; i++) {
+                queued_batch[i][j] = TypedValue(column->GetScalar(i).ValueOrDie()->ToString());
               }
             }
           }
