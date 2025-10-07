@@ -54,10 +54,8 @@ def main(pr_number: str, branch_name: str):
                     response_data = json.loads(response_text)
                     comment_id = response_data.get('id')
                     if comment_id:
-                        # Set the COMMENT_ID environment variable
-                        os.environ['COMMENT_ID'] = comment_id
                         print(f"🔗 Comment ID: {comment_id}")
-                        # Also output the URL in a format that can be captured by shell
+                        # Output the ID in a format that can be captured by shell
                         print(f"COMMENT_ID={comment_id}")
                     else:
                         print("⚠️  Warning: Could not extract comment ID from response")
