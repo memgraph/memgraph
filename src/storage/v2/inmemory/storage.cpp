@@ -2412,7 +2412,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
       bool all_contributors_committed = true;
       std::unordered_set<const Delta *> visited;
 
-      for (const auto &delta : it->deltas_.deltas_) {
+      for (const auto &delta : it->deltas_) {
         if (IsOperationInterleaved(delta) && !visited.contains(&delta)) {
           auto *current_delta = &delta;
           while (current_delta != nullptr && !visited.contains(current_delta)) {
@@ -2435,9 +2435,9 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
 
       if (all_contributors_committed) {
         // Calculate the highest commit timestamp in the entire chain for safe unlinking
-        uint64_t highest_commit_ts = it->deltas_.commit_timestamp_->load();
+        uint64_t highest_commit_ts = it->commit_timestamp_->load();
 
-        for (const auto &delta : it->deltas_.deltas_) {
+        for (const auto &delta : it->deltas_) {
           auto *current = &delta;
           while (current != nullptr) {
             auto ts = current->timestamp->load();
@@ -2451,10 +2451,10 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
         }
 
         // Set the unlinkable timestamp to the highest commit timestamp found
-        it->deltas_.unlinkable_timestamp_ = highest_commit_ts;
+        it->unlinkable_timestamp_ = highest_commit_ts;
 
         committed_transactions_.WithLock(
-            [&](auto &committed_transactions) { committed_transactions.emplace_back(std::move(it->deltas_)); });
+            [&](auto &committed_transactions) { committed_transactions.emplace_back(std::move(*it)); });
         it = waiting_list.erase(it);
       } else {
         ++it;
