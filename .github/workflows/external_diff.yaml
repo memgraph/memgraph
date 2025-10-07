@@ -40,22 +40,22 @@ jobs:
   CallCreateStagingBranch:
     uses: ./.github/workflows/create_staging_branch.yaml
     with:
-      pr_number: ${{ github.event.inputs.pr_number }}
-      base_master: ${{ github.event.inputs.base_master }}
+      pr_number: ${{ inputs.pr_number }}
+      base_master: ${{ inputs.base_master }}
     secrets: inherit
 
   TriggerDiffWorkflow:
     needs: CallCreateStagingBranch
     uses: ./.github/workflows/diff.yml
     with:
-      pr_number: ${{ github.event.inputs.pr_number }}
-      base_master: ${{ github.event.inputs.base_master }}
-      community_core: ${{ github.event.inputs.community_core }}
-      coverage: ${{ github.event.inputs.coverage }}
-      debug_core: ${{ github.event.inputs.debug_core }}
-      debug_integration: ${{ github.event.inputs.debug_integration }}
-      jepsen_core: ${{ github.event.inputs.jepsen_core }}
-      release: ${{ github.event.inputs.release }}
-      malloc_build: ${{ github.event.inputs.malloc_build }}
+      pr_number: ${{ inputs.pr_number }}
+      base_master: ${{ inputs.base_master }}
+      community_core: ${{ inputs.community_core }}
+      coverage: ${{ inputs.coverage }}
+      debug_core: ${{ inputs.debug_core }}
+      debug_integration: ${{ inputs.debug_integration }}
+      jepsen_core: ${{ inputs.jepsen_core }}
+      release: ${{ inputs.release }}
+      malloc_build: ${{ inputs.malloc_build }}
       ref: ${{ needs.CallCreateStagingBranch.outputs.staging_branch }}
     secrets: inherit
