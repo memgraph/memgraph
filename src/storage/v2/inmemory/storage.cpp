@@ -1059,31 +1059,27 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
       auto prev = delta.prev.Get();
       switch (prev.type) {
         case PreviousPtr::Type::NULL_PTR:
+          break;
         case PreviousPtr::Type::DELTA:
+          if (prev.delta->timestamp->load(std::memory_order_acquire) != transaction_.transaction_id) {
+            prev.delta->next.store(nullptr, std::memory_order_release);
+          }
           break;
         case PreviousPtr::Type::VERTEX: {
-          // Only unlink if this delta is still the head of the chain
-          // Another transaction may have added deltas on top (interleaved)
           auto &vertex = *prev.vertex;
-          if (vertex.delta == &delta) {
-            vertex.delta = nullptr;
-            if (vertex.deleted) {
-              DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
-              current_deleted_vertices.push_back(vertex.gid);
-            }
+          vertex.delta = nullptr;
+          if (vertex.deleted) {
+            DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
+            current_deleted_vertices.push_back(vertex.gid);
           }
           break;
         }
         case PreviousPtr::Type::EDGE: {
-          // Only unlink if this delta is still the head of the chain
-          // Another transaction may have added deltas on top (interleaved)
           auto &edge = *prev.edge;
-          if (edge.delta == &delta) {
-            edge.delta = nullptr;
-            if (edge.deleted) {
-              DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
-              current_deleted_edges.push_back(edge.gid);
-            }
+          edge.delta = nullptr;
+          if (edge.deleted) {
+            DMG_ASSERT(delta.action == Delta::Action::RECREATE_OBJECT);
+            current_deleted_edges.push_back(edge.gid);
           }
           break;
         }
