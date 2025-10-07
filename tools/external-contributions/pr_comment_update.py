@@ -6,7 +6,7 @@ import urllib.parse
 import json
 
 
-def main(comment_api_url: str, pr_number: str, branch_name: str, success_status: str):
+def main(comment_id: str, pr_number: str, branch_name: str, success_status: str):
     # --- Environment variables from GitHub Actions ---
     repo = os.environ["GITHUB_REPOSITORY"]
     server_url = os.environ.get("GITHUB_SERVER_URL", "https://github.com")
@@ -35,6 +35,7 @@ def main(comment_api_url: str, pr_number: str, branch_name: str, success_status:
     # --- Send the PATCH request to update the comment ---
     data = json.dumps({"body": body}).encode('utf-8')
     
+    comment_api_url = f"{api_url}/repos/{repo}/issues/{pr_number}/comments/{comment_id}"
     request = urllib.request.Request(
         comment_api_url,
         data=data,
@@ -68,6 +69,6 @@ def main(comment_api_url: str, pr_number: str, branch_name: str, success_status:
 
 if __name__ == "__main__":
     if len(sys.argv) != 5:
-        print("Usage: pr_comment_update.py <comment_api_url> <pr_number> <branch_name> <success_status>")
+        print("Usage: pr_comment_update.py <comment_id> <pr_number> <branch_name> <success_status>")
         sys.exit(1)
     main(sys.argv[1], sys.argv[2], sys.argv[3], sys.argv[4])

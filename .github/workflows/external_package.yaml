@@ -92,7 +92,7 @@ jobs:
           fi
           
           python3 ./tools/external-contributions/pr_comment_update.py \
-            "${{ needs.CallCreateStagingBranch.outputs.comment_url }}" \
+            "${{ needs.CallCreateStagingBranch.outputs.comment_id }}" \
             "${{ github.event.inputs.pr_number }}" \
             "${{ needs.CallCreateStagingBranch.outputs.staging_branch }}" \
             "$status"

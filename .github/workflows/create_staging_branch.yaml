@@ -27,7 +27,7 @@ on:
       short_sha: 
         description: "Short SHA."
         value: ${{ jobs.CreateStagingBranch.outputs.short_sha }}
-      comment_url: 
+      comment_id: 
         description: "URL of the created PR comment."
         value: ${{ jobs.CreateStagingBranch.outputs.comment_url }}
 
@@ -40,7 +40,7 @@ jobs:
       commit_sha: ${{ steps.get_branch_name.outputs.commit_sha }}
       staging_branch: ${{ steps.get_branch_name.outputs.staging_branch }}
       short_sha: ${{ steps.get_branch_name.outputs.short_sha }}
-      comment_url: ${{ steps.create_pr_comment.outputs.comment_url }}
+      comment_id: ${{ steps.create_pr_comment.outputs.comment_id }}
       
     steps:
       - name: Checkout repository
@@ -98,12 +98,12 @@ jobs:
           # Display the output
           echo "$output"
           
-          # Extract the COMMENT_URL from the output
-          comment_url=$(echo "$output" | grep "^COMMENT_URL=" | cut -d'=' -f2-)
+          # Extract the COMMENT_ID from the output
+          comment_id=$(echo "$output" | grep "^COMMENT_ID=" | cut -d'=' -f2-)
           
-          if [ -n "$comment_url" ]; then
-            echo "comment_url=$comment_url" >> $GITHUB_OUTPUT
-            echo "Comment URL captured: $comment_url"
+          if [ -n "$comment_id" ]; then
+            echo "comment_id=$comment_id" >> $GITHUB_OUTPUT
+            echo "Comment ID captured: $comment_id"
           else
-            echo "Warning: COMMENT_URL not found in output"
+            echo "Warning: COMMENT_ID not found in output"
           fi

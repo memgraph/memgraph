@@ -49,18 +49,18 @@ def main(pr_number: str, branch_name: str):
             if status_code == 201:
                 print("✅ Comment posted successfully.")
                 
-                # Parse the response to extract the comment URL
+                # Parse the response to extract the comment ID
                 try:
                     response_data = json.loads(response_text)
-                    comment_url = response_data.get('html_url')
-                    if comment_url:
-                        # Set the COMMENT_URL environment variable
-                        os.environ['COMMENT_URL'] = comment_url
-                        print(f"🔗 Comment URL: {comment_url}")
+                    comment_id = response_data.get('id')
+                    if comment_id:
+                        # Set the COMMENT_ID environment variable
+                        os.environ['COMMENT_ID'] = comment_id
+                        print(f"🔗 Comment ID: {comment_id}")
                         # Also output the URL in a format that can be captured by shell
-                        print(f"COMMENT_URL={comment_url}")
+                        print(f"COMMENT_ID={comment_id}")
                     else:
-                        print("⚠️  Warning: Could not extract comment URL from response")
+                        print("⚠️  Warning: Could not extract comment ID from response")
                 except json.JSONDecodeError as e:
                     print(f"⚠️  Warning: Could not parse response JSON: {e}")
             else:
