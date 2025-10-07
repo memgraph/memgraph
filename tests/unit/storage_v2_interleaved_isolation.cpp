@@ -18,18 +18,16 @@
 namespace ms = memgraph::storage;
 namespace r = ranges;
 namespace rv = ranges::views;
+using ::testing::UnorderedElementsAreArray;
 
 namespace {
 
-// @TODO UnorderedElementAre
 // Unordered comparison of the actual edges with the expected edges
 void CompareEdges(auto const &actual_edges, std::span<ms::EdgeTypeId const> expected_edges) {
   ASSERT_EQ(actual_edges.edges.size(), expected_edges.size());
-  auto actual_edge_types =
+  auto const actual_edge_types =
       actual_edges.edges | rv::transform([](auto &&actual_edge) { return actual_edge.EdgeType(); }) | r::to_vector;
-  for (auto &&expected_edge : expected_edges) {
-    EXPECT_TRUE(ranges::contains(actual_edge_types, expected_edge)) << expected_edge.AsUint();
-  }
+  EXPECT_THAT(actual_edge_types, UnorderedElementsAreArray(expected_edges));
 }
 
 }  // unnamed namespace
