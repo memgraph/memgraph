@@ -57,6 +57,8 @@ def main(pr_number: str, branch_name: str):
                         # Set the COMMENT_URL environment variable
                         os.environ['COMMENT_URL'] = comment_url
                         print(f"🔗 Comment URL: {comment_url}")
+                        # Also output the URL in a format that can be captured by shell
+                        print(f"COMMENT_URL={comment_url}")
                     else:
                         print("⚠️  Warning: Could not extract comment URL from response")
                 except json.JSONDecodeError as e:

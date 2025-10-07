@@ -90,14 +90,20 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          python3 ./tools/external-contributions/pr_comment.py \
+          # Run the Python script and capture its output
+          output=$(python3 ./tools/external-contributions/pr_comment.py \
             "${{ github.event.inputs.pr_number }}" \
-            "${{ steps.get_branch_name.outputs.staging_branch }}"
+            "${{ steps.get_branch_name.outputs.staging_branch }}")
           
-          # Capture the COMMENT_URL environment variable as step output
-          if [ -n "$COMMENT_URL" ]; then
-            echo "comment_url=$COMMENT_URL" >> $GITHUB_OUTPUT
-            echo "Comment URL captured: $COMMENT_URL"
+          # Display the output
+          echo "$output"
+          
+          # Extract the COMMENT_URL from the output
+          comment_url=$(echo "$output" | grep "^COMMENT_URL=" | cut -d'=' -f2-)
+          
+          if [ -n "$comment_url" ]; then
+            echo "comment_url=$comment_url" >> $GITHUB_OUTPUT
+            echo "Comment URL captured: $comment_url"
           else
-            echo "Warning: COMMENT_URL not set"
+            echo "Warning: COMMENT_URL not found in output"
           fi
