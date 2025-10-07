@@ -110,6 +110,8 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
             queued_batch[i].resize(num_columns_);
           }
 
+          spdlog::trace("Num rows in the batch in the prefetcher thread: {}", num_rows);
+
           // TODO: (andi) Switch for other types that can be passed into TypedValue
           for (int j = 0U; j < num_columns_; j++) {
             auto const &column = batch_ref[j];
@@ -227,6 +229,7 @@ auto ParquetReader::GetHeader(utils::MemoryResource *resource) const -> Header {
   header.reserve(header_size);
   for (auto const &field : schema->fields()) {
     header.emplace_back(field->name());
+    spdlog::trace("Column name: {}", field->name());
   }
   return header;
 }
