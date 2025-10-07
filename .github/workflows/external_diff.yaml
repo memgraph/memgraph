@@ -46,7 +46,7 @@ jobs:
 
   TriggerDiffWorkflow:
     needs: CallCreateStagingBranch
-    uses: ./.github/workflows/diff.yml
+    uses: ./.github/workflows/diff.yaml
     with:
       pr_number: ${{ inputs.pr_number }}
       base_master: ${{ inputs.base_master }}
