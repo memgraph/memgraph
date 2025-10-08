@@ -319,7 +319,14 @@ link_directories("${MG_TOOLCHAIN_ROOT}/lib64")
 # After linker is set, check we can use link-time optimization
 cmake_policy(SET CMP0138 NEW)
 include(CheckIPOSupported)
-check_ipo_supported() # fatal error if IPO is not supported
+message(STATUS "CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS: ${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}")
+check_ipo_supported(RESULT ipo_supported OUTPUT output) # fatal error if IPO is not supported
+if (NOT ipo_supported)
+    message(WARNING "IPO test failed")
+    message(SEND_ERROR "${output}")
+endif()
+
+
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_Release TRUE)
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo TRUE)
 
