@@ -4307,7 +4307,7 @@ bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
                                   storage::View::NEW, context.frame_change_collector, &context.number_of_hops);
     for (auto *named_expr : self_.named_expressions_) {
       if (context.frame_change_collector) {
-        context.frame_change_collector->ResetTrackingValue(named_expr->name_);
+        context.frame_change_collector->ResetTrackingValue(*named_expr);
       }
       named_expr->Accept(evaluator);
     }
@@ -5603,7 +5603,7 @@ class AccumulateCursor : public Cursor {
     auto row_it = (cache_it_++)->begin();
     for (const Symbol &symbol : self_.symbols_) {
       if (context.frame_change_collector) {
-        context.frame_change_collector->ResetTrackingValue(symbol.name());
+        context.frame_change_collector->ResetTrackingValue(symbol);
       }
       frame[symbol] = *row_it++;
     }
@@ -5706,7 +5706,7 @@ class AggregateCursor : public Cursor {
         for (const auto &elem : self_.aggregations_) {
           frame[elem.output_sym] = DefaultAggregationOpValue(elem, pull_memory);
           if (context.frame_change_collector) {
-            context.frame_change_collector->ResetTrackingValue(elem.output_sym.name());
+            context.frame_change_collector->ResetTrackingValue(elem.output_sym);
           }
         }
 
@@ -5714,7 +5714,7 @@ class AggregateCursor : public Cursor {
         for (const Symbol &remember_sym : self_.remember_) {
           frame[remember_sym] = TypedValue(pull_memory);
           if (context.frame_change_collector) {
-            context.frame_change_collector->ResetTrackingValue(remember_sym.name());
+            context.frame_change_collector->ResetTrackingValue(remember_sym);
           }
         }
         return true;
@@ -6325,7 +6325,7 @@ class OrderByCursor : public Cursor {
     auto output_sym_it = self_.output_symbols_.begin();
     for (TypedValue &output : *cache_it_) {
       if (context.frame_change_collector) {
-        context.frame_change_collector->ResetTrackingValue(output_sym_it->name());
+        context.frame_change_collector->ResetTrackingValue(*output_sym_it);
       }
       frame[*output_sym_it++] = std::move(output);
     }
@@ -6599,7 +6599,7 @@ class UnwindCursor : public Cursor {
 
       frame[self_.output_symbol_] = std::move(*input_value_it_++);
       if (context.frame_change_collector) {
-        context.frame_change_collector->ResetTrackingValue(self_.output_symbol_.name_);
+        context.frame_change_collector->ResetTrackingValue(self_.output_symbol_);
       }
       return true;
     }
@@ -6772,7 +6772,7 @@ bool Union::UnionCursor::Pull(Frame &frame, ExecutionContext &context) {
     for (const auto &output_symbol : self_.left_symbols_) {
       results[output_symbol.name()] = frame[output_symbol];
       if (context.frame_change_collector) {
-        context.frame_change_collector->ResetTrackingValue(output_symbol.name());
+        context.frame_change_collector->ResetTrackingValue(output_symbol);
       }
     }
   } else if (right_cursor_->Pull(frame, context)) {
@@ -6780,7 +6780,7 @@ bool Union::UnionCursor::Pull(Frame &frame, ExecutionContext &context) {
     for (const auto &output_symbol : self_.right_symbols_) {
       results[output_symbol.name()] = frame[output_symbol];
       if (context.frame_change_collector) {
-        context.frame_change_collector->ResetTrackingValue(output_symbol.name());
+        context.frame_change_collector->ResetTrackingValue(output_symbol);
       }
     }
   } else {
