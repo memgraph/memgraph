@@ -1049,10 +1049,10 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       return true;
     }
     case Type::LIST: {
-      auto size = reader->ReadUint(payload_size);
-      if (!size) return false;
       auto list_type = reader->ReadUint(Size::INT8);
       if (!list_type) return false;
+      auto size = reader->ReadUint(payload_size);
+      if (!size) return false;
       if (!DecodeList(reader, static_cast<ListType>(*list_type), *size, value)) return false;
       return true;
     }
@@ -1144,10 +1144,10 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       return std::optional<PropertyValue>{std::in_place, *sv};
     }
     case Type::LIST: {
-      auto size = reader->ReadUint(payload_size);
-      if (!size) return std::nullopt;
       auto list_type = reader->ReadUint(Size::INT8);
       if (!list_type) return std::nullopt;
+      auto size = reader->ReadUint(payload_size);
+      if (!size) return std::nullopt;
       PropertyValue value;
       if (!DecodeList(reader, static_cast<ListType>(*list_type), *size, value)) return std::nullopt;
       return std::optional<PropertyValue>{std::in_place, value};
@@ -1326,10 +1326,10 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       return true;
     }
     case Type::LIST: {
-      auto const size = reader->ReadUint(payload_size);
-      if (!size) return false;
       auto list_type = reader->ReadUint(Size::INT8);
       if (!list_type) return false;
+      auto size = reader->ReadUint(payload_size);
+      if (!size) return false;
       if (!SkipList(reader, static_cast<ListType>(*list_type), *size)) return false;
       return true;
     }
@@ -1420,10 +1420,10 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       return reader->VerifyBytes(str.data(), *size);
     }
     case Type::LIST: {
-      const auto size = reader->ReadUint(payload_size);
-      if (!size || *size != value.ListSize()) return false;
       const auto list_type = reader->ReadUint(Size::INT8);
       if (!list_type) return false;
+      const auto size = reader->ReadUint(payload_size);
+      if (!size || *size != value.ListSize()) return false;
       if (!CompareListTypes(static_cast<ListType>(*list_type), value.type())) return false;
       if (!CompareLists(reader, static_cast<ListType>(*list_type), *size, value)) return false;
       return true;
