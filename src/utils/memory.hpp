@@ -629,6 +629,20 @@ class ThreadLocalMemoryResource : public MemoryResource {
     GetUpstream() = nullptr;
   }
 
+  struct SafeWrapper {
+    SafeWrapper(ThreadLocalMemoryResource *resource, uint16_t id) {
+      DMG_ASSERT(resource, "Passed in a non thread local resource");
+      resource->Initialize(id);
+    }
+
+    ~SafeWrapper() { utils::ThreadLocalMemoryResource::ResetThread(); }
+
+    SafeWrapper(SafeWrapper &) = delete;
+    SafeWrapper(SafeWrapper &&) = delete;
+    SafeWrapper &operator=(SafeWrapper &) = delete;
+    SafeWrapper &operator=(SafeWrapper &&) = delete;
+  };
+
  private:
   std::pmr::memory_resource *ResolveUpstream() const noexcept {
     // Note: We default to 0 id to simplify usage
