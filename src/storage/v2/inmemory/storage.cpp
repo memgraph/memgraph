@@ -1045,7 +1045,7 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
 
   auto *mem_storage = static_cast<InMemoryStorage *>(storage_);
 
-  auto const unlink_remove_clear = [&](delta_container &deltas) {
+  auto const unlink_remove = [&](delta_container &deltas, uint64_t transaction_id) {
     for (auto &delta : deltas) {
       DMG_ASSERT(!IsOperationInterleaved(delta), "interleaved deltas are not candidates for rapid delta cleanup");
       Delta *next = delta.next.load();
@@ -1061,7 +1061,7 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
         case PreviousPtr::Type::NULL_PTR:
           break;
         case PreviousPtr::Type::DELTA:
-          if (prev.delta->timestamp->load(std::memory_order_acquire) != transaction_.transaction_id) {
+          if (prev.delta->timestamp->load(std::memory_order_acquire) != transaction_id) {
             prev.delta->next.store(nullptr, std::memory_order_release);
           }
           break;
@@ -1085,9 +1085,6 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
         }
       }
     }
-
-    // delete deltas
-    deltas.clear();
   };
 
   // STEP 1) ensure everything in GC is gone
@@ -1104,13 +1101,15 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
 
   // 1.b.1) unlink, gathering the removals
   for (auto &gc_deltas : linked_undo_buffers) {
-    unlink_remove_clear(gc_deltas.deltas_);
+    unlink_remove(gc_deltas.deltas_, gc_deltas.transaction_id_);
   }
-  // 1.b.2) clear the list of deltas deques
-  linked_undo_buffers.clear();
 
-  // STEP 2) this transactions deltas also mininal unlinking + remove + clear
-  unlink_remove_clear(transaction_.deltas);
+  // STEP 2) this transactions deltas also minimal unlinking + remove
+  unlink_remove(transaction_.deltas, transaction_.transaction_id);
+
+  // STEP 3) clear all deltas after unlinking is complete
+  linked_undo_buffers.clear();
+  transaction_.deltas.clear();
 }
 
 void InMemoryStorage::InMemoryAccessor::FastDiscardOfDeltas(std::unique_lock<std::mutex> /*gc_guard*/) {
@@ -1497,7 +1496,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
 
         transaction_.commit_timestamp->store(kAbortedTransactionId, std::memory_order_release);
         garbage_undo_buffers.emplace_back(mark_timestamp, std::move(transaction_.deltas),
-                                          std::move(transaction_.commit_timestamp));
+                                          std::move(transaction_.commit_timestamp), transaction_.transaction_id);
       });
     }
 
@@ -1551,13 +1550,14 @@ void InMemoryStorage::InMemoryAccessor::FinalizeTransaction() {
     if (!transaction_.deltas.empty()) {
       if (transaction_.has_interleaved_deltas) {
         mem_storage->waiting_gc_deltas_.WithLock([&](auto &waiting_list) {
-          waiting_list.emplace_back(
-              InMemoryStorage::GCDeltas(0, std::move(transaction_.deltas), std::move(transaction_.commit_timestamp)));
+          waiting_list.emplace_back(InMemoryStorage::GCDeltas(0, std::move(transaction_.deltas),
+                                                              std::move(transaction_.commit_timestamp),
+                                                              transaction_.transaction_id));
         });
       } else {
         mem_storage->committed_transactions_.WithLock([&](auto &committed_transactions) {
           committed_transactions.emplace_back(0, std::move(transaction_.deltas),
-                                              std::move(transaction_.commit_timestamp));
+                                              std::move(transaction_.commit_timestamp), transaction_.transaction_id);
         });
       }
     }
