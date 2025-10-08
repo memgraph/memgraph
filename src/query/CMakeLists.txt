@@ -40,6 +40,7 @@ target_sources(mg-query
     frontend/stripped.cpp
     interpret/awesome_memgraph_functions.cpp
     interpret/eval.cpp
+    interpret/frame.cpp
     interpreter.cpp
     metadata.cpp
     plan/hint_provider.cpp
@@ -100,6 +101,8 @@ target_sources(mg-query
     frontend/ast/query/query.hpp
     plan/used_index_checker.hpp
     plan/read_write_type_checker.hpp
+    interpret/frame.hpp
+    interpret/eval.hpp
 )
 
 

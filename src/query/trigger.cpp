@@ -223,15 +223,17 @@ void Trigger::Execute(DbAccessor *dba, dbms::DatabaseAccess db_acc, utils::Memor
 
   auto cursor = plan.plan().MakeCursor(execution_memory);
   Frame frame{plan.symbol_table().max_position(), execution_memory};
+  auto frame_writter = frame.GetFrameWritter(ctx.frame_change_collector, execution_memory);
   for (const auto &[identifier, tag] : identifiers) {
     if (identifier.symbol_pos_ == -1) {
       continue;
     }
 
-    frame[plan.symbol_table().at(identifier)] = context.GetTypedValue(tag, dba);
+    frame_writter.Write(plan.symbol_table().at(identifier), context.GetTypedValue(tag, dba));
   }
 
-  while (cursor->Pull(frame, ctx));
+  while (cursor->Pull(frame, ctx))
+    ;
 
   cursor->Shutdown();
   memgraph::metrics::IncrementCounter(memgraph::metrics::TriggersExecuted);
