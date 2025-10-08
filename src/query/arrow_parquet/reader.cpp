@@ -14,12 +14,11 @@
 #include "utils/data_queue.hpp"
 
 #include <chrono>
-#include <optional>
+
 #include <thread>
 
 #include "arrow/acero/exec_plan.h"
 #include "arrow/compute/api.h"
-#include "arrow/dataset/dataset.h"
 #include "arrow/io/api.h"
 #include "arrow/io/file.h"
 #include "parquet/properties.h"
@@ -65,8 +64,7 @@ class BatchIterator {
 };
 
 struct ParquetReader::impl {
-  explicit impl(std::unique_ptr<parquet::arrow::FileReader> file_reader, std::unique_ptr<arrow::RecordBatchReader> rbr,
-                utils::MemoryResource *resource);
+  explicit impl(std::unique_ptr<parquet::arrow::FileReader> file_reader, std::unique_ptr<arrow::RecordBatchReader> rbr);
 
   ~impl();
 
@@ -88,7 +86,7 @@ struct ParquetReader::impl {
 };
 
 ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reader,
-                          std::unique_ptr<arrow::RecordBatchReader> rbr, utils::MemoryResource *resource)
+                          std::unique_ptr<arrow::RecordBatchReader> rbr)
     : file_reader_(std::move(file_reader)),
       schema_(rbr->schema()),
       num_columns_(schema_->num_fields()),
@@ -109,8 +107,6 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
           for (int i = 0; i < num_rows; ++i) {
             queued_batch[i].resize(num_columns_);
           }
-
-          spdlog::trace("Num rows in the batch in the prefetcher thread: {}", num_rows);
 
           // TODO: (andi) Switch for other types that can be passed into TypedValue
           for (int j = 0U; j < num_columns_; j++) {
@@ -206,7 +202,7 @@ ParquetReader::ParquetReader(std::string const &file, utils::MemoryResource *res
       throw std::runtime_error(res.status().message());
     }
 
-    pimpl_ = std::make_unique<impl>(std::move(arrow_reader), std::move(*res), resource);
+    pimpl_ = std::make_unique<impl>(std::move(arrow_reader), std::move(*res));
   } catch (const std::exception &e) {
     spdlog::error("Failed to open parquet file '{}': {}", file, e.what());
     throw;
