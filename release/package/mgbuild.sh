@@ -322,7 +322,6 @@ EOF
       fi
       if [[ "$conan_cache_enabled" == "true" ]]; then
         echo "      - $conan_cache_dir:/home/mg/.conan2" >> cache-override.yml
-        echo "Setting conan cache directory: $conan_cache_dir"
       fi
     fi
     compose_files="$compose_files -f cache-override.yml"
@@ -1244,10 +1243,12 @@ case $command in
 
       # Create ccache override file if ccache is enabled
       compose_files=$(setup_cache_override)
+      if [[ "$conan_cache_enabled" == "true" ]]; then
+        echo "Setting conan cache directory: $conan_cache_dir"
+      fi
 
       # Set up host ccache permissions
       setup_host_cache_permissions
-
       if [[ "$os" == "all" ]]; then
         if [[ "$pull" == "true" ]]; then
           $docker_compose_cmd $compose_files pull --ignore-pull-failures
