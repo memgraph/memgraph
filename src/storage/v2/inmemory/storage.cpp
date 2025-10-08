@@ -165,6 +165,8 @@ InMemoryStorage::InMemoryStorage(Config config, std::optional<free_mem_fn> free_
                                  PlanInvalidatorPtr invalidator,
                                  std::function<storage::DatabaseProtectorPtr()> database_protector_factory)
     : Storage(config, config.salient.storage_mode, std::move(invalidator), std::move(database_protector_factory)),
+      vertices_memory_resource_(static_cast<size_t>(1024) * 1024),  // 1MB initial buffer
+      vertices_(&vertices_memory_resource_),
       recovery_{config.durability.storage_directory / durability::kSnapshotDirectory,
                 config.durability.storage_directory / durability::kWalDirectory},
       lock_file_path_(config.durability.storage_directory / durability::kLockFile),
@@ -317,6 +319,9 @@ InMemoryStorage::~InMemoryStorage() {
     create_snapshot_handler();
   }
   committed_transactions_.WithLock([](auto &transactions) { transactions.clear(); });
+
+  // Clean up monotonic memory resource
+  vertices_memory_resource_.Release();
 }
 
 InMemoryStorage::InMemoryAccessor::InMemoryAccessor(SharedAccess tag, InMemoryStorage *storage,
