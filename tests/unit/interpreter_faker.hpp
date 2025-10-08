@@ -34,6 +34,8 @@ struct InterpreterFaker {
     stream->Summary(summary);
   }
 
+  void Abort() { interpreter.Abort(); }
+
   /**
    * Execute the given query and commit the transaction.
    *
