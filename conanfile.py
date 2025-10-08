@@ -74,7 +74,7 @@ class Memgraph(ConanFile):
         self.requires("asio/1.34.2")
         self.requires("openssl/3.5.1")
         self.requires("mgclient/1.4.3", options={"with_cpp": True})
-        # 21.0.0 doesn't work because of rapidjson
+        # 21.0.0 doesn't work because of rapidjson's bug in 1.1.0
         self.requires(
             "arrow/20.0.0",
             options={"parquet": True, "with_snappy": True, "dataset_modules": True, "filesystem_layer": True},
