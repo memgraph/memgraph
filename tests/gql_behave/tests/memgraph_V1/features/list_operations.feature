@@ -476,12 +476,50 @@ Feature: List operators
             | x |
             | 5 |
 
+    Scenario: List cache invalidation 1
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({value:1})
+            CREATE ({value:2})
+            """
+        When executing query:
+            """
+            MATCH (n) WHERE n.value IN [n.value] RETURN n ORDER BY n.value ASC;
+            """
+        Then the result should be:
+            |   n            |
+            |  ({value: 1})  |
+            |  ({value: 2})  |
+
+    Scenario: List cache invalidation 2
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({value:1, list:[2]})
+            CREATE ({value:2, list:[3]})
+            CREATE ({value:3, list:[]})
+            """
+        When executing query:
+            """
+            WITH [1] AS lst
+            MATCH (n)
+            WHERE n.value IN lst
+            WITH n.list AS lst, n
+            MATCH (m)
+            WHERE m.value IN lst
+            RETURN n, m;
+            """
+        Then the result should be:
+            | n                       | m                       |
+            | ({list: [2], value: 1}) | ({list: [3], value: 2}) |
+
     Scenario: IN LIST with frame-dependent list elements
         Given an empty graph
         And having executed:
             """
-            CREATE ()-[:ET1]->();
-            CREATE ()-[:ET2]->();
+            CREATE ()-[:ET1]->()
+            CREATE ()-[:ET2]->()
             """
         When executing query:
             """
