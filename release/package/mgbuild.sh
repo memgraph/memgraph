@@ -322,6 +322,7 @@ EOF
       fi
       if [[ "$conan_cache_enabled" == "true" ]]; then
         echo "      - $conan_cache_dir:/home/mg/.conan2" >> cache-override.yml
+        echo "++++++ Setting conan cache directory: $conan_cache_dir ++++++"
       fi
     fi
     compose_files="$compose_files -f cache-override.yml"
