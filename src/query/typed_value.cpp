@@ -811,7 +811,7 @@ storage::PropertyValue TypedValue::ToPropertyValue(storage::NameIdMapper *name_i
       for (const auto &v : list_v) {
         all_ints &= v.IsInt();
         all_doubles &= v.IsDouble();
-        all_numeric &= all_ints || all_doubles;
+        all_numeric &= v.IsInt() || v.IsDouble();
         list.emplace_back(v.ToPropertyValue(name_id_mapper));
       }
       if (all_ints) {

@@ -292,7 +292,8 @@ class PropertyValueImpl {
     std::transform(value.begin(), value.end(), std::back_inserter(double_list_v.val_), [](const auto &elem) -> double {
       if (elem.IsDouble()) {
         return elem.ValueDouble();
-      } else if (elem.IsInt()) {
+      }
+      if (elem.IsInt()) {
         return static_cast<double>(elem.ValueInt());
       }
       throw PropertyValueException("Cannot convert list to DoubleList: contains non-numeric values");
@@ -306,7 +307,8 @@ class PropertyValueImpl {
     std::transform(value.begin(), value.end(), std::back_inserter(double_list_v.val_), [](const auto &elem) -> double {
       if (elem.IsDouble()) {
         return elem.ValueDouble();
-      } else if (elem.IsInt()) {
+      }
+      if (elem.IsInt()) {
         return static_cast<double>(elem.ValueInt());
       }
       throw PropertyValueException("Cannot convert list to DoubleList: contains non-numeric values");
@@ -320,7 +322,8 @@ class PropertyValueImpl {
     std::transform(value.begin(), value.end(), std::back_inserter(double_list_v.val_), [](const auto &elem) -> double {
       if (elem.IsDouble()) {
         return elem.ValueDouble();
-      } else if (elem.IsInt()) {
+      }
+      if (elem.IsInt()) {
         return static_cast<double>(elem.ValueInt());
       }
       throw PropertyValueException("Cannot convert list to DoubleList: contains non-numeric values");
@@ -334,7 +337,8 @@ class PropertyValueImpl {
     std::transform(value.begin(), value.end(), std::back_inserter(double_list_v.val_), [](const auto &elem) -> double {
       if (elem.IsDouble()) {
         return elem.ValueDouble();
-      } else if (elem.IsInt()) {
+      }
+      if (elem.IsInt()) {
         return static_cast<double>(elem.ValueInt());
       }
       throw PropertyValueException("Cannot convert list to DoubleList: contains non-numeric values");

@@ -1420,12 +1420,14 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       return reader->VerifyBytes(str.data(), *size);
     }
     case Type::LIST: {
+      if (!value.IsAnyList()) return false;
       const auto list_type = reader->ReadUint(Size::INT8);
       if (!list_type) return false;
       const auto size = reader->ReadUint(payload_size);
       if (!size || *size != value.ListSize()) return false;
-      if (!CompareListTypes(static_cast<ListType>(*list_type), value.type())) return false;
-      if (!CompareLists(reader, static_cast<ListType>(*list_type), *size, value)) return false;
+      if (!CompareListTypes(static_cast<ListType>(*list_type), value.type()) ||
+          !CompareLists(reader, static_cast<ListType>(*list_type), *size, value))
+        return false;
       return true;
     }
     case Type::MAP: {
