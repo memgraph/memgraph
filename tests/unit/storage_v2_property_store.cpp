@@ -88,7 +88,9 @@ const PropertyValue kSampleValues[] = {
     PropertyValue{Point2d{WGS84_2d, 3.0, 4.0}},
     PropertyValue{Point3d{Cartesian_3d, 1.0, 2.0, 3.0}},
     PropertyValue{Point3d{WGS84_3d, 4.0, 5.0, 6.0}},
-
+    PropertyValue(std::vector<int>{33, 0, -33}),
+    PropertyValue(std::vector<double>{33.0, 0.0, -33.33}),
+    PropertyValue(std::vector<std::variant<int, double>>{33, 0.0, -33.33}),
 };
 
 void TestIsPropertyEqual(const PropertyStore &store, PropertyId property, const PropertyValue &value) {
