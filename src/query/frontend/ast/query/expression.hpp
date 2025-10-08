@@ -21,6 +21,7 @@ class Expression : public memgraph::query::Tree,
                    public utils::Visitable<HierarchicalTreeVisitor>,
                    public utils::Visitable<ExpressionVisitor<TypedValue>>,
                    public utils::Visitable<ExpressionVisitor<TypedValue *>>,
+                   public utils::Visitable<ExpressionVisitor<TypedValue const *>>,
                    public utils::Visitable<ExpressionVisitor<void>> {
  public:
   static const utils::TypeInfo kType;
@@ -29,6 +30,7 @@ class Expression : public memgraph::query::Tree,
   using utils::Visitable<HierarchicalTreeVisitor>::Accept;
   using utils::Visitable<ExpressionVisitor<TypedValue>>::Accept;
   using utils::Visitable<ExpressionVisitor<TypedValue *>>::Accept;
+  using utils::Visitable<ExpressionVisitor<TypedValue const *>>::Accept;
   using utils::Visitable<ExpressionVisitor<void>>::Accept;
 
   Expression() = default;

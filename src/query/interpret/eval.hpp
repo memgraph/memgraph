@@ -40,19 +40,19 @@
 
 namespace memgraph::query {
 
-class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue *> {
+class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue const *> {
  public:
   ReferenceExpressionEvaluator(Frame *frame, const SymbolTable *symbol_table, const EvaluationContext *ctx)
       : frame_(frame), symbol_table_(symbol_table), ctx_(ctx) {}
 
-  using ExpressionVisitor<TypedValue *>::Visit;
+  using ExpressionVisitor<TypedValue const *>::Visit;
 
   utils::MemoryResource *GetMemoryResource() const { return ctx_->memory; }
 
 #define UNSUCCESSFUL_VISIT(expr_name) \
-  TypedValue *Visit(expr_name &expr) override { return nullptr; }
+  TypedValue const *Visit(expr_name &expr) override { return nullptr; }
 
-  TypedValue *Visit(Identifier &ident) override { return &frame_->at(symbol_table_->at(ident)); }
+  TypedValue const *Visit(Identifier &ident) override { return &frame_->at(symbol_table_->at(ident)); }
 
   UNSUCCESSFUL_VISIT(NamedExpression);
   UNSUCCESSFUL_VISIT(OrOperator);
@@ -211,8 +211,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   TypedValue Visit(NamedExpression &named_expression) override {
     const auto &symbol = symbol_table_->at(named_expression);
     auto value = named_expression.expression_->Accept(*this);
-    frame_->at(symbol) = value;
-    return value;
+    frame_writter_.WriteAt(symbol, value);
+    return value;  // NRVO
   }
 
   TypedValue Visit(Identifier &ident) override {
@@ -404,7 +404,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   TypedValue Visit(SubscriptOperator &list_indexing) override {
     ReferenceExpressionEvaluator referenceExpressionEvaluator(frame_, symbol_table_, ctx_);
 
-    TypedValue *lhs_ptr = list_indexing.expression1_->Accept(referenceExpressionEvaluator);
+    TypedValue const *lhs_ptr = list_indexing.expression1_->Accept(referenceExpressionEvaluator);
     TypedValue lhs;
     const auto referenced = nullptr != lhs_ptr;
     if (!referenced) {
@@ -700,13 +700,13 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (list_value.type() != TypedValue::Type::List) {
       throw QueryRuntimeException("REDUCE expected a list, got {}.", list_value.type());
     }
-    const auto &list = list_value.ValueList();
+    auto &list = list_value.ValueList();
     const auto &element_symbol = symbol_table_->at(*reduce.identifier_);
     const auto &accumulator_symbol = symbol_table_->at(*reduce.accumulator_);
     auto accumulator = reduce.initializer_->Accept(*this);
-    for (const auto &element : list) {
-      frame_->at(accumulator_symbol) = accumulator;
-      frame_->at(element_symbol) = element;
+    for (auto &element : list) {
+      frame_writter_.WriteAt(accumulator_symbol, accumulator);
+      frame_writter_.WriteAt(element_symbol, std::move(element));
       accumulator = reduce.expression_->Accept(*this);
     }
     return accumulator;
@@ -720,7 +720,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (list_value.type() != TypedValue::Type::List) {
       throw QueryRuntimeException("EXTRACT expected a list, got {}.", list_value.type());
     }
-    const auto &list = list_value.ValueList();
+    auto &list = list_value.ValueList();
     const auto &element_symbol = symbol_table_->at(*extract.identifier_);
     TypedValue::TVector result(ctx_->memory);
     result.reserve(list.size());
@@ -728,7 +728,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       if (element.IsNull()) {
         result.emplace_back();
       } else {
-        frame_->at(element_symbol) = std::move(element);
+        frame_writter_.WriteAt(element_symbol, std::move(element));
         result.emplace_back(extract.expression_->Accept(*this));
       }
     }
@@ -753,7 +753,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     result.reserve(list.size());
 
     for (const auto &element : list) {
-      frame_->at(element_symbol) = element;
+      frame_writter_.WriteAt(element_symbol, element);
       if (!needs_predicate) {
         if (has_transformation) {
           result.emplace_back(list_comprehension.expression_->Accept(*this));
@@ -780,7 +780,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(Exists &exists) override {
-    TypedValue &frame_exists_value = frame_->at(symbol_table_->at(exists));
+    TypedValue const &frame_exists_value = frame_->at(symbol_table_->at(exists));
     if (!frame_exists_value.IsFunction()) [[unlikely]] {
       throw QueryRuntimeException(
           "Unexpected behavior: Exists expected a function, got {}. Please report the problem on GitHub issues",
@@ -799,12 +799,13 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (list_value.type() != TypedValue::Type::List) {
       throw QueryRuntimeException("ALL expected a list, got {}.", list_value.type());
     }
-    const auto &list = list_value.ValueList();
+    auto &list = list_value.ValueList();
     const auto &symbol = symbol_table_->at(*all.identifier_);
     bool has_null_elements = false;
     bool has_value = false;
-    for (const auto &element : list) {
-      frame_->at(symbol) = element;
+    bool const non_empty_list = !list.empty();
+    for (auto &element : list) {
+      frame_writter_.WriteAt(symbol, std::move(element));
       auto result = all.where_->expression_->Accept(*this);
       if (!result.IsNull() && result.type() != TypedValue::Type::Bool) {
         throw QueryRuntimeException("Predicate of ALL must evaluate to boolean, got {}.", result.type());
@@ -818,7 +819,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         has_null_elements = true;
       }
     }
-    if (!list.empty() && !has_value) {
+    if (non_empty_list && !has_value) {
       return TypedValue(ctx_->memory);
     } else if (has_null_elements) {
       return TypedValue(ctx_->memory);
@@ -835,13 +836,14 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (list_value.type() != TypedValue::Type::List) {
       throw QueryRuntimeException("SINGLE expected a list, got {}.", list_value.type());
     }
-    const auto &list = list_value.ValueList();
+    auto &list = list_value.ValueList();
     const auto &symbol = symbol_table_->at(*single.identifier_);
     bool has_value = false;
     bool predicate_satisfied = false;
     bool has_null_elements = false;
-    for (const auto &element : list) {
-      frame_->at(symbol) = element;
+    bool const non_empty_list = !list.empty();
+    for (auto &element : list) {
+      frame_writter_.WriteAt(symbol, std::move(element));
       auto result = single.where_->expression_->Accept(*this);
       if (!result.IsNull() && result.type() != TypedValue::Type::Bool) {
         throw QueryRuntimeException("Predicate of SINGLE must evaluate to boolean, got {}.", result.type());
@@ -863,7 +865,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         predicate_satisfied = true;
       }
     }
-    if (!list.empty() && !has_value) {
+    if (non_empty_list && !has_value) {
       return TypedValue(ctx_->memory);
     } else if (has_null_elements && !predicate_satisfied) {
       return TypedValue(ctx_->memory);
@@ -880,12 +882,13 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (list_value.type() != TypedValue::Type::List) {
       throw QueryRuntimeException("ANY expected a list, got {}.", list_value.type());
     }
-    const auto &list = list_value.ValueList();
+    auto &list = list_value.ValueList();
     const auto &symbol = symbol_table_->at(*any.identifier_);
     bool has_null_elements = false;
     bool has_value = false;
-    for (const auto &element : list) {
-      frame_->at(symbol) = element;
+    bool const non_empty_list = !list.empty();
+    for (auto &element : list) {
+      frame_writter_.WriteAt(symbol, std::move(element));
       auto result = any.where_->expression_->Accept(*this);
       if (!result.IsNull() && result.type() != TypedValue::Type::Bool) {
         throw QueryRuntimeException("Predicate of ANY must evaluate to boolean, got {}.", result.type());
@@ -900,7 +903,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
     }
     // Return Null if all elements are Null
-    if (!list.empty() && !has_value) {
+    if (non_empty_list && !has_value) {
       return TypedValue(ctx_->memory);
     } else if (has_null_elements) {
       return TypedValue(ctx_->memory);
@@ -917,12 +920,13 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     if (list_value.type() != TypedValue::Type::List) {
       throw QueryRuntimeException("NONE expected a list, got {}.", list_value.type());
     }
-    const auto &list = list_value.ValueList();
+    auto &list = list_value.ValueList();
     const auto &symbol = symbol_table_->at(*none.identifier_);
     bool has_null_elements = false;
     bool has_value = false;
-    for (const auto &element : list) {
-      frame_->at(symbol) = element;
+    const bool non_empty_element = !list.empty();
+    for (auto &element : list) {
+      frame_writter_.WriteAt(symbol, std::move(element));
       auto result = none.where_->expression_->Accept(*this);
       if (!result.IsNull() && result.type() != TypedValue::Type::Bool) {
         throw QueryRuntimeException("Predicate of NONE must evaluate to boolean, got {}.", result.type());
@@ -937,7 +941,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
     }
     // Return Null if all elements are Null
-    if (!list.empty() && !has_value) {
+    if (non_empty_element && !has_value) {
       return TypedValue(ctx_->memory);
     } else if (has_null_elements) {
       return TypedValue(ctx_->memory);
@@ -1063,6 +1067,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   // which switching approach should be used when evaluating
   storage::View view_;
   FrameChangeCollector *frame_change_collector_;
+  FrameWritter frame_writter_{*frame_, frame_change_collector_, ctx_->memory};
   /// Property lookup cache ({symbol: {property_id: property_value, ...}, ...})
   mutable std::unordered_map<int32_t, std::map<storage::PropertyId, storage::PropertyValue>> property_lookup_cache_{};
   // use the getter function GetHopsCounter() to handle possible error for segfault
