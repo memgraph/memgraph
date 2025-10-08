@@ -1,12 +1,12 @@
 #!/bin/bash
 
 # Script to create a staging branch
-# Usage: ./create_staging_branch.sh <BASE_MASTER> <BRANCH_NAME> <COMMIT_SHA> <STAGING_BRANCH>
+# Usage: ./create_staging_branch.sh <BASE_MASTER> <BRANCH_NAME> <COMMIT_SHA> <STAGING_BRANCH> <REPO_URL> <REPO_OWNER>
 
 set -e
 
-if [ $# -ne 4 ]; then
-    echo "Usage: $0 <BASE_MASTER> <BRANCH_NAME> <COMMIT_SHA> <STAGING_BRANCH>"
+if [ $# -ne 6 ]; then
+    echo "Usage: $0 <BASE_MASTER> <BRANCH_NAME> <COMMIT_SHA> <STAGING_BRANCH> <REPO_URL> <REPO_OWNER>"
     echo "Example: $0 true feature-branch abc1234 staging/abc1234"
     exit 1
 fi
@@ -15,10 +15,16 @@ BASE_MASTER="$1"
 BRANCH_NAME="$2"
 COMMIT_SHA="$3"
 STAGING_BRANCH="$4"
+REPO_URL="$5"
+REPO_OWNER="$6"
 
-# Fetch the PR branch
+# Fetch the PR branch or commit (handles both internal and external PRs)
 echo "Fetching feature branch: $BRANCH_NAME"
-git fetch origin "$BRANCH_NAME"
+if [ "$REPO_OWNER" = "memgraph" ]; then
+    git fetch origin "$BRANCH_NAME"
+else
+    git fetch "$REPO_URL" "$BRANCH_NAME:$BRANCH_NAME"
+fi
 
 # Check if staging branch already exists
 if git show-ref --verify --quiet refs/heads/"$STAGING_BRANCH" || git show-ref --verify --quiet refs/remotes/origin/"$STAGING_BRANCH"; then
@@ -42,7 +48,11 @@ else
         git checkout -b "$STAGING_BRANCH"
         
         # Merge the feature branch into staging
-        git merge "$COMMIT_SHA" --no-edit
+        if [ "$REPO_OWNER" = "memgraph" ]; then
+            git merge "$COMMIT_SHA" --no-edit
+        else
+            git merge "$REPO_URL" "$COMMIT_SHA" --no-edit
+        fi
         
         echo "Created staging branch from master and merged feature branch"
     else
