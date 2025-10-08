@@ -1230,19 +1230,53 @@ bool CompareLists(Reader *reader, ListType list_type, uint32_t size, const Prope
       return true;
     }
     case Type::LIST: {
+      auto list_type = reader->ReadUint(Size::INT8);
+      if (!list_type) return false;
       auto size = reader->ReadUint(payload_size);
       if (!size) return false;
 
-      uint32_t list_property_size = SizeToByteSize(payload_size);
-
-      for (uint32_t i = 0; i < *size; ++i) {
-        auto metadata = reader->ReadMetadata();
-        if (!metadata) return false;
-
-        list_property_size += 1;
-        if (!DecodePropertyValueSize(reader, metadata->type, metadata->payload_size, list_property_size)) return false;
+      auto list_property_size = SizeToByteSize(payload_size) + 1;  // +1 for list_type
+      auto list_type_value = static_cast<ListType>(*list_type);
+      switch (list_type_value) {
+        case ListType::PROPERTY_VALUE: {
+          for (uint32_t i = 0; i < *size; ++i) {
+            auto metadata = reader->ReadMetadata();
+            if (!metadata) return false;
+            list_property_size += 1;  // metadata size
+            if (!DecodePropertyValueSize(reader, metadata->type, metadata->payload_size, list_property_size))
+              return false;
+          }
+          break;
+        }
+        case ListType::INT: {
+          // Each int is stored as int32_t
+          auto int_bytes = *size * SizeToByteSize(Size::INT32);
+          if (!reader->SkipBytes(int_bytes)) return false;
+          list_property_size += int_bytes;
+          break;
+        }
+        case ListType::DOUBLE: {
+          // Each double is stored as int64_t (forced)
+          auto double_bytes = *size * SizeToByteSize(Size::INT64);
+          if (!reader->SkipBytes(double_bytes)) return false;
+          list_property_size += double_bytes;
+          break;
+        }
+        case ListType::NUMERIC: {
+          for (uint32_t i = 0; i < *size; ++i) {
+            auto metadata = reader->ReadMetadata();
+            if (!metadata) return false;
+            list_property_size += 1;  // metadata size
+            auto item_size = SizeToByteSize(metadata->payload_size);
+            if (!reader->SkipBytes(item_size)) return false;
+            list_property_size += item_size;
+          }
+          break;
+        }
+        default: {
+          throw PropertyValueException("Invalid list type");
+        }
       }
-
       property_size += list_property_size;
       return true;
     }
