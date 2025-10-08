@@ -66,28 +66,31 @@ if [ "$skip_init" = false ]; then
     ./init
 fi
 
-# Determine profile template based on sanitizer flags
+# Use the new combined profile template
 PROFILE_TEMPLATE="./memgraph_template_profile"
-DASAN_ENABLED=false
-DUBSAN_ENABLED=false
+MG_SANITIZERS=""
 
 # Check if DASAN=ON is in CMAKE_ARGS
 if [[ "$CMAKE_ARGS" == *"DASAN=ON"* ]]; then
-    DASAN_ENABLED=true
+    MG_SANITIZERS="address"
 fi
 
 # Check if DUBSAN=ON is in CMAKE_ARGS
 if [[ "$CMAKE_ARGS" == *"DUBSAN=ON"* ]]; then
-    DUBSAN_ENABLED=true
+    if [[ -n "$MG_SANITIZERS" ]]; then
+        # If we already have address sanitizer, add undefined to the list
+        MG_SANITIZERS="address,undefined"
+    else
+        MG_SANITIZERS="undefined"
+    fi
 fi
 
-# Select appropriate profile template
-if [[ "$DASAN_ENABLED" == true && "$DUBSAN_ENABLED" == true ]]; then
-    PROFILE_TEMPLATE="./memgraph_template_profile_asan_ubsan"
-elif [[ "$DASAN_ENABLED" == true ]]; then
-    PROFILE_TEMPLATE="./memgraph_template_profile_asan"
-elif [[ "$DUBSAN_ENABLED" == true ]]; then
-    PROFILE_TEMPLATE="./memgraph_template_profile_ubsan"
+echo "Using profile template: $PROFILE_TEMPLATE"
+if [[ -n "$MG_SANITIZERS" ]]; then
+    echo "Sanitizers enabled: $MG_SANITIZERS"
+    export MG_SANITIZERS="$MG_SANITIZERS"
+else
+    echo "No sanitizers enabled"
 fi
 
 # install conan dependencies
