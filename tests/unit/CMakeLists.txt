@@ -1,8 +1,5 @@
 set(test_prefix memgraph__unit__)
 
-# Include conan-generated dependencies
-include(conandeps_legacy)
-
 find_package(fmt REQUIRED)
 find_package(Threads REQUIRED)
 find_package(antlr4-runtime REQUIRED)
