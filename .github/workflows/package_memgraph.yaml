@@ -45,6 +45,10 @@ on:
         type: boolean
         description: "Push final packages to an S3 bucket?"
         default: false
+      push_to_github:
+        type: boolean
+        description: "Push final packages to GitHub?"
+        default: false
       s3_dest_dir:
         type: string
         description: "Target dir path in chosen S3 bucket, don't end the path with '/'. For bucket 'deps.memgraph.io' use format 'memgraph/vX.Y.Z'."
@@ -67,6 +71,10 @@ on:
       push_to_s3:
         type: boolean
         description: "Push final packages to an S3 bucket?"
+        default: false
+      push_to_github:
+        type: boolean
+        description: "Push final packages to GitHub?"
         default: false
       s3_dest_dir:
         type: string
@@ -99,6 +107,7 @@ jobs:
       workflow_input_build_type: ${{ steps.setup.outputs.workflow_input_build_type }}
       workflow_input_toolchain: ${{ steps.setup.outputs.workflow_input_toolchain }}
       workflow_input_push_to_s3: ${{ steps.setup.outputs.workflow_input_push_to_s3 }}
+      workflow_input_push_to_github: ${{ steps.setup.outputs.workflow_input_push_to_github }}
       workflow_input_s3_dest_dir: ${{ steps.setup.outputs.workflow_input_s3_dest_dir }}
     env:
       GH_CONTEXT: ${{ toJson(github) }}
@@ -125,7 +134,7 @@ jobs:
       arch: "amd"
       build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
-      push_to_github: false
+      push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
@@ -142,7 +151,7 @@ jobs:
       arch: "amd"
       build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
-      push_to_github: false
+      push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
@@ -159,7 +168,7 @@ jobs:
       arch: "amd"
       build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
-      push_to_github: false
+      push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
@@ -176,7 +185,7 @@ jobs:
       arch: "arm"
       build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
-      push_to_github: false
+      push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
@@ -193,7 +202,7 @@ jobs:
       arch: "amd"
       build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
-      push_to_github: false
+      push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
@@ -210,7 +219,7 @@ jobs:
       arch: "arm"
       build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
-      push_to_github: false
+      push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
@@ -228,7 +237,7 @@ jobs:
       build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
       additional_build_args: "--for-docker"
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
-      push_to_github: false
+      push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
@@ -246,7 +255,7 @@ jobs:
       build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
       additional_build_args: "--for-docker"
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
-      push_to_github: false
+      push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
@@ -263,7 +272,7 @@ jobs:
       arch: "amd"
       build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
-      push_to_github: false
+      push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
@@ -280,7 +289,7 @@ jobs:
       arch: "amd"
       build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
-      push_to_github: false
+      push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
@@ -297,7 +306,7 @@ jobs:
       arch: "amd"
       build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
-      push_to_github: false
+      push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
@@ -314,7 +323,7 @@ jobs:
       arch: "amd"
       build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
-      push_to_github: false
+      push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
@@ -331,7 +340,7 @@ jobs:
       arch: "arm"
       build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
-      push_to_github: false
+      push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
@@ -349,7 +358,7 @@ jobs:
       build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
       additional_build_args: "--disable-jemalloc"
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
-      push_to_github: false
+      push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
