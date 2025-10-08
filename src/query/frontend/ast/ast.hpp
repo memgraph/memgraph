@@ -3600,15 +3600,19 @@ class MultiDatabaseQuery : public memgraph::query::Query {
 
   DEFVISITABLE(QueryVisitor<void>);
 
-  enum class Action { CREATE, DROP };
+  enum class Action { CREATE, DROP, RENAME };
 
   memgraph::query::MultiDatabaseQuery::Action action_;
   std::string db_name_;
+  bool force_{false};
+  std::optional<std::string> new_db_name_;
 
   MultiDatabaseQuery *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<MultiDatabaseQuery>();
     object->action_ = action_;
     object->db_name_ = db_name_;
+    object->force_ = force_;
+    object->new_db_name_ = new_db_name_;
     return object;
   }
 };

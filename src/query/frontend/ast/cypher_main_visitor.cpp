@@ -3738,8 +3738,18 @@ antlrcpp::Any CypherMainVisitor::visitDropDatabase(MemgraphCypher::DropDatabaseC
   auto *mdb_query = storage_->Create<MultiDatabaseQuery>();
   mdb_query->db_name_ = std::any_cast<std::string>(ctx->databaseName()->accept(this));
   mdb_query->action_ = MultiDatabaseQuery::Action::DROP;
+  mdb_query->force_ = ctx->FORCE() != nullptr;
   query_ = mdb_query;
   return mdb_query;
+}
+
+antlrcpp::Any CypherMainVisitor::visitRenameDatabase(MemgraphCypher::RenameDatabaseContext *ctx) {
+  auto *rename_query = storage_->Create<MultiDatabaseQuery>();
+  rename_query->db_name_ = std::any_cast<std::string>(ctx->databaseName(0)->accept(this));
+  rename_query->new_db_name_ = std::any_cast<std::string>(ctx->databaseName(1)->accept(this));
+  rename_query->action_ = MultiDatabaseQuery::Action::RENAME;
+  query_ = rename_query;
+  return rename_query;
 }
 
 antlrcpp::Any CypherMainVisitor::visitUseDatabase(MemgraphCypher::UseDatabaseContext *ctx) {

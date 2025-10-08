@@ -55,6 +55,10 @@ std::string StringifyProperties(const std::map<PropertyId, PropertyValue> &prope
 std::map<PropertyId, PropertyValue> ExtractProperties(const PropertyStore &property_store,
                                                       std::span<PropertyId const> properties);
 
+// Check if index properties match the given properties
+bool IndexPropertiesMatch(std::span<const PropertyId> index_properties,
+                          std::span<const PropertyId> properties_to_check);
+
 // Text index change tracking
 enum class TextIndexOp { ADD, UPDATE, REMOVE };
 struct TextIndexSpec {

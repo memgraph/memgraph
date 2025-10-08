@@ -9,6 +9,7 @@ copy_lba_procedures_e2e_python_files(update_query_modules.py)
 copy_lba_procedures_e2e_python_files(create_delete_query_modules.py)
 copy_lba_procedures_e2e_python_files(read_permission_queries.py)
 copy_lba_procedures_e2e_python_files(update_permission_queries.py)
+copy_lba_procedures_e2e_python_files(schema_info_queries_permission.py)
 
 add_subdirectory(procedures)
 
