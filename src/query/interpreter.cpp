@@ -7295,6 +7295,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     if (tx_query_enum == TransactionQuery::BEGIN) {
       ResetInterpreter();
     }
+    // TODO: Use CreateThreadSafe once parallel multi-command queries are supported
     auto &query_execution = query_executions_.emplace_back(QueryExecution::Create());
     query_execution->prepared_query = PrepareTransactionQuery(tx_query_enum, extras);
     auto qid = in_explicit_transaction_ ? static_cast<int>(query_executions_.size() - 1) : std::optional<int>{};
@@ -7332,6 +7333,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
   std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;
   try {
     // Setup QueryExecution
+    // TODO: Use CreateThreadSafe for multi-threaded queries
     query_executions_.emplace_back(QueryExecution::Create());
     auto &query_execution = query_executions_.back();
     query_execution_ptr = &query_execution;
@@ -7396,7 +7398,7 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
     const utils::Timer planning_timer;  // TODO: Think about moving it to Parse()
     LogQueryMessage("Query planning started!");
     PreparedQuery prepared_query;
-    utils::MemoryResource *memory_resource = query_execution->execution_memory.resource();
+    utils::MemoryResource *memory_resource = query_execution->resource();
     frame_change_collector_.reset();
     frame_change_collector_.emplace();
 
