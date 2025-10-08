@@ -89,7 +89,8 @@ class PackageSetup:
                 "build_type": "Release",
                 "toolchain": "v6",
                 "push_to_s3": "false",
-                "s3_dest_dir": ""
+                "s3_dest_dir": "",
+                "push_to_github": "false",
             }
 
     def _setup_workflow_dispatch(self) -> None:
@@ -117,7 +118,7 @@ def print_package_suite(packages: dict, workflow_inputs: dict, set_env_vars: boo
         print(f"run_package_{output_name}={run}")
         if set_env_vars:
             os.popen(f"echo run_package_{output_name}={run} >> $GITHUB_OUTPUT")
-    
+
     # Also output workflow inputs
     for key, value in workflow_inputs.items():
         print(f"workflow_input_{key}={value}")
@@ -142,4 +143,4 @@ if __name__ == "__main__":
     package_setup.setup_package_workflow()
     package_suite = package_setup.get_package_suite()
     workflow_inputs = package_setup.get_workflow_inputs()
-    print_package_suite(packages=package_suite, workflow_inputs=workflow_inputs, set_env_vars=True) 
+    print_package_suite(packages=package_suite, workflow_inputs=workflow_inputs, set_env_vars=True)

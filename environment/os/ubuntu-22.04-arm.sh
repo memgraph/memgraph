@@ -5,8 +5,16 @@ source "$DIR/../util.sh"
 
 # IMPORTANT: Deprecated since memgraph v3.0.0.
 
-check_operating_system "ubuntu-22.04"
-check_architecture "arm64" "aarch64"
+# Parse command line arguments for --skip-check flag
+SKIP_CHECK=$(parse_skip_check_flag "$@")
+
+# Only run checks if --skip-check flag is not provided
+if [[ "$SKIP_CHECK" == false ]]; then
+    check_operating_system "ubuntu-22.04"
+    check_architecture "arm64" "aarch64"
+else
+    echo "Skipping checks for ubuntu-22.04-arm"
+fi
 
 TOOLCHAIN_BUILD_DEPS=(
     coreutils gcc g++ build-essential make # generic build tools
@@ -59,7 +67,7 @@ MEMGRAPH_BUILD_DEPS=(
     sbcl # for custom Lisp C++ preprocessing
     doxygen graphviz # source documentation generators
     mono-runtime mono-mcs zip unzip default-jdk-headless openjdk-17-jdk-headless custom-maven # for driver tests
-    dotnet-sdk-6.0 golang custom-golang nodejs npm
+    dotnet-sdk-6.0 golang custom-golang custom-node
     autoconf # for jemalloc code generation
     libtool  # for protobuf code generation
     libsasl2-dev
@@ -77,7 +85,8 @@ NEW_DEPS=(
 )
 
 list() {
-    echo "$1"
+    local -n packages="$1"
+    printf '%s\n' "${packages[@]}"
 }
 
 check() {
@@ -218,5 +227,4 @@ install() {
     done
 }
 
-deps=$2"[*]"
-"$1" "${!deps}"
+"$1" "$2"

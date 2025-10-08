@@ -2,15 +2,48 @@
 
 function operating_system() {
     if [[ "$OSTYPE" == "linux-gnu"* ]]; then
-        os_info=$(grep -E '^(VERSION_)?ID=' /etc/os-release | \
+        local detected_os=$(grep -E '^(VERSION_)?ID=' /etc/os-release | \
         sort | cut -d '=' -f 2- | sed 's/"//g' | paste -s -d '-')
-        
-        # Handle Rocky distributions to only take major version
-        if [[ "$os_info" == rocky-* ]]; then
-            echo "$os_info" | sed 's/\(rocky-[0-9]*\)\..*/\1/'
-        else
-            echo "$os_info"
-        fi
+
+        # Map popular Linux distributions to supported OSes
+        case "$detected_os" in
+            # Ubuntu mappings
+            ubuntu-22.*|ubuntu-23.*)
+                echo "ubuntu-22.04"
+                ;;
+            ubuntu-24.*|ubuntu-25.*)
+                echo "ubuntu-24.04"
+                ;;
+            # Linux Mint mappings
+            linuxmint-20*|linuxmint-21*)
+                echo "ubuntu-22.04"
+                ;;
+            linuxmint-22*)
+                echo "ubuntu-24.04"
+                ;;
+            # Direct mappings
+            debian-11|debian-12|debian-13|centos-9|centos-10|fedora-41|fedora-42)
+                echo "$detected_os"
+                ;;
+            # Rocky Linux mappings
+            rocky-9*)
+                echo "rocky-9"
+                ;;
+            rocky-10*)
+                echo "rocky-10"
+                ;;
+            # Compatible mappings
+            rhel-9*|almalinux-9*|amzn-2)
+                echo "centos-9"
+                ;;
+            rhel-10*|almalinux-10*)
+                echo "centos-10"
+                ;;
+            # Default: return the detected OS as-is
+            *)
+                echo "$detected_os"
+                ;;
+        esac
     elif [[ "$OSTYPE" == "darwin"* ]]; then
         echo "$(sw_vers -productName)-$(sw_vers -productVersion | cut -d '.' -f 1)"
     else
@@ -52,7 +85,7 @@ check_architecture() {
 
 function check_custom_package() {
     local pkg="$1"
-    
+
     case "$pkg" in
         custom-maven*)
             if [ ! -f "/opt/apache-maven-3.9.3/bin/mvn" ]; then
@@ -78,7 +111,7 @@ function check_custom_package() {
 
 function install_custom_packages() {
     local packages=("$@")
-    
+
     for pkg in "${packages[@]}"; do
         case "$pkg" in
             custom-maven*)
@@ -197,4 +230,50 @@ function install_node () {
       && . ~/.nvm/nvm.sh \
       && nvm install ${NODE_VERSION} \
       && nvm use ${NODE_VERSION}
+}
+
+function parse_operating_system() {
+    local os_output=$(operating_system)
+    local os_name=""
+    local os_version=""
+
+    # Split on the first dash to separate OS name from version
+    if [[ "$os_output" == *"-"* ]]; then
+        os_name=$(echo "$os_output" | cut -d'-' -f1)
+        os_version=$(echo "$os_output" | cut -d'-' -f2-)
+    else
+        # If no dash found, treat the whole string as OS name
+        os_name="$os_output"
+        os_version=""
+    fi
+
+    # Export variables for use by calling script
+    export OS="$os_name"
+    export VER="$os_version"
+
+    echo "OS: $OS"
+    echo "VER: $VER"
+}
+
+# Function to parse --skip-check flag from command line arguments
+# Usage: parse_skip_check_flag
+# Sets SKIP_CHECK variable and removes --skip-check from $@
+function parse_skip_check_flag() {
+    SKIP_CHECK=false
+    local args=()
+
+    while [[ $# -gt 0 ]]; do
+        case $1 in
+            --skip-check)
+                SKIP_CHECK=true
+                shift
+                ;;
+            *)
+                args+=("$1")
+                shift
+                ;;
+        esac
+    done
+
+    echo "$SKIP_CHECK"
 }

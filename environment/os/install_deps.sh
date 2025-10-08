@@ -1,6 +1,9 @@
 #!/bin/bash
 SCRIPT_DIR=$( cd -- "$( dirname -- "${BASH_SOURCE[0]}" )" &> /dev/null && pwd )
 
+# Source the util.sh file to get the parse_operating_system function
+source "$SCRIPT_DIR/../util.sh"
+
 SUPPORTED_OS=(
     all
     centos-9 centos-10
@@ -26,11 +29,24 @@ declare -A TOOLCHAIN_URLS=(
     [ubuntu-24.04-arm]="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/toolchain-v7/toolchain-v7-binaries-ubuntu-24.04-arm64.tar.gz"
 )
 
-# Check for help argument before processing others
-if [[ "$#" -eq 1 && ("$1" == "-h" || "$1" == "--help") ]]; then
-    cat <<EOF
+# Parse command line arguments to extract --set-os flag
+SET_OS=""
+ARGS=()
+
+while [[ $# -gt 0 ]]; do
+    case $1 in
+        --set-os)
+            SET_OS="$2"
+            shift 2
+            ;;
+        -h|--help)
+            cat <<EOF
 Usage:
-    ./install_deps.sh [command] [dependency_set]
+    ./install_deps.sh [command] [dependency_set] [--set-os <os>]
+
+Options:
+    --set-os <os>  Override OS detection and use specified OS.
+                   Supported values: ${SUPPORTED_OS[*]}
 
 Commands:
     prepare       Downloads and extracts specified dependencies.
@@ -48,12 +64,23 @@ Examples:
     sudo ./install_deps.sh install TOOLCHAIN_RUN_DEPS
     sudo ./install_deps.sh check MEMGRAPH_BUILD_DEPS
     sudo ./install_deps.sh install MEMGRAPH_BUILD_DEPS
+    sudo ./install_deps.sh install TOOLCHAIN_RUN_DEPS --set-os ubuntu-24.04
+    sudo ./install_deps.sh --set-os ubuntu-24.04 install TOOLCHAIN_RUN_DEPS
 
 
 Link to create new github issue: https://github.com/memgraph/memgraph/issues/new?title=install-deps.sh%20...&assignee=gitbuda&body=%0A%0A%0A---%0AI%27m+a+human.+Please+be+nice.
 EOF
-    exit 0
-fi
+            exit 0
+            ;;
+        *)
+            ARGS+=("$1")
+            shift
+            ;;
+    esac
+done
+
+# Set the arguments back to $@ for the rest of the script
+set -- "${ARGS[@]}"
 
 # Function to check and install dependencies for a given distribution script
 run_script() {
@@ -88,10 +115,19 @@ prepare_toolchain() {
 }
 
 # Detect OS, version, and architecture
-if [ -f /etc/os-release ]; then
+if [[ -n "$SET_OS" ]]; then
+    # Parse OS and VER from SET_OS string (e.g., "ubuntu-24.04" -> OS="ubuntu", VER="24.04")
+    # Handle formats like: ubuntu-24.04, ubuntu-24.04-arm, centos-9, debian-11-arm
+    if [[ "$SET_OS" =~ ^([a-z]+)-([0-9.]+)$ ]]; then
+        OS="${BASH_REMATCH[1]}"
+        VER="${BASH_REMATCH[2]}"
+    else
+        echo "Error: Invalid OS format: $SET_OS. Expected format: os-version"
+        exit 1
+    fi
+elif [ -f /etc/os-release ]; then
     . /etc/os-release
-    OS=$ID
-    VER=$VERSION_ID
+    parse_operating_system
 elif type lsb_release >/dev/null 2>&1; then
     OS=$(lsb_release -si)
     VER=$(lsb_release -sr)
@@ -143,6 +179,7 @@ if [[ "$1" == "prepare" ]]; then
             prepare_toolchain "$OS_ARCH"
         else
             echo "Unsupported OS: $OS_ARCH. The 'prepare' command cannot proceed."
+            echo "Supported OS values: ${SUPPORTED_OS[*]}"
             exit 1
         fi
     else
@@ -152,9 +189,14 @@ if [[ "$1" == "prepare" ]]; then
 else
     # If supported, run the script with all original arguments
     if [[ "$is_supported" == true ]]; then
-        run_script "$OS_ARCH_SCRIPT" "$@"
+        if [ -z "$SET_OS" ]; then
+            run_script "$OS_ARCH_SCRIPT" "$@"
+        else
+            run_script "$OS_ARCH_SCRIPT" "$@" --skip-check
+        fi
     else
         echo "Unsupported OS: $OS_ARCH"
+        echo "Supported OS values: ${SUPPORTED_OS[*]}"
         exit 1
     fi
 fi

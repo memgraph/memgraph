@@ -30,6 +30,25 @@ else ()
 endif(CCACHE_FOUND AND USE_CCACHE)
 
 
+# This is used to so that 3rd party libs can find the
+# correct libraries from our toolchain
+set(MG_TOOLCHAIN_ROOT "$ENV{MG_TOOLCHAIN_ROOT}")
+
+if(NOT DEFINED ENV{MG_TOOLCHAIN_ROOT} OR "$ENV{MG_TOOLCHAIN_ROOT}" STREQUAL "")
+    message(FATAL_ERROR "MG_TOOLCHAIN_ROOT environment variable is required but not set. Please set it to the toolchain directory.")
+endif()
+
+message(STATUS "MG_TOOLCHAIN_ROOT: ${MG_TOOLCHAIN_ROOT}")
+
+# This needs to appear before project() in order for the IPO check to pass
+set(CMAKE_CXX_COMPILER_AR "${MG_TOOLCHAIN_ROOT}/bin/llvm-ar" CACHE FILEPATH "C++ compiler archiver" FORCE)
+set(CMAKE_CXX_COMPILER_RANLIB "${MG_TOOLCHAIN_ROOT}/bin/llvm-ranlib" CACHE FILEPATH "C++ compiler ranlib" FORCE)
+set(CMAKE_C_COMPILER_AR "${MG_TOOLCHAIN_ROOT}/bin/llvm-ar" CACHE FILEPATH "C compiler archiver" FORCE)
+set(CMAKE_C_COMPILER_RANLIB "${MG_TOOLCHAIN_ROOT}/bin/llvm-ranlib" CACHE FILEPATH "C compiler ranlib" FORCE)
+set(CMAKE_AR "${MG_TOOLCHAIN_ROOT}/bin/llvm-ar" CACHE FILEPATH "Archiver" FORCE)
+set(CMAKE_RANLIB "${MG_TOOLCHAIN_ROOT}/bin/llvm-ranlib" CACHE FILEPATH "Ranlib" FORCE)
+message(STATUS "Set toolchain tools using MG_TOOLCHAIN_ROOT: ${MG_TOOLCHAIN_ROOT}")
+
 # -----------------------------------------------------------------------------
 
 # Capture MG_TOOLCHAIN_ROOT from environment variable if not already set
@@ -300,7 +319,7 @@ link_directories("${MG_TOOLCHAIN_ROOT}/lib64")
 # After linker is set, check we can use link-time optimization
 cmake_policy(SET CMP0138 NEW)
 include(CheckIPOSupported)
-# check_ipo_supported() # fatal error if IPO is not supported
+check_ipo_supported() # fatal error if IPO is not supported
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_Release TRUE)
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo TRUE)
 
