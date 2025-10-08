@@ -171,7 +171,7 @@ jobs:
           --dest-dir ${{ env.DOCKER_ARTIFACT_DIR }}
 
       - name: "Rename Package"
-        if: github.ref == 'refs/heads/master'
+        if: github.ref == 'refs/heads/master' && !inputs.ref
         run: |
           # during testing, we will keep the default naming because it uses the
           # previous tag + number of commits since and the current commit hash
