@@ -2058,8 +2058,10 @@ class ExpandVariableCursor : public Cursor {
     // existing_node criterions, so expand in a loop until either the input
     // vertex is exhausted or a valid variable-length expansion is available.
 
-    auto work = [&]() {
-      auto &edges_on_frame = frame[self_.common_.edge_symbol].ValueList();
+    auto frame_writter = frame.GetFrameWritter(context.frame_change_collector, context.evaluation_context.memory);
+    auto try_expand = [&](TypedValue &value) {
+      // we use this a lot
+      auto &edges_on_frame = value.ValueList();
 
       // it is possible that edges_on_frame does not contain as many
       // elements as edges_ due to edge-uniqueness (when a whole layer
@@ -2081,7 +2083,7 @@ class ExpandVariableCursor : public Cursor {
       bool found_existing =
           std::any_of(edges_on_frame.begin(), edges_on_frame.end(),
                       [&current_edge](const TypedValue &edge) { return current_edge.first == edge.ValueEdge(); });
-      if (found_existing) continue;
+      if (found_existing) return false;
 
       VertexAccessor current_vertex =
           current_edge.second == EdgeAtom::Direction::IN ? current_edge.first.From() : current_edge.first.To();
@@ -2090,7 +2092,7 @@ class ExpandVariableCursor : public Cursor {
           !(context.auth_checker->Has(current_edge.first, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
             context.auth_checker->Has(current_vertex, storage::View::OLD,
                                       memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
-        continue;
+        return false;
       }
 #endif
       AppendEdge(current_edge.first, &edges_on_frame);
@@ -2100,20 +2102,24 @@ class ExpandVariableCursor : public Cursor {
       }
 
       // Skip expanding out of filtered expansion.
-      frame_writter.Write(self_.filter_lambda_.inner_edge_symbol, current_edge.first);
-      frame_writter.Write(self_.filter_lambda_.inner_node_symbol, current_vertex);
-      if (self_.filter_lambda_.accumulated_path_symbol) {
-        MG_ASSERT(frame[self_.filter_lambda_.accumulated_path_symbol.value()].IsPath(),
-                  "Accumulated path must be path");
-        Path const &accumulated_path = frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath();
-        // Shrink the accumulated path including current level if necessary
-        while (accumulated_path.size() >= edges_on_frame.size()) {
-          accumulated_path.Shrink();
+      if (self_.filter_lambda_.expression) {
+        frame_writter.Write(self_.filter_lambda_.inner_edge_symbol, current_edge.first);
+        frame_writter.Write(self_.filter_lambda_.inner_node_symbol, current_vertex);
+        if (self_.filter_lambda_.accumulated_path_symbol) {
+          auto update_path = [&](TypedValue &value) {
+            MG_ASSERT(value.IsPath(), "Accumulated path must be path");
+            Path &accumulated_path = value.ValuePath();
+            // Shrink the accumulated path including current level if necessary
+            while (accumulated_path.size() >= edges_on_frame.size()) {
+              accumulated_path.Shrink();
+            }
+            accumulated_path.Expand(current_edge.first);
+            accumulated_path.Expand(current_vertex);
+          };
+          frame_writter.Modify(*self_.filter_lambda_.accumulated_path_symbol, update_path);
         }
-        accumulated_path.Expand(current_edge.first);
-        accumulated_path.Expand(current_vertex);
+        if (!EvaluateFilter(evaluator, self_.filter_lambda_.expression)) return false;
       }
-      if (self_.filter_lambda_.expression && !EvaluateFilter(evaluator, self_.filter_lambda_.expression)) continue;
 
       // we are doing depth-first search, so place the current
       // edge's expansions onto the stack, if we should continue to expand
@@ -2124,7 +2130,9 @@ class ExpandVariableCursor : public Cursor {
         edges_it_.emplace_back(edges_.back().begin());
       }
 
-      if (self_.common_.existing_node && !CheckExistingNode(current_vertex, self_.common_.node_symbol, frame)) continue;
+      if (self_.common_.existing_node && !CheckExistingNode(current_vertex, self_.common_.node_symbol, frame))
+        return false;
+      return true;
     };
 
     while (true) {
@@ -2139,18 +2147,11 @@ class ExpandVariableCursor : public Cursor {
       // check if we exhausted everything, if so return false
       if (edges_.empty()) return false;
 
-      // we use this a lot
-
-      auto frame_writter = frame.GetFrameWritter(context.frame_change_collector, context.evaluation_context.memory);
-      // bool did_expand = frame_writter.Modify(self_.common_.edge_symbol, [](TypedValue & value) {
-      //
-      // });
-
-      bool valid = work();
+      bool expand_is_valid = frame_writter.Modify(self_.common_.edge_symbol, try_expand);
 
       // We only yield true if we satisfy the lower bound.
       auto const &edges_on_frame = frame[self_.common_.edge_symbol].ValueList();
-      if (valid && static_cast<int64_t>(edges_on_frame.size()) >= lower_bound_) {
+      if (expand_is_valid && static_cast<int64_t>(edges_on_frame.size()) >= lower_bound_) {
         return true;
       }
     }
