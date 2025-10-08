@@ -8,29 +8,31 @@
 // the Business Source License, use of this software will be governed
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
+
+#pragma once
+
 #include <tuple>
 #include <utility>
 #include "query/typed_value.hpp"
 #include "utils/fnv.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/unordered_map.hpp"
-#include "utils/pmr/vector.hpp"
-namespace memgraph::query {
 
-// Key is hash output, value is vector of unique elements
-using CachedType = utils::pmr::unordered_map<size_t, utils::pmr::vector<TypedValue>>;
+#include "absl/container/flat_hash_set.h"
+
+namespace memgraph::query {
 
 struct CachedValue {
   using allocator_type = utils::Allocator<CachedValue>;
   using alloc_traits = std::allocator_traits<allocator_type>;
 
   // Cached value, this can be probably templateized
-  CachedType cache_;
-  // TODO: swap with absl::flat_hash_set
+  absl::flat_hash_set<TypedValue, absl::DefaultHashContainerHash<TypedValue>, TypedValue::BoolEqual, allocator_type>
+      cache_;
 
-  explicit CachedValue(allocator_type alloc) : cache_{alloc} {};
+  explicit CachedValue(allocator_type alloc) : cache_{alloc} {}
   CachedValue(const CachedValue &other, allocator_type alloc) : cache_(other.cache_, alloc) {}
-  CachedValue(CachedValue &&other, allocator_type alloc) : cache_(std::move(other.cache_), alloc){};
+  CachedValue(CachedValue &&other, allocator_type alloc) : cache_(std::move(other.cache_), alloc) {}
 
   CachedValue(CachedValue &&other) noexcept : CachedValue(std::move(other), other.get_allocator()) {}
 
@@ -51,34 +53,15 @@ struct CachedValue {
       return false;
     }
     const auto &list = maybe_list.ValueList();
-    TypedValue::Hash hash{};
     for (const auto &element : list) {
-      const auto key = hash(element);
-      auto &vector_values = cache_[key];
-      if (!IsValueInVec(vector_values, element)) {
-        vector_values.emplace_back(element);
-      }
+      cache_.insert(element);
+      ;
     }
     return true;
   }
 
   // Func to check if cache_ contains value
-  bool ContainsValue(const TypedValue &value) const {
-    const auto key = TypedValue::Hash{}(value);
-    if (cache_.contains(key)) {
-      return IsValueInVec(cache_.at(key), value);
-    }
-    return false;
-  }
-
- private:
-  static bool IsValueInVec(const utils::pmr::vector<TypedValue> &vec_values, const TypedValue &value) {
-    return std::ranges::any_of(vec_values, [&value](auto &vec_value) {
-      const auto is_value_equal = vec_value == value;
-      if (is_value_equal.IsNull()) return false;
-      return is_value_equal.ValueBool();
-    });
-  }
+  bool ContainsValue(const TypedValue &value) const { return cache_.contains(value); }
 };
 
 // Class tracks keys for which user can cache values which help with faster search or faster retrieval

@@ -77,6 +77,11 @@ class TypedValue {
     size_t operator()(const TypedValue &value) const;
   };
 
+  template <typename H>
+  friend H AbslHashValue(H h, TypedValue const &value) {
+    return H::combine(std::move(h), Hash{}(value));
+  }
+
   /** A value type. Each type corresponds to exactly one C++ type */
   enum class Type : unsigned {
     Null,
