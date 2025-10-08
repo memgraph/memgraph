@@ -114,7 +114,6 @@ target_sources(mg-query
 )
 
 find_package(Arrow)
-find_package(Parquet)
 
 target_link_libraries(mg-query
     PUBLIC
@@ -122,8 +121,7 @@ target_link_libraries(mg-query
     cppitertools::cppitertools
     range-v3::range-v3
     Python3::Python
-    Arrow::arrow_shared
-    Parquet::parquet_shared
+    arrow::arrow
     mg-integrations-pulsar
     mg-integrations-kafka
     mg::storage
