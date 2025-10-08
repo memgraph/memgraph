@@ -2798,7 +2798,7 @@ inline static void TryCaching(const AstStorage &ast_storage, FrameChangeCollecto
     }
     auto *in_list_operator = utils::Downcast<InListOperator>(tree.get());
     const auto cached_id = memgraph::utils::GetFrameChangeId(*in_list_operator);
-    if (!cached_id || cached_id->empty()) {
+    if (!cached_id) {
       continue;
     }
     // // If the list will already be on the frame, no need to copy it into the cache

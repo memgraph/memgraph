@@ -19,6 +19,7 @@
 #include "utils/pmr/unordered_map.hpp"
 
 #include "absl/container/flat_hash_set.h"
+#include "utils/frame_change_id.hpp"
 
 namespace memgraph::query {
 
@@ -93,16 +94,16 @@ class FrameChangeCollector {
 
   auto get_allocator() const -> allocator_type { return tracked_values_.get_allocator(); }
 
-  CachedValue &AddTrackingKey(const std::string &key) {
-    const auto &[it, _] = tracked_values_.emplace(
-        std::piecewise_construct, std::forward_as_tuple(utils::pmr::string(key, utils::NewDeleteResource())),
-        std::forward_as_tuple());
+  CachedValue &AddTrackingKey(utils::FrameChangeId const &key) {
+    const auto &[it, _] =
+        tracked_values_.emplace(std::piecewise_construct, std::forward_as_tuple(key), std::forward_as_tuple());
     return it->second;
   }
 
-  bool IsKeyTracked(std::string_view const key) const { return tracked_values_.contains(key); }
+  bool IsKeyTracked(utils::FrameChangeId const &key) const { return tracked_values_.contains(key); }
 
-  auto TryGetCachedValue(std::string_view const key) const -> std::optional<std::reference_wrapper<CachedValue const>> {
+  auto TryGetCachedValue(utils::FrameChangeId const &key) const
+      -> std::optional<std::reference_wrapper<CachedValue const>> {
     auto const it = tracked_values_.find(key);
     if (it == tracked_values_.cend()) {
       return std::nullopt;
@@ -114,7 +115,7 @@ class FrameChangeCollector {
     return std::optional{std::cref(it->second)};
   }
 
-  bool ResetTrackingValue(std::string_view const key) {
+  bool ResetTrackingValue(utils::FrameChangeId const &key) {
     auto const it = tracked_values_.find(key);
     if (it == tracked_values_.cend()) {
       return false;
@@ -123,7 +124,7 @@ class FrameChangeCollector {
     return true;
   }
 
-  CachedValue &GetCachedValue(std::string_view const key) {
+  CachedValue &GetCachedValue(utils::FrameChangeId const &key) {
     auto it = tracked_values_.find(key);
     DMG_ASSERT(it != tracked_values_.cend());
     return it->second;
@@ -148,6 +149,6 @@ class FrameChangeCollector {
     bool operator()(std::string_view const lhs, std::string_view const rhs) const noexcept { return lhs == rhs; }
   };
 
-  utils::pmr::unordered_map<utils::pmr::string, CachedValue, PmrStringHash, PmrStringEqual> tracked_values_;
+  utils::pmr::unordered_map<utils::FrameChangeId, CachedValue> tracked_values_;
 };
 }  // namespace memgraph::query
