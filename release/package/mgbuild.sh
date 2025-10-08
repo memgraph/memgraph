@@ -539,13 +539,24 @@ build_memgraph () {
     DUBSAN_ENABLED=true
   fi
 
-  # Select appropriate profile template
-  if [[ "$DASAN_ENABLED" == true && "$DUBSAN_ENABLED" == true ]]; then
-    PROFILE_TEMPLATE="./memgraph_template_profile_asan_ubsan"
-  elif [[ "$DASAN_ENABLED" == true ]]; then
-    PROFILE_TEMPLATE="./memgraph_template_profile_asan"
-  elif [[ "$DUBSAN_ENABLED" == true ]]; then
-    PROFILE_TEMPLATE="./memgraph_template_profile_ubsan"
+  MG_SANITIZERS=""
+  if [[ "$DASAN_ENABLED" == true ]]; then
+    MG_SANITIZERS="address"
+  fi
+  if [[ "$DUBSAN_ENABLED" == true ]]; then
+    if [[ -n "$MG_SANITIZERS" ]]; then
+      # If we already have address sanitizer, add undefined to the list
+      MG_SANITIZERS="address,undefined"
+    else
+      MG_SANITIZERS="undefined"
+    fi
+  fi
+
+  if [[ -n "$MG_SANITIZERS" ]]; then
+    echo "Sanitizers enabled: $MG_SANITIZERS"
+    CMD_START="$CMD_START && export MG_SANITIZERS=$MG_SANITIZERS"
+  else
+    echo "No sanitizers enabled"
   fi
 
   echo "Using profile template: $PROFILE_TEMPLATE"
@@ -573,13 +584,13 @@ build_memgraph () {
   # Add additional CMake options if any are specified
   local additional_options=""
   local flags=("$arm_flag" "$community_flag" "$telemetry_id_override_flag" "$coverage_flag" "$asan_flag" "$ubsan_flag" "$disable_jemalloc_flag" "$disable_testing_flag")
-  
+
   for flag in "${flags[@]}"; do
     if [[ -n "$flag" ]]; then
       additional_options="$additional_options $flag"
     fi
   done
-  
+
   if [[ -n "$additional_options" ]]; then
     echo "Adding additional CMake options: $additional_options"
   fi
