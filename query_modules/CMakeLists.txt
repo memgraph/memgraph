@@ -58,7 +58,7 @@ set(QUERY_MODULES_DIR lib/memgraph/query_modules)
 
 function(add_query_module target_name version src)
   add_library(${target_name} SHARED ${src})
-  set_property(TARGET ${target_name} PROPERTY POSITION_INDEPENDENT_CODE TRUE)
+  set_property(TARGET ${target_name} PROPERTY POSITION_INDEPENDENT_CODE FALSE)
   target_include_directories(${target_name} PRIVATE
       ${CMAKE_SOURCE_DIR}/include
       ${CMAKE_CURRENT_SOURCE_DIR}

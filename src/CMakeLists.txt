@@ -65,7 +65,7 @@ set_target_properties(memgraph PROPERTIES
     INSTALL_RPATH "\$ORIGIN"
     # Output the executable in main binary dir.
     RUNTIME_OUTPUT_DIRECTORY ${CMAKE_BINARY_DIR}
-    POSITION_INDEPENDENT_CODE ON
+    POSITION_INDEPENDENT_CODE FALSE
 )
 
 # Emulate the installed python_support, by creating a symlink
@@ -210,5 +210,3 @@ install(CODE "file(MAKE_DIRECTORY \$ENV{DESTDIR}/var/log/memgraph
 # ----------------------------------------------------------------------------
 # END Memgraph Single Node v2 Executable
 # ----------------------------------------------------------------------------
-
-
