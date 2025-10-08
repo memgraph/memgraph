@@ -652,14 +652,12 @@ class ThreadLocalMemoryResource : public MemoryResource {
 
   void *do_allocate(size_t bytes, size_t alignment) override {
     auto *const upstream = ResolveUpstream();
-    // DMG_ASSERT(thread_id_ != -1);
     DMG_ASSERT(upstream != nullptr);
     return upstream->allocate(bytes, alignment);
   }
 
   void do_deallocate(void *p, size_t bytes, size_t alignment) override {
     auto *const upstream = ResolveUpstream();
-    // DMG_ASSERT(thread_id_ != -1);
     DMG_ASSERT(upstream != nullptr);
     upstream->deallocate(p, bytes, alignment);
   }
