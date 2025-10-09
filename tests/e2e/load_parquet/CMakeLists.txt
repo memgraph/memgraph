@@ -14,5 +14,6 @@ copy_load_parquet_e2e_files(nodes_100.parquet)
 copy_load_parquet_e2e_files(nodes_with_nulls.parquet)
 copy_load_parquet_e2e_files(nodes_numeric.parquet)
 copy_load_parquet_e2e_files(nodes_temporal.parquet)
+copy_load_parquet_e2e_files(nodes_binary.parquet)
 
 copy_e2e_files(load_parquet workloads.yaml)
