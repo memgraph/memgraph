@@ -85,9 +85,9 @@ class MemgraphInstanceRunner:
         self.username = username
         self.password = password
 
-    def _print_startup_diagnostics(self, timeout, is_running, is_connected):
+    def _print_diagnostics(self):
         """Print diagnostic information when server fails to start or
-        fails to listen to a connect."""
+        fails to listen to a connect, or refuses to stop."""
         print("\n" + "=" * 80)
         print(f"exit code: {self.proc_mg.returncode}")
 
@@ -113,17 +113,17 @@ class MemgraphInstanceRunner:
                     except Exception as e:
                         pass
 
-        # Write the tail of the log file to the output
-        if self.data_directory and os.path.isdir(self.data_directory):
-            log_file = os.path.join(self.data_directory, "logs", "memgraph.log")
-            if os.path.exists(log_file):
-                try:
-                    with open(log_file, "r") as f:
-                        lines = f.readlines()
-                        print(f"\n--- Last 50 lines of memgraph.log ---")
-                        print("".join(lines[-50:]))
-                except Exception as e:
-                    pass
+        if self.data_directory:
+            if os.path.isdir(self.data_directory):
+                log_file = os.path.join(self.data_directory, "logs", "memgraph.log")
+                if os.path.exists(log_file):
+                    try:
+                        with open(log_file, "r") as f:
+                            lines = f.readlines()
+                            print(f"\nmemgraph.log tail")
+                            print("".join(lines[-50:]))
+                    except Exception as e:
+                        pass
 
         print("=" * 80 + "\n")
 
@@ -250,7 +250,7 @@ class MemgraphInstanceRunner:
         is_connected = connectable_port(bolt_port)
 
         if not is_running or not is_connected:
-            self._print_startup_diagnostics(timeout, is_running, is_connected)
+            self._print_diagnostics()
 
         assert is_running, f"The Memgraph process failed to start in {timeout}s!"
         assert is_connected, f"The Memgraph process failed to listen in {timeout}s!"
@@ -287,8 +287,12 @@ class MemgraphInstanceRunner:
                 break
             time.sleep(0.1)
 
+        is_running = self.is_running()
+        if is_running:
+            self._print_diagnostics()
+
         assert (
-            self.is_running() is False
+            is_running is False
         ), f"Stopped instance at {self.host}:{self.bolt_port} still running. Signal sent at: {signal_time}. Now is: {datetime.now()}"
 
         if not keep_directories:
