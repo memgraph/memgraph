@@ -88,7 +88,8 @@ def test_temporal_types():
     cursor = connect(host="localhost", port=7687).cursor()
     load_query = (
         f"LOAD PARQUET FROM '{get_file_path('nodes_temporal.parquet')}' AS row CREATE (n:N {{id: row.id, name: row.name, registration_date64: row.registration_date64, "
-        f"birth_date32: row.birth_date32, exact_time32_ms: row.exact_time32_ms, precise_time64_us: row.precise_time64_us, ultra_precise_time64_ns: row.ultra_precise_time64_ns}});"
+        f"birth_date32: row.birth_date32, exact_time32_ms: row.exact_time32_ms, precise_time64_us: row.precise_time64_us, ultra_precise_time64_ns: row.ultra_precise_time64_ns, "
+        f"last_login_timestamp: row.last_login_timestamp}});"
     )
     execute_and_fetch_all(cursor, load_query)
     assert execute_and_fetch_all(cursor, "match (n) return count(n)")[0][0] == 100
@@ -97,6 +98,9 @@ def test_temporal_types():
     assert execute_and_fetch_all(cursor, "match (n) return valueType(n.exact_time32_ms)")[0][0] == "LOCAL_TIME"
     assert execute_and_fetch_all(cursor, "match (n) return valueType(n.precise_time64_us)")[0][0] == "LOCAL_TIME"
     assert execute_and_fetch_all(cursor, "match (n) return valueType(n.ultra_precise_time64_ns)")[0][0] == "LOCAL_TIME"
+    assert (
+        execute_and_fetch_all(cursor, "match (n) return valueType(n.last_login_timestamp)")[0][0] == "LOCAL_DATE_TIME"
+    )
     execute_and_fetch_all(cursor, "match (n) detach delete n")
 
 
