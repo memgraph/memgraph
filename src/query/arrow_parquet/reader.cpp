@@ -20,6 +20,7 @@
 #include "arrow/acero/exec_plan.h"
 #include "arrow/api.h"
 #include "arrow/io/file.h"
+#include "arrow/util/float16.h"
 #include "parquet/properties.h"
 #include "spdlog/spdlog.h"
 
@@ -164,7 +165,8 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
             } else if (type_id == arrow::Type::HALF_FLOAT) {
               auto const half_float_array = std::static_pointer_cast<arrow::HalfFloatArray>(column);
               for (int64_t i = 0; i < num_rows; i++) {
-                queued_batch[i][j] = TypedValue(half_float_array->Value(i));
+                auto scalar = half_float_array->Value(i);
+                queued_batch[i][j] = TypedValue(arrow::util::Float16::FromBits(scalar).ToFloat());
               }
             } else if (type_id == arrow::Type::DOUBLE) {
               auto const double_array = std::static_pointer_cast<arrow::DoubleArray>(column);
@@ -186,9 +188,14 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
               for (int64_t i = 0; i < num_rows; i++) {
                 queued_batch[i][j] = TypedValue(utils::Date{date_array->Value(i)});
               }
-            }
-
-            else {
+            } else if (type_id == arrow::Type::DATE64) {
+              auto const date_array = std::static_pointer_cast<arrow::Date64Array>(column);
+              for (int64_t i = 0; i < num_rows; i++) {
+                auto const ms = std::chrono::milliseconds(date_array->Value(i));
+                auto const us = std::chrono::duration_cast<std::chrono::microseconds>(ms);
+                queued_batch[i][j] = TypedValue(utils::Date{us.count()});
+              }
+            } else {
               // Convert unsupported types (dates, timestamps, etc.) to string
               for (int64_t i = 0; i < num_rows; i++) {
                 queued_batch[i][j] = TypedValue(column->GetScalar(i).ValueOrDie()->ToString());
