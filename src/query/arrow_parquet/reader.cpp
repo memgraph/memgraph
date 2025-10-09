@@ -141,6 +141,7 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
           for (int j = 0U; j < num_columns_; j++) {
             auto const &column = batch_ref[j];
 
+            // TODO: (andi) Probably makes sense to create some kind of adapter class
             if (auto const type_id = column->type_id(); type_id == arrow::Type::INT64) {
               auto const int_array = std::static_pointer_cast<arrow::Int64Array>(column);
               for (int64_t i = 0; i < num_rows; i++) {
@@ -221,14 +222,14 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
               }
             } else if (type_id == arrow::Type::TIME32) {
               auto const time32_array = std::static_pointer_cast<arrow::Time32Array>(column);
-              auto time_unit = std::static_pointer_cast<arrow::Time32Type>(column->type())->unit();
+              auto const time_unit = std::static_pointer_cast<arrow::Time32Type>(column->type())->unit();
               for (int64_t i = 0; i < num_rows; i++) {
                 queued_batch[i][j] = TypedValue(utils::LocalTime(ArrowTimeToUs(time32_array->Value(i), time_unit)));
               }
 
             } else if (type_id == arrow::Type::TIME64) {
               auto const time64_array = std::static_pointer_cast<arrow::Time64Array>(column);
-              auto time_unit = std::static_pointer_cast<arrow::Time64Type>(column->type())->unit();
+              auto const time_unit = std::static_pointer_cast<arrow::Time64Type>(column->type())->unit();
               for (int64_t i = 0; i < num_rows; i++) {
                 queued_batch[i][j] = TypedValue(utils::LocalTime(ArrowTimeToUs(time64_array->Value(i), time_unit)));
               }
@@ -239,7 +240,15 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
                 queued_batch[i][j] =
                     TypedValue(utils::LocalDateTime(ArrowTimeToUs(timestamp_array->Value(i), time_unit)));
               }
-            } else {
+            } else if (type_id == arrow::Type::DURATION) {
+              auto const duration_array = std::static_pointer_cast<arrow::DurationArray>(column);
+              auto const time_unit = std::static_pointer_cast<arrow::DurationType>(column->type())->unit();
+              for (int64_t i = 0; i < num_rows; i++) {
+                queued_batch[i][j] = TypedValue(utils::Duration(ArrowTimeToUs(duration_array->Value(i), time_unit)));
+              }
+            }
+
+            else {
               // Convert unsupported types (dates, timestamps, etc.) to string
               for (int64_t i = 0; i < num_rows; i++) {
                 queued_batch[i][j] = TypedValue(column->GetScalar(i).ValueOrDie()->ToString());
