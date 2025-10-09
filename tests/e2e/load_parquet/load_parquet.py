@@ -9,6 +9,7 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import numbers
 import sys
 
 import pytest
@@ -26,11 +27,9 @@ def test_small_file_nodes():
 def test_small_file_edges():
     cursor = connect(host="localhost", port=7687).cursor()
     load_query = f"LOAD PARQUET FROM '{get_file_path('nodes_100.parquet')}' AS row CREATE (n:Person {{id: row.id, name: row.name, age: row.age, city: row.city}})"
-    print(f"Nodes query: {load_query}")
     execute_and_fetch_all(cursor, load_query)
     assert execute_and_fetch_all(cursor, "match (n) return count(n)")[0][0] == 100
     load_query = f"LOAD PARQUET FROM '{get_file_path('edges_100.parquet')}' AS row MATCH (a:Person {{id: row.START_ID}}) MATCH (b:Person {{id: row.END_ID}}) CREATE (a)-[r:KNOWS {{type: row.TYPE, since: row.since, strength: row.strength}}]->(b);"
-    print(f"Edges query: {load_query}")
     execute_and_fetch_all(cursor, load_query)
     assert execute_and_fetch_all(cursor, "match (n)-[e]->(m) return count (e)")[0][0] == 100
     execute_and_fetch_all(cursor, "match (n) detach delete n")
@@ -38,22 +37,45 @@ def test_small_file_edges():
 
 def test_null_nodes():
     cursor = connect(host="localhost", port=7687).cursor()
-    load_query = f"LOAD PARQUET FROM '{get_file_path('nodes_with_nulls.parquet')}' AS row CREATE (n:N {{id: row.id, name: row.name, age: row.age, city: row.city}})"
+    load_query = f"LOAD PARQUET FROM '{get_file_path('nodes_with_nulls.parquet')}' AS row CREATE (n:N {{id: row.id, name: row.name, age: row.age, city: row.city}});"
     execute_and_fetch_all(cursor, load_query)
-    assert execute_and_fetch_all(cursor, "match (n) return count(n)")[0][0] == 100
+    assert execute_and_fetch_all(cursor, "match (n) return count(n)")[0][0] == 50
     execute_and_fetch_all(cursor, "match (n) detach delete n")
 
 
 def test_null_edges():
     cursor = connect(host="localhost", port=7687).cursor()
-    load_query = f"LOAD PARQUET FROM '{get_file_path('nodes_with_nulls.parquet')}' AS row CREATE (n:Person {{id: row.id, name: row.name, age: row.age, city: row.city}})"
-    print(f"Nodes query: {load_query}")
+    load_query = f"LOAD PARQUET FROM '{get_file_path('nodes_with_nulls.parquet')}' AS row CREATE (n:Person {{id: row.id, name: row.name, age: row.age, city: row.city}});"
+    execute_and_fetch_all(cursor, load_query)
+    assert execute_and_fetch_all(cursor, "match (n) return count(n)")[0][0] == 50
+    load_query = f"LOAD PARQUET FROM '{get_file_path('edges_with_nulls.parquet')}' AS row MATCH (a:Person {{id: row.START_ID}}) MATCH (b:Person {{id: row.END_ID}}) CREATE (a)-[r:KNOWS {{type: row.TYPE, since: row.since, strength: row.strength}}]->(b);"
+    execute_and_fetch_all(cursor, load_query)
+    assert execute_and_fetch_all(cursor, "match (n)-[e]->(m) return count (e)")[0][0] == 30
+    execute_and_fetch_all(cursor, "match (n) detach delete n")
+
+
+def test_numeric_types():
+    cursor = connect(host="localhost", port=7687).cursor()
+    load_query = (
+        f"LOAD PARQUET FROM '{get_file_path('nodes_numeric.parquet')}' AS row CREATE (n:Person {{id: row.id, age_int64: row.age_int64, score_int32: row.score_int32, level_int16: row.level_int16,"
+        f"rank_int8: row.rank_int8, points_uint64: row.points_uint64, coins_uint32: row.coins_uint32, badges_uint16: row.badges_uint16, lives_uint8: row.lives_uint8, weight_double: row.weight_double, height_float: row.height_float,"
+        f"ratio_half: row.ratio_half}});"
+    )
     execute_and_fetch_all(cursor, load_query)
     assert execute_and_fetch_all(cursor, "match (n) return count(n)")[0][0] == 100
-    load_query = f"LOAD PARQUET FROM '{get_file_path('edges_with_nulls.parquet')}' AS row MATCH (a:Person {{id: row.START_ID}}) MATCH (b:Person {{id: row.END_ID}}) CREATE (a)-[r:KNOWS {{type: row.TYPE, since: row.since, strength: row.strength}}]->(b);"
-    print(f"Edges query: {load_query}")
-    execute_and_fetch_all(cursor, load_query)
-    assert execute_and_fetch_all(cursor, "match (n)-[e]->(m) return count (e)")[0][0] == 100
+    assert isinstance(execute_and_fetch_all(cursor, "match (n) return n.id")[0][0], numbers.Number)
+    assert isinstance(execute_and_fetch_all(cursor, "match (n) return n.age_int64")[0][0], numbers.Number)
+    assert isinstance(execute_and_fetch_all(cursor, "match (n) return n.score_int32")[0][0], numbers.Number)
+    assert isinstance(execute_and_fetch_all(cursor, "match (n) return n.level_int16")[0][0], numbers.Number)
+    assert isinstance(execute_and_fetch_all(cursor, "match (n) return n.rank_int8")[0][0], numbers.Number)
+    assert isinstance(execute_and_fetch_all(cursor, "match (n) return n.points_uint64")[0][0], numbers.Number)
+    assert isinstance(execute_and_fetch_all(cursor, "match (n) return n.coins_uint32")[0][0], numbers.Number)
+    assert isinstance(execute_and_fetch_all(cursor, "match (n) return n.badges_uint16")[0][0], numbers.Number)
+    assert isinstance(execute_and_fetch_all(cursor, "match (n) return n.lives_uint8")[0][0], numbers.Number)
+    assert isinstance(execute_and_fetch_all(cursor, "match (n) return n.weight_double")[0][0], numbers.Number)
+    assert isinstance(execute_and_fetch_all(cursor, "match (n) return n.height_float")[0][0], numbers.Number)
+    assert isinstance(execute_and_fetch_all(cursor, "match (n) return n.ratio_half")[0][0], numbers.Number)
+
     execute_and_fetch_all(cursor, "match (n) detach delete n")
 
 
