@@ -14,15 +14,13 @@
 #include "utils/data_queue.hpp"
 
 #include <chrono>
-
 #include <thread>
 
 #include "arrow/acero/exec_plan.h"
+#include "arrow/api.h"
 #include "arrow/compute/api.h"
-#include "arrow/io/api.h"
 #include "arrow/io/file.h"
 #include "parquet/properties.h"
-
 #include "spdlog/spdlog.h"
 
 constexpr int64_t batch_rows = 1U << 16U;
@@ -34,12 +32,12 @@ class BatchIterator {
   BatchIterator() = default;
   explicit BatchIterator(std::unique_ptr<arrow::RecordBatchReader> rbr, int const num_columns)
       : num_columns_(num_columns), rbr_(std::move(rbr)) {}
+  ~BatchIterator() = default;
 
   BatchIterator(const BatchIterator &) = delete;
   BatchIterator &operator=(const BatchIterator &) = delete;
   BatchIterator(BatchIterator &&) = delete;
   BatchIterator &operator=(BatchIterator &&) = delete;
-  ~BatchIterator() = default;
 
   // The user knows when to request the next batch
   std::vector<std::shared_ptr<arrow::Array>> Next() const {
@@ -65,8 +63,13 @@ class BatchIterator {
 
 struct ParquetReader::impl {
   explicit impl(std::unique_ptr<parquet::arrow::FileReader> file_reader, std::unique_ptr<arrow::RecordBatchReader> rbr);
-
   ~impl();
+
+  impl(impl const &other) = delete;
+  impl &operator=(impl const &) = delete;
+
+  impl(impl &&other) = delete;
+  impl &operator=(impl &&other) = delete;
 
   auto GetNextRow(Row &out) -> bool;
 
@@ -108,7 +111,6 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
             queued_batch[i].resize(num_columns_);
           }
 
-          // TODO: (andi) Switch for other types that can be passed into TypedValue
           for (int j = 0U; j < num_columns_; j++) {
             auto const &column = batch_ref[j];
 
@@ -169,7 +171,7 @@ auto ParquetReader::impl::GetNextRow(Row &out) -> bool {
 
 auto ParquetReader::impl::GetSchema() -> std::shared_ptr<arrow::Schema> { return schema_; }
 
-ParquetReader::ParquetReader(std::string const &file, utils::MemoryResource *resource) {
+ParquetReader::ParquetReader(std::string const &file) {
   auto const start = std::chrono::high_resolution_clock::now();
   arrow::MemoryPool *pool = arrow::default_memory_pool();
 
@@ -213,7 +215,6 @@ ParquetReader::ParquetReader(std::string const &file, utils::MemoryResource *res
   spdlog::trace("Time spent on initializing parquet reader: {}ms", duration.count());
 }
 
-// Destructor must be defined here where impl is complete
 ParquetReader::~ParquetReader() = default;
 
 auto ParquetReader::GetNextRow(Row &out) -> bool { return pimpl_->GetNextRow(out); }

@@ -11,17 +11,12 @@
 
 #pragma once
 
-#include <filesystem>
-
-#include "arrow/api.h"
 #include "parquet/arrow/reader.h"
 
-#include "query/typed_value.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/string.hpp"
 #include "utils/pmr/vector.hpp"
 
-// TODO (andi) Implement this for local and url files
 namespace memgraph::query {
 class TypedValue;
 
@@ -30,18 +25,20 @@ using Header = utils::pmr::vector<utils::pmr::string>;
 
 class ParquetReader {
  public:
-  explicit ParquetReader(std::string const &file, utils::MemoryResource *resource);
-
-  // Destructor must be defined in .cpp file for pimpl idiom with unique_ptr
+  explicit ParquetReader(std::string const &file);
   ~ParquetReader();
+
+  ParquetReader(ParquetReader const &other) = delete;
+  ParquetReader &operator=(ParquetReader const &other) = delete;
+
+  ParquetReader(ParquetReader &&other) = default;
+  ParquetReader &operator=(ParquetReader &&other) = default;
 
   auto GetNextRow(Row &out) -> bool;
   auto GetHeader(utils::MemoryResource *resource) const -> Header;
 
  private:
-  // Faster compilation with mg-query is the reason
   struct impl;
   std::unique_ptr<impl> pimpl_;
 };
-
 }  // namespace memgraph::query
