@@ -305,7 +305,6 @@ void Load(storage::ExternalPropertyValue *value, slk::Reader *reader) {
       storage::ExternalPropertyValue::numeric_list_t list;
       list.reserve(size);
       for (size_t i = 0; i < size; ++i) {
-        // We need to determine the type from the serialized data
         storage::ExternalPropertyValue::Type type{};
         slk::Load(&type, reader);
         if (type == storage::ExternalPropertyValue::Type::Int) {

@@ -167,3 +167,106 @@ TEST(SlkAdvanced, ReplicationClientConfigs) {
 
   ASSERT_EQ(original, decoded);
 }
+
+TEST(SlkAdvanced, ExternalPropertyValueIntList) {
+  memgraph::storage::ExternalPropertyValue::int_list_t original{1, 2, 3, 4, 5};
+  memgraph::storage::ExternalPropertyValue original_value(original);
+
+  memgraph::slk::Loopback loopback;
+  auto *builder = loopback.GetBuilder();
+  memgraph::slk::Save(original_value, builder);
+
+  memgraph::storage::ExternalPropertyValue decoded_value;
+  auto *reader = loopback.GetReader();
+  memgraph::slk::Load(&decoded_value, reader);
+
+  ASSERT_EQ(decoded_value.type(), memgraph::storage::ExternalPropertyValue::Type::IntList);
+  const auto &decoded_list = decoded_value.ValueIntList();
+  ASSERT_EQ(original.size(), decoded_list.size());
+  for (size_t i = 0; i < original.size(); ++i) {
+    ASSERT_EQ(original[i], decoded_list[i]);
+  }
+}
+
+TEST(SlkAdvanced, ExternalPropertyValueNumericList) {
+  memgraph::storage::ExternalPropertyValue::numeric_list_t original{42, 3.14, 100, 2.718};
+  memgraph::storage::ExternalPropertyValue original_value(original);
+
+  memgraph::slk::Loopback loopback;
+  auto *builder = loopback.GetBuilder();
+  memgraph::slk::Save(original_value, builder);
+
+  memgraph::storage::ExternalPropertyValue decoded_value;
+  auto *reader = loopback.GetReader();
+  memgraph::slk::Load(&decoded_value, reader);
+
+  ASSERT_EQ(decoded_value.type(), memgraph::storage::ExternalPropertyValue::Type::NumericList);
+  const auto &decoded_list = decoded_value.ValueNumericList();
+  ASSERT_EQ(original.size(), decoded_list.size());
+
+  ASSERT_TRUE(std::holds_alternative<int>(decoded_list[0]));
+  ASSERT_EQ(std::get<int>(decoded_list[0]), 42);
+
+  ASSERT_TRUE(std::holds_alternative<double>(decoded_list[1]));
+  ASSERT_DOUBLE_EQ(std::get<double>(decoded_list[1]), 3.14);
+
+  ASSERT_TRUE(std::holds_alternative<int>(decoded_list[2]));
+  ASSERT_EQ(std::get<int>(decoded_list[2]), 100);
+
+  ASSERT_TRUE(std::holds_alternative<double>(decoded_list[3]));
+  ASSERT_DOUBLE_EQ(std::get<double>(decoded_list[3]), 2.718);
+}
+
+TEST(SlkAdvanced, ExternalPropertyValueDoubleList) {
+  memgraph::storage::ExternalPropertyValue::double_list_t original{1.1, 2.2, 3.3, 4.4, 5.5};
+  memgraph::storage::ExternalPropertyValue original_value(original);
+
+  memgraph::slk::Loopback loopback;
+  auto *builder = loopback.GetBuilder();
+  memgraph::slk::Save(original_value, builder);
+
+  memgraph::storage::ExternalPropertyValue decoded_value;
+  auto *reader = loopback.GetReader();
+  memgraph::slk::Load(&decoded_value, reader);
+
+  ASSERT_EQ(decoded_value.type(), memgraph::storage::ExternalPropertyValue::Type::DoubleList);
+  const auto &decoded_list = decoded_value.ValueDoubleList();
+  ASSERT_EQ(original.size(), decoded_list.size());
+  for (size_t i = 0; i < original.size(); ++i) {
+    ASSERT_DOUBLE_EQ(original[i], decoded_list[i]);
+  }
+}
+
+TEST(SlkAdvanced, ExternalPropertyValueList) {
+  memgraph::storage::ExternalPropertyValue::list_t original;
+  original.emplace_back("hello");
+  original.emplace_back(42);
+  original.emplace_back(3.14);
+  original.emplace_back(true);
+
+  memgraph::storage::ExternalPropertyValue original_value(original);
+
+  memgraph::slk::Loopback loopback;
+  auto *builder = loopback.GetBuilder();
+  memgraph::slk::Save(original_value, builder);
+
+  memgraph::storage::ExternalPropertyValue decoded_value;
+  auto *reader = loopback.GetReader();
+  memgraph::slk::Load(&decoded_value, reader);
+
+  ASSERT_EQ(decoded_value.type(), memgraph::storage::ExternalPropertyValue::Type::List);
+  const auto &decoded_list = decoded_value.ValueList();
+  ASSERT_EQ(original.size(), decoded_list.size());
+
+  ASSERT_EQ(decoded_list[0].type(), memgraph::storage::ExternalPropertyValue::Type::String);
+  ASSERT_EQ(decoded_list[0].ValueString(), "hello");
+
+  ASSERT_EQ(decoded_list[1].type(), memgraph::storage::ExternalPropertyValue::Type::Int);
+  ASSERT_EQ(decoded_list[1].ValueInt(), 42);
+
+  ASSERT_EQ(decoded_list[2].type(), memgraph::storage::ExternalPropertyValue::Type::Double);
+  ASSERT_DOUBLE_EQ(decoded_list[2].ValueDouble(), 3.14);
+
+  ASSERT_EQ(decoded_list[3].type(), memgraph::storage::ExternalPropertyValue::Type::Bool);
+  ASSERT_EQ(decoded_list[3].ValueBool(), true);
+}
