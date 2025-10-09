@@ -78,6 +78,14 @@ Date::Date(const int64_t microseconds) {
   day = static_cast<unsigned>(date.day());
 }
 
+Date::Date(int32_t const days_since_epoch) {
+  auto const days = std::chrono::sys_days(std::chrono::days(days_since_epoch));
+  auto const date = std::chrono::year_month_day{days};
+  year = static_cast<int>(date.year());
+  month = static_cast<unsigned>(date.month());
+  day = static_cast<unsigned>(date.day());
+}
+
 Date::Date(const DateParameters &date_parameters) {
   if (!IsInBounds(0, 9999, date_parameters.year)) {
     throw temporal::InvalidArgumentException(
