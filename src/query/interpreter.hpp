@@ -86,7 +86,7 @@ struct QueryAllocator {
 
 #ifndef MG_MEMORY_PROFILE
   memgraph::utils::MonotonicBufferResource monotonic{kMonotonicInitialSize, upstream_resource()};
-  memgraph::utils::PoolResource pool{kPoolBlockPerChunk, &monotonic, upstream_resource()};
+  memgraph::utils::PoolResource<> pool{kPoolBlockPerChunk, &monotonic, upstream_resource()};
 #endif
 };
 
@@ -113,7 +113,7 @@ struct ThreadSafeQueryAllocator {
 
   memgraph::utils::ThreadSafeMonotonicBufferResource monotonic{kMonotonicInitialSize, upstream_resource()};
   memgraph::utils::ThreadLocalMemoryResource pool{[monotonic = &monotonic]() {
-    return std::make_unique<memgraph::utils::PoolResource>(kPoolBlockPerChunk, monotonic, upstream_resource());
+    return std::make_unique<memgraph::utils::PoolResource<>>(kPoolBlockPerChunk, monotonic, upstream_resource());
   }};
 };
 

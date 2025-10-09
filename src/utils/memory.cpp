@@ -405,7 +405,12 @@ static_assert(bin_index<2>(24U) == 2);
 
 }  // namespace impl
 
-void *PoolResource::do_allocate(size_t bytes, size_t alignment) {
+// Explicit template instantiations for PoolResource with default template parameter
+template class PoolResource<impl::Pool>;
+template class PoolResource<impl::ThreadSafePool>;
+
+template <typename P>
+void *PoolResource<P>::do_allocate(size_t bytes, size_t alignment) {
   // Take the max of `bytes` and `alignment` so that we simplify handling
   // alignment requests.
   size_t block_size = std::max({bytes, alignment, 1UL});
@@ -431,7 +436,8 @@ void *PoolResource::do_allocate(size_t bytes, size_t alignment) {
   }
   return unpooled_memory_->allocate(bytes, alignment);
 }
-void PoolResource::do_deallocate(void *p, size_t bytes, size_t alignment) {
+template <typename P>
+void PoolResource<P>::do_deallocate(void *p, size_t bytes, size_t alignment) {
   size_t block_size = std::max({bytes, alignment, 1UL});
   DMG_ASSERT(block_size % alignment == 0);
 
@@ -447,7 +453,10 @@ void PoolResource::do_deallocate(void *p, size_t bytes, size_t alignment) {
     unpooled_memory_->deallocate(p, bytes, alignment);
   }
 }
-bool PoolResource::do_is_equal(const std::pmr::memory_resource &other) const noexcept { return this == &other; }
+template <typename P>
+bool PoolResource<P>::do_is_equal(const std::pmr::memory_resource &other) const noexcept {
+  return this == &other;
+}
 
 thread_local uint16_t ThreadLocalMemoryResource::thread_id_ = -1;  // NOLINT
 }  // namespace memgraph::utils
