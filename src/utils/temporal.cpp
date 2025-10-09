@@ -1107,7 +1107,7 @@ constexpr To CastChronoDouble(const double value) {
 };
 }  // namespace
 
-Duration::Duration(int64_t microseconds) { this->microseconds = microseconds; }
+Duration::Duration(int64_t const microseconds) : microseconds(microseconds) {}
 
 Duration::Duration(const DurationParameters &parameters) {
   microseconds = (CastChronoDouble<std::chrono::days, std::chrono::microseconds>(parameters.day) +
@@ -1120,7 +1120,7 @@ Duration::Duration(const DurationParameters &parameters) {
 }
 
 int64_t Duration::Days() const {
-  std::chrono::microseconds ms(microseconds);
+  std::chrono::microseconds const ms(microseconds);
   return std::chrono::duration_cast<std::chrono::days>(ms).count();
 }
 
