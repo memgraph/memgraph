@@ -234,7 +234,8 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
                 case arrow::TimeUnit::NANO: {
                   for (int64_t i = 0; i < num_rows; i++) {
                     auto const ns = std::chrono::nanoseconds(time64_array->Value(i));
-                    queued_batch[i][j] = TypedValue(std::chrono::duration_cast<std::chrono::microseconds>(ns).count());
+                    queued_batch[i][j] =
+                        TypedValue(utils::LocalTime(std::chrono::duration_cast<std::chrono::microseconds>(ns).count()));
                   }
                   break;
                 }
