@@ -30,9 +30,9 @@
 #include "query/common.hpp"
 #include "spdlog/spdlog.h"
 
-#include "../arrow_parquet/reader.hpp"
 #include "csv/parsing.hpp"
 #include "license/license.hpp"
+#include "query/arrow_parquet/reader.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/exceptions.hpp"
@@ -68,6 +68,7 @@
 #include "utils/pmr/unordered_set.hpp"
 #include "utils/pmr/vector.hpp"
 #include "utils/query_memory_tracker.hpp"
+#include "utils/readable_size.hpp"
 #include "utils/tag.hpp"
 #include "utils/temporal.hpp"
 #include "vertex_accessor.hpp"
@@ -421,7 +422,7 @@ storage::EdgeTypeId EvaluateEdgeType(const StorageEdgeType &edge_type, Expressio
           : std::nullopt;
 // NOLINTNEXTLINE(cppcoreguidelines-macro-usage)
 #define SCOPED_PROFILE_OP_BY_REF(ref)                                                                                  \
-  std::optional<ScopedProfile> profile =                                                                               \
+  std::optional<ScopedProfile> const profile =                                                                         \
       context.is_profile_query ? std::optional<ScopedProfile>(std::in_place, ComputeProfilingKey(this), ref, &context) \
                                : std::nullopt;
 
@@ -7635,7 +7636,7 @@ class LoadParquetCursor : public Cursor {
     // TODO: (andi) Refactor into the method
     if (UNLIKELY(!reader_.has_value())) {
       Frame local_frame(0);
-      SymbolTable symbol_table;
+      SymbolTable const symbol_table;
       DbAccessor *dba = nullptr;
       auto evaluator =
           ExpressionEvaluator(&local_frame, symbol_table, context.evaluation_context, dba, storage::View::OLD);
@@ -7643,7 +7644,7 @@ class LoadParquetCursor : public Cursor {
       // No need to check if maybe_file is std::nullopt, as the parser makes sure
       // we can't get a nullptr for the 'file_' member in the LoadParquet clause
       // TODO: (andi) Conversion needed because of pmr allocator
-      reader_.emplace(std::string{*maybe_file}, mem);
+      reader_.emplace(std::string{*maybe_file});
       header_cache_ = reader_->GetHeader(mem);
       num_columns_ = header_cache_.size();
       row_.resize(num_columns_);
