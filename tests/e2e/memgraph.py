@@ -113,18 +113,6 @@ class MemgraphInstanceRunner:
                     except Exception as e:
                         pass
 
-        if self.data_directory:
-            if os.path.isdir(self.data_directory):
-                log_file = os.path.join(self.data_directory, "logs", "memgraph.log")
-                if os.path.exists(log_file):
-                    try:
-                        with open(log_file, "r") as f:
-                            lines = f.readlines()
-                            print(f"\nmemgraph.log tail")
-                            print("".join(lines[-50:]))
-                    except Exception as e:
-                        pass
-
         print("=" * 80 + "\n")
 
     # If the method with socket is ok, remove this TODO: (andi)

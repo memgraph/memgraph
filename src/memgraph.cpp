@@ -177,8 +177,6 @@ int main(int argc, char **argv) {
     exit(1);
   }
 
-  std::this_thread::sleep_for(std::chrono::seconds(30));  // @TODO to simulate failing startup
-
   auto flags_experimental = memgraph::flags::ReadExperimental(FLAGS_experimental_enabled);
   memgraph::flags::SetExperimental(flags_experimental);
   auto *maybe_experimental = std::getenv(kMgExperimentalEnabled);
