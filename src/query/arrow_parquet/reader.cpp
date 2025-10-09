@@ -245,6 +245,45 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
                 }
               }
 
+            } else if (type_id == arrow::Type::TIMESTAMP) {
+              auto const timestamp_array = std::static_pointer_cast<arrow::TimestampArray>(column);
+              // TODO: (andi) Convert to microseconds through handler and then extract for loop
+              switch (auto time_type = std::static_pointer_cast<arrow::TimestampType>(column->type());
+                      time_type->unit()) {
+                case arrow::TimeUnit::SECOND: {
+                  for (int64_t i = 0; i < num_rows; i++) {
+                    auto const ms = std::chrono::seconds(timestamp_array->Value(i));
+                    auto const us = std::chrono::duration_cast<std::chrono::microseconds>(ms).count();
+                    queued_batch[i][j] = TypedValue(utils::LocalDateTime(us));
+                  }
+                  break;
+                }
+                case arrow::TimeUnit::MILLI: {
+                  for (int64_t i = 0; i < num_rows; i++) {
+                    auto const ms = std::chrono::milliseconds(timestamp_array->Value(i));
+                    auto const us = std::chrono::duration_cast<std::chrono::microseconds>(ms).count();
+                    queued_batch[i][j] = TypedValue(utils::LocalDateTime(us));
+                  }
+                  break;
+                }
+                case arrow::TimeUnit::MICRO: {
+                  for (int64_t i = 0; i < num_rows; i++) {
+                    auto const us = timestamp_array->Value(i);
+                    queued_batch[i][j] = TypedValue(utils::LocalDateTime(us));
+                  }
+                  break;
+                }
+                case arrow::TimeUnit::NANO: {
+                  for (int64_t i = 0; i < num_rows; i++) {
+                    auto const ns = std::chrono::nanoseconds(timestamp_array->Value(i));
+                    auto const us = std::chrono::duration_cast<std::chrono::microseconds>(ns).count();
+                    queued_batch[i][j] = TypedValue(utils::LocalDateTime(us));
+                  }
+                  break;
+                }
+                default:
+                  throw std::invalid_argument("Unsupported time unit when reading Timestamp info");
+              }
             }
 
             else {
