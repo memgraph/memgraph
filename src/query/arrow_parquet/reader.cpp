@@ -27,6 +27,17 @@
 constexpr int64_t batch_rows = 1U << 16U;
 
 namespace {
+std::string ToHexString(const uint8_t *data, size_t size) {
+  std::string hex;
+  hex.reserve(size * 2);
+  for (size_t i = 0; i < size; i++) {
+    constexpr auto *hex_chars = "0123456789abcdef";
+    hex.push_back(hex_chars[data[i] >> 4U]);
+    hex.push_back(hex_chars[data[i] & 0x0FU]);
+  }
+  return hex;
+}
+
 auto ArrowTimeToUs(auto const arrow_val, auto const arrow_time_unit) -> int64_t {
   switch (arrow_time_unit) {
     case arrow::TimeUnit::MICRO: {
@@ -246,10 +257,28 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
               for (int64_t i = 0; i < num_rows; i++) {
                 queued_batch[i][j] = TypedValue(utils::Duration(ArrowTimeToUs(duration_array->Value(i), time_unit)));
               }
-            }
-
-            else {
-              // Convert unsupported types (dates, timestamps, etc.) to string
+            } else if (type_id == arrow::Type::BINARY || type_id == arrow::Type::LARGE_BINARY ||
+                       type_id == arrow::Type::BINARY_VIEW) {
+              std::string_view view;
+              for (int64_t i = 0; i < num_rows; i++) {
+                if (type_id == arrow::Type::BINARY) {
+                  view = std::static_pointer_cast<arrow::BinaryArray>(column)->GetView(i);
+                } else if (type_id == arrow::Type::LARGE_BINARY) {
+                  view = std::static_pointer_cast<arrow::LargeBinaryArray>(column)->GetView(i);
+                } else {  // BINARY_VIEW
+                  view = std::static_pointer_cast<arrow::BinaryViewArray>(column)->GetView(i);
+                }
+                queued_batch[i][j] =
+                    TypedValue(ToHexString(reinterpret_cast<const uint8_t *>(view.data()), view.size()));
+              }
+            } else if (type_id == arrow::Type::FIXED_SIZE_BINARY) {
+              auto fixed_binary = std::static_pointer_cast<arrow::FixedSizeBinaryArray>(column);
+              int32_t const size = fixed_binary->byte_width();
+              for (int64_t i = 0; i < num_rows; i++) {
+                const uint8_t *data = fixed_binary->GetValue(i);
+                queued_batch[i][j] = TypedValue(ToHexString(data, size));
+              }
+            } else {
               for (int64_t i = 0; i < num_rows; i++) {
                 queued_batch[i][j] = TypedValue(column->GetScalar(i).ValueOrDie()->ToString());
               }
