@@ -26,6 +26,31 @@
 
 constexpr int64_t batch_rows = 1U << 16U;
 
+namespace {
+auto ArrowTimeToUs(auto const arrow_val, auto const arrow_time_unit) -> int64_t {
+  switch (arrow_time_unit) {
+    case arrow::TimeUnit::MICRO: {
+      return arrow_val;
+    }
+    case arrow::TimeUnit::NANO: {
+      auto const ns = std::chrono::nanoseconds(arrow_val);
+      return std::chrono::duration_cast<std::chrono::microseconds>(ns).count();
+    }
+    case arrow::TimeUnit::MILLI: {
+      auto const ms = std::chrono::milliseconds(arrow_val);
+      return std::chrono::duration_cast<std::chrono::microseconds>(ms).count();
+    }
+    case arrow::TimeUnit::SECOND: {
+      auto const secs = std::chrono::seconds(arrow_val);
+      return std::chrono::duration_cast<std::chrono::microseconds>(secs).count();
+    }
+    default: {
+      throw std::invalid_argument("Unsupported time unit. TIME32 should only support seconds and milliseconds");
+    }
+  }
+}
+}  // namespace
+
 namespace memgraph::query {
 
 class BatchIterator {
@@ -111,7 +136,6 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
           for (int i = 0; i < num_rows; ++i) {
             queued_batch[i].resize(num_columns_);
           }
-
           // TODO: (andi) Probably the best way is to expose the iterator function and you can check then only once
           // if the value is null
           for (int j = 0U; j < num_columns_; j++) {
@@ -197,96 +221,25 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
               }
             } else if (type_id == arrow::Type::TIME32) {
               auto const time32_array = std::static_pointer_cast<arrow::Time32Array>(column);
-              switch (auto time_type = std::static_pointer_cast<arrow::Time32Type>(column->type()); time_type->unit()) {
-                case arrow::TimeUnit::MILLI: {
-                  for (int64_t i = 0; i < num_rows; i++) {
-                    auto const val = time32_array->Value(i);
-                    auto const ms = std::chrono::milliseconds(val);
-                    queued_batch[i][j] =
-                        TypedValue(utils::LocalTime(std::chrono::duration_cast<std::chrono::microseconds>(ms).count()));
-                  }
-                  break;
-                }
-                case arrow::TimeUnit::SECOND: {
-                  for (int64_t i = 0; i < num_rows; i++) {
-                    auto const val = time32_array->Value(i);
-                    auto const secs = std::chrono::seconds(val);
-                    queued_batch[i][j] = TypedValue(
-                        utils::LocalTime(std::chrono::duration_cast<std::chrono::microseconds>(secs).count()));
-                  }
-                  break;
-                }
-                default: {
-                  throw std::invalid_argument(
-                      "Unsupported time unit. TIME32 should only support seconds and milliseconds");
-                }
+              auto time_unit = std::static_pointer_cast<arrow::Time32Type>(column->type())->unit();
+              for (int64_t i = 0; i < num_rows; i++) {
+                queued_batch[i][j] = TypedValue(utils::LocalTime(ArrowTimeToUs(time32_array->Value(i), time_unit)));
               }
+
             } else if (type_id == arrow::Type::TIME64) {
               auto const time64_array = std::static_pointer_cast<arrow::Time64Array>(column);
-              switch (auto time_type = std::static_pointer_cast<arrow::Time64Type>(column->type()); time_type->unit()) {
-                case arrow::TimeUnit::MICRO: {
-                  for (int64_t i = 0; i < num_rows; i++) {
-                    auto const us = time64_array->Value(i);
-                    queued_batch[i][j] = TypedValue(utils::LocalTime(us));
-                  }
-                  break;
-                }
-                case arrow::TimeUnit::NANO: {
-                  for (int64_t i = 0; i < num_rows; i++) {
-                    auto const ns = std::chrono::nanoseconds(time64_array->Value(i));
-                    queued_batch[i][j] =
-                        TypedValue(utils::LocalTime(std::chrono::duration_cast<std::chrono::microseconds>(ns).count()));
-                  }
-                  break;
-                }
-                default: {
-                  throw std::invalid_argument(
-                      "Unsupported time unit. TIME64 should only support microseconds and nanoseconds");
-                }
+              auto time_unit = std::static_pointer_cast<arrow::Time64Type>(column->type())->unit();
+              for (int64_t i = 0; i < num_rows; i++) {
+                queued_batch[i][j] = TypedValue(utils::LocalTime(ArrowTimeToUs(time64_array->Value(i), time_unit)));
               }
-
             } else if (type_id == arrow::Type::TIMESTAMP) {
               auto const timestamp_array = std::static_pointer_cast<arrow::TimestampArray>(column);
-              // TODO: (andi) Convert to microseconds through handler and then extract for loop
-              switch (auto time_type = std::static_pointer_cast<arrow::TimestampType>(column->type());
-                      time_type->unit()) {
-                case arrow::TimeUnit::SECOND: {
-                  for (int64_t i = 0; i < num_rows; i++) {
-                    auto const ms = std::chrono::seconds(timestamp_array->Value(i));
-                    auto const us = std::chrono::duration_cast<std::chrono::microseconds>(ms).count();
-                    queued_batch[i][j] = TypedValue(utils::LocalDateTime(us));
-                  }
-                  break;
-                }
-                case arrow::TimeUnit::MILLI: {
-                  for (int64_t i = 0; i < num_rows; i++) {
-                    auto const ms = std::chrono::milliseconds(timestamp_array->Value(i));
-                    auto const us = std::chrono::duration_cast<std::chrono::microseconds>(ms).count();
-                    queued_batch[i][j] = TypedValue(utils::LocalDateTime(us));
-                  }
-                  break;
-                }
-                case arrow::TimeUnit::MICRO: {
-                  for (int64_t i = 0; i < num_rows; i++) {
-                    auto const us = timestamp_array->Value(i);
-                    queued_batch[i][j] = TypedValue(utils::LocalDateTime(us));
-                  }
-                  break;
-                }
-                case arrow::TimeUnit::NANO: {
-                  for (int64_t i = 0; i < num_rows; i++) {
-                    auto const ns = std::chrono::nanoseconds(timestamp_array->Value(i));
-                    auto const us = std::chrono::duration_cast<std::chrono::microseconds>(ns).count();
-                    queued_batch[i][j] = TypedValue(utils::LocalDateTime(us));
-                  }
-                  break;
-                }
-                default:
-                  throw std::invalid_argument("Unsupported time unit when reading Timestamp info");
+              auto time_unit = std::static_pointer_cast<arrow::TimestampType>(column->type())->unit();
+              for (int64_t i = 0; i < num_rows; i++) {
+                queued_batch[i][j] =
+                    TypedValue(utils::LocalDateTime(ArrowTimeToUs(timestamp_array->Value(i), time_unit)));
               }
-            }
-
-            else {
+            } else {
               // Convert unsupported types (dates, timestamps, etc.) to string
               for (int64_t i = 0; i < num_rows; i++) {
                 queued_batch[i][j] = TypedValue(column->GetScalar(i).ValueOrDie()->ToString());
