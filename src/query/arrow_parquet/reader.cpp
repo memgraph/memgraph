@@ -195,6 +195,32 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
                 auto const us = std::chrono::duration_cast<std::chrono::microseconds>(ms);
                 queued_batch[i][j] = TypedValue(utils::Date{us.count()});
               }
+            } else if (type_id == arrow::Type::TIME32) {
+              auto const time32_array = std::static_pointer_cast<arrow::Time32Array>(column);
+              switch (auto time_type = std::static_pointer_cast<arrow::Time32Type>(column->type()); time_type->unit()) {
+                case arrow::TimeUnit::MILLI: {
+                  for (int64_t i = 0; i < num_rows; i++) {
+                    auto const val = time32_array->Value(i);
+                    auto const ms = std::chrono::milliseconds(val);
+                    queued_batch[i][j] =
+                        TypedValue(utils::LocalTime(std::chrono::duration_cast<std::chrono::microseconds>(ms).count()));
+                  }
+                  break;
+                }
+                case arrow::TimeUnit::SECOND: {
+                  for (int64_t i = 0; i < num_rows; i++) {
+                    auto const val = time32_array->Value(i);
+                    auto const secs = std::chrono::seconds(val);
+                    queued_batch[i][j] = TypedValue(
+                        utils::LocalTime(std::chrono::duration_cast<std::chrono::microseconds>(secs).count()));
+                  }
+                  break;
+                }
+                default: {
+                  throw std::invalid_argument(
+                      "Unsupported time unit. TIME32 should only support seconds and milliseconds");
+                }
+              }
             } else {
               // Convert unsupported types (dates, timestamps, etc.) to string
               for (int64_t i = 0; i < num_rows; i++) {
