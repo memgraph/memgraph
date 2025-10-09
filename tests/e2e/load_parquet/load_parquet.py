@@ -86,11 +86,15 @@ def test_numeric_types():
 
 def test_temporal_types():
     cursor = connect(host="localhost", port=7687).cursor()
-    load_query = f"LOAD PARQUET FROM '{get_file_path('nodes_temporal.parquet')}' AS row CREATE (n:N {{id: row.id, name: row.name, registration_date64: row.registration_date64, birth_date32: row.birth_date32}});"
+    load_query = (
+        f"LOAD PARQUET FROM '{get_file_path('nodes_temporal.parquet')}' AS row CREATE (n:N {{id: row.id, name: row.name, registration_date64: row.registration_date64, "
+        f"birth_date32: row.birth_date32, exact_time32_ms: row.exact_time32_ms}});"
+    )
     execute_and_fetch_all(cursor, load_query)
     assert execute_and_fetch_all(cursor, "match (n) return count(n)")[0][0] == 100
     assert execute_and_fetch_all(cursor, "match (n) return valueType(n.birth_date32)")[0][0] == "DATE"
     assert execute_and_fetch_all(cursor, "match (n) return valueType(n.registration_date64)")[0][0] == "DATE"
+    assert execute_and_fetch_all(cursor, "match (n) return valueType(n.exact_time32_ms)")[0][0] == "LOCAL_TIME"
     execute_and_fetch_all(cursor, "match (n) detach delete n")
 
 
