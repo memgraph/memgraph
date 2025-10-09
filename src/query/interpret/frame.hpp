@@ -34,10 +34,22 @@ struct FrameWritter {
     return Write(symbol, TypedValue(std::forward<T>(value), res_));
   }
 
+  template <typename T>
+  requires(!std::is_same_v<std::remove_cv_t<T>, TypedValue>) auto WriteAt(const Symbol &symbol, T &&value) {
+    return WriteAt(symbol, TypedValue(std::forward<T>(value), res_));
+  }
+
   auto Write(const Symbol &symbol, TypedValue value) -> TypedValue &;
   auto WriteAt(const Symbol &symbol, TypedValue value) -> TypedValue &;
   void ClearList(const Symbol &symbol);
+
+  template <typename Func>
+  auto Modify(const Symbol &symbol, Func f) -> std::invoke_result_t<Func, TypedValue &>;
+
   // auto &elems() { return frame_.elems_; }
+
+ private:
+  void ResetTrackingValue(const Symbol &symbol);
 
   Frame &frame_;
   FrameChangeCollector *frame_change_collector_;
@@ -56,6 +68,8 @@ class Frame {
   const TypedValue &operator[](const Symbol &symbol) const { return elems_[symbol.position()]; }
   const TypedValue &at(const Symbol &symbol) const { return elems_.at(symbol.position()); }
 
+  auto elems() const -> const utils::pmr::vector<TypedValue> & { return elems_; }
+
   auto get_allocator() const -> allocator_type { return elems_.get_allocator(); }
 
   auto GetFrameWritter(FrameChangeCollector *change_collector, utils::MemoryResource *res) -> FrameWritter {
@@ -66,5 +80,12 @@ class Frame {
   friend struct FrameWritter;
   utils::pmr::vector<TypedValue> elems_;
 };
+
+template <typename Func>
+auto FrameWritter::Modify(const Symbol &symbol, Func f) -> std::invoke_result_t<Func, TypedValue &> {
+  auto &value = frame_.elems_[symbol.position()];
+  ResetTrackingValue(symbol);
+  return f(value);
+}
 
 }  // namespace memgraph::query
