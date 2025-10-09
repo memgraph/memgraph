@@ -9,7 +9,6 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
-import numbers
 import sys
 
 import pytest
@@ -63,19 +62,35 @@ def test_numeric_types():
     )
     execute_and_fetch_all(cursor, load_query)
     assert execute_and_fetch_all(cursor, "match (n) return count(n)")[0][0] == 100
-    assert isinstance(execute_and_fetch_all(cursor, "match (n) return n.id")[0][0], numbers.Number)
-    assert isinstance(execute_and_fetch_all(cursor, "match (n) return n.age_int64")[0][0], numbers.Number)
-    assert isinstance(execute_and_fetch_all(cursor, "match (n) return n.score_int32")[0][0], numbers.Number)
-    assert isinstance(execute_and_fetch_all(cursor, "match (n) return n.level_int16")[0][0], numbers.Number)
-    assert isinstance(execute_and_fetch_all(cursor, "match (n) return n.rank_int8")[0][0], numbers.Number)
-    assert isinstance(execute_and_fetch_all(cursor, "match (n) return n.points_uint64")[0][0], numbers.Number)
-    assert isinstance(execute_and_fetch_all(cursor, "match (n) return n.coins_uint32")[0][0], numbers.Number)
-    assert isinstance(execute_and_fetch_all(cursor, "match (n) return n.badges_uint16")[0][0], numbers.Number)
-    assert isinstance(execute_and_fetch_all(cursor, "match (n) return n.lives_uint8")[0][0], numbers.Number)
-    assert isinstance(execute_and_fetch_all(cursor, "match (n) return n.weight_double")[0][0], numbers.Number)
-    assert isinstance(execute_and_fetch_all(cursor, "match (n) return n.height_float")[0][0], numbers.Number)
-    assert isinstance(execute_and_fetch_all(cursor, "match (n) return n.ratio_half")[0][0], numbers.Number)
+    assert execute_and_fetch_all(cursor, "match (n) return valueType(n.id)")[0][0] == "INTEGER"
+    assert execute_and_fetch_all(cursor, "match (n) return valueType(n.age_int64)")[0][0] == "INTEGER"
+    assert execute_and_fetch_all(cursor, "match (n) return valueType(n.score_int32)")[0][0] == "INTEGER"
+    assert execute_and_fetch_all(cursor, "match (n) return valueType(n.level_int16)")[0][0] == "INTEGER"
+    assert execute_and_fetch_all(cursor, "match (n) return valueType(n.rank_int8)")[0][0] == "INTEGER"
+    assert (
+        execute_and_fetch_all(cursor, "match (n) return valueType(n.points_uint64)")[0][0] == "INTEGER"
+    )  # With static cast in the code
+    assert (
+        execute_and_fetch_all(cursor, "match (n) return valueType(n.coins_uint32)")[0][0] == "INTEGER"
+    )  # With static cast in the code
+    assert execute_and_fetch_all(cursor, "match (n) return valueType(n.badges_uint16)")[0][0] == "INTEGER"
+    assert execute_and_fetch_all(cursor, "match (n) return valueType(n.lives_uint8)")[0][0] == "INTEGER"
+    assert execute_and_fetch_all(cursor, "match (n) return valueType(n.weight_double)")[0][0] == "FLOAT"
+    assert (
+        execute_and_fetch_all(cursor, "match (n) return valueType(n.height_float)")[0][0] == "FLOAT"
+    )  # MG doesn't support floats
+    assert execute_and_fetch_all(cursor, "match (n) return valueType(n.ratio_half)")[0][0] == "FLOAT"
 
+    execute_and_fetch_all(cursor, "match (n) detach delete n")
+
+
+def test_temporal_types():
+    cursor = connect(host="localhost", port=7687).cursor()
+    load_query = f"LOAD PARQUET FROM '{get_file_path('nodes_temporal.parquet')}' AS row CREATE (n:N {{id: row.id, name: row.name, registration_date64: row.registration_date64, birth_date32: row.birth_date32}});"
+    execute_and_fetch_all(cursor, load_query)
+    assert execute_and_fetch_all(cursor, "match (n) return count(n)")[0][0] == 100
+    assert execute_and_fetch_all(cursor, "match (n) return valueType(n.birth_date32)")[0][0] == "DATE"
+    assert execute_and_fetch_all(cursor, "match (n) return valueType(n.registration_date64)")[0][0] == "DATE"
     execute_and_fetch_all(cursor, "match (n) detach delete n")
 
 
