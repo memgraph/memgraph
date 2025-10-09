@@ -11,8 +11,9 @@
 
 #include "storage/v2/replication/slk.hpp"
 
+#include <math.h>
+
 #include <chrono>
-#include <cmath>
 #include <cstdint>
 #include <string>
 #include <type_traits>
@@ -179,8 +180,10 @@ void Save(const storage::ExternalPropertyValue &value, slk::Builder *builder) {
       slk::Save(size, builder);
       for (const auto &v : values) {
         if (std::holds_alternative<int>(v)) {
+          slk::Save(storage::ExternalPropertyValue::Type::Int, builder);
           slk::Save(std::get<int>(v), builder);
         } else {
+          slk::Save(storage::ExternalPropertyValue::Type::Double, builder);
           slk::Save(std::get<double>(v), builder);
         }
       }
@@ -303,10 +306,19 @@ void Load(storage::ExternalPropertyValue *value, slk::Reader *reader) {
       list.reserve(size);
       for (size_t i = 0; i < size; ++i) {
         // We need to determine the type from the serialized data
-        // For now, we'll assume it's a double for backward compatibility
-        double v = NAN;
-        slk::Load(&v, reader);
-        list.emplace_back(v);
+        storage::ExternalPropertyValue::Type type{};
+        slk::Load(&type, reader);
+        if (type == storage::ExternalPropertyValue::Type::Int) {
+          int v = 0;
+          slk::Load(&v, reader);
+          list.emplace_back(v);
+        } else if (type == storage::ExternalPropertyValue::Type::Double) {
+          double v = NAN;
+          slk::Load(&v, reader);
+          list.emplace_back(v);
+        } else {
+          throw slk::SlkDecodeException("Trying to load NumericList with invalid type!");
+        }
       }
       *value = storage::ExternalPropertyValue(std::move(list));
       return;
