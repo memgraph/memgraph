@@ -18,7 +18,6 @@
 
 #include "arrow/acero/exec_plan.h"
 #include "arrow/api.h"
-#include "arrow/compute/api.h"
 #include "arrow/io/file.h"
 #include "parquet/properties.h"
 #include "spdlog/spdlog.h"
@@ -119,10 +118,55 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
               for (int64_t i = 0; i < num_rows; i++) {
                 queued_batch[i][j] = TypedValue(int_array->Value(i));
               }
+            } else if (type_id == arrow::Type::INT32) {
+              auto const int32_array = std::static_pointer_cast<arrow::Int32Array>(column);
+              for (int64_t i = 0; i < num_rows; i++) {
+                queued_batch[i][j] = TypedValue(int32_array->Value(i));
+              }
+            } else if (type_id == arrow::Type::INT16) {
+              auto const int16_array = std::static_pointer_cast<arrow::Int16Array>(column);
+              for (int64_t i = 0; i < num_rows; i++) {
+                queued_batch[i][j] = TypedValue(int16_array->Value(i));
+              }
+            } else if (type_id == arrow::Type::INT8) {
+              auto const int8_array = std::static_pointer_cast<arrow::Int8Array>(column);
+              for (int64_t i = 0; i < num_rows; i++) {
+                queued_batch[i][j] = TypedValue(int8_array->Value(i));
+              }
+            } else if (type_id == arrow::Type::UINT8) {
+              auto const uint8_array = std::static_pointer_cast<arrow::UInt8Array>(column);
+              for (int64_t i = 0; i < num_rows; i++) {
+                queued_batch[i][j] = TypedValue(uint8_array->Value(i));
+              }
+            } else if (type_id == arrow::Type::UINT16) {
+              auto const uint16_array = std::static_pointer_cast<arrow::UInt16Array>(column);
+              for (int64_t i = 0; i < num_rows; i++) {
+                queued_batch[i][j] = TypedValue(uint16_array->Value(i));
+              }
+            } else if (type_id == arrow::Type::UINT32) {
+              auto const uint32_array = std::static_pointer_cast<arrow::UInt32Array>(column);
+              for (int64_t i = 0; i < num_rows; i++) {
+                queued_batch[i][j] = TypedValue(static_cast<int64_t>(uint32_array->Value(i)));
+              }
+            } else if (type_id == arrow::Type::UINT64) {
+              auto const uint64_array = std::static_pointer_cast<arrow::UInt64Array>(column);
+              for (int64_t i = 0; i < num_rows; i++) {
+                queued_batch[i][j] = TypedValue(static_cast<int64_t>(uint64_array->Value(i)));
+              }
             } else if (type_id == arrow::Type::BOOL) {
               auto const bool_array = std::static_pointer_cast<arrow::BooleanArray>(column);
               for (int64_t i = 0; i < num_rows; i++) {
                 queued_batch[i][j] = TypedValue(bool_array->Value(i));
+              }
+            } else if (type_id == arrow::Type::FLOAT) {
+              auto const float_array = std::static_pointer_cast<arrow::FloatArray>(column);
+              for (int64_t i = 0; i < num_rows; i++) {
+                queued_batch[i][j] = TypedValue(float_array->Value(i));
+              }
+            } else if (type_id == arrow::Type::HALF_FLOAT) {
+              auto const half_float_array = std::static_pointer_cast<arrow::HalfFloatArray>(column);
+              for (int64_t i = 0; i < num_rows; i++) {
+                queued_batch[i][j] = TypedValue(half_float_array->Value(i));
               }
             } else if (type_id == arrow::Type::DOUBLE) {
               auto const double_array = std::static_pointer_cast<arrow::DoubleArray>(column);
@@ -226,7 +270,6 @@ auto ParquetReader::GetHeader(utils::MemoryResource *resource) const -> Header {
   header.reserve(header_size);
   for (auto const &field : schema->fields()) {
     header.emplace_back(field->name());
-    spdlog::trace("Column name: {}", field->name());
   }
   return header;
 }
