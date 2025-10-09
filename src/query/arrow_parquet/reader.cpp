@@ -221,7 +221,32 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
                       "Unsupported time unit. TIME32 should only support seconds and milliseconds");
                 }
               }
-            } else {
+            } else if (type_id == arrow::Type::TIME64) {
+              auto const time64_array = std::static_pointer_cast<arrow::Time64Array>(column);
+              switch (auto time_type = std::static_pointer_cast<arrow::Time64Type>(column->type()); time_type->unit()) {
+                case arrow::TimeUnit::MICRO: {
+                  for (int64_t i = 0; i < num_rows; i++) {
+                    auto const us = time64_array->Value(i);
+                    queued_batch[i][j] = TypedValue(utils::LocalTime(us));
+                  }
+                  break;
+                }
+                case arrow::TimeUnit::NANO: {
+                  for (int64_t i = 0; i < num_rows; i++) {
+                    auto const ns = std::chrono::nanoseconds(time64_array->Value(i));
+                    queued_batch[i][j] = TypedValue(std::chrono::duration_cast<std::chrono::microseconds>(ns).count());
+                  }
+                  break;
+                }
+                default: {
+                  throw std::invalid_argument(
+                      "Unsupported time unit. TIME64 should only support microseconds and nanoseconds");
+                }
+              }
+
+            }
+
+            else {
               // Convert unsupported types (dates, timestamps, etc.) to string
               for (int64_t i = 0; i < num_rows; i++) {
                 queued_batch[i][j] = TypedValue(column->GetScalar(i).ValueOrDie()->ToString());
