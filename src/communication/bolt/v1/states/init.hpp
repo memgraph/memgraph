@@ -20,10 +20,9 @@
 #include "communication/bolt/v1/state.hpp"
 #include "communication/bolt/v1/value.hpp"
 #include "communication/exceptions.hpp"
-#include "communication/metrics.hpp"
 #include "flags/auth.hpp"
+#include "flags/coord_flag_env_handler.hpp"
 #include "spdlog/spdlog.h"
-#include "utils/likely.hpp"
 #include "utils/logging.hpp"
 #include "utils/string.hpp"
 
@@ -109,6 +108,12 @@ std::optional<State> AuthenticateUser(TSession &session, Value &metadata) {
   // Get authentication data.
   // From neo4j driver v4.4, fields that have a default value are not sent.
   // In order to have back-compatibility, the missing fields will be added.
+#ifdef MG_ENTERPRISE
+  if (auto const &coordination_setup = flags::CoordinationSetupInstance(); coordination_setup.IsCoordinator()) {
+    spdlog::info("Ignoring auth on coordinators");
+    return std::nullopt;
+  }
+#endif
 
   auto &data = metadata.ValueMap();
   if (data.empty()) {  // Special case auth=None
