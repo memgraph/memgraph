@@ -20,6 +20,8 @@
 
 #include "utils/memory_tracker.hpp"
 
+#if !__has_feature(thread_sanitizer)
+
 namespace {
 inline void *newImpl(const std::size_t size) {
   auto *ptr = malloc(size);
@@ -286,3 +288,5 @@ __attribute__((visibility("default"))) void operator delete[](void *ptr, const s
   UntrackMemory(ptr, align);
   deleteImpl(ptr, align);
 }
+
+#endif  // !__has_feature(thread_sanitizer)
