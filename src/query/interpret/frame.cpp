@@ -14,23 +14,23 @@
 
 namespace memgraph::query {
 
-auto FrameWritter::ResetTrackingValue(const Symbol &symbol) -> void {
+auto FrameWriter::ResetTrackingValue(const Symbol &symbol) -> void {
   if (frame_change_collector_) {
     frame_change_collector_->ResetTrackingValue(symbol);
   }
 }
 
-auto FrameWritter::Write(const Symbol &symbol, TypedValue value) -> TypedValue & {
+auto FrameWriter::Write(const Symbol &symbol, TypedValue value) -> TypedValue & {
   auto &inserted_value = frame_.elems_[symbol.position()] = std::move(value);
   ResetTrackingValue(symbol);
   return inserted_value;
 }
 
-auto FrameWritter::WriteAt(const Symbol &symbol, TypedValue value) -> TypedValue & {
+auto FrameWriter::WriteAt(const Symbol &symbol, TypedValue value) -> TypedValue & {
   auto &inserted_value = frame_.elems_.at(symbol.position()) = std::move(value);
   ResetTrackingValue(symbol);
   return inserted_value;
 }
 
-void FrameWritter::ClearList(const Symbol &symbol) { frame_.elems_[symbol.position()].ValueList().clear(); }
+void FrameWriter::ClearList(const Symbol &symbol) { frame_.elems_[symbol.position()].ValueList().clear(); }
 }  // namespace memgraph::query

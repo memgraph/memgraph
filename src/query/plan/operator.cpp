@@ -510,8 +510,8 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
 
   MultiPropsInitChecked(&new_node, properties);
 
-  auto frame_writter = frame->GetFrameWritter(context.frame_change_collector, context.evaluation_context.memory);
-  return frame_writter.Write(node_info.symbol, std::move(new_node)).ValueVertex();
+  auto frame_writer = frame->GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+  return frame_writer.Write(node_info.symbol, std::move(new_node)).ValueVertex();
 }
 
 ACCEPT_WITH_INPUT(CreateNode)
@@ -653,8 +653,8 @@ EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, const storage::EdgeTy
     }
     if (!properties.empty()) MultiPropsInitChecked(&edge, properties);
 
-    auto frame_writter = frame->GetFrameWritter(context.frame_change_collector, context.evaluation_context.memory);
-    frame_writter.Write(edge_info.symbol, edge);
+    auto frame_writer = frame->GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+    frame_writer.Write(edge_info.symbol, edge);
   } else {
     switch (maybe_edge.GetError()) {
       case storage::Error::SERIALIZATION_ERROR:
@@ -790,8 +790,8 @@ class ScanAllCursor : public Cursor {
     }
 #endif
 
-    auto frame_writter = frame.GetFrameWritter(context.frame_change_collector, context.evaluation_context.memory);
-    frame_writter.Write(output_symbol_, *vertices_it_.value());
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+    frame_writer.Write(output_symbol_, *vertices_it_.value());
     ++vertices_it_.value();
     return true;
   }
@@ -856,21 +856,21 @@ class ScanAllByEdgeCursor : public Cursor {
       edges_end_it_.emplace(edges_.value().end());
     }
 
-    auto frame_writter = frame.GetFrameWritter(context.frame_change_collector, context.evaluation_context.memory);
-    auto output_expansion = [this, &frame_writter](const EdgeAccessor &edge, bool reverse) {
-      frame_writter.Write(self_.common_.edge_symbol, edge);
-      frame_writter.Write(self_.common_.edge_symbol, edge);
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+    auto output_expansion = [this, &frame_writer](const EdgeAccessor &edge, bool reverse) {
+      frame_writer.Write(self_.common_.edge_symbol, edge);
+      frame_writer.Write(self_.common_.edge_symbol, edge);
       if (!reverse) {
-        frame_writter.Write(self_.common_.node1_symbol, edge.From());
-        frame_writter.Write(self_.common_.node2_symbol, edge.To());
+        frame_writer.Write(self_.common_.node1_symbol, edge.From());
+        frame_writer.Write(self_.common_.node2_symbol, edge.To());
       } else {
-        frame_writter.Write(self_.common_.node1_symbol, edge.To());
-        frame_writter.Write(self_.common_.node2_symbol, edge.From());
+        frame_writer.Write(self_.common_.node1_symbol, edge.To());
+        frame_writer.Write(self_.common_.node2_symbol, edge.From());
       }
     };
 
     const EdgeAccessor edge = *edges_it_.value();
-    frame_writter.Write(self_.common_.edge_symbol, edge);
+    frame_writer.Write(self_.common_.edge_symbol, edge);
     if (self_.common_.direction == EdgeAtom::Direction::OUT) {
       output_expansion(edge, false);
     } else if (self_.common_.direction == EdgeAtom::Direction::IN) {
@@ -1614,14 +1614,14 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP_BY_REF(self_);
 
   // A helper function for expanding a node from an edge.
-  auto frame_writter = frame.GetFrameWritter(context.frame_change_collector, context.evaluation_context.memory);
-  auto pull_node = [this, &frame_writter]<EdgeAtom::Direction direction>(const EdgeAccessor &new_edge,
-                                                                         utils::tag_value<direction>) {
+  auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+  auto pull_node = [this, &frame_writer]<EdgeAtom::Direction direction>(const EdgeAccessor &new_edge,
+                                                                        utils::tag_value<direction>) {
     if (self_.common_.existing_node) return;
     if constexpr (direction == EdgeAtom::Direction::IN) {
-      frame_writter.Write(self_.common_.node_symbol, new_edge.From());
+      frame_writer.Write(self_.common_.node_symbol, new_edge.From());
     } else if constexpr (direction == EdgeAtom::Direction::OUT) {
-      frame_writter.Write(self_.common_.node_symbol, new_edge.To());
+      frame_writer.Write(self_.common_.node_symbol, new_edge.To());
     } else {
       LOG_FATAL("Must indicate exact expansion direction here");
     }
@@ -1641,7 +1641,7 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
       }
 #endif
 
-      frame_writter.Write(self_.common_.edge_symbol, edge);
+      frame_writer.Write(self_.common_.edge_symbol, edge);
       pull_node(edge, utils::tag_v<EdgeAtom::Direction::IN>);
       return true;
     }
@@ -1661,7 +1661,7 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
         continue;
       }
 #endif
-      frame_writter.Write(self_.common_.edge_symbol, edge);
+      frame_writer.Write(self_.common_.edge_symbol, edge);
       pull_node(edge, utils::tag_v<EdgeAtom::Direction::OUT>);
       return true;
     }
@@ -1919,9 +1919,8 @@ class ExpandVariableCursor : public Cursor {
         if (lower_bound_ == 0) {
           auto &start_vertex = frame[self_.input_symbol_].ValueVertex();
           if (!self_.common_.existing_node) {
-            auto frame_writter =
-                frame.GetFrameWritter(context.frame_change_collector, context.evaluation_context.memory);
-            frame_writter.Write(self_.common_.node_symbol, start_vertex);
+            auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+            frame_writer.Write(self_.common_.node_symbol, start_vertex);
             return true;
           }
           if (CheckExistingNode(start_vertex, self_.common_.node_symbol, frame)) {
@@ -2006,19 +2005,19 @@ class ExpandVariableCursor : public Cursor {
         edges_it_.emplace_back(edges_.back().begin());
       }
 
-      auto frame_writter = frame.GetFrameWritter(context.frame_change_collector, context.evaluation_context.memory);
+      auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
       if (self_.filter_lambda_.accumulated_path_symbol) {
         // Add initial vertex of path to the accumulated path
-        frame_writter.Write(self_.filter_lambda_.accumulated_path_symbol.value(), Path(vertex));
+        frame_writer.Write(self_.filter_lambda_.accumulated_path_symbol.value(), Path(vertex));
       }
 
       // reset the frame value to an empty edge list
       if (frame[self_.common_.edge_symbol].IsList()) {
         // Preserve the list capacity if possible
-        frame_writter.ClearList(self_.common_.edge_symbol);
+        frame_writer.ClearList(self_.common_.edge_symbol);
       } else {
         auto *pull_memory = context.evaluation_context.memory;
-        frame_writter.Write(self_.common_.edge_symbol, TypedValue::TVector(pull_memory));
+        frame_writer.Write(self_.common_.edge_symbol, TypedValue::TVector(pull_memory));
       }
 
       return true;
@@ -2058,7 +2057,7 @@ class ExpandVariableCursor : public Cursor {
     // existing_node criterions, so expand in a loop until either the input
     // vertex is exhausted or a valid variable-length expansion is available.
 
-    auto frame_writter = frame.GetFrameWritter(context.frame_change_collector, context.evaluation_context.memory);
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
     auto try_expand = [&](TypedValue &value) {
       // we use this a lot
       auto &edges_on_frame = value.ValueList();
@@ -2098,13 +2097,13 @@ class ExpandVariableCursor : public Cursor {
       AppendEdge(current_edge.first, &edges_on_frame);
 
       if (!self_.common_.existing_node) {
-        frame_writter.Write(self_.common_.node_symbol, current_vertex);
+        frame_writer.Write(self_.common_.node_symbol, current_vertex);
       }
 
       // Skip expanding out of filtered expansion.
       if (self_.filter_lambda_.expression) {
-        frame_writter.Write(self_.filter_lambda_.inner_edge_symbol, current_edge.first);
-        frame_writter.Write(self_.filter_lambda_.inner_node_symbol, current_vertex);
+        frame_writer.Write(self_.filter_lambda_.inner_edge_symbol, current_edge.first);
+        frame_writer.Write(self_.filter_lambda_.inner_node_symbol, current_vertex);
         if (self_.filter_lambda_.accumulated_path_symbol) {
           auto update_path = [&](TypedValue &value) {
             MG_ASSERT(value.IsPath(), "Accumulated path must be path");
@@ -2116,7 +2115,7 @@ class ExpandVariableCursor : public Cursor {
             accumulated_path.Expand(current_edge.first);
             accumulated_path.Expand(current_vertex);
           };
-          frame_writter.Modify(*self_.filter_lambda_.accumulated_path_symbol, update_path);
+          frame_writer.Modify(*self_.filter_lambda_.accumulated_path_symbol, update_path);
         }
         if (!EvaluateFilter(evaluator, self_.filter_lambda_.expression)) return false;
       }
@@ -2147,7 +2146,7 @@ class ExpandVariableCursor : public Cursor {
       // check if we exhausted everything, if so return false
       if (edges_.empty()) return false;
 
-      bool expand_is_valid = frame_writter.Modify(self_.common_.edge_symbol, try_expand);
+      bool expand_is_valid = frame_writer.Modify(self_.common_.edge_symbol, try_expand);
 
       // We only yield true if we satisfy the lower bound.
       auto const &edges_on_frame = frame[self_.common_.edge_symbol].ValueList();
@@ -2232,18 +2231,18 @@ class STShortestPathCursor : public query::plan::Cursor {
       last_vertex = last_edge->From() == last_vertex ? last_edge->To() : last_edge->From();
       result.emplace_back(*last_edge);
     }
-    auto frame_writter = frame->GetFrameWritter(ctx_.frame_change_collector, ctx_.evaluation_context.memory);
-    frame_writter.WriteAt(self_.common_.edge_symbol, std::move(result));
+    auto frame_writer = frame->GetFrameWriter(ctx_.frame_change_collector, ctx_.evaluation_context.memory);
+    frame_writer.WriteAt(self_.common_.edge_symbol, std::move(result));
   }
 
   bool ShouldExpand(const VertexAccessor &vertex, const EdgeAccessor &edge, Frame *frame,
                     ExpressionEvaluator *evaluator, ExecutionContext &context) {
     if (!self_.filter_lambda_.expression) return true;
 
-    auto frame_writter = frame->GetFrameWritter(context.frame_change_collector, context.evaluation_context.memory);
+    auto frame_writer = frame->GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
-    frame_writter.WriteAt(self_.filter_lambda_.inner_node_symbol, vertex);
-    frame_writter.WriteAt(self_.filter_lambda_.inner_edge_symbol, edge);
+    frame_writer.WriteAt(self_.filter_lambda_.inner_node_symbol, vertex);
+    frame_writer.WriteAt(self_.filter_lambda_.inner_edge_symbol, edge);
 
     TypedValue result = self_.filter_lambda_.expression->Accept(*evaluator);
     if (result.IsNull()) return false;
@@ -2447,12 +2446,12 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
 
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::OLD, nullptr, &context.number_of_hops);
-    auto frame_writter = frame.GetFrameWritter(context.frame_change_collector, context.evaluation_context.memory);
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
     // for the given (edge, vertex) pair checks if they satisfy the
     // "where" condition. if so, places them in the to_visit_ structure.
-    auto expand_pair = [this, &evaluator, &frame, &context, &frame_writter](EdgeAccessor edge,
-                                                                            VertexAccessor vertex) -> bool {
+    auto expand_pair = [this, &evaluator, &frame, &context, &frame_writer](EdgeAccessor edge,
+                                                                           VertexAccessor vertex) -> bool {
       // if we already processed the given vertex it doesn't get expanded
       if (processed_.find(vertex) != processed_.end()) return false;
 #ifdef MG_ENTERPRISE
@@ -2463,8 +2462,8 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
         return false;
       }
 #endif
-      frame_writter.Write(self_.filter_lambda_.inner_edge_symbol, edge);
-      frame_writter.Write(self_.filter_lambda_.inner_node_symbol, vertex);
+      frame_writer.Write(self_.filter_lambda_.inner_edge_symbol, edge);
+      frame_writer.Write(self_.filter_lambda_.inner_node_symbol, vertex);
       std::optional<Path> curr_acc_path = std::nullopt;
       if (self_.filter_lambda_.accumulated_path_symbol) {
         MG_ASSERT(frame[self_.filter_lambda_.accumulated_path_symbol.value()].IsPath(),
@@ -2475,7 +2474,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
           accumulated_path.Expand(edge);
           accumulated_path.Expand(vertex);
         };
-        frame_writter.Modify(self_.filter_lambda_.accumulated_path_symbol.value(), expand_path);
+        frame_writer.Modify(self_.filter_lambda_.accumulated_path_symbol.value(), expand_path);
 
         curr_acc_path = frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath();  // const ref
       }
@@ -2497,10 +2496,10 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       return true;
     };
 
-    auto restore_frame_state_after_expansion = [this, &frame_writter](bool was_expanded) {
+    auto restore_frame_state_after_expansion = [this, &frame_writer](bool was_expanded) {
       if (was_expanded && self_.filter_lambda_.accumulated_path_symbol) {
         auto shrink = [&](TypedValue &value) { value.ValuePath().Shrink(); };
-        frame_writter.Modify(self_.filter_lambda_.accumulated_path_symbol.value(), shrink);
+        frame_writer.Modify(self_.filter_lambda_.accumulated_path_symbol.value(), shrink);
       }
     };
 
@@ -2561,7 +2560,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
 
         if (self_.filter_lambda_.accumulated_path_symbol) {
           // Add initial vertex of path to the accumulated path
-          frame_writter.Write(self_.filter_lambda_.accumulated_path_symbol.value(), Path(vertex));
+          frame_writer.Write(self_.filter_lambda_.accumulated_path_symbol.value(), Path(vertex));
         }
 
         expand_from_vertex(vertex);
@@ -2593,7 +2592,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       if (static_cast<int64_t>(edge_list.size()) < upper_bound_) {
         if (self_.filter_lambda_.accumulated_path_symbol) {
           MG_ASSERT(curr_acc_path.has_value(), "Expected non-null accumulated path");
-          frame_writter.Write(self_.filter_lambda_.accumulated_path_symbol.value(), std::move(curr_acc_path.value()));
+          frame_writer.Write(self_.filter_lambda_.accumulated_path_symbol.value(), std::move(curr_acc_path.value()));
         }
         if (!context.hops_limit.IsLimitReached()) {
           expand_from_vertex(curr_vertex);
@@ -2602,11 +2601,11 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
 
       if (static_cast<int64_t>(edge_list.size()) < lower_bound_) continue;
 
-      frame_writter.Write(self_.common_.node_symbol, curr_vertex);
+      frame_writer.Write(self_.common_.node_symbol, curr_vertex);
 
       // place edges on the frame in the correct order
       std::reverse(edge_list.begin(), edge_list.end());
-      frame_writter.Write(self_.common_.edge_symbol, std::move(edge_list));
+      frame_writer.Write(self_.common_.edge_symbol, std::move(edge_list));
 
       return true;
     }
@@ -2710,7 +2709,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::OLD, nullptr, &context.number_of_hops);
 
-    auto frame_writter = frame.GetFrameWritter(context.frame_change_collector, context.evaluation_context.memory);
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
     auto create_state = [this](const VertexAccessor &vertex, int64_t depth) {
       return std::make_pair(vertex, upper_bound_set_ ? depth : 0);
@@ -2719,17 +2718,17 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     // For the given (edge, vertex, weight, depth) tuple checks if they
     // satisfy the "where" condition. if so, places them in the priority
     // queue.
-    auto expand_pair = [this, &evaluator, &frame, &create_state, &frame_writter](
+    auto expand_pair = [this, &evaluator, &frame, &create_state, &frame_writer](
                            const EdgeAccessor &edge, const VertexAccessor &vertex, const TypedValue &total_weight,
                            int64_t depth) {
-      frame_writter.Write(self_.weight_lambda_->inner_edge_symbol, edge);
-      frame_writter.Write(self_.weight_lambda_->inner_node_symbol, vertex);
+      frame_writer.Write(self_.weight_lambda_->inner_edge_symbol, edge);
+      frame_writer.Write(self_.weight_lambda_->inner_node_symbol, vertex);
       TypedValue next_weight = CalculateNextWeight(self_.weight_lambda_, total_weight, evaluator);
 
       std::optional<Path> curr_acc_path = std::nullopt;
       if (self_.filter_lambda_.expression) {
-        frame_writter.Write(self_.filter_lambda_.inner_edge_symbol, edge);
-        frame_writter.Write(self_.filter_lambda_.inner_node_symbol, vertex);
+        frame_writer.Write(self_.filter_lambda_.inner_edge_symbol, edge);
+        frame_writer.Write(self_.filter_lambda_.inner_node_symbol, vertex);
         if (self_.filter_lambda_.accumulated_path_symbol) {
           MG_ASSERT(frame[self_.filter_lambda_.accumulated_path_symbol.value()].IsPath(),
                     "Accumulated path must be path");
@@ -2739,11 +2738,11 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
             accumulated_path.Expand(edge);
             accumulated_path.Expand(vertex);
           };
-          frame_writter.Modify(self_.filter_lambda_.accumulated_path_symbol.value(), expand_path);
+          frame_writer.Modify(self_.filter_lambda_.accumulated_path_symbol.value(), expand_path);
           curr_acc_path = frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath();  // const ref
 
           if (self_.filter_lambda_.accumulated_weight_symbol) {
-            frame_writter.Write(self_.filter_lambda_.accumulated_weight_symbol.value(), next_weight);
+            frame_writer.Write(self_.filter_lambda_.accumulated_weight_symbol.value(), next_weight);
           }
         }
 
@@ -2759,10 +2758,10 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
       pq_.emplace(next_weight, depth + 1, vertex, edge, curr_acc_path);
     };
 
-    auto restore_frame_state_after_expansion = [this, &frame_writter]() {
+    auto restore_frame_state_after_expansion = [this, &frame_writer]() {
       if (self_.filter_lambda_.accumulated_path_symbol) {
         auto shrink = [&](TypedValue &value) { value.ValuePath().Shrink(); };
-        frame_writter.Modify(self_.filter_lambda_.accumulated_path_symbol.value(), shrink);
+        frame_writer.Modify(self_.filter_lambda_.accumulated_path_symbol.value(), shrink);
       }
     };
 
@@ -2821,7 +2820,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
         if (self_.filter_lambda_.accumulated_path_symbol) {
           // Add initial vertex of path to the accumulated path
           curr_acc_path = Path(vertex);
-          frame_writter.Write(self_.filter_lambda_.accumulated_path_symbol.value(), curr_acc_path.value());
+          frame_writer.Write(self_.filter_lambda_.accumulated_path_symbol.value(), curr_acc_path.value());
         }
         if (self_.upper_bound_) {
           upper_bound_ = EvaluateInt(evaluator, self_.upper_bound_, "Max depth in weighted shortest path expansion");
@@ -2835,8 +2834,8 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
               "Maximum depth in weighted shortest path expansion must be at "
               "least 1.");
 
-        frame_writter.Write(self_.weight_lambda_->inner_edge_symbol, TypedValue());
-        frame_writter.Write(self_.weight_lambda_->inner_node_symbol, vertex);
+        frame_writer.Write(self_.weight_lambda_->inner_edge_symbol, TypedValue());
+        frame_writer.Write(self_.weight_lambda_->inner_node_symbol, vertex);
         TypedValue current_weight =
             CalculateNextWeight(self_.weight_lambda_, /* total_weight */ TypedValue(), evaluator);
 
@@ -2869,7 +2868,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
         // Expand only if what we've just expanded is less than max depth.
         if (current_depth < upper_bound_) {
           if (self_.filter_lambda_.accumulated_path_symbol) {
-            frame_writter.Write(self_.filter_lambda_.accumulated_path_symbol.value(), std::move(curr_acc_path.value()));
+            frame_writer.Write(self_.filter_lambda_.accumulated_path_symbol.value(), std::move(curr_acc_path.value()));
           }
           expand_from_vertex(current_vertex, current_weight, current_depth);
         }
@@ -2902,15 +2901,15 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
           // shortest to existing node.
           ClearQueue();
         } else {
-          frame_writter.Write(self_.common_.node_symbol, current_vertex);
+          frame_writer.Write(self_.common_.node_symbol, current_vertex);
         }
 
         if (!self_.is_reverse_) {
           // Place edges on the frame in the correct order.
           std::reverse(edge_list.begin(), edge_list.end());
         }
-        frame_writter.Write(self_.common_.edge_symbol, std::move(edge_list));
-        frame_writter.Write(self_.total_weight_.value(), current_weight);
+        frame_writer.Write(self_.common_.edge_symbol, std::move(edge_list));
+        frame_writer.Write(self_.total_weight_.value(), current_weight);
         yielded_vertices_.insert(current_vertex);
         return true;
       }
@@ -3020,7 +3019,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
                                   storage::View::OLD, nullptr, &context.number_of_hops);
 
     auto *memory = context.evaluation_context.memory;
-    auto frame_writter = frame.GetFrameWritter(context.frame_change_collector, memory);
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, memory);
 
     auto create_state = [this](const VertexAccessor &vertex, int64_t depth) {
       return std::make_pair(vertex, upper_bound_set_ ? depth : 0);
@@ -3029,21 +3028,21 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
     // For the given (edge, direction, weight, depth) tuple checks if they
     // satisfy the "where" condition. if so, places them in the priority
     // queue.
-    auto expand_vertex = [this, &evaluator, &frame, &frame_writter](const EdgeAccessor &edge,
-                                                                    const EdgeAtom::Direction direction,
-                                                                    const TypedValue &total_weight, int64_t depth) {
+    auto expand_vertex = [this, &evaluator, &frame, &frame_writer](const EdgeAccessor &edge,
+                                                                   const EdgeAtom::Direction direction,
+                                                                   const TypedValue &total_weight, int64_t depth) {
       auto const &next_vertex = direction == EdgeAtom::Direction::IN ? edge.From() : edge.To();
 
       // Evaluate current weight
-      frame_writter.Write(self_.weight_lambda_->inner_edge_symbol, edge);
-      frame_writter.Write(self_.weight_lambda_->inner_node_symbol, next_vertex);
+      frame_writer.Write(self_.weight_lambda_->inner_edge_symbol, edge);
+      frame_writer.Write(self_.weight_lambda_->inner_node_symbol, next_vertex);
       TypedValue next_weight = CalculateNextWeight(self_.weight_lambda_, total_weight, evaluator);
 
       // If filter expression exists, evaluate filter
       std::optional<Path> curr_acc_path = std::nullopt;
       if (self_.filter_lambda_.expression) {
-        frame_writter.Write(self_.filter_lambda_.inner_edge_symbol, edge);
-        frame_writter.Write(self_.filter_lambda_.inner_node_symbol, next_vertex);
+        frame_writer.Write(self_.filter_lambda_.inner_edge_symbol, edge);
+        frame_writer.Write(self_.filter_lambda_.inner_node_symbol, next_vertex);
         if (self_.filter_lambda_.accumulated_path_symbol) {
           MG_ASSERT(frame[self_.filter_lambda_.accumulated_path_symbol.value()].IsPath(),
                     "Accumulated path must be path");
@@ -3052,11 +3051,11 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
             accumulated_path.Expand(edge);
             accumulated_path.Expand(next_vertex);
           };
-          frame_writter.Modify(self_.filter_lambda_.accumulated_path_symbol.value(), expand_path);
+          frame_writer.Modify(self_.filter_lambda_.accumulated_path_symbol.value(), expand_path);
           curr_acc_path = frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath();  // const ref
 
           if (self_.filter_lambda_.accumulated_weight_symbol) {
-            frame_writter.Write(self_.filter_lambda_.accumulated_weight_symbol.value(), next_weight);
+            frame_writer.Write(self_.filter_lambda_.accumulated_weight_symbol.value(), next_weight);
           }
         }
 
@@ -3097,10 +3096,10 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
                   std::move(curr_acc_path));
     };
 
-    auto restore_frame_state_after_expansion = [this, &frame_writter]() {
+    auto restore_frame_state_after_expansion = [this, &frame_writer]() {
       if (self_.filter_lambda_.accumulated_path_symbol) {
         auto shrink = [&](TypedValue &value) { value.ValuePath().Shrink(); };
-        frame_writter.Modify(self_.filter_lambda_.accumulated_path_symbol.value(), shrink);
+        frame_writer.Modify(self_.filter_lambda_.accumulated_path_symbol.value(), shrink);
       }
     };
 
@@ -3143,7 +3142,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
     std::optional<VertexAccessor> start_vertex;
 
-    auto create_path = [this, &frame, &memory, &frame_writter]() {
+    auto create_path = [this, &frame, &memory, &frame_writer]() {
       auto &current_level = traversal_stack_.back();
 
       auto func1 = [&](TypedValue &value) {
@@ -3162,7 +3161,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         return true;
       };
 
-      auto result = frame_writter.Modify(self_.common_.edge_symbol, func1);
+      auto result = frame_writer.Modify(self_.common_.edge_symbol, func1);
       if (!result) return false;
 
       auto [current_edge, current_edge_direction, current_weight] = current_level.back();
@@ -3177,10 +3176,10 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
           edges_on_frame.emplace(edges_on_frame.begin(), current_edge);
       };
 
-      frame_writter.Modify(self_.common_.edge_symbol, func2);
+      frame_writer.Modify(self_.common_.edge_symbol, func2);
 
       auto next_vertex = current_edge_direction == EdgeAtom::Direction::IN ? current_edge.From() : current_edge.To();
-      frame_writter.Write(self_.total_weight_.value(), current_weight);
+      frame_writer.Write(self_.total_weight_.value(), current_weight);
 
       if (next_edges_.find({next_vertex, traversal_stack_.size()}) != next_edges_.end()) {
         auto [it, inserted] =
@@ -3202,12 +3201,12 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         ExpectType(self_.common_.node_symbol, node, TypedValue::Type::Vertex);
         if (node.ValueVertex() != next_vertex) return false;
       } else {
-        frame_writter.Write(self_.common_.node_symbol, next_vertex);
+        frame_writer.Write(self_.common_.node_symbol, next_vertex);
       }
       return true;
     };
 
-    auto create_DFS_traversal_tree = [this, &context, &memory, &frame_writter, &create_state, &expand_from_vertex]() {
+    auto create_DFS_traversal_tree = [this, &context, &memory, &frame_writer, &create_state, &expand_from_vertex]() {
       while (!pq_.empty()) {
         AbortCheck(context);
 
@@ -3225,7 +3224,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
           if (current_depth < upper_bound_) {
             if (self_.filter_lambda_.accumulated_path_symbol) {
               DMG_ASSERT(acc_path.has_value(), "Path must be already filled in AllShortestPath DFS traversals");
-              frame_writter.Write(self_.filter_lambda_.accumulated_path_symbol.value(), std::move(acc_path.value()));
+              frame_writer.Write(self_.filter_lambda_.accumulated_path_symbol.value(), std::move(acc_path.value()));
             }
             expand_from_vertex(current_vertex, current_weight, current_depth);
           }
@@ -3297,11 +3296,11 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
         if (self_.filter_lambda_.accumulated_path_symbol) {
           // Add initial vertex of path to the accumulated path
-          frame_writter.Write(self_.filter_lambda_.accumulated_path_symbol.value(), Path(*start_vertex));
+          frame_writer.Write(self_.filter_lambda_.accumulated_path_symbol.value(), Path(*start_vertex));
         }
 
-        frame_writter.Write(self_.weight_lambda_->inner_edge_symbol, TypedValue());
-        frame_writter.Write(self_.weight_lambda_->inner_node_symbol, *start_vertex);
+        frame_writer.Write(self_.weight_lambda_->inner_edge_symbol, TypedValue());
+        frame_writer.Write(self_.weight_lambda_->inner_node_symbol, *start_vertex);
         TypedValue current_weight =
             CalculateNextWeight(self_.weight_lambda_, /* total_weight */ TypedValue(), evaluator);
 
@@ -3314,7 +3313,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         if (upper_bound_set_ && upper_bound_ > 0) {
           new_vector.reserve(upper_bound_);
         }
-        frame_writter.Write(self_.common_.edge_symbol, std::move(new_vector));
+        frame_writer.Write(self_.common_.edge_symbol, std::move(new_vector));
       }
 
       // Create a DFS traversal tree from the start node
@@ -3897,8 +3896,8 @@ class KShortestPathsCursor : public Cursor {
     for (const auto &edge : path.edges) {
       edge_list.emplace_back(edge);
     }
-    auto frame_writter = frame->GetFrameWritter(context.frame_change_collector, memory);
-    frame_writter.Write(self_.common_.edge_symbol, std::move(edge_list));
+    auto frame_writer = frame->GetFrameWriter(context.frame_change_collector, memory);
+    frame_writer.Write(self_.common_.edge_symbol, std::move(edge_list));
   }
 
   bool IsPathInFoundSet(const PathInfo &path) {
@@ -4012,7 +4011,7 @@ class ConstructNamedPathCursor : public Cursor {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("ConstructNamedPath");
 
-    auto frame_writter = frame.GetFrameWritter(context.frame_change_collector, context.evaluation_context.memory);
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
     AbortCheck(context);
 
@@ -4025,7 +4024,7 @@ class ConstructNamedPathCursor : public Cursor {
     auto *pull_memory = context.evaluation_context.memory;
     // In an OPTIONAL MATCH everything could be Null.
     if (start_vertex.IsNull()) {
-      frame_writter.Write(self_.path_symbol_, TypedValue(pull_memory));
+      frame_writer.Write(self_.path_symbol_, TypedValue(pull_memory));
       return true;
     }
 
@@ -4044,7 +4043,7 @@ class ConstructNamedPathCursor : public Cursor {
       //  list (variable expand or BFS).
       switch (expansion.type()) {
         case TypedValue::Type::Null:
-          frame_writter.Write(self_.path_symbol_, TypedValue(pull_memory));
+          frame_writer.Write(self_.path_symbol_, TypedValue(pull_memory));
           return true;
         case TypedValue::Type::Vertex:
           if (!last_was_edge_list) path.Expand(expansion.ValueVertex());
@@ -4075,7 +4074,7 @@ class ConstructNamedPathCursor : public Cursor {
       }
     }
 
-    frame_writter.Write(self_.path_symbol_, path);
+    frame_writer.Write(self_.path_symbol_, path);
     return true;
   }
 
@@ -4308,8 +4307,8 @@ bool EvaluatePatternFilter::EvaluatePatternFilterCursor::Pull(Frame &frame, Exec
     *return_value = TypedValue(input_cursor->Pull(frame, context), context.evaluation_context.memory);
   };
 
-  auto frame_writter = frame.GetFrameWritter(context.frame_change_collector, context.evaluation_context.memory);
-  frame_writter.Write(self_.output_symbol_, TypedValue(std::move(function)));
+  auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+  frame_writer.Write(self_.output_symbol_, TypedValue(std::move(function)));
   return true;
 }
 
@@ -5023,12 +5022,12 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
   if (!input_cursor_->Pull(frame, context)) return false;
 
   TypedValue const &lhs = frame[self_.input_symbol_];  // TODO review: will this const ref be changed after
-                                                       // frame_writter.modify on same frame? it should be
+                                                       // frame_writer.modify on same frame? it should be
 
   // Set, just like Create needs to see the latest changes.
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::NEW, nullptr, &context.number_of_hops);
-  auto frame_writter = frame.GetFrameWritter(context.frame_change_collector, context.evaluation_context.memory);
+  auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
   TypedValue rhs = self_.rhs_->Accept(evaluator);
 
@@ -5048,7 +5047,7 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
       auto set_properties_on_record = [&](TypedValue &vertex) {
         SetPropertiesOnRecord(&vertex.ValueVertex(), rhs, self_.op_, &context, cached_name_id_);
       };
-      frame_writter.Modify(self_.input_symbol_, set_properties_on_record);
+      frame_writer.Modify(self_.input_symbol_, set_properties_on_record);
       break;
     }
     case TypedValue::Type::Edge: {
@@ -5065,7 +5064,7 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
       auto set_properties_on_record = [&](TypedValue &edge) {
         SetPropertiesOnRecord(&edge.ValueEdge(), rhs, self_.op_, &context, cached_name_id_);
       };
-      frame_writter.Modify(self_.input_symbol_, set_properties_on_record);
+      frame_writer.Modify(self_.input_symbol_, set_properties_on_record);
       break;
     }
     case TypedValue::Type::Null: {
@@ -5118,7 +5117,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
 
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::NEW, nullptr, &context.number_of_hops);
-  auto frame_writter = frame.GetFrameWritter(context.frame_change_collector, context.evaluation_context.memory);
+  auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
   if (!input_cursor_->Pull(frame, context)) return false;
   auto labels = EvaluateLabels(self_.labels_, evaluator, context.db_accessor);
@@ -5174,7 +5173,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
     }
     return true;
   };
-  return frame_writter.Modify(self_.input_symbol_, func);
+  return frame_writer.Modify(self_.input_symbol_, func);
 }
 
 void SetLabels::SetLabelsCursor::Shutdown() { input_cursor_->Shutdown(); }
@@ -5450,7 +5449,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
 
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::NEW, nullptr, &context.number_of_hops);
-  auto frame_writter = frame.GetFrameWritter(context.frame_change_collector, context.evaluation_context.memory);
+  auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
   if (!input_cursor_->Pull(frame, context)) return false;
   auto labels = EvaluateLabels(self_.labels_, evaluator, context.db_accessor);
@@ -5508,7 +5507,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
     }
     return true;
   };
-  return frame_writter.Modify(self_.input_symbol_, func);
+  return frame_writer.Modify(self_.input_symbol_, func);
 }
 
 void RemoveLabels::RemoveLabelsCursor::Shutdown() { input_cursor_->Shutdown(); }
@@ -5684,13 +5683,13 @@ class AccumulateCursor : public Cursor {
 
     AbortCheck(context);
     if (cache_it_ == cache_.end()) return false;
-    auto frame_writter = frame.GetFrameWritter(context.frame_change_collector, context.evaluation_context.memory);
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
     auto row_it = (cache_it_++)->begin();
     for (const Symbol &symbol : self_.symbols_) {
       if (context.frame_change_collector) {
         context.frame_change_collector->ResetTrackingValue(symbol);
       }
-      frame_writter.Write(symbol, *row_it++);
+      frame_writer.Write(symbol, *row_it++);
     }
     return true;
   }
@@ -5780,7 +5779,7 @@ class AggregateCursor : public Cursor {
 
     AbortCheck(context);
 
-    auto frame_writter = frame.GetFrameWritter(context.frame_change_collector, context.evaluation_context.memory);
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
     if (!pulled_all_input_) {
       if (!ProcessAll(&frame, &context) && !self_.group_by_.empty()) return false;
@@ -5791,7 +5790,7 @@ class AggregateCursor : public Cursor {
         auto *pull_memory = context.evaluation_context.memory;
         // place default aggregation values on the frame
         for (const auto &elem : self_.aggregations_) {
-          frame_writter.Write(elem.output_sym, DefaultAggregationOpValue(elem, pull_memory));
+          frame_writer.Write(elem.output_sym, DefaultAggregationOpValue(elem, pull_memory));
           if (context.frame_change_collector) {
             context.frame_change_collector->ResetTrackingValue(elem.output_sym);
           }
@@ -5799,7 +5798,7 @@ class AggregateCursor : public Cursor {
 
         // place null as remember values on the frame
         for (const Symbol &remember_sym : self_.remember_) {
-          frame_writter.Write(remember_sym, TypedValue(pull_memory));
+          frame_writer.Write(remember_sym, TypedValue(pull_memory));
           if (context.frame_change_collector) {
             context.frame_change_collector->ResetTrackingValue(remember_sym);
           }
@@ -5812,11 +5811,11 @@ class AggregateCursor : public Cursor {
     // place aggregation values on the frame
     auto aggregation_values_it = aggregation_it_->second.values_.begin();
     for (const auto &aggregation_elem : self_.aggregations_)
-      frame_writter.Write(aggregation_elem.output_sym, *aggregation_values_it++);
+      frame_writer.Write(aggregation_elem.output_sym, *aggregation_values_it++);
 
     // place remember values on the frame
     auto remember_values_it = aggregation_it_->second.remember_.begin();
-    for (const Symbol &remember_sym : self_.remember_) frame_writter.Write(remember_sym, *remember_values_it++);
+    for (const Symbol &remember_sym : self_.remember_) frame_writer.Write(remember_sym, *remember_values_it++);
 
     aggregation_it_++;
     return true;
@@ -6410,12 +6409,12 @@ class OrderByCursor : public Cursor {
                "Number of values does not match the number of output symbols "
                "in OrderBy");
     auto output_sym_it = self_.output_symbols_.begin();
-    auto frame_writter = frame.GetFrameWritter(context.frame_change_collector, context.evaluation_context.memory);
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
     for (TypedValue &output : *cache_it_) {
       if (context.frame_change_collector) {
         context.frame_change_collector->ResetTrackingValue(*output_sym_it);
       }
-      frame_writter.Write(*output_sym_it++, std::move(output));
+      frame_writer.Write(*output_sym_it++, std::move(output));
     }
     cache_it_++;
     return true;
@@ -6596,7 +6595,7 @@ bool Optional::OptionalCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Optional");
 
-  auto frame_writter = frame.GetFrameWritter(context.frame_change_collector, context.evaluation_context.memory);
+  auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
   while (true) {
     AbortCheck(context);
@@ -6623,7 +6622,7 @@ bool Optional::OptionalCursor::Pull(Frame &frame, ExecutionContext &context) {
         // optional symbols to Null, ensure next time the
         // input gets pulled and return true
         for (const Symbol &sym : self_.optional_symbols_) {
-          frame_writter.Write(sym, TypedValue(context.evaluation_context.memory));
+          frame_writer.Write(sym, TypedValue(context.evaluation_context.memory));
         }
         pull_input_ = true;
         return true;
@@ -6669,7 +6668,7 @@ class UnwindCursor : public Cursor {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("Unwind");
 
-    auto frame_writter = frame.GetFrameWritter(context.frame_change_collector, context.evaluation_context.memory);
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
     while (true) {
       AbortCheck(context);
@@ -6692,7 +6691,7 @@ class UnwindCursor : public Cursor {
       // if we reached the end of our list of values goto back to top
       if (input_value_it_ == input_value_.end()) continue;
 
-      frame_writter.Write(self_.output_symbol_, std::move(*input_value_it_++));
+      frame_writer.Write(self_.output_symbol_, std::move(*input_value_it_++));
       if (context.frame_change_collector) {
         context.frame_change_collector->ResetTrackingValue(self_.output_symbol_);
       }
@@ -6883,7 +6882,7 @@ bool Union::UnionCursor::Pull(Frame &frame, ExecutionContext &context) {
   }
 
   // put collected values on frame under union symbols
-  auto frame_writer = frame.GetFrameWritter(context.frame_change_collector, context.evaluation_context.memory);
+  auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
   for (const auto &symbol : self_.union_symbols_) {
     frame_writer.Write(symbol, results[symbol.name()]);
   }
@@ -6951,10 +6950,10 @@ class CartesianCursor : public Cursor {
       return false;
     }
 
-    auto frame_writter = frame.GetFrameWritter(context.frame_change_collector, context.evaluation_context.memory);
-    auto restore_frame = [&frame_writter, &context](const auto &symbols, const auto &restore_from) {
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+    auto restore_frame = [&frame_writer, &context](const auto &symbols, const auto &restore_from) {
       for (const auto &symbol : symbols) {
-        frame_writter.Write(symbol, restore_from[symbol.position()]);
+        frame_writer.Write(symbol, restore_from[symbol.position()]);
         if (context.frame_change_collector) {
           context.frame_change_collector->ResetTrackingValue(symbol);
         }
@@ -7046,11 +7045,11 @@ class OutputTableCursor : public Cursor {
       pulled_ = true;
     }
 
-    auto frame_writter = frame.GetFrameWritter(context.frame_change_collector, context.evaluation_context.memory);
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
     if (current_row_ < rows_.size()) {
       for (size_t i = 0; i < self_.output_symbols_.size(); ++i) {
-        frame_writter.Write(self_.output_symbols_[i], rows_[current_row_][i]);
+        frame_writer.Write(self_.output_symbols_[i], rows_[current_row_][i]);
         if (context.frame_change_collector) {
           context.frame_change_collector->ResetTrackingValue(self_.output_symbols_[i]);
         }
@@ -7103,13 +7102,13 @@ class OutputTableStreamCursor : public Cursor {
 
     AbortCheck(context);
 
-    auto frame_writter = frame.GetFrameWritter(context.frame_change_collector, context.evaluation_context.memory);
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
     const auto row = self_->callback_(&frame, &context);
     if (row) {
       MG_ASSERT(row->size() == self_->output_symbols_.size(), "Wrong number of columns in row!");
       for (size_t i = 0; i < self_->output_symbols_.size(); ++i) {
-        frame_writter.Write(self_->output_symbols_[i], row->at(i));
+        frame_writer.Write(self_->output_symbols_[i], row->at(i));
         if (context.frame_change_collector) {
           context.frame_change_collector->ResetTrackingValue(self_->output_symbols_[i]);
         }
@@ -7331,7 +7330,7 @@ class CallProcedureCursor : public Cursor {
 
     AbortCheck(context);
 
-    auto frame_writter = frame.GetFrameWritter(context.frame_change_collector, context.evaluation_context.memory);
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
     auto skip_rows_with_deleted_values = [this]() {
       while (result_row_it_ != result_.rows.end() && result_row_it_->has_deleted_values) {
@@ -7401,7 +7400,7 @@ class CallProcedureCursor : public Cursor {
     // Values are ordered the same as result_fields
     auto &values = result_row_it_->values;
     for (int i = 0; i < self_->result_fields_.size(); ++i) {
-      frame_writter.Write(self_->result_symbols_[i], std::move(values[i]));
+      frame_writer.Write(self_->result_symbols_[i], std::move(values[i]));
       if (context.frame_change_collector) {
         context.frame_change_collector->ResetTrackingValue(self_->result_symbols_[i]);
       }
@@ -7607,7 +7606,7 @@ class LoadCsvCursor : public Cursor {
 
     AbortCheck(context);
 
-    auto frame_writter = frame.GetFrameWritter(context.frame_change_collector, context.evaluation_context.memory);
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
     // ToDo(the-joksim):
     //  - this is an ungodly hack because the pipeline of creating a plan
@@ -7635,9 +7634,9 @@ class LoadCsvCursor : public Cursor {
       return false;
     }
     if (!reader_->HasHeader()) {
-      frame_writter.Write(self_->row_var_, CsvRowToTypedList(*row, nullif_));
+      frame_writer.Write(self_->row_var_, CsvRowToTypedList(*row, nullif_));
     } else {
-      frame_writter.Write(
+      frame_writer.Write(
           self_->row_var_,
           CsvRowToTypedMap(*row, csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory),
                            nullif_));
@@ -7727,10 +7726,10 @@ class ForeachCursor : public Cursor {
       throw QueryRuntimeException("FOREACH expression must resolve to a list, but got '{}'.", expr_result.type());
     }
 
-    auto frame_writter = frame.GetFrameWritter(context.frame_change_collector, context.evaluation_context.memory);
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
     const auto &cache_ = expr_result.ValueList();
     for (const auto &index : cache_) {
-      frame_writter.Write(loop_variable_symbol_, index);
+      frame_writer.Write(loop_variable_symbol_, index);
       while (updates_->Pull(frame, context)) {
         AbortCheck(context);
       }
@@ -7986,10 +7985,10 @@ class HashJoinCursor : public Cursor {
       return false;
     }
 
-    auto frame_writter = frame.GetFrameWritter(context.frame_change_collector, context.evaluation_context.memory);
-    auto restore_frame = [&frame_writter, &context](const auto &symbols, const auto &restore_from) {
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+    auto restore_frame = [&frame_writer, &context](const auto &symbols, const auto &restore_from) {
       for (const auto &symbol : symbols) {
-        frame_writter.Write(symbol, restore_from[symbol.position()]);
+        frame_writer.Write(symbol, restore_from[symbol.position()]);
         if (context.frame_change_collector) {
           context.frame_change_collector->ResetTrackingValue(symbol);
         }
@@ -8142,7 +8141,7 @@ class RollUpApplyCursor : public Cursor {
 
     AbortCheck(context);
 
-    auto frame_writter = frame.GetFrameWritter(context.frame_change_collector, context.evaluation_context.memory);
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
     TypedValue result(std::vector<TypedValue>(), context.evaluation_context.memory);
     if (input_cursor_->Pull(frame, context) || self_.pass_input_) {
@@ -8156,7 +8155,7 @@ class RollUpApplyCursor : public Cursor {
         context.frame_change_collector->ResetTrackingValue(self_.list_collection_symbol_);
       }
 
-      frame_writter.Write(self_.result_symbol_, result);
+      frame_writer.Write(self_.result_symbol_, result);
       // After a successful input from the list_collection_cursor_
       // reset state of cursor because it has to a Once at the beginning
       list_collection_cursor_->Reset();

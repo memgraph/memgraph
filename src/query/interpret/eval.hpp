@@ -211,7 +211,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   TypedValue Visit(NamedExpression &named_expression) override {
     const auto &symbol = symbol_table_->at(named_expression);
     auto value = named_expression.expression_->Accept(*this);
-    frame_writter_.WriteAt(symbol, value);
+    frame_writer_.WriteAt(symbol, value);
     return value;  // NRVO
   }
 
@@ -705,8 +705,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     const auto &accumulator_symbol = symbol_table_->at(*reduce.accumulator_);
     auto accumulator = reduce.initializer_->Accept(*this);
     for (auto &element : list) {
-      frame_writter_.WriteAt(accumulator_symbol, accumulator);
-      frame_writter_.WriteAt(element_symbol, std::move(element));
+      frame_writer_.WriteAt(accumulator_symbol, accumulator);
+      frame_writer_.WriteAt(element_symbol, std::move(element));
       accumulator = reduce.expression_->Accept(*this);
     }
     return accumulator;
@@ -728,7 +728,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       if (element.IsNull()) {
         result.emplace_back();
       } else {
-        frame_writter_.WriteAt(element_symbol, std::move(element));
+        frame_writer_.WriteAt(element_symbol, std::move(element));
         result.emplace_back(extract.expression_->Accept(*this));
       }
     }
@@ -753,7 +753,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     result.reserve(list.size());
 
     for (const auto &element : list) {
-      frame_writter_.WriteAt(element_symbol, element);
+      frame_writer_.WriteAt(element_symbol, element);
       if (!needs_predicate) {
         if (has_transformation) {
           result.emplace_back(list_comprehension.expression_->Accept(*this));
@@ -805,7 +805,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     bool has_value = false;
     bool const non_empty_list = !list.empty();
     for (auto &element : list) {
-      frame_writter_.WriteAt(symbol, std::move(element));
+      frame_writer_.WriteAt(symbol, std::move(element));
       auto result = all.where_->expression_->Accept(*this);
       if (!result.IsNull() && result.type() != TypedValue::Type::Bool) {
         throw QueryRuntimeException("Predicate of ALL must evaluate to boolean, got {}.", result.type());
@@ -843,7 +843,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     bool has_null_elements = false;
     bool const non_empty_list = !list.empty();
     for (auto &element : list) {
-      frame_writter_.WriteAt(symbol, std::move(element));
+      frame_writer_.WriteAt(symbol, std::move(element));
       auto result = single.where_->expression_->Accept(*this);
       if (!result.IsNull() && result.type() != TypedValue::Type::Bool) {
         throw QueryRuntimeException("Predicate of SINGLE must evaluate to boolean, got {}.", result.type());
@@ -888,7 +888,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     bool has_value = false;
     bool const non_empty_list = !list.empty();
     for (auto &element : list) {
-      frame_writter_.WriteAt(symbol, std::move(element));
+      frame_writer_.WriteAt(symbol, std::move(element));
       auto result = any.where_->expression_->Accept(*this);
       if (!result.IsNull() && result.type() != TypedValue::Type::Bool) {
         throw QueryRuntimeException("Predicate of ANY must evaluate to boolean, got {}.", result.type());
@@ -926,7 +926,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     bool has_value = false;
     const bool non_empty_element = !list.empty();
     for (auto &element : list) {
-      frame_writter_.WriteAt(symbol, std::move(element));
+      frame_writer_.WriteAt(symbol, std::move(element));
       auto result = none.where_->expression_->Accept(*this);
       if (!result.IsNull() && result.type() != TypedValue::Type::Bool) {
         throw QueryRuntimeException("Predicate of NONE must evaluate to boolean, got {}.", result.type());
@@ -1067,7 +1067,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   // which switching approach should be used when evaluating
   storage::View view_;
   FrameChangeCollector *frame_change_collector_;
-  FrameWritter frame_writter_{*frame_, frame_change_collector_, ctx_->memory};
+  FrameWriter frame_writer_{*frame_, frame_change_collector_, ctx_->memory};
   /// Property lookup cache ({symbol: {property_id: property_value, ...}, ...})
   mutable std::unordered_map<int32_t, std::map<storage::PropertyId, storage::PropertyValue>> property_lookup_cache_{};
   // use the getter function GetHopsCounter() to handle possible error for segfault

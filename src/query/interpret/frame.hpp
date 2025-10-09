@@ -25,8 +25,8 @@ namespace memgraph::query {
 class Frame;
 class FrameChangeCollector;
 
-struct FrameWritter {
-  FrameWritter(Frame &frame, FrameChangeCollector *change_collector, utils::MemoryResource *res)
+struct FrameWriter {
+  FrameWriter(Frame &frame, FrameChangeCollector *change_collector, utils::MemoryResource *res)
       : frame_(frame), frame_change_collector_{change_collector}, res_(res) {}
 
   template <typename T>
@@ -72,17 +72,17 @@ class Frame {
 
   auto get_allocator() const -> allocator_type { return elems_.get_allocator(); }
 
-  auto GetFrameWritter(FrameChangeCollector *change_collector, utils::MemoryResource *res) -> FrameWritter {
-    return FrameWritter{*this, change_collector, res};
+  auto GetFrameWriter(FrameChangeCollector *change_collector, utils::MemoryResource *res) -> FrameWriter {
+    return FrameWriter{*this, change_collector, res};
   }
 
  private:
-  friend struct FrameWritter;
+  friend struct FrameWriter;
   utils::pmr::vector<TypedValue> elems_;
 };
 
 template <typename Func>
-auto FrameWritter::Modify(const Symbol &symbol, Func f) -> std::invoke_result_t<Func, TypedValue &> {
+auto FrameWriter::Modify(const Symbol &symbol, Func f) -> std::invoke_result_t<Func, TypedValue &> {
   auto &value = frame_.elems_[symbol.position()];
   ResetTrackingValue(symbol);
   return f(value);
