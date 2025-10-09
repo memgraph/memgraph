@@ -22,6 +22,8 @@ PR_INFO=$(curl -s -H "Authorization: token $GITHUB_TOKEN" \
 # Extract information using jq
 BRANCH_NAME=$(echo "$PR_INFO" | jq -r '.head.ref')
 COMMIT_SHA=$(echo "$PR_INFO" | jq -r '.head.sha')
+REPO_URL=$(echo "$PR_INFO" | jq -r '.head.repo.clone_url')
+REPO_OWNER=$(echo "$PR_INFO" | jq -r '.head.user.login')
 
 # Validate that we got the required information
 if [ "$BRANCH_NAME" = "null" ] || [ "$COMMIT_SHA" = "null" ]; then
@@ -35,4 +37,4 @@ STAGING_BRANCH="staging/${COMMIT_SHA:0:7}"
 SHORT_SHA="${COMMIT_SHA:0:7}"
 
 # Output all variables in a single line (space-separated)
-echo "$PR_NUMBER $BRANCH_NAME $COMMIT_SHA $STAGING_BRANCH $SHORT_SHA"
+echo "$PR_NUMBER $BRANCH_NAME $COMMIT_SHA $STAGING_BRANCH $SHORT_SHA $REPO_URL $REPO_OWNER"
