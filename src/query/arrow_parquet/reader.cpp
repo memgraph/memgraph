@@ -12,6 +12,7 @@
 #include "query/arrow_parquet/reader.hpp"
 #include "query/typed_value.hpp"
 #include "utils/data_queue.hpp"
+#include "utils/temporal.hpp"
 
 #include <chrono>
 #include <thread>
@@ -110,6 +111,8 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
             queued_batch[i].resize(num_columns_);
           }
 
+          // TODO: (andi) Probably the best way is to expose the iterator function and you can check then only once
+          // if the value is null
           for (int j = 0U; j < num_columns_; j++) {
             auto const &column = batch_ref[j];
 
@@ -153,11 +156,6 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
               for (int64_t i = 0; i < num_rows; i++) {
                 queued_batch[i][j] = TypedValue(static_cast<int64_t>(uint64_array->Value(i)));
               }
-            } else if (type_id == arrow::Type::BOOL) {
-              auto const bool_array = std::static_pointer_cast<arrow::BooleanArray>(column);
-              for (int64_t i = 0; i < num_rows; i++) {
-                queued_batch[i][j] = TypedValue(bool_array->Value(i));
-              }
             } else if (type_id == arrow::Type::FLOAT) {
               auto const float_array = std::static_pointer_cast<arrow::FloatArray>(column);
               for (int64_t i = 0; i < num_rows; i++) {
@@ -173,12 +171,24 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
               for (int64_t i = 0; i < num_rows; i++) {
                 queued_batch[i][j] = TypedValue(double_array->Value(i));
               }
+            } else if (type_id == arrow::Type::BOOL) {
+              auto const bool_array = std::static_pointer_cast<arrow::BooleanArray>(column);
+              for (int64_t i = 0; i < num_rows; i++) {
+                queued_batch[i][j] = TypedValue(bool_array->Value(i));
+              }
             } else if (type_id == arrow::Type::STRING) {
               auto const string_array = std::static_pointer_cast<arrow::StringArray>(column);
               for (int64_t i = 0; i < num_rows; i++) {
                 queued_batch[i][j] = TypedValue(string_array->GetString(i));
               }
-            } else {
+            } else if (type_id == arrow::Type::DATE32) {
+              auto const date_array = std::static_pointer_cast<arrow::Date32Array>(column);
+              for (int64_t i = 0; i < num_rows; i++) {
+                queued_batch[i][j] = TypedValue(utils::Date{date_array->Value(i)});
+              }
+            }
+
+            else {
               // Convert unsupported types (dates, timestamps, etc.) to string
               for (int64_t i = 0; i < num_rows; i++) {
                 queued_batch[i][j] = TypedValue(column->GetScalar(i).ValueOrDie()->ToString());
