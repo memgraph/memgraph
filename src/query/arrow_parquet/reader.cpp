@@ -217,7 +217,17 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
             } else if (type_id == arrow::Type::STRING) {
               auto const string_array = std::static_pointer_cast<arrow::StringArray>(column);
               for (int64_t i = 0; i < num_rows; i++) {
-                queued_batch[i][j] = TypedValue(string_array->GetString(i));
+                queued_batch[i][j] = TypedValue(string_array->GetView(i));
+              }
+            } else if (type_id == arrow::Type::LARGE_STRING) {
+              auto const large_string_array = std::static_pointer_cast<arrow::LargeStringArray>(column);
+              for (int64_t i = 0; i < num_rows; i++) {
+                queued_batch[i][j] = TypedValue(large_string_array->GetView(i));
+              }
+            } else if (type_id == arrow::Type::STRING_VIEW) {
+              auto const string_view_array = std::static_pointer_cast<arrow::StringViewArray>(column);
+              for (int64_t i = 0; i < num_rows; i++) {
+                queued_batch[i][j] = TypedValue(string_view_array->GetView(i));
               }
             } else if (type_id == arrow::Type::DATE32) {
               auto const date_array = std::static_pointer_cast<arrow::Date32Array>(column);
