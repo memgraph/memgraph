@@ -35,7 +35,7 @@ std::vector<std::string> ReadLines(const std::filesystem::path &path) noexcept {
   // read anything in that case and that is exactly the behavior that we want.
   std::string line;
   while (std::getline(stream, line)) {
-    lines.emplace_back(line);
+    lines.emplace_back(std::move(line));
   }
 
   return lines;
@@ -423,12 +423,7 @@ bool OutputFile::AcquireLock() {
   MG_ASSERT(IsOpen(), "Trying to acquire a write lock on an unopened file!");
   int ret = -1;
   while (true) {
-    struct flock lock;
-    memset(&lock, 0, sizeof(lock));
-    lock.l_type = F_WRLCK;
-    lock.l_whence = SEEK_SET;
-    lock.l_start = 0;
-    lock.l_len = 0;
+    struct flock lock = {.l_type = F_WRLCK, .l_whence = SEEK_SET, .l_start = 0, .l_len = 0};
     ret = fcntl(fd_, F_SETLK, &lock);
     if (ret == -1 && errno == EINTR) {
       // The call was interrupted, try again...
@@ -608,7 +603,7 @@ void NonConcurrentOutputFile::Open(const std::filesystem::path &path, Mode mode)
     }
   }
 
-  MG_ASSERT(fd_ != -1, "While trying to open {} for writing an error occured: {} ({})", path_, strerror(errno), errno);
+  MG_ASSERT(fd_ != -1, "While trying to open {} for writing an error occurred: {} ({})", path_, strerror(errno), errno);
 }
 
 bool NonConcurrentOutputFile::IsOpen() const { return fd_ != -1; }

@@ -2015,7 +2015,7 @@ void DiskStorage::DiskAccessor::UpdateObjectsCountOnAbort() {
       }
       case PreviousPtr::Type::EDGE:
       case PreviousPtr::Type::DELTA:
-      case PreviousPtr::Type::NULLPTR:
+      case PreviousPtr::Type::NULL_PTR:
         break;
     }
   }

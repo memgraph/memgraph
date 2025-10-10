@@ -309,6 +309,9 @@ constexpr utils::TypeInfo query::LockPathQuery::kType{utils::TypeId::AST_LOCK_PA
 
 constexpr utils::TypeInfo query::LoadCsv::kType{utils::TypeId::AST_LOAD_CSV, "LoadCsv", &query::Clause::kType};
 
+constexpr utils::TypeInfo query::LoadParquet::kType{
+    .id = utils::TypeId::AST_LOAD_PARQUET, .name = "LoadParquet", .superclass = &Clause::kType};
+
 constexpr utils::TypeInfo query::FreeMemoryQuery::kType{utils::TypeId::AST_FREE_MEMORY_QUERY, "FreeMemoryQuery",
                                                         &query::Query::kType};
 

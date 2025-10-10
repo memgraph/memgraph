@@ -30,6 +30,7 @@ find_package(range-v3 REQUIRED)
 add_library(mg-query STATIC)
 target_sources(mg-query
     PRIVATE
+    arrow_parquet/reader.cpp
     frontend/ast/ast.cpp
     frontend/semantic/symbol.cpp
     plan/operator_type_info.cpp
@@ -85,6 +86,7 @@ target_sources(mg-query
     PUBLIC
     FILE_SET HEADERS
     FILES
+    arrow_parquet/reader.hpp
     plan/rewrite/enum.hpp
     plan/point_distance_condition.hpp
     string_helpers.hpp
@@ -107,6 +109,7 @@ target_sources(mg-query
     plan/read_write_type_checker.hpp
 )
 
+find_package(Arrow)
 
 target_link_libraries(mg-query
     PUBLIC
@@ -114,6 +117,7 @@ target_link_libraries(mg-query
     cppitertools::cppitertools
     range-v3::range-v3
     Python3::Python
+    arrow::arrow
     mg-integrations-pulsar
     mg-integrations-kafka
     mg::storage
