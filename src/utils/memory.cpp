@@ -266,7 +266,7 @@ ThreadSafeMonotonicBufferResource::Block *ThreadSafeMonotonicBufferResource::all
   }
 
   // Create new block at the beginning of the allocated memory
-  auto *new_block = new (new_buffer) Block(current_head, 0, block_size);
+  auto *new_block = new (new_buffer) Block(current_head, 0, total_size - sizeof(Block));
 
   // Grow the next buffer size for future allocations
   next_buffer_size_ = GrowMonotonicBuffer(next_buffer_size_, std::numeric_limits<size_t>::max() - sizeof(Block));
