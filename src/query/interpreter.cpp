@@ -2935,11 +2935,13 @@ inline static void TryCaching(const AstStorage &ast_storage, FrameChangeCollecto
     }
 
     auto dependencies = std::set<Symbol::Position_t>{};
-    bool const cachable_list = CollectDependantSymbols(in_list_operator->expression2_, dependencies);
-    if (cachable_list) [[likely]] {
-      frame_change_collector->AddTrackingKey(*cached_id);
+    bool const list_is_cachable = CollectDependantSymbols(in_list_operator->expression2_, dependencies);
+    if (list_is_cachable) [[likely]] {
+      // This InListOperator can be processed into a set and cached
+      frame_change_collector->AddInListKey(*cached_id);
+      // If any dependency changes then the cache must be invalidated
       for (auto const symbol_pos : dependencies) {
-        frame_change_collector->AddTrackedDependency(*cached_id, symbol_pos);
+        frame_change_collector->AddInListInvalidator(*cached_id, symbol_pos);
       }
     }
   }
@@ -3032,7 +3034,7 @@ PreparedQuery PrepareCypherQuery(
       plan, parsed_query.parameters, is_profile_query, dba, interpreter_context, execution_memory,
       std::move(user_or_role), std::move(stopping_context), dbms::DatabaseProtector{*current_db.db_acc_}.clone(),
       interpreter.query_logger_, trigger_context_collector, memory_limit,
-      frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit
+      frame_change_collector->AnyInListCaches() ? frame_change_collector : nullptr, hops_limit
 #ifdef MG_ENTERPRISE
       ,
       user_resource
@@ -3204,7 +3206,7 @@ PreparedQuery PrepareProfileQuery(
           stats_and_total_time =
               PullPlan(plan, parameters, true, dba, interpreter_context, execution_memory, std::move(user_or_role),
                        std::move(stopping_context), dbms::DatabaseProtector{db_acc}.clone(), query_logger, nullptr,
-                       memory_limit, frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr,
+                       memory_limit, frame_change_collector->AnyInListCaches() ? frame_change_collector : nullptr,
                        hops_limit
 #ifdef MG_ENTERPRISE
                        ,

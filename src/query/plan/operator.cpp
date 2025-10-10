@@ -4367,7 +4367,7 @@ bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
                                   storage::View::NEW, context.frame_change_collector, &context.number_of_hops);
     for (auto *named_expr : self_.named_expressions_) {
       if (context.frame_change_collector) {
-        context.frame_change_collector->ResetTrackingValue(*named_expr);
+        context.frame_change_collector->ResetInListCache(*named_expr);
       }
       named_expr->Accept(evaluator);
     }
@@ -5686,7 +5686,7 @@ class AccumulateCursor : public Cursor {
     auto row_it = (cache_it_++)->begin();
     for (const Symbol &symbol : self_.symbols_) {
       if (context.frame_change_collector) {
-        context.frame_change_collector->ResetTrackingValue(symbol);
+        context.frame_change_collector->ResetInListCache(symbol);
       }
       frame_writer.Write(symbol, *row_it++);
     }
@@ -5791,7 +5791,7 @@ class AggregateCursor : public Cursor {
         for (const auto &elem : self_.aggregations_) {
           frame_writer.Write(elem.output_sym, DefaultAggregationOpValue(elem, pull_memory));
           if (context.frame_change_collector) {
-            context.frame_change_collector->ResetTrackingValue(elem.output_sym);
+            context.frame_change_collector->ResetInListCache(elem.output_sym);
           }
         }
 
@@ -5799,7 +5799,7 @@ class AggregateCursor : public Cursor {
         for (const Symbol &remember_sym : self_.remember_) {
           frame_writer.Write(remember_sym, TypedValue(pull_memory));
           if (context.frame_change_collector) {
-            context.frame_change_collector->ResetTrackingValue(remember_sym);
+            context.frame_change_collector->ResetInListCache(remember_sym);
           }
         }
         return true;
@@ -6411,7 +6411,7 @@ class OrderByCursor : public Cursor {
     auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
     for (TypedValue &output : *cache_it_) {
       if (context.frame_change_collector) {
-        context.frame_change_collector->ResetTrackingValue(*output_sym_it);
+        context.frame_change_collector->ResetInListCache(*output_sym_it);
       }
       frame_writer.Write(*output_sym_it++, std::move(output));
     }
@@ -6692,7 +6692,7 @@ class UnwindCursor : public Cursor {
 
       frame_writer.Write(self_.output_symbol_, std::move(*input_value_it_++));
       if (context.frame_change_collector) {
-        context.frame_change_collector->ResetTrackingValue(self_.output_symbol_);
+        context.frame_change_collector->ResetInListCache(self_.output_symbol_);
       }
       return true;
     }
@@ -6864,17 +6864,11 @@ bool Union::UnionCursor::Pull(Frame &frame, ExecutionContext &context) {
     // collect values from the left child
     for (const auto &output_symbol : self_.left_symbols_) {
       results[output_symbol.name()] = frame[output_symbol];
-      // if (context.frame_change_collector) {
-      //   context.frame_change_collector->ResetTrackingValue(output_symbol);
-      // }
     }
   } else if (right_cursor_->Pull(frame, context)) {
     // collect values from the right child
     for (const auto &output_symbol : self_.right_symbols_) {
       results[output_symbol.name()] = frame[output_symbol];
-      // if (context.frame_change_collector) {
-      //   context.frame_change_collector->ResetTrackingValue(output_symbol);
-      // }
     }
   } else {
     return false;
@@ -6954,7 +6948,7 @@ class CartesianCursor : public Cursor {
       for (const auto &symbol : symbols) {
         frame_writer.Write(symbol, restore_from[symbol.position()]);
         if (context.frame_change_collector) {
-          context.frame_change_collector->ResetTrackingValue(symbol);
+          context.frame_change_collector->ResetInListCache(symbol);
         }
       }
     };
@@ -7050,7 +7044,7 @@ class OutputTableCursor : public Cursor {
       for (size_t i = 0; i < self_.output_symbols_.size(); ++i) {
         frame_writer.Write(self_.output_symbols_[i], rows_[current_row_][i]);
         if (context.frame_change_collector) {
-          context.frame_change_collector->ResetTrackingValue(self_.output_symbols_[i]);
+          context.frame_change_collector->ResetInListCache(self_.output_symbols_[i]);
         }
       }
       current_row_++;
@@ -7109,7 +7103,7 @@ class OutputTableStreamCursor : public Cursor {
       for (size_t i = 0; i < self_->output_symbols_.size(); ++i) {
         frame_writer.Write(self_->output_symbols_[i], row->at(i));
         if (context.frame_change_collector) {
-          context.frame_change_collector->ResetTrackingValue(self_->output_symbols_[i]);
+          context.frame_change_collector->ResetInListCache(self_->output_symbols_[i]);
         }
       }
       return true;
@@ -7401,7 +7395,7 @@ class CallProcedureCursor : public Cursor {
     for (int i = 0; i < self_->result_fields_.size(); ++i) {
       frame_writer.Write(self_->result_symbols_[i], std::move(values[i]));
       if (context.frame_change_collector) {
-        context.frame_change_collector->ResetTrackingValue(self_->result_symbols_[i]);
+        context.frame_change_collector->ResetInListCache(self_->result_symbols_[i]);
       }
     }
     ++result_row_it_;
@@ -7641,7 +7635,7 @@ class LoadCsvCursor : public Cursor {
                            nullif_));
     }
     if (context.frame_change_collector) {
-      context.frame_change_collector->ResetTrackingValue(self_->row_var_);
+      context.frame_change_collector->ResetInListCache(self_->row_var_);
     }
     return true;
   }
@@ -7989,7 +7983,7 @@ class HashJoinCursor : public Cursor {
       for (const auto &symbol : symbols) {
         frame_writer.Write(symbol, restore_from[symbol.position()]);
         if (context.frame_change_collector) {
-          context.frame_change_collector->ResetTrackingValue(symbol);
+          context.frame_change_collector->ResetInListCache(symbol);
         }
       }
     };
@@ -8151,7 +8145,7 @@ class RollUpApplyCursor : public Cursor {
 
       // Clear frame change collector
       if (context.frame_change_collector) {
-        context.frame_change_collector->ResetTrackingValue(self_.list_collection_symbol_);
+        context.frame_change_collector->ResetInListCache(self_.list_collection_symbol_);
       }
 
       frame_writer.Write(self_.result_symbol_, result);
