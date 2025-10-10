@@ -20,6 +20,7 @@
 #include "arrow/acero/exec_plan.h"
 #include "arrow/api.h"
 #include "arrow/io/file.h"
+#include "arrow/util/decimal.h"
 #include "arrow/util/float16.h"
 #include "parquet/properties.h"
 #include "spdlog/spdlog.h"
@@ -208,6 +209,42 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
               auto const double_array = std::static_pointer_cast<arrow::DoubleArray>(column);
               for (int64_t i = 0; i < num_rows; i++) {
                 queued_batch[i][j] = TypedValue(double_array->Value(i));
+              }
+            } else if (type_id == arrow::Type::DECIMAL32) {
+              auto const decimal_array = std::static_pointer_cast<arrow::Decimal32Array>(column);
+              auto const decimal_type = std::static_pointer_cast<arrow::Decimal32Type>(column->type());
+              int32_t const scale = decimal_type->scale();
+              for (int64_t i = 0; i < num_rows; i++) {
+                uint8_t const *bytes = decimal_array->GetValue(i);
+                arrow::Decimal32 const value(bytes);
+                queued_batch[i][j] = TypedValue(value.ToDouble(scale));
+              }
+            } else if (type_id == arrow::Type::DECIMAL64) {
+              auto const decimal_array = std::static_pointer_cast<arrow::Decimal64Array>(column);
+              auto const decimal_type = std::static_pointer_cast<arrow::Decimal64Type>(column->type());
+              int32_t const scale = decimal_type->scale();
+              for (int64_t i = 0; i < num_rows; i++) {
+                uint8_t const *bytes = decimal_array->GetValue(i);
+                arrow::Decimal64 const value(bytes);
+                queued_batch[i][j] = TypedValue(value.ToDouble(scale));
+              }
+            } else if (type_id == arrow::Type::DECIMAL128) {
+              auto const decimal_array = std::static_pointer_cast<arrow::Decimal128Array>(column);
+              auto const decimal_type = std::static_pointer_cast<arrow::Decimal128Type>(column->type());
+              int32_t const scale = decimal_type->scale();
+              for (int64_t i = 0; i < num_rows; i++) {
+                uint8_t const *bytes = decimal_array->GetValue(i);
+                arrow::Decimal128 const value(bytes);
+                queued_batch[i][j] = TypedValue(value.ToDouble(scale));
+              }
+            } else if (type_id == arrow::Type::DECIMAL256) {
+              auto const decimal_array = std::static_pointer_cast<arrow::Decimal256Array>(column);
+              auto const decimal_type = std::static_pointer_cast<arrow::Decimal256Type>(column->type());
+              int32_t const scale = decimal_type->scale();
+              for (int64_t i = 0; i < num_rows; i++) {
+                uint8_t const *bytes = decimal_array->GetValue(i);
+                arrow::Decimal256 const value(bytes);
+                queued_batch[i][j] = TypedValue(value.ToDouble(scale));
               }
             } else if (type_id == arrow::Type::BOOL) {
               auto const bool_array = std::static_pointer_cast<arrow::BooleanArray>(column);
