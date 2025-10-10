@@ -726,7 +726,7 @@ class ThreadLocalMemoryResource : public MemoryResource {
     // Initialize the 0th thread
     const auto [it, inserted] = upstreams_.emplace(0, resource_factory_());
     DMG_ASSERT(inserted);
-    default_upstream_ = it->second.GetUpstream();
+    default_upstream_ = &it->second;
   }
 
   ~ThreadLocalMemoryResource() override = default;
@@ -745,7 +745,7 @@ class ThreadLocalMemoryResource : public MemoryResource {
       std::shared_lock lock(mutex_);
       auto it = upstreams_.find(id);
       if (it != upstreams_.end()) {
-        upstream = it->second.GetUpstream();
+        upstream = &it->second;
         it->second.used_ = true;
       }
     }
@@ -753,7 +753,7 @@ class ThreadLocalMemoryResource : public MemoryResource {
       // write access for update
       std::unique_lock lock(mutex_);
       auto [it, _] = upstreams_.emplace(id, resource_factory_());
-      upstream = it->second.GetUpstream();
+      upstream = &it->second;
       it->second.used_ = true;
     }
 
