@@ -15,6 +15,7 @@
 
 #pragma once
 
+#include <atomic>
 #include <forward_list>
 #include <memory>
 #include <tuple>
@@ -31,7 +32,7 @@
 #include "utils/logging.hpp"
 #include "utils/math.hpp"
 #include "utils/memory_tracker.hpp"
-#include "utils/spin_lock.hpp"
+#include "utils/rw_spin_lock.hpp"
 
 #include "boost/container/detail/pair.hpp"
 
@@ -166,6 +167,111 @@ class MonotonicBufferResource final : public MemoryResource {
   bool do_is_equal(const MemoryResource &other) const noexcept override { return this == &other; }
 };
 
+/// Thread-safe version of MonotonicBufferResource using atomic head pointer.
+///
+/// This variant uses an atomic head pointer to the current block, where each block contains:
+/// - A pointer to the memory (constant)
+/// - The current allocation size (atomic)
+/// - The total capacity (constant)
+/// - A pointer to the next block (for cleanup)
+///
+/// Allocation works by:
+/// 1. Getting the head block atomically
+/// 2. Reserving space for the worst case (fetch_add)
+/// 3. Checking if there's enough space
+/// 4. On failure locking and allocating new block
+class ThreadSafeMonotonicBufferResource : public std::pmr::memory_resource {
+ public:
+  /// Construct with initial buffer and size
+  explicit ThreadSafeMonotonicBufferResource(void *buffer, size_t size, MemoryResource *memory = NewDeleteResource())
+      : memory_(memory) {
+    // Need to align to Block alignment
+    size_t alignment = alignof(Block);
+    void *aligned_buffer = reinterpret_cast<char *>(buffer);
+    size_t available = size;
+    if (!std::align(alignment, sizeof(Block), aligned_buffer, available)) {
+      throw BadAlloc("Buffer too small for initial block");
+    }
+
+    if (aligned_buffer != buffer) {
+      throw BadAlloc("Buffer not aligned");
+    }
+
+    // Create initial block at the beginning of the buffer
+    auto *initial_block = static_cast<Block *>(aligned_buffer);
+    initial_block->capacity = available;
+    initial_block->size.store(0, std::memory_order_relaxed);
+    head_.store(initial_block, std::memory_order_release);
+  }
+
+  explicit ThreadSafeMonotonicBufferResource(size_t initial_size = 1024, MemoryResource *memory = NewDeleteResource())
+      : memory_(memory), next_buffer_size_(initial_size) {
+    auto *new_block = allocate_new_block(nullptr, initial_size);
+    if (!new_block) {
+      throw BadAlloc("Failed to allocate new block");
+    }
+    head_.store(new_block, std::memory_order_release);
+  }
+
+  /// Destructor - releases all allocated memory
+  ~ThreadSafeMonotonicBufferResource() { Release(); }
+
+  // Non-copyable, non-movable
+  ThreadSafeMonotonicBufferResource(const ThreadSafeMonotonicBufferResource &) = delete;
+  ThreadSafeMonotonicBufferResource &operator=(const ThreadSafeMonotonicBufferResource &) = delete;
+  ThreadSafeMonotonicBufferResource(ThreadSafeMonotonicBufferResource &&other) noexcept
+      : memory_(std::exchange(other.memory_, nullptr)),
+        head_(std::atomic_exchange(&other.head_, nullptr)),
+        next_buffer_size_(std::exchange(other.next_buffer_size_, 0)) {}
+
+  ThreadSafeMonotonicBufferResource &operator=(ThreadSafeMonotonicBufferResource &&other) noexcept {
+    if (this != &other) {
+      Release();
+      memory_ = std::exchange(other.memory_, nullptr);
+      head_ = std::atomic_exchange(&other.head_, nullptr);
+      next_buffer_size_ = std::exchange(other.next_buffer_size_, 0);
+    }
+    return *this;
+  }
+
+  void Release();  // NOT THREAD SAFE!
+
+  /// Get the upstream memory resource
+  MemoryResource *GetUpstreamResource() const { return memory_; }
+
+ private:
+  /// Memory block structure - stored at the beginning of allocated memory
+  struct Block {
+    Block *next{nullptr};         // Next block (for cleanup)
+    std::atomic<size_t> size{0};  // Current allocation size (atomic)
+    size_t capacity;              // Total capacity (constant)
+
+    char *begin() { return reinterpret_cast<char *>(this) + sizeof(*this); }
+    char *data() { return begin() + size.load(std::memory_order_acquire); }
+
+    size_t total_size() const { return sizeof(*this) + capacity; }
+  };
+
+  MemoryResource *memory_{NewDeleteResource()};
+  std::atomic<Block *> head_{nullptr};  // Atomic head pointer
+  mutable std::mutex alloc_mutex_;      // For allocating new blocks
+  size_t next_buffer_size_{1024};       // Track next buffer size for exponential growth
+
+  // Resource methods
+  void *do_allocate(size_t bytes, size_t alignment) override;
+
+  void do_deallocate(void *, size_t, size_t) override {}
+
+  bool do_is_equal(const MemoryResource &other) const noexcept override { return this == &other; }
+
+  // Local methods
+  std::pair<Block *, void *> try_lock_free_allocation(size_t bytes, size_t alignment);
+
+  void *allocate_with_lock(Block *last_block, size_t bytes, size_t alignment);
+
+  Block *allocate_new_block(Block *current_head, size_t min_size);
+};
+
 namespace impl {
 
 template <class T>
@@ -226,6 +332,122 @@ class Pool final {
   void *Allocate();
 
   void Deallocate(void *p);
+};
+
+class ThreadSafePool {
+  struct Node {
+    Node *next;
+  };
+
+  std::atomic<unsigned long long> head_;  // lower 48 bits: Node* ptr, upper 16 bits: tag
+  std::vector<void *> chunks_;            // store allocated blocks for destruction
+
+  const std::size_t block_size_;
+  const std::size_t blocks_per_chunk_;
+  MemoryResource *chunk_memory_;
+
+  static constexpr unsigned long long PTR_MASK = (1ULL << 48) - 1ULL;
+  static constexpr unsigned TAG_SHIFT = 48;
+
+  static unsigned long long pack(Node *p, unsigned short tag) noexcept {
+    auto up = reinterpret_cast<std::uintptr_t>(p);
+    unsigned long long low = static_cast<unsigned long long>(up & PTR_MASK);
+    return low | (static_cast<unsigned long long>(tag) << TAG_SHIFT);
+  }
+  static Node *unpack_ptr(unsigned long long v) noexcept {
+    return reinterpret_cast<Node *>(static_cast<std::uintptr_t>(v & PTR_MASK));
+  }
+  static unsigned short unpack_tag(unsigned long long v) noexcept {
+    return static_cast<unsigned short>(v >> TAG_SHIFT);
+  }
+
+  // carve a new block and link its nodes
+  Node *carve_block(std::size_t n) {
+    std::size_t chunk_size = n * block_size_;
+    auto const alignment = Ceil2(block_size_);
+    void *raw = chunk_memory_->allocate(chunk_size, alignment);
+    chunks_.push_back(raw);
+
+    Node *prev = nullptr;
+    for (std::size_t i = 0; i < n; ++i) {
+      Node *node = reinterpret_cast<Node *>(reinterpret_cast<char *>(raw) + i * block_size_);
+      node->next = prev;
+      prev = node;
+    }
+    return prev;  // return top node
+  }
+
+ public:
+  explicit ThreadSafePool(std::size_t block_size, std::size_t blocks_per_chunks = 1024,
+                          MemoryResource *chunk_memory = NewDeleteResource())
+      : block_size_(block_size), blocks_per_chunk_(blocks_per_chunks), chunk_memory_(chunk_memory) {
+    Node *block = carve_block(blocks_per_chunk_);
+    head_.store(pack(block, 0), std::memory_order_release);
+  }
+
+  ~ThreadSafePool() {
+    if (!chunks_.empty()) {
+      auto const dataSize = blocks_per_chunk_ * block_size_;
+      auto const alignment = Ceil2(block_size_);
+      for (auto &chunk : chunks_) {
+        chunk_memory_->deallocate(chunk, dataSize, alignment);
+      }
+      chunks_.clear();
+    }
+    head_ = 0;
+  }
+
+  ThreadSafePool(ThreadSafePool &) = delete;
+  ThreadSafePool(ThreadSafePool &&) = delete;
+  ThreadSafePool operator=(ThreadSafePool &) = delete;
+  ThreadSafePool operator=(ThreadSafePool &&) = delete;
+
+  void *Allocate() {
+    unsigned long long oldv = head_.load(std::memory_order_acquire);
+    for (;;) {
+      Node *node = unpack_ptr(oldv);
+      unsigned short tag = unpack_tag(oldv);
+
+      if (!node) {
+        // Pool empty: carve a new block and push it to the stack
+        Node *new_block = carve_block(blocks_per_chunk_);
+        Node *last = new_block;
+        while (last->next) last = last->next;
+
+        unsigned long long cur = head_.load(std::memory_order_acquire);
+        last->next = unpack_ptr(cur);
+        if (head_.compare_exchange_weak(cur, pack(new_block, tag + 1), std::memory_order_release,
+                                        std::memory_order_acquire)) {
+          oldv = head_.load(std::memory_order_acquire);
+          continue;  // retry allocation
+        } else {
+          oldv = cur;
+          continue;  // retry allocation
+        }
+      }
+
+      Node *next = node->next;
+      if (head_.compare_exchange_weak(oldv, pack(next, static_cast<unsigned short>(tag + 1)), std::memory_order_acq_rel,
+                                      std::memory_order_acquire)) {
+        return node;
+      }
+      // else retry
+    }
+  }
+
+  void Deallocate(void *p) noexcept {
+    Node *node = static_cast<Node *>(p);
+    unsigned long long oldv = head_.load(std::memory_order_acquire);
+    for (;;) {
+      Node *headPtr = unpack_ptr(oldv);
+      unsigned short tag = unpack_tag(oldv);
+      node->next = headPtr;
+      if (head_.compare_exchange_weak(oldv, pack(node, static_cast<unsigned short>(tag + 1)), std::memory_order_acq_rel,
+                                      std::memory_order_acquire)) {
+        return;
+      }
+    }
+  }
 };
 
 // C++ overloads for clz
@@ -309,7 +531,7 @@ std::size_t bin_size(std::size_t idx) {
   return (1U << (level + kOffset)) | (sub_level << (level + kOffset - kExponent));
 }
 
-template <std::size_t Bits, std::size_t LB, std::size_t UB>
+template <std::size_t Bits, std::size_t LB, std::size_t UB, typename P = impl::Pool>
 struct MultiPool {
   static_assert(LB < UB, "lower bound must be less than upper bound");
   static_assert(IsPow2(LB) && IsPow2(UB), "Design untested for non powers of 2");
@@ -322,13 +544,15 @@ struct MultiPool {
   static constexpr auto n_bins = bin_index<Bits, LB>(UB) + 1U;
 
   MultiPool(uint8_t blocks_per_chunk, std::pmr::memory_resource *memory, std::pmr::memory_resource *internal_memory)
-      : blocks_per_chunk_{blocks_per_chunk}, memory_{memory}, internal_memory_{internal_memory} {}
+      : blocks_per_chunk_{blocks_per_chunk}, memory_{memory}, internal_memory_{internal_memory} {
+    initialise_pools();
+  }
 
   ~MultiPool() {
     if (pools_) {
-      auto pool_alloc = Allocator<Pool>(internal_memory_);
+      auto pool_alloc = Allocator<P>(internal_memory_);
       for (auto i = 0U; i != n_bins; ++i) {
-        std::allocator_traits<Allocator<Pool>>::destroy(pool_alloc, &pools_[i]);
+        std::allocator_traits<Allocator<P>>::destroy(pool_alloc, &pools_[i]);
       }
       pool_alloc.deallocate(pools_, n_bins);
     }
@@ -336,9 +560,6 @@ struct MultiPool {
 
   void *allocate(std::size_t bytes) {
     auto idx = bin_index<Bits, LB>(bytes);
-    if (!pools_) [[unlikely]] {
-      initialise_pools();
-    }
     return pools_[idx].Allocate();
   }
 
@@ -349,7 +570,7 @@ struct MultiPool {
 
  private:
   void initialise_pools() {
-    auto pool_alloc = Allocator<Pool>(internal_memory_);
+    auto pool_alloc = Allocator<P>(internal_memory_);
     auto pools = pool_alloc.allocate(n_bins);
     try {
       for (auto i = 0U; i != n_bins; ++i) {
@@ -363,7 +584,7 @@ struct MultiPool {
     }
   }
 
-  Pool *pools_{};
+  P *pools_{};
   uint8_t blocks_per_chunk_{};
   std::pmr::memory_resource *memory_{};
   std::pmr::memory_resource *internal_memory_{};
@@ -394,19 +615,20 @@ struct MultiPool {
 ///   * Maximum number of blocks per chunk can be tuned by passing the
 ///     arguments to the constructor.
 
+template <typename P = impl::Pool>
 class PoolResource final : public std::pmr::memory_resource {
  public:
   PoolResource(uint8_t blocks_per_chunk, std::pmr::memory_resource *memory = NewDeleteResource(),
                 std::pmr::memory_resource *internal_memory = NewDeleteResource())
       : mini_pools_{
-            impl::Pool{8, blocks_per_chunk, memory},
-            impl::Pool{16, blocks_per_chunk, memory},
-            impl::Pool{24, blocks_per_chunk, memory},
-            impl::Pool{32, blocks_per_chunk, memory},
-            impl::Pool{40, blocks_per_chunk, memory},
-            impl::Pool{48, blocks_per_chunk, memory},
-            impl::Pool{56, blocks_per_chunk, memory},
-            impl::Pool{64, blocks_per_chunk, memory},
+            P{8, blocks_per_chunk, memory},
+            P{16, blocks_per_chunk, memory},
+            P{24, blocks_per_chunk, memory},
+            P{32, blocks_per_chunk, memory},
+            P{40, blocks_per_chunk, memory},
+            P{48, blocks_per_chunk, memory},
+            P{56, blocks_per_chunk, memory},
+            P{64, blocks_per_chunk, memory},
         },
         pools_3bit_(blocks_per_chunk, memory, internal_memory),
         pools_4bit_(blocks_per_chunk, memory, internal_memory),
@@ -414,19 +636,19 @@ class PoolResource final : public std::pmr::memory_resource {
         unpooled_memory_{internal_memory} {}
   ~PoolResource() override = default;
 
- private:
+ protected:
   void *do_allocate(size_t bytes, size_t alignment) override;
   void do_deallocate(void *p, size_t bytes, size_t alignment) override;
   bool do_is_equal(std::pmr::memory_resource const &other) const noexcept override;
 
- private:
-  std::array<impl::Pool, 8> mini_pools_;
-  impl::MultiPool<3, 64, 128> pools_3bit_;
-  impl::MultiPool<4, 128, 512> pools_4bit_;
-  impl::MultiPool<5, 512, 1024> pools_5bit_;
+  std::array<P, 8> mini_pools_;
+  impl::MultiPool<3, 64, 128, P> pools_3bit_;
+  impl::MultiPool<4, 128, 512, P> pools_4bit_;
+  impl::MultiPool<5, 512, 1024, P> pools_5bit_;
   std::pmr::memory_resource *unpooled_memory_;
 };
 
+// NOTE: Used only for procedure calls (single threaded)
 class MemoryTrackingResource final : public std::pmr::memory_resource {
  public:
   explicit MemoryTrackingResource(std::pmr::memory_resource *memory, size_t max_allocated_bytes)
@@ -474,5 +696,134 @@ class ResourceWithOutOfMemoryException : public MemoryResource {
   }
 
   MemoryResource *upstream_{utils::NewDeleteResource()};
+};
+
+// Can't use thread::id because the same pull plan might be called on multiple threads
+class ThreadLocalMemoryResource : public MemoryResource {
+ public:
+  class Resource : public std::pmr::memory_resource {
+   public:
+    Resource(std::unique_ptr<std::pmr::memory_resource> upstream) : upstream_(std::move(upstream)) {}
+    ~Resource() override = default;
+
+    void *do_allocate(size_t bytes, size_t alignment) override { return upstream_->allocate(bytes, alignment); }
+
+    void do_deallocate(void *p, size_t bytes, size_t alignment) override { upstream_->deallocate(p, bytes, alignment); }
+
+    bool do_is_equal(const std::pmr::memory_resource &other) const noexcept override { return this == &other; }
+
+    std::pmr::memory_resource *GetUpstream() const { return upstream_.get(); }
+
+    bool used_{false};
+
+   private:
+    std::unique_ptr<std::pmr::memory_resource> upstream_;
+  };
+
+  using memory_t = std::unique_ptr<std::pmr::memory_resource>;
+
+  explicit ThreadLocalMemoryResource(std::function<memory_t()> resource_factory) : resource_factory_{resource_factory} {
+    // Initialize the 0th thread
+    const auto [it, inserted] = upstreams_.emplace(0, resource_factory_());
+    DMG_ASSERT(inserted);
+    default_upstream_ = &it->second;
+  }
+
+  ~ThreadLocalMemoryResource() override = default;
+
+  static std::pmr::memory_resource *&GetUpstream() noexcept {
+    static thread_local MemoryResource *upstream_;  // NOLINT
+    return upstream_;
+  }
+
+  std::pmr::memory_resource *Initialize(uint16_t id) {
+    std::pmr::memory_resource *upstream = nullptr;
+
+    // Shared by all threads
+    {
+      // read access for search
+      std::shared_lock lock(mutex_);
+      auto it = upstreams_.find(id);
+      if (it != upstreams_.end()) {
+        upstream = &it->second;
+        it->second.used_ = true;
+      }
+    }
+    if (!upstream) {
+      // write access for update
+      std::unique_lock lock(mutex_);
+      auto [it, _] = upstreams_.emplace(id, resource_factory_());
+      upstream = &it->second;
+      it->second.used_ = true;
+    }
+
+    // Thread local
+    thread_id_ = id;
+    GetUpstream() = upstream;
+    return upstream;
+  }
+
+  static void ResetThread() {
+    thread_id_ = -1;
+    auto *upstream = GetUpstream();
+    if (upstream) {
+      dynamic_cast<Resource *>(upstream)->used_ = false;
+    }
+    GetUpstream() = nullptr;
+  }
+
+  struct SafeWrapper {
+    SafeWrapper(ThreadLocalMemoryResource *resource, uint16_t id) {
+      DMG_ASSERT(resource, "Passed in a non thread local resource");
+      resource->Initialize(id);
+    }
+
+    ~SafeWrapper() { utils::ThreadLocalMemoryResource::ResetThread(); }
+
+    SafeWrapper(SafeWrapper &) = delete;
+    SafeWrapper(SafeWrapper &&) = delete;
+    SafeWrapper &operator=(SafeWrapper &) = delete;
+    SafeWrapper &operator=(SafeWrapper &&) = delete;
+  };
+
+ private:
+  std::pmr::memory_resource *ResolveUpstream() const noexcept {
+    // Note: We default to 0 id to simplify usage
+    auto *upstream = GetUpstream();
+    return upstream ? upstream : default_upstream_;
+  }
+
+  void *do_allocate(size_t bytes, size_t alignment) override {
+    auto *const upstream = ResolveUpstream();
+    DMG_ASSERT(upstream != nullptr);
+    return upstream->allocate(bytes, alignment);
+  }
+
+  void do_deallocate(void *p, size_t bytes, size_t alignment) override {
+    auto *const upstream = ResolveUpstream();
+    DMG_ASSERT(upstream != nullptr);
+    upstream->deallocate(p, bytes, alignment);
+  }
+
+  bool do_is_equal(const std::pmr::memory_resource &other) const noexcept override {
+    // Main thread
+    if (thread_id_ < 1) {
+      if (this == &other) {
+        return true;
+      }
+    }
+
+    const auto *other_ptr = dynamic_cast<const Resource *>(&other);
+    if (other_ptr) {
+      return !other_ptr->used_ || ResolveUpstream() == other_ptr->GetUpstream();
+    }
+    return false;
+  }
+
+  static thread_local uint16_t thread_id_;  // NOLINT
+  std::pmr::memory_resource *default_upstream_{nullptr};
+  mutable utils::RWSpinLock mutex_;
+  std::unordered_map<uint16_t, Resource> upstreams_;
+  std::function<memory_t()> resource_factory_;
 };
 }  // namespace memgraph::utils
