@@ -2214,8 +2214,8 @@ class STShortestPathCursor : public query::plan::Cursor {
   using VertexEdgeMapT = utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>>;
 
   void ReconstructPath(const VertexAccessor &midpoint, const VertexEdgeMapT &in_edge, const VertexEdgeMapT &out_edge,
-                       Frame *frame, utils::MemoryResource *pull_memory, ExecutionContext &ctx_) {
-    utils::pmr::vector<TypedValue> result(pull_memory);
+                       Frame *frame, ExecutionContext &ctx) {
+    utils::pmr::vector<TypedValue> result(ctx.evaluation_context.memory);
     auto last_vertex = midpoint;
     while (true) {
       const auto &last_edge = in_edge.at(last_vertex);
@@ -2231,7 +2231,7 @@ class STShortestPathCursor : public query::plan::Cursor {
       last_vertex = last_edge->From() == last_vertex ? last_edge->To() : last_edge->From();
       result.emplace_back(*last_edge);
     }
-    auto frame_writer = frame->GetFrameWriter(ctx_.frame_change_collector, ctx_.evaluation_context.memory);
+    auto frame_writer = frame->GetFrameWriter(ctx.frame_change_collector, ctx.evaluation_context.memory);
     frame_writer.WriteAt(self_.common_.edge_symbol, std::move(result));
   }
 
@@ -2310,7 +2310,7 @@ class STShortestPathCursor : public query::plan::Cursor {
               in_edge.emplace(edge.To(), edge);
               if (Contains(out_edge, edge.To())) {
                 if (current_length >= lower_bound) {
-                  ReconstructPath(edge.To(), in_edge, out_edge, frame, pull_memory, context);
+                  ReconstructPath(edge.To(), in_edge, out_edge, frame, context);
                   return true;
                 } else {
                   return false;
@@ -2337,7 +2337,7 @@ class STShortestPathCursor : public query::plan::Cursor {
               in_edge.emplace(edge.From(), edge);
               if (Contains(out_edge, edge.From())) {
                 if (current_length >= lower_bound) {
-                  ReconstructPath(edge.From(), in_edge, out_edge, frame, pull_memory, context);
+                  ReconstructPath(edge.From(), in_edge, out_edge, frame, context);
                   return true;
                 } else {
                   return false;
@@ -2379,7 +2379,7 @@ class STShortestPathCursor : public query::plan::Cursor {
               out_edge.emplace(edge.To(), edge);
               if (Contains(in_edge, edge.To())) {
                 if (current_length >= lower_bound) {
-                  ReconstructPath(edge.To(), in_edge, out_edge, frame, pull_memory, context);
+                  ReconstructPath(edge.To(), in_edge, out_edge, frame, context);
                   return true;
                 } else {
                   return false;
@@ -2406,7 +2406,7 @@ class STShortestPathCursor : public query::plan::Cursor {
               out_edge.emplace(edge.From(), edge);
               if (Contains(in_edge, edge.From())) {
                 if (current_length >= lower_bound) {
-                  ReconstructPath(edge.From(), in_edge, out_edge, frame, pull_memory, context);
+                  ReconstructPath(edge.From(), in_edge, out_edge, frame, context);
                   return true;
                 } else {
                   return false;
@@ -3145,7 +3145,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
     auto create_path = [this, &frame, &memory, &frame_writer]() {
       auto &current_level = traversal_stack_.back();
 
-      auto func1 = [&](TypedValue &value) {
+      auto pop_edge = [&](TypedValue &value) {
         auto &edges_on_frame = value.ValueList();  // Clean out the current stack
         if (current_level.empty()) {
           if (!edges_on_frame.empty()) {
@@ -3161,13 +3161,13 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         return true;
       };
 
-      auto result = frame_writer.Modify(self_.common_.edge_symbol, func1);
+      auto result = frame_writer.Modify(self_.common_.edge_symbol, pop_edge);
       if (!result) return false;
 
       auto [current_edge, current_edge_direction, current_weight] = current_level.back();
       current_level.pop_back();
 
-      auto func2 = [&](TypedValue &value) {
+      auto push_current_edge = [&](TypedValue &value) {
         auto &edges_on_frame = value.ValueList();
         // Edges order depends on direction of expansion
         if (!self_.is_reverse_)
@@ -3176,7 +3176,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
           edges_on_frame.emplace(edges_on_frame.begin(), current_edge);
       };
 
-      frame_writer.Modify(self_.common_.edge_symbol, func2);
+      frame_writer.Modify(self_.common_.edge_symbol, push_current_edge);
 
       auto next_vertex = current_edge_direction == EdgeAtom::Direction::IN ? current_edge.From() : current_edge.To();
       frame_writer.Write(self_.total_weight_.value(), current_weight);
@@ -5021,8 +5021,7 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
 
   if (!input_cursor_->Pull(frame, context)) return false;
 
-  TypedValue const &lhs = frame[self_.input_symbol_];  // TODO review: will this const ref be changed after
-                                                       // frame_writer.modify on same frame? it should be
+  TypedValue const &lhs = frame[self_.input_symbol_];
 
   // Set, just like Create needs to see the latest changes.
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
@@ -5133,7 +5132,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   }
 #endif
 
-  auto func = [&](TypedValue &vertex_value) {
+  auto add_label = [&](TypedValue &vertex_value) {
     // Skip setting labels on Null (can occur in optional match).
     if (vertex_value.IsNull()) return true;
     ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
@@ -5173,7 +5172,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
     }
     return true;
   };
-  return frame_writer.Modify(self_.input_symbol_, func);
+  return frame_writer.Modify(self_.input_symbol_, add_label);
 }
 
 void SetLabels::SetLabelsCursor::Shutdown() { input_cursor_->Shutdown(); }
@@ -5465,7 +5464,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
   }
 #endif
 
-  auto func = [&](TypedValue &vertex_value) {
+  auto remove_label = [&](TypedValue &vertex_value) {
     // Skip removing labels on Null (can occur in optional match).
     if (vertex_value.IsNull()) return true;
     ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
@@ -5507,7 +5506,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
     }
     return true;
   };
-  return frame_writer.Modify(self_.input_symbol_, func);
+  return frame_writer.Modify(self_.input_symbol_, remove_label);
 }
 
 void RemoveLabels::RemoveLabelsCursor::Shutdown() { input_cursor_->Shutdown(); }

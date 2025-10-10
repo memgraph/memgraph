@@ -42,6 +42,12 @@ struct FunctionContext {
 
 using func_impl =
     std::function<TypedValue(const TypedValue *arguments, int64_t num_arguments, const FunctionContext &context)>;
+
+struct func_info {
+  func_impl func_;
+  bool is_pure_;  // if true we can cache the result becasue result wouldn't change on 2nd evaluation
+};
+
 using user_func = std::pair<func_impl, std::shared_ptr<procedure::Module>>;
 
 /// Return the function implementation with the given name.

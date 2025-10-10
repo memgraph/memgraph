@@ -2793,15 +2793,15 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
 namespace {
 
 // Check if a function is non-deterministic or user-defined (not cacheable)
-bool IsNonCacheableFunction(const Function *func) {
-  if (!func) return false;
-
+bool IsCacheableFunction(const Function &func) {
   // User-defined functions may have side effects or non-deterministic behavior
-  if (func->IsUserDefined()) return true;
-
-  // Non-deterministic built-in functions
-  const auto &name = func->function_name_;
-  return name == "RANDOMUUID" || name == "UNIFORMSAMPLE" || name == "RAND";
+  if (!func.IsUserDefined()) {
+    // Non-deterministic built-in functions
+    const auto &name = func.function_name_;
+    bool cond = name == "RANDOMUUID" || name == "UNIFORMSAMPLE" || name == "RAND";
+    return !cond;
+  } else
+    return false;
 }
 
 // Returns true if caching is safe, false if we found a non-cacheable function
@@ -2881,7 +2881,7 @@ bool ExtractIdentifierDependencies(Expression *expr, FrameChangeCollector *frame
 
   // Check for non-cacheable functions (non-deterministic or user-defined)
   if (auto *func = utils::Downcast<Function>(expr)) {
-    if (IsNonCacheableFunction(func)) {
+    if (!IsCacheableFunction(*func)) {
       return false;
     }
     for (auto *arg : func->arguments_) {
