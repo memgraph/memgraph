@@ -24,6 +24,7 @@
 
 #include <gflags/gflags.h>
 
+#include "frontend/ast/query/identifier.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/plan/rewrite/general.hpp"
@@ -670,11 +671,24 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
       if (filter.property_filter->value_->GetTypeInfo() != PropertyLookup::kType) {
         continue;
       }
-      auto *rhs_lookup = static_cast<PropertyLookup *>(filter.property_filter->value_);
 
       auto *join_condition = static_cast<EqualOperator *>(filter.expression);
-      auto lhs_symbol = filter.property_filter->symbol_;
-      auto rhs_symbol = symbol_table_->at(*static_cast<Identifier *>(rhs_lookup->expression_));
+      if (join_condition->expression1_->GetTypeInfo() != PropertyLookup::kType ||
+          join_condition->expression2_->GetTypeInfo() != PropertyLookup::kType) {
+        continue;
+      }
+
+      auto *lhs_join_lookup = static_cast<PropertyLookup *>(join_condition->expression1_);
+      auto *rhs_join_lookup = static_cast<PropertyLookup *>(join_condition->expression2_);
+      if (lhs_join_lookup->expression_->GetTypeInfo() != Identifier::kType ||
+          rhs_join_lookup->expression_->GetTypeInfo() != Identifier::kType) {
+        continue;
+      }
+
+      auto *lhs_identifier = static_cast<Identifier *>(lhs_join_lookup->expression_);
+      auto *rhs_identifier = static_cast<Identifier *>(rhs_join_lookup->expression_);
+      auto lhs_symbol = symbol_table_->at(*lhs_identifier);
+      auto rhs_symbol = symbol_table_->at(*rhs_identifier);
       filter_exprs_for_removal_.insert(filter.expression);
       filters_.EraseFilter(filter);
 
