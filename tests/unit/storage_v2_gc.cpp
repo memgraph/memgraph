@@ -547,3 +547,61 @@ TEST(StorageV2Gc, ConcurrentEdgeOperationsAbortDeleteRepeat) {
     }
   }
 }
+
+// NOLINTNEXTLINE(hicpp-special-member-functions)
+TEST(StorageV2Gc, RapidGcOutOfOrderCommitTimestamps) {
+  memgraph::storage::Gid vertex_gid;
+
+  std::unique_ptr<memgraph::storage::Storage> storage(
+      std::make_unique<memgraph::storage::InMemoryStorage>(memgraph::storage::Config{
+          .gc = {.type = memgraph::storage::Config::Gc::Type::PERIODIC, .interval = std::chrono::seconds(3600)}}));
+
+  {
+    auto acc = storage->Access();
+    auto vertex = acc->CreateVertex();
+    vertex_gid = vertex.Gid();
+    ASSERT_FALSE(acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  // blocker transaction prevents rapid GC
+  auto blocker = storage->Access();
+
+  std::unique_ptr<memgraph::storage::Storage::Accessor> accessor_a;
+  {
+    accessor_a = storage->Access();
+    auto v = accessor_a->FindVertex(vertex_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v.has_value());
+    ASSERT_FALSE(v->AddLabel(accessor_a->NameToLabel("LabelA")).HasError());
+    ASSERT_FALSE(accessor_a->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  {
+    auto accessor_b = storage->Access();
+    auto v = accessor_b->FindVertex(vertex_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v.has_value());
+    ASSERT_FALSE(v->AddLabel(accessor_b->NameToLabel("LabelB")).HasError());
+
+    ASSERT_FALSE(accessor_b->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  accessor_a.reset();
+
+  // Destroy blocker to allow rapid GC
+  blocker.reset();
+
+  {
+    auto gc_trigger = storage->Access();
+    gc_trigger->CreateVertex();
+    ASSERT_FALSE(gc_trigger->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+
+  {
+    auto reader = storage->Access();
+    auto v = reader->FindVertex(vertex_gid, memgraph::storage::View::OLD);
+    ASSERT_TRUE(v.has_value());
+
+    auto labels = v->Labels(memgraph::storage::View::OLD);
+    ASSERT_TRUE(labels.HasValue());
+    EXPECT_EQ(labels->size(), 2);
+  }
+}
