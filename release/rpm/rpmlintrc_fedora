@@ -2,3 +2,5 @@
 
 # We are not packaging log dir
 addFilter("E: logrotate-log-dir-not-packaged")
+
+addFilter("E: incorrect-fsf-address")

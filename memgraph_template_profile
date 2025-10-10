@@ -1,0 +1,38 @@
+{% set toolchain_path = os.getenv("MG_TOOLCHAIN_ROOT", "/ERROR_MG_TOOLCHAIN_ROOT_NOT_SET") %}
+{% set target_arch = {"aarch64": "armv8"}.get(platform.machine(), platform.machine()) %}
+{% set current_dir = os.getcwd() %}
+
+# Sanitizer configuration - will be set via environment variables
+{% set sanitizers_env = os.getenv("MG_SANITIZERS", "") %}
+{% set sanitizers = sanitizers_env.split(",") if sanitizers_env else [] %}
+{% set enable_asan = "address" in sanitizers %}
+{% set enable_ubsan = "undefined" in sanitizers %}
+
+[settings]
+arch = {{ target_arch }}
+build_type = {{ os.getenv("BUILD_TYPE") }}
+compiler=clang
+compiler.cppstd=gnu20
+compiler.libcxx=libstdc++11
+compiler.version=20
+os=Linux
+
+[conf]
+tools.cmake.cmaketoolchain:generator=Ninja
+tools.cmake.cmaketoolchain:user_toolchain=["{{ os.path.join(toolchain_path, "toolchain.cmake") }}"]
+tools.build:compiler_executables={"c": "{{ os.path.join(toolchain_path, "bin/clang") }}", "cpp" : "{{ os.path.join(toolchain_path, "bin/clang++") }}"}
+{% if enable_asan or enable_ubsan %}
+tools.build:cflags+=["-fsanitize={{ sanitizers|join(',') }}", "-fno-omit-frame-pointer"{% if enable_ubsan %}, "-fno-sanitize=vptr,function", "-fsanitize-ignorelist={{ os.path.join(current_dir, 'tools', 'ubsan.ignore') }}"{% endif %}]
+tools.build:cxxflags+=["-fsanitize={{ sanitizers|join(',') }}", "-fno-omit-frame-pointer"{% if enable_ubsan %}, "-fno-sanitize=vptr,function", "-fsanitize-ignorelist={{ os.path.join(current_dir, 'tools', 'ubsan.ignore') }}"{% endif %}]
+tools.build:exelinkflags+=["-fsanitize={{ sanitizers|join(',') }}"{% if enable_ubsan %}, "-fno-sanitize=vptr,function"{% endif %}]
+tools.build:sharedlinkflags+=["-fsanitize={{ sanitizers|join(',') }}"{% if enable_ubsan %}, "-fno-sanitize=vptr,function"{% endif %}]
+{% endif %}
+
+[options]
+boost/*:without_stacktrace=True
+boost/*:without_locale=True
+{% if target_arch == "armv8" %}
+boost/*:extra_b2_flags=cxxflags=--target=aarch64-unknown-linux-gnu cflags=--target=aarch64-unknown-linux-gnu linkflags=--target=aarch64-unknown-linux-gnu
+{% elif enable_asan or enable_ubsan %}
+boost/*:extra_b2_flags=cxxflags=--target=x86_64-linux-gnu cflags=--target=x86_64-linux-gnu linkflags=--target=x86_64-linux-gnu
+{% endif %}
