@@ -475,3 +475,17 @@ Feature: List operators
         Then the result should be, in order:
             | x |
             | 5 |
+
+    Scenario: Encode and decode mixed list type
+        Given an empty graph
+        And having executed
+            """
+            CREATE (:Node {prop: ['string', [1, 2], [1, 2.5], [1.3, 1.4], ['string', 1]]})
+            """
+        When executing query:
+            """
+            MATCH (n) RETURN n;
+            """
+        Then the result should be:
+            | n                                                                       |
+            | (:Node {prop: ['string', [1, 2], [1, 2.5], [1.3, 1.4], ['string', 1]]}) |
