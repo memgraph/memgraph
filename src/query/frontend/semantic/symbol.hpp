@@ -20,6 +20,7 @@ namespace memgraph::query {
 
 class Symbol {
  public:
+  using Position_t = int64_t;
   static const utils::TypeInfo kType;
   static const utils::TypeInfo &GetTypeInfo() { return kType; }
 
@@ -48,15 +49,15 @@ class Symbol {
 
   // TODO: Remove these since members are public
   const auto &name() const { return name_; }
-  int position() const { return position_; }
+  Position_t position() const { return position_; }
   Type type() const { return type_; }
   bool user_declared() const { return user_declared_; }
-  int token_position() const { return token_position_; }
+  int64_t token_position() const { return token_position_; }
 
   bool IsSymbolAnonym() const { return name_.substr(0U, 4U) == "anon"; }
 
   std::string name_;
-  int64_t position_;
+  Position_t position_;
   bool user_declared_{true};
   memgraph::query::Symbol::Type type_{Type::ANY};
   int64_t token_position_{-1};

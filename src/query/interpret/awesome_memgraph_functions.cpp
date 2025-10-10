@@ -1936,4 +1936,21 @@ auto NameToFunction(const std::string &function_name) -> std::variant<std::monos
   return std::monostate{};
 }
 
+bool IsFunctionPure(std::string_view function_name) {
+  // Lookup in builtin functions
+  auto upper_case = utils::ToUpperCase(function_name);
+  auto buildin_it = std::as_const(builtin_functions).find(upper_case);
+
+  if (buildin_it != builtin_functions.cend()) {
+    // Found a builtin function, return its purity status
+    return buildin_it->second.is_pure_;
+  }
+
+  // Not a builtin function (could be user-defined or non-existent)
+  // Currently, all non-builtin functions are considered not pure.
+  // This may change in the future when we have a mechanism to mark
+  // user-provided functions as pure.
+  return false;
+}
+
 }  // namespace memgraph::query
