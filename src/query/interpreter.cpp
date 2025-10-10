@@ -2934,19 +2934,12 @@ inline static void TryCaching(const AstStorage &ast_storage, FrameChangeCollecto
       continue;
     }
 
-    // x IN var -> key(var)
-    // x IN [var, var, var] -> key(expr)
-    // x IN var -> key(var) AND y IN var -> key(var)
-    // InList cache
-
     auto dependencies = std::set<Symbol::Position_t>{};
-
-    bool cachable_list = CollectDependantSymbols(in_list_operator->expression2_, dependencies);
-
+    bool const cachable_list = CollectDependantSymbols(in_list_operator->expression2_, dependencies);
     if (cachable_list) [[likely]] {
       frame_change_collector->AddTrackingKey(*cached_id);
-      for (auto _ : dependencies) {
-        // sym with invaliate key
+      for (auto const symbol_pos : dependencies) {
+        frame_change_collector->AddTrackedDependency(*cached_id, symbol_pos);
       }
     }
   }
