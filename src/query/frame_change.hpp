@@ -73,28 +73,21 @@ class FrameChangeCollector {
   using alloc_traits = std::allocator_traits<allocator_type>;
 
  public:
-  explicit FrameChangeCollector(allocator_type alloc = {}) : tracked_values_{alloc} {}
+  explicit FrameChangeCollector(allocator_type alloc = {}) : tracked_values_{alloc}, symbol_dependencies_{alloc} {}
 
-  FrameChangeCollector(FrameChangeCollector &&other, allocator_type alloc)
-      : tracked_values_(std::move(other.tracked_values_), alloc) {}
-  FrameChangeCollector(const FrameChangeCollector &other, allocator_type alloc)
-      : tracked_values_(other.tracked_values_, alloc) {}
+  // FrameChangeCollector(FrameChangeCollector &&other, allocator_type alloc)
+  //     : tracked_values_(std::move(other.tracked_values_), alloc) {}
+  // FrameChangeCollector(const FrameChangeCollector &other, allocator_type alloc)
+  //     : tracked_values_(other.tracked_values_, alloc) {}
 
-  FrameChangeCollector(const FrameChangeCollector &other)
-      : FrameChangeCollector(other, alloc_traits::select_on_container_copy_construction(other.get_allocator())){};
-
-  FrameChangeCollector(FrameChangeCollector &&other) noexcept
-      : FrameChangeCollector(std::move(other), other.get_allocator()) {}
-
-  /** Copy assign other, utils::MemoryResource of `this` is used */
-  FrameChangeCollector &operator=(const FrameChangeCollector &) = default;
-
-  /** Move assign other, utils::MemoryResource of `this` is used. */
-  FrameChangeCollector &operator=(FrameChangeCollector &&) noexcept = default;
+  FrameChangeCollector(const FrameChangeCollector &) = delete;
+  FrameChangeCollector(FrameChangeCollector &&) = delete;
+  FrameChangeCollector &operator=(const FrameChangeCollector &) = delete;
+  FrameChangeCollector &operator=(FrameChangeCollector &&) noexcept = delete;
 
   auto get_allocator() const -> allocator_type { return tracked_values_.get_allocator(); }
 
-  CachedValue &AddTrackingKey(utils::FrameChangeId const &key) {
+  auto AddTrackingKey(utils::FrameChangeId const &key) -> CachedValue & {
     const auto &[it, _] =
         tracked_values_.emplace(std::piecewise_construct, std::forward_as_tuple(key), std::forward_as_tuple());
     return it->second;
@@ -115,57 +108,37 @@ class FrameChangeCollector {
     return std::optional{std::cref(it->second)};
   }
 
-  bool ResetTrackingValue(utils::FrameChangeId const &key) {
-    auto const it = tracked_values_.find(key);
-    if (it == tracked_values_.cend()) {
-      return false;
-    }
-    it->second.Reset();
-    return true;
+  void ResetTrackingValue(Symbol const &symbol) { ResetTrackingValueInternal(symbol.position_); }
+
+  void ResetTrackingValue(NamedExpression const &named_expression) {
+    ResetTrackingValueInternal(named_expression.symbol_pos_);
   }
 
-  CachedValue &GetCachedValue(utils::FrameChangeId const &key) {
-    auto it = tracked_values_.find(key);
+  auto GetCachedValue(utils::FrameChangeId const &key) -> CachedValue & {
+    auto const it = tracked_values_.find(key);
     DMG_ASSERT(it != tracked_values_.cend());
     return it->second;
   }
 
-  void AddSymbolDependency(utils::FrameChangeId const &symbol_id, utils::FrameChangeId const &dependent_key) {
-    symbol_dependencies_[symbol_id].push_back(dependent_key);
-  }
-
-  void ResetTrackingValueForSymbol(utils::FrameChangeId const &symbol_id) {
-    ResetTrackingValue(symbol_id);
-
-    auto const it = symbol_dependencies_.find(symbol_id);
-    if (it != symbol_dependencies_.cend()) {
-      for (auto const &dependent_key : it->second) {
-        ResetTrackingValue(dependent_key);
-      }
-    }
+  void AddTrackedDependency(utils::FrameChangeId const &dependent_key, Symbol::Position_t symbol_pos) {
+    symbol_dependencies_[symbol_pos].push_back(dependent_key);
   }
 
   bool IsTrackingValues() const { return !tracked_values_.empty(); }
 
-  ~FrameChangeCollector() = default;
-
  private:
-  // Transparent hasher
-  struct PmrStringHash {
-    using is_transparent = void;  // enables heterogeneous lookup
-
-    std::size_t operator()(std::string_view const sv) const noexcept { return utils::Fnv(sv); }
-  };
-
-  // Transparent equality comparator
-  struct PmrStringEqual {
-    using is_transparent = void;
-
-    bool operator()(std::string_view const lhs, std::string_view const rhs) const noexcept { return lhs == rhs; }
-  };
+  void ResetTrackingValueInternal(Symbol::Position_t const &symbol_pos) {
+    auto const it = symbol_dependencies_.find(symbol_pos);
+    if (it == symbol_dependencies_.cend()) [[likely]]
+      return;
+    for (auto const &key : it->second) {
+      if (auto const it2 = tracked_values_.find(key); it2 != tracked_values_.cend()) {
+        it2->second.Reset();
+      }
+    }
+  }
 
   utils::pmr::unordered_map<utils::FrameChangeId, CachedValue> tracked_values_;
-  // could be just list literal -> list literals that depend on it
-  utils::pmr::unordered_map<utils::FrameChangeId, utils::pmr::vector<utils::FrameChangeId>> symbol_dependencies_;
+  utils::pmr::unordered_map<Symbol::Position_t, utils::pmr::vector<utils::FrameChangeId>> symbol_dependencies_;
 };
 }  // namespace memgraph::query

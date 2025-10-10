@@ -21,18 +21,8 @@ struct FrameChangeId {
   explicit FrameChangeId(query::ListLiteral *list_literal)
       : kind_(Kind::ListExpr), hash_{std::hash<void *>{}(list_literal)}, list_expr_{list_literal} {}
 
-  FrameChangeId(query::Identifier const &identifier)
-      : kind_(Kind::Sym), hash_{std::hash<int32_t>{}(identifier.symbol_pos_)}, symbol_pos_{identifier.symbol_pos_} {}
-
-  FrameChangeId(query::NamedExpression const &named_expression)
-      : kind_(Kind::Sym),
-        hash_{std::hash<int32_t>{}(named_expression.symbol_pos_)},
-        symbol_pos_{named_expression.symbol_pos_} {}
-
-  FrameChangeId(query::Symbol const &symbol)
-      : kind_(Kind::Sym),
-        hash_{std::hash<int32_t>{}(static_cast<int32_t>(symbol.position_))},
-        symbol_pos_{static_cast<int32_t>(symbol.position_)} {}
+  explicit FrameChangeId(query::Symbol::Position_t const &symbol_pos)
+      : kind_(Kind::Sym), hash_{std::hash<int32_t>{}(symbol_pos)}, symbol_pos_{symbol_pos} {}
 
   friend bool operator==(const FrameChangeId &lhs, const FrameChangeId &rhs) {
     if (lhs.kind_ != rhs.kind_) return false;
@@ -51,7 +41,7 @@ struct FrameChangeId {
   Kind kind_;
   std::size_t hash_;
   union {
-    int32_t symbol_pos_;
+    query::Symbol::Position_t symbol_pos_;
     query::ListLiteral *list_expr_;
   };
 };
@@ -65,7 +55,7 @@ inline std::optional<FrameChangeId> GetFrameChangeId(memgraph::query::InListOper
   if (in_list.expression2_->GetTypeInfo() == memgraph::query::Identifier::kType) {
     auto *identifier = utils::Downcast<memgraph::query::Identifier>(in_list.expression2_);
     MG_ASSERT(identifier->symbol_pos_ != -1);
-    return FrameChangeId{*identifier};
+    return FrameChangeId{identifier->symbol_pos_};
   }
   return {};
 };
