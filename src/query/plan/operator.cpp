@@ -7743,10 +7743,7 @@ public:
       auto maybe_file = ToOptionalString(&evaluator, self_->file_);
       // No need to check if maybe_file is std::nullopt, as the parser makes sure
       // we can't get a nullptr for the 'file_' member in the LoadParquet clause
-      reader_.emplace(std::string{*maybe_file});
-      header_cache_ = reader_->GetHeader(mem);
-      num_columns_ = header_cache_.size();
-      row_.resize(num_columns_);
+      reader_.emplace(std::string{*maybe_file}, mem);
     }
 
     if (input_cursor_->Pull(frame, context)) {
@@ -7762,14 +7759,12 @@ public:
     if (!reader_->GetNextRow(row_)) {
       return false;
     }
-    // Convert row to TypedValue map similar to CSV with headers
-    auto typed_map = utils::pmr::map<utils::pmr::string, TypedValue>(mem);
 
-    for (size_t i = 0; i < num_columns_; ++i) {
-      typed_map.emplace(header_cache_[i], std::move(row_[i]));
+    if (frame[self_->row_var_].IsMap()) {
+      std::swap(frame[self_->row_var_].ValueMap(), row_);
+    } else {
+      frame[self_->row_var_] = TypedValue(std::move(row_), mem);
     }
-
-    frame[self_->row_var_] = TypedValue(std::move(typed_map));
 
     if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(self_->row_var_.name())) {
       context.frame_change_collector->ResetTrackingValue(self_->row_var_.name());
