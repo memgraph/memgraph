@@ -285,7 +285,7 @@ TEST(ThreadLocalMemoryResourceTest, DifferentResourceTypes) {
     return std::make_unique<MonotonicBufferResource>(1024);
   };
 
-  auto pool_factory = []() -> ThreadLocalMemoryResource::memory_t { return std::make_unique<PoolResource>(10); };
+  auto pool_factory = []() -> ThreadLocalMemoryResource::memory_t { return std::make_unique<PoolResource<>>(10); };
 
   // Test with MonotonicBufferResource
   {

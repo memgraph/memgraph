@@ -62,7 +62,7 @@ TEST(ThreadSafeMonotonicBufferResourceTest, ConcurrentAllocations) {
 
   // Start threads that allocate memory
   for (int i = 0; i < num_threads; ++i) {
-    threads.emplace_back([&resource, &thread_allocations, i, allocations_per_thread]() {
+    threads.emplace_back([&resource, &thread_allocations, i]() {
       for (int j = 0; j < allocations_per_thread; ++j) {
         size_t size = 8 + (j % 64);       // Varying sizes
         size_t alignment = 8 << (j % 4);  // Varying alignments: 8, 16, 32, 64
@@ -363,7 +363,7 @@ TEST(ThreadSafeMonotonicBufferResourceTest, ManyThreadsSmallAllocations) {
 
   // Start many threads that allocate small amounts of memory
   for (int i = 0; i < num_threads; ++i) {
-    threads.emplace_back([&resource, &thread_allocations, i, allocations_per_thread]() {
+    threads.emplace_back([&resource, &thread_allocations, i]() {
       for (int j = 0; j < allocations_per_thread; ++j) {
         size_t size = 1 + (j % 16);       // Very small sizes: 1-16 bytes
         size_t alignment = 1 << (j % 4);  // Small alignments: 1, 2, 4, 8
@@ -401,7 +401,7 @@ TEST(ThreadSafeMonotonicBufferResourceTest, ManyThreadsLargeAllocations) {
 
   // Start threads that allocate large amounts of memory
   for (int i = 0; i < num_threads; ++i) {
-    threads.emplace_back([&resource, &thread_allocations, i, allocations_per_thread]() {
+    threads.emplace_back([&resource, &thread_allocations, i]() {
       for (int j = 0; j < allocations_per_thread; ++j) {
         size_t size = 256 + (j % 1024);   // Large sizes: 256-1280 bytes
         size_t alignment = 8 << (j % 4);  // Large alignments: 8, 16, 32, 64
@@ -439,7 +439,7 @@ TEST(ThreadSafeMonotonicBufferResourceTest, MixedSizeAllocations) {
 
   // Start threads that allocate mixed sizes
   for (int i = 0; i < num_threads; ++i) {
-    threads.emplace_back([&resource, &thread_allocations, i, allocations_per_thread]() {
+    threads.emplace_back([&resource, &thread_allocations, i]() {
       for (int j = 0; j < allocations_per_thread; ++j) {
         size_t size;
         size_t alignment;
@@ -519,7 +519,7 @@ TEST(ThreadSafeMonotonicBufferResourceTest, RapidAllocationDeallocation) {
 
   // Start threads that rapidly allocate and release
   for (int i = 0; i < num_threads; ++i) {
-    threads.emplace_back([&resource, &successful_cycles, cycles]() {
+    threads.emplace_back([&resource, &successful_cycles]() {
       for (int j = 0; j < cycles; ++j) {
         // Rapidly allocate different sizes
         void *ptr1 = resource.allocate(1 + (j % 16), 1);
