@@ -135,5 +135,66 @@ def test_binary_types():
     execute_and_fetch_all(cursor, "match (n) detach delete n")
 
 
+def test_collection_types():
+    cursor = connect(host="localhost", port=7687).cursor()
+    # Test simple collections first
+    load_query = (
+        f"LOAD PARQUET FROM '{get_file_path('nodes_collections_simple.parquet')}' AS row "
+        f"CREATE (n:Collection {{id: row.id, name: row.name, numbers: row.numbers_list, "
+        f"tags: row.tags_list, properties: row.properties_map}})"
+    )
+    print(f"Query: {load_query}")
+    execute_and_fetch_all(cursor, load_query)
+    assert execute_and_fetch_all(cursor, "match (n) return count(n)")[0][0] == 100
+
+    # Check that lists are loaded as LIST type
+    assert execute_and_fetch_all(cursor, "match (n) return valueType(n.numbers)")[0][0] == "LIST"
+    assert execute_and_fetch_all(cursor, "match (n) return valueType(n.tags)")[0][0] == "LIST"
+
+    # Check that maps are loaded as MAP type
+    assert execute_and_fetch_all(cursor, "match (n) return valueType(n.properties)")[0][0] == "MAP"
+
+    # Verify we can query list elements
+    result = execute_and_fetch_all(cursor, "match (n) where n.id = 1 return n.numbers[0]")
+    assert result[0][0] is not None  # Should have at least one element
+
+    # Verify we can query map values
+    result = execute_and_fetch_all(cursor, "match (n) where n.id = 1 return n.properties.theme")
+    assert result[0][0] is not None  # Should have theme property
+
+    execute_and_fetch_all(cursor, "match (n) detach delete n")
+
+
+def test_complex_collection_types():
+    cursor = connect(host="localhost", port=7687).cursor()
+    # Test complex collections with nested structures
+    load_query = (
+        f"LOAD PARQUET FROM '{get_file_path('nodes_collections.parquet')}' AS row "
+        f"CREATE (n:ComplexCollection {{id: row.id, name: row.name, "
+        f"favorite_numbers: row.favorite_numbers, tags: row.tags, scores: row.scores, "
+        f"matrix: row.matrix_2d, settings: row.settings, metadata: row.metadata, "
+        f"preferences: row.preferences}})"
+    )
+    print(f"Query: {load_query}")
+    execute_and_fetch_all(cursor, load_query)
+    assert execute_and_fetch_all(cursor, "match (n) return count(n)")[0][0] == 100
+
+    # Check nested list (list of lists)
+    assert execute_and_fetch_all(cursor, "match (n) return valueType(n.matrix)")[0][0] == "LIST"
+
+    # Check map with list values
+    assert execute_and_fetch_all(cursor, "match (n) return valueType(n.preferences)")[0][0] == "MAP"
+
+    # Verify we can access nested list elements
+    result = execute_and_fetch_all(cursor, "match (n) where n.id = 1 return n.matrix[0][0]")
+    assert result[0][0] is not None  # Should have nested element
+
+    # Verify map with string values
+    result = execute_and_fetch_all(cursor, "match (n) where n.id = 1 return n.metadata.country")
+    assert result[0][0] is not None  # Should have country in metadata
+
+    execute_and_fetch_all(cursor, "match (n) detach delete n")
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))

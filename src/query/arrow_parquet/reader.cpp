@@ -27,8 +27,14 @@
 
 constexpr int64_t batch_rows = 1U << 16U;
 
+using memgraph::query::TypedValue;
+using memgraph::utils::Date;
+using memgraph::utils::Duration;
+using memgraph::utils::LocalDateTime;
+using memgraph::utils::LocalTime;
+
 namespace {
-std::string ToHexString(const uint8_t *data, size_t size) {
+auto ToHexString(const uint8_t *data, size_t const size) -> std::string {
   std::string hex;
   hex.reserve(size * 2);
   for (size_t i = 0; i < size; i++) {
@@ -39,6 +45,7 @@ std::string ToHexString(const uint8_t *data, size_t size) {
   return hex;
 }
 
+// Return to microseconds
 auto ArrowTimeToUs(auto const arrow_val, auto const arrow_time_unit) -> int64_t {
   switch (arrow_time_unit) {
     case arrow::TimeUnit::MICRO: {
@@ -61,6 +68,258 @@ auto ArrowTimeToUs(auto const arrow_val, auto const arrow_time_unit) -> int64_t 
     }
   }
 }
+
+std::function<TypedValue(int64_t)> CreateColumnConverter(const std::shared_ptr<arrow::Array> &column) {
+  switch (column->type()->id()) {
+    case arrow::Type::BOOL: {
+      auto bool_array = std::static_pointer_cast<arrow::BooleanArray>(column);
+      return [bool_array](int64_t const i) -> TypedValue {
+        return bool_array->IsNull(i) ? TypedValue() : TypedValue(bool_array->Value(i));
+      };
+    }
+    case arrow::Type::INT8: {
+      auto int_array = std::static_pointer_cast<arrow::Int8Array>(column);
+      return [int_array](int64_t const i) -> TypedValue {
+        return int_array->IsNull(i) ? TypedValue() : TypedValue(static_cast<int64_t>(int_array->Value(i)));
+      };
+    }
+    case arrow::Type::INT16: {
+      auto int_array = std::static_pointer_cast<arrow::Int16Array>(column);
+      return [int_array](int64_t const i) -> TypedValue {
+        return int_array->IsNull(i) ? TypedValue() : TypedValue(static_cast<int64_t>(int_array->Value(i)));
+      };
+    }
+    case arrow::Type::INT32: {
+      auto int_array = std::static_pointer_cast<arrow::Int32Array>(column);
+      return [int_array](int64_t const i) -> TypedValue {
+        return int_array->IsNull(i) ? TypedValue() : TypedValue(int_array->Value(i));
+      };
+    }
+    case arrow::Type::INT64: {
+      auto int_array = std::static_pointer_cast<arrow::Int64Array>(column);
+      return [int_array](int64_t const i) -> TypedValue {
+        return int_array->IsNull(i) ? TypedValue() : TypedValue(int_array->Value(i));
+      };
+    }
+    case arrow::Type::UINT8: {
+      auto int_array = std::static_pointer_cast<arrow::UInt8Array>(column);
+      return [int_array](int64_t const i) -> TypedValue {
+        return int_array->IsNull(i) ? TypedValue() : TypedValue(static_cast<int64_t>(int_array->Value(i)));
+      };
+    }
+    case arrow::Type::UINT16: {
+      auto int_array = std::static_pointer_cast<arrow::UInt16Array>(column);
+      return [int_array](int64_t const i) -> TypedValue {
+        return int_array->IsNull(i) ? TypedValue() : TypedValue(static_cast<int64_t>(int_array->Value(i)));
+      };
+    }
+    case arrow::Type::UINT32: {
+      auto int_array = std::static_pointer_cast<arrow::UInt32Array>(column);
+      return [int_array](int64_t const i) -> TypedValue {
+        return int_array->IsNull(i) ? TypedValue() : TypedValue(static_cast<int64_t>(int_array->Value(i)));
+      };
+    }
+    case arrow::Type::UINT64: {
+      auto int_array = std::static_pointer_cast<arrow::UInt64Array>(column);
+      return [int_array](int64_t const i) -> TypedValue {
+        return int_array->IsNull(i) ? TypedValue() : TypedValue(static_cast<int64_t>(int_array->Value(i)));
+      };
+    }
+    case arrow::Type::HALF_FLOAT: {
+      auto half_float_array = std::static_pointer_cast<arrow::HalfFloatArray>(column);
+      return [half_float_array](int64_t const i) -> TypedValue {
+        if (half_float_array->IsNull(i)) return {};
+        auto scalar = half_float_array->Value(i);
+        return TypedValue(arrow::util::Float16::FromBits(scalar).ToFloat());
+      };
+    }
+    case arrow::Type::FLOAT: {
+      auto float_array = std::static_pointer_cast<arrow::FloatArray>(column);
+      return [float_array](int64_t const i) -> TypedValue {
+        return float_array->IsNull(i) ? TypedValue() : TypedValue(float_array->Value(i));
+      };
+    }
+    case arrow::Type::DOUBLE: {
+      auto double_array = std::static_pointer_cast<arrow::DoubleArray>(column);
+      return [double_array](int64_t const i) -> TypedValue {
+        return double_array->IsNull(i) ? TypedValue() : TypedValue(double_array->Value(i));
+      };
+    }
+    case arrow::Type::STRING: {
+      auto string_array = std::static_pointer_cast<arrow::StringArray>(column);
+      return [string_array](int64_t const i) -> TypedValue {
+        return string_array->IsNull(i) ? TypedValue() : TypedValue(string_array->GetString(i));
+      };
+    }
+    case arrow::Type::LARGE_STRING: {
+      auto large_string_array = std::static_pointer_cast<arrow::LargeStringArray>(column);
+      return [large_string_array](int64_t const i) -> TypedValue {
+        return large_string_array->IsNull(i) ? TypedValue() : TypedValue(large_string_array->GetView(i));
+      };
+    }
+    case arrow::Type::STRING_VIEW: {
+      auto string_view_array = std::static_pointer_cast<arrow::StringViewArray>(column);
+      return [string_view_array](int64_t const i) -> TypedValue {
+        return string_view_array->IsNull(i) ? TypedValue() : TypedValue(string_view_array->GetView(i));
+      };
+    }
+    case arrow::Type::DATE32: {
+      auto date_array = std::static_pointer_cast<arrow::Date32Array>(column);
+      return [date_array](int64_t const i) -> TypedValue {
+        return date_array->IsNull(i) ? TypedValue() : TypedValue(Date{date_array->Value(i)});
+      };
+    }
+    case arrow::Type::DATE64: {
+      auto date_array = std::static_pointer_cast<arrow::Date64Array>(column);
+      return [date_array](int64_t const i) -> TypedValue {
+        if (date_array->IsNull(i)) return {};
+        auto const ms = std::chrono::milliseconds(date_array->Value(i));
+        auto const us = std::chrono::duration_cast<std::chrono::microseconds>(ms);
+        return TypedValue(Date{us.count()});
+      };
+    }
+    case arrow::Type::TIME32: {
+      auto time_array = std::static_pointer_cast<arrow::Time32Array>(column);
+      auto time_type = std::static_pointer_cast<arrow::Time32Type>(column->type());
+      return [time_array, unit = time_type->unit()](int64_t const i) -> TypedValue {
+        if (time_array->IsNull(i)) return {};
+        auto const arrow_val = time_array->Value(i);
+        auto const us_val = ArrowTimeToUs(arrow_val, unit);
+        return TypedValue(LocalTime{us_val});
+      };
+    }
+    case arrow::Type::TIME64: {
+      auto time_array = std::static_pointer_cast<arrow::Time64Array>(column);
+      auto time_type = std::static_pointer_cast<arrow::Time64Type>(column->type());
+      return [time_array, unit = time_type->unit()](int64_t const i) -> TypedValue {
+        if (time_array->IsNull(i)) return {};
+        auto const arrow_val = time_array->Value(i);
+        auto const us_val = ArrowTimeToUs(arrow_val, unit);
+        return TypedValue(LocalTime{us_val});
+      };
+    }
+    case arrow::Type::TIMESTAMP: {
+      auto timestamp_array = std::static_pointer_cast<arrow::TimestampArray>(column);
+      auto timestamp_type = std::static_pointer_cast<arrow::TimestampType>(column->type());
+      return [timestamp_array, unit = timestamp_type->unit()](int64_t const i) -> TypedValue {
+        if (timestamp_array->IsNull(i)) return {};
+        auto const arrow_val = timestamp_array->Value(i);
+        auto const us_val = ArrowTimeToUs(arrow_val, unit);
+        return TypedValue(LocalDateTime{us_val});
+      };
+    }
+    case arrow::Type::DURATION: {
+      auto duration_array = std::static_pointer_cast<arrow::DurationArray>(column);
+      auto duration_type = std::static_pointer_cast<arrow::DurationType>(column->type());
+      return [duration_array, unit = duration_type->unit()](int64_t const i) -> TypedValue {
+        if (duration_array->IsNull(i)) return {};
+        auto const arrow_val = duration_array->Value(i);
+        auto const us_val = ArrowTimeToUs(arrow_val, unit);
+        return TypedValue(Duration{us_val});
+      };
+    }
+    case arrow::Type::DECIMAL128: {
+      auto decimal_array = std::static_pointer_cast<arrow::Decimal128Array>(column);
+      auto decimal_type = std::static_pointer_cast<arrow::Decimal128Type>(column->type());
+      int32_t const scale = decimal_type->scale();
+      return [decimal_array, scale](int64_t const i) -> TypedValue {
+        if (decimal_array->IsNull(i)) return {};
+        uint8_t const *bytes = decimal_array->GetValue(i);
+        arrow::Decimal128 const value(bytes);
+        return TypedValue(value.ToDouble(scale));
+      };
+    }
+    case arrow::Type::DECIMAL256: {
+      auto decimal_array = std::static_pointer_cast<arrow::Decimal256Array>(column);
+      auto decimal_type = std::static_pointer_cast<arrow::Decimal256Type>(column->type());
+      int32_t const scale = decimal_type->scale();
+      return [decimal_array, scale](int64_t const i) -> TypedValue {
+        if (decimal_array->IsNull(i)) return {};
+        uint8_t const *bytes = decimal_array->GetValue(i);
+        arrow::Decimal256 const value(bytes);
+        return TypedValue(value.ToDouble(scale));
+      };
+    }
+    case arrow::Type::BINARY: {
+      auto binary_array = std::static_pointer_cast<arrow::BinaryArray>(column);
+      return [binary_array](int64_t const i) -> TypedValue {
+        if (binary_array->IsNull(i)) return {};
+        auto const view = binary_array->GetView(i);
+        return TypedValue(ToHexString(reinterpret_cast<const uint8_t *>(view.data()), view.size()));
+      };
+    }
+    case arrow::Type::LARGE_BINARY: {
+      auto large_binary_array = std::static_pointer_cast<arrow::LargeBinaryArray>(column);
+      return [large_binary_array](int64_t const i) -> TypedValue {
+        if (large_binary_array->IsNull(i)) return {};
+        auto const view = large_binary_array->GetView(i);
+        return TypedValue(ToHexString(reinterpret_cast<const uint8_t *>(view.data()), view.size()));
+      };
+    }
+    case arrow::Type::FIXED_SIZE_BINARY: {
+      auto fixed_binary = std::static_pointer_cast<arrow::FixedSizeBinaryArray>(column);
+      int32_t const width = fixed_binary->byte_width();
+      return [fixed_binary, width](int64_t const i) -> TypedValue {
+        if (fixed_binary->IsNull(i)) return {};
+        const uint8_t *data = fixed_binary->GetValue(i);
+        return TypedValue(ToHexString(data, width));
+      };
+    }
+    case arrow::Type::LIST: {
+      auto list_array = std::static_pointer_cast<arrow::ListArray>(column);
+      return [list_array](int64_t const i) -> TypedValue {
+        if (list_array->IsNull(i)) return {};
+
+        auto const slice = list_array->value_slice(i);
+        int64_t const list_length = slice->length();
+
+        std::vector<TypedValue> list_values;
+        list_values.reserve(list_length);
+
+        for (int64_t k = 0; k < list_length; k++) {
+          auto const elem_converter = CreateColumnConverter(slice);
+          list_values.emplace_back(elem_converter(k));
+        }
+
+        return TypedValue(std::move(list_values));
+      };
+    }
+    case arrow::Type::MAP: {
+      auto map_array = std::static_pointer_cast<arrow::MapArray>(column);
+      auto keys_array = map_array->keys();
+      auto values_array = map_array->items();
+      auto key_strings = std::static_pointer_cast<arrow::StringArray>(keys_array);
+
+      return [map_array, key_strings, values_array](int64_t const i) -> TypedValue {
+        if (map_array->IsNull(i)) return {};
+
+        int64_t const offset_start = map_array->value_offset(i);
+        int64_t const offset_end = map_array->value_offset(i + 1);
+
+        std::map<std::string, TypedValue> map_values;
+
+        for (int64_t k = offset_start; k < offset_end; k++) {
+          auto key = key_strings->GetString(k);
+          auto const val_converter = CreateColumnConverter(values_array);
+          map_values.emplace(std::move(key), val_converter(k));
+        }
+
+        return TypedValue(std::move(map_values));
+      };
+    }
+    default: {
+      // Fallback to string conversion
+      return [column](int64_t const i) -> TypedValue {
+        if (column->IsNull(i)) return {};
+        if (auto scalar = column->GetScalar(i); scalar.ok() && scalar.ValueOrDie()) {
+          return TypedValue(scalar.ValueOrDie()->ToString());
+        }
+        return {};
+      };
+    }
+  }
+}
+
 }  // namespace
 
 namespace memgraph::query {
@@ -148,187 +407,17 @@ ParquetReader::impl::impl(std::unique_ptr<parquet::arrow::FileReader> file_reade
           for (int i = 0; i < num_rows; ++i) {
             queued_batch[i].resize(num_columns_);
           }
-          // TODO: (andi) Probably the best way is to expose the iterator function and you can check then only once
-          // if the value is null
+
+          std::vector<std::function<TypedValue(int64_t)>> converters;
+          converters.reserve(num_columns_);
           for (int j = 0U; j < num_columns_; j++) {
-            auto const &column = batch_ref[j];
+            converters.push_back(CreateColumnConverter(batch_ref[j]));
+          }
 
-            // TODO: (andi) Probably makes sense to create some kind of adapter class
-            if (auto const type_id = column->type_id(); type_id == arrow::Type::INT64) {
-              auto const int_array = std::static_pointer_cast<arrow::Int64Array>(column);
-              for (int64_t i = 0; i < num_rows; i++) {
-                queued_batch[i][j] = TypedValue(int_array->Value(i));
-              }
-            } else if (type_id == arrow::Type::INT32) {
-              auto const int32_array = std::static_pointer_cast<arrow::Int32Array>(column);
-              for (int64_t i = 0; i < num_rows; i++) {
-                queued_batch[i][j] = TypedValue(int32_array->Value(i));
-              }
-            } else if (type_id == arrow::Type::INT16) {
-              auto const int16_array = std::static_pointer_cast<arrow::Int16Array>(column);
-              for (int64_t i = 0; i < num_rows; i++) {
-                queued_batch[i][j] = TypedValue(int16_array->Value(i));
-              }
-            } else if (type_id == arrow::Type::INT8) {
-              auto const int8_array = std::static_pointer_cast<arrow::Int8Array>(column);
-              for (int64_t i = 0; i < num_rows; i++) {
-                queued_batch[i][j] = TypedValue(int8_array->Value(i));
-              }
-            } else if (type_id == arrow::Type::UINT8) {
-              auto const uint8_array = std::static_pointer_cast<arrow::UInt8Array>(column);
-              for (int64_t i = 0; i < num_rows; i++) {
-                queued_batch[i][j] = TypedValue(uint8_array->Value(i));
-              }
-            } else if (type_id == arrow::Type::UINT16) {
-              auto const uint16_array = std::static_pointer_cast<arrow::UInt16Array>(column);
-              for (int64_t i = 0; i < num_rows; i++) {
-                queued_batch[i][j] = TypedValue(uint16_array->Value(i));
-              }
-            } else if (type_id == arrow::Type::UINT32) {
-              auto const uint32_array = std::static_pointer_cast<arrow::UInt32Array>(column);
-              for (int64_t i = 0; i < num_rows; i++) {
-                queued_batch[i][j] = TypedValue(static_cast<int64_t>(uint32_array->Value(i)));
-              }
-            } else if (type_id == arrow::Type::UINT64) {
-              auto const uint64_array = std::static_pointer_cast<arrow::UInt64Array>(column);
-              for (int64_t i = 0; i < num_rows; i++) {
-                queued_batch[i][j] = TypedValue(static_cast<int64_t>(uint64_array->Value(i)));
-              }
-            } else if (type_id == arrow::Type::FLOAT) {
-              auto const float_array = std::static_pointer_cast<arrow::FloatArray>(column);
-              for (int64_t i = 0; i < num_rows; i++) {
-                queued_batch[i][j] = TypedValue(float_array->Value(i));
-              }
-            } else if (type_id == arrow::Type::HALF_FLOAT) {
-              auto const half_float_array = std::static_pointer_cast<arrow::HalfFloatArray>(column);
-              for (int64_t i = 0; i < num_rows; i++) {
-                auto scalar = half_float_array->Value(i);
-                queued_batch[i][j] = TypedValue(arrow::util::Float16::FromBits(scalar).ToFloat());
-              }
-            } else if (type_id == arrow::Type::DOUBLE) {
-              auto const double_array = std::static_pointer_cast<arrow::DoubleArray>(column);
-              for (int64_t i = 0; i < num_rows; i++) {
-                queued_batch[i][j] = TypedValue(double_array->Value(i));
-              }
-            } else if (type_id == arrow::Type::DECIMAL32) {
-              auto const decimal_array = std::static_pointer_cast<arrow::Decimal32Array>(column);
-              auto const decimal_type = std::static_pointer_cast<arrow::Decimal32Type>(column->type());
-              int32_t const scale = decimal_type->scale();
-              for (int64_t i = 0; i < num_rows; i++) {
-                uint8_t const *bytes = decimal_array->GetValue(i);
-                arrow::Decimal32 const value(bytes);
-                queued_batch[i][j] = TypedValue(value.ToDouble(scale));
-              }
-            } else if (type_id == arrow::Type::DECIMAL64) {
-              auto const decimal_array = std::static_pointer_cast<arrow::Decimal64Array>(column);
-              auto const decimal_type = std::static_pointer_cast<arrow::Decimal64Type>(column->type());
-              int32_t const scale = decimal_type->scale();
-              for (int64_t i = 0; i < num_rows; i++) {
-                uint8_t const *bytes = decimal_array->GetValue(i);
-                arrow::Decimal64 const value(bytes);
-                queued_batch[i][j] = TypedValue(value.ToDouble(scale));
-              }
-            } else if (type_id == arrow::Type::DECIMAL128) {
-              auto const decimal_array = std::static_pointer_cast<arrow::Decimal128Array>(column);
-              auto const decimal_type = std::static_pointer_cast<arrow::Decimal128Type>(column->type());
-              int32_t const scale = decimal_type->scale();
-              for (int64_t i = 0; i < num_rows; i++) {
-                uint8_t const *bytes = decimal_array->GetValue(i);
-                arrow::Decimal128 const value(bytes);
-                queued_batch[i][j] = TypedValue(value.ToDouble(scale));
-              }
-            } else if (type_id == arrow::Type::DECIMAL256) {
-              auto const decimal_array = std::static_pointer_cast<arrow::Decimal256Array>(column);
-              auto const decimal_type = std::static_pointer_cast<arrow::Decimal256Type>(column->type());
-              int32_t const scale = decimal_type->scale();
-              for (int64_t i = 0; i < num_rows; i++) {
-                uint8_t const *bytes = decimal_array->GetValue(i);
-                arrow::Decimal256 const value(bytes);
-                queued_batch[i][j] = TypedValue(value.ToDouble(scale));
-              }
-            } else if (type_id == arrow::Type::BOOL) {
-              auto const bool_array = std::static_pointer_cast<arrow::BooleanArray>(column);
-              for (int64_t i = 0; i < num_rows; i++) {
-                queued_batch[i][j] = TypedValue(bool_array->Value(i));
-              }
-            } else if (type_id == arrow::Type::STRING) {
-              auto const string_array = std::static_pointer_cast<arrow::StringArray>(column);
-              for (int64_t i = 0; i < num_rows; i++) {
-                queued_batch[i][j] = TypedValue(string_array->GetView(i));
-              }
-            } else if (type_id == arrow::Type::LARGE_STRING) {
-              auto const large_string_array = std::static_pointer_cast<arrow::LargeStringArray>(column);
-              for (int64_t i = 0; i < num_rows; i++) {
-                queued_batch[i][j] = TypedValue(large_string_array->GetView(i));
-              }
-            } else if (type_id == arrow::Type::STRING_VIEW) {
-              auto const string_view_array = std::static_pointer_cast<arrow::StringViewArray>(column);
-              for (int64_t i = 0; i < num_rows; i++) {
-                queued_batch[i][j] = TypedValue(string_view_array->GetView(i));
-              }
-            } else if (type_id == arrow::Type::DATE32) {
-              auto const date_array = std::static_pointer_cast<arrow::Date32Array>(column);
-              for (int64_t i = 0; i < num_rows; i++) {
-                queued_batch[i][j] = TypedValue(utils::Date{date_array->Value(i)});
-              }
-            } else if (type_id == arrow::Type::DATE64) {
-              auto const date_array = std::static_pointer_cast<arrow::Date64Array>(column);
-              for (int64_t i = 0; i < num_rows; i++) {
-                auto const ms = std::chrono::milliseconds(date_array->Value(i));
-                auto const us = std::chrono::duration_cast<std::chrono::microseconds>(ms);
-                queued_batch[i][j] = TypedValue(utils::Date{us.count()});
-              }
-            } else if (type_id == arrow::Type::TIME32) {
-              auto const time32_array = std::static_pointer_cast<arrow::Time32Array>(column);
-              auto const time_unit = std::static_pointer_cast<arrow::Time32Type>(column->type())->unit();
-              for (int64_t i = 0; i < num_rows; i++) {
-                queued_batch[i][j] = TypedValue(utils::LocalTime(ArrowTimeToUs(time32_array->Value(i), time_unit)));
-              }
-
-            } else if (type_id == arrow::Type::TIME64) {
-              auto const time64_array = std::static_pointer_cast<arrow::Time64Array>(column);
-              auto const time_unit = std::static_pointer_cast<arrow::Time64Type>(column->type())->unit();
-              for (int64_t i = 0; i < num_rows; i++) {
-                queued_batch[i][j] = TypedValue(utils::LocalTime(ArrowTimeToUs(time64_array->Value(i), time_unit)));
-              }
-            } else if (type_id == arrow::Type::TIMESTAMP) {
-              auto const timestamp_array = std::static_pointer_cast<arrow::TimestampArray>(column);
-              auto time_unit = std::static_pointer_cast<arrow::TimestampType>(column->type())->unit();
-              for (int64_t i = 0; i < num_rows; i++) {
-                queued_batch[i][j] =
-                    TypedValue(utils::LocalDateTime(ArrowTimeToUs(timestamp_array->Value(i), time_unit)));
-              }
-            } else if (type_id == arrow::Type::DURATION) {
-              auto const duration_array = std::static_pointer_cast<arrow::DurationArray>(column);
-              auto const time_unit = std::static_pointer_cast<arrow::DurationType>(column->type())->unit();
-              for (int64_t i = 0; i < num_rows; i++) {
-                queued_batch[i][j] = TypedValue(utils::Duration(ArrowTimeToUs(duration_array->Value(i), time_unit)));
-              }
-            } else if (type_id == arrow::Type::BINARY || type_id == arrow::Type::LARGE_BINARY ||
-                       type_id == arrow::Type::BINARY_VIEW) {
-              std::string_view view;
-              for (int64_t i = 0; i < num_rows; i++) {
-                if (type_id == arrow::Type::BINARY) {
-                  view = std::static_pointer_cast<arrow::BinaryArray>(column)->GetView(i);
-                } else if (type_id == arrow::Type::LARGE_BINARY) {
-                  view = std::static_pointer_cast<arrow::LargeBinaryArray>(column)->GetView(i);
-                } else {  // BINARY_VIEW
-                  view = std::static_pointer_cast<arrow::BinaryViewArray>(column)->GetView(i);
-                }
-                queued_batch[i][j] =
-                    TypedValue(ToHexString(reinterpret_cast<const uint8_t *>(view.data()), view.size()));
-              }
-            } else if (type_id == arrow::Type::FIXED_SIZE_BINARY) {
-              auto fixed_binary = std::static_pointer_cast<arrow::FixedSizeBinaryArray>(column);
-              int32_t const size = fixed_binary->byte_width();
-              for (int64_t i = 0; i < num_rows; i++) {
-                const uint8_t *data = fixed_binary->GetValue(i);
-                queued_batch[i][j] = TypedValue(ToHexString(data, size));
-              }
-            } else {
-              for (int64_t i = 0; i < num_rows; i++) {
-                queued_batch[i][j] = TypedValue(column->GetScalar(i).ValueOrDie()->ToString());
-              }
+          for (int j = 0U; j < num_columns_; j++) {
+            auto const &converter = converters[j];
+            for (int64_t i = 0; i < num_rows; i++) {
+              queued_batch[i][j] = converter(i);
             }
           }
           work_queue_.push(std::move(queued_batch));
