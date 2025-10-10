@@ -112,9 +112,53 @@ struct ThreadSafeQueryAllocator {
   }
 
   memgraph::utils::ThreadSafeMonotonicBufferResource monotonic{kMonotonicInitialSize, upstream_resource()};
-  memgraph::utils::ThreadLocalMemoryResource pool{[monotonic = &monotonic]() {
-    return std::make_unique<memgraph::utils::PoolResource<>>(kPoolBlockPerChunk, monotonic, upstream_resource());
-  }};
+  memgraph::utils::PoolResource<utils::impl::ThreadSafePool> pool{kPoolBlockPerChunk, &monotonic, upstream_resource()};
+};
+
+struct ThreadLocalQueryAllocator {
+  ThreadLocalQueryAllocator() = default;
+  ThreadLocalQueryAllocator(ThreadLocalQueryAllocator const &) = delete;
+  ThreadLocalQueryAllocator &operator=(ThreadLocalQueryAllocator const &) = delete;
+
+  // No move addresses to pool & monotonic fields must be stable
+  ThreadLocalQueryAllocator(ThreadLocalQueryAllocator &&) = delete;
+  ThreadLocalQueryAllocator &operator=(ThreadLocalQueryAllocator &&) = delete;
+
+  auto resource() -> utils::MemoryResource * { return &pool; }
+
+ private:
+  static constexpr auto kMonotonicInitialSize = 4UL * 1024UL;
+  static constexpr auto kPoolBlockPerChunk = 64UL;
+  static constexpr auto kPoolMaxBlockSize = 1024UL;
+
+  static auto upstream_resource() -> utils::MemoryResource * {
+    static auto upstream = utils::ResourceWithOutOfMemoryException{utils::NewDeleteResource()};
+    return &upstream;
+  }
+
+  struct PoolBackedByMonotonic : public std::pmr::memory_resource {
+    PoolBackedByMonotonic()
+        : monotonic_(kMonotonicInitialSize, upstream_resource()),
+          pool_(kPoolBlockPerChunk, &monotonic_, upstream_resource()) {}
+    ~PoolBackedByMonotonic() override = default;
+    PoolBackedByMonotonic(const PoolBackedByMonotonic &) = delete;
+    PoolBackedByMonotonic &operator=(const PoolBackedByMonotonic &) = delete;
+    PoolBackedByMonotonic(PoolBackedByMonotonic &&) = delete;
+    PoolBackedByMonotonic &operator=(PoolBackedByMonotonic &&) = delete;
+
+    void *do_allocate(size_t bytes, size_t alignment) override { return pool_.allocate(bytes, alignment); }
+
+    void do_deallocate(void *p, size_t bytes, size_t alignment) override { pool_.deallocate(p, bytes, alignment); }
+
+    bool do_is_equal(std::pmr::memory_resource const &other) const noexcept override { return this == &other; }
+
+   private:
+    utils::MonotonicBufferResource monotonic_;
+    utils::PoolResource<> pool_;
+  };
+
+  // TODO Another option is a thread safe monotonic + thread local pools
+  memgraph::utils::ThreadLocalMemoryResource pool{[]() { return std::make_unique<PoolBackedByMonotonic>(); }};
 };
 
 struct InterpreterContext;
@@ -463,10 +507,14 @@ class Interpreter final {
 
   struct QueryExecution {
     static constexpr struct ThreadSafe {
-    } thread_safe;
+    } thread_safe_;
+
+    static constexpr struct ThreadLocal {
+    } thread_local_;
 
     QueryExecution() = default;
     explicit QueryExecution(ThreadSafe /*marker*/) : execution_memory{std::in_place_type<ThreadSafeQueryAllocator>} {}
+    explicit QueryExecution(ThreadLocal /*marker*/) : execution_memory{std::in_place_type<ThreadLocalQueryAllocator>} {}
 
     QueryExecution(const QueryExecution &) = delete;
     QueryExecution(QueryExecution &&) = delete;
@@ -475,7 +523,7 @@ class Interpreter final {
 
     ~QueryExecution() = default;
 
-    std::variant<QueryAllocator, ThreadSafeQueryAllocator>
+    std::variant<QueryAllocator, ThreadSafeQueryAllocator, ThreadLocalQueryAllocator>
         execution_memory;  // NOTE: before all other fields which uses this memory
 
     std::optional<PreparedQuery> prepared_query;
@@ -484,7 +532,10 @@ class Interpreter final {
 
     static auto Create() -> std::unique_ptr<QueryExecution> { return std::make_unique<QueryExecution>(); }
     static auto CreateThreadSafe() -> std::unique_ptr<QueryExecution> {
-      return std::make_unique<QueryExecution>(thread_safe);
+      return std::make_unique<QueryExecution>(thread_safe_);
+    }
+    static auto CreateThreadLocal() -> std::unique_ptr<QueryExecution> {
+      return std::make_unique<QueryExecution>(thread_local_);
     }
 
     utils::MemoryResource *resource() {
