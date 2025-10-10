@@ -673,22 +673,26 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
       }
 
       auto *join_condition = static_cast<EqualOperator *>(filter.expression);
-      if (join_condition->expression1_->GetTypeInfo() != PropertyLookup::kType ||
-          join_condition->expression2_->GetTypeInfo() != PropertyLookup::kType) {
+
+      auto is_property_lookup_with_identifier = [](Expression *expr) -> PropertyLookup * {
+        if (expr->GetTypeInfo() != PropertyLookup::kType) {
+          return nullptr;
+        }
+        auto *property_lookup = static_cast<PropertyLookup *>(expr);
+        if (property_lookup->expression_->GetTypeInfo() != Identifier::kType) {
+          return nullptr;
+        }
+        return property_lookup;
+      };
+      auto *lhs_join_lookup = is_property_lookup_with_identifier(join_condition->expression1_);
+      auto *rhs_join_lookup = is_property_lookup_with_identifier(join_condition->expression2_);
+
+      if (!lhs_join_lookup || !rhs_join_lookup) {
         continue;
       }
 
-      auto *lhs_join_lookup = static_cast<PropertyLookup *>(join_condition->expression1_);
-      auto *rhs_join_lookup = static_cast<PropertyLookup *>(join_condition->expression2_);
-      if (lhs_join_lookup->expression_->GetTypeInfo() != Identifier::kType ||
-          rhs_join_lookup->expression_->GetTypeInfo() != Identifier::kType) {
-        continue;
-      }
-
-      auto *lhs_identifier = static_cast<Identifier *>(lhs_join_lookup->expression_);
-      auto *rhs_identifier = static_cast<Identifier *>(rhs_join_lookup->expression_);
-      auto lhs_symbol = symbol_table_->at(*lhs_identifier);
-      auto rhs_symbol = symbol_table_->at(*rhs_identifier);
+      auto lhs_symbol = filter.property_filter->symbol_;
+      auto rhs_symbol = symbol_table_->at(*static_cast<Identifier *>(rhs_join_lookup->expression_));
       filter_exprs_for_removal_.insert(filter.expression);
       filters_.EraseFilter(filter);
 
