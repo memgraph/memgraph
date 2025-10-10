@@ -13,19 +13,22 @@
 
 #include "parquet/arrow/reader.h"
 
+#include "query/typed_value.hpp"
+
 #include "utils/memory.hpp"
+#include "utils/pmr/map.hpp"
 #include "utils/pmr/string.hpp"
 #include "utils/pmr/vector.hpp"
 
 namespace memgraph::query {
-class TypedValue;
 
-using Row = std::vector<TypedValue>;
-using Header = utils::pmr::vector<utils::pmr::string>;
+// using Row = std::vector<TypedValue>;
+using Row = TypedValue::TMap;
+using Header = utils::pmr::vector<TypedValue::TString>;
 
 class ParquetReader {
  public:
-  explicit ParquetReader(std::string const &file);
+  explicit ParquetReader(std::string const &file, utils::MemoryResource *resource);
   ~ParquetReader();
 
   ParquetReader(ParquetReader const &other) = delete;
@@ -35,7 +38,6 @@ class ParquetReader {
   ParquetReader &operator=(ParquetReader &&other) = default;
 
   auto GetNextRow(Row &out) -> bool;
-  auto GetHeader(utils::MemoryResource *resource) const -> Header;
 
  private:
   struct impl;

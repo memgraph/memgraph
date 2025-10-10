@@ -7306,11 +7306,26 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
         fmt::format("Query [{}] associated with transaction [{}]", parsed_query.query_string, *current_transaction_));
   }
 
+  auto const cypher_query = utils::Downcast<CypherQuery>(parsed_query.query);
+  bool has_load_parquet{false};
+
+  if (cypher_query) {
+    auto clauses = cypher_query->single_query_->clauses_;
+    has_load_parquet =
+        std::ranges::any_of(clauses, [](const auto *clause) { return clause->GetTypeInfo() == LoadParquet::kType; });
+  }
+
   std::unique_ptr<QueryExecution> *query_execution_ptr = nullptr;
   try {
     // Setup QueryExecution
     // TODO: Use CreateThreadSafe for multi-threaded queries
-    query_executions_.emplace_back(QueryExecution::Create());
+    if (has_load_parquet) {
+      spdlog::trace("Creating thread safe query allocator");
+      query_executions_.emplace_back(QueryExecution::CreateThreadSafe());
+    } else {
+      spdlog::trace("Creating regular allocator");
+      query_executions_.emplace_back(QueryExecution::Create());
+    }
     auto &query_execution = query_executions_.back();
     query_execution_ptr = &query_execution;
 
