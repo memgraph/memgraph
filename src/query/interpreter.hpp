@@ -53,7 +53,7 @@ struct QueryAllocator {
 
   auto resource() -> utils::MemoryResource * {
 #ifndef MG_MEMORY_PROFILE
-    return &thread_local_pool;
+    return &pool;
 #else
     return upstream_resource();
 #endif
