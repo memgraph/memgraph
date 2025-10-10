@@ -16,7 +16,7 @@ namespace memgraph::query {
 
 auto FrameWriter::ResetTrackingValue(const Symbol &symbol) -> void {
   if (frame_change_collector_) {
-    frame_change_collector_->ResetTrackingValue(symbol);
+    frame_change_collector_->ResetTrackingValueForSymbol(utils::FrameChangeId(symbol));
   }
 }
 

@@ -130,6 +130,21 @@ class FrameChangeCollector {
     return it->second;
   }
 
+  void AddSymbolDependency(utils::FrameChangeId const &symbol_id, utils::FrameChangeId const &dependent_key) {
+    symbol_dependencies_[symbol_id].push_back(dependent_key);
+  }
+
+  void ResetTrackingValueForSymbol(utils::FrameChangeId const &symbol_id) {
+    ResetTrackingValue(symbol_id);
+
+    auto const it = symbol_dependencies_.find(symbol_id);
+    if (it != symbol_dependencies_.cend()) {
+      for (auto const &dependent_key : it->second) {
+        ResetTrackingValue(dependent_key);
+      }
+    }
+  }
+
   bool IsTrackingValues() const { return !tracked_values_.empty(); }
 
   ~FrameChangeCollector() = default;
@@ -150,5 +165,7 @@ class FrameChangeCollector {
   };
 
   utils::pmr::unordered_map<utils::FrameChangeId, CachedValue> tracked_values_;
+  // could be just list literal -> list literals that depend on it
+  utils::pmr::unordered_map<utils::FrameChangeId, utils::pmr::vector<utils::FrameChangeId>> symbol_dependencies_;
 };
 }  // namespace memgraph::query

@@ -2790,6 +2790,27 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
           RWType::NONE};
 }
 
+inline static void ExtractIdentifierDependencies(Expression *expr, FrameChangeCollector *frame_change_collector,
+                                                 const utils::FrameChangeId &dependent_key) {
+  if (!expr) return;
+
+  if (auto *identifier = utils::Downcast<Identifier>(expr)) {
+    if (identifier->symbol_pos_ != -1) {
+      frame_change_collector->AddSymbolDependency(utils::FrameChangeId(*identifier), dependent_key);
+    }
+    return;
+  }
+
+  if (auto *list_literal = utils::Downcast<ListLiteral>(expr)) {
+    for (auto *element : list_literal->elements_) {
+      ExtractIdentifierDependencies(element, frame_change_collector, dependent_key);
+    }
+    return;
+  }
+
+  // TODO: function calls
+}
+
 inline static void TryCaching(const AstStorage &ast_storage, FrameChangeCollector *frame_change_collector) {
   if (!frame_change_collector) return;
   for (const auto &tree : ast_storage.storage_) {
@@ -2801,23 +2822,9 @@ inline static void TryCaching(const AstStorage &ast_storage, FrameChangeCollecto
     if (!cached_id) {
       continue;
     }
-    // // If the list will already be on the frame, no need to copy it into the cache
-    // if (utils::Downcast<Identifier>(in_list_operator->expression2_)) {
-    //   continue;
-    // }
-    // // If the list refers to elements that could change within the frame then again we do not want to cache because
-    // it
-    // // would be difficult to invalidate
-    // if (auto *list_literal = utils::Downcast<ListLiteral>(in_list_operator->expression2_)) {
-    //   // TODO: also need to check recursivly and for functions which we don't know are safe
-    //   if (std::ranges::any_of(list_literal->elements_, [](Expression *expr) {
-    //         return utils::Downcast<Identifier>(expr) != nullptr && utils::Downcast<ParameterLookup>(expr) != nullptr;
-    //       })) {
-    //     continue;
-    //   }
-    // }
 
     frame_change_collector->AddTrackingKey(*cached_id);
+    ExtractIdentifierDependencies(in_list_operator->expression2_, frame_change_collector, *cached_id);
   }
 }
 
