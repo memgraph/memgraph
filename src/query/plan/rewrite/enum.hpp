@@ -132,8 +132,8 @@ class ExpressionEnumAccessRewriter : public ExpressionVisitor<void> {
   }
 
   void Visit(RangeOperator &op) override {
-    AcceptExpression(op.expr1_);
-    AcceptExpression(op.expr2_);
+    AcceptExpression(op.expression1_);
+    AcceptExpression(op.expression2_);
   }
 
   void Visit(SubscriptOperator &op) override {

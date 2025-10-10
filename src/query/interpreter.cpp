@@ -2790,8 +2790,10 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
           RWType::NONE};
 }
 
-inline static void ExtractIdentifierDependencies(Expression *expr, FrameChangeCollector *frame_change_collector,
-                                                 const utils::FrameChangeId &dependent_key) {
+namespace {
+
+void ExtractIdentifierDependencies(Expression *expr, FrameChangeCollector *frame_change_collector,
+                                   const utils::FrameChangeId &dependent_key) {
   if (!expr) return;
 
   if (auto *identifier = utils::Downcast<Identifier>(expr)) {
@@ -2808,8 +2810,108 @@ inline static void ExtractIdentifierDependencies(Expression *expr, FrameChangeCo
     return;
   }
 
-  // TODO: function calls
+  if (auto *map_literal = utils::Downcast<MapLiteral>(expr)) {
+    for (const auto &[key, value] : map_literal->elements_) {
+      ExtractIdentifierDependencies(value, frame_change_collector, dependent_key);
+    }
+    return;
+  }
+
+  auto handle_binary_op = [&]<typename OpType>() -> bool {
+    if (auto *binary = utils::Downcast<OpType>(expr)) {
+      ExtractIdentifierDependencies(binary->expression1_, frame_change_collector, dependent_key);
+      ExtractIdentifierDependencies(binary->expression2_, frame_change_collector, dependent_key);
+      return true;
+    }
+    return false;
+  };
+
+  if (handle_binary_op.template operator()<OrOperator>()) return;
+  if (handle_binary_op.template operator()<XorOperator>()) return;
+  if (handle_binary_op.template operator()<AndOperator>()) return;
+  if (handle_binary_op.template operator()<AdditionOperator>()) return;
+  if (handle_binary_op.template operator()<SubtractionOperator>()) return;
+  if (handle_binary_op.template operator()<MultiplicationOperator>()) return;
+  if (handle_binary_op.template operator()<DivisionOperator>()) return;
+  if (handle_binary_op.template operator()<ModOperator>()) return;
+  if (handle_binary_op.template operator()<ExponentiationOperator>()) return;
+  if (handle_binary_op.template operator()<EqualOperator>()) return;
+  if (handle_binary_op.template operator()<NotEqualOperator>()) return;
+  if (handle_binary_op.template operator()<LessOperator>()) return;
+  if (handle_binary_op.template operator()<GreaterOperator>()) return;
+  if (handle_binary_op.template operator()<LessEqualOperator>()) return;
+  if (handle_binary_op.template operator()<GreaterEqualOperator>()) return;
+  if (handle_binary_op.template operator()<InListOperator>()) return;
+  if (handle_binary_op.template operator()<RangeOperator>()) return;
+  if (handle_binary_op.template operator()<SubscriptOperator>()) return;
+
+  auto handle_unary_op = [&]<typename OpType>() -> bool {
+    if (auto *unary = utils::Downcast<OpType>(expr)) {
+      ExtractIdentifierDependencies(unary->expression_, frame_change_collector, dependent_key);
+      return true;
+    }
+    return false;
+  };
+
+  if (handle_unary_op.template operator()<NotOperator>()) return;
+  if (handle_unary_op.template operator()<UnaryPlusOperator>()) return;
+  if (handle_unary_op.template operator()<UnaryMinusOperator>()) return;
+  if (handle_unary_op.template operator()<IsNullOperator>()) return;
+  if (handle_unary_op.template operator()<PropertyLookup>()) return;
+  if (handle_unary_op.template operator()<AllPropertiesLookup>()) return;
+
+  if (auto *slice = utils::Downcast<ListSlicingOperator>(expr)) {
+    ExtractIdentifierDependencies(slice->list_, frame_change_collector, dependent_key);
+    if (slice->lower_bound_) ExtractIdentifierDependencies(slice->lower_bound_, frame_change_collector, dependent_key);
+    if (slice->upper_bound_) ExtractIdentifierDependencies(slice->upper_bound_, frame_change_collector, dependent_key);
+    return;
+  }
+
+  // TODO: some functions can't be cached due to randomness
+  if (auto *func = utils::Downcast<Function>(expr)) {
+    for (auto *arg : func->arguments_) {
+      ExtractIdentifierDependencies(arg, frame_change_collector, dependent_key);
+    }
+    return;
+  }
+
+  if (auto *agg = utils::Downcast<Aggregation>(expr)) {
+    ExtractIdentifierDependencies(agg->expression1_, frame_change_collector, dependent_key);
+    if (agg->expression2_) ExtractIdentifierDependencies(agg->expression2_, frame_change_collector, dependent_key);
+    return;
+  }
+
+  if (auto *if_op = utils::Downcast<IfOperator>(expr)) {
+    ExtractIdentifierDependencies(if_op->condition_, frame_change_collector, dependent_key);
+    ExtractIdentifierDependencies(if_op->then_expression_, frame_change_collector, dependent_key);
+    ExtractIdentifierDependencies(if_op->else_expression_, frame_change_collector, dependent_key);
+    return;
+  }
+
+  if (auto *coalesce = utils::Downcast<Coalesce>(expr)) {
+    for (auto *arg : coalesce->expressions_) {
+      ExtractIdentifierDependencies(arg, frame_change_collector, dependent_key);
+    }
+    return;
+  }
+
+  if (auto *reduce = utils::Downcast<Reduce>(expr)) {
+    ExtractIdentifierDependencies(reduce->list_, frame_change_collector, dependent_key);
+    ExtractIdentifierDependencies(reduce->initializer_, frame_change_collector, dependent_key);
+    ExtractIdentifierDependencies(reduce->expression_, frame_change_collector, dependent_key);
+    return;
+  }
+  if (auto *extract = utils::Downcast<Extract>(expr)) {
+    ExtractIdentifierDependencies(extract->list_, frame_change_collector, dependent_key);
+    ExtractIdentifierDependencies(extract->expression_, frame_change_collector, dependent_key);
+    return;
+  }
+
+  // TODO: Is named expression needed?
+  // ignore primitive literals
 }
+
+}  // namespace
 
 inline static void TryCaching(const AstStorage &ast_storage, FrameChangeCollector *frame_change_collector) {
   if (!frame_change_collector) return;

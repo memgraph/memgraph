@@ -260,7 +260,9 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 #undef BINARY_OPERATOR_VISITOR
 #undef UNARY_OPERATOR_VISITOR
 
-  TypedValue Visit(RangeOperator &op) override { return op.expr1_->Accept(*this) && op.expr2_->Accept(*this); }
+  TypedValue Visit(RangeOperator &op) override {
+    return op.expression1_->Accept(*this) && op.expression2_->Accept(*this);
+  }
 
   TypedValue Visit(AndOperator &op) override {
     auto value1 = op.expression1_->Accept(*this);

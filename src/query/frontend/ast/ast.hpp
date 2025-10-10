@@ -529,8 +529,8 @@ class RangeOperator : public memgraph::query::Expression {
   static const utils::TypeInfo kType;
   const utils::TypeInfo &GetTypeInfo() const override { return kType; }
 
-  Expression *expr1_{};
-  Expression *expr2_{};
+  Expression *expression1_{};
+  Expression *expression2_{};
 
   DEFVISITABLE(ExpressionVisitor<TypedValue>);
   DEFVISITABLE(ExpressionVisitor<TypedValue *>);
@@ -538,15 +538,15 @@ class RangeOperator : public memgraph::query::Expression {
   DEFVISITABLE(ExpressionVisitor<void>);
   bool Accept(HierarchicalTreeVisitor &visitor) override {
     if (visitor.PreVisit(*this)) {
-      expr1_->Accept(visitor) && expr2_->Accept(visitor);
+      expression1_->Accept(visitor) && expression2_->Accept(visitor);
     }
     return visitor.PostVisit(*this);
   }
 
   RangeOperator *Clone(AstStorage *storage) const override {
     auto *object = storage->Create<RangeOperator>();
-    object->expr1_ = expr1_ ? expr1_->Clone(storage) : nullptr;
-    object->expr2_ = expr2_ ? expr2_->Clone(storage) : nullptr;
+    object->expression1_ = expression1_ ? expression1_->Clone(storage) : nullptr;
+    object->expression2_ = expression2_ ? expression2_->Clone(storage) : nullptr;
     return object;
   }
 
