@@ -49,7 +49,7 @@ struct FrameWriter {
   // auto &elems() { return frame_.elems_; }
 
  private:
-  void ResetTrackingValue(const Symbol &symbol);
+  void ResetInListCache(const Symbol &symbol);
 
   Frame &frame_;
   FrameChangeCollector *frame_change_collector_;
@@ -84,7 +84,7 @@ class Frame {
 template <typename Func>
 auto FrameWriter::Modify(const Symbol &symbol, Func f) -> std::invoke_result_t<Func, TypedValue &> {
   auto &value = frame_.elems_[symbol.position()];
-  ResetTrackingValue(symbol);
+  ResetInListCache(symbol);
   return f(value);
 }
 
