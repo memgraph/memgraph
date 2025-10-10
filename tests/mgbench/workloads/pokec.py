@@ -140,7 +140,7 @@ class Pokec(Workload):
                 query = "SELECT age, COUNT(*) FROM users GROUP BY age"
                 params = {}
             case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
-                query = "MATCH (n:User) RETURN n.age, COUNT(*)"
+                query = "USING PARALLEL EXECUTION MATCH (n:User) RETURN n.age, COUNT(*)"
                 params = {}
             case _:
                 raise Exception(f"Unknown vendor {self._vendor}")
@@ -153,7 +153,7 @@ class Pokec(Workload):
                 query = "SELECT COUNT(DISTINCT age) FROM users"
                 params = {}
             case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
-                query = "MATCH (n:User) RETURN COUNT(DISTINCT n.age)"
+                query = "USING PARALLEL EXECUTION MATCH (n:User) RETURN COUNT(DISTINCT n.age)"
                 params = {}
             case _:
                 raise Exception(f"Unknown vendor {self._vendor}")
@@ -683,7 +683,7 @@ class Pokec(Workload):
                 query = "SELECT COUNT(*), COUNT(age) FROM users"
                 params = {}
             case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
-                query = "MATCH (n) RETURN count(n), count(n.age)"
+                query = "USING PARALLEL EXECUTION MATCH (n) RETURN count(n), count(n.age)"
                 params = {}
             case _:
                 raise Exception(f"Unknown vendor {self._vendor}")
@@ -696,7 +696,7 @@ class Pokec(Workload):
                 query = "SELECT MIN(age), MAX(age), AVG(age) FROM users"
                 params = {}
             case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
-                query = "MATCH (n) RETURN min(n.age), max(n.age), avg(n.age)"
+                query = "USING PARALLEL EXECUTION MATCH (n) RETURN min(n.age), max(n.age), avg(n.age)"
                 params = {}
             case _:
                 raise Exception(f"Unknown vendor {self._vendor}")
@@ -899,7 +899,7 @@ class Pokec(Workload):
                 query = "SELECT age, COUNT(*) FROM users GROUP BY age"
                 params = {}
             case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
-                query = "MATCH (n:User) RETURN n.age, COUNT(*)"
+                query = "USING PARALLEL EXECUTION MATCH (n:User) RETURN n.age, COUNT(*)"
                 params = {}
             case _:
                 raise Exception(f"Unknown vendor {self._vendor}")
@@ -912,7 +912,7 @@ class Pokec(Workload):
                 query = "SELECT COUNT(*), COUNT(age) FROM users"
                 params = {}
             case GraphVendors.MEMGRAPH | GraphVendors.NEO4J | GraphVendors.FALKORDB:
-                query = "MATCH (n) RETURN count(n), count(n.age)"
+                query = "USING PARALLEL EXECUTION MATCH (n) RETURN count(n), count(n.age)"
                 params = {}
             case _:
                 raise Exception(f"Unknown vendor {self._vendor}")

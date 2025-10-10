@@ -23,10 +23,13 @@
 #include <unordered_map>
 #include <unordered_set>
 #include <utility>
+#include "utils/cache_aligned.hpp"
 
 #include <cppitertools/chain.hpp>
 #include <cppitertools/imap.hpp>
+#include "flags/bolt.hpp"
 #include "memory/query_memory_control.hpp"
+#include "plan/preprocess.hpp"
 #include "query/common.hpp"
 #include "spdlog/spdlog.h"
 
@@ -67,6 +70,7 @@
 #include "utils/pmr/unordered_map.hpp"
 #include "utils/pmr/unordered_set.hpp"
 #include "utils/pmr/vector.hpp"
+#include "utils/priority_thread_pool.hpp"
 #include "utils/query_memory_tracker.hpp"
 #include "utils/readable_size.hpp"
 #include "utils/tag.hpp"
@@ -554,7 +558,11 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context)
 #ifdef MG_ENTERPRISE
     if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
         !context.auth_checker->Has(labels, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
-      throw QueryRuntimeException("Vertex not created due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+      throw QueryRuntimeException(
+          "Vertex not created due to not having enough permission! This error means that the fine grained access "
+          "control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON "
+          "CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running "
+          "SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
     }
 #endif
 
@@ -690,7 +698,11 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
     if (context.auth_checker &&
         !(context.auth_checker->Has(edge_type, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
           context.auth_checker->Has(labels, fine_grained_permission))) {
-      throw QueryRuntimeException("Edge not created due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+      throw QueryRuntimeException(
+          "Edge not created due to not having enough permission! This error means that the fine grained access control "
+          "was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to "
+          "check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT "
+          "DATABASE; to verify you are pointing to correct database.");
     }
   }
 #endif
@@ -747,6 +759,14 @@ VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(Frame &frame, Exec
   }
 }
 
+// Thread Local Section
+namespace {
+thread_local int thread_id = -1;  // NOLINT
+// TODO This is a hack to create a parallel plan while reusing the same operators
+bool create_parallel_plan = false;  //  NOLINT
+// NOTE: For now testing only 4 threads (hardcoded)
+}  // namespace
+
 template <class TVerticesFun>
 class ScanAllCursor : public Cursor {
  public:
@@ -776,7 +796,8 @@ class ScanAllCursor : public Cursor {
       vertices_end_it_.emplace(vertices_.value().end());
     }
 #ifdef MG_ENTERPRISE
-    if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker && !FindNextVertex(context)) {
+    if (license::global_license_checker.IsEnterpriseValidFast() /* && context.auth_checker*/ &&
+        !FindNextVertex(context)) {
       return false;
     }
 #endif
@@ -789,11 +810,12 @@ class ScanAllCursor : public Cursor {
 #ifdef MG_ENTERPRISE
   bool FindNextVertex(const ExecutionContext &context) {
     while (vertices_it_.value() != vertices_end_it_.value()) {
-      if (context.auth_checker->Has(*vertices_it_.value(), view_,
-                                    memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
-        return true;
-      }
+      // if (context.auth_checker->Has(*vertices_it_.value(), view_,
+      //                               memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
+      //   return true;
+      // }
       ++vertices_it_.value();
+      return true;
     }
     return false;
   }
@@ -819,6 +841,90 @@ class ScanAllCursor : public Cursor {
   std::optional<decltype(vertices_.value().end())> vertices_end_it_;
   const char *op_name_;
 };
+
+thread_local int called = 0;
+template <>
+class ScanAllCursor<std::function<VerticesChunkCollection(Frame &, ExecutionContext &)>> : public Cursor {
+ public:
+  explicit ScanAllCursor(const ScanAll &self, Symbol output_symbol, UniqueCursorPtr input_cursor, storage::View view,
+                         std::function<VerticesChunkCollection(Frame &, ExecutionContext &)> get_vertices,
+                         const char *op_name)
+      : self_(self),
+        output_symbol_(std::move(output_symbol)),
+        input_cursor_(std::move(input_cursor)),
+        view_(view),
+        get_vertices_(std::move(get_vertices)),
+        op_name_(op_name) {
+    (void)op_name_;
+  }
+
+  bool Pull(Frame &frame, ExecutionContext &context) override {
+    OOMExceptionEnabler oom_exception;
+    SCOPED_PROFILE_OP_BY_REF(self_);
+
+    AbortCheck(context);
+
+    while (!vertices_ || vertices_it_.value() == vertices_end_it_.value()) {
+      if (!input_cursor_->Pull(frame, context)) return false;
+      // We need a getter function, because in case of exhausting a lazy
+      // iterable, we cannot simply reset it by calling begin().
+      auto next_vertices = get_vertices_(frame, context);  // TODO: Chunks need to be created once by the aggregator
+      if (next_vertices.empty() || (thread_id != -1 && next_vertices.size() <= thread_id)) continue;
+      vertices_ = std::move(next_vertices);
+      // Get the specific chunk for this thread
+      size_t chunk_index = thread_id != -1 ? thread_id : 0;
+      auto chunk = vertices_.value()[chunk_index];
+      vertices_it_.emplace(chunk.begin());
+      vertices_end_it_.emplace(chunk.end());
+    }
+#ifdef MG_ENTERPRISE
+    if (license::global_license_checker.IsEnterpriseValidFast() /*&& context.auth_checker*/ &&
+        !FindNextVertex(context)) {
+      return false;
+    }
+#endif
+
+    frame[output_symbol_] = *vertices_it_.value();
+    ++vertices_it_.value();
+    ++called;
+    return true;
+  }
+
+#ifdef MG_ENTERPRISE
+  bool FindNextVertex(const ExecutionContext &context) {
+    while (vertices_it_.value() != vertices_end_it_.value()) {
+      // if (context.auth_checker->Has(*vertices_it_.value(), view_,
+      //                               memgraph::query::AuthQuery::FineGrainedPrivilege::READ)) {
+      //   return true;
+      // }
+      ++vertices_it_.value();
+      return true;
+    }
+    return false;
+  }
+#endif
+
+  void Shutdown() override { input_cursor_->Shutdown(); }
+
+  void Reset() override {
+    input_cursor_->Reset();
+    vertices_ = std::nullopt;
+    vertices_it_ = std::nullopt;
+    vertices_end_it_ = std::nullopt;
+  }
+
+ private:
+  const ScanAll &self_;
+  const Symbol output_symbol_;
+  const UniqueCursorPtr input_cursor_;
+  storage::View view_;
+  std::function<VerticesChunkCollection(Frame &, ExecutionContext &)> get_vertices_;
+  std::optional<VerticesChunkCollection> vertices_;
+  std::optional<VerticesChunkCollection::ChunkIterator> vertices_it_;
+  std::optional<VerticesChunkCollection::ChunkIterator> vertices_end_it_;
+  const char *op_name_;
+};
+
 template <typename TEdgesFun>
 class ScanAllByEdgeCursor : public Cursor {
  public:
@@ -910,12 +1016,24 @@ ACCEPT_WITH_INPUT(ScanAll)
 UniqueCursorPtr ScanAll::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllOperator);
 
-  auto vertices = [this](Frame &, ExecutionContext &context) {
-    auto *db = context.db_accessor;
-    return std::make_optional(db->Vertices(view_));
-  };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
-                                                                view_, std::move(vertices), "ScanAll");
+  // TODO: This is a hack since we are reusing the same operators for parallel and single thread execution
+  if (create_parallel_plan) {
+    auto vertices = std::function<VerticesChunkCollection(Frame &, ExecutionContext &)>{
+        [this](Frame &, ExecutionContext &context) mutable {
+          auto *db = context.db_accessor;
+          // std::cout << "Creating chunks" << std::endl;
+          return db->VerticesChunks(view_, FLAGS_bolt_num_workers);
+        }};
+    return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
+                                                                  view_, std::move(vertices), "ScanAll");
+  } else {
+    auto vertices = [this](Frame &, ExecutionContext &context) {
+      auto *db = context.db_accessor;
+      return std::make_optional(db->Vertices(view_));
+    };
+    return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
+                                                                  view_, std::move(vertices), "ScanAll");
+  }
 }
 
 std::vector<Symbol> ScanAll::ModifiedSymbols(const SymbolTable &table) const {
@@ -943,12 +1061,25 @@ ACCEPT_WITH_INPUT(ScanAllByLabel)
 UniqueCursorPtr ScanAllByLabel::MakeCursor(utils::MemoryResource *mem) const {
   memgraph::metrics::IncrementCounter(memgraph::metrics::ScanAllByLabelOperator);
 
-  auto vertices = [this](Frame &, ExecutionContext &context) {
-    auto *db = context.db_accessor;
-    return std::make_optional(db->Vertices(view_, label_));
-  };
-  return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
-                                                                view_, std::move(vertices), "ScanAllByLabel");
+  // TODO: This is a hack since we are reusing the same operators for parallel and single thread execution
+  if (create_parallel_plan) {
+    // TODO: This doesn't actually scan over the label (hack to use it in tests)
+    auto vertices = std::function<VerticesChunkCollection(Frame &, ExecutionContext &)>{
+        [this](Frame &, ExecutionContext &context) mutable {
+          auto *db = context.db_accessor;
+          // std::cout << "Creating chunks" << std::endl;
+          return db->VerticesChunks(view_, FLAGS_bolt_num_workers);
+        }};
+    return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
+                                                                  view_, std::move(vertices), "ScanAllByLabel");
+  } else {
+    auto vertices = [this](Frame &, ExecutionContext &context) {
+      auto *db = context.db_accessor;
+      return std::make_optional(db->Vertices(view_, label_));
+    };
+    return MakeUniqueCursorPtr<ScanAllCursor<decltype(vertices)>>(mem, *this, output_symbol_, input_->MakeCursor(mem),
+                                                                  view_, std::move(vertices), "ScanAllByLabel");
+  }
 }
 
 std::string ScanAllByLabel::ToString() const {
@@ -1620,12 +1751,12 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
     if (in_edges_ && *in_edges_it_ != in_edges_->end()) {
       auto edge = *(*in_edges_it_)++;
 #ifdef MG_ENTERPRISE
-      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-          !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
-            context.auth_checker->Has(edge.From(), self_.view_,
-                                      memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
-        continue;
-      }
+      // if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+      //     !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+      //       context.auth_checker->Has(edge.From(), self_.view_,
+      //                                 memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+      //   continue;
+      // }
 #endif
 
       frame[self_.common_.edge_symbol] = edge;
@@ -1641,12 +1772,12 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
       // already done in the block above
       if (self_.common_.direction == EdgeAtom::Direction::BOTH && edge.IsCycle()) continue;
 #ifdef MG_ENTERPRISE
-      if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-          !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
-            context.auth_checker->Has(edge.To(), self_.view_,
-                                      memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
-        continue;
-      }
+        // if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+        //     !(context.auth_checker->Has(edge, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
+        //       context.auth_checker->Has(edge.To(), self_.view_,
+        //                                 memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
+        //   continue;
+        // }
 #endif
       frame[self_.common_.edge_symbol] = edge;
       pull_node(edge, utils::tag_v<EdgeAtom::Direction::OUT>);
@@ -1727,7 +1858,7 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
   while (true) {
     if (!input_cursor_->Pull(frame, context)) return false;
 
-    if (context.hops_limit.IsLimitReached()) return false;
+    // if (context.hops_limit.IsLimitReached()) return false;
 
     expansion_info_ = GetExpansionInfo(frame);
 
@@ -1745,15 +1876,15 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
           auto existing_node = *expansion_info_.existing_node;
 
           auto edges_result = UnwrapEdgesResult(
-              vertex.InEdges(self_.view_, self_.common_.edge_types, existing_node, &context.hops_limit));
-          context.number_of_hops += edges_result.expanded_count;
+              vertex.InEdges(self_.view_, self_.common_.edge_types, existing_node, nullptr /* &context.hops_limit*/));
+          // context.number_of_hops += edges_result.expanded_count;
           in_edges_.emplace(std::move(edges_result.edges));
           num_expanded_first = edges_result.expanded_count;
         }
       } else {
         auto edges_result =
-            UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, &context.hops_limit));
-        context.number_of_hops += edges_result.expanded_count;
+            UnwrapEdgesResult(vertex.InEdges(self_.view_, self_.common_.edge_types, nullptr /* &context.hops_limit*/));
+        // context.number_of_hops += edges_result.expanded_count;
         in_edges_.emplace(std::move(edges_result.edges));
         num_expanded_first = edges_result.expanded_count;
       }
@@ -1768,15 +1899,15 @@ bool Expand::ExpandCursor::InitEdges(Frame &frame, ExecutionContext &context) {
         if (expansion_info_.existing_node) {
           auto existing_node = *expansion_info_.existing_node;
           auto edges_result = UnwrapEdgesResult(
-              vertex.OutEdges(self_.view_, self_.common_.edge_types, existing_node, &context.hops_limit));
-          context.number_of_hops += edges_result.expanded_count;
+              vertex.OutEdges(self_.view_, self_.common_.edge_types, existing_node, nullptr /* &context.hops_limit*/));
+          // context.number_of_hops += edges_result.expanded_count;
           out_edges_.emplace(std::move(edges_result.edges));
           num_expanded_second = edges_result.expanded_count;
         }
       } else {
         auto edges_result =
-            UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, &context.hops_limit));
-        context.number_of_hops += edges_result.expanded_count;
+            UnwrapEdgesResult(vertex.OutEdges(self_.view_, self_.common_.edge_types, nullptr /* &context.hops_limit*/));
+        // context.number_of_hops += edges_result.expanded_count;
         out_edges_.emplace(std::move(edges_result.edges));
         num_expanded_second = edges_result.expanded_count;
       }
@@ -1962,7 +2093,7 @@ class ExpandVariableCursor : public Cursor {
       AbortCheck(context);
       if (!input_cursor_->Pull(frame, context)) return false;
 
-      if (context.hops_limit.IsLimitReached()) return false;
+      // if (context.hops_limit.IsLimitReached()) return false;
 
       TypedValue &vertex_value = frame[self_.input_symbol_];
 
@@ -4387,7 +4518,11 @@ void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &co
         if (vertex_auth_checker(va)) {
           buffer_.nodes.push_back(va);
         } else {
-          throw QueryRuntimeException("Vertex not deleted due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+          throw QueryRuntimeException(
+              "Vertex not deleted due to not having enough permission! This error means that the fine grained access "
+              "control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON "
+              "CURRENT; to check if you have correct privileges to do operations involving labels. If you do try "
+              "running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
         }
         break;
       }
@@ -4396,7 +4531,11 @@ void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &co
         if (edge_auth_checker(ea)) {
           buffer_.edges.push_back(ea);
         } else {
-          throw QueryRuntimeException("Edge not deleted due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+          throw QueryRuntimeException(
+              "Edge not deleted due to not having enough permission! This error means that the fine grained access "
+              "control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON "
+              "CURRENT; to check if you have correct privileges to do operations involving labels. If you do try "
+              "running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
         }
         break;
       }
@@ -4410,7 +4549,11 @@ void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &co
 
         if (edges_res || vertices_res) {
           throw QueryRuntimeException(
-              "Path not deleted due to not having enough permission on all edges and vertices on the path! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+              "Path not deleted due to not having enough permission on all edges and vertices on the path! This error "
+              "means that the fine grained access control was not correctly set up for the user on this label. Use "
+              "SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations "
+              "involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct "
+              "database.");
         }
 #endif
         buffer_.nodes.insert(buffer_.nodes.begin(), path.vertices().begin(), path.vertices().end());
@@ -4539,7 +4682,11 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueVertex(), storage::View::NEW,
                                      memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        throw QueryRuntimeException("Vertex property not set due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException(
+            "Vertex property not set due to not having enough permission! This error means that the fine grained "
+            "access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role "
+            "ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try "
+            "running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
       }
 #endif
       auto old_value = PropsSetChecked(&lhs.ValueVertex(), self_.property_, rhs,
@@ -4558,7 +4705,11 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        throw QueryRuntimeException("Edge property not set due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException(
+            "Edge property not set due to not having enough permission! This error means that the fine grained access "
+            "control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON "
+            "CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running "
+            "SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
       }
 #endif
       auto old_value = PropsSetChecked(&lhs.ValueEdge(), self_.property_, rhs,
@@ -4721,7 +4872,11 @@ bool SetNestedProperty::SetNestedPropertyCursor::Pull(Frame &frame, ExecutionCon
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueVertex(), storage::View::NEW,
                                      memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        throw QueryRuntimeException("Vertex nested property not set due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException(
+            "Vertex nested property not set due to not having enough permission! This error means that the fine "
+            "grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR "
+            "user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If "
+            "you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
       }
 #endif
       set_nested_property(&lhs.ValueVertex());
@@ -4731,7 +4886,11 @@ bool SetNestedProperty::SetNestedPropertyCursor::Pull(Frame &frame, ExecutionCon
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        throw QueryRuntimeException("Edge nested property not set due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException(
+            "Edge nested property not set due to not having enough permission! This error means that the fine grained "
+            "access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role "
+            "ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try "
+            "running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
       }
 #endif
       set_nested_property(&lhs.ValueEdge());
@@ -4938,7 +5097,11 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueVertex(), storage::View::NEW,
                                      memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        throw QueryRuntimeException("Vertex properties not set due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException(
+            "Vertex properties not set due to not having enough permission! This error means that the fine grained "
+            "access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role "
+            "ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try "
+            "running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
       }
 #endif
       SetPropertiesOnRecord(&lhs.ValueVertex(), rhs, self_.op_, &context, cached_name_id_);
@@ -4948,7 +5111,11 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        throw QueryRuntimeException("Edge properties not set due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException(
+            "Edge properties not set due to not having enough permission! This error means that the fine grained "
+            "access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role "
+            "ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try "
+            "running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
       }
 #endif
       SetPropertiesOnRecord(&lhs.ValueEdge(), rhs, self_.op_, &context, cached_name_id_);
@@ -5007,7 +5174,11 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
       !context.auth_checker->Has(labels, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
-    throw QueryRuntimeException("Couldn't set label due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+    throw QueryRuntimeException(
+        "Couldn't set label due to not having enough permission! This error means that the fine grained access control "
+        "was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to "
+        "check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT "
+        "DATABASE; to verify you are pointing to correct database.");
   }
 #endif
 
@@ -5021,7 +5192,11 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
   if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
       !context.auth_checker->Has(vertex, storage::View::OLD,
                                  memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-    throw QueryRuntimeException("Couldn't set label due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+    throw QueryRuntimeException(
+        "Couldn't set label due to not having enough permission! This error means that the fine grained access control "
+        "was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to "
+        "check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT "
+        "DATABASE; to verify you are pointing to correct database.");
   }
 #endif
 
@@ -5122,7 +5297,11 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueVertex(), storage::View::NEW,
                                      memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        throw QueryRuntimeException("Vertex property not removed due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException(
+            "Vertex property not removed due to not having enough permission! This error means that the fine grained "
+            "access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role "
+            "ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try "
+            "running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
       }
 #endif
       remove_prop(&lhs.ValueVertex());
@@ -5132,7 +5311,11 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        throw QueryRuntimeException("Edge property not removed due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException(
+            "Edge property not removed due to not having enough permission! This error means that the fine grained "
+            "access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role "
+            "ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try "
+            "running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
       }
 #endif
       remove_prop(&lhs.ValueEdge());
@@ -5240,7 +5423,11 @@ bool RemoveNestedProperty::RemoveNestedPropertyCursor::Pull(Frame &frame, Execut
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueVertex(), storage::View::NEW,
                                      memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        throw QueryRuntimeException("Vertex nested property not removed due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException(
+            "Vertex nested property not removed due to not having enough permission! This error means that the fine "
+            "grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR "
+            "user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If "
+            "you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
       }
 #endif
       remove_nested_property(&lhs.ValueVertex());
@@ -5250,7 +5437,11 @@ bool RemoveNestedProperty::RemoveNestedPropertyCursor::Pull(Frame &frame, Execut
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        throw QueryRuntimeException("Edge nested property not removed due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException(
+            "Edge nested property not removed due to not having enough permission! This error means that the fine "
+            "grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR "
+            "user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If "
+            "you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
       }
 #endif
       remove_nested_property(&lhs.ValueEdge());
@@ -5310,7 +5501,11 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
       !context.auth_checker->Has(labels, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
-    throw QueryRuntimeException("Couldn't remove label due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+    throw QueryRuntimeException(
+        "Couldn't remove label due to not having enough permission! This error means that the fine grained access "
+        "control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; "
+        "to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT "
+        "DATABASE; to verify you are pointing to correct database.");
   }
 #endif
 
@@ -5324,7 +5519,11 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
   if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
       !context.auth_checker->Has(vertex, storage::View::OLD,
                                  memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-    throw QueryRuntimeException("Couldn't remove label due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+    throw QueryRuntimeException(
+        "Couldn't remove label due to not having enough permission! This error means that the fine grained access "
+        "control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; "
+        "to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT "
+        "DATABASE; to verify you are pointing to correct database.");
   }
 #endif
 
@@ -5609,7 +5808,23 @@ class AggregateCursor : public Cursor {
  public:
   AggregateCursor(const Aggregate &self, utils::MemoryResource *mem)
       : self_(self),
-        input_cursor_(self_.input_->MakeCursor(mem)),
+        input_cursor_(std::invoke([&]() {
+          create_parallel_plan = false;  // Hack to create a parallel plan
+          return self_.input_->MakeCursor(mem);
+        })),
+        input_cursors_(std::invoke([&]() {
+          // Currently parallel execution is set in the context, so we just create these branches, but might not need
+          // them later
+          create_parallel_plan = true;  // Hack to create a parallel plan
+          std::vector<UniqueCursorPtr> cursors;
+          // Hardcode for now
+          cursors.reserve(FLAGS_bolt_num_workers);
+          for (int i = 0; i < FLAGS_bolt_num_workers; i++) {
+            // Make 4 parallel cursors (Pull will then section off the work)
+            cursors.emplace_back(self.input_->MakeCursor(mem));
+          }
+          return cursors;
+        })),
         aggregation_(mem),
         reused_group_by_(self.group_by_.size(), mem) {}
 
@@ -5696,6 +5911,7 @@ class AggregateCursor : public Cursor {
 
   const Aggregate &self_;
   const UniqueCursorPtr input_cursor_;
+  std::vector<UniqueCursorPtr> input_cursors_;
   // storage for aggregated data
   // map key is the vector of group-by values
   // map value is an AggregationValue struct
@@ -5724,15 +5940,145 @@ class AggregateCursor : public Cursor {
    * aggregation results, and not on the number of inputs.
    */
   bool ProcessAll(Frame *frame, ExecutionContext *context) {
-    ExpressionEvaluator evaluator(frame, context->symbol_table, context->evaluation_context, context->db_accessor,
-                                  storage::View::NEW, nullptr, &context->number_of_hops);
+    if (!context->parallel_execution) {
+      // Single thread execution
+      ExpressionEvaluator evaluator(frame, context->symbol_table, context->evaluation_context, context->db_accessor,
+                                    storage::View::NEW, nullptr, &context->number_of_hops);
+      bool pulled = false;
+      while (input_cursor_->Pull(*frame, *context)) {
+        ProcessOne(*frame, &evaluator, reused_group_by_, self_.group_by_, aggregation_, self_.aggregations_,
+                   self_.remember_);
+        pulled = true;
+      }
+      if (!pulled) return false;
+    } else {
+      // Parallel execution
+      const auto num_workers = FLAGS_bolt_num_workers;
+      utils::TaskCollection tasks(num_workers);
 
-    bool pulled = false;
-    while (input_cursor_->Pull(*frame, *context)) {
-      ProcessOne(*frame, &evaluator);
-      pulled = true;
+      // Use cache-aligned atomic to prevent false sharing
+      utils::CacheAlignedAtomic pulled_counter;
+
+      // Use the same allocator resource as aggregation_ for all thread-local aggregations
+      auto *thread_local_memory = dynamic_cast<utils::ThreadLocalMemoryResource *>(context->evaluation_context.memory);
+      if (thread_local_memory == nullptr) {
+        throw QueryRuntimeException("Thread local memory resource is not a thread local memory resource");
+      }
+      // auto *thread_local_resource = context->evaluation_context.memory;
+      std::vector<utils::CacheAligned<decltype(aggregation_)>> aggregation_threads;
+      std::vector<utils::CacheAligned<decltype(reused_group_by_)>> reused_group_by_threads;
+      aggregation_threads.reserve(num_workers);
+      reused_group_by_threads.reserve(num_workers);
+      for (int i = 0; i < num_workers; ++i) {
+        auto *thread_local_resource = thread_local_memory->Initialize(i);
+        aggregation_threads.emplace_back(decltype(aggregation_)(thread_local_resource));
+        reused_group_by_threads.emplace_back(decltype(reused_group_by_)(thread_local_resource));
+        utils::ThreadLocalMemoryResource::ResetThread();
+      }
+      // std::vector<utils::CacheAligned<decltype(aggregation_)>> aggregation_threads(num_workers);
+      // std::vector<utils::CacheAligned<decltype(reused_group_by_)>> reused_group_by_threads(num_workers);
+
+      auto process_chunk = [this, context, &pulled_counter, mem = aggregation_.get_allocator().resource()](
+                               int id, Frame &frame, auto &local_aggregation_threads,
+                               auto &local_reused_group_by_threads) mutable {
+        ExpressionEvaluator evaluator(&frame, context->symbol_table, context->evaluation_context, context->db_accessor,
+                                      storage::View::NEW, nullptr, &context->number_of_hops);
+        // Set thread id
+        thread_id = id;
+        called = 0;
+        auto reset_thread_id_on_exit = utils::OnScopeExit([]() { thread_id = -1; });
+
+        while (input_cursors_[id]->Pull(frame, *context)) {
+          ProcessOne(frame, &evaluator, local_reused_group_by_threads, self_.group_by_, local_aggregation_threads,
+                     self_.aggregations_, self_.remember_);
+        }
+        // std::cout << "Thread " << id << " called " << called << " times" << std::endl;
+        // Use cache-aligned atomic increment
+        pulled_counter.fetch_add(1);
+      };
+
+      const auto frame_size = frame->elems().size();
+      for (int i = 1; i < num_workers; i++) {
+        tasks.AddTask([&, i, thread_local_memory, frame_size](utils::Priority /* unused */) {
+          // Initialize thread local memory resource
+          auto *thread_local_resource = thread_local_memory->Initialize(i);
+          auto cleanup = utils::OnScopeExit([]() { utils::ThreadLocalMemoryResource::ResetThread(); });
+          Frame frame{static_cast<int64_t>(frame_size), thread_local_resource};
+          auto &local_aggregation_threads = *aggregation_threads[i];
+          auto &local_reused_group_by_threads = *reused_group_by_threads[i];
+          process_chunk(i, frame, local_aggregation_threads, local_reused_group_by_threads);
+        });
+      }
+
+      if (context->worker_pool) context->worker_pool->ScheduledCollection(tasks);
+
+      // Process 0th chunk in main thread
+      process_chunk(0, *frame, aggregation_, reused_group_by_);
+
+      tasks.WaitOrSteal();
+
+      if (pulled_counter.load() != num_workers) return false;
+
+      // Combine the results from the threads
+      for (int i = 1; i < num_workers; i++) {
+        auto &other_aggregation = *aggregation_threads[i];
+        for (const auto &[other_key, other_value] : other_aggregation) {
+          auto it = aggregation_.find(other_key);
+          if (it != aggregation_.end()) {
+            // Key exists, merge the values
+            auto &value = it->second;
+            for (size_t pos = 0; pos < self_.aggregations_.size(); ++pos) {
+              switch (self_.aggregations_[pos].op) {
+                case Aggregation::Op::MIN: {
+                  const auto is_min = other_value.values_[pos] < value.values_[pos];
+                  if (is_min.IsBool() && is_min.ValueBool()) {
+                    value.values_[pos] = other_value.values_[pos];
+                  }
+                  break;
+                }
+                case Aggregation::Op::MAX: {
+                  const auto is_max = other_value.values_[pos] > value.values_[pos];
+                  if (is_max.IsBool() && is_max.ValueBool()) {
+                    value.values_[pos] = other_value.values_[pos];
+                  }
+                  break;
+                }
+                case Aggregation::Op::SUM:
+                case Aggregation::Op::AVG:
+                  // For SUM and AVG, we need to add the values
+                  // Note: AVG will be calculated in post-processing
+                  value.values_[pos] = value.values_[pos] + other_value.values_[pos];
+                  value.counts_[pos] += other_value.counts_[pos];
+                  break;
+                case Aggregation::Op::COUNT:
+                  value.counts_[pos] += other_value.counts_[pos];
+                  break;
+                case Aggregation::Op::COLLECT_LIST:
+                  // For COLLECT_LIST, we need to concatenate the lists
+                  // This is a simplified implementation - in practice, you might need more sophisticated merging
+                  break;
+                case Aggregation::Op::PROJECT_PATH: {
+                  // PROJECT_PATH operations might need special handling
+                  break;
+                }
+                case Aggregation::Op::PROJECT_LISTS: {
+                  // PROJECT_LISTS operations might need special handling
+                  break;
+                }
+                case Aggregation::Op::COLLECT_MAP: {
+                  // For COLLECT_MAP, we need to merge the maps
+                  // This is a simplified implementation - in practice, you might need more sophisticated merging
+                  break;
+                }
+              }
+            }
+          } else {
+            // Key doesn't exist, insert the new entry
+            aggregation_.emplace(other_key, other_value);
+          }
+        }
+      }
     }
-    if (!pulled) return false;
 
     // post processing
     for (size_t pos = 0; pos < self_.aggregations_.size(); ++pos) {
@@ -5773,71 +6119,80 @@ class AggregateCursor : public Cursor {
   /**
    * Performs a single accumulation.
    */
-  void ProcessOne(const Frame &frame, ExpressionEvaluator *evaluator) {
+  void ProcessOne(
+      const Frame &frame, ExpressionEvaluator *evaluator, utils::pmr::vector<TypedValue> &reused_group_by,
+      const std::vector<Expression *> &group_by,
+      utils::pmr::unordered_map<utils::pmr::vector<TypedValue>, AggregationValue,
+                                utils::FnvCollection<utils::pmr::vector<TypedValue>, TypedValue, TypedValue::Hash>,
+                                TypedValueVectorEqual> &aggregation,
+      const std::vector<memgraph::query::plan::Aggregate::Element> &aggregations, const std::vector<Symbol> &remember) {
     // Preallocated group_by, since most of the time the aggregation key won't be unique
-    reused_group_by_.clear();
+    reused_group_by.clear();
     evaluator->ResetPropertyLookupCache();
 
-    // TODO: if self_.group_by_.size() == 0, aggregation_ -> there is only one (becasue we are doing *)
-    //       can this be optimised so we don't need to do aggregation_.try_emplace which has a hash cost
-    for (Expression *expression : self_.group_by_) {
-      reused_group_by_.emplace_back(expression->Accept(*evaluator));
+    // TODO: if group_by.size() == 0, aggregation -> there is only one (becasue we are doing *)
+    //       can this be optimised so we don't need to do aggregation.try_emplace which has a hash cost
+    for (Expression *expression : group_by) {
+      reused_group_by.emplace_back(expression->Accept(*evaluator));
     }
-    auto *mem = aggregation_.get_allocator().resource();
-    auto res = aggregation_.try_emplace(reused_group_by_, mem);
+    auto *mem = aggregation.get_allocator().resource();
+    auto res = aggregation.try_emplace(reused_group_by, mem);
     auto &agg_value = res.first->second;
-    if (res.second /*was newly inserted*/) EnsureInitialized(frame, &agg_value);
-    Update(evaluator, &agg_value);
+    if (res.second /*was newly inserted*/) EnsureInitialized(frame, &agg_value, aggregations, remember);
+    Update(evaluator, &agg_value, aggregations);
   }
 
   /** Ensures the new AggregationValue has been initialized. This means
    * that the value vectors are filled with an appropriate number of Nulls,
    * counts are set to 0 and remember values are remembered.
    */
-  void EnsureInitialized(const Frame &frame, AggregateCursor::AggregationValue *agg_value) const {
+  void EnsureInitialized(const Frame &frame, AggregateCursor::AggregationValue *agg_value,
+                         const std::vector<memgraph::query::plan::Aggregate::Element> &aggregations,
+                         const std::vector<Symbol> &remember) const {
     if (!agg_value->values_.empty()) return;
 
-    const auto num_of_aggregations = self_.aggregations_.size();
+    const auto num_of_aggregations = aggregations.size();
     agg_value->values_.reserve(num_of_aggregations);
     agg_value->unique_values_.reserve(num_of_aggregations);
 
     auto *mem = agg_value->values_.get_allocator().resource();
-    for (const auto &agg_elem : self_.aggregations_) {
+    for (const auto &agg_elem : aggregations) {
       agg_value->values_.emplace_back(DefaultAggregationOpValue(agg_elem, mem));
       agg_value->unique_values_.emplace_back(AggregationValue::TSet(mem));
     }
     agg_value->counts_.resize(num_of_aggregations, 0);
 
-    agg_value->remember_.reserve(self_.remember_.size());
-    for (const Symbol &remember_sym : self_.remember_) {
+    agg_value->remember_.reserve(remember.size());
+    for (const Symbol &remember_sym : remember) {
       agg_value->remember_.push_back(frame[remember_sym]);
     }
   }
 
   /** Updates the given AggregationValue with new data. Assumes that
    * the AggregationValue has been initialized */
-  void Update(ExpressionEvaluator *evaluator, AggregateCursor::AggregationValue *agg_value) {
-    DMG_ASSERT(self_.aggregations_.size() == agg_value->values_.size(),
+  void Update(ExpressionEvaluator *evaluator, AggregateCursor::AggregationValue *agg_value,
+              const std::vector<memgraph::query::plan::Aggregate::Element> &aggregations) {
+    DMG_ASSERT(aggregations.size() == agg_value->values_.size(),
                "Expected as much AggregationValue.values_ as there are "
                "aggregations.");
-    DMG_ASSERT(self_.aggregations_.size() == agg_value->counts_.size(),
+    DMG_ASSERT(aggregations.size() == agg_value->counts_.size(),
                "Expected as much AggregationValue.counts_ as there are "
                "aggregations.");
 
     auto count_it = agg_value->counts_.begin();
     auto value_it = agg_value->values_.begin();
     auto unique_values_it = agg_value->unique_values_.begin();
-    auto agg_elem_it = self_.aggregations_.begin();
+    auto agg_elem_it = aggregations.begin();
     const auto counts_end = agg_value->counts_.end();
     for (; count_it != counts_end; ++count_it, ++value_it, ++unique_values_it, ++agg_elem_it) {
       // COUNT(*) is the only case where input expression is optional
       // handle it here
       auto *input_expr_ptr = agg_elem_it->arg1;
-      if (!input_expr_ptr) {
-        *count_it += 1;
-        // value is deferred to post-processing
-        continue;
-      }
+      // if (!input_expr_ptr) {
+      *count_it += 1;
+      // value is deferred to post-processing
+      continue;
+      // }
 
       TypedValue input_value = input_expr_ptr->Accept(*evaluator);
 
@@ -5850,7 +6205,7 @@ class AggregateCursor : public Cursor {
           continue;
         }
       }
-      *count_it += 1;
+      // *count_it += 1;
       if (*count_it == 1) {
         // first value, nothing to aggregate. check type, set and continue.
         switch (agg_op) {

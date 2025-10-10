@@ -23,6 +23,7 @@
 #include "storage/v2/commit_args.hpp"
 #include "utils/async_timer.hpp"
 #include "utils/counter.hpp"
+#include "utils/priority_thread_pool.hpp"
 
 #include "query/frame_change.hpp"
 #include "query/hops_limit.hpp"
@@ -109,10 +110,12 @@ struct ExecutionContext {
   int64_t number_of_hops{0};
   HopsLimit hops_limit;
   std::optional<uint64_t> periodic_commit_frequency;
+  bool parallel_execution{false};
 #ifdef MG_ENTERPRISE
   std::unique_ptr<FineGrainedAuthChecker> auth_checker{nullptr};
 #endif
   std::shared_ptr<storage::DatabaseProtector> protector;
+  utils::PriorityThreadPool *worker_pool{nullptr};
   bool is_main{true};
   auto commit_args() -> storage::CommitArgs;
 };

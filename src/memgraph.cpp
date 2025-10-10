@@ -621,6 +621,17 @@ int main(int argc, char **argv) {
 
   auto db_acc = dbms_handler.Get();
 
+  // Global worker pool!
+  // Used by sessions to schedule tasks.
+  std::optional<memgraph::utils::PriorityThreadPool> worker_pool_;
+  unsigned io_n_threads = FLAGS_bolt_num_workers;
+
+  if (GetSchedulerType() == SchedulerType::PRIORITY_QUEUE_WITH_SIDECAR) {
+    worker_pool_.emplace(/* low priority */ static_cast<uint16_t>(FLAGS_bolt_num_workers),
+                         /* high priority */ 1U);
+    io_n_threads = 1U;
+  }
+
   memgraph::query::InterpreterContextLifetimeControl interpreter_context_lifetime_control(
       interp_config, &dbms_handler, repl_state, system,
 #ifdef MG_ENTERPRISE
@@ -628,7 +639,7 @@ int main(int argc, char **argv) {
                         : std::nullopt,
       &resource_monitoring,
 #endif
-      auth_handler.get(), auth_checker.get(), &replication_handler);
+      auth_handler.get(), auth_checker.get(), &replication_handler, worker_pool_ ? &*worker_pool_ : nullptr);
 
   auto &interpreter_context_ = memgraph::query::InterpreterContextHolder::GetInstance();
   MG_ASSERT(db_acc, "Failed to access the main database");
@@ -667,17 +678,6 @@ int main(int argc, char **argv) {
     spdlog::trace("Triggers restored.");
     dbms_handler.RestoreStreams(&interpreter_context_);
     spdlog::trace("Streams restored.");
-  }
-
-  // Global worker pool!
-  // Used by sessions to schedule tasks.
-  std::optional<memgraph::utils::PriorityThreadPool> worker_pool_;
-  unsigned io_n_threads = FLAGS_bolt_num_workers;
-
-  if (GetSchedulerType() == SchedulerType::PRIORITY_QUEUE_WITH_SIDECAR) {
-    worker_pool_.emplace(/* low priority */ static_cast<uint16_t>(FLAGS_bolt_num_workers),
-                         /* high priority */ 1U);
-    io_n_threads = 1U;
   }
 
   ServerContext context;

@@ -743,6 +743,7 @@ class InMemoryStorage final : public Storage {
   void Clear();
 
   // Main object storage
+  utils::ThreadSafeMonotonicBufferResource vertices_memory_resource_;
   utils::SkipList<Vertex> vertices_;
   utils::SkipList<Edge> edges_;
   utils::SkipList<EdgeMetadata> edges_metadata_;

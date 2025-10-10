@@ -9,12 +9,13 @@
 # by the Apache License, Version 2.0, included in the file
 # licenses/APL.txt.
 
+import json
 import logging
 import os
-import time
-import json
 import tempfile
-from common import get_absolute_path, WALL_TIME, CPU_TIME, MAX_MEMORY, set_cpus
+import time
+
+from common import CPU_TIME, MAX_MEMORY, WALL_TIME, get_absolute_path, set_cpus
 
 log = logging.getLogger(__name__)
 
@@ -34,7 +35,8 @@ class QueryClient:
         self.default_num_workers = default_num_workers
 
     def __call__(self, queries, database, num_workers=None):
-        if num_workers is None: num_workers = self.default_num_workers
+        if num_workers is None:
+            num_workers = self.default_num_workers
         self.log.debug("execute('%s')", str(queries))
 
         client_path = "tests/macro_benchmark/query_client"
@@ -53,29 +55,31 @@ class QueryClient:
         output_fd, output = tempfile.mkstemp()
         os.close(output_fd)
 
-        client_args = ["--port", database.args.port,
-                       "--num-workers", str(num_workers),
-                       "--output", output]
+        client_args = ["--port", database.args.port, "--num-workers", str(num_workers), "--output", output]
 
         cpu_time_start = database.database_bin.get_usage()["cpu"]
         # TODO make the timeout configurable per query or something
         return_code = self.client.run_and_wait(
-            client, client_args, timeout=600, stdin=queries_path)
+            client, client_args, timeout=600, stdin=queries_path, env=os.environ.copy()
+        )
         usage = database.database_bin.get_usage()
         cpu_time_end = usage["cpu"]
         os.remove(queries_path)
         if return_code != 0:
             with open(self.client.get_stderr()) as f:
                 stderr = f.read()
-            self.log.error("Error while executing queries '%s'. "
-                           "Failed with return_code %d and stderr:\n%s",
-                           str(queries), return_code, stderr)
+            self.log.error(
+                "Error while executing queries '%s'. " "Failed with return_code %d and stderr:\n%s",
+                str(queries),
+                return_code,
+                stderr,
+            )
             raise Exception("BoltClient execution failed")
 
-        data = {"groups" : []}
+        data = {"groups": []}
         with open(output) as f:
             for line in f:
-               data["groups"].append(json.loads(line))
+                data["groups"].append(json.loads(line))
         data[CPU_TIME] = cpu_time_end - cpu_time_start
         data[MAX_MEMORY] = usage["max_memory"]
 
@@ -94,7 +98,8 @@ class LongRunningClient:
     # TODO: This is quite similar to __call__ method of QueryClient. Remove
     # duplication.
     def __call__(self, config, database, duration, client, num_workers=None):
-        if num_workers is None: num_workers = self.default_num_workers
+        if num_workers is None:
+            num_workers = self.default_num_workers
         self.log.debug("execute('%s')", config)
 
         client_path = "tests/macro_benchmark/{}".format(client)
@@ -113,24 +118,35 @@ class LongRunningClient:
         output_fd, output = tempfile.mkstemp()
         os.close(output_fd)
 
-        client_args = ["--port", database.args.port,
-                       "--num-workers", str(num_workers),
-                       "--output", output,
-                       "--duration", str(duration),
-                       "--db", database.name,
-                       "--scenario", self.workload]
+        client_args = [
+            "--port",
+            database.args.port,
+            "--num-workers",
+            str(num_workers),
+            "--output",
+            output,
+            "--duration",
+            str(duration),
+            "--db",
+            database.name,
+            "--scenario",
+            self.workload,
+        ]
 
         return_code = self.client.run_and_wait(
-            client, client_args, timeout=600, stdin=config_path)
+            client, client_args, timeout=600, stdin=config_path, env=os.environ.copy()
+        )
         os.remove(config_path)
         if return_code != 0:
             with open(self.client.get_stderr()) as f:
                 stderr = f.read()
-            self.log.error("Error while executing config '%s'. "
-                           "Failed with return_code %d and stderr:\n%s",
-                           str(config), return_code, stderr)
+            self.log.error(
+                "Error while executing config '%s'. " "Failed with return_code %d and stderr:\n%s",
+                str(config),
+                return_code,
+                stderr,
+            )
             raise Exception("BoltClient execution failed")
-
 
         # TODO: We shouldn't wait for process to finish to start reading output.
         # We should implement periodic reading of data and stream data when it
@@ -138,7 +154,7 @@ class LongRunningClient:
         data = []
         with open(output) as f:
             for line in f:
-               data.append(json.loads(line))
+                data.append(json.loads(line))
 
         os.remove(output)
         return data
