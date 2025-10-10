@@ -94,5 +94,30 @@ def test_indexed_join_with_indices_split(memgraph):
     assert expected_explain == actual_explain
 
 
+def test_cartesian_with_nested_property_join(memgraph):
+    # Test MATCH (n:label), (m:label1) WHERE m.prop1.id = n.prop1.id RETURN n, m;
+    # At the moment this should use a Cartesian product since HashJoin isn't working correctly for nested property joins
+    # TODO: Fix this test when planner improves
+
+    expected_explain = [
+        " * Produce {n, m}",
+        " * Filter {m.prop1.id}, {n.prop1.id}",
+        " * Cartesian {n : m}",
+        " |\\ ",
+        " | * Filter (m :label1)",
+        " | * ScanAll (m)",
+        " | * Once",
+        " * Filter (n :label)",
+        " * ScanAll (n)",
+        " * Once",
+    ]
+
+    results = list(
+        memgraph.execute_and_fetch("EXPLAIN MATCH (n:label), (m:label1) WHERE m.prop1.id = n.prop1.id RETURN n, m;")
+    )
+    actual_explain = [x[QUERY_PLAN] for x in results]
+    assert expected_explain == actual_explain
+
+
 if __name__ == "__main__":
     sys.exit(pytest.main([__file__, "-rA"]))
