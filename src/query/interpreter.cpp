@@ -2834,47 +2834,41 @@ bool ExtractIdentifierDependencies(Expression *expr, FrameChangeCollector *frame
     return true;
   }
 
-  auto handle_binary_op = [&]<typename OpType>() -> std::optional<bool> {
-    if (auto *binary = utils::Downcast<OpType>(expr)) {
-      bool safe1 = ExtractIdentifierDependencies(binary->expression1_, frame_change_collector, dependent_key);
-      bool safe2 = ExtractIdentifierDependencies(binary->expression2_, frame_change_collector, dependent_key);
-      return safe1 && safe2;
-    }
-    return std::nullopt;
+  auto handle_binary_op = [&](auto *binary) -> bool {
+    bool safe1 = ExtractIdentifierDependencies(binary->expression1_, frame_change_collector, dependent_key);
+    bool safe2 = ExtractIdentifierDependencies(binary->expression2_, frame_change_collector, dependent_key);
+    return safe1 && safe2;
   };
 
-  if (auto result = handle_binary_op.template operator()<OrOperator>()) return *result;
-  if (auto result = handle_binary_op.template operator()<XorOperator>()) return *result;
-  if (auto result = handle_binary_op.template operator()<AndOperator>()) return *result;
-  if (auto result = handle_binary_op.template operator()<AdditionOperator>()) return *result;
-  if (auto result = handle_binary_op.template operator()<SubtractionOperator>()) return *result;
-  if (auto result = handle_binary_op.template operator()<MultiplicationOperator>()) return *result;
-  if (auto result = handle_binary_op.template operator()<DivisionOperator>()) return *result;
-  if (auto result = handle_binary_op.template operator()<ModOperator>()) return *result;
-  if (auto result = handle_binary_op.template operator()<ExponentiationOperator>()) return *result;
-  if (auto result = handle_binary_op.template operator()<EqualOperator>()) return *result;
-  if (auto result = handle_binary_op.template operator()<NotEqualOperator>()) return *result;
-  if (auto result = handle_binary_op.template operator()<LessOperator>()) return *result;
-  if (auto result = handle_binary_op.template operator()<GreaterOperator>()) return *result;
-  if (auto result = handle_binary_op.template operator()<LessEqualOperator>()) return *result;
-  if (auto result = handle_binary_op.template operator()<GreaterEqualOperator>()) return *result;
-  if (auto result = handle_binary_op.template operator()<InListOperator>()) return *result;
-  if (auto result = handle_binary_op.template operator()<RangeOperator>()) return *result;
-  if (auto result = handle_binary_op.template operator()<SubscriptOperator>()) return *result;
+  if (auto *binary = utils::Downcast<OrOperator>(expr)) return handle_binary_op(binary);
+  if (auto *binary = utils::Downcast<XorOperator>(expr)) return handle_binary_op(binary);
+  if (auto *binary = utils::Downcast<AndOperator>(expr)) return handle_binary_op(binary);
+  if (auto *binary = utils::Downcast<AdditionOperator>(expr)) return handle_binary_op(binary);
+  if (auto *binary = utils::Downcast<SubtractionOperator>(expr)) return handle_binary_op(binary);
+  if (auto *binary = utils::Downcast<MultiplicationOperator>(expr)) return handle_binary_op(binary);
+  if (auto *binary = utils::Downcast<DivisionOperator>(expr)) return handle_binary_op(binary);
+  if (auto *binary = utils::Downcast<ModOperator>(expr)) return handle_binary_op(binary);
+  if (auto *binary = utils::Downcast<ExponentiationOperator>(expr)) return handle_binary_op(binary);
+  if (auto *binary = utils::Downcast<EqualOperator>(expr)) return handle_binary_op(binary);
+  if (auto *binary = utils::Downcast<NotEqualOperator>(expr)) return handle_binary_op(binary);
+  if (auto *binary = utils::Downcast<LessOperator>(expr)) return handle_binary_op(binary);
+  if (auto *binary = utils::Downcast<GreaterOperator>(expr)) return handle_binary_op(binary);
+  if (auto *binary = utils::Downcast<LessEqualOperator>(expr)) return handle_binary_op(binary);
+  if (auto *binary = utils::Downcast<GreaterEqualOperator>(expr)) return handle_binary_op(binary);
+  if (auto *binary = utils::Downcast<InListOperator>(expr)) return handle_binary_op(binary);
+  if (auto *binary = utils::Downcast<RangeOperator>(expr)) return handle_binary_op(binary);
+  if (auto *binary = utils::Downcast<SubscriptOperator>(expr)) return handle_binary_op(binary);
 
-  auto handle_unary_op = [&]<typename OpType>() -> std::optional<bool> {
-    if (auto *unary = utils::Downcast<OpType>(expr)) {
-      return ExtractIdentifierDependencies(unary->expression_, frame_change_collector, dependent_key);
-    }
-    return std::nullopt;
+  auto handle_unary_op = [&](auto *unary) -> bool {
+    return ExtractIdentifierDependencies(unary->expression_, frame_change_collector, dependent_key);
   };
 
-  if (auto result = handle_unary_op.template operator()<NotOperator>()) return *result;
-  if (auto result = handle_unary_op.template operator()<UnaryPlusOperator>()) return *result;
-  if (auto result = handle_unary_op.template operator()<UnaryMinusOperator>()) return *result;
-  if (auto result = handle_unary_op.template operator()<IsNullOperator>()) return *result;
-  if (auto result = handle_unary_op.template operator()<PropertyLookup>()) return *result;
-  if (auto result = handle_unary_op.template operator()<AllPropertiesLookup>()) return *result;
+  if (auto *unary = utils::Downcast<NotOperator>(expr)) return handle_unary_op(unary);
+  if (auto *unary = utils::Downcast<UnaryPlusOperator>(expr)) return handle_unary_op(unary);
+  if (auto *unary = utils::Downcast<UnaryMinusOperator>(expr)) return handle_unary_op(unary);
+  if (auto *unary = utils::Downcast<IsNullOperator>(expr)) return handle_unary_op(unary);
+  if (auto *unary = utils::Downcast<PropertyLookup>(expr)) return handle_unary_op(unary);
+  if (auto *unary = utils::Downcast<AllPropertiesLookup>(expr)) return handle_unary_op(unary);
 
   if (auto *slice = utils::Downcast<ListSlicingOperator>(expr)) {
     bool safe_list = ExtractIdentifierDependencies(slice->list_, frame_change_collector, dependent_key);
