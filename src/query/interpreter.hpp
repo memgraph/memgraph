@@ -117,10 +117,10 @@ struct ThreadSafeQueryAllocator {
 
 struct ThreadLocalQueryAllocator {
   ThreadLocalQueryAllocator() = default;
+  ~ThreadLocalQueryAllocator() = default;
+
   ThreadLocalQueryAllocator(ThreadLocalQueryAllocator const &) = delete;
   ThreadLocalQueryAllocator &operator=(ThreadLocalQueryAllocator const &) = delete;
-
-  // No move addresses to pool & monotonic fields must be stable
   ThreadLocalQueryAllocator(ThreadLocalQueryAllocator &&) = delete;
   ThreadLocalQueryAllocator &operator=(ThreadLocalQueryAllocator &&) = delete;
 
@@ -136,29 +136,10 @@ struct ThreadLocalQueryAllocator {
     return &upstream;
   }
 
-  struct PoolBackedByMonotonic : public std::pmr::memory_resource {
-    PoolBackedByMonotonic()
-        : monotonic_(kMonotonicInitialSize, upstream_resource()),
-          pool_(kPoolBlockPerChunk, &monotonic_, upstream_resource()) {}
-    ~PoolBackedByMonotonic() override = default;
-    PoolBackedByMonotonic(const PoolBackedByMonotonic &) = delete;
-    PoolBackedByMonotonic &operator=(const PoolBackedByMonotonic &) = delete;
-    PoolBackedByMonotonic(PoolBackedByMonotonic &&) = delete;
-    PoolBackedByMonotonic &operator=(PoolBackedByMonotonic &&) = delete;
-
-    void *do_allocate(size_t bytes, size_t alignment) override { return pool_.allocate(bytes, alignment); }
-
-    void do_deallocate(void *p, size_t bytes, size_t alignment) override { pool_.deallocate(p, bytes, alignment); }
-
-    bool do_is_equal(std::pmr::memory_resource const &other) const noexcept override { return this == &other; }
-
-   private:
-    utils::MonotonicBufferResource monotonic_;
-    utils::PoolResource<> pool_;
-  };
-
-  // TODO Another option is a thread safe monotonic + thread local pools
-  memgraph::utils::ThreadLocalMemoryResource pool{[]() { return std::make_unique<PoolBackedByMonotonic>(); }};
+  memgraph::utils::ThreadSafeMonotonicBufferResource monotonic_{kMonotonicInitialSize, upstream_resource()};
+  memgraph::utils::ThreadLocalMemoryResource pool{[this]() {
+    return std::make_unique<utils::PoolResource<>>(kPoolBlockPerChunk, &monotonic_, upstream_resource());
+  }};
 };
 
 struct InterpreterContext;
