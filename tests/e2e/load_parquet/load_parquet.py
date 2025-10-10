@@ -67,7 +67,7 @@ def test_numeric_types():
     load_query = (
         f"LOAD PARQUET FROM '{get_file_path('nodes_numeric.parquet')}' AS row CREATE (n:Person {{id: row.id, age_int64: row.age_int64, score_int32: row.score_int32, level_int16: row.level_int16,"
         f"rank_int8: row.rank_int8, points_uint64: row.points_uint64, coins_uint32: row.coins_uint32, badges_uint16: row.badges_uint16, lives_uint8: row.lives_uint8, weight_double: row.weight_double, height_float: row.height_float,"
-        f"ratio_half: row.ratio_half}});"
+        f"ratio_half: row.ratio_half, price_decimal32: row.price_decimal32, balance_decimal64: row.balance_decimal64, precision_decimal128: row.precision_decimal128, huge_decimal256: row.huge_decimal256}});"
     )
     execute_and_fetch_all(cursor, load_query)
     assert execute_and_fetch_all(cursor, "match (n) return count(n)")[0][0] == 100
@@ -89,6 +89,11 @@ def test_numeric_types():
         execute_and_fetch_all(cursor, "match (n) return valueType(n.height_float)")[0][0] == "FLOAT"
     )  # MG doesn't support floats
     assert execute_and_fetch_all(cursor, "match (n) return valueType(n.ratio_half)")[0][0] == "FLOAT"
+    # Test decimal types - they should be converted to FLOAT in Memgraph
+    assert execute_and_fetch_all(cursor, "match (n) return valueType(n.price_decimal32)")[0][0] == "FLOAT"
+    assert execute_and_fetch_all(cursor, "match (n) return valueType(n.balance_decimal64)")[0][0] == "FLOAT"
+    assert execute_and_fetch_all(cursor, "match (n) return valueType(n.precision_decimal128)")[0][0] == "FLOAT"
+    assert execute_and_fetch_all(cursor, "match (n) return valueType(n.huge_decimal256)")[0][0] == "FLOAT"
 
     execute_and_fetch_all(cursor, "match (n) detach delete n")
 
