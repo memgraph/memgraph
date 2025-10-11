@@ -24,6 +24,7 @@
 
 #include <gflags/gflags.h>
 
+#include "frontend/ast/query/identifier.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/plan/rewrite/general.hpp"
@@ -673,25 +674,27 @@ class JoinRewriter final : public HierarchicalLogicalOperatorVisitor {
 
       auto *join_condition = static_cast<EqualOperator *>(filter.expression);
 
-      auto is_property_lookup_with_identifier = [](Expression *expr) -> PropertyLookup * {
-        if (expr->GetTypeInfo() != PropertyLookup::kType) {
-          return nullptr;
+      auto is_property_lookup_with_identifier = [](Expression *expr) -> Identifier * {
+        while (expr) {
+          if (expr->GetTypeInfo() == PropertyLookup::kType) {
+            expr = static_cast<PropertyLookup *>(expr)->expression_;
+          } else if (expr->GetTypeInfo() == Identifier::kType) {
+            return static_cast<Identifier *>(expr);
+          } else {
+            return nullptr;
+          }
         }
-        auto *property_lookup = static_cast<PropertyLookup *>(expr);
-        if (property_lookup->expression_->GetTypeInfo() != Identifier::kType) {
-          return nullptr;
-        }
-        return property_lookup;
+        return nullptr;
       };
-      auto *lhs_join_lookup = is_property_lookup_with_identifier(join_condition->expression1_);
-      auto *rhs_join_lookup = is_property_lookup_with_identifier(join_condition->expression2_);
+      auto *lhs_join_identifier = is_property_lookup_with_identifier(join_condition->expression1_);
+      auto *rhs_join_identifier = is_property_lookup_with_identifier(join_condition->expression2_);
 
-      if (!lhs_join_lookup || !rhs_join_lookup) {
+      if (!lhs_join_identifier || !rhs_join_identifier) {
         continue;
       }
 
       auto lhs_symbol = filter.property_filter->symbol_;
-      auto rhs_symbol = symbol_table_->at(*static_cast<Identifier *>(rhs_join_lookup->expression_));
+      auto rhs_symbol = symbol_table_->at(*rhs_join_identifier);
       filter_exprs_for_removal_.insert(filter.expression);
       filters_.EraseFilter(filter);
 
