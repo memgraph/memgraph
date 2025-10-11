@@ -24,7 +24,6 @@
 
 #include <gflags/gflags.h>
 
-#include "frontend/ast/query/identifier.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/plan/rewrite/general.hpp"
