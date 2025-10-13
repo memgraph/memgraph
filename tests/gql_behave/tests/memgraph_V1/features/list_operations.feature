@@ -492,7 +492,23 @@ Feature: List operators
             |  ({value: 1})  |
             |  ({value: 2})  |
 
-    Scenario: List cache invalidation 2
+    Scenario: List cache invalidation 2 (expression)
+        Given an empty graph
+        And having executed:
+            """
+            CREATE ({value:1})
+            CREATE ({value:2})
+            """
+        When executing query:
+            """
+            MATCH (n) WHERE (n.value + 1) IN [n.value + 1] RETURN n ORDER BY n.value ASC;
+            """
+        Then the result should be:
+            |   n            |
+            |  ({value: 1})  |
+            |  ({value: 2})  |
+
+    Scenario: List cache invalidation 3
         Given an empty graph
         And having executed:
             """
