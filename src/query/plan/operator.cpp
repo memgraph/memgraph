@@ -511,7 +511,7 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
   MultiPropsInitChecked(&new_node, properties);
 
   auto frame_writer = frame->GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
-  return frame_writer.Write(node_info.symbol, std::move(new_node)).ValueVertex();
+  return frame_writer.Write(node_info.symbol, new_node).ValueVertex();
 }
 
 ACCEPT_WITH_INPUT(CreateNode)
@@ -2146,7 +2146,7 @@ class ExpandVariableCursor : public Cursor {
       // check if we exhausted everything, if so return false
       if (edges_.empty()) return false;
 
-      bool expand_is_valid = frame_writer.Modify(self_.common_.edge_symbol, try_expand);
+      bool const expand_is_valid = frame_writer.Modify(self_.common_.edge_symbol, try_expand);
 
       // We only yield true if we satisfy the lower bound.
       auto const &edges_on_frame = frame[self_.common_.edge_symbol].ValueList();
@@ -3692,8 +3692,7 @@ class KShortestPathsCursor : public Cursor {
   }
 
   static PathInfo ReconstructPath(const VertexAccessor &midpoint, const VertexEdgeMapT &in_edge,
-                                  const VertexEdgeMapT &out_edge, utils::MemoryResource *memory,
-                                  ExecutionContext &context) {
+                                  const VertexEdgeMapT &out_edge, utils::MemoryResource *memory) {
     utils::pmr::vector<EdgeAccessor> result(memory);
     VertexAccessor current = midpoint;
 
@@ -3809,7 +3808,7 @@ class KShortestPathsCursor : public Cursor {
             }
             in_edge.emplace(edge.To(), edge);
             if (Contains(out_edge, edge.To())) {
-              return ReconstructPath(edge.To(), in_edge, out_edge, evaluator.GetMemoryResource(), context);
+              return ReconstructPath(edge.To(), in_edge, out_edge, evaluator.GetMemoryResource());
             }
             source_next.push_back(edge.To());
           }
@@ -3827,7 +3826,7 @@ class KShortestPathsCursor : public Cursor {
             }
             in_edge.emplace(edge.From(), edge);
             if (Contains(out_edge, edge.From())) {
-              return ReconstructPath(edge.From(), in_edge, out_edge, evaluator.GetMemoryResource(), context);
+              return ReconstructPath(edge.From(), in_edge, out_edge, evaluator.GetMemoryResource());
             }
             source_next.push_back(edge.From());
           }
@@ -3860,7 +3859,7 @@ class KShortestPathsCursor : public Cursor {
             }
             out_edge.emplace(edge.To(), edge);
             if (Contains(in_edge, edge.To())) {
-              return ReconstructPath(edge.To(), in_edge, out_edge, evaluator.GetMemoryResource(), context);
+              return ReconstructPath(edge.To(), in_edge, out_edge, evaluator.GetMemoryResource());
             }
             target_next.push_back(edge.To());
           }
@@ -3878,7 +3877,7 @@ class KShortestPathsCursor : public Cursor {
             }
             out_edge.emplace(edge.From(), edge);
             if (Contains(in_edge, edge.From())) {
-              return ReconstructPath(edge.From(), in_edge, out_edge, evaluator.GetMemoryResource(), context);
+              return ReconstructPath(edge.From(), in_edge, out_edge, evaluator.GetMemoryResource());
             }
             target_next.push_back(edge.From());
           }

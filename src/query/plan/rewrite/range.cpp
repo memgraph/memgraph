@@ -184,6 +184,7 @@ FilterInfo RangeOpToFilter(RangeOperator *range, const SymbolTable &symbol_table
 
   DMG_ASSERT(lower_bound.value() != nullptr && upper_bound.value() != nullptr,
              "Range requires both a lower and upper bound");
+  MG_ASSERT(ident != nullptr && prop_lookup != nullptr, "Range requires valid property lookup and identifier");
 
   UsedSymbolsCollector collector(symbol_table);
   range->Accept(collector);
