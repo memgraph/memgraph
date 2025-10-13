@@ -58,6 +58,8 @@ TypeConstraintKind PropertyValueToTypeConstraintKind(const PropertyValue &proper
     case PropertyValueType::Point2d:
     case PropertyValueType::Point3d:
       return TypeConstraintKind::POINT;
+    case PropertyValueType::VectorIndexId:
+      MG_ASSERT(false, "Unexpected conversion from PropertyValueType::VectorIndexId to TypeConstraint::Type");
     case PropertyValueType::Null:
       MG_ASSERT(false, "Unexpected conversion from PropertyValueType::Null to TypeConstraint::Type");
   }

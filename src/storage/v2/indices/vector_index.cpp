@@ -68,8 +68,6 @@ struct VectorIndex::Impl {
 
 VectorIndex::VectorIndex() : pimpl(std::make_unique<Impl>()) {}
 VectorIndex::~VectorIndex() = default;
-VectorIndex::VectorIndex(VectorIndex &&) noexcept = default;
-VectorIndex &VectorIndex::operator=(VectorIndex &&) noexcept = default;
 
 bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
                               std::optional<SnapshotObserverInfo> const &snapshot_info) {
@@ -120,7 +118,7 @@ bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Verte
 }
 
 bool VectorIndex::DropIndex(std::string_view index_name) {
-  auto it = pimpl->index_name_to_label_prop_.find(index_name.data());
+  auto it = pimpl->index_name_to_label_prop_.find(index_name);
   if (it == pimpl->index_name_to_label_prop_.end()) {
     return false;
   }
@@ -207,16 +205,69 @@ void VectorIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_befo
   });
 }
 
-auto VectorIndex::GetMatchingLabelProps(std::span<LabelId const> labels, std::span<PropertyId const> properties) const {
+std::vector<LabelPropKey> VectorIndex::GetMatchingLabelProps(std::span<LabelId const> labels,
+                                                             std::span<PropertyId const> properties) const {
   auto has_property = [&](const auto &label_prop) { return utils::Contains(properties, label_prop.property()); };
   auto has_label = [&](const auto &label_prop) { return utils::Contains(labels, label_prop.label()); };
-  return pimpl->index_ | rv::keys | rv::filter(has_property) | rv::filter(has_label);
+  return pimpl->index_ | rv::keys | rv::filter(has_label) | rv::filter(has_property) | r::to<std::vector>();
 }
 
-void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex) {
-  for (const auto &label_prop : GetMatchingLabelProps(vertex->labels, std::array{property})) {
-    UpdateVectorIndex(vertex, label_prop, &value);
+void VectorIndex::UpdateOnSetProperty(const PropertyValue &value, Vertex *vertex, std::span<uint8_t const> index_ids) {
+  for (const auto &index_id : index_ids) {
+    auto index_name = name_id_mapper_.IdToName(index_id);
+    auto label_prop = pimpl->index_name_to_label_prop_.at(index_name);
+    // This means that label is already on the vertex and we are setting a property in the index
+    auto &[mg_index, spec] = pimpl->index_.at(label_prop);
+    bool is_index_full = false;
+    {
+      auto locked_index = mg_index->MutableSharedLock();
+      locked_index->remove(vertex);
+      is_index_full = locked_index->size() == locked_index->capacity();
+    }
+    if (is_index_full) {
+      spdlog::warn("Vector index is full, resizing...");
+      auto exclusively_locked_index = mg_index->Lock();
+      const auto new_size = spec.resize_coefficient * exclusively_locked_index->capacity();
+      const unum::usearch::index_limits_t new_limits(new_size, FLAGS_bolt_num_workers);
+      if (!exclusively_locked_index->try_reserve(new_limits)) {
+        throw query::VectorSearchException("Failed to resize vector index.");
+      }
+    }
+    if (value.IsNull()) {
+      // if property is null, that means that the vertex should not be in the index and we shouldn't do any other
+      // updates
+      continue;
+    }
+    if (!value.IsList()) {
+      throw query::VectorSearchException("Vector index property must be a list.");
+    }
+    const auto &vector_property = value.ValueList();
+    if (spec.dimension != vector_property.size()) {
+      throw query::VectorSearchException("Vector index property must have the same number of dimensions as the index.");
+    }
+    std::vector<float> vector;
+    vector.reserve(vector_property.size());
+    std::transform(vector_property.begin(), vector_property.end(), std::back_inserter(vector), [](const auto &value) {
+      if (value.IsDouble()) {
+        return static_cast<float>(value.ValueDouble());
+      }
+      if (value.IsInt()) {
+        return static_cast<float>(value.ValueInt());
+      }
+      throw query::VectorSearchException("Vector index property must be a list of floats or integers.");
+    });
+    auto locked_index = mg_index->MutableSharedLock();
+    locked_index->add(vertex, vector.data());
   }
+}
+
+PropertyValue VectorIndex::GetProperty(Vertex *vertex, std::string_view index_name) const {
+  auto it = pimpl->index_name_to_label_prop_.find(index_name);
+  if (it == pimpl->index_name_to_label_prop_.end()) {
+    throw query::VectorSearchException(fmt::format("Vector index {} does not exist.", index_name));
+  }
+  auto &[mg_index, _] = pimpl->index_.at(it->second);
+  return GetVectorAsPropertyValue(mg_index, vertex);
 }
 
 PropertyValue VectorIndex::GetProperty(Vertex *vertex, PropertyId property) const {
@@ -340,8 +391,19 @@ bool VectorIndex::IndexExists(std::string_view index_name) const {
   return pimpl->index_name_to_label_prop_.contains(index_name);
 }
 
-bool VectorIndex::IsPropertyInVectorIndex(Vertex *vertex, PropertyId property) const {
-  return !GetMatchingLabelProps(vertex->labels, std::array{property}).empty();
+std::optional<std::vector<uint8_t>> VectorIndex::IsPropertyInVectorIndex(Vertex *vertex, PropertyId property) {
+  auto matching_label_props = GetMatchingLabelProps(vertex->labels, std::array{property});
+  if (matching_label_props.empty()) {
+    return std::nullopt;
+  }
+  std::vector<uint8_t> index_ids;
+  index_ids.reserve(matching_label_props.size());
+  for (const auto &label_prop : matching_label_props) {
+    auto [_, spec] = pimpl->index_.at(label_prop);
+    auto index_id = name_id_mapper_.NameToId(spec.index_name);
+    index_ids.emplace_back(index_id);
+  }
+  return index_ids;
 }
 
 bool VectorIndex::IsLabelPropInVectoIndex(LabelId label, PropertyId property) const {

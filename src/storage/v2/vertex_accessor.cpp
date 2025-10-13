@@ -384,11 +384,11 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   auto const set_property_impl = [this, transaction = transaction_, vertex = vertex_, &new_value, &property, &old_value,
                                   skip_duplicate_write, &schema_acc]() {
     // Firstly check if the property is a vector property
-    if (storage_->indices_.vector_index_.IsPropertyInVectorIndex(vertex, property)) {
-      // Vector index doesn't have transactional guarantees, so we don't need to retrieve the old value, we just need
-      // delta for durability
+    if (auto index_ids = storage_->indices_.vector_index_.IsPropertyInVectorIndex(vertex, property)) {
       // TODO(@DavIvek): Type constraints and schema info?
       CreateAndLinkDelta(transaction, vertex, Delta::SetVectorPropertyTag(), property, new_value);
+      vertex->properties.SetProperty(property, PropertyValue(index_ids->front()));
+      storage_->indices_.vector_index_.UpdateOnSetProperty(new_value, vertex, *index_ids);
       return false;
     }
 
@@ -463,6 +463,7 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
       result = false;
       return;
     }
+    // This is wrong TODO(@DavIvek): Should we handle vector index properties here?
     for (const auto &[property, new_value] : properties) {
       if (storage->indices_.vector_index_.IsPropertyInVectorIndex(vertex, property)) {
         // Vector index doesn't have transactional guarantees, so we don't need to retrieve the old value, we just need
@@ -631,14 +632,12 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
     deleted = vertex_->deleted;
     delta = vertex_->delta;
 
-    // Try to get property from vector index first
-    if (storage_->indices_.vector_index_.IsPropertyInVectorIndex(vertex_, property)) {
-      value = storage_->indices_.vector_index_.GetProperty(vertex_, property);
+    auto prop_value = vertex_->properties.GetProperty(property);
+    if (prop_value.IsVectorIndexId()) {
+      [[unlikely]] value = storage_->indices_.vector_index_.GetProperty(vertex_, property);
       is_in_vector_index = true;
-    }
-    // Fall back to regular vertex properties if not found in vector index
-    else {
-      value = vertex_->properties.GetProperty(property);
+    } else {
+      value = std::move(prop_value);
     }
   }
 
@@ -749,6 +748,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::Properties(View view
 
 Result<std::map<PropertyId, PropertyValue>> VertexAccessor::PropertiesByPropertyIds(
     std::span<PropertyId const> properties, View view) const {
+  // TODO(@DavIvek): Should this support vector index properties?
   bool exists = true;
   bool deleted = false;
   std::vector<PropertyValue> property_values;

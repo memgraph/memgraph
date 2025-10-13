@@ -194,6 +194,11 @@ void Save(const storage::ExternalPropertyValue &value, slk::Builder *builder) {
       slk::Save(value.ValuePoint3d(), builder);
       return;
     }
+    case storage::ExternalPropertyValue::Type::VectorIndexId: {
+      slk::Save(storage::ExternalPropertyValue::Type::VectorIndexId, builder);
+      slk::Save(value.ValueVectorIndexId(), builder);
+      return;
+    }
   }
 }
 
@@ -300,6 +305,12 @@ void Load(storage::ExternalPropertyValue *value, slk::Reader *reader) {
     }
     case storage::ExternalPropertyValue::Type::Point3d: {
       storage::Point3d v;
+      slk::Load(&v, reader);
+      *value = storage::ExternalPropertyValue(v);
+      return;
+    }
+    case storage::ExternalPropertyValue::Type::VectorIndexId: {
+      int8_t v;
       slk::Load(&v, reader);
       *value = storage::ExternalPropertyValue(v);
       return;

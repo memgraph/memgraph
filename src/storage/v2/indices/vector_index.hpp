@@ -109,13 +109,19 @@ class VectorIndex {
   /// @param property The property that was modified.
   /// @param value The new value of the property.
   /// @param vertex The vertex on which the property was modified.
-  void UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex);
+  void UpdateOnSetProperty(const PropertyValue &value, Vertex *vertex, std::span<uint8_t const> index_ids);
 
   /// @brief Retrieves the vector of a vertex as a PropertyValue.
   /// @param vertex The vertex to retrieve the vector from.
   /// @param property The property of the vertex.
   /// @return The vector of the vertex as a PropertyValue.
   PropertyValue GetProperty(Vertex *vertex, PropertyId property) const;
+
+  /// @brief Retrieves the vector of a vertex as a PropertyValue.
+  /// @param vertex The vertex to retrieve the vector from.
+  /// @param index_name The name of the index to retrieve the vector from.
+  /// @return The vector of the vertex as a PropertyValue.
+  PropertyValue GetProperty(Vertex *vertex, std::string_view index_name) const;
 
   /// @brief Lists the info of all existing indexes.
   /// @return A vector of VectorIndexInfo objects representing the indexes.
@@ -167,7 +173,7 @@ class VectorIndex {
   /// @param vertex The vertex to check.
   /// @param property The property to check.
   /// @return true if the property is in the vector index, false otherwise.
-  bool IsPropertyInVectorIndex(Vertex *vertex, PropertyId property) const;
+  std::optional<std::vector<uint8_t>> IsPropertyInVectorIndex(Vertex *vertex, PropertyId property);
 
   /// @brief Checks if the label is in the vector index.
   /// @param vertex The vertex to check.
@@ -190,11 +196,13 @@ class VectorIndex {
   /// @brief Gets all label-property combinations that match the given vertex and property.
   /// @param vertex The vertex to check labels against.
   /// @param property The property to match.
-  /// @return A range of matching LabelPropKey objects.
-  auto GetMatchingLabelProps(std::span<LabelId const> labels, std::span<PropertyId const> properties) const;
+  /// @return A vector of matching LabelPropKey objects.
+  std::vector<LabelPropKey> GetMatchingLabelProps(std::span<LabelId const> labels,
+                                                  std::span<PropertyId const> properties) const;
 
   struct Impl;
   std::unique_ptr<Impl> pimpl;
+  NameIdMapper name_id_mapper_;
 };
 
 }  // namespace memgraph::storage
