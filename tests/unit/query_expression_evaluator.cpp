@@ -2724,8 +2724,11 @@ TYPED_TEST(FunctionTest, ZonedDateTime) {
   const auto today = memgraph::utils::CurrentZonedDateTime();
   EXPECT_NEAR(this->EvaluateFunction("DATETIME").ValueZonedDateTime().SysMicrosecondsSinceEpoch().count(),
               today.SysMicrosecondsSinceEpoch().count(), one_sec_in_microseconds);
-  EXPECT_EQ(this->EvaluateFunction("DATETIME", TypedValue(std::map<std::string, TypedValue>{})).ValueZonedDateTime(),
-            memgraph::utils::ZonedDateTime({{}, {}, memgraph::utils::DefaultTimezone()}));
+  EXPECT_NEAR(this->EvaluateFunction("DATETIME", TypedValue(std::map<std::string, TypedValue>{}))
+                  .ValueZonedDateTime()
+                  .SysMicrosecondsSinceEpoch()
+                  .count(),
+              today.SysMicrosecondsSinceEpoch().count(), one_sec_in_microseconds);
 
   // No parameters
   EXPECT_THROW(this->EvaluateFunction("DATETIME", "{}"), memgraph::utils::BasicException);
@@ -2751,10 +2754,12 @@ TYPED_TEST(FunctionTest, ZonedDateTime) {
                 .ValueZonedDateTime(),
             memgraph::utils::ZonedDateTime({{}, lt_params, memgraph::utils::DefaultTimezone()}));
 
-  EXPECT_EQ(this->EvaluateFunction("DATETIME", TypedValue(std::map<std::string, TypedValue>{
-                                                   {"timezone", TypedValue("America/Los_Angeles")}}))
-                .ValueZonedDateTime(),
-            memgraph::utils::ZonedDateTime({{}, {}, memgraph::utils::Timezone("America/Los_Angeles")}));
+  auto result_with_tz_only = this->EvaluateFunction("DATETIME", TypedValue(std::map<std::string, TypedValue>{
+                                                                    {"timezone", TypedValue("America/Los_Angeles")}}))
+                                 .ValueZonedDateTime();
+  EXPECT_EQ(result_with_tz_only.GetTimezone(), memgraph::utils::Timezone("America/Los_Angeles"));
+  EXPECT_NEAR(result_with_tz_only.SysMicrosecondsSinceEpoch().count(), today.SysMicrosecondsSinceEpoch().count(),
+              one_sec_in_microseconds);
 
   EXPECT_EQ(
       this->EvaluateFunction(
