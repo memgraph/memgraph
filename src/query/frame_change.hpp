@@ -13,8 +13,8 @@
 
 #include <tuple>
 #include <utility>
+#include "query/frontend/ast/query/named_expression.hpp"
 #include "query/typed_value.hpp"
-#include "utils/fnv.hpp"
 #include "utils/memory.hpp"
 #include "utils/pmr/unordered_map.hpp"
 
@@ -111,7 +111,7 @@ class FrameChangeCollector {
 
   auto GetCachedValue(utils::FrameChangeId const &key) -> CachedValue & {
     auto const it = caches_.find(key);
-    DMG_ASSERT(it != tracked_values_.cend());
+    DMG_ASSERT(it != caches_.cend());
     return it->second;
   }
 
