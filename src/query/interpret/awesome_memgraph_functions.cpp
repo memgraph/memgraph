@@ -1351,9 +1351,11 @@ template <typename T>
 concept IsNumberOrInteger = utils::SameAsAnyOf<T, Number, Integer>;
 
 template <IsNumberOrInteger ArgType>
-void MapNumericParameters(auto &parameter_mappings, const auto &input_parameters) {
+int MapNumericParameters(auto &parameter_mappings, const auto &input_parameters) {
+  int num_mapped = 0;
   for (const auto &[key, value] : input_parameters) {
     if (auto it = parameter_mappings.find(key); it != parameter_mappings.end()) {
+      ++num_mapped;
       if (value.IsInt()) {
         *it->second = value.ValueInt();
       } else if (std::is_same_v<ArgType, Number> && value.IsDouble()) {
@@ -1366,6 +1368,8 @@ void MapNumericParameters(auto &parameter_mappings, const auto &input_parameters
       throw QueryRuntimeException("Unknown key '{}'.", key);
     }
   }
+
+  return num_mapped;
 }
 
 TypedValue Date(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -1560,7 +1564,10 @@ TypedValue DateTime(const TypedValue *args, int64_t nargs, const FunctionContext
   const utils::pmr::string timezone_key("timezone", ctx.memory);
   fields.erase(timezone_key);
 
-  MapNumericParameters<Integer>(date_parameter_mappings, fields);
+  int const num_mapped_numeric_fields = MapNumericParameters<Integer>(date_parameter_mappings, fields);
+  if (num_mapped_numeric_fields == 0) {
+    return TypedValue(utils::ZonedDateTime(utils::AsSysTime(ctx.timestamp), timezone), ctx.memory);
+  }
   auto zoned_date_time_parameters = utils::ZonedDateTimeParameters{date_parameters, time_parameters, timezone};
   return TypedValue(utils::ZonedDateTime(zoned_date_time_parameters), ctx.memory);
 }
