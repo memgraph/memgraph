@@ -207,7 +207,7 @@ TypedValue ExpressionEvaluator::Visit(AllPropertiesLookup &all_properties_lookup
   }
 }
 TypedValue ExpressionEvaluator::Visit(PropertyLookup &property_lookup) {
-  ReferenceExpressionEvaluator referenceExpressionEvaluator(frame_, symbol_table_, ctx_);
+  ReferenceExpressionEvaluator referenceExpressionEvaluator(frame_, ctx_);
 
   TypedValue const *expression_result_ptr = property_lookup.expression_->Accept(referenceExpressionEvaluator);
   TypedValue expression_result;

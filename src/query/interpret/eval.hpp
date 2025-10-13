@@ -42,8 +42,7 @@ namespace memgraph::query {
 
 class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue const *> {
  public:
-  ReferenceExpressionEvaluator(Frame *frame, const SymbolTable *symbol_table, const EvaluationContext *ctx)
-      : frame_(frame), symbol_table_(symbol_table), ctx_(ctx) {}
+  ReferenceExpressionEvaluator(Frame *frame, const EvaluationContext *ctx) : frame_(frame), ctx_(ctx) {}
 
   using ExpressionVisitor<TypedValue const *>::Visit;
 
@@ -52,7 +51,7 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue const *
 #define UNSUCCESSFUL_VISIT(expr_name) \
   TypedValue const *Visit(expr_name &expr) override { return nullptr; }
 
-  TypedValue const *Visit(Identifier &ident) override { return &frame_->at(symbol_table_->at(ident)); }
+  TypedValue const *Visit(Identifier &ident) override { return &frame_->elems().at(ident.symbol_pos_); }
 
   UNSUCCESSFUL_VISIT(NamedExpression);
   UNSUCCESSFUL_VISIT(OrOperator);
@@ -111,7 +110,6 @@ class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue const *
 
  private:
   Frame *frame_;
-  const SymbolTable *symbol_table_;
   const EvaluationContext *ctx_;
 };
 
@@ -216,7 +214,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(Identifier &ident) override {
-    return TypedValue(frame_->at(symbol_table_->at(ident)), ctx_->memory);
+    return TypedValue(frame_->elems().at(ident.symbol_pos_), ctx_->memory);
   }
 
 #define BINARY_OPERATOR_VISITOR(OP_NODE, CPP_OP, CYPHER_OP)                                                    \
@@ -321,7 +319,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     auto literal = in_list.expression1_->Accept(*this);
 
     auto get_list_literal = [this, &in_list]() -> TypedValue {
-      ReferenceExpressionEvaluator reference_expression_evaluator{frame_, symbol_table_, ctx_};
+      ReferenceExpressionEvaluator reference_expression_evaluator{frame_, ctx_};
       auto *list_ptr = in_list.expression2_->Accept(reference_expression_evaluator);
       if (nullptr == list_ptr) {
         return in_list.expression2_->Accept(*this);
@@ -404,7 +402,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   }
 
   TypedValue Visit(SubscriptOperator &list_indexing) override {
-    ReferenceExpressionEvaluator referenceExpressionEvaluator(frame_, symbol_table_, ctx_);
+    ReferenceExpressionEvaluator referenceExpressionEvaluator(frame_, ctx_);
 
     TypedValue const *lhs_ptr = list_indexing.expression1_->Accept(referenceExpressionEvaluator);
     TypedValue lhs;
