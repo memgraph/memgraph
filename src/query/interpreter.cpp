@@ -59,6 +59,7 @@
 #include "query/constants.hpp"
 #include "query/context.hpp"
 #include "query/cypher_query_interpreter.hpp"
+#include "query/dependant_symbol_visitor.hpp"
 #include "query/dump.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
@@ -2798,126 +2799,9 @@ namespace {
 // [ x, rand() ] : not cachable,  x->[x, rand()]
 
 bool CollectDependantSymbols(Expression *expr, std::set<Symbol::Position_t> &dependencies) {
-  if (auto *identifier = utils::Downcast<Identifier>(expr)) {
-    MG_ASSERT(identifier->symbol_pos_ != -1);
-    dependencies.insert(identifier->symbol_pos_);
-    return true;
-  }
-
-  if (auto *list_literal = utils::Downcast<ListLiteral>(expr)) {
-    return std::ranges::all_of(list_literal->elements_,
-                               [&](auto *arg) { return CollectDependantSymbols(arg, dependencies); });
-  }
-
-  if (auto *map_literal = utils::Downcast<MapLiteral>(expr)) {
-    return std::ranges::all_of(map_literal->elements_,
-                               [&](const auto &pair) { return CollectDependantSymbols(pair.second, dependencies); });
-  }
-
-  auto handle_binary_op = [&](auto *binary) -> bool {
-    return CollectDependantSymbols(binary->expression1_, dependencies) &&
-           CollectDependantSymbols(binary->expression2_, dependencies);
-  };
-
-  if (auto *binary = utils::Downcast<BinaryOperator>(expr)) return handle_binary_op(binary);
-  // Not binary but we can handle the same way
-  if (auto *binary = utils::Downcast<RangeOperator>(expr)) return handle_binary_op(binary);
-
-  auto handle_unary_op = [&](auto *unary) -> bool { return CollectDependantSymbols(unary->expression_, dependencies); };
-
-  if (auto *unary = utils::Downcast<UnaryOperator>(expr)) return handle_unary_op(unary);
-  // Not unary but we can handle the same way
-  if (auto *unary = utils::Downcast<PropertyLookup>(expr)) return handle_unary_op(unary);
-  if (auto *unary = utils::Downcast<AllPropertiesLookup>(expr)) return handle_unary_op(unary);
-
-  if (auto *slice = utils::Downcast<ListSlicingOperator>(expr)) {
-    return CollectDependantSymbols(slice->list_, dependencies) &&
-           (!slice->lower_bound_ || CollectDependantSymbols(slice->lower_bound_, dependencies)) &&
-           (!slice->upper_bound_ || CollectDependantSymbols(slice->upper_bound_, dependencies));
-  }
-
-  // Check for non-cacheable functions (non-deterministic or user-defined)
-  if (auto *func = utils::Downcast<Function>(expr)) {
-    if (!IsFunctionPure(func->function_name_)) {
-      return false;
-    }
-    return std::ranges::all_of(func->arguments_, [&](auto *arg) { return CollectDependantSymbols(arg, dependencies); });
-  }
-
-  if (auto *agg = utils::Downcast<Aggregation>(expr)) {
-    return CollectDependantSymbols(agg->expression1_, dependencies) &&
-           (!agg->expression2_ || CollectDependantSymbols(agg->expression2_, dependencies));
-  }
-
-  if (auto *if_op = utils::Downcast<IfOperator>(expr)) {
-    return CollectDependantSymbols(if_op->condition_, dependencies) &&
-           CollectDependantSymbols(if_op->then_expression_, dependencies) &&
-           CollectDependantSymbols(if_op->else_expression_, dependencies);
-  }
-
-  if (auto *coalesce = utils::Downcast<Coalesce>(expr)) {
-    return std::ranges::all_of(coalesce->expressions_,
-                               [&](auto *arg) { return CollectDependantSymbols(arg, dependencies); });
-  }
-
-  if (auto *reduce = utils::Downcast<Reduce>(expr)) {
-    auto result = CollectDependantSymbols(reduce->list_, dependencies) &&
-                  CollectDependantSymbols(reduce->initializer_, dependencies) &&
-                  CollectDependantSymbols(reduce->expression_, dependencies);
-    // Remove temporary symbols that are only valid within the reduce expression
-    dependencies.erase(reduce->accumulator_->symbol_pos_);
-    dependencies.erase(reduce->identifier_->symbol_pos_);
-    return result;
-  }
-  if (auto *extract = utils::Downcast<Extract>(expr)) {
-    auto result = CollectDependantSymbols(extract->list_, dependencies) &&
-                  CollectDependantSymbols(extract->expression_, dependencies);
-    // Remove temporary symbol that is only valid within the extract expression
-    dependencies.erase(extract->identifier_->symbol_pos_);
-    return result;
-  }
-
-  // Helper for All/Any/None/Single - they all have the same structure
-  auto handle_list_filter_expr = [&](auto *list_filter) -> bool {
-    auto result = CollectDependantSymbols(list_filter->list_expression_, dependencies) &&
-                  (!list_filter->where_ || CollectDependantSymbols(list_filter->where_->expression_, dependencies));
-    dependencies.erase(list_filter->identifier_->symbol_pos_);
-    return result;
-  };
-
-  if (auto *all = utils::Downcast<All>(expr)) return handle_list_filter_expr(all);
-  if (auto *any = utils::Downcast<Any>(expr)) return handle_list_filter_expr(any);
-  if (auto *none = utils::Downcast<None>(expr)) return handle_list_filter_expr(none);
-  if (auto *single = utils::Downcast<Single>(expr)) return handle_list_filter_expr(single);
-
-  if (auto *labels_test = utils::Downcast<LabelsTest>(expr)) {
-    return CollectDependantSymbols(labels_test->expression_, dependencies);
-  }
-
-  if (auto *regex_match = utils::Downcast<RegexMatch>(expr)) {
-    return CollectDependantSymbols(regex_match->string_expr_, dependencies) &&
-           CollectDependantSymbols(regex_match->regex_, dependencies);
-  }
-
-  if (auto *list_comp = utils::Downcast<ListComprehension>(expr)) {
-    auto result = CollectDependantSymbols(list_comp->list_, dependencies) &&
-                  (!list_comp->where_ || CollectDependantSymbols(list_comp->where_->expression_, dependencies)) &&
-                  (!list_comp->expression_ || CollectDependantSymbols(list_comp->expression_, dependencies));
-    // Remove temporary symbol that is only valid within the list comprehension
-    dependencies.erase(list_comp->identifier_->symbol_pos_);
-    return result;
-  }
-
-  if (auto *pattern_comp = utils::Downcast<PatternComprehension>(expr)) {
-    return false;  // Not cacheable due to pattern matching
-  }
-
-  if (auto *exists = utils::Downcast<Exists>(expr)) {
-    return false;  // Not cacheable due to pattern/subquery
-  }
-
-  // Primitive literals, parameters - safe to cache
-  return true;
+  DependantSymbolVisitor visitor(dependencies);
+  expr->Accept(visitor);
+  return visitor.is_cacheable();
 }
 
 }  // namespace
