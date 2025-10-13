@@ -183,6 +183,16 @@ Feature: ListComprehension
             | result                |
             | [{a: 2, label: [0]}]  |
 
+    Scenario: List comprehension aggregation correctness test with an expression
+        Given an empty graph
+        When executing query:
+            """
+            WITH 1 as y RETURN collect({a: 2, label: [x in [0] | x*x]}) as result;
+            """
+        Then the result should be:
+            | result                |
+            | [{a: 2, label: [0]}]  |
+
     Scenario: List comprehension aggregation correctness test with a where clause and an expression
         Given an empty graph
         When executing query:
