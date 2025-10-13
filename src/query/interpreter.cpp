@@ -2791,21 +2791,6 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
           RWType::NONE};
 }
 
-namespace {
-
-// Returns true if caching is safe, false if we found a non-cacheable function
-
-// [ x,y,z ] : x->[x,y,z], y->[x,y,z], z->[x,y,z]
-// [ x, rand() ] : not cachable,  x->[x, rand()]
-
-bool CollectDependantSymbols(Expression *expr, std::set<Symbol::Position_t> &dependencies) {
-  DependantSymbolVisitor visitor(dependencies);
-  expr->Accept(visitor);
-  return visitor.is_cacheable();
-}
-
-}  // namespace
-
 inline static void TryCaching(const AstStorage &ast_storage, FrameChangeCollector *frame_change_collector) {
   if (!frame_change_collector) return;
   for (const auto &tree : ast_storage.storage_) {
@@ -2819,8 +2804,9 @@ inline static void TryCaching(const AstStorage &ast_storage, FrameChangeCollecto
     }
 
     auto dependencies = std::set<Symbol::Position_t>{};
-    bool const list_is_cachable = CollectDependantSymbols(in_list_operator->expression2_, dependencies);
-    if (list_is_cachable) [[likely]] {
+    auto visitor = DependantSymbolVisitor(dependencies);
+    in_list_operator->expression2_->Accept(visitor);
+    if (visitor.is_cacheable()) [[likely]] {
       // This InListOperator can be processed into a set and cached
       frame_change_collector->AddInListKey(*cached_id);
       // If any dependency changes then the cache must be invalidated
