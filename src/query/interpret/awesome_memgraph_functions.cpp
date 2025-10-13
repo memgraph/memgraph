@@ -1351,11 +1351,11 @@ template <typename T>
 concept IsNumberOrInteger = utils::SameAsAnyOf<T, Number, Integer>;
 
 template <IsNumberOrInteger ArgType>
-int MapNumericParameters(auto &parameter_mappings, const auto &input_parameters) {
-  int num_mapped = 0;
+bool MapNumericParameters(auto &parameter_mappings, const auto &input_parameters) {
+  bool has_mapped_any_field{false};
   for (const auto &[key, value] : input_parameters) {
     if (auto it = parameter_mappings.find(key); it != parameter_mappings.end()) {
-      ++num_mapped;
+      has_mapped_any_field = true;
       if (value.IsInt()) {
         *it->second = value.ValueInt();
       } else if (std::is_same_v<ArgType, Number> && value.IsDouble()) {
@@ -1369,7 +1369,7 @@ int MapNumericParameters(auto &parameter_mappings, const auto &input_parameters)
     }
   }
 
-  return num_mapped;
+  return has_mapped_any_field;
 }
 
 TypedValue Date(const TypedValue *args, int64_t nargs, const FunctionContext &ctx) {
@@ -1564,8 +1564,8 @@ TypedValue DateTime(const TypedValue *args, int64_t nargs, const FunctionContext
   const utils::pmr::string timezone_key("timezone", ctx.memory);
   fields.erase(timezone_key);
 
-  int const num_mapped_numeric_fields = MapNumericParameters<Integer>(date_parameter_mappings, fields);
-  if (num_mapped_numeric_fields == 0) {
+  bool const has_mapped_numeric_fields = MapNumericParameters<Integer>(date_parameter_mappings, fields);
+  if (!has_mapped_numeric_fields) {
     return TypedValue(utils::ZonedDateTime(utils::AsSysTime(ctx.timestamp), timezone), ctx.memory);
   }
   auto zoned_date_time_parameters = utils::ZonedDateTimeParameters{date_parameters, time_parameters, timezone};
