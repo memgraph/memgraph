@@ -221,7 +221,9 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
     MG_ASSERT(has_aggregation_.size() >= 2U,
               "Expected at least 2 has_aggregation_ flags for list comprehension arguments!");
     bool has_aggr = false;
-    size_t const limit = has_aggregation_.size();
+    const auto limit =
+        2 + (list_comprehension.where_ ? 1 : 0) +
+        (list_comprehension.expression_ ? 1 : 0);  // 2 is hardcoded for identifier and list which are always present
     for (int i = 0; i < limit; ++i) {
       has_aggr = has_aggr || has_aggregation_.back();
       has_aggregation_.pop_back();
