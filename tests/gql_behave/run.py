@@ -51,7 +51,10 @@ def main():
             args_value.append(option)
 
     # Custom argument for test suite
-    argp.add_argument("test_suite", help="test suite that should be executed")
+    argp.add_argument(
+        "test_suite",
+        help="test suite to execute (e.g., 'memgraph_V1') or specific feature file (e.g., 'memgraph_V1/features/list_operations.feature')",
+    )
     add_config("--test-suite")
     add_config("--test-directory")
 
