@@ -596,7 +596,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     TypedValue::TVector result(ctx_->memory);
     result.reserve(literal.elements_.size());
     for (const auto &expression : literal.elements_) result.emplace_back(expression->Accept(*this));
-    return TypedValue(result, ctx_->memory);
+    return TypedValue(std::move(result), ctx_->memory);
   }
 
   TypedValue Visit(MapLiteral &literal) override {
@@ -605,7 +605,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       result.emplace(TypedValue::TString(pair.first.name, ctx_->memory), pair.second->Accept(*this));
     }
 
-    return TypedValue(result, ctx_->memory);
+    return TypedValue(std::move(result), ctx_->memory);
   }
 
   TypedValue Visit(MapProjectionLiteral &literal) override {
@@ -636,7 +636,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
 
     if (!all_properties_lookup.empty()) result.merge(all_properties_lookup);
 
-    return TypedValue(result, ctx_->memory);
+    return TypedValue(std::move(result), ctx_->memory);
   }
 
   TypedValue Visit(Aggregation &aggregation) override {
