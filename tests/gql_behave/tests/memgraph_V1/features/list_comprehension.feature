@@ -162,3 +162,13 @@ Feature: ListComprehension
         Then the result should be:
             | id |
             | 1  |
+
+    Scenario: List comprehension aggregation correctness test 1
+        Given an empty graph
+        When executing query:
+            """
+            RETURN collect({a: 2, label: [x in [0]]}) as result;
+            """
+        Then the result should be:
+            | result                |
+            | [{a: 2, label: [0]}]  |
