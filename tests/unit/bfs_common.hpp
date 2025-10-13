@@ -139,7 +139,8 @@ class Yield : public memgraph::query::plan::LogicalOperator {
         pull_index_ = 0;
       }
       for (size_t i = 0; i < self_->values_[pull_index_].size(); ++i) {
-        frame[self_->modified_symbols_[i]] = self_->values_[pull_index_][i];
+        auto frame_writer = memgraph::query::FrameWriter(frame, nullptr, context.evaluation_context.memory);
+        frame_writer.Write(self_->modified_symbols_[i], self_->values_[pull_index_][i]);
       }
       pull_index_++;
       return true;
