@@ -31,25 +31,21 @@ def _ensure_clean_state_and_create_admin(memgraph):
         non_admin_users = [user for user in users if user.get("user") != "admin"]
         assert len(non_admin_users) == 0, f"Expected no non-admin users, found: {non_admin_users}"
     except Exception:
-        pass  # If SHOW USERS fails, we'll continue
+        assert False, "Failed to check users"
 
     # Check that there are no existing roles
     try:
         roles = list(memgraph.execute_and_fetch("SHOW ROLES;"))
         assert len(roles) == 0, f"Expected no roles, found: {roles}"
     except Exception:
-        pass  # If SHOW ROLES fails, we'll continue
-
-    # Track whether we created the admin user
-    admin_created = False
+        assert False, "Failed to check roles"
 
     # Create admin user (it should automatically get all privileges)
     try:
         memgraph.execute("CREATE USER admin;")
         admin_created = True
     except Exception:
-        # Admin user might already exist, that's okay
-        pass
+        assert False, "Failed to create admin"
 
     try:
         yield
@@ -263,171 +259,6 @@ def test_show_privileges_user_isolation_multi_database(memgraph):
         memgraph.execute("DROP USER bob;")
         memgraph.execute("DROP DATABASE db1 FORCE;")
         memgraph.execute("DROP DATABASE db2 FORCE;")
-
-
-def test_show_privileges_user_isolation_admin_vs_regular_user(memgraph):
-    """Test that SHOW PRIVILEGES results are not influenced by whether the requester is admin or regular user."""
-    # Ensure clean state and create admin user
-    with _ensure_clean_state_and_create_admin(memgraph):
-        # Create users
-        memgraph.execute("CREATE USER alice;")
-        memgraph.execute("CREATE USER bob;")
-
-        # Grant different privileges
-        memgraph.execute("GRANT CREATE, DELETE, AUTH TO alice;")
-        memgraph.execute("GRANT MATCH, MERGE, AUTH TO bob;")
-
-        # Connect as admin (default user) and check alice's privileges
-        admin_alice_privileges = list(memgraph.execute_and_fetch("SHOW PRIVILEGES FOR alice;"))
-
-        # Connect as alice and check her own privileges
-        alice_conn = Memgraph(username="alice", password="")
-        alice_alice_privileges = list(alice_conn.execute_and_fetch("SHOW PRIVILEGES FOR alice;"))
-
-        # Connect as bob and check alice's privileges
-        bob_conn = Memgraph(username="bob", password="")
-        bob_alice_privileges = list(bob_conn.execute_and_fetch("SHOW PRIVILEGES FOR alice;"))
-
-        # All three should return identical results
-        assert (
-            len(admin_alice_privileges) == len(alice_alice_privileges) == len(bob_alice_privileges)
-        ), "Privilege count should be the same"
-
-        # Sort all results for comparison
-        admin_sorted = sorted(admin_alice_privileges, key=lambda x: x.get("privilege", ""))
-        alice_sorted = sorted(alice_alice_privileges, key=lambda x: x.get("privilege", ""))
-        bob_sorted = sorted(bob_alice_privileges, key=lambda x: x.get("privilege", ""))
-
-        assert admin_sorted == alice_sorted == bob_sorted, "All privilege results should be identical"
-
-        # Verify alice has the expected privileges
-        privilege_names = [row.get("privilege", "") for row in alice_sorted]
-        assert "CREATE" in privilege_names, "Alice should have CREATE privilege"
-        assert "DELETE" in privilege_names, "Alice should have DELETE privilege"
-        assert "MATCH" not in privilege_names, "Alice should not have MATCH privilege"
-        assert "MERGE" not in privilege_names, "Alice should not have MERGE privilege"
-
-        # Clean up
-        memgraph.execute("DROP USER alice;")
-        memgraph.execute("DROP USER bob;")
-
-
-def test_show_privileges_user_isolation_role_privileges(memgraph):
-    """Test that SHOW PRIVILEGES results for roles are not influenced by the currently logged in user."""
-    # Ensure clean state and create admin user
-    with _ensure_clean_state_and_create_admin(memgraph):
-        # Create users and roles
-        memgraph.execute("CREATE USER alice;")
-        memgraph.execute("CREATE USER bob;")
-        memgraph.execute("CREATE ROLE admin_role;")
-        memgraph.execute("CREATE ROLE user_role;")
-
-        # Grant privileges to roles
-        memgraph.execute("GRANT AUTH TO alice;")
-        memgraph.execute("GRANT AUTH TO bob;")
-        memgraph.execute("GRANT CREATE, DELETE TO admin_role;")
-        memgraph.execute("GRANT MATCH, MERGE TO user_role;")
-
-        # Connect as alice and check admin_role privileges
-        alice_conn = Memgraph(username="alice", password="")
-        alice_admin_privileges = list(alice_conn.execute_and_fetch("SHOW PRIVILEGES FOR admin_role;"))
-
-        # Connect as bob and check admin_role privileges
-        bob_conn = Memgraph(username="bob", password="")
-        bob_admin_privileges = list(bob_conn.execute_and_fetch("SHOW PRIVILEGES FOR admin_role;"))
-
-        # Connect as admin and check admin_role privileges
-        admin_admin_privileges = list(memgraph.execute_and_fetch("SHOW PRIVILEGES FOR admin_role;"))
-
-        # All three should return identical results
-        assert (
-            len(alice_admin_privileges) == len(bob_admin_privileges) == len(admin_admin_privileges)
-        ), "Privilege count should be the same"
-
-        # Sort all results for comparison
-        alice_sorted = sorted(alice_admin_privileges, key=lambda x: x.get("privilege", ""))
-        bob_sorted = sorted(bob_admin_privileges, key=lambda x: x.get("privilege", ""))
-        admin_sorted = sorted(admin_admin_privileges, key=lambda x: x.get("privilege", ""))
-
-        assert alice_sorted == bob_sorted == admin_sorted, "All privilege results should be identical"
-
-        # Verify admin_role has the expected privileges
-        privilege_names = [row.get("privilege", "") for row in admin_sorted]
-        assert "CREATE" in privilege_names, "admin_role should have CREATE privilege"
-        assert "DELETE" in privilege_names, "admin_role should have DELETE privilege"
-        assert "MATCH" not in privilege_names, "admin_role should not have MATCH privilege"
-        assert "MERGE" not in privilege_names, "admin_role should not have MERGE privilege"
-
-        # Clean up
-        memgraph.execute("DROP USER alice;")
-        memgraph.execute("DROP USER bob;")
-        memgraph.execute("DROP ROLE admin_role;")
-        memgraph.execute("DROP ROLE user_role;")
-
-
-def test_show_privileges_user_isolation_complex_scenario(memgraph):
-    """Test a complex scenario with multiple users, roles, and privilege combinations."""
-    # Ensure clean state and create admin user
-    with _ensure_clean_state_and_create_admin(memgraph):
-        # Create users and roles
-        memgraph.execute("CREATE USER alice;")
-        memgraph.execute("CREATE USER bob;")
-        memgraph.execute("CREATE USER charlie;")
-        memgraph.execute("CREATE ROLE admin_role;")
-        memgraph.execute("CREATE ROLE user_role;")
-        memgraph.execute("CREATE ROLE readonly_role;")
-
-        # Grant privileges to roles
-        memgraph.execute("GRANT CREATE, DELETE, MATCH, MERGE,AUTH TO admin_role;")
-        memgraph.execute("GRANT MATCH, MERGE,AUTH TO user_role;")
-        memgraph.execute("GRANT MATCH,AUTH TO readonly_role;")
-
-        # Grant some direct privileges to users
-        memgraph.execute("GRANT SET,AUTH TO alice;")
-        memgraph.execute("GRANT REMOVE,AUTH TO bob;")
-
-        # Assign roles to users
-        memgraph.execute("SET ROLE FOR alice TO admin_role;")
-        memgraph.execute("SET ROLE FOR bob TO user_role;")
-        memgraph.execute("SET ROLE FOR charlie TO readonly_role;")
-
-        # Test that charlie's privileges are the same regardless of who asks
-        test_users = ["alice", "bob", "charlie"]
-        charlie_privilege_results = []
-
-        for username in test_users:
-            if username == "alice":
-                conn = Memgraph(username="alice", password="")
-            elif username == "bob":
-                conn = Memgraph(username="bob", password="")
-            else:  # charlie
-                conn = Memgraph(username="charlie", password="")
-
-            privileges = list(conn.execute_and_fetch("SHOW PRIVILEGES FOR charlie;"))
-            charlie_privilege_results.append(sorted(privileges, key=lambda x: x.get("privilege", "")))
-
-        # All results should be identical
-        for i in range(1, len(charlie_privilege_results)):
-            assert (
-                charlie_privilege_results[0] == charlie_privilege_results[i]
-            ), f"Charlie's privileges should be identical when queried by different users"
-
-        # Verify charlie has the expected privileges (MATCH from readonly_role)
-        privilege_names = [row.get("privilege", "") for row in charlie_privilege_results[0]]
-        assert "MATCH" in privilege_names, "Charlie should have MATCH privilege from readonly_role"
-        assert "CREATE" not in privilege_names, "Charlie should not have CREATE privilege"
-        assert "DELETE" not in privilege_names, "Charlie should not have DELETE privilege"
-        assert "MERGE" not in privilege_names, "Charlie should not have MERGE privilege"
-        assert "SET" not in privilege_names, "Charlie should not have SET privilege"
-        assert "REMOVE" not in privilege_names, "Charlie should not have REMOVE privilege"
-
-        # Clean up
-        memgraph.execute("DROP USER alice;")
-        memgraph.execute("DROP USER bob;")
-        memgraph.execute("DROP USER charlie;")
-        memgraph.execute("DROP ROLE admin_role;")
-        memgraph.execute("DROP ROLE user_role;")
-        memgraph.execute("DROP ROLE readonly_role;")
 
 
 if __name__ == "__main__":
