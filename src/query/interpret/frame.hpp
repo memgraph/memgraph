@@ -41,12 +41,9 @@ struct FrameWriter {
 
   auto Write(const Symbol &symbol, TypedValue value) -> TypedValue &;
   auto WriteAt(const Symbol &symbol, TypedValue value) -> TypedValue &;
-  void ClearList(const Symbol &symbol);
 
   template <typename Func>
   auto Modify(const Symbol &symbol, Func f) -> std::invoke_result_t<Func, TypedValue &>;
-
-  // auto &elems() { return frame_.elems_; }
 
  private:
   void ResetInListCache(const Symbol &symbol);

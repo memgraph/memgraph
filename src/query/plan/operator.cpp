@@ -2014,7 +2014,7 @@ class ExpandVariableCursor : public Cursor {
       // reset the frame value to an empty edge list
       if (frame[self_.common_.edge_symbol].IsList()) {
         // Preserve the list capacity if possible
-        frame_writer.ClearList(self_.common_.edge_symbol);
+        frame_writer.Modify(self_.common_.edge_symbol, [](TypedValue &value) { value.ValueList().clear(); });
       } else {
         auto *pull_memory = context.evaluation_context.memory;
         frame_writer.Write(self_.common_.edge_symbol, TypedValue::TVector(pull_memory));

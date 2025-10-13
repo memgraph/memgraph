@@ -31,6 +31,4 @@ auto FrameWriter::WriteAt(const Symbol &symbol, TypedValue value) -> TypedValue 
   ResetInListCache(symbol);
   return inserted_value;
 }
-
-void FrameWriter::ClearList(const Symbol &symbol) { frame_.elems_[symbol.position()].ValueList().clear(); }
 }  // namespace memgraph::query

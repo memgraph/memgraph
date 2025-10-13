@@ -56,7 +56,6 @@ struct CachedValue {
     const auto &list = maybe_list.ValueList();
     for (const auto &element : list) {
       cache_.insert(element);
-      ;
     }
     return true;
   }
