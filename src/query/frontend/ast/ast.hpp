@@ -1165,9 +1165,6 @@ class Function : public memgraph::query::Expression {
     if (function_name_ != other.function_name_) {
       return false;
     }
-    if (arguments_.size() != other.arguments_.size()) {
-      return false;
-    }
     for (auto i = 0; i < arguments_.size(); ++i) {
       if (arguments_[i] != other.arguments_[i]) {
         return false;
