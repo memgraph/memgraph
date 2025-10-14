@@ -30,12 +30,14 @@ struct FrameWriter {
       : frame_(frame), frame_change_collector_{change_collector}, res_(res) {}
 
   template <typename T>
-  requires(!std::is_same_v<std::remove_cv_t<T>, TypedValue>) auto Write(const Symbol &symbol, T &&value) {
+  requires(!std::is_same_v<std::remove_cv_t<T>, TypedValue>) auto Write(const Symbol &symbol, T &&value)
+      -> TypedValue & {
     return Write(symbol, TypedValue(std::forward<T>(value), res_));
   }
 
   template <typename T>
-  requires(!std::is_same_v<std::remove_cv_t<T>, TypedValue>) auto WriteAt(const Symbol &symbol, T &&value) {
+  requires(!std::is_same_v<std::remove_cv_t<T>, TypedValue>) auto WriteAt(const Symbol &symbol, T &&value)
+      -> TypedValue & {
     return WriteAt(symbol, TypedValue(std::forward<T>(value), res_));
   }
 

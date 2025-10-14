@@ -409,7 +409,8 @@ storage::EdgeTypeId EvaluateEdgeType(const StorageEdgeType &edge_type, Expressio
     return *edge_type_id;
   }
 
-  return dba->NameToEdgeType(std::get<Expression *>(edge_type)->Accept(evaluator).ValueString());
+  auto edge_type_name = std::get<Expression *>(edge_type)->Accept(evaluator);
+  return dba->NameToEdgeType(edge_type_name.ValueString());
 }
 
 }  // namespace
@@ -462,8 +463,8 @@ CreateNode::CreateNode(const std::shared_ptr<LogicalOperator> &input, NodeCreati
 
 // Creates a vertex on this GraphDb. Returns a reference to vertex placed on the
 // frame.
-VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *frame, ExecutionContext &context,
-                                  std::vector<storage::LabelId> &labels, ExpressionEvaluator &evaluator) {
+VertexAccessor const &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *frame, ExecutionContext &context,
+                                        std::vector<storage::LabelId> &labels, ExpressionEvaluator &evaluator) {
   auto &dba = *context.db_accessor;
   auto new_node = dba.InsertVertex();
   context.execution_stats[ExecutionStats::Key::CREATED_NODES] += 1;
@@ -562,7 +563,7 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context)
     }
 #endif
 
-    auto created_vertex = CreateLocalVertex(self_.node_info_, &frame, context, labels, evaluator);
+    auto const &created_vertex = CreateLocalVertex(self_.node_info_, &frame, context, labels, evaluator);
     if (context.trigger_context_collector) {
       context.trigger_context_collector->RegisterCreatedObject(created_vertex);
     }
@@ -748,7 +749,7 @@ VertexAccessor const &CreateExpand::CreateExpandCursor::OtherVertex(Frame &frame
     ExpectType(self_.node_info_.symbol, dest_node_value, TypedValue::Type::Vertex);
     return dest_node_value.ValueVertex();
   } else {
-    auto &created_vertex = CreateLocalVertex(self_.node_info_, &frame, context, labels, evaluator);
+    auto const &created_vertex = CreateLocalVertex(self_.node_info_, &frame, context, labels, evaluator);
     if (context.trigger_context_collector) {
       context.trigger_context_collector->RegisterCreatedObject(created_vertex);
     }
@@ -7546,7 +7547,7 @@ TypedValue EvaluateOptionalExpression(Expression *expression, ExpressionEvaluato
 auto ToOptionalString(ExpressionEvaluator *evaluator, Expression *expression) -> std::optional<utils::pmr::string> {
   auto evaluated_expr = EvaluateOptionalExpression(expression, evaluator);
   if (evaluated_expr.IsString()) {
-    return utils::pmr::string(std::move(evaluated_expr).ValueString(), evaluator->GetMemoryResource());
+    return utils::pmr::string(std::move(evaluated_expr.ValueString()), evaluator->GetMemoryResource());
   }
   return std::nullopt;
 };
