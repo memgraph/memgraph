@@ -2109,6 +2109,15 @@ antlrcpp::Any CypherMainVisitor::visitFineGrainedPrivilegesList(MemgraphCypher::
       if (!result.second.empty()) {
         edge_type_privileges.emplace_back(result.second);
       }
+    } else if (it->entitiesList()) {
+      const auto entity_type = std::any_cast<EntityType>(it->entityType()->accept(this));
+      if (entity_type == EntityType::LABELS) {
+        label_privileges.push_back({{AuthQuery::FineGrainedPrivilege::CREATE_DELETE,
+                                     std::any_cast<std::vector<std::string>>(it->entitiesList()->accept(this))}});
+      } else {
+        edge_type_privileges.push_back({{AuthQuery::FineGrainedPrivilege::CREATE_DELETE,
+                                         std::any_cast<std::vector<std::string>>(it->entitiesList()->accept(this))}});
+      }
     } else {
       privileges.push_back(std::any_cast<AuthQuery::Privilege>(it->privilege()->accept(this)));
     }
