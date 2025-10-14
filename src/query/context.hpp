@@ -30,6 +30,11 @@
 
 namespace memgraph::query {
 
+// Predefined set of function names that should not be cached
+inline const std::unordered_set<std::string> kUncacheableFunctions = {
+    "COUNTER"  // depends on internal state hence can't be cached
+};
+
 enum class TransactionStatus {
   IDLE,
   ACTIVE,

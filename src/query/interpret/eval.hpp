@@ -37,6 +37,9 @@
 #include "utils/frame_change_id.hpp"
 #include "utils/logging.hpp"
 #include "utils/pmr/unordered_map.hpp"
+
+namespace r = ranges;
+namespace rv = r::views;
 namespace memgraph::query {
 
 class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue *> {
@@ -670,6 +673,12 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
       }
       return function.function_(arguments, size, function_ctx);
     };
+    auto is_argument_constant = [](auto *arg) {
+      if (auto *param_lookup = utils::Downcast<ParameterLookup>(arg)) {
+        return param_lookup->token_position_ != -1;
+      }
+      return utils::Downcast<PrimitiveLiteral>(arg) != nullptr;
+    };
     // Stack allocate evaluated arguments when there's a small number of them.
     if (function.arguments_.size() <= 8) {
       utils::uninitialised_storage<std::array<TypedValue, 8>> arguments;
@@ -679,28 +688,19 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
           std::destroy_at(&(*arguments.as())[i]);
         }
       }};
-      // If all arguments are constant, we can use the function cache.
-      auto all_arguments_are_constant = true;
-      for (size_t i = 0; i != function.arguments_.size(); ++i) {
-        if (auto *param_lookup = utils::Downcast<ParameterLookup>(function.arguments_[i])) {
-          all_arguments_are_constant &= param_lookup->token_position_ != -1;
-        } else {
-          all_arguments_are_constant = false;
-        }
-        std::construct_at(&(*arguments.as())[i], function.arguments_[i]->Accept(*this));
+      auto all_arguments_are_constant = !kUncacheableFunctions.contains(function.function_name_);
+      for (auto [i, argument] : rv::enumerate(function.arguments_)) {
+        all_arguments_are_constant = all_arguments_are_constant && is_argument_constant(argument);
+        std::construct_at(&(*arguments.as())[i], argument->Accept(*this));
         ++constructed_count;
       }
       res = get_function_result(arguments.as()->data(), function.arguments_.size(), all_arguments_are_constant);
     } else {
       TypedValue::TVector arguments(ctx_->memory);
       arguments.reserve(function.arguments_.size());
-      auto all_arguments_are_constant = true;
-      for (const auto &argument : function.arguments_) {
-        if (auto *param_lookup = utils::Downcast<ParameterLookup>(argument)) {
-          all_arguments_are_constant &= param_lookup->token_position_ != -1;
-        } else {
-          all_arguments_are_constant = false;
-        }
+      auto all_arguments_are_constant = !kUncacheableFunctions.contains(function.function_name_);
+      for (auto *argument : function.arguments_) {
+        all_arguments_are_constant = all_arguments_are_constant && is_argument_constant(argument);
         arguments.emplace_back(argument->Accept(*this));
       }
       res = get_function_result(arguments.data(), arguments.size(), all_arguments_are_constant);
