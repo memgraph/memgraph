@@ -688,8 +688,8 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
             std::destroy_at(&(*arguments.as())[i]);
           }
         }};
-        for (auto [i, argument] : rv::enumerate(function.arguments_)) {
-          std::construct_at(&(*arguments.as())[i], argument->Accept(*this));
+        for (auto i = 0; i < function.arguments_.size(); ++i) {
+          std::construct_at(&(*arguments.as())[i], function.arguments_[i]->Accept(*this));
           ++constructed_count;
         }
         return function.function_(arguments.as()->data(), function.arguments_.size(), function_ctx);
