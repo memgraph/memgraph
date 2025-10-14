@@ -661,6 +661,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   TypedValue Visit(Function &function) override {
     FunctionContext function_ctx{dba_, ctx_->memory, ctx_->timestamp, &ctx_->counters, view_, GetHopsCounter()};
     bool is_transactional = storage::IsTransactional(dba_->GetStorageMode());
+    TypedValue result(ctx_->memory);
 
     // Check if we can cache and try cache lookup
     auto can_cache =
@@ -678,7 +679,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     }
 
     // Evaluate function and cache result if applicable
-    auto result = [&]() -> TypedValue {
+    result = [&]() -> TypedValue {
       // Stack allocate evaluated arguments when there's a small number of them.
       if (function.arguments_.size() <= 8) {
         utils::uninitialised_storage<std::array<TypedValue, 8>> arguments;
