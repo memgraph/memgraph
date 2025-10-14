@@ -446,11 +446,11 @@ setRole : SET ( ROLE | ROLES ) FOR user=userOrRoleName TO roles=listOfSymbolicNa
 
 clearRole : CLEAR ( ROLE | ROLES ) FOR user=userOrRoleName ( ON db=listOfSymbolicNames )? ;
 
-grantPrivilege : GRANT ( ALL PRIVILEGES | privileges=grantPrivilegesList ) TO userOrRole=userOrRoleName ;
+grantPrivilege : GRANT ( ALL PRIVILEGES | privileges=fineGrainedPrivilegesList ) TO userOrRole=userOrRoleName ;
 
-denyPrivilege : DENY ( ALL PRIVILEGES | privileges=privilegesList ) TO userOrRole=userOrRoleName ;
+denyPrivilege : DENY ( ALL PRIVILEGES | privileges=fineGrainedPrivilegesList ) TO userOrRole=userOrRoleName ;
 
-revokePrivilege : REVOKE ( ALL PRIVILEGES | privileges=revokePrivilegesList ) FROM userOrRole=userOrRoleName ;
+revokePrivilege : REVOKE ( ALL PRIVILEGES | privileges=fineGrainedPrivilegesList ) FROM userOrRole=userOrRoleName ;
 
 listOfSymbolicNames : symbolicName ( ',' symbolicName )* ;
 
@@ -508,7 +508,7 @@ entityType : LABELS | EDGE_TYPES ;
 
 privilegeOrEntityPrivileges : privilege | entityPrivileges=entityPrivilegeList ;
 
-grantPrivilegesList : privilegeOrEntityPrivileges ( ',' privilegeOrEntityPrivileges )* ;
+fineGrainedPrivilegesList : privilegeOrEntityPrivileges ( ',' privilegeOrEntityPrivileges )* ;
 
 entityPrivilegeList : entityPrivilege ( ',' entityPrivilege )* ;
 
@@ -516,10 +516,10 @@ entityPrivilege : granularPrivilege ON entityTypeSpec ;
 
 entityTypeSpec
     : entityType entities=entitiesList
-    | NODES CONTAINING entityType grantLabelExpression matchingClause?
+    | NODES CONTAINING entityType listOfColonSymbolicNamesAndSeparated matchingClause?
     ;
 
-grantLabelExpression
+listOfColonSymbolicNamesAndSeparated
     : colonSymbolicName ( AND colonSymbolicName )*
     ;
 
