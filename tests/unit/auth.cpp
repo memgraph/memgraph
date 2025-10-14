@@ -442,8 +442,8 @@ TEST_F(AuthWithStorage, DatabaseSpecificAccess) {
     auto none_perms = user->GetFineGrainedAccessLabelPermissions("nonexistent");
     auto none_edge_perms = user->GetFineGrainedAccessEdgeTypePermissions("nonexistent");
 
-    ASSERT_EQ(none_perms.Has("user_label", FineGrainedPermission::READ), PermissionLevel::GRANT);
-    ASSERT_EQ(none_edge_perms.Has("user_edge", FineGrainedPermission::READ), PermissionLevel::GRANT);
+    ASSERT_EQ(none_perms.Has("user_label", FineGrainedPermission::READ), PermissionLevel::DENY);
+    ASSERT_EQ(none_edge_perms.Has("user_edge", FineGrainedPermission::READ), PermissionLevel::DENY);
   }
 
   // Test 7: Test role-specific methods with database filtering
