@@ -21,6 +21,7 @@
 #include <string>
 #include <vector>
 
+#include "frontend/ast/ast.hpp"
 #include "query/common.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
@@ -37,6 +38,7 @@
 #include "utils/frame_change_id.hpp"
 #include "utils/logging.hpp"
 #include "utils/pmr/unordered_map.hpp"
+#include "utils/typeinfo.hpp"
 
 namespace memgraph::query {
 
@@ -660,6 +662,18 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     FunctionContext function_ctx{dba_, ctx_->memory, ctx_->timestamp, &ctx_->counters, view_, GetHopsCounter()};
     bool is_transactional = storage::IsTransactional(dba_->GetStorageMode());
     TypedValue res(ctx_->memory);
+    auto get_function_result = [&](const auto &arguments, auto all_arguments_are_constant) {
+      if (all_arguments_are_constant) {
+        if (auto cached_function = ctx_->function_cache.find(function.function_name_);
+            cached_function != ctx_->function_cache.end()) {
+          return cached_function->second;
+        }
+        auto cached_function = function.function_(arguments.data(), arguments.size(), function_ctx);
+        ctx_->function_cache.emplace(function.function_name_, cached_function);
+        return cached_function;
+      }
+      return function.function_(arguments.data(), arguments.size(), function_ctx);
+    };
     // Stack allocate evaluated arguments when there's a small number of them.
     if (function.arguments_.size() <= 8) {
       utils::uninitialised_storage<std::array<TypedValue, 8>> arguments;
@@ -669,19 +683,31 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
           std::destroy_at(&(*arguments.as())[i]);
         }
       }};
+      // If all arguments are constant, we can use the function cache.
+      auto all_arguments_are_constant = true;
       for (size_t i = 0; i != function.arguments_.size(); ++i) {
+        if (auto *param_lookup = utils::Downcast<ParameterLookup>(function.arguments_[i])) {
+          all_arguments_are_constant &= param_lookup->token_position_ != -1;
+        } else {
+          all_arguments_are_constant = false;
+        }
         std::construct_at(&(*arguments.as())[i], function.arguments_[i]->Accept(*this));
         ++constructed_count;
       }
-
-      res = function.function_(arguments.as()->data(), function.arguments_.size(), function_ctx);
+      res = get_function_result(*arguments.as(), all_arguments_are_constant);
     } else {
       TypedValue::TVector arguments(ctx_->memory);
       arguments.reserve(function.arguments_.size());
+      auto all_arguments_are_constant = true;
       for (const auto &argument : function.arguments_) {
+        if (auto *param_lookup = utils::Downcast<ParameterLookup>(argument)) {
+          all_arguments_are_constant &= param_lookup->token_position_ != -1;
+        } else {
+          all_arguments_are_constant = false;
+        }
         arguments.emplace_back(argument->Accept(*this));
       }
-      res = function.function_(arguments.data(), arguments.size(), function_ctx);
+      res = get_function_result(arguments, all_arguments_are_constant);
     }
     MG_ASSERT(res.get_allocator().resource() == ctx_->memory);
     if (!is_transactional && res.ContainsDeleted()) [[unlikely]] {
