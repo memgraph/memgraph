@@ -11,9 +11,12 @@
 
 #include "utils/memory.hpp"
 
+#include <pthread.h>
 #include <algorithm>
 #include <cmath>
 #include <cstdint>
+#include <cstdlib>
+#include <exception>
 #include <limits>
 #include <type_traits>
 
@@ -324,6 +327,107 @@ void *Pool::Allocate() {
 
 void Pool::Deallocate(void *p) {
   *reinterpret_cast<std::byte **>(p) = std::exchange(free_list_, reinterpret_cast<std::byte *>(p));
+}
+
+namespace {
+// TODO Think about a better solution
+ThreadSafeMonotonicBufferResource thread_local_resource;
+}  // namespace
+
+ThreadSafePool::Node *&ThreadSafePool::thread_local_head() {
+  Node **head_ptr = static_cast<Node **>(pthread_getspecific(thread_local_head_key_));
+  if (!head_ptr) {
+    // Allocate space for the Node* pointer
+    // Use an allocator that just drops the memory (no need to destroy each pointer <- it just points to managed memory)
+    head_ptr = static_cast<Node **>(thread_local_resource.allocate(sizeof(Node *)));
+    if (!head_ptr) {
+      throw BadAlloc("Failed to allocate thread-local head pointer");
+    }
+    *head_ptr = nullptr;
+    pthread_setspecific(thread_local_head_key_, head_ptr);
+  }
+  return *head_ptr;
+}
+
+// carve a new block and link its nodes
+ThreadSafePool::Node *ThreadSafePool::carve_block() {
+  // Allocate a new chunk
+  void *raw = chunk_memory_->allocate(chunk_size(), chunk_alignment());
+  {
+    // Push back to the global list
+    std::unique_lock lock(mtx_);
+    chunks_.emplace_front(raw);
+  }
+
+  // Link the blocks in the chunk
+  Node *prev = nullptr;
+  for (std::size_t i = 0; i < blocks_per_chunk_; ++i) {
+    Node *node = reinterpret_cast<Node *>(reinterpret_cast<char *>(raw) + i * block_size_);
+    node->next = prev;
+    prev = node;
+  }
+
+  // Return the top node - caller will update their thread-local head
+  return prev;
+}
+
+void *ThreadSafePool::pop_head() {
+  Node *head = thread_local_head();
+  if (head) {
+    thread_local_head() = head->next;
+    head->next = nullptr;
+    return reinterpret_cast<void *>(head);
+  }
+  return nullptr;
+}
+
+void ThreadSafePool::push_head(void *p) {
+  Node *node = static_cast<Node *>(p);
+  node->next = thread_local_head();
+  thread_local_head() = node;
+}
+
+ThreadSafePool::ThreadSafePool(std::size_t block_size, std::size_t blocks_per_chunks, MemoryResource *chunk_memory)
+    : block_size_(block_size), blocks_per_chunk_(blocks_per_chunks), chunk_memory_(chunk_memory) {
+  // Create instance-specific pthread key for thread-local storage
+  if (pthread_key_create(&thread_local_head_key_, NULL) != 0) {
+    throw BadAlloc("Failed to create pthread key for thread-local storage");
+  }
+}
+
+ThreadSafePool::~ThreadSafePool() {
+  if (!chunks_.empty()) {
+    for (auto &chunk : chunks_) {
+      chunk_memory_->deallocate(chunk, chunk_size(), chunk_alignment());
+    }
+    chunks_.clear();
+  }
+  (void)head_;
+  // Clean up the pthread key
+  pthread_key_delete(thread_local_head_key_);
+}
+
+void *ThreadSafePool::Allocate() {
+  if (thread_local_head()) {
+    auto *head = thread_local_head();
+    thread_local_head() = head->next;
+    return head;
+  }
+  auto *head = carve_block();
+  thread_local_head() = head->next;
+  return head;
+}
+
+void ThreadSafePool::Deallocate(void *p) noexcept {
+  try {
+    Node *node = static_cast<Node *>(p);
+    node->next = thread_local_head();
+    thread_local_head() = node;
+  } catch (...) {
+    // If thread_local_head() throws, we can't do much in a noexcept function
+    // This should not happen in normal operation
+    std::terminate();
+  }
 }
 
 }  // namespace impl

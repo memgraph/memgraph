@@ -15,6 +15,9 @@
 
 #pragma once
 
+#include <iostream>
+
+#include <pthread.h>
 #include <atomic>
 #include <forward_list>
 #include <memory>
@@ -246,6 +249,11 @@ class ThreadSafeMonotonicBufferResource : public std::pmr::memory_resource {
     std::atomic<size_t> size{0};  // Current allocation size (atomic)
     size_t capacity;              // Total capacity (constant)
 
+    Block() = default;
+    Block(Block *next_block, size_t initial_size, size_t block_capacity) : next(next_block), capacity(block_capacity) {
+      size.store(initial_size, std::memory_order_relaxed);
+    }
+
     char *begin() { return reinterpret_cast<char *>(this) + sizeof(*this); }
     char *data() { return begin() + size.load(std::memory_order_acquire); }
 
@@ -339,115 +347,40 @@ class ThreadSafePool {
     Node *next;
   };
 
-  std::atomic<unsigned long long> head_;  // lower 48 bits: Node* ptr, upper 16 bits: tag
-  std::vector<void *> chunks_;            // store allocated blocks for destruction
+  std::mutex mtx_;
+  AList<void *> chunks_;  // store allocated blocks for destruction
+  Node *head_{nullptr};
 
   const std::size_t block_size_;
   const std::size_t blocks_per_chunk_;
-  MemoryResource *chunk_memory_;
+  MemoryResource *chunk_memory_;         // Needs to be thread safe
+  pthread_key_t thread_local_head_key_;  // Instance-specific pthread key
 
-  static constexpr unsigned long long PTR_MASK = (1ULL << 48) - 1ULL;
-  static constexpr unsigned TAG_SHIFT = 48;
+  size_t chunk_size() const { return blocks_per_chunk_ * block_size_; }
+  size_t chunk_alignment() const { return Ceil2(block_size_); }
 
-  static unsigned long long pack(Node *p, unsigned short tag) noexcept {
-    auto up = reinterpret_cast<std::uintptr_t>(p);
-    unsigned long long low = static_cast<unsigned long long>(up & PTR_MASK);
-    return low | (static_cast<unsigned long long>(tag) << TAG_SHIFT);
-  }
-  static Node *unpack_ptr(unsigned long long v) noexcept {
-    return reinterpret_cast<Node *>(static_cast<std::uintptr_t>(v & PTR_MASK));
-  }
-  static unsigned short unpack_tag(unsigned long long v) noexcept {
-    return static_cast<unsigned short>(v >> TAG_SHIFT);
-  }
+  Node *carve_block();
 
-  // carve a new block and link its nodes
-  Node *carve_block(std::size_t n) {
-    std::size_t chunk_size = n * block_size_;
-    auto const alignment = Ceil2(block_size_);
-    void *raw = chunk_memory_->allocate(chunk_size, alignment);
-    chunks_.push_back(raw);
+  Node *&thread_local_head();
 
-    Node *prev = nullptr;
-    for (std::size_t i = 0; i < n; ++i) {
-      Node *node = reinterpret_cast<Node *>(reinterpret_cast<char *>(raw) + i * block_size_);
-      node->next = prev;
-      prev = node;
-    }
-    return prev;  // return top node
-  }
+  void *pop_head();
+
+  void push_head(void *p);
 
  public:
   explicit ThreadSafePool(std::size_t block_size, std::size_t blocks_per_chunks = 1024,
-                          MemoryResource *chunk_memory = NewDeleteResource())
-      : block_size_(block_size), blocks_per_chunk_(blocks_per_chunks), chunk_memory_(chunk_memory) {
-    Node *block = carve_block(blocks_per_chunk_);
-    head_.store(pack(block, 0), std::memory_order_release);
-  }
+                          MemoryResource *chunk_memory = NewDeleteResource());
 
-  ~ThreadSafePool() {
-    if (!chunks_.empty()) {
-      auto const dataSize = blocks_per_chunk_ * block_size_;
-      auto const alignment = Ceil2(block_size_);
-      for (auto &chunk : chunks_) {
-        chunk_memory_->deallocate(chunk, dataSize, alignment);
-      }
-      chunks_.clear();
-    }
-    head_ = 0;
-  }
+  ~ThreadSafePool();
 
   ThreadSafePool(ThreadSafePool &) = delete;
   ThreadSafePool(ThreadSafePool &&) = delete;
   ThreadSafePool operator=(ThreadSafePool &) = delete;
   ThreadSafePool operator=(ThreadSafePool &&) = delete;
 
-  void *Allocate() {
-    unsigned long long oldv = head_.load(std::memory_order_acquire);
-    for (;;) {
-      Node *node = unpack_ptr(oldv);
-      unsigned short tag = unpack_tag(oldv);
+  void *Allocate();
 
-      if (!node) {
-        // Pool empty: carve a new block and push it to the stack
-        Node *new_block = carve_block(blocks_per_chunk_);
-        Node *last = new_block;
-        while (last->next) last = last->next;
-
-        unsigned long long cur = head_.load(std::memory_order_acquire);
-        last->next = unpack_ptr(cur);
-        if (head_.compare_exchange_weak(cur, pack(new_block, tag + 1), std::memory_order_release,
-                                        std::memory_order_acquire)) {
-          oldv = head_.load(std::memory_order_acquire);
-          continue;  // retry allocation
-        } else {
-          oldv = cur;
-          continue;  // retry allocation
-        }
-      }
-
-      Node *next = node->next;
-      if (head_.compare_exchange_weak(oldv, pack(next, static_cast<unsigned short>(tag + 1)), std::memory_order_acq_rel,
-                                      std::memory_order_acquire)) {
-        return node;
-      }
-      // else retry
-    }
-  }
-
-  void Deallocate(void *p) noexcept {
-    Node *node = static_cast<Node *>(p);
-    unsigned long long oldv = head_.load(std::memory_order_acquire);
-    for (;;) {
-      Node *headPtr = unpack_ptr(oldv);
-      unsigned short tag = unpack_tag(oldv);
-      node->next = headPtr;
-      if (head_.compare_exchange_weak(oldv, pack(node, static_cast<unsigned short>(tag + 1)), std::memory_order_acq_rel,
-                                      std::memory_order_acquire)) {
-        return;
-      }
-    }
-  }
+  void Deallocate(void *p) noexcept;
 };
 
 // C++ overloads for clz
