@@ -690,7 +690,7 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return AuthQuery*
    */
-  antlrcpp::Any visitGrantPrivilegesList(MemgraphCypher::GrantPrivilegesListContext *ctx) override;
+  antlrcpp::Any visitFineGrainedPrivilegesList(MemgraphCypher::FineGrainedPrivilegesListContext *ctx) override;
 
   /**
    * @return AuthQuery*
@@ -833,7 +833,8 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   /**
    * @return std::vector<std::string>
    */
-  antlrcpp::Any visitGrantLabelExpression(MemgraphCypher::GrantLabelExpressionContext *ctx) override;
+  antlrcpp::Any visitListOfColonSymbolicNamesAndSeparated(
+      MemgraphCypher::ListOfColonSymbolicNamesAndSeparatedContext *ctx) override;
 
   /**
    * @return unordered_map<PropertyIx, Expression*>
