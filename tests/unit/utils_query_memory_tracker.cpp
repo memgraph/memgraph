@@ -16,7 +16,6 @@
 #include "utils/query_memory_tracker.hpp"
 
 TEST(MemoryTrackerTest, ExceptionEnabler) {
-#ifdef USE_JEMALLOC
   memgraph::memory::SetHooks();
   memgraph::utils::QueryMemoryTracker qmt;
   qmt.SetQueryLimit(memgraph::memory::UNLIMITED_MEMORY);
@@ -31,5 +30,4 @@ TEST(MemoryTrackerTest, ExceptionEnabler) {
 
   // Nothing should happend :)
   // Previously we would deadlock
-#endif
 }

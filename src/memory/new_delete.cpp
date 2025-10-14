@@ -11,14 +11,14 @@
 
 #include <new>
 
+#include "utils/memory_tracker.hpp"
+
 #if USE_JEMALLOC
 #include <jemalloc/jemalloc.h>
 #else
 #include <malloc.h>
 #include <cstdlib>
 #endif
-
-#include "utils/memory_tracker.hpp"
 
 #if !__has_feature(thread_sanitizer)
 
@@ -111,181 +111,85 @@ inline void deleteSized(void *ptr, const std::size_t /*unused*/, const std::alig
 }
 #endif
 
-inline void TrackMemory(std::size_t size) {
-#if !USE_JEMALLOC
-  memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(size));
-#endif
-}
-
-inline void TrackMemory(std::size_t size, const std::align_val_t align) {
-#if !USE_JEMALLOC
-  memgraph::utils::total_memory_tracker.Alloc(static_cast<int64_t>(size));
-#endif
-}
-
-inline bool TrackMemoryNoExcept(const std::size_t size) {
-  try {
-    TrackMemory(size);
-  } catch (...) {
-    return false;
-  }
-
-  return true;
-}
-
-inline bool TrackMemoryNoExcept(const std::size_t size, const std::align_val_t align) {
-  try {
-    TrackMemory(size, align);
-  } catch (...) {
-    return false;
-  }
-
-  return true;
-}
-
-inline void UntrackMemory([[maybe_unused]] void *ptr, [[maybe_unused]] std::size_t size = 0) noexcept {
-  try {
-#if !USE_JEMALLOC
-    if (size) {
-      memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
-    } else {
-      // Innaccurate because malloc_usable_size() result is greater or equal to allocated size.
-      memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(malloc_usable_size(ptr)));
-    }
-#endif
-  } catch (...) {
-  }
-}
-
-inline void UntrackMemory(void *ptr, const std::align_val_t align, [[maybe_unused]] std::size_t size = 0) noexcept {
-  try {
-#if !USE_JEMALLOC
-    if (size) {
-      memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(size));
-    } else {
-      // Innaccurate because malloc_usable_size() result is greater or equal to allocated size.
-      memgraph::utils::total_memory_tracker.Free(static_cast<int64_t>(malloc_usable_size(ptr)));
-    }
-#endif
-  } catch (...) {
-  }
-}
-
 }  // namespace
 
-__attribute__((visibility("default"))) void *operator new(const std::size_t size) {
-  TrackMemory(size);
-  return newImpl(size);
-}
+__attribute__((visibility("default"))) void *operator new(const std::size_t size) { return newImpl(size); }
 
-__attribute__((visibility("default"))) void *operator new[](const std::size_t size) {
-  TrackMemory(size);
-  return newImpl(size);
-}
+__attribute__((visibility("default"))) void *operator new[](const std::size_t size) { return newImpl(size); }
 
 __attribute__((visibility("default"))) void *operator new(const std::size_t size, const std::align_val_t align) {
-  TrackMemory(size, align);
   return newImpl(size, align);
 }
 
 __attribute__((visibility("default"))) void *operator new[](const std::size_t size, const std::align_val_t align) {
-  TrackMemory(size, align);
   return newImpl(size, align);
 }
 
 __attribute__((visibility("default"))) void *operator new(const std::size_t size,
                                                           const std::nothrow_t & /*unused*/) noexcept {
-  if (TrackMemoryNoExcept(size)) [[likely]] {
-    return newNoExcept(size);
-  }
-  return nullptr;
+  return newNoExcept(size);
 }
 
 __attribute__((visibility("default"))) void *operator new[](const std::size_t size,
                                                             const std::nothrow_t & /*unused*/) noexcept {
-  if (TrackMemoryNoExcept(size)) [[likely]] {
-    return newNoExcept(size);
-  }
-  return nullptr;
+  return newNoExcept(size);
 }
 
 __attribute__((visibility("default"))) void *operator new(const std::size_t size, const std::align_val_t align,
                                                           const std::nothrow_t & /*unused*/) noexcept {
-  if (TrackMemoryNoExcept(size, align)) [[likely]] {
-    return newNoExcept(size, align);
-  }
-  return nullptr;
+  return newNoExcept(size, align);
 }
 
 __attribute__((visibility("default"))) void *operator new[](const std::size_t size, const std::align_val_t align,
                                                             const std::nothrow_t & /*unused*/) noexcept {
-  if (TrackMemoryNoExcept(size, align)) [[likely]] {
-    return newNoExcept(size, align);
-  }
-  return nullptr;
+  return newNoExcept(size, align);
 }
 
-__attribute__((visibility("default"))) void operator delete(void *ptr) noexcept {
-  UntrackMemory(ptr);
-  deleteImpl(ptr);
-}
+__attribute__((visibility("default"))) void operator delete(void *ptr) noexcept { deleteImpl(ptr); }
 
-__attribute__((visibility("default"))) void operator delete[](void *ptr) noexcept {
-  UntrackMemory(ptr);
-  deleteImpl(ptr);
-}
+__attribute__((visibility("default"))) void operator delete[](void *ptr) noexcept { deleteImpl(ptr); }
 
 __attribute__((visibility("default"))) void operator delete(void *ptr, const std::align_val_t align) noexcept {
-  UntrackMemory(ptr, align);
   deleteImpl(ptr, align);
 }
 
 __attribute__((visibility("default"))) void operator delete[](void *ptr, const std::align_val_t align) noexcept {
-  UntrackMemory(ptr, align);
   deleteImpl(ptr, align);
 }
 
 __attribute__((visibility("default"))) void operator delete(void *ptr, const std::size_t size) noexcept {
-  UntrackMemory(ptr, size);
   deleteSized(ptr, size);
 }
 
 __attribute__((visibility("default"))) void operator delete[](void *ptr, const std::size_t size) noexcept {
-  UntrackMemory(ptr, size);
   deleteSized(ptr, size);
 }
 
 __attribute__((visibility("default"))) void operator delete(void *ptr, const std::size_t size,
                                                             const std::align_val_t align) noexcept {
-  UntrackMemory(ptr, align, size);
   deleteSized(ptr, size, align);
 }
 
 __attribute__((visibility("default"))) void operator delete[](void *ptr, const std::size_t size,
                                                               const std::align_val_t align) noexcept {
-  UntrackMemory(ptr, align, size);
   deleteSized(ptr, size, align);
 }
 
 __attribute__((visibility("default"))) void operator delete(void *ptr, const std::nothrow_t & /*unused*/) noexcept {
-  UntrackMemory(ptr);
   deleteImpl(ptr);
 }
 
 __attribute__((visibility("default"))) void operator delete[](void *ptr, const std::nothrow_t & /*unused*/) noexcept {
-  UntrackMemory(ptr);
   deleteImpl(ptr);
 }
 
 __attribute__((visibility("default"))) void operator delete(void *ptr, const std::align_val_t align,
                                                             const std::nothrow_t & /*unused*/) noexcept {
-  UntrackMemory(ptr, align);
   deleteImpl(ptr, align);
 }
 
 __attribute__((visibility("default"))) void operator delete[](void *ptr, const std::align_val_t align,
                                                               const std::nothrow_t & /*unused*/) noexcept {
-  UntrackMemory(ptr, align);
   deleteImpl(ptr, align);
 }
 

@@ -23,8 +23,6 @@ namespace memgraph::memory {
 
 static constexpr int64_t UNLIMITED_MEMORY{0};
 
-#if USE_JEMALLOC
-
 // Find tracker for current thread if exists, track
 // query allocation and procedure allocation if
 // necessary
@@ -34,8 +32,6 @@ bool TrackAllocOnCurrentThread(size_t size);
 // query allocation and procedure allocation if
 // necessary
 void TrackFreeOnCurrentThread(size_t size);
-
-#endif
 
 // API function call to start tracking current thread.
 // Does nothing if jemalloc is not enabled
@@ -60,7 +56,6 @@ void CreateOrContinueProcedureTracking(int64_t procedure_id, size_t limit);
 void PauseProcedureTracking();
 
 struct ThreadTrackingBlocker {
-#if USE_JEMALLOC
   ThreadTrackingBlocker();
   ~ThreadTrackingBlocker();
 
@@ -75,7 +70,6 @@ struct ThreadTrackingBlocker {
  private:
   utils::QueryMemoryTracker *prev_state_;
   utils::UserResources *prev_user_state_;
-#endif
 };
 
 }  // namespace memgraph::memory

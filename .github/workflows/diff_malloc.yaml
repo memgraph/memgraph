@@ -19,6 +19,18 @@ on:
         type: string
         description: "Should the malloc build tests be run? Default is true."
         default: 'true'
+      run_core:
+        type: string
+        description: "Should the core release build tests be run? Default is true."
+        default: 'true'
+      run_e2e:
+        type: string
+        description: "Should the end to end tests be run? Default is true."
+        default: 'true'
+      run_benchmark:
+        type: string
+        description: "Should the release build benchmark be run? Default is true."
+        default: 'true'
       run_id:
         type: string
         description: "The ID of the run that triggered this workflow."
@@ -36,13 +48,14 @@ env:
   MEMGRAPH_ORGANIZATION_NAME: ${{ secrets.MEMGRAPH_ORGANIZATION_NAME }}
   OS: ${{ inputs.os }}
   TOOLCHAIN: ${{ inputs.toolchain }}
+  DEFAULT_MGBENCH_EXPORT_RESULTS_FILE: 'benchmark_result.json'
 
 jobs:
   build:
     if: ${{ inputs.run_build == 'true' }}
     name: "Build"
     runs-on: [self-hosted, Linux, X64, DockerMgBuild]
-    timeout-minutes: 60
+    timeout-minutes: 180
     steps:
       - name: Set up repository
         uses: actions/checkout@v4
@@ -72,6 +85,156 @@ jobs:
           --arch $ARCH \
           --build-type $BUILD_TYPE \
           build-memgraph --disable-jemalloc
+
+      - name: Initialize tests
+        if: ${{ inputs.run_core == 'true' || inputs.run_e2e == 'true' || inputs.run_benchmark == 'true' }}
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          init-tests
+
+      - name: Run GQL Behave tests
+        if: ${{ inputs.run_core == 'true' }}
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph gql-behave
+
+      - name: Copy gql behave logs
+        if: ${{ inputs.run_core == 'true' && failure() }}
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          copy --memgraph-logs --logs-dir /home/mg/memgraph/tests/gql_behave/memgraph-logs --dest-dir build/memgraph-logs-gql-behave-tests
+
+      - name: Save GQL Behave test data
+        if: ${{ inputs.run_core == 'true' && failure() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: "GQL Behave Tests(Malloc build)-${{ github.run_id }}"
+          path: build/memgraph-logs-gql-behave-tests
+
+      - name: Save GQL Behave quality assurance status
+        if: ${{ inputs.run_core == 'true' }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: "GQL Behave Status-${{ inputs.run_id }}"
+          path: |
+            tests/gql_behave/gql_behave_status.csv
+            tests/gql_behave/gql_behave_status.html
+
+      - name: Run unit tests
+        if: ${{ inputs.run_core == 'true' }}
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph unit
+
+      - name: Run e2e tests
+        if: ${{ inputs.run_e2e == 'true' }}
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph e2e
+
+      - name: Copy e2e build logs
+        if: ${{ inputs.run_e2e == 'true' && failure() }}
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          copy --build-logs --dest-dir build/e2e/logs
+
+      - name: Save e2e test data
+        if: ${{ inputs.run_e2e == 'true' && failure() }}
+        continue-on-error: true
+        uses: actions/upload-artifact@v4
+        with:
+          name: "Test data(Malloc build)-${{ inputs.run_id }}"
+          path: build/e2e/logs
+
+      - name: Run macro benchmarks
+        if: ${{ inputs.run_benchmark == 'true' }}
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph macro-benchmark
+
+      - name: Get branch name
+        if: ${{ inputs.run_benchmark == 'true' }}
+        shell: bash
+        run: |
+          if [[ ${{ github.event_name }} == 'pull_request' ]]; then
+            echo "BRANCH_NAME=$(echo ${GITHUB_HEAD_REF} | tr / -)" >> $GITHUB_ENV
+          else
+            echo "BRANCH_NAME=$(echo ${GITHUB_REF#refs/heads/} | tr / -)" >> $GITHUB_ENV
+          fi
+
+      - name: Upload macro benchmark results
+        if: ${{ inputs.run_benchmark == 'true' }}
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph upload-to-bench-graph \
+          --benchmark-name "macro_benchmark" \
+          --benchmark-results "../../tests/macro_benchmark/.harness_summary" \
+          --github-run-id ${{ github.run_id }} \
+          --github-run-number ${{ github.run_number }} \
+          --head-branch-name ${{ env.BRANCH_NAME }}
+
+      - name: Run mgbench
+        if: ${{ inputs.run_benchmark == 'true' }}
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph mgbench --export-results-file ${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}
+
+      - name: Upload mgbench results
+        if: ${{ inputs.run_benchmark == 'true' }}
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain $TOOLCHAIN \
+          --os $OS \
+          --arch $ARCH \
+          --enterprise-license $MEMGRAPH_ENTERPRISE_LICENSE \
+          --organization-name $MEMGRAPH_ORGANIZATION_NAME \
+          test-memgraph upload-to-bench-graph \
+          --benchmark-name "mgbench" \
+          --benchmark-results "../../tests/mgbench/${{ env.DEFAULT_MGBENCH_EXPORT_RESULTS_FILE }}" \
+          --github-run-id "${{ github.run_id }}" \
+          --github-run-number "${{ github.run_number }}" \
+          --head-branch-name "${{ env.BRANCH_NAME }}"
 
       - name: Create enterprise DEB package
         run: |

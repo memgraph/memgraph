@@ -20,8 +20,6 @@
 
 namespace memgraph::memory {
 
-#if USE_JEMALLOC
-
 namespace {
 
 inline auto &GetQueryTracker() {
@@ -71,58 +69,31 @@ void TrackFreeOnCurrentThread(size_t size) {
   if (user_resource) user_resource->DecrementTransactionsMemory(size);
 }
 
-#endif
+void StartTrackingCurrentThread(utils::QueryMemoryTracker *tracker) { GetQueryTracker() = tracker; }
 
-void StartTrackingCurrentThread(utils::QueryMemoryTracker *tracker) {
-#if USE_JEMALLOC
-  GetQueryTracker() = tracker;
-#endif
-}
+void StopTrackingCurrentThread() { GetQueryTracker() = nullptr; }
 
-void StopTrackingCurrentThread() {
-#if USE_JEMALLOC
-  GetQueryTracker() = nullptr;
-#endif
-}
+void StartTrackingUserResource(utils::UserResources *resource) { GetUserTracker() = resource; }
 
-void StartTrackingUserResource(utils::UserResources *resource) {
-#if USE_JEMALLOC
-  GetUserTracker() = resource;
-#endif
-}
-
-void StopTrackingUserResource() {
-#if USE_JEMALLOC
-  GetUserTracker() = nullptr;
-#endif
-}
+void StopTrackingUserResource() { GetUserTracker() = nullptr; }
 
 bool IsQueryTracked() {
-#if USE_JEMALLOC
   return GetQueryTracker() != nullptr && !utils::detail::IsSkipListGcRunning();
   // GC is running, no way to control what gets deleted, just ignore this allocation;
-#else
-  return false;
-#endif
 }
 
 void CreateOrContinueProcedureTracking(int64_t procedure_id, size_t limit) {
-#if USE_JEMALLOC
   // No need for user tracking at this level, if it was needed, it would have already been setup by this point
   DMG_ASSERT(GetQueryTracker(), "Query memory tracker was not set");
   GetQueryTracker()->TryCreateProcTracker(procedure_id, limit);
   GetQueryTracker()->SetActiveProc(procedure_id);
-#endif
 }
 
 void PauseProcedureTracking() {
-#if USE_JEMALLOC
   DMG_ASSERT(GetQueryTracker(), "Query memory tracker was not set");
   GetQueryTracker()->StopProcTracking();
-#endif
 }
 
-#if USE_JEMALLOC
 ThreadTrackingBlocker::ThreadTrackingBlocker() : prev_state_{GetQueryTracker()}, prev_user_state_(GetUserTracker()) {
   // Disable thread tracking
   GetQueryTracker() = nullptr;
@@ -134,6 +105,5 @@ ThreadTrackingBlocker::~ThreadTrackingBlocker() {
   GetQueryTracker() = prev_state_;
   GetUserTracker() = prev_user_state_;
 }
-#endif
 
 }  // namespace memgraph::memory
