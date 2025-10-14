@@ -20,7 +20,6 @@
 #include "query/parameters.hpp"
 #include "query/plan/profile.hpp"
 #include "query/trigger.hpp"
-#include "query/typed_value.hpp"
 #include "storage/v2/commit_args.hpp"
 #include "utils/async_timer.hpp"
 #include "utils/counter.hpp"

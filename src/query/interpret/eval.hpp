@@ -21,7 +21,6 @@
 #include <string>
 #include <vector>
 
-#include "frontend/ast/ast.hpp"
 #include "query/common.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
@@ -38,8 +37,6 @@
 #include "utils/frame_change_id.hpp"
 #include "utils/logging.hpp"
 #include "utils/pmr/unordered_map.hpp"
-#include "utils/typeinfo.hpp"
-
 namespace memgraph::query {
 
 class ReferenceExpressionEvaluator : public ExpressionVisitor<TypedValue *> {
