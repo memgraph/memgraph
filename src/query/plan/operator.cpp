@@ -2452,6 +2452,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
     // "where" condition. if so, places them in the to_visit_ structure.
     auto expand_pair = [this, &evaluator, &frame, &context, &frame_writer](EdgeAccessor edge,
                                                                            VertexAccessor vertex) -> bool {
+      (void)context;  // unused in community version
       // if we already processed the given vertex it doesn't get expanded
       if (processed_.find(vertex) != processed_.end()) return false;
 #ifdef MG_ENTERPRISE
