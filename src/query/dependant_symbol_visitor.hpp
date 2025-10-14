@@ -206,8 +206,8 @@ class DependantSymbolVisitor : public ExpressionVisitor<void> {
 
   // Named expressions and other types
   void Visit(NamedExpression &named_expr) override { named_expr.expression_->Accept(*this); }
-  void Visit(MapProjectionLiteral & /*map_proj*/) override {
-    // Safe to cache - no action needed
+  void Visit(MapProjectionLiteral &map_proj) override {
+    std::ranges::for_each(map_proj.elements_, [this](const auto &pair) { pair.second->Accept(*this); });
   }
 
   // Primitive literals, parameters - safe to cache
