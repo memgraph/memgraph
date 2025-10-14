@@ -16,8 +16,6 @@
 #include <variant>
 #include <vector>
 
-#include <boost/functional/hash.hpp>
-
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast_storage.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
