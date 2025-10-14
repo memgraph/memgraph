@@ -115,33 +115,6 @@ struct ThreadSafeQueryAllocator {
   memgraph::utils::PoolResource<utils::impl::ThreadSafePool> pool{kPoolBlockPerChunk, &monotonic, upstream_resource()};
 };
 
-struct ThreadLocalQueryAllocator {
-  ThreadLocalQueryAllocator() = default;
-  ~ThreadLocalQueryAllocator() = default;
-
-  ThreadLocalQueryAllocator(ThreadLocalQueryAllocator const &) = delete;
-  ThreadLocalQueryAllocator &operator=(ThreadLocalQueryAllocator const &) = delete;
-  ThreadLocalQueryAllocator(ThreadLocalQueryAllocator &&) = delete;
-  ThreadLocalQueryAllocator &operator=(ThreadLocalQueryAllocator &&) = delete;
-
-  auto resource() -> utils::MemoryResource * { return &pool; }
-
- private:
-  static constexpr auto kMonotonicInitialSize = 4UL * 1024UL;
-  static constexpr auto kPoolBlockPerChunk = 64UL;
-  static constexpr auto kPoolMaxBlockSize = 1024UL;
-
-  static auto upstream_resource() -> utils::MemoryResource * {
-    static auto upstream = utils::ResourceWithOutOfMemoryException{utils::NewDeleteResource()};
-    return &upstream;
-  }
-
-  memgraph::utils::ThreadSafeMonotonicBufferResource monotonic_{kMonotonicInitialSize, upstream_resource()};
-  memgraph::utils::ThreadLocalMemoryResource pool{[this]() {
-    return std::make_unique<utils::PoolResource<>>(kPoolBlockPerChunk, &monotonic_, upstream_resource());
-  }};
-};
-
 struct InterpreterContext;
 
 inline constexpr size_t kExecutionMemoryBlockSize = 1UL * 1024UL * 1024UL;
@@ -490,12 +463,8 @@ class Interpreter final {
     static constexpr struct ThreadSafe {
     } thread_safe_;
 
-    static constexpr struct ThreadLocal {
-    } thread_local_;
-
     QueryExecution() = default;
     explicit QueryExecution(ThreadSafe /*marker*/) : execution_memory{std::in_place_type<ThreadSafeQueryAllocator>} {}
-    explicit QueryExecution(ThreadLocal /*marker*/) : execution_memory{std::in_place_type<ThreadLocalQueryAllocator>} {}
 
     QueryExecution(const QueryExecution &) = delete;
     QueryExecution(QueryExecution &&) = delete;
@@ -504,7 +473,7 @@ class Interpreter final {
 
     ~QueryExecution() = default;
 
-    std::variant<QueryAllocator, ThreadSafeQueryAllocator, ThreadLocalQueryAllocator>
+    std::variant<QueryAllocator, ThreadSafeQueryAllocator>
         execution_memory;  // NOTE: before all other fields which uses this memory
 
     std::optional<PreparedQuery> prepared_query;
@@ -514,9 +483,6 @@ class Interpreter final {
     static auto Create() -> std::unique_ptr<QueryExecution> { return std::make_unique<QueryExecution>(); }
     static auto CreateThreadSafe() -> std::unique_ptr<QueryExecution> {
       return std::make_unique<QueryExecution>(thread_safe_);
-    }
-    static auto CreateThreadLocal() -> std::unique_ptr<QueryExecution> {
-      return std::make_unique<QueryExecution>(thread_local_);
     }
 
     utils::MemoryResource *resource() {

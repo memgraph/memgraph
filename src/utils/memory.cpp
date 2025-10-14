@@ -561,6 +561,4 @@ template <typename P>
 bool PoolResource<P>::do_is_equal(const std::pmr::memory_resource &other) const noexcept {
   return this == &other;
 }
-
-thread_local uint16_t ThreadLocalMemoryResource::thread_id_ = -1;  // NOLINT
 }  // namespace memgraph::utils
