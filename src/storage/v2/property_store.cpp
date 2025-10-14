@@ -2351,7 +2351,7 @@ std::map<PropertyId, PropertyValue> PropertyStore::Properties() const {
     PropertyValue value;
     while (true) {
       auto prop = DecodeAnyProperty(&reader, value);
-      if (!prop) break;
+      if (!prop || value.IsVectorIndexId()) break;
       props.emplace(*prop, std::move(value));
     }
     return props;
