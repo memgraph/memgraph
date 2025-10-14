@@ -26,6 +26,7 @@ memgraphCypherKeyword : cypherKeyword
                       | AFTER
                       | ALTER
                       | ANALYZE
+                      | ANY
                       | ASYNC
                       | AT
                       | AUTH
@@ -47,6 +48,7 @@ memgraphCypherKeyword : cypherKeyword
                       | CONFIGS
                       | CONSTRAINTS
                       | CONSUMER_GROUP
+                      | CONTAINING
                       | COORDINATOR
                       | CREATE_DELETE
                       | CREDENTIALS
@@ -72,6 +74,7 @@ memgraphCypherKeyword : cypherKeyword
                       | ENUM
                       | ENUMS
                       | EVERY
+                      | EXACTLY
                       | EXECUTE
                       | FAILOVER
                       | FLOAT
@@ -113,6 +116,7 @@ memgraphCypherKeyword : cypherKeyword
                       | LOCK
                       | MAIN
                       | MAP
+                      | MATCHING
                       | METRICS
                       | MODE
                       | MODULE_READ
@@ -122,6 +126,7 @@ memgraphCypherKeyword : cypherKeyword
                       | NEXT
                       | NO
                       | NODE_LABELS
+                      | NODES
                       | NOTHING
                       | NULLIF
                       | OF_TOKEN
@@ -507,7 +512,20 @@ grantPrivilegesList : privilegeOrEntityPrivileges ( ',' privilegeOrEntityPrivile
 
 entityPrivilegeList : entityPrivilege ( ',' entityPrivilege )* ;
 
-entityPrivilege : granularPrivilege ON entityType entities=entitiesList ;
+entityPrivilege : granularPrivilege ON entityTypeSpec ;
+
+entityTypeSpec
+    : entityType entities=entitiesList
+    | NODES CONTAINING entityType grantLabelExpression matchingClause?
+    ;
+
+grantLabelExpression
+    : colonSymbolicName ( AND colonSymbolicName )*
+    ;
+
+matchingClause
+    : MATCHING ( ANY | EXACTLY )
+    ;
 
 privilegeOrEntities : privilege | entityType entities=entitiesList ;
 

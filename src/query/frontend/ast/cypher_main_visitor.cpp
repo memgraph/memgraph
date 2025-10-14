@@ -2156,16 +2156,24 @@ antlrcpp::Any CypherMainVisitor::visitEntityPrivilegeList(MemgraphCypher::Entity
 
   for (auto *it : ctx->entityPrivilege()) {
     const auto key = std::any_cast<AuthQuery::FineGrainedPrivilege>(it->granularPrivilege()->accept(this));
-    const auto entityType = std::any_cast<EntityType>(it->entityType()->accept(this));
-    auto value = std::any_cast<std::vector<std::string>>(it->entitiesList()->accept(this));
 
-    switch (entityType) {
-      case EntityType::LABELS:
-        result.first[key] = std::move(value);
-        break;
-      case EntityType::EDGE_TYPES:
-        result.second[key] = std::move(value);
-        break;
+    auto *typeSpec = it->entityTypeSpec();
+    const auto entityType = std::any_cast<EntityType>(typeSpec->entityType()->accept(this));
+
+    if (typeSpec->entitiesList()) {
+      auto value = std::any_cast<std::vector<std::string>>(typeSpec->entitiesList()->accept(this));
+
+      switch (entityType) {
+        case EntityType::LABELS:
+          result.first[key] = std::move(value);
+          break;
+        case EntityType::EDGE_TYPES:
+          result.second[key] = std::move(value);
+          break;
+      }
+    } else {
+      // @TODO: Handle `NODES CONTAINING LABELS` syntax
+      throw SyntaxException("NODES CONTAINING LABELS syntax not yet implemented");
     }
   }
   return result;
@@ -2553,6 +2561,14 @@ antlrcpp::Any CypherMainVisitor::visitNodeLabels(MemgraphCypher::NodeLabelsConte
 antlrcpp::Any CypherMainVisitor::visitLabelExpression(MemgraphCypher::LabelExpressionContext *ctx) {
   std::unordered_set<LabelIx> labels;
   for (auto *label : ctx->symbolicName()) {
+    labels.emplace(AddLabel(std::any_cast<std::string>(label->accept(this))));
+  }
+  return labels;
+}
+
+antlrcpp::Any CypherMainVisitor::visitGrantLabelExpression(MemgraphCypher::GrantLabelExpressionContext *ctx) {
+  std::unordered_set<LabelIx> labels;
+  for (auto *label : ctx->colonSymbolicName()) {
     labels.emplace(AddLabel(std::any_cast<std::string>(label->accept(this))));
   }
   return labels;
