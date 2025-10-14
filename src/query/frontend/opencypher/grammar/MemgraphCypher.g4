@@ -501,7 +501,7 @@ granularPrivilege : NOTHING | READ | UPDATE | CREATE_DELETE | CREATE | DELETE ;
 
 entityType : LABELS | EDGE_TYPES ;
 
-privilegeOrEntityPrivileges : privilege | entityPrivileges=entityPrivilegeList ;
+privilegeOrEntityPrivileges : privilege | entityPrivileges=entityPrivilegeList | entityType entities=entitiesList ;
 
 fineGrainedPrivilegesList : privilegeOrEntityPrivileges ( ',' privilegeOrEntityPrivileges )* ;
 
