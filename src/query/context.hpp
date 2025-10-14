@@ -30,7 +30,7 @@
 namespace memgraph::query {
 
 // Predefined set of function names that should not be cached
-inline const std::unordered_set<std::string> kUncacheableFunctions = {
+inline const std::unordered_set<std::string_view> kUncacheableFunctions = {
     "COUNTER"  // depends on internal state hence can't be cached
 };
 
@@ -64,7 +64,7 @@ struct EvaluationContext {
   /// modifies the values
   mutable std::unordered_map<std::string, int64_t> counters{};
   /// Function cache ({Function: result)
-  mutable std::unordered_map<Function, TypedValue, FunctionHash> function_cache{};
+  mutable std::unordered_map<Function, TypedValue, FunctionHash> function_cache;
   Scope scope{};
 };
 

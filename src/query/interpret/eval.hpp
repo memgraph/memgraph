@@ -661,55 +661,55 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
   TypedValue Visit(Function &function) override {
     FunctionContext function_ctx{dba_, ctx_->memory, ctx_->timestamp, &ctx_->counters, view_, GetHopsCounter()};
     bool is_transactional = storage::IsTransactional(dba_->GetStorageMode());
-    TypedValue res(ctx_->memory);
-    auto get_function_result = [&](const auto &arguments, size_t size, auto all_arguments_are_constant) {
-      if (all_arguments_are_constant) {
-        if (auto cached_function = ctx_->function_cache.find(function); cached_function != ctx_->function_cache.end()) {
-          return cached_function->second;
+
+    // Check if we can cache and try cache lookup
+    auto can_cache =
+        !kUncacheableFunctions.contains(function.function_name_) && r::all_of(function.arguments_, [](auto *arg) {
+          if (auto *param_lookup = utils::Downcast<ParameterLookup>(arg)) {
+            return param_lookup->token_position_ != -1;
+          }
+          return utils::Downcast<PrimitiveLiteral>(arg) != nullptr;
+        });
+    if (can_cache) {
+      auto cached_function = ctx_->function_cache.find(function);
+      if (cached_function != ctx_->function_cache.end()) {
+        return cached_function->second;
+      }
+    }
+
+    // Evaluate function and cache result if applicable
+    auto result = [&]() -> TypedValue {
+      // Stack allocate evaluated arguments when there's a small number of them.
+      if (function.arguments_.size() <= 8) {
+        utils::uninitialised_storage<std::array<TypedValue, 8>> arguments;
+        auto constructed_count = 0;
+        auto destroy_arguments = utils::OnScopeExit{[&] {
+          for (size_t i = 0; i != constructed_count; ++i) {
+            std::destroy_at(&(*arguments.as())[i]);
+          }
+        }};
+        for (auto [i, argument] : rv::enumerate(function.arguments_)) {
+          std::construct_at(&(*arguments.as())[i], argument->Accept(*this));
+          ++constructed_count;
         }
-        auto cached_function_res = function.function_(arguments, size, function_ctx);
-        ctx_->function_cache.emplace(function, cached_function_res);
-        return cached_function_res;
+        return function.function_(arguments.as()->data(), function.arguments_.size(), function_ctx);
       }
-      return function.function_(arguments, size, function_ctx);
-    };
-    auto is_argument_constant = [](auto *arg) {
-      if (auto *param_lookup = utils::Downcast<ParameterLookup>(arg)) {
-        return param_lookup->token_position_ != -1;
-      }
-      return utils::Downcast<PrimitiveLiteral>(arg) != nullptr;
-    };
-    // Stack allocate evaluated arguments when there's a small number of them.
-    if (function.arguments_.size() <= 8) {
-      utils::uninitialised_storage<std::array<TypedValue, 8>> arguments;
-      auto constructed_count = 0;
-      auto destroy_arguments = utils::OnScopeExit{[&] {
-        for (size_t i = 0; i != constructed_count; ++i) {
-          std::destroy_at(&(*arguments.as())[i]);
-        }
-      }};
-      auto all_arguments_are_constant = !kUncacheableFunctions.contains(function.function_name_);
-      for (auto [i, argument] : rv::enumerate(function.arguments_)) {
-        all_arguments_are_constant = all_arguments_are_constant && is_argument_constant(argument);
-        std::construct_at(&(*arguments.as())[i], argument->Accept(*this));
-        ++constructed_count;
-      }
-      res = get_function_result(arguments.as()->data(), function.arguments_.size(), all_arguments_are_constant);
-    } else {
       TypedValue::TVector arguments(ctx_->memory);
       arguments.reserve(function.arguments_.size());
-      auto all_arguments_are_constant = !kUncacheableFunctions.contains(function.function_name_);
       for (auto *argument : function.arguments_) {
-        all_arguments_are_constant = all_arguments_are_constant && is_argument_constant(argument);
         arguments.emplace_back(argument->Accept(*this));
       }
-      res = get_function_result(arguments.data(), arguments.size(), all_arguments_are_constant);
+      return function.function_(arguments.data(), arguments.size(), function_ctx);
+    }();
+    if (can_cache) {
+      ctx_->function_cache.emplace(function, result);
     }
-    MG_ASSERT(res.get_allocator().resource() == ctx_->memory);
-    if (!is_transactional && res.ContainsDeleted()) [[unlikely]] {
+
+    MG_ASSERT(result.get_allocator().resource() == ctx_->memory);
+    if (!is_transactional && result.ContainsDeleted()) [[unlikely]] {
       return TypedValue(ctx_->memory);
     }
-    return res;
+    return result;
   }
 
   TypedValue Visit(Reduce &reduce) override {
