@@ -502,7 +502,7 @@ privilege : CREATE
           | PROFILE_RESTRICTION
           ;
 
-granularPrivilege : NOTHING | READ | UPDATE | CREATE_DELETE ;
+granularPrivilege : NOTHING | READ | UPDATE | CREATE_DELETE | CREATE | DELETE ;
 
 entityType : LABELS | EDGE_TYPES ;
 

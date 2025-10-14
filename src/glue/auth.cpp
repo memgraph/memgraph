@@ -11,6 +11,7 @@
 
 #include "glue/auth.hpp"
 #include "auth/models.hpp"
+#include "query/exceptions.hpp"
 
 namespace memgraph::glue {
 
@@ -87,6 +88,10 @@ auth::FineGrainedPermission FineGrainedPrivilegeToFineGrainedPermission(
       return auth::FineGrainedPermission::UPDATE;
     case query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE:
       return auth::FineGrainedPermission::CREATE_DELETE;
+    case query::AuthQuery::FineGrainedPrivilege::CREATE:
+      throw query::QueryRuntimeException("CREATE privilege not yet implemented.");
+    case query::AuthQuery::FineGrainedPrivilege::DELETE:
+      throw query::QueryRuntimeException("DELETE privilege not yet implemented.");
   }
 }
 #endif
