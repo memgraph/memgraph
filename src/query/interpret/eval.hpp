@@ -661,13 +661,12 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     TypedValue res(ctx_->memory);
     auto get_function_result = [&](const auto &arguments, size_t size, auto all_arguments_are_constant) {
       if (all_arguments_are_constant) {
-        if (auto cached_function = ctx_->function_cache.find(function.function_name_);
-            cached_function != ctx_->function_cache.end()) {
+        if (auto cached_function = ctx_->function_cache.find(function); cached_function != ctx_->function_cache.end()) {
           return cached_function->second;
         }
-        auto cached_function = function.function_(arguments, size, function_ctx);
-        ctx_->function_cache.emplace(function.function_name_, cached_function);
-        return cached_function;
+        auto cached_function_res = function.function_(arguments, size, function_ctx);
+        ctx_->function_cache.emplace(function, cached_function_res);
+        return cached_function_res;
       }
       return function.function_(arguments, size, function_ctx);
     };

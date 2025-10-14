@@ -16,6 +16,8 @@
 #include <variant>
 #include <vector>
 
+#include <boost/functional/hash.hpp>
+
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast_storage.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
@@ -1161,6 +1163,21 @@ class Function : public memgraph::query::Expression {
 
   bool IsUserDefined() const { return bool(module_); }
 
+  bool operator==(const Function &other) const {
+    if (function_name_ != other.function_name_) {
+      return false;
+    }
+    if (arguments_.size() != other.arguments_.size()) {
+      return false;
+    }
+    for (auto i = 0; i < arguments_.size(); ++i) {
+      if (arguments_[i] != other.arguments_[i]) {
+        return false;
+      }
+    }
+    return true;
+  }
+
  protected:
   Function(const std::string &function_name, const std::vector<Expression *> &arguments)
       : arguments_(arguments), function_name_(function_name) {
@@ -1183,6 +1200,15 @@ class Function : public memgraph::query::Expression {
   friend class AstStorage;
 };
 
+struct FunctionHash {
+  std::size_t operator()(const Function &func) const {
+    std::size_t hash = boost::hash_value(func.function_name_);
+    for (const auto *arg : func.arguments_) {
+      boost::hash_combine(hash, arg);
+    }
+    return hash;
+  }
+};
 class Reduce : public memgraph::query::Expression {
  public:
   static const utils::TypeInfo kType;
