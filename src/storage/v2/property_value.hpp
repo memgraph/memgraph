@@ -74,6 +74,8 @@ inline bool AreComparableTypes(PropertyValueType a, PropertyValueType b) {
          (a == PropertyValueType::Double && b == PropertyValueType::Int);
 }
 
+struct VectorIndexId {};
+
 /// Encapsulation of a value and its type in a class that has no compile-time
 /// info about the type.
 ///
@@ -117,7 +119,8 @@ class PropertyValueImpl {
       : alloc_{alloc}, point2d_data_v{.val_ = value} {}
   explicit PropertyValueImpl(const Point3d value, allocator_type const &alloc = allocator_type{})
       : alloc_{alloc}, point3d_data_v{.val_ = value} {}
-  explicit PropertyValueImpl(const int8_t value, allocator_type const &alloc = allocator_type{})
+  explicit PropertyValueImpl(VectorIndexId /*unused*/, const uint8_t value,
+                             allocator_type const &alloc = allocator_type{})
       : alloc_{alloc}, vector_index_id_v{.val_ = value} {}
 
   // copy constructors for non-primitive types
@@ -333,7 +336,7 @@ class PropertyValueImpl {
     return point3d_data_v.val_;
   }
 
-  auto ValueVectorIndexId() const -> int8_t {
+  auto ValueVectorIndexId() const -> uint8_t {
     if (type_ != Type::VectorIndexId) [[unlikely]] {
       throw PropertyValueException("The value isn't a vector index ID!");
     }
@@ -444,7 +447,7 @@ class PropertyValueImpl {
     } point3d_data_v;
     struct {
       Type type_ = Type::VectorIndexId;
-      int8_t val_;
+      uint8_t val_;
     } vector_index_id_v;
   };
 };
@@ -1083,7 +1086,7 @@ struct hash<memgraph::storage::PropertyValueImpl<Alloc, KeyType>> {
       case Point3d:
         return std::hash<memgraph::storage::Point3d>{}(value.ValuePoint3d());
       case VectorIndexId:
-        return std::hash<int8_t>{}(value.ValueVectorIndexId());
+        return std::hash<uint8_t>{}(value.ValueVectorIndexId());
     }
   }
 };

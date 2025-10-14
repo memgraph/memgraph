@@ -901,7 +901,7 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
     case Type::VECTOR: {
       auto vector_index_id = reader->ReadUint(payload_size);
       if (!vector_index_id) return false;
-      value = PropertyValue(int8_t(*vector_index_id));  // consider adding tag distinction here
+      value = PropertyValue(VectorIndexId{}, *vector_index_id);
       return true;
     }
   }

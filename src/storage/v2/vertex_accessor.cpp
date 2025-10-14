@@ -387,7 +387,7 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
     if (auto index_ids = storage_->indices_.vector_index_.IsPropertyInVectorIndex(vertex, property)) {
       // TODO(@DavIvek): Type constraints and schema info?
       CreateAndLinkDelta(transaction, vertex, Delta::SetVectorPropertyTag(), property, new_value);
-      vertex->properties.SetProperty(property, PropertyValue(index_ids->front()));
+      vertex->properties.SetProperty(property, PropertyValue(VectorIndexId{}, index_ids->front()));
       storage_->indices_.vector_index_.UpdateOnSetProperty(new_value, vertex, *index_ids);
       return false;
     }
@@ -633,8 +633,8 @@ Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view
     delta = vertex_->delta;
 
     auto prop_value = vertex_->properties.GetProperty(property);
-    if (prop_value.IsVectorIndexId()) {
-      [[unlikely]] value = storage_->indices_.vector_index_.GetProperty(vertex_, property);
+    if (prop_value.IsVectorIndexId()) [[unlikely]] {
+      value = storage_->indices_.vector_index_.GetProperty(vertex_, property);
       is_in_vector_index = true;
     } else {
       value = std::move(prop_value);
