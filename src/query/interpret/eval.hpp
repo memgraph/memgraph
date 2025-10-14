@@ -662,17 +662,17 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
     FunctionContext function_ctx{dba_, ctx_->memory, ctx_->timestamp, &ctx_->counters, view_, GetHopsCounter()};
     bool is_transactional = storage::IsTransactional(dba_->GetStorageMode());
     TypedValue res(ctx_->memory);
-    auto get_function_result = [&](const auto &arguments, auto all_arguments_are_constant) {
+    auto get_function_result = [&](const auto &arguments, size_t size, auto all_arguments_are_constant) {
       if (all_arguments_are_constant) {
         if (auto cached_function = ctx_->function_cache.find(function.function_name_);
             cached_function != ctx_->function_cache.end()) {
           return cached_function->second;
         }
-        auto cached_function = function.function_(arguments.data(), arguments.size(), function_ctx);
+        auto cached_function = function.function_(arguments, size, function_ctx);
         ctx_->function_cache.emplace(function.function_name_, cached_function);
         return cached_function;
       }
-      return function.function_(arguments.data(), arguments.size(), function_ctx);
+      return function.function_(arguments, size, function_ctx);
     };
     // Stack allocate evaluated arguments when there's a small number of them.
     if (function.arguments_.size() <= 8) {
@@ -694,7 +694,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         std::construct_at(&(*arguments.as())[i], function.arguments_[i]->Accept(*this));
         ++constructed_count;
       }
-      res = get_function_result(*arguments.as(), all_arguments_are_constant);
+      res = get_function_result(arguments.as()->data(), function.arguments_.size(), all_arguments_are_constant);
     } else {
       TypedValue::TVector arguments(ctx_->memory);
       arguments.reserve(function.arguments_.size());
@@ -707,7 +707,7 @@ class ExpressionEvaluator : public ExpressionVisitor<TypedValue> {
         }
         arguments.emplace_back(argument->Accept(*this));
       }
-      res = get_function_result(arguments, all_arguments_are_constant);
+      res = get_function_result(arguments.data(), arguments.size(), all_arguments_are_constant);
     }
     MG_ASSERT(res.get_allocator().resource() == ctx_->memory);
     if (!is_transactional && res.ContainsDeleted()) [[unlikely]] {
