@@ -1,4 +1,6 @@
 set(CMAKE_SYSTEM_NAME Linux)
+
+# NOTE: if we want to be able to cross-compile, this will need to change
 execute_process(
      COMMAND uname -m
      OUTPUT_VARIABLE uname_result

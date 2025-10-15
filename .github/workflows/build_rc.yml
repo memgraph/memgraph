@@ -100,7 +100,6 @@ jobs:
     uses: ./.github/workflows/reusable_release_tests.yaml
     with:
       os: ubuntu-24.04
-      toolchain: v7
       arch: amd
       threads: 24
       build_type: Release
@@ -113,7 +112,6 @@ jobs:
     uses: ./.github/workflows/reusable_release_tests.yaml
     with:
       os: ubuntu-24.04
-      toolchain: v7
       arch: "amd"
       threads: 24
       build_type: Release
@@ -166,7 +164,6 @@ jobs:
       os: ${{ matrix.os }}
       arch: ${{ matrix.arch }}
       build_type: ${{ matrix.build_type }}
-      toolchain: v7
       push_to_github: 'false'
       push_to_s3: 'true'
       s3_bucket: deps.memgraph.io
@@ -190,7 +187,6 @@ jobs:
       os: ${{ matrix.os }}
       arch: ${{ matrix.arch }}
       build_type: ${{ matrix.build_type }}
-      toolchain: v7
       additional_build_args: '--for-docker'
       push_to_github: 'false'
       push_to_s3: 'true'
@@ -250,7 +246,7 @@ jobs:
           ref: ${{ needs.PrepareReleaseBranch.outputs.tag_name }}
 
       - name: Set Image URLs
-        id: set_image_urls 
+        id: set_image_urls
         run: |
           echo "Setting next image URLs"
           amd_image_url="https://s3.eu-west-1.amazonaws.com/deps.memgraph.io/memgraph/${{ needs.PrepareReleaseBranch.outputs.tag_name }}/docker/memgraph-${{ inputs.version }}-docker.tar.gz"
