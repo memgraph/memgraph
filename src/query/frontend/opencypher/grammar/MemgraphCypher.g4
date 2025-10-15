@@ -26,6 +26,7 @@ memgraphCypherKeyword : cypherKeyword
                       | AFTER
                       | ALTER
                       | ANALYZE
+                      | ANY
                       | ASYNC
                       | AT
                       | AUTH
@@ -47,8 +48,8 @@ memgraphCypherKeyword : cypherKeyword
                       | CONFIGS
                       | CONSTRAINTS
                       | CONSUMER_GROUP
+                      | CONTAINING
                       | COORDINATOR
-                      | CREATE_DELETE
                       | CREDENTIALS
                       | CSV
                       | CURRENT
@@ -72,6 +73,7 @@ memgraphCypherKeyword : cypherKeyword
                       | ENUM
                       | ENUMS
                       | EVERY
+                      | EXACTLY
                       | EXECUTE
                       | FAILOVER
                       | FLOAT
@@ -113,6 +115,7 @@ memgraphCypherKeyword : cypherKeyword
                       | LOCK
                       | MAIN
                       | MAP
+                      | MATCHING
                       | METRICS
                       | MODE
                       | MODULE_READ
@@ -122,6 +125,7 @@ memgraphCypherKeyword : cypherKeyword
                       | NEXT
                       | NO
                       | NODE_LABELS
+                      | NODES
                       | NOTHING
                       | NULLIF
                       | OF_TOKEN
@@ -436,11 +440,11 @@ setRole : SET ( ROLE | ROLES ) FOR user=userOrRoleName TO roles=listOfSymbolicNa
 
 clearRole : CLEAR ( ROLE | ROLES ) FOR user=userOrRoleName ( ON db=listOfSymbolicNames )? ;
 
-grantPrivilege : GRANT ( ALL PRIVILEGES | privileges=grantPrivilegesList ) TO userOrRole=userOrRoleName ;
+grantPrivilege : GRANT ( ALL PRIVILEGES | privileges=fineGrainedPrivilegesList ) TO userOrRole=userOrRoleName ;
 
-denyPrivilege : DENY ( ALL PRIVILEGES | privileges=privilegesList ) TO userOrRole=userOrRoleName ;
+denyPrivilege : DENY ( ALL PRIVILEGES | privileges=fineGrainedPrivilegesList ) TO userOrRole=userOrRoleName ;
 
-revokePrivilege : REVOKE ( ALL PRIVILEGES | privileges=revokePrivilegesList ) FROM userOrRole=userOrRoleName ;
+revokePrivilege : REVOKE ( ALL PRIVILEGES | privileges=fineGrainedPrivilegesList ) FROM userOrRole=userOrRoleName ;
 
 listOfSymbolicNames : symbolicName ( ',' symbolicName )* ;
 
@@ -492,17 +496,26 @@ privilege : CREATE
           | PROFILE_RESTRICTION
           ;
 
-granularPrivilege : NOTHING | READ | UPDATE | CREATE_DELETE ;
+granularPrivilege : NOTHING | READ | UPDATE | CREATE | DELETE ;
 
 entityType : LABELS | EDGE_TYPES ;
 
-privilegeOrEntityPrivileges : privilege | entityPrivileges=entityPrivilegeList ;
+privilegeOrEntityPrivileges : privilege | entityPrivileges=entityPrivilegeList | entityType entities=entitiesList ;
 
-grantPrivilegesList : privilegeOrEntityPrivileges ( ',' privilegeOrEntityPrivileges )* ;
+fineGrainedPrivilegesList : privilegeOrEntityPrivileges ( ',' privilegeOrEntityPrivileges )* ;
 
 entityPrivilegeList : entityPrivilege ( ',' entityPrivilege )* ;
 
-entityPrivilege : granularPrivilege ON entityType entities=entitiesList ;
+entityPrivilege : granularPrivilege ON entityTypeSpec ;
+
+entityTypeSpec
+    : entityType entities=entitiesList
+    | NODES CONTAINING entityType listOfColonSymbolicNames matchingClause?
+    ;
+
+matchingClause
+    : MATCHING ( ANY | EXACTLY )
+    ;
 
 privilegeOrEntities : privilege | entityType entities=entitiesList ;
 
