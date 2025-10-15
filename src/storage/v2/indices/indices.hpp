@@ -24,12 +24,11 @@
 #include "storage/v2/indices/text_index.hpp"
 #include "storage/v2/indices/vector_edge_index.hpp"
 #include "storage/v2/indices/vector_index.hpp"
-#include "storage/v2/storage_mode.hpp"
 
 namespace memgraph::storage {
 
 struct Indices {
-  Indices(const Config &config, StorageMode storage_mode);
+  explicit Indices(const Config &config);
 
   Indices(const Indices &) = delete;
   Indices(Indices &&) = delete;

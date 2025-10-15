@@ -432,7 +432,7 @@ int main(int argc, char **argv) {
       }
     }
   } else {
-    // IN_MEMORY_ANALYTICAL and ON_DISK_TRANSACTIONAL do not support periodic snapshots
+    // IN_MEMORY_ANALYTICAL does not support periodic snapshots
     db_config.durability.snapshot_wal_mode = DISABLED;
   }
 

@@ -247,7 +247,6 @@ query : cypherQuery
       | useDatabase
       | showDatabase
       | showDatabases
-      | edgeImportModeQuery
       | coordinatorQuery
       | dropAllIndexesQuery
       | dropAllConstraintsQuery
@@ -693,8 +692,6 @@ useDatabase : USE DATABASE databaseName ;
 showDatabase : SHOW ( CURRENT )? DATABASE ;
 
 showDatabases : SHOW DATABASES ;
-
-edgeImportModeQuery : EDGE IMPORT MODE ( ACTIVE | INACTIVE ) ;
 
 createEdgeIndex : CREATE EDGE INDEX ON ':' labelName ( '(' propertyKeyName ')' )?;
 

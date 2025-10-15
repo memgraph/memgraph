@@ -90,7 +90,6 @@
 #include "spdlog/spdlog.h"
 #include "storage/v2/constraints/constraint_violation.hpp"
 #include "storage/v2/constraints/type_constraints_kind.hpp"
-#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/edge_import_mode.hpp"
 #include "storage/v2/fmt.hpp"
 #include "storage/v2/id_types.hpp"
@@ -4056,10 +4055,6 @@ PreparedQuery PrepareDropAllIndexesQuery(ParsedQuery parsed_query, bool in_expli
   MG_ASSERT(current_db.db_acc_, "Drop all indexes query expects a current DB");
   auto &db_acc = *current_db.db_acc_;
 
-  if (db_acc->storage()->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
-    throw DropAllIndexesDisabledOnDiskStorage();
-  }
-
   std::function<void(Notification &)> handler;
 
   MG_ASSERT(current_db.db_transactional_accessor_, "Drop all indexes query expects a current DB transaction");
@@ -4098,10 +4093,6 @@ PreparedQuery PrepareDropAllConstraintsQuery(ParsedQuery parsed_query, bool in_e
 
   MG_ASSERT(current_db.db_acc_, "Drop all constraints query expects a current DB");
   auto &db_acc = *current_db.db_acc_;
-
-  if (db_acc->storage()->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
-    throw DropAllConstraintsDisabledOnDiskStorage();
-  }
 
   std::function<void(Notification &)> handler;
 
@@ -4183,8 +4174,7 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
           auto ttl_start_time = ttl_query->specific_time_->Accept(evaluator);
           start_time = ttl_start_time.ValueString();
         }
-        bool run_edge_ttl = db_acc->config().salient.items.properties_on_edges &&
-                            db_acc->GetStorageMode() != storage::StorageMode::ON_DISK_TRANSACTIONAL;
+        bool run_edge_ttl = db_acc->config().salient.items.properties_on_edges;
         auto ttl_info = storage::ttl::TtlInfo{period, start_time, run_edge_ttl};
         // TTL could already be configured; use the present config if no user-defined config
         info = "Starting time-to-live worker. Will be executed";
@@ -4381,10 +4371,6 @@ PreparedQuery PrepareLockPathQuery(ParsedQuery parsed_query, bool in_explicit_tr
   MG_ASSERT(current_db.db_acc_, "Lock Path query expects a current DB");
   storage::Storage *storage = current_db.db_acc_->get()->storage();
 
-  if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
-    throw LockPathDisabledOnDiskStorage();
-  }
-
   auto *lock_path_query = utils::Downcast<LockPathQuery>(parsed_query.query);
 
   return PreparedQuery{
@@ -4440,10 +4426,6 @@ PreparedQuery PrepareFreeMemoryQuery(ParsedQuery parsed_query, bool in_explicit_
 
   MG_ASSERT(current_db.db_acc_, "Free Memory query expects a current DB");
   storage::Storage *storage = current_db.db_acc_->get()->storage();
-
-  if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
-    throw FreeMemoryDisabledOnDiskStorage();
-  }
 
   return PreparedQuery{{},
                        std::move(parsed_query.required_privileges),
@@ -4669,28 +4651,7 @@ constexpr auto ToStorageMode(const StorageModeQuery::StorageMode storage_mode) n
       return storage::StorageMode::IN_MEMORY_TRANSACTIONAL;
     case StorageModeQuery::StorageMode::IN_MEMORY_ANALYTICAL:
       return storage::StorageMode::IN_MEMORY_ANALYTICAL;
-    case StorageModeQuery::StorageMode::ON_DISK_TRANSACTIONAL:
-      return storage::StorageMode::ON_DISK_TRANSACTIONAL;
   }
-}
-
-constexpr auto ToEdgeImportMode(const EdgeImportModeQuery::Status status) noexcept {
-  if (status == EdgeImportModeQuery::Status::ACTIVE) {
-    return storage::EdgeImportMode::ACTIVE;
-  }
-  return storage::EdgeImportMode::INACTIVE;
-}
-
-bool SwitchingFromInMemoryToDisk(storage::StorageMode current_mode, storage::StorageMode next_mode) {
-  return (current_mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL ||
-          current_mode == storage::StorageMode::IN_MEMORY_ANALYTICAL) &&
-         next_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL;
-}
-
-bool SwitchingFromDiskToInMemory(storage::StorageMode current_mode, storage::StorageMode next_mode) {
-  return current_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL &&
-         (next_mode == storage::StorageMode::IN_MEMORY_TRANSACTIONAL ||
-          next_mode == storage::StorageMode::IN_MEMORY_ANALYTICAL);
 }
 
 PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in_explicit_transaction,
@@ -4707,10 +4668,6 @@ PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in
   storage::Storage *storage = current_db.db_acc_->get()->storage();
   if (storage->GetStorageMode() == storage::StorageMode::IN_MEMORY_ANALYTICAL) {
     throw IsolationLevelModificationInAnalyticsException();
-  }
-  if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL &&
-      isolation_level != storage::IsolationLevel::SNAPSHOT_ISOLATION) {
-    throw IsolationLevelModificationInDiskTransactionalException();
   }
 
   std::function<void()> callback;
@@ -4741,58 +4698,6 @@ PreparedQuery PrepareIsolationLevelQuery(ParsedQuery parsed_query, const bool in
                          return QueryHandlerResult::COMMIT;
                        },
                        RWType::NONE};
-}
-
-Callback SwitchMemoryDevice(storage::StorageMode current_mode, storage::StorageMode requested_mode,
-                            memgraph::dbms::DatabaseAccess &db) {
-  Callback callback;
-  callback.fn = [current_mode, requested_mode, &db]() mutable {
-    if (current_mode == requested_mode) {
-      return std::vector<std::vector<TypedValue>>();
-    }
-    if (SwitchingFromDiskToInMemory(current_mode, requested_mode)) {
-      throw utils::BasicException(
-          "You cannot switch from the on-disk storage mode to an in-memory storage mode while the database is running. "
-          "To make the switch, delete the data directory and restart the database. Once restarted, Memgraph will "
-          "automatically start in the default in-memory transactional storage mode.");
-    }
-    if (SwitchingFromInMemoryToDisk(current_mode, requested_mode)) {
-      if (!db.try_exclusively([](auto &in) {
-            if (!in.streams()->GetStreamInfo().empty()) {
-              throw utils::BasicException(
-                  "You cannot switch from an in-memory storage mode to the on-disk storage mode when there are "
-                  "associated streams. Drop all streams and retry.");
-            }
-
-            if (!in.trigger_store()->GetTriggerInfo().empty()) {
-              throw utils::BasicException(
-                  "You cannot switch from an in-memory storage mode to the on-disk storage mode when there are "
-                  "associated triggers. Drop all triggers and retry.");
-            }
-
-            std::unique_lock main_guard{in.storage()->main_lock_};  // do we need this?
-            if (auto vertex_cnt_approx = in.storage()->GetBaseInfo().vertex_count; vertex_cnt_approx > 0) {
-              throw utils::BasicException(
-                  "You cannot switch from an in-memory storage mode to the on-disk storage mode when the database "
-                  "contains data. Delete all entries from the database, run FREE MEMORY and then repeat this "
-                  "query. ");
-            }
-            main_guard.unlock();
-            in.SwitchToOnDisk();
-          })) {  // Try exclusively failed
-        throw utils::BasicException(
-            "You cannot switch from an in-memory storage mode to the on-disk storage mode when there are "
-            "multiple sessions active. Close all other sessions and try again. As Memgraph Lab uses "
-            "multiple sessions to run queries in parallel, "
-            "it is currently impossible to switch to the on-disk storage mode within Lab. "
-            "Close it, connect to the instance with mgconsole "
-            "and change the storage mode to on-disk from there. Then, you can reconnect with the Lab "
-            "and continue to use the instance as usual.");
-      }
-    }
-    return std::vector<std::vector<TypedValue>>();
-  };
-  return callback;
 }
 
 Callback DropGraph(memgraph::dbms::DatabaseAccess &db, DbAccessor *dba) {
@@ -4856,14 +4761,10 @@ PreparedQuery PrepareStorageModeQuery(ParsedQuery parsed_query, const bool in_ex
   auto *storage_mode_query = utils::Downcast<StorageModeQuery>(parsed_query.query);
   MG_ASSERT(storage_mode_query);
   const auto requested_mode = ToStorageMode(storage_mode_query->storage_mode_);
-  auto current_mode = db_acc->GetStorageMode();
 
   std::function<void()> callback;
 
-  if (current_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL ||
-      requested_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
-    callback = SwitchMemoryDevice(current_mode, requested_mode, db_acc).fn;
-  } else {
+  {
     // TODO: this needs to be filtered to just db_acc->storage()
     if (ActiveTransactionsExist(interpreter_context)) {
       spdlog::info(
@@ -4910,35 +4811,6 @@ PreparedQuery PrepareDropGraphQuery(ParsedQuery parsed_query, CurrentDB &current
                        RWType::NONE};
 }
 
-PreparedQuery PrepareEdgeImportModeQuery(ParsedQuery parsed_query, CurrentDB &current_db) {
-  MG_ASSERT(current_db.db_acc_, "Edge Import query expects a current DB");
-  storage::Storage *storage = current_db.db_acc_->get()->storage();
-
-  if (storage->GetStorageMode() != storage::StorageMode::ON_DISK_TRANSACTIONAL) {
-    throw EdgeImportModeQueryDisabledOnDiskStorage();
-  }
-
-  auto *edge_import_mode_query = utils::Downcast<EdgeImportModeQuery>(parsed_query.query);
-  MG_ASSERT(edge_import_mode_query);
-  const auto requested_status = ToEdgeImportMode(edge_import_mode_query->status_);
-
-  auto callback = [requested_status, storage]() -> std::function<void()> {
-    return [storage, requested_status] {
-      auto *disk_storage = static_cast<storage::DiskStorage *>(storage);
-      disk_storage->SetEdgeImportMode(requested_status);
-    };
-  }();
-
-  return PreparedQuery{{},
-                       std::move(parsed_query.required_privileges),
-                       [callback = std::move(callback)](AnyStream * /*stream*/,
-                                                        std::optional<int> /*n*/) -> std::optional<QueryHandlerResult> {
-                         callback();
-                         return QueryHandlerResult::COMMIT;
-                       },
-                       RWType::NONE};
-}
-
 PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_explicit_transaction, CurrentDB &current_db,
                                          replication_coordination_glue::ReplicationRole replication_role) {
   if (in_explicit_transaction) {
@@ -4947,10 +4819,6 @@ PreparedQuery PrepareCreateSnapshotQuery(ParsedQuery parsed_query, bool in_expli
 
   MG_ASSERT(current_db.db_acc_, "Create Snapshot query expects a current DB");
   storage::Storage *storage = current_db.db_acc_->get()->storage();
-
-  if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
-    throw CreateSnapshotDisabledOnDiskStorage();
-  }
 
   Callback callback;
   callback.header = {"path"};
@@ -4999,11 +4867,6 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
   }
 
   MG_ASSERT(current_db.db_acc_, "Recover Snapshot query expects a current DB");
-  storage::Storage *storage = current_db.db_acc_->get()->storage();
-
-  if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
-    throw RecoverSnapshotDisabledOnDiskStorage();
-  }
 
   auto *recover_query = utils::Downcast<RecoverSnapshotQuery>(parsed_query.query);
   auto evaluation_context = EvaluationContext{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
@@ -5053,10 +4916,6 @@ PreparedQuery PrepareShowSnapshotsQuery(ParsedQuery parsed_query, bool in_explic
   MG_ASSERT(current_db.db_acc_, "Show Snapshots query expects a current DB");
   storage::Storage *storage = current_db.db_acc_->get()->storage();
 
-  if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
-    throw ShowSnapshotsDisabledOnDiskStorage();
-  }
-
   Callback callback;
   callback.header = {"path", "timestamp", "creation_time", "size"};
   callback.fn = [storage]() mutable -> std::vector<std::vector<TypedValue>> {
@@ -5095,10 +4954,6 @@ PreparedQuery PrepareShowNextSnapshotQuery(ParsedQuery parsed_query, bool in_exp
 
   MG_ASSERT(current_db.db_acc_, "Show Next Snapshot query expects a current DB");
   storage::Storage *storage = current_db.db_acc_->get()->storage();
-
-  if (storage->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
-    throw ShowSnapshotsDisabledOnDiskStorage();
-  }
 
   Callback callback;
   callback.header = {"path", "creation_time"};
@@ -6486,9 +6341,6 @@ PreparedQuery PrepareShowSchemaInfoQuery(const ParsedQuery &parsed_query, Curren
                                          std::shared_ptr<QueryUserOrRole> user_or_role
 #endif
 ) {
-  if (current_db.db_acc_->get()->GetStorageMode() == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
-    throw ShowSchemaInfoOnDiskException();
-  }
 
   Callback callback;
   callback.header = {"schema"};
@@ -7175,7 +7027,6 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
   }
   void Visit(ShowSnapshotsQuery & /*unused*/) override {}
   void Visit(ShowNextSnapshotQuery & /* unused */) override {}
-  void Visit(EdgeImportModeQuery & /*unused*/) override {}
   void Visit(AlterEnumRemoveValueQuery & /*unused*/) override { /* Not implemented yet */
   }
   void Visit(DropEnumQuery & /*unused*/) override { /* Not implemented yet */
@@ -7227,7 +7078,7 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
       isolation_level_override_ = storage::IsolationLevel::SNAPSHOT_ISOLATION;
       accessor_type_ = (index_query.action_ == IndexQuery::Action::CREATE) ? READ_ONLY : READ;
     } else {
-      // IN_MEMORY_ANALYTICAL and ON_DISK_TRANSACTIONAL require unique access
+      // IN_MEMORY_ANALYTICAL requires unique access
       accessor_type_ = UNIQUE;
     }
   }
@@ -7238,7 +7089,7 @@ struct QueryTransactionRequirements : QueryVisitor<void> {
       isolation_level_override_ = storage::IsolationLevel::SNAPSHOT_ISOLATION;
       accessor_type_ = (edge_index_query.action_ == EdgeIndexQuery::Action::CREATE) ? READ_ONLY : READ;
     } else {
-      // IN_MEMORY_ANALYTICAL and ON_DISK_TRANSACTIONAL require unique access
+      // IN_MEMORY_ANALYTICAL requires unique access
       accessor_type_ = UNIQUE;
     }
   }
@@ -7551,11 +7402,6 @@ Interpreter::PrepareResult Interpreter::Prepare(ParseRes parse_res, UserParamete
       prepared_query = PrepareShowDatabaseQuery(std::move(parsed_query), current_db_);
     } else if (utils::Downcast<ShowDatabasesQuery>(parsed_query.query)) {
       prepared_query = PrepareShowDatabasesQuery(std::move(parsed_query), interpreter_context_, user_or_role_);
-    } else if (utils::Downcast<EdgeImportModeQuery>(parsed_query.query)) {
-      if (in_explicit_transaction_) {
-        throw EdgeImportModeModificationInMulticommandTxException();
-      }
-      prepared_query = PrepareEdgeImportModeQuery(std::move(parsed_query), current_db_);
     } else if (utils::Downcast<DropGraphQuery>(parsed_query.query)) {
       if (in_explicit_transaction_) {
         throw DropGraphInMulticommandTxException();
@@ -7945,14 +7791,6 @@ void Interpreter::Commit() {
   // Clean transaction status if something went wrong
   utils::OnScopeExit clean_status(
       [this]() { transaction_status_.store(TransactionStatus::IDLE, std::memory_order_release); });
-
-  auto current_storage_mode = db->GetStorageMode();
-  auto creation_mode = current_db_.db_transactional_accessor_->GetCreationStorageMode();
-  if (creation_mode != storage::StorageMode::ON_DISK_TRANSACTIONAL &&
-      current_storage_mode == storage::StorageMode::ON_DISK_TRANSACTIONAL) {
-    throw QueryException(
-        "Cannot commit transaction because the storage mode has changed from in-memory storage to on-disk storage.");
-  }
 
   utils::OnScopeExit update_metrics([]() {
     memgraph::metrics::IncrementCounter(memgraph::metrics::CommitedTransactions);

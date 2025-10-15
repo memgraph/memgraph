@@ -13,16 +13,6 @@ target_sources(mg-storage-v2
         constraints/existence_constraints.cpp
         constraints/type_constraints.cpp
         constraints/type_constraints_validator.cpp
-        disk/durable_metadata.cpp
-        disk/edge_import_mode_cache.cpp
-        disk/edge_property_index.cpp
-        disk/edge_type_index.cpp
-        disk/edge_type_property_index.cpp
-        disk/label_index.cpp
-        disk/label_property_index.cpp
-        disk/rocksdb_storage.cpp
-        disk/storage.cpp
-        disk/unique_constraints.cpp
         durability/durability.cpp
         durability/serialization.cpp
         durability/snapshot.cpp
@@ -92,7 +82,6 @@ target_sources(mg-storage-v2
         constraints/type_constraints_validator.hpp
         database_protector.hpp
         delta_container.hpp
-        disk/storage.hpp
         durability/ttl_operation_type.hpp
         edge_ref.hpp
         enum.hpp

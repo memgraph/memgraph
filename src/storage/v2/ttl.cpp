@@ -172,8 +172,7 @@ void TTL::Configure(bool should_run_edge_ttl) {
 
   info_.should_run_edge_ttl = should_run_edge_ttl;
 
-  if (info_.should_run_edge_ttl && (storage_ptr_->GetStorageMode() == StorageMode::ON_DISK_TRANSACTIONAL ||
-                                    !storage_ptr_->config_.salient.items.properties_on_edges)) {
+  if (info_.should_run_edge_ttl && !storage_ptr_->config_.salient.items.properties_on_edges) {
     spdlog::warn("Memgraph configuration doesn't support edge TTL. Edge TTL will be disabled.");
     info_.should_run_edge_ttl = false;
   }

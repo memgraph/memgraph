@@ -104,9 +104,6 @@ class VertexAccessor final {
 
   auto BuildResultInEdges(edge_store const &out_edges) const;
 
-  auto BuildResultWithDisk(edge_store const &in_memory_edges, std::vector<EdgeAccessor> const &disk_edges, View view,
-                           const std::string &mode) const;
-
   /// @throw std::bad_alloc
   /// @throw std::length_error if the resulting vector exceeds
   ///        std::vector::max_size().

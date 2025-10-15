@@ -11,24 +11,15 @@
 
 #include "storage/v2/constraints/constraints.hpp"
 #include "storage/v2/constraints/type_constraints.hpp"
-#include "storage/v2/disk/unique_constraints.hpp"
 #include "storage/v2/inmemory/unique_constraints.hpp"
 
 namespace memgraph::storage {
 
-Constraints::Constraints(const Config &config, StorageMode storage_mode) {
-  std::invoke([this, config, storage_mode]() {
+Constraints::Constraints(const Config &config) {
+  std::invoke([this, config]() {
     existence_constraints_ = std::make_unique<ExistenceConstraints>();
     type_constraints_ = std::make_unique<TypeConstraints>();
-    switch (storage_mode) {
-      case StorageMode::IN_MEMORY_TRANSACTIONAL:
-      case StorageMode::IN_MEMORY_ANALYTICAL:
-        unique_constraints_ = std::make_unique<InMemoryUniqueConstraints>();
-        break;
-      case StorageMode::ON_DISK_TRANSACTIONAL:
-        unique_constraints_ = std::make_unique<DiskUniqueConstraints>(config);
-        break;
-    };
+    unique_constraints_ = std::make_unique<InMemoryUniqueConstraints>();
   });
 }
 

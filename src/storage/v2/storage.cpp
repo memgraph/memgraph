@@ -18,7 +18,6 @@
 
 #include "flags/experimental.hpp"
 #include "storage/v2/async_indexer.hpp"
-#include "storage/v2/disk/name_id_mapper.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/indices/text_index_utils.hpp"
@@ -91,18 +90,12 @@ auto CreateUniqueGuard(Storage *storage, const std::optional<std::chrono::millis
 
 Storage::Storage(Config config, StorageMode storage_mode, PlanInvalidatorPtr invalidator,
                  std::function<std::unique_ptr<DatabaseProtector>()> database_protector_factory)
-    : name_id_mapper_(std::invoke([config, storage_mode]() -> std::unique_ptr<NameIdMapper> {
-        if (storage_mode == StorageMode::ON_DISK_TRANSACTIONAL) {
-          return std::make_unique<DiskNameIdMapper>(config.disk.name_id_mapper_directory,
-                                                    config.disk.id_name_mapper_directory);
-        }
-        return std::make_unique<NameIdMapper>();
-      })),
+    : name_id_mapper_(std::make_unique<NameIdMapper>()),
       config_(config),
       isolation_level_(config.transaction.isolation_level),
       storage_mode_(storage_mode),
-      indices_(config, storage_mode),
-      constraints_(config, storage_mode),
+      indices_(config),
+      constraints_(config),
       invalidator_{std::move(invalidator)},
       database_protector_factory_{database_protector_factory ? std::move(database_protector_factory)
                                                              : []() -> std::unique_ptr<DatabaseProtector> {
@@ -243,24 +236,6 @@ void Storage::Accessor::AdvanceCommand() {
 }
 
 Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAccessor *vertex) {
-  /// NOTE: Checking whether the vertex can be deleted must be done by loading edges from disk.
-  /// Loading edges is done through VertexAccessor so we do it here.
-  if (storage_->storage_mode_ == StorageMode::ON_DISK_TRANSACTIONAL) {
-    auto out_edges_res = vertex->OutEdges(View::OLD);
-    auto in_edges_res = vertex->InEdges(View::OLD);
-    if (out_edges_res.HasError() && out_edges_res.GetError() != Error::NONEXISTENT_OBJECT) {
-      return out_edges_res.GetError();
-    }
-    if (!out_edges_res.HasError() && !out_edges_res->edges.empty()) {
-      return Error::VERTEX_HAS_EDGES;
-    }
-    if (in_edges_res.HasError() && in_edges_res.GetError() != Error::NONEXISTENT_OBJECT) {
-      return in_edges_res.GetError();
-    }
-    if (!in_edges_res.HasError() && !in_edges_res->edges.empty()) {
-      return Error::VERTEX_HAS_EDGES;
-    }
-  }
   auto res = DetachDelete({vertex}, {}, false);
 
   if (res.HasError()) {
@@ -287,17 +262,6 @@ Result<std::optional<VertexAccessor>> Storage::Accessor::DeleteVertex(VertexAcce
 Result<std::optional<std::pair<VertexAccessor, std::vector<EdgeAccessor>>>> Storage::Accessor::DetachDeleteVertex(
     VertexAccessor *vertex) {
   using ReturnType = std::pair<VertexAccessor, std::vector<EdgeAccessor>>;
-  if (storage_->storage_mode_ == StorageMode::ON_DISK_TRANSACTIONAL) {
-    auto out_edges_res = vertex->OutEdges(View::OLD);
-    auto in_edges_res = vertex->InEdges(View::OLD);
-    if (out_edges_res.HasError() && out_edges_res.GetError() != Error::NONEXISTENT_OBJECT) {
-      return out_edges_res.GetError();
-    }
-    if (in_edges_res.HasError() && in_edges_res.GetError() != Error::NONEXISTENT_OBJECT) {
-      return in_edges_res.GetError();
-    }
-  }
-
   auto res = DetachDelete({vertex}, {}, true);
 
   if (res.HasError()) {
@@ -343,20 +307,6 @@ Result<std::optional<EdgeAccessor>> Storage::Accessor::DeleteEdge(EdgeAccessor *
 Result<std::optional<std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>>>
 Storage::Accessor::DetachDelete(std::vector<VertexAccessor *> nodes, std::vector<EdgeAccessor *> edges, bool detach) {
   using ReturnType = std::pair<std::vector<VertexAccessor>, std::vector<EdgeAccessor>>;
-  if (storage_->storage_mode_ == StorageMode::ON_DISK_TRANSACTIONAL) {
-    for (const auto *vertex : nodes) {
-      /// TODO: (andi) Extract into a separate function.
-      auto out_edges_res = vertex->OutEdges(View::OLD);
-      auto in_edges_res = vertex->InEdges(View::OLD);
-      if (out_edges_res.HasError() && out_edges_res.GetError() != Error::NONEXISTENT_OBJECT) {
-        return out_edges_res.GetError();
-      }
-      if (in_edges_res.HasError() && in_edges_res.GetError() != Error::NONEXISTENT_OBJECT) {
-        return in_edges_res.GetError();
-      }
-    }
-  }
-
   // Getting the schema accessor here, so we are protected from any label changes during deletion
   auto schema_acc = SchemaInfoAccessor(storage_, &transaction_);
 
