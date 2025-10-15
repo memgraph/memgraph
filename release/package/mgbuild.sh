@@ -924,8 +924,8 @@ test_memgraph() {
 
 build_heaptrack() {
   local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
-  docker exec -it -u root $build_container bash -c "apt-get update && apt-get install -y libdw-dev"
-  docker exec -it -u root $build_container bash -c "mkdir -p /tmp/heaptrack && chown mg:mg /tmp/heaptrack"
+  docker exec -i -u root $build_container bash -c "apt-get update && apt-get install -y libdw-dev"
+  docker exec -i -u root $build_container bash -c "mkdir -p /tmp/heaptrack && chown mg:mg /tmp/heaptrack"
 
   docker cp tools/build-heaptrack.sh $build_container:$MGBUILD_HOME_DIR/build-heaptrack.sh
   docker exec -u mg $build_container bash -c "$ACTIVATE_TOOLCHAIN && cd $MGBUILD_HOME_DIR && ./build-heaptrack.sh"
