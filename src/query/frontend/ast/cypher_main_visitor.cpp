@@ -2574,15 +2574,6 @@ antlrcpp::Any CypherMainVisitor::visitLabelExpression(MemgraphCypher::LabelExpre
   return labels;
 }
 
-antlrcpp::Any CypherMainVisitor::visitListOfColonSymbolicNamesAndSeparated(
-    MemgraphCypher::ListOfColonSymbolicNamesAndSeparatedContext *ctx) {
-  std::vector<std::string> symbolic_names;
-  for (auto *symbolic_name : ctx->colonSymbolicName()) {
-    symbolic_names.push_back(std::any_cast<std::string>(symbolic_name->symbolicName()->accept(this)));
-  }
-  return symbolic_names;
-}
-
 antlrcpp::Any CypherMainVisitor::visitProperties(MemgraphCypher::PropertiesContext *ctx) {
   if (ctx->mapLiteral()) {
     return ctx->mapLiteral()->accept(this);

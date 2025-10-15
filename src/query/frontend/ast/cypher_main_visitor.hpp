@@ -836,12 +836,6 @@ class CypherMainVisitor : public antlropencypher::MemgraphCypherBaseVisitor {
   antlrcpp::Any visitLabelExpression(MemgraphCypher::LabelExpressionContext *ctx) override;
 
   /**
-   * @return std::vector<std::string>
-   */
-  antlrcpp::Any visitListOfColonSymbolicNamesAndSeparated(
-      MemgraphCypher::ListOfColonSymbolicNamesAndSeparatedContext *ctx) override;
-
-  /**
    * @return unordered_map<PropertyIx, Expression*>
    */
   antlrcpp::Any visitProperties(MemgraphCypher::PropertiesContext *ctx) override;

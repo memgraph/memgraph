@@ -516,11 +516,7 @@ entityPrivilege : granularPrivilege ON entityTypeSpec ;
 
 entityTypeSpec
     : entityType entities=entitiesList
-    | NODES CONTAINING entityType listOfColonSymbolicNamesAndSeparated matchingClause?
-    ;
-
-listOfColonSymbolicNamesAndSeparated
-    : colonSymbolicName ( AND colonSymbolicName )*
+    | NODES CONTAINING entityType listOfColonSymbolicNames matchingClause?
     ;
 
 matchingClause
