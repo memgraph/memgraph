@@ -150,7 +150,7 @@ jobs:
           --dest-dir ${{ env.PACKAGE_ARTIFACT_DIR }}
 
       - name: "Build heaptrack"
-        if: ${{ inputs.build_type == 'RelWithDebInfo' }}
+        if: ${{ inputs.build_type == 'RelWithDebInfo' && env.FOR_DOCKER == 'true' }}
         run: |
           ./release/package/mgbuild.sh \
           --toolchain ${{ inputs.toolchain }} \
@@ -159,7 +159,7 @@ jobs:
           build-heaptrack
 
       - name: "Copy heaptrack"
-        if: ${{ inputs.build_type == 'RelWithDebInfo' }}
+        if: ${{ inputs.build_type == 'RelWithDebInfo' && env.FOR_DOCKER == 'true' }}
         run: |
           mkdir -p release/docker
           ./release/package/mgbuild.sh \
@@ -256,7 +256,7 @@ jobs:
           DEST_DIR: "${{ inputs.s3_dest_dir }}/${{ env.ARTIFACT_NAME }}/"
 
       - name: Clean up heaptrack
-        if: ${{ inputs.build_type == 'RelWithDebInfo' }}
+        if: ${{ inputs.build_type == 'RelWithDebInfo' && env.FOR_DOCKER == 'true' }}
         run: |
           rm -rf release/docker/heaptrack
 
