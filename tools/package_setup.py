@@ -90,6 +90,7 @@ class PackageSetup:
                 "push_to_s3": "false",
                 "s3_dest_dir": "",
                 "push_to_github": "false",
+                "malloc": "false",
             }
 
     def _setup_workflow_dispatch(self) -> None:
