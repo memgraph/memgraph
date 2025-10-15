@@ -564,7 +564,7 @@ DEFCOMMAND(Top) {
   for (int64_t i = 0; i < n_plans; ++i) {
     std::cout << "---- Plan #" << i << " ---- " << std::endl;
     std::cout << "cost: " << plans[i].cost << std::endl;
-    memgraph::query::plan::PrettyPrint(dba, plans[i].final_plan.get());
+    memgraph::query::plan::PrettyPrint(dba, plans[i].final_plan.get(), &std::cout);
     std::cout << std::endl;
   }
 }
@@ -577,7 +577,7 @@ DEFCOMMAND(Show) {
   const auto &plan = plans[plan_ix].final_plan;
   auto cost = plans[plan_ix].cost;
   std::cout << "Plan cost: " << cost << std::endl;
-  memgraph::query::plan::PrettyPrint(dba, plan.get());
+  memgraph::query::plan::PrettyPrint(dba, plan.get(), &std::cout);
 }
 
 DEFCOMMAND(ShowUnoptimized) {
@@ -586,7 +586,7 @@ DEFCOMMAND(ShowUnoptimized) {
   ss >> plan_ix;
   if (ss.fail() || !ss.eof() || plan_ix >= plans.size()) return;
   const auto &plan = plans[plan_ix].unoptimized_plan;
-  memgraph::query::plan::PrettyPrint(dba, plan.get());
+  memgraph::query::plan::PrettyPrint(dba, plan.get(), &std::cout);
 }
 
 DEFCOMMAND(Help);
