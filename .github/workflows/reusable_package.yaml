@@ -166,7 +166,7 @@ jobs:
           --toolchain ${{ inputs.toolchain }} \
           --os ${{ inputs.os }} \
           --arch ${{ inputs.arch }} \
-          copy-heaptrack
+          copy-heaptrack \
           --dest-dir "$(pwd)/release/docker"
 
       - name: "Stop mgbuild container"
