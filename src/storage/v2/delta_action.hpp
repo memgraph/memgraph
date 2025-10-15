@@ -11,22 +11,24 @@
 
 #pragma once
 
-#include "storage/v2/id_types.hpp"
-#include "utils/skip_list.hpp"
+#include <cstdint>
 
 namespace memgraph::storage {
-struct Delta;
+enum class DeltaAction : std::uint8_t {
+  /// Use for Vertex and Edge
+  /// Used for disk storage for modifying MVCC logic and storing old key. Storing old key is necessary for
+  /// deleting old-data (compaction).
+  DELETE_DESERIALIZED_OBJECT,
+  DELETE_OBJECT,
+  RECREATE_OBJECT,
+  SET_PROPERTY,
+
+  // Used only for Vertex
+  ADD_LABEL,
+  REMOVE_LABEL,
+  ADD_IN_EDGE,
+  ADD_OUT_EDGE,
+  REMOVE_IN_EDGE,
+  REMOVE_OUT_EDGE,
+};
 }
-
-namespace memgraph::utils {
-
-auto GetOldDiskKeyOrNull(storage::Delta *head) -> std::optional<std::string_view>;
-
-template <typename TSkipListAccessor>
-bool ObjectExistsInCache(TSkipListAccessor &accessor, storage::Gid gid) {
-  return accessor.find(gid) != accessor.end();
-}
-
-auto GetEarliestTimestamp(storage::Delta *head) -> uint64_t;
-
-}  // namespace memgraph::utils

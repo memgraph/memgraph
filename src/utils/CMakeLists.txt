@@ -29,6 +29,7 @@ target_sources(mg-utils
     priority_thread_pool.cpp
     resource_monitoring.cpp
     safe_string.cpp
+    disk_utils.cpp
 
     PUBLIC
     FILE_SET HEADERS
@@ -60,7 +61,7 @@ find_package(spdlog REQUIRED)
 find_package(croncpp REQUIRED)
 
 target_link_libraries(mg-utils PUBLIC Boost::headers fmt::fmt spdlog::spdlog nlohmann_json::nlohmann_json ZLIB::ZLIB croncpp::croncpp)
-target_link_libraries(mg-utils PRIVATE librdtsc stdc++fs Threads::Threads uuid rt mg-flags)
+target_link_libraries(mg-utils PRIVATE librdtsc stdc++fs Threads::Threads uuid rt mg-flags strong_type::strong_type rangev3)
 target_link_libraries(mg-utils PUBLIC gflags)
 
 add_library(mg-settings STATIC)
