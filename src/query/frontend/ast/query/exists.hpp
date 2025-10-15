@@ -26,6 +26,7 @@ class Exists : public memgraph::query::Expression {
 
   DECLARE_VISITABLE(ExpressionVisitor<TypedValue>);
   DECLARE_VISITABLE(ExpressionVisitor<TypedValue *>);
+  DECLARE_VISITABLE(ExpressionVisitor<TypedValue const *>);
   DECLARE_VISITABLE(ExpressionVisitor<void>);
   DECLARE_VISITABLE(HierarchicalTreeVisitor);
 

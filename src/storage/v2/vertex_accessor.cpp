@@ -570,18 +570,17 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
 Result<PropertyValue> VertexAccessor::GetProperty(PropertyId property, View view) const {
   bool exists = true;
   bool deleted = false;
-  PropertyValue value;
   Delta *delta = nullptr;
-  {
+  auto value = std::invoke([&]() -> PropertyValue {
     auto guard = std::shared_lock{vertex_->lock};
     deleted = vertex_->deleted;
-    value = vertex_->properties.GetProperty(property);
     delta = vertex_->delta;
-  }
+    return vertex_->properties.GetProperty(property);
+  });
 
   // Checking cache has a cost, only do it if we have any deltas
   // if we have no deltas then what we already have from the vertex is correct.
-  if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) {
+  if (delta && transaction_->isolation_level != IsolationLevel::READ_UNCOMMITTED) [[unlikely]] {
     // IsolationLevel::READ_COMMITTED would be tricky to propagate invalidation to
     // so for now only cache for IsolationLevel::SNAPSHOT_ISOLATION
     auto const useCache = transaction_->isolation_level == IsolationLevel::SNAPSHOT_ISOLATION;

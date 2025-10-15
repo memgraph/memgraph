@@ -51,7 +51,10 @@ def main():
             args_value.append(option)
 
     # Custom argument for test suite
-    argp.add_argument("test_suite", help="test suite that should be executed")
+    argp.add_argument(
+        "test_suite",
+        help="test suite to execute (e.g., 'memgraph_V1') or specific feature file (e.g., 'memgraph_V1/features/list_operations.feature')",
+    )
     add_config("--test-suite")
     add_config("--test-directory")
 
@@ -71,30 +74,41 @@ def main():
     # Parse arguments
     parsed_args = argp.parse_args()
 
+    # Extract test suite name (may be part of a path like "memgraph_V1/features/file.feature")
+    test_suite_name = parsed_args.test_suite.split("/")[0]
+
     if parsed_args.storage_mode is None:
-        if parsed_args.test_suite == "memgraph_V1_on_disk":
+        if test_suite_name == "memgraph_V1_on_disk":
             parsed_args.storage_mode = "ON_DISK_TRANSACTIONAL"
         else:
             parsed_args.storage_mode = "IN_MEMORY_TRANSACTIONAL"
 
-    print(f"Test suite: {parsed_args.test_suite}")
+    print(f"Test suite: {test_suite_name}")
     print(f"Storage mode: {parsed_args.storage_mode}")
 
-    if parsed_args.test_suite == "memgraph_V1_on_disk" and parsed_args.storage_mode != "ON_DISK_TRANSACTIONAL":
+    if test_suite_name == "memgraph_V1_on_disk" and parsed_args.storage_mode != "ON_DISK_TRANSACTIONAL":
         raise Exception(
             "memgraph_V1_on_disk test suite can only be run with ON_DISK_TRANSACTIONAL storage mode. For other storage modes, use memgraph_V1 test suite."
         )
 
-    if parsed_args.test_suite == "memgraph_V1" and parsed_args.storage_mode == "ON_DISK_TRANSACTIONAL":
+    if test_suite_name == "memgraph_V1" and parsed_args.storage_mode == "ON_DISK_TRANSACTIONAL":
         raise Exception(
             "memgraph_V1 test suite cannot be run with ON_DISK_TRANSACTIONAL storage mode. For ON_DISK_TRANSACTIONAL storage mode, use memgraph_V1_on_disk test suite."
         )
 
     # Find tests
-    test_directory = os.path.join(SCRIPT_DIR, "tests", parsed_args.test_suite)
+    test_directory = os.path.join(SCRIPT_DIR, "tests", test_suite_name)
+
+    # Determine what path to pass to behave (can be suite dir or specific feature file)
+    if "/" in parsed_args.test_suite:
+        # Specific feature file provided
+        behave_test_path = os.path.join(SCRIPT_DIR, "tests", parsed_args.test_suite)
+    else:
+        # Just test suite name
+        behave_test_path = test_directory
 
     # Create arguments for Behave
-    behave_args = [test_directory]
+    behave_args = [behave_test_path]
     for arg_name in args_value:
         var_name = arg_name[2:].replace("-", "_")
         behave_args.extend([arg_name, getattr(parsed_args, var_name)])
@@ -103,7 +117,7 @@ def main():
         current = getattr(parsed_args, var_name)
         if current != arg_val:
             behave_args.append(arg_name)
-    behave_args.extend(["--test-suite", parsed_args.test_suite])
+    behave_args.extend(["--test-suite", test_suite_name])
     if parsed_args.scenario is not None:
         behave_args.extend(["-n", parsed_args.scenario])
     behave_args.extend(["--test-directory", test_directory])
