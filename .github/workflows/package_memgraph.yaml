@@ -249,10 +249,9 @@ jobs:
       toolchain: ${{ needs.PackageSetup.outputs.workflow_input_toolchain }}
       arch: "amd"
       build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
-      additional_build_args: "--for-docker"
+      additional_build_args: "--for-docker ${{ needs.PackageSetup.outputs.workflow_input_malloc && '--disable-jemalloc' || '' }}"
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
       push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
-      additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc && '--disable-jemalloc' || '' }}
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
@@ -268,10 +267,9 @@ jobs:
       toolchain: ${{ needs.PackageSetup.outputs.workflow_input_toolchain }}
       arch: "arm"
       build_type: ${{ needs.PackageSetup.outputs.workflow_input_build_type }}
-      additional_build_args: "--for-docker"
+      additional_build_args: "--for-docker ${{ needs.PackageSetup.outputs.workflow_input_malloc && '--disable-jemalloc' || '' }}"
       push_to_s3: ${{ needs.PackageSetup.outputs.workflow_input_push_to_s3 }}
       push_to_github: ${{ needs.PackageSetup.outputs.workflow_input_push_to_github }}
-      additional_build_args: ${{ needs.PackageSetup.outputs.workflow_input_malloc && '--disable-jemalloc' || '' }}
       s3_bucket: deps.memgraph.io
       s3_region: eu-west-1
       s3_dest_dir: ${{ needs.PackageSetup.outputs.workflow_input_s3_dest_dir }}
