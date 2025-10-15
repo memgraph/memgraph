@@ -26,6 +26,7 @@
 #include "utils/file.hpp"
 
 #include <boost/dll/runtime_symbol_info.hpp>
+#include <nlohmann/json.hpp>
 
 using namespace memgraph::auth;
 namespace fs = std::filesystem;

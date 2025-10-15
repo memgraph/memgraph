@@ -27,6 +27,8 @@
 #include "utils/settings.hpp"
 #include "utils/string.hpp"
 
+#include <nlohmann/json.hpp>
+
 namespace {
 
 #ifdef MG_ENTERPRISE
