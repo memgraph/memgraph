@@ -2147,7 +2147,7 @@ antlrcpp::Any CypherMainVisitor::visitEntityPrivilegeList(MemgraphCypher::Entity
       }
     } else {
       // @TODO: Handle `NODES CONTAINING LABELS` syntax
-      throw SyntaxException("NODES CONTAINING LABELS syntax not yet implemented");
+      throw NotImplementedException("NODES CONTAINING LABELS syntax not yet implemented");
     }
   }
   return result;
