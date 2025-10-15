@@ -1,4 +1,5 @@
 #!/bin/bash
+set -euo pipefail
 
 # Default values
 BUILD_TYPE="Release"
@@ -6,6 +7,7 @@ TARGET=""
 CMAKE_ARGS=""
 skip_init=false
 config_only=false
+VENV_DIR="${VENV_DIR:-env}"
 
 # Parse command line arguments
 while [[ $# -gt 0 ]]; do
@@ -47,12 +49,19 @@ if [ -d "build" ]; then
 fi
 
 # run check for operating system dependencies
-./environment/os/install_deps.sh check TOOLCHAIN_RUN_DEPS
-./environment/os/install_deps.sh check MEMGRAPH_BUILD_DEPS
+if ! ./environment/os/install_deps.sh check TOOLCHAIN_RUN_DEPS; then
+    echo "Error: Dependency check failed for TOOLCHAIN_RUN_DEPS"
+    exit 1
+fi
+if ! ./environment/os/install_deps.sh check MEMGRAPH_BUILD_DEPS; then
+    echo "Error: Dependency check failed for MEMGRAPH_BUILD_DEPS"
+    exit 1
+fi
 
 echo "Creating virtual environment and installing conan"
-python3 -m venv env
-source ./env/bin/activate
+python3 -m venv "$VENV_DIR"
+source "$VENV_DIR/bin/activate"
+trap 'deactivate 2>/dev/null' EXIT ERR
 pip install conan
 
 # check if a conan profile exists
@@ -94,8 +103,8 @@ else
 fi
 
 # install conan dependencies
-export MG_TOOLCHAIN_ROOT=/opt/toolchain-v7
-conan install . --build=missing -pr $PROFILE_TEMPLATE -s build_type=$BUILD_TYPE
+export MG_TOOLCHAIN_ROOT="/opt/toolchain-v7"
+conan install . --build=missing -pr "$PROFILE_TEMPLATE" -s build_type="$BUILD_TYPE"
 source build/generators/conanbuild.sh
 
 # Determine preset name based on build type (Conan generates this automatically)
@@ -125,9 +134,7 @@ fi
 
 # Build command with optional target
 if [[ -n "$TARGET" ]]; then
-    cmake --build build --target $TARGET -j $(nproc)
+    cmake --build build --preset $PRESET --target $TARGET -j $(nproc)
 else
-    cmake --build build -j $(nproc)
+    cmake --build build --preset $PRESET -j $(nproc)
 fi
-
-deactivate

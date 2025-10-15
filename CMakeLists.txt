@@ -65,7 +65,7 @@ if (NOT MG_TOOLCHAIN_ROOT)
 endif ()
 
 # Add toolchain to CMAKE_PREFIX_PATH so that find_package can locate libraries
-list(APPEND CMAKE_PREFIX_PATH "${MG_TOOLCHAIN_ROOT}")
+#list(APPEND CMAKE_PREFIX_PATH "${MG_TOOLCHAIN_ROOT}")
 
 project(memgraph LANGUAGES C CXX)
 
@@ -73,7 +73,7 @@ project(memgraph LANGUAGES C CXX)
 # which are different locations than the host
 set(CMAKE_BUILD_RPATH_USE_ORIGIN ON)
 set(CMAKE_BUILD_RPATH "${MG_TOOLCHAIN_ROOT}/lib64")
-set(CMAKE_FIND_ROOT_PATH "${CMAKE_CURRENT_BINARY_DIR}/generators")
+#set(CMAKE_FIND_ROOT_PATH "${CMAKE_CURRENT_BINARY_DIR}/generators")
 message(STATUS "CMAKE_FIND_ROOT_PATH: ${CMAKE_FIND_ROOT_PATH}")
 # Install licenses.
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/licenses/
@@ -198,7 +198,7 @@ endif()
 # correct libraries from our toolchain
 # Check MG_TOOLCHAIN_ROOT so it's available for custom libstdc++ configuration
 # Custom libstdc++ configuration - REQUIRED
-if(NOT DEFINED MG_TOOLCHAIN_ROOT OR "${MG_TOOLCHAIN_ROOT}" STREQUAL "" OR NOT EXISTS "${MG_TOOLCHAIN_ROOT}" OR NOT IS_DIRECTORY "${MG_TOOLCHAIN_ROOT}")
+if(NOT EXISTS "${MG_TOOLCHAIN_ROOT}" OR NOT IS_DIRECTORY "${MG_TOOLCHAIN_ROOT}")
     message(FATAL_ERROR "MG_TOOLCHAIN_ROOT must be set to a valid toolchain directory. Current value: '${MG_TOOLCHAIN_ROOT}'")
 endif()
 
@@ -247,26 +247,26 @@ include(functions)
 
 # Load conan dependencies in the correct order using explicit find_package calls
 # Load dependencies that don't depend on others first
-find_package(benchmark)
-find_package(GTest)
-find_package(spdlog)
+find_package(benchmark REQUIRED)
+find_package(GTest REQUIRED)
+find_package(spdlog REQUIRED)
 find_package(fmt REQUIRED)
-find_package(strong_type)
-find_package(Boost)
-find_package(BZip2)
-find_package(antlr4-runtime)
-find_package(antlr4)
-find_package(cppitertools)
-find_package(ctre)
-find_package(absl)
-find_package(croncpp)
-find_package(range-v3)
-find_package(asio)
-find_package(ZLIB)
+find_package(strong_type REQUIRED)
+find_package(Boost REQUIRED)
+find_package(BZip2 REQUIRED)
+find_package(antlr4-runtime REQUIRED)
+find_package(antlr4 REQUIRED)
+find_package(cppitertools REQUIRED)
+find_package(ctre REQUIRED)
+find_package(absl REQUIRED)
+find_package(croncpp REQUIRED)
+find_package(range-v3 REQUIRED)
+find_package(asio REQUIRED)
+find_package(ZLIB REQUIRED)
 
 # Now load mgclient which depends on OpenSSL
 find_package(OpenSSL REQUIRED)
-find_package(mgclient)
+find_package(mgclient REQUIRED)
 
 # -----------------------------------------------------------------------------
 
@@ -314,7 +314,7 @@ set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
 add_link_options(-fuse-ld=lld)
 add_link_options(LINKER:--build-id)
 link_directories("${MG_TOOLCHAIN_ROOT}/lib")
-link_directories("${MG_TOOLCHAIN_ROOT}/lib64")
+# link_directories("${MG_TOOLCHAIN_ROOT}/lib64")
 
 # After linker is set, check we can use link-time optimization
 cmake_policy(SET CMP0138 NEW)

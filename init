@@ -47,7 +47,7 @@ else
     done
 fi
 
-if [[ $check_system_packages ]]; then
+if [[ "$check_system_packages" == "true" ]]; then
   if [ "${ARCHITECTURE}" = "arm64" ] || [ "${ARCHITECTURE}" = "aarch64" ]; then
     OS_SCRIPT=$DIR/environment/os/$DISTRO-arm.sh
   else

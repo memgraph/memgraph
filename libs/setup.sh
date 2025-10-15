@@ -9,11 +9,12 @@ cd "${working_dir}"
 WGET_OR_CLONE_TIMEOUT=60
 
 #  if the toolchain hasn't been activated, activate it
-deactivate_toolchain=false
 if [ -z "$MG_TOOLCHAIN_VERSION" ]; then
   echo "Activating toolchain"
   source /opt/toolchain-v7/activate
-  deactivate_toolchain=true
+
+  # Set up trap to deactivate toolchain on script exit
+  trap 'echo "Deactivating toolchain"; deactivate' EXIT
 fi
 
 function print_help () {
@@ -267,9 +268,3 @@ repo_clone_try_double "${primary_urls[usearch]}" "${secondary_urls[usearch]}" "u
 pushd usearch
 git submodule update --init --recursive
 popd
-
-
-if [[ "$deactivate_toolchain" == "true" ]]; then
-  echo "Deactivating toolchain"
-  deactivate
-fi

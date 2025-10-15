@@ -1,4 +1,4 @@
-#!/bin/bash -e
+#!/bin/bash -eou pipefail
 
 # helpers
 pushd () { command pushd "$@" > /dev/null; }
@@ -120,17 +120,27 @@ mkdir -p archives && pushd archives
 if [ ! -f gcc-$GCC_VERSION.tar.gz ]; then
     # wget https://ftp.gnu.org/gnu/gcc/gcc-$GCC_VERSION/gcc-$GCC_VERSION.tar.gz
     wget https://mirrorservice.org/sites/sourceware.org/pub/gcc/releases/gcc-$GCC_VERSION/gcc-$GCC_VERSION.tar.gz
+    wget https://mirrorservice.org/sites/sourceware.org/pub/gcc/releases/gcc-$GCC_VERSION/gcc-$GCC_VERSION.tar.gz.sig
+    gpg --keyserver keyserver.ubuntu.com --recv-keys 6C35B99309B5FA62
+    gpg --verify gcc-$GCC_VERSION.tar.gz.sig gcc-$GCC_VERSION.tar.gz
 fi
 if [ ! -f binutils-$BINUTILS_VERSION.tar.gz ]; then
     # wget https://ftp.gnu.org/gnu/binutils/binutils-$BINUTILS_VERSION.tar.gz
     wget https://sourceware.org/pub/binutils/releases/binutils-$BINUTILS_VERSION.tar.gz
+    wget https://sourceware.org/pub/binutils/releases/binutils-$BINUTILS_VERSION.tar.gz.sig
+    gpg --keyserver keyserver.ubuntu.com --recv-keys 3A24BC1E8FB409FA9F14371813FCEF89DD9E3C4F
+    gpg --verify binutils-$BINUTILS_VERSION.tar.gz.sig binutils-$BINUTILS_VERSION.tar.gz
 fi
 if [ ! -f gdb-$GDB_VERSION.tar.gz ]; then
     # wget https://ftp.gnu.org/gnu/gdb/gdb-$GDB_VERSION.tar.gz
     wget https://sourceware.org/pub/gdb/releases/gdb-$GDB_VERSION.tar.gz
+    wget https://sourceware.org/pub/gdb/releases/sha512.sum
+    sha512sum -c sha512.sum | grep gdb-$GDB_VERSION.tar.gz
 fi
 if [ ! -f cmake-$CMAKE_VERSION.tar.gz ]; then
     wget https://github.com/Kitware/CMake/releases/download/v$CMAKE_VERSION/cmake-$CMAKE_VERSION.tar.gz
+    CMAKE_SHA256="8d3537b7b7732660ea247398f166be892fe6131d63cc291944b45b91279f3ffb"
+    echo "$CMAKE_SHA256  cmake-$CMAKE_VERSION.tar.gz" | sha256sum -c -
 fi
 if [ ! -f cppcheck-$CPPCHECK_VERSION.tar.gz ]; then
     wget https://github.com/danmar/cppcheck/archive/refs/tags/$CPPCHECK_VERSION.tar.gz -O cppcheck-$CPPCHECK_VERSION.tar.gz
@@ -161,12 +171,12 @@ mkdir -p build
 pushd build
 
 log_tool_name "GCC $GCC_VERSION"
-if [ ! -f $PREFIX/bin/gcc ]; then
-    if [ -d gcc-$GCC_VERSION ]; then
+if [ ! -f "$PREFIX/bin/gcc" ]; then
+    if [ -d "gcc-$GCC_VERSION" ]; then
         rm -rf gcc-$GCC_VERSION
     fi
     tar -xvf ../archives/gcc-$GCC_VERSION.tar.gz
-    pushd gcc-$GCC_VERSION
+    pushd "gcc-$GCC_VERSION"
     ./contrib/download_prerequisites
     mkdir build && pushd build
     # influenced by: https://buildd.debian.org/status/fetch.php?pkg=gcc-11&arch=arm64&ver=11.2.0-14&stamp=1642052446&raw=0
@@ -253,7 +263,7 @@ export LD_LIBRARY_PATH=$PREFIX/lib64
 
 # NOTE: manually install gmp and mpfr (required by gdb)
 log_tool_name "gmp (from gcc)"
-if [ ! -f $PREFIX/lib/libgmp.a ]; then
+if [ ! -f "$PREFIX/lib/libgmp.a" ]; then
     pushd $DIR/build/gcc-$GCC_VERSION/gmp
 
     if [[ "$for_arm" = true ]]; then
@@ -276,7 +286,7 @@ if [ ! -f $PREFIX/lib/libgmp.a ]; then
 fi
 
 log_tool_name "mpfr (from gcc)"
-if [ ! -f $PREFIX/lib/libmpfr.a ]; then
+if [ ! -f "$PREFIX/lib/libmpfr.a" ]; then
     pushd $DIR/build/gcc-$GCC_VERSION/mpfr
     if [[ "$for_arm" = true ]]; then
         ./configure \
@@ -294,12 +304,12 @@ if [ ! -f $PREFIX/lib/libmpfr.a ]; then
 fi
 
 log_tool_name "binutils $BINUTILS_VERSION"
-if [ ! -f $PREFIX/bin/ld ]; then
-    if [ -d binutils-$BINUTILS_VERSION ]; then
+if [ ! -f "$PREFIX/bin/ld" ]; then
+    if [ -d "binutils-$BINUTILS_VERSION" ]; then
         rm -rf binutils-$BINUTILS_VERSION
     fi
     tar -xvf ../archives/binutils-$BINUTILS_VERSION.tar.gz
-    pushd binutils-$BINUTILS_VERSION
+    pushd "binutils-$BINUTILS_VERSION"
     mkdir build && pushd build
     BINUTILS_SPECIAL_FLAGS=""
     if [[ "$for_arm" = true ]]; then
@@ -365,11 +375,11 @@ fi
 
 log_tool_name "GDB $GDB_VERSION"
 if [[ ! -f "$PREFIX/bin/gdb" && "$DISTRO" != "amzn-2" ]]; then
-    if [ -d gdb-$GDB_VERSION ]; then
+    if [[ -d "gdb-$GDB_VERSION" ]]; then
         rm -rf gdb-$GDB_VERSION
     fi
     tar -xvf ../archives/gdb-$GDB_VERSION.tar.gz
-    pushd gdb-$GDB_VERSION
+    pushd "gdb-$GDB_VERSION"
     mkdir build && pushd build
     if [[ "$for_arm" = true ]]; then
         # https://buildd.debian.org/status/fetch.php?pkg=gdb&arch=arm64&ver=10.1-2&stamp=1614889767&raw=0
@@ -435,13 +445,13 @@ if [[ ! -f "$PREFIX/bin/gdb" && "$DISTRO" != "amzn-2" ]]; then
 fi
 
 log_tool_name "install pahole"
-if [ ! -d $PREFIX/share/pahole-gdb ]; then
+if [[ ! -d "$PREFIX/share/pahole-gdb" ]]; then
     unzip ../archives/pahole-gdb-master.zip
     mv pahole-gdb-master $PREFIX/share/pahole-gdb
 fi
 
 log_tool_name "setup system gdbinit"
-if [ ! -f $PREFIX/etc/gdb/gdbinit ]; then
+if [[ ! -f "$PREFIX/etc/gdb/gdbinit" ]]; then
     mkdir -p $PREFIX/etc/gdb
     cat >$PREFIX/etc/gdb/gdbinit <<EOF
 # improve formatting
@@ -467,12 +477,12 @@ EOF
 fi
 
 log_tool_name "cmake $CMAKE_VERSION"
-if [ ! -f $PREFIX/bin/cmake ]; then
-    if [ -d cmake-$CMAKE_VERSION ]; then
+if [[ ! -f "$PREFIX/bin/cmake" ]]; then
+    if [[ -d cmake-$CMAKE_VERSION ]]; then
         rm -rf cmake-$CMAKE_VERSION
     fi
     tar -xvf ../archives/cmake-$CMAKE_VERSION.tar.gz
-    pushd cmake-$CMAKE_VERSION
+    pushd "cmake-$CMAKE_VERSION"
     # influenced by: https://buildd.debian.org/status/fetch.php?pkg=cmake&arch=amd64&ver=3.13.4-1&stamp=1549799837
     echo 'set(CMAKE_SKIP_RPATH ON CACHE BOOL "Skip rpath" FORCE)' >> build-flags.cmake
     echo 'set(CMAKE_USE_RELATIVE_PATHS ON CACHE BOOL "Use relative paths" FORCE)' >> build-flags.cmake
@@ -493,12 +503,12 @@ if [ ! -f $PREFIX/bin/cmake ]; then
 fi
 
 log_tool_name "cppcheck $CPPCHECK_VERSION"
-if [ ! -f $PREFIX/bin/cppcheck ]; then
-    if [ -d cppcheck-$CPPCHECK_VERSION ]; then
+if [[ ! -f "$PREFIX/bin/cppcheck" ]]; then
+    if [[ -d "cppcheck-$CPPCHECK_VERSION" ]]; then
         rm -rf cppcheck-$CPPCHECK_VERSION
     fi
     tar -xvf ../archives/cppcheck-$CPPCHECK_VERSION.tar.gz
-    pushd cppcheck-$CPPCHECK_VERSION
+    pushd "cppcheck-$CPPCHECK_VERSION"
     env \
         CC=gcc \
         CXX=g++ \
@@ -517,12 +527,12 @@ if [ ! -f $PREFIX/bin/cppcheck ]; then
 fi
 
 log_tool_name "swig $SWIG_VERSION"
-if [ ! -d swig-$SWIG_VERSION/install ]; then
-    if [ -d swig-$SWIG_VERSION ]; then
+if [[ ! -d "swig-$SWIG_VERSION/install" ]]; then
+    if [[ -d swig-$SWIG_VERSION ]]; then
         rm -rf swig-$SWIG_VERSION
     fi
     tar -xvf ../archives/swig-$SWIG_VERSION.tar.gz
-    pushd swig-$SWIG_VERSION
+    pushd "swig-$SWIG_VERSION"
     ./autogen.sh
     mkdir build && pushd build
     ../configure --prefix=$DIR/build/swig-$SWIG_VERSION/install
@@ -532,8 +542,8 @@ if [ ! -d swig-$SWIG_VERSION/install ]; then
 fi
 
 log_tool_name "LLVM $LLVM_VERSION"
-if [ ! -f $PREFIX/bin/clang ]; then
-    if [ -d llvmorg-$LLVM_VERSION ]; then
+if [[ ! -f "$PREFIX/bin/clang" ]]; then
+    if [[ -d llvmorg-$LLVM_VERSION ]]; then
         rm -rf llvmorg-$LLVM_VERSION
     fi
     cp -r ../archives/llvmorg-$LLVM_VERSION ./llvmorg-$LLVM_VERSION
@@ -542,11 +552,11 @@ if [ ! -f $PREFIX/bin/clang ]; then
     #       options, docs pages are not up to date.
     TOOLCHAIN_LLVM_ENABLE_PROJECTS="clang;clang-tools-extra;compiler-rt;lldb;lld;openmp"
     TOOLCHAIN_LLVM_ENABLE_RUNTIMES="libunwind"
-    if [ "$TOOLCHAIN_STDCXX" = "libc++" ]; then
+    if [[ "$TOOLCHAIN_STDCXX" = "libc++" ]]; then
         TOOLCHAIN_LLVM_ENABLE_RUNTIMES="$TOOLCHAIN_LLVM_ENABLE_RUNTIMES;libcxx;libcxxabi"
     fi
 
-    pushd llvmorg-$LLVM_VERSION
+    pushd "llvmorg-$LLVM_VERSION"
     # activate swig
     export PATH=$DIR/build/swig-$SWIG_VERSION/install/bin:$PATH
     # influenced by: https://buildd.debian.org/status/fetch.php?pkg=llvm-toolchain-7&arch=amd64&ver=1%3A7.0.1%7E%2Brc2-1%7Eexp1&stamp=1541506173&raw=0
@@ -575,7 +585,7 @@ if [ ! -f $PREFIX/bin/clang ]; then
         -DLIBCXX_INCLUDE_BENCHMARKS=OFF
     pushd build
     make -j$CPUS
-    if [[ "$for_arm" = false ]]; then
+    if [[ "$for_arm" = "false" ]]; then
         # TODO(gitbuda): 5 tests fail 4/5 are cuda... -> fix (or just ignore
         # the cuda tests because cuda stuff is actually not used) and
         # uncomment.
@@ -591,7 +601,7 @@ fi
 popd
 
 # create README
-if [ ! -f $PREFIX/README.md ]; then
+if [[ ! -f "$PREFIX/README.md" ]]; then
     cat >$PREFIX/README.md <<EOF
 # Memgraph Toolchain v$TOOLCHAIN_VERSION
 
@@ -630,7 +640,7 @@ EOF
 fi
 
 # create activation script
-if [ ! -f $PREFIX/activate ]; then
+if [[ ! -f "$PREFIX/activate" ]]; then
     cat >$PREFIX/activate <<EOF
 # Detect the shell
 if [ -n "\$BASH_VERSION" ]; then
@@ -644,7 +654,7 @@ else
     return 1 2>/dev/null || exit 1
 fi
 
-SCRIPT_DIR=\$( cd -- "\$( dirname -- "\${SCRIPT_SOURCE}" )" &> /dev/null && pwd )
+readonly SCRIPT_DIR=\$( cd -- "\$( dirname -- "\${SCRIPT_SOURCE}" )" &> /dev/null && pwd )
 PREFIX=\$SCRIPT_DIR
 
 # This file must be used with "source /path/to/toolchain/activate" *from bash*
@@ -759,55 +769,55 @@ ZLIB_VERSION=1.3.1
 ZSTD_VERSION=1.5.6
 
 pushd archives
-if [ ! -f boost_$BOOST_VERSION_UNDERSCORES.tar.gz ]; then
+if [[ ! -f boost_$BOOST_VERSION_UNDERSCORES.tar.gz ]]; then
     # do not redirect the download into a file, because it will download the file into a ".1" postfixed file
     # I am not sure why this is happening, but I think because of some redirects that happens during the download
     wget https://archives.boost.io/release/$BOOST_VERSION/source/boost_$BOOST_VERSION_UNDERSCORES.tar.gz -O boost_$BOOST_VERSION_UNDERSCORES.tar.gz
 fi
-if [ ! -f bzip2-$BZIP2_VERSION.tar.gz ]; then
+if [[ ! -f bzip2-$BZIP2_VERSION.tar.gz ]]; then
     wget https://sourceware.org/pub/bzip2/bzip2-$BZIP2_VERSION.tar.gz -O bzip2-$BZIP2_VERSION.tar.gz
 fi
-if [ ! -f double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz ]; then
+if [[ ! -f double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz ]]; then
     wget https://github.com/google/double-conversion/archive/refs/tags/v$DOUBLE_CONVERSION_VERSION.tar.gz -O double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz
 fi
-if [ ! -f fizz-$FBLIBS_VERSION.tar.gz ]; then
+if [[ ! -f fizz-$FBLIBS_VERSION.tar.gz ]]; then
     wget https://github.com/facebookincubator/fizz/releases/download/v$FBLIBS_VERSION/fizz-v$FBLIBS_VERSION.tar.gz -O fizz-$FBLIBS_VERSION.tar.gz
 fi
 
-if [ ! -d folly-$FBLIBS_VERSION ]; then
+if [[ ! -d folly-$FBLIBS_VERSION ]]; then
     git clone --depth 1 --branch v$FBLIBS_VERSION https://github.com/facebook/folly.git folly-$FBLIBS_VERSION
 fi
-if [ ! -f glog-$GLOG_VERSION.tar.gz ]; then
+if [[ ! -f glog-$GLOG_VERSION.tar.gz ]]; then
     wget https://github.com/google/glog/archive/refs/tags/v$GLOG_VERSION.tar.gz -O glog-$GLOG_VERSION.tar.gz
 fi
-if [ ! -f libaio-$LIBAIO_VERSION.tar.gz ]; then
+if [[ ! -f libaio-$LIBAIO_VERSION.tar.gz ]]; then
     wget https://releases.pagure.org/libaio/libaio-$LIBAIO_VERSION.tar.gz -O libaio-$LIBAIO_VERSION.tar.gz
 fi
-if [ ! -f libevent-$LIBEVENT_VERSION.tar.gz ]; then
+if [[ ! -f libevent-$LIBEVENT_VERSION.tar.gz ]]; then
     wget https://github.com/libevent/libevent/releases/download/release-$LIBEVENT_VERSION/libevent-$LIBEVENT_VERSION.tar.gz -O libevent-$LIBEVENT_VERSION.tar.gz
 fi
-if [ ! -f libsodium-$LIBSODIUM_VERSION.tar.gz ]; then
+if [[ ! -f libsodium-$LIBSODIUM_VERSION.tar.gz ]]; then
     curl https://download.libsodium.org/libsodium/releases/libsodium-$LIBSODIUM_VERSION.tar.gz -o libsodium-$LIBSODIUM_VERSION.tar.gz
 fi
-if [ ! -f libunwind-$LIBUNWIND_VERSION.tar.gz ]; then
+if [[ ! -f libunwind-$LIBUNWIND_VERSION.tar.gz ]]; then
     wget https://github.com/libunwind/libunwind/releases/download/v$LIBUNWIND_VERSION/libunwind-$LIBUNWIND_VERSION.tar.gz -O libunwind-$LIBUNWIND_VERSION.tar.gz
 fi
-if [ ! -f proxygen-$FBLIBS_VERSION.tar.gz ]; then
+if [[ ! -f proxygen-$FBLIBS_VERSION.tar.gz ]]; then
     wget https://github.com/facebook/proxygen/releases/download/v$FBLIBS_VERSION/proxygen-v$FBLIBS_VERSION.tar.gz -O proxygen-$FBLIBS_VERSION.tar.gz
 fi
-if [ ! -f snappy-$SNAPPY_VERSION.tar.gz ]; then
+if [[ ! -f snappy-$SNAPPY_VERSION.tar.gz ]]; then
     wget https://github.com/google/snappy/archive/refs/tags/$SNAPPY_VERSION.tar.gz -O snappy-$SNAPPY_VERSION.tar.gz
 fi
-if [ ! -f xz-$XZ_VERSION.tar.gz ]; then
+if [[ ! -f xz-$XZ_VERSION.tar.gz ]]; then
     wget https://tukaani.org/xz/xz-$XZ_VERSION.tar.gz -O xz-$XZ_VERSION.tar.gz
 fi
-if [ ! -f zlib-$ZLIB_VERSION.tar.gz ]; then
+if [[ ! -f zlib-$ZLIB_VERSION.tar.gz ]]; then
     wget https://zlib.net/zlib-$ZLIB_VERSION.tar.gz -O zlib-$ZLIB_VERSION.tar.gz
 fi
-if [ ! -f zstd-$ZSTD_VERSION.tar.gz ]; then
+if [[ ! -f zstd-$ZSTD_VERSION.tar.gz ]]; then
     wget https://github.com/facebook/zstd/releases/download/v$ZSTD_VERSION/zstd-$ZSTD_VERSION.tar.gz -O zstd-$ZSTD_VERSION.tar.gz
 fi
-if [ ! -f wangle-$FBLIBS_VERSION.tar.gz ]; then
+if [[ ! -f wangle-$FBLIBS_VERSION.tar.gz ]]; then
     wget https://github.com/facebook/wangle/releases/download/v$FBLIBS_VERSION/wangle-v$FBLIBS_VERSION.tar.gz -O wangle-$FBLIBS_VERSION.tar.gz
 fi
 
@@ -824,70 +834,63 @@ echo "$FIZZ_SHA256 fizz-$FBLIBS_VERSION.tar.gz" | sha256sum -c
 # verify glog
 echo "$GLOG_SHA256  glog-$GLOG_VERSION.tar.gz" | sha256sum -c
 # verify libaio
-if [ ! -f libaio-CHECKSUMS ]; then
+if [[ ! -f libaio-CHECKSUMS ]]; then
     wget https://releases.pagure.org/libaio/CHECKSUMS -O libaio-CHECKSUMS
 fi
 cat libaio-CHECKSUMS | grep "SHA256 (libaio-$LIBAIO_VERSION.tar.gz)" | sha256sum -c
 # verify libevent
-if [ ! -f libevent-$LIBEVENT_VERSION.tar.gz.asc ]; then
+if [[ ! -f libevent-$LIBEVENT_VERSION.tar.gz.asc ]]; then
     wget https://github.com/libevent/libevent/releases/download/release-$LIBEVENT_VERSION/libevent-$LIBEVENT_VERSION.tar.gz.asc
 fi
-if false; then
-    $GPG --keyserver $KEYSERVER --recv-keys 0x9E3AC83A27974B84D1B3401DB86086848EF8686D
-    $GPG --verify libevent-$LIBEVENT_VERSION.tar.gz.asc libevent-$LIBEVENT_VERSION.tar.gz
-fi
+$GPG --keyserver $KEYSERVER --recv-keys 0x9E3AC83A27974B84D1B3401DB86086848EF8686D
+$GPG --verify libevent-$LIBEVENT_VERSION.tar.gz.asc libevent-$LIBEVENT_VERSION.tar.gz
+
 # verify libsodium
-if [ ! -f libsodium-$LIBSODIUM_VERSION.tar.gz.sig ]; then
+if [[ ! -f libsodium-$LIBSODIUM_VERSION.tar.gz.sig ]]; then
     curl https://download.libsodium.org/libsodium/releases/libsodium-$LIBSODIUM_VERSION.tar.gz.sig -o libsodium-$LIBSODIUM_VERSION.tar.gz.sig
 fi
-if false; then
-    $GPG --keyserver $KEYSERVER --recv-keys 0x0C7983A8FD9A104C623172CB62F25B592B6F76DA
-    $GPG --verify libsodium-$LIBSODIUM_VERSION.tar.gz.sig libsodium-$LIBSODIUM_VERSION.tar.gz
+$GPG --keyserver $KEYSERVER --recv-keys 0x0C7983A8FD9A104C623172CB62F25B592B6F76DA
+$GPG --verify libsodium-$LIBSODIUM_VERSION.tar.gz.sig libsodium-$LIBSODIUM_VERSION.tar.gz
+
+# verify libunwind
+if [[ ! -f libunwind-$LIBUNWIND_VERSION.tar.gz.asc ]]; then
+    wget https://github.com/libunwind/libunwind/releases/download/v$LIBUNWIND_VERSION/libunwind-$LIBUNWIND_VERSION.tar.gz.asc
 fi
-if false; then
-    # verify libunwind
-    if [ ! -f libunwind-$LIBUNWIND_VERSION.tar.gz.sig ]; then
-        wget https://github.com/libunwind/libunwind/releases/download/v$LIBUNWIND_VERSION/libunwind-$LIBUNWIND_VERSION.tar.gz.sig
-    fi
-    $GPG --keyserver $KEYSERVER --recv-keys 0x75D2CFC56CC2E935A4143297015A268A17D55FA4
-    $GPG --verify libunwind-$LIBUNWIND_VERSION.tar.gz.sig libunwind-$LIBUNWIND_VERSION.tar.gz
-fi
+$GPG --keyserver $KEYSERVER --recv-keys 0x75D2CFC56CC2E935A4143297015A268A17D55FA4
+$GPG --verify libunwind-$LIBUNWIND_VERSION.tar.gz.sig libunwind-$LIBUNWIND_VERSION.tar.gz
+
 # verify proxygen
 echo "$PROXYGEN_SHA256 proxygen-$FBLIBS_VERSION.tar.gz" | sha256sum -c
 # verify snappy
 echo "$SNAPPY_SHA256  snappy-$SNAPPY_VERSION.tar.gz" | sha256sum -c
 # verify xz
-if [ ! -f xz-$XZ_VERSION.tar.gz.sig ]; then
+if [[ ! -f xz-$XZ_VERSION.tar.gz.sig ]]; then
     wget https://tukaani.org/xz/xz-$XZ_VERSION.tar.gz.sig
 fi
-if false; then
-    $GPG --import ../xz_pgp.txt
-    $GPG --verify xz-$XZ_VERSION.tar.gz.sig xz-$XZ_VERSION.tar.gz
-fi
+$GPG --import ../xz_pgp.txt
+$GPG --verify xz-$XZ_VERSION.tar.gz.sig xz-$XZ_VERSION.tar.gz
+
 # verify zlib
-if [ ! -f zlib-$ZLIB_VERSION.tar.gz.asc ]; then
+if [[ ! -f zlib-$ZLIB_VERSION.tar.gz.asc ]]; then
     wget https://zlib.net/zlib-$ZLIB_VERSION.tar.gz.asc
 fi
-if false; then
-    $GPG --keyserver $KEYSERVER --recv-keys 0x783FCD8E58BCAFBA
-    $GPG --verify zlib-$ZLIB_VERSION.tar.gz.asc zlib-$ZLIB_VERSION.tar.gz
-fi
+$GPG --keyserver $KEYSERVER --recv-keys 0x783FCD8E58BCAFBA
+$GPG --verify zlib-$ZLIB_VERSION.tar.gz.asc zlib-$ZLIB_VERSION.tar.gz
+
 #verify zstd
-if [ ! -f zstd-$ZSTD_VERSION.tar.gz.sig ]; then
+if [[ ! -f zstd-$ZSTD_VERSION.tar.gz.sig ]]; then
     wget https://github.com/facebook/zstd/releases/download/v$ZSTD_VERSION/zstd-$ZSTD_VERSION.tar.gz.sig
 fi
-if false; then
-    $GPG --keyserver $KEYSERVER --recv-keys 0xEF8FE99528B52FFD
-    $GPG --verify zstd-$ZSTD_VERSION.tar.gz.sig zstd-$ZSTD_VERSION.tar.gz
-fi
+$GPG --keyserver $KEYSERVER --recv-keys 0xEF8FE99528B52FFD
+$GPG --verify zstd-$ZSTD_VERSION.tar.gz.sig zstd-$ZSTD_VERSION.tar.gz
+
 # verify wangle
 echo "$WANGLE_SHA256 wangle-$FBLIBS_VERSION.tar.gz" | sha256sum -c
 popd
 
 pushd build
 source $PREFIX/activate
-export PIP_BREAK_SYSTEM_PACKAGES=1
-pip install conan==2.17.1
+
 export CC=$PREFIX/bin/clang
 export CXX=$PREFIX/bin/clang++
 export CFLAGS="$CFLAGS -fPIC"
@@ -921,36 +924,36 @@ COMMON_CONFIGURE_FLAGS="--enable-shared=no --prefix=$PREFIX"
 COMMON_MAKE_INSTALL_FLAGS="-j$CPUS BUILD_SHARED=no PREFIX=$PREFIX install"
 
 log_tool_name "bzip2 $BZIP2_VERSION"
-if [ ! -f $PREFIX/include/bzlib.h ]; then
-    if [ -d bzip2-$BZIP2_VERSION ]; then
+if [[ ! -f "$PREFIX/include/bzlib.h" ]]; then
+    if [[ -d bzip2-$BZIP2_VERSION ]]; then
         rm -rf bzip2-$BZIP2_VERSION
     fi
     tar -xzf ../archives/bzip2-$BZIP2_VERSION.tar.gz
-    pushd bzip2-$BZIP2_VERSION
+    pushd "bzip2-$BZIP2_VERSION"
     # CentOS 9 build requires bzip to be built with -fPIC
     make $COMMON_MAKE_INSTALL_FLAGS CFLAGS="$CFLAGS"
     popd
 fi
 
 log_tool_name "xz $XZ_VERSION"
-if [ ! -f $PREFIX/include/lzma.h ]; then
-    if [ -d xz-$XZ_VERSION ]; then
+if [[ ! -f "$PREFIX/include/lzma.h" ]]; then
+    if [[ -d xz-$XZ_VERSION ]]; then
         rm -rf xz-$XZ_VERSION
     fi
     tar -xzf ../archives/xz-$XZ_VERSION.tar.gz
-    pushd xz-$XZ_VERSION
+    pushd "xz-$XZ_VERSION"
     ./configure $COMMON_CONFIGURE_FLAGS
     make -j$CPUS install
     popd
 fi
 
 log_tool_name "zlib $ZLIB_VERSION"
-if [ ! -f $PREFIX/include/zlib.h ]; then
-    if [ -d zlib-$ZLIB_VERSION ]; then
+if [[ ! -f "$PREFIX/include/zlib.h" ]]; then
+    if [[ -d zlib-$ZLIB_VERSION ]]; then
         rm -rf zlib-$ZLIB_VERSION
     fi
     tar -xzf ../archives/zlib-$ZLIB_VERSION.tar.gz
-    pushd zlib-$ZLIB_VERSION
+    pushd "zlib-$ZLIB_VERSION"
     mkdir build && pushd build
     cmake .. $COMMON_CMAKE_FLAGS
     make -j$CPUS install
@@ -959,12 +962,12 @@ if [ ! -f $PREFIX/include/zlib.h ]; then
 fi
 
 log_tool_name "zstd $ZSTD_VERSION"
-if [ ! -f $PREFIX/include/zstd.h ]; then
-    if [ -d zstd-$ZSTD_VERSION ]; then
+if [[ ! -f "$PREFIX/include/zstd.h" ]]; then
+    if [[ -d zstd-$ZSTD_VERSION ]]; then
         rm -rf zstd-$ZSTD_VERSION
     fi
     tar -xzf ../archives/zstd-$ZSTD_VERSION.tar.gz
-    pushd zstd-$ZSTD_VERSION
+    pushd "zstd-$ZSTD_VERSION"
     # build is used by facebook builder
     mkdir _build
     pushd _build
@@ -974,7 +977,7 @@ if [ ! -f $PREFIX/include/zstd.h ]; then
 fi
 
 log_tool_name "jmalloc $JEMALLOC_VERSION"
-if [ ! -d $PREFIX/include/jemalloc ]; then
+if [[ ! -d "$PREFIX/include/jemalloc" ]]; then
     if [ -d jemalloc ]; then
         rm -rf jemalloc
     fi
@@ -994,19 +997,19 @@ if [ ! -d $PREFIX/include/jemalloc ]; then
 fi
 
 log_tool_name "BOOST $BOOST_VERSION"
-if [ ! -d $PREFIX/include/boost ]; then
-    if [ -d boost_$BOOST_VERSION_UNDERSCORES ]; then
+if [[ ! -d "$PREFIX/include/boost" ]]; then
+    if [ -d "boost_$BOOST_VERSION_UNDERSCORES" ]; then
         rm -rf boost_$BOOST_VERSION_UNDERSCORES
     fi
     tar -xzf ../archives/boost_$BOOST_VERSION_UNDERSCORES.tar.gz
-    pushd boost_$BOOST_VERSION_UNDERSCORES
+    pushd "boost_$BOOST_VERSION_UNDERSCORES"
     # TODO(gitbuda): Figure out why --with-libraries=python doesn't work for protobuf
     ./bootstrap.sh --prefix=$PREFIX --with-toolset=clang --with-python=python3 --without-icu
-    if [ "$TOOLCHAIN_STDCXX" = "libstdc++" ]; then
+    if [[ "$TOOLCHAIN_STDCXX" = "libstdc++" ]]; then
         # For ARM64, don't use toolchain GCC headers to avoid missing bits/c++config.h issues
         # This matches the v6 approach which worked correctly
         # But exclude Debian 13 ARM as it needs the cxxflags for C++ standard library headers
-        if [[ "$for_arm" = true && ! "$DISTRO" = "debian-13" ]]; then
+        if [[ "$for_arm" = "true" && ! "$DISTRO" = "debian-13" ]]; then
             ./b2 toolset=clang -j$CPUS install variant=release link=static cxxstd=20 --disable-icu \
                 -sZLIB_SOURCE="$PREFIX" -sZLIB_INCLUDE="$PREFIX/include" -sZLIB_LIBPATH="$PREFIX/lib" \
                 -sBZIP2_SOURCE="$PREFIX" -sBZIP2_INCLUDE="$PREFIX/include" -sBZIP2_LIBPATH="$PREFIX/lib" \
@@ -1032,12 +1035,12 @@ if [ ! -d $PREFIX/include/boost ]; then
 fi
 
 log_tool_name "double-conversion $DOUBLE_CONVERSION_VERSION"
-if [ ! -d $PREFIX/include/double-conversion ]; then
-    if [ -d double-conversion-$DOUBLE_CONVERSION_VERSION ]; then
-        rm -rf double-conversion-$DOUBLE_CONVERSION_VERSION
+if [[ ! -d "$PREFIX/include/double-conversion" ]]; then
+    if [[ -d "double-conversion-$DOUBLE_CONVERSION_VERSION" ]]; then
+        rm -rf "double-conversion-$DOUBLE_CONVERSION_VERSION"
     fi
     tar -xzf ../archives/double-conversion-$DOUBLE_CONVERSION_VERSION.tar.gz
-    pushd double-conversion-$DOUBLE_CONVERSION_VERSION
+    pushd "double-conversion-$DOUBLE_CONVERSION_VERSION"
     # build is used by facebook builder
     mkdir build
     pushd build
@@ -1048,8 +1051,8 @@ fi
 
 # NOTE: we have an 8 year old fork, can this be replaced with a newer version?
 log_tool_name "gflags (memgraph fork $GFLAGS_COMMIT_HASH)"
-if [ ! -d $PREFIX/include/gflags ]; then
-    if [ -d gflags ]; then
+if [[ ! -d "$PREFIX/include/gflags" ]]; then
+    if [[ -d gflags ]]; then
         rm -rf gflags
     fi
     git clone https://github.com/memgraph/gflags.git gflags
@@ -1067,12 +1070,12 @@ if [ ! -d $PREFIX/include/gflags ]; then
 fi
 
 log_tool_name "libunwind $LIBUNWIND_VERSION"
-if [ ! -f $PREFIX/include/libunwind.h ]; then
-    if [ -d libunwind-$LIBUNWIND_VERSION ]; then
+if [[ ! -f "$PREFIX/include/libunwind.h" ]]; then
+    if [[ -d "libunwind-$LIBUNWIND_VERSION" ]]; then
         rm -rf libunwind-$LIBUNWIND_VERSION
     fi
     tar -xzf ../archives/libunwind-$LIBUNWIND_VERSION.tar.gz
-    pushd libunwind-$LIBUNWIND_VERSION
+    pushd "libunwind-$LIBUNWIND_VERSION"
     ./configure $COMMON_CONFIGURE_FLAGS \
         --disable-minidebuginfo # disable LZMA usage to not depend on libLZMA
     make -j$CPUS install
@@ -1081,12 +1084,12 @@ fi
 
 # NOTE: this tool has been archived (Jun 2025) - does it need replacing?
 log_tool_name "glog $GLOG_VERSION"
-if [ ! -d $PREFIX/include/glog ]; then
-    if [ -d glog-$GLOG_VERSION ]; then
+if [[ ! -d "$PREFIX/include/glog" ]]; then
+    if [[ -d "glog-$GLOG_VERSION" ]]; then
         rm -rf glog-$GLOG_VERSION
     fi
     tar -xzf ../archives/glog-$GLOG_VERSION.tar.gz
-    pushd glog-$GLOG_VERSION
+    pushd "glog-$GLOG_VERSION"
     mkdir build
     pushd build
     cmake .. $COMMON_CMAKE_FLAGS -DGFLAGS_NOTHREADS=OFF -DCMAKE_POLICY_VERSION_MINIMUM=3.5
@@ -1096,12 +1099,12 @@ fi
 
 # NOTE: this tool has not been updated since 2020 - is there a replacement?
 log_tool_name "libevent $LIBEVENT_VERSION"
-if [ ! -d $PREFIX/include/event2 ]; then
-    if [ -d libevent-$LIBEVENT_VERSION ]; then
+if [[ ! -d "$PREFIX/include/event2" ]]; then
+    if [[ -d "libevent-$LIBEVENT_VERSION" ]]; then
         rm -rf libevent-$LIBEVENT_VERSION
     fi
     tar -xzf ../archives/libevent-$LIBEVENT_VERSION.tar.gz
-    pushd libevent-$LIBEVENT_VERSION
+    pushd "libevent-$LIBEVENT_VERSION"
     mkdir build
     pushd build
     cmake .. $COMMON_CMAKE_FLAGS \
@@ -1116,12 +1119,12 @@ if [ ! -d $PREFIX/include/event2 ]; then
 fi
 
 log_tool_name "snappy $SNAPPY_VERSION"
-if [ ! -f $PREFIX/include/snappy.h ]; then
-    if [ -d snappy-$SNAPPY_VERSION ]; then
+if [[ ! -f "$PREFIX/include/snappy.h" ]]; then
+    if [[ -d "snappy-$SNAPPY_VERSION" ]]; then
         rm -rf snappy-$SNAPPY_VERSION
     fi
     tar -xzf ../archives/snappy-$SNAPPY_VERSION.tar.gz
-    pushd snappy-$SNAPPY_VERSION
+    pushd "snappy-$SNAPPY_VERSION"
     patch -p1 <  $DIR/snappy.patch
     mkdir build
     pushd build
@@ -1134,32 +1137,32 @@ if [ ! -f $PREFIX/include/snappy.h ]; then
 fi
 
 log_tool_name "libsodium $LIBSODIUM_VERSION"
-if [ ! -f $PREFIX/include/sodium.h ]; then
-    if [ -d libsodium-$LIBSODIUM_VERSION ]; then
+if [[ ! -f "$PREFIX/include/sodium.h" ]]; then
+    if [[ -d "libsodium-$LIBSODIUM_VERSION" ]]; then
         rm -rf libsodium-$LIBSODIUM_VERSION
     fi
     tar -xzf ../archives/libsodium-$LIBSODIUM_VERSION.tar.gz
-    pushd libsodium-$LIBSODIUM_VERSION
+    pushd "libsodium-$LIBSODIUM_VERSION"
     ./configure $COMMON_CONFIGURE_FLAGS
     make -j$CPUS install
     popd
 fi
 
 log_tool_name "libaio $LIBAIO_VERSION"
-if [ ! -f $PREFIX/include/libaio.h ]; then
-    if [ -d libaio-$LIBAIO_VERSION ]; then
+if [[ ! -f "$PREFIX/include/libaio.h" ]]; then
+    if [[ -d "libaio-$LIBAIO_VERSION" ]]; then
         rm -rf libaio-$LIBAIO_VERSION
     fi
     tar -xzf ../archives/libaio-$LIBAIO_VERSION.tar.gz
-    pushd libaio-$LIBAIO_VERSION
+    pushd "libaio-$LIBAIO_VERSION"
     make prefix=$PREFIX ENABLE_SHARED=0 -j$CPUS install
     popd
 fi
 
 ROCKSDB_TAG="v8.1.1"
 log_tool_name "rocksdb $ROCKSDB_TAG"
-if [ ! -f $PREFIX/lib/librocksdb.a ]; then
-    if [ -d rocksdb ]; then
+if [[ ! -f "$PREFIX/lib/librocksdb.a" ]]; then
+    if [[ -d rocksdb ]]; then
         rm -rf rocksdb
     fi
     git clone https://github.com/facebook/rocksdb.git rocksdb
@@ -1184,8 +1187,8 @@ fi
 
 NURAFT_COMMIT_HASH="4b148a7e76291898c838a7457eeda2b16f7317ea"
 log_tool_name "nuraft $NURAFT_COMMIT_HASH"
-if [ ! -f $PREFIX/lib/libnuraft.a ]; then
-    if [ -d nuraft ]; then
+if [[ ! -f "$PREFIX/lib/libnuraft.a" ]]; then
+    if [[ -d nuraft ]]; then
         rm -rf nuraft
     fi
     git clone https://github.com/eBay/NuRaft.git nuraft
@@ -1202,8 +1205,8 @@ fi
 
 PROTOBUF_TAG="v3.12.4"
 log_tool_name "protobuf $PROTOBUF_TAG"
-if [ ! -f $PREFIX/lib/libprotobuf.a ]; then
-    if [ -d protobuf ]; then
+if [[ ! -f "$PREFIX/lib/libprotobuf.a" ]]; then
+    if [[ -d protobuf ]]; then
         rm -rf protobuf
     fi
     git clone https://github.com/protocolbuffers/protobuf.git protobuf
@@ -1218,7 +1221,7 @@ fi
 if [[ "$DISTRO" =~ ^(rocky-|centos-|fedora-) ]]; then
     OPENSSL_TAG="openssl-3.5.2"
     log_tool_name "openssl $OPENSSL_TAG"
-    if [ ! -f $PREFIX/lib64/libssl.a ] || [ ! -f $PREFIX/lib64/libcrypto.a ]; then
+    if [[ ! -f "$PREFIX/lib64/libssl.a" ]] || [[ ! -f "$PREFIX/lib64/libcrypto.a" ]]; then
         if [ -d openssl ]; then
             rm -rf openssl
         fi
@@ -1244,8 +1247,8 @@ fi
 if [[ "$DISTRO" =~ ^(rocky-|centos-|fedora-|debian-) ]]; then
     CURL_TAG="curl-8_15_0"
     log_tool_name "curl $CURL_TAG"
-    if [ ! -f $PREFIX/lib/libcurl.a ]; then
-        if [ -d curl ]; then
+    if [[ ! -f "$PREFIX/lib/libcurl.a" ]]; then
+        if [[ -d curl ]]; then
             rm -rf curl
         fi
         git clone https://github.com/curl/curl.git curl
@@ -1266,8 +1269,8 @@ fi
 
 PULSAR_TAG="v3.7.1"
 log_tool_name "pulsar $PULSAR_TAG"
-if [ ! -f $PREFIX/lib/libpulsarwithdeps.a ]; then
-    if [ -d pulsar ]; then
+if [[ ! -f "$PREFIX/lib/libpulsarwithdeps.a" ]]; then
+    if [[ -d pulsar ]]; then
         rm -rf pulsar
     fi
     git clone https://github.com/apache/pulsar-client-cpp.git pulsar
@@ -1314,12 +1317,12 @@ KAFKA_TAG="v2.6.1"
 # NOTE: The lib doesn't compile because of SSL, in the future try to use the
 # same version on all operating systems this was an exception to rollout
 # toolchain-v6 on time.
-if [ "$DISTRO" == "centos-10" ]; then
+if [[ "$DISTRO" == "centos-10" ]]; then
     KAFKA_TAG="v2.8.0"
 fi
 log_tool_name "kafka $KAFKA_TAG"
-if [ ! -f $PREFIX/lib/librdkafka++.a ]; then
-    if [ -d kafka ]; then
+if [[ ! -f "$PREFIX/lib/librdkafka++.a" ]]; then
+    if [[ -d kafka ]]; then
         rm -rf kafka
     fi
     git clone https://github.com/confluentinc/librdkafka.git kafka
@@ -1340,8 +1343,8 @@ fi
 
 LIBBCRYPT_TAG="8aa32ad94ebe06b76853b0767c910c9fbf7ccef4"
 log_tool_name "libbcrypt $LIBBCRYPT_TAG"
-if [ ! -f $PREFIX/lib/bcrypt.a ]; then
-    if [ -d libbcrypt ]; then
+if [[ ! -f "$PREFIX/lib/bcrypt.a" ]]; then
+    if [[ -d libbcrypt ]]; then
         rm -rf libbcrypt
     fi
     git clone https://github.com/rg3/libbcrypt
@@ -1358,8 +1361,8 @@ fi
 
 MGCONSOLE_TAG="v1.4.0"
 log_tool_name "mgconsole $MGCONSOLE_TAG"
-if [ ! -f $PREFIX/bin/mgconsole ]; then
-    if [ -d mgconsole ]; then
+if [[ ! -f "$PREFIX/bin/mgconsole" ]]; then
+    if [[ -d mgconsole ]]; then
       rm -rf mgconsole
     fi
     git clone https://github.com/memgraph/mgconsole.git mgconsole
@@ -1373,8 +1376,8 @@ fi
 
 LIBRDTSC_TAG="v0.3"
 log_tool_name "librdtsc $LIBRDTSC_TAG"
-if [ ! -f $PREFIX/lib/librdtsc.a ]; then
-    if [ -d librdtsc ]; then
+if [[ ! -f "$PREFIX/lib/librdtsc.a" ]]; then
+    if [[ -d librdtsc ]]; then
       rm -rf librdtsc
     fi
     git clone https://github.com/gabrieleara/librdtsc.git librdtsc
@@ -1395,8 +1398,8 @@ fi
 #   * newer versions don't work with OpenSSL 1.0 which is critical for CentOS7
 if false; then
   log_tool_name "folly $FBLIBS_VERSION"
-  if [ ! -d $PREFIX/include/folly ]; then
-      if [ -d folly-$FBLIBS_VERSION ]; then
+  if [[ ! -d "$PREFIX/include/folly" ]]; then
+      if [[ -d folly-$FBLIBS_VERSION ]]; then
           rm -rf folly-$FBLIBS_VERSION
       fi
       cp -r ../archives/folly-$FBLIBS_VERSION ./folly-$FBLIBS_VERSION
@@ -1415,8 +1418,8 @@ if false; then
   fi
 
   log_tool_name "fizz $FBLIBS_VERSION"
-  if [ ! -d $PREFIX/include/fizz ]; then
-      if [ -d fizz-$FBLIBS_VERSION ]; then
+  if [[ ! -d "$PREFIX/include/fizz" ]]; then
+      if [[ -d fizz-$FBLIBS_VERSION ]]; then
           rm -rf fizz-$FBLIBS_VERSION
       fi
       mkdir fizz-$FBLIBS_VERSION
@@ -1434,8 +1437,8 @@ if false; then
   fi
 
   log_tool_name "wangle FBLIBS_VERSION"
-  if [ ! -d $PREFIX/include/wangle ]; then
-      if [ -d wangle-$FBLIBS_VERSION ]; then
+  if [[ ! -d "$PREFIX/include/wangle" ]]; then
+      if [[ -d wangle-$FBLIBS_VERSION ]]; then
           rm -rf wangle-$FBLIBS_VERSION
       fi
       mkdir wangle-$FBLIBS_VERSION
@@ -1453,8 +1456,8 @@ if false; then
   fi
 
   log_tool_name "proxygen $FBLIBS_VERSION"
-  if [ ! -d $PREFIX/include/proxygen ]; then
-      if [ -d proxygen-$FBLIBS_VERSION ]; then
+  if [[ ! -d "$PREFIX/include/proxygen" ]]; then
+      if [[ -d proxygen-$FBLIBS_VERSION ]]; then
           rm -rf proxygen-$FBLIBS_VERSION
       fi
       mkdir proxygen-$FBLIBS_VERSION
@@ -1473,8 +1476,8 @@ if false; then
   fi
 
   log_tool_name "fbthrift $FBLIBS_VERSION"
-  if [ ! -d $PREFIX/include/thrift ]; then
-      if [ -d fbthrift-$FBLIBS_VERSION ]; then
+  if [[ ! -d "$PREFIX/include/thrift" ]]; then
+      if [[ -d fbthrift-$FBLIBS_VERSION ]]; then
           rm -rf fbthrift-$FBLIBS_VERSION
       fi
       git clone --depth 1 --branch v$FBLIBS_VERSION https://github.com/facebook/fbthrift.git fbthrift-$FBLIBS_VERSION
@@ -1506,8 +1509,8 @@ cp -v $DIR/toolchain.cmake $PREFIX/
 mkdir -p output
 pushd output
 # Create the toolchain archive.
-if [ ! -f $NAME-binaries-$DISTRO_FULL_NAME.tar.gz ]; then
-    tar --owner=root --group=root -cpvzf $NAME-binaries-$DISTRO_FULL_NAME.tar.gz -C /opt $NAME
+if [[ ! -f "$NAME-binaries-$DISTRO_FULL_NAME.tar.gz" ]]; then
+    tar --owner=root --group=root -cpvzf "$NAME-binaries-$DISTRO_FULL_NAME.tar.gz" -C /opt $NAME
 else
   echo "NOTE: Skipping archiving because the file already exists"
 fi

@@ -17,6 +17,8 @@ class Memgraph(ConanFile):
 
     exports_sources = "CMakeLists.txt", "src/*"
 
+    # TODO(matt): remove this hack so that builds end up in the subdirectory named after the build type
+    # This will require fixing a bunch of the hard-coded paths in the testing code.
     def layout(self):
         # Custom layout to put everything in build/ instead of build/Release or build/RelWithDebInfo
         self.folders.build = "build"
