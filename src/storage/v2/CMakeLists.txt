@@ -127,6 +127,7 @@ target_sources(mg-storage-v2
         ttl.hpp
         vertex_info_cache.hpp
         vertex_info_cache_fwd.hpp
+        delta_action.hpp
 )
 
 find_package(gflags REQUIRED)
