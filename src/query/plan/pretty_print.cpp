@@ -23,6 +23,132 @@ namespace rv = r::views;
 
 namespace memgraph::query::plan {
 
+namespace impl {
+
+std::string ToString(EdgeAtom::Direction dir);
+
+std::string ToString(EdgeAtom::Type type);
+
+std::string ToString(Ordering ord);
+
+nlohmann::json ToJson(Expression *expression, const DbAccessor &dba);
+
+nlohmann::json ToJson(const utils::Bound<Expression *> &bound, const DbAccessor &dba);
+
+nlohmann::json ToJson(const Symbol &symbol);
+
+nlohmann::json ToJson(storage::EdgeTypeId edge_type, const DbAccessor &dba);
+
+nlohmann::json ToJson(storage::LabelId label, const DbAccessor &dba);
+
+nlohmann::json ToJson(storage::PropertyId property, const DbAccessor &dba);
+
+nlohmann::json ToJson(storage::PropertyPath path, const DbAccessor &dba);
+
+nlohmann::json ToJson(NamedExpression *nexpr, const DbAccessor &dba);
+
+nlohmann::json ToJson(const std::vector<std::pair<storage::PropertyId, Expression *>> &properties,
+                      const DbAccessor &dba);
+
+nlohmann::json ToJson(const NodeCreationInfo &node_info, const DbAccessor &dba);
+
+nlohmann::json ToJson(const EdgeCreationInfo &edge_info, const DbAccessor &dba);
+
+nlohmann::json ToJson(const Aggregate::Element &elem, const DbAccessor &dba);
+
+nlohmann::json ToJson(const ExpressionRange &expression_range, const DbAccessor &dba);
+
+template <class T, class... Args>
+nlohmann::json ToJson(const std::vector<T> &items, Args &&...args) {
+  nlohmann::json json;
+  for (const auto &item : items) {
+    json.emplace_back(ToJson(item, std::forward<Args>(args)...));
+  }
+  return json;
+}
+
+struct PlanToJsonVisitor final : virtual HierarchicalLogicalOperatorVisitor {
+  explicit PlanToJsonVisitor(const DbAccessor *dba) : dba_(dba) {}
+
+  using HierarchicalLogicalOperatorVisitor::PostVisit;
+  using HierarchicalLogicalOperatorVisitor::PreVisit;
+  using HierarchicalLogicalOperatorVisitor::Visit;
+
+  bool PreVisit(CreateNode &) override;
+  bool PreVisit(CreateExpand &) override;
+  bool PreVisit(Delete &) override;
+
+  bool PreVisit(SetProperty &) override;
+  bool PreVisit(SetProperties &) override;
+  bool PreVisit(SetLabels &) override;
+
+  bool PreVisit(RemoveProperty &) override;
+  bool PreVisit(RemoveLabels &) override;
+
+  bool PreVisit(Expand &) override;
+  bool PreVisit(ExpandVariable &) override;
+
+  bool PreVisit(ConstructNamedPath &) override;
+
+  bool PreVisit(Merge &) override;
+  bool PreVisit(Optional &) override;
+
+  bool PreVisit(Filter &) override;
+  bool PreVisit(EvaluatePatternFilter & /*op*/) override;
+  bool PreVisit(EdgeUniquenessFilter &) override;
+  bool PreVisit(Cartesian &) override;
+  bool PreVisit(Apply & /*unused*/) override;
+  bool PreVisit(HashJoin &) override;
+  bool PreVisit(IndexedJoin & /*unused*/) override;
+
+  bool PreVisit(ScanAll &) override;
+  bool PreVisit(ScanAllByLabel &) override;
+  bool PreVisit(ScanAllByLabelProperties &) override;
+  bool PreVisit(ScanAllById &) override;
+
+  bool PreVisit(ScanAllByEdge &) override;
+  bool PreVisit(ScanAllByEdgeType &) override;
+  bool PreVisit(ScanAllByEdgeTypeProperty &) override;
+  bool PreVisit(ScanAllByEdgeTypePropertyValue &) override;
+  bool PreVisit(ScanAllByEdgeTypePropertyRange &) override;
+  bool PreVisit(ScanAllByEdgeProperty &) override;
+  bool PreVisit(ScanAllByEdgePropertyValue &) override;
+  bool PreVisit(ScanAllByEdgePropertyRange &) override;
+  bool PreVisit(ScanAllByEdgeId &) override;
+
+  bool PreVisit(EmptyResult &) override;
+  bool PreVisit(Produce &) override;
+  bool PreVisit(Accumulate &) override;
+  bool PreVisit(Aggregate &) override;
+  bool PreVisit(Skip &) override;
+  bool PreVisit(Limit &) override;
+  bool PreVisit(OrderBy &) override;
+  bool PreVisit(Distinct &) override;
+  bool PreVisit(Union &) override;
+
+  bool PreVisit(Unwind &) override;
+  bool PreVisit(Foreach &) override;
+  bool PreVisit(CallProcedure &) override;
+  bool PreVisit(LoadCsv &) override;
+  bool PreVisit(RollUpApply &) override;
+  bool PreVisit(PeriodicCommit &) override;
+  bool PreVisit(PeriodicSubquery &) override;
+  bool PreVisit(SetNestedProperty &) override;
+  bool PreVisit(RemoveNestedProperty &) override;
+
+  bool Visit(Once &) override;
+
+  nlohmann::json output() { return output_; }
+
+ protected:
+  nlohmann::json output_;
+  const DbAccessor *dba_;
+
+  nlohmann::json PopOutput();
+};
+
+}  // namespace impl
+
 PlanPrinter::PlanPrinter(const DbAccessor *dba, std::ostream *out) : dba_(dba), out_(out) {}
 
 #define PRE_VISIT(TOp)                                   \
@@ -533,6 +659,12 @@ bool PlanToJsonVisitor::Visit(Once &) {
 
   output_ = std::move(self);
   return false;
+}
+
+nlohmann::json PlanToJsonVisitor::PopOutput() {
+  nlohmann::json tmp;
+  tmp.swap(output_);
+  return tmp;
 }
 
 bool PlanToJsonVisitor::PreVisit(ScanAll &op) {
