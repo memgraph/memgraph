@@ -62,6 +62,7 @@
 #include "query/dependant_symbol_visitor.hpp"
 #include "query/dump.hpp"
 #include "query/exceptions.hpp"
+#include "query/frame_change_caching.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query/frontend/ast/ast_visitor.hpp"
 #include "query/frontend/opencypher/parser.hpp"
@@ -2776,32 +2777,6 @@ PreparedQuery Interpreter::PrepareTransactionQuery(Interpreter::TransactionQuery
           RWType::NONE};
 }
 
-inline static void TryCaching(const AstStorage &ast_storage, FrameChangeCollector *frame_change_collector) {
-  if (!frame_change_collector) return;
-  for (const auto &tree : ast_storage.storage_) {
-    if (tree->GetTypeInfo() != memgraph::query::InListOperator::kType) {
-      continue;
-    }
-    auto *in_list_operator = utils::Downcast<InListOperator>(tree.get());
-    const auto cached_id = memgraph::utils::GetFrameChangeId(*in_list_operator);
-    if (!cached_id) {
-      continue;
-    }
-
-    auto dependencies = std::set<Symbol::Position_t>{};
-    auto visitor = DependantSymbolVisitor(dependencies);
-    in_list_operator->expression2_->Accept(visitor);
-    if (visitor.is_cacheable()) [[likely]] {
-      // This InListOperator can be processed into a set and cached
-      frame_change_collector->AddInListKey(*cached_id);
-      // If any dependency changes then the cache must be invalidated
-      for (auto const symbol_pos : dependencies) {
-        frame_change_collector->AddInListInvalidator(*cached_id, symbol_pos);
-      }
-    }
-  }
-}
-
 PreparedQuery PrepareCypherQuery(
     ParsedQuery parsed_query, std::map<std::string, TypedValue> *summary, InterpreterContext *interpreter_context,
     CurrentDB &current_db, utils::MemoryResource *execution_memory, std::vector<Notification> *notifications,
@@ -2862,7 +2837,7 @@ PreparedQuery PrepareCypherQuery(
     interpreter.LogQueryMessage(fmt::format("Explain plan:\n{}", printed_plan.str()));
   }
 
-  TryCaching(plan->ast_storage(), frame_change_collector);
+  PrepareInListCaching(plan->ast_storage(), frame_change_collector);
   summary->insert_or_assign("cost_estimate", plan->cost());
   interpreter.LogQueryMessage(fmt::format("Plan cost: {}", plan->cost()));
   bool is_profile_query = false;
@@ -3030,7 +3005,7 @@ PreparedQuery PrepareProfileQuery(
   auto cypher_query_plan =
       CypherQueryToPlan(parsed_inner_query.stripped_query, std::move(parsed_inner_query.ast_storage), cypher_query,
                         parsed_inner_query.parameters, plan_cache, dba);
-  TryCaching(cypher_query_plan->ast_storage(), frame_change_collector);
+  PrepareInListCaching(cypher_query_plan->ast_storage(), frame_change_collector);
 
   auto hints = plan::ProvidePlanHints(&cypher_query_plan->plan(), cypher_query_plan->symbol_table());
   for (const auto &hint : hints) {
