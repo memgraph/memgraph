@@ -50,7 +50,6 @@ memgraphCypherKeyword : cypherKeyword
                       | CONSUMER_GROUP
                       | CONTAINING
                       | COORDINATOR
-                      | CREATE_DELETE
                       | CREDENTIALS
                       | CSV
                       | CURRENT
@@ -497,7 +496,7 @@ privilege : CREATE
           | PROFILE_RESTRICTION
           ;
 
-granularPrivilege : NOTHING | READ | UPDATE | CREATE_DELETE | CREATE | DELETE ;
+granularPrivilege : NOTHING | READ | UPDATE | CREATE | DELETE ;
 
 entityType : LABELS | EDGE_TYPES ;
 

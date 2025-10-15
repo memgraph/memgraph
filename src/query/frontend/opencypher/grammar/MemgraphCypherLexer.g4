@@ -51,7 +51,6 @@ CONFIGS                 : C O N F I G S;
 CONSUMER_GROUP          : C O N S U M E R UNDERSCORE G R O U P ;
 CONTAINING              : C O N T A I N I N G ;
 COORDINATOR             : C O O R D I N A T O R ;
-CREATE_DELETE           : C R E A T E UNDERSCORE D E L E T E ;
 CREDENTIALS             : C R E D E N T I A L S ;
 CSV                     : C S V ;
 CURRENT                 : C U R R E N T ;
