@@ -64,6 +64,13 @@ class SyntaxException : public QueryException {
   SPECIALIZE_GET_EXCEPTION_NAME(SyntaxException)
 };
 
+class NotImplementedException : public QueryException {
+ public:
+  using QueryException::QueryException;
+  NotImplementedException() : QueryException("") {}
+  SPECIALIZE_GET_EXCEPTION_NAME(NotImplementedException)
+};
+
 // TODO: Figure out what information to put in exception.
 // Error reporting is tricky since we get stripped query and position of error
 // in original query is not same as position of error in stripped query. Most
