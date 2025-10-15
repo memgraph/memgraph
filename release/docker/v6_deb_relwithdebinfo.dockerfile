@@ -31,9 +31,8 @@ RUN pip3 install --break-system-packages --no-cache-dir numpy==1.26.4 scipy==1.1
 RUN groupadd -g 103 memgraph && \
   useradd -u 101 -g memgraph -m -d /home/memgraph -s /bin/bash memgraph
 
-# build and install heaptrack
-COPY build-heaptrack.sh /build-heaptrack.sh
-RUN chmod +x /build-heaptrack.sh && /build-heaptrack.sh && rm /build-heaptrack.sh
+COPY build/heaptrack /tmp/heaptrack
+RUN cp -r /tmp/heaptrack/* /usr/ && rm -rf /tmp/heaptrack
 
 COPY "${SOURCE_CODE}" /home/mg/memgraph/src
 

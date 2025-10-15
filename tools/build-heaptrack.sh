@@ -1,6 +1,5 @@
 #!/bin/bash
 set -e  # Exit on any error
-source /opt/toolchain-v6/activate
 
 # Clean up existing directories if they exist
 if [ -d "heaptrack" ]; then

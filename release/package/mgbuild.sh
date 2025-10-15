@@ -922,6 +922,32 @@ test_memgraph() {
 }
 
 
+build_heaptrack() {
+  local ACTIVATE_TOOLCHAIN="source /opt/toolchain-${toolchain_version}/activate"
+  docker exec -it -u root $build_container bash -c "apt-get update && apt-get install -y libdw-dev"
+  docker exec -it -u root $build_container bash -c "mkdir -p /tmp/heaptrack && chown mg:mg /tmp/heaptrack"
+
+  docker cp tools/build-heaptrack.sh $build_container:$MGBUILD_HOME_DIR/build-heaptrack.sh
+  docker exec -u mg $build_container bash -c "$ACTIVATE_TOOLCHAIN && cd $MGBUILD_HOME_DIR && ./build-heaptrack.sh"
+}
+
+copy_heaptrack() {
+  local dest_dir="release/docker"
+  while [[ $# -gt 0 ]]; do
+    case "$1" in
+      --dest-dir)
+        dest_dir=$2
+        shift 2
+      ;;
+      *)
+        echo "Error: Unknown flag '$1'"
+        print_help
+        exit 1
+    esac
+  done
+  docker cp $build_container:/tmp/heaptrack/ $dest_dir
+}
+
 ##################################################
 ################### PARSE ARGS ###################
 ##################################################
@@ -1263,6 +1289,12 @@ case $command in
     ;;
     package-docker)
       package_docker $@
+    ;;
+    build-heaptrack)
+      build_heaptrack $@
+    ;;
+    copy-heaptrack)
+      copy_heaptrack $@
     ;;
     *)
         echo "Error: Unknown command '$command'"

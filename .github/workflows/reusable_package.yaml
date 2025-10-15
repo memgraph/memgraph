@@ -149,6 +149,26 @@ jobs:
           --package \
           --dest-dir ${{ env.PACKAGE_ARTIFACT_DIR }}
 
+      - name: "Build heaptrack"
+        if: ${{ inputs.build_type == 'RelWithDebInfo' }}
+        run: |
+          ./release/package/mgbuild.sh \
+          --toolchain ${{ inputs.toolchain }} \
+          --os ${{ inputs.os }} \
+          --arch ${{ inputs.arch }} \
+          build-heaptrack
+
+      - name: "Copy heaptrack"
+        if: ${{ inputs.build_type == 'RelWithDebInfo' }}
+        run: |
+          mkdir -p release/docker
+          ./release/package/mgbuild.sh \
+          --toolchain ${{ inputs.toolchain }} \
+          --os ${{ inputs.os }} \
+          --arch ${{ inputs.arch }} \
+          copy-heaptrack
+          --dest-dir "$(pwd)/release/docker"
+
       - name: "Stop mgbuild container"
         if: always()
         run: |
@@ -234,6 +254,12 @@ jobs:
           AWS_REGION: ${{ inputs.s3_region }}
           SOURCE_DIR: ${{ env.FOR_DOCKER == 'true' && env.DOCKER_ARTIFACT_DIR || env.PACKAGE_ARTIFACT_DIR }}
           DEST_DIR: "${{ inputs.s3_dest_dir }}/${{ env.ARTIFACT_NAME }}/"
+
+      - name: Clean up heaptrack
+        if: ${{ inputs.build_type == 'RelWithDebInfo' }}
+        run: |
+          rm -rf release/docker/heaptrack
+
 
       - name: "Clean up Docker"
         if: always()
