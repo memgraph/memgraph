@@ -411,11 +411,13 @@ constexpr utils::TypeInfo query::UserProfileQuery::kType{utils::TypeId::AST_USER
 namespace query {
 DEFINE_VISITABLE(Identifier, ExpressionVisitor<TypedValue>);
 DEFINE_VISITABLE(Identifier, ExpressionVisitor<TypedValue *>);
+DEFINE_VISITABLE(Identifier, ExpressionVisitor<TypedValue const *>);
 DEFINE_VISITABLE(Identifier, ExpressionVisitor<void>);
 DEFINE_VISITABLE(Identifier, HierarchicalTreeVisitor);
 
 DEFINE_VISITABLE(NamedExpression, ExpressionVisitor<TypedValue>);
 DEFINE_VISITABLE(NamedExpression, ExpressionVisitor<TypedValue *>);
+DEFINE_VISITABLE(NamedExpression, ExpressionVisitor<TypedValue const *>);
 DEFINE_VISITABLE(NamedExpression, ExpressionVisitor<void>);
 bool NamedExpression::Accept(HierarchicalTreeVisitor &visitor) {
   if (visitor.PreVisit(*this)) {
@@ -426,6 +428,7 @@ bool NamedExpression::Accept(HierarchicalTreeVisitor &visitor) {
 
 DEFINE_VISITABLE(Exists, ExpressionVisitor<TypedValue>);
 DEFINE_VISITABLE(Exists, ExpressionVisitor<TypedValue *>);
+DEFINE_VISITABLE(Exists, ExpressionVisitor<TypedValue const *>);
 DEFINE_VISITABLE(Exists, ExpressionVisitor<void>);
 bool Exists::Accept(HierarchicalTreeVisitor &visitor) {
   if (visitor.PreVisit(*this)) {
@@ -440,6 +443,7 @@ bool Exists::Accept(HierarchicalTreeVisitor &visitor) {
 
 DEFINE_VISITABLE(PatternComprehension, ExpressionVisitor<TypedValue>);
 DEFINE_VISITABLE(PatternComprehension, ExpressionVisitor<TypedValue *>);
+DEFINE_VISITABLE(PatternComprehension, ExpressionVisitor<TypedValue const *>);
 DEFINE_VISITABLE(PatternComprehension, ExpressionVisitor<void>);
 bool PatternComprehension::Accept(HierarchicalTreeVisitor &visitor) {
   if (visitor.PreVisit(*this)) {
@@ -456,6 +460,7 @@ bool PatternComprehension::Accept(HierarchicalTreeVisitor &visitor) {
 }
 
 DEFINE_VISITABLE(Aggregation, ExpressionVisitor<TypedValue>);
+DEFINE_VISITABLE(Aggregation, ExpressionVisitor<TypedValue const *>);
 DEFINE_VISITABLE(Aggregation, ExpressionVisitor<TypedValue *>);
 DEFINE_VISITABLE(Aggregation, ExpressionVisitor<void>);
 

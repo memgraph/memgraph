@@ -396,8 +396,8 @@ class ReturnBodyContext : public HierarchicalTreeVisitor {
 #undef VISIT_BINARY_OPERATOR
 
   bool PostVisit(RangeOperator &op) override {
-    bool res = op.expr1_->Accept(*this);
-    res |= op.expr2_->Accept(*this);
+    bool res = op.expression1_->Accept(*this);
+    res |= op.expression2_->Accept(*this);
     return res;
   }
 
