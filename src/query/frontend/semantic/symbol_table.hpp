@@ -68,7 +68,7 @@ class SymbolTable final {
   const auto &table() const { return table_; }
 
   int32_t position_{0};
-  absl::flat_hash_map<int32_t, Symbol> table_;
+  std::map<int32_t, Symbol> table_;
 };
 
 }  // namespace memgraph::query
