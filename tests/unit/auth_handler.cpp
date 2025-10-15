@@ -34,6 +34,8 @@
 #include "utils/rw_lock.hpp"
 #include "utils/synchronized.hpp"
 
+#include <nlohmann/json.hpp>
+
 class AuthQueryHandlerFixture : public testing::Test {
  protected:
   std::filesystem::path test_folder_{std::filesystem::temp_directory_path() / "MG_tests_unit_auth_handler"};
