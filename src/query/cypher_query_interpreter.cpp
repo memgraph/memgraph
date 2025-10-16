@@ -158,7 +158,14 @@ std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery
   auto symbol_table = MakeSymbolTable(query, predefined_identifiers);
 
   auto [root, cost] = std::invoke([&] {
+    // TODO: this is problem multi tenant queries (ATM we assume a single active database for whole query)
+    auto vertex_counts = plan::VertexCountCache(db_accessor);
+
     if (flags::AreExperimentsEnabled(flags::Experiments::PLANNER_V2)) {
+      // query -> EGraph
+
+      // AST + Symbol table -> EGRAPH -> REWRITES -> EXTRACT (AST + LogicalOperator + symbol table)
+
       // TODO: make egraph
       //       do rewrite passes
       //       extract LogicalOperator + cost estimate
@@ -166,7 +173,6 @@ std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery
       //             add to `symbol_table` for new symbols
       return std::make_pair<std::unique_ptr<plan::LogicalOperator>, double>(nullptr, 0.0);
     }
-    auto vertex_counts = plan::VertexCountCache(db_accessor);
     auto planning_context = plan::MakePlanningContext(&ast_storage, &symbol_table, query, &vertex_counts);
     return plan::MakeLogicalPlan(&planning_context, parameters, FLAGS_query_cost_planner);
   });
