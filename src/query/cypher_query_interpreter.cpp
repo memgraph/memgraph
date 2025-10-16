@@ -25,6 +25,8 @@
 #include "query/plan/vertex_count_cache.hpp"
 #include "utils/flag_validation.hpp"
 
+#include "query/plan_v2/ast_converter.hpp"
+
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
 DEFINE_bool(query_cost_planner, true, "Use the cost-estimating query planner.");
 // NOLINTNEXTLINE (cppcoreguidelines-avoid-non-const-global-variables)
@@ -162,7 +164,7 @@ std::unique_ptr<LogicalPlan> MakeLogicalPlan(AstStorage ast_storage, CypherQuery
     auto vertex_counts = plan::VertexCountCache(db_accessor);
 
     if (flags::AreExperimentsEnabled(flags::Experiments::PLANNER_V2)) {
-      // query -> EGraph
+      auto egraph = plan::v2::ConvertToEgraph(*query, symbol_table);
 
       // AST + Symbol table -> EGRAPH -> REWRITES -> EXTRACT (AST + LogicalOperator + symbol table)
 
