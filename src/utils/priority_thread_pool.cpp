@@ -322,6 +322,57 @@ void PriorityThreadPool::Worker::operator()(const uint16_t worker_id,
   }
 }
 
+// Prepares task for safe scheduling
+TaskSignature TaskCollection::WrapTask(size_t index) {
+  auto &task = tasks_[index];
+  return [&task = task.task_, state = task.state_](utils::Priority priority) {
+    auto expected = Task::State::IDLE;
+    if (!state->compare_exchange_strong(expected, Task::State::SCHEDULED, std::memory_order_acq_rel)) {
+      return;  // Task already scheduled
+    }
+
+    try {
+      task(priority);
+      state->store(Task::State::FINISHED, std::memory_order_release);
+      state->notify_one();  // Notify waiting threads
+    } catch (...) {
+      state->store(Task::State::FINISHED, std::memory_order_release);
+      state->notify_one();  // Notify even on exception
+      throw;
+    }
+  };
+}
+
+void TaskCollection::Wait() {
+  for (auto &task : tasks_) {
+    auto expected = task.state_->load(std::memory_order_acquire);
+    while (expected != Task::State::FINISHED) {
+      task.state_->wait(expected, std::memory_order_acquire);
+      expected = task.state_->load(std::memory_order_acquire);
+    }
+  }
+}
+
+void TaskCollection::WaitOrSteal() {
+  // Phase 1 - steal tasks that are not scheduled
+  for (auto &task : tasks_) {
+    auto expected = Task::State::IDLE;
+    if (task.state_->compare_exchange_strong(expected, Task::State::SCHEDULED, std::memory_order_acq_rel)) {
+      try {
+        task.task_(Priority::LOW);
+        task.state_->store(Task::State::FINISHED, std::memory_order_release);
+        task.state_->notify_one();  // Notify waiting threads
+      } catch (...) {
+        task.state_->store(Task::State::FINISHED, std::memory_order_release);
+        task.state_->notify_one();  // Notify even on exception
+        throw;
+      }
+    }
+  }
+  // Phase 2 - wait for tasks to finish
+  Wait();
+}
+
 }  // namespace memgraph::utils
 
 template void memgraph::utils::PriorityThreadPool::Worker::operator()<memgraph::utils::Priority::LOW>(
