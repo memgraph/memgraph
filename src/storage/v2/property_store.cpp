@@ -695,7 +695,7 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
       auto size = writer->WriteUint(vector_index_id.size());
       if (!size) return std::nullopt;
       for (const auto &id : vector_index_id) {
-        if (!writer->InternalWriteInt<uint8_t>(id)) return std::nullopt;
+        if (!writer->InternalWriteInt<uint64_t>(id)) return std::nullopt;
       }
       return {{Type::VECTOR, *size}};
     }
@@ -905,14 +905,14 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
     case Type::VECTOR: {
       auto size = reader->ReadUint(payload_size);
       if (!size) return false;
-      std::vector<uint8_t> vector_index_id;
-      vector_index_id.reserve(*size);
-      for (uint32_t i = 0; i < *size; ++i) {
-        auto id = reader->ReadUint(Size::INT8);
+      std::vector<uint64_t> vector_index_ids;
+      vector_index_ids.reserve(*size);
+      for (auto i = 0; i < *size; ++i) {
+        auto id = reader->ReadUint(Size::INT64);
         if (!id) return false;
-        vector_index_id.emplace_back(*id);
+        vector_index_ids.emplace_back(*id);
       }
-      value = PropertyValue(std::move(vector_index_id), PropertyValue::list_t{});
+      value = PropertyValue(std::move(vector_index_ids), std::vector<float>{});
       return true;
     }
   }

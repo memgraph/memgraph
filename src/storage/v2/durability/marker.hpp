@@ -32,6 +32,7 @@ enum class Marker : uint8_t {
   TYPE_ENUM = 0x1a,
   TYPE_POINT_2D = 0x1b,
   TYPE_POINT_3D = 0x1c,
+  TYPE_VECTOR_INDEX_ID = 0x1d,
 
   SECTION_VERTEX = 0x20,
   SECTION_EDGE = 0x21,

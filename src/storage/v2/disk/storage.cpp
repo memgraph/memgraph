@@ -2208,8 +2208,8 @@ utils::BasicResult<storage::StorageIndexDefinitionError, void> DiskStorage::Disk
                                  kErrorMessage);
 }
 
-std::optional<std::vector<uint8_t>> DiskStorage::DiskAccessor::IsPropertyInVectorIndex(Vertex *vertex,
-                                                                                       PropertyId property) {
+std::optional<std::vector<uint64_t>> DiskStorage::DiskAccessor::IsPropertyInVectorIndex(Vertex *vertex,
+                                                                                        PropertyId property) {
   throw utils::NotYetImplemented("Vector index related operations are not yet supported using on-disk storage mode. {}",
                                  kErrorMessage);
 }

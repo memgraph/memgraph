@@ -492,12 +492,30 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
       auto typed_value = value_expression->Accept(evaluator);
       auto property_value = typed_value.ToPropertyValue(storage_acc->GetNameIdMapper());
       if (auto vector_index_ids = storage_acc->IsPropertyInVectorIndex(new_node.impl_.vertex_, key)) {
-        property_value =
-            !property_value.IsNull()
-                ? storage::PropertyValue(std::move(*vector_index_ids), std::move(property_value.ValueList()))
-                : storage::PropertyValue(std::move(*vector_index_ids), storage::PropertyValue::list_t{});
+        property_value = [&] {
+          if (property_value.IsNull()) {
+            return storage::PropertyValue(std::move(*vector_index_ids), std::vector<float>{});
+          }
+          std::vector<float> vector;
+          if (property_value.IsList()) {
+            auto list = property_value.ValueList();
+            vector.reserve(list.size());
+            for (const auto &elem : list) {
+              if (elem.IsDouble()) {
+                vector.push_back(static_cast<float>(elem.ValueDouble()));
+              } else if (elem.IsInt()) {
+                vector.push_back(static_cast<float>(elem.ValueInt()));
+              } else {
+                throw QueryRuntimeException("Expected to evaluate vector index of Double or Int type");
+              }
+            }
+          } else {
+            throw QueryRuntimeException("Expected to evaluate vector index of List type");
+          }
+          return storage::PropertyValue(std::move(*vector_index_ids), std::move(vector));
+        }();
       }
-      properties.emplace(key, property_value);
+      properties.emplace(key, std::move(property_value));
     }
   } else {
     auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info.properties));
@@ -505,12 +523,30 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
       auto property_id = dba.NameToProperty(key);
       auto property_value = value.ToPropertyValue(storage_acc->GetNameIdMapper());
       if (auto vector_index_ids = storage_acc->IsPropertyInVectorIndex(new_node.impl_.vertex_, property_id)) {
-        property_value =
-            !property_value.IsNull()
-                ? storage::PropertyValue(std::move(*vector_index_ids), std::move(property_value.ValueList()))
-                : storage::PropertyValue(std::move(*vector_index_ids), storage::PropertyValue::list_t{});
+        property_value = [&] {
+          if (property_value.IsNull()) {
+            return storage::PropertyValue(*vector_index_ids, std::vector<float>{});
+          }
+          std::vector<float> vector;
+          if (property_value.IsList()) {
+            auto list = property_value.ValueList();
+            vector.reserve(list.size());
+            for (const auto &elem : list) {
+              if (elem.IsDouble()) {
+                vector.push_back(static_cast<float>(elem.ValueDouble()));
+              } else if (elem.IsInt()) {
+                vector.push_back(static_cast<float>(elem.ValueInt()));
+              } else {
+                throw QueryRuntimeException("Expected to evaluate vector index of Double or Int type");
+              }
+            }
+          } else {
+            throw QueryRuntimeException("Expected to evaluate vector index of List type");
+          }
+          return storage::PropertyValue(std::move(*vector_index_ids), std::move(vector));
+        }();
       }
-      properties.emplace(property_id, property_value);
+      properties.emplace(property_id, std::move(property_value));
     }
   }
   if (context.evaluation_context.scope.in_merge) {

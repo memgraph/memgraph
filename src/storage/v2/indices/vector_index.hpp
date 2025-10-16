@@ -56,6 +56,11 @@ struct VectorIndexSpec {
   friend bool operator==(const VectorIndexSpec &, const VectorIndexSpec &) = default;
 };
 
+struct VectorIndexRecoveryInfo {
+  VectorIndexSpec spec;
+  std::vector<std::vector<float>> vectors;
+};
+
 /// @class VectorIndex
 /// @brief High-level interface for managing vector indexes.
 ///
@@ -87,6 +92,8 @@ class VectorIndex {
   bool CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
+  bool RecoverIndex(const VectorIndexRecoveryInfo &recovery_info);
+
   /// @brief Drops an existing index.
   /// @param index_name The name of the index to be dropped.
   /// @return true if the index was dropped successfully, false otherwise.
@@ -109,7 +116,7 @@ class VectorIndex {
   /// @param property The property that was modified.
   /// @param value The new value of the property.
   /// @param vertex The vertex on which the property was modified.
-  void UpdateOnSetProperty(const PropertyValue &value, Vertex *vertex);
+  void UpdateOnSetProperty(const PropertyValue &value, Vertex *vertex, NameIdMapper *name_id_mapper);
 
   /// @brief Retrieves the vector of a vertex as a PropertyValue.
   /// @param vertex The vertex to retrieve the vector from.
@@ -173,7 +180,8 @@ class VectorIndex {
   /// @param vertex The vertex to check.
   /// @param property The property to check.
   /// @return true if the property is in the vector index, false otherwise.
-  std::optional<std::vector<uint8_t>> IsPropertyInVectorIndex(Vertex *vertex, PropertyId property);
+  std::optional<std::vector<uint64_t>> IsPropertyInVectorIndex(Vertex *vertex, PropertyId property,
+                                                               NameIdMapper *name_id_mapper);
 
   /// @brief Checks if the label is in the vector index.
   /// @param vertex The vertex to check.
@@ -202,7 +210,6 @@ class VectorIndex {
 
   struct Impl;
   std::unique_ptr<Impl> pimpl;
-  NameIdMapper name_id_mapper_;
 };
 
 }  // namespace memgraph::storage

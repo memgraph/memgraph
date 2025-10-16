@@ -79,7 +79,7 @@ inline bool AreComparableTypes(PropertyValueType a, PropertyValueType b) {
 ///
 /// Values can be of a number of predefined types that are enumerated in
 /// PropertyValue::Type. Each such type corresponds to exactly one C++ type.
-template <typename Alloc, typename KeyType>
+template <typename Alloc, typename KeyType, typename VectorIndexIdType>
 class PropertyValueImpl {
  public:
   using allocator_type = Alloc;
@@ -94,6 +94,8 @@ class PropertyValueImpl {
                          typename alloc_trait::template rebind_alloc<std::pair<KeyType const, PropertyValueImpl>>>;
 
   using list_t = std::vector<PropertyValueImpl, typename alloc_trait::template rebind_alloc<PropertyValueImpl>>;
+
+  using vector_index_id_t = std::vector<VectorIndexIdType>;
 
   /// Make a Null value
   PropertyValueImpl(allocator_type const &alloc = allocator_type{}) : alloc_{alloc}, type_(Type::Null) {}
@@ -117,12 +119,13 @@ class PropertyValueImpl {
       : alloc_{alloc}, point2d_data_v{.val_ = value} {}
   explicit PropertyValueImpl(const Point3d value, allocator_type const &alloc = allocator_type{})
       : alloc_{alloc}, point3d_data_v{.val_ = value} {}
-  explicit PropertyValueImpl(std::vector<uint8_t> const &vector_index_ids, list_t const &list,
+  explicit PropertyValueImpl(vector_index_id_t const &vector_index_ids, std::vector<float> const &vector,
                              allocator_type const &alloc = allocator_type{})
-      : alloc_{alloc}, vector_index_id_v{.vector_index_ids_ = vector_index_ids, .list_ = list} {}
-  explicit PropertyValueImpl(std::vector<uint8_t> &&vector_index_ids, list_t &&list,
+      : alloc_{alloc}, vector_index_id_v{.vector_index_ids_ = vector_index_ids, .vector_ = vector} {}
+  explicit PropertyValueImpl(vector_index_id_t &&vector_index_ids, std::vector<float> &&vector,
                              allocator_type const &alloc = allocator_type{})
-      : alloc_{alloc}, vector_index_id_v{.vector_index_ids_ = std::move(vector_index_ids), .list_ = std::move(list)} {}
+      : alloc_{alloc},
+        vector_index_id_v{.vector_index_ids_ = std::move(vector_index_ids), .vector_ = std::move(vector)} {}
 
   // copy constructors for non-primitive types
   /// @throw std::bad_alloc
@@ -177,13 +180,13 @@ class PropertyValueImpl {
   // TODO: Implement copy assignment operators for primitive types.
   // TODO: Implement copy and move assignment operators for non-primitive types.
 
-  template <typename AllocOther, typename KeyTypeOther>
+  template <typename AllocOther, typename KeyTypeOther, typename VectorIndexIdTypeOther>
   friend class PropertyValueImpl;
 
   /// Copy accross allocators
-  template <typename AllocOther, typename KeyTypeOther>
+  template <typename AllocOther, typename KeyTypeOther, typename VectorIndexIdTypeOther>
   requires(!std::same_as<allocator_type, AllocOther> && std::same_as<KeyType, KeyTypeOther>)
-      PropertyValueImpl(PropertyValueImpl<AllocOther, KeyTypeOther> const &other,
+      PropertyValueImpl(PropertyValueImpl<AllocOther, KeyTypeOther, VectorIndexIdTypeOther> const &other,
                         allocator_type const &alloc = allocator_type{})
       : alloc_{alloc}, type_{other.type_} {
     switch (other.type_) {
@@ -226,8 +229,8 @@ class PropertyValueImpl {
         alloc_trait::construct(alloc_, &vector_index_id_v.vector_index_ids_,
                                other.vector_index_id_v.vector_index_ids_.begin(),
                                other.vector_index_id_v.vector_index_ids_.end());
-        alloc_trait::construct(alloc_, &vector_index_id_v.list_, other.vector_index_id_v.list_.begin(),
-                               other.vector_index_id_v.list_.end());
+        alloc_trait::construct(alloc_, &vector_index_id_v.vector_, other.vector_index_id_v.vector_.begin(),
+                               other.vector_index_id_v.vector_.end());
         return;
     }
   }
@@ -245,7 +248,6 @@ class PropertyValueImpl {
       case Type::Enum:
       case Type::Point2d:
       case Type::Point3d:
-      case Type::VectorIndexId:
         return;
       // destructor for non primitive types since we used placement new
       case Type::String:
@@ -256,6 +258,10 @@ class PropertyValueImpl {
         return;
       case Type::Map:
         alloc_trait::destroy(alloc_, &map_v.val_);
+        return;
+      case Type::VectorIndexId:
+        alloc_trait::destroy(alloc_, &vector_index_id_v.vector_index_ids_);
+        alloc_trait::destroy(alloc_, &vector_index_id_v.vector_);
         return;
     }
   }
@@ -341,7 +347,7 @@ class PropertyValueImpl {
     return point3d_data_v.val_;
   }
 
-  auto ValueVectorIndexIds() const -> std::vector<uint8_t> const & {
+  auto ValueVectorIndexIds() const -> vector_index_id_t const & {
     if (type_ != Type::VectorIndexId) [[unlikely]] {
       throw PropertyValueException("The value isn't a vector index ID!");
     }
@@ -349,12 +355,12 @@ class PropertyValueImpl {
     return vector_index_id_v.vector_index_ids_;
   }
 
-  auto ValueVectorIndexList() const -> list_t const & {
+  auto ValueVectorIndexList() const -> std::vector<float> const & {
     if (type_ != Type::VectorIndexId) [[unlikely]] {
       throw PropertyValueException("The value isn't a vector index list!");
     }
 
-    return vector_index_id_v.list_;
+    return vector_index_id_v.vector_;
   }
 
   // const value getters for non-primitive types
@@ -460,8 +466,8 @@ class PropertyValueImpl {
     } point3d_data_v;
     struct {
       Type type_ = Type::VectorIndexId;
-      std::vector<uint8_t> vector_index_ids_;
-      list_t list_;
+      vector_index_id_t vector_index_ids_;
+      std::vector<float> vector_;
     } vector_index_id_v;
   };
 };
@@ -469,9 +475,10 @@ class PropertyValueImpl {
 // NOTE: The logic in this function *MUST* be equal to the logic in
 // `PropertyStore::ComparePropertyValue`. If you change this operator make sure
 // to change the function so that they have identical functionality.
-template <typename Alloc, typename Alloc2, typename KeyType>
-inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType> &first,
-                        const PropertyValueImpl<Alloc2, KeyType> &second) noexcept -> std::weak_ordering {
+template <typename Alloc, typename Alloc2, typename KeyType, typename VectorIndexIdType>
+inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &first,
+                        const PropertyValueImpl<Alloc2, KeyType, VectorIndexIdType> &second) noexcept
+    -> std::weak_ordering {
   if (!AreComparableTypes(first.type(), second.type())) return first.type() <=> second.type();
 
   auto to_weak_order = [](std::partial_ordering o) {
@@ -511,8 +518,10 @@ inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType> &first,
     case PropertyValueType::List: {
       auto const &l1 = first.ValueList();
       auto const &l2 = second.ValueList();
-      auto const three_way_cmp = [](PropertyValueImpl<Alloc, KeyType> const &v1,
-                                    PropertyValueImpl<Alloc2, KeyType> const &v2) { return v1 <=> v2; };
+      auto const three_way_cmp = [](PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> const &v1,
+                                    PropertyValueImpl<Alloc2, KeyType, VectorIndexIdType> const &v2) {
+        return v1 <=> v2;
+      };
       return std::lexicographical_compare_three_way(l1.begin(), l1.end(), l2.begin(), l2.end(), three_way_cmp);
     }
     case PropertyValueType::Map: {
@@ -538,28 +547,28 @@ inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType> &first,
     case PropertyValueType::Point3d:
       return to_weak_order(first.ValuePoint3d() <=> second.ValuePoint3d());
     case PropertyValueType::VectorIndexId: {
-      const auto &list1 = first.ValueVectorIndexList();
-      const auto &list2 = second.ValueVectorIndexList();
-      auto const three_way_cmp = [](PropertyValueImpl<Alloc, KeyType> const &v1,
-                                    PropertyValueImpl<Alloc2, KeyType> const &v2) { return v1 <=> v2; };
-      return std::lexicographical_compare_three_way(list1.begin(), list1.end(), list2.begin(), list2.end(),
-                                                    three_way_cmp);
+      const auto &vector1 = first.ValueVectorIndexList();
+      const auto &vector2 = second.ValueVectorIndexList();
+      return std::lexicographical_compare_three_way(
+          vector1.begin(), vector1.end(), vector2.begin(), vector2.end(),
+          [&to_weak_order](float a, float b) { return to_weak_order(a <=> b); });
     }
   }
 }
 
-template <typename Alloc, typename Alloc2, typename KeyType>
-inline bool operator==(const PropertyValueImpl<Alloc, KeyType> &first,
-                       const PropertyValueImpl<Alloc2, KeyType> &second) noexcept {
+template <typename Alloc, typename Alloc2, typename KeyType, typename VectorIndexIdType>
+inline bool operator==(const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &first,
+                       const PropertyValueImpl<Alloc2, KeyType, VectorIndexIdType> &second) noexcept {
   return is_eq(first <=> second);
 }
 
-template <typename Alloc, typename KeyType>
-inline PropertyValueImpl<Alloc, KeyType>::PropertyValueImpl(const PropertyValueImpl &other)
+template <typename Alloc, typename KeyType, typename VectorIndexIdType>
+inline PropertyValueImpl<Alloc, KeyType, VectorIndexIdType>::PropertyValueImpl(const PropertyValueImpl &other)
     : PropertyValueImpl{other, other.alloc_} {}
 
-template <typename Alloc, typename KeyType>
-inline PropertyValueImpl<Alloc, KeyType>::PropertyValueImpl(const PropertyValueImpl &other, allocator_type const &alloc)
+template <typename Alloc, typename KeyType, typename VectorIndexIdType>
+inline PropertyValueImpl<Alloc, KeyType, VectorIndexIdType>::PropertyValueImpl(const PropertyValueImpl &other,
+                                                                               allocator_type const &alloc)
     : alloc_{alloc}, type_(other.type_) {
   switch (other.type_) {
     case Type::Null:
@@ -599,18 +608,18 @@ inline PropertyValueImpl<Alloc, KeyType>::PropertyValueImpl(const PropertyValueI
       return;
     case Type::VectorIndexId:
       alloc_trait::construct(alloc_, &vector_index_id_v.vector_index_ids_, other.vector_index_id_v.vector_index_ids_);
-      alloc_trait::construct(alloc_, &vector_index_id_v.list_, other.vector_index_id_v.list_);
+      alloc_trait::construct(alloc_, &vector_index_id_v.vector_, other.vector_index_id_v.vector_);
       return;
   }
 }
 
-template <typename Alloc, typename KeyType>
-inline PropertyValueImpl<Alloc, KeyType>::PropertyValueImpl(PropertyValueImpl &&other) noexcept
+template <typename Alloc, typename KeyType, typename VectorIndexIdType>
+inline PropertyValueImpl<Alloc, KeyType, VectorIndexIdType>::PropertyValueImpl(PropertyValueImpl &&other) noexcept
     : PropertyValueImpl{std::move(other), other.alloc_} {}
 
-template <typename Alloc, typename KeyType>
-inline PropertyValueImpl<Alloc, KeyType>::PropertyValueImpl(PropertyValueImpl &&other,
-                                                            allocator_type const &alloc) noexcept
+template <typename Alloc, typename KeyType, typename VectorIndexIdType>
+inline PropertyValueImpl<Alloc, KeyType, VectorIndexIdType>::PropertyValueImpl(PropertyValueImpl &&other,
+                                                                               allocator_type const &alloc) noexcept
     : alloc_{alloc}, type_(other.type_) {
   switch (type_) {
     case Type::Null:
@@ -651,14 +660,15 @@ inline PropertyValueImpl<Alloc, KeyType>::PropertyValueImpl(PropertyValueImpl &&
     case Type::VectorIndexId:
       alloc_trait::construct(alloc_, &vector_index_id_v.vector_index_ids_,
                              std::move(other.vector_index_id_v.vector_index_ids_));
-      alloc_trait::construct(alloc_, &vector_index_id_v.list_, std::move(other.vector_index_id_v.list_));
+      alloc_trait::construct(alloc_, &vector_index_id_v.vector_, std::move(other.vector_index_id_v.vector_));
       break;
   }
 }
 
-template <typename Alloc, typename KeyType>
-inline auto PropertyValueImpl<Alloc, KeyType>::operator=(PropertyValueImpl const &other) -> PropertyValueImpl & {
-  auto do_copy = [&]() -> PropertyValueImpl<Alloc, KeyType> & {
+template <typename Alloc, typename KeyType, typename VectorIndexIdType>
+inline auto PropertyValueImpl<Alloc, KeyType, VectorIndexIdType>::operator=(PropertyValueImpl const &other)
+    -> PropertyValueImpl & {
+  auto do_copy = [&]() -> PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> & {
     // if same type try assignment
     if (type_ == other.type_) {
       if (this == &other) return *this;
@@ -700,7 +710,7 @@ inline auto PropertyValueImpl<Alloc, KeyType>::operator=(PropertyValueImpl const
           break;
         case Type::VectorIndexId:
           vector_index_id_v.vector_index_ids_ = other.vector_index_id_v.vector_index_ids_;
-          vector_index_id_v.list_ = list_t(other.vector_index_id_v.list_, alloc_);
+          vector_index_id_v.vector_ = std::vector<float>(other.vector_index_id_v.vector_, alloc_);
           break;
       }
       return *this;
@@ -738,11 +748,11 @@ inline auto PropertyValueImpl<Alloc, KeyType>::operator=(PropertyValueImpl const
   }
 }
 
-template <typename Alloc, typename KeyType>
-inline auto PropertyValueImpl<Alloc, KeyType>::operator=(PropertyValueImpl &&other) noexcept(
+template <typename Alloc, typename KeyType, typename VectorIndexIdType>
+inline auto PropertyValueImpl<Alloc, KeyType, VectorIndexIdType>::operator=(PropertyValueImpl &&other) noexcept(
     alloc_trait::is_always_equal::value || alloc_trait::propagate_on_container_move_assignment::value)
-    -> PropertyValueImpl<Alloc, KeyType> & {
-  auto do_move = [&]() -> PropertyValueImpl<Alloc, KeyType> & {
+    -> PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> & {
+  auto do_move = [&]() -> PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> & {
     if (type_ == other.type_) {
       // maybe the same object, check if no work is required
       if (this == &other) return *this;
@@ -785,7 +795,7 @@ inline auto PropertyValueImpl<Alloc, KeyType>::operator=(PropertyValueImpl &&oth
           break;
         case Type::VectorIndexId:
           vector_index_id_v.vector_index_ids_ = std::move(other.vector_index_id_v.vector_index_ids_);
-          vector_index_id_v.list_ = std::move(other.vector_index_id_v.list_);
+          vector_index_id_v.vector_ = std::move(other.vector_index_id_v.vector_);
           break;
       }
       return *this;
@@ -853,8 +863,8 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValueType type) 
 }
 
 /// @throw anything std::ostream::operator<< may throw.
-template <typename Alloc, typename KeyType>
-inline std::ostream &operator<<(std::ostream &os, const PropertyValueImpl<Alloc, KeyType> &value) {
+template <typename Alloc, typename KeyType, typename VectorIndexIdType>
+inline std::ostream &operator<<(std::ostream &os, const PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &value) {
   // These can appear in log messages
   switch (value.type()) {
     case PropertyValueType::Null:
@@ -907,9 +917,9 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValueImpl<Alloc,
   }
 }
 
-using PropertyValue = PropertyValueImpl<std::allocator<std::byte>, PropertyId>;
+using PropertyValue = PropertyValueImpl<std::allocator<std::byte>, PropertyId, uint64_t>;
 
-using ExternalPropertyValue = PropertyValueImpl<std::allocator<std::byte>, std::string>;
+using ExternalPropertyValue = PropertyValueImpl<std::allocator<std::byte>, std::string, std::string>;
 
 inline PropertyValue ToPropertyValue(const ExternalPropertyValue &value, NameIdMapper *mapper) {
   switch (value.type()) {
@@ -948,8 +958,22 @@ inline PropertyValue ToPropertyValue(const ExternalPropertyValue &value, NameIdM
       return PropertyValue(value.ValuePoint2d());
     case PropertyValueType::Point3d:
       return PropertyValue(value.ValuePoint3d());
-    case PropertyValueType::VectorIndexId:
-      throw PropertyValueException("VectorIndexId should be used only in storage layer!");
+    case PropertyValueType::VectorIndexId: {
+      std::vector<uint64_t> vector_index_ids;
+      const auto &external_vector_index_ids = value.ValueVectorIndexIds();
+      vector_index_ids.reserve(external_vector_index_ids.size());
+      for (const auto &str : external_vector_index_ids) {
+        vector_index_ids.push_back(mapper->NameToId(str));
+      }
+
+      std::vector<float> vector;
+      const auto &internal_vector = value.ValueVectorIndexList();
+      vector.reserve(internal_vector.size());
+      for (const auto &elem : internal_vector) {
+        vector.push_back(elem);
+      }
+      return PropertyValue(std::move(vector_index_ids), std::move(vector));
+    }
   }
   throw PropertyValueException("Unknown type during conversion");
 }
@@ -991,14 +1015,28 @@ inline ExternalPropertyValue ToExternalPropertyValue(const PropertyValue &value,
       return ExternalPropertyValue(value.ValuePoint2d());
     case PropertyValueType::Point3d:
       return ExternalPropertyValue(value.ValuePoint3d());
-    case PropertyValueType::VectorIndexId:
-      throw PropertyValueException("VectorIndexId should be used only in storage layer!");
+    case PropertyValueType::VectorIndexId: {
+      std::vector<std::string> vector_index_ids;
+      const auto &internal_vector_index_ids = value.ValueVectorIndexIds();
+      vector_index_ids.reserve(internal_vector_index_ids.size());
+      for (const auto &id : internal_vector_index_ids) {
+        vector_index_ids.push_back(mapper->IdToName(id));
+      }
+
+      std::vector<float> vector;
+      const auto &internal_vector = value.ValueVectorIndexList();
+      vector.reserve(internal_vector.size());
+      for (const auto &elem : internal_vector) {
+        vector.push_back(elem);
+      }
+      return ExternalPropertyValue(std::move(vector_index_ids), std::move(vector));
+    }
   }
   throw PropertyValueException("Unknown type during conversion");
 }
 
 namespace pmr {
-using PropertyValue = PropertyValueImpl<std::pmr::polymorphic_allocator<std::byte>, PropertyId>;
+using PropertyValue = PropertyValueImpl<std::pmr::polymorphic_allocator<std::byte>, PropertyId, uint64_t>;
 }  // namespace pmr
 
 struct ExtendedPropertyType {
@@ -1070,9 +1108,10 @@ struct hash<memgraph::storage::ExtendedPropertyType> {
   }
 };
 
-template <typename Alloc, typename KeyType>
-struct hash<memgraph::storage::PropertyValueImpl<Alloc, KeyType>> {
-  size_t operator()(memgraph::storage::PropertyValueImpl<Alloc, KeyType> const &value) const noexcept {
+template <typename Alloc, typename KeyType, typename VectorIndexIdType>
+struct hash<memgraph::storage::PropertyValueImpl<Alloc, KeyType, VectorIndexIdType>> {
+  size_t operator()(
+      memgraph::storage::PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> const &value) const noexcept {
     using enum memgraph::storage::PropertyValueType;
 
     // Hashing here based on the choices made when we hash TypedValues
@@ -1088,16 +1127,16 @@ struct hash<memgraph::storage::PropertyValueImpl<Alloc, KeyType>> {
       case String:
         return std::hash<std::string_view>{}(value.ValueString());
       case List: {
-        return memgraph::utils::FnvCollection<typename memgraph::storage::PropertyValueImpl<Alloc, KeyType>::list_t,
-                                              memgraph::storage::PropertyValueImpl<Alloc, KeyType>>{}(
-            value.ValueList());
+        return memgraph::utils::FnvCollection<
+            typename memgraph::storage::PropertyValueImpl<Alloc, KeyType, VectorIndexIdType>::list_t,
+            memgraph::storage::PropertyValueImpl<Alloc, KeyType, VectorIndexIdType>>{}(value.ValueList());
       }
       case Map: {
         size_t hash = 6543457;
         for (const auto &kv : value.ValueMap()) {
           hash ^= std::hash<KeyType>{}(kv.first);
-          hash ^=
-              this->operator()(static_cast<const memgraph::storage::PropertyValueImpl<Alloc, KeyType> &>(kv.second));
+          hash ^= this->operator()(
+              static_cast<const memgraph::storage::PropertyValueImpl<Alloc, KeyType, VectorIndexIdType> &>(kv.second));
         }
         return hash;
       }
@@ -1112,12 +1151,13 @@ struct hash<memgraph::storage::PropertyValueImpl<Alloc, KeyType>> {
       case Point3d:
         return std::hash<memgraph::storage::Point3d>{}(value.ValuePoint3d());
       case VectorIndexId: {
-        return memgraph::utils::FnvCollection<typename memgraph::storage::PropertyValueImpl<Alloc, KeyType>::list_t,
-                                              memgraph::storage::PropertyValueImpl<Alloc, KeyType>>{}(
-            value.ValueVectorIndexList());
+        size_t hash = 6543457;
+        for (const auto &elem : value.ValueVectorIndexList()) {
+          hash ^= std::hash<float>{}(elem);
+        }
+        return hash;
       }
     }
   }
 };
-
 }  // namespace std
