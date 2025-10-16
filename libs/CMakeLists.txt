@@ -105,6 +105,7 @@ macro(add_external_project_impl name)
   ExternalProject_Add(${name}-proj DEPENDS ${KW_DEPENDS}
       PREFIX ${source_dir} SOURCE_DIR ${source_dir}
       BUILD_IN_SOURCE ${build_in_source}
+      LIST_SEPARATOR "${LIST_SEP}"
       CONFIGURE_COMMAND ${KW_CONFIGURE_COMMAND}
       CMAKE_ARGS ${CMAKE_ARGS_LIST}
       INSTALL_COMMAND ${KW_INSTALL_COMMAND}
