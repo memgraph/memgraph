@@ -195,9 +195,7 @@ void Save(const storage::ExternalPropertyValue &value, slk::Builder *builder) {
       return;
     }
     case storage::ExternalPropertyValue::Type::VectorIndexId: {
-      slk::Save(storage::ExternalPropertyValue::Type::VectorIndexId, builder);
-      slk::Save(value.ValueVectorIndexId(), builder);
-      return;
+      throw std::runtime_error("VectorIndexId should be used only in storage layer!");
     }
   }
 }

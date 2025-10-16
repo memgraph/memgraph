@@ -109,7 +109,7 @@ class VectorIndex {
   /// @param property The property that was modified.
   /// @param value The new value of the property.
   /// @param vertex The vertex on which the property was modified.
-  void UpdateOnSetProperty(const PropertyValue &value, Vertex *vertex, std::span<uint8_t const> index_ids);
+  void UpdateOnSetProperty(const PropertyValue &value, Vertex *vertex);
 
   /// @brief Retrieves the vector of a vertex as a PropertyValue.
   /// @param vertex The vertex to retrieve the vector from.

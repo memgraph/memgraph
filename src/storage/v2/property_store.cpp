@@ -691,9 +691,13 @@ std::optional<std::pair<Type, Size>> EncodePropertyValue(Writer *writer, const P
       return {{Type::POINT, CrsToSize(point.crs())}};
     }
     case PropertyValue::Type::VectorIndexId: {
-      auto vector_index_id = value.ValueVectorIndexId();
-      if (!writer->WriteUint(vector_index_id)) return std::nullopt;
-      return {{Type::VECTOR, Size::INT8}};
+      auto vector_index_id = value.ValueVectorIndexIds();
+      auto size = writer->WriteUint(vector_index_id.size());
+      if (!size) return std::nullopt;
+      for (const auto &id : vector_index_id) {
+        if (!writer->InternalWriteInt<uint8_t>(id)) return std::nullopt;
+      }
+      return {{Type::VECTOR, *size}};
     }
   }
 }
@@ -899,9 +903,16 @@ std::optional<uint64_t> DecodeZonedTemporalDataSize(Reader &reader) {
       return true;
     }
     case Type::VECTOR: {
-      auto vector_index_id = reader->ReadUint(payload_size);
-      if (!vector_index_id) return false;
-      value = PropertyValue(VectorIndexId{}, *vector_index_id);
+      auto size = reader->ReadUint(payload_size);
+      if (!size) return false;
+      std::vector<uint8_t> vector_index_id;
+      vector_index_id.reserve(*size);
+      for (uint32_t i = 0; i < *size; ++i) {
+        auto id = reader->ReadUint(Size::INT8);
+        if (!id) return false;
+        vector_index_id.emplace_back(*id);
+      }
+      value = PropertyValue(std::move(vector_index_id), PropertyValue::list_t{});
       return true;
     }
   }

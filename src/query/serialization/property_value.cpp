@@ -108,10 +108,7 @@ nlohmann::json SerializeExternalPropertyValue(const storage::ExternalPropertyVal
     }
     case storage::ExternalPropertyValue::Type::VectorIndexId: {
       // TODO(@DavIvek): revisit this
-      nlohmann::json data = nlohmann::json::object();
-      data.emplace("type", static_cast<uint64_t>(ObjectType::VECTOR_INDEX_ID));
-      data.emplace("value", property_value.ValueVectorIndexId());
-      return data;
+      throw std::runtime_error("VectorIndexId should be used only in storage layer!");
     }
   }
 }

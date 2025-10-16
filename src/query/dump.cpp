@@ -205,7 +205,6 @@ void DumpPropertyValue(std::ostream *os, const storage::ExternalPropertyValue &v
     }
     case storage::PropertyValue::Type::VectorIndexId: {
       // TODO(@DavIvek): Add vector index id dump -> probably we should dump the index name instead of the id?
-      *os << value.ValueVectorIndexId();
       return;
     }
   }

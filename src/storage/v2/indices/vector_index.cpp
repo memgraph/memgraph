@@ -212,7 +212,11 @@ std::vector<LabelPropKey> VectorIndex::GetMatchingLabelProps(std::span<LabelId c
   return pimpl->index_ | rv::keys | rv::filter(has_label) | rv::filter(has_property) | r::to<std::vector>();
 }
 
-void VectorIndex::UpdateOnSetProperty(const PropertyValue &value, Vertex *vertex, std::span<uint8_t const> index_ids) {
+void VectorIndex::UpdateOnSetProperty(const PropertyValue &value, Vertex *vertex) {
+  if (!value.IsVectorIndexId()) {
+    throw query::VectorSearchException("Vector index property must be a vector index id.");
+  }
+  auto index_ids = value.ValueVectorIndexIds();
   for (const auto &index_id : index_ids) {
     auto index_name = name_id_mapper_.IdToName(index_id);
     auto label_prop = pimpl->index_name_to_label_prop_.at(index_name);
@@ -238,10 +242,7 @@ void VectorIndex::UpdateOnSetProperty(const PropertyValue &value, Vertex *vertex
       // updates
       continue;
     }
-    if (!value.IsList()) {
-      throw query::VectorSearchException("Vector index property must be a list.");
-    }
-    const auto &vector_property = value.ValueList();
+    const auto &vector_property = value.ValueVectorIndexList();
     if (spec.dimension != vector_property.size()) {
       throw query::VectorSearchException("Vector index property must have the same number of dimensions as the index.");
     }

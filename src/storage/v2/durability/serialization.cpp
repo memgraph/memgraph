@@ -203,10 +203,8 @@ void Encoder<FileType>::WriteExternalPropertyValue(const ExternalPropertyValue &
       WritePoint3d(value.ValuePoint3d());
       break;
     }
-    case ExternalPropertyValue::Type::VectorIndexId: {
-      WriteUint(value.ValueVectorIndexId());
-      break;
-    }
+    case ExternalPropertyValue::Type::VectorIndexId:
+      throw std::runtime_error("VectorIndexId should be used only in storage layer!");
   }
 }
 

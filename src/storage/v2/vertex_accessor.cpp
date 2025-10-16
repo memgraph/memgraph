@@ -384,13 +384,13 @@ Result<PropertyValue> VertexAccessor::SetProperty(PropertyId property, const Pro
   auto const set_property_impl = [this, transaction = transaction_, vertex = vertex_, &new_value, &property, &old_value,
                                   skip_duplicate_write, &schema_acc]() {
     // Firstly check if the property is a vector property
-    if (auto index_ids = storage_->indices_.vector_index_.IsPropertyInVectorIndex(vertex, property)) {
-      // TODO(@DavIvek): Type constraints and schema info?
-      CreateAndLinkDelta(transaction, vertex, Delta::SetVectorPropertyTag(), property, new_value);
-      vertex->properties.SetProperty(property, PropertyValue(VectorIndexId{}, index_ids->front()));
-      storage_->indices_.vector_index_.UpdateOnSetProperty(new_value, vertex, *index_ids);
-      return false;
-    }
+    // if (auto index_ids = storage_->indices_.vector_index_.IsPropertyInVectorIndex(vertex, property)) {
+    //   // TODO(@DavIvek): Type constraints and schema info?
+    //   CreateAndLinkDelta(transaction, vertex, Delta::SetVectorPropertyTag(), property, new_value);
+    //   vertex->properties.SetProperty(property, PropertyValue(VectorIndexId{}, index_ids->front()));
+    //   storage_->indices_.vector_index_.UpdateOnSetProperty(new_value, vertex, *index_ids);
+    //   return false;
+    // }
 
     old_value = vertex->properties.GetProperty(property);
     // We could skip setting the value if the previous one is the same to the new
@@ -451,25 +451,23 @@ Result<bool> VertexAccessor::InitProperties(const std::map<storage::PropertyId, 
   // This has to be called before any object gets locked
   auto schema_acc = SchemaInfoAccessor(storage_, transaction_);
   auto guard = std::unique_lock{vertex_->lock};
-  std::vector<PropertyId> vector_prop_ids;  // property ids which are saved inside vector index
 
   if (!PrepareForWrite(transaction_, vertex_)) return Error::SERIALIZATION_ERROR;
 
   if (vertex_->deleted) return Error::DELETED_OBJECT;
   bool result{false};
   utils::AtomicMemoryBlock([&result, &properties, storage = storage_, transaction = transaction_, vertex = vertex_,
-                            &schema_acc, &vector_prop_ids]() {
+                            &schema_acc]() {
     if (!vertex->properties.InitProperties(properties)) {
       result = false;
       return;
     }
     // This is wrong TODO(@DavIvek): Should we handle vector index properties here?
     for (const auto &[property, new_value] : properties) {
-      if (storage->indices_.vector_index_.IsPropertyInVectorIndex(vertex, property)) {
+      if (new_value.IsVectorIndexId()) {
         // Vector index doesn't have transactional guarantees, so we don't need to retrieve the old value, we just need
         // delta for durability
         CreateAndLinkDelta(transaction, vertex, Delta::SetVectorPropertyTag(), property, new_value);
-        vector_prop_ids.push_back(property);
       } else {
         CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, PropertyValue());
       }
@@ -592,14 +590,7 @@ Result<std::map<PropertyId, PropertyValue>> VertexAccessor::ClearProperties() {
         }
         auto new_value = PropertyValue();
         for (const auto &[property, old_value] : *properties) {
-          if (storage->indices_.vector_index_.IsPropertyInVectorIndex(vertex, property)) {
-            // Vector index doesn't have transactional guarantees, so we don't need to retrieve the old value, we just
-            // need delta for durability
-            // TODO(@DavIvek): Type constraints and schema info?
-            CreateAndLinkDelta(transaction, vertex, Delta::SetVectorPropertyTag(), property, new_value);
-          } else {
-            CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
-          }
+          CreateAndLinkDelta(transaction, vertex, Delta::SetPropertyTag(), property, old_value);
           storage->indices_.UpdateOnSetProperty(property, new_value, vertex, *transaction);
           transaction->UpdateOnSetProperty(property, old_value, new_value, vertex);
           if (schema_acc) {

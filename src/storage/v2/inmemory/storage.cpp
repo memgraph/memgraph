@@ -1761,6 +1761,12 @@ utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryA
   return {};
 }
 
+std::optional<std::vector<uint8_t>> InMemoryStorage::InMemoryAccessor::IsPropertyInVectorIndex(Vertex *vertex,
+                                                                                               PropertyId property) {
+  auto *in_memory = static_cast<InMemoryStorage *>(storage_);
+  return in_memory->indices_.vector_index_.IsPropertyInVectorIndex(vertex, property);
+}
+
 utils::BasicResult<StorageIndexDefinitionError, void> InMemoryStorage::InMemoryAccessor::CreateVectorEdgeIndex(
     VectorEdgeIndexSpec spec) {
   MG_ASSERT(type() == UNIQUE, "Creating vector edge index requires a unique access to the storage!");

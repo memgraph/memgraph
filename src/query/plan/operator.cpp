@@ -486,17 +486,31 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
   // TODO: PropsSetChecked allocates a PropertyValue, make it use context.memory
   // when we update PropertyValue with custom allocator.
   std::map<storage::PropertyId, storage::PropertyValue> properties;
+  auto *storage_acc = context.db_accessor->GetStorageAccessor();
   if (const auto *node_info_properties = std::get_if<PropertiesMapList>(&node_info.properties)) {
     for (const auto &[key, value_expression] : *node_info_properties) {
       auto typed_value = value_expression->Accept(evaluator);
-      properties.emplace(key,
-                         typed_value.ToPropertyValue(context.db_accessor->GetStorageAccessor()->GetNameIdMapper()));
+      auto property_value = typed_value.ToPropertyValue(storage_acc->GetNameIdMapper());
+      if (auto vector_index_ids = storage_acc->IsPropertyInVectorIndex(new_node.impl_.vertex_, key)) {
+        property_value =
+            !property_value.IsNull()
+                ? storage::PropertyValue(std::move(*vector_index_ids), std::move(property_value.ValueList()))
+                : storage::PropertyValue(std::move(*vector_index_ids), storage::PropertyValue::list_t{});
+      }
+      properties.emplace(key, property_value);
     }
   } else {
     auto property_map = evaluator.Visit(*std::get<ParameterLookup *>(node_info.properties));
     for (const auto &[key, value] : property_map.ValueMap()) {
-      properties.emplace(dba.NameToProperty(key),
-                         value.ToPropertyValue(context.db_accessor->GetStorageAccessor()->GetNameIdMapper()));
+      auto property_id = dba.NameToProperty(key);
+      auto property_value = value.ToPropertyValue(storage_acc->GetNameIdMapper());
+      if (auto vector_index_ids = storage_acc->IsPropertyInVectorIndex(new_node.impl_.vertex_, property_id)) {
+        property_value =
+            !property_value.IsNull()
+                ? storage::PropertyValue(std::move(*vector_index_ids), std::move(property_value.ValueList()))
+                : storage::PropertyValue(std::move(*vector_index_ids), storage::PropertyValue::list_t{});
+      }
+      properties.emplace(property_id, property_value);
     }
   }
   if (context.evaluation_context.scope.in_merge) {

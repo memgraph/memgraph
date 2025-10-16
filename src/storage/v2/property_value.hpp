@@ -74,8 +74,6 @@ inline bool AreComparableTypes(PropertyValueType a, PropertyValueType b) {
          (a == PropertyValueType::Double && b == PropertyValueType::Int);
 }
 
-struct VectorIndexId {};
-
 /// Encapsulation of a value and its type in a class that has no compile-time
 /// info about the type.
 ///
@@ -119,9 +117,12 @@ class PropertyValueImpl {
       : alloc_{alloc}, point2d_data_v{.val_ = value} {}
   explicit PropertyValueImpl(const Point3d value, allocator_type const &alloc = allocator_type{})
       : alloc_{alloc}, point3d_data_v{.val_ = value} {}
-  explicit PropertyValueImpl(VectorIndexId /*unused*/, const uint8_t value,
+  explicit PropertyValueImpl(std::vector<uint8_t> const &vector_index_ids, list_t const &list,
                              allocator_type const &alloc = allocator_type{})
-      : alloc_{alloc}, vector_index_id_v{.val_ = value} {}
+      : alloc_{alloc}, vector_index_id_v{.vector_index_ids_ = vector_index_ids, .list_ = list} {}
+  explicit PropertyValueImpl(std::vector<uint8_t> &&vector_index_ids, list_t &&list,
+                             allocator_type const &alloc = allocator_type{})
+      : alloc_{alloc}, vector_index_id_v{.vector_index_ids_ = std::move(vector_index_ids), .list_ = std::move(list)} {}
 
   // copy constructors for non-primitive types
   /// @throw std::bad_alloc
@@ -222,7 +223,11 @@ class PropertyValueImpl {
         point3d_data_v.val_ = other.point3d_data_v.val_;
         return;
       case Type::VectorIndexId:
-        vector_index_id_v.val_ = other.vector_index_id_v.val_;
+        alloc_trait::construct(alloc_, &vector_index_id_v.vector_index_ids_,
+                               other.vector_index_id_v.vector_index_ids_.begin(),
+                               other.vector_index_id_v.vector_index_ids_.end());
+        alloc_trait::construct(alloc_, &vector_index_id_v.list_, other.vector_index_id_v.list_.begin(),
+                               other.vector_index_id_v.list_.end());
         return;
     }
   }
@@ -336,12 +341,20 @@ class PropertyValueImpl {
     return point3d_data_v.val_;
   }
 
-  auto ValueVectorIndexId() const -> uint8_t {
+  auto ValueVectorIndexIds() const -> std::vector<uint8_t> const & {
     if (type_ != Type::VectorIndexId) [[unlikely]] {
       throw PropertyValueException("The value isn't a vector index ID!");
     }
 
-    return vector_index_id_v.val_;
+    return vector_index_id_v.vector_index_ids_;
+  }
+
+  auto ValueVectorIndexList() const -> list_t const & {
+    if (type_ != Type::VectorIndexId) [[unlikely]] {
+      throw PropertyValueException("The value isn't a vector index list!");
+    }
+
+    return vector_index_id_v.list_;
   }
 
   // const value getters for non-primitive types
@@ -447,7 +460,8 @@ class PropertyValueImpl {
     } point3d_data_v;
     struct {
       Type type_ = Type::VectorIndexId;
-      uint8_t val_;
+      std::vector<uint8_t> vector_index_ids_;
+      list_t list_;
     } vector_index_id_v;
   };
 };
@@ -523,8 +537,14 @@ inline auto operator<=>(const PropertyValueImpl<Alloc, KeyType> &first,
       return to_weak_order(first.ValuePoint2d() <=> second.ValuePoint2d());
     case PropertyValueType::Point3d:
       return to_weak_order(first.ValuePoint3d() <=> second.ValuePoint3d());
-    case PropertyValueType::VectorIndexId:
-      return first.ValueVectorIndexId() <=> second.ValueVectorIndexId();
+    case PropertyValueType::VectorIndexId: {
+      const auto &list1 = first.ValueVectorIndexList();
+      const auto &list2 = second.ValueVectorIndexList();
+      auto const three_way_cmp = [](PropertyValueImpl<Alloc, KeyType> const &v1,
+                                    PropertyValueImpl<Alloc2, KeyType> const &v2) { return v1 <=> v2; };
+      return std::lexicographical_compare_three_way(list1.begin(), list1.end(), list2.begin(), list2.end(),
+                                                    three_way_cmp);
+    }
   }
 }
 
@@ -578,7 +598,8 @@ inline PropertyValueImpl<Alloc, KeyType>::PropertyValueImpl(const PropertyValueI
       point3d_data_v.val_ = other.point3d_data_v.val_;
       return;
     case Type::VectorIndexId:
-      vector_index_id_v.val_ = other.vector_index_id_v.val_;
+      alloc_trait::construct(alloc_, &vector_index_id_v.vector_index_ids_, other.vector_index_id_v.vector_index_ids_);
+      alloc_trait::construct(alloc_, &vector_index_id_v.list_, other.vector_index_id_v.list_);
       return;
   }
 }
@@ -628,7 +649,9 @@ inline PropertyValueImpl<Alloc, KeyType>::PropertyValueImpl(PropertyValueImpl &&
       point3d_data_v.val_ = other.point3d_data_v.val_;
       break;
     case Type::VectorIndexId:
-      vector_index_id_v.val_ = other.vector_index_id_v.val_;
+      alloc_trait::construct(alloc_, &vector_index_id_v.vector_index_ids_,
+                             std::move(other.vector_index_id_v.vector_index_ids_));
+      alloc_trait::construct(alloc_, &vector_index_id_v.list_, std::move(other.vector_index_id_v.list_));
       break;
   }
 }
@@ -676,7 +699,8 @@ inline auto PropertyValueImpl<Alloc, KeyType>::operator=(PropertyValueImpl const
           point3d_data_v.val_ = other.point3d_data_v.val_;
           break;
         case Type::VectorIndexId:
-          vector_index_id_v.val_ = other.vector_index_id_v.val_;
+          vector_index_id_v.vector_index_ids_ = other.vector_index_id_v.vector_index_ids_;
+          vector_index_id_v.list_ = list_t(other.vector_index_id_v.list_, alloc_);
           break;
       }
       return *this;
@@ -760,7 +784,8 @@ inline auto PropertyValueImpl<Alloc, KeyType>::operator=(PropertyValueImpl &&oth
           point3d_data_v.val_ = other.point3d_data_v.val_;
           break;
         case Type::VectorIndexId:
-          vector_index_id_v.val_ = other.vector_index_id_v.val_;
+          vector_index_id_v.vector_index_ids_ = std::move(other.vector_index_id_v.vector_index_ids_);
+          vector_index_id_v.list_ = std::move(other.vector_index_id_v.list_);
           break;
       }
       return *this;
@@ -875,8 +900,9 @@ inline std::ostream &operator<<(std::ostream &os, const PropertyValueImpl<Alloc,
                                CrsToSrid(point.crs()).value_of());
     }
     case PropertyValueType::VectorIndexId: {
-      const auto vector_index_id = value.ValueVectorIndexId();
-      return os << fmt::format("vector_index_id({})", vector_index_id);
+      os << "[";
+      utils::PrintIterable(os, value.ValueVectorIndexList());
+      return os << "]";
     }
   }
 }
@@ -923,7 +949,7 @@ inline PropertyValue ToPropertyValue(const ExternalPropertyValue &value, NameIdM
     case PropertyValueType::Point3d:
       return PropertyValue(value.ValuePoint3d());
     case PropertyValueType::VectorIndexId:
-      return PropertyValue(value.ValueVectorIndexId());
+      throw PropertyValueException("VectorIndexId should be used only in storage layer!");
   }
   throw PropertyValueException("Unknown type during conversion");
 }
@@ -966,7 +992,7 @@ inline ExternalPropertyValue ToExternalPropertyValue(const PropertyValue &value,
     case PropertyValueType::Point3d:
       return ExternalPropertyValue(value.ValuePoint3d());
     case PropertyValueType::VectorIndexId:
-      return ExternalPropertyValue(value.ValueVectorIndexId());
+      throw PropertyValueException("VectorIndexId should be used only in storage layer!");
   }
   throw PropertyValueException("Unknown type during conversion");
 }
@@ -1085,8 +1111,11 @@ struct hash<memgraph::storage::PropertyValueImpl<Alloc, KeyType>> {
         return std::hash<memgraph::storage::Point2d>{}(value.ValuePoint2d());
       case Point3d:
         return std::hash<memgraph::storage::Point3d>{}(value.ValuePoint3d());
-      case VectorIndexId:
-        return std::hash<uint8_t>{}(value.ValueVectorIndexId());
+      case VectorIndexId: {
+        return memgraph::utils::FnvCollection<typename memgraph::storage::PropertyValueImpl<Alloc, KeyType>::list_t,
+                                              memgraph::storage::PropertyValueImpl<Alloc, KeyType>>{}(
+            value.ValueVectorIndexList());
+      }
     }
   }
 };

@@ -238,7 +238,7 @@ void PrintObject(std::ostream *out, const DbAccessor *dba, const storage::Proper
       PrintObject(out, value.ValuePoint3d());
       break;
     case storage::PropertyValue::Type::VectorIndexId:
-      PrintObject(out, dba, value.ValueVectorIndexId());
+      PrintObject(out, dba, value.ValueVectorIndexList());
   }
 }
 
@@ -289,7 +289,7 @@ void PrintObject(std::ostream *out, const DbAccessor *dba, const storage::Extern
       PrintObject(out, value.ValuePoint3d());
       break;
     case storage::ExternalPropertyValue::Type::VectorIndexId:
-      PrintObject(out, dba, value.ValueVectorIndexId());
+      PrintObject(out, dba, value.ValueVectorIndexList());
   }
 }
 
