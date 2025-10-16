@@ -15,7 +15,6 @@
 
 #include "boost/functional/hash.hpp"
 
-#include <concepts>
 #include <cstdint>
 
 namespace memgraph::storage {

@@ -41,16 +41,16 @@ struct FakeUser : memgraph::query::QueryUserOrRole {
   FakeUser() : memgraph::query::QueryUserOrRole{std::nullopt, {}} {}
 
   bool IsAuthorized(const std::vector<memgraph::query::AuthQuery::Privilege> &privileges,
-                    std::optional<std::string_view> db_name, memgraph::query::UserPolicy *policy) const {
+                    std::optional<std::string_view> db_name, memgraph::query::UserPolicy *policy) const override {
     return true;
   }
   std::vector<std::string> GetRolenames(std::optional<std::string> db_name) const override { return {}; }
 #ifdef MG_ENTERPRISE
-  virtual bool CanImpersonate(const std::string &target, memgraph::query::UserPolicy *policy,
-                              std::optional<std::string_view> db_name = std::nullopt) const {
+  bool CanImpersonate(const std::string &target, memgraph::query::UserPolicy *policy,
+                      std::optional<std::string_view> db_name = std::nullopt) const override {
     return true;
   }
-  std::string GetDefaultDB() const { return "memgraph"; }
+  std::string GetDefaultDB() const override { return "memgraph"; }
 #endif
 };
 

@@ -1,4 +1,4 @@
-// Copyright 2024 Memgraph Ltd.
+// Copyright 2025 Memgraph Ltd.
 //
 // Use of this software is governed by the Business Source License
 // included in the file licenses/BSL.txt; by using this file, you agree to be bound by the terms of the Business Source
@@ -11,32 +11,22 @@
 
 #pragma once
 
-#include "storage/v2/delta.hpp"
+#include "storage/v2/id_types.hpp"
 #include "utils/skip_list.hpp"
+
+namespace memgraph::storage {
+struct Delta;
+}
 
 namespace memgraph::utils {
 
-inline std::optional<std::string_view> GetOldDiskKeyOrNull(storage::Delta *head) {
-  while (head->next != nullptr) {
-    head = head->next;
-  }
-  if (head->action == storage::Delta::Action::DELETE_DESERIALIZED_OBJECT) {
-    return head->old_disk_key.value.as_opt_str();
-  }
-  return std::nullopt;
-}
+auto GetOldDiskKeyOrNull(storage::Delta *head) -> std::optional<std::string_view>;
 
 template <typename TSkipListAccessor>
-inline bool ObjectExistsInCache(TSkipListAccessor &accessor, storage::Gid gid) {
+bool ObjectExistsInCache(TSkipListAccessor &accessor, storage::Gid gid) {
   return accessor.find(gid) != accessor.end();
 }
 
-inline uint64_t GetEarliestTimestamp(storage::Delta *head) {
-  if (head == nullptr) return 0;
-  while (head->next != nullptr) {
-    head = head->next;
-  }
-  return head->timestamp->load(std::memory_order_acquire);
-}
+auto GetEarliestTimestamp(storage::Delta *head) -> uint64_t;
 
 }  // namespace memgraph::utils

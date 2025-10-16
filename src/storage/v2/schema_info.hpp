@@ -20,8 +20,6 @@
 #include <unordered_map>
 #include <unordered_set>
 
-#include "storage/v2/delta.hpp"
-#include "storage/v2/edge.hpp"
 #include "storage/v2/edge_ref.hpp"
 #include "storage/v2/enum_store.hpp"
 #include "storage/v2/id_types.hpp"

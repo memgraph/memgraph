@@ -18,6 +18,7 @@
 #include <gtest/gtest.h>
 #include "libnuraft/nuraft.hxx"
 
+#include <nlohmann/json.hpp>
 #include <vector>
 
 using memgraph::coordination::CoordinatorClusterState;
