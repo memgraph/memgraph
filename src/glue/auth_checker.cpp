@@ -256,6 +256,32 @@ bool FineGrainedAuthChecker::HasGlobalPrivilegeOnEdges(
     return true;
   }
   return IsAuthorizedGloballyEdges(user_or_role_, FineGrainedPrivilegeToFineGrainedPermission(fine_grained_privilege));
+}
+
+bool FineGrainedAuthChecker::HasAllGlobalPrivilegesOnVertices() const {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    return true;
+  }
+  return std::visit(memgraph::utils::Overloaded{[&](auto &user_or_role) {
+                      const auto &permissions = user_or_role.GetFineGrainedAccessLabelPermissions();
+                      const auto &global_permission = permissions.GetGlobalPermission();
+                      return global_permission.has_value() &&
+                             global_permission.value() == memgraph::auth::kLabelPermissionAll;
+                    }},
+                    user_or_role_);
+}
+
+bool FineGrainedAuthChecker::HasAllGlobalPrivilegesOnEdges() const {
+  if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
+    return true;
+  }
+  return std::visit(memgraph::utils::Overloaded{[&](auto &user_or_role) {
+                      const auto &permissions = user_or_role.GetFineGrainedAccessEdgeTypePermissions();
+                      const auto &global_permission = permissions.GetGlobalPermission();
+                      return global_permission.has_value() &&
+                             global_permission.value() == memgraph::auth::kLabelPermissionAll;
+                    }},
+                    user_or_role_);
 };
 #endif
 }  // namespace memgraph::glue

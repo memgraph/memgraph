@@ -2326,7 +2326,7 @@ mgp_error mgp_vertex_add_label(struct mgp_vertex *v, mgp_label label) {
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
         !(ctx->auth_checker->Has(v->getImpl(), v->graph->view,
                                  memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE) &&
-          ctx->auth_checker->Has({label_id}, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE))) {
+          ctx->auth_checker->Has({label_id}, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE))) {
       throw AuthorizationException{"Insufficient permissions for adding a label to vertex!"};
     }
 #endif
@@ -2370,7 +2370,7 @@ mgp_error mgp_vertex_remove_label(struct mgp_vertex *v, mgp_label label) {
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
         !(ctx->auth_checker->Has(v->getImpl(), v->graph->view,
                                  memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE) &&
-          ctx->auth_checker->Has({label_id}, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE))) {
+          ctx->auth_checker->Has({label_id}, memgraph::query::AuthQuery::FineGrainedPrivilege::DELETE))) {
       throw AuthorizationException{"Insufficient permissions for removing a label from vertex!"};
     }
 #endif
@@ -3382,7 +3382,7 @@ mgp_error mgp_graph_create_vertex(struct mgp_graph *graph, mgp_memory *memory, m
         if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && graph->ctx &&
             graph->ctx->auth_checker &&
             !graph->ctx->auth_checker->HasGlobalPrivilegeOnVertices(
-                memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+                memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE)) {
           throw AuthorizationException{"Insufficient permissions for creating vertices!"};
         }
 #endif
@@ -3410,7 +3410,7 @@ mgp_error mgp_graph_delete_vertex(struct mgp_graph *graph, mgp_vertex *vertex) {
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
         !ctx->auth_checker->Has(vertex->getImpl(), graph->view,
-                                memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+                                memgraph::query::AuthQuery::FineGrainedPrivilege::DELETE)) {
       throw AuthorizationException{"Insufficient permissions for deleting a vertex!"};
     }
 #endif
@@ -3461,7 +3461,7 @@ mgp_error mgp_graph_detach_delete_vertex(struct mgp_graph *graph, mgp_vertex *ve
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
         !ctx->auth_checker->Has(vertex->getImpl(), graph->view,
-                                memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+                                memgraph::query::AuthQuery::FineGrainedPrivilege::DELETE)) {
       throw AuthorizationException{"Insufficient permissions for deleting a vertex!"};
     }
 #endif
@@ -3524,7 +3524,7 @@ mgp_error mgp_graph_create_edge(mgp_graph *graph, mgp_vertex *from, mgp_vertex *
         const auto edge_id =
             std::visit([type](auto *impl) { return impl->NameToEdgeType(type.name); }, from->graph->impl);
         if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
-            !ctx->auth_checker->Has(edge_id, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+            !ctx->auth_checker->Has(edge_id, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE)) {
           throw AuthorizationException{"Insufficient permissions for creating edges!"};
         }
 #endif
@@ -3585,7 +3585,7 @@ mgp_error mgp_graph_delete_edge(struct mgp_graph *graph, mgp_edge *edge) {
     auto *ctx = graph->ctx;
 #ifdef MG_ENTERPRISE
     if (memgraph::license::global_license_checker.IsEnterpriseValidFast() && ctx && ctx->auth_checker &&
-        !ctx->auth_checker->Has(edge->impl, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+        !ctx->auth_checker->Has(edge->impl, memgraph::query::AuthQuery::FineGrainedPrivilege::DELETE)) {
       throw AuthorizationException{"Insufficient permissions for deleting an edge!"};
     }
 #endif

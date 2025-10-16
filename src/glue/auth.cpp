@@ -86,12 +86,10 @@ auth::FineGrainedPermission FineGrainedPrivilegeToFineGrainedPermission(
       return auth::FineGrainedPermission::READ;
     case query::AuthQuery::FineGrainedPrivilege::UPDATE:
       return auth::FineGrainedPermission::UPDATE;
-    case query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE:
-      return auth::FineGrainedPermission::CREATE_DELETE;
     case query::AuthQuery::FineGrainedPrivilege::CREATE:
-      throw query::QueryRuntimeException("CREATE privilege not yet implemented.");
+      return auth::FineGrainedPermission::CREATE;
     case query::AuthQuery::FineGrainedPrivilege::DELETE:
-      throw query::QueryRuntimeException("DELETE privilege not yet implemented.");
+      return auth::FineGrainedPermission::DELETE;
   }
 }
 #endif

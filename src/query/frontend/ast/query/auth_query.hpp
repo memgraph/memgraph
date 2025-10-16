@@ -83,7 +83,7 @@ class AuthQuery : public memgraph::query::Query {
     PROFILE_RESTRICTION,
   };
 
-  enum class FineGrainedPrivilege { NOTHING, READ, UPDATE, CREATE_DELETE, CREATE, DELETE };
+  enum class FineGrainedPrivilege { NOTHING, READ, UPDATE, CREATE, DELETE };
 
   enum class DatabaseSpecification {
     NONE,     // No database specification (non-enterprise)
