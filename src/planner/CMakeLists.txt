@@ -22,6 +22,7 @@ target_sources(mg-planner
     src/core/egraph.cpp
     src/core/union_find.cpp
 )
+target_include_directories(mg-planner PUBLIC include)
 
 target_link_libraries(mg-planner PUBLIC absl::flat_hash_map mg-utils range-v3::range-v3)
 

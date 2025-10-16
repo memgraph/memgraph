@@ -69,6 +69,9 @@ target_sources(mg-query
     plan/rule_based_planner.cpp
     plan/used_index_checker.cpp
     plan/variable_start_planner.cpp
+    plan_v2/egraph.cpp
+    plan_v2/ast_converter.cpp
+    procedure/mg_procedure_impl.cpp
     procedure/callable_alias_mapper.cpp
     procedure/cypher_types.cpp
     procedure/mg_procedure_helpers.cpp
@@ -94,6 +97,12 @@ target_sources(mg-query
     jsonl/reader.cppm
     FILE_SET HEADERS
     FILES
+    plan/rewrite/enum.hpp
+    plan/point_distance_condition.hpp
+    string_helpers.hpp
+    path.hpp
+    plan_v2/egraph.hpp
+    plan_v2/ast_converter.hpp
     dependant_symbol_visitor.hpp
     edge_accessor.hpp
     frontend/ast/ast.hpp
@@ -137,6 +146,7 @@ target_link_libraries(mg-query
     mg-flags
     mg-dbms
     mg-events
+    mg::planner
     PRIVATE
     arrow::arrow
     mg-module-support
