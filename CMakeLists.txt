@@ -65,7 +65,7 @@ if (NOT MG_TOOLCHAIN_ROOT)
 endif ()
 
 # Add toolchain to CMAKE_PREFIX_PATH so that find_package can locate libraries
-list(APPEND CMAKE_PREFIX_PATH "${MG_TOOLCHAIN_ROOT}")
+# list(APPEND CMAKE_PREFIX_PATH "${MG_TOOLCHAIN_ROOT}")
 
 project(memgraph LANGUAGES C CXX)
 
