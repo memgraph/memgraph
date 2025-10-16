@@ -59,7 +59,7 @@ class NewDeleteResource final {
 };
 
 class PoolResource final {
-  memgraph::utils::PoolResource memory_{128};
+  memgraph::utils::PoolResource<> memory_{128};
 
  public:
   memgraph::utils::MemoryResource *get() { return &memory_; }
