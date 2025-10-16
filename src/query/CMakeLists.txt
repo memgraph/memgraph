@@ -54,6 +54,8 @@ target_sources(mg-query
     plan/rewrite/range.cpp
     plan/rule_based_planner.cpp
     plan/variable_start_planner.cpp
+    plan_v2/egraph.cpp
+    plan_v2/ast_converter.cpp
     procedure/mg_procedure_impl.cpp
     procedure/mg_procedure_helpers.cpp
     procedure/module.cpp
@@ -84,6 +86,8 @@ target_sources(mg-query
     plan/point_distance_condition.hpp
     string_helpers.hpp
     path.hpp
+    plan_v2/egraph.hpp
+    plan_v2/ast_converter.hpp
     edge_accessor.hpp
     procedure/cypher_types.hpp
     vertex_accessor.hpp
@@ -121,6 +125,7 @@ target_link_libraries(mg-query
     mg-flags
     mg-dbms
     mg-events
+    mg::planner
     PRIVATE
     mg-module-support
     mg-cpp-api
