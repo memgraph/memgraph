@@ -11,16 +11,177 @@
 
 #include "query/plan_v2/ast_converter.hpp"
 
+#include "query/frontend/ast/ast.hpp"
+#include "query/frontend/ast/ast_visitor.hpp"
+#include "query/frontend/semantic/symbol_table.hpp"
+
+using memgraph::query::plan::v2::egraph;
+
+namespace memgraph::query {
+namespace {
+struct ast_converter_visitor : HierarchicalTreeVisitor {
+  using HierarchicalTreeVisitor::PostVisit;
+  using HierarchicalTreeVisitor::PreVisit;
+  using HierarchicalTreeVisitor::ReturnType;
+  using HierarchicalTreeVisitor::Visit;
+
+  ReturnType Visit(ParameterLookup &) override { return true; }
+  ReturnType Visit(PrimitiveLiteral &) override { return true; }
+  ReturnType Visit(Identifier &) override { return true; }
+  ReturnType Visit(EnumValueAccess &) override { return true; }
+  bool PreVisit(CypherQuery &) override { return true; }
+  bool PreVisit(CallSubquery &) override { return true; }
+  bool PreVisit(Exists &) override { return true; }
+  bool PreVisit(Foreach &) override { return true; }
+  bool PreVisit(LoadCsv &) override { return true; }
+  bool PreVisit(RegexMatch &) override { return true; }
+  bool PreVisit(Unwind &) override { return true; }
+  bool PreVisit(Merge &) override { return true; }
+  bool PreVisit(RemoveLabels &) override { return true; }
+  bool PreVisit(RemoveProperty &) override { return true; }
+  bool PreVisit(SetLabels &) override { return true; }
+  bool PreVisit(SetProperties &) override { return true; }
+  bool PreVisit(SetProperty &) override { return true; }
+  bool PreVisit(Where &) override { return true; }
+  bool PreVisit(Delete &) override { return true; }
+  bool PreVisit(EdgeAtom &) override { return true; }
+  bool PreVisit(NodeAtom &) override { return true; }
+  bool PreVisit(Pattern &) override { return true; }
+  bool PreVisit(With &) override { return true; }
+  bool PreVisit(Return &) override { return true; }
+  bool PreVisit(Match &) override { return true; }
+  bool PreVisit(Create &) override { return true; }
+  bool PreVisit(CallProcedure &) override { return true; }
+  bool PreVisit(ListComprehension &) override { return true; }
+  bool PreVisit(None &) override { return true; }
+  bool PreVisit(Any &) override { return true; }
+  bool PreVisit(Single &) override { return true; }
+  bool PreVisit(All &) override { return true; }
+  bool PreVisit(Extract &) override { return true; }
+  bool PreVisit(Coalesce &) override { return true; }
+  bool PreVisit(Reduce &) override { return true; }
+  bool PreVisit(Function &) override { return true; }
+  bool PreVisit(Aggregation &) override { return true; }
+  bool PreVisit(LabelsTest &) override { return true; }
+  bool PreVisit(AllPropertiesLookup &) override { return true; }
+  bool PreVisit(PropertyLookup &) override { return true; }
+  bool PreVisit(MapProjectionLiteral &) override { return true; }
+  bool PreVisit(MapLiteral &) override { return true; }
+  bool PreVisit(ListLiteral &) override { return true; }
+  bool PreVisit(IsNullOperator &) override { return true; }
+  bool PreVisit(UnaryMinusOperator &) override { return true; }
+  bool PreVisit(UnaryPlusOperator &) override { return true; }
+  bool PreVisit(IfOperator &) override { return true; }
+  bool PreVisit(ListSlicingOperator &) override { return true; }
+  bool PreVisit(SubscriptOperator &) override { return true; }
+  bool PreVisit(InListOperator &) override { return true; }
+  bool PreVisit(RangeOperator &) override { return true; }
+  bool PreVisit(GreaterEqualOperator &) override { return true; }
+  bool PreVisit(LessEqualOperator &) override { return true; }
+  bool PreVisit(GreaterOperator &) override { return true; }
+  bool PreVisit(LessOperator &) override { return true; }
+  bool PreVisit(EqualOperator &) override { return true; }
+  bool PreVisit(NotEqualOperator &) override { return true; }
+  bool PreVisit(ExponentiationOperator &) override { return true; }
+  bool PreVisit(ModOperator &) override { return true; }
+  bool PreVisit(DivisionOperator &) override { return true; }
+  bool PreVisit(MultiplicationOperator &) override { return true; }
+  bool PreVisit(SubtractionOperator &) override { return true; }
+  bool PreVisit(AdditionOperator &) override { return true; }
+  bool PreVisit(NotOperator &) override { return true; }
+  bool PreVisit(AndOperator &) override { return true; }
+  bool PreVisit(XorOperator &) override { return true; }
+  bool PreVisit(OrOperator &) override { return true; }
+  bool PreVisit(NamedExpression &) override { return true; }
+  bool PreVisit(CypherUnion &) override { return true; }
+  bool PreVisit(SingleQuery &) override { return true; }
+
+  bool PostVisit(CypherQuery &) override { return true; }
+  bool PostVisit(CallSubquery &) override { return true; }
+  bool PostVisit(Exists &) override { return true; }
+  bool PostVisit(Foreach &) override { return true; }
+  bool PostVisit(LoadCsv &) override { return true; }
+  bool PostVisit(RegexMatch &) override { return true; }
+  bool PostVisit(Unwind &) override { return true; }
+  bool PostVisit(Merge &) override { return true; }
+  bool PostVisit(RemoveLabels &) override { return true; }
+  bool PostVisit(RemoveProperty &) override { return true; }
+  bool PostVisit(SetLabels &) override { return true; }
+  bool PostVisit(SetProperties &) override { return true; }
+  bool PostVisit(SetProperty &) override { return true; }
+  bool PostVisit(Where &) override { return true; }
+  bool PostVisit(Delete &) override { return true; }
+  bool PostVisit(EdgeAtom &) override { return true; }
+  bool PostVisit(NodeAtom &) override { return true; }
+  bool PostVisit(Pattern &) override { return true; }
+  bool PostVisit(With &) override { return true; }
+  bool PostVisit(Return &) override { return true; }
+  bool PostVisit(Match &) override { return true; }
+  bool PostVisit(Create &) override { return true; }
+  bool PostVisit(CallProcedure &) override { return true; }
+  bool PostVisit(ListComprehension &) override { return true; }
+  bool PostVisit(None &) override { return true; }
+  bool PostVisit(Any &) override { return true; }
+  bool PostVisit(Single &) override { return true; }
+  bool PostVisit(All &) override { return true; }
+  bool PostVisit(Extract &) override { return true; }
+  bool PostVisit(Coalesce &) override { return true; }
+  bool PostVisit(Reduce &) override { return true; }
+  bool PostVisit(Function &) override { return true; }
+  bool PostVisit(Aggregation &) override { return true; }
+  bool PostVisit(LabelsTest &) override { return true; }
+  bool PostVisit(AllPropertiesLookup &) override { return true; }
+  bool PostVisit(PropertyLookup &) override { return true; }
+  bool PostVisit(MapProjectionLiteral &) override { return true; }
+  bool PostVisit(MapLiteral &) override { return true; }
+  bool PostVisit(ListLiteral &) override { return true; }
+  bool PostVisit(IsNullOperator &) override { return true; }
+  bool PostVisit(UnaryMinusOperator &) override { return true; }
+  bool PostVisit(UnaryPlusOperator &) override { return true; }
+  bool PostVisit(IfOperator &) override { return true; }
+  bool PostVisit(ListSlicingOperator &) override { return true; }
+  bool PostVisit(SubscriptOperator &) override { return true; }
+  bool PostVisit(InListOperator &) override { return true; }
+  bool PostVisit(RangeOperator &) override { return true; }
+  bool PostVisit(GreaterEqualOperator &) override { return true; }
+  bool PostVisit(LessEqualOperator &) override { return true; }
+  bool PostVisit(GreaterOperator &) override { return true; }
+  bool PostVisit(LessOperator &) override { return true; }
+  bool PostVisit(EqualOperator &) override { return true; }
+  bool PostVisit(NotEqualOperator &) override { return true; }
+  bool PostVisit(ExponentiationOperator &) override { return true; }
+  bool PostVisit(ModOperator &) override { return true; }
+  bool PostVisit(DivisionOperator &) override { return true; }
+  bool PostVisit(MultiplicationOperator &) override { return true; }
+  bool PostVisit(SubtractionOperator &) override { return true; }
+  bool PostVisit(AdditionOperator &) override { return true; }
+  bool PostVisit(NotOperator &) override { return true; }
+  bool PostVisit(AndOperator &) override { return true; }
+  bool PostVisit(XorOperator &) override { return true; }
+  bool PostVisit(OrOperator &) override { return true; }
+  bool PostVisit(NamedExpression &) override { return true; }
+  bool PostVisit(CypherUnion &) override { return true; }
+  bool PostVisit(SingleQuery &) override { return true; }
+
+  bool PreVisit(PatternComprehension &) override { return true; }
+  bool PostVisit(PatternComprehension &) override { return true; }
+
+  auto GetEgraph() && -> egraph { return std::move(egraph_); }
+
+ private:
+  egraph egraph_;
+};
+}  // namespace
+}  // namespace memgraph::query
+
 namespace memgraph::query::plan::v2 {
 
-auto ConvertToEgraph(CypherQuery const &query, SymbolTable const &symbol_table) -> egraph { return egraph{}; }
+auto ConvertToEgraph(CypherQuery const &query, SymbolTable const &symbol_table) -> egraph {
+  auto visitor = ast_converter_visitor{};
+  // TODO: fix HierarchicalTreeVisitor to allow const
+  const_cast<CypherQuery &>(query).Accept(visitor);
+
+  return egraph{};
+}
 
 }  // namespace memgraph::query::plan::v2
-
-// struct ast_converter {
-//   ast_converter(CypherQuery const &query, SymbolTable const &symbol_table)
-//       : query_root_{query}, symbol_table_{symbol_table} {}
-// private:
-//   [[maybe_unused]] CypherQuery const &query_root_;
-//   [[maybe_unused]] SymbolTable const &symbol_table_;
-// };
