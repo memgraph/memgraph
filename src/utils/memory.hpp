@@ -349,7 +349,6 @@ class ThreadSafePool {
 
   std::mutex mtx_;
   AList<void *> chunks_;  // store allocated blocks for destruction
-  Node *head_{nullptr};
 
   const std::size_t block_size_;
   const std::size_t blocks_per_chunk_;
@@ -574,6 +573,7 @@ class PoolResource final : public std::pmr::memory_resource {
   void do_deallocate(void *p, size_t bytes, size_t alignment) override;
   bool do_is_equal(std::pmr::memory_resource const &other) const noexcept override;
 
+ private:
   std::array<P, 8> mini_pools_;
   impl::MultiPool<3, 64, 128, P> pools_3bit_;
   impl::MultiPool<4, 128, 512, P> pools_4bit_;

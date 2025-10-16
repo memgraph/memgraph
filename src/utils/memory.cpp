@@ -390,7 +390,7 @@ void ThreadSafePool::push_head(void *p) {
 ThreadSafePool::ThreadSafePool(std::size_t block_size, std::size_t blocks_per_chunks, MemoryResource *chunk_memory)
     : block_size_(block_size), blocks_per_chunk_(blocks_per_chunks), chunk_memory_(chunk_memory) {
   // Create instance-specific pthread key for thread-local storage
-  if (pthread_key_create(&thread_local_head_key_, NULL) != 0) {
+  if (pthread_key_create(&thread_local_head_key_, nullptr) != 0) {
     throw BadAlloc("Failed to create pthread key for thread-local storage");
   }
 }
@@ -402,7 +402,6 @@ ThreadSafePool::~ThreadSafePool() {
     }
     chunks_.clear();
   }
-  (void)head_;
   // Clean up the pthread key
   pthread_key_delete(thread_local_head_key_);
 }
