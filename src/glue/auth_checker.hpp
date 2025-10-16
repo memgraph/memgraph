@@ -81,6 +81,10 @@ class FineGrainedAuthChecker : public query::FineGrainedAuthChecker {
 
   bool HasGlobalPrivilegeOnEdges(query::AuthQuery::FineGrainedPrivilege fine_grained_privilege) const override;
 
+  bool HasAllGlobalPrivilegesOnVertices() const override;
+
+  bool HasAllGlobalPrivilegesOnEdges() const override;
+
  private:
   auth::UserOrRole user_or_role_;
   const query::DbAccessor *dba_;

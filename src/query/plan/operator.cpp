@@ -554,7 +554,7 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context)
 
 #ifdef MG_ENTERPRISE
     if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-        !context.auth_checker->Has(labels, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+        !context.auth_checker->Has(labels, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE)) {
       throw QueryRuntimeException(
           "Vertex not created due to not having enough permission! This error means that the fine grained access "
           "control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON "
@@ -691,10 +691,10 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
     const auto fine_grained_permission = self_.existing_node_
                                              ? memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE
 
-                                             : memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE;
+                                             : memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE;
 
     if (context.auth_checker &&
-        !(context.auth_checker->Has(edge_type, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
+        !(context.auth_checker->Has(edge_type, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE) &&
           context.auth_checker->Has(labels, fine_grained_permission))) {
       throw QueryRuntimeException(
           "Edge not created due to not having enough permission! This error means that the fine grained access control "
@@ -4429,7 +4429,7 @@ void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &co
   auto vertex_auth_checker = [&context](const VertexAccessor &va) -> bool {
 #ifdef MG_ENTERPRISE
     return !(license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-             !context.auth_checker->Has(va, storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE));
+             !context.auth_checker->Has(va, storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::DELETE));
 #else
     return true;
 #endif
@@ -4439,7 +4439,7 @@ void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &co
 #ifdef MG_ENTERPRISE
     return !(
         license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-        !(context.auth_checker->Has(ea, query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
+        !(context.auth_checker->Has(ea, query::AuthQuery::FineGrainedPrivilege::DELETE) &&
           context.auth_checker->Has(ea.To(), storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::UPDATE) &&
           context.auth_checker->Has(ea.From(), storage::View::NEW, query::AuthQuery::FineGrainedPrivilege::UPDATE)));
 #else
@@ -5128,7 +5128,7 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
 
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-      !context.auth_checker->Has(labels, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+      !context.auth_checker->Has(labels, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE)) {
     throw QueryRuntimeException(
         "Couldn't set label due to not having enough permission! This error means that the fine grained access control "
         "was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to "
@@ -5462,7 +5462,7 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
 
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-      !context.auth_checker->Has(labels, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+      !context.auth_checker->Has(labels, memgraph::query::AuthQuery::FineGrainedPrivilege::DELETE)) {
     throw QueryRuntimeException(
         "Couldn't remove label due to not having enough permission! This error means that the fine grained access "
         "control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; "

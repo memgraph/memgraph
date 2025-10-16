@@ -40,7 +40,7 @@ struct PermissionForPrivilegeResult {
 struct FineGrainedPermissionForPrivilegeResult {
   std::string permission;
 #ifdef MG_ENTERPRISE
-  memgraph::auth::FineGrainedPermission permission_level;
+  uint64_t permission_level;
 #endif
   std::string description;
 };
@@ -196,12 +196,11 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
   }
   const auto global_permission = permissions.GetGlobalPermission();
   if (global_permission.has_value()) {
-    const auto &permission_level = memgraph::auth::PermissionToFineGrainedPermission(global_permission.value());
+    const auto permission_level = global_permission.value();
 
     std::stringstream permission_representation;
     permission_representation << "ALL " << permission_type << "S";
-    const auto &permission_level_representation =
-        permission_level == memgraph::auth::FineGrainedPermission::NOTHING ? "DENIED" : "GRANTED";
+    auto const &permission_level_representation = permission_level == 0 ? "DENIED" : "GRANTED";
 
     std::string permission_description =
         fmt::format("GLOBAL {0} PERMISSION {1} TO {2}", permission_type, permission_level_representation, user_or_role);
@@ -211,13 +210,12 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
   }
 
   for (const auto &[label, permission] : permissions.GetPermissions()) {
-    auto permission_level = memgraph::auth::PermissionToFineGrainedPermission(permission);
+    auto const permission_level = permission;
 
     std::stringstream permission_representation;
     permission_representation << permission_type << " :" << label;
 
-    const auto &permission_level_representation =
-        permission_level == memgraph::auth::FineGrainedPermission::NOTHING ? "DENIED" : "GRANTED";
+    auto const &permission_level_representation = permission_level == 0 ? "DENIED" : "GRANTED";
 
     std::string permission_description =
         fmt::format("{0} PERMISSION {1} TO {2}", permission_type, permission_level_representation, user_or_role);
@@ -373,11 +371,16 @@ bool AuthQueryHandler::CreateUser(const std::string &username, const std::option
           username, memgraph::query::kPrivilegesAll
 #ifdef MG_ENTERPRISE
           ,
-          {{{memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {memgraph::query::kAsterisk}}}},
+          {{{memgraph::query::AuthQuery::FineGrainedPrivilege::READ, {memgraph::query::kAsterisk}},
+            {memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE, {memgraph::query::kAsterisk}},
+            {memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE, {memgraph::query::kAsterisk}},
+            {memgraph::query::AuthQuery::FineGrainedPrivilege::DELETE, {memgraph::query::kAsterisk}}}},
           {
             {
-              {
-                memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE, { memgraph::query::kAsterisk }
+              {memgraph::query::AuthQuery::FineGrainedPrivilege::READ, {memgraph::query::kAsterisk}},
+                  {memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE, {memgraph::query::kAsterisk}},
+                  {memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE, {memgraph::query::kAsterisk}}, {
+                memgraph::query::AuthQuery::FineGrainedPrivilege::DELETE, { memgraph::query::kAsterisk }
               }
             }
           }
@@ -904,9 +907,10 @@ void AuthQueryHandler::RevokePrivilege(
 #ifdef MG_ENTERPRISE
       ,
       [](auto &fine_grained_permissions, const auto &privilege_collection) {
-        for ([[maybe_unused]] const auto &[privilege, entities] : privilege_collection) {
+        for (const auto &[privilege, entities] : privilege_collection) {
+          const auto &permission = memgraph::glue::FineGrainedPrivilegeToFineGrainedPermission(privilege);
           for (const auto &entity : entities) {
-            fine_grained_permissions.Revoke(entity);
+            fine_grained_permissions.Revoke(entity, permission);
           }
         }
       }

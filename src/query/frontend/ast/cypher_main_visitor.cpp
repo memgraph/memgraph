@@ -2111,12 +2111,17 @@ antlrcpp::Any CypherMainVisitor::visitFineGrainedPrivilegesList(MemgraphCypher::
       }
     } else if (it->entitiesList()) {
       const auto entity_type = std::any_cast<EntityType>(it->entityType()->accept(this));
+      const auto entities = std::any_cast<std::vector<std::string>>(it->entitiesList()->accept(this));
       if (entity_type == EntityType::LABELS) {
-        label_privileges.push_back({{AuthQuery::FineGrainedPrivilege::CREATE_DELETE,
-                                     std::any_cast<std::vector<std::string>>(it->entitiesList()->accept(this))}});
+        label_privileges.push_back({{AuthQuery::FineGrainedPrivilege::CREATE, entities},
+                                    {AuthQuery::FineGrainedPrivilege::READ, entities},
+                                    {AuthQuery::FineGrainedPrivilege::UPDATE, entities},
+                                    {AuthQuery::FineGrainedPrivilege::DELETE, entities}});
       } else {
-        edge_type_privileges.push_back({{AuthQuery::FineGrainedPrivilege::CREATE_DELETE,
-                                         std::any_cast<std::vector<std::string>>(it->entitiesList()->accept(this))}});
+        edge_type_privileges.push_back({{AuthQuery::FineGrainedPrivilege::CREATE, entities},
+                                        {AuthQuery::FineGrainedPrivilege::READ, entities},
+                                        {AuthQuery::FineGrainedPrivilege::UPDATE, entities},
+                                        {AuthQuery::FineGrainedPrivilege::DELETE, entities}});
       }
     } else {
       privileges.push_back(std::any_cast<AuthQuery::Privilege>(it->privilege()->accept(this)));

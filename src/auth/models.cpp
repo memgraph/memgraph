@@ -183,33 +183,22 @@ std::string PermissionLevelToString(PermissionLevel level) {
 }
 
 #ifdef MG_ENTERPRISE
-FineGrainedPermission PermissionToFineGrainedPermission(const uint64_t permission) {
-  if (permission & FineGrainedPermission::CREATE_DELETE) {
-    return FineGrainedPermission::CREATE_DELETE;
-  }
-
-  if (permission & FineGrainedPermission::UPDATE) {
-    return FineGrainedPermission::UPDATE;
-  }
-
+std::string FineGrainedPermissionToString(uint64_t const permission) {
+  std::vector<std::string> permissions;
   if (permission & FineGrainedPermission::READ) {
-    return FineGrainedPermission::READ;
+    permissions.push_back("READ");
+  }
+  if (permission & FineGrainedPermission::UPDATE) {
+    permissions.push_back("UPDATE");
+  }
+  if (permission & FineGrainedPermission::CREATE) {
+    permissions.push_back("CREATE");
+  }
+  if (permission & FineGrainedPermission::DELETE) {
+    permissions.push_back("DELETE");
   }
 
-  return FineGrainedPermission::NOTHING;
-}
-
-std::string FineGrainedPermissionToString(const FineGrainedPermission level) {
-  switch (level) {
-    case FineGrainedPermission::CREATE_DELETE:
-      return "CREATE_DELETE";
-    case FineGrainedPermission::UPDATE:
-      return "UPDATE";
-    case FineGrainedPermission::READ:
-      return "READ";
-    case FineGrainedPermission::NOTHING:
-      return "NOTHING";
-  }
+  return utils::Join(permissions, ", ");
 }
 
 FineGrainedAccessPermissions Merge(const FineGrainedAccessPermissions &first,
@@ -352,9 +341,9 @@ PermissionLevel FineGrainedAccessPermissions::Has(const std::string &permission,
 void FineGrainedAccessPermissions::Grant(const std::string &permission,
                                          const FineGrainedPermission fine_grained_permission) {
   if (permission == query::kAsterisk) {
-    global_permission_ = CalculateGrant(fine_grained_permission);
+    global_permission_ = global_permission_.value_or(0) | static_cast<uint64_t>(fine_grained_permission);
   } else {
-    permissions_[permission] = CalculateGrant(fine_grained_permission);
+    permissions_[permission] |= static_cast<uint64_t>(fine_grained_permission);
   }
 }
 
@@ -364,6 +353,26 @@ void FineGrainedAccessPermissions::Revoke(const std::string &permission) {
     global_permission_ = std::nullopt;
   } else {
     permissions_.erase(permission);
+  }
+}
+
+void FineGrainedAccessPermissions::Revoke(const std::string &permission,
+                                          const FineGrainedPermission fine_grained_permission) {
+  if (permission == query::kAsterisk) {
+    if (global_permission_.has_value()) {
+      global_permission_ = global_permission_.value() & ~static_cast<uint64_t>(fine_grained_permission);
+      if (global_permission_.value() == 0) {
+        global_permission_ = std::nullopt;
+      }
+    }
+  } else {
+    auto it = permissions_.find(permission);
+    if (it != permissions_.end()) {
+      it->second &= ~static_cast<uint64_t>(fine_grained_permission);
+      if (it->second == 0) {
+        permissions_.erase(it);
+      }
+    }
   }
 }
 
@@ -405,16 +414,18 @@ const std::unordered_map<std::string, uint64_t> &FineGrainedAccessPermissions::G
 }
 const std::optional<uint64_t> &FineGrainedAccessPermissions::GetGlobalPermission() const { return global_permission_; };
 
-uint64_t FineGrainedAccessPermissions::CalculateGrant(FineGrainedPermission fine_grained_permission) {
-  uint64_t shift{1};
-  uint64_t result{0};
-  auto uint_fine_grained_permission = static_cast<uint64_t>(fine_grained_permission);
-  while (uint_fine_grained_permission > 0) {
-    result |= uint_fine_grained_permission;
-    uint_fine_grained_permission >>= shift;
+uint64_t FineGrainedAccessPermissions::MigratePermission(uint64_t permission) {
+  // Memgraph 3.6 and earlier used bit 2 to indicate CREATE_DELETE. We now
+  // use bits 3 and 4 to indicate separate CREATE and DELETE privileges. If
+  // bit 2 is set, we know this is an "old" user, and migrate by clearing the
+  // unused CREATE_DELETE bit and setting CREATE and DELETE.
+  constexpr uint64_t kOldCreateDeleteBit = 1U << 2U;
+  if (permission & kOldCreateDeleteBit) {
+    permission &= ~kOldCreateDeleteBit;
+    permission |= static_cast<uint64_t>(FineGrainedPermission::CREATE);
+    permission |= static_cast<uint64_t>(FineGrainedPermission::DELETE);
   }
-
-  return result;
+  return permission;
 }
 
 bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second) {

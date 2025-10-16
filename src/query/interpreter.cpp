@@ -881,11 +881,12 @@ Callback HandleAuthQuery(AuthQuery *auth_query, InterpreterContext *interpreter_
               username, kPrivilegesAll
 #ifdef MG_ENTERPRISE
               ,
-              {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE, {query::kAsterisk}}}},
+              {{{AuthQuery::FineGrainedPrivilege::CREATE, {query::kAsterisk}},
+                {AuthQuery::FineGrainedPrivilege::DELETE, {query::kAsterisk}}}},
               {
                 {
-                  {
-                    AuthQuery::FineGrainedPrivilege::CREATE_DELETE, { query::kAsterisk }
+                  {AuthQuery::FineGrainedPrivilege::CREATE, {query::kAsterisk}}, {
+                    AuthQuery::FineGrainedPrivilege::DELETE, { query::kAsterisk }
                   }
                 }
               }
@@ -2520,8 +2521,7 @@ PullPlan::PullPlan(const std::shared_ptr<PlanWrapper> plan, const Parameters &pa
 
     // if the user has global privileges to read, edit and write anything, we don't need to perform authorization
     // otherwise, we do assign the auth checker to check for label access control
-    if (!auth_checker->HasGlobalPrivilegeOnVertices(AuthQuery::FineGrainedPrivilege::CREATE_DELETE) ||
-        !auth_checker->HasGlobalPrivilegeOnEdges(AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
+    if (!auth_checker->HasAllGlobalPrivilegesOnVertices() || !auth_checker->HasAllGlobalPrivilegesOnEdges()) {
       ctx_.auth_checker = std::move(auth_checker);
     }
   }
