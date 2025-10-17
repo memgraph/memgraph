@@ -1259,6 +1259,9 @@ if [[ "$DISTRO" =~ ^(rocky-|centos-|fedora-|debian-) ]]; then
             -DCURL_USE_LIBPSL=OFF \
             -DBUILD_SHARED_LIBS=OFF \
             -DBUILD_STATIC_LIBS=ON \
+            -DUSE_NGHTTP2=OFF \
+            -DUSE_LIBIDN2=OFF \
+            -DCURL_DISABLE_LDAP=ON \
             $COMMON_CMAKE_FLAGS
         pushd build
         make -j$CPUS
