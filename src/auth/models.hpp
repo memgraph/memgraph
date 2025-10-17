@@ -680,8 +680,6 @@ class User final {
                       std::optional<PasswordHashAlgorithm> algo_override = std::nullopt);
   void UpdateHash(HashedPassword hashed_password);
 
-  [[deprecated("Use AddRole instead")]] void SetRole(const Role &role);
-
   void ClearAllRoles();
 
   void AddRole(const Role &role);
