@@ -1647,7 +1647,7 @@ antlrcpp::Any CypherMainVisitor::visitSingleQuery(MemgraphCypher::SingleQueryCon
     }
   }
 
-  single_query->has_update = has_update;
+  // single_query->has_update = has_update;
   return single_query;
 }
 
