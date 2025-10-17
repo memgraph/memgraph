@@ -165,7 +165,7 @@ TEST_F(AuthWithStorage, UserRolePermissions) {
 
   // Assign permissions to role and role to user.
   role->permissions().Grant(Permission::DELETE);
-  user->SetRole(*role);
+  user->AddRole(*role);
 
   // Check permissions.
   {
@@ -178,7 +178,7 @@ TEST_F(AuthWithStorage, UserRolePermissions) {
 
   // Add explicit deny to role.
   role->permissions().Deny(Permission::MATCH);
-  user->SetRole(*role);
+  user->AddRole(*role);
 
   // Check permissions.
   {
@@ -273,7 +273,7 @@ TEST_F(AuthWithStorage, UserRoleFineGrainedAccessHandler) {
   role->fine_grained_access_handler().label_permissions().Grant("roleLabelTest", FineGrainedPermission::READ);
   role->fine_grained_access_handler().edge_type_permissions().Grant("roleEdgeTypeTest", FineGrainedPermission::UPDATE);
   role->fine_grained_access_handler().edge_type_permissions().Grant("roleEdgeTypeTest", FineGrainedPermission::DELETE);
-  user->SetRole(*role);
+  user->AddRole(*role);
 
   // Check permissions.
   {
@@ -762,14 +762,14 @@ TEST_F(AuthWithStorage, RoleManipulations) {
     ASSERT_TRUE(user1);
     auto role1 = auth->AddRole("role1");
     ASSERT_TRUE(role1);
-    user1->SetRole(*role1);
+    user1->AddRole(*role1);
     auth->SaveUser(*user1);
 
     auto user2 = auth->AddUser("user2");
     ASSERT_TRUE(user2);
     auto role2 = auth->AddRole("role2");
     ASSERT_TRUE(role2);
-    user2->SetRole(*role2);
+    user2->AddRole(*role2);
     auth->SaveUser(*user2);
   }
 
@@ -851,7 +851,7 @@ TEST_F(AuthWithStorage, UserRoleLinkUnlink) {
     ASSERT_TRUE(user);
     auto role = auth->AddRole("role");
     ASSERT_TRUE(role);
-    user->SetRole(*role);
+    user->AddRole(*role);
     auth->SaveUser(*user);
   }
 
@@ -1332,7 +1332,7 @@ TEST_F(AuthWithStorage, UserWithRoleSerializeDeserialize) {
   user->permissions().Grant(Permission::MATCH);
   user->permissions().Deny(Permission::MERGE);
   user->UpdatePassword("world");
-  user->SetRole(*role);
+  user->AddRole(*role);
   auth->SaveUser(*user);
 
   auto new_user = auth->GetUser("user");
@@ -1580,7 +1580,7 @@ TEST_F(AuthWithStorage, CaseInsensitivity) {
     auto role = auth->GetRole("moderAtor");
     ASSERT_TRUE(role);
     ASSERT_EQ(role->rolename(), "moderator");
-    user->SetRole(*role);
+    user->AddRole(*role);
     auth->SaveUser(*user);
   }
   {
@@ -1603,9 +1603,9 @@ TEST_F(AuthWithStorage, CaseInsensitivity) {
     auto admin = auth->GetRole("aDMin");
     ASSERT_TRUE(admin);
     ASSERT_EQ(admin->rolename(), "admin");
-    carol->SetRole(*admin);
+    carol->AddRole(*admin);
     auth->SaveUser(*carol);
-    dave->SetRole(*admin);
+    dave->AddRole(*admin);
     auth->SaveUser(*dave);
   }
   {
@@ -1788,7 +1788,7 @@ TEST_F(AuthWithStorage, UserImpersonationWRole) {
   ASSERT_TRUE(admin->CanImpersonate(*another_user));
 
   // user should have the same provoledges as its role
-  user->SetRole(*admin);
+  user->AddRole(*admin);
   ASSERT_FALSE(user->CanImpersonate(*user));
   ASSERT_TRUE(user->CanImpersonate(*another_user));
 
@@ -1819,7 +1819,7 @@ TEST_F(AuthWithStorage, UserImpersonationWUserAndRole) {
   auto admin = auth->GetUser("admin");
   ASSERT_TRUE(admin);
   admin->permissions().Grant(Permission::IMPERSONATE_USER);
-  admin->SetRole(*admin_role);
+  admin->AddRole(*admin_role);
   ASSERT_FALSE(admin->CanImpersonate(*user));
   ASSERT_FALSE(admin->CanImpersonate(*another_user));
 
@@ -1830,7 +1830,7 @@ TEST_F(AuthWithStorage, UserImpersonationWUserAndRole) {
 
   // allow role to impersonate "user"
   admin_role->GrantUserImp({*user});
-  admin->SetRole(*admin_role);  // update role
+  admin->AddRole(*admin_role);  // update role
   ASSERT_TRUE(admin->CanImpersonate(*user));
   ASSERT_TRUE(admin->CanImpersonate(*another_user));
 
@@ -1841,13 +1841,13 @@ TEST_F(AuthWithStorage, UserImpersonationWUserAndRole) {
 
   // deny role to impersonate "user"
   admin_role->DenyUserImp({*user});
-  admin->SetRole(*admin_role);  // update role
+  admin->AddRole(*admin_role);  // update role
   ASSERT_FALSE(admin->CanImpersonate(*user));
   ASSERT_TRUE(admin->CanImpersonate(*another_user));
 
   // allow role to impersonate anyone
   admin_role->GrantUserImp();
-  admin->SetRole(*admin_role);  // update role
+  admin->AddRole(*admin_role);  // update role
   ASSERT_TRUE(admin->CanImpersonate(*user));
   ASSERT_TRUE(admin->CanImpersonate(*another_user));
 
@@ -2055,7 +2055,7 @@ TEST_F(AuthWithStorage, MultiTenantRoleWithGlobalRoles) {
   ASSERT_NE(user, std::nullopt);
 
   // Set global role
-  user->SetRole(*global_role);
+  user->AddRole(*global_role);
   auth->SaveUser(*user);
 
   // Try to set the same role as multi-tenant role (should fail)
@@ -2446,7 +2446,7 @@ TEST_F(AuthWithStorage, SetProfileUserWRole) {
 
   // Set role for user
   auto user = auth->GetUser("user");
-  user->SetRole(*auth->GetRole("role"));
+  user->AddRole(*auth->GetRole("role"));
   auth->SaveUser(*user);
 
   // Set profile for user
@@ -2520,7 +2520,7 @@ TEST_F(AuthWithStorage, RevokeProfileUserWRole) {
 
   // Set role for user
   auto user = auth->GetUser("user");
-  user->SetRole(*auth->GetRole("role"));
+  user->AddRole(*auth->GetRole("role"));
   auth->SaveUser(*user);
 
   // Set profile for user
