@@ -2378,7 +2378,7 @@ class Apply : public memgraph::query::plan::LogicalOperator {
     void Reset() override;
 
    private:
-    const Apply &self_;
+    [[maybe_unused]] const Apply &self_;
     UniqueCursorPtr input_;
     UniqueCursorPtr subquery_;
     bool pull_input_{true};
@@ -2417,7 +2417,7 @@ class IndexedJoin : public memgraph::query::plan::LogicalOperator {
     void Reset() override;
 
    private:
-    const IndexedJoin &self_;
+    [[maybe_unused]] const IndexedJoin &self_;
     UniqueCursorPtr main_branch_;
     UniqueCursorPtr sub_branch_;
     bool pull_input_{true};

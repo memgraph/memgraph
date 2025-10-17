@@ -245,23 +245,23 @@ __attribute__((visibility("default"))) void operator delete[](void *ptr, const s
   deleteImpl(ptr, align);
 }
 
-__attribute__((visibility("default"))) void operator delete(void *ptr, const std::size_t size) noexcept {
+__attribute__((visibility("default"))) void operator delete(void *ptr, std::size_t size) noexcept {
   UntrackMemory(ptr, size);
   deleteSized(ptr, size);
 }
 
-__attribute__((visibility("default"))) void operator delete[](void *ptr, const std::size_t size) noexcept {
+__attribute__((visibility("default"))) void operator delete[](void *ptr, std::size_t size) noexcept {
   UntrackMemory(ptr, size);
   deleteSized(ptr, size);
 }
 
-__attribute__((visibility("default"))) void operator delete(void *ptr, const std::size_t size,
+__attribute__((visibility("default"))) void operator delete(void *ptr, std::size_t size,
                                                             const std::align_val_t align) noexcept {
   UntrackMemory(ptr, align, size);
   deleteSized(ptr, size, align);
 }
 
-__attribute__((visibility("default"))) void operator delete[](void *ptr, const std::size_t size,
+__attribute__((visibility("default"))) void operator delete[](void *ptr, std::size_t size,
                                                               const std::align_val_t align) noexcept {
   UntrackMemory(ptr, align, size);
   deleteSized(ptr, size, align);

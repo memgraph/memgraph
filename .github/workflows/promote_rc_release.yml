@@ -43,7 +43,7 @@ jobs:
     strategy:
       fail-fast: false
       matrix:
-        os: [centos-9, centos-10, debian-11, debian-12, docker, fedora-41, ubuntu-22.04, ubuntu-24.04]
+        os: [centos-9, centos-10, debian-12, debian-13, docker, fedora-42, rocky-10, ubuntu-22.04, ubuntu-24.04]
         arch: [amd]
         malloc: [false]
         build_type: [Release]
@@ -60,6 +60,18 @@ jobs:
             arch: arm
             malloc: false
             build_type: RelWithDebInfo
+          - os: debian-12
+            arch: arm
+            malloc: false
+            build_type: Release
+          - os: debian-13
+            arch: arm
+            malloc: false
+            build_type: Release 
+          - os: fedora-42
+            arch: arm
+            malloc: false
+            build_type: Release
           - os: ubuntu-24.04
             arch: arm
             malloc: false

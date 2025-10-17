@@ -40,10 +40,10 @@ function(add_unit_test exec_name)
         if(TARGET memgraph_unit_main)
             target_link_libraries(${target_name} PRIVATE memgraph_unit_main)
         else()
-            target_link_libraries(${target_name} PRIVATE gtest_main gtest gmock Threads::Threads dl)
+            target_link_libraries(${target_name} PRIVATE gtest_main GTest::gtest GTest::gmock Threads::Threads dl)
         endif()
     else()
-        target_link_libraries(${target_name} PRIVATE gtest gmock Threads::Threads dl)
+        target_link_libraries(${target_name} PRIVATE GTest::gtest GTest::gmock Threads::Threads dl)
     endif()
 
     # Add include directories if specified

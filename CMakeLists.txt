@@ -1,5 +1,6 @@
 # MemGraph CMake configuration
 
+
 cmake_minimum_required(VERSION 3.23)
 cmake_policy(SET CMP0076 NEW)
 cmake_policy(SET CMP0135 NEW)
@@ -28,16 +29,6 @@ else ()
   message(STATUS "CCache: Not used")
 endif(CCACHE_FOUND AND USE_CCACHE)
 
-# choose a compiler
-# NOTE: must be choosen before use of project() or enable_language()
-find_program(CLANG_FOUND clang)
-find_program(CLANGXX_FOUND clang++)
-if (CLANG_FOUND AND CLANGXX_FOUND)
-  set(CMAKE_C_COMPILER ${CLANG_FOUND})
-  set(CMAKE_CXX_COMPILER ${CLANGXX_FOUND})
-else()
-  message(FATAL_ERROR "Couldn't find clang and/or clang++!")
-endif()
 
 # This is used to so that 3rd party libs can find the
 # correct libraries from our toolchain
@@ -60,12 +51,30 @@ message(STATUS "Set toolchain tools using MG_TOOLCHAIN_ROOT: ${MG_TOOLCHAIN_ROOT
 
 # -----------------------------------------------------------------------------
 
+# Capture MG_TOOLCHAIN_ROOT from environment variable if not already set
+if (NOT MG_TOOLCHAIN_ROOT)
+    if (DEFINED ENV{MG_TOOLCHAIN_ROOT})
+        set(MG_TOOLCHAIN_ROOT $ENV{MG_TOOLCHAIN_ROOT})
+    endif()
+endif()
+
+if (NOT MG_TOOLCHAIN_ROOT)
+    # This is used to so that 3rd party libs can find the
+    # correct libraries from our toolchain
+    message(FATAL "Need toolchain")
+endif ()
+
+# Add toolchain to CMAKE_PREFIX_PATH so that find_package can locate libraries
+# list(APPEND CMAKE_PREFIX_PATH "${MG_TOOLCHAIN_ROOT}")
+
 project(memgraph LANGUAGES C CXX)
 
 # this reduces issues in build folders from inside containers
 # which are different locations than the host
 set(CMAKE_BUILD_RPATH_USE_ORIGIN ON)
-
+set(CMAKE_BUILD_RPATH "${MG_TOOLCHAIN_ROOT}/lib64")
+set(CMAKE_FIND_ROOT_PATH "${CMAKE_CURRENT_BINARY_DIR}/generators")
+message(STATUS "CMAKE_FIND_ROOT_PATH: ${CMAKE_FIND_ROOT_PATH}")
 # Install licenses.
 install(DIRECTORY ${CMAKE_CURRENT_SOURCE_DIR}/licenses/
         DESTINATION share/doc/memgraph)
@@ -185,7 +194,16 @@ endif()
 
 # -----------------------------------------------------------------------------
 
+# This is used to so that 3rd party libs can find the
+# correct libraries from our toolchain
+# Check MG_TOOLCHAIN_ROOT so it's available for custom libstdc++ configuration
 # Custom libstdc++ configuration - REQUIRED
+if(NOT EXISTS "${MG_TOOLCHAIN_ROOT}" OR NOT IS_DIRECTORY "${MG_TOOLCHAIN_ROOT}")
+    message(FATAL_ERROR "MG_TOOLCHAIN_ROOT must be set to a valid toolchain directory. Current value: '${MG_TOOLCHAIN_ROOT}'")
+endif()
+
+message(STATUS "MG_TOOLCHAIN_ROOT: ${MG_TOOLCHAIN_ROOT}")
+
 set(CUSTOM_LIBSTDCXX_DIR "${MG_TOOLCHAIN_ROOT}/lib64" CACHE PATH "Directory containing custom libstdc++.so.6")
 set(CUSTOM_LIBSTDCXX "${CUSTOM_LIBSTDCXX_DIR}/libstdc++.so.6")
 
@@ -218,14 +236,38 @@ set_target_properties(libstdc++_custom PROPERTIES
 # Set global property to use custom libstdc++
 set_property(GLOBAL PROPERTY MG_USE_CUSTOM_LIBSTDCXX TRUE)
 set_property(GLOBAL PROPERTY MG_CUSTOM_LIBSTDCXX_PATH "${CUSTOM_LIBSTDCXX}")
-
 # -----------------------------------------------------------------------------
 
 # setup CMake module path, defines path for include() and find_package()
 # https://cmake.org/cmake/help/latest/variable/CMAKE_MODULE_PATH.html
 list(APPEND CMAKE_MODULE_PATH "${CMAKE_CURRENT_SOURCE_DIR}/cmake")
+
 # custom function definitions
 include(functions)
+
+# Load conan dependencies in the correct order using explicit find_package calls
+# Load dependencies that don't depend on others first
+find_package(benchmark REQUIRED)
+find_package(GTest REQUIRED)
+find_package(spdlog REQUIRED)
+find_package(fmt REQUIRED)
+find_package(strong_type REQUIRED)
+find_package(Boost REQUIRED)
+find_package(BZip2 REQUIRED)
+find_package(antlr4-runtime REQUIRED)
+find_package(antlr4 REQUIRED)
+find_package(cppitertools REQUIRED)
+find_package(ctre REQUIRED)
+find_package(absl REQUIRED)
+find_package(croncpp REQUIRED)
+find_package(range-v3 REQUIRED)
+find_package(asio REQUIRED)
+find_package(ZLIB REQUIRED)
+
+# Now load mgclient which depends on OpenSSL
+find_package(OpenSSL REQUIRED)
+find_package(mgclient REQUIRED)
+
 # -----------------------------------------------------------------------------
 
 # We want out of source builds, so that cmake generated files don't get mixed
@@ -271,17 +313,21 @@ set(CMAKE_CXX_FLAGS_RELWITHDEBINFO
 
 # Use lld linker to speedup build and use less memory.
 add_link_options(-fuse-ld=lld)
-if (DEFINED ENV{LD_LIBRARY_PATH})
-    string(REPLACE ":" " " LD_LIBS $ENV{LD_LIBRARY_PATH})
-    separate_arguments(LD_LIBS)
-    link_directories(${LD_LIBS})
-endif ()
 add_link_options(LINKER:--build-id)
+link_directories("${MG_TOOLCHAIN_ROOT}/lib")
+# link_directories("${MG_TOOLCHAIN_ROOT}/lib64")
 
 # After linker is set, check we can use link-time optimization
 cmake_policy(SET CMP0138 NEW)
 include(CheckIPOSupported)
-check_ipo_supported() # fatal error if IPO is not supported
+message(STATUS "CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS: ${CMAKE_CXX_COMPILER_CLANG_SCAN_DEPS}")
+check_ipo_supported(RESULT ipo_supported OUTPUT output) # fatal error if IPO is not supported
+if (NOT ipo_supported)
+    message(WARNING "IPO test failed")
+    message(WARNING "${output}")
+endif()
+
+
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_Release TRUE)
 set(CMAKE_INTERPROCEDURAL_OPTIMIZATION_RelWithDebInfo TRUE)
 
@@ -346,7 +392,6 @@ endif()
 
 
 option(TEST_COVERAGE "Generate coverage reports from running memgraph" OFF)
-option(TOOLS "Build tools binaries" ON)
 option(QUERY_MODULES "Build query modules containing custom procedures" ON)
 option(ASAN "Build with Address Sanitizer. To get a reasonable performance option should be used only in Release or RelWithDebInfo build " OFF)
 option(TSAN "Build with Thread Sanitizer. To get a reasonable performance option should be used only in Release or RelWithDebInfo build " OFF)
@@ -431,8 +476,9 @@ if (UBSAN)
   # Compile with UBSAN but disable vptr check. This is disabled because it
   # requires linking with clang++ to make sure C++ specific parts of the
   # runtime library and c++ standard libraries are present.
-  add_compile_options(-fsanitize=undefined -fno-omit-frame-pointer -fno-sanitize=vptr)
-  add_link_options(-fsanitize=undefined -fno-sanitize=vptr)
+  # -fno-sanitize=function is needed because of https://github.com/openssl/openssl/issues/26210
+  add_compile_options(-fsanitize=undefined -fno-omit-frame-pointer -fno-sanitize=vptr,function -fsanitize-ignorelist=${CMAKE_SOURCE_DIR}/tools/ubsan.ignore)
+  add_link_options(-fsanitize=undefined -fno-sanitize=vptr,function)
   # Run program with environment variable UBSAN_OPTIONS=print_stacktrace=1.
   # Make sure llvm-symbolizer binary is in path.
   # To make the program abort on undefined behavior, use UBSAN_OPTIONS=halt_on_error=1.
@@ -466,56 +512,18 @@ if (MG_ENABLE_TESTING)
   add_subdirectory(tests)
 endif()
 
-if(TOOLS)
-  add_subdirectory(tools)
-endif()
-
 if(QUERY_MODULES)
   add_subdirectory(query_modules)
 endif()
 
 # All targets which generate code, useful as a single target to build for clang-tidy analysis to work
 # NOTE: It's big because https://stackoverflow.com/questions/74870212/how-to-add-dependencies-to-a-custom-target-after-the-fact
-if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
-  if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
-    # NOTE: The rest of the generated code should already under toolchain.
-    add_custom_target(generated_code DEPENDS
-        generate_opencypher_parser
-        mgcxx-proj
-    )
-  else()
-    add_custom_target(generated_code DEPENDS
-        generate_opencypher_parser
-        mgcxx-proj
-        librdkafka-proj
-        antlr4-proj
-        librdtsc-proj
-        pulsar-proj
-    )
-  endif()
-else()
-  add_custom_target(generated_code DEPENDS
-      generate_opencypher_parser
-      mgcxx-proj
-      librdkafka-proj
-      antlr4-proj
-      librdtsc-proj
-      pulsar-proj
-  )
-endif()
+# NOTE: The rest of the generated code should already under toolchain.
+add_custom_target(generated_code DEPENDS
+  generate_opencypher_parser
+  mgcxx-proj
+)
 
-if(DEFINED ENV{MG_TOOLCHAIN_VERSION})
-  if($ENV{MG_TOOLCHAIN_VERSION} GREATER_EQUAL 6)
-    install(FILES ${MG_TOOLCHAIN_ROOT}/bin/mgconsole
-      PERMISSIONS OWNER_EXECUTE OWNER_READ OWNER_WRITE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
-      TYPE BIN)
-  else()
-    install(FILES ${CMAKE_BINARY_DIR}/bin/mgconsole
-      PERMISSIONS OWNER_EXECUTE OWNER_READ OWNER_WRITE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
-      TYPE BIN)
-  endif()
-else()
-  install(FILES ${CMAKE_BINARY_DIR}/bin/mgconsole
-    PERMISSIONS OWNER_EXECUTE OWNER_READ OWNER_WRITE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
-    TYPE BIN)
-endif()
+install(FILES ${MG_TOOLCHAIN_ROOT}/bin/mgconsole
+  PERMISSIONS OWNER_EXECUTE OWNER_READ OWNER_WRITE GROUP_READ GROUP_EXECUTE WORLD_READ WORLD_EXECUTE
+  TYPE BIN)

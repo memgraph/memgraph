@@ -108,8 +108,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
   auto PopulateIndex(LabelId label, PropertiesPaths const &properties, utils::SkipList<Vertex>::Accessor vertices,
                      const std::optional<durability::ParallelizedSchemaCreationInfo> &parallel_exec_info,
                      std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt,
-                     Transaction const *tx = nullptr,
-                     CheckCancelFunction cancel_check = neverCancel) -> utils::BasicResult<IndexPopulateError>;
+                     Transaction const *tx = nullptr, CheckCancelFunction cancel_check = neverCancel)
+      -> utils::BasicResult<IndexPopulateError>;
 
   bool PublishIndex(LabelId label, PropertiesPaths const &properties, uint64_t commit_timestamp);
 
@@ -149,7 +149,7 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
     // These describe the composite index
     LabelId label_;
-    PropertiesPaths const *properties_;
+    [[maybe_unused]] PropertiesPaths const *properties_;
     PropertiesPermutationHelper const *permutation_helper_;
 
     std::vector<std::optional<utils::Bound<PropertyValue>>> lower_bound_;
@@ -175,8 +175,9 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
     bool IndexReady(LabelId label, std::span<PropertyPath const> properties) const override;
 
-    auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels, std::span<PropertyPath const> properties)
-        const -> std::vector<LabelPropertiesIndicesInfo> override;
+    auto RelevantLabelPropertiesIndicesInfo(std::span<LabelId const> labels,
+                                            std::span<PropertyPath const> properties) const
+        -> std::vector<LabelPropertiesIndicesInfo> override;
 
     auto ListIndices(uint64_t start_timestamp) const
         -> std::vector<std::pair<LabelId, std::vector<PropertyPath>>> override;
@@ -230,8 +231,8 @@ class InMemoryLabelPropertyIndex : public storage::LabelPropertyIndex {
 
  private:
   void CleanupAllIndices();
-  auto GetIndividualIndex(LabelId const &label,
-                          PropertiesPaths const &properties) const -> std::shared_ptr<IndividualIndex>;
+  auto GetIndividualIndex(LabelId const &label, PropertiesPaths const &properties) const
+      -> std::shared_ptr<IndividualIndex>;
 
   utils::Synchronized<std::shared_ptr<IndexContainer const>, utils::WritePrioritizedRWLock> index_{
       std::make_shared<IndexContainer const>()};
