@@ -167,7 +167,7 @@ install() {
     fi
 
     # enable EPEL repo for rpmlint
-    sudo dnf install -y epel-release
+    dnf install -y epel-release
 
     dnf install -y wget git python3 python3-pip
     # CRB repo is required for, e.g. texinfo, ninja-build
