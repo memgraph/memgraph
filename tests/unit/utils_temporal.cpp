@@ -124,6 +124,42 @@ TEST(TemporalTest, DateMicrosecondsSinceEpochConversion) {
   }
 }
 
+TEST(TemporalTest, DateDaysSinceEpochConstructor) {
+  const auto verify_date = [](int32_t days_since_epoch, int expected_year, unsigned expected_month,
+                              unsigned expected_day) {
+    memgraph::utils::Date date(days_since_epoch);
+    EXPECT_EQ(date.year, expected_year);
+    EXPECT_EQ(date.month, expected_month);
+    EXPECT_EQ(date.day, expected_day);
+  };
+
+  const auto date_to_days = [](int year, unsigned month, unsigned day) -> int32_t {
+    std::chrono::year_month_day ymd{std::chrono::year{year}, std::chrono::month{month}, std::chrono::day{day}};
+    auto days = std::chrono::sys_days{ymd}.time_since_epoch().count();
+    return static_cast<int32_t>(days);
+  };
+
+  verify_date(date_to_days(2000, 2, 29), 2000, 2, 29);
+  verify_date(date_to_days(2004, 2, 29), 2004, 2, 29);
+  verify_date(date_to_days(2020, 2, 29), 2020, 2, 29);
+  verify_date(date_to_days(1900, 3, 1) - 1, 1900, 2, 28);
+  verify_date(date_to_days(1900, 1, 1), 1900, 1, 1);
+  verify_date(date_to_days(2000, 1, 1), 2000, 1, 1);
+  verify_date(date_to_days(2100, 1, 1), 2100, 1, 1);
+  verify_date(date_to_days(2023, 1, 31), 2023, 1, 31);
+  verify_date(date_to_days(2023, 2, 28), 2023, 2, 28);
+  verify_date(date_to_days(2023, 3, 31), 2023, 3, 31);
+  verify_date(date_to_days(2023, 4, 30), 2023, 4, 30);
+  verify_date(date_to_days(2023, 5, 31), 2023, 5, 31);
+  verify_date(date_to_days(2023, 6, 30), 2023, 6, 30);
+  verify_date(date_to_days(2023, 7, 31), 2023, 7, 31);
+  verify_date(date_to_days(2023, 8, 31), 2023, 8, 31);
+  verify_date(date_to_days(2023, 9, 30), 2023, 9, 30);
+  verify_date(date_to_days(2023, 10, 31), 2023, 10, 31);
+  verify_date(date_to_days(2023, 11, 30), 2023, 11, 30);
+  verify_date(date_to_days(2023, 12, 31), 2023, 12, 31);
+}
+
 TEST(TemporalTest, LocalTimeConstruction) {
   std::optional<memgraph::utils::LocalTime> test_local_time;
 

@@ -58,11 +58,14 @@ struct PageSlabMemoryResource : std::pmr::memory_resource {
     std::align_val_t alignment;
   };
 
-  constexpr static size_t alignSize(size_t size, size_t alignment) { return (size + alignment - 1) & ~(alignment - 1); }
+  constexpr static size_t alignSize(size_t size, size_t alignment) noexcept {
+    return (size + alignment - 1) & ~(alignment - 1);
+  }
 
   void *do_allocate(size_t bytes, size_t alignment) final {
     // 1. could this fit inside a page slab?
-    auto earliest_slab_position = alignSize(sizeof(header), alignment);
+    constexpr auto header_size = sizeof(header);
+    auto earliest_slab_position = alignSize(header_size, alignment);
     auto max_slab_capacity = PAGE_SIZE - earliest_slab_position;
     if (max_slab_capacity < bytes) [[unlikely]] {
       auto required_bytes = bytes + earliest_slab_position;
@@ -73,16 +76,19 @@ struct PageSlabMemoryResource : std::pmr::memory_resource {
     }
 
     // 2. can it fit in existing slab?
-    if (!std::align(alignment, bytes, ptr, space)) {
+    if (!std::align(alignment, bytes, ptr, space)) [[unlikely]] {
       auto *newmem = reinterpret_cast<header *>(operator new (PAGE_SIZE, std::align_val_t{PAGE_SIZE}));
       pages = std::construct_at<header>(newmem, pages, std::align_val_t{PAGE_SIZE});
-      ptr = reinterpret_cast<std::byte *>(pages) + sizeof(header);
-      space = PAGE_SIZE - sizeof(header);
-      std::align(alignment, bytes, ptr, space);
+      ptr = reinterpret_cast<std::byte *>(pages) + header_size;
+      space = PAGE_SIZE - header_size;
+      if (!std::align(alignment, bytes, ptr, space)) [[unlikely]] {
+        // This should never happen for reasonable alignments
+        __builtin_unreachable();
+      }
     }
 
     // 3. use current slab
-    // NOTE: ptr and space have already been via std::align, alignment is correct here
+    // NOTE: ptr and space have already been updated via std::align
     void *res = ptr;
     ptr = reinterpret_cast<std::byte *>(ptr) + bytes;
     space -= bytes;

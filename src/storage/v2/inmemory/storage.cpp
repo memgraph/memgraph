@@ -975,7 +975,7 @@ void InMemoryStorage::InMemoryAccessor::GCRapidDeltaCleanup(std::list<Gid> &curr
       impact_tracker.update(delta.action);
       auto prev = delta.prev.Get();
       switch (prev.type) {
-        case PreviousPtr::Type::NULLPTR:
+        case PreviousPtr::Type::NULL_PTR:
         case PreviousPtr::Type::DELTA:
           break;
         case PreviousPtr::Type::VERTEX: {
@@ -1182,7 +1182,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
         case PreviousPtr::Type::VERTEX:
         case PreviousPtr::Type::DELTA:
         // pointer probably couldn't be set because allocation failed
-        case PreviousPtr::Type::NULLPTR:
+        case PreviousPtr::Type::NULL_PTR:
           break;
       }
     }
@@ -1358,7 +1358,7 @@ void InMemoryStorage::InMemoryAccessor::Abort() {
         case PreviousPtr::Type::EDGE:
         case PreviousPtr::Type::DELTA:
         // pointer probably couldn't be set because allocation failed
-        case PreviousPtr::Type::NULLPTR:
+        case PreviousPtr::Type::NULL_PTR:
           break;
       }
     }
@@ -2231,7 +2231,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
                 case PreviousPtr::Type::EDGE:
                   return std::unique_lock{parent.edge->lock};
                 case PreviousPtr::Type::DELTA:
-                case PreviousPtr::Type::NULLPTR:
+                case PreviousPtr::Type::NULL_PTR:
                   LOG_FATAL("Invalid database state!");
               }
             });
@@ -2244,7 +2244,7 @@ void InMemoryStorage::CollectGarbage(std::unique_lock<utils::ResourceLock> main_
             prev_delta->next.store(nullptr, std::memory_order_release);
             break;
           }
-          case PreviousPtr::Type::NULLPTR: {
+          case PreviousPtr::Type::NULL_PTR: {
             LOG_FATAL("Invalid pointer!");
           }
         }
@@ -2687,7 +2687,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
           callback(*delta, parent, durability_commit_timestamp);
         }
         auto prev = delta->prev.Get();
-        MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
+        MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
         if (prev.type != PreviousPtr::Type::DELTA) break;
         delta = prev.delta;
       }
@@ -2710,7 +2710,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
     // and modify vertex data.
     for (const auto &delta : transaction_.deltas) {
       auto prev = delta.prev.Get();
-      MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
+      MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
       find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
         switch (action) {
@@ -2735,7 +2735,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
     // 2. Process all Vertex deltas and store all operations that create edges.
     for (const auto &delta : transaction_.deltas) {
       auto prev = delta.prev.Get();
-      MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
+      MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
       find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
         switch (action) {
@@ -2759,7 +2759,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
     // 3. Process all Edge deltas and store all operations that modify edge data.
     for (const auto &delta : transaction_.deltas) {
       auto prev = delta.prev.Get();
-      MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
+      MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::EDGE) continue;
       find_and_apply_deltas(&delta, *prev.edge, [](auto action) {
         switch (action) {
@@ -2783,7 +2783,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
     // 4. Process all Vertex deltas and store all operations that delete edges.
     for (const auto &delta : transaction_.deltas) {
       auto prev = delta.prev.Get();
-      MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
+      MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
       find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
         switch (action) {
@@ -2807,7 +2807,7 @@ bool InMemoryStorage::InMemoryAccessor::HandleDurabilityAndReplicate(uint64_t du
     // 5. Process all Vertex deltas and store all operations that delete vertices.
     for (const auto &delta : transaction_.deltas) {
       auto prev = delta.prev.Get();
-      MG_ASSERT(prev.type != PreviousPtr::Type::NULLPTR, "Invalid pointer!");
+      MG_ASSERT(prev.type != PreviousPtr::Type::NULL_PTR, "Invalid pointer!");
       if (prev.type != PreviousPtr::Type::VERTEX) continue;
       find_and_apply_deltas(&delta, *prev.vertex, [](auto action) {
         switch (action) {

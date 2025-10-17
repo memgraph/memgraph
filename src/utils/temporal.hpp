@@ -146,6 +146,7 @@ struct Date {
   explicit Date() : Date{DateParameters{}} {}
   // we assume we accepted date in microseconds which was normalized using the epoch time point
   explicit Date(int64_t microseconds);
+  explicit Date(int32_t days_since_epoch);
   explicit Date(const DateParameters &date_parameters);
 
   friend std::ostream &operator<<(std::ostream &os, const Date &date) { return os << date.ToString(); }

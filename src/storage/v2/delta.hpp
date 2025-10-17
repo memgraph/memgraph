@@ -45,7 +45,7 @@ class PreviousPtr {
 
  public:
   enum class Type {
-    NULLPTR,
+    NULL_PTR,
     DELTA,
     VERTEX,
     EDGE,
@@ -57,7 +57,7 @@ class PreviousPtr {
     explicit Pointer(Vertex *vertex) : type(Type::VERTEX), vertex(vertex) {}
     explicit Pointer(Edge *edge) : type(Type::EDGE), edge(edge) {}
 
-    Type type{Type::NULLPTR};
+    Type type{Type::NULL_PTR};
     union {
       Delta *delta = nullptr;
       Vertex *vertex;
@@ -117,8 +117,8 @@ inline bool operator==(const PreviousPtr::Pointer &a, const PreviousPtr::Pointer
       return a.edge == b.edge;
     case PreviousPtr::Type::DELTA:
       return a.delta == b.delta;
-    case PreviousPtr::Type::NULLPTR:
-      return b.type == PreviousPtr::Type::NULLPTR;
+    case PreviousPtr::Type::NULL_PTR:
+      return b.type == PreviousPtr::Type::NULL_PTR;
   }
 }
 

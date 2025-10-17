@@ -4293,6 +4293,41 @@ TEST_P(CypherMainVisitorTest, TestLockPathQuery) {
   }
 }
 
+TEST_P(CypherMainVisitorTest, TestLoadParquetClause) {
+  auto &ast_generator = *GetParam();
+  {
+    const std::string query = R"(LOAD PARQUET FROM "file.parquet")";
+    ASSERT_THROW(ast_generator.ParseQuery(query), SyntaxException);
+  }
+
+  {
+    const std::string query = R"(LOAD PARQUET FROM "file.parquet" AS x RETURN x)";
+    auto *parsed_query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query));
+    ASSERT_TRUE(parsed_query);
+    auto *load_parquet_clause = dynamic_cast<LoadParquet *>(parsed_query->single_query_->clauses_[0]);
+    ASSERT_TRUE(load_parquet_clause);
+  }
+  {
+    const std::string query =
+        R"(LOAD PARQUET FROM 'nodes.parquet' AS row CREATE (n:Person {id: row.id, name: row.name, age: ToInteger(row.age), city: row.city}))";
+    auto *parsed_query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query));
+    ASSERT_EQ(parsed_query->single_query_->clauses_.size(), 2);
+    ASSERT_TRUE(parsed_query);
+    auto *load_parquet_clause = dynamic_cast<LoadParquet *>(parsed_query->single_query_->clauses_[0]);
+    ASSERT_TRUE(load_parquet_clause);
+  }
+  {
+    const std::string query =
+        R"(LOAD PARQUET FROM 'nodes.parquet' AS row MATCH (a:Person {id: row.START_ID}) MATCH (b:Person {id: row.END_ID}) CREATE (a)-[r:KNOWS {type: row.TYPE, since: ToInteger(row.since), strength: row.strength}]->(b))";
+    auto *parsed_query = dynamic_cast<CypherQuery *>(ast_generator.ParseQuery(query));
+    ASSERT_TRUE(parsed_query);
+    ASSERT_EQ(parsed_query->single_query_->clauses_.size(), 4);
+    auto *load_parquet_clause = dynamic_cast<LoadParquet *>(parsed_query->single_query_->clauses_[0]);
+    ASSERT_TRUE(load_parquet_clause);
+    ASSERT_EQ(parsed_query->single_query_->clauses_.size(), 4);
+  }
+}
+
 TEST_P(CypherMainVisitorTest, TestLoadCsvClause) {
   auto &ast_generator = *GetParam();
 

@@ -205,6 +205,8 @@ void VectorIndex::UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_befo
 }
 
 void VectorIndex::UpdateOnSetProperty(PropertyId property, const PropertyValue &value, Vertex *vertex) {
+  if (pimpl->index_.empty()) return;
+
   auto has_property = [&](const auto &label_prop) { return label_prop.property() == property; };
   auto has_label = [&](const auto &label_prop) { return utils::Contains(vertex->labels, label_prop.label()); };
 
