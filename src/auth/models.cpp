@@ -185,14 +185,14 @@ std::string PermissionLevelToString(PermissionLevel level) {
 #ifdef MG_ENTERPRISE
 std::string FineGrainedPermissionToString(uint64_t const permission) {
   std::vector<std::string> permissions;
+  if (permission & FineGrainedPermission::CREATE) {
+    permissions.push_back("CREATE");
+  }
   if (permission & FineGrainedPermission::READ) {
     permissions.push_back("READ");
   }
   if (permission & FineGrainedPermission::UPDATE) {
     permissions.push_back("UPDATE");
-  }
-  if (permission & FineGrainedPermission::CREATE) {
-    permissions.push_back("CREATE");
   }
   if (permission & FineGrainedPermission::DELETE) {
     permissions.push_back("DELETE");
