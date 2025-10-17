@@ -203,9 +203,11 @@ static void ExpandVariable(benchmark::State &state) {
         .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
+    auto frame_writer = memgraph::query::FrameWriter(frame, nullptr, evaluation_context.memory);
     auto cursor = expand_variable.MakeCursor(memory.get());
     for (const auto &v : dba.Vertices(memgraph::storage::View::OLD, dba.NameToLabel(kStartLabel))) {
-      frame[expand_variable.input_symbol_] = memgraph::query::TypedValue(memgraph::query::VertexAccessor(v));
+      frame_writer.Write(expand_variable.input_symbol_,
+                         memgraph::query::TypedValue(memgraph::query::VertexAccessor(v)));
       while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
     }
   }
@@ -243,9 +245,11 @@ static void ExpandBfs(benchmark::State &state) {
         .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
+    auto frame_writer = memgraph::query::FrameWriter(frame, nullptr, evaluation_context.memory);
     auto cursor = expand_variable.MakeCursor(memory.get());
     for (const auto &v : dba.Vertices(memgraph::storage::View::OLD, dba.NameToLabel(kStartLabel))) {
-      frame[expand_variable.input_symbol_] = memgraph::query::TypedValue(memgraph::query::VertexAccessor(v));
+      frame_writer.Write(expand_variable.input_symbol_,
+                         memgraph::query::TypedValue(memgraph::query::VertexAccessor(v)));
       while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
     }
   }
@@ -280,10 +284,12 @@ static void ExpandShortest(benchmark::State &state) {
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
     auto cursor = expand_variable.MakeCursor(memory.get());
+    auto frame_writer = memgraph::query::FrameWriter(frame, nullptr, evaluation_context.memory);
     for (const auto &v : dba.Vertices(memgraph::storage::View::OLD, dba.NameToLabel(kStartLabel))) {
-      frame[expand_variable.input_symbol_] = memgraph::query::TypedValue(memgraph::query::VertexAccessor(v));
+      frame_writer.Write(expand_variable.input_symbol_,
+                         memgraph::query::TypedValue(memgraph::query::VertexAccessor(v)));
       for (const auto &dest : dba.Vertices(memgraph::storage::View::OLD, dba.NameToLabel(kStartLabel))) {
-        frame[dest_symbol] = memgraph::query::TypedValue(memgraph::query::VertexAccessor(dest));
+        frame_writer.Write(dest_symbol, memgraph::query::TypedValue(memgraph::query::VertexAccessor(dest)));
         while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
       }
     }
@@ -321,11 +327,13 @@ static void ExpandWeightedShortest(benchmark::State &state) {
         .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
+    auto frame_writer = memgraph::query::FrameWriter(frame, nullptr, evaluation_context.memory);
     auto cursor = expand_variable.MakeCursor(memory.get());
     for (const auto &v : dba.Vertices(memgraph::storage::View::OLD, dba.NameToLabel(kStartLabel))) {
-      frame[expand_variable.input_symbol_] = memgraph::query::TypedValue(memgraph::query::VertexAccessor(v));
+      frame_writer.Write(expand_variable.input_symbol_,
+                         memgraph::query::TypedValue(memgraph::query::VertexAccessor(v)));
       for (const auto &dest : dba.Vertices(memgraph::storage::View::OLD, dba.NameToLabel(kStartLabel))) {
-        frame[dest_symbol] = memgraph::query::TypedValue(memgraph::query::VertexAccessor(dest));
+        frame_writer.Write(dest_symbol, memgraph::query::TypedValue(memgraph::query::VertexAccessor(dest)));
         while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
       }
     }
@@ -417,10 +425,12 @@ static void Aggregate(benchmark::State &state) {
         .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
+    auto frame_writer = memgraph::query::FrameWriter(frame, nullptr, evaluation_context.memory);
     auto cursor = aggregate.MakeCursor(memory.get());
-    frame[symbols.front()] = memgraph::query::TypedValue(0);  // initial group_by value
+    frame_writer.Write(symbols.front(), memgraph::query::TypedValue(0));  // initial group_by value
     while (cursor->Pull(frame, execution_context)) {
-      frame[symbols.front()].ValueInt()++;  // new group_by value
+      frame_writer.Modify(symbols.front(),
+                          [](memgraph::query::TypedValue &value) { value.ValueInt()++; });  // new group_by value
       per_pull_memory.Reset();
     }
   }
@@ -507,7 +517,8 @@ static void Unwind(benchmark::State &state) {
         .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
-    frame[list_sym] = memgraph::query::TypedValue(std::vector<memgraph::query::TypedValue>(state.range(1)));
+    auto frame_writer = memgraph::query::FrameWriter(frame, nullptr, evaluation_context.memory);
+    frame_writer.Write(list_sym, memgraph::query::TypedValue(std::vector<memgraph::query::TypedValue>(state.range(1))));
     auto cursor = unwind.MakeCursor(memory.get());
     while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
   }
@@ -544,7 +555,8 @@ static void Foreach(benchmark::State &state) {
         .db_accessor = &dba, .symbol_table = symbol_table, .evaluation_context = evaluation_context};
     TMemory memory;
     memgraph::query::Frame frame(symbol_table.max_position(), memory.get());
-    frame[list_sym] = memgraph::query::TypedValue(std::vector<memgraph::query::TypedValue>(state.range(1)));
+    auto frame_writer = memgraph::query::FrameWriter(frame, nullptr, evaluation_context.memory);
+    frame_writer.Write(list_sym, memgraph::query::TypedValue(std::vector<memgraph::query::TypedValue>(state.range(1))));
     auto cursor = foreach->MakeCursor(memory.get());
     while (cursor->Pull(frame, execution_context)) per_pull_memory.Reset();
   }

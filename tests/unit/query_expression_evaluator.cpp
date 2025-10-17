@@ -82,7 +82,8 @@ class ExpressionEvaluatorTest : public ::testing::Test {
     auto id = storage.template Create<Identifier>(name, true);
     auto symbol = symbol_table.CreateSymbol(name, true);
     id->MapTo(symbol);
-    frame[symbol] = value;
+    auto frame_writer = FrameWriter(frame, nullptr, ctx.memory);
+    frame_writer.Write(symbol, value);
     return id;
   }
 
@@ -90,7 +91,8 @@ class ExpressionEvaluatorTest : public ::testing::Test {
     auto id = storage.template Create<Exists>();
     auto symbol = symbol_table.CreateSymbol(name, true);
     id->MapTo(symbol);
-    frame[symbol] = std::move(value);
+    auto frame_writer = FrameWriter(frame, nullptr, ctx.memory);
+    frame_writer.Write(symbol, std::move(value));
     return id;
   }
 
@@ -637,7 +639,8 @@ TYPED_TEST(ExpressionEvaluatorTest, TypedValueListIndexing) {
   auto *identifier = this->storage.template Create<Identifier>("n");
   auto node_symbol = this->symbol_table.CreateSymbol("n", true);
   identifier->MapTo(node_symbol);
-  this->frame[node_symbol] = TypedValue(list_vector, this->ctx.memory);
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(node_symbol, TypedValue(list_vector, this->ctx.memory));
 
   {
     // Legal indexing.
@@ -829,7 +832,8 @@ TYPED_TEST(ExpressionEvaluatorTest, LabelsTest) {
   auto *identifier = this->storage.template Create<Identifier>("n");
   auto node_symbol = this->symbol_table.CreateSymbol("n", true);
   identifier->MapTo(node_symbol);
-  this->frame[node_symbol] = TypedValue(v1);
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(node_symbol, TypedValue(v1));
   {
     auto *op = this->storage.template Create<LabelsTest>(
         identifier, std::vector<LabelIx>{this->storage.GetLabelIx("DOG"), this->storage.GetLabelIx("ANIMAL")});
@@ -844,7 +848,8 @@ TYPED_TEST(ExpressionEvaluatorTest, LabelsTest) {
     EXPECT_EQ(value.ValueBool(), false);
   }
   {
-    this->frame[node_symbol] = TypedValue();
+    auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+    frame_writer.Write(node_symbol, TypedValue());
     auto *op = this->storage.template Create<LabelsTest>(
         identifier, std::vector<LabelIx>{this->storage.GetLabelIx("DOG"), this->storage.GetLabelIx("BAD_DOG"),
                                          this->storage.GetLabelIx("ANIMAL")});
@@ -858,7 +863,8 @@ TYPED_TEST(ExpressionEvaluatorTest, Aggregation) {
                                                          Aggregation::Op::COUNT, false);
   auto aggr_sym = this->symbol_table.CreateSymbol("aggr", true);
   aggr->MapTo(aggr_sym);
-  this->frame[aggr_sym] = TypedValue(1);
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(aggr_sym, TypedValue(1));
   auto value = this->Eval(aggr);
   EXPECT_EQ(value.ValueInt(), 1);
 }
@@ -1319,14 +1325,16 @@ TYPED_TEST(ExpressionEvaluatorPropertyLookup, Vertex) {
   auto v1 = this->dba.InsertVertex();
   ASSERT_TRUE(v1.SetProperty(this->prop_age.second, memgraph::storage::PropertyValue(10)).HasValue());
   this->dba.AdvanceCommand();
-  this->frame[this->symbol] = TypedValue(v1);
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(this->symbol, TypedValue(v1));
   EXPECT_EQ(this->Value(this->prop_age).ValueInt(), 10);
   EXPECT_TRUE(this->Value(this->prop_height).IsNull());
 }
 
 TYPED_TEST(ExpressionEvaluatorPropertyLookup, Duration) {
   const memgraph::utils::Duration dur({10, 1, 30, 2, 22, 45});
-  this->frame[this->symbol] = TypedValue(dur);
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(this->symbol, TypedValue(dur));
 
   const std::pair day = std::make_pair("day", this->dba.NameToProperty("day"));
   const auto total_days = this->Value(day);
@@ -1371,7 +1379,8 @@ TYPED_TEST(ExpressionEvaluatorPropertyLookup, Duration) {
 
 TYPED_TEST(ExpressionEvaluatorPropertyLookup, Date) {
   const memgraph::utils::Date date({1996, 11, 22});
-  this->frame[this->symbol] = TypedValue(date);
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(this->symbol, TypedValue(date));
 
   const std::pair year = std::make_pair("year", this->dba.NameToProperty("year"));
   const auto y = this->Value(year);
@@ -1391,7 +1400,8 @@ TYPED_TEST(ExpressionEvaluatorPropertyLookup, Date) {
 
 TYPED_TEST(ExpressionEvaluatorPropertyLookup, LocalTime) {
   const memgraph::utils::LocalTime lt({1, 2, 3, 11, 22});
-  this->frame[this->symbol] = TypedValue(lt);
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(this->symbol, TypedValue(lt));
 
   const std::pair hour = std::make_pair("hour", this->dba.NameToProperty("hour"));
   const auto h = this->Value(hour);
@@ -1422,7 +1432,8 @@ TYPED_TEST(ExpressionEvaluatorPropertyLookup, LocalTime) {
 TYPED_TEST(ExpressionEvaluatorPropertyLookup, LocalDateTime) {
   auto test = [&]() {
     const memgraph::utils::LocalDateTime ldt({1993, 8, 6}, {2, 3, 4, 55, 40});
-    this->frame[this->symbol] = TypedValue(ldt);
+    auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+    frame_writer.Write(this->symbol, TypedValue(ldt));
 
     const std::pair year = std::make_pair("year", this->dba.NameToProperty("year"));
     const auto y = this->Value(year);
@@ -1476,7 +1487,8 @@ TYPED_TEST(ExpressionEvaluatorPropertyLookup, LocalDateTime) {
 TYPED_TEST(ExpressionEvaluatorPropertyLookup, ZonedDateTime) {
   const auto zdt = memgraph::utils::ZonedDateTime(
       {{2024, 3, 25}, {14, 18, 13, 206, 22}, memgraph::utils::Timezone("Europe/Zagreb")});
-  this->frame[this->symbol] = TypedValue(zdt);
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(this->symbol, TypedValue(zdt));
 
   const std::pair year = std::make_pair("year", this->dba.NameToProperty("year"));
   const auto y = this->Value(year);
@@ -1526,18 +1538,22 @@ TYPED_TEST(ExpressionEvaluatorPropertyLookup, Edge) {
   ASSERT_TRUE(e12.HasValue());
   ASSERT_TRUE(e12->SetProperty(this->prop_age.second, memgraph::storage::PropertyValue(10)).HasValue());
   this->dba.AdvanceCommand();
-  this->frame[this->symbol] = TypedValue(*e12);
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(this->symbol, TypedValue(*e12));
   EXPECT_EQ(this->Value(this->prop_age).ValueInt(), 10);
   EXPECT_TRUE(this->Value(this->prop_height).IsNull());
 }
 
 TYPED_TEST(ExpressionEvaluatorPropertyLookup, Null) {
-  this->frame[this->symbol] = TypedValue();
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(this->symbol, TypedValue());
   EXPECT_TRUE(this->Value(this->prop_age).IsNull());
 }
 
 TYPED_TEST(ExpressionEvaluatorPropertyLookup, Map) {
-  this->frame[this->symbol] = TypedValue(std::map<std::string, TypedValue>{{this->prop_age.first, TypedValue(10)}});
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(this->symbol,
+                     TypedValue(std::map<std::string, TypedValue>{{this->prop_age.first, TypedValue(10)}}));
   EXPECT_EQ(this->Value(this->prop_age).ValueInt(), 10);
   EXPECT_TRUE(this->Value(this->prop_height).IsNull());
 }
@@ -1566,7 +1582,8 @@ TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, Vertex) {
   auto v1 = this->dba.InsertVertex();
   ASSERT_TRUE(v1.SetProperty(this->prop_age.second, memgraph::storage::PropertyValue(10)).HasValue());
   this->dba.AdvanceCommand();
-  this->frame[this->symbol] = TypedValue(v1);
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(this->symbol, TypedValue(v1));
   auto all_properties = this->Value();
   EXPECT_TRUE(all_properties.IsMap());
 }
@@ -1578,28 +1595,32 @@ TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, Edge) {
   ASSERT_TRUE(e12.HasValue());
   ASSERT_TRUE(e12->SetProperty(this->prop_age.second, memgraph::storage::PropertyValue(10)).HasValue());
   this->dba.AdvanceCommand();
-  this->frame[this->symbol] = TypedValue(*e12);
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(this->symbol, TypedValue(*e12));
   auto all_properties = this->Value();
   EXPECT_TRUE(all_properties.IsMap());
 }
 
 TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, Duration) {
   const memgraph::utils::Duration dur({10, 1, 30, 2, 22, 45});
-  this->frame[this->symbol] = TypedValue(dur);
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(this->symbol, TypedValue(dur));
   auto all_properties = this->Value();
   EXPECT_TRUE(all_properties.IsMap());
 }
 
 TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, Date) {
   const memgraph::utils::Date date({1996, 11, 22});
-  this->frame[this->symbol] = TypedValue(date);
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(this->symbol, TypedValue(date));
   auto all_properties = this->Value();
   EXPECT_TRUE(all_properties.IsMap());
 }
 
 TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, LocalTime) {
   const memgraph::utils::LocalTime lt({1, 2, 3, 11, 22});
-  this->frame[this->symbol] = TypedValue(lt);
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(this->symbol, TypedValue(lt));
   auto all_properties = this->Value();
   EXPECT_TRUE(all_properties.IsMap());
 }
@@ -1607,7 +1628,8 @@ TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, LocalTime) {
 TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, LocalDateTime) {
   auto test = [&]() {
     const memgraph::utils::LocalDateTime ldt({1993, 8, 6}, {2, 3, 4, 55, 40});
-    this->frame[this->symbol] = TypedValue(ldt);
+    auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+    frame_writer.Write(this->symbol, TypedValue(ldt));
     auto all_properties = this->Value();
     EXPECT_TRUE(all_properties.IsMap());
   };
@@ -1622,18 +1644,22 @@ TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, LocalDateTime) {
 TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, ZonedDateTime) {
   const auto zdt = memgraph::utils::ZonedDateTime(
       {{2024, 3, 25}, {14, 18, 13, 206, 22}, memgraph::utils::Timezone("Europe/Zagreb")});
-  this->frame[this->symbol] = TypedValue(zdt);
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(this->symbol, TypedValue(zdt));
   ASSERT_THROW(this->Value(), QueryRuntimeException);
 }
 
 TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, Null) {
-  this->frame[this->symbol] = TypedValue();
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(this->symbol, TypedValue());
   auto all_properties = this->Value();
   EXPECT_TRUE(all_properties.IsNull());
 }
 
 TYPED_TEST(ExpressionEvaluatorAllPropertiesLookup, Map) {
-  this->frame[this->symbol] = TypedValue(std::map<std::string, TypedValue>{{this->prop_age.first, TypedValue(10)}});
+  auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+  frame_writer.Write(this->symbol,
+                     TypedValue(std::map<std::string, TypedValue>{{this->prop_age.first, TypedValue(10)}}));
   auto all_properties = this->Value();
   EXPECT_TRUE(all_properties.IsMap());
 }
@@ -1649,7 +1675,8 @@ class FunctionTest : public ExpressionEvaluatorTest<StorageType> {
       auto *ident = this->storage.template Create<Identifier>("arg_" + std::to_string(i), true);
       auto sym = this->symbol_table.CreateSymbol("arg_" + std::to_string(i), true);
       ident->MapTo(sym);
-      this->frame[sym] = tvs[i];
+      auto frame_writer = FrameWriter(this->frame, nullptr, this->ctx.memory);
+      frame_writer.Write(sym, tvs[i]);
       expressions.push_back(ident);
     }
 
@@ -2724,8 +2751,11 @@ TYPED_TEST(FunctionTest, ZonedDateTime) {
   const auto today = memgraph::utils::CurrentZonedDateTime();
   EXPECT_NEAR(this->EvaluateFunction("DATETIME").ValueZonedDateTime().SysMicrosecondsSinceEpoch().count(),
               today.SysMicrosecondsSinceEpoch().count(), one_sec_in_microseconds);
-  EXPECT_EQ(this->EvaluateFunction("DATETIME", TypedValue(std::map<std::string, TypedValue>{})).ValueZonedDateTime(),
-            memgraph::utils::ZonedDateTime({{}, {}, memgraph::utils::DefaultTimezone()}));
+  EXPECT_NEAR(this->EvaluateFunction("DATETIME", TypedValue(std::map<std::string, TypedValue>{}))
+                  .ValueZonedDateTime()
+                  .SysMicrosecondsSinceEpoch()
+                  .count(),
+              today.SysMicrosecondsSinceEpoch().count(), one_sec_in_microseconds);
 
   // No parameters
   EXPECT_THROW(this->EvaluateFunction("DATETIME", "{}"), memgraph::utils::BasicException);
@@ -2751,10 +2781,12 @@ TYPED_TEST(FunctionTest, ZonedDateTime) {
                 .ValueZonedDateTime(),
             memgraph::utils::ZonedDateTime({{}, lt_params, memgraph::utils::DefaultTimezone()}));
 
-  EXPECT_EQ(this->EvaluateFunction("DATETIME", TypedValue(std::map<std::string, TypedValue>{
-                                                   {"timezone", TypedValue("America/Los_Angeles")}}))
-                .ValueZonedDateTime(),
-            memgraph::utils::ZonedDateTime({{}, {}, memgraph::utils::Timezone("America/Los_Angeles")}));
+  auto result_with_tz_only = this->EvaluateFunction("DATETIME", TypedValue(std::map<std::string, TypedValue>{
+                                                                    {"timezone", TypedValue("America/Los_Angeles")}}))
+                                 .ValueZonedDateTime();
+  EXPECT_EQ(result_with_tz_only.GetTimezone(), memgraph::utils::Timezone("America/Los_Angeles"));
+  EXPECT_NEAR(result_with_tz_only.SysMicrosecondsSinceEpoch().count(), today.SysMicrosecondsSinceEpoch().count(),
+              one_sec_in_microseconds);
 
   EXPECT_EQ(
       this->EvaluateFunction(

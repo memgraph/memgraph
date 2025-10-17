@@ -409,7 +409,8 @@ storage::EdgeTypeId EvaluateEdgeType(const StorageEdgeType &edge_type, Expressio
     return *edge_type_id;
   }
 
-  return dba->NameToEdgeType(std::get<Expression *>(edge_type)->Accept(evaluator).ValueString());
+  auto edge_type_name = std::get<Expression *>(edge_type)->Accept(evaluator);
+  return dba->NameToEdgeType(edge_type_name.ValueString());
 }
 
 }  // namespace
@@ -462,8 +463,8 @@ CreateNode::CreateNode(const std::shared_ptr<LogicalOperator> &input, NodeCreati
 
 // Creates a vertex on this GraphDb. Returns a reference to vertex placed on the
 // frame.
-VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *frame, ExecutionContext &context,
-                                  std::vector<storage::LabelId> &labels, ExpressionEvaluator &evaluator) {
+VertexAccessor const &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *frame, ExecutionContext &context,
+                                        std::vector<storage::LabelId> &labels, ExpressionEvaluator &evaluator) {
   auto &dba = *context.db_accessor;
   auto new_node = dba.InsertVertex();
   context.execution_stats[ExecutionStats::Key::CREATED_NODES] += 1;
@@ -510,8 +511,8 @@ VertexAccessor &CreateLocalVertex(const NodeCreationInfo &node_info, Frame *fram
 
   MultiPropsInitChecked(&new_node, properties);
 
-  (*frame)[node_info.symbol] = new_node;
-  return (*frame)[node_info.symbol].ValueVertex();
+  auto frame_writer = frame->GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+  return frame_writer.Write(node_info.symbol, new_node).ValueVertex();
 }
 
 ACCEPT_WITH_INPUT(CreateNode)
@@ -554,11 +555,15 @@ bool CreateNode::CreateNodeCursor::Pull(Frame &frame, ExecutionContext &context)
 #ifdef MG_ENTERPRISE
     if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
         !context.auth_checker->Has(labels, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
-      throw QueryRuntimeException("Vertex not created due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+      throw QueryRuntimeException(
+          "Vertex not created due to not having enough permission! This error means that the fine grained access "
+          "control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON "
+          "CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running "
+          "SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
     }
 #endif
 
-    auto created_vertex = CreateLocalVertex(self_.node_info_, &frame, context, labels, evaluator);
+    auto const &created_vertex = CreateLocalVertex(self_.node_info_, &frame, context, labels, evaluator);
     if (context.trigger_context_collector) {
       context.trigger_context_collector->RegisterCreatedObject(created_vertex);
     }
@@ -649,7 +654,8 @@ EdgeAccessor CreateEdge(const EdgeCreationInfo &edge_info, const storage::EdgeTy
     }
     if (!properties.empty()) MultiPropsInitChecked(&edge, properties);
 
-    (*frame)[edge_info.symbol] = edge;
+    auto frame_writer = frame->GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+    frame_writer.Write(edge_info.symbol, edge);
   } else {
     switch (maybe_edge.GetError()) {
       case storage::Error::SERIALIZATION_ERROR:
@@ -690,17 +696,21 @@ bool CreateExpand::CreateExpandCursor::Pull(Frame &frame, ExecutionContext &cont
     if (context.auth_checker &&
         !(context.auth_checker->Has(edge_type, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE) &&
           context.auth_checker->Has(labels, fine_grained_permission))) {
-      throw QueryRuntimeException("Edge not created due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+      throw QueryRuntimeException(
+          "Edge not created due to not having enough permission! This error means that the fine grained access control "
+          "was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to "
+          "check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT "
+          "DATABASE; to verify you are pointing to correct database.");
     }
   }
 #endif
   // get the origin vertex
-  TypedValue &vertex_value = frame[self_.input_symbol_];
+  TypedValue const &vertex_value = frame[self_.input_symbol_];
   ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
-  auto &v1 = vertex_value.ValueVertex();
+  auto v1 = vertex_value.ValueVertex();
 
   // get the destination vertex (possibly an existing node)
-  auto &v2 = OtherVertex(frame, context, labels, evaluator);
+  auto v2 = OtherVertex(frame, context, labels, evaluator);
 
   // create an edge between the two nodes
   auto *dba = context.db_accessor;
@@ -731,15 +741,15 @@ void CreateExpand::CreateExpandCursor::Shutdown() { input_cursor_->Shutdown(); }
 
 void CreateExpand::CreateExpandCursor::Reset() { input_cursor_->Reset(); }
 
-VertexAccessor &CreateExpand::CreateExpandCursor::OtherVertex(Frame &frame, ExecutionContext &context,
-                                                              std::vector<storage::LabelId> &labels,
-                                                              ExpressionEvaluator &evaluator) {
+VertexAccessor const &CreateExpand::CreateExpandCursor::OtherVertex(Frame &frame, ExecutionContext &context,
+                                                                    std::vector<storage::LabelId> &labels,
+                                                                    ExpressionEvaluator &evaluator) const {
   if (self_.existing_node_) {
-    TypedValue &dest_node_value = frame[self_.node_info_.symbol];
+    TypedValue const &dest_node_value = frame[self_.node_info_.symbol];
     ExpectType(self_.node_info_.symbol, dest_node_value, TypedValue::Type::Vertex);
     return dest_node_value.ValueVertex();
   } else {
-    auto &created_vertex = CreateLocalVertex(self_.node_info_, &frame, context, labels, evaluator);
+    auto const &created_vertex = CreateLocalVertex(self_.node_info_, &frame, context, labels, evaluator);
     if (context.trigger_context_collector) {
       context.trigger_context_collector->RegisterCreatedObject(created_vertex);
     }
@@ -781,7 +791,8 @@ class ScanAllCursor : public Cursor {
     }
 #endif
 
-    frame[output_symbol_] = *vertices_it_.value();
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+    frame_writer.Write(output_symbol_, *vertices_it_.value());
     ++vertices_it_.value();
     return true;
   }
@@ -846,19 +857,21 @@ class ScanAllByEdgeCursor : public Cursor {
       edges_end_it_.emplace(edges_.value().end());
     }
 
-    auto output_expansion = [this, &frame](const EdgeAccessor &edge, bool reverse) {
-      frame[self_.common_.edge_symbol] = edge;
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+    auto output_expansion = [this, &frame_writer](const EdgeAccessor &edge, bool reverse) {
+      frame_writer.Write(self_.common_.edge_symbol, edge);
+      frame_writer.Write(self_.common_.edge_symbol, edge);
       if (!reverse) {
-        frame[self_.common_.node1_symbol] = edge.From();
-        frame[self_.common_.node2_symbol] = edge.To();
+        frame_writer.Write(self_.common_.node1_symbol, edge.From());
+        frame_writer.Write(self_.common_.node2_symbol, edge.To());
       } else {
-        frame[self_.common_.node1_symbol] = edge.To();
-        frame[self_.common_.node2_symbol] = edge.From();
+        frame_writer.Write(self_.common_.node1_symbol, edge.To());
+        frame_writer.Write(self_.common_.node2_symbol, edge.From());
       }
     };
 
     const EdgeAccessor edge = *edges_it_.value();
-    frame[self_.common_.edge_symbol] = edge;
+    frame_writer.Write(self_.common_.edge_symbol, edge);
     if (self_.common_.direction == EdgeAtom::Direction::OUT) {
       output_expansion(edge, false);
     } else if (self_.common_.direction == EdgeAtom::Direction::IN) {
@@ -1602,13 +1615,14 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
   SCOPED_PROFILE_OP_BY_REF(self_);
 
   // A helper function for expanding a node from an edge.
-  auto pull_node = [this, &frame]<EdgeAtom::Direction direction>(const EdgeAccessor &new_edge,
-                                                                 utils::tag_value<direction>) {
+  auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+  auto pull_node = [this, &frame_writer]<EdgeAtom::Direction direction>(const EdgeAccessor &new_edge,
+                                                                        utils::tag_value<direction>) {
     if (self_.common_.existing_node) return;
     if constexpr (direction == EdgeAtom::Direction::IN) {
-      frame[self_.common_.node_symbol] = new_edge.From();
+      frame_writer.Write(self_.common_.node_symbol, new_edge.From());
     } else if constexpr (direction == EdgeAtom::Direction::OUT) {
-      frame[self_.common_.node_symbol] = new_edge.To();
+      frame_writer.Write(self_.common_.node_symbol, new_edge.To());
     } else {
       LOG_FATAL("Must indicate exact expansion direction here");
     }
@@ -1628,7 +1642,7 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
       }
 #endif
 
-      frame[self_.common_.edge_symbol] = edge;
+      frame_writer.Write(self_.common_.edge_symbol, edge);
       pull_node(edge, utils::tag_v<EdgeAtom::Direction::IN>);
       return true;
     }
@@ -1648,7 +1662,7 @@ bool Expand::ExpandCursor::Pull(Frame &frame, ExecutionContext &context) {
         continue;
       }
 #endif
-      frame[self_.common_.edge_symbol] = edge;
+      frame_writer.Write(self_.common_.edge_symbol, edge);
       pull_node(edge, utils::tag_v<EdgeAtom::Direction::OUT>);
       return true;
     }
@@ -1672,7 +1686,7 @@ void Expand::ExpandCursor::Reset() {
 }
 
 ExpansionInfo Expand::ExpandCursor::GetExpansionInfo(Frame &frame) {
-  TypedValue &vertex_value = frame[self_.input_symbol_];
+  TypedValue const &vertex_value = frame[self_.input_symbol_];
 
   if (vertex_value.IsNull()) {
     return ExpansionInfo{};
@@ -1686,7 +1700,7 @@ ExpansionInfo Expand::ExpandCursor::GetExpansionInfo(Frame &frame) {
     return ExpansionInfo{.input_node = vertex, .direction = direction};
   }
 
-  TypedValue &existing_node = frame[self_.common_.node_symbol];
+  TypedValue const &existing_node = frame[self_.common_.node_symbol];
 
   if (existing_node.IsNull()) {
     return ExpansionInfo{.input_node = vertex, .direction = direction};
@@ -1906,7 +1920,8 @@ class ExpandVariableCursor : public Cursor {
         if (lower_bound_ == 0) {
           auto &start_vertex = frame[self_.input_symbol_].ValueVertex();
           if (!self_.common_.existing_node) {
-            frame[self_.common_.node_symbol] = start_vertex;
+            auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+            frame_writer.Write(self_.common_.node_symbol, start_vertex);
             return true;
           }
           if (CheckExistingNode(start_vertex, self_.common_.node_symbol, frame)) {
@@ -1964,7 +1979,7 @@ class ExpandVariableCursor : public Cursor {
 
       if (context.hops_limit.IsLimitReached()) return false;
 
-      TypedValue &vertex_value = frame[self_.input_symbol_];
+      TypedValue const &vertex_value = frame[self_.input_symbol_];
 
       // Null check due to possible failed optional match.
       if (vertex_value.IsNull()) continue;
@@ -1991,18 +2006,19 @@ class ExpandVariableCursor : public Cursor {
         edges_it_.emplace_back(edges_.back().begin());
       }
 
+      auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
       if (self_.filter_lambda_.accumulated_path_symbol) {
         // Add initial vertex of path to the accumulated path
-        frame[self_.filter_lambda_.accumulated_path_symbol.value()] = Path(vertex);
+        frame_writer.Write(self_.filter_lambda_.accumulated_path_symbol.value(), Path(vertex));
       }
 
       // reset the frame value to an empty edge list
       if (frame[self_.common_.edge_symbol].IsList()) {
         // Preserve the list capacity if possible
-        frame[self_.common_.edge_symbol].ValueList().clear();
+        frame_writer.Modify(self_.common_.edge_symbol, [](TypedValue &value) { value.ValueList().clear(); });
       } else {
         auto *pull_memory = context.evaluation_context.memory;
-        frame[self_.common_.edge_symbol] = TypedValue::TVector(pull_memory);
+        frame_writer.Write(self_.common_.edge_symbol, TypedValue::TVector(pull_memory));
       }
 
       return true;
@@ -2041,20 +2057,11 @@ class ExpandVariableCursor : public Cursor {
     // Some expansions might not be valid due to edge uniqueness and
     // existing_node criterions, so expand in a loop until either the input
     // vertex is exhausted or a valid variable-length expansion is available.
-    while (true) {
-      AbortCheck(context);
-      // pop from the stack while there is stuff to pop and the current
-      // level is exhausted
-      while (!edges_.empty() && edges_it_.back() == edges_.back().end()) {
-        edges_.pop_back();
-        edges_it_.pop_back();
-      }
 
-      // check if we exhausted everything, if so return false
-      if (edges_.empty()) return false;
-
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+    auto try_expand = [&](TypedValue &value) {
       // we use this a lot
-      auto &edges_on_frame = frame[self_.common_.edge_symbol].ValueList();
+      auto &edges_on_frame = value.ValueList();
 
       // it is possible that edges_on_frame does not contain as many
       // elements as edges_ due to edge-uniqueness (when a whole layer
@@ -2076,7 +2083,7 @@ class ExpandVariableCursor : public Cursor {
       bool found_existing =
           std::any_of(edges_on_frame.begin(), edges_on_frame.end(),
                       [&current_edge](const TypedValue &edge) { return current_edge.first == edge.ValueEdge(); });
-      if (found_existing) continue;
+      if (found_existing) return false;
 
       VertexAccessor current_vertex =
           current_edge.second == EdgeAtom::Direction::IN ? current_edge.first.From() : current_edge.first.To();
@@ -2085,30 +2092,34 @@ class ExpandVariableCursor : public Cursor {
           !(context.auth_checker->Has(current_edge.first, memgraph::query::AuthQuery::FineGrainedPrivilege::READ) &&
             context.auth_checker->Has(current_vertex, storage::View::OLD,
                                       memgraph::query::AuthQuery::FineGrainedPrivilege::READ))) {
-        continue;
+        return false;
       }
 #endif
       AppendEdge(current_edge.first, &edges_on_frame);
 
       if (!self_.common_.existing_node) {
-        frame[self_.common_.node_symbol] = current_vertex;
+        frame_writer.Write(self_.common_.node_symbol, current_vertex);
       }
 
       // Skip expanding out of filtered expansion.
-      frame[self_.filter_lambda_.inner_edge_symbol] = current_edge.first;
-      frame[self_.filter_lambda_.inner_node_symbol] = current_vertex;
-      if (self_.filter_lambda_.accumulated_path_symbol) {
-        MG_ASSERT(frame[self_.filter_lambda_.accumulated_path_symbol.value()].IsPath(),
-                  "Accumulated path must be path");
-        Path &accumulated_path = frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath();
-        // Shrink the accumulated path including current level if necessary
-        while (accumulated_path.size() >= edges_on_frame.size()) {
-          accumulated_path.Shrink();
+      if (self_.filter_lambda_.expression) {
+        frame_writer.Write(self_.filter_lambda_.inner_edge_symbol, current_edge.first);
+        frame_writer.Write(self_.filter_lambda_.inner_node_symbol, current_vertex);
+        if (self_.filter_lambda_.accumulated_path_symbol) {
+          auto update_path = [&](TypedValue &value) {
+            MG_ASSERT(value.IsPath(), "Accumulated path must be path");
+            Path &accumulated_path = value.ValuePath();
+            // Shrink the accumulated path including current level if necessary
+            while (accumulated_path.size() >= edges_on_frame.size()) {
+              accumulated_path.Shrink();
+            }
+            accumulated_path.Expand(current_edge.first);
+            accumulated_path.Expand(current_vertex);
+          };
+          frame_writer.Modify(*self_.filter_lambda_.accumulated_path_symbol, update_path);
         }
-        accumulated_path.Expand(current_edge.first);
-        accumulated_path.Expand(current_vertex);
+        if (!EvaluateFilter(evaluator, self_.filter_lambda_.expression)) return false;
       }
-      if (self_.filter_lambda_.expression && !EvaluateFilter(evaluator, self_.filter_lambda_.expression)) continue;
 
       // we are doing depth-first search, so place the current
       // edge's expansions onto the stack, if we should continue to expand
@@ -2119,10 +2130,28 @@ class ExpandVariableCursor : public Cursor {
         edges_it_.emplace_back(edges_.back().begin());
       }
 
-      if (self_.common_.existing_node && !CheckExistingNode(current_vertex, self_.common_.node_symbol, frame)) continue;
+      if (self_.common_.existing_node && !CheckExistingNode(current_vertex, self_.common_.node_symbol, frame))
+        return false;
+      return true;
+    };
+
+    while (true) {
+      AbortCheck(context);
+      // pop from the stack while there is stuff to pop and the current
+      // level is exhausted
+      while (!edges_.empty() && edges_it_.back() == edges_.back().end()) {
+        edges_.pop_back();
+        edges_it_.pop_back();
+      }
+
+      // check if we exhausted everything, if so return false
+      if (edges_.empty()) return false;
+
+      bool const expand_is_valid = frame_writer.Modify(self_.common_.edge_symbol, try_expand);
 
       // We only yield true if we satisfy the lower bound.
-      if (static_cast<int64_t>(edges_on_frame.size()) >= lower_bound_) {
+      auto const &edges_on_frame = frame[self_.common_.edge_symbol].ValueList();
+      if (expand_is_valid && static_cast<int64_t>(edges_on_frame.size()) >= lower_bound_) {
         return true;
       }
     }
@@ -2186,8 +2215,8 @@ class STShortestPathCursor : public query::plan::Cursor {
   using VertexEdgeMapT = utils::pmr::unordered_map<VertexAccessor, std::optional<EdgeAccessor>>;
 
   void ReconstructPath(const VertexAccessor &midpoint, const VertexEdgeMapT &in_edge, const VertexEdgeMapT &out_edge,
-                       Frame *frame, utils::MemoryResource *pull_memory) {
-    utils::pmr::vector<TypedValue> result(pull_memory);
+                       Frame *frame, ExecutionContext &ctx) {
+    utils::pmr::vector<TypedValue> result(ctx.evaluation_context.memory);
     auto last_vertex = midpoint;
     while (true) {
       const auto &last_edge = in_edge.at(last_vertex);
@@ -2203,15 +2232,18 @@ class STShortestPathCursor : public query::plan::Cursor {
       last_vertex = last_edge->From() == last_vertex ? last_edge->To() : last_edge->From();
       result.emplace_back(*last_edge);
     }
-    frame->at(self_.common_.edge_symbol) = std::move(result);
+    auto frame_writer = frame->GetFrameWriter(ctx.frame_change_collector, ctx.evaluation_context.memory);
+    frame_writer.WriteAt(self_.common_.edge_symbol, std::move(result));
   }
 
   bool ShouldExpand(const VertexAccessor &vertex, const EdgeAccessor &edge, Frame *frame,
-                    ExpressionEvaluator *evaluator) {
+                    ExpressionEvaluator *evaluator, ExecutionContext &context) {
     if (!self_.filter_lambda_.expression) return true;
 
-    frame->at(self_.filter_lambda_.inner_node_symbol) = vertex;
-    frame->at(self_.filter_lambda_.inner_edge_symbol) = edge;
+    auto frame_writer = frame->GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
+    frame_writer.WriteAt(self_.filter_lambda_.inner_node_symbol, vertex);
+    frame_writer.WriteAt(self_.filter_lambda_.inner_edge_symbol, edge);
 
     TypedValue result = self_.filter_lambda_.expression->Accept(*evaluator);
     if (result.IsNull()) return false;
@@ -2275,11 +2307,11 @@ class STShortestPathCursor : public query::plan::Cursor {
               continue;
             }
 #endif
-            if (ShouldExpand(edge.To(), edge, frame, evaluator) && !Contains(in_edge, edge.To())) {
+            if (ShouldExpand(edge.To(), edge, frame, evaluator, context) && !Contains(in_edge, edge.To())) {
               in_edge.emplace(edge.To(), edge);
               if (Contains(out_edge, edge.To())) {
                 if (current_length >= lower_bound) {
-                  ReconstructPath(edge.To(), in_edge, out_edge, frame, pull_memory);
+                  ReconstructPath(edge.To(), in_edge, out_edge, frame, context);
                   return true;
                 } else {
                   return false;
@@ -2302,11 +2334,11 @@ class STShortestPathCursor : public query::plan::Cursor {
               continue;
             }
 #endif
-            if (ShouldExpand(edge.From(), edge, frame, evaluator) && !Contains(in_edge, edge.From())) {
+            if (ShouldExpand(edge.From(), edge, frame, evaluator, context) && !Contains(in_edge, edge.From())) {
               in_edge.emplace(edge.From(), edge);
               if (Contains(out_edge, edge.From())) {
                 if (current_length >= lower_bound) {
-                  ReconstructPath(edge.From(), in_edge, out_edge, frame, pull_memory);
+                  ReconstructPath(edge.From(), in_edge, out_edge, frame, context);
                   return true;
                 } else {
                   return false;
@@ -2344,11 +2376,11 @@ class STShortestPathCursor : public query::plan::Cursor {
               continue;
             }
 #endif
-            if (ShouldExpand(vertex, edge, frame, evaluator) && !Contains(out_edge, edge.To())) {
+            if (ShouldExpand(vertex, edge, frame, evaluator, context) && !Contains(out_edge, edge.To())) {
               out_edge.emplace(edge.To(), edge);
               if (Contains(in_edge, edge.To())) {
                 if (current_length >= lower_bound) {
-                  ReconstructPath(edge.To(), in_edge, out_edge, frame, pull_memory);
+                  ReconstructPath(edge.To(), in_edge, out_edge, frame, context);
                   return true;
                 } else {
                   return false;
@@ -2371,11 +2403,11 @@ class STShortestPathCursor : public query::plan::Cursor {
               continue;
             }
 #endif
-            if (ShouldExpand(vertex, edge, frame, evaluator) && !Contains(out_edge, edge.From())) {
+            if (ShouldExpand(vertex, edge, frame, evaluator, context) && !Contains(out_edge, edge.From())) {
               out_edge.emplace(edge.From(), edge);
               if (Contains(in_edge, edge.From())) {
                 if (current_length >= lower_bound) {
-                  ReconstructPath(edge.From(), in_edge, out_edge, frame, pull_memory);
+                  ReconstructPath(edge.From(), in_edge, out_edge, frame, context);
                   return true;
                 } else {
                   return false;
@@ -2415,10 +2447,13 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
 
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::OLD, nullptr, &context.number_of_hops);
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
 
     // for the given (edge, vertex) pair checks if they satisfy the
     // "where" condition. if so, places them in the to_visit_ structure.
-    auto expand_pair = [this, &evaluator, &frame, &context](EdgeAccessor edge, VertexAccessor vertex) -> bool {
+    auto expand_pair = [this, &evaluator, &frame, &context, &frame_writer](EdgeAccessor edge,
+                                                                           VertexAccessor vertex) -> bool {
+      (void)context;  // unused in community version
       // if we already processed the given vertex it doesn't get expanded
       if (processed_.find(vertex) != processed_.end()) return false;
 #ifdef MG_ENTERPRISE
@@ -2429,16 +2464,21 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
         return false;
       }
 #endif
-      frame[self_.filter_lambda_.inner_edge_symbol] = edge;
-      frame[self_.filter_lambda_.inner_node_symbol] = vertex;
+      frame_writer.Write(self_.filter_lambda_.inner_edge_symbol, edge);
+      frame_writer.Write(self_.filter_lambda_.inner_node_symbol, vertex);
       std::optional<Path> curr_acc_path = std::nullopt;
       if (self_.filter_lambda_.accumulated_path_symbol) {
         MG_ASSERT(frame[self_.filter_lambda_.accumulated_path_symbol.value()].IsPath(),
                   "Accumulated path must have Path type");
-        Path &accumulated_path = frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath();
-        accumulated_path.Expand(edge);
-        accumulated_path.Expand(vertex);
-        curr_acc_path = accumulated_path;
+
+        auto expand_path = [&](TypedValue &value) {
+          Path &accumulated_path = value.ValuePath();
+          accumulated_path.Expand(edge);
+          accumulated_path.Expand(vertex);
+        };
+        frame_writer.Modify(self_.filter_lambda_.accumulated_path_symbol.value(), expand_path);
+
+        curr_acc_path = frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath();  // const ref
       }
 
       if (self_.filter_lambda_.expression) {
@@ -2458,9 +2498,10 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       return true;
     };
 
-    auto restore_frame_state_after_expansion = [this, &frame](bool was_expanded) {
+    auto restore_frame_state_after_expansion = [this, &frame_writer](bool was_expanded) {
       if (was_expanded && self_.filter_lambda_.accumulated_path_symbol) {
-        frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath().Shrink();
+        auto shrink = [&](TypedValue &value) { value.ValuePath().Shrink(); };
+        frame_writer.Modify(self_.filter_lambda_.accumulated_path_symbol.value(), shrink);
       }
     };
 
@@ -2521,7 +2562,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
 
         if (self_.filter_lambda_.accumulated_path_symbol) {
           // Add initial vertex of path to the accumulated path
-          frame[self_.filter_lambda_.accumulated_path_symbol.value()] = Path(vertex);
+          frame_writer.Write(self_.filter_lambda_.accumulated_path_symbol.value(), Path(vertex));
         }
 
         expand_from_vertex(vertex);
@@ -2553,7 +2594,7 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
       if (static_cast<int64_t>(edge_list.size()) < upper_bound_) {
         if (self_.filter_lambda_.accumulated_path_symbol) {
           MG_ASSERT(curr_acc_path.has_value(), "Expected non-null accumulated path");
-          frame[self_.filter_lambda_.accumulated_path_symbol.value()] = std::move(curr_acc_path.value());
+          frame_writer.Write(self_.filter_lambda_.accumulated_path_symbol.value(), std::move(curr_acc_path.value()));
         }
         if (!context.hops_limit.IsLimitReached()) {
           expand_from_vertex(curr_vertex);
@@ -2562,11 +2603,11 @@ class SingleSourceShortestPathCursor : public query::plan::Cursor {
 
       if (static_cast<int64_t>(edge_list.size()) < lower_bound_) continue;
 
-      frame[self_.common_.node_symbol] = curr_vertex;
+      frame_writer.Write(self_.common_.node_symbol, curr_vertex);
 
       // place edges on the frame in the correct order
       std::reverse(edge_list.begin(), edge_list.end());
-      frame[self_.common_.edge_symbol] = std::move(edge_list);
+      frame_writer.Write(self_.common_.edge_symbol, std::move(edge_list));
 
       return true;
     }
@@ -2670,6 +2711,8 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::OLD, nullptr, &context.number_of_hops);
 
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
     auto create_state = [this](const VertexAccessor &vertex, int64_t depth) {
       return std::make_pair(vertex, upper_bound_set_ ? depth : 0);
     };
@@ -2677,26 +2720,31 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
     // For the given (edge, vertex, weight, depth) tuple checks if they
     // satisfy the "where" condition. if so, places them in the priority
     // queue.
-    auto expand_pair = [this, &evaluator, &frame, &create_state](const EdgeAccessor &edge, const VertexAccessor &vertex,
-                                                                 const TypedValue &total_weight, int64_t depth) {
-      frame[self_.weight_lambda_->inner_edge_symbol] = edge;
-      frame[self_.weight_lambda_->inner_node_symbol] = vertex;
+    auto expand_pair = [this, &evaluator, &frame, &create_state, &frame_writer](
+                           const EdgeAccessor &edge, const VertexAccessor &vertex, const TypedValue &total_weight,
+                           int64_t depth) {
+      frame_writer.Write(self_.weight_lambda_->inner_edge_symbol, edge);
+      frame_writer.Write(self_.weight_lambda_->inner_node_symbol, vertex);
       TypedValue next_weight = CalculateNextWeight(self_.weight_lambda_, total_weight, evaluator);
 
       std::optional<Path> curr_acc_path = std::nullopt;
       if (self_.filter_lambda_.expression) {
-        frame[self_.filter_lambda_.inner_edge_symbol] = edge;
-        frame[self_.filter_lambda_.inner_node_symbol] = vertex;
+        frame_writer.Write(self_.filter_lambda_.inner_edge_symbol, edge);
+        frame_writer.Write(self_.filter_lambda_.inner_node_symbol, vertex);
         if (self_.filter_lambda_.accumulated_path_symbol) {
           MG_ASSERT(frame[self_.filter_lambda_.accumulated_path_symbol.value()].IsPath(),
                     "Accumulated path must be path");
-          Path &accumulated_path = frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath();
-          accumulated_path.Expand(edge);
-          accumulated_path.Expand(vertex);
-          curr_acc_path = accumulated_path;
+
+          auto expand_path = [&](TypedValue &value) {
+            Path &accumulated_path = value.ValuePath();
+            accumulated_path.Expand(edge);
+            accumulated_path.Expand(vertex);
+          };
+          frame_writer.Modify(self_.filter_lambda_.accumulated_path_symbol.value(), expand_path);
+          curr_acc_path = frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath();  // const ref
 
           if (self_.filter_lambda_.accumulated_weight_symbol) {
-            frame[self_.filter_lambda_.accumulated_weight_symbol.value()] = next_weight;
+            frame_writer.Write(self_.filter_lambda_.accumulated_weight_symbol.value(), next_weight);
           }
         }
 
@@ -2712,9 +2760,10 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
       pq_.emplace(next_weight, depth + 1, vertex, edge, curr_acc_path);
     };
 
-    auto restore_frame_state_after_expansion = [this, &frame]() {
+    auto restore_frame_state_after_expansion = [this, &frame_writer]() {
       if (self_.filter_lambda_.accumulated_path_symbol) {
-        frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath().Shrink();
+        auto shrink = [&](TypedValue &value) { value.ValuePath().Shrink(); };
+        frame_writer.Modify(self_.filter_lambda_.accumulated_path_symbol.value(), shrink);
       }
     };
 
@@ -2773,7 +2822,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
         if (self_.filter_lambda_.accumulated_path_symbol) {
           // Add initial vertex of path to the accumulated path
           curr_acc_path = Path(vertex);
-          frame[self_.filter_lambda_.accumulated_path_symbol.value()] = curr_acc_path.value();
+          frame_writer.Write(self_.filter_lambda_.accumulated_path_symbol.value(), curr_acc_path.value());
         }
         if (self_.upper_bound_) {
           upper_bound_ = EvaluateInt(evaluator, self_.upper_bound_, "Max depth in weighted shortest path expansion");
@@ -2787,8 +2836,8 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
               "Maximum depth in weighted shortest path expansion must be at "
               "least 1.");
 
-        frame[self_.weight_lambda_->inner_edge_symbol] = TypedValue();
-        frame[self_.weight_lambda_->inner_node_symbol] = vertex;
+        frame_writer.Write(self_.weight_lambda_->inner_edge_symbol, TypedValue());
+        frame_writer.Write(self_.weight_lambda_->inner_node_symbol, vertex);
         TypedValue current_weight =
             CalculateNextWeight(self_.weight_lambda_, /* total_weight */ TypedValue(), evaluator);
 
@@ -2821,7 +2870,7 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
         // Expand only if what we've just expanded is less than max depth.
         if (current_depth < upper_bound_) {
           if (self_.filter_lambda_.accumulated_path_symbol) {
-            frame[self_.filter_lambda_.accumulated_path_symbol.value()] = std::move(curr_acc_path.value());
+            frame_writer.Write(self_.filter_lambda_.accumulated_path_symbol.value(), std::move(curr_acc_path.value()));
           }
           expand_from_vertex(current_vertex, current_weight, current_depth);
         }
@@ -2854,15 +2903,15 @@ class ExpandWeightedShortestPathCursor : public query::plan::Cursor {
           // shortest to existing node.
           ClearQueue();
         } else {
-          frame[self_.common_.node_symbol] = current_vertex;
+          frame_writer.Write(self_.common_.node_symbol, current_vertex);
         }
 
         if (!self_.is_reverse_) {
           // Place edges on the frame in the correct order.
           std::reverse(edge_list.begin(), edge_list.end());
         }
-        frame[self_.common_.edge_symbol] = std::move(edge_list);
-        frame[self_.total_weight_.value()] = current_weight;
+        frame_writer.Write(self_.common_.edge_symbol, std::move(edge_list));
+        frame_writer.Write(self_.total_weight_.value(), current_weight);
         yielded_vertices_.insert(current_vertex);
         return true;
       }
@@ -2972,6 +3021,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
                                   storage::View::OLD, nullptr, &context.number_of_hops);
 
     auto *memory = context.evaluation_context.memory;
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, memory);
 
     auto create_state = [this](const VertexAccessor &vertex, int64_t depth) {
       return std::make_pair(vertex, upper_bound_set_ ? depth : 0);
@@ -2980,30 +3030,34 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
     // For the given (edge, direction, weight, depth) tuple checks if they
     // satisfy the "where" condition. if so, places them in the priority
     // queue.
-    auto expand_vertex = [this, &evaluator, &frame](const EdgeAccessor &edge, const EdgeAtom::Direction direction,
-                                                    const TypedValue &total_weight, int64_t depth) {
+    auto expand_vertex = [this, &evaluator, &frame, &frame_writer](const EdgeAccessor &edge,
+                                                                   const EdgeAtom::Direction direction,
+                                                                   const TypedValue &total_weight, int64_t depth) {
       auto const &next_vertex = direction == EdgeAtom::Direction::IN ? edge.From() : edge.To();
 
       // Evaluate current weight
-      frame[self_.weight_lambda_->inner_edge_symbol] = edge;
-      frame[self_.weight_lambda_->inner_node_symbol] = next_vertex;
+      frame_writer.Write(self_.weight_lambda_->inner_edge_symbol, edge);
+      frame_writer.Write(self_.weight_lambda_->inner_node_symbol, next_vertex);
       TypedValue next_weight = CalculateNextWeight(self_.weight_lambda_, total_weight, evaluator);
 
       // If filter expression exists, evaluate filter
       std::optional<Path> curr_acc_path = std::nullopt;
       if (self_.filter_lambda_.expression) {
-        frame[self_.filter_lambda_.inner_edge_symbol] = edge;
-        frame[self_.filter_lambda_.inner_node_symbol] = next_vertex;
+        frame_writer.Write(self_.filter_lambda_.inner_edge_symbol, edge);
+        frame_writer.Write(self_.filter_lambda_.inner_node_symbol, next_vertex);
         if (self_.filter_lambda_.accumulated_path_symbol) {
           MG_ASSERT(frame[self_.filter_lambda_.accumulated_path_symbol.value()].IsPath(),
                     "Accumulated path must be path");
-          Path &accumulated_path = frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath();
-          accumulated_path.Expand(edge);
-          accumulated_path.Expand(next_vertex);
-          curr_acc_path = accumulated_path;
+          auto expand_path = [&](TypedValue &value) {
+            Path &accumulated_path = value.ValuePath();
+            accumulated_path.Expand(edge);
+            accumulated_path.Expand(next_vertex);
+          };
+          frame_writer.Modify(self_.filter_lambda_.accumulated_path_symbol.value(), expand_path);
+          curr_acc_path = frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath();  // const ref
 
           if (self_.filter_lambda_.accumulated_weight_symbol) {
-            frame[self_.filter_lambda_.accumulated_weight_symbol.value()] = next_weight;
+            frame_writer.Write(self_.filter_lambda_.accumulated_weight_symbol.value(), next_weight);
           }
         }
 
@@ -3044,9 +3098,10 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
                   std::move(curr_acc_path));
     };
 
-    auto restore_frame_state_after_expansion = [this, &frame]() {
+    auto restore_frame_state_after_expansion = [this, &frame_writer]() {
       if (self_.filter_lambda_.accumulated_path_symbol) {
-        frame[self_.filter_lambda_.accumulated_path_symbol.value()].ValuePath().Shrink();
+        auto shrink = [&](TypedValue &value) { value.ValuePath().Shrink(); };
+        frame_writer.Modify(self_.filter_lambda_.accumulated_path_symbol.value(), shrink);
       }
     };
 
@@ -3089,34 +3144,44 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
     std::optional<VertexAccessor> start_vertex;
 
-    auto create_path = [this, &frame, &memory]() {
+    auto create_path = [this, &frame, &memory, &frame_writer]() {
       auto &current_level = traversal_stack_.back();
-      auto &edges_on_frame = frame[self_.common_.edge_symbol].ValueList();
 
-      // Clean out the current stack
-      if (current_level.empty()) {
-        if (!edges_on_frame.empty()) {
-          if (!self_.is_reverse_) {
-            edges_on_frame.pop_back();
-          } else {
-            edges_on_frame.erase(edges_on_frame.begin());
+      auto pop_edge = [&](TypedValue &value) {
+        auto &edges_on_frame = value.ValueList();  // Clean out the current stack
+        if (current_level.empty()) {
+          if (!edges_on_frame.empty()) {
+            if (!self_.is_reverse_) {
+              edges_on_frame.pop_back();
+            } else {
+              edges_on_frame.erase(edges_on_frame.begin());
+            }
           }
+          traversal_stack_.pop_back();
+          return false;
         }
-        traversal_stack_.pop_back();
-        return false;
-      }
+        return true;
+      };
+
+      auto result = frame_writer.Modify(self_.common_.edge_symbol, pop_edge);
+      if (!result) return false;
 
       auto [current_edge, current_edge_direction, current_weight] = current_level.back();
       current_level.pop_back();
 
-      // Edges order depends on direction of expansion
-      if (!self_.is_reverse_)
-        edges_on_frame.emplace_back(current_edge);
-      else
-        edges_on_frame.emplace(edges_on_frame.begin(), current_edge);
+      auto push_current_edge = [&](TypedValue &value) {
+        auto &edges_on_frame = value.ValueList();
+        // Edges order depends on direction of expansion
+        if (!self_.is_reverse_)
+          edges_on_frame.emplace_back(current_edge);
+        else
+          edges_on_frame.emplace(edges_on_frame.begin(), current_edge);
+      };
+
+      frame_writer.Modify(self_.common_.edge_symbol, push_current_edge);
 
       auto next_vertex = current_edge_direction == EdgeAtom::Direction::IN ? current_edge.From() : current_edge.To();
-      frame[self_.total_weight_.value()] = current_weight;
+      frame_writer.Write(self_.total_weight_.value(), current_weight);
 
       if (next_edges_.find({next_vertex, traversal_stack_.size()}) != next_edges_.end()) {
         auto [it, inserted] =
@@ -3138,12 +3203,12 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         ExpectType(self_.common_.node_symbol, node, TypedValue::Type::Vertex);
         if (node.ValueVertex() != next_vertex) return false;
       } else {
-        frame[self_.common_.node_symbol] = next_vertex;
+        frame_writer.Write(self_.common_.node_symbol, next_vertex);
       }
       return true;
     };
 
-    auto create_DFS_traversal_tree = [this, &context, &memory, &frame, &create_state, &expand_from_vertex]() {
+    auto create_DFS_traversal_tree = [this, &context, &memory, &frame_writer, &create_state, &expand_from_vertex]() {
       while (!pq_.empty()) {
         AbortCheck(context);
 
@@ -3161,7 +3226,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
           if (current_depth < upper_bound_) {
             if (self_.filter_lambda_.accumulated_path_symbol) {
               DMG_ASSERT(acc_path.has_value(), "Path must be already filled in AllShortestPath DFS traversals");
-              frame[self_.filter_lambda_.accumulated_path_symbol.value()] = std::move(acc_path.value());
+              frame_writer.Write(self_.filter_lambda_.accumulated_path_symbol.value(), std::move(acc_path.value()));
             }
             expand_from_vertex(current_vertex, current_weight, current_depth);
           }
@@ -3233,11 +3298,11 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
 
         if (self_.filter_lambda_.accumulated_path_symbol) {
           // Add initial vertex of path to the accumulated path
-          frame[self_.filter_lambda_.accumulated_path_symbol.value()] = Path(*start_vertex);
+          frame_writer.Write(self_.filter_lambda_.accumulated_path_symbol.value(), Path(*start_vertex));
         }
 
-        frame[self_.weight_lambda_->inner_edge_symbol] = TypedValue();
-        frame[self_.weight_lambda_->inner_node_symbol] = *start_vertex;
+        frame_writer.Write(self_.weight_lambda_->inner_edge_symbol, TypedValue());
+        frame_writer.Write(self_.weight_lambda_->inner_node_symbol, *start_vertex);
         TypedValue current_weight =
             CalculateNextWeight(self_.weight_lambda_, /* total_weight */ TypedValue(), evaluator);
 
@@ -3250,7 +3315,7 @@ class ExpandAllShortestPathsCursor : public query::plan::Cursor {
         if (upper_bound_set_ && upper_bound_ > 0) {
           new_vector.reserve(upper_bound_);
         }
-        frame[self_.common_.edge_symbol] = std::move(new_vector);
+        frame_writer.Write(self_.common_.edge_symbol, std::move(new_vector));
       }
 
       // Create a DFS traversal tree from the start node
@@ -3364,7 +3429,7 @@ class KShortestPathsCursor : public Cursor {
                           : std::numeric_limits<int64_t>::max();
 
     auto push_next_path = [&](Frame &frame, ExpressionEvaluator &evaluator) {
-      PushPathToFrame(shortest_paths_[current_path_index_++], &frame, evaluator.GetMemoryResource());
+      PushPathToFrame(shortest_paths_[current_path_index_++], &frame, evaluator.GetMemoryResource(), context);
       n_returned_paths_++;
     };
 
@@ -3827,12 +3892,13 @@ class KShortestPathsCursor : public Cursor {
     }
   }
 
-  void PushPathToFrame(const PathInfo &path, Frame *frame, utils::MemoryResource *memory) {
+  void PushPathToFrame(const PathInfo &path, Frame *frame, utils::MemoryResource *memory, ExecutionContext &context) {
     auto edge_list = TypedValue::TVector(memory);
     for (const auto &edge : path.edges) {
       edge_list.emplace_back(edge);
     }
-    (*frame)[self_.common_.edge_symbol] = std::move(edge_list);
+    auto frame_writer = frame->GetFrameWriter(context.frame_change_collector, memory);
+    frame_writer.Write(self_.common_.edge_symbol, std::move(edge_list));
   }
 
   bool IsPathInFoundSet(const PathInfo &path) {
@@ -3946,6 +4012,8 @@ class ConstructNamedPathCursor : public Cursor {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("ConstructNamedPath");
 
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
     AbortCheck(context);
 
     if (!input_cursor_->Pull(frame, context)) return false;
@@ -3957,7 +4025,7 @@ class ConstructNamedPathCursor : public Cursor {
     auto *pull_memory = context.evaluation_context.memory;
     // In an OPTIONAL MATCH everything could be Null.
     if (start_vertex.IsNull()) {
-      frame[self_.path_symbol_] = TypedValue(pull_memory);
+      frame_writer.Write(self_.path_symbol_, TypedValue(pull_memory));
       return true;
     }
 
@@ -3976,7 +4044,7 @@ class ConstructNamedPathCursor : public Cursor {
       //  list (variable expand or BFS).
       switch (expansion.type()) {
         case TypedValue::Type::Null:
-          frame[self_.path_symbol_] = TypedValue(pull_memory);
+          frame_writer.Write(self_.path_symbol_, TypedValue(pull_memory));
           return true;
         case TypedValue::Type::Vertex:
           if (!last_was_edge_list) path.Expand(expansion.ValueVertex());
@@ -4007,7 +4075,7 @@ class ConstructNamedPathCursor : public Cursor {
       }
     }
 
-    frame[self_.path_symbol_] = path;
+    frame_writer.Write(self_.path_symbol_, path);
     return true;
   }
 
@@ -4240,7 +4308,8 @@ bool EvaluatePatternFilter::EvaluatePatternFilterCursor::Pull(Frame &frame, Exec
     *return_value = TypedValue(input_cursor->Pull(frame, context), context.evaluation_context.memory);
   };
 
-  frame[self_.output_symbol_] = TypedValue(std::move(function));
+  auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+  frame_writer.Write(self_.output_symbol_, TypedValue(std::move(function)));
   return true;
 }
 
@@ -4298,8 +4367,8 @@ bool Produce::ProduceCursor::Pull(Frame &frame, ExecutionContext &context) {
     ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                   storage::View::NEW, context.frame_change_collector, &context.number_of_hops);
     for (auto *named_expr : self_.named_expressions_) {
-      if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(named_expr->name_)) {
-        context.frame_change_collector->ResetTrackingValue(named_expr->name_);
+      if (context.frame_change_collector) {
+        context.frame_change_collector->ResetInListCache(*named_expr);
       }
       named_expr->Accept(evaluator);
     }
@@ -4387,7 +4456,11 @@ void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &co
         if (vertex_auth_checker(va)) {
           buffer_.nodes.push_back(va);
         } else {
-          throw QueryRuntimeException("Vertex not deleted due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+          throw QueryRuntimeException(
+              "Vertex not deleted due to not having enough permission! This error means that the fine grained access "
+              "control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON "
+              "CURRENT; to check if you have correct privileges to do operations involving labels. If you do try "
+              "running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
         }
         break;
       }
@@ -4396,7 +4469,11 @@ void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &co
         if (edge_auth_checker(ea)) {
           buffer_.edges.push_back(ea);
         } else {
-          throw QueryRuntimeException("Edge not deleted due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+          throw QueryRuntimeException(
+              "Edge not deleted due to not having enough permission! This error means that the fine grained access "
+              "control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON "
+              "CURRENT; to check if you have correct privileges to do operations involving labels. If you do try "
+              "running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
         }
         break;
       }
@@ -4410,7 +4487,11 @@ void Delete::DeleteCursor::UpdateDeleteBuffer(Frame &frame, ExecutionContext &co
 
         if (edges_res || vertices_res) {
           throw QueryRuntimeException(
-              "Path not deleted due to not having enough permission on all edges and vertices on the path! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+              "Path not deleted due to not having enough permission on all edges and vertices on the path! This error "
+              "means that the fine grained access control was not correctly set up for the user on this label. Use "
+              "SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations "
+              "involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct "
+              "database.");
         }
 #endif
         buffer_.nodes.insert(buffer_.nodes.begin(), path.vertices().begin(), path.vertices().end());
@@ -4539,7 +4620,11 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueVertex(), storage::View::NEW,
                                      memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        throw QueryRuntimeException("Vertex property not set due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException(
+            "Vertex property not set due to not having enough permission! This error means that the fine grained "
+            "access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role "
+            "ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try "
+            "running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
       }
 #endif
       auto old_value = PropsSetChecked(&lhs.ValueVertex(), self_.property_, rhs,
@@ -4558,7 +4643,11 @@ bool SetProperty::SetPropertyCursor::Pull(Frame &frame, ExecutionContext &contex
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        throw QueryRuntimeException("Edge property not set due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException(
+            "Edge property not set due to not having enough permission! This error means that the fine grained access "
+            "control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON "
+            "CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running "
+            "SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
       }
 #endif
       auto old_value = PropsSetChecked(&lhs.ValueEdge(), self_.property_, rhs,
@@ -4721,7 +4810,11 @@ bool SetNestedProperty::SetNestedPropertyCursor::Pull(Frame &frame, ExecutionCon
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueVertex(), storage::View::NEW,
                                      memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        throw QueryRuntimeException("Vertex nested property not set due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException(
+            "Vertex nested property not set due to not having enough permission! This error means that the fine "
+            "grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR "
+            "user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If "
+            "you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
       }
 #endif
       set_nested_property(&lhs.ValueVertex());
@@ -4731,7 +4824,11 @@ bool SetNestedProperty::SetNestedPropertyCursor::Pull(Frame &frame, ExecutionCon
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        throw QueryRuntimeException("Edge nested property not set due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException(
+            "Edge nested property not set due to not having enough permission! This error means that the fine grained "
+            "access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role "
+            "ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try "
+            "running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
       }
 #endif
       set_nested_property(&lhs.ValueEdge());
@@ -4925,39 +5022,58 @@ bool SetProperties::SetPropertiesCursor::Pull(Frame &frame, ExecutionContext &co
 
   if (!input_cursor_->Pull(frame, context)) return false;
 
-  TypedValue &lhs = frame[self_.input_symbol_];
+  TypedValue const &lhs = frame[self_.input_symbol_];
 
   // Set, just like Create needs to see the latest changes.
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::NEW, nullptr, &context.number_of_hops);
+  auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
   TypedValue rhs = self_.rhs_->Accept(evaluator);
 
   switch (lhs.type()) {
-    case TypedValue::Type::Vertex:
+    case TypedValue::Type::Vertex: {
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueVertex(), storage::View::NEW,
                                      memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        throw QueryRuntimeException("Vertex properties not set due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException(
+            "Vertex properties not set due to not having enough permission! This error means that the fine grained "
+            "access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role "
+            "ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try "
+            "running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
       }
 #endif
-      SetPropertiesOnRecord(&lhs.ValueVertex(), rhs, self_.op_, &context, cached_name_id_);
-
+      auto set_properties_on_record = [&](TypedValue &vertex) {
+        SetPropertiesOnRecord(&vertex.ValueVertex(), rhs, self_.op_, &context, cached_name_id_);
+      };
+      frame_writer.Modify(self_.input_symbol_, set_properties_on_record);
       break;
-    case TypedValue::Type::Edge:
+    }
+    case TypedValue::Type::Edge: {
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        throw QueryRuntimeException("Edge properties not set due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException(
+            "Edge properties not set due to not having enough permission! This error means that the fine grained "
+            "access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role "
+            "ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try "
+            "running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
       }
 #endif
-      SetPropertiesOnRecord(&lhs.ValueEdge(), rhs, self_.op_, &context, cached_name_id_);
+      auto set_properties_on_record = [&](TypedValue &edge) {
+        SetPropertiesOnRecord(&edge.ValueEdge(), rhs, self_.op_, &context, cached_name_id_);
+      };
+      frame_writer.Modify(self_.input_symbol_, set_properties_on_record);
       break;
-    case TypedValue::Type::Null:
+    }
+    case TypedValue::Type::Null: {
       // Skip setting properties on Null (can occur in optional match).
       break;
-    default:
+    }
+    default: {
       throw QueryRuntimeException("Properties can only be set on edges and vertices.");
+    }
   }
   return true;
 }
@@ -5001,50 +5117,63 @@ bool SetLabels::SetLabelsCursor::Pull(Frame &frame, ExecutionContext &context) {
 
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::NEW, nullptr, &context.number_of_hops);
+  auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
   if (!input_cursor_->Pull(frame, context)) return false;
   auto labels = EvaluateLabels(self_.labels_, evaluator, context.db_accessor);
 
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
       !context.auth_checker->Has(labels, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
-    throw QueryRuntimeException("Couldn't set label due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+    throw QueryRuntimeException(
+        "Couldn't set label due to not having enough permission! This error means that the fine grained access control "
+        "was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to "
+        "check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT "
+        "DATABASE; to verify you are pointing to correct database.");
   }
 #endif
 
-  TypedValue &vertex_value = frame[self_.input_symbol_];
-  // Skip setting labels on Null (can occur in optional match).
-  if (vertex_value.IsNull()) return true;
-  ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
-  auto &vertex = vertex_value.ValueVertex();
+  auto add_label = [&](TypedValue &vertex_value) {
+    // Skip setting labels on Null (can occur in optional match).
+    if (vertex_value.IsNull()) return true;
+    ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
+    auto &vertex = vertex_value.ValueVertex();
 
 #ifdef MG_ENTERPRISE
-  if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-      !context.auth_checker->Has(vertex, storage::View::OLD,
-                                 memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-    throw QueryRuntimeException("Couldn't set label due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
-  }
+    if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+        !context.auth_checker->Has(vertex, storage::View::OLD,
+                                   memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+      throw QueryRuntimeException(
+          "Couldn't set label due to not having enough permission! This error means that the fine grained access "
+          "control "
+          "was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to "
+          "check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT "
+          "DATABASE; to verify you are pointing to correct database.");
+    }
 #endif
 
-  for (auto label : labels) {
-    auto maybe_value = vertex.AddLabel(label);
-    if (maybe_value.HasError()) {
-      switch (maybe_value.GetError()) {
-        case storage::Error::SERIALIZATION_ERROR:
-          throw TransactionSerializationException();
-        case storage::Error::DELETED_OBJECT:
-          throw QueryRuntimeException("Trying to set a label on a deleted node.");
-        case storage::Error::VERTEX_HAS_EDGES:
-        case storage::Error::PROPERTIES_DISABLED:
-        case storage::Error::NONEXISTENT_OBJECT:
-          throw QueryRuntimeException("Unexpected error when setting a label.");
+    for (auto label : labels) {
+      auto maybe_value = vertex.AddLabel(label);
+      if (maybe_value.HasError()) {
+        switch (maybe_value.GetError()) {
+          case storage::Error::SERIALIZATION_ERROR:
+            throw TransactionSerializationException();
+          case storage::Error::DELETED_OBJECT:
+            throw QueryRuntimeException("Trying to set a label on a deleted node.");
+          case storage::Error::VERTEX_HAS_EDGES:
+          case storage::Error::PROPERTIES_DISABLED:
+          case storage::Error::NONEXISTENT_OBJECT:
+            throw QueryRuntimeException("Unexpected error when setting a label.");
+        }
+      }
+
+      if (context.trigger_context_collector && *maybe_value) {
+        context.trigger_context_collector->RegisterSetVertexLabel(vertex, label);
       }
     }
-
-    if (context.trigger_context_collector && *maybe_value) {
-      context.trigger_context_collector->RegisterSetVertexLabel(vertex, label);
-    }
-  }
-  return true;
+    return true;
+  };
+  return frame_writer.Modify(self_.input_symbol_, add_label);
 }
 
 void SetLabels::SetLabelsCursor::Shutdown() { input_cursor_->Shutdown(); }
@@ -5122,7 +5251,11 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueVertex(), storage::View::NEW,
                                      memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        throw QueryRuntimeException("Vertex property not removed due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException(
+            "Vertex property not removed due to not having enough permission! This error means that the fine grained "
+            "access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role "
+            "ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try "
+            "running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
       }
 #endif
       remove_prop(&lhs.ValueVertex());
@@ -5132,7 +5265,11 @@ bool RemoveProperty::RemovePropertyCursor::Pull(Frame &frame, ExecutionContext &
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        throw QueryRuntimeException("Edge property not removed due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException(
+            "Edge property not removed due to not having enough permission! This error means that the fine grained "
+            "access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role "
+            "ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try "
+            "running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
       }
 #endif
       remove_prop(&lhs.ValueEdge());
@@ -5240,7 +5377,11 @@ bool RemoveNestedProperty::RemoveNestedPropertyCursor::Pull(Frame &frame, Execut
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueVertex(), storage::View::NEW,
                                      memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        throw QueryRuntimeException("Vertex nested property not removed due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException(
+            "Vertex nested property not removed due to not having enough permission! This error means that the fine "
+            "grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR "
+            "user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If "
+            "you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
       }
 #endif
       remove_nested_property(&lhs.ValueVertex());
@@ -5250,7 +5391,11 @@ bool RemoveNestedProperty::RemoveNestedPropertyCursor::Pull(Frame &frame, Execut
 #ifdef MG_ENTERPRISE
       if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
           !context.auth_checker->Has(lhs.ValueEdge(), memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-        throw QueryRuntimeException("Edge nested property not removed due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+        throw QueryRuntimeException(
+            "Edge nested property not removed due to not having enough permission! This error means that the fine "
+            "grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR "
+            "user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If "
+            "you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
       }
 #endif
       remove_nested_property(&lhs.ValueEdge());
@@ -5304,51 +5449,65 @@ bool RemoveLabels::RemoveLabelsCursor::Pull(Frame &frame, ExecutionContext &cont
 
   ExpressionEvaluator evaluator(&frame, context.symbol_table, context.evaluation_context, context.db_accessor,
                                 storage::View::NEW, nullptr, &context.number_of_hops);
+  auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
   if (!input_cursor_->Pull(frame, context)) return false;
   auto labels = EvaluateLabels(self_.labels_, evaluator, context.db_accessor);
 
 #ifdef MG_ENTERPRISE
   if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
       !context.auth_checker->Has(labels, memgraph::query::AuthQuery::FineGrainedPrivilege::CREATE_DELETE)) {
-    throw QueryRuntimeException("Couldn't remove label due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
+    throw QueryRuntimeException(
+        "Couldn't remove label due to not having enough permission! This error means that the fine grained access "
+        "control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; "
+        "to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT "
+        "DATABASE; to verify you are pointing to correct database.");
   }
 #endif
 
-  TypedValue &vertex_value = frame[self_.input_symbol_];
-  // Skip removing labels on Null (can occur in optional match).
-  if (vertex_value.IsNull()) return true;
-  ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
-  auto &vertex = vertex_value.ValueVertex();
+  auto remove_label = [&](TypedValue &vertex_value) {
+    // Skip removing labels on Null (can occur in optional match).
+    if (vertex_value.IsNull()) return true;
+    ExpectType(self_.input_symbol_, vertex_value, TypedValue::Type::Vertex);
+    auto &vertex = vertex_value.ValueVertex();
 
 #ifdef MG_ENTERPRISE
-  if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
-      !context.auth_checker->Has(vertex, storage::View::OLD,
-                                 memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
-    throw QueryRuntimeException("Couldn't remove label due to not having enough permission! This error means that the fine grained access control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON CURRENT; to check if you have correct privileges to do operations involving labels. If you do try running SHOW CURRENT DATABASE; to verify you are pointing to correct database.");
-  }
+    if (license::global_license_checker.IsEnterpriseValidFast() && context.auth_checker &&
+        !context.auth_checker->Has(vertex, storage::View::OLD,
+                                   memgraph::query::AuthQuery::FineGrainedPrivilege::UPDATE)) {
+      throw QueryRuntimeException(
+          "Couldn't remove label due to not having enough permission! This error means that the fine grained access "
+          "control was not correctly set up for the user on this label. Use SHOW PRIVILEGES FOR user_or_role ON "
+          "CURRENT; "
+          "to check if you have correct privileges to do operations involving labels. If you do try running SHOW "
+          "CURRENT "
+          "DATABASE; to verify you are pointing to correct database.");
+    }
 #endif
 
-  for (auto label : labels) {
-    auto maybe_value = vertex.RemoveLabel(label);
-    if (maybe_value.HasError()) {
-      switch (maybe_value.GetError()) {
-        case storage::Error::SERIALIZATION_ERROR:
-          throw TransactionSerializationException();
-        case storage::Error::DELETED_OBJECT:
-          throw QueryRuntimeException("Trying to remove labels from a deleted node.");
-        case storage::Error::VERTEX_HAS_EDGES:
-        case storage::Error::PROPERTIES_DISABLED:
-        case storage::Error::NONEXISTENT_OBJECT:
-          throw QueryRuntimeException("Unexpected error when removing labels from a node.");
+    for (auto label : labels) {
+      auto maybe_value = vertex.RemoveLabel(label);
+      if (maybe_value.HasError()) {
+        switch (maybe_value.GetError()) {
+          case storage::Error::SERIALIZATION_ERROR:
+            throw TransactionSerializationException();
+          case storage::Error::DELETED_OBJECT:
+            throw QueryRuntimeException("Trying to remove labels from a deleted node.");
+          case storage::Error::VERTEX_HAS_EDGES:
+          case storage::Error::PROPERTIES_DISABLED:
+          case storage::Error::NONEXISTENT_OBJECT:
+            throw QueryRuntimeException("Unexpected error when removing labels from a node.");
+        }
+      }
+
+      context.execution_stats[ExecutionStats::Key::DELETED_LABELS] += 1;
+      if (context.trigger_context_collector && *maybe_value) {
+        context.trigger_context_collector->RegisterRemovedVertexLabel(vertex, label);
       }
     }
-
-    context.execution_stats[ExecutionStats::Key::DELETED_LABELS] += 1;
-    if (context.trigger_context_collector && *maybe_value) {
-      context.trigger_context_collector->RegisterRemovedVertexLabel(vertex, label);
-    }
-  }
-  return true;
+    return true;
+  };
+  return frame_writer.Modify(self_.input_symbol_, remove_label);
 }
 
 void RemoveLabels::RemoveLabelsCursor::Shutdown() { input_cursor_->Shutdown(); }
@@ -5524,12 +5683,13 @@ class AccumulateCursor : public Cursor {
 
     AbortCheck(context);
     if (cache_it_ == cache_.end()) return false;
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
     auto row_it = (cache_it_++)->begin();
     for (const Symbol &symbol : self_.symbols_) {
-      if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(symbol.name())) {
-        context.frame_change_collector->ResetTrackingValue(symbol.name());
+      if (context.frame_change_collector) {
+        context.frame_change_collector->ResetInListCache(symbol);
       }
-      frame[symbol] = *row_it++;
+      frame_writer.Write(symbol, *row_it++);
     }
     return true;
   }
@@ -5619,6 +5779,8 @@ class AggregateCursor : public Cursor {
 
     AbortCheck(context);
 
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
     if (!pulled_all_input_) {
       if (!ProcessAll(&frame, &context) && !self_.group_by_.empty()) return false;
       pulled_all_input_ = true;
@@ -5628,17 +5790,17 @@ class AggregateCursor : public Cursor {
         auto *pull_memory = context.evaluation_context.memory;
         // place default aggregation values on the frame
         for (const auto &elem : self_.aggregations_) {
-          frame[elem.output_sym] = DefaultAggregationOpValue(elem, pull_memory);
-          if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(elem.output_sym.name())) {
-            context.frame_change_collector->ResetTrackingValue(elem.output_sym.name());
+          frame_writer.Write(elem.output_sym, DefaultAggregationOpValue(elem, pull_memory));
+          if (context.frame_change_collector) {
+            context.frame_change_collector->ResetInListCache(elem.output_sym);
           }
         }
 
         // place null as remember values on the frame
         for (const Symbol &remember_sym : self_.remember_) {
-          frame[remember_sym] = TypedValue(pull_memory);
-          if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(remember_sym.name())) {
-            context.frame_change_collector->ResetTrackingValue(remember_sym.name());
+          frame_writer.Write(remember_sym, TypedValue(pull_memory));
+          if (context.frame_change_collector) {
+            context.frame_change_collector->ResetInListCache(remember_sym);
           }
         }
         return true;
@@ -5649,11 +5811,11 @@ class AggregateCursor : public Cursor {
     // place aggregation values on the frame
     auto aggregation_values_it = aggregation_it_->second.values_.begin();
     for (const auto &aggregation_elem : self_.aggregations_)
-      frame[aggregation_elem.output_sym] = *aggregation_values_it++;
+      frame_writer.Write(aggregation_elem.output_sym, *aggregation_values_it++);
 
     // place remember values on the frame
     auto remember_values_it = aggregation_it_->second.remember_.begin();
-    for (const Symbol &remember_sym : self_.remember_) frame[remember_sym] = *remember_values_it++;
+    for (const Symbol &remember_sym : self_.remember_) frame_writer.Write(remember_sym, *remember_values_it++);
 
     aggregation_it_++;
     return true;
@@ -6247,11 +6409,12 @@ class OrderByCursor : public Cursor {
                "Number of values does not match the number of output symbols "
                "in OrderBy");
     auto output_sym_it = self_.output_symbols_.begin();
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
     for (TypedValue &output : *cache_it_) {
       if (context.frame_change_collector) {
-        context.frame_change_collector->ResetTrackingValue(output_sym_it->name());
+        context.frame_change_collector->ResetInListCache(*output_sym_it);
       }
-      frame[*output_sym_it++] = std::move(output);
+      frame_writer.Write(*output_sym_it++, std::move(output));
     }
     cache_it_++;
     return true;
@@ -6432,6 +6595,8 @@ bool Optional::OptionalCursor::Pull(Frame &frame, ExecutionContext &context) {
   OOMExceptionEnabler oom_exception;
   SCOPED_PROFILE_OP("Optional");
 
+  auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
   while (true) {
     AbortCheck(context);
     if (pull_input_) {
@@ -6456,7 +6621,9 @@ bool Optional::OptionalCursor::Pull(Frame &frame, ExecutionContext &context) {
         // and failed to pull from optional_ so set the
         // optional symbols to Null, ensure next time the
         // input gets pulled and return true
-        for (const Symbol &sym : self_.optional_symbols_) frame[sym] = TypedValue(context.evaluation_context.memory);
+        for (const Symbol &sym : self_.optional_symbols_) {
+          frame_writer.Write(sym, TypedValue(context.evaluation_context.memory));
+        }
         pull_input_ = true;
         return true;
       }
@@ -6500,6 +6667,9 @@ class UnwindCursor : public Cursor {
   bool Pull(Frame &frame, ExecutionContext &context) override {
     OOMExceptionEnabler oom_exception;
     SCOPED_PROFILE_OP("Unwind");
+
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
     while (true) {
       AbortCheck(context);
       // if we reached the end of our list of values
@@ -6521,9 +6691,9 @@ class UnwindCursor : public Cursor {
       // if we reached the end of our list of values goto back to top
       if (input_value_it_ == input_value_.end()) continue;
 
-      frame[self_.output_symbol_] = std::move(*input_value_it_++);
-      if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(self_.output_symbol_.name_)) {
-        context.frame_change_collector->ResetTrackingValue(self_.output_symbol_.name_);
+      frame_writer.Write(self_.output_symbol_, std::move(*input_value_it_++));
+      if (context.frame_change_collector) {
+        context.frame_change_collector->ResetInListCache(self_.output_symbol_);
       }
       return true;
     }
@@ -6695,28 +6865,20 @@ bool Union::UnionCursor::Pull(Frame &frame, ExecutionContext &context) {
     // collect values from the left child
     for (const auto &output_symbol : self_.left_symbols_) {
       results[output_symbol.name()] = frame[output_symbol];
-      if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(output_symbol.name())) {
-        context.frame_change_collector->ResetTrackingValue(output_symbol.name());
-      }
     }
   } else if (right_cursor_->Pull(frame, context)) {
     // collect values from the right child
     for (const auto &output_symbol : self_.right_symbols_) {
       results[output_symbol.name()] = frame[output_symbol];
-      if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(output_symbol.name())) {
-        context.frame_change_collector->ResetTrackingValue(output_symbol.name());
-      }
     }
   } else {
     return false;
   }
 
   // put collected values on frame under union symbols
+  auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
   for (const auto &symbol : self_.union_symbols_) {
-    frame[symbol] = results[symbol.name()];
-    if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(symbol.name())) {
-      context.frame_change_collector->ResetTrackingValue(symbol.name());
-    }
+    frame_writer.Write(symbol, results[symbol.name()]);
   }
   return true;
 }
@@ -6782,11 +6944,12 @@ class CartesianCursor : public Cursor {
       return false;
     }
 
-    auto restore_frame = [&frame, &context](const auto &symbols, const auto &restore_from) {
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+    auto restore_frame = [&frame_writer, &context](const auto &symbols, const auto &restore_from) {
       for (const auto &symbol : symbols) {
-        frame[symbol] = restore_from[symbol.position()];
-        if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(symbol.name())) {
-          context.frame_change_collector->ResetTrackingValue(symbol.name());
+        frame_writer.Write(symbol, restore_from[symbol.position()]);
+        if (context.frame_change_collector) {
+          context.frame_change_collector->ResetInListCache(symbol);
         }
       }
     };
@@ -6875,12 +7038,14 @@ class OutputTableCursor : public Cursor {
       }
       pulled_ = true;
     }
+
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
     if (current_row_ < rows_.size()) {
       for (size_t i = 0; i < self_.output_symbols_.size(); ++i) {
-        frame[self_.output_symbols_[i]] = rows_[current_row_][i];
-        if (context.frame_change_collector &&
-            context.frame_change_collector->IsKeyTracked(self_.output_symbols_[i].name())) {
-          context.frame_change_collector->ResetTrackingValue(self_.output_symbols_[i].name());
+        frame_writer.Write(self_.output_symbols_[i], rows_[current_row_][i]);
+        if (context.frame_change_collector) {
+          context.frame_change_collector->ResetInListCache(self_.output_symbols_[i]);
         }
       }
       current_row_++;
@@ -6931,14 +7096,15 @@ class OutputTableStreamCursor : public Cursor {
 
     AbortCheck(context);
 
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
     const auto row = self_->callback_(&frame, &context);
     if (row) {
       MG_ASSERT(row->size() == self_->output_symbols_.size(), "Wrong number of columns in row!");
       for (size_t i = 0; i < self_->output_symbols_.size(); ++i) {
-        frame[self_->output_symbols_[i]] = row->at(i);
-        if (context.frame_change_collector &&
-            context.frame_change_collector->IsKeyTracked(self_->output_symbols_[i].name())) {
-          context.frame_change_collector->ResetTrackingValue(self_->output_symbols_[i].name());
+        frame_writer.Write(self_->output_symbols_[i], row->at(i));
+        if (context.frame_change_collector) {
+          context.frame_change_collector->ResetInListCache(self_->output_symbols_[i]);
         }
       }
       return true;
@@ -7158,6 +7324,8 @@ class CallProcedureCursor : public Cursor {
 
     AbortCheck(context);
 
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
     auto skip_rows_with_deleted_values = [this]() {
       while (result_row_it_ != result_.rows.end() && result_row_it_->has_deleted_values) {
         ++result_row_it_;
@@ -7226,10 +7394,9 @@ class CallProcedureCursor : public Cursor {
     // Values are ordered the same as result_fields
     auto &values = result_row_it_->values;
     for (int i = 0; i < self_->result_fields_.size(); ++i) {
-      frame[self_->result_symbols_[i]] = std::move(values[i]);
-      if (context.frame_change_collector &&
-          context.frame_change_collector->IsKeyTracked(self_->result_symbols_[i].name())) {
-        context.frame_change_collector->ResetTrackingValue(self_->result_symbols_[i].name());
+      frame_writer.Write(self_->result_symbols_[i], std::move(values[i]));
+      if (context.frame_change_collector) {
+        context.frame_change_collector->ResetInListCache(self_->result_symbols_[i]);
       }
     }
     ++result_row_it_;
@@ -7380,7 +7547,7 @@ TypedValue EvaluateOptionalExpression(Expression *expression, ExpressionEvaluato
 auto ToOptionalString(ExpressionEvaluator *evaluator, Expression *expression) -> std::optional<utils::pmr::string> {
   auto evaluated_expr = EvaluateOptionalExpression(expression, evaluator);
   if (evaluated_expr.IsString()) {
-    return utils::pmr::string(std::move(evaluated_expr).ValueString(), evaluator->GetMemoryResource());
+    return utils::pmr::string(std::move(evaluated_expr.ValueString()), evaluator->GetMemoryResource());
   }
   return std::nullopt;
 };
@@ -7433,12 +7600,14 @@ class LoadCsvCursor : public Cursor {
 
     AbortCheck(context);
 
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
     // ToDo(the-joksim):
     //  - this is an ungodly hack because the pipeline of creating a plan
     //  doesn't allow evaluating the expressions contained in self_->file_,
     //  self_->delimiter_, and self_->quote_ earlier (say, in the interpreter.cpp)
     //  without massacring the code even worse than I did here
-    if (UNLIKELY(!reader_)) {
+    if (!reader_) [[unlikely]] {
       reader_ = MakeReader(&context.evaluation_context);
       nullif_ = ParseNullif(&context.evaluation_context);
     }
@@ -7459,13 +7628,15 @@ class LoadCsvCursor : public Cursor {
       return false;
     }
     if (!reader_->HasHeader()) {
-      frame[self_->row_var_] = CsvRowToTypedList(*row, nullif_);
+      frame_writer.Write(self_->row_var_, CsvRowToTypedList(*row, nullif_));
     } else {
-      frame[self_->row_var_] =
-          CsvRowToTypedMap(*row, csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory), nullif_);
+      frame_writer.Write(
+          self_->row_var_,
+          CsvRowToTypedMap(*row, csv::Reader::Header(reader_->GetHeader(), context.evaluation_context.memory),
+                           nullif_));
     }
-    if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(self_->row_var_.name())) {
-      context.frame_change_collector->ResetTrackingValue(self_->row_var_.name());
+    if (context.frame_change_collector) {
+      context.frame_change_collector->ResetInListCache(self_->row_var_);
     }
     return true;
   }
@@ -7549,9 +7720,10 @@ class ForeachCursor : public Cursor {
       throw QueryRuntimeException("FOREACH expression must resolve to a list, but got '{}'.", expr_result.type());
     }
 
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
     const auto &cache_ = expr_result.ValueList();
     for (const auto &index : cache_) {
-      frame[loop_variable_symbol_] = index;
+      frame_writer.Write(loop_variable_symbol_, index);
       while (updates_->Pull(frame, context)) {
         AbortCheck(context);
       }
@@ -7807,11 +7979,12 @@ class HashJoinCursor : public Cursor {
       return false;
     }
 
-    auto restore_frame = [&frame, &context](const auto &symbols, const auto &restore_from) {
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+    auto restore_frame = [&frame_writer, &context](const auto &symbols, const auto &restore_from) {
       for (const auto &symbol : symbols) {
-        frame[symbol] = restore_from[symbol.position()];
-        if (context.frame_change_collector && context.frame_change_collector->IsKeyTracked(symbol.name())) {
-          context.frame_change_collector->ResetTrackingValue(symbol.name());
+        frame_writer.Write(symbol, restore_from[symbol.position()]);
+        if (context.frame_change_collector) {
+          context.frame_change_collector->ResetInListCache(symbol);
         }
       }
     };
@@ -7962,6 +8135,8 @@ class RollUpApplyCursor : public Cursor {
 
     AbortCheck(context);
 
+    auto frame_writer = frame.GetFrameWriter(context.frame_change_collector, context.evaluation_context.memory);
+
     TypedValue result(std::vector<TypedValue>(), context.evaluation_context.memory);
     if (input_cursor_->Pull(frame, context) || self_.pass_input_) {
       while (list_collection_cursor_->Pull(frame, context)) {
@@ -7970,12 +8145,11 @@ class RollUpApplyCursor : public Cursor {
       }
 
       // Clear frame change collector
-      if (context.frame_change_collector &&
-          context.frame_change_collector->IsKeyTracked(self_.list_collection_symbol_.name())) {
-        context.frame_change_collector->ResetTrackingValue(self_.list_collection_symbol_.name());
+      if (context.frame_change_collector) {
+        context.frame_change_collector->ResetInListCache(self_.list_collection_symbol_);
       }
 
-      frame[self_.result_symbol_] = result;
+      frame_writer.Write(self_.result_symbol_, result);
       // After a successful input from the list_collection_cursor_
       // reset state of cursor because it has to a Once at the beginning
       list_collection_cursor_->Reset();

@@ -59,6 +59,7 @@
 #include "query/constants.hpp"
 #include "query/context.hpp"
 #include "query/cypher_query_interpreter.hpp"
+#include "query/dependant_symbol_visitor.hpp"
 #include "query/dump.hpp"
 #include "query/exceptions.hpp"
 #include "query/frontend/ast/ast.hpp"
@@ -257,21 +258,6 @@ void Sort(std::vector<TypedValue, K> &vec) {
   std::sort(vec.begin(), vec.end(),
             [](const TypedValue &lv, const TypedValue &rv) { return lv.ValueString() < rv.ValueString(); });
 }
-
-// NOLINTNEXTLINE (misc-unused-parameters)
-[[maybe_unused]] bool Same(const TypedValue &lv, const TypedValue &rv) {
-  return TypedValue(lv).ValueString() == TypedValue(rv).ValueString();
-}
-// NOLINTNEXTLINE (misc-unused-parameters)
-[[maybe_unused]] bool Same(const TypedValue &lv, const std::string &rv) {
-  return std::string_view(TypedValue(lv).ValueString()) == rv;
-}
-// NOLINTNEXTLINE (misc-unused-parameters)
-[[maybe_unused]] bool Same(const std::string &lv, const TypedValue &rv) {
-  return lv == std::string_view(TypedValue(rv).ValueString());
-}
-// NOLINTNEXTLINE (misc-unused-parameters)
-[[maybe_unused]] bool Same(const std::string &lv, const std::string &rv) { return lv == rv; }
 
 void UpdateTypeCount(const plan::ReadWriteTypeChecker::RWType type) {
   switch (type) {
@@ -2798,10 +2784,21 @@ inline static void TryCaching(const AstStorage &ast_storage, FrameChangeCollecto
     }
     auto *in_list_operator = utils::Downcast<InListOperator>(tree.get());
     const auto cached_id = memgraph::utils::GetFrameChangeId(*in_list_operator);
-    if (!cached_id || cached_id->empty()) {
+    if (!cached_id) {
       continue;
     }
-    frame_change_collector->AddTrackingKey(*cached_id);
+
+    auto dependencies = std::set<Symbol::Position_t>{};
+    auto visitor = DependantSymbolVisitor(dependencies);
+    in_list_operator->expression2_->Accept(visitor);
+    if (visitor.is_cacheable()) [[likely]] {
+      // This InListOperator can be processed into a set and cached
+      frame_change_collector->AddInListKey(*cached_id);
+      // If any dependency changes then the cache must be invalidated
+      for (auto const symbol_pos : dependencies) {
+        frame_change_collector->AddInListInvalidator(*cached_id, symbol_pos);
+      }
+    }
   }
 }
 
@@ -2892,7 +2889,7 @@ PreparedQuery PrepareCypherQuery(
       plan, parsed_query.parameters, is_profile_query, dba, interpreter_context, execution_memory,
       std::move(user_or_role), std::move(stopping_context), dbms::DatabaseProtector{*current_db.db_acc_}.clone(),
       interpreter.query_logger_, trigger_context_collector, memory_limit,
-      frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr, hops_limit
+      frame_change_collector->AnyInListCaches() ? frame_change_collector : nullptr, hops_limit
 #ifdef MG_ENTERPRISE
       ,
       user_resource
@@ -3064,7 +3061,7 @@ PreparedQuery PrepareProfileQuery(
           stats_and_total_time =
               PullPlan(plan, parameters, true, dba, interpreter_context, execution_memory, std::move(user_or_role),
                        std::move(stopping_context), dbms::DatabaseProtector{db_acc}.clone(), query_logger, nullptr,
-                       memory_limit, frame_change_collector->IsTrackingValues() ? frame_change_collector : nullptr,
+                       memory_limit, frame_change_collector->AnyInListCaches() ? frame_change_collector : nullptr,
                        hops_limit
 #ifdef MG_ENTERPRISE
                        ,
@@ -4203,11 +4200,13 @@ PreparedQuery PrepareTtlQuery(ParsedQuery parsed_query, bool in_explicit_transac
         std::string info;
         std::string period;
         if (ttl_query->period_) {
-          period = ttl_query->period_->Accept(evaluator).ValueString();
+          auto ttl_period = ttl_query->period_->Accept(evaluator);
+          period = ttl_period.ValueString();
         }
         std::string start_time;
         if (ttl_query->specific_time_) {
-          start_time = ttl_query->specific_time_->Accept(evaluator).ValueString();
+          auto ttl_start_time = ttl_query->specific_time_->Accept(evaluator);
+          start_time = ttl_start_time.ValueString();
         }
         bool run_edge_ttl = db_acc->config().salient.items.properties_on_edges &&
                             db_acc->GetStorageMode() != storage::StorageMode::ON_DISK_TRANSACTIONAL;
@@ -5034,11 +5033,12 @@ PreparedQuery PrepareRecoverSnapshotQuery(ParsedQuery parsed_query, bool in_expl
   auto *recover_query = utils::Downcast<RecoverSnapshotQuery>(parsed_query.query);
   auto evaluation_context = EvaluationContext{.timestamp = QueryTimestamp(), .parameters = parsed_query.parameters};
   auto evaluator = PrimitiveLiteralExpressionEvaluator{evaluation_context};
+  auto path_value = recover_query->snapshot_->Accept(evaluator);
 
   return PreparedQuery{
       {},
       std::move(parsed_query.required_privileges),
-      [db_acc = *current_db.db_acc_, replication_role, path = recover_query->snapshot_->Accept(evaluator).ValueString(),
+      [db_acc = *current_db.db_acc_, replication_role, path = std::move(path_value.ValueString()),
        force = recover_query->force_](AnyStream * /*stream*/,
                                       std::optional<int> /*n*/) mutable -> std::optional<QueryHandlerResult> {
         auto *mem_storage = static_cast<storage::InMemoryStorage *>(db_acc->storage());
@@ -5257,7 +5257,8 @@ Callback HandleTransactionQueueQuery(TransactionQueueQuery *transaction_query,
       std::transform(transaction_query->transaction_id_list_.begin(), transaction_query->transaction_id_list_.end(),
                      std::back_inserter(maybe_kill_transaction_ids), [&evaluator](Expression *expression) {
                        try {
-                         return std::stoul(expression->Accept(evaluator).ValueString().c_str());  // NOLINT
+                         auto value = expression->Accept(evaluator);
+                         return std::stoul(value.ValueString().c_str());  // NOLINT
                        } catch (std::exception & /* unused */) {
                          return std::numeric_limits<uint64_t>::max();
                        }
