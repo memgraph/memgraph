@@ -204,16 +204,15 @@ std::string FineGrainedPermissionToString(uint64_t const permission) {
 FineGrainedAccessPermissions Merge(const FineGrainedAccessPermissions &first,
                                    const FineGrainedAccessPermissions &second) {
   std::unordered_map<std::string, uint64_t> permissions{first.GetPermissions()};
-  std::optional<uint64_t> global_permission;
 
-  if (second.GetGlobalPermission().has_value()) {
-    global_permission = *second.GetGlobalPermission();
-  } else if (first.GetGlobalPermission().has_value()) {
-    global_permission = *first.GetGlobalPermission();
+  std::optional<uint64_t> global_permission;
+  uint64_t combined_global = first.GetGlobalPermission().value_or(0) | second.GetGlobalPermission().value_or(0);
+  if (combined_global != 0) {
+    global_permission = combined_global;
   }
 
   for (const auto &[label_name, permission] : second.GetPermissions()) {
-    permissions[label_name] = permission;
+    permissions[label_name] |= permission;
   }
 
   return FineGrainedAccessPermissions(permissions, global_permission);
@@ -322,15 +321,13 @@ PermissionLevel FineGrainedAccessPermissions::Has(const std::string &permission,
     return PermissionLevel::GRANT;
   }
   const auto concrete_permission = std::invoke([&]() -> uint64_t {
+    uint64_t combined = global_permission_.value_or(0);
+
     if (permissions_.contains(permission)) {
-      return permissions_.at(permission);
+      combined |= permissions_.at(permission);
     }
 
-    if (global_permission_.has_value()) {
-      return global_permission_.value();
-    }
-
-    return 0;
+    return combined;
   });
 
   const auto temp_permission = concrete_permission & fine_grained_permission;
@@ -1239,6 +1236,6 @@ const FineGrainedAccessPermissions &Roles::GetFineGrainedAccessEdgeTypePermissio
   result = combined_permissions;
   return result;
 }
-#endif
+#endif  // MG_ENTERPRISE
 
 }  // namespace memgraph::auth
