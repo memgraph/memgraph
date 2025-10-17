@@ -381,17 +381,18 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedMultiplePrivilegesOnLabelThe
   ASSERT_EQ(result[0].ValueString(), "LABEL :Label1");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "UPDATE");
+  ASSERT_EQ(result[1].ValueString(), "READ, UPDATE");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "LABEL PERMISSION GRANTED TO USER");
 }
 
-TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAllPrivilegesOnLabelThenTopOneIsDisplayed) {
+TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAllPrivilegesOnLabelThenAllAreDisplayed) {
   auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
   read_permission.Grant(label_repr, memgraph::auth::FineGrainedPermission::READ);
   read_permission.Grant(label_repr, memgraph::auth::FineGrainedPermission::UPDATE);
-  read_permission.Grant(label_repr, memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+  read_permission.Grant(label_repr, memgraph::auth::FineGrainedPermission::CREATE);
+  read_permission.Grant(label_repr, memgraph::auth::FineGrainedPermission::DELETE);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{read_permission},
@@ -412,7 +413,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAllPrivilegesOnLabelThenTopO
   ASSERT_EQ(result[0].ValueString(), "LABEL :Label1");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "CREATE_DELETE");
+  ASSERT_EQ(result[1].ValueString(), "CREATE, READ, UPDATE, DELETE");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "LABEL PERMISSION GRANTED TO USER");
@@ -471,17 +472,18 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalMultiplePrivilegesOnLa
   ASSERT_EQ(result[0].ValueString(), "ALL LABELS");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "UPDATE");
+  ASSERT_EQ(result[1].ValueString(), "READ, UPDATE");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "GLOBAL LABEL PERMISSION GRANTED TO USER");
 }
 
-TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnLabelThenTopOneIsDisplayed) {
+TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnLabelThenAllAreDisplayed) {
   auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
   read_permission.Grant("*", memgraph::auth::FineGrainedPermission::READ);
   read_permission.Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
-  read_permission.Grant("*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+  read_permission.Grant("*", memgraph::auth::FineGrainedPermission::CREATE);
+  read_permission.Grant("*", memgraph::auth::FineGrainedPermission::DELETE);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{read_permission},
@@ -502,7 +504,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnLabelTh
   ASSERT_EQ(result[0].ValueString(), "ALL LABELS");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "CREATE_DELETE");
+  ASSERT_EQ(result[1].ValueString(), "CREATE, READ, UPDATE, DELETE");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "GLOBAL LABEL PERMISSION GRANTED TO USER");
@@ -562,17 +564,18 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedMultiplePrivilegesOnEdgeType
   ASSERT_EQ(result[0].ValueString(), "EDGE_TYPE :EdgeType1");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "UPDATE");
+  ASSERT_EQ(result[1].ValueString(), "READ, UPDATE");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "EDGE_TYPE PERMISSION GRANTED TO USER");
 }
 
-TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAllPrivilegesOnEdgeTypeThenTopOneIsDisplayed) {
+TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAllPrivilegesOnEdgeTypeThenAllAreDisplayed) {
   auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
   read_permission.Grant(edge_type_repr, memgraph::auth::FineGrainedPermission::READ);
   read_permission.Grant(edge_type_repr, memgraph::auth::FineGrainedPermission::UPDATE);
-  read_permission.Grant(edge_type_repr, memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+  read_permission.Grant(edge_type_repr, memgraph::auth::FineGrainedPermission::CREATE);
+  read_permission.Grant(edge_type_repr, memgraph::auth::FineGrainedPermission::DELETE);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{},
@@ -593,7 +596,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAllPrivilegesOnEdgeTypeThenT
   ASSERT_EQ(result[0].ValueString(), "EDGE_TYPE :EdgeType1");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "CREATE_DELETE");
+  ASSERT_EQ(result[1].ValueString(), "CREATE, READ, UPDATE, DELETE");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "EDGE_TYPE PERMISSION GRANTED TO USER");
@@ -653,17 +656,18 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalMultiplePrivilegesOnEd
   ASSERT_EQ(result[0].ValueString(), "ALL EDGE_TYPES");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "UPDATE");
+  ASSERT_EQ(result[1].ValueString(), "READ, UPDATE");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "GLOBAL EDGE_TYPE PERMISSION GRANTED TO USER");
 }
 
-TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnEdgeTypeThenTopOneIsDisplayed) {
+TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnEdgeTypeThenAllAreDisplayed) {
   auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
   read_permission.Grant("*", memgraph::auth::FineGrainedPermission::READ);
   read_permission.Grant("*", memgraph::auth::FineGrainedPermission::UPDATE);
-  read_permission.Grant("*", memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+  read_permission.Grant("*", memgraph::auth::FineGrainedPermission::CREATE);
+  read_permission.Grant("*", memgraph::auth::FineGrainedPermission::DELETE);
 
   handler = memgraph::auth::FineGrainedAccessHandler{
       memgraph::auth::FineGrainedAccessPermissions{},
@@ -684,12 +688,14 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedGlobalAllPrivilegesOnEdgeTyp
   ASSERT_EQ(result[0].ValueString(), "ALL EDGE_TYPES");
 
   ASSERT_TRUE(result[1].IsString());
-  ASSERT_EQ(result[1].ValueString(), "CREATE_DELETE");
+  ASSERT_EQ(result[1].ValueString(), "CREATE, READ, UPDATE, DELETE");
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "GLOBAL EDGE_TYPE PERMISSION GRANTED TO USER");
 }
 
+// @TODO(colinbarry) Return to test after we have DENY back
+/*
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnLabelThenNoPermission) {
   auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
   read_permission.Grant(label_repr, memgraph::auth::FineGrainedPermission::READ);
@@ -748,7 +754,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedAndDeniedOnEdgeTypeThenNoPer
 
   ASSERT_TRUE(result[2].IsString());
   ASSERT_EQ(result[2].ValueString(), "EDGE_TYPE PERMISSION DENIED TO USER");
-}
+}*/
 
 TEST_F(AuthQueryHandlerFixture, GivenUserWhenGrantedReadAndDeniedUpdateThenOneIsDisplayed) {
   auto read_permission = memgraph::auth::FineGrainedAccessPermissions();
@@ -1662,8 +1668,9 @@ TEST_F(AuthQueryHandlerFixture,
   role.db_access().Grant("db2");
 
   // Add fine-grained permissions
-  role.fine_grained_access_handler().label_permissions().Grant("Person",
-                                                               memgraph::auth::FineGrainedPermission::CREATE_DELETE);
+  role.fine_grained_access_handler().label_permissions().Grant(
+      "Person", static_cast<memgraph::auth::FineGrainedPermission>(memgraph::auth::FineGrainedPermission::CREATE |
+                                                                   memgraph::auth::FineGrainedPermission::DELETE));
   role.fine_grained_access_handler().label_permissions().Grant("Company", memgraph::auth::FineGrainedPermission::READ);
   role.fine_grained_access_handler().edge_type_permissions().Grant("WORKS_FOR",
                                                                    memgraph::auth::FineGrainedPermission::UPDATE);
@@ -1695,7 +1702,7 @@ TEST_F(AuthQueryHandlerFixture,
     const auto &privilege_name = privilege[0].ValueString();
     if (privilege_name == "LABEL :Person") {
       found_label_person = true;
-      ASSERT_EQ(privilege[1].ValueString(), "CREATE_DELETE");
+      ASSERT_EQ(privilege[1].ValueString(), "CREATE, DELETE");
       ASSERT_EQ(privilege[2].ValueString(), "LABEL PERMISSION GRANTED TO ROLE");
     } else if (privilege_name == "LABEL :Company") {
       found_label_company = true;
@@ -1844,7 +1851,7 @@ TEST_F(AuthQueryHandlerFixture, SetMultiTenantRole_GlobalRoleAlreadySet_Throws) 
 
   // Create a user and set the role globally
   memgraph::auth::User user("test_user");
-  user.SetRole(role);
+  user.AddRole(role);
   auth.value()->SaveUser(user);
 
   // Try to set the same role as multi-tenant role
