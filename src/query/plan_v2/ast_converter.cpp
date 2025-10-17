@@ -55,6 +55,11 @@ struct ast_converter_visitor : HierarchicalTreeVisitor {
     // TODO: reuse this for also RETURN
     auto const &body = tree.body_;
 
+    for (auto &named_expr : body.named_expressions) {
+      named_expr->Accept(*this);
+      // What to do? Compose Into a Produce
+    }
+
     // Produce body.all_identifiers, body.named_expressions
     // Distinct body.distinct;
     // OrderBy body.order_by
