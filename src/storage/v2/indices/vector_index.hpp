@@ -94,8 +94,6 @@ class VectorIndex {
 
   void CreateIndex(const VectorIndexSpec &spec);
 
-  bool RecoverIndex(const VectorIndexRecoveryInfo &recovery_info);
-
   /// @brief Drops an existing index.
   /// @param index_name The name of the index to be dropped.
   /// @return true if the index was dropped successfully, false otherwise.
@@ -104,21 +102,18 @@ class VectorIndex {
   /// @brief Drops all existing indexes.
   void Clear();
 
-  /// @brief Updates the index when a label is added to a vertex.
-  /// @param added_label The label that was added to the vertex.
-  /// @param vertex_after_update The vertex after the label was added.
-  void UpdateOnAddLabel(LabelId added_label, Vertex *vertex_after_update);
-
-  /// @brief Updates the index when a label is removed from a vertex.
-  /// @param removed_label The label that was removed from the vertex.
-  /// @param vertex_before_update The vertex before the label was removed.
-  void UpdateOnRemoveLabel(LabelId removed_label, Vertex *vertex_before_update);
-
   /// @brief Updates the index when a property is modified on a vertex.
   /// @param property The property that was modified.
   /// @param value The new value of the property.
   /// @param vertex The vertex on which the property was modified.
   void UpdateOnSetProperty(const PropertyValue &value, Vertex *vertex, NameIdMapper *name_id_mapper);
+
+  /// @brief Updates the index when a property is modified on a vertex.
+  /// @param value The new value of the property.
+  /// @param vertex The vertex on which the property was modified.
+  /// @param index_name The name of the index to update.
+  /// @return The vector of the vertex as a PropertyValue.
+  std::vector<float> UpdateIndex(const PropertyValue &value, Vertex *vertex, std::string_view index_name);
 
   /// @brief Retrieves the vector of a vertex as a PropertyValue.
   /// @param vertex The vertex to retrieve the vector from.
@@ -185,24 +180,12 @@ class VectorIndex {
   std::optional<std::vector<uint64_t>> IsPropertyInVectorIndex(Vertex *vertex, PropertyId property,
                                                                NameIdMapper *name_id_mapper);
 
-  /// @brief Checks if the label is in the vector index.
-  /// @param vertex The vertex to check.
-  /// @param label The label to check.
-  /// @return true if the label is in the vector index, false otherwise.
-  bool IsLabelPropInVectoIndex(LabelId label, PropertyId property) const;
-
-  /// @brief Checks if the index is empty.
-  /// @return true if the index is empty, false otherwise.
-  bool Empty() const;
+  /// @brief Gets all properties that have vector indices for the given label.
+  /// @param label The label to get the properties for.
+  /// @return A map of property ids to index names.
+  std::unordered_map<PropertyId, std::string> GetProperties(LabelId label) const;
 
  private:
-  /// @brief Adds a vertex to an existing index.
-  /// @param vertex The vertex to be added.
-  /// @param label_prop The label and property key for the index.
-  /// @param value The value of the property.
-  /// @throw query::VectorSearchException
-  bool UpdateVectorIndex(Vertex *vertex, const LabelPropKey &label_prop, const PropertyValue *value = nullptr);
-
   /// @brief Gets all label-property combinations that match the given vertex and property.
   /// @param vertex The vertex to check labels against.
   /// @param property The property to match.

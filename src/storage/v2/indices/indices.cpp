@@ -60,14 +60,12 @@ void Indices::DropGraphClearIndices() {
 void Indices::UpdateOnAddLabel(LabelId label, Vertex *vertex, Transaction &tx) {
   tx.active_indices_.label_->UpdateOnAddLabel(label, vertex, tx);
   tx.active_indices_.label_properties_->UpdateOnAddLabel(label, vertex, tx);
-  vector_index_.UpdateOnAddLabel(label, vertex);
   text_index_.UpdateOnAddLabel(label, vertex, tx);
 }
 
 void Indices::UpdateOnRemoveLabel(LabelId label, Vertex *vertex, Transaction &tx) {
   tx.active_indices_.label_->UpdateOnRemoveLabel(label, vertex, tx);
   tx.active_indices_.label_properties_->UpdateOnRemoveLabel(label, vertex, tx);
-  vector_index_.UpdateOnRemoveLabel(label, vertex);
   text_index_.UpdateOnRemoveLabel(label, vertex, tx);
 }
 
