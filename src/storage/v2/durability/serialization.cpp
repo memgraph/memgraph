@@ -557,6 +557,8 @@ std::optional<ExternalPropertyValue> Decoder::ReadExternalPropertyValue() {
       return ExternalPropertyValue(*maybe_point_3d_value);
     }
     case Marker::TYPE_VECTOR_INDEX_ID: {
+      auto inner_marker = ReadMarker();
+      if (!inner_marker || *inner_marker != Marker::TYPE_VECTOR_INDEX_ID) return std::nullopt;
       auto size = ReadSize(this);
       if (!size) return std::nullopt;
       std::vector<std::string> vector_index_ids;
@@ -724,6 +726,8 @@ bool Decoder::SkipExternalPropertyValue() {
       return !!ReadPoint3dValue();
     }
     case Marker::TYPE_VECTOR_INDEX_ID: {
+      auto inner_marker = ReadMarker();
+      if (!inner_marker || *inner_marker != Marker::TYPE_VECTOR_INDEX_ID) return false;
       auto size = ReadSize(this);
       if (!size) return false;
       for (auto i = 0; i < *size; ++i) {

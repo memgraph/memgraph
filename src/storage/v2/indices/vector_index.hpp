@@ -92,6 +92,8 @@ class VectorIndex {
   bool CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Vertex>::Accessor &vertices,
                    std::optional<SnapshotObserverInfo> const &snapshot_info = std::nullopt);
 
+  void CreateIndex(const VectorIndexSpec &spec);
+
   bool RecoverIndex(const VectorIndexRecoveryInfo &recovery_info);
 
   /// @brief Drops an existing index.

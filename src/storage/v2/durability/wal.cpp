@@ -155,6 +155,8 @@ constexpr Marker DeltaActionToMarker(Delta::Action action) {
       return Marker::DELTA_VERTEX_DELETE;
     case Delta::Action::SET_PROPERTY:
       return Marker::DELTA_VERTEX_SET_PROPERTY;
+    case Delta::Action::SET_VECTOR_PROPERTY:
+      return Marker::DELTA_VERTEX_SET_VECTOR_PROPERTY;
     case Delta::Action::ADD_LABEL:
       return Marker::DELTA_VERTEX_REMOVE_LABEL;
     case Delta::Action::REMOVE_LABEL:
@@ -971,7 +973,7 @@ std::optional<RecoveryInfo> LoadWal(
     utils::SkipList<Edge> *edges, NameIdMapper *name_id_mapper, std::atomic<uint64_t> *edge_count,
     SalientConfig::Items items, EnumStore *enum_store, SharedSchemaTracking *schema_info,
     std::function<std::optional<std::tuple<EdgeRef, EdgeTypeId, Vertex *, Vertex *>>(Gid)> find_edge,
-    memgraph::storage::ttl::TTL *ttl) {
+    memgraph::storage::ttl::TTL *ttl, memgraph::storage::Indices *indices) {
   spdlog::info("Trying to load WAL file {}.", path);
 
   Decoder wal;
@@ -1058,15 +1060,7 @@ std::optional<RecoveryInfo> LoadWal(
         }
         vertex->properties.SetProperty(property_id, property_value);
         if (property_value.IsVectorIndexId()) {
-          auto vector_index_names = data.value.ValueVectorIndexIds();
-          for (const auto &vector_index_name : vector_index_names) {
-            auto vector_index_info =
-                r::find_if(indices_constraints->indices.vector_indices,
-                           [&](const auto &vector_index) { return vector_index.spec.index_name == vector_index_name; });
-            if (vector_index_info != indices_constraints->indices.vector_indices.end()) {
-              vector_index_info->vectors.push_back(property_value.ValueVectorIndexList());
-            }
-          }
+          indices->vector_index_.UpdateOnSetProperty(property_value, &*vertex, name_id_mapper);
         }
       },
       [&](WalEdgeCreate const &data) {
@@ -1412,9 +1406,9 @@ std::optional<RecoveryInfo> LoadWal(
         const auto unum_metric_kind = MetricFromName(data.metric_kind);
         const auto scalar_kind = data.scalar_kind ? static_cast<unum::usearch::scalar_kind_t>(*data.scalar_kind)
                                                   : unum::usearch::scalar_kind_t::f32_k;
-        indices_constraints->indices.vector_indices.emplace_back(
-            VectorIndexSpec{data.index_name, label_id, property_id, unum_metric_kind, data.dimension,
-                            data.resize_coefficient, data.capacity, scalar_kind});
+        indices->vector_index_.CreateIndex(VectorIndexSpec{data.index_name, label_id, property_id, unum_metric_kind,
+                                                           data.dimension, data.resize_coefficient, data.capacity,
+                                                           scalar_kind});
       },
       [&](WalVectorEdgeIndexCreate const &data) {
         const auto edge_type_id = EdgeTypeId::FromUint(name_id_mapper->NameToId(data.edge_type));
@@ -1426,12 +1420,8 @@ std::optional<RecoveryInfo> LoadWal(
             data.capacity, scalar_kind);
       },
       [&](WalVectorIndexDrop const &data) {
-        if (!std::erase_if(indices_constraints->indices.vector_indices, [&](const auto &index_metadata) {
-              return index_metadata.spec.index_name == data.index_name;
-            })) {
-          // Only check the second container if nothing was erased from the first
-          std::erase_if(indices_constraints->indices.vector_edge_indices,
-                        [&](const auto &index_metadata) { return index_metadata.index_name == data.index_name; });
+        if (!indices->vector_index_.DropIndex(data.index_name)) {
+          // TODO(@DavIvek): delete from edge index...
         }
       },
       [&](WalTtlOperation const &data) {

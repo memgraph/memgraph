@@ -117,6 +117,43 @@ bool VectorIndex::CreateIndex(const VectorIndexSpec &spec, utils::SkipList<Verte
   return true;
 }
 
+void VectorIndex::CreateIndex(const VectorIndexSpec &spec) {
+  utils::MemoryTracker::OutOfMemoryExceptionEnabler oom_exception;
+  const auto label_prop = LabelPropKey{spec.label_id, spec.property};
+  try {
+    // Create the index
+    const unum::usearch::metric_punned_t metric(spec.dimension, spec.metric_kind, spec.scalar_kind);
+
+    // use the number of workers as the number of possible concurrent index operations
+    const unum::usearch::index_limits_t limits(spec.capacity, FLAGS_bolt_num_workers);
+    if (pimpl->index_.contains(label_prop) || pimpl->index_name_to_label_prop_.contains(spec.index_name)) {
+      throw query::VectorSearchException("Given vector index already exists.");
+    }
+    auto mg_vector_index = mg_vector_index_t::make(metric);
+    if (!mg_vector_index) {
+      throw query::VectorSearchException(fmt::format("Failed to create vector index {}, error message: {}",
+                                                     spec.index_name, mg_vector_index.error.what()));
+    }
+    pimpl->index_name_to_label_prop_.try_emplace(spec.index_name, label_prop);
+    if (mg_vector_index.index.try_reserve(limits)) {
+      spdlog::info("Created vector index {}", spec.index_name);
+    } else {
+      throw query::VectorSearchException(
+          fmt::format("Failed to create vector index {}", spec.index_name, ". Failed to reserve memory for the index"));
+    }
+    pimpl->index_.try_emplace(label_prop,
+                              IndexItem{std::make_shared<utils::Synchronized<mg_vector_index_t, std::shared_mutex>>(
+                                            std::move(mg_vector_index.index)),
+                                        spec});
+
+  } catch (const utils::OutOfMemoryException &) {
+    utils::MemoryTracker::OutOfMemoryExceptionBlocker oom_exception_blocker;
+    pimpl->index_name_to_label_prop_.erase(spec.index_name);
+    pimpl->index_.erase(label_prop);
+    throw;
+  }
+}
+
 bool VectorIndex::DropIndex(std::string_view index_name) {
   auto it = pimpl->index_name_to_label_prop_.find(index_name);
   if (it == pimpl->index_name_to_label_prop_.end()) {
@@ -214,7 +251,7 @@ std::vector<LabelPropKey> VectorIndex::GetMatchingLabelProps(std::span<LabelId c
 
 void VectorIndex::UpdateOnSetProperty(const PropertyValue &value, Vertex *vertex, NameIdMapper *name_id_mapper) {
   if (!value.IsVectorIndexId()) {
-    throw query::VectorSearchException("Vector index property must be a vector index id.");
+    return;
   }
   auto index_ids = value.ValueVectorIndexIds();
   for (const auto &index_id : index_ids) {
