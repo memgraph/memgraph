@@ -38,21 +38,17 @@ namespace memgraph::query::plan::v2 {
 /// EGRAPH
 struct egraph::impl {
   impl() = default;
-  impl(impl const &) = default;
   impl(impl &&) = default;
-  impl &operator=(impl const &) = default;
   impl &operator=(impl &&) = default;
   EGraph<symbol, analysis> egraph_;
 };
 
 egraph::egraph() : pimpl_(std::make_unique<impl>()) {}
-egraph::egraph(egraph const &other) : pimpl_(other.pimpl_ ? std::make_unique<impl>(*other.pimpl_) : nullptr) {}
-egraph::egraph(egraph &&other) noexcept : pimpl_(std::move(other.pimpl_)) {}
-egraph &egraph::operator=(egraph const &other) {
-  *other.pimpl_ = *pimpl_;
+egraph::egraph(egraph &&other) noexcept : pimpl_(std::exchange(other.pimpl_, std::make_unique<impl>())) {}
+egraph &egraph::operator=(egraph &&other) noexcept {
+  std::swap(pimpl_, other.pimpl_);
   return *this;
 }
-egraph &egraph::operator=(egraph &&other) noexcept { return *this; }
 egraph::~egraph() = default;  // required because pimpl
 
 }  // namespace memgraph::query::plan::v2
