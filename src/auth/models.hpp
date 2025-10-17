@@ -517,7 +517,10 @@ class Roles {
   explicit Roles(std::unordered_set<Role> roles) : roles_{std::move(roles)} {}
 
   // Add a single role
-  void AddRole(const Role &role) { roles_.insert(role); }
+  void AddRole(const Role &role) {
+    RemoveRole(role.rolename());
+    roles_.insert(role);
+  }
 
   // Remove a role by name
   void RemoveRole(const std::string &rolename) {
