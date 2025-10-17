@@ -55,15 +55,13 @@ struct ast_converter_visitor : HierarchicalTreeVisitor {
     // TODO: reuse this for also RETURN
     auto const &body = tree.body_;
 
-    // Produce all_identifiers, named_expressions
-    // Distinct tree.body_.distinct;
-    // OrderBy order_by(maybe empty)
-    // Skip skip?
-    // Limit limit?
-    // Where
+    // Produce body.all_identifiers, body.named_expressions
+    // Distinct body.distinct;
+    // OrderBy body.order_by
+    // Skip body.skip?
+    // Limit body.limit?
 
-    // The body produces new bound identifiers
-    // this is an optional where clause which is permitted by the Cypher grammar
+    // Where
     if (tree.where_) {
       if (!tree.where_->Accept(*this)) return false;
     }
