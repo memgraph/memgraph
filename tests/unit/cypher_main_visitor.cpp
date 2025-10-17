@@ -2817,9 +2817,14 @@ TEST_P(CypherMainVisitorTest, GrantPrivilege) {
                    "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
-  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE}, {{"*"}}}});
-  check_auth_query(&ast_generator, "GRANT CREATE_DELETE ON LABELS * TO user", AuthQuery::Action::GRANT_PRIVILEGE, "",
-                   {}, "user", {}, {}, label_privileges, {});
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::CREATE}, {{"*"}}}});
+  check_auth_query(&ast_generator, "GRANT CREATE ON LABELS * TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {},
+                   "user", {}, {}, label_privileges, {});
+  label_privileges.clear();
+
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::DELETE}, {{"*"}}}});
+  check_auth_query(&ast_generator, "GRANT DELETE ON LABELS * TO user", AuthQuery::Action::GRANT_PRIVILEGE, "", {},
+                   "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
   label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::READ}, {{"Label1"}, {"Label2"}}}});
@@ -2832,8 +2837,13 @@ TEST_P(CypherMainVisitorTest, GrantPrivilege) {
                    AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
-  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE}, {{"Label1"}, {"Label2"}}}});
-  check_auth_query(&ast_generator, "GRANT CREATE_DELETE ON LABELS :Label1, :Label2 TO user",
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::CREATE}, {{"Label1"}, {"Label2"}}}});
+  check_auth_query(&ast_generator, "GRANT CREATE ON LABELS :Label1, :Label2 TO user",
+                   AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, {});
+  label_privileges.clear();
+
+  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::DELETE}, {{"Label1"}, {"Label2"}}}});
+  check_auth_query(&ast_generator, "GRANT DELETE ON LABELS :Label1, :Label2 TO user",
                    AuthQuery::Action::GRANT_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
@@ -2936,19 +2946,30 @@ TEST_P(CypherMainVisitorTest, RevokePrivilege) {
   std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> label_privileges{};
   std::vector<std::unordered_map<AuthQuery::FineGrainedPrivilege, std::vector<std::string>>> edge_type_privileges{};
 
-  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE}, {{"*"}}}});
+  label_privileges.push_back({{AuthQuery::FineGrainedPrivilege::CREATE, {"*"}},
+                              {AuthQuery::FineGrainedPrivilege::DELETE, {"*"}},
+                              {AuthQuery::FineGrainedPrivilege::UPDATE, {"*"}},
+                              {AuthQuery::FineGrainedPrivilege::READ, {"*"}}});
   check_auth_query(&ast_generator, "REVOKE LABELS * FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {},
                    {}, label_privileges, {});
   label_privileges.clear();
 
-  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE}, {{"Label1"}, {"Label2"}}}});
+  label_privileges.push_back({{AuthQuery::FineGrainedPrivilege::CREATE, {"Label1", "Label2"}},
+                              {AuthQuery::FineGrainedPrivilege::DELETE, {"Label1", "Label2"}},
+                              {AuthQuery::FineGrainedPrivilege::UPDATE, {"Label1", "Label2"}},
+                              {AuthQuery::FineGrainedPrivilege::READ, {"Label1", "Label2"}}});
   check_auth_query(&ast_generator, "REVOKE LABELS :Label1, :Label2 FROM user", AuthQuery::Action::REVOKE_PRIVILEGE, "",
                    {}, "user", {}, {}, label_privileges, {});
   label_privileges.clear();
 
-  label_privileges.push_back({{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE}, {{"Label1"}, {"Label2"}}}});
-  edge_type_privileges.push_back(
-      {{{AuthQuery::FineGrainedPrivilege::CREATE_DELETE}, {{"Edge1"}, {"Edge2"}, {"Edge3"}}}});
+  label_privileges.push_back({{AuthQuery::FineGrainedPrivilege::CREATE, {"Label1", "Label2"}},
+                              {AuthQuery::FineGrainedPrivilege::DELETE, {"Label1", "Label2"}},
+                              {AuthQuery::FineGrainedPrivilege::UPDATE, {"Label1", "Label2"}},
+                              {AuthQuery::FineGrainedPrivilege::READ, {"Label1", "Label2"}}});
+  edge_type_privileges.push_back({{AuthQuery::FineGrainedPrivilege::CREATE, {"Edge1", "Edge2", "Edge3"}},
+                                  {AuthQuery::FineGrainedPrivilege::DELETE, {"Edge1", "Edge2", "Edge3"}},
+                                  {AuthQuery::FineGrainedPrivilege::UPDATE, {"Edge1", "Edge2", "Edge3"}},
+                                  {AuthQuery::FineGrainedPrivilege::READ, {"Edge1", "Edge2", "Edge3"}}});
   check_auth_query(&ast_generator, "REVOKE LABELS :Label1, :Label2, EDGE_TYPES :Edge1, :Edge2, :Edge3 FROM user",
                    AuthQuery::Action::REVOKE_PRIVILEGE, "", {}, "user", {}, {}, label_privileges, edge_type_privileges);
 
