@@ -29,7 +29,52 @@ struct ast_converter_visitor : HierarchicalTreeVisitor {
   ReturnType Visit(PrimitiveLiteral &) override { return true; }
   ReturnType Visit(Identifier &) override { return true; }
   ReturnType Visit(EnumValueAccess &) override { return true; }
-  bool PreVisit(CypherQuery &) override { return true; }
+
+  bool PreVisit(CypherQuery &tree) override {
+    MG_ASSERT(tree.cypher_unions_.empty(), "Unions not implemented yet");
+    tree.memory_limit_;          // TODO
+    tree.memory_scale_;          // TODO
+    tree.pre_query_directives_;  // TODO
+
+    if (!tree.single_query_->Accept(*this)) return false;
+
+    return true;
+  }
+  bool PostVisit(CypherQuery &) override { return true; }
+
+  bool PreVisit(SingleQuery &tree) override {
+    for (auto &clause : tree.clauses_) {
+      if (!clause->Accept(*this)) return false;
+    }
+
+    return true;
+  }
+  bool PostVisit(SingleQuery &) override { return true; }
+
+  bool PreVisit(With &tree) override {
+    // TODO: reuse this for also RETURN
+    auto const &body = tree.body_;
+
+    // Produce all_identifiers, named_expressions
+    // Distinct tree.body_.distinct;
+    // OrderBy order_by(maybe empty)
+    // Skip skip?
+    // Limit limit?
+    // Where
+
+    // The body produces new bound identifiers
+    // this is an optional where clause which is permitted by the Cypher grammar
+    if (tree.where_) {
+      if (!tree.where_->Accept(*this)) return false;
+    }
+
+    return true;
+  }
+
+  bool PreVisit(Where &tree) override { return true; }
+
+  bool PostVisit(With &) override { return true; }
+
   bool PreVisit(CallSubquery &) override { return true; }
   bool PreVisit(Exists &) override { return true; }
   bool PreVisit(Foreach &) override { return true; }
@@ -42,12 +87,11 @@ struct ast_converter_visitor : HierarchicalTreeVisitor {
   bool PreVisit(SetLabels &) override { return true; }
   bool PreVisit(SetProperties &) override { return true; }
   bool PreVisit(SetProperty &) override { return true; }
-  bool PreVisit(Where &) override { return true; }
   bool PreVisit(Delete &) override { return true; }
   bool PreVisit(EdgeAtom &) override { return true; }
   bool PreVisit(NodeAtom &) override { return true; }
   bool PreVisit(Pattern &) override { return true; }
-  bool PreVisit(With &) override { return true; }
+
   bool PreVisit(Return &) override { return true; }
   bool PreVisit(Match &) override { return true; }
   bool PreVisit(Create &) override { return true; }
@@ -94,9 +138,7 @@ struct ast_converter_visitor : HierarchicalTreeVisitor {
   bool PreVisit(OrOperator &) override { return true; }
   bool PreVisit(NamedExpression &) override { return true; }
   bool PreVisit(CypherUnion &) override { return true; }
-  bool PreVisit(SingleQuery &) override { return true; }
 
-  bool PostVisit(CypherQuery &) override { return true; }
   bool PostVisit(CallSubquery &) override { return true; }
   bool PostVisit(Exists &) override { return true; }
   bool PostVisit(Foreach &) override { return true; }
@@ -114,7 +156,7 @@ struct ast_converter_visitor : HierarchicalTreeVisitor {
   bool PostVisit(EdgeAtom &) override { return true; }
   bool PostVisit(NodeAtom &) override { return true; }
   bool PostVisit(Pattern &) override { return true; }
-  bool PostVisit(With &) override { return true; }
+
   bool PostVisit(Return &) override { return true; }
   bool PostVisit(Match &) override { return true; }
   bool PostVisit(Create &) override { return true; }
@@ -161,7 +203,6 @@ struct ast_converter_visitor : HierarchicalTreeVisitor {
   bool PostVisit(OrOperator &) override { return true; }
   bool PostVisit(NamedExpression &) override { return true; }
   bool PostVisit(CypherUnion &) override { return true; }
-  bool PostVisit(SingleQuery &) override { return true; }
 
   bool PreVisit(PatternComprehension &) override { return true; }
   bool PostVisit(PatternComprehension &) override { return true; }

@@ -17,9 +17,7 @@ namespace memgraph::query::plan::v2 {
 
 struct egraph {
   egraph();
-  egraph(egraph const &);
   egraph(egraph &&) noexcept;
-  egraph &operator=(egraph const &);
   egraph &operator=(egraph &&) noexcept;
   ~egraph();  // required because pimpl
 
