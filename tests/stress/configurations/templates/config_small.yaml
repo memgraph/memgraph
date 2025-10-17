@@ -9,7 +9,7 @@ general:
   use_ssl: false
 
 dataset:
-  tests: 
+  tests:
     - name: bipartite.py
       test_args:
         - "--u-count=100"
@@ -76,4 +76,12 @@ customWorkloads:
           query: "MATCH (n1) MATCH (n2) CREATE (n1)-[:IS_CONNECTED_TO]->(n2)"
           num_repetitions: 1
           sleep_millis: 0
+        - name: metrics-collector
+          type: metrics
+          num_repetitions: 12  # Run for 1 minute
+          sleep_millis: 5000   # Collect metrics every 5 seconds
+          metrics:
+            host: "localhost"
+            port: 9091
+          step: 1
       timeout_min: 2
