@@ -188,16 +188,16 @@ std::string PermissionLevelToString(PermissionLevel level) {
 std::string FineGrainedPermissionToString(uint64_t const permission) {
   std::vector<std::string> permissions;
   if (permission & FineGrainedPermission::CREATE) {
-    permissions.push_back("CREATE");
+    permissions.emplace_back("CREATE");
   }
   if (permission & FineGrainedPermission::READ) {
-    permissions.push_back("READ");
+    permissions.emplace_back("READ");
   }
   if (permission & FineGrainedPermission::UPDATE) {
-    permissions.push_back("UPDATE");
+    permissions.emplace_back("UPDATE");
   }
   if (permission & FineGrainedPermission::DELETE) {
-    permissions.push_back("DELETE");
+    permissions.emplace_back("DELETE");
   }
 
   return utils::Join(permissions, ", ");
@@ -455,7 +455,7 @@ FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlo
   std::unordered_map<std::string, uint64_t> permissions;
   auto permissions_json = data.find(kPermissions);
   if (permissions_json != data.end() && permissions_json->is_object()) {
-    for (auto &[key, value] : permissions_json->items()) {
+    for (auto &&[key, value] : permissions_json->items()) {
       permissions[key] = MigratePermission(value);
     }
   }
@@ -469,7 +469,7 @@ FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlo
   std::unordered_map<std::string, uint64_t> deny_permissions;
   auto deny_permissions_json = data.find(kDenyPermissions);
   if (deny_permissions_json != data.end() && deny_permissions_json->is_object()) {
-    for (auto &[key, value] : deny_permissions_json->items()) {
+    for (auto &&[key, value] : deny_permissions_json->items()) {
       deny_permissions[key] = MigratePermission(value);
     }
   }
