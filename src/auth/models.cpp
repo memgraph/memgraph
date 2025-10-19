@@ -368,8 +368,21 @@ PermissionLevel FineGrainedAccessPermissions::Has(const std::string &permission,
 void FineGrainedAccessPermissions::Grant(const std::string &permission,
                                          const FineGrainedPermission fine_grained_permission) {
   if (permission == query::kAsterisk) {
+    if (global_deny_permission_.has_value()) {
+      global_deny_permission_ = global_deny_permission_.value() & ~static_cast<uint64_t>(fine_grained_permission);
+      if (global_deny_permission_.value() == 0) {
+        global_deny_permission_ = std::nullopt;
+      }
+    }
     global_permission_ = global_permission_.value_or(0) | static_cast<uint64_t>(fine_grained_permission);
   } else {
+    auto deny_it = deny_permissions_.find(permission);
+    if (deny_it != deny_permissions_.end()) {
+      deny_it->second &= ~static_cast<uint64_t>(fine_grained_permission);
+      if (deny_it->second == 0) {
+        deny_permissions_.erase(deny_it);
+      }
+    }
     permissions_[permission] |= static_cast<uint64_t>(fine_grained_permission);
   }
 }
@@ -480,8 +493,21 @@ const std::optional<uint64_t> &FineGrainedAccessPermissions::GetGlobalPermission
 void FineGrainedAccessPermissions::Deny(const std::string &permission,
                                         const FineGrainedPermission fine_grained_permission) {
   if (permission == query::kAsterisk) {
+    if (global_permission_.has_value()) {
+      global_permission_ = global_permission_.value() & ~static_cast<uint64_t>(fine_grained_permission);
+      if (global_permission_.value() == 0) {
+        global_permission_ = std::nullopt;
+      }
+    }
     global_deny_permission_ = global_deny_permission_.value_or(0) | static_cast<uint64_t>(fine_grained_permission);
   } else {
+    auto grant_it = permissions_.find(permission);
+    if (grant_it != permissions_.end()) {
+      grant_it->second &= ~static_cast<uint64_t>(fine_grained_permission);
+      if (grant_it->second == 0) {
+        permissions_.erase(grant_it);
+      }
+    }
     deny_permissions_[permission] |= static_cast<uint64_t>(fine_grained_permission);
   }
 }

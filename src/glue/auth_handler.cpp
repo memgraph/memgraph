@@ -194,34 +194,49 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return fine_grained_permissions;
   }
+
+  auto add_permission = [&](const std::string &entity_name, uint64_t permission_bitmask,
+                            memgraph::auth::PermissionLevel grant_or_deny, bool is_global) {
+    if (permission_bitmask == 0) return;
+
+    std::string permission_description;
+    const auto level_str = grant_or_deny == memgraph::auth::PermissionLevel::DENY ? "DENIED" : "GRANTED";
+
+    if (is_global) {
+      permission_description =
+          fmt::format("GLOBAL {0} PERMISSION {1} TO {2}", permission_type, level_str, user_or_role);
+    } else {
+      permission_description = fmt::format("{0} PERMISSION {1} TO {2}", permission_type, level_str, user_or_role);
+    }
+
+    fine_grained_permissions.push_back(
+        FineGrainedPermissionForPrivilegeResult{entity_name, permission_bitmask, permission_description});
+  };
+
+  // Handle global grants
   const auto global_permission = permissions.GetGlobalPermission();
   if (global_permission.has_value()) {
-    const auto permission_level = global_permission.value();
-
-    std::stringstream permission_representation;
-    permission_representation << "ALL " << permission_type << "S";
-    auto const &permission_level_representation = permission_level == 0 ? "DENIED" : "GRANTED";
-
-    std::string permission_description =
-        fmt::format("GLOBAL {0} PERMISSION {1} TO {2}", permission_type, permission_level_representation, user_or_role);
-
-    fine_grained_permissions.push_back(FineGrainedPermissionForPrivilegeResult{
-        permission_representation.str(), permission_level, permission_description});
+    add_permission(fmt::format("ALL {}S", permission_type), global_permission.value(),
+                   memgraph::auth::PermissionLevel::GRANT, true);
   }
 
+  // Handle global denies
+  const auto global_deny_permission = permissions.GetGlobalDenyPermission();
+  if (global_deny_permission.has_value()) {
+    add_permission(fmt::format("ALL {}S", permission_type), global_deny_permission.value(),
+                   memgraph::auth::PermissionLevel::DENY, true);
+  }
+
+  // Handle per-label/edge grants
   for (const auto &[label, permission] : permissions.GetPermissions()) {
-    auto const permission_level = permission;
+    add_permission(fmt::format("{} :{}", permission_type, label), permission, memgraph::auth::PermissionLevel::GRANT,
+                   false);
+  }
 
-    std::stringstream permission_representation;
-    permission_representation << permission_type << " :" << label;
-
-    auto const &permission_level_representation = permission_level == 0 ? "DENIED" : "GRANTED";
-
-    std::string permission_description =
-        fmt::format("{0} PERMISSION {1} TO {2}", permission_type, permission_level_representation, user_or_role);
-
-    fine_grained_permissions.push_back(FineGrainedPermissionForPrivilegeResult{
-        permission_representation.str(), permission_level, permission_description});
+  // Handle per-label/edge denies
+  for (const auto &[label, permission] : permissions.GetDenyPermissions()) {
+    add_permission(fmt::format("{} :{}", permission_type, label), permission, memgraph::auth::PermissionLevel::DENY,
+                   false);
   }
 
   return fine_grained_permissions;
