@@ -41,6 +41,8 @@ constexpr auto kPasswordHash = "password_hash";
 
 #ifdef MG_ENTERPRISE
 constexpr auto kGlobalPermission = "global_permission";
+constexpr auto kDenyPermissions = "deny_permissions";
+constexpr auto kGlobalDenyPermission = "global_deny_permission";
 constexpr auto kFineGrainedAccessHandler = "fine_grained_access_handler";
 constexpr auto kLabelPermissions = "label_permissions";
 constexpr auto kEdgeTypePermissions = "edge_type_permissions";
@@ -204,6 +206,7 @@ std::string FineGrainedPermissionToString(uint64_t const permission) {
 FineGrainedAccessPermissions Merge(const FineGrainedAccessPermissions &first,
                                    const FineGrainedAccessPermissions &second) {
   std::unordered_map<std::string, uint64_t> permissions{first.GetPermissions()};
+  std::unordered_map<std::string, uint64_t> deny_permissions{first.GetDenyPermissions()};
 
   std::optional<uint64_t> global_permission;
   uint64_t combined_global = first.GetGlobalPermission().value_or(0) | second.GetGlobalPermission().value_or(0);
@@ -211,11 +214,23 @@ FineGrainedAccessPermissions Merge(const FineGrainedAccessPermissions &first,
     global_permission = combined_global;
   }
 
+  std::optional<uint64_t> global_deny_permission;
+  uint64_t combined_global_deny =
+      first.GetGlobalDenyPermission().value_or(0) | second.GetGlobalDenyPermission().value_or(0);
+  if (combined_global_deny != 0) {
+    global_deny_permission = combined_global_deny;
+  }
+
   for (const auto &[label_name, permission] : second.GetPermissions()) {
     permissions[label_name] |= permission;
   }
 
-  return FineGrainedAccessPermissions(permissions, global_permission);
+  for (const auto &[label_name, deny_permission] : second.GetDenyPermissions()) {
+    deny_permissions[label_name] |= deny_permission;
+  }
+
+  return FineGrainedAccessPermissions(std::move(permissions), global_permission, std::move(deny_permissions),
+                                      global_deny_permission);
 }
 #endif
 
@@ -312,14 +327,29 @@ bool operator!=(const Permissions &first, const Permissions &second) { return !(
 
 #ifdef MG_ENTERPRISE
 FineGrainedAccessPermissions::FineGrainedAccessPermissions(std::unordered_map<std::string, uint64_t> permissions,
-                                                           std::optional<uint64_t> global_permission)
-    : permissions_{std::move(permissions)}, global_permission_(global_permission) {}
+                                                           std::optional<uint64_t> global_permission,
+                                                           std::unordered_map<std::string, uint64_t> deny_permissions,
+                                                           std::optional<uint64_t> global_deny_permission)
+    : permissions_{std::move(permissions)},
+      global_permission_(global_permission),
+      deny_permissions_{std::move(deny_permissions)},
+      global_deny_permission_(global_deny_permission) {}
 
 PermissionLevel FineGrainedAccessPermissions::Has(const std::string &permission,
                                                   const FineGrainedPermission fine_grained_permission) const {
   if (!memgraph::license::global_license_checker.IsEnterpriseValidFast()) {
     return PermissionLevel::GRANT;
   }
+
+  uint64_t combined_deny = global_deny_permission_.value_or(0);
+  if (deny_permissions_.contains(permission)) {
+    combined_deny |= deny_permissions_.at(permission);
+  }
+
+  if (combined_deny & fine_grained_permission) {
+    return PermissionLevel::DENY;
+  }
+
   const auto concrete_permission = std::invoke([&]() -> uint64_t {
     uint64_t combined = global_permission_.value_or(0);
 
@@ -348,8 +378,11 @@ void FineGrainedAccessPermissions::Revoke(const std::string &permission) {
   if (permission == query::kAsterisk) {
     permissions_.clear();
     global_permission_ = std::nullopt;
+    deny_permissions_.clear();
+    global_deny_permission_ = std::nullopt;
   } else {
     permissions_.erase(permission);
+    deny_permissions_.erase(permission);
   }
 }
 
@@ -362,12 +395,25 @@ void FineGrainedAccessPermissions::Revoke(const std::string &permission,
         global_permission_ = std::nullopt;
       }
     }
+    if (global_deny_permission_.has_value()) {
+      global_deny_permission_ = global_deny_permission_.value() & ~static_cast<uint64_t>(fine_grained_permission);
+      if (global_deny_permission_.value() == 0) {
+        global_deny_permission_ = std::nullopt;
+      }
+    }
   } else {
     auto it = permissions_.find(permission);
     if (it != permissions_.end()) {
       it->second &= ~static_cast<uint64_t>(fine_grained_permission);
       if (it->second == 0) {
         permissions_.erase(it);
+      }
+    }
+    auto deny_it = deny_permissions_.find(permission);
+    if (deny_it != deny_permissions_.end()) {
+      deny_it->second &= ~static_cast<uint64_t>(fine_grained_permission);
+      if (deny_it->second == 0) {
+        deny_permissions_.erase(deny_it);
       }
     }
   }
@@ -380,6 +426,8 @@ nlohmann::json FineGrainedAccessPermissions::Serialize() const {
   nlohmann::json data = nlohmann::json::object();
   data[kPermissions] = permissions_;
   data[kGlobalPermission] = global_permission_.has_value() ? global_permission_.value() : -1;
+  data[kDenyPermissions] = deny_permissions_;
+  data[kGlobalDenyPermission] = global_deny_permission_.has_value() ? global_deny_permission_.value() : -1;
   return data;
 }
 
@@ -394,22 +442,57 @@ FineGrainedAccessPermissions FineGrainedAccessPermissions::Deserialize(const nlo
   std::unordered_map<std::string, uint64_t> permissions;
   auto permissions_json = data.find(kPermissions);
   if (permissions_json != data.end() && permissions_json->is_object()) {
-    permissions = *permissions_json;
+    for (auto &[key, value] : permissions_json->items()) {
+      permissions[key] = MigratePermission(value);
+    }
   }
 
   std::optional<uint64_t> global_permission = std::nullopt;
   auto global_permissions = data.find(kGlobalPermission);
   if (global_permissions != data.end() && global_permissions->is_number_integer() && *global_permissions != -1) {
-    global_permission = *global_permissions;
+    global_permission = MigratePermission(*global_permissions);
   }
 
-  return FineGrainedAccessPermissions(std::move(permissions), global_permission);
+  std::unordered_map<std::string, uint64_t> deny_permissions;
+  auto deny_permissions_json = data.find(kDenyPermissions);
+  if (deny_permissions_json != data.end() && deny_permissions_json->is_object()) {
+    for (auto &[key, value] : deny_permissions_json->items()) {
+      deny_permissions[key] = MigratePermission(value);
+    }
+  }
+
+  std::optional<uint64_t> global_deny_permission = std::nullopt;
+  auto global_deny_permissions = data.find(kGlobalDenyPermission);
+  if (global_deny_permissions != data.end() && global_deny_permissions->is_number_integer() &&
+      *global_deny_permissions != -1) {
+    global_deny_permission = MigratePermission(*global_deny_permissions);
+  }
+
+  return FineGrainedAccessPermissions(std::move(permissions), global_permission, std::move(deny_permissions),
+                                      global_deny_permission);
 }
 
 const std::unordered_map<std::string, uint64_t> &FineGrainedAccessPermissions::GetPermissions() const {
   return permissions_;
 }
 const std::optional<uint64_t> &FineGrainedAccessPermissions::GetGlobalPermission() const { return global_permission_; };
+
+void FineGrainedAccessPermissions::Deny(const std::string &permission,
+                                        const FineGrainedPermission fine_grained_permission) {
+  if (permission == query::kAsterisk) {
+    global_deny_permission_ = global_deny_permission_.value_or(0) | static_cast<uint64_t>(fine_grained_permission);
+  } else {
+    deny_permissions_[permission] |= static_cast<uint64_t>(fine_grained_permission);
+  }
+}
+
+const std::unordered_map<std::string, uint64_t> &FineGrainedAccessPermissions::GetDenyPermissions() const {
+  return deny_permissions_;
+}
+
+const std::optional<uint64_t> &FineGrainedAccessPermissions::GetGlobalDenyPermission() const {
+  return global_deny_permission_;
+}
 
 uint64_t FineGrainedAccessPermissions::MigratePermission(uint64_t permission) {
   // Memgraph 3.6 and earlier used bit 2 to indicate CREATE_DELETE. We now
@@ -427,7 +510,9 @@ uint64_t FineGrainedAccessPermissions::MigratePermission(uint64_t permission) {
 
 bool operator==(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second) {
   return first.GetPermissions() == second.GetPermissions() &&
-         first.GetGlobalPermission() == second.GetGlobalPermission();
+         first.GetGlobalPermission() == second.GetGlobalPermission() &&
+         first.GetDenyPermissions() == second.GetDenyPermissions() &&
+         first.GetGlobalDenyPermission() == second.GetGlobalDenyPermission();
 }
 
 bool operator!=(const FineGrainedAccessPermissions &first, const FineGrainedAccessPermissions &second) {
