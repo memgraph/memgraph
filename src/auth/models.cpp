@@ -362,7 +362,7 @@ PermissionLevel FineGrainedAccessPermissions::Has(const std::string &permission,
 
   const auto temp_permission = concrete_permission & fine_grained_permission;
 
-  return temp_permission > 0 ? PermissionLevel::GRANT : PermissionLevel::DENY;
+  return temp_permission > 0 ? PermissionLevel::GRANT : PermissionLevel::NEUTRAL;
 }
 
 void FineGrainedAccessPermissions::Grant(const std::string &permission,
