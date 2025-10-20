@@ -90,31 +90,64 @@ def multi_tenant_setup(request):
             # Grant different label permissions per database
             # Admin database - admin has full access
             session.run("USE DATABASE admin_db;").consume()
-            session.run("GRANT CREATE_DELETE ON LABELS * TO admin;").consume()
-            session.run("GRANT CREATE_DELETE ON EDGE_TYPES * TO admin;").consume()
+            session.run("GRANT CREATE ON LABELS * TO admin;").consume()
+            session.run("GRANT READ ON LABELS * TO admin;").consume()
+            session.run("GRANT UPDATE ON LABELS * TO admin;").consume()
+            session.run("GRANT DELETE ON LABELS * TO admin;").consume()
+            session.run("GRANT CREATE ON EDGE_TYPES * TO admin;").consume()
+            session.run("GRANT READ ON EDGE_TYPES * TO admin;").consume()
+            session.run("GRANT UPDATE ON EDGE_TYPES * TO admin;").consume()
+            session.run("GRANT DELETE ON EDGE_TYPES * TO admin;").consume()
 
             # Architect database - architect has full access, admin has full access
             session.run("USE DATABASE architect_db;").consume()
-            session.run("GRANT CREATE_DELETE ON LABELS * TO architect;").consume()
-            session.run("GRANT CREATE_DELETE ON EDGE_TYPES * TO architect;").consume()
-            session.run("GRANT CREATE_DELETE ON LABELS * TO admin;").consume()
-            session.run("GRANT CREATE_DELETE ON EDGE_TYPES * TO admin;").consume()
+            session.run("GRANT CREATE ON LABELS * TO architect;").consume()
+            session.run("GRANT READ ON LABELS * TO architect;").consume()
+            session.run("GRANT UPDATE ON LABELS * TO architect;").consume()
+            session.run("GRANT DELETE ON LABELS * TO architect;").consume()
+            session.run("GRANT CREATE ON EDGE_TYPES * TO architect;").consume()
+            session.run("GRANT READ ON EDGE_TYPES * TO architect;").consume()
+            session.run("GRANT UPDATE ON EDGE_TYPES * TO architect;").consume()
+            session.run("GRANT DELETE ON EDGE_TYPES * TO architect;").consume()
+            session.run("GRANT CREATE ON LABELS * TO admin;").consume()
+            session.run("GRANT READ ON LABELS * TO admin;").consume()
+            session.run("GRANT UPDATE ON LABELS * TO admin;").consume()
+            session.run("GRANT DELETE ON LABELS * TO admin;").consume()
+            session.run("GRANT CREATE ON EDGE_TYPES * TO admin;").consume()
+            session.run("GRANT READ ON EDGE_TYPES * TO admin;").consume()
+            session.run("GRANT UPDATE ON EDGE_TYPES * TO admin;").consume()
+            session.run("GRANT DELETE ON EDGE_TYPES * TO admin;").consume()
 
             # User database - user has limited access, admin has full access
             session.run("USE DATABASE user_db;").consume()
             session.run("GRANT UPDATE ON LABELS :Person, :Company, :Product TO user;").consume()
             session.run("GRANT READ ON LABELS :Review, :Audit TO user;").consume()
-            session.run("GRANT CREATE_DELETE ON EDGE_TYPES :WORKS_FOR, :OWNS, :REVIEWS TO user;").consume()
+            session.run("GRANT CREATE ON EDGE_TYPES :WORKS_FOR, :OWNS, :REVIEWS TO user;").consume()
+            session.run("GRANT READ ON EDGE_TYPES :WORKS_FOR, :OWNS, :REVIEWS TO user;").consume()
+            session.run("GRANT UPDATE ON EDGE_TYPES :WORKS_FOR, :OWNS, :REVIEWS TO user;").consume()
+            session.run("GRANT DELETE ON EDGE_TYPES :WORKS_FOR, :OWNS, :REVIEWS TO user;").consume()
             session.run("GRANT READ ON EDGE_TYPES :AUDITS, :ADMIN_ACCESS TO user;").consume()
-            session.run("GRANT CREATE_DELETE ON LABELS * TO admin;").consume()
-            session.run("GRANT CREATE_DELETE ON EDGE_TYPES * TO admin;").consume()
+            session.run("GRANT CREATE ON LABELS * TO admin;").consume()
+            session.run("GRANT READ ON LABELS * TO admin;").consume()
+            session.run("GRANT UPDATE ON LABELS * TO admin;").consume()
+            session.run("GRANT DELETE ON LABELS * TO admin;").consume()
+            session.run("GRANT CREATE ON EDGE_TYPES * TO admin;").consume()
+            session.run("GRANT READ ON EDGE_TYPES * TO admin;").consume()
+            session.run("GRANT UPDATE ON EDGE_TYPES * TO admin;").consume()
+            session.run("GRANT DELETE ON EDGE_TYPES * TO admin;").consume()
 
             # Readonly database - readonly has read-only access, admin has full access
             session.run("USE DATABASE readonly_db;").consume()
             session.run("GRANT READ ON LABELS * TO readonly;").consume()
             session.run("GRANT READ ON EDGE_TYPES * TO readonly;").consume()
-            session.run("GRANT CREATE_DELETE ON LABELS * TO admin;").consume()
-            session.run("GRANT CREATE_DELETE ON EDGE_TYPES * TO admin;").consume()
+            session.run("GRANT CREATE ON LABELS * TO admin;").consume()
+            session.run("GRANT READ ON LABELS * TO admin;").consume()
+            session.run("GRANT UPDATE ON LABELS * TO admin;").consume()
+            session.run("GRANT DELETE ON LABELS * TO admin;").consume()
+            session.run("GRANT CREATE ON EDGE_TYPES * TO admin;").consume()
+            session.run("GRANT READ ON EDGE_TYPES * TO admin;").consume()
+            session.run("GRANT UPDATE ON EDGE_TYPES * TO admin;").consume()
+            session.run("GRANT DELETE ON EDGE_TYPES * TO admin;").consume()
 
             # Limited database - limited has restricted access, admin has full access
             session.run("USE DATABASE limited_db;").consume()
@@ -122,8 +155,14 @@ def multi_tenant_setup(request):
             session.run("GRANT NOTHING ON LABELS :Audit, :Admin TO limited;").consume()
             session.run("GRANT READ ON EDGE_TYPES :WORKS_FOR, :OWNS TO limited;").consume()
             session.run("GRANT NOTHING ON EDGE_TYPES :AUDITS, :ADMIN_ACCESS TO limited;").consume()
-            session.run("GRANT CREATE_DELETE ON LABELS * TO admin;").consume()
-            session.run("GRANT CREATE_DELETE ON EDGE_TYPES * TO admin;").consume()
+            session.run("GRANT CREATE ON LABELS * TO admin;").consume()
+            session.run("GRANT READ ON LABELS * TO admin;").consume()
+            session.run("GRANT UPDATE ON LABELS * TO admin;").consume()
+            session.run("GRANT DELETE ON LABELS * TO admin;").consume()
+            session.run("GRANT CREATE ON EDGE_TYPES * TO admin;").consume()
+            session.run("GRANT READ ON EDGE_TYPES * TO admin;").consume()
+            session.run("GRANT UPDATE ON EDGE_TYPES * TO admin;").consume()
+            session.run("GRANT DELETE ON EDGE_TYPES * TO admin;").consume()
 
             # Set main databases for roles
             session.run("SET MAIN DATABASE admin_db FOR admin;").consume()
@@ -175,7 +214,7 @@ def test_admin_full_privileges(multi_tenant_setup):
                     EXECUTE UNWIND createdVertices AS newNodes SET newNodes.created = timestamp();"""
                 ).consume()
 
-            # Test label-based permissions - admin has CREATE_DELETE on all labels
+            # Test label-based permissions - admin has CRUD on all labels
             session.run("CREATE (p:Person {name: 'John', age: 30})").consume()
             session.run("CREATE (c:Company {name: 'TechCorp'})").consume()
             session.run("CREATE (prod:Product {name: 'Software'})").consume()
@@ -196,7 +235,7 @@ def test_admin_full_privileges(multi_tenant_setup):
             session.run("MATCH (r:Review) DELETE r").consume()
             session.run("MATCH (a:Audit) DELETE a").consume()
 
-            # Test edge type permissions - admin has CREATE_DELETE on all edge types
+            # Test edge type permissions - admin has CRUD on all edge types
             session.run("CREATE (p1:Person {name: 'John'})-[:WORKS_FOR]->(c1:Company {name: 'TechCorp'})").consume()
             session.run("CREATE (p2:Person {name: 'Jane'})-[:OWNS]->(c2:Company {name: 'Startup'})").consume()
             session.run("CREATE (p3:Person {name: 'Bob'})-[:REVIEWS]->(prod:Product {name: 'Software'})").consume()
@@ -313,7 +352,7 @@ def test_architect_privileges(multi_tenant_setup):
             # Test label-based permissions for architect in architect_db - has full access
             session.run("USE DATABASE architect_db;").consume()
 
-            # Should be able to CREATE_DELETE on all labels (full access in architect_db)
+            # Should be able to CRUD on all labels (full access in architect_db)
             session.run("CREATE (p:Person {name: 'Alice', age: 25})").consume()
             session.run("CREATE (c:Company {name: 'Startup'})").consume()
             session.run("CREATE (prod:Product {name: 'App'})").consume()
@@ -348,7 +387,7 @@ def test_architect_privileges(multi_tenant_setup):
             session.run("MATCH (a:Audit) DELETE a").consume()
 
             # Test edge type permissions for architect in architect_db - has full access
-            # Should be able to CREATE_DELETE on all edge types (full access in architect_db)
+            # Should be able to CRUD on all edge types (full access in architect_db)
             session.run(
                 "CREATE (p1:Person {name: 'Alice'})-[:WORKS_FOR]->(c1:Company {name: 'ArchitectCorp'})"
             ).consume()
