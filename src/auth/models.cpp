@@ -184,6 +184,10 @@ std::string PermissionLevelToString(PermissionLevel level) {
 
 #ifdef MG_ENTERPRISE
 std::string FineGrainedPermissionToString(uint64_t const permission) {
+  if (permission == 0) {
+    return "NOTHING";
+  }
+
   std::vector<std::string> permissions;
   if (permission & FineGrainedPermission::CREATE) {
     permissions.emplace_back("CREATE");
@@ -335,7 +339,13 @@ PermissionLevel FineGrainedAccessPermissions::Has(const std::string &permission,
 
 void FineGrainedAccessPermissions::Grant(const std::string &permission,
                                          const FineGrainedPermission fine_grained_permission) {
-  if (permission == query::kAsterisk) {
+  if (fine_grained_permission == FineGrainedPermission::NOTHING) {
+    if (permission == query::kAsterisk) {
+      global_permission_ = 0;
+    } else {
+      permissions_[permission] = 0;
+    }
+  } else if (permission == query::kAsterisk) {
     global_permission_ = global_permission_.value_or(0) | static_cast<uint64_t>(fine_grained_permission);
   } else {
     permissions_[permission] |= static_cast<uint64_t>(fine_grained_permission);
