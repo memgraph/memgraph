@@ -86,9 +86,9 @@ constexpr inline uint64_t operator&(uint64_t lhs, FineGrainedPermission rhs) {
   return (lhs & static_cast<uint64_t>(rhs)) != 0;
 }
 
-constexpr uint64_t kLabelPermissionAll =
+constexpr FineGrainedPermission kLabelPermissionAll = static_cast<FineGrainedPermission>(
     memgraph::auth::FineGrainedPermission::CREATE | memgraph::auth::FineGrainedPermission::DELETE |
-    memgraph::auth::FineGrainedPermission::UPDATE | memgraph::auth::FineGrainedPermission::READ;
+    memgraph::auth::FineGrainedPermission::UPDATE | memgraph::auth::FineGrainedPermission::READ);
 #endif
 
 // Function that converts a permission to its string representation.
@@ -229,9 +229,7 @@ class UserImpersonation {
 class FineGrainedAccessPermissions final {
  public:
   explicit FineGrainedAccessPermissions(std::unordered_map<std::string, uint64_t> permissions = {},
-                                        std::optional<uint64_t> global_permission = std::nullopt,
-                                        std::unordered_map<std::string, uint64_t> deny_permissions = {},
-                                        std::optional<uint64_t> global_deny_permission = std::nullopt);
+                                        std::optional<uint64_t> global_permission = std::nullopt);
   FineGrainedAccessPermissions(const FineGrainedAccessPermissions &) = default;
   FineGrainedAccessPermissions &operator=(const FineGrainedAccessPermissions &) = default;
   FineGrainedAccessPermissions(FineGrainedAccessPermissions &&) = default;
@@ -253,16 +251,9 @@ class FineGrainedAccessPermissions final {
   const std::unordered_map<std::string, uint64_t> &GetPermissions() const;
   const std::optional<uint64_t> &GetGlobalPermission() const;
 
-  void Deny(const std::string &permission, FineGrainedPermission fine_grained_permission);
-
-  const std::unordered_map<std::string, uint64_t> &GetDenyPermissions() const;
-  const std::optional<uint64_t> &GetGlobalDenyPermission() const;
-
  private:
   std::unordered_map<std::string, uint64_t> permissions_{};
   std::optional<uint64_t> global_permission_;
-  std::unordered_map<std::string, uint64_t> deny_permissions_{};
-  std::optional<uint64_t> global_deny_permission_;
 
   static uint64_t MigratePermission(uint64_t permission);
 };

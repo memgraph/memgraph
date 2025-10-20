@@ -220,22 +220,9 @@ std::vector<FineGrainedPermissionForPrivilegeResult> GetFineGrainedPermissionFor
                    memgraph::auth::PermissionLevel::GRANT, true);
   }
 
-  // Handle global denies
-  const auto global_deny_permission = permissions.GetGlobalDenyPermission();
-  if (global_deny_permission.has_value()) {
-    add_permission(fmt::format("ALL {}S", permission_type), global_deny_permission.value(),
-                   memgraph::auth::PermissionLevel::DENY, true);
-  }
-
   // Handle per-label/edge grants
   for (const auto &[label, permission] : permissions.GetPermissions()) {
     add_permission(fmt::format("{} :{}", permission_type, label), permission, memgraph::auth::PermissionLevel::GRANT,
-                   false);
-  }
-
-  // Handle per-label/edge denies
-  for (const auto &[label, permission] : permissions.GetDenyPermissions()) {
-    add_permission(fmt::format("{} :{}", permission_type, label), permission, memgraph::auth::PermissionLevel::DENY,
                    false);
   }
 

@@ -266,7 +266,8 @@ bool FineGrainedAuthChecker::HasAllGlobalPrivilegesOnVertices() const {
                       const auto &permissions = user_or_role.GetFineGrainedAccessLabelPermissions();
                       const auto &global_permission = permissions.GetGlobalPermission();
                       return global_permission.has_value() &&
-                             global_permission.value() == memgraph::auth::kLabelPermissionAll;
+                             static_cast<memgraph::auth::FineGrainedPermission>(global_permission.value()) ==
+                                 memgraph::auth::kLabelPermissionAll;
                     }},
                     user_or_role_);
 }
@@ -279,7 +280,8 @@ bool FineGrainedAuthChecker::HasAllGlobalPrivilegesOnEdges() const {
                       const auto &permissions = user_or_role.GetFineGrainedAccessEdgeTypePermissions();
                       const auto &global_permission = permissions.GetGlobalPermission();
                       return global_permission.has_value() &&
-                             global_permission.value() == memgraph::auth::kLabelPermissionAll;
+                             static_cast<memgraph::auth::FineGrainedPermission>(global_permission.value()) ==
+                                 memgraph::auth::kLabelPermissionAll;
                     }},
                     user_or_role_);
 };
