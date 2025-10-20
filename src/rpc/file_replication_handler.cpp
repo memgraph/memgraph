@@ -10,6 +10,8 @@
 // licenses/APL.txt.
 
 #include "rpc/file_replication_handler.hpp"
+
+#include "flags/general.hpp"
 #include "slk/streams.hpp"
 #include "storage/v2/durability/paths.hpp"
 #include "storage/v2/replication/serialization.hpp"
@@ -29,13 +31,6 @@ std::filesystem::path FileReplicationHandler::GetRandomDir() {
 // Currently, they are taking few hundred bytes at most so this should be a valid assumption. Also, we aren't expecting
 // big growth in message size/
 std::optional<size_t> FileReplicationHandler::OpenFile(const uint8_t *data, size_t const size) {
-  auto const tmp_rnd_dir = GetRandomDir();
-
-  if (!utils::EnsureDir(tmp_rnd_dir)) {
-    spdlog::error("Failed to create temporary directory {}", tmp_rnd_dir);
-    return std::nullopt;
-  }
-
   slk::Reader req_reader(data, size, size);
   storage::replication::Decoder decoder(&req_reader);
 
@@ -46,11 +41,11 @@ std::optional<size_t> FileReplicationHandler::OpenFile(const uint8_t *data, size
   if (!ValidateFileSize(maybe_file_size)) return std::nullopt;
 
   file_size_ = *maybe_file_size;
-  auto const path = tmp_rnd_dir / *maybe_filename;
+  auto const path = std::filesystem::path{FLAGS_data_directory} / *maybe_filename;
   paths_.emplace_back(path);
 
-  file_.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING);
   spdlog::info("Replica will be using file {} with size {}", path, file_size_);
+  file_.Open(path, utils::OutputFile::Mode::OVERWRITE_EXISTING);
 
   // First N bytes are file_name and file_size, therefore we don't read full size
   size_t const processed_bytes = req_reader.GetPos();
@@ -69,18 +64,8 @@ bool FileReplicationHandler::ValidateFilename(std::optional<std::string> const &
     return false;
   }
 
-  if (filename.find('/') != std::string::npos || filename.find('\\') != std::string::npos) {
-    spdlog::error("Filename must not contain path separators: {}", filename);
-    return false;
-  }
-
   if (filename.find('.') != std::string::npos) {
     spdlog::error("Filename must not contain extension: {}", filename);
-    return false;
-  }
-
-  if (auto const file_path = std::filesystem::path(filename); file_path.has_parent_path()) {
-    spdlog::error("File cannot have a parent path{}", file_path.string());
     return false;
   }
 

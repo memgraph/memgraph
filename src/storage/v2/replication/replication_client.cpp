@@ -610,7 +610,8 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                 // Loading snapshot on the replica side either passes cleanly or it doesn't pass at all. If it doesn't
                 // pass, we won't update commit timestamp. Heartbeat should trigger recovering replica again.
                 auto const maybe_response = TransferDurabilityFiles<replication::SnapshotRpc>(
-                    snapshot, rpcClient, repl_mode, main_uuid, main_mem_storage->uuid());
+                    snapshot, main_mem_storage->config_.durability.storage_directory, rpcClient, repl_mode, main_uuid,
+                    main_mem_storage->uuid());
                 // Error happened on our side when trying to load snapshot file
                 if (!maybe_response.has_value()) {
                   recovery_failed = true;
@@ -650,7 +651,8 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                 // passed so that possibly next step of recovering current wal can be executed
 
                 auto const maybe_response = TransferDurabilityFiles<replication::WalFilesRpc>(
-                    wals, rpcClient, repl_mode, wals.size(), main_uuid, main_mem_storage->uuid(), do_reset);
+                    wals, main_mem_storage->config_.durability.storage_directory, rpcClient, repl_mode, wals.size(),
+                    main_uuid, main_mem_storage->uuid(), do_reset);
                 if (!maybe_response.has_value()) {
                   recovery_failed = true;
                   return;
@@ -688,8 +690,8 @@ void ReplicationStorageClient::RecoverReplica(uint64_t replica_last_commit_ts, S
                   spdlog::debug("Sending current wal file to {} for db {}.", client_.name_, main_db_name);
 
                   auto const maybe_response = TransferDurabilityFiles<replication::CurrentWalRpc>(
-                      main_mem_storage->wal_file_->Path(), rpcClient, repl_mode, main_uuid, main_mem_storage->uuid(),
-                      do_reset);
+                      main_mem_storage->wal_file_->Path(), main_mem_storage->config_.durability.storage_directory,
+                      rpcClient, repl_mode, main_uuid, main_mem_storage->uuid(), do_reset);
                   // Error happened on our side when trying to load current WAL file
                   if (!maybe_response.has_value()) {
                     recovery_failed = true;
