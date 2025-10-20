@@ -78,8 +78,7 @@ class StorageModeMultiTxTest : public ::testing::Test {
 
   void TearDown() override { std::filesystem::remove_all(data_directory); }
 
-  memgraph::storage::Config config{.durability.storage_directory = data_directory,
-                                   .disk.main_storage_directory = data_directory / "disk"};
+  memgraph::storage::Config config{.durability.storage_directory = data_directory};
 
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
       memgraph::storage::ReplicationStateRootPath(config)};

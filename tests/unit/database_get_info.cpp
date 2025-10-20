@@ -16,12 +16,10 @@
 
 #include "dbms/database.hpp"
 #include "dbms/dbms_handler.hpp"
-#include "disk_test_utils.hpp"
 #include "query/interpret/awesome_memgraph_functions.hpp"
 #include "query/interpreter_context.hpp"
 #include "replication/state.hpp"
 #include "storage/v2/config.hpp"
-#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/replication/enums.hpp"
 #include "tests/test_commit_args_helper.hpp"
@@ -57,9 +55,7 @@ class InfoTest : public testing::Test {
     auto db_acc = dbms_handler_->Get();
 #endif
     MG_ASSERT(db_acc, "Failed to access db");
-    MG_ASSERT(db_acc->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
-                                               ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
-                                               : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
+    MG_ASSERT(db_acc->GetStorageMode() == (memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
               "Wrong storage mode!");
     db_acc_ = std::move(db_acc);
   }
@@ -68,14 +64,10 @@ class InfoTest : public testing::Test {
     db_acc_.reset();
     dbms_handler_.reset();
     repl_state_.reset();
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
-    }
     std::filesystem::remove_all(storage_directory);
   }
 
-  StorageMode mode{std::is_same_v<StorageType, DiskStorage> ? StorageMode::ON_DISK_TRANSACTIONAL
-                                                            : StorageMode::IN_MEMORY_TRANSACTIONAL};
+  StorageMode mode{StorageMode::IN_MEMORY_TRANSACTIONAL};
 
 #ifdef MG_ENTERPRISE
   memgraph::auth::SynchedAuth auth_{storage_directory, memgraph::auth::Auth::Config {}};
@@ -86,9 +78,6 @@ class InfoTest : public testing::Test {
         memgraph::storage::UpdatePaths(config, storage_directory);
         config.durability.snapshot_wal_mode =
             memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL;
-        if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
-          config.force_on_disk = true;
-        }
         return config;
       }()  // iile
   };
@@ -98,13 +87,11 @@ class InfoTest : public testing::Test {
   std::optional<memgraph::dbms::DatabaseAccess> db_acc_;
 };
 
-using TestTypes = ::testing::Types<std::pair<memgraph::storage::InMemoryStorage, DefaultConfig>,
-                                   std::pair<memgraph::storage::DiskStorage, DefaultConfig>
+using TestTypes = ::testing::Types<std::pair<memgraph::storage::InMemoryStorage, DefaultConfig>
 
 #ifdef MG_ENTERPRISE
                                    ,
-                                   std::pair<memgraph::storage::InMemoryStorage, TenantConfig>,
-                                   std::pair<memgraph::storage::DiskStorage, TenantConfig>
+                                   std::pair<memgraph::storage::InMemoryStorage, TenantConfig>
 #endif
                                    >;
 
@@ -112,8 +99,6 @@ TYPED_TEST_SUITE(InfoTest, TestTypes);
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)
 TYPED_TEST(InfoTest, InfoCheck) {
-  constexpr bool is_using_disk_storage = std::is_same_v<typename TypeParam::first_type, memgraph::storage::DiskStorage>;
-
   auto &db_acc = *this->db_acc_;
   auto lbl = db_acc->storage()->NameToLabel("label");
   auto lbl2 = db_acc->storage()->NameToLabel("abc");
@@ -167,17 +152,16 @@ TYPED_TEST(InfoTest, InfoCheck) {
     ASSERT_FALSE(unique_acc->CreateIndex(lbl, {prop2}).HasError());
     ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
-  if constexpr (!is_using_disk_storage) {
-    {
-      auto unique_acc = db_acc->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateIndex(lbl, {prop, prop2}).HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
-    }
-    {
-      auto unique_acc = db_acc->UniqueAccess();
-      ASSERT_FALSE(unique_acc->CreateIndex(lbl, {prop2, prop}).HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
-    }
+
+  {
+    auto unique_acc = db_acc->UniqueAccess();
+    ASSERT_FALSE(unique_acc->CreateIndex(lbl, {prop, prop2}).HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+  {
+    auto unique_acc = db_acc->UniqueAccess();
+    ASSERT_FALSE(unique_acc->CreateIndex(lbl, {prop2, prop}).HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {
@@ -185,17 +169,16 @@ TYPED_TEST(InfoTest, InfoCheck) {
     ASSERT_FALSE(unique_acc->DropIndex(lbl, {prop}).HasError());
     ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
-  if constexpr (!is_using_disk_storage) {
-    {
-      auto unique_acc = db_acc->UniqueAccess();
-      ASSERT_FALSE(unique_acc->DropIndex(lbl, {prop, prop2}).HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
-    }
-    {
-      auto unique_acc = db_acc->UniqueAccess();
-      ASSERT_FALSE(unique_acc->DropIndex(lbl, {prop2, prop}).HasError());
-      ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
-    }
+
+  {
+    auto unique_acc = db_acc->UniqueAccess();
+    ASSERT_FALSE(unique_acc->DropIndex(lbl, {prop, prop2}).HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
+  }
+  {
+    auto unique_acc = db_acc->UniqueAccess();
+    ASSERT_FALSE(unique_acc->DropIndex(lbl, {prop2, prop}).HasError());
+    ASSERT_FALSE(unique_acc->PrepareForCommitPhase(memgraph::tests::MakeMainCommitArgs()).HasError());
   }
 
   {

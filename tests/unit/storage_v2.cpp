@@ -15,8 +15,6 @@
 #include <filesystem>
 #include <limits>
 
-#include "disk_test_utils.hpp"
-#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
 #include "storage/v2/storage.hpp"
@@ -32,24 +30,13 @@ using testing::UnorderedElementsAre;
 template <typename StorageType>
 class StorageV2Test : public testing::Test {
  public:
-  StorageV2Test() {
-    config_ = disk_test_utils::GenerateOnDiskConfig(testSuite);
-    store = std::make_unique<StorageType>(config_);
-  }
+  StorageV2Test() { store = std::make_unique<StorageType>(config_); }
 
-  void TearDown() override {
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
-    }
-    store.reset(nullptr);
-  }
-
-  const std::string testSuite = "storage_v2";
   std::unique_ptr<memgraph::storage::Storage> store;
   memgraph::storage::Config config_;
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 TYPED_TEST_SUITE(StorageV2Test, StorageTypes);
 
 // NOLINTNEXTLINE(hicpp-special-member-functions)

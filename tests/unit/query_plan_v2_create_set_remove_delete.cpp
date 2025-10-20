@@ -9,14 +9,12 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "disk_test_utils.hpp"
 #include "query_plan_common.hpp"
 
 #include <gtest/gtest.h>
 
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/operator.hpp"
-#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
 using memgraph::replication_coordination_glue::ReplicationRole;
@@ -24,18 +22,11 @@ using memgraph::replication_coordination_glue::ReplicationRole;
 template <typename StorageType>
 class QueryPlan : public testing::Test {
  public:
-  const std::string testSuite = "query_plan_v2_create_set_remove_delete";
-  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  memgraph::storage::Config config;
   std::unique_ptr<memgraph::storage::Storage> db = std::make_unique<StorageType>(config);
-
-  void TearDown() override {
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
-    }
-  }
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 TYPED_TEST_SUITE(QueryPlan, StorageTypes);
 
 TYPED_TEST(QueryPlan, CreateNodeWithAttributes) {

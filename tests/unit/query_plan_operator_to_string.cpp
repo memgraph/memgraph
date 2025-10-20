@@ -11,14 +11,12 @@
 
 #include <gtest/gtest.h>
 
-#include "disk_test_utils.hpp"
 #include "query/frontend/semantic/symbol_table.hpp"
 #include "query/plan/operator.hpp"
 #include "query/plan/preprocess.hpp"
 #include "query/plan/pretty_print.hpp"
 
 #include "query_common.hpp"
-#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
 using namespace memgraph::query;
@@ -35,17 +33,7 @@ class OperatorToStringTest : public ::testing::Test {
  protected:
   const std::string testSuite = "plan_operator_to_string";
 
-  OperatorToStringTest()
-      : config(disk_test_utils::GenerateOnDiskConfig(testSuite)),
-        db(new StorageType(config)),
-        dba_storage(db->Access()),
-        dba(dba_storage.get()) {}
-
-  ~OperatorToStringTest() override {
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
-    }
-  }
+  OperatorToStringTest() : config({}), db(new StorageType(config)), dba_storage(db->Access()), dba(dba_storage.get()) {}
 
   AstStorage storage;
   SymbolTable symbol_table;
@@ -58,7 +46,7 @@ class OperatorToStringTest : public ::testing::Test {
   Symbol GetSymbol(std::string name) { return symbol_table.CreateSymbol(name, true); }
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 TYPED_TEST_SUITE(OperatorToStringTest, StorageTypes);
 
 TYPED_TEST(OperatorToStringTest, Once) {

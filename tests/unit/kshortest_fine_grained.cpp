@@ -16,9 +16,7 @@
 #include <unordered_map>
 
 #include "auth/models.hpp"
-#include "disk_test_utils.hpp"
 #include "license/license.hpp"
-#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
 #include <gtest/gtest.h>
@@ -32,15 +30,11 @@ class VertexDb : public Database {
   const std::string testSuite = "kshortest_fine_grained";
 
   VertexDb() {
-    config_ = disk_test_utils::GenerateOnDiskConfig(testSuite);
+    config_ = {};
     db_ = std::make_unique<StorageType>(config_);
   }
 
-  ~VertexDb() override {
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
-    }
-  }
+  ~VertexDb() override {}
 
   std::unique_ptr<memgraph::storage::Storage::Accessor> Access() override { return db_->Access(); }
 
@@ -124,45 +118,6 @@ std::unique_ptr<VertexDb<FineGrainedKShortestTestInMemory::StorageType>> FineGra
 
 INSTANTIATE_TEST_SUITE_P(
     FineGrained, FineGrainedKShortestTestInMemory,
-    testing::Combine(testing::Values(3),
-                     testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN, EdgeAtom::Direction::BOTH),
-                     testing::Values(std::vector<std::string>{"a", "b"}), testing::Values(3),
-                     testing::Values(FineGrainedTestType::ALL_GRANTED, FineGrainedTestType::ALL_DENIED,
-                                     FineGrainedTestType::EDGE_TYPE_A_DENIED, FineGrainedTestType::EDGE_TYPE_B_DENIED,
-                                     FineGrainedTestType::LABEL_0_DENIED, FineGrainedTestType::LABEL_3_DENIED)));
-
-class FineGrainedKShortestTestOnDisk
-    : public ::testing::TestWithParam<
-          std::tuple<int, EdgeAtom::Direction, std::vector<std::string>, int, FineGrainedTestType>> {
- public:
-  using StorageType = memgraph::storage::DiskStorage;
-  static void SetUpTestCase() {
-    memgraph::license::global_license_checker.EnableTesting();
-    db_ = std::make_unique<VertexDb<StorageType>>();
-  }
-  static void TearDownTestCase() { db_ = nullptr; }
-
- protected:
-  static std::unique_ptr<VertexDb<StorageType>> db_;
-};
-
-TEST_P(FineGrainedKShortestTestOnDisk, All) {
-  int upper_bound;
-  EdgeAtom::Direction direction;
-  std::vector<std::string> edge_types;
-  int k;
-  FineGrainedTestType fine_grained_test_type;
-
-  std::tie(upper_bound, direction, edge_types, k, fine_grained_test_type) = GetParam();
-
-  this->db_->KShortestTestWithFineGrainedFiltering(db_.get(), upper_bound, direction, edge_types, k,
-                                                   fine_grained_test_type);
-}
-
-std::unique_ptr<VertexDb<FineGrainedKShortestTestOnDisk::StorageType>> FineGrainedKShortestTestOnDisk::db_{nullptr};
-
-INSTANTIATE_TEST_SUITE_P(
-    FineGrained, FineGrainedKShortestTestOnDisk,
     testing::Combine(testing::Values(3),
                      testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN, EdgeAtom::Direction::BOTH),
                      testing::Values(std::vector<std::string>{"a", "b"}), testing::Values(3),

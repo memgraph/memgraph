@@ -9,7 +9,6 @@
 // by the Apache License, Version 2.0, included in the file
 // licenses/APL.txt.
 
-#include "disk_test_utils.hpp"
 #include "query/frontend/ast/ast.hpp"
 #include "query_plan_common.hpp"
 
@@ -36,7 +35,6 @@
 #include "query/context.hpp"
 #include "query/exceptions.hpp"
 #include "query/plan/operator.hpp"
-#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "tests/test_commit_args_helper.hpp"
 #include "utils/synchronized.hpp"
@@ -50,7 +48,7 @@ const std::string testSuite = "query_plan_match_filter_return";
 template <typename StorageType>
 class MatchReturnFixture : public testing::Test {
  protected:
-  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  memgraph::storage::Config config = {};
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
@@ -58,12 +56,6 @@ class MatchReturnFixture : public testing::Test {
   SymbolTable symbol_table;
 
   void SetUp() override { memgraph::license::global_license_checker.EnableTesting(); }
-
-  void TearDown() override {
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
-    }
-  }
 
   void AddVertices(int count) {
     for (int i = 0; i < count; i++) dba.InsertVertex();
@@ -89,7 +81,7 @@ class MatchReturnFixture : public testing::Test {
   }
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 TYPED_TEST_SUITE(MatchReturnFixture, StorageTypes);
 
 TYPED_TEST(MatchReturnFixture, MatchReturn) {
@@ -227,15 +219,9 @@ TYPED_TEST(MatchReturnFixture, ScanAllWithAuthChecker) {
 template <typename StorageType>
 class QueryPlan : public testing::Test {
  public:
-  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  memgraph::storage::Config config = {};
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
   AstStorage storage;
-
-  void TearDown() override {
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
-    }
-  }
 };
 
 TYPED_TEST_SUITE(QueryPlan, StorageTypes);
@@ -491,7 +477,7 @@ TYPED_TEST(QueryPlan, CartesianThreeWay) {
 template <typename StorageType>
 class ExpandFixture : public testing::Test {
  protected:
-  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  memgraph::storage::Config config = {};
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
@@ -514,15 +500,9 @@ class ExpandFixture : public testing::Test {
 
     dba.AdvanceCommand();
   }
-
-  void TearDown() override {
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
-    }
-  }
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 TYPED_TEST_SUITE(ExpandFixture, StorageTypes);
 
 TYPED_TEST(ExpandFixture, Expand) {
@@ -651,7 +631,7 @@ class QueryPlanExpandVariable : public testing::Test {
   // type returned by the GetEdgeListSizes function, used
   // a lot below in test declaration
 
-  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  memgraph::storage::Config config = {};
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
@@ -694,12 +674,6 @@ class QueryPlanExpandVariable : public testing::Test {
     dba.AdvanceCommand();
     ASSERT_EQ(CountIterable(dba.Vertices(memgraph::storage::View::OLD)), 2 * chain_length);
     ASSERT_EQ(CountEdges(&dba, memgraph::storage::View::OLD), 4 * (chain_length - 1));
-  }
-
-  void TearDown() override {
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
-    }
   }
 
   /**
@@ -816,7 +790,7 @@ class QueryPlanExpandVariable : public testing::Test {
   }
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 TYPED_TEST_SUITE(QueryPlanExpandVariable, StorageTypes);
 
 TYPED_TEST(QueryPlanExpandVariable, OneVariableExpansion) {
@@ -1806,7 +1780,7 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
   };
 
  protected:
-  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  memgraph::storage::Config config = {};
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
@@ -1856,12 +1830,6 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
     add_edge(4, 0, 12);
 
     dba.AdvanceCommand();
-  }
-
-  void TearDown() override {
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
-    }
   }
 
   // defines and performs a weighted shortest expansion with the given
@@ -1930,7 +1898,7 @@ class QueryPlanExpandWeightedShortestPath : public testing::Test {
   }
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 TYPED_TEST_SUITE(QueryPlanExpandWeightedShortestPath, StorageTypes);
 
 // Testing weighted shortest path on this graph:
@@ -2250,7 +2218,7 @@ class QueryPlanExpandAllShortestPaths : public testing::Test {
   };
 
  protected:
-  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  memgraph::storage::Config config = {};
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
@@ -2300,12 +2268,6 @@ class QueryPlanExpandAllShortestPaths : public testing::Test {
     add_edge(4, 0, 12);
 
     dba.AdvanceCommand();
-  }
-
-  void TearDown() override {
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
-    }
   }
 
   // defines and performs an all shortest paths expansion with the given
@@ -2373,7 +2335,7 @@ class QueryPlanExpandAllShortestPaths : public testing::Test {
   }
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 TYPED_TEST_SUITE(QueryPlanExpandAllShortestPaths, StorageTypes);
 
 template <typename StorageType>
@@ -3535,7 +3497,7 @@ TYPED_TEST(QueryPlan, ScanAllEqualsScanAllByLabelProperty) {
 template <typename StorageType>
 class ExistsFixture : public testing::Test {
  protected:
-  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  memgraph::storage::Config config = {};
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
@@ -3570,12 +3532,6 @@ class ExistsFixture : public testing::Test {
     memgraph::license::global_license_checker.EnableTesting();
 
     dba.AdvanceCommand();
-  }
-
-  void TearDown() override {
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
-    }
   }
 
   int TestExists(std::string match_label, EdgeAtom::Direction direction,
@@ -3726,7 +3682,7 @@ class ExistsFixture : public testing::Test {
   }
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 TYPED_TEST_SUITE(ExistsFixture, StorageTypes);
 
 TYPED_TEST(ExistsFixture, BasicExists) {
@@ -3764,7 +3720,7 @@ TYPED_TEST(ExistsFixture, DoubleFilters) {
 template <typename StorageType>
 class SubqueriesFeature : public testing::Test {
  protected:
-  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  memgraph::storage::Config config = {};
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
@@ -3791,15 +3747,9 @@ class SubqueriesFeature : public testing::Test {
 
     dba.AdvanceCommand();
   }
-
-  void TearDown() override {
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
-    }
-  }
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 TYPED_TEST_SUITE(SubqueriesFeature, StorageTypes);
 
 TYPED_TEST(SubqueriesFeature, BasicCartesian) {

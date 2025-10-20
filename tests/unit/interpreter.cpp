@@ -16,7 +16,6 @@
 #include "communication/bolt/v1/value.hpp"
 #include "communication/result_stream_faker.hpp"
 #include "csv/parsing.hpp"
-#include "disk_test_utils.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "glue/communication.hpp"
 #include "gmock/gmock.h"
@@ -61,8 +60,6 @@ constexpr auto kNoHandler = nullptr;
 template <typename StorageType>
 class InterpreterTest : public ::testing::Test {
  public:
-  const std::string testSuite = "interpreter";
-  const std::string testSuiteCsv = "interpreter_csv";
   std::filesystem::path data_directory = std::filesystem::temp_directory_path() / "MG_tests_unit_interpreter";
 
   InterpreterTest() = default;
@@ -71,11 +68,6 @@ class InterpreterTest : public ::testing::Test {
       [&]() {
         memgraph::storage::Config config{};
         config.durability.storage_directory = data_directory;
-        config.disk.main_storage_directory = config.durability.storage_directory / "disk";
-        if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
-          config.disk = disk_test_utils::GenerateOnDiskConfig(testSuite).disk;
-          config.force_on_disk = true;
-        }
         return config;
       }()  // iile
   };
@@ -88,9 +80,7 @@ class InterpreterTest : public ::testing::Test {
         auto db_acc_opt = db_gk.access();
         MG_ASSERT(db_acc_opt, "Failed to access db");
         auto &db_acc = *db_acc_opt;
-        MG_ASSERT(db_acc->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
-                                                   ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
-                                                   : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
+        MG_ASSERT(db_acc->GetStorageMode() == memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL,
                   "Wrong storage mode!");
         return db_acc;
       }()  // iile
@@ -108,14 +98,7 @@ class InterpreterTest : public ::testing::Test {
 #endif
   };
 
-  void TearDown() override {
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
-      disk_test_utils::RemoveRocksDbDirs(testSuiteCsv);
-    }
-
-    std::filesystem::remove_all(data_directory);
-  }
+  void TearDown() override { std::filesystem::remove_all(data_directory); }
 
   InterpreterFaker default_interpreter{&interpreter_context, db};
 
@@ -132,7 +115,7 @@ class InterpreterTest : public ::testing::Test {
   }
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 TYPED_TEST_SUITE(InterpreterTest, StorageTypes);
 
 TYPED_TEST(InterpreterTest, MultiplePulls) {
@@ -352,15 +335,6 @@ TYPED_TEST(InterpreterTest, Bfs) {
   auto kResCoeff = 5;
   const auto *const kReachable = "reachable";
   const auto kId = "id";
-
-  if (std::is_same<TypeParam, memgraph::storage::DiskStorage>::value) {
-    kNumLevels = 5;
-    kNumNodesPerLevel = 20;
-    kNumEdgesPerNode = 20;
-    kNumUnreachableNodes = 200;
-    kNumUnreachableEdges = 20000;
-    kResCoeff = 4;
-  }
 
   std::vector<std::vector<memgraph::query::VertexAccessor>> levels(kNumLevels);
   int id = 0;
@@ -1151,11 +1125,6 @@ TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
 
     memgraph::storage::Config config2{};
     config2.durability.storage_directory = directory_manager.Path();
-    config2.disk.main_storage_directory = config2.durability.storage_directory / "disk";
-    if constexpr (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>) {
-      config2.disk = disk_test_utils::GenerateOnDiskConfig(this->testSuiteCsv).disk;
-      config2.force_on_disk = true;
-    }
 
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state2{
         memgraph::storage::ReplicationStateRootPath(config2)};
@@ -1163,9 +1132,7 @@ TYPED_TEST(InterpreterTest, AllowLoadCsvConfig) {
     auto db_acc_opt = db_gk2.access();
     ASSERT_TRUE(db_acc_opt) << "Failed to access db2";
     auto &db_acc = *db_acc_opt;
-    ASSERT_TRUE(db_acc->GetStorageMode() == (std::is_same_v<TypeParam, memgraph::storage::DiskStorage>
-                                                 ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
-                                                 : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL))
+    ASSERT_TRUE(db_acc->GetStorageMode() == memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL)
         << "Wrong storage mode!";
 
     memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{

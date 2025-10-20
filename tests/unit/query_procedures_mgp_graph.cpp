@@ -18,12 +18,10 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "disk_test_utils.hpp"
 #include "mg_procedure.h"
 #include "query/db_accessor.hpp"
 #include "query/plan/operator.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
-#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/id_types.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/property_value.hpp"
@@ -163,15 +161,9 @@ class MgpGraphTest : public ::testing::Test {
     return db_accessors_.back();
   }
 
-  void TearDown() override {
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
-    }
-  }
-
   const std::string testSuite = "query_procedures_mgp_graph";
 
-  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  memgraph::storage::Config config = {};
   std::unique_ptr<memgraph::storage::Storage> storage{new StorageType(config)};
   mgp_memory memory{memgraph::utils::NewDeleteResource()};
 
@@ -181,7 +173,7 @@ class MgpGraphTest : public ::testing::Test {
   std::unique_ptr<memgraph::query::ExecutionContext> ctx_ = std::make_unique<memgraph::query::ExecutionContext>();
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 TYPED_TEST_SUITE(MgpGraphTest, StorageTypes);
 
 TYPED_TEST(MgpGraphTest, IsMutable) {
@@ -192,10 +184,6 @@ TYPED_TEST(MgpGraphTest, IsMutable) {
 }
 
 TYPED_TEST(MgpGraphTest, CreateVertex) {
-  if (std::is_same<TypeParam, memgraph::storage::DiskStorage>::value) {
-    // DiskStorage doesn't support READ_UNCOMMITTED isolation level
-    return;
-  }
   mgp_graph graph = this->CreateGraph();
   auto read_uncommited_accessor = this->storage->Access(memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
   EXPECT_EQ(CountVertices(*read_uncommited_accessor, memgraph::storage::View::NEW), 0);
@@ -208,10 +196,6 @@ TYPED_TEST(MgpGraphTest, CreateVertex) {
 }
 
 TYPED_TEST(MgpGraphTest, DeleteVertex) {
-  if (std::is_same<TypeParam, memgraph::storage::DiskStorage>::value) {
-    // DiskStorage doesn't support READ_UNCOMMITTED isolation level
-    return;
-  }
   memgraph::storage::Gid vertex_id{};
   {
     auto accessor = this->CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
@@ -230,10 +214,6 @@ TYPED_TEST(MgpGraphTest, DeleteVertex) {
 }
 
 TYPED_TEST(MgpGraphTest, DetachDeleteVertex) {
-  if (std::is_same<TypeParam, memgraph::storage::DiskStorage>::value) {
-    // DiskStorage doesn't support READ_UNCOMMITTED isolation level
-    return;
-  }
   const auto vertex_ids = this->CreateEdge();
   auto graph = this->CreateGraph();
   auto read_uncommited_accessor = this->storage->Access(memgraph::storage::IsolationLevel::READ_UNCOMMITTED);
@@ -247,10 +227,6 @@ TYPED_TEST(MgpGraphTest, DetachDeleteVertex) {
 }
 
 TYPED_TEST(MgpGraphTest, CreateDeleteWithImmutableGraph) {
-  if (std::is_same<TypeParam, memgraph::storage::DiskStorage>::value) {
-    // DiskStorage doesn't support READ_UNCOMMITTED isolation level
-    return;
-  }
   memgraph::storage::Gid vertex_id{};
   {
     auto accessor = this->CreateDbAccessor(memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION);
@@ -313,10 +289,6 @@ TYPED_TEST(MgpGraphTest, VertexIsMutable) {
 }
 
 TYPED_TEST(MgpGraphTest, VertexSetProperty) {
-  if (std::is_same<TypeParam, memgraph::storage::DiskStorage>::value) {
-    // DiskStorage doesn't support READ_UNCOMMITTED isolation level
-    return;
-  }
   static constexpr std::string_view property_to_update{"to_update"};
   static constexpr std::string_view property_to_set{"to_set"};
   memgraph::storage::Gid vertex_id{};
@@ -378,10 +350,6 @@ TYPED_TEST(MgpGraphTest, VertexSetProperty) {
 }
 
 TYPED_TEST(MgpGraphTest, VertexAddLabel) {
-  if (std::is_same<TypeParam, memgraph::storage::DiskStorage>::value) {
-    // DiskStorage doesn't support READ_UNCOMMITTED isolation level
-    return;
-  }
   static constexpr std::string_view label = "test_label";
   memgraph::storage::Gid vertex_id{};
   {
@@ -413,10 +381,6 @@ TYPED_TEST(MgpGraphTest, VertexAddLabel) {
 }
 
 TYPED_TEST(MgpGraphTest, VertexRemoveLabel) {
-  if (std::is_same<TypeParam, memgraph::storage::DiskStorage>::value) {
-    // DiskStorage doesn't support READ_UNCOMMITTED isolation level
-    return;
-  }
   static constexpr std::string_view label = "test_label";
   memgraph::storage::Gid vertex_id{};
   {
@@ -611,10 +575,6 @@ TYPED_TEST(MgpGraphTest, EdgesIterator) {
 }
 
 TYPED_TEST(MgpGraphTest, EdgeSetProperty) {
-  if (std::is_same<TypeParam, memgraph::storage::DiskStorage>::value) {
-    // DiskStorage doesn't support READ_UNCOMMITTED isolation level
-    return;
-  }
   static constexpr std::string_view property_to_update{"to_update"};
   static constexpr std::string_view property_to_set{"to_set"};
 

@@ -17,7 +17,6 @@
 #include <filesystem>
 
 #include "dbms/constants.hpp"
-#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/point.hpp"
 #include "storage/v2/property_value.hpp"
@@ -64,10 +63,8 @@ class SchemaInfoTest : public testing::Test {
 
   memgraph::storage::Config config_;
   std::unique_ptr<memgraph::storage::Storage> storage;
-  StorageMode mode{std::is_same_v<StorageType, DiskStorage>
-                       ? StorageMode::ON_DISK_TRANSACTIONAL
-                       : (std::is_same_v<StorageType, InMemTransactional> ? StorageMode::IN_MEMORY_TRANSACTIONAL
-                                                                          : StorageMode::IN_MEMORY_ANALYTICAL)};
+  StorageMode mode{(std::is_same_v<StorageType, InMemTransactional> ? StorageMode::IN_MEMORY_TRANSACTIONAL
+                                                                    : StorageMode::IN_MEMORY_ANALYTICAL)};
 };
 
 template <typename StorageType>
@@ -94,10 +91,8 @@ class SchemaInfoTestWEdgeProp : public testing::Test {
 
   memgraph::storage::Config config_;
   std::unique_ptr<memgraph::storage::Storage> storage;
-  StorageMode mode{std::is_same_v<StorageType, DiskStorage>
-                       ? StorageMode::ON_DISK_TRANSACTIONAL
-                       : (std::is_same_v<StorageType, InMemTransactional> ? StorageMode::IN_MEMORY_TRANSACTIONAL
-                                                                          : StorageMode::IN_MEMORY_ANALYTICAL)};
+  StorageMode mode{(std::is_same_v<StorageType, InMemTransactional> ? StorageMode::IN_MEMORY_TRANSACTIONAL
+                                                                    : StorageMode::IN_MEMORY_ANALYTICAL)};
 };
 
 using StorageTypes = ::testing::Types<InMemTransactional, InMemAnalytical>;

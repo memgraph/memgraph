@@ -24,14 +24,10 @@
 #include <csignal>
 #include <cstdint>
 #include <filesystem>
-#include <iostream>
 #include <thread>
-#include <type_traits>
 #include <utility>
 
 #include "dbms/database.hpp"
-#include "flags/experimental.hpp"
-#include "flags/general.hpp"
 #include "license/license.hpp"
 #include "replication/state.hpp"
 #include "storage/v2/config.hpp"
@@ -3732,8 +3728,8 @@ TEST_P(DurabilityTest, ConstraintsRecoveryFunctionSetting) {
   std::atomic<uint64_t> edge_count{0};
   uint64_t wal_seq_num{0};
   memgraph::utils::UUID uuid;
-  memgraph::storage::Indices indices{config, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
-  memgraph::storage::Constraints constraints{config, memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL};
+  memgraph::storage::Indices indices{config};
+  memgraph::storage::Constraints constraints{config};
   memgraph::storage::ReplicationStorageState repl_storage_state;
   memgraph::storage::EnumStore enum_store;
   memgraph::storage::ttl::TTL ttl{nullptr};

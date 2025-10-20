@@ -17,7 +17,6 @@
 #include <gtest/gtest.h>
 #include "gmock/gmock.h"
 
-#include "disk_test_utils.hpp"
 #include "interpreter_faker.hpp"
 #include "query/interpreter_context.hpp"
 #include "storage/v2/inmemory/storage.hpp"
@@ -32,18 +31,11 @@ class TransactionQueueSimpleTest : public ::testing::Test {
   const std::string testSuite = "transactin_queue";
   std::filesystem::path data_directory{std::filesystem::temp_directory_path() / "MG_tests_unit_transaction_queue_intr"};
 
-  memgraph::storage::Config config{
-      [&]() {
-        memgraph::storage::Config config{};
-        config.durability.storage_directory = data_directory;
-        config.disk.main_storage_directory = config.durability.storage_directory / "disk";
-        if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
-          config.disk = disk_test_utils::GenerateOnDiskConfig(testSuite).disk;
-          config.force_on_disk = true;
-        }
-        return config;
-      }()  // iile
-  };
+  memgraph::storage::Config config{[&]() {
+    memgraph::storage::Config config{};
+    config.durability.storage_directory = data_directory;
+    return config;
+  }()};
 
   memgraph::utils::Synchronized<memgraph::replication::ReplicationState, memgraph::utils::RWSpinLock> repl_state{
       memgraph::storage::ReplicationStateRootPath(config)};
@@ -53,9 +45,7 @@ class TransactionQueueSimpleTest : public ::testing::Test {
         auto db_acc_opt = db_gk.access();
         MG_ASSERT(db_acc_opt, "Failed to access db");
         auto &db_acc = *db_acc_opt;
-        MG_ASSERT(db_acc->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
-                                                   ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
-                                                   : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
+        MG_ASSERT(db_acc->GetStorageMode() == (memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
                   "Wrong storage mode!");
         return db_acc;
       }()  // iile
@@ -73,13 +63,10 @@ class TransactionQueueSimpleTest : public ::testing::Test {
   };
   InterpreterFaker running_interpreter{&interpreter_context, db}, main_interpreter{&interpreter_context, db};
 
-  void TearDown() override {
-    disk_test_utils::RemoveRocksDbDirs(testSuite);
-    std::filesystem::remove_all(data_directory);
-  }
+  void TearDown() override { std::filesystem::remove_all(data_directory); }
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 TYPED_TEST_SUITE(TransactionQueueSimpleTest, StorageTypes);
 
 TYPED_TEST(TransactionQueueSimpleTest, TwoInterpretersInterleaving) {

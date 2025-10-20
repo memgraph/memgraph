@@ -17,11 +17,9 @@
 
 #include "gtest/gtest.h"
 
-#include "disk_test_utils.hpp"
 #include "query/db_accessor.hpp"
 #include "query/graph.hpp"
 #include "query/typed_value.hpp"
-#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/point.hpp"
 
@@ -38,10 +36,8 @@ using enum memgraph::storage::CoordinateReferenceSystem;
 template <typename StorageType>
 class AllTypesFixture : public testing::Test {
  protected:
-  const std::string testSuite = "typed_value";
-
   std::vector<TypedValue> values_;
-  memgraph::storage::Config config_{disk_test_utils::GenerateOnDiskConfig(testSuite)};
+  memgraph::storage::Config config_;
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config_)};
   std::unique_ptr<memgraph::storage::Storage::Accessor> storage_dba{db->Access()};
   memgraph::query::DbAccessor dba{storage_dba.get()};
@@ -74,11 +70,9 @@ class AllTypesFixture : public testing::Test {
     values_.emplace_back(Point3d{Cartesian_3d, 1.0, 2.0, 3.0});
     values_.emplace_back(Point3d{WGS84_3d, 1.0, 2.0, 3.0});
   }
-
-  void TearDown() override { disk_test_utils::RemoveRocksDbDirs(testSuite); }
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 TYPED_TEST_SUITE(AllTypesFixture, StorageTypes);
 
 void EXPECT_PROP_FALSE(const TypedValue &a) {

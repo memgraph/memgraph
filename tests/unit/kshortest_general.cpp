@@ -15,8 +15,6 @@
 #include <string>
 #include <unordered_map>
 
-#include "disk_test_utils.hpp"
-#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
 #include <gtest/gtest.h>
@@ -30,15 +28,11 @@ class VertexDb : public Database {
   const std::string testSuite = "kshortest_general";
 
   VertexDb() {
-    config_ = disk_test_utils::GenerateOnDiskConfig(testSuite);
+    config_ = {};
     db_ = std::make_unique<StorageType>(config_);
   }
 
-  ~VertexDb() override {
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
-    }
-  }
+  ~VertexDb() override {}
 
   std::unique_ptr<memgraph::storage::Storage::Accessor> Access() override { return db_->Access(); }
 
@@ -134,50 +128,5 @@ TEST_F(GeneralKShortestTestInMemory, KShortestWithLimit) {
 
   // Test with limit 5 (more than available paths)
   spdlog::info("KShortestTest: Testing with limit 5");
-  db_->KShortestTest(db_.get(), -1, -1, EdgeAtom::Direction::OUT, {}, 5);
-}
-
-class GeneralKShortestTestOnDisk
-    : public ::testing::TestWithParam<std::tuple<int, int, EdgeAtom::Direction, std::vector<std::string>>> {
- public:
-  using StorageType = memgraph::storage::DiskStorage;
-  static void SetUpTestCase() { db_ = std::make_unique<VertexDb<StorageType>>(); }
-  static void TearDownTestCase() { db_ = nullptr; }
-
- protected:
-  static std::unique_ptr<VertexDb<StorageType>> db_;
-};
-
-TEST_P(GeneralKShortestTestOnDisk, All) {
-  int lower_bound;
-  int upper_bound;
-  EdgeAtom::Direction direction;
-  std::vector<std::string> edge_types;
-
-  std::tie(lower_bound, upper_bound, direction, edge_types) = GetParam();
-
-  this->db_->KShortestTest(db_.get(), lower_bound, upper_bound, direction, edge_types);
-}
-
-std::unique_ptr<VertexDb<GeneralKShortestTestOnDisk::StorageType>> GeneralKShortestTestOnDisk::db_{nullptr};
-
-INSTANTIATE_TEST_SUITE_P(
-    General, GeneralKShortestTestOnDisk,
-    testing::Combine(testing::Values(-1, 2, 3),  // Test different lower bounds
-                     testing::Values(3, 5, -1),  // Test different upper bounds
-                     testing::Values(EdgeAtom::Direction::OUT, EdgeAtom::Direction::IN, EdgeAtom::Direction::BOTH),
-                     testing::Values(std::vector<std::string>{}, std::vector<std::string>{"a"},
-                                     std::vector<std::string>{"b"},
-                                     std::vector<std::string>{"a", "b"})));  // Test different edge type filters
-
-// Test kshortest with limit functionality for disk storage
-TEST_F(GeneralKShortestTestOnDisk, KShortestWithLimit) {
-  // Test with limit 1
-  db_->KShortestTest(db_.get(), -1, -1, EdgeAtom::Direction::OUT, {}, 1);
-
-  // Test with limit 2
-  db_->KShortestTest(db_.get(), -1, -1, EdgeAtom::Direction::OUT, {}, 2);
-
-  // Test with limit 5 (more than available paths)
   db_->KShortestTest(db_.get(), -1, -1, EdgeAtom::Direction::OUT, {}, 5);
 }

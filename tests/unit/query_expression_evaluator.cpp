@@ -20,7 +20,6 @@
 #include <gmock/gmock.h>
 #include <gtest/gtest.h>
 
-#include "disk_test_utils.hpp"
 #include "query/context.hpp"
 #include "query/db_accessor.hpp"
 #include "query/frontend/ast/ast.hpp"
@@ -30,7 +29,6 @@
 #include "query/interpret/frame.hpp"
 #include "query/path.hpp"
 #include "query/typed_value.hpp"
-#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/enum.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/storage.hpp"
@@ -67,16 +65,7 @@ class ExpressionEvaluatorTest : public ::testing::Test {
   ExpressionEvaluator eval{&frame, symbol_table, ctx, &dba, memgraph::storage::View::OLD};
 
   ExpressionEvaluatorTest()
-      : config(disk_test_utils::GenerateOnDiskConfig(testSuite)),
-        db(new StorageType(config)),
-        storage_dba(db->Access()),
-        dba(storage_dba.get()) {}
-
-  ~ExpressionEvaluatorTest() override {
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
-    }
-  }
+      : config({}), db(new StorageType(config)), storage_dba(db->Access()), dba(storage_dba.get()) {}
 
   Identifier *CreateIdentifierWithValue(std::string name, const TypedValue &value) {
     auto id = storage.template Create<Identifier>(name, true);
@@ -107,8 +96,7 @@ class ExpressionEvaluatorTest : public ::testing::Test {
   }
 };
 
-// using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
-using StorageTypes = ::testing::Types<memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 TYPED_TEST_SUITE(ExpressionEvaluatorTest, StorageTypes);
 
 TYPED_TEST(ExpressionEvaluatorTest, OrOperator) {

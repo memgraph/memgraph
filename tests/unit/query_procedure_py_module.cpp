@@ -14,10 +14,8 @@
 #include <filesystem>
 #include <string>
 
-#include "disk_test_utils.hpp"
 #include "query/procedure/mg_procedure_impl.hpp"
 #include "query/procedure/py_module.hpp"
-#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "test_utils.hpp"
 #include "tests/test_commit_args_helper.hpp"
@@ -27,18 +25,11 @@ using memgraph::replication_coordination_glue::ReplicationRole;
 template <typename StorageType>
 class PyModule : public testing::Test {
  public:
-  const std::string testSuite = "query_procedure_py_module";
-  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  memgraph::storage::Config config;
   std::unique_ptr<memgraph::storage::Storage> db{new StorageType(config)};
-
-  void TearDown() override {
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
-    }
-  }
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 TYPED_TEST_SUITE(PyModule, StorageTypes);
 
 TYPED_TEST(PyModule, MgpValueToPyObject) {

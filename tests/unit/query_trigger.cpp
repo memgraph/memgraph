@@ -14,7 +14,6 @@
 #include <filesystem>
 
 #include <fmt/format.h>
-#include "disk_test_utils.hpp"
 #include "query/auth_checker.hpp"
 #include "query/config.hpp"
 #include "query/db_accessor.hpp"
@@ -75,15 +74,11 @@ const std::string testSuite = "query_trigger";
 template <typename StorageType>
 class TriggerContextTest : public ::testing::Test {
  public:
-  void SetUp() override { db = std::make_unique<StorageType>(disk_test_utils::GenerateOnDiskConfig(testSuite)); }
+  void SetUp() override { db = std::make_unique<StorageType>(); }
 
   void TearDown() override {
     accessors.clear();
     db.reset();
-
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
-    }
   }
 
   memgraph::storage::Storage::Accessor *StartTransaction() {
@@ -96,7 +91,7 @@ class TriggerContextTest : public ::testing::Test {
   std::list<std::unique_ptr<memgraph::storage::Storage::Accessor>> accessors;
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 TYPED_TEST_SUITE(TriggerContextTest, StorageTypes);
 
 namespace {
@@ -918,7 +913,7 @@ class TriggerStoreTest : public ::testing::Test {
   void SetUp() override {
     Clear();
 
-    config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+    config = {};
     storage = std::make_unique<StorageType>(config);
     storage_accessor = storage->Access();
     dba.emplace(storage_accessor.get());
@@ -930,10 +925,6 @@ class TriggerStoreTest : public ::testing::Test {
     dba.reset();
     storage_accessor.reset();
     storage.reset();
-
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
-    }
   }
 
   std::optional<memgraph::query::DbAccessor> dba;

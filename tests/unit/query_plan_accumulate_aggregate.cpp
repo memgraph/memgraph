@@ -14,7 +14,6 @@
 #include <memory>
 #include <vector>
 
-#include "disk_test_utils.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
@@ -22,7 +21,6 @@
 #include "query/exceptions.hpp"
 #include "query/plan/operator.hpp"
 #include "query_plan_common.hpp"
-#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 
 using memgraph::replication_coordination_glue::ReplicationRole;
@@ -37,17 +35,9 @@ template <typename StorageType>
 class QueryPlanTest : public testing::Test {
  public:
   const std::string testSuite = "query_plan_accumulate_aggregate";
-  memgraph::storage::Config config = disk_test_utils::GenerateOnDiskConfig(testSuite);
+  memgraph::storage::Config config = {};
   std::unique_ptr<memgraph::storage::Storage> db = std::make_unique<StorageType>(config);
   AstStorage storage;
-
-  void TearDown() override { CleanStorageDirs(); }
-
-  void CleanStorageDirs() {
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
-    }
-  }
 
   std::shared_ptr<Produce> MakeAggregationProduce(std::shared_ptr<LogicalOperator> input, SymbolTable &symbol_table,
                                                   const std::vector<Expression *> aggr_inputs,
@@ -82,7 +72,7 @@ class QueryPlanTest : public testing::Test {
   }
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 
 TYPED_TEST_SUITE(QueryPlanTest, StorageTypes);
 
@@ -95,7 +85,6 @@ TYPED_TEST(QueryPlanTest, Accumulate) {
 
   auto check = [&](bool accumulate) {
     this->db.reset(nullptr);
-    this->CleanStorageDirs();
     this->db = std::make_unique<TypeParam>(this->config);
     auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());
@@ -148,7 +137,6 @@ TYPED_TEST(QueryPlanTest, AccumulateAdvance) {
   // to get correct results we need to advance the command
   auto check = [&](bool advance) {
     this->db.reset();
-    this->CleanStorageDirs();
     this->db = std::make_unique<TypeParam>(this->config);
     auto storage_dba = this->db->Access();
     memgraph::query::DbAccessor dba(storage_dba.get());

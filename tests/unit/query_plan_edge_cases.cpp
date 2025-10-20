@@ -17,7 +17,6 @@
 #include <memory>
 #include <optional>
 
-#include "disk_test_utils.hpp"
 #include "gmock/gmock.h"
 #include "gtest/gtest.h"
 
@@ -51,11 +50,6 @@ class QueryExecution : public testing::Test {
     auto config = [&]() {
       memgraph::storage::Config config{};
       config.durability.storage_directory = data_directory;
-      config.disk.main_storage_directory = config.durability.storage_directory / "disk";
-      if constexpr (std::is_same_v<StorageType, memgraph::storage::DiskStorage>) {
-        config.disk = disk_test_utils::GenerateOnDiskConfig(testSuite).disk;
-        config.force_on_disk = true;
-      }
       return config;
     }();  // iile
 
@@ -64,9 +58,7 @@ class QueryExecution : public testing::Test {
     auto db_acc_opt = db_gk->access();
     MG_ASSERT(db_acc_opt, "Failed to access db");
     auto &db_acc = *db_acc_opt;
-    MG_ASSERT(db_acc->GetStorageMode() == (std::is_same_v<StorageType, memgraph::storage::DiskStorage>
-                                               ? memgraph::storage::StorageMode::ON_DISK_TRANSACTIONAL
-                                               : memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
+    MG_ASSERT(db_acc->GetStorageMode() == (memgraph::storage::StorageMode::IN_MEMORY_TRANSACTIONAL),
               "Wrong storage mode!");
     db_acc_ = std::move(db_acc);
     system_state.emplace();
@@ -89,9 +81,6 @@ class QueryExecution : public testing::Test {
     db_acc_.reset();
     db_gk.reset();
     repl_state.reset();
-    if (std::is_same<StorageType, memgraph::storage::DiskStorage>::value) {
-      disk_test_utils::RemoveRocksDbDirs(testSuite);
-    }
     std::filesystem::remove_all(data_directory);
   }
 
@@ -112,7 +101,7 @@ class QueryExecution : public testing::Test {
   }
 };
 
-using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage, memgraph::storage::DiskStorage>;
+using StorageTypes = ::testing::Types<memgraph::storage::InMemoryStorage>;
 TYPED_TEST_SUITE(QueryExecution, StorageTypes);
 
 TYPED_TEST(QueryExecution, MissingOptionalIntoExpand) {

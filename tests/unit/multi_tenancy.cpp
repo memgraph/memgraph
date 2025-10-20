@@ -19,7 +19,6 @@
 #include "communication/result_stream_faker.hpp"
 #include "csv/parsing.hpp"
 #include "dbms/dbms_handler.hpp"
-#include "disk_test_utils.hpp"
 #include "flags/run_time_configurable.hpp"
 #include "glue/communication.hpp"
 #include "gmock/gmock.h"

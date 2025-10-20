@@ -11,8 +11,6 @@
 
 #include <gtest/gtest.h>
 
-#include "disk_test_utils.hpp"
-#include "storage/v2/disk/storage.hpp"
 #include "storage/v2/inmemory/storage.hpp"
 #include "storage/v2/isolation_level.hpp"
 #include "tests/test_commit_args_helper.hpp"
@@ -106,28 +104,6 @@ TEST_P(StorageIsolationLevelTest, VisibilityInMemoryStorage) {
     std::unique_ptr<memgraph::storage::Storage> storage(new memgraph::storage::InMemoryStorage(
         {memgraph::storage::Config{.transaction = {.isolation_level = default_isolation_level}}}));
     this->TestVisibility(storage, default_isolation_level, override_isolation_level);
-  }
-}
-
-TEST_P(StorageIsolationLevelTest, VisibilityOnDiskStorage) {
-  const auto default_isolation_level = GetParam();
-
-  const std::string testSuite = "storage_v2_isolation_level";
-  auto config = disk_test_utils::GenerateOnDiskConfig(testSuite);
-  config.transaction.isolation_level = default_isolation_level;
-
-  for (const auto override_isolation_level : isolation_levels) {
-    std::unique_ptr<memgraph::storage::Storage> storage(new memgraph::storage::DiskStorage(config));
-    auto on_exit = memgraph::utils::OnScopeExit{[&]() { disk_test_utils::RemoveRocksDbDirs(testSuite); }};
-    try {
-      this->TestVisibility(storage, default_isolation_level, override_isolation_level);
-    } catch (memgraph::utils::NotYetImplemented &) {
-      if (default_isolation_level != memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION ||
-          override_isolation_level != memgraph::storage::IsolationLevel::SNAPSHOT_ISOLATION) {
-        continue;
-      }
-      throw;
-    }
   }
 }
 

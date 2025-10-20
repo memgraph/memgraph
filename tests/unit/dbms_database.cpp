@@ -31,7 +31,6 @@ memgraph::storage::Config default_conf(std::string name = "") {
   return {.durability = {.storage_directory = storage_directory / name,
                          .snapshot_wal_mode =
                              memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL},
-          .disk = {.main_storage_directory = storage_directory / name / "disk"},
           .salient.name = name.empty() ? std::string{"memgraph"} : name};
 }
 
@@ -58,7 +57,6 @@ TEST_F(DBMS_Database, New) {
         .durability = {.storage_directory = storage_directory / "db2",
                        .snapshot_wal_mode =
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL},
-        .disk = {.main_storage_directory = storage_directory / "disk"},
         .salient.name = "db2"};
     auto db2 = db_handler.New(db_config, generic_repl_state);
     ASSERT_TRUE(db2.HasValue() && db2.GetValue());
@@ -156,7 +154,6 @@ TEST_F(DBMS_Database, DeleteAndRecover) {
                        .snapshot_wal_mode =
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL,
                        .snapshot_on_exit = true},
-        .disk = {.main_storage_directory = storage_directory / "db3" / "disk"},
         .salient.name = "db3"};
 
     auto db3 = db_handler.New(conf_w_snap, generic_repl_state);
@@ -203,7 +200,6 @@ TEST_F(DBMS_Database, DeleteAndRecover) {
                        .recover_on_startup = true,
                        .snapshot_wal_mode =
                            memgraph::storage::Config::Durability::SnapshotWalMode::PERIODIC_SNAPSHOT_WITH_WAL},
-        .disk = {.main_storage_directory = storage_directory / "db3" / "disk"},
         .salient.name = "db3"};
 
     auto db3 = db_handler.New(conf_w_rec, generic_repl_state);
