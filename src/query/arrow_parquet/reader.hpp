@@ -14,15 +14,11 @@
 #include "parquet/arrow/reader.h"
 
 #include "query/typed_value.hpp"
-
 #include "utils/memory.hpp"
-#include "utils/pmr/map.hpp"
-#include "utils/pmr/string.hpp"
 #include "utils/pmr/vector.hpp"
 
 namespace memgraph::query {
 
-// using Row = std::vector<TypedValue>;
 using Row = TypedValue::TMap;
 using Header = utils::pmr::vector<TypedValue::TString>;
 

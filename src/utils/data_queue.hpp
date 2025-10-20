@@ -93,7 +93,7 @@ class DataQueue {
         assert(done_);
         return false;
       }
-      item = std::move(queue_.front());
+      std::swap(item, queue_.front());
       queue_.pop();
     }
     writerCv_.notify_one();
