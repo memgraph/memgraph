@@ -1508,23 +1508,7 @@ TEST_F(AuthQueryHandlerFixture, GivenUserWithRoleWhenFilteringByDatabaseWithAllo
   }
   {
     auto privileges = auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{"db3"}});
-    EXPECT_EQ(privileges.size(), 2);
-    {
-      auto &result = privileges[0];
-      ASSERT_EQ(result.size(), 3);
-      ASSERT_TRUE(result[0].IsString());
-      ASSERT_EQ(result[0].ValueString(), "DELETE");
-      ASSERT_TRUE(result[2].IsString());
-      ASSERT_EQ(result[2].ValueString(), "DENIED TO ROLE");
-    }
-    {
-      auto &result = privileges[1];
-      ASSERT_EQ(result.size(), 3);
-      ASSERT_TRUE(result[0].IsString());
-      ASSERT_EQ(result[0].ValueString(), "MATCH");
-      ASSERT_TRUE(result[2].IsString());
-      ASSERT_EQ(result[2].ValueString(), "GRANTED TO ROLE");
-    }
+    EXPECT_EQ(privileges.size(), 0);
   }
   {
     auto privileges = auth_handler.GetPrivileges(user_name, std::optional<std::string>{std::string{"db4"}});

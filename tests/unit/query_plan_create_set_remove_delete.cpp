@@ -2659,8 +2659,9 @@ TYPED_TEST(DynamicExpandFixture, Expand) {
   auto context = MakeContext(this->storage, this->symbol_table, &this->dba);
 
   Frame frame{context.symbol_table.max_position()};
-  frame[scan_supernode_by_label.sym_] = this->v4;
-  frame[scan_node_by_label.sym_] = this->v1;
+  auto frame_writer = FrameWriter(frame, nullptr, context.evaluation_context.memory);
+  frame_writer.Write(scan_supernode_by_label.sym_, this->v4);
+  frame_writer.Write(scan_node_by_label.sym_, this->v1);
 
   auto *mem = memgraph::utils::NewDeleteResource();
   auto initial_cursor_ptr = MakeUniqueCursorPtr<ExpandCursor>(mem, *my_expand, -1, -1, mem);
