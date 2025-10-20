@@ -11,7 +11,6 @@
 
 #pragma once
 
-#include <compare>
 #include <iosfwd>
 #include <string>
 #include <vector>
